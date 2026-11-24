@@ -8,6 +8,7 @@ import {
 	groupsNamed,
 	hears,
 	isJoinable,
+	MOST_GROUP_CHARS,
 	needNamed,
 	orchestratorNamed,
 	personLeftOut,
@@ -163,5 +164,12 @@ describe("joining", () => {
 		expect(isJoinable("#harness"), "#harness is joinable").toBe(true);
 		expect(isJoinable("@P9R1KI"), "@P9R1KI is joinable").toBe(true);
 		expect(isJoinable(ALL), "the machine's group is not joinable").toBe(false);
+	});
+
+	it("is for no group longer than a presence may name", () => {
+		const longest = `#${"a".repeat(MOST_GROUP_CHARS - 1)}`;
+
+		expect(isJoinable(longest)).toBe(true);
+		expect(isJoinable(`${longest}a`)).toBe(false);
 	});
 });

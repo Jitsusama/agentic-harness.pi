@@ -67,7 +67,7 @@ import {
 	type QuestRecords,
 	questAddress,
 } from "./address.ts";
-import { groupNamed } from "./group.ts";
+import { groupNamed, MOST_GROUP_CHARS } from "./group.ts";
 import {
 	type MoveOff,
 	type Moving,
@@ -792,17 +792,12 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
 }
 
 /**
- * The longest group a presence may name: a quest's group twelve deep,
- * where the deepest on equilibrius on 23 November was five (41 long).
- */
-const MOST_GROUP_CHARS = 96;
-
-/**
  * The most groups or joined groups a presence may name, each printed
  * a line of its own; the most any on equilibrius named on 23 November
- * was 20.
+ * was 20. Past it the rest are dropped where it is read, so a join
+ * past it is refused (mesh_join).
  */
-const MOST_GROUPS = 64;
+export const MOST_GROUPS = 64;
 
 /**
  * Whether a group a presence names is one a group is named as, read

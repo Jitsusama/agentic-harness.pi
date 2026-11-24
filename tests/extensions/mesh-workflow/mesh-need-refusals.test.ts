@@ -12,6 +12,7 @@ import {
 	ASK_WHO_OWNS_IT,
 	FIND_WHILE_QUIET,
 	FIND_WHILE_UNLISTED,
+	FIND_WHILE_UNREAD,
 	FIND_WHO_OWNS_IT,
 	needRead,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
@@ -311,7 +312,8 @@ describe("a lost need's refusal, by where this peer sits", () => {
 
 		expect(all).toHaveBeenCalledTimes(2);
 		expect(said).toContain("Not sent: no word of its about");
-		expect(said).toContain(FIND_WHILE_QUIET);
+		expect(said).toContain(FIND_WHILE_UNREAD);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 	});
 

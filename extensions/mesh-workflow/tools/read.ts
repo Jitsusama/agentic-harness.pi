@@ -30,6 +30,7 @@ import {
 import { count } from "../../../lib/ui/count.ts";
 import { refusedMark } from "../refusals.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
+import { peersNamed } from "./reach.ts";
 import { capitalized, since } from "./said.ts";
 
 /** The most messages one mesh_read hands back. */
@@ -338,10 +339,13 @@ function pivotState(
 	);
 	const waiting = reached
 		.filter((one) => !one.addresses.some((address) => by.has(address)))
-		// A paused presence may name no address, and has none to print.
-		.flatMap((one) => one.addresses[0] ?? []);
+		// A paused presence may name no address, and is counted unnamed
+		// rather than dropped, so a pivot that reached only such never
+		// reads as having reached nobody.
+		.map((one) => one.addresses[0]);
 	const answered = by.size > 0 ? `changed course: ${[...by].join(", ")}` : "";
-	const yet = waiting.length > 0 ? `not yet: ${waiting.join(", ")}` : "";
+	const yet =
+		waiting.length > 0 ? `not yet: ${peersNamed(waiting, false)}` : "";
 	return [answered, yet].filter(Boolean).join("; ") || "reached nobody present";
 }
 

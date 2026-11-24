@@ -46,7 +46,8 @@ function told(one: Presence): string | undefined {
 
 /**
  * Peers said by the addresses they are told by, then how many named
- * none, as "WCJQSG, P9R1KI and 1 peer naming no address", so a peer
+ * none, as "WCJQSG, P9R1KI and a peer naming no address" (or "and 2
+ * peers naming no address"), so a peer
  * left unnamed is still counted and never reads as nobody. Said where
  * it `opens` a sentence, it opens on a capital either way.
  */

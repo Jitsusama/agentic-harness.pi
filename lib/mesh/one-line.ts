@@ -35,15 +35,17 @@ export function oneLine(text: string): string {
 
 /**
  * The quotes and backticks a reader may take for those that close a
- * quoted string or a code span: the curly, low, reversed and fullwidth
- * quotes, primes and modifier letters that draw as one, and the
- * backtick and its lookalikes. A peer's words said inside quotes or a
+ * quoted string or a code span: the curly, low, reversed, angle and
+ * fullwidth quotes, primes and modifier letters that draw as one, and
+ * the backtick and its lookalikes. Others may draw as one in some
+ * font; these are the ones Unicode names as quotes or draws so.
+ * A peer's words said inside quotes or a
  * code span have each of these as `'`, which closes neither, since
  * JSON escapes only the straight double quote and a model reads the
  * rest as closing it too.
  */
 const QUOTE_LIKE =
-	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u2035\uFF02\uFF07\uFF40\u275B-\u275E\u301D-\u301F]/gu;
+	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u2035\uFF02\uFF07\uFF40\u275B-\u275E\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C]/gu;
 
 /** Text with every quote or backtick a reader may take as closing one as `'`. */
 export function plainQuotes(text: string): string {

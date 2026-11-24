@@ -172,9 +172,24 @@ export function homeOf(address: string): string {
 	return `@${address}`;
 }
 
-/** Whether a canonical group is one a peer joins rather than is born in. */
+/**
+ * The longest group a presence may name: a quest's group twelve deep,
+ * where the deepest on equilibrius on 23 November was five (41 long).
+ * A presence naming a longer one has it dropped where it is read, so a
+ * group past it is never joined, rather than joined and heard by none.
+ */
+export const MOST_GROUP_CHARS = 96;
+
+/**
+ * Whether a canonical group is one a peer joins rather than is born in,
+ * and no longer than `MOST_GROUP_CHARS`.
+ */
 export function isJoinable(group: string): boolean {
-	return group !== ALL && (group.startsWith("#") || group.startsWith("@"));
+	return (
+		group !== ALL &&
+		(group.startsWith("#") || group.startsWith("@")) &&
+		group.length <= MOST_GROUP_CHARS
+	);
 }
 
 /**

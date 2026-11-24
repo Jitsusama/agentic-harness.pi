@@ -357,6 +357,18 @@ export function createHearing(m: MeshState, f: Handing) {
 			);
 		});
 		const raisedAll: Heed[] = messages.map((message, at) => {
+			const replaced = replacedBy(message);
+			if (replaced) {
+				// A question withdrawn is owed no answer, so it is never asked
+				// again, nor taken up once another peer lets it go; and so even
+				// when its sender has since been stopped, whose withdrawal is
+				// otherwise only a glance.
+				m.owing.withdrawn(replaced.id);
+				m.left.delete(replaced.id);
+				m.glances.drop(replaced.id);
+				m.acts?.drop((one) => one.message.id === replaced.id);
+				f.handedOver([replaced]);
+			}
 			// Stopped is absolute: a line, never more, whatever it is.
 			if (stopped[at]) return { attention: "glance", why: STOPPED };
 			const judged = attend(message, {
@@ -381,7 +393,6 @@ export function createHearing(m: MeshState, f: Handing) {
 				starting && judged.attention === "turn" && firstPromptPending()
 					? { attention: "note", why: judged.why }
 					: judged;
-			const replaced = replacedBy(message);
 			// A withdrawal reaches in full everyone who heard what it
 			// withdraws, and what it withdraws is never handed over after it.
 			// A peer hearing only what is put to it glanced at the original,
@@ -390,14 +401,6 @@ export function createHearing(m: MeshState, f: Handing) {
 				replaced !== undefined &&
 				receiver.hears !== "addressed" &&
 				reaches(replaced, listener, senderIdentity().pid);
-			if (replaced) {
-				// A question withdrawn is owed no answer, so it is never asked
-				// again.
-				m.owing.withdrawn(replaced.id);
-				m.glances.drop(replaced.id);
-				m.acts?.drop((one) => one.message.id === replaced.id);
-				f.handedOver([replaced]);
-			}
 			return heard && worth.attention === "glance"
 				? { attention: "note", why: "replacing what this peer heard" }
 				: worth;

@@ -333,7 +333,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							`${peer.signature} is about to run \`${run}\` in ${checkout}, which rewrites its files while this peer is ${changingText(held.map(({ lease }) => lease))}. It was told, and running it again goes ahead.`,
 						);
 					}
-					return `${holders(held.slice(0, 1))} ${changingText(held.map(({ lease }) => lease))}`;
+					return `${holders(held.slice(0, 1), false)} ${changingText(held.map(({ lease }) => lease))}`;
 				});
 				return `Not run yet: \`${run}\` rewrites the files of ${checkout}, where ${each.join("; and ")}. What they changed could be lost or switched out from under them, so look first, or ${asking}. Running it again goes ahead; they have been told.`;
 			}
@@ -569,12 +569,16 @@ function inAnotherCheckout(lease: Lease, checkout: string | undefined) {
  * Who holds these, for the peer reaching: "5GV2AH (since 00:31, working
  * on x) is". A presence's addresses are read only in an address's shape
  * (lib/mesh/presence.ts), but a paused one may name none, so a holder
- * naming none is said as a peer that does; it opens a sentence.
+ * naming none is said as a peer that does, on a capital where it
+ * `opens` a sentence.
  */
-function holders(held: readonly (Held & { holder: Presence })[]): string {
+function holders(
+	held: readonly (Held & { holder: Presence })[],
+	opens = true,
+): string {
 	const each = held.map(
 		({ holder, lease }, at) =>
-			`${holder.addresses[0] ?? `${at === 0 ? "A" : "a"} peer naming no address`} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${cut(holder.worksOn)}` : ""})`,
+			`${holder.addresses[0] ?? `${at === 0 && opens ? "A" : "a"} peer naming no address`} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${cut(holder.worksOn)}` : ""})`,
 	);
 	return `${each.join(" and ")} ${each.length === 1 ? "is" : "are"}`;
 }

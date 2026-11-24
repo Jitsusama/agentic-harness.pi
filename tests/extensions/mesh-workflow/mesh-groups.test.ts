@@ -16,8 +16,9 @@ import {
 import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
+import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { clock } from "../../../lib/mesh/message.ts";
-import { createPresences } from "../../../lib/mesh/presence.ts";
+import { createPresences, MOST_GROUPS } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
@@ -60,6 +61,38 @@ describe("groups", () => {
 			expect(again.sent.map((one) => one.message.content)).toContainEqual(
 				expect.stringContaining("for the harness"),
 			),
+		);
+	});
+
+	// A presence naming a longer group, or more groups, has them dropped
+	// where it is read, so such a join would be heard by none.
+	it("refuses a group longer than a presence may name", async () => {
+		const { tools } = await startSession();
+		const long = `#${"a".repeat(MOST_GROUP_CHARS)}`;
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: long });
+
+		expect(answer?.content[0]?.text).toContain(
+			`is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters`,
+		);
+	});
+
+	it("refuses a join past the most groups a presence may name", async () => {
+		const { tools } = await startSession();
+		const said: string[] = [];
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			const answer = await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+			said.push(answer?.content[0]?.text ?? "");
+		}
+
+		const refused = said.filter((one) => one.startsWith("Not in #many-"));
+		expect(refused.length, "its scopes count too").toBeGreaterThan(0);
+		expect(refused[0]).toContain(
+			`this peer is in ${MOST_GROUPS} groups, the most a peer may be in`,
 		);
 	});
 

@@ -11,13 +11,14 @@ import {
 	hears,
 	homeOf,
 	isJoinable,
+	MOST_GROUP_CHARS,
 } from "../../../lib/mesh/group.ts";
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
-import type { Presence } from "../../../lib/mesh/presence.ts";
+import { MOST_GROUPS, type Presence } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach } from "./reach.ts";
@@ -31,7 +32,15 @@ export async function join(
 	const group = joinable(params.group, at.presences.all());
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
-			`${params.group} is not a group to join: name one with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
+			`${params.group} is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
+		);
+	}
+	// A presence names at most MOST_GROUPS, and the rest are dropped where
+	// it is read, so one past them would be joined and heard by none.
+	if (!at.peer.groups.includes(group) && at.peer.groups.length >= MOST_GROUPS) {
+		return answer(
+			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in. Leave one it no longer works on first. ${LISTED_IN_GROUPS}`,
+			{ groups: at.peer.groups },
 		);
 	}
 	if (at.peer.addresses.map(homeOf).includes(group)) {
@@ -204,7 +213,7 @@ function standsText(peer: Peer): string {
 export function groupsText(
 	standing: Census,
 	peer: Peer,
-	everyone: readonly Presence[] = standing.present,
+	everyone: readonly Presence[],
 ): string {
 	// The census already reads a resuming past of a running session as
 	// gone, so every member here is a session that is there or coming back.
