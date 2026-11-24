@@ -9,6 +9,13 @@ import { McpError, type McpServerConfig } from "../../../lib/mcp/types.ts";
 
 const config: McpServerConfig = { id: "gw", url: "https://example/mcp" };
 
+/** Whether anything has loaded the SDK's client module yet. */
+const sdk = vi.hoisted(() => ({ loaded: false }));
+vi.mock("@modelcontextprotocol/sdk/client/index.js", async (original) => {
+	sdk.loaded = true;
+	return await original();
+});
+
 /** A fake SDK client that records requests and exposes the notification handler for triggering. */
 function fakeClient(responses: {
 	toolsList?: unknown;
@@ -59,6 +66,28 @@ describe("mcpErrorFrom", () => {
 });
 
 describe("createMcpConnection", () => {
+	// The SDK and zod hold about 12 MB of heap once imported, and a session
+	// whose cached tool list stands in may never connect. This case runs
+	// first, before any connection in this file has opened, so its connect
+	// pays the SDK's first import: on a busy machine that outlasts the
+	// default five seconds.
+	it("loads no SDK until the connection opens", {
+		timeout: 30_000,
+	}, async () => {
+		const unused = createMcpConnection(config);
+		await unused.close();
+		const conn = createMcpConnection(config, {
+			client: fakeClient({}),
+			transport: {},
+		});
+		await vi.dynamicImportSettled();
+		expect(sdk.loaded, "importing, creating or closing loaded the SDK").toBe(
+			false,
+		);
+		await conn.connect();
+		expect(sdk.loaded, "connecting never loaded the SDK").toBe(true);
+	});
+
 	it("lists tools and preserves annotations and non-standard fields in raw", async () => {
 		const client = fakeClient({
 			toolsList: {

@@ -1,7 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+import { loadOnce } from "../internal/process/single-flight.ts";
 import { isRecord } from "../internal/record.ts";
 import {
 	type McpContent,
@@ -36,17 +33,17 @@ export interface McpConnection {
 	onToolsListChanged(handler: () => void): () => void;
 }
 
-// Passthrough schemas: the SDK strips unknown per-tool keys under its own zod
-// schema, so we parse loosely to keep non-standard fields (for example a
-// `surface` block) reaching `raw`.
-const LooseTool = z.looseObject({ name: z.string() });
-const LooseToolsResult = z.looseObject({
-	tools: z.array(LooseTool).default([]),
-});
-const LooseCallResult = z.looseObject({
-	content: z.array(z.unknown()).default([]),
-	isError: z.boolean().optional(),
-});
+// The SDK and zod hold about 12 MB of heap once imported, and a session
+// whose cached tool list stands in may never connect, so they load on a
+// connection's first use rather than with this module.
+const sdkModule = loadOnce(() => import("./sdk-client.ts"));
+
+/** A connection's SDK, with the client and transport it opened with. */
+interface Opened {
+	sdk: Awaited<ReturnType<typeof sdkModule>>;
+	client: SdkClientLike;
+	transport: unknown;
+}
 
 const HTTP_STATUS_FLOOR = 100;
 const HTTP_STATUS_CEIL = 600;
@@ -77,23 +74,45 @@ export function createMcpConnection(
 	config: McpServerConfig,
 	deps: { client?: SdkClientLike; transport?: unknown } = {},
 ): McpConnection {
-	const built = deps.client ? undefined : buildSdkClient(config);
-	const client = deps.client ?? (built as { client: SdkClientLike }).client;
-	const transport =
-		deps.transport ?? (built as { transport: unknown }).transport;
 	const subscribers = new Set<() => void>();
+	let used = false;
+	let built: Omit<Opened, "sdk"> | undefined;
+	// The client is built once, after the SDK's first load. `loadOnce`
+	// forgets a failed load, so the next use tries again.
+	const open = async (): Promise<Opened> => {
+		used = true;
+		const sdk = await sdkModule();
+		if (built === undefined && deps.client) {
+			built = { client: deps.client, transport: deps.transport };
+		} else if (built === undefined) {
+			const made = sdk.buildSdkClient(config);
+			built = {
+				client: made.client as unknown as SdkClientLike,
+				transport: deps.transport ?? made.transport,
+			};
+		}
+		return { sdk, ...built };
+	};
 
 	return {
 		async connect() {
-			client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-				for (const handler of subscribers) handler();
-			});
+			const { sdk, client, transport } = await open();
+			client.setNotificationHandler(
+				sdk.ToolListChangedNotificationSchema,
+				() => {
+					for (const handler of subscribers) handler();
+				},
+			);
 			await client.connect(transport);
 		},
 		async close() {
-			await client.close();
+			// A connection never used has no client to close.
+			if (!used) return;
+			await (await open()).client.close();
 		},
 		async listTools() {
+			const { sdk, client } = await open();
+			const { LooseToolsResult } = sdk;
 			const parsed = LooseToolsResult.parse(
 				await client.request(
 					{ method: "tools/list", params: {} },
@@ -104,6 +123,8 @@ export function createMcpConnection(
 		},
 		async callTool(name, args, opts) {
 			try {
+				const { sdk, client } = await open();
+				const { LooseCallResult } = sdk;
 				const raw = await client.request(
 					{ method: "tools/call", params: { name, arguments: args } },
 					LooseCallResult,
@@ -140,22 +161,6 @@ export function createMcpConnection(
 			return () => subscribers.delete(handler);
 		},
 	};
-}
-
-function buildSdkClient(config: McpServerConfig): {
-	client: SdkClientLike;
-	transport: unknown;
-} {
-	const headers: Record<string, string> = { ...config.headers };
-	if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
-	const transport = new StreamableHTTPClientTransport(new URL(config.url), {
-		requestInit: { headers },
-	});
-	const client = new Client(
-		{ name: `mcp-${config.id}`, version: "0.1.0" },
-		{ capabilities: {} },
-	);
-	return { client: client as unknown as SdkClientLike, transport };
 }
 
 function toTool(serverId: string, raw: Record<string, unknown>): McpTool {
