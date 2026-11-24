@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecResult } from "../../../../lib/core/exec/index.ts";
 import { spawnExec } from "../../../../lib/core/exec/index.ts";
 import {
@@ -26,7 +26,17 @@ import {
 } from "./support/machines.ts";
 
 const made: string[] = [];
-afterEach(() => removeAll(made));
+afterEach(() => {
+	vi.useRealTimers();
+	removeAll(made);
+});
+
+/** What git says of an origin that won't take the call at all. */
+const REFUSED: ExecResult = {
+	code: 128,
+	stdout: "",
+	stderr: "fatal: Could not read from remote repository.",
+};
 
 /** A tree with nothing in it, for git to run in. */
 async function tree(): Promise<string> {
@@ -134,6 +144,10 @@ interface Watching {
 	readonly listed?: () => Promise<unknown>;
 	/** What asking origin for its trunk answers, in git's place. */
 	readonly trunk?: ExecResult;
+	/** What a fetch of `names` answers in git's place, or nothing to run git. */
+	readonly fetch?: (names: readonly string[]) => ExecResult | undefined;
+	/** Called after each fetch, as the time it took. */
+	readonly fetchedThen?: () => void;
 }
 
 /** git in the tree at `path`, its calls to origin watched as `watching` says. */
@@ -156,13 +170,16 @@ function watched(path: string, watching: Watching): ViewGit {
 					}
 					return done;
 				},
-				fed: (lines, ...args) => {
-					if (args.includes("fetch")) {
-						watching.fetched.push(
-							lines.map((line) => line.replace(/^\+refs\/heads\/|:.*$/g, "")),
-						);
-					}
-					return timed.fed(lines, ...args);
+				fed: async (lines, ...args) => {
+					if (!args.includes("fetch")) return timed.fed(lines, ...args);
+					const names = lines.map((line) =>
+						line.replace(/^\+refs\/heads\/|:.*$/g, ""),
+					);
+					watching.fetched.push(names);
+					const done =
+						watching.fetch?.(names) ?? (await timed.fed(lines, ...args));
+					watching.fetchedThen?.();
+					return done;
 				},
 			};
 		},
@@ -306,4 +323,103 @@ describe("holding a tree's origin branches to origin", () => {
 			);
 		},
 	);
+
+	it("fetches no branch alone where origin refuses the call, leaving each aside with its reason", async () => {
+		const { path, was } = await movedOn(["trunk", "alpha", "beta"]);
+		const fetched: string[][] = [];
+
+		const held = await holdToOrigin(
+			watched(path, { fetched, fetch: () => REFUSED }),
+		);
+
+		expect(held.why).toBeUndefined();
+		expect(fetched, "one fetch, of them all").toEqual([
+			["alpha", "beta", "trunk"],
+		]);
+		expect(held.unsure).toBe(
+			"3 of origin's branches past the twin didn't come, so they wait under refs/carry/twin/: alpha, beta, trunk. fatal: Could not read from remote repository.",
+		);
+		expect(await refsIn(path)).toBe(
+			[
+				`refs/carry/twin/alpha ${was.alpha}`,
+				`refs/carry/twin/beta ${was.beta}`,
+				`refs/carry/twin/trunk ${was.trunk}`,
+			].join("\n"),
+		);
+	});
+
+	it("names the branches its 900 seconds all told ran out before, as that", async () => {
+		const { origin, path, was, now } = await movedOn([
+			"trunk",
+			"alpha",
+			"beta",
+		]);
+		const fetched: string[][] = [];
+		vi.useFakeTimers({ toFake: ["Date"] });
+
+		const held = await holdToOrigin(
+			watched(path, {
+				fetched,
+				listed: () => git(origin, "branch", "-q", "-D", "alpha"),
+				// Each fetch, as the clock reads it, takes ten minutes.
+				fetchedThen: () => vi.setSystemTime(Date.now() + 600_000),
+			}),
+		);
+
+		expect(held.why).toBeUndefined();
+		expect(fetched, "all at once, then the trunk, then no time").toEqual([
+			["alpha", "beta", "trunk"],
+			["trunk"],
+		]);
+		expect(held.unsure).toBe(
+			"2 of origin's branches past the twin weren't asked for before the 900 seconds all told ran out, so they wait under refs/carry/twin/: alpha, beta.",
+		);
+		expect(await refsIn(path)).toBe(
+			[
+				`refs/carry/twin/alpha ${was.alpha}`,
+				`refs/carry/twin/beta ${was.beta}`,
+				`refs/remotes/origin/trunk ${now.trunk}`,
+			].join("\n"),
+		);
+	});
+
+	it("says git's own reason for each branch that didn't come, stopping where origin stops answering", async () => {
+		const { origin, path, was, now } = await movedOn([
+			"trunk",
+			"alpha",
+			"beta",
+			"gamma",
+		]);
+		const fetched: string[][] = [];
+
+		const held = await holdToOrigin(
+			watched(path, {
+				fetched,
+				listed: () => git(origin, "branch", "-q", "-D", "alpha"),
+				fetch: (names) => (names[0] === "beta" ? REFUSED : undefined),
+			}),
+		);
+
+		expect(held.why).toBeUndefined();
+		expect(fetched, "gamma is never asked for").toEqual([
+			["alpha", "beta", "gamma", "trunk"],
+			["trunk"],
+			["alpha"],
+			["beta"],
+		]);
+		expect(held.unsure).toBe(
+			[
+				"1 of origin's branches past the twin didn't come, so they wait under refs/carry/twin/: alpha. fatal: couldn't find remote ref refs/heads/alpha.",
+				"2 of origin's branches past the twin didn't come, so they wait under refs/carry/twin/: beta, gamma. fatal: Could not read from remote repository.",
+			].join(" "),
+		);
+		expect(await refsIn(path)).toBe(
+			[
+				`refs/carry/twin/alpha ${was.alpha}`,
+				`refs/carry/twin/beta ${was.beta}`,
+				`refs/carry/twin/gamma ${was.gamma}`,
+				`refs/remotes/origin/trunk ${now.trunk}`,
+			].join("\n"),
+		);
+	});
 });

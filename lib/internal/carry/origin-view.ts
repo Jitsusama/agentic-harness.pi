@@ -21,7 +21,9 @@
  * as haves, since a carry onward counts only refs/remotes as on origin:
  * a tree with no origin/main would bundle all of its trunk. One fetch of
  * them all fails whole when origin has dropped any one since its list,
- * so then each comes on its own, origin's trunk first.
+ * so then each comes on its own, origin's trunk first; an origin that
+ * fails it any other way, refusing the call or out of time, would fail
+ * each the same, so then all wait aside.
  *
  * Origin is asked for its branches alone, by prefix: asked for every
  * ref, World sends each tag and pull ref too, a very large listing to
@@ -91,6 +93,21 @@ export const FETCHING = 900;
 
 /** How many of the branches left aside an arrival names. */
 const NAMED = 5;
+
+/**
+ * git's word that origin lacks a ref a fetch asked for, the one failure
+ * that fetching each branch alone gets past.
+ */
+const MISSING = /couldn't find remote ref/;
+
+/**
+ * Branches that still wait aside, and git's word on why, or none where
+ * the time all told ran out before they were asked for.
+ */
+interface Missed {
+	readonly names: readonly string[];
+	readonly why?: string;
+}
 
 /**
  * Makes the tree's origin branches the twin's view of origin, or, for a
@@ -195,9 +212,9 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
  * The branches `names`, set aside, fetched from origin into the tree's
  * origin branches, the twin's commits under `ASIDE` sent as haves, and
  * those that came then dropped from aside. All come in one fetch where
- * they can; where that fails, each on its own, origin's trunk first,
- * while the time all told is left. Answers which wait aside still, and
- * why, or nothing.
+ * they can; where origin lacks one it listed, each on its own, origin's
+ * trunk first, while the time all told is left and origin answers.
+ * Answers which wait aside still, and why, or nothing.
  */
 async function takeAside(
 	git: ViewGit,
@@ -208,28 +225,34 @@ async function takeAside(
 	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	const all = await fetchAside(git, names, left());
 	if (all.code === 0) return dropAside(git, names, []);
+	if (!MISSING.test(all.stderr)) {
+		return dropAside(git, [], [{ names, why: saidOf(all) }]);
+	}
 	const trunk = await trunkOf(git, Math.min(LISTING, left()));
 	const order =
 		trunk !== undefined && names.includes(trunk)
 			? [trunk, ...names.filter((name) => name !== trunk)]
 			: names;
 	const came: string[] = [];
-	const missed: string[] = [];
-	let why = saidOf(all);
-	for (const name of order) {
-		if (left() <= 0) {
-			missed.push(name);
-			continue;
-		}
+	const gone: string[] = [];
+	let why = "";
+	const missed = (...rest: Missed[]) =>
+		dropAside(git, came, [{ names: gone, why }, ...rest]);
+	for (const [at, name] of order.entries()) {
+		if (left() <= 0) return missed({ names: order.slice(at) });
 		const one = await fetchAside(git, [name], left());
 		if (one.code === 0) {
 			came.push(name);
 			continue;
 		}
-		if (missed.length === 0) why = saidOf(one);
-		missed.push(name);
+		if (!MISSING.test(one.stderr)) {
+			return missed({ names: order.slice(at), why: saidOf(one) });
+		}
+		// Each says the one ref it lacks, so the first stands for them.
+		if (gone.length === 0) why = saidOf(one);
+		gone.push(name);
 	}
-	return dropAside(git, came, missed, why);
+	return missed();
 }
 
 /** The branches `names` fetched from origin, stopped after `seconds`. */
@@ -258,8 +281,7 @@ function fetchAside(
 async function dropAside(
 	git: ViewGit,
 	came: readonly string[],
-	missed: readonly string[],
-	why = "",
+	missed: readonly Missed[],
 ): Promise<Held> {
 	const dropped = await setRefs(
 		git,
@@ -267,12 +289,24 @@ async function dropAside(
 		[],
 		"drop the twin's commits origin's own now cover",
 	);
-	const waiting =
-		missed.length === 0
-			? undefined
-			: `${missed.length} of origin's branches past the twin didn't come, so they wait under ${ASIDE}: ${namesOf(missed)}. ${why}`.trim();
-	const unsure = [waiting, dropped].filter((said) => said !== undefined);
+	const unsure = [
+		...missed.filter(({ names }) => names.length > 0).map(waitsFor),
+		...(dropped === undefined ? [] : [dropped]),
+	];
 	return unsure.length === 0 ? {} : { unsure: unsure.join(" ") };
+}
+
+/** What an arrival says of branches that still wait aside. */
+function waitsFor({ names, why }: Missed): string {
+	const waiting = `so they wait under ${ASIDE}: ${namesOf(names)}.`;
+	return why === undefined
+		? `${names.length} of origin's branches past the twin weren't asked for before the ${FETCHING} seconds all told ran out, ${waiting}`
+		: `${names.length} of origin's branches past the twin didn't come, ${waiting} ${sentence(why)}`;
+}
+
+/** `said` ended as a sentence, so another may follow it. */
+function sentence(said: string): string {
+	return /[.!?]$/.test(said) ? said : `${said}.`;
 }
 
 /** Up to `NAMED` of `names`, and how many more. */
