@@ -30,9 +30,19 @@
  * runs, and judging it gone would let go of its leases and holds and tell
  * its senders it ended. A session there parked between turns, its process
  * gone, is held ended too, but its presence, as the far node keeps what
- * that session wrote, says parked; it is there, as a park here is, since
- * what is sent to it starts it again there. A node that keeps no parked
- * presences, as one before mycelium#419, never sends one.
+ * that session wrote, says parked; it is there, as a park here is. Only a
+ * park: an ended session that last said anything else is gone. The far
+ * node is what bounds it, as a park's marker and boot bound it here
+ * (mycelium#419, KP0L6A, 24 November): the far machine lists a parked
+ * session only while its presence says parked with that machine's boot
+ * now, and once it stops (woken, forgotten, rebooted) the node here drops
+ * the row, so the session reads gone rather than ended; a link down
+ * meanwhile leaves it unknown, and the next hello lets go of every session
+ * the far machine no longer lists. What is sent to it starts it again
+ * there, since the far node writes the wake of each session parked there
+ * that a message it carries in gives a turn; news wakes it no more than a
+ * sender there would. A node that keeps no parked presences, as one before
+ * mycelium#419, never sends one.
  *
  * A parked session (see parked.ts) is there too while its marker stands,
  * its process gone: it ended only to hold no memory while it waits, and

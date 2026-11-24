@@ -562,6 +562,17 @@ describe("a session elsewhere's liveness", () => {
 			await livenessOf(parked, machine({}), node({})),
 			"a parked session its node holds no more",
 		).toBe("gone");
+		// Only a park: a session that last said anything else and ended is gone.
+		for (const state of ["listening", "busy", "waiting", "paused"] as const) {
+			expect(
+				await livenessOf(
+					presence({ session: "far", machine: "equilibrius", state }),
+					machine({}),
+					node({ far: "ended" }),
+				),
+				`an ended session that last said ${state}`,
+			).toBe("gone");
+		}
 		const { present } = await census(
 			[parked],
 			machine({}),
