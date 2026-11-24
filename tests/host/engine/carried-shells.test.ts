@@ -304,8 +304,8 @@ describe("carried shells", () => {
 			work: shell("m0"),
 		};
 		writeFileSync(file, JSON.stringify([earlier]));
+		// The folder's own mode lets afterEach remove it, even unreadable.
 		chmodSync(file, 0o000);
-		onTestFinished(() => chmodSync(file, 0o600));
 		const shells = make({
 			table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),
 		});
