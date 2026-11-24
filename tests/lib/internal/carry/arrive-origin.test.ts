@@ -24,9 +24,12 @@ import { cloneAt, exec, folder, removeAll } from "./support/machines.ts";
 const made: string[] = [];
 afterEach(() => {
 	vi.restoreAllMocks();
-	vi.useRealTimers();
 	removeAll(made);
 });
+
+/** Whether git's `args` fetch a needed commit's branch, past its `--`. */
+const fetchesNeed = (args: readonly string[]) =>
+	args.includes("fetch") && args.at(-3) === "--";
 
 const { carried, needingOrigin, arriveAt } = arrivals(made);
 
@@ -229,14 +232,14 @@ describe("arriving beside a twin that lacks what a tree needs", () => {
 		// The first needed fetch, as the clock reads it, takes the hour.
 		const slow: Exec = async (command, args) => {
 			const done = await through(command, args);
-			if (args.at(-3) === "--") await clock.sleep(3_600_000);
+			if (fetchesNeed(args)) await clock.sleep(3_600_000);
 			return done;
 		};
 
 		const { whole, said } = await arriveThrough(home, from, slow, clock);
 
 		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
-		const needed = fetches.filter(({ args }) => args.at(-3) === "--");
+		const needed = fetches.filter(({ args }) => fetchesNeed(args));
 		expect(needed, "the second is never asked for").toHaveLength(1);
 		const second = needed[0]?.args.at(-1) === "one" ? "two" : "one";
 		expect(said[0]).toMatchObject({
@@ -268,7 +271,7 @@ describe("arriving beside a twin that lacks what a tree needs", () => {
 
 		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
 		expect(
-			fetches.filter(({ args }) => args.at(-3) === "--"),
+			fetches.filter(({ args }) => fetchesNeed(args)),
 			"its needed commit is never asked for",
 		).toEqual([]);
 		expect(said[0]).toMatchObject({
