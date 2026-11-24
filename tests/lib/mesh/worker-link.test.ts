@@ -1,180 +1,35 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ENVELOPE, type Message } from "../../../lib/mesh/message.ts";
+import { describe, expect, it } from "vitest";
+import type { Message } from "../../../lib/mesh/message.ts";
 import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
-	createWorkerLink,
 	eventFrom,
 	FIRST_RECENT,
 	isBareId,
 	keptIn,
 	presentedPresences,
-	type Refused,
 	refusalText,
 	relayedTransport,
 	replyFrom,
-	type WorkerLink,
 	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
 import { quietFor, until } from "../../support/until.ts";
+import {
+	agreed,
+	dir,
+	heardAs,
+	link,
+	linked,
+	message,
+	node,
+	presence,
+	stamped,
+	useStandInNode,
+} from "../../support/worker-node.ts";
 
-let dir: string;
-let path: string;
-let server: Server | undefined;
-/** Every connection the stand-in node took, to end after each test. */
-let accepted: Socket[] = [];
-let link: WorkerLink | undefined;
-
-/** One connection to the stand-in node, and every line it said. */
-interface Connection {
-	readonly socket: Socket;
-	readonly said: unknown[];
-}
-
-/** A stand-in worker socket: its connections, in the order they came. */
-interface Node {
-	readonly connections: Connection[];
-}
-
-/** How the stand-in node answers one line on a connection. */
-type Answer = (asked: Record<string, unknown>, on: Connection) => string[];
-
-/** The node as agreed: Present, Sent whole, Watching then what it holds. */
-const agreed =
-	(held: readonly Message[] = []): Answer =>
-	(asked) => {
-		if ("Presence" in asked) return ['{"Ok":"Present"}'];
-		if ("Send" in asked) {
-			const sent = asked["Send"];
-			const message =
-				typeof sent === "object" && sent !== null && "message" in sent
-					? sent.message
-					: undefined;
-			return [JSON.stringify({ Ok: { Sent: message } })];
-		}
-		if ("Watch" in asked) {
-			return [
-				'{"Ok":"Watching"}',
-				JSON.stringify({ MessagesChanged: { messages: held } }),
-			];
-		}
-		return ['{"Err":"not asked of a worker"}'];
-	};
-
-/** Serves `path`, answering each line as `answer` says. */
-async function node(answer: Answer): Promise<Node> {
-	const heard: Node = { connections: [] };
-	server = createServer((socket) => {
-		accepted.push(socket);
-		const on: Connection = { socket, said: [] };
-		heard.connections.push(on);
-		socket.setEncoding("utf8");
-		socket.on("data", (chunk: string) => {
-			for (const line of chunk.split("\n").filter(Boolean)) {
-				const asked: Record<string, unknown> = JSON.parse(line);
-				on.said.push(asked);
-				for (const reply of answer(asked, on)) socket.write(`${reply}\n`);
-			}
-		});
-	});
-	const listening = server;
-	await new Promise<void>((done) => listening.listen(path, done));
-	return heard;
-}
-
-/** A presence as a worker's session says it. */
-function presence(session = "sess-1"): Presence {
-	return {
-		session,
-		addresses: ["W0RK3R"],
-		groups: ["#quest/w0rk3r"],
-		worksOn: "work in the cloud",
-		owns: [],
-		busy: false,
-		at: "2026-11-24T06:00:00.000Z",
-	};
-}
-
-/** A message as the mesh stamps it. */
-function message(id: string, text = "hello"): Message {
-	return {
-		v: ENVELOPE,
-		id,
-		at: "2026-11-24T06:00:00.000Z",
-		from: "W0RK3R",
-		to: ["KP0L6A"],
-		intent: "fyi",
-		text,
-		pid: 42,
-	};
-}
-
-/**
- * An id stamped `ago` before now by `from`, as the mesh mints them: real
- * 13-digit stamps, so a test of take-up orders them as the node will.
- */
-function stamped(ago: number, from = "KP0L6A", tail = "aa"): string {
-	return `${Date.now() - ago}-${from}-7-${tail}`;
-}
-
-/** A message as kept from the watch: from elsewhere, read by address. */
-function heardAs(one: Message): Message {
-	return { ...one, hosted: true };
-}
-
-/** What a session using the link has been handed. */
-interface Session {
-	readonly kept: Message[];
-	readonly refused: Refused[];
-	reachedAgain: number;
-}
-
-/** Opens a link to the stand-in node, as a worker's session would. */
-function linked(
-	held: readonly string[] = [],
-	keep: (one: Message) => void = () => undefined,
-	lastRead?: () => string | undefined,
-	mostLine?: number,
-): Session {
-	const session: Session = { kept: [], refused: [], reachedAgain: 0 };
-	link = createWorkerLink({
-		socket: path,
-		keep: (one) => {
-			keep(one);
-			session.kept.push(one);
-		},
-		held: () => held,
-		...(lastRead ? { lastRead } : {}),
-		refused: (one) => session.refused.push(one),
-		reachedAgain: () => {
-			session.reachedAgain += 1;
-		},
-		retryMs: 10,
-		...(mostLine === undefined ? {} : { mostLine }),
-	});
-	return session;
-}
-
-beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "worker-link-"));
-	path = join(dir, "worker.sock");
-});
-afterEach(async () => {
-	link?.close();
-	link = undefined;
-	const closing = server;
-	server = undefined;
-	for (const socket of accepted) socket.destroy();
-	accepted = [];
-	if (closing) {
-		await new Promise((done) => closing.close(done));
-	}
-	rmSync(dir, { recursive: true, force: true });
-});
+useStandInNode();
 
 describe("finding the worker socket", () => {
 	it("takes an absolute path the machine names, and nothing else", () => {
@@ -234,7 +89,7 @@ describe("a worker's link to its node", () => {
 
 	it("says a presence again on the connection that holds it", async () => {
 		const held = await node(agreed());
-		linked();
+		const session = linked();
 		link?.present(presence());
 		await until("the watch opens", () => held.connections.length === 2);
 
@@ -245,6 +100,7 @@ describe("a worker's link to its node", () => {
 		);
 
 		expect(held.connections, "no connection is added for it").toHaveLength(2);
+		expect(session.reachedAgain, "nothing was unreachable").toBe(0);
 		expect(held.connections[0]?.said[1]).toEqual({
 			Presence: { presence: { ...presence(), busy: true } },
 		});
@@ -318,154 +174,6 @@ describe("a worker's link to its node", () => {
 			{ Presence: { presence: presence() } },
 		]);
 		expect(session.refused).toHaveLength(1);
-	});
-
-	it("tells once a node it can't reach", async () => {
-		const session = linked();
-
-		link?.present(presence());
-		await until("the refusal is told", () => session.refused.length === 1);
-		await quietFor(30, 5);
-
-		expect(session.refused).toHaveLength(1);
-		expect(session.refused[0]?.what).toBe("presence");
-		expect(session.refused[0]?.why).toContain("can't be reached");
-		expect(session.reachedAgain, "nothing was reached").toBe(0);
-	});
-
-	it("says once the node it couldn't reach takes its presence", async () => {
-		const session = linked();
-		link?.present(presence());
-		await until("the refusal is told", () => session.refused.length === 1);
-
-		const held = await node(agreed());
-		await until("the watch opens", () => held.connections.length === 2);
-		await quietFor(10, 3);
-
-		expect(session.reachedAgain).toBe(1);
-		expect(session.refused).toHaveLength(1);
-	});
-
-	it("takes a send the node already holds as sent", async () => {
-		const held = await node((asked, on) =>
-			"Send" in asked
-				? [
-						'{"Err":"3-W0RK3R-42-cc is said already, and a worker can\'t write over it"}',
-					]
-				: agreed()(asked, on),
-		);
-		const session = linked();
-		link?.present(presence());
-
-		link?.relay(message("3-W0RK3R-42-cc"));
-		await until(
-			"the send is answered",
-			() => (held.connections[0]?.said.length ?? 0) === 2,
-		);
-		await quietFor(10, 5);
-
-		expect(session.refused).toEqual([]);
-	});
-
-	it("tells a send refused as another message said already", async () => {
-		await node((asked, on) =>
-			"Send" in asked
-				? [
-						'{"Err":"3-W0RK3R-42-aa is said already, and a worker can\'t write over it"}',
-					]
-				: agreed()(asked, on),
-		);
-		const session = linked();
-		link?.present(presence());
-
-		link?.relay(message("3-W0RK3R-42-cc"));
-		await until("the refusal is told", () => session.refused.length === 1);
-
-		expect(session.refused[0]).toMatchObject({
-			what: "send",
-			id: "3-W0RK3R-42-cc",
-		});
-	});
-
-	it("hangs up a connection that says a line too long, reading nothing after it", async () => {
-		let flooded = false;
-		const held = await node((asked, on) => {
-			if ("Presence" in asked && !flooded) {
-				flooded = true;
-				// Too long, then what would read as the presence's answer.
-				return [`${"x".repeat(300)}`, '{"Ok":"Present"}'];
-			}
-			return agreed()(asked, on);
-		});
-		const session = linked([], undefined, undefined, 256);
-
-		link?.present(presence());
-		await until("the watch opens", () => held.connections.length === 3);
-		await quietFor(20, 3);
-
-		expect(session.refused).toEqual([
-			{ what: "presence", why: "it said a line over 256 characters" },
-		]);
-		expect(
-			held.connections[1]?.said,
-			"the presence goes again on a new connection",
-		).toEqual([{ Presence: { presence: presence() } }]);
-	});
-
-	it("tells a refusal said again only once", async () => {
-		const held = await node(() => ['{"Err":"that session lives elsewhere"}']);
-		const session = linked();
-
-		link?.present(presence());
-		await until("the first is refused", () => session.refused.length === 1);
-		link?.present({ ...presence(), busy: true });
-		// Each refused presence is said again on the hold's backoff too.
-		await until(
-			"the second presence and a retry are answered",
-			() => (held.connections[0]?.said.length ?? 0) >= 3,
-		);
-		await quietFor(10, 5);
-
-		expect(session.refused, "the second refusal is the first's").toHaveLength(
-			1,
-		);
-	});
-
-	it("tells a refusal again once the node takes one of its kind, not another's", async () => {
-		const id = "3-W0RK3R-42-cc";
-		const held = await node((asked, on) =>
-			JSON.stringify(asked).includes(id)
-				? ['{"Err":"a worker sends no hold"}']
-				: agreed()(asked, on),
-		);
-		const session = linked();
-		link?.present(presence());
-		await until("the watch opens", () => held.connections.length === 2);
-
-		link?.relay(message(id));
-		await until("the send is refused", () => session.refused.length === 1);
-		link?.present({ ...presence(), busy: true });
-		link?.relay(message(id));
-		await until(
-			"all are answered",
-			() => (held.connections[0]?.said.length ?? 0) === 4,
-		);
-		// The node has the 4th line; the link may not yet have its reply.
-		await quietFor(10, 3);
-		expect(session.refused, "a presence taken clears no send's").toHaveLength(
-			1,
-		);
-
-		link?.relay(message("4-W0RK3R-42-dd"));
-		await until(
-			"the taken send is answered",
-			() => (held.connections[0]?.said.length ?? 0) === 5,
-		);
-		await quietFor(10, 3);
-		link?.relay(message(id));
-		await until("the send is refused again", () => session.refused.length >= 2);
-		await quietFor(10, 3);
-		expect(session.refused).toHaveLength(2);
 	});
 
 	it("tells a send never written as unsent when it closes", async () => {
@@ -655,8 +363,8 @@ describe("a worker's link to its node", () => {
 	it("takes up from the newest message the session holds", async () => {
 		const held = await node(agreed());
 		const newest = stamped(1000, "KP0L6A", "zz");
-		// Newest first, so taking the last in the list would miss it.
-		linked([newest, stamped(60_000)]);
+		// Newest in the middle, so taking the first or the last would miss it.
+		linked([stamped(60_000), newest, stamped(30_000)]);
 
 		link?.present(presence());
 		await until(

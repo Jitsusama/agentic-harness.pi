@@ -76,6 +76,13 @@ const MOST_WHY = 200;
  */
 const MOST_LINE = 16 * 1024 * 1024;
 
+/**
+ * What a node's reply adds around a message it echoes, as a send's
+ * `{"Ok":{"Sent":…}}`, with room to spare: a message within this of the
+ * longest line would come back in a reply too long to read.
+ */
+const REPLY_ROOM = 1024;
+
 /** The latest a Date can hold, past which an id's stamp is no time at all. */
 const LATEST_TIME_MS = 8.64e15;
 
@@ -296,19 +303,23 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			if (presence !== undefined) presentOn(socket, presence);
 			for (const message of unsent.splice(0)) sendOn(socket, message);
 		});
-		socket.on("data", lines(socket, replied, refuse, "presence", mostLine));
+		socket.on(
+			"data",
+			lines(socket, replied, refuse, { what: "presence", most: mostLine }),
+		);
 		// A drop takes the watch with it, since the node watches only for a
 		// session whose presence is held; what wasn't answered goes again.
 		// A node that can't be reached at all is told once, so a session
-		// cut off by a node that's down or a socket misnamed knows it; told
-		// whatever the error, so a node moving from one to the next mid-start
-		// is told once, and told again once its presence is taken.
-		socket.on("error", () => {
+		// cut off by a node that's down or a socket misnamed knows it, by the
+		// first error's code; told once whatever the error, so a node moving
+		// from one to the next mid-start is told once, and told again only
+		// once its presence was taken between.
+		socket.on("error", (error: NodeJS.ErrnoException) => {
 			if (!reached && !toldUnreachable) {
 				toldUnreachable = true;
 				refuse({
 					what: "presence",
-					why: `the node's worker socket at ${options.socket} can't be reached, so it tries again`,
+					why: `the node's worker socket at ${options.socket} can't be reached (${error.code ?? error.message}), so it tries again`,
 				});
 			}
 			socket.destroy();
@@ -404,7 +415,14 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 				},
 			}),
 		);
-		socket.on("data", lines(socket, heard, refuse, "watch", mostLine));
+		socket.on(
+			"data",
+			lines(socket, heard, refuse, {
+				what: "watch",
+				most: mostLine,
+				skipsOverlong: true,
+			}),
+		);
 		socket.on("error", () => socket.destroy());
 		socket.on("close", () => {
 			if (watching !== socket) return;
@@ -437,6 +455,16 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 					what: "unsent",
 					id: message.id,
 					why: "the session's link to the node had closed",
+				});
+				return;
+			}
+			// The node's reply echoes what it took, so one too long to read
+			// back would hang up the presence and go again on each return.
+			if (JSON.stringify(message).length > mostLine - REPLY_ROOM) {
+				refuse({
+					what: "unsent",
+					id: message.id,
+					why: `it runs past the ${mostLine - REPLY_ROOM} characters the node's reply to it can carry`,
 				});
 				return;
 			}
@@ -546,27 +574,50 @@ export function refusalText(refusal: Refused): string {
  * A line that throws is told through `refuse`, as of the connection
  * `what` names, and the next read: a throw out of a socket's listener is
  * an uncaught exception, which ends pi. A line past `most`, its end
- * come or not, is told and its connection hung up, so a node gone wrong can't fill
- * pi's memory, and no tail of it is read as a line: on the presence's
- * connection that would answer the wrong request. Each connection opens
- * again as after any drop, what went unanswered going again.
+ * come or not, is told and held no longer, so a node gone wrong can't
+ * fill pi's memory, and no tail of it is read as a line. The presence's
+ * connection hangs up, since a tail there would answer the wrong request,
+ * and opens again as after any drop, what went unanswered going again.
+ * The watch (`skipsOverlong`) drops that one line through its end and
+ * reads on: hung up, it would ask again from where it took up and hear
+ * the same line, again and again, and nothing after it.
  */
 function lines(
 	socket: Socket,
 	each: (line: string) => void,
 	refuse: (refusal: Refused) => void,
-	what: "presence" | "watch",
-	most: number,
+	reads: {
+		readonly what: "presence" | "watch";
+		readonly most: number;
+		readonly skipsOverlong?: boolean;
+	},
 ): (chunk: string) => void {
+	const { what, most } = reads;
 	let said = "";
+	// Whether what comes until the next end of line belongs to one dropped.
+	let skipping = false;
 	return (chunk) => {
 		if (socket.destroyed) return;
 		said += chunk;
 		for (;;) {
 			const end = said.indexOf("\n");
+			if (skipping) {
+				said = end < 0 ? "" : said.slice(end + 1);
+				if (end < 0) return;
+				skipping = false;
+				continue;
+			}
 			if ((end < 0 ? said.length : end) > most) {
-				said = "";
+				if (reads.skipsOverlong === true) {
+					refuse({
+						what: "unkept",
+						why: `the node said it in a line over ${most} characters, which was dropped`,
+					});
+					skipping = true;
+					continue;
+				}
 				refuse({ what, why: `it said a line over ${most} characters` });
+				said = "";
 				socket.destroy();
 				return;
 			}
