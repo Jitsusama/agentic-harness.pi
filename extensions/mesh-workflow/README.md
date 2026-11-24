@@ -480,7 +480,14 @@ and its groups.
   That covers a question or hold put to this peer, by its
   address or as one of each a question went to, and any answer
   to a question it asked, whether the peer is idle or busy. It
-  also covers a question answering one it sent, while idle. A
+  also covers a question answering one it sent, while idle, and
+  fresh news sent to an idle peer, by its address
+  or in answer to it, by a present peer of this realm its last
+  run's `Blocked:` line names: on 2026-11-23 a session blocked
+  on another's promised sha sat idle for hours, since the sha
+  came as an fyi with no thread. Each run that ends blocked is
+  woken so once, under the hourly cap on one sender's news, and
+  an orchestrator's pivot acks stay notes. A
   busy peer has it steered into the run under way, read after the
   current tool, since a note waits for the model's current call
   to end, and when that call was the run's last, it waited for
