@@ -17,6 +17,7 @@ import {
 	childPss,
 	heldChildren,
 	listingChildren,
+	oneReadAtOnce,
 	type ReadPss,
 } from "../../../host/service/children.ts";
 import { controlRequest } from "../../../host/service/client.ts";
@@ -871,6 +872,80 @@ describe("a host's memory with conversations in children", () => {
 		};
 
 		expect(await childPss(owner, proc)).toBeUndefined();
+	});
+	it("gives each child the Pss read for its own process", async () => {
+		const other = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: other });
+
+		const answer = await listingChildren(
+			own,
+			held,
+			async (owner) => owner.pid * 10,
+		).execute({ v: 1, id: "m", op: "memory" });
+
+		expect(parseMemoryResult(answer).sessions).toStrictEqual([
+			{ sessionId: a, state: "idle", pss: running.owner.pid * 10 },
+			{ sessionId: b, state: "idle", pss: other.owner.pid * 10 },
+		]);
+	});
+	describe("one read at once", () => {
+		/** A read of each pid that settles only when the test says. */
+		function held() {
+			const started: number[] = [];
+			const settle = new Map<number, (pss: number) => void>();
+			const read = (pid: number) => {
+				started.push(pid);
+				return new Promise<number | undefined>((resolve) =>
+					settle.set(pid, resolve),
+				);
+			};
+			return { started, settle, read };
+		}
+
+		it("starts a read only once the one before it has settled", async () => {
+			const reads = held();
+			const pss = oneReadAtOnce(reads.read);
+
+			const first = pss(1);
+			const second = pss(2);
+			await vi.waitFor(() =>
+				expect(reads.started, "the second held back").toEqual([1]),
+			);
+			reads.settle.get(1)?.(100);
+
+			expect(await first).toBe(100);
+			await vi.waitFor(() => expect(reads.started).toEqual([1, 2]));
+			reads.settle.get(2)?.(200);
+			expect(await second).toBe(200);
+		});
+		it("gives a pid's read in progress to each caller asking for it meanwhile", async () => {
+			const reads = held();
+			const pss = oneReadAtOnce(reads.read);
+
+			const asked = [pss(1), pss(1), pss(1)];
+			await vi.waitFor(() => expect(reads.started).toEqual([1]));
+			reads.settle.get(1)?.(100);
+
+			expect(await Promise.all(asked)).toEqual([100, 100, 100]);
+			expect(reads.started, "read once").toEqual([1]);
+		});
+		it("reads a pid afresh once its last read has settled, even one that failed", async () => {
+			let reads = 0;
+			const pss = oneReadAtOnce(async () => {
+				reads += 1;
+				if (reads === 1) throw new Error("refused");
+				return reads * 100;
+			});
+
+			await expect(pss(1)).rejects.toThrow("refused");
+			expect(await pss(1)).toBe(200);
+			expect(await pss(1)).toBe(300);
+		});
 	});
 	it.runIf(process.platform === "linux")(
 		"reads a child's Pss from procfs only while its pid is still the process that started",

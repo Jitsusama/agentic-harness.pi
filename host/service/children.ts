@@ -144,12 +144,13 @@ export function passedOn(
  * that started at another tick, or named without ticks to tell, so
  * another process's memory is never reported as the child's. The ticks
  * are read after the Pss, so a pid taken between the two reads is caught
- * too. Each is read off the host's thread, so a child held up under
- * memory pressure holds up no conversation.
+ * too. The Pss is read off the host's thread, one child at a time, as
+ * hostPss reads it; the ticks are read at once, since the kernel answers
+ * a process's stat without the lock its mappings are walked under.
  */
 export async function childPss(
 	owner: HostIdentity["owner"],
-	proc: ProcReads = { pss: pssBytesOf, startTicks: startTicksFromProc },
+	proc: ProcReads = { pss: hostPss, startTicks: startTicksFromProc },
 ): Promise<number | undefined> {
 	const pss = await proc.pss(owner.pid);
 	if (pss === undefined || owner.startTicks === undefined) return undefined;
@@ -157,6 +158,34 @@ export async function childPss(
 		? pss
 		: undefined;
 }
+
+/**
+ * Reads through `read` one at a time, a pid's read in progress given to
+ * each caller that asks for that pid meanwhile. The kernel walks a
+ * process's mappings for its Pss under the process's lock, so a child
+ * held up under memory pressure holds its read up too, on one of the
+ * few threads libuv shares with the host's file reads; this way it holds
+ * one, however often memory is asked for, and the host's own reads go on.
+ */
+export function oneReadAtOnce(
+	read: (pid: number) => Promise<number | undefined>,
+): (pid: number) => Promise<number | undefined> {
+	const reading = new Map<number, Promise<number | undefined>>();
+	let last: Promise<unknown> = Promise.resolve();
+	return (pid) => {
+		const under = reading.get(pid);
+		if (under) return under;
+		const next = last.then(() => read(pid)).finally(() => reading.delete(pid));
+		reading.set(pid, next);
+		last = next.catch(() => {
+			// Its caller hears the failure; the next read goes on regardless.
+		});
+		return next;
+	};
+}
+
+/** The host's reads of its children's Pss, one at a time for the whole host. */
+const hostPss = oneReadAtOnce(pssBytesOf);
 
 /** What childPss reads of a process from procfs, each nothing where unread. */
 export interface ProcReads {
@@ -199,8 +228,8 @@ function isListResult(
  * and memory answer, so a caller reading what the host holds sees them
  * all, whichever thread runs each. A conversation in both, as while a
  * child takes one up, is named once, by its child. Memory gives each
- * child's last heap and its Pss, each child read at once through `pss`
- * as the answer is made.
+ * child's last heap and its Pss, read through `pss` as the answer is
+ * made.
  */
 export function listingChildren(
 	backend: ControlBackend,
