@@ -61,7 +61,12 @@ import {
 } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
-import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
+import {
+	isAddressShaped,
+	loadedQuest,
+	type QuestRecords,
+	questAddress,
+} from "./address.ts";
 import {
 	type MoveOff,
 	type Moving,
@@ -713,9 +718,16 @@ function presenceFrom(value: unknown): Presence | undefined {
 	) {
 		return undefined;
 	}
+	// The one boundary every reader of a peer's addresses comes through:
+	// each prints a peer by its first as it stands, so one that isn't an
+	// address's shape goes here. One that named addresses and kept none
+	// is no peer; one that named none, as a paused presence may, prints
+	// nothing forged and stays as it was written.
+	const addresses = one.addresses.filter(isAddressShaped);
+	if (one.addresses.length > 0 && addresses.length === 0) return undefined;
 	return {
 		session: one.session,
-		addresses: one.addresses,
+		addresses,
 		groups: one.groups,
 		...(strings(one.joined) ? { joined: one.joined } : {}),
 		...(stopsFrom(one.stops).length > 0 ? { stops: stopsFrom(one.stops) } : {}),

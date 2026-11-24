@@ -8,7 +8,8 @@
  * cell on its way a turn. A need nothing within reach works on is not
  * sent at all, and passed to nobody in its place: it is kept as lost, so
  * the measure counts it, and the sender is told to name the peers it is
- * for. Its refusals never say it went to no orchestrator, since asking
+ * for or, not knowing who, to ask the cell above it who owns it, by a
+ * question rather than by handing the need up. Its refusals never say it went to no orchestrator, since asking
  * whoever is above who owns it is what the delivery note says to do next.
  *
  * A need finds who works on something and grants nothing, since a cell
@@ -32,6 +33,14 @@ import type { SendDetails, SendParams } from "./send.ts";
 /** What every need's answer says, since a fit is no owner. */
 export const NEED_GRANTS_NOTHING =
 	"A need finds who works on something; a yes, ruling or grant still comes only from the person or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address.";
+
+/**
+ * What a lost need's refusal says to do when the asker can't name who it
+ * is for, which is why it asked a need: the cell above it knows who owns
+ * what, and is asked by a question, never handed the need.
+ */
+export const ASK_WHO_OWNS_IT =
+	"Not knowing who, ask the cell above this peer who owns it: a question to orchestrator.";
 
 /** What `to` says once a need in it is read, or why it may not be sent. */
 export type NeedRead =
@@ -84,16 +93,15 @@ export async function needRead(
 	);
 	if (found === undefined) {
 		return refused(
-			"no node answered to say which cell works on it, and a need is passed to nobody in its place. Name the peers it is for by address.",
+			`no node answered to say which cell works on it, and a need is passed to nobody in its place. Name the peers it is for by address. ${ASK_WHO_OWNS_IT}`,
 		);
 	}
 	const about = found.words.join(" ");
 	if (found.words.length === 0) {
-		return refused(
-			fromText
-				? "no word of its text is one any cell works on, so it is counted as lost and passed to nobody in its place. Say what it is about in about, or name the peers it is for by address."
-				: "no word of its about is one any cell works on, so it is counted as lost and passed to nobody in its place. Say it in other words of the work, or name the peers it is for by address.",
-		);
+		const retry = fromText
+			? "no word of its text is one any cell works on, so it is counted as lost and passed to nobody in its place. Say what it is about in about, or name the peers it is for by address."
+			: "no word of its about is one any cell works on, so it is counted as lost and passed to nobody in its place. Say it in other words of the work, or name the peers it is for by address.";
+		return refused(`${retry} ${ASK_WHO_OWNS_IT}`);
 	}
 	const ended = endedText(found);
 	if (found.fit === null) {
@@ -103,7 +111,7 @@ export async function needRead(
 				? "Name another peer it is for by address."
 				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead}`,
+			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
 		);
 	}
 	if (found.fit === asker) {

@@ -43,6 +43,17 @@ export interface QuestRecords {
 	readonly trees?: string;
 }
 
+/** What every address is minted as: a quest's six, or a session's eight. */
+const SHAPE = /^[A-Za-z0-9]{6,8}$/;
+
+/**
+ * Whether a name has an address's shape, in any letters. Nothing else
+ * is one, so a presence read from a file keeps only these.
+ */
+export function isAddressShaped(name: string): boolean {
+	return SHAPE.test(name);
+}
+
 /** The address a quest gives a peer: its id's last six letters. */
 export function questAddress(questId: string): string {
 	return (questId.split("-").pop() ?? questId).toUpperCase();

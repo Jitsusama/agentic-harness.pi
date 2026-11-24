@@ -8,7 +8,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { NEED_GRANTS_NOTHING } from "../../../extensions/mesh-workflow/tools/need.ts";
+import {
+	ASK_WHO_OWNS_IT,
+	NEED_GRANTS_NOTHING,
+} from "../../../extensions/mesh-workflow/tools/need.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, peer, startSession } from "./support/mesh.ts";
@@ -100,6 +103,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its about");
+		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -121,6 +125,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its text");
+		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -166,6 +171,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no live cell within three ties");
+		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -208,6 +214,7 @@ describe("sending to a need", () => {
 		expect(said, "it points at another peer, not the one refusing").toContain(
 			"Name another peer it is for by address",
 		);
+		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
 		expect(said, "it is there, so it never reads as ended").not.toContain(
 			"has ended",
 		);
@@ -292,6 +299,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no node answered");
+		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
 		expect(said).toContain("passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));

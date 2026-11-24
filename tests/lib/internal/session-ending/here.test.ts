@@ -129,6 +129,10 @@ describe("the sessions parked on this machine", () => {
 
 	const home = () => join(state, "pi", "agentic-harness.pi");
 
+	/** A session's address as one is minted: six to eight letters. */
+	const addressOf = (session: string) =>
+		session.toUpperCase().slice(-8).padEnd(6, "X");
+
 	/** A session's presence in `mesh`, as the mesh writes it. */
 	const presence = (mesh: string, session: string, at?: string) => {
 		const dir = join(mesh, "presence");
@@ -137,7 +141,7 @@ describe("the sessions parked on this machine", () => {
 			join(dir, `${session}.json`),
 			JSON.stringify({
 				session,
-				addresses: [session.toUpperCase()],
+				addresses: [addressOf(session)],
 				groups: ["#all"],
 				busy: false,
 				...(at === undefined ? {} : { state: at }),
@@ -163,7 +167,7 @@ describe("the sessions parked on this machine", () => {
 		session,
 		sessionFile: `${session}.jsonl`,
 		cwd: state,
-		addresses: [session.toUpperCase()],
+		addresses: [addressOf(session)],
 		parkedAt: new Date().toISOString(),
 		pid: process.pid,
 		wake: `${session}.wake`,
