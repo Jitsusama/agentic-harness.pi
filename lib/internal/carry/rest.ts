@@ -49,7 +49,11 @@ export interface CarryingRest {
 	readonly home: string;
 	readonly here: QuestHere;
 	readonly say: (line: RestLine) => void;
-	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
+	/**
+	 * The largest session file that goes as it is, and the largest bundle
+	 * or patch any tree may send; `SHARE_LARGEST_FILE` unless a test names
+	 * one.
+	 */
 	readonly largestFile?: number;
 }
 
@@ -123,16 +127,23 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 				.map((tree) => tree.path),
 		]),
 	].filter(unhandled);
-	const quest = await carryQuestTrees(
-		exec,
-		left,
-		into,
-		home,
-		here.quest,
-		largest,
-	);
-	tell(here.quest, quest.trees);
-	if (quest.file !== undefined) files.push(quest.file);
+	try {
+		const quest = await carryQuestTrees(
+			exec,
+			left,
+			into,
+			home,
+			here.quest,
+			largest,
+		);
+		tell(here.quest, quest.trees);
+		if (quest.file !== undefined) files.push(quest.file);
+	} catch (error) {
+		// Its earlier carry was put back; mycelium hears why from the failed line.
+		refused.push(
+			`the quest's own trees: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 	say({ kind: "done", files });
 	if (refused.length === 0) return true;
 	say({
