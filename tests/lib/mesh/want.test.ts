@@ -38,9 +38,13 @@ describe("a want", () => {
 			wantFrom({ kind: "question", since, said: "Go on?", asked });
 
 		expect(read("First.\n\n\nGo\u001b on?")?.asked).toBe("First.\n\nGo on?");
+		expect(read(`${"x".repeat(ASKED_CHARS - 4)}\nGo?`)?.asked).toHaveLength(
+			ASKED_CHARS,
+		);
 		expect(
-			read("x".repeat(ASKED_CHARS * 2))?.asked?.length,
-		).toBeLessThanOrEqual(ASKED_CHARS);
+			read("x".repeat(ASKED_CHARS + 1)),
+			"one longer than any harness writes",
+		).not.toHaveProperty("asked");
 		expect(read("Go on?"), "one that says no more").not.toHaveProperty("asked");
 		expect(read(7), "one that is no text").not.toHaveProperty("asked");
 		expect(read(undefined), "an older harness's").not.toHaveProperty("asked");

@@ -36,6 +36,7 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { sessionCell } from "../../core/session/index.ts";
 import { oneLine as folded } from "../../mesh/one-line.ts";
+import { scrubSecrets } from "../secrets/secrets.ts";
 
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
@@ -171,25 +172,61 @@ export function oneLine(text: string): string {
 export const ASKED_CHARS = 4000;
 
 /**
- * The whole of what a want asks, its paragraphs kept, or nothing when it
- * says no more than `said`. Each line is held to one as {@link oneLine}
- * holds a line, so nothing in it redraws a reader's screen, blank lines
- * between paragraphs are kept to one, and past {@link ASKED_CHARS} it is
- * cut where the cut shows, saying how much went.
+ * How much of a long ask's start is kept before its cut: enough to say
+ * what it is about, leaving the rest to its end, where a reply puts its
+ * questions and an away run its `Blocked:` line.
+ */
+const HEAD_CHARS = 600;
+
+/**
+ * What may redraw a reader's screen, break a line or hide inside one, as
+ * lib/mesh/one-line.ts names it, less the plain spaces an ask indents
+ * with; a lone half of a surrogate pair too, which a strict reader
+ * refuses.
+ */
+const UNSEEN_CLASS =
+	"[\\p{Cc}\\p{Cf}\\p{Cs}\\p{Zl}\\p{Zp}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
+const UNSEEN = new RegExp(UNSEEN_CLASS, "gu");
+
+/**
+ * The whole of what a want asks, its paragraphs and indentation kept, or
+ * nothing when it says no more than `said`. Nothing in a line may redraw
+ * a reader's screen, blank lines between paragraphs are kept to one, and
+ * past {@link ASKED_CHARS} its middle is cut where the cut shows, saying
+ * how much went, so its start and its end, where the questions are, stay.
  */
 export function wholeAsk(text: string, said: string): string | undefined {
 	const whole = text
 		.split(/\r?\n/)
-		.map(folded)
+		.map((line) => line.replace(UNSEEN, " ").trimEnd())
 		.join("\n")
 		.replace(/\n{3,}/g, "\n\n")
-		.trim();
-	if (whole === "" || whole === said) return undefined;
-	if (whole.length <= ASKED_CHARS) return whole;
-	const cut = (gone: number) => `\n\u2026 (${gone} more characters cut)`;
+		.replace(/^\n+|\s+$/g, "");
+	if (whole.trim() === "" || whole.trim() === said) return undefined;
+	return whole.length <= ASKED_CHARS ? whole : middleCut(whole);
+}
+
+/** `whole` held to {@link ASKED_CHARS}, its middle cut where the cut shows. */
+function middleCut(whole: string): string {
+	const note = (gone: number) => `\n\n\u2026 (${gone} characters cut)\n\n`;
 	// The note's count never has more digits than the whole's length.
-	const kept = whole.slice(0, ASKED_CHARS - cut(whole.length).length).trimEnd();
-	return `${kept}${cut(whole.length - kept.length)}`;
+	const room = ASKED_CHARS - note(whole.length).length;
+	const head = whole.slice(0, apart(whole, HEAD_CHARS, -1)).trimEnd();
+	const from = apart(whole, whole.length - (room - head.length), 1);
+	const tail = whole.slice(from).trimStart();
+	return `${head}${note(whole.length - head.length - tail.length)}${tail}`;
+}
+
+/**
+ * `at`, or the index a step `by` from it when `at` falls between the two
+ * halves of a surrogate pair, so a cut there never splits a character.
+ */
+function apart(text: string, at: number, by: -1 | 1): number {
+	const low = text.charCodeAt(at);
+	const high = text.charCodeAt(at - 1);
+	const splits =
+		low >= 0xdc00 && low <= 0xdfff && high >= 0xd800 && high <= 0xdbff;
+	return splits ? at + by : at;
 }
 
 /** The wants a session has standing, said on whichever bus is bound. */
@@ -279,7 +316,12 @@ export function createWants(): Wants {
 	return {
 		raise(kind, said, now = new Date(), ask = undefined, asked = undefined) {
 			const line = oneLine(said);
-			const whole = asked === undefined ? undefined : wholeAsk(asked, line);
+			// A presence is read by every peer and kept a day after its session
+			// ends, so a credential a reply quoted goes no further than its log.
+			const whole =
+				asked === undefined
+					? undefined
+					: wholeAsk(scrubSecrets(asked).text, line);
 			const current = standing.get(kind);
 			const want: Standing = current ?? {
 				since: now.toISOString(),

@@ -21,6 +21,7 @@
  */
 
 import {
+	ASKED_CHARS,
 	askFrom,
 	oneLine,
 	type WantAsk,
@@ -95,8 +96,12 @@ export function wantFrom(value: unknown): Want | undefined {
 	const began = new Date(since).toISOString();
 	const ask = askFrom(one.ask);
 	const said = oneLine(one.said);
+	// A writer holds its ask to ASKED_CHARS, so one past it is no harness's
+	// and is not read, rather than folded whole on every census.
 	const asked =
-		typeof one.asked === "string" ? wholeAsk(one.asked, said) : undefined;
+		typeof one.asked === "string" && one.asked.length <= ASKED_CHARS
+			? wholeAsk(one.asked, said)
+			: undefined;
 	return {
 		id: wantId(one.kind, began),
 		kind: one.kind,

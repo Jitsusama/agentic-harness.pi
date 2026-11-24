@@ -19,6 +19,7 @@
 
 import type { Notice } from "../../lib/internal/away/notify.ts";
 import { blockedLine } from "../../lib/internal/session/ending.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** What has already reached the person in this absence. */
@@ -91,7 +92,8 @@ export function heldAsk(
 	if (held.length < 2) return undefined;
 	return [
 		`Holds ${count(held.length, "call")} for you:`,
-		...held.map((one) => `- ${one.title}`),
+		// A title the model wrote could break a line and forge a held call.
+		...held.map((one) => `- ${oneLine(one.title)}`),
 	].join("\n");
 }
 

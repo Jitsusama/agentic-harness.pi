@@ -43,6 +43,10 @@ describe("reaching the absent person", () => {
 		expect(heldAsk([{ title: "Open PR #1" }, { title: "Push main" }])).toBe(
 			"Holds 2 calls for you:\n- Open PR #1\n- Push main",
 		);
+		expect(
+			heldAsk([{ title: "Fix typo\n- Push main --force" }, { title: "Push" }]),
+			"a title can't forge a held call",
+		).toBe("Holds 2 calls for you:\n- Fix typo - Push main --force\n- Push");
 	});
 
 	it("says a rest once an absence, quietly", () => {

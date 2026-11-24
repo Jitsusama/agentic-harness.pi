@@ -206,19 +206,70 @@ describe("a want's whole ask", () => {
 		expect(heard[0]).not.toHaveProperty("asked");
 	});
 
-	it("is cut where the cut shows past what it keeps", () => {
+	it("is cut in its middle, keeping the start and the questions it ends on", () => {
 		const { heard, wants } = bound();
-		const long = `${Array.from({ length: 1000 }, () => "word").join(" ")}\n\nAnd the question?`;
+		const long = `What I did.\n\n${Array.from({ length: 1000 }, () => "word").join(" ")}\n\n1. Keep the cache?\n2. Sign now?`;
 
-		wants.raise("question", "And the question?", AT, undefined, long);
+		wants.raise("question", "2. Sign now?", AT, undefined, long);
 
 		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
 		expect(asked.length).toBeLessThanOrEqual(ASKED_CHARS);
 		expect(asked.length).toBeGreaterThan(ASKED_CHARS - 40);
-		expect(asked).toMatch(/^word word/);
-		const gone = Number(/\((\d+) more characters cut\)$/.exec(asked)?.[1]);
-		const kept = asked.slice(0, asked.lastIndexOf("\n\u2026"));
-		expect(kept.length + gone, "the cut says how much went").toBe(long.length);
+		expect(asked).toMatch(/^What I did\.\n\nword word/);
+		expect(asked).toMatch(/word\n\n1\. Keep the cache\?\n2\. Sign now\?$/);
+		const [head = "", count = "", tail = ""] = asked.split(
+			/\n\n\u2026 \((\d+) characters cut\)\n\n/,
+		);
+		expect(
+			head.length + Number(count) + tail.length,
+			"the cut says how much went",
+		).toBe(long.length);
+	});
+
+	it("never splits a character at its cut", () => {
+		const { heard, wants } = bound();
+		// One letter first, so the start's cut falls inside a pair.
+		const rockets = `x${"\u{1F680}".repeat(ASKED_CHARS)}`;
+
+		wants.raise("question", "Go?", AT, undefined, `${rockets}\nGo?`);
+
+		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
+		expect(asked.length).toBeLessThanOrEqual(ASKED_CHARS);
+		expect(asked, "no lone half of a pair").not.toMatch(/\p{Cs}/u);
+		expect(asked).toMatch(/\nGo\?$/);
+	});
+
+	it("keeps the indentation of its lists and code", () => {
+		const { heard, wants } = bound();
+
+		wants.raise(
+			"question",
+			"2. Signing?",
+			AT,
+			undefined,
+			"1. Cache?\n   - keep  it\n   - drop it\n2. Signing?",
+		);
+
+		expect(heard[0] && "asked" in heard[0] ? heard[0].asked : undefined).toBe(
+			"1. Cache?\n   - keep  it\n   - drop it\n2. Signing?",
+		);
+	});
+
+	it("puts a credential it quotes out of sight", () => {
+		const { heard, wants } = bound();
+		const token = `ghp_${"aB3dE5fG7hJ9kL1mN2pQ4rS6tU8vW0xY2zA4".slice(0, 36)}`;
+
+		wants.raise(
+			"blocked",
+			"Blocked: the push",
+			AT,
+			undefined,
+			`Tried with ${token}.\n\nBlocked: the push`,
+		);
+
+		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
+		expect(asked).toMatch(/Blocked: the push$/);
+		expect(asked).not.toContain(token);
 	});
 
 	it("is said again when it alone changes, and not when nothing does", () => {
@@ -260,7 +311,10 @@ describe("a want's whole ask", () => {
 			heard
 				.filter((one) => one.said !== null)
 				.map((one) => ("asked" in one ? one.asked : undefined)),
-		).toEqual([REPLY.replace(/\n{3,}/g, "\n\n"), "Open PR #1\n\nagainst main"]);
+		).toEqual([
+			"Two things before I go on:\n\n1. Keep the cache?\n2. The signing pause: yes, no or partly?",
+			"Open PR #1\n\nagainst main",
+		]);
 	});
 });
 
