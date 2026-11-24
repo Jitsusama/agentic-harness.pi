@@ -475,7 +475,8 @@ is followed by judgment, not by a regex.
   more often than the shrink-only list in
   `tests/package/code/suppressions-waiting.txt` allows
   (`tests/package/code/linters-stay-on.test.ts`), these two run, main's
-  copy over the head, by `scripts/merge-gate.sh` at every merge as well as
+  copy over the tree the merge would make, by `scripts/merge-gate.sh` at
+  every merge as well as
   by `pnpm test`, 🟢 rule 4's
   unchecked index reads, refused by `pnpm typecheck` under
   `noUncheckedIndexedAccess` in `tsconfig.json`, 🟢 rule 5's programs of more than
