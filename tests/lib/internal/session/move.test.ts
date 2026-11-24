@@ -6,7 +6,11 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { jobsOut, whatHolds } from "../../../../lib/internal/session/free.ts";
+import {
+	heldByRun,
+	jobsOut,
+	whatHolds,
+} from "../../../../lib/internal/session/free.ts";
 import {
 	claimMoveNote,
 	giveBackMoveNote,
@@ -180,10 +184,8 @@ describe("what holds a session from ending", () => {
 		expect(whatHolds(free)).toBeUndefined();
 	});
 
-	it("names the first thing ending it would lose", () => {
-		expect(whatHolds({ ...free, agentIdle: false, jobs: 2 })).toBe(
-			"a run is under way",
-		);
+	it("names each thing ending it would lose", () => {
+		expect(whatHolds({ ...free, agentIdle: false })).toBe("a run is under way");
 		expect(whatHolds({ ...free, pendingMessages: true })).toBe(
 			"messages wait for it",
 		);
@@ -192,6 +194,26 @@ describe("what holds a session from ending", () => {
 		expect(whatHolds({ ...free, typed: true })).toBe(
 			"text is typed and unsent",
 		);
+	});
+
+	// OSPHT4's carry of SEYNT2 on 23 November took three asks, each
+	// refusal naming only the next hold.
+	it("names every thing that holds at once, a run under way first", () => {
+		const all = whatHolds({
+			agentIdle: false,
+			pendingMessages: true,
+			jobs: 1,
+			heldBy: [{ id: "j674", kind: "review", label: "#2061" }],
+			prompting: true,
+			typed: true,
+		});
+
+		expect(all).toBe(
+			"a run is under way; messages wait for it; a review watch is out (j674: #2061); a prompt is open; text is typed and unsent",
+		);
+		expect(heldByRun(all ?? "")).toBe(true);
+		expect(heldByRun("messages wait for it")).toBe(false);
+		expect(heldByRun("a run is under way somewhere")).toBe(false);
 	});
 
 	it("names the jobs that hold by kind and id, in the words /host and a wave print", () => {

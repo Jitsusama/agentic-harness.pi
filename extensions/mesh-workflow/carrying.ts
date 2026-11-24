@@ -6,9 +6,11 @@
  * mycelium waits for written last (lib/internal/carry/carry-away.ts).
  *
  * Its run is ended first and waited out, so the file carried holds the
- * whole session. A tree that can't be carried is named on screen and the
- * rest still go; a session with no quest loaded has no handover to carry
- * into, so it refuses, and stays open.
+ * whole session. It goes whole or not at all: a tree that can't be
+ * carried keeps it here, with what it wrote taken back and that tree
+ * named, since mycelium closes it once its done file is there. A session
+ * with no quest loaded has no handover to carry into, so it refuses, and
+ * stays open.
  *
  * A carry under way holds the doors that would end the process it runs
  * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
@@ -124,9 +126,13 @@ async function carryOut(
 		trees: await treesHeldByNow(id),
 		fence: fenceKindOf(places.env ?? process.env),
 		notes: await (places.notes ?? questNotes)(quest),
+		// The node closes this session once its done file is written, so a
+		// refused tree throws first and the carry is refused, saying why.
+		whole: true,
 	});
+	// Only skipped trees can stay now: on no branch, or gone from here.
 	const stayed = carried.trees.flatMap((one) =>
-		one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
+		one.kind === "skipped" ? [`${one.path}: ${one.why}`] : [],
 	);
 	// Its done file is written, so it has carried: a stale screen that
 	// throws here would report a carry that went as refused, and let a

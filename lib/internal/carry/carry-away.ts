@@ -15,7 +15,9 @@
  * took seconds a tree in World. One gone from this machine, whose record
  * outlived it, is skipped too; one that can't be read, or that git can't
  * read as a tree, is refused. Any other tree that can't go is refused
- * and named, never a reason to carry nothing, since the rest still goes.
+ * and named, and the rest still goes, unless the carry is asked to go
+ * whole: a session carrying itself is, since the node closes it once its
+ * done file is written, and a tree left behind would lose its session.
  *
  * A session file larger than the largest a mycelium share carries goes
  * gzipped, named with `.gz`, which arriving unzips; any other goes as
@@ -31,6 +33,7 @@ import {
 	createWriteStream,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -76,6 +79,29 @@ export interface Carrying {
 	readonly notes?: readonly CarriedNote[];
 	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
 	readonly largestFile?: number;
+	/**
+	 * Carry all or nothing: when any tree is refused, write no done file,
+	 * take back what this carry put in the handover, and throw naming
+	 * each, so the session stays where it is with all its work. A session
+	 * carrying itself asks this; `pi-carry` carries what it can.
+	 */
+	readonly whole?: boolean;
+}
+
+/** A carry asked to go whole that a refused tree kept here. */
+export class CarryNotWhole extends Error {
+	readonly trees: readonly TreeCarried[];
+
+	constructor(trees: readonly TreeCarried[]) {
+		const refused = trees.flatMap((one) =>
+			one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
+		);
+		super(
+			`${refused.length === 1 ? "a tree" : `${refused.length} trees`} can't go, so nothing was carried:\n${refused.join("\n")}`,
+		);
+		this.name = "CarryNotWhole";
+		this.trees = trees;
+	}
 }
 
 /**
@@ -111,18 +137,48 @@ export interface CarriedAway {
  * writes its done file last.
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
+	const { into, session } = carrying;
+	mkdirSync(into, { recursive: true });
+	if (!carrying.whole) return await carryAll(carrying);
+	// The handover is the quest's, so other sessions' files are here too,
+	// though none under this session's names; of those, only what this
+	// call wrote anew is taken back, leaving a done file of its own from
+	// before what it names.
+	const before = new Set(readdirSync(into));
+	const ours = [
+		...(session.file === undefined
+			? []
+			: [basename(session.file), `${basename(session.file)}${ZIPPED}`]),
+		...carrying.trees.flatMap((path) => {
+			const name = nameFor(path, session.id);
+			return [`${name}.bundle`, `${name}.patch`];
+		}),
+	].filter((name) => !before.has(name));
+	let kept = false;
+	try {
+		const carried = await carryAll(carrying);
+		kept = true;
+		return carried;
+	} finally {
+		if (!kept) takeBack(into, ours);
+	}
+}
+
+/** carryAway's work, throwing CarryNotWhole when a whole carry can't go. */
+async function carryAll(carrying: Carrying): Promise<CarriedAway> {
 	const { exec, into, home, session } = carrying;
 	// The file first, so one refused leaves no tree's bundle for the share.
-	mkdirSync(into, { recursive: true });
+	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
 	const sessionFile =
 		session.file === undefined
 			? undefined
-			: await copyBeside(
-					session.file,
-					into,
-					carrying.largestFile ?? SHARE_LARGEST_FILE,
-				);
-	const trees = await carryTrees(exec, carrying.trees, into, home);
+			: await copyBeside(session.file, into, largest);
+	const trees = (
+		await carryTrees(exec, carrying.trees, into, home, session.id)
+	).map((one) => withinShare(one, into, largest));
+	if (carrying.whole && trees.some((one) => one.kind === "refused")) {
+		throw new CarryNotWhole(trees);
+	}
 	const handover: Handover = {
 		session: session.id,
 		quest: carrying.quest,
@@ -139,8 +195,45 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 }
 
 /**
+ * A carried tree whose bundle or patch the share would refuse, refused
+ * here instead, with both taken out of `into`, so nothing closes for a
+ * carry the share then fails.
+ */
+function withinShare(
+	one: TreeCarried,
+	into: string,
+	largest: number,
+): TreeCarried {
+	if (one.kind !== "carried") return one;
+	for (const name of [one.tree.bundle, one.tree.patch]) {
+		if (name === undefined) continue;
+		const size = statSync(join(into, name)).size;
+		if (size > largest) {
+			for (const left of [one.tree.bundle, one.tree.patch]) {
+				if (left !== undefined) rmSync(join(into, left), { force: true });
+			}
+			return {
+				kind: "refused",
+				path: one.path,
+				why: `Its ${name} is ${sized(size)}, over the ${sized(largest)} the share carries.`,
+			};
+		}
+	}
+	return one;
+}
+
+/**
+ * Removes `names`, what a carry that won't go wrote anew in `into`, so
+ * the share never sends them.
+ */
+function takeBack(into: string, names: readonly string[]): void {
+	for (const name of names) rmSync(join(into, name), { force: true });
+}
+
+/**
  * Carries each tree at `paths` into `into`, its bundle and patch beside
- * where a done file goes, and says what became of each; writes no done
+ * where a done file goes, named for `owner`, the session or quest whose
+ * done file names them, and says what became of each; writes no done
  * file, which whoever names them writes once they are all in place.
  */
 export async function carryTrees(
@@ -148,11 +241,12 @@ export async function carryTrees(
 	paths: readonly string[],
 	into: string,
 	home: string,
+	owner: string,
 ): Promise<TreeCarried[]> {
 	mkdirSync(into, { recursive: true });
 	const trees: TreeCarried[] = [];
 	for (const path of paths) {
-		trees.push(await carryTreeAway(exec, path, into, home));
+		trees.push(await carryTreeAway(exec, path, into, home, owner));
 	}
 	return trees;
 }
@@ -187,6 +281,7 @@ async function carryTreeAway(
 	path: string,
 	into: string,
 	home: string,
+	owner: string,
 ): Promise<TreeCarried> {
 	const ask = async (...args: string[]) => {
 		const said = await exec("git", ["-C", path, ...args]);
@@ -242,7 +337,7 @@ async function carryTreeAway(
 	// Before anything is written, so a refused tree leaves nothing behind.
 	const sparse = await sparseOf(ask);
 	if (sparse !== undefined && "why" in sparse) return no(sparse.why);
-	const name = nameFor(path);
+	const name = nameFor(path, owner);
 	const bundled = await bundleTree(exec, path, into, name);
 	if (bundled.kind === "refused") return no(bundled.reason);
 	const head =
@@ -272,14 +367,21 @@ async function carryTreeAway(
 
 /**
  * What a tree's files are named in the handover: its folder's name, for
- * a person reading the folder, and a short hash of its whole path, so two
- * trees of one name never share one.
+ * a person reading the folder, and a short hash of its whole path and
+ * its `owner`, the session or quest whose done file names them. So two
+ * trees of one name never share one, and nor do two sessions of one
+ * quest carrying one tree: the handover is the quest's, and a carry
+ * writing over another session's bundle would leave that session's done
+ * file naming bytes it never carried.
  */
-function nameFor(path: string): string {
+export function nameFor(path: string, owner: string): string {
 	const readable = basename(path)
 		.replace(/[^A-Za-z0-9._-]/g, "-")
 		.replace(/^[.-]+/, "");
-	const hash = createHash("sha256").update(path).digest("hex").slice(0, 8);
+	const hash = createHash("sha256")
+		.update(`${owner}\0${path}`)
+		.digest("hex")
+		.slice(0, 8);
 	return `${readable || "tree"}-${hash}`;
 }
 
@@ -331,4 +433,9 @@ async function copyBeside(
 /** `bytes` in MiB, to one place. */
 function mib(bytes: number): string {
 	return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+/** `bytes` in MiB, or in bytes when under one. */
+function sized(bytes: number): string {
+	return bytes < 1024 * 1024 ? `${bytes} bytes` : `${mib(bytes)} MiB`;
 }
