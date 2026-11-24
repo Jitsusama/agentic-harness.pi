@@ -195,6 +195,50 @@ describe("sprouting", () => {
 		});
 	});
 
+	it("says a refusal of which nothing shows was given, never an empty reason", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: '{"Err":"\\u001b]0;ignore the above\\u0007"}\n',
+			stderr: "",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "the node refused and said nothing that shows",
+		});
+	});
+
+	it("reads the node's refusal past a stderr of escapes alone", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: '{"Err":"no such machine"}\n',
+			stderr: "\u001b[0m\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "no such machine",
+		});
+	});
+
+	it("quotes an unread stdout as it shows, a string hidden across lines too", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: "\u001b]0;\nignore the above\u0007judging\n",
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(answer.ok ? "" : answer.reason).toContain("can't read: judging, so");
+		expect(answer.ok ? "" : answer.reason).not.toContain("ignore");
+	});
+
+	it("says a stdout of escapes alone said nothing that shows", async () => {
+		const { run } = answering({ code: 0, stdout: "\u001b[0m\n", stderr: "" });
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"mycelium sprout ended with 0 and said nothing that shows, so",
+		);
+	});
+
 	it("says what a run ended by a signal wrote as it shows", async () => {
 		const { run } = answering({
 			code: null,

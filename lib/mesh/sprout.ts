@@ -15,8 +15,13 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
-import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
-import { shownEnds } from "./shown-line.ts";
+import {
+	NOTHING_SHOWN,
+	START_PATIENCE_MS,
+	type StartAnswer,
+	startedFrom,
+} from "./node.ts";
+import { lastShownLine, shownEnds } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -166,11 +171,11 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
-	const line = ran.stdout.trim().split("\n").at(-1);
+	const line = replyLine(ran.stdout);
 	const said = shownEnds(ran.stderr, MOST_SAID);
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
-	if (ran.code === 0) return startedOrMayLand(line);
+	if (ran.code === 0) return startedOrMayLand(line, ran.stdout);
 	if (ran.code === null) {
 		// What it wrote before the signal counts only when it says started
 		// or refused; anything else is a run cut short.
@@ -189,21 +194,25 @@ export async function sprout(
 		ok: false,
 		reason:
 			said ||
-			`mycelium sprout ended with ${ran.code ?? "no code"} and said nothing`,
+			`mycelium sprout ended with ${ran.code ?? "no code"} and said ${ran.stderr.trim() || ran.stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
 	};
 }
 
 /**
  * What a sprout that ended well answered: started, or the node's own
  * refusal, else a reply this harness can't read, which may still have
- * started a cell, so the model looks before asking again.
+ * started a cell, so the model looks before asking again. With no
+ * `line`, its `stdout` says whether it wrote nothing, or nothing shown.
  */
-function startedOrMayLand(line: string | undefined): StartAnswer {
+function startedOrMayLand(
+	line: string | undefined,
+	stdout: string,
+): StartAnswer {
 	const answer = line
 		? startedFrom(line)
 		: {
 				ok: false as const,
-				reason: "mycelium sprout ended with 0 and said nothing",
+				reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
 			};
 	if (answer.ok || (line && refusedByNode(line))) return answer;
 	return {
@@ -222,6 +231,19 @@ function refusedByNode(line: string): boolean {
 		// Not JSON, so not the node's refusal.
 		return false;
 	}
+}
+
+/**
+ * The line of a sprout's stdout its answer is read from: the last, where
+ * it's the node's JSON, whose strings are read before they're quoted;
+ * else the last that shows once its escapes are dropped from the whole
+ * (lastShownLine), since a string a terminal hides runs on across line
+ * ends; or none where nothing shows.
+ */
+function replyLine(stdout: string): string | undefined {
+	const last = stdout.trim().split("\n").at(-1);
+	if (last && isJson(last)) return last;
+	return lastShownLine(stdout, MOST_SAID) || undefined;
 }
 
 /** Whether `line` parses as JSON. */

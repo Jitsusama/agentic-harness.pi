@@ -1812,6 +1812,12 @@ describe("a sprouted session's start", () => {
 			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
 			// A control reads as a space.
 			["refused\there\u009B\n", "refused here"],
+			// An ESC another cancels is left as a space, never read again as
+			// taking the reason's first letter.
+			["\u001b\u001b[0mrefused here\n", "refused here"],
+			// Sequences are dropped, not carried out, so words a terminal would
+			// conceal are still quoted, as the cleaner's header says.
+			["\u001b[8mhidden\u001b[0m refused\n", "hidden refused"],
 			// The paragraph separator and the next line end a line too.
 			["asked the node\u2029refused\n", "refused"],
 			["asked the node\u0085refused\n", "refused"],

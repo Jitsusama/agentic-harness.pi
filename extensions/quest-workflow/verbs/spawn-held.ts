@@ -47,6 +47,7 @@ import {
 import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	agentsAt,
+	NOTHING_SHOWN,
 	type NodeStart,
 	type NodeStarted,
 	nodeSocket,
@@ -61,6 +62,7 @@ import {
 	needWords,
 	type PlaceAnswer,
 } from "../../../lib/mesh/placement.ts";
+import { lastShownLine, shownEnds } from "../../../lib/mesh/shown-line.ts";
 import {
 	describePlan,
 	type OpenedTerminal,
@@ -218,6 +220,12 @@ export type ShareQuest = (
 	questId: string,
 ) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
 
+/** The most characters quoted of why a quest couldn't be shared. */
+const MOST_SHARE_SAID = 200;
+
+/** The most characters quoted of why the node placed a spawn nowhere. */
+const MOST_PLACE_SAID = 500;
+
 /** How long sharing a quest may take before the spawn goes on without. */
 const SHARE_PATIENCE_MS = 60_000;
 
@@ -226,7 +234,8 @@ export function shareThrough(exec: Exec): ShareQuest {
 	return async (questId) => {
 		const { code, stdout, stderr } = await exec("mycelium", ["share", questId]);
 		if (code === 0) return { ok: true };
-		const said = (stderr.trim() || stdout.trim()).split("\n").at(-1);
+		// Quoted as it shows, since what share relays may be a peer's.
+		const said = lastShownLine(stderr.trim() || stdout.trim(), MOST_SHARE_SAID);
 		return { ok: false, reason: said || `mycelium share exited ${code}` };
 	};
 }
@@ -383,7 +392,8 @@ export async function machineFor(
 	if (!answer.ok) {
 		return {
 			ok: false,
-			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${answer.reason}.`,
+			// Quoted as it shows, since the node's words may relay a peer's.
+			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${shownEnds(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN}.`,
 		};
 	}
 	return { ok: true, machine: answer.machine, needs };
