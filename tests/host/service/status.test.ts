@@ -186,10 +186,11 @@ describe("startLine", () => {
 	});
 
 	// F25: an adopted conversation's id comes from a file the requester names.
-	it("escapes a named conversation's id", () => {
+	// F47: its address, the id's last eight characters, is escaped too.
+	it("escapes a named conversation's id, and the address made from it", () => {
 		expect(
-			startLine("id\u001bx", { op: "open", cwd: "/w" }, 1_000, [], 1_500),
-		).toContain("(id\\u001bx): its open took 0.5 s");
+			startLine("id\u001bx\nyz", { op: "open", cwd: "/w" }, 1_000, [], 1_500),
+		).toBe("ID\\u001bX\\nYZ (id\\u001bx\\nyz): its open took 0.5 s");
 	});
 });
 

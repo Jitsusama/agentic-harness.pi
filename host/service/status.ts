@@ -140,7 +140,7 @@ export function startLine(
 						? `opening in ${onOneLine(request.cwd)}`
 						: `adopted from ${onOneLine(request.sessionFile)}`
 				}`
-			: `${sessionAddress(sessionId)} (${onOneLine(sessionId)})`;
+			: `${onOneLine(sessionAddress(sessionId))} (${onOneLine(sessionId)})`;
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
 }
@@ -157,7 +157,7 @@ const NAMED_ESCAPES: Readonly<Record<string, string>> = {
  * character (C0, DEL and C1) written as an escape, so they can't break the
  * journal entry they are said in, forge another or move a terminal's cursor.
  */
-function onOneLine(text: string): string {
+export function onOneLine(text: string): string {
 	return text.replace(
 		/\p{Cc}/gu,
 		(control) =>

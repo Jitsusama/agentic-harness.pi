@@ -61,7 +61,8 @@ parentPort.on("message", (told) => {
 // From when it was armed, since a starved machine may be slow to start it:
 // the wall clock once, to learn what is owed, then this thread's monotonic
 // clock, so a wall clock stepped back can't hold the end past systemd's kill.
-const owed = Math.max(0, within - (Date.now() - began));
+// Never more than it was armed with, should the clock step back before then.
+const owed = Math.min(within, Math.max(0, within - (Date.now() - began)));
 const armed = performance.now();
 function fire() {
 	// A timer may fire a millisecond early: never end it early.

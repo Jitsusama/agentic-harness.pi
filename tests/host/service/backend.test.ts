@@ -259,6 +259,38 @@ describe("hostBackend", () => {
 		]);
 	});
 
+	// F48: an adopted conversation's id comes from a file the requester
+	// names, so the undo's line escapes it as the start's line does.
+	it("escapes the conversation's id in the line saying its undo failed", async () => {
+		const said: string[] = [];
+		const failing = engine({
+			prepare: vi.fn(async () => ({
+				sessionId: "id\npi-host: forged",
+				file: join(dir, `${randomUUID()}.jsonl`),
+				cwd: dir,
+			})),
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+			discard: vi.fn(async () => {
+				throw new Error("its folder is gone");
+			}),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: besideStarts(said),
+		});
+		await expect(backend.execute(anOpen())).rejects.toThrow(
+			"extension load failed",
+		);
+		expect(said.filter((line) => line.includes("undoing"))).toEqual([
+			"id\\npi-host: forged: undoing its failed start failed too, discarding its engine: its folder is gone",
+		]);
+	});
+
 	// F22: each undo is named, so a failed drop reads apart from a failed discard.
 	it("says which undo failed when its hold can't be dropped", async () => {
 		const said: string[] = [];

@@ -39,7 +39,12 @@ const child = `
 import { backstopStop } from ${JSON.stringify(BACKSTOP)};
 const [mode, file] = process.argv.slice(2);
 const ids = mode === "parked" ? [] : ["a", "b"];
+// The loop's wall clock ten minutes ahead of the thread's, as when the clock
+// is stepped back between arming and the thread starting.
+const wallClock = Date.now;
+if (mode === "stepped") Date.now = () => wallClock() + 600_000;
 const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
+Date.now = wallClock;
 if (mode === "moved") backstop.held(["b"]);
 if (mode === "done") {
 	backstop.done();
@@ -115,6 +120,15 @@ describe("backstopStop", () => {
 		expect(waited, "counted from when it was armed").toBeGreaterThanOrEqual(
 			WITHIN_MS,
 		);
+	});
+
+	// F49: what is owed never passes what it was armed with.
+	it("still ends within its bound when the wall clock steps back before its thread starts", {
+		timeout: 2 * CHILD_MS,
+	}, async () => {
+		const ended = await run("stepped", join(dir, "not-parked.json"));
+		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
+		expect(ended.took, "well short of its spin").toBeLessThan(CHILD_MS / 2);
 	});
 
 	it("names what was unparked as last told, which the held loop can't update", {
