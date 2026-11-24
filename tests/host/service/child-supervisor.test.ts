@@ -10,7 +10,10 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { childSupervisor } from "../../../host/service/child-supervisor.ts";
+import {
+	childSupervisor,
+	STARTS_AT_ONCE,
+} from "../../../host/service/child-supervisor.ts";
 import { slotOf } from "../../../host/service/child-units.ts";
 import {
 	a,
@@ -780,6 +783,225 @@ describe("a resumed conversation", () => {
 		const now = childOf(a);
 		expect(now, "a new child").not.toBe(last);
 		expect(routes.routeOf(a)?.identity).toEqual(now.identity);
+	});
+});
+
+/** A conversation's id, the `n`th of several a case starts at once. */
+function nth(n: number): string {
+	return `c0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+
+/** The unit a conversation's child runs as. */
+function unitOf(sessionId: string): string {
+	return slotOf(folder, key, sessionId).unit;
+}
+
+/**
+ * Each unit's start as the supervisor asks it, beside how many children
+ * had answered by then, and how many were then between their own start
+ * and their first answer.
+ */
+function startsWatched(answered: () => number): {
+	order: string[];
+	answered: number[];
+	waiting: number[];
+} {
+	const start = units.start;
+	const seen = {
+		order: [] as string[],
+		answered: [] as number[],
+		waiting: [] as number[],
+	};
+	units.start = (unit) => {
+		seen.order.push(unit);
+		seen.answered.push(answered());
+		seen.waiting.push(seen.order.length - answered());
+		return start(unit);
+	};
+	return seen;
+}
+
+describe("children starting at once", () => {
+	it("starts no more than two children before one answers, and every one in turn", async () => {
+		const ids = [1, 2, 3, 4, 5].map(nth);
+		let answered = 0;
+		const seen = startsWatched(() => answered);
+
+		const resumed = await Promise.all(
+			ids.map((id) =>
+				supervisor.resume(entry(id)).then((one) => {
+					answered += 1;
+					return one;
+				}),
+			),
+		);
+
+		expect(
+			Math.max(...seen.waiting),
+			"children started and not yet answered, at each start",
+		).toBeLessThanOrEqual(2);
+		expect(resumed.map(({ sessionId }) => sessionId)).toEqual(ids);
+		expect(units.started).toHaveLength(5);
+		expect(STARTS_AT_ONCE).toBe(2);
+	});
+
+	it("times a child's listening from its own start, not from the wait for its turn", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, answersWithinMs: 5_000 },
+		});
+		const first = nth(1);
+		const second = nth(2);
+		const third = nth(3);
+		// The first two keep the gate for a second, answering their watches
+		// late, past the 300 ms the third may take to listen.
+		units.traitsOf = (unit) =>
+			unit === unitOf(third) ? {} : { answersWatchAfterMs: 1_000 };
+		let answered = 0;
+		const seen = startsWatched(() => answered);
+		const count = (one: Promise<unknown>) =>
+			one.then(() => {
+				answered += 1;
+			});
+
+		// The third asked last, so it is the one left waiting.
+		const ahead = [first, second].map((id) =>
+			count(supervisor.resume(entry(id), false, true)),
+		);
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		await Promise.all([
+			...ahead,
+			count(supervisor.resume(entry(third), false, true)),
+		]);
+
+		expect(routes.routeOf(third), "resumed, not given up").toBeDefined();
+		expect(
+			seen.answered[seen.order.indexOf(unitOf(third))],
+			"its unit started only once another answered",
+		).toBeGreaterThan(0);
+	}, 15_000);
+
+	it("starts a wake before the resumes queued ahead of it", async () => {
+		// Each held apart, so one turn is freed at a time: two freed at once
+		// let their starts race to systemd in either order.
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
+		const first = nth(1);
+		const second = nth(2);
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
+		const starting = [
+			supervisor.resume(entry(first)),
+			supervisor.resume(entry(second)),
+		];
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const queued = [3, 4, 5].map(nth);
+		const woken = nth(6);
+		const later = queued.map((id) => supervisor.resume(entry(id)));
+		const waking = supervisor.resume(entry(woken), true);
+		// Long enough for each queued start to reach its unit's start were
+		// there no gate, so a red names starts past it, not a race.
+		await pause(100);
+		expect(units.started, "none past the gate while it is full").toHaveLength(
+			2,
+		);
+
+		holdingFirst.settle();
+		await waking;
+		expect(units.started[2], "the wake given the first turn freed").toBe(
+			unitOf(woken),
+		);
+
+		holdingSecond.settle();
+		await Promise.all([...starting, ...later]);
+		expect(units.started.slice(3).sort(), "then the rest").toEqual(
+			queued.map(unitOf).sort(),
+		);
+	});
+
+	it("lets a wake given up while it waits at the gate go at once, starting no child for it", async () => {
+		const holding = deferred();
+		units.traitsOf = () => ({ listensWhen: holding.promise });
+		const starting = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const woken = nth(3);
+		const waking = supervisor.resume(entry(woken), true);
+		const outcome = expect(waking).rejects.toThrow("was given up");
+		// Long enough for it to reach its unit's start were there no gate.
+		await pause(100);
+		const asked = Date.now();
+
+		supervisor.giveUp(woken);
+
+		await outcome;
+		expect(Date.now() - asked, "at once").toBeLessThan(1_000);
+		holding.settle();
+		await Promise.all(starting);
+		expect(units.started, "no unit started for it").not.toContain(
+			unitOf(woken),
+		);
+	});
+
+	// A starved child nobody bounds is waited on for minutes; holding its
+	// turn all that time would hold every other start on the host.
+	it("gives a turn back once it has been held its whole time, so starts that hang leave the rest to start", async () => {
+		superviseAgain({ clocks: { turnHeldWithinMs: 300 } });
+		const systemd = deferred();
+		const start = units.start;
+		units.start = async (unit) => {
+			await start(unit);
+			if (units.started.length <= 2) await systemd.promise;
+		};
+		const hanging = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const asked = Date.now();
+
+		const after = await supervisor.resume(entry(nth(3)));
+
+		expect(after.sessionId).toBe(nth(3));
+		expect(
+			Date.now() - asked,
+			"once a turn was held its time, not when a hung start settles",
+		).toBeLessThan(2_000);
+		systemd.settle();
+		await Promise.allSettled(hanging);
+	});
+
+	it("starts none of the children waiting at the gate once the host stops watching, letting each go at once", async () => {
+		// The first two hang in systemd's start, so neither gives its turn
+		// back: only the stop itself can let the waiting ones go.
+		const systemd = deferred();
+		const start = units.start;
+		units.start = async (unit) => {
+			await start(unit);
+			await systemd.promise;
+		};
+		const starting = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const waiting = [3, 4, 5].map((n) => supervisor.resume(entry(nth(n))));
+		// Long enough for each to reach its unit's start were there no gate.
+		await pause(100);
+		const stopped = Date.now();
+
+		supervisor.close();
+
+		for (const one of waiting)
+			await expect(one).rejects.toThrow("stopped watching");
+		expect(Date.now() - stopped, "let go at once").toBeLessThan(1_000);
+		expect(units.started, "none started past the gate").toHaveLength(2);
+		systemd.settle();
+		for (const one of starting)
+			await expect(one).rejects.toThrow("stopped watching");
+		// Each started child listens later, and is left for the next host.
+		await vi.waitFor(() =>
+			expect(
+				[...units.children.values()].every(Boolean),
+				"every started child listening",
+			).toBe(true),
+		);
 	});
 });
 

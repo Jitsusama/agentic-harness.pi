@@ -29,6 +29,7 @@ import type {
 	EngineOptions,
 	HostedView,
 } from "./contract.ts";
+import { FOLDER_GONE_TYPE, folderGoneLine, toldOfMove } from "./gone-folder.ts";
 import type { HarnessRequest } from "./harness-settings.ts";
 import { bindHeadless } from "./headless.ts";
 import type { HeldLogs } from "./held-logs.ts";
@@ -492,11 +493,28 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		mark?.("screen");
 		const recovery = await agent.recover(turn);
 		mark?.("recovery");
+		// Told once the recovery settles: while the run it shows is under way the
+		// message is held to that run's next turn end, which is after the next
+		// answer, so the model answered before it knew (engine.test, 23 November).
+		const tell = async (): Promise<void> => {
+			const { left } = record.traits;
+			if (!left || toldOfMove(sessionManager.getEntries(), left, cwd)) return;
+			await runtime.session.sendCustomMessage(
+				{
+					customType: FOLDER_GONE_TYPE,
+					content: folderGoneLine(left, cwd),
+					display: true,
+					details: { left, now: cwd },
+				},
+				{ triggerTurn: false },
+			);
+		};
 		if (first === undefined) {
-			recovery.settled.catch(report);
+			recovery.settled.then(tell).catch(report);
 			return;
 		}
 		await recovery.settled;
+		await tell();
 		await promptFirst(record, agent, first);
 		mark?.("first");
 	}

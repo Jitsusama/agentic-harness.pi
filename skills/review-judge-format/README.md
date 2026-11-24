@@ -12,7 +12,7 @@ Read [`SKILL.md`](./SKILL.md) for the contract. The reader it describes
 is [`lib/core/review/ask/harvest.ts`][harvest], called with a judge origin by
 [`lib/core/review/ask/judge.ts`][judge].
 
-Related: [`review-council-format`](../review-council-format) for the
+Related: [`review-finding-format`](../review-finding-format) for the
 shared finding shape, and [`review-guide`](../review-guide) for driving
 the tools.
 

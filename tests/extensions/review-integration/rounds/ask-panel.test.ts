@@ -388,6 +388,24 @@ describe("cancelling a round", () => {
 		expect(watch.signal.aborted, "a fresh round starts live").toBe(false);
 	});
 
+	it("starts stopped when its outer signal was cancelled before it began", () => {
+		// An AbortSignal fires its event once, so a turn cancelled before
+		// the round was watched would otherwise leave the round running.
+		const outer = new AbortController();
+		outer.abort();
+
+		const watch = watchRound("council", null, outer.signal);
+
+		expect(
+			watch.signal.aborted,
+			"a round under a cancelled turn starts stopped",
+		).toBe(true);
+		expect(
+			watch.signalFor("test-skeptic").aborted,
+			"its participants start stopped too",
+		).toBe(true);
+	});
+
 	it("reaches every participant when the whole round is cancelled", () => {
 		// The point of deriving them: Escape must stop work already in
 		// flight, not only work not yet started.

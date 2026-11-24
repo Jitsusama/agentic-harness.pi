@@ -28,6 +28,8 @@ export interface ConversationTraits {
 	readonly cwd: string;
 	readonly attended: boolean;
 	readonly quest?: string;
+	/** The folder its log names, gone when it opened, so it runs in `cwd` instead. */
+	readonly left?: string;
 }
 
 /** One conversation as a screen drives it. */

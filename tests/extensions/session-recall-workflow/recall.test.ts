@@ -134,7 +134,7 @@ describe("the session recall tool", () => {
 			expect(answer.content[0]?.text).toBe("[old1] the ancient flake");
 			expect(write).toHaveBeenCalledWith(
 				expect.stringMatching(
-					/^session-recall-workflow: conversation \S+ read [\d.]+ MiB from 1 log\(s\) on disk, 1 entries, in \d+ ms\n$/,
+					/^session-recall-workflow: conversation \S+ read [\d.]+ MiB from 1 log on disk, 1 entry, in \d+ ms\n$/,
 				),
 			);
 		} finally {
@@ -276,13 +276,13 @@ describe("the session recall tool", () => {
 			const lines = write.mock.calls.map(([text]) => String(text));
 			expect(lines).toEqual([
 				expect.stringMatching(
-					/ read [\d.]+ MiB from 0 log\(s\) on disk, 0 entries, in \d+ ms\n$/,
+					/ read [\d.]+ MiB from 0 logs on disk, 0 entries, in \d+ ms\n$/,
 				),
 				expect.stringMatching(
 					/ found no history in ".*parent\.jsonl" \(it is not a regular file, or holds no readable entry with its record's leaf id\)/,
 				),
 				expect.stringMatching(
-					/ from 1 log\(s\) on disk, 2 entries, 2 read a second time, in \d+ ms\n$/,
+					/ from 1 log on disk, 2 entries, 2 read a second time, in \d+ ms\n$/,
 				),
 			]);
 		} finally {

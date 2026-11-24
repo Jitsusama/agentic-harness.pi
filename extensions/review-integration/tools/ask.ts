@@ -169,13 +169,8 @@ export async function runAsk(
 					case "stack":
 						return await askStack(pi, bound, params, seat, watch("stack"));
 					case "retry":
-						return await retryOne(
-							bound,
-							change,
-							params,
-							seat,
-							watch("council"),
-						);
+						// Watched once it knows whose role it asks again.
+						return await retryOne(bound, change, params, seat, watch);
 					case "release":
 						return releaseIdentity(params);
 				}

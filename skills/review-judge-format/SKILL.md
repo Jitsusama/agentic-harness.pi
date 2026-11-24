@@ -2,15 +2,16 @@
 name: review-judge-format
 description: >
   Output contract for a consolidating judge in a review_ask
-  judge round. The same finding shape as a council reviewer,
-  plus raisedBy for recording agreement. Loaded into the
+  judge round. The review-finding-format shape a council
+  reviewer answers in, plus raisedBy for recording agreement. Loaded into the
   judge subagent via --skill.
 ---
 
 # What a Consolidating Judge Answers With
 
-The same shape a council reviewer answers with, because a consolidated
-finding is a finding. Answer with one JSON object holding a `findings`
+The shape [`review-finding-format`](../review-finding-format) gives,
+which a council reviewer answers in too, because a consolidated finding
+is a finding. Answer with one JSON object holding a `findings`
 array; with nothing surviving consolidation, answer
 `{"findings": []}`.
 
@@ -31,9 +32,12 @@ survives consolidation: a finding you record and then leave out of your
 answer stays out, because choosing is your job. Recording only rescues
 the round when you never got to answer at all.
 
-Every field is as [`review-council-format`](../review-council-format)
+Every field is as [`review-finding-format`](../review-finding-format)
 describes it, including the three location kinds and what happens to a
-field that will not read. One extra field matters here.
+field that will not read. That skill is loaded beside this one: its
+field table is the only shape to answer in (no fields of your own such
+as `category`, or a top-level `file` and `line`), however the prompt
+lays the council's findings out for you. One extra field matters here.
 
 ## Recording Agreement
 

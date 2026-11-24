@@ -85,7 +85,7 @@ describe("what a reviewer inherits", () => {
 			const call = argumentsOf(source, source.indexOf(`await ${which}({`));
 			return {
 				which,
-				contract: call.includes("extraSkills: [contract]"),
+				contract: call.includes("extraSkills: contract,"),
 				journal: call.includes("journalPack()"),
 			};
 		});
