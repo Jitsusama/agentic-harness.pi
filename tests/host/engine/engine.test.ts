@@ -866,7 +866,13 @@ describe("the host's engine", () => {
 		"holds only the kept history of a compacted log it resumes, adopts, or that a command switches it to",
 		async () => {
 			const seen = await step(hostFolder(), "kept-history");
-			const held = { record: true, keptNext: true, earlyHeld: false };
+			const held = {
+				record: true,
+				keptAfterItsParent: true,
+				earlyHeld: false,
+				userMessages: 3,
+				forks: ["early", "kept", "after"],
+			};
 			expect(seen.keptHistory).toEqual({
 				resumed: held,
 				adopted: held,

@@ -181,6 +181,18 @@ const POINTING: Record<string, string> = {
 	context_edit: "targetId",
 };
 
+/**
+ * The id of the entry `entry` points at, for a type kept only beside
+ * what it points at, such as a label: "", which names no entry, when its
+ * target is missing; undefined for any other type.
+ */
+export function pointedAt(entry: Entry): string | undefined {
+	const field = POINTING[entry.type];
+	if (field === undefined) return undefined;
+	const target = entry[field];
+	return typeof target === "string" ? target : "";
+}
+
 /** The name pi gives a log started at `at` with id `id`. */
 export function sessionFileName(id: string, at: Date): string {
 	return `${at.toISOString().replace(/[:.]/g, "-")}_${id}.jsonl`;
@@ -414,8 +426,8 @@ export function keptView(
 	];
 	const kept = new Set(chosen.map((entry) => entry.id));
 	const entries = chosen.filter((entry) => {
-		const field = POINTING[entry.type];
-		return field === undefined || kept.has(entry[field] as string);
+		const target = pointedAt(entry);
+		return target === undefined || kept.has(target);
 	});
 	const dropped = branch.length - entries.length;
 	if (dropped === 0) return undefined;
