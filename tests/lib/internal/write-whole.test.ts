@@ -84,6 +84,20 @@ describe("writing a file whole", () => {
 		expect(readFileSync(file, "utf8")).toBe("old");
 		expect(readdirSync(join(dir, WRITING))).toEqual([]);
 	});
+
+	it("leaves it as it was, and nothing staged, when what writes the pieces answers a promise", () => {
+		const file = join(dir, "log.jsonl");
+		writeFileSync(file, "old");
+
+		expect(() =>
+			writeWholeBy(file, async (write) => {
+				write("half");
+			}),
+		).toThrow("what fills it answered a promise");
+
+		expect(readFileSync(file, "utf8")).toBe("old");
+		expect(readdirSync(join(dir, WRITING))).toEqual([]);
+	});
 });
 
 describe("clearing what a writer left", () => {

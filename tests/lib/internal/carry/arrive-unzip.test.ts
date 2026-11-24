@@ -4,7 +4,7 @@
  * as likely newer than it.
  */
 
-import { readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,19 +21,26 @@ afterEach(() => removeAll(made));
 
 const { carried, arriveAt } = arrivals(made);
 
+const MIB = 1024 * 1024;
+
+/** A session file's text of exactly `bytes` bytes: its header, then one long line. */
+function sessionOf(bytes: number): string {
+	const line = `${JSON.stringify({ type: "session", id: SESSION, cwd: "/x" })}\n`;
+	return `${line}${"m".repeat(bytes - line.length - 1)}\n`;
+}
+
 describe("arriving with a session file not in plain form", () => {
 	it("places nothing from a gzipped session file that unzips past the most arriving unzips, saying why", async () => {
 		const { from } = await carried(undefined, { largestFile: 1000 });
-		const header = JSON.stringify({ type: "session", id: SESSION, cwd: "/x" });
-		// 3 MiB of turns, which gzip to a few KiB, over a 1 MiB most.
+		// 3 MiB, which gzips to a few KiB, over a 1 MiB most.
 		writeFileSync(
 			join(from, `2026-11-07_${SESSION}.jsonl.gz`),
-			gzipSync(`${header}\n${'{"type":"message"}\n'.repeat(3 * 55_189)}`),
+			gzipSync(sessionOf(3 * MIB)),
 		);
 		const home = folder(made, "arriving");
 
 		const { whole, said, store } = await arriveAt(home, from, fakeClock(), [], {
-			largestUnzipped: 1024 * 1024,
+			largestUnzipped: MIB,
 		});
 
 		expect(whole, "a session not placed is not whole").toBe(false);
@@ -51,19 +58,38 @@ describe("arriving with a session file not in plain form", () => {
 
 	it("places a gzipped session file that unzips to just the most arriving unzips", async () => {
 		const { from } = await carried(undefined, { largestFile: 1000 });
-		const line = `${JSON.stringify({ type: "session", id: SESSION, cwd: "/x" })}\n`;
-		const text = `${line}${"m".repeat(1024 * 1024 - line.length - 1)}\n`;
-		writeFileSync(join(from, `2026-11-07_${SESSION}.jsonl.gz`), gzipSync(text));
+		writeFileSync(
+			join(from, `2026-11-07_${SESSION}.jsonl.gz`),
+			gzipSync(sessionOf(MIB)),
+		);
 		const home = folder(made, "arriving");
 
 		const { said } = await arriveAt(home, from, fakeClock(), [], {
-			largestUnzipped: Buffer.byteLength(text),
+			largestUnzipped: MIB,
 		});
 
 		expect(said.at(-1)).toEqual({
 			kind: "sessions",
 			sessions: [{ id: SESSION, cwd: join(home, "src", "app") }],
 		});
+	});
+
+	it("places nothing from a gzipped session file one byte past the most arriving unzips, leaving it to arrive again", async () => {
+		const { from } = await carried(undefined, { largestFile: 1000 });
+		const zipped = join(from, `2026-11-07_${SESSION}.jsonl.gz`);
+		writeFileSync(zipped, gzipSync(sessionOf(MIB + 1)));
+		const home = folder(made, "arriving");
+
+		const { whole, said, store } = await arriveAt(home, from, fakeClock(), [], {
+			largestUnzipped: MIB,
+		});
+
+		expect(whole, "a session not placed is not whole").toBe(false);
+		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
+		expect(readdirSync(store), "nothing placed").toEqual([]);
+		expect(existsSync(zipped), "the carried file stays to arrive again").toBe(
+			true,
+		);
 	});
 
 	it("places nothing from a session file in a form this harness can't read, saying it may be older", async () => {

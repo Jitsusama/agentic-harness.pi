@@ -90,7 +90,8 @@ export function writeWhole(
  * Replace `file` whole with what `fill` writes, a piece at a time, as
  * `writeWhole` does, for content too large to hold at once (a session's
  * log passes 512 MiB). The file is renamed into place only once `fill`
- * returns; one that throws leaves the file as it was.
+ * returns; one that throws leaves the file as it was, and so does one
+ * that answers a promise, since it would still be writing at the rename.
  */
 export function writeWholeBy(
 	file: string,
@@ -102,7 +103,15 @@ export function writeWholeBy(
 	try {
 		const fd = openSync(staged, "w", options.mode);
 		try {
-			fill((piece) => writeAll(fd, piece));
+			const filled: unknown = fill((piece) => writeAll(fd, piece));
+			if (filled instanceof Promise) {
+				filled.catch(() => {
+					// Refused below; what it went on to say is not this write's.
+				});
+				throw new Error(
+					`${file} wasn't written: what fills it answered a promise, so it would still be writing when the file was put in place`,
+				);
+			}
 			if (options.durable) fsyncSync(fd);
 		} finally {
 			closeSync(fd);
