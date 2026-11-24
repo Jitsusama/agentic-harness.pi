@@ -6,6 +6,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	readdirSync,
 	rmSync,
@@ -220,6 +221,32 @@ describe("taking a cut tree out again", () => {
 		expect(readdirSync(join(gitDir, "worktrees"))).toEqual([]);
 		expect(await standing(path, "topic")).toBe(topic);
 	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"leaves the branch of a tree that couldn't be removed, though it can't be seen",
+		async () => {
+			const { gitDir, path, main } = await checkout();
+			const { at, cut: one } = await cut(gitDir, "hidden");
+			await git(path, "update-ref", "refs/heads/topic", main);
+			const refusing = failing("remove", {
+				code: 128,
+				stderr: "fatal: no\n",
+			});
+			// Its folder can't be read, so the tree can't be seen, nor removed.
+			const parent = join(at, "..");
+			chmodSync(parent, 0o000);
+			let left: string | undefined;
+			try {
+				left = await uncut(refusing, one, at, "topic", main);
+			} finally {
+				chmodSync(parent, 0o755);
+			}
+
+			expect(left).toMatch(/, so its branch topic was left where it stands$/);
+			expect(existsSync(at), "the tree is still there").toBe(true);
+			expect(await standing(path, "topic"), "so its branch stays").toBe(main);
+		},
+	);
 
 	it("leaves another tree's entry where its .git is a link to that tree's own", async () => {
 		const { gitDir, path, main } = await checkout();

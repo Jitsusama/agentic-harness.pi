@@ -10,13 +10,7 @@
  * a tree refused once cut, touches nothing in it the arrival didn't make.
  */
 
-import {
-	existsSync,
-	lstatSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-} from "node:fs";
+import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { within } from "../sandbox/tree-git.ts";
@@ -138,7 +132,7 @@ export async function uncut(
 	if (taken !== undefined) {
 		if (settled === undefined) return taken;
 		// Gone, it holds the branch no more, though git's entry may say so.
-		if (!existsSync(path)) {
+		if (isGone(path)) {
 			const put = await putBack(exec, cut, branch, settled);
 			return put === undefined ? taken : `${taken}, and ${put}`;
 		}
@@ -147,6 +141,20 @@ export async function uncut(
 	return settled === undefined
 		? undefined
 		: await putBack(exec, cut, branch, settled);
+}
+
+/**
+ * Whether nothing is at `path`, as the disk says outright: a path that
+ * can't be seen, such as one under a folder that can't be read, may
+ * still be a tree that holds its branch.
+ */
+function isGone(path: string): boolean {
+	try {
+		lstatSync(path);
+		return false;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ENOENT";
+	}
 }
 
 /** Takes out the tree at `path` and its entry; answers why not, or nothing. */
