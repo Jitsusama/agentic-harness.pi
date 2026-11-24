@@ -100,6 +100,7 @@ describe.skipIf(landrun === undefined)(
 		let inFolder: string;
 		let standing: string;
 		let eero: string;
+		let keeper: string;
 		const servers: Server[] = [];
 		const fenced = () => [
 			landrun ?? "landrun",
@@ -119,7 +120,9 @@ describe.skipIf(landrun === undefined)(
 			standing = join(base, "nix-offload-standing.sock");
 			mkdirSync(join(runtimeDir, "eero"), { mode: 0o700 });
 			eero = join(runtimeDir, "eero", "socket");
+			keeper = join(base, "nix-offload-keep.sock");
 			servers.push(
+				await serve(keeper),
 				await serve(letThrough),
 				await serve(inFolder),
 				await serve(standing),
@@ -156,6 +159,53 @@ describe.skipIf(landrun === undefined)(
 				await connects(inFolder, fenced()),
 				"the proxy's socket in its folder wasn't reached through the folder's rule",
 			).toBe(true);
+		});
+
+		it("keeps a fenced command from the keeper of nix-offload's passes, which merge-net trusts", async (context) => {
+			if (!(await connects(letThrough, []))) context.skip();
+
+			// A pass line from inside would claim a check nobody ran outside
+			// (ISXEG8 and 80ECO2, 24 November): the fence hides the socket,
+			// and its Landlock refuses it too.
+			expect(
+				await tries(letThrough, fenced()),
+				"the SSH agent's proxy, which the fence lets through, wasn't reached",
+			).toBe(CONNECTED);
+			expect(
+				await tries(keeper, fenced()),
+				"a fenced command connected to the keeper of passes, or never tried",
+			).toBe(DENIED);
+			expect(NEVER_THROUGH).toContain("/run/nix-offload-keep.sock");
+		});
+
+		it("keeps a strict command given the builders from the keeper's and the standing builders' doors", async (context) => {
+			if (!(await connects(keeper, []))) context.skip();
+
+			// The builders' folders a strict command reads and writes take in
+			// the sockets' own folder here, so a grant that opened a socket
+			// beside them would show; a rule naming the socket reaches it, so
+			// the refusal is the profile's.
+			const strict = [
+				landrun ?? "landrun",
+				"--unrestricted-network",
+				"--ignore-missing",
+				...strictRules({
+					home: base,
+					runtimeDir,
+					cwd: runtimeDir,
+					builders: { readable: [base], writable: [base] },
+				}).flat(),
+			];
+			expect(
+				await tries(keeper, [...strict, "--unix", keeper, "--"]),
+				"the keeper wasn't reached by a strict command with a rule naming it",
+			).toBe(CONNECTED);
+			for (const door of [keeper, standing]) {
+				expect(
+					await tries(door, [...strict, "--"]),
+					`a strict command connected to ${door}, or never tried`,
+				).toBe(DENIED);
+			}
 		});
 
 		it("names the standing builders' door among what never goes through", () => {
