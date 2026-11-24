@@ -2,6 +2,10 @@
  * A carry staged before it reaches the handover: the share sends what it
  * finds there at once, so nothing of a carry may land there before the
  * carry stands, and a carry that fails leaves what an earlier one left.
+ *
+ * Long because each way a carry can fail between staging and the
+ * handover is told through the one mock of node:fs that makes it fail,
+ * which a file of its own would have to repeat.
  */
 
 import { spawnSync } from "node:child_process";
