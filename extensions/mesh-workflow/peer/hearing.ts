@@ -4,6 +4,10 @@
  */
 
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
+import {
+	blockedLine,
+	lastRunText,
+} from "../../../lib/internal/session/ending.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
@@ -327,6 +331,24 @@ export function createHearing(m: MeshState, f: Handing) {
 		// Never while starting: the first prompt is about to run, and pi
 		// refuses a second turn asked for beside it.
 		const idle = !starting && (m.ctx.isIdle?.() ?? false);
+		// An idle peer whose run ended blocked on a peer waits on that peer's
+		// next word, sent to it however it is sent.
+		const blocked = idle
+			? blockedLine(lastRunText(m.ctx.sessionManager) ?? "")
+			: undefined;
+		const awaiting = messages.map(
+			(message) =>
+				blocked !== undefined &&
+				mentions(
+					{ text: blocked },
+					{
+						addresses: everyone.find((one) =>
+							one.addresses.includes(message.from),
+						)?.addresses ?? [message.from],
+						owns: [],
+					},
+				),
+		);
 		const raisedAll: Heed[] = messages.map((message, at) => {
 			// Stopped is absolute: a line, never more, whatever it is.
 			if (stopped[at]) return { attention: "glance", why: STOPPED };
@@ -335,6 +357,7 @@ export function createHearing(m: MeshState, f: Handing) {
 				idle,
 				answers: answeringAt(answering, at),
 				asked: answeringAt(asked, at),
+				...(awaiting[at] ? { awaits: true } : {}),
 				askedEach: asksEach(message, listener),
 				now: Date.now(),
 				...(restating[at] ? { restates: true } : {}),

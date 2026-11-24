@@ -24,8 +24,9 @@
  * job that will wake it.
  */
 
+import { endingOf } from "../../lib/internal/session/ending.ts";
 import type { RunningJob } from "../../lib/jobs/index.ts";
-import { combine, endingOf, type RunSummary } from "./keep-going.ts";
+import { combine, type RunSummary } from "./keep-going.ts";
 
 /**
  * The most words a bare wait runs to. KAN5HP's bare endings ran 6 to 23

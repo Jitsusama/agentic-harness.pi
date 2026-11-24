@@ -38,7 +38,12 @@
  * nothing but acknowledge. The exception is an answer to a question this
  * peer asked, which gets a turn however it was sent, since the peer is
  * waiting on it: an answer sent as an fyi would otherwise sit until
- * something else started a turn. Any other fyi more
+ * something else started a turn. So does whatever a peer sends to an
+ * idle peer whose last run ended blocked on it, by its address or in
+ * answer to it: on 23 Nov J6OCG0 ended "Blocked: ... waits on 2AF2DH",
+ * 2AF2DH's promised sha came as an fyi with no thread, and J6OCG0 sat
+ * idle on it from 06:17 until that night. A message to a group it is in still
+ * waits, as does one from any other peer. Any other fyi more
  * than {@link FYI_MS} old when it reaches the peer is a glance, and so is
  * a hold older than the longest a hold stands ({@link MOST_HOLD_MS}),
  * which no longer holds anything.
@@ -95,6 +100,12 @@ export interface Standing {
 	readonly answers?: boolean;
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
+	/**
+	 * This peer is idle, its last run ended with a `Blocked:` line naming
+	 * the sender (see internal/session/ending.ts), and so it rests waiting
+	 * on that peer's next word, however that is sent.
+	 */
+	readonly awaits?: boolean;
 	/** A question asking this peer as one of each it went to (message.ts). */
 	readonly askedEach?: boolean;
 	/** The time it is handed over, for judging an fyi or a hold past its time. */
@@ -157,6 +168,13 @@ export function attend(message: Message, at: Standing): Heed {
 		return {
 			attention: "turn",
 			why: "answering this peer's question",
+			awaited: true,
+		};
+	}
+	if (at.awaits && (at.answers || isHomeTo(message, at.receiver.addresses))) {
+		return {
+			attention: "turn",
+			why: "from the peer this peer rests blocked on",
 			awaited: true,
 		};
 	}

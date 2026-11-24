@@ -487,3 +487,77 @@ describe("asking again", () => {
 		expect(sent[0]?.message.content).toContain("has had no answer from WCJQSG");
 	});
 });
+
+/** A branch whose last run ended saying `last`. */
+function endedSaying(last: string): unknown[] {
+	return [
+		{ type: "message", id: "e0", parentId: null, message: { role: "user" } },
+		{
+			type: "message",
+			id: "e1",
+			parentId: "e0",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: `Rebased (a).\n\n${last}` }],
+			},
+		},
+	];
+}
+
+const BLOCKED_ON_2AF2DH =
+	"Blocked: (b)'s rebase waits on 2AF2DH landing main in World's store.";
+
+describe("a peer resting blocked on another", () => {
+	// J6OCG0 on 23 Nov: its run ended blocked on 2AF2DH's sha, which came
+	// as an fyi to it with no thread, and it sat idle until that night.
+	it("takes a turn for what that peer sends it, however it is sent", async () => {
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		fromElsewhere({
+			from: "2AF2DH",
+			to: ["@7M6JKG"],
+			text: "main is 4f1e2d3c in World's store",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+	});
+
+	it.each([
+		["another peer", "Blocked: waits on ISXEG8's on-VM checks.", "@7M6JKG"],
+		["a group it is in", BLOCKED_ON_2AF2DH, "#all"],
+		["a run that ended done", "Done: waited on 2AF2DH and merged.", "@7M6JKG"],
+	])("takes none for an fyi when blocked on %s", async (_, last, to) => {
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(last),
+		);
+
+		fromElsewhere({ from: "2AF2DH", to: [to], text: "main is 4f1e2d3c" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("leaves a busy peer's run to read it", async () => {
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => false },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		fromElsewhere({
+			from: "2AF2DH",
+			to: ["@7M6JKG"],
+			text: "main is 4f1e2d3c",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+});
