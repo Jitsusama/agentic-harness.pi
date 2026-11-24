@@ -613,8 +613,8 @@ describe("cutting with a git too old to say a ref is missing", () => {
 
 		const refused = await cutFrom(hungUp, gitDir, at, "fresh");
 
-		expect("why" in refused ? refused.why : "").toBe(
-			"git was killed by SIGHUP",
+		expect("why" in refused ? refused.why : "").toMatch(
+			/^git couldn't read fresh in .*: git was killed by SIGHUP$/,
 		);
 		expect(existsSync(at), "nothing was cut").toBe(false);
 	});
