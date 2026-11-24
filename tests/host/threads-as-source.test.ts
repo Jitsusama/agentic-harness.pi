@@ -9,7 +9,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,65 +26,16 @@ const HOLD_WATCH = resolve(
 /** How long a child may take before it counts as never ended, in ms. */
 const CHILD_MS = 20_000;
 
-/**
- * A host's store in miniature: opened as chord opens one, written past the
- * checkpointer's pages and kept, then the child says whether the thread
- * copied it back or reported a failure, whichever comes first.
- */
-const checkpointChild = `
-import { DatabaseSync } from "node:sqlite";
-import { checkpointing } from ${JSON.stringify(CHECKPOINTS)};
-const [store] = process.argv.slice(-1);
-const db = new DatabaseSync(store);
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA wal_autocheckpoint = 0");
-db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY, record TEXT)");
-const insert = db.prepare("INSERT INTO entry (record) VALUES (?)");
-for (let row = 0; row < 40; row++) insert.run("x".repeat(4096));
-const said = (answer) => {
-	process.stdout.write(JSON.stringify(answer) + "\\n");
-	process.exit(0);
-};
-const kept = checkpointing({
-	every: 20,
-	pages: 8,
-	report: (error) => said({ reported: String(error) }),
-	observe: (event) => {
-		if (event.op === "checkpointed") said({ checkpointed: event.path });
-	},
-}).keep(store);
-// Holds the process open until the thread answers; the test's own limit ends a silent one.
-setInterval(() => kept, 1000);
-`;
+/** A program in fixtures/, as the source a host's end-to-end runs pass after -e. */
+function fixture(name: string): string {
+	return readFileSync(resolve(import.meta.dirname, "fixtures", name), "utf8");
+}
 
-/**
- * A host's loop held in miniature: the watch armed, profiling into the
- * folder it is given, the loop spun past its hold and the profile's start,
- * then let go long enough for the thread to say how long it held.
- */
-const holdChild = `
-import { watchHolds } from ${JSON.stringify(HOLD_WATCH)};
-const [folder] = process.argv.slice(-1);
-const stop = watchHolds({
-	fd: 1,
-	every: 20,
-	after: 200,
-	still: 60_000,
-	profile: { folder, after: 300, for: 200 },
-});
-// Time for the thread to start and see the loop move before it is held.
-setTimeout(() => {
-	const until = Date.now() + 1200;
-	while (Date.now() < until) {
-		// Held, as a loop doing synchronous work is.
-	}
-	// Time, once the loop turns again, for the thread to say the hold ended.
-	setTimeout(() => {
-		stop();
-		process.exit(0);
-	}, 600);
-}, 300);
-`;
+/** A host's store in miniature, which says whether its checkpoint thread copied it back. */
+const checkpointChild = fixture("checkpoint-as-source.mjs");
+
+/** A host's loop held in miniature, which says what its hold watch said. */
+const holdChild = fixture("hold-as-source.mjs");
 
 /** What a child wrote and how it ended. */
 interface Ended {
@@ -126,7 +77,7 @@ describe("the host's threads, under a host started as module source", () => {
 		timeout: 2 * CHILD_MS,
 	}, async () => {
 		const store = join(dir, "durable.sqlite");
-		const ended = await runAsSource(checkpointChild, store);
+		const ended = await runAsSource(checkpointChild, CHECKPOINTS, store);
 		expect(ended.code, `ended: ${ended.err}`).toBe(0);
 		expect(
 			JSON.parse(ended.out.trim()),
@@ -137,7 +88,7 @@ describe("the host's threads, under a host started as module source", () => {
 	it("watches the loop and says how long it held", {
 		timeout: 2 * CHILD_MS,
 	}, async () => {
-		const ended = await runAsSource(holdChild, dir);
+		const ended = await runAsSource(holdChild, HOLD_WATCH, dir);
 		expect(ended.code, `ended: ${ended.err}`).toBe(0);
 		expect(ended.out, "the watch's line once the loop turned").toMatch(
 			/the loop held /,
