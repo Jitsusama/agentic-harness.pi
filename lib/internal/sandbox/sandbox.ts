@@ -20,10 +20,13 @@
  *   Where the machine names a cloud account for its agents, gcloud gets
  *   that account's hour token and one project, from gcloud-broker, and a
  *   settings folder of its own, never the person's cloud login.
- * - **No sockets but one:** no session or system bus (the way into the
- *   keyring and root), SSH or signing agent, terminal remote control or
- *   abstract socket. Nix answers through its sandboxes' door, which takes
- *   callers as untrusted, since the daemon's own socket hands over root.
+ * - **No sockets but a few:** no session or system bus (the way into the
+ *   keyring and root), signing agent of the person's, terminal remote
+ *   control or abstract socket. Nix answers through its sandboxes' door,
+ *   which takes callers as untrusted, since the daemon's own socket hands
+ *   over root. A command, never a language server, reaches pi's SSH agent
+ *   proxy, which signs only logins to the hosts it's told of and to the
+ *   builders lent now, so `nix-offload there` can log in to them.
  * - **Writes only to the work:** the working folder, and a temporary
  *   folder and cache of its own, as `TMPDIR` and `XDG_CACHE_HOME`. The
  *   person's cache and `/tmp` stay out of reach both ways: they hold
@@ -926,8 +929,16 @@ export function wrapFor(
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
 				// A server sends nothing to the builders; a command may, so it
-				// reads them as each command starts, lenders coming and going.
-				...(served ? { served } : { builders: buildersReach(DISK, home) }),
+				// reads them as each command starts, lenders coming and going,
+				// and logs in to them through pi's agent proxy.
+				...(served
+					? { served }
+					: {
+							builders: {
+								...buildersReach(DISK, home),
+								agent: agentProxy(place.env.XDG_RUNTIME_DIR),
+							},
+						}),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();

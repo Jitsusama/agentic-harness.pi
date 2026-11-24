@@ -25,14 +25,26 @@
  * reads and writes the same way, as paths rather than binds: on 24
  * November one in the strict sandbox was refused /run/nix-offload/lender
  * and its own journal, so `nix-offload there` said no builder was lent
- * while 18 were (80ECO2 [9b5c1cda]). A folder holding no secret is given
- * whole, since Landlock ties a file's grant to the file as it was when
- * the command started, and a lender replaces its files as it goes. One
- * holding a secret is given entry by entry, the secret left out.
+ * while 18 were (80ECO2 [9b5c1cda]). A lender's folder holding no secret
+ * is given whole, since Landlock ties a file's grant to the file as it
+ * was when the command started, and a lender replaces its files as it
+ * goes; one holding a secret is given entry by entry, the secret left
+ * out, and one that lists as empty, or can't be listed, not at all. A
+ * folder's grant covers what is made in it later, so a token an older
+ * lender writes after a command starts is in its reach: lenders today
+ * keep theirs in /run/nix-offload-tokens, and ISXEG8 holds the risk.
+ *
+ * nix-offload's own state is never given whole, since it holds the
+ * builders' login key, or will (data/fence-hidden.json): read entry by
+ * entry but the key, and written only where a run writes, its journals,
+ * which it appends to, and the folders of its runs and twins. Not
+ * `passed`, the record of passes a gate trusts where no keeper runs
+ * (core.nix's nix-offload passed.rs), nor the key's public half.
  */
 
 import { basename, join } from "node:path";
 import type { Disk } from "./fence-disk.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
 
 /** Where the lenders' folders are. */
 const RUN = "/run";
@@ -58,8 +70,28 @@ const WANTS = "offload-wants";
 /** nix-offload's own state in the home folder: its journal, passes and runs. */
 const STATE = ".local/state/nix-offload";
 
-/** What in nix-offload's state no strict command may read: its store's signing key. */
-const STATE_SECRETS: ReadonlySet<string> = new Set(["store_ed25519"]);
+/**
+ * What in nix-offload's state no strict command may read: whatever the
+ * fence hides in it, the builders' login key, by its first name there.
+ */
+const STATE_SECRETS: ReadonlySet<string> = new Set(
+	FENCE_HIDDEN.home
+		.filter((path) => path.startsWith(`${STATE}/`))
+		.map((path) => path.slice(STATE.length + 1).split("/")[0] ?? ""),
+);
+
+/**
+ * What a run of nix-offload writes in its state: the journals it appends
+ * to, and the folders it writes each run's record and twin's lock in.
+ */
+const STATE_WRITES: ReadonlySet<string> = new Set([
+	"changed-runs.jsonl",
+	"journal.jsonl",
+	"running",
+	"runs.jsonl",
+	"there.jsonl",
+	"twins",
+]);
 
 /** Whether `name`, in /run, is a lender's folder. */
 function isLender(name: string): boolean {
@@ -103,13 +135,21 @@ export function buildersFolderArgs(
 export interface BuildersReach {
 	readonly readable: readonly string[];
 	readonly writable: readonly string[];
+	/**
+	 * pi's SSH agent proxy, which nix-offload logs in to a lent builder
+	 * through when the builders' key is hidden from it (core.nix's
+	 * nix-offload there.rs `reach`); the proxy signs only logins to the
+	 * hosts it is told of and to builders lent now (its main.rs).
+	 */
+	readonly agent?: string;
 }
 
 /**
  * What a strict command needs of the builders to run `nix-offload`:
  * root's lines and standing builders, each lender's folder but its
  * token, and the folder of tokens never; the wants to write, and
- * nix-offload's state but its signing key.
+ * nix-offload's state but its login key, written only where a run
+ * writes.
  */
 export function buildersReach(
 	disk: Disk,
@@ -119,31 +159,54 @@ export function buildersReach(
 	const lenders = lenderFolders(disk, run).filter(
 		(folder) => basename(folder) !== TOKENS,
 	);
+	const state = join(home, STATE);
+	const stateNames = disk
+		.entries(state)
+		.filter((name) => !STATE_SECRETS.has(name));
 	return {
 		readable: [
 			...[...NO_TOKEN].sort().map((name) => join(run, name)),
-			...lenders.flatMap((folder) => keptOf(disk, folder, SECRETS)),
+			...lenders.flatMap((folder) => lenderKept(disk, folder)),
+			...entriesOf(
+				disk,
+				state,
+				stateNames.filter((name) => !STATE_WRITES.has(name)),
+			),
 		],
 		writable: [
 			join(run, WANTS),
-			...keptOf(disk, join(home, STATE), STATE_SECRETS),
+			...entriesOf(
+				disk,
+				state,
+				stateNames.filter((name) => STATE_WRITES.has(name)),
+			),
 		],
 	};
 }
 
 /**
- * `folder` whole when it holds none of `secrets`, or else each of its
- * files and folders but those, so a secret is never in reach.
+ * A lender's `folder` whole when it holds no secret, or else each of its
+ * files and folders but the secrets; nothing when it lists as empty,
+ * which is also how a folder that can't be listed reads.
  */
-function keptOf(
+function lenderKept(disk: Disk, folder: string): string[] {
+	const names = disk.entries(folder);
+	if (names.length === 0) return [];
+	if (!names.some((name) => SECRETS.has(name))) return [folder];
+	return entriesOf(
+		disk,
+		folder,
+		names.filter((name) => !SECRETS.has(name)),
+	);
+}
+
+/** The files and folders among `names` in `folder`, links and the rest left out. */
+function entriesOf(
 	disk: Disk,
 	folder: string,
-	secrets: ReadonlySet<string>,
+	names: readonly string[],
 ): string[] {
-	const names = disk.entries(folder);
-	if (!names.some((name) => secrets.has(name))) return [folder];
-	return names
-		.filter((name) => !secrets.has(name))
+	return [...names]
 		.sort()
 		.map((name) => join(folder, name))
 		.filter((path) => {

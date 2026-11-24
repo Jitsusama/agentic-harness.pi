@@ -165,8 +165,10 @@ describe.skipIf(landrun === undefined)(
 			if (!(await connects(letThrough, []))) context.skip();
 
 			// A pass line from inside would claim a check nobody ran outside
-			// (ISXEG8 and 80ECO2, 24 November): the fence hides the socket,
-			// and its Landlock refuses it too.
+			// (ISXEG8 and 80ECO2, 24 November). The socket is seen through the
+			// whole disk's bind, so Landlock alone keeps it shut: this shows a
+			// socket the rules don't name is refused, and the list below is
+			// what fence-args' test holds every rule to, so none names it.
 			expect(
 				await tries(letThrough, fenced()),
 				"the SSH agent's proxy, which the fence lets through, wasn't reached",

@@ -111,6 +111,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 	const sockets = [
 		"/run/nscd/socket",
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
+		...(place.builders?.agent ? [place.builders.agent] : []),
 	];
 	return { runnable, readable, writable, sockets };
 }
@@ -120,13 +121,8 @@ function strictPaths(place: SandboxPlace): StrictPaths {
  * only a command sends work to the builders.
  */
 function withoutBuilders(place: SandboxPlace): SandboxPlace {
-	return {
-		home: place.home,
-		runtimeDir: place.runtimeDir,
-		cwd: place.cwd,
-		...(place.repository ? { repository: place.repository } : {}),
-		...(place.served ? { served: place.served } : {}),
-	};
+	const { builders: _builders, ...rest } = place;
+	return rest;
 }
 
 /**
@@ -151,6 +147,9 @@ export function strictRules(place: SandboxPlace): Rule[] {
 						`NIX_REMOTE=unix://${join(place.runtimeDir, NIX_DOOR)}`,
 					] as Rule,
 				]
+			: []),
+		...(place.builders?.agent
+			? [["--env", `SSH_AUTH_SOCK=${place.builders.agent}`] as Rule]
 			: []),
 	];
 }

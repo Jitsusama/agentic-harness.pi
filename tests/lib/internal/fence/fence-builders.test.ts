@@ -163,6 +163,7 @@ describe("what a strict command reaches of the builders", () => {
 			"nix-offload",
 			"nix-offload-more",
 			"nix-offload-tokens",
+			"nix-offload-vm-18",
 			"nix-offload-lines",
 			"nix-offload-standing",
 			"offload-wants",
@@ -171,13 +172,24 @@ describe("what a strict command reaches of the builders", () => {
 		"/run/nix-offload": ["lender", "cloud-token", "waiting", "a-link"],
 		"/run/nix-offload-more": ["lender", "health.json"],
 		"/run/nix-offload-tokens": ["nix-offload", "nix-offload-more"],
-		[state]: ["there.jsonl", "store_ed25519", "runs.jsonl", "passed"],
+		// A lender's folder made but not yet lent, or one this account can't
+		// list, which reads as empty: a token it holds later would be in reach.
+		"/run/nix-offload-vm-18": [],
+		[state]: [
+			"there.jsonl",
+			"store_ed25519",
+			"store_ed25519.pub",
+			"runs.jsonl",
+			"running",
+			"passed",
+		],
 	};
+	const folders = /(waiting|passed|running)$/;
 	const disk: Disk = {
 		kind: (path) =>
 			path.endsWith("a-link")
 				? "link"
-				: path in held || path.endsWith("waiting") || path.endsWith("passed")
+				: path in held || folders.test(path)
 					? "folder"
 					: "file",
 		entries: (folder) => held[folder] ?? [],
@@ -211,26 +223,39 @@ describe("what a strict command reaches of the builders", () => {
 		const every = [...reach.readable, ...reach.writable];
 		for (const path of every) {
 			expect(path, "a token is in reach").not.toMatch(
-				/nix-offload-tokens|cloud-token|store_ed25519/,
+				/nix-offload-tokens|cloud-token|store_ed25519$/,
 			);
 		}
 	});
 
-	it("writes the wants and nix-offload's state, all but its signing key", () => {
+	it("reads nothing of a lender's folder that lists as empty", () => {
+		expect(reach.readable).not.toContain("/run/nix-offload-vm-18");
+	});
+
+	it("writes the wants, and of nix-offload's state only its journals and runs", () => {
+		// Not `passed`, which a gate trusts where no keeper runs, nor the
+		// login key's public half.
 		expect(reach.writable).toEqual([
 			"/run/offload-wants",
-			`${state}/passed`,
+			`${state}/running`,
 			`${state}/runs.jsonl`,
 			`${state}/there.jsonl`,
 		]);
+		expect(reach.readable).toEqual(
+			expect.arrayContaining([`${state}/passed`, `${state}/store_ed25519.pub`]),
+		);
 	});
 
-	it("writes nix-offload's state whole where it holds no key yet", () => {
-		const bare: Disk = { kind: () => "folder", entries: () => [] };
-		expect(buildersReach(bare, "/home/u").writable).toEqual([
-			"/run/offload-wants",
-			state,
-		]);
+	it("never gives nix-offload's state whole, so a key made later stays out of reach", () => {
+		const bare: Disk = {
+			kind: () => "folder",
+			entries: (folder) => (folder === state ? ["there.jsonl"] : []),
+		};
+		const { readable, writable } = buildersReach(bare, "/home/u");
+		for (const path of [...readable, ...writable]) {
+			expect(path, "the state was given whole").not.toBe(state);
+		}
+		expect(writable).toEqual(["/run/offload-wants", `${state}/there.jsonl`]);
 	});
 });
 

@@ -258,11 +258,13 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   `CLOUDSDK_CONFIG`, never your own login. A token takes gcloud up to
   15 s to mint, so pi asks in the background from the session's first
   command, and a command naming gcloud with none to hand is told why.
-- **No sockets but two.** Name lookups through nscd, and the Nix
+- **No sockets but three.** Name lookups through nscd, the Nix
   daemon's door for sandboxes, `$XDG_RUNTIME_DIR/nix-untrusted.sock`,
-  which takes the caller as untrusted; `NIX_REMOTE` points there. No
-  session or system bus, no SSH or signing agent, no terminal remote
-  control and no abstract socket. The daemon's own socket trusts your
+  which takes the caller as untrusted (`NIX_REMOTE` points there), and
+  pi's SSH agent proxy, which signs only logins to the hosts it's told
+  of and to builders lent now, so `nix-offload there` can reach them.
+  No session or system bus, no signing agent of the person's, no
+  terminal remote control and no abstract socket. The daemon's own socket trusts your
   account, so passing it would hand over root.
 - **Writes only to the work.** The working folder, and a temporary
   folder and a cache of its own under `~/.cache/pi-sandbox`, which
@@ -270,12 +272,15 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   are out of reach both ways, since they hold tokens, code your shell
   runs at every start, and scripts other sessions run unfenced. No
   signal reaches a process outside the sandbox.
-- **The lent builders.** So `nix-offload there` can send work out, a
-  command reads root's builder lines and each lender's folder in
-  `/run`, and writes `/run/offload-wants` and
-  `~/.local/state/nix-offload`. It never reaches a cloud token or the
-  store's signing key: `/run/nix-offload-tokens` stays out of reach,
-  and a folder holding a secret is given entry by entry without it.
+- **The lent builders.** So `nix-offload there` can find its
+  builders, a command run through pi's bash on Linux reads root's
+  builder lines and each lender's folder in `/run`, and writes
+  `/run/offload-wants`. Of `~/.local/state/nix-offload` it reads all
+  but the builders' login key, and writes only the journals a run
+  appends to and its runs' and twins' folders, never the record of
+  passes. `/run/nix-offload-tokens` stays out of reach, and a lender
+  holding a token is given entry by entry without it. A language
+  server, `pi-fence --strict` and a Mac's strict give none of this.
 - **The network** stays open.
 
 The strict profile costs 20 to 35 ms a command. The queue still reads the command as
