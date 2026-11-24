@@ -48,6 +48,8 @@ import {
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
 import {
+	BOUNDED,
+	FETCHING,
 	gitIn,
 	type Held,
 	holdToOrigin,
@@ -418,9 +420,12 @@ async function readyTree(
 			"The tree already there has changes of its own, which arriving would write over.",
 		);
 	}
-	return (await git.ok("fetch", "-q", "origin"))
+	const fetched = await git
+		.within(FETCHING)
+		.run(...BOUNDED, "fetch", "-q", "origin");
+	return fetched.code === 0
 		? { kind: "fetched" }
-		: no("git couldn't fetch its origin.");
+		: no(`git couldn't fetch its origin: ${fetched.stderr.trim()}`);
 }
 
 /**
@@ -570,7 +575,9 @@ async function takeCommits(
 			branch.length > 0 &&
 			(await git.ok("remote", "get-url", remote))
 		) {
-			await git.run("fetch", "-q", remote, branch.join("/"));
+			await git
+				.within(FETCHING)
+				.run(...BOUNDED, "fetch", "-q", remote, branch.join("/"));
 		}
 		if (!(await has(need.commit))) {
 			return `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}, which no remote here gave.`;
