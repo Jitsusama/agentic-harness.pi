@@ -481,6 +481,32 @@ async function cutFrom(
 	};
 }
 
+/**
+ * The worktree of the checkout whose git folder is `checkout` that has
+ * `branch` checked out, if one does: a tree cut beside it shares its
+ * branches, and settling would move that one's from under it.
+ */
+async function holderOf(
+	exec: Exec,
+	checkout: string,
+	branch: string,
+): Promise<string | undefined> {
+	const listed = await exec("git", [
+		`--git-dir=${checkout}`,
+		"worktree",
+		"list",
+		"--porcelain",
+	]);
+	if (listed.code !== 0)
+		return `${checkout}, or may be, as its worktrees can't be listed`;
+	let at: string | undefined;
+	for (const line of listed.stdout.split("\n")) {
+		if (line.startsWith("worktree ")) at = line.slice("worktree ".length);
+		if (line === `branch refs/heads/${branch}`) return at ?? checkout;
+	}
+	return undefined;
+}
+
 /** Takes out a worktree arriving cut at `path`, and git's entry for it. */
 async function uncut(exec: Exec, checkout: string, path: string) {
 	const removed = await exec("git", [
@@ -518,7 +544,15 @@ async function readyTree(
 				tree.origin,
 				here.home,
 			);
-			if (checkout !== undefined) return await cutFrom(exec, checkout, path);
+			if (checkout !== undefined) {
+				const holder = await holderOf(exec, checkout, tree.branch);
+				if (holder !== undefined) {
+					return no(
+						`Its branch ${tree.branch} is checked out at ${holder}, which shares its branches, so it isn't moved from under it.`,
+					);
+				}
+				return await cutFrom(exec, checkout, path);
+			}
 		}
 		const twin = await twinOf(exec, path, tree.origin);
 		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);

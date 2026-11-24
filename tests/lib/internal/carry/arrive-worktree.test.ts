@@ -138,11 +138,34 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 		expect(await commonOf(tree)).toBe(join(checkout, ".git"));
 	});
 
-	it("refuses a branch the checkout has checked out, taking out what it cut", async () => {
+	it("refuses a branch the checkout has checked out, leaving it where it is", async () => {
 		const { origin, from } = await carriedFromTrees();
 		const home = folder(made, "arriving");
 		const checkout = await cloneAt(origin, join(home, "src", "origin"));
 		await git(checkout, "checkout", "-q", "-b", "topic");
+		const held = await git(checkout, "rev-parse", "HEAD");
+
+		const { whole, said, tree } = await arriveAt(home, from);
+
+		expect(whole, "a refused tree isn't whole").toBe(false);
+		expect(said[0]).toEqual({
+			kind: "tree",
+			path: tree,
+			branch: "topic",
+			did: "refused",
+			why: `Its branch topic is checked out at ${checkout}, which shares its branches, so it isn't moved from under it.`,
+		});
+		expect(existsSync(tree), "nothing is cut").toBe(false);
+		expect(await git(checkout, "rev-parse", "topic")).toBe(held);
+	});
+
+	it("refuses where the checkout's branch has commits the carried one lacks, taking out what it cut", async () => {
+		const { origin, from } = await carriedFromTrees();
+		const home = folder(made, "arriving");
+		const checkout = await cloneAt(origin, join(home, "src", "origin"));
+		await git(checkout, "checkout", "-q", "-b", "topic");
+		await commit(checkout, "other.txt", "only here\n");
+		await git(checkout, "checkout", "-q", "main");
 
 		const { whole, said, tree } = await arriveAt(home, from);
 
@@ -151,16 +174,13 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 			kind: "tree",
 			path: tree,
 			did: "refused",
-			why: expect.stringMatching(/^git couldn't check out topic: /),
+			why: "Its branch topic here has commits the carried one lacks.",
 		});
 		expect(existsSync(tree), "the cut tree is taken out").toBe(false);
 		expect(
 			await git(checkout, "worktree", "list", "--porcelain"),
 			"and git keeps no entry for it",
 		).not.toContain(tree);
-		expect(await git(checkout, "symbolic-ref", "--short", "HEAD")).toBe(
-			"topic",
-		);
 	});
 
 	it("clones it as before where no checkout the fence guards holds its origin", async () => {
