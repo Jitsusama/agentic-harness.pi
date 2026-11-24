@@ -25,6 +25,7 @@ import {
 	restartEnvironment,
 } from "../../../extensions/park-workflow/restart.ts";
 import {
+	asksAgain,
 	HOST_PARKS,
 	mayPark,
 	noteNeverParks,
@@ -61,6 +62,7 @@ import {
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import type { TurnOver } from "../../../lib/internal/session/turn-end.ts";
 import { CALLS_WATCHED_MS } from "../../../lib/internal/shell/carried.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
@@ -1335,6 +1337,37 @@ describe("why a session stays awake", () => {
 		} finally {
 			host.dispose();
 		}
+	});
+
+	// A turn handed on at agent_end ended its run even with tools run, and
+	// pi still reads as streaming there, so it stepped off and was woken at
+	// the drain's end with nothing to carry on (#2073's council, F3).
+	it("asks again only after a turn whose tools ran, short of the run's end", () => {
+		const turn = (
+			tools: number,
+			more: { outcome?: "completed" | "aborted"; endsRun?: boolean } = {},
+		) =>
+			({
+				turnIndex: 0,
+				message: {},
+				toolResults: Array.from({ length: tools }, () => ({})),
+				outcome: more.outcome ?? "completed",
+				...(more.endsRun === undefined ? {} : { endsRun: more.endsRun }),
+			}) as unknown as TurnOver;
+
+		expect(asksAgain(turn(1, { endsRun: false })), "mid-run, tools ran").toBe(
+			true,
+		);
+		expect(asksAgain(turn(1)), "pi's own boundary, tools ran").toBe(true);
+		expect(
+			asksAgain(turn(1, { endsRun: true })),
+			"the run's end, tools ran",
+		).toBe(false);
+		expect(asksAgain(turn(0, { endsRun: false })), "no tools ran").toBe(false);
+		expect(
+			asksAgain(turn(1, { outcome: "aborted", endsRun: false })),
+			"cut short",
+		).toBe(false);
 	});
 
 	// 23 November: about 40 children ran host code 1b79c5ee from 22 November,

@@ -59,6 +59,7 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import type { TurnOver } from "../../lib/internal/session/turn-end.ts";
 import {
 	isCarriedShell,
 	withinWatch,
@@ -89,6 +90,20 @@ export const HOST_PARKS = "its host parks it";
  * slot (host/service/child.ts, `childSlot`); a shared host has none.
  */
 const CHILD_KEY_ENV = "PI_HOST_CHILD_KEY";
+
+/**
+ * Whether pi asks the model again after `turn`: its tools ran, it went
+ * as asked, and it wasn't the run's last, as a tool that ends the run
+ * makes it. A run stepped off after its last turn would be woken at the
+ * drain's end with nothing to carry on.
+ */
+export function asksAgain(turn: TurnOver): boolean {
+	return (
+		turn.toolResults.length > 0 &&
+		turn.outcome === "completed" &&
+		turn.endsRun !== true
+	);
+}
 
 /** The host this conversation runs in, when that host can park it alone. */
 function parkingHost(): { park(sessionId: string): void } | undefined {
@@ -237,9 +252,13 @@ export interface Watch {
 	 * its host drains or its code is stale and no window views it, a run
 	 * under way holds it no longer: it parks here, its wake written at once,
 	 * and durable carries the run on in the next start, on current code.
-	 * `asksAgain`, its tools ran and pi asks the model again; a turn that
-	 * ended the run is only looked at, since pi may not yet read as idle
-	 * as it ends, and the next look parks it once it does. Answers why not.
+	 * `asksAgain` ({@link asksAgain}), pi asks the model again; a turn
+	 * that ended the run is only looked at, since pi may not yet read as
+	 * idle as it ends, and the next look parks it once it does. The host
+	 * parks it just after this returns, so the next request may already
+	 * have gone out: its park cuts that off unrecorded, and durable asks
+	 * it again in the next start, never answering it twice in the log.
+	 * Answers why not.
 	 */
 	turnEnded(asksAgain: boolean): string | undefined;
 	/**

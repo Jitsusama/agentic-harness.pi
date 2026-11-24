@@ -43,11 +43,17 @@ import type {
 	TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
-/** A turn as it ended: its answer, its tool results and how it went. */
+/**
+ * A turn as it ended: its answer, its tool results and how it went, and
+ * whether the run ended with it. `endsRun` is true for a turn handed on
+ * at the run's `agent_end`, where pi asks the model nothing more, and
+ * false at the next turn's `turn_start`, where it is about to ask
+ * again; at pi's own boundary, which can't yet say, it is absent.
+ */
 export type TurnOver = Pick<
 	TurnEndEvent,
 	"turnIndex" | "message" | "toolResults" | "outcome"
->;
+> & { readonly endsRun?: boolean };
 
 /** What hears the end of a turn, and changes nothing pi does next. */
 export type TurnEndHandler = (
@@ -143,13 +149,16 @@ function listen(pi: ExtensionAPI): { add(hearer: Hearer): void } {
 		}
 	};
 
-	const over = async (ctx: ExtensionContext): Promise<void> => {
+	const over = async (
+		ctx: ExtensionContext,
+		endsRun: boolean,
+	): Promise<void> => {
 		const ended = turn;
 		turn = undefined;
 		if (!ended) return;
 		await handTurn(
 			observers,
-			{ ...ended, outcome: outcomeOf(ended.message) },
+			{ ...ended, outcome: outcomeOf(ended.message), endsRun },
 			ctx,
 		);
 	};
@@ -167,8 +176,8 @@ function listen(pi: ExtensionAPI): { add(hearer: Hearer): void } {
 		}
 		settle();
 	});
-	pi.on("turn_start", (_event, ctx) => over(ctx));
-	pi.on("agent_end", (_event, ctx) => over(ctx));
+	pi.on("turn_start", (_event, ctx) => over(ctx, false));
+	pi.on("agent_end", (_event, ctx) => over(ctx, true));
 
 	return {
 		add(hearer) {
