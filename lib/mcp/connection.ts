@@ -69,18 +69,28 @@ export function mcpErrorFrom(err: unknown): McpError {
 	});
 }
 
-/** Create a connection to `config`. Injected `client`/`transport` are for tests; production builds the SDK client. */
+/**
+ * Create a connection to `config`. Injected `client`/`transport` are for
+ * tests; production builds the SDK client. A `config.url` that isn't a URL
+ * throws here, before anything loads.
+ */
 export function createMcpConnection(
 	config: McpServerConfig,
 	deps: { client?: SdkClientLike; transport?: unknown } = {},
 ): McpConnection {
+	if (!URL.canParse(config.url)) {
+		throw new TypeError(`MCP server ${config.id} has no valid url.`);
+	}
 	const subscribers = new Set<() => void>();
-	let used = false;
 	let built: Omit<Opened, "sdk"> | undefined;
+	let opening: Promise<Opened> | undefined;
 	// The client is built once, after the SDK's first load. `loadOnce`
 	// forgets a failed load, so the next use tries again.
-	const open = async (): Promise<Opened> => {
-		used = true;
+	const open = (): Promise<Opened> => {
+		opening = build();
+		return opening;
+	};
+	const build = async (): Promise<Opened> => {
 		const sdk = await sdkModule();
 		if (built === undefined && deps.client) {
 			built = { client: deps.client, transport: deps.transport };
@@ -106,9 +116,12 @@ export function createMcpConnection(
 			await client.connect(transport);
 		},
 		async close() {
-			// A connection never used has no client to close.
-			if (!used) return;
-			await (await open()).client.close();
+			// Close waits for a use already under way but never loads the SDK
+			// itself: a connection with no client built has nothing to close.
+			await opening?.catch(() => {
+				// A use whose load failed built no client; its caller has the error.
+			});
+			await built?.client.close();
 		},
 		async listTools() {
 			const { sdk, client } = await open();

@@ -7,9 +7,12 @@
  * protocol held 2.0 MB of heap and 21 MB resident and took 140 ms to
  * load, for the lsp tool a few sessions call; zod held 2.1 MB and 9 MB,
  * for the host's protocol, which a pi outside a host reads only when it
- * opens, adopts, lists or closes a conversation in one. Each loads on
- * first use instead, through `loadOnce`, so this walks what loads at
- * start: every static import from each extension's entry, leaving out
+ * opens, adopts, lists or closes a conversation in one. The MCP SDK, with
+ * zod, held about 10 MB more for a gateway a session may never call. Each
+ * loads on first use instead, through `loadOnce`, so this walks what
+ * loads at start: every static import from each extension's entry and
+ * from the MCP library's barrel, which other packages' extensions
+ * import, leaving out
  * `import type` and `export type`, which load nothing, and dynamic
  * imports, which load when called.
  *
@@ -31,8 +34,15 @@ const ROOT = join(import.meta.dirname, "..", "..", "..");
 const ON_FIRST_USE = new Map([
 	["vscode-jsonrpc", "the lsp tool's first server"],
 	["vscode-languageserver-protocol", "the lsp tool's first server"],
-	["zod", "the first request to a host's control socket"],
+	[
+		"zod",
+		"the first request to a host's control socket or an MCP connection's first use",
+	],
+	["@modelcontextprotocol/sdk", "an MCP connection's first use"],
 ]);
+
+/** Entries other packages load at start, beside this package's extensions. */
+const LIBRARY_ENTRIES = ["lib/mcp/index.ts"];
 
 /** A static import or re-export that loads its module: not `type` only. */
 const STATIC =
@@ -121,7 +131,8 @@ describe("what loads at start", () => {
 		const extensions = join(ROOT, "extensions");
 		const entries = readdirSync(extensions)
 			.map((name) => join(extensions, name, "index.ts"))
-			.filter((entry) => existsSync(entry));
+			.filter((entry) => existsSync(entry))
+			.concat(LIBRARY_ENTRIES.map((entry) => join(ROOT, entry)));
 		const unresolved: string[] = [];
 		const found = entries.flatMap((entry) =>
 			reached(entry, ON_FIRST_USE, unresolved),
@@ -137,6 +148,7 @@ describe("what loads at start", () => {
 		const seen = [
 			"host/service/client.ts",
 			"lib/core/lsp/standalone/server.ts",
+			"lib/mcp/sdk-client.ts",
 		].flatMap((module) => reached(join(ROOT, module), ON_FIRST_USE));
 		for (const library of ON_FIRST_USE.keys())
 			expect(

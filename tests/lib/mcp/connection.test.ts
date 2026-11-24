@@ -9,12 +9,25 @@ import { McpError, type McpServerConfig } from "../../../lib/mcp/types.ts";
 
 const config: McpServerConfig = { id: "gw", url: "https://example/mcp" };
 
-/** Whether anything has loaded the SDK's client module yet. */
-const sdk = vi.hoisted(() => ({ loaded: false }));
-vi.mock("@modelcontextprotocol/sdk/client/index.js", async (original) => {
-	sdk.loaded = true;
-	return await original();
+/** Which of the SDK's modules and zod have loaded since the set was cleared. */
+const sdk = vi.hoisted(() => {
+	const loaded = new Set<string>();
+	const watch =
+		(name: string) =>
+		async (original: () => Promise<unknown>): Promise<unknown> => {
+			loaded.add(name);
+			return await original();
+		};
+	return { loaded, watch };
 });
+const WATCHED = ["client", "streamableHttp", "types", "zod"];
+vi.mock("@modelcontextprotocol/sdk/client/index.js", sdk.watch("client"));
+vi.mock(
+	"@modelcontextprotocol/sdk/client/streamableHttp.js",
+	sdk.watch("streamableHttp"),
+);
+vi.mock("@modelcontextprotocol/sdk/types.js", sdk.watch("types"));
+vi.mock("zod", sdk.watch("zod"));
 
 /** A fake SDK client that records requests and exposes the notification handler for triggering. */
 function fakeClient(responses: {
@@ -67,25 +80,44 @@ describe("mcpErrorFrom", () => {
 
 describe("createMcpConnection", () => {
 	// The SDK and zod hold about 12 MB of heap once imported, and a session
-	// whose cached tool list stands in may never connect. This case runs
-	// first, before any connection in this file has opened, so its connect
-	// pays the SDK's first import: on a busy machine that outlasts the
-	// default five seconds.
-	it("loads no SDK until the connection opens", {
+	// whose cached tool list stands in may never connect. The case loads the
+	// library's barrel afresh, as a session does, so its connect pays the
+	// SDK's first import: on a busy machine that outlasts five seconds.
+	it("loads neither the SDK nor zod until a connection opens", {
 		timeout: 30_000,
 	}, async () => {
-		const unused = createMcpConnection(config);
+		vi.resetModules();
+		sdk.loaded.clear();
+		const mcp = await import("../../../lib/mcp/index.ts");
+		const unused = mcp.createMcpConnection(config);
 		await unused.close();
-		const conn = createMcpConnection(config, {
+		const conn = mcp.createMcpConnection(config, {
 			client: fakeClient({}),
 			transport: {},
 		});
 		await vi.dynamicImportSettled();
-		expect(sdk.loaded, "importing, creating or closing loaded the SDK").toBe(
-			false,
-		);
+		expect(
+			[...sdk.loaded],
+			"loaded by importing the library, creating or closing",
+		).toEqual([]);
 		await conn.connect();
-		expect(sdk.loaded, "connecting never loaded the SDK").toBe(true);
+		expect([...sdk.loaded].sort(), "loaded by connecting").toEqual(WATCHED);
+	});
+
+	it("refuses a url that isn't one when the connection is created", () => {
+		expect(() => createMcpConnection({ id: "gw", url: "not a url" })).toThrow(
+			"MCP server gw has no valid url.",
+		);
+	});
+
+	it("closes the client a use built, waiting for a use under way", async () => {
+		const client = fakeClient({});
+		const conn = createMcpConnection(config, { client, transport: {} });
+		const connecting = conn.connect();
+		await conn.close();
+		await connecting;
+		expect(client.connect).toHaveBeenCalledOnce();
+		expect(client.close).toHaveBeenCalledOnce();
 	});
 
 	it("lists tools and preserves annotations and non-standard fields in raw", async () => {
@@ -169,5 +201,45 @@ describe("createMcpConnection", () => {
 		client.notify();
 		expect(a).toHaveBeenCalledOnce();
 		expect(b).not.toHaveBeenCalled();
+	});
+});
+
+// Last in the file: until it unmocks, every connection's first load fails.
+describe("a connection whose SDK fails to load", () => {
+	it("answers a call with the failure, tries again on the next use and closes without loading", async () => {
+		vi.resetModules();
+		const loads = { tried: 0 };
+		vi.doMock("../../../lib/mcp/sdk-client.ts", () => {
+			loads.tried += 1;
+			throw new Error("sdk gone");
+		});
+		try {
+			const fresh = await import("../../../lib/mcp/connection.ts");
+			const client = fakeClient({});
+			const conn = fresh.createMcpConnection(config, { client, transport: {} });
+			// Vitest words a failed mock in its own error, so the call is held
+			// to the message a connect rejects with, whatever its wording.
+			const failure: unknown = await conn.connect().then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			expect(failure).toBeInstanceOf(Error);
+			const result = await conn.callTool("slack_post", {});
+			expect(result).toMatchObject({
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: failure instanceof Error ? failure.message : "",
+					},
+				],
+			});
+			expect(loads.tried, "loads tried by a connect and a call").toBe(2);
+			await conn.close();
+			expect(loads.tried, "loads tried once closed").toBe(2);
+			expect(client.close).not.toHaveBeenCalled();
+		} finally {
+			vi.doUnmock("../../../lib/mcp/sdk-client.ts");
+		}
 	});
 });
