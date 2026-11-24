@@ -391,6 +391,9 @@ export function createHearing(m: MeshState, f: Handing) {
 				receiver.hears !== "addressed" &&
 				reaches(replaced, listener, senderIdentity().pid);
 			if (replaced) {
+				// A question withdrawn is owed no answer, so it is never asked
+				// again.
+				m.owing.withdrawn(replaced.id);
 				m.glances.drop(replaced.id);
 				m.acts?.drop((one) => one.message.id === replaced.id);
 				f.handedOver([replaced]);

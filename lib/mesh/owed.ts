@@ -19,6 +19,10 @@
  *   it was sent, it is told once that the question is stuck, and with
  *   whom.
  *
+ * A question its asker withdraws (a message with `supersedes` set to
+ * it) leaves both accounts: on 24 November two withdrawn questions were
+ * still said to be stuck and put to their peers again.
+ *
  * Both are kept in memory: a reload starts the account again, which
  * at worst asks once more or says once more.
  */
@@ -46,6 +50,11 @@ export interface Owing {
 	 */
 	paid(id: string, now?: number): void;
 	/**
+	 * The question with this id was withdrawn by its asker, so nothing is
+	 * owed for it, now or when it is handed over again.
+	 */
+	withdrawn(id: string, now?: number): void;
+	/**
 	 * The questions to hand again now, with how many times each has
 	 * been handed before; each is counted as handed again.
 	 */
@@ -60,7 +69,11 @@ export interface Again {
 
 /** The answers owed to this peer. */
 export interface Awaiting {
-	/** This peer sent a question; `self` are its own addresses. */
+	/**
+	 * This peer sent a message; `self` are its own addresses. A question
+	 * is awaited, and one that withdraws an earlier question awaits it no
+	 * more.
+	 */
 	asked(message: Message, self: readonly string[], now?: number): void;
 	/**
 	 * An answer came, from a peer going by the addresses `from` looks up.
@@ -99,6 +112,10 @@ export function createOwing(): Owing {
 			owed.delete(id);
 			answered.set(id, now);
 		},
+		withdrawn(id, now = Date.now()) {
+			owed.delete(id);
+			answered.set(id, now);
+		},
 		due(now = Date.now()) {
 			for (const [id, at] of answered) {
 				if (now - at > OWED_FOR_MS) answered.delete(id);
@@ -131,6 +148,7 @@ export function createAwaiting(): Awaiting {
 	>();
 	return {
 		asked(message, self, now = Date.now()) {
+			if (message.supersedes !== undefined) awaited.delete(message.supersedes);
 			if (message.intent !== "question") return;
 			const mine = new Set(self.map(homeOf));
 			const named = message.to

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GLANCE, NOTED } from "../../../extensions/mesh-workflow/delivery.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import { SESSION_WOKEN } from "../../../lib/internal/session/park.ts";
+import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	fromElsewhere,
@@ -488,6 +489,68 @@ describe("asking again", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
 		expect(sent[0]?.message.content).toContain("has had no answer from WCJQSG");
+	});
+
+	it("asks nothing again once its asker withdraws it", async () => {
+		const { sent } = await start();
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "ready?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const withdrawal = fromElsewhere({
+			intent: "fyi",
+			to: ["@7M6JKG"],
+			text: "asked the wrong peer",
+			supersedes: asked.id,
+		});
+		await vi.waitFor(() =>
+			expect(
+				folderTransport(join(fixture.paths.mesh, "messages")).lastRead([
+					"7M6JKG",
+				]),
+			).toBe(withdrawal.id),
+		);
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+		// Time for an ask-again it shouldn't send to arrive.
+		await new Promise((done) => setTimeout(done, 100));
+
+		expect(
+			sent.map((one) => String(one.message.content)).join("\n"),
+		).not.toContain("Asked again");
+	});
+
+	it("tells the asker nothing of a question it withdrew", async () => {
+		// On 24 November two needs withdrawn as misrouted were still said
+		// to be stuck, and said to have been put to their cells again.
+		const { sent, tools } = await start();
+		peer("session-w", ["WCJQSG"], []);
+		await tools.get("mesh_send")?.execute("call-1", {
+			to: "WCJQSG",
+			intent: "question",
+			text: "is equilibrius ready again?",
+		});
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "asked the wrong peer",
+			supersedes: asked.slice(-8),
+		});
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+		// Time for a stuck note it shouldn't send to arrive.
+		await new Promise((done) => setTimeout(done, 100));
+
+		expect(
+			sent.map((one) => String(one.message.content)).join("\n"),
+		).not.toContain("has had no answer");
 	});
 });
 
