@@ -60,6 +60,7 @@ import { BWRAP_MOST_ARGS, bwrapArgsFile } from "./fence-args-file.ts";
 import { ARGS_FD } from "./fence-command.ts";
 import type { Disk } from "./fence-disk.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { REPOSITORY_HOMES } from "./fence-home.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
@@ -333,15 +334,19 @@ export function fenceRunText(
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 	});
-	return strictText(sandbox.bwrap, root, inner, command, runtimeDir, folder);
+	return strictText(sandbox.bwrap, root, inner, command, {
+		home,
+		runtimeDir,
+		folder,
+	});
 }
 
 /**
  * The text that runs `inner` in bubblewrap with the strict fence's root
  * `root`, or why it can't start. The root is read from a file, as the
- * fence's is (`fence-args-file.ts`), since it grows with the trees a
- * session holds and in the text can pass the 128 KiB Linux takes in one
- * string; it is in the text only where no file can be had. What
+ * fence's is (`fence-args-file.ts`), since it grows with the
+ * repositories under the home, each bound for what git writes, and in
+ * the text can pass the 128 KiB Linux takes in one string; it is in the text only where no file can be had. What
  * bubblewrap or Linux would refuse anyway is said instead.
  */
 function strictText(
@@ -349,10 +354,16 @@ function strictText(
 	root: readonly string[],
 	inner: string,
 	command: string,
-	runtimeDir: string | undefined,
-	folder: string,
+	{
+		home,
+		runtimeDir,
+		folder,
+	}: { home: string; runtimeDir: string | undefined; folder: string },
 ): FenceRunMade {
 	const listed = bwrapArgsFile(runtimeDir, root);
+	const homes = REPOSITORY_HOMES.map(({ where }) => join(home, where)).join(
+		", ",
+	);
 	// Every word after bubblewrap's name counts, the file's and the
 	// command's after `--` alike.
 	const counted =
@@ -361,7 +372,7 @@ function strictText(
 		["--", "bash", "-c", inner].length;
 	if (counted > BWRAP_MOST_ARGS) {
 		return {
-			refused: `The strict fence would hand bubblewrap ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`,
+			refused: `The strict fence would hand bubblewrap ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the repositories in ${homes}, each bound for what git writes there, and with the fence's hidden list.`,
 		};
 	}
 	const text = [

@@ -39,6 +39,7 @@ function foldsCase(): boolean {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ARGS_FD } from "../../../../lib/internal/fence/fence-command.ts";
 import {
 	FENCE_RUN_HELP,
 	type FenceRunAsk,
@@ -648,6 +649,7 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 				{ env: { XDG_RUNTIME_DIR: runtime }, home, sandbox: LAID },
 			);
 			if (!("text" in kept)) throw new Error(JSON.stringify(kept));
+			expect(rootIn(kept.text), "the root, read").toContain("'--ro-bind'");
 			expect(rootIn(kept.text)).not.toContain(
 				`'/dev/null' '${join(home, ".docker", "config.json")}'`,
 			);
@@ -715,10 +717,17 @@ describe("Linux's strict fence, for its own arguments", () => {
 /**
  * The strict fence's bubblewrap arguments as its text would quote them:
  * read from the file its text names, when it names one, or else the text.
+ * A text that hands bubblewrap a file this can't find throws, so a check
+ * that the root lacks something never passes for reading the wrong thing.
  */
 function rootIn(text: string): string {
-	const file = /--args 3 3<'([^']+)'/.exec(text)?.[1];
-	if (file === undefined) return text;
+	const file = new RegExp(`--args ${ARGS_FD} ${ARGS_FD}<'([^']+)'`).exec(
+		text,
+	)?.[1];
+	if (file === undefined) {
+		if (text.includes("--args")) throw new Error(`no args file in ${text}`);
+		return text;
+	}
 	return readFileSync(file, "utf8")
 		.split("\0")
 		.slice(0, -1)
