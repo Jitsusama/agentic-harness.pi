@@ -777,17 +777,17 @@ describe("an orchestrator's claim", () => {
 	});
 
 	it("reads the quests once a period when a due look finds nothing to send", async () => {
-		let looked = 0;
+		let read = 0;
 		const { state, claims, keeper, pass } = keeping(RECORDED, {
-			realm: () => {
-				looked += 1;
-				return "work";
+			claimed: () => {
+				read += 1;
+				return "forget";
 			},
 		});
 		state.questId = PLAIN;
 		keeper.lookIfDue("sess-1", AT);
 		await keeper.settled();
-		const atStart = looked;
+		const atStart = read;
 		for (let minute = 0; minute < 11; minute += 1) {
 			pass(CLAIM_TICK_MS);
 			keeper.lookIfDue("sess-1", AT);
@@ -795,11 +795,35 @@ describe("an orchestrator's claim", () => {
 		}
 
 		expect(claims(), "the one forget at the start").toEqual(["forget"]);
-		// Each due look names the realm twice: as it comes due, and as it asks.
 		expect(
-			looked - atStart,
-			"looked again at five minutes and at ten, not each minute",
-		).toBe(4);
+			read - atStart,
+			"read the quests again at five minutes and at ten, not each minute",
+		).toBe(2);
+	});
+
+	it("reads no quests while no node serves, and reads them once it is back", async () => {
+		let read = 0;
+		let served = false;
+		const { state, keeper, pass } = keeping(RECORDED, {
+			realm: () => (served ? "work" : undefined),
+			claimed: () => {
+				read += 1;
+				return "forget";
+			},
+		});
+		state.questId = PLAIN;
+		for (let minute = 0; minute < 6; minute += 1) {
+			keeper.lookIfDue("sess-1", AT);
+			await keeper.settled();
+			pass(CLAIM_TICK_MS);
+		}
+		expect(read, "read the quests with no node to tell").toBe(0);
+		served = true;
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+		expect(read, "didn't read the quests the minute the node came back").toBe(
+			1,
+		);
 	});
 
 	it("says the claim within a minute of the node coming back, not a period on", async () => {
