@@ -208,19 +208,7 @@ describe("cutting a tree from the person's checkout", () => {
 		},
 	);
 
-	it.each([
-		[
-			"a git too old to ask",
-			// What a git older than 2.43 prints: the error, then its whole usage.
-			{
-				code: 129,
-				stderr:
-					"error: unknown option `exists'\nusage: git show-ref [--head] [-d | --dereference]\n   or: git show-ref --verify [-q | --quiet] [-d | --dereference]\n",
-			},
-			/can't say whether refs\/heads\/fresh is there, since `show-ref --exists` needs git 2\.43 or newer$/,
-		],
-		["a git that never ran", { code: 1, stderr: "" }, /answered 1$/],
-	])(
+	it.each([["a git that never ran", { code: 1, stderr: "" }, /answered 1$/]])(
 		"refuses the cut of a branch it doesn't list where %s can't say it is missing",
 		async (_, answer, why) => {
 			const { gitDir } = await checkout();
@@ -409,4 +397,85 @@ describe("taking a cut tree out again", () => {
 			topic,
 		);
 	});
+});
+
+// Lenders and cloud machines run a git older than 2.43, which answers
+// `show-ref --exists` with 129 and its whole usage; refusing there
+// refused every carry onto them.
+describe("cutting with a git too old to say a ref is missing", () => {
+	const OLD = {
+		code: 129,
+		stderr:
+			"error: unknown option `exists'\nusage: git show-ref [--head] [-d | --dereference]\n",
+	};
+	const old = failing("show-ref", OLD);
+
+	it("cuts a branch that isn't there", async () => {
+		const { gitDir } = await checkout();
+		const at = join(folder(made, "trees"), "old-fresh");
+
+		expect(await cutFrom(old, gitDir, at, "fresh")).toEqual({
+			checkout: gitDir,
+			before: undefined,
+		});
+	});
+
+	it("cuts one that isn't there beside a broken ref of another", async () => {
+		const { gitDir } = await checkout();
+		writeFileSync(join(gitDir, "refs", "heads", "fresh-old"), "not a sha\n");
+		const at = join(folder(made, "trees"), "old-beside-broken");
+
+		expect(await cutFrom(old, gitDir, at, "fresh")).toEqual({
+			checkout: gitDir,
+			before: undefined,
+		});
+	});
+
+	it("refuses where the branch's file is there though git didn't list it", async () => {
+		const { gitDir } = await checkout();
+		const unlisted: Exec = async (command, args) =>
+			args.includes("for-each-ref")
+				? { code: 0, stdout: "", stderr: "" }
+				: old(command, args);
+		const at = join(folder(made, "trees"), "old-unlisted");
+
+		const refused = await cutFrom(unlisted, gitDir, at, "topic");
+
+		expect("why" in refused ? refused.why : "").toMatch(
+			/git has refs\/heads\/topic at .* but didn't list it$/,
+		);
+		expect(existsSync(at), "nothing was cut").toBe(false);
+	});
+
+	it("refuses where the listing warned of the branch's own ref", async () => {
+		const { gitDir } = await checkout();
+		writeFileSync(join(gitDir, "refs", "heads", "fresh"), "not a sha\n");
+		const at = join(folder(made, "trees"), "old-broken");
+
+		const refused = await cutFrom(old, gitDir, at, "fresh");
+
+		expect("why" in refused ? refused.why : "").toMatch(/refs\/heads\/fresh$/);
+		expect(existsSync(at), "nothing was cut").toBe(false);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses where the branches' folder can't be read, which the listing skips silently",
+		async () => {
+			const { gitDir } = await checkout();
+			const heads = join(gitDir, "refs", "heads");
+			const at = join(folder(made, "trees"), "old-unreadable");
+			chmodSync(heads, 0o000);
+			let refused: Awaited<ReturnType<typeof cutFrom>>;
+			try {
+				refused = await cutFrom(old, gitDir, at, "fresh");
+			} finally {
+				chmodSync(heads, 0o755);
+			}
+
+			expect("why" in refused ? refused.why : "").toMatch(
+				/refs\/heads can't be read, so git can't say whether refs\/heads\/fresh is there$/,
+			);
+			expect(existsSync(at), "nothing was cut").toBe(false);
+		},
+	);
 });

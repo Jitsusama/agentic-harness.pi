@@ -10,7 +10,14 @@
  * a tree refused once cut, touches nothing in it the arrival didn't make.
  */
 
-import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+	accessSync,
+	constants,
+	lstatSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { within } from "../sandbox/tree-git.ts";
@@ -95,6 +102,11 @@ export async function cutFrom(
  * alone, and 1 for one it couldn't look up; `rev-parse` can't tell
  * absent from unreadable, nor from a git that never ran: each answers 1.
  * What else git says on standard error is no reason to refuse.
+ *
+ * A git older than 2.43 doesn't know `--exists`, answering 129, and
+ * lenders and cloud machines run such a git, where refusing every new
+ * branch would refuse every carry. There the ref's own file, where git
+ * names it, is looked at instead: see {@link unlistedStands}.
  */
 async function whereStands(
 	exec: Exec,
@@ -123,12 +135,20 @@ async function whereStands(
 		.split("\n")
 		.map((one) => one.trim())
 		.filter((one) => one.endsWith(` ${ref}`));
+	if (missing.code === UNKNOWN_OPTION) {
+		if (named.length > 0) return { why: named.join("; ") };
+		const file = await exec("git", [
+			`--git-dir=${checkout}`,
+			"rev-parse",
+			"--git-path",
+			ref,
+		]);
+		if (file.code !== 0) return { why: whyOf(file) };
+		const stands = unlistedStands(file.stdout.trim(), ref);
+		return stands === undefined ? { at: undefined } : { why: stands };
+	}
 	const why =
-		missing.code === 0
-			? `git has ${ref} but didn't list it`
-			: missing.code === UNKNOWN_OPTION
-				? `this git can't say whether ${ref} is there, since \`show-ref --exists\` needs git 2.43 or newer`
-				: whyOf(missing);
+		missing.code === 0 ? `git has ${ref} but didn't list it` : whyOf(missing);
 	return { why: [...named, why].join("; ") };
 }
 
@@ -141,6 +161,38 @@ const MISSING = 2;
  * the ref.
  */
 const UNKNOWN_OPTION = 129;
+
+/**
+ * Why a ref the listing left out may still stand, for a git too old to
+ * say so itself, looking at its loose file `file` as git names it: that
+ * file is there, or a folder of refs on its way can't be read, which
+ * the listing skips without a word. Undefined where neither, so it is
+ * missing: a packed ref the listing would have read and listed.
+ */
+function unlistedStands(file: string, ref: string): string | undefined {
+	if (!isAbsolute(file) || !file.endsWith(`/${ref}`)) {
+		return `git named ${file} for ${ref}, which isn't its file`;
+	}
+	let at = `${file.slice(0, -ref.length)}refs`;
+	for (const part of ["", ...ref.split("/").slice(1)]) {
+		at = part === "" ? at : join(at, part);
+		let kind: ReturnType<typeof lstatSync>;
+		try {
+			kind = lstatSync(at);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			return `${at} can't be looked at: ${messageOf(error)}`;
+		}
+		if (at === file) return `git has ${ref} at ${file} but didn't list it`;
+		if (!kind.isDirectory()) return undefined;
+		try {
+			accessSync(at, constants.R_OK | constants.X_OK);
+		} catch {
+			return `${at} can't be read, so git can't say whether ${ref} is there`;
+		}
+	}
+	return undefined;
+}
 
 /** What git said on standard error, or the code it answered with. */
 function whyOf(said: { code: number; stderr: string }): string {
