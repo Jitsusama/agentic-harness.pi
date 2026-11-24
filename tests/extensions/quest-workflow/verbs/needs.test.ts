@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +16,7 @@ import {
 	STAGE_VARIABLE,
 } from "../../../../lib/internal/fence/fence-stage.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
@@ -49,6 +56,7 @@ beforeEach(() => {
 	for (const key of [
 		"HOME",
 		"XDG_STATE_HOME",
+		"XDG_CACHE_HOME",
 		"MYCELIUM_REALM",
 		"PI_SANDBOX",
 	]) {
@@ -56,6 +64,7 @@ beforeEach(() => {
 	}
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+	process.env.XDG_CACHE_HOME = join(tmpRoot, "cache");
 	delete process.env.MYCELIUM_REALM;
 	delete process.env.PI_SANDBOX;
 	spawned = undefined;
@@ -377,6 +386,51 @@ describe("the fence a quest's spawns declare", () => {
 			spawnedEnv?.PI_FENCE_DECLARED,
 			"to a fence its pi keeps, never to none",
 		).toBe("1");
+	});
+
+	it("opens a strict spawn that knows no better folder in its quest's workspace, never home", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		const folder = join(
+			tmpRoot,
+			"cache/pi/agentic-harness.pi/quest-workspace",
+			id,
+			"work",
+		);
+		expect(details.cwdSource, "strict chose it").toBe("strict");
+		expect(details.cwd, "a folder of its own in the workspace").toBe(folder);
+		expect(existsSync(folder), "made before it starts there").toBe(true);
+		expect(
+			unfencedFolder(folder, tmpRoot),
+			"strict runs its commands there",
+		).toBeUndefined();
+	});
+
+	it("leaves an unfenced spawn in the home folder it would open in", async () => {
+		const { id, run } = await quest("Alpha");
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		expect(details.cwd).toBe(tmpRoot);
+		expect(details.cwdSource).not.toBe("strict");
+	});
+
+	it("keeps a strict spawn in the folder the call names", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(
+			await run({ action: "spawn-tab", id, cwd: tmpRoot }),
+		);
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		expect(details.cwd).toBe(tmpRoot);
+		expect(details.cwdSource).toBe("given");
 	});
 
 	it("claims none for a command that isn't pi, whatever its parent runs", async () => {

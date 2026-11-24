@@ -40,6 +40,7 @@ import {
 	spawnedWords,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { unfencedFolder } from "../../../lib/internal/sandbox/unfenced-folder.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
@@ -59,6 +60,7 @@ import {
 	presencesHere,
 	windowPlaceFor,
 } from "../window-place.ts";
+import { defaultWorkspaceRoot, strictFolderOf } from "../workspace.ts";
 import { nameBudgetFromFolder, namedBy } from "./budget.ts";
 import { needsOf } from "./needs.ts";
 import {
@@ -365,6 +367,21 @@ async function spawnNaming(
 	said.fence = fence;
 	const { sandbox } = started;
 	if (sandbox) said.handed = sandbox;
+	// Strict runs no command in home, nor in a folder holding what runs
+	// outside it, so a strict spawn here whose folder nobody named opens in
+	// its quest's workspace instead of one where it could do nothing.
+	const strictFolder =
+		sandbox === "strict" &&
+		!given &&
+		landsHere &&
+		unfencedFolder(cwd, homedir()) !== undefined
+			? strictFolderOf(defaultWorkspaceRoot(), questIdForSpawn, !params.dryRun)
+			: undefined;
+	if (strictFolder) {
+		cwd = strictFolder;
+		cwdSource = "strict";
+		chosenBy = describeCwdSource("strict");
+	}
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
 		...declaredSandbox(sandbox),

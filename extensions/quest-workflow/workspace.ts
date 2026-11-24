@@ -5,7 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statfsSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
 import { isId, prefixOf } from "../../lib/internal/quest/creation/id.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
@@ -74,4 +74,32 @@ export function makeWorkspace(
 	mkdirSync(root, { recursive: true });
 	if (folders.onBtrfs(root) && folders.subvolume(dir)) return;
 	mkdirSync(dir, { recursive: true });
+}
+
+/** The folder in a workspace that a strict session with nowhere better opens in. */
+const STRICT_FOLDER = "work";
+
+/**
+ * Where a strict session opens when nothing better is known: a folder of
+ * its own in its quest's workspace, since strict runs no command in home
+ * (unfenced-folder.ts). On 24 November an auditor spawned strict into
+ * home could read nothing and had to spawn itself again. It is never the
+ * workspace itself, whose `tmp/` holds, on a Mac, compiled code that no
+ * strict command may take as its own. With `make`, it is made on the
+ * way; undefined for an ID that names no workspace.
+ */
+export function strictFolderOf(
+	root: string,
+	questId: string | null,
+	make: boolean,
+	folders: WorkspaceFolders = btrfsFolders,
+): string | undefined {
+	const dir = workspaceDirOf(root, questId);
+	if (!dir) return;
+	const folder = join(dir, STRICT_FOLDER);
+	if (make) {
+		makeWorkspace(dir, folders);
+		mkdirSync(folder, { recursive: true });
+	}
+	return folder;
 }
