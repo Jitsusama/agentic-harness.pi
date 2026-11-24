@@ -502,6 +502,29 @@ describe("an orchestrator's claim", () => {
 		]);
 	});
 
+	it("lets a start's retry lapse once another quest is claimed", async () => {
+		const { state, claims, keeper, pass } = keeping((ask) =>
+			ask.claim !== "forget" && ask.claim.heads === MISSION
+				? REFUSED
+				: RECORDED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+		state.questId = OTHER;
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+
+		pass(CLAIM_RETRIED_AFTER_START_MS);
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+		expect(claims(), "the node has just recorded OTHER").toEqual([
+			MISSION_CLAIM,
+			"forget",
+			{ heads: OTHER, quests: [] },
+		]);
+	});
+
 	it("asks soon after a refusal at the start only once, however its forget is answered", async () => {
 		const { state, claimsOnly, keeper, pass } = keeping((ask) =>
 			ask.claim === "forget"
@@ -901,11 +924,38 @@ describe("an orchestrator's claim", () => {
 			["forget", "sess-1"],
 		]);
 
+		// The claim answered after the forget may have reached the node
+		// after it too, leaving the ended session heading the quest.
 		slow.release(RECORDED);
 		await keeper.settled();
 		keeper.look("sess-1", AT);
 		await keeper.settled();
-		expect(asked, "then nothing").toHaveLength(2);
+		expect(
+			asked.map(({ claim, session }) => [claim, session]),
+			"one more forget once the claim in flight is answered, then nothing",
+		).toEqual([
+			[MISSION_CLAIM, "sess-1"],
+			["forget", "sess-1"],
+			["forget", "sess-1"],
+		]);
+	});
+
+	it("forgets once as it ends when the claim in flight is answered before the forget", async () => {
+		const claimed = held<ClaimTold>();
+		const forgot = held<ClaimTold>();
+		const answers = [claimed.promise, forgot.promise];
+		const { state, asked, keeper } = keeping(() => answers.shift() ?? RECORDED);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		const ended = keeper.end("sess-2", AT);
+		await new Promise((resolve) => setImmediate(resolve));
+
+		claimed.release(RECORDED);
+		await new Promise((resolve) => setImmediate(resolve));
+		forgot.release(RECORDED);
+		await ended;
+		await keeper.settled();
+		expect(asked.map(({ claim }) => claim)).toEqual([MISSION_CLAIM, "forget"]);
 	});
 
 	it("forgets nothing as it ends holding nothing", async () => {

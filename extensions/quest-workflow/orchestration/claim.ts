@@ -27,7 +27,8 @@
  * is asked once more at the first turn or tick from half a minute on,
  * since a swap's successor can reach the node ahead of its predecessor's
  * forget; the predecessor's end sends that forget at once, beside any ask
- * still in flight, and waits a little for it, so it mostly lands first.
+ * still in flight, and waits a little for it, so it mostly lands first;
+ * a claim in flight answered after it is forgotten once more.
  * The claim is said again a few minutes after it was last sent, however
  * many quest actions came between.
  *
@@ -501,6 +502,7 @@ export function claimKeeper(
 			// 20 s where a quit gives the forget a moment; one in flight may yet
 			// land a claim, so the forget goes even while nothing is held.
 			const inFlight = running === undefined ? undefined : askingAs;
+			const flight = running;
 			const last = async (): Promise<void> => {
 				if (inFlight === undefined && holding.kind === "nothing") return;
 				const named = realm(place.env ?? process.env);
@@ -508,6 +510,14 @@ export function claimKeeper(
 				// Under the session the node may hold a claim for, or else the
 				// one the ask in flight asks under.
 				const under = inFlight ?? session;
+				await forget({ session: under, place, again: true }, named);
+				// The claim in flight may land after that forget, as two
+				// children reach the node in either order, and would leave this
+				// ended session heading the quest: so once it is answered, what
+				// it left held is forgotten once more.
+				if (flight === undefined) return;
+				await flight;
+				if (holding.kind === "nothing") return;
 				await forget({ session: under, place, again: true }, named);
 			};
 			ending = last().catch((error: unknown) => {

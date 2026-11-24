@@ -396,6 +396,28 @@ describe("running a program", () => {
 		expect(ran).not.toHaveProperty("stopped");
 	});
 
+	it("stops one that ignores the polite signal, so its asker isn't wedged", async () => {
+		const started = Date.now();
+		const ran = await runOnPath("sh", ["-c", "trap '' TERM; sleep 5"], {
+			...patience,
+			timeoutMs: 100,
+		});
+		expect(ran).toMatchObject({ code: null, timedOut: true });
+		expect(Date.now() - started).toBeLessThan(4000);
+	});
+
+	it("answers as timed out one whose child holds its output open past the kill", async () => {
+		// The shell is killed at its patience, but the sleep it left holds
+		// stdout, so only the reaping grace answers it.
+		const started = Date.now();
+		const ran = await runOnPath("sh", ["-c", "sleep 8 & wait"], {
+			...patience,
+			timeoutMs: 100,
+		});
+		expect(ran).toMatchObject({ code: null, timedOut: true });
+		expect(Date.now() - started).toBeLessThan(7500);
+	}, 15_000);
+
 	it("says one killed from outside ended with no code, and nothing more", async () => {
 		const ran = await runOnPath("sh", ["-c", "kill -9 $$"], patience);
 		expect(ran.code).toBeNull();
