@@ -79,8 +79,8 @@ describe("a need for the id a cell holds", () => {
 		const line = JSON.stringify({
 			id: 2,
 			records: [
-				{ key: "cell:P5", title: "Article I", subjects: ["aquifer:I-5"] },
-				{ key: "cell:Q9", title: "Article I", subjects: ["aquifer:I-6"] },
+				{ key: "cell:PPPPP5", title: "Article I", subjects: ["aquifer:I-5"] },
+				{ key: "cell:QQQQQ9", title: "Article I", subjects: ["aquifer:I-6"] },
 			],
 		});
 		const need = asked("A", ...wordsOf("I-5 fails at the candidate"));
@@ -89,13 +89,13 @@ describe("a need for the id a cell holds", () => {
 			{ ...need, fromText: true },
 			{
 				foragers: [...cells({ A: [] }), ...foragersFrom(line)],
-				ties: ties(["A", "Q9", 2], ["A", "P5", 1]),
+				ties: ties(["A", "QQQQQ9", 2], ["A", "PPPPP5", 1]),
 				hubs: [],
 			},
 		);
 
 		expect(found, "the holder of I-5, not of I-6").toMatchObject({
-			fit: "P5",
+			fit: "PPPPP5",
 			words: ["i-5"],
 		});
 	});

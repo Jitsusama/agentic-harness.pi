@@ -230,8 +230,9 @@ type Went = "sent" | "owned" | "lost";
  * The words of an about no cell works on, and of those kept no live
  * cell does, as a sentence, or nothing. A need sent says the words it
  * was routed by and one refused for its owner those its fit was found
- * by, a word only ended cells work on left out of either; a lost one,
- * having gone nowhere, says neither.
+ * by, a word only ended cells work on left out of either. A lost one,
+ * having gone nowhere, says neither, and carries no `noLive`: routing
+ * says words only ended cells work on just once it found a live cell.
  */
 function unaskedText(
 	noCell: readonly string[],
@@ -242,7 +243,7 @@ function unaskedText(
 	const unheld = new Set(noLive);
 	const routed = kept.filter((word) => !unheld.has(word));
 	const count = noCell.length + noLive.length;
-	if (count === 0 || (went !== "lost" && routed.length === 0)) return "";
+	if (count === 0 || routed.length === 0) return "";
 	const cells = [
 		...(noCell.length > 0 ? [`No cell works on ${noCell.join(", ")}`] : []),
 		...(noLive.length > 0
@@ -269,9 +270,10 @@ function unaskedText(
  * alone there, and that cell worked on more of it than `fit`. Said as
  * not present, since the node lists it with no presence here: it
  * crashed, or its presence never reached this machine, as one whose
- * machine is only out of reach still counts as there. Once it is back a resend reaches
- * it, or a cell covering as much or more that it leads to; unless it
- * stopped this one, which is known only of a present cell.
+ * machine is only out of reach still counts as there. Once it is back
+ * a resend reaches it, or a cell covering as much or more that it
+ * leads to; unless it stopped this one, which is known only of a
+ * present cell.
  */
 function ownerText(found: NeedRecord, fit: string, about: string): string {
 	const owner = (found.ended ?? []).join(", ");

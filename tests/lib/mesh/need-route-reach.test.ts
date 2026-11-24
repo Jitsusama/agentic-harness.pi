@@ -7,7 +7,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MOST_HOPS, OWNER_TIE_AGE_MS } from "../../../lib/mesh/need-route.ts";
+import {
+	MOST_HOPS,
+	MOST_OWNER_TRIES,
+	OWNER_TIE_AGE_MS,
+} from "../../../lib/mesh/need-route.ts";
 import { AT, asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 /** Ties along a chain of cells, each as strong as the first. */
@@ -285,6 +289,42 @@ describe("an ended cell owning a need", () => {
 			ended: ["K"],
 			fellShort: "B",
 		});
+	});
+
+	it("routes again for at most MOST_OWNER_TRIES ended cells, best first, then sends it to its fit", () => {
+		// Each K works on all of it, so ranks above J, and was heard from
+		// lately, but only on a tie to Z, which nothing reaches from A: none
+		// owns it. J would, were it tried.
+		const crashed = (count: number) => {
+			const ks = Array.from({ length: count }, (_, at) => `K${at}`);
+			return routeNeed(asked("A", "dates", "delivery", "slots"), {
+				foragers: cells({
+					A: [],
+					Z: [],
+					J: ["dates", "delivery"],
+					B: ["delivery"],
+					...Object.fromEntries(
+						ks.map((k) => [k, ["dates", "delivery", "slots"]]),
+					),
+				}),
+				ties: ties(
+					["A", "B", 1],
+					["A", "J", 1],
+					...ks.map((k): [string, string, number] => [k, "Z", 1]),
+				),
+				hubs: [],
+				live: (address) => address !== "J" && !ks.includes(address),
+			});
+		};
+
+		expect(
+			crashed(MOST_OWNER_TRIES - 1),
+			"J, tried once fewer Ks rank above it",
+		).toMatchObject({ fit: null, ended: ["J"], fellShort: "B" });
+		expect(
+			crashed(MOST_OWNER_TRIES),
+			"J, past the cap, is taken as owning nothing",
+		).toMatchObject({ fit: "B" });
 	});
 
 	it("owns it past a nearer ended cell working on less, tried alone", () => {

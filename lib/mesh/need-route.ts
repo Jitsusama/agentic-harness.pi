@@ -60,6 +60,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { listAt, TIE_HALF_LIFE_MS } from "./node.ts";
+import { isAddress } from "./steer-who.ts";
 import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** A cell and the words of what it works on. */
@@ -180,6 +181,15 @@ export const MOST_HOPS = 3;
  * its record.
  */
 export const OWNER_TIE_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The most ended cells a need is routed again for, best first, to find
+ * one that owns it, so a send costs at most this many routes past its
+ * own however many cells crash at once. Any past them are taken as
+ * owning nothing, so the need goes to its fit: the cap fails toward
+ * delivering, as a cell's being out of reach does.
+ */
+export const MOST_OWNER_TRIES = 3;
 
 /** The most words a need is routed and kept by. */
 export const MOST_WORDS = 12;
@@ -346,7 +356,10 @@ export function foragersFrom(line: string): Forager[] {
 	return recordsOf(line).flatMap((record): Forager[] => {
 		const { key, title, repo, subjects } = record;
 		if (typeof key !== "string" || !key.startsWith("cell:")) return [];
-		if (!CELL_ADDRESS.test(key.slice("cell:".length))) return [];
+		// An asker is told who ended and who fell short by address, in
+		// guidance it acts on, so a key that is no address, or is the
+		// person's or the machine's name, never reaches a reply.
+		if (!isAddress(key.slice("cell:".length))) return [];
 		const declared = firstSubjects(subjects);
 		const said = [title, repo].filter((one) => typeof one === "string");
 		const titled = wordsOf(said.join(" "));
@@ -358,13 +371,6 @@ export function foragersFrom(line: string): Forager[] {
 		];
 	});
 }
-
-/**
- * What a cell's address may be, so a key the node holds that says
- * anything more never reaches a reply: an asker is told who ended and
- * who fell short by address, in guidance it acts on.
- */
-const CELL_ADDRESS = /^[A-Za-z0-9_-]{1,32}$/u;
 
 /**
  * The first `MOST_SUBJECTS` strings a record's `subjects` declares,
@@ -715,8 +721,9 @@ function routeAs(
 	// and walks, so a resend once it is back reaches it, or a cell covering
 	// as much or more that it leads to: walked through, it may reach one
 	// found first or found by a word it lacks.
-	// Tried best first, so routing stops at the first that owns it: after
-	// many cells crash at once, only those ranked above it cost a route.
+	// Tried best first, stopping at the first that owns it, and at most
+	// MOST_OWNER_TRIES of them, so many cells crashing at once, none of
+	// them owning it, costs no more than that many routes.
 	const owner = reach.foragers
 		.map(({ address }) => address)
 		.filter(
@@ -728,6 +735,7 @@ function routeAs(
 		.sort((one, other) =>
 			better(one, other) ? -1 : better(other, one) ? 1 : 0,
 		)
+		.slice(0, MOST_OWNER_TRIES)
 		.find((address) => routeAs(said, reach, address).fit === address);
 	// Words only ended cells work on are said, whenever those were heard
 	// from, else the asker hears nothing of them, as a need about dates
