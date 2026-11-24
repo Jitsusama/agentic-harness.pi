@@ -147,13 +147,19 @@ export function startLine(
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
 }
 
+/** An id as pi makes one, which can't pass for the line's own words. */
+const PLAIN_ID = /^[\w.-]+$/u;
+
 /**
  * A named conversation's address and id, escaped; an adopted one's id
- * comes from the requester's file, so it is bounded as a path is.
+ * comes from the requester's file, so it is bounded as a path is, and
+ * quoted unless it is plain, so one holding `): ` can't end the
+ * parentheses and pass its tail off as the line's own words.
  */
 function named(sessionId: string): string {
 	const { kept, cut } = bounded(sessionId);
-	return `${onOneLine(sessionAddress(sessionId))} (${onOneLine(kept)}${cut})`;
+	const id = PLAIN_ID.test(kept) ? kept : quoted(kept);
+	return `${onOneLine(sessionAddress(sessionId))} (${id}${cut})`;
 }
 
 /**
