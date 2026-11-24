@@ -448,7 +448,11 @@ async function arriveTree(
 	// A tree made here holds nothing of anyone's, so arriving again starts
 	// afresh; one cut leaves the checkout's branch where it stood.
 	if (readied.kind === "cut") {
-		const left = await uncut(exec, readied, path, tree.branch, tree.head);
+		// Cut on no branch, it is on its own only once settling checked it
+		// out there, so a branch another brought to the head stays.
+		const on = await git.said("symbolic-ref", "-q", "HEAD");
+		const settled = on === `refs/heads/${tree.branch}` ? tree.head : undefined;
+		const left = await uncut(exec, readied, path, tree.branch, settled);
 		if (left !== undefined) {
 			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
 			return { ...line, did: "refused", why: `${stopped} And ${left}.` };

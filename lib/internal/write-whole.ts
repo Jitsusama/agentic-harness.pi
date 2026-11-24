@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import {
 	closeSync,
 	fsyncSync,
+	lstatSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
@@ -63,6 +64,18 @@ function stagedFor(file: string): { writing: string; staged: string } {
 	return { writing, staged };
 }
 
+/**
+ * Throws where `writing` is a link or no folder once made, since what
+ * is staged there would be written wherever it leads.
+ */
+function refuseLinked(writing: string): void {
+	if (!lstatSync(writing).isDirectory()) {
+		throw new Error(
+			`${writing} is a link or no folder, so nothing is staged there.`,
+		);
+	}
+}
+
 /** Replace `file` whole with `content`, through its folder's `.writing`. */
 export function writeWhole(
 	file: string,
@@ -71,6 +84,7 @@ export function writeWhole(
 ): void {
 	const { writing, staged } = stagedFor(file);
 	mkdirSync(writing, { recursive: true });
+	refuseLinked(writing);
 	try {
 		if (options.durable) writeDurably(staged, content, options.mode);
 		else writeFileSync(staged, content, { mode: options.mode });
@@ -100,6 +114,7 @@ export function writeWholeBy(
 ): void {
 	const { writing, staged } = stagedFor(file);
 	mkdirSync(writing, { recursive: true });
+	refuseLinked(writing);
 	try {
 		const fd = openSync(staged, "w", options.mode);
 		try {
@@ -158,6 +173,7 @@ export async function writeWholeOff(
 ): Promise<boolean> {
 	const { writing, staged } = stagedFor(file);
 	await mkdirOff(writing, { recursive: true });
+	refuseLinked(writing);
 	try {
 		if (options.durable) await writeDurablyOff(staged, content, options.mode);
 		else await writeFileOff(staged, content, { mode: options.mode });

@@ -85,49 +85,57 @@ export async function cutFrom(
 
 /**
  * Where `branch` stands in the checkout whose git folder is `checkout`:
- * none only where git says it isn't there (`rev-parse -q` answers 1),
- * since any other failure says nothing of whether it is, and reading it
- * as absent would have a branch put back by deleting it.
+ * none only where git listed its branches whole and named no such one,
+ * saying nothing on standard error, since a ref it can't read is
+ * skipped with a warning, and reading one as absent would have a
+ * branch put back by deleting it. `rev-parse` can't tell absent from
+ * unreadable, nor from a git that never ran: each answers 1.
  */
 async function whereStands(
 	exec: Exec,
 	checkout: string,
 	branch: string,
 ): Promise<{ readonly at: string | undefined } | { readonly why: string }> {
-	const stood = await exec("git", [
+	const ref = `refs/heads/${branch}`;
+	const listed = await exec("git", [
 		`--git-dir=${checkout}`,
-		"rev-parse",
-		"--verify",
-		"-q",
-		`refs/heads/${branch}`,
+		"for-each-ref",
+		"--format=%(objectname) %(refname)",
+		ref,
 	]);
-	if (stood.code === 0) return { at: stood.stdout.trim() };
-	if (stood.code === 1) return { at: undefined };
-	return {
-		why: stood.stderr.trim() || `rev-parse answered ${stood.code}`,
-	};
+	const said = listed.stderr.trim();
+	if (listed.code !== 0 || said !== "") {
+		return { why: said || `git answered ${listed.code}` };
+	}
+	const line = listed.stdout.split("\n").find((one) => one.endsWith(` ${ref}`));
+	return { at: line?.slice(0, -` ${ref}`.length) };
 }
 
 /**
  * Takes out the tree `cut` made at `path`, git's entry for it alone, and
  * puts its branch back where it stood in the checkout where settling
  * moved it to `settled`, or takes out the one settling made; answers
- * what couldn't be, or nothing. A branch anything else moved meanwhile
- * is left where it is, and it never throws.
+ * what couldn't be, or nothing. Where settling never moved it
+ * (`settled` is none), or anything else moved it meanwhile, the branch
+ * is left where it is, as it is where the tree couldn't be taken out,
+ * since that tree may still hold it. It never throws.
  */
 export async function uncut(
 	exec: Exec,
 	cut: Cut,
 	path: string,
 	branch: string,
-	settled: string,
+	settled: string | undefined,
 ): Promise<string | undefined> {
-	const left: string[] = [];
 	const taken = await takenOut(exec, cut.checkout, path);
-	if (taken !== undefined) left.push(taken);
-	const put = await putBack(exec, cut, branch, settled);
-	if (put !== undefined) left.push(put);
-	return left.length === 0 ? undefined : left.join(", and ");
+	if (taken !== undefined) {
+		return settled === undefined
+			? taken
+			: `${taken}, so its branch ${branch} was left where it stands`;
+	}
+	return settled === undefined
+		? undefined
+		: await putBack(exec, cut, branch, settled);
 }
 
 /** Takes out the tree at `path` and its entry; answers why not, or nothing. */
@@ -205,8 +213,10 @@ function entryOf(path: string, checkout: string): string | undefined {
 		const real = realpathSync(entry);
 		if (real === worktrees || !within(real, worktrees)) return undefined;
 		// Another tree's entry, named by a .git file planted here, stays.
+		// Relative where git writes it so (worktree.useRelativePaths).
 		const back = readFileSync(join(real, "gitdir"), "utf8").trim();
-		return realpathSync(back) === realpathSync(join(path, ".git"))
+		return realpathSync(resolve(real, back)) ===
+			realpathSync(join(path, ".git"))
 			? real
 			: undefined;
 	} catch {

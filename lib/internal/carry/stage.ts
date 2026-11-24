@@ -39,10 +39,12 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { processGlobal } from "../process/process-global.ts";
+import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf } from "./handover.ts";
 
 /** The folder beside the quest scratches that carries stage in. */
-const STAGING_ROOT = ".carrying";
+const STAGING_ROOT = CARRY_STAGING;
 /** What a staging folder's name starts with. */
 const STAGING = "carrying-";
 /** Where a staging folder keeps what placed files replaced. */
@@ -62,17 +64,7 @@ const RECORD = ".carry.json";
  * with a set of its own would take another's running carry as returned
  * and undo it.
  */
-const live = processWide(Symbol.for("pi.carry.staging.live"));
-
-/** The set of the process kept under `key`, made where none is yet. */
-function processWide(key: symbol): Set<string> {
-	const held = globalThis as Record<symbol, unknown>;
-	const found = held[key];
-	if (found instanceof Set) return found as Set<string>;
-	const made = new Set<string>();
-	held[key] = made;
-	return made;
-}
+const live = processGlobal("pi.carry.staging.live", () => new Set<string>());
 
 /** A carry's staging folder, and how what is staged there is placed. */
 export interface Stage {
@@ -86,10 +78,12 @@ export interface Stage {
 	 */
 	place(names: readonly string[], gone?: readonly string[]): void;
 	/**
-	 * What `write` answers, writing into the handover once it is checked
-	 * for links again, as placing is: its done file goes last of all.
+	 * The handover's path of the file `write` writes in the staging
+	 * folder it is given and answers, placed as `place` places it: a
+	 * carry's done file goes last of all, so none is ever written in the
+	 * handover itself, which a fenced command may have swapped.
 	 */
-	write<T>(write: () => T): T;
+	placeLast(write: (folder: string) => string): string;
 }
 
 /** A staging folder's record. */
@@ -135,9 +129,7 @@ export async function staged<T>(
 	unlinked(into);
 	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
-	live.add(folder);
 	const aside = join(folder, BEFORE);
-	mkdirSync(aside);
 	const placed: string[] = [];
 	const moved: string[] = [];
 	const record = (failed = false): void =>
@@ -149,10 +141,27 @@ export async function staged<T>(
 			placed,
 			...(failed ? { failed } : {}),
 		});
-	record();
+	live.add(folder);
+	try {
+		mkdirSync(aside);
+		record();
+	} catch (error) {
+		// Nothing is placed yet, so the folder holds nothing to keep.
+		live.delete(folder);
+		rmSync(folder, { recursive: true, force: true });
+		throw error;
+	}
 	let keep = false;
 	const stage: Stage = {
 		folder,
+		placeLast(write) {
+			const file = write(folder);
+			if (dirname(file) !== folder) {
+				throw new Error(`${file} isn't in the staging folder ${folder}.`);
+			}
+			stage.place([basename(file)]);
+			return join(into, basename(file));
+		},
 		place(names, gone = []) {
 			unlinked(into);
 			const held = names.find((name) => isFolder(join(into, name)));
@@ -173,10 +182,6 @@ export async function staged<T>(
 			for (const name of names) {
 				renameSync(join(folder, name), join(into, name));
 			}
-		},
-		write(write) {
-			unlinked(into);
-			return write();
 		},
 	};
 	try {
