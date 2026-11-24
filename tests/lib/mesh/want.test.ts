@@ -37,7 +37,8 @@ describe("a want", () => {
 		const read = (asked: unknown) =>
 			wantFrom({ kind: "question", since, said: "Go on?", asked });
 
-		expect(read("First.\n\n\nGo\u001b on?")?.asked).toBe("First.\n\nGo on?");
+		// An unseen character reads as a space; the spaces an ask has stay.
+		expect(read("First.\n\n\nGo\u001bon?")?.asked).toBe("First.\n\nGo on?");
 		expect(read(`${"x".repeat(ASKED_CHARS - 4)}\nGo?`)?.asked).toHaveLength(
 			ASKED_CHARS,
 		);
