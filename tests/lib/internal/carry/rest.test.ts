@@ -343,6 +343,35 @@ describe("carrying what a quest's steered sessions left", () => {
 		);
 	});
 
+	it("keeps a tree it skipped skipped, with its own why, when a later tree is refused", async () => {
+		const { home, trees, into } = await homeWith("snap", "app");
+		await git(trees.snap ?? "", "checkout", "-q", "--detach");
+		const here = questHere({ trees: [trees.snap ?? "", trees.app ?? ""] });
+		// Too random to pack small, so its bundle alone passes the limit.
+		await commit(
+			trees.app ?? "",
+			"big.txt",
+			randomBytes(8000).toString("base64"),
+		);
+
+		const { whole, said } = await carry(home, into, here, 4000);
+
+		expect(whole).toBe(false);
+		expect(said).toContainEqual(
+			expect.objectContaining({
+				kind: "tree",
+				path: trees.snap,
+				did: "skipped",
+				why: expect.stringMatching(/^It is on no branch/),
+			}),
+		);
+		const failed = said.at(-1);
+		expect(
+			failed?.kind === "failed" ? failed.why : "",
+			"only the refused tree counts against the carry",
+		).toMatch(/^one thing was refused, so the carry isn't whole: /);
+	});
+
 	it("says no failed line when every tree went", async () => {
 		const { home, trees, into } = await homeWith("fine");
 

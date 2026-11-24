@@ -365,8 +365,9 @@ async function stageTrees(
 
 /**
  * Each of `paths` as a quest's carry refused for `refused` answers it:
- * that one with its own why, every other held back with it, whether it
- * was staged or not yet tried.
+ * that one with its own why, one skipped (gone, or on no branch) with
+ * its own, since it would never have gone, and every other held back
+ * with it, whether it was staged or not yet tried.
  */
 function heldBackWith(
 	refused: string,
@@ -375,7 +376,7 @@ function heldBackWith(
 ): TreeCarried[] {
 	return paths.map(
 		(path) =>
-			staged.find((one) => one.kind === "refused" && one.path === path) ?? {
+			staged.find((one) => one.kind !== "carried" && one.path === path) ?? {
 				kind: "refused",
 				path,
 				why: `held back, since ${refused} was refused and a quest's own trees go together; its earlier carry stays as it was`,
