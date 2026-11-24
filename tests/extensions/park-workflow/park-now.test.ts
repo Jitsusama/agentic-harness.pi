@@ -155,7 +155,7 @@ describe("parking now, as the person asked", () => {
 		expect(ask()).toEqual({ session: SESSION });
 	});
 
-	it("parks with its window on a workspace in sight, which only the rule waits for", () => {
+	it("parks with its window on a workspace in sight, leaving that window open", () => {
 		writeFileSync(
 			join(folder, "held.json"),
 			JSON.stringify({
@@ -198,8 +198,12 @@ describe("parking now, as the person asked", () => {
 			{ run, memory: join(folder, "screen.json") },
 		);
 
-		expect(ask().parked).toBe(true);
-		expect(calls).toContain(CLOSE);
+		expect(ask().parked, "only the rule waits for it out of sight").toBe(true);
 		expect(exits).toEqual([PARKED_EXIT]);
+		expect(calls, "a window its person can see stays").not.toContain(CLOSE);
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "its window is on a workspace in sight",
+		});
 	});
 });
