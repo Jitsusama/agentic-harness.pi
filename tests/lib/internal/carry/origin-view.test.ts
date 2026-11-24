@@ -5,9 +5,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ExecResult } from "../../../../lib/core/exec/index.ts";
+import { spawnExec } from "../../../../lib/core/exec/index.ts";
 import {
 	gitIn,
 	holdToOrigin,
@@ -95,47 +97,213 @@ describe("git in a tree, as arrive runs it", () => {
 	});
 });
 
-describe("holding a tree's origin branches to origin", () => {
-	it("takes the trunk from origin though origin drops another branch after listing it", async () => {
-		const origin = await bareOrigin(made);
-		const work = await cloneAt(origin, join(folder(made, "work"), "w"));
-		await git(work, "push", "-q", "origin", "main:race");
-		const path = await cloneAt(origin, join(folder(made, "tree"), "t"));
-		const was = await git(path, "rev-parse", "origin/race");
-		const main = await commit(work, "main.txt", "past the tree\n");
-		await git(work, "checkout", "-q", "-b", "race");
-		await commit(work, "race.txt", "past the tree too\n");
-		await git(work, "push", "-q", "origin", "main", "race");
-		const listedThenDropped: ViewGit = {
-			...gitIn(exec, path),
-			within: (seconds) => {
-				const timed = gitIn(exec, path).within(seconds);
-				return {
-					...timed,
-					run: async (...args) => {
-						const listed = await timed.run(...args);
-						if (args.includes("ls-remote")) {
-							await git(origin, "branch", "-q", "-D", "race");
-						}
-						return listed;
-					},
-				};
-			},
-		};
+/**
+ * A bare origin holding `branches`, its HEAD naming the first, and a
+ * tree cloned from it before each branch moved on there by a commit of
+ * its own. Answers each branch's commit before (`was`) and after (`now`).
+ */
+async function movedOn(branches: readonly string[]) {
+	const [first, ...others] = branches;
+	const origin = await bareOrigin(made);
+	await git(origin, "branch", "-q", "-m", "main", first ?? "main");
+	const url = `file://${origin}`;
+	const work = await cloneAt(url, join(folder(made, "work"), "w"));
+	for (const branch of others) {
+		await git(work, "push", "-q", "origin", `HEAD:${branch}`);
+	}
+	const path = await cloneAt(url, join(folder(made, "tree"), "t"));
+	// As arrive leaves a tree cut from a twin: no pointer to origin's HEAD.
+	await git(path, "symbolic-ref", "-d", "refs/remotes/origin/HEAD");
+	const base = await git(work, "rev-parse", "HEAD");
+	const was: Record<string, string> = {};
+	const now: Record<string, string> = {};
+	for (const branch of branches) {
+		was[branch] = base;
+		await git(work, "checkout", "-q", "-B", branch, base);
+		now[branch] = await commit(work, `${branch}.txt`, "past the tree\n");
+		await git(work, "push", "-q", "origin", branch);
+	}
+	return { origin, path, was, now };
+}
 
-		const held = await holdToOrigin(listedThenDropped);
+/** How a test watches, and steers, git's calls to origin. */
+interface Watching {
+	/** Each fetch of branches set aside, as the names it asked for. */
+	readonly fetched: string[][];
+	/** Called once, after origin's first listing. */
+	readonly listed?: () => Promise<unknown>;
+	/** What asking origin for its trunk answers, in git's place. */
+	readonly trunk?: ExecResult;
+}
+
+/** git in the tree at `path`, its calls to origin watched as `watching` says. */
+function watched(path: string, watching: Watching): ViewGit {
+	const real = gitIn(exec, path);
+	let first = true;
+	return {
+		...real,
+		within: (seconds) => {
+			const timed = real.within(seconds);
+			return {
+				run: async (...args) => {
+					if (watching.trunk !== undefined && args.includes("--symref")) {
+						return watching.trunk;
+					}
+					const done = await timed.run(...args);
+					if (first && args.includes("ls-remote")) {
+						first = false;
+						await watching.listed?.();
+					}
+					return done;
+				},
+				fed: (lines, ...args) => {
+					if (args.includes("fetch")) {
+						watching.fetched.push(
+							lines.map((line) => line.replace(/^\+refs\/heads\/|:.*$/g, "")),
+						);
+					}
+					return timed.fed(lines, ...args);
+				},
+			};
+		},
+	};
+}
+
+/** The refs under refs/remotes/ and refs/carry/ in `path`, with their commits. */
+function refsIn(path: string): Promise<string> {
+	return git(
+		path,
+		"for-each-ref",
+		"--format=%(refname) %(objectname)",
+		"refs/remotes/",
+		"refs/carry/",
+	);
+}
+
+describe("holding a tree's origin branches to origin", () => {
+	it("asks origin for its branches alone, never its tags or pull refs", async () => {
+		const { origin, path } = await movedOn(["main"]);
+		await git(origin, "update-ref", "refs/pull/1/head", "main");
+		await git(origin, "tag", "v1", "main");
+		const trace = join(folder(made, "trace"), "packets");
+		const traced = spawnExec({ env: { GIT_TRACE_PACKET: trace } });
+
+		const held = await holdToOrigin(gitIn(traced, path));
+
+		expect(held).toEqual({});
+		const packets = readFileSync(trace, "utf8");
+		expect(packets, "the listing names its prefix").toContain(
+			"ls-remote> ref-prefix refs/heads/\n",
+		);
+		const sent = [...packets.matchAll(/upload-pack> [0-9a-f]{40} (\S+)/g)].map(
+			([, ref]) => ref,
+		);
+		expect(sent, "the listing, then the fetch, each sent main alone").toEqual([
+			"refs/heads/main",
+			"refs/heads/main",
+		]);
+	});
+
+	it("takes origin's trunk first, though it sorts last, when origin drops another branch after listing it", async () => {
+		const { origin, path, was, now } = await movedOn(["trunk", "alpha"]);
+		const fetched: string[][] = [];
+
+		const held = await holdToOrigin(
+			watched(path, {
+				fetched,
+				listed: () => git(origin, "branch", "-q", "-D", "alpha"),
+			}),
+		);
 
 		expect(held.why).toBeUndefined();
-		expect(await git(path, "rev-parse", "refs/remotes/origin/main")).toBe(main);
-		const refs = await git(path, "for-each-ref", "--format=%(refname)");
-		expect(refs, "the trunk claims origin's, not aside").not.toContain(
-			"refs/carry/twin/main",
+		expect(fetched, "all at once, then the trunk, then the rest").toEqual([
+			["alpha", "trunk"],
+			["trunk"],
+			["alpha"],
+		]);
+		expect(await refsIn(path)).toBe(
+			[
+				`refs/carry/twin/alpha ${was.alpha}`,
+				`refs/remotes/origin/trunk ${now.trunk}`,
+			].join("\n"),
 		);
-		expect(refs).not.toContain("refs/remotes/origin/race");
-		expect(await git(path, "rev-parse", "refs/carry/twin/race")).toBe(was);
 		expect(held.unsure).toMatch(
-			/^1 of origin's branches past the twin didn't come, so they wait under refs\/carry\/twin\/: race\. /,
+			/^1 of origin's branches past the twin didn't come, so they wait under refs\/carry\/twin\/: alpha\. /,
 		);
 		expect(inputsLeft(path)).toEqual([]);
 	});
+
+	it("keeps origin's own order where origin won't name its trunk, failing nothing", async () => {
+		const { origin, path, was, now } = await movedOn(["trunk", "alpha"]);
+		const fetched: string[][] = [];
+
+		const held = await holdToOrigin(
+			watched(path, {
+				fetched,
+				listed: () => git(origin, "branch", "-q", "-D", "alpha"),
+				trunk: { code: 128, stdout: "", stderr: "fatal: the trunk won't say" },
+			}),
+		);
+
+		expect(held.why).toBeUndefined();
+		expect(fetched).toEqual([["alpha", "trunk"], ["alpha"], ["trunk"]]);
+		expect(await refsIn(path)).toBe(
+			[
+				`refs/carry/twin/alpha ${was.alpha}`,
+				`refs/remotes/origin/trunk ${now.trunk}`,
+			].join("\n"),
+		);
+	});
+
+	it.each([
+		[
+			"is detached",
+			(origin: string) =>
+				git(origin, "update-ref", "--no-deref", "HEAD", "alpha"),
+		],
+		[
+			"names a branch it lacks",
+			(origin: string) =>
+				git(origin, "symbolic-ref", "HEAD", "refs/heads/nothing"),
+		],
+	])(
+		"keeps origin's own order where its HEAD %s, though a HEAD below names a branch",
+		async (_, behead) => {
+			const { origin, path, was, now } = await movedOn([
+				"alpha",
+				"gone",
+				"zeta",
+			]);
+			await behead(origin);
+			await git(
+				origin,
+				"symbolic-ref",
+				"refs/remotes/up/HEAD",
+				"refs/heads/zeta",
+			);
+			const fetched: string[][] = [];
+
+			const held = await holdToOrigin(
+				watched(path, {
+					fetched,
+					listed: () => git(origin, "branch", "-q", "-D", "gone"),
+				}),
+			);
+
+			expect(held.why).toBeUndefined();
+			expect(fetched).toEqual([
+				["alpha", "gone", "zeta"],
+				["alpha"],
+				["gone"],
+				["zeta"],
+			]);
+			expect(await refsIn(path)).toBe(
+				[
+					`refs/carry/twin/gone ${was.gone}`,
+					`refs/remotes/origin/alpha ${now.alpha}`,
+					`refs/remotes/origin/zeta ${now.zeta}`,
+				].join("\n"),
+			);
+		},
+	);
 });

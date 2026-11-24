@@ -22,6 +22,11 @@
  * a tree with no origin/main would bundle all of its trunk. One fetch of
  * them all fails whole when origin has dropped any one since its list,
  * so then each comes on its own, origin's trunk first.
+ *
+ * Origin is asked for its branches alone, by prefix: asked for every
+ * ref, World sends each tag and pull ref too, a very large listing to
+ * read within its minute. Its trunk is asked only where the branches
+ * come one at a time, since git asks HEAD of origin with no prefix.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -71,7 +76,10 @@ export const BOUNDED = [
 	"http.lowSpeedTime=30",
 ];
 
-/** How long origin has to list its branches, over any transport. */
+/**
+ * How long origin has to list its branches, or name its trunk, over any
+ * transport.
+ */
 const LISTING = 60;
 
 /**
@@ -139,9 +147,9 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
 	}
 	const listed = await git
 		.within(LISTING)
-		.run(...BOUNDED, "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*");
-	const origin = listed.code === 0 ? listing(listed.stdout) : undefined;
-	const theirs = origin?.heads;
+		.run(...BOUNDED, "ls-remote", "--heads", "origin");
+	const theirs =
+		listed.code === 0 ? named(listed.stdout, "refs/heads/") : undefined;
 	const moved = [...ours].filter(
 		([name, commit]) => theirs?.get(name) !== commit,
 	);
@@ -180,7 +188,6 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
 		set.flatMap(([ref]) =>
 			ref.startsWith(ASIDE) ? [ref.slice(ASIDE.length)] : [],
 		),
-		origin?.trunk,
 	);
 }
 
@@ -188,20 +195,20 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
  * The branches `names`, set aside, fetched from origin into the tree's
  * origin branches, the twin's commits under `ASIDE` sent as haves, and
  * those that came then dropped from aside. All come in one fetch where
- * they can; where that fails, each on its own, `trunk` first, while
- * the time all told is left. Answers which wait aside still, and why,
- * or nothing.
+ * they can; where that fails, each on its own, origin's trunk first,
+ * while the time all told is left. Answers which wait aside still, and
+ * why, or nothing.
  */
 async function takeAside(
 	git: ViewGit,
 	names: readonly string[],
-	trunk: string | undefined,
 ): Promise<Held> {
 	if (names.length === 0) return {};
 	const ends = Date.now() + FETCHING * 1000;
 	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	const all = await fetchAside(git, names, left());
 	if (all.code === 0) return dropAside(git, names, []);
+	const trunk = await trunkOf(git, Math.min(LISTING, left()));
 	const order =
 		trunk !== undefined && names.includes(trunk)
 			? [trunk, ...names.filter((name) => name !== trunk)]
@@ -424,23 +431,36 @@ async function timed(
 }
 
 /**
- * What `ls-remote --symref` said of origin: its branches by name, and
- * the branch its HEAD names, where it names one.
+ * The branch origin's HEAD names, asked within `seconds`; or nothing
+ * where it names none, or origin doesn't say, which loses only the
+ * trunk's place first. git sends this ask with no prefix, so origin
+ * lists every ref for it, and it is made only where needed.
  */
-function listing(said: string): {
-	heads: Map<string, string>;
-	trunk?: string;
-} {
-	const lines = said.split("\n");
-	const symref = lines.find((line) => line.startsWith("ref: "));
-	const target = symref?.slice("ref: ".length).trim().split(/\s+/)[0];
-	const heads = named(
-		lines.filter((line) => !line.startsWith("ref: ")).join("\n"),
-		"refs/heads/",
-	);
-	return target?.startsWith("refs/heads/")
-		? { heads, trunk: target.slice("refs/heads/".length) }
-		: { heads };
+async function trunkOf(
+	git: ViewGit,
+	seconds: number,
+): Promise<string | undefined> {
+	if (seconds <= 0) return undefined;
+	const asked = await git
+		.within(seconds)
+		.run(...BOUNDED, "ls-remote", "--symref", "origin", "HEAD");
+	return asked.code === 0 ? headOf(asked.stdout) : undefined;
+}
+
+/**
+ * The branch the `ref: <target>\tHEAD` line of an `ls-remote --symref`
+ * names, if any. Only HEAD's own counts: the pattern HEAD also matches a
+ * ref such as refs/remotes/up/HEAD, whose line may come first.
+ */
+function headOf(said: string): string | undefined {
+	for (const line of said.split("\n")) {
+		if (!line.startsWith("ref: ")) continue;
+		const [target, ref] = line.slice("ref: ".length).trim().split(/\s+/);
+		if (ref === "HEAD" && target?.startsWith("refs/heads/")) {
+			return target.slice("refs/heads/".length);
+		}
+	}
+	return undefined;
 }
 
 /** `<commit> <ref>` lines, tab or space apart, by name under `prefix`. */
