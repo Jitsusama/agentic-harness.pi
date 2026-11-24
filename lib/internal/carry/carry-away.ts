@@ -206,7 +206,7 @@ async function carryAll(
 			: { notes: carrying.notes }),
 	};
 	return {
-		file: stage.write(() => writeHandover(into, handover)),
+		file: stage.placeLast((folder) => writeHandover(folder, handover)),
 		handover,
 		trees,
 	};
@@ -331,8 +331,8 @@ export async function carryQuestTrees(
 		);
 		stage.place(filesOf(trees), earlierOf(into, home, quest));
 		if (handed.length === 0) return { trees };
-		const file = stage.write(() =>
-			writeHandover(into, {
+		const file = stage.placeLast((folder) =>
+			writeHandover(folder, {
 				session: quest,
 				quest,
 				cwd: "~",

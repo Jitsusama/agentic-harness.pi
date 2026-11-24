@@ -8,6 +8,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	symlinkSync,
@@ -18,6 +19,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const STAGE = "../../../../lib/internal/carry/stage.ts";
+const HANDOVER = "../../../../lib/internal/carry/handover.ts";
 
 type StageModule = typeof import("../../../../lib/internal/carry/stage.ts");
 
@@ -89,13 +91,68 @@ describe("staging a carry", () => {
 				// A fenced command may write the handover, so may swap it.
 				renameSync(into, `${into}.moved`);
 				symlinkSync(elsewhere, into);
-				staging.write(() => writeFileSync(join(into, "s-d.done.json"), "{}\n"));
+				staging.placeLast((folder) => {
+					const file = join(folder, "s-d.done.json");
+					writeFileSync(file, "{}\n");
+					return file;
+				});
 			}),
 		).rejects.toThrow(/is a link or no folder/);
 
 		expect(readdirSync(elsewhere), "nothing was written where it led").toEqual(
 			[],
 		);
+	});
+
+	it("writes its done file through no writing folder planted in the handover", async () => {
+		const into = handover();
+		const stage = await copyOfStage();
+		const { writeHandover } = await import(HANDOVER);
+		const elsewhere = mkdtempSync(join(tmpdir(), "carry-elsewhere-"));
+		made.push(elsewhere);
+		symlinkSync(elsewhere, join(into, ".writing"));
+
+		const file = await stage.staged(into, "s-e", async (staging) =>
+			staging.placeLast((folder) =>
+				writeHandover(folder, {
+					session: "s-e",
+					quest: "QEST-1",
+					cwd: "~",
+					trees: [],
+				}),
+			),
+		);
+
+		expect(file).toBe(join(into, "s-e.done.json"));
+		expect(existsSync(file)).toBe(true);
+		expect(readdirSync(elsewhere), "nothing was written where it led").toEqual(
+			[],
+		);
+	});
+
+	it("puts nothing back through a handover swapped for a link before it failed", async () => {
+		const into = handover();
+		const stage = await copyOfStage();
+		const elsewhere = mkdtempSync(join(tmpdir(), "carry-elsewhere-"));
+		made.push(elsewhere);
+		writeFileSync(join(into, "f.bundle"), "the earlier carry's\n");
+		writeFileSync(join(elsewhere, "f.bundle"), "someone else's\n");
+
+		await expect(
+			stage.staged(into, "s-f", async (staging) => {
+				writeFileSync(join(staging.folder, "f.bundle"), "carried\n");
+				staging.place(["f.bundle"]);
+				renameSync(into, `${into}.moved`);
+				symlinkSync(elsewhere, into);
+				throw new Error("the carry failed");
+			}),
+		).rejects.toThrow(/^the carry failed; f\.bundle couldn't be taken out/);
+
+		expect(readdirSync(elsewhere)).toEqual(["f.bundle"]);
+		expect(
+			readFileSync(join(elsewhere, "f.bundle"), "utf8"),
+			"the file where it led is untouched",
+		).toBe("someone else's\n");
 	});
 
 	it.each([

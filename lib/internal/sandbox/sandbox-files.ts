@@ -25,7 +25,7 @@ import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
-import { makeShares, questScratch } from "./quest-folders.ts";
+import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
 import { type FileUse, fileReach } from "./strict-rules.ts";
@@ -219,6 +219,7 @@ function fenceRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const trees = brokerTrees(place.env.PI_SESSION_ID);
+	makeScratches();
 	const scratch = questScratch(place.env.TMPDIR);
 	const fence = {
 		home: place.home,

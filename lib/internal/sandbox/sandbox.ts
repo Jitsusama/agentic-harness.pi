@@ -125,7 +125,12 @@ import {
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { insideMacSandbox, macSandboxExec } from "./mac-sandbox.ts";
-import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
+import {
+	direnvTrusts,
+	makeScratches,
+	makeShares,
+	questScratch,
+} from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
@@ -761,6 +766,7 @@ export function wrapFor(
 		)}; ${refusedCommand(reason)}`;
 	// Made for every kind, so a quest shares on a machine whatever fence
 	// its sessions run in, and no fenced command finds the root missing.
+	makeScratches();
 	const scratch = questScratch(place.env.TMPDIR);
 	const share = makeShares(scratch);
 	switch (sandbox.kind) {
