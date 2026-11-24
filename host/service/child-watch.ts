@@ -28,6 +28,7 @@ import {
 	type RosterEntry,
 } from "../../lib/core/session/roster.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import type { HeapSaid } from "./children.ts";
 import type { HostIdentity } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { identities, type SessionIdentity } from "./protocol.ts";
@@ -84,8 +85,9 @@ const line = z.discriminatedUnion("type", [
 		type: z.literal("state"),
 		conversation,
 		state: z.enum(["busy", "idle"]).optional().catch(undefined),
+		// V8's counts in bytes; one that isn't is dropped, never the line.
 		heap: z
-			.object({ used: z.number().nonnegative(), limit: z.number() })
+			.object({ used: z.int().nonnegative(), limit: z.int().nonnegative() })
 			.optional()
 			.catch(undefined),
 	}),
@@ -123,8 +125,8 @@ export interface ChildWatcher {
 	 * even in the same read, so a route is held before it can change.
 	 */
 	watched(first: Watched): void;
-	/** The conversation stands as this now. */
-	state(conversation: SessionIdentity): void;
+	/** The conversation stands as this now, its child's heap as it said, if it did. */
+	state(conversation: SessionIdentity, heap?: HeapSaid): void;
 	/** The conversation became another, under a new id. */
 	became(
 		previousId: string,
@@ -252,7 +254,8 @@ export function watchChild(
 						continue;
 					}
 					const said = read.data;
-					if (said.type === "state") watcher.state(said.conversation);
+					if (said.type === "state")
+						watcher.state(said.conversation, said.heap);
 					else if (said.type === "became")
 						watcher.became(said.previousId, said.conversation, said.entry);
 					else {

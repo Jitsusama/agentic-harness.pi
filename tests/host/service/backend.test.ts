@@ -14,12 +14,14 @@ import {
 	hostBackend,
 	type Prepared,
 } from "../../../host/service/backend.ts";
+import { PSS_WAIT_MS } from "../../../host/service/children.ts";
 import { controlRequest, drainHost } from "../../../host/service/client.ts";
 import { conversationEvents } from "../../../host/service/conversation-events.ts";
 import {
 	type ControlRequest,
 	parseDrainResult,
 	parseListResult,
+	parseMemoryResult,
 	parseOpenResult,
 	parseSessionResult,
 } from "../../../host/service/protocol.ts";
@@ -105,6 +107,7 @@ function register(conversation: {
 function backendWith(
 	fake: ConversationEngine,
 	admitAnother?: () => Promise<void>,
+	more: Partial<Parameters<typeof hostBackend>[0]> = {},
 ) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
@@ -113,6 +116,7 @@ function backendWith(
 		engine: fake,
 		...(admitAnother ? { admitAnother } : {}),
 		now: () => new Date("2026-11-09T16:00:00.000Z"),
+		...more,
 	});
 }
 
@@ -196,6 +200,79 @@ describe("hostBackend", () => {
 				since: "2026-11-09T16:00:00.000Z",
 			}),
 		]);
+	});
+
+	it("answers its own memory, and none for a conversation on its thread, parked or not", async () => {
+		const own = {
+			heap: { used: 1, limit: 2, at: "2026-11-09T16:00:00.000Z" },
+			pss: 3,
+		};
+		const backend = backendWith(engine().fake, undefined, { own: () => own });
+		const running = parseOpenResult(await backend.execute(anOpen()));
+		const resting = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o2" }),
+		);
+		host.state(resting.sessionId, "parked");
+		// Held by the roster, but running nowhere.
+		const stranded = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o3" }),
+		).sessionId;
+		await host.stop(stranded);
+
+		expect(
+			parseMemoryResult(await backend.execute({ v: 1, id: "m", op: "memory" })),
+		).toStrictEqual({
+			host: { key: host.key, owner: host.owner },
+			own,
+			sessions: [
+				{ sessionId: running.sessionId, state: "idle" },
+				{ sessionId: resting.sessionId, state: "parked" },
+				{ sessionId: stranded, state: "parked" },
+			],
+		});
+	});
+
+	it("reads its own heap from V8 unless told what to answer", async () => {
+		const { own } = parseMemoryResult(
+			await backendWith(engine().fake).execute({ v: 1, id: "m", op: "memory" }),
+		);
+
+		expect(own.heap?.used, "this process's heap in use").toBeGreaterThan(
+			1024 * 1024,
+		);
+		expect(own.heap?.limit).toBeGreaterThan(own.heap?.used ?? 0);
+		expect(own.heap?.at, "dated by the host's clock").toBe(
+			"2026-11-09T16:00:00.000Z",
+		);
+		if (process.platform === "linux")
+			expect(own.pss, "its Pss").toBeGreaterThan(1024 * 1024);
+		else expect(own, "no Pss off Linux").not.toHaveProperty("pss");
+	});
+
+	it("answers its own Pss as read in time, and its heap without it once the read is late", async () => {
+		const read = backendWith(engine().fake, undefined, {
+			ownPss: async () => 3000,
+		});
+		expect(
+			parseMemoryResult(await read.execute({ v: 1, id: "m", op: "memory" })).own
+				.pss,
+			"read in time",
+		).toBe(3000);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const stuck = backendWith(engine().fake, undefined, {
+				ownPss: () => new Promise<number | undefined>(() => {}),
+			});
+			const asked = stuck.execute({ v: 1, id: "m2", op: "memory" });
+			await vi.advanceTimersByTimeAsync(PSS_WAIT_MS);
+			const { own } = parseMemoryResult(await asked);
+
+			expect(own.heap?.used, "its heap still answered").toBeGreaterThan(0);
+			expect(own, "its Pss left out").not.toHaveProperty("pss");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("undoes a start that never registered, but keeps one that registered and failed", async () => {

@@ -18,6 +18,7 @@ import {
 	processCode,
 	processHeap,
 	pssBytes,
+	pssBytesOf,
 	type QuietReading,
 	quietCollection,
 	runningTools,
@@ -501,6 +502,17 @@ describe("V8's last-resort collection", () => {
 	it.runIf(process.platform === "linux")("reads this process's Pss", () => {
 		expect(pssBytes()).toBeGreaterThan(MB);
 	});
+
+	it.runIf(process.platform === "linux")(
+		"reads the Pss of the process it names, and none of one that isn't",
+		async () => {
+			expect(await pssBytesOf(process.pid)).toBeGreaterThan(MB);
+			expect(
+				await pssBytesOf(2 ** 22 + 1),
+				"past the kernel's highest pid",
+			).toBeUndefined();
+		},
+	);
 
 	it("reads this process's heap, each space it keeps and what it holds outside it", () => {
 		const heap = processHeap();

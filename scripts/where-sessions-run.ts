@@ -97,7 +97,7 @@ export function whereSessionsRun(
 }
 
 /** `text` with control characters shown as `?`, so none reaches the terminal. */
-function printable(text: string): string {
+export function printable(text: string): string {
 	return [...text]
 		.map((char) => (controlCharacter(char.charCodeAt(0)) ? "?" : char))
 		.join("");
