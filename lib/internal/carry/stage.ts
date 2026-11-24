@@ -2,7 +2,7 @@
  * Where a carry is staged before the handover sees it, and how what is
  * staged is placed there.
  *
- * Each carry stages in its own folder in the quest scratch's tmp/, which
+ * Each carry stages in its own folder beside the quest scratches, where
  * the share never reads, on the handover's volume, so a rename places a
  * file whole. What a placed file replaces waits in the folder's
  * `.before` until the carry stands, and goes back where it fails.
@@ -16,10 +16,13 @@
  * did too, and its folder goes; where none does, what it placed comes
  * out and what it replaced goes back.
  *
- * tmp/ is the quest's own scratch, which its fenced commands write, so a
- * record there is only a claim. A sweep acts on one only within this
- * carry's own handover, by plain names, through folders that aren't
- * links, so it reaches nothing those commands couldn't already.
+ * The quest's own scratch is bound writable in the fence, so a record
+ * there would be only a claim, and a folder there could be swapped for
+ * a link between a check and a rename. Staging lies outside it instead,
+ * under the scratches' own folder, which the fence binds read-only, so
+ * nothing a fenced command plants is read. The handover itself it can
+ * write, so a carry refuses one that is a link or lies under one, before
+ * sweeping and again before placing.
  */
 
 import { randomUUID } from "node:crypto";
@@ -34,9 +37,11 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { doneFileOf } from "./handover.ts";
 
+/** The folder beside the quest scratches that carries stage in. */
+const STAGING_ROOT = ".carrying";
 /** What a staging folder's name starts with. */
 const STAGING = "carrying-";
 /** Where a staging folder keeps what placed files replaced. */
@@ -67,6 +72,21 @@ interface StageRecord {
 	readonly pid: number;
 	/** What it placed in the handover, each named before it lands. */
 	readonly placed: readonly string[];
+	/**
+	 * Whether it failed and put back only part of its carry: what it
+	 * replaced goes back whatever done file stands, since one put back
+	 * is the earlier carry's.
+	 */
+	readonly failed?: boolean;
+}
+
+/**
+ * Where carries into the handover `into` stage: a folder for its quest
+ * beside the quest scratches, outside the one the fence lets it write.
+ */
+export function stagingOf(into: string): string {
+	const scratch = dirname(dirname(into));
+	return join(dirname(scratch), STAGING_ROOT, basename(scratch));
 }
 
 /**
@@ -81,27 +101,30 @@ export async function staged<T>(
 	owner: string,
 	work: (stage: Stage) => Promise<T>,
 ): Promise<T> {
-	const tmp = join(dirname(dirname(into)), "tmp");
+	const tmp = stagingOf(into);
 	mkdirSync(tmp, { recursive: true });
+	unlinked(into);
 	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
 	const aside = join(folder, BEFORE);
 	mkdirSync(aside);
 	const placed: string[] = [];
 	const moved: string[] = [];
-	const record = (): void =>
+	const record = (failed = false): void =>
 		writeRecord(folder, {
 			into,
 			owner,
 			machine: hostname(),
 			pid: process.pid,
 			placed,
+			...(failed ? { failed } : {}),
 		});
 	record();
 	let keep = false;
 	const stage: Stage = {
 		folder,
 		place(names, gone = []) {
+			unlinked(into);
 			const held = names.find((name) => isFolder(join(into, name)));
 			if (held !== undefined) {
 				throw new Error(
@@ -128,6 +151,9 @@ export async function staged<T>(
 		const back = putBack(into, aside, placed);
 		if (back.stuck.length === 0 && back.left.length === 0) throw error;
 		keep = true;
+		// Only what is still in the handover is this carry's to take out.
+		placed.splice(0, placed.length, ...back.stuck);
+		undo(() => record(true));
 		throw new Error(
 			`${error instanceof Error ? error.message : String(error)}; ${[
 				back.stuck.length === 0
@@ -173,11 +199,31 @@ function writeRecord(folder: string, record: StageRecord): void {
 }
 
 /**
+ * Throws unless the handover `into`, and each folder between it and its
+ * quest's scratch, is a folder rather than a link: a fenced command can
+ * swap one for a link, through which a carry would place, take out and
+ * put back files wherever it led. Where one isn't there yet, nothing
+ * below it is either.
+ */
+function unlinked(into: string): void {
+	const scratch = dirname(dirname(into));
+	const steps = relative(scratch, into).split(sep);
+	for (let at = 0; at <= steps.length; at++) {
+		const path = join(scratch, ...steps.slice(0, at));
+		if (!exists(path)) return;
+		if (isFolder(path)) continue;
+		throw new Error(
+			`${path} is a link or no folder, so the carry isn't placed through it.`,
+		);
+	}
+}
+
+/**
  * Finishes each carry staged in `tmp` for the handover `into` whose
  * process is gone from this machine. One whose record can't be read, or
  * names another handover or a name that isn't plain, is left, since
- * nothing trustworthy says where its files go; so is anything that
- * fails, for a later carry.
+ * nothing says where its files go; so is anything that fails, for a
+ * later carry.
  */
 function sweep(tmp: string, into: string): void {
 	for (const name of readdirSync(tmp)) {
@@ -196,10 +242,20 @@ function sweep(tmp: string, into: string): void {
 				machine: hostname(),
 				pid: process.pid,
 			});
-			// Its done file standing means it stood: what waits aside is old.
-			if (!isFile(doneFileOf(into, record.owner))) {
+			// Its done file standing means it stood, unless it failed and put
+			// that back itself: what waits aside is old.
+			if (record.failed || !isFile(doneFileOf(into, record.owner))) {
 				const back = putBack(into, join(folder, BEFORE), record.placed);
-				if (back.stuck.length > 0 || back.left.length > 0) continue;
+				if (back.stuck.length > 0 || back.left.length > 0) {
+					writeRecord(folder, {
+						...record,
+						machine: hostname(),
+						pid: process.pid,
+						placed: back.stuck,
+						failed: true,
+					});
+					continue;
+				}
 			}
 			rmSync(folder, { recursive: true, force: true });
 		} catch {
@@ -215,8 +271,10 @@ function readRecord(folder: string): StageRecord | undefined {
 			readFileSync(join(folder, RECORD), "utf8"),
 		);
 		if (typeof read !== "object" || read === null) return undefined;
-		const { into, owner, machine, pid, placed } = read as Partial<StageRecord>;
+		const { into, owner, machine, pid, placed, failed } =
+			read as Partial<StageRecord>;
 		if (
+			(failed !== undefined && typeof failed !== "boolean") ||
 			typeof into !== "string" ||
 			!plain(owner) ||
 			typeof machine !== "string" ||
@@ -226,7 +284,7 @@ function readRecord(folder: string): StageRecord | undefined {
 		) {
 			return undefined;
 		}
-		return { into, owner, machine, pid, placed };
+		return { into, owner, machine, pid, placed, failed };
 	} catch {
 		return undefined;
 	}
@@ -272,6 +330,16 @@ function isFolder(path: string): boolean {
 function besideFolder(path: string): boolean {
 	try {
 		return !lstatSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/** Whether anything, a link included, is at `path`. */
+function exists(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
 	} catch {
 		return false;
 	}

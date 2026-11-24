@@ -26,6 +26,7 @@ import {
 	carryQuestTrees,
 } from "../../../../lib/internal/carry/carry-away.ts";
 import { readHandover } from "../../../../lib/internal/carry/handover.ts";
+import { stagingOf } from "../../../../lib/internal/carry/stage.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,
@@ -109,18 +110,24 @@ function filesIn(into: string) {
 	);
 }
 
-/** What the quest scratch's tmp/ holds beside the handover `into`. */
+/** What carries into the handover `into` stage in. */
 function staging(into: string): string[] {
-	const tmp = join(dirname(dirname(into)), "tmp");
+	const tmp = stagingOf(into);
 	return existsSync(tmp) ? readdirSync(tmp) : [];
 }
 
 /**
- * A staging folder `name` in the tmp/ beside `into`, as a carry whose
- * process is gone would leave it, its record holding `record`.
+ * A staging folder `name` where carries into `into` stage, or in the
+ * folder `at` names, as a carry whose process is gone would leave it,
+ * its record holding `record`.
  */
-function plant(into: string, name: string, record: object): string {
-	const left = join(dirname(dirname(into)), "tmp", name);
+function plant(
+	into: string,
+	name: string,
+	record: object,
+	at = stagingOf(into),
+): string {
+	const left = join(at, name);
 	mkdirSync(join(left, ".before"), { recursive: true });
 	writeFileSync(
 		join(left, ".carry.json"),
@@ -525,13 +532,19 @@ describe("a carry staged before the handover", () => {
 			expect(existsSync(join(into, "s-k.done.json"))).toBe(false);
 			const [kept] = staging(into);
 			expect(kept, "its staging folder waits").toMatch(/^carrying-/);
-			const tmp = join(dirname(dirname(into)), "tmp");
+			const tmp = stagingOf(into);
 			const sweepBy = () => carryQuestTrees(exec, [], into, home, QUEST);
+			const record = join(tmp, kept ?? "none", ".carry.json");
+			const stuck = JSON.parse(readFileSync(record, "utf8"));
+			expect(stuck.failed, "it is marked as failed").toBe(true);
+			expect(
+				stuck.placed.every((name: string) => existsSync(join(into, name))),
+				"it names only what it left in the handover",
+			).toBe(true);
 
 			await sweepBy();
 			expect(staging(into), "its process still runs").toEqual([kept]);
 
-			const record = join(tmp, kept ?? "none", ".carry.json");
 			const gone = spawnSync(process.execPath, ["-e", ""]).pid;
 			writeFileSync(
 				record,
@@ -559,8 +572,7 @@ describe("a carry staged before the handover", () => {
 			whole: true,
 		});
 		const after = filesIn(into);
-		const tmp = join(dirname(dirname(into)), "tmp");
-		const left = join(tmp, "carrying-left");
+		const left = join(stagingOf(into), "carrying-left");
 		mkdirSync(join(left, ".before"), { recursive: true });
 		writeFileSync(join(left, ".before", "s-g.done.json"), "older\n");
 		const placed = Object.keys(after).filter(
@@ -615,7 +627,7 @@ describe("a carry staged before the handover", () => {
 		const away = folder(made, "away");
 		mkdirSync(join(away, ".before"));
 		writeFileSync(join(away, ".before", "victim.txt"), "theirs\n");
-		symlinkSync(away, join(dirname(dirname(into)), "tmp", "carrying-whole"));
+		symlinkSync(away, join(stagingOf(into), "carrying-whole"));
 		writeFileSync(
 			join(away, ".carry.json"),
 			JSON.stringify({
@@ -637,6 +649,61 @@ describe("a carry staged before the handover", () => {
 		expect(staging(into)).toContain("carrying-linked");
 		expect(staging(into)).toContain("carrying-whole");
 	});
+
+	it("never reads a record planted in the quest's own scratch, which the fence lets it write", async () => {
+		const { home, into } = await homeWithWork();
+		mkdirSync(into, { recursive: true });
+		writeFileSync(join(into, "someone.txt"), "kept\n");
+		const planted = plant(
+			into,
+			"carrying-planted",
+			{ placed: ["someone.txt"] },
+			join(dirname(dirname(into)), "tmp"),
+		);
+
+		await carryQuestTrees(exec, [], into, home, QUEST);
+
+		expect(readFileSync(join(into, "someone.txt"), "utf8")).toBe("kept\n");
+		expect(existsSync(planted), "it is left as it was").toBe(true);
+	});
+
+	it.each([
+		["the handover", (into: string) => into],
+		["the folder of handovers", (into: string) => dirname(into)],
+	])(
+		"refuses a carry through %s swapped for a link, touching nothing where it leads",
+		async (_, swapped) => {
+			const { home, tree, into } = await homeWithWork();
+			const carry = () =>
+				carryAway({
+					exec,
+					into,
+					home,
+					quest: QUEST,
+					session: { id: "s-l", cwd: tree },
+					trees: [tree],
+					whole: true,
+				});
+			await carry();
+			const left = plant(into, "carrying-dead", { placed: [".victimrc"] });
+			writeFileSync(join(left, ".before", ".victimrc"), "planted\n");
+			const outside = outsideWithVictim();
+			writeFileSync(join(outside, ".victimrc"), "keep me\n");
+			const link = swapped(into);
+			rmSync(link, { recursive: true });
+			symlinkSync(outside, link);
+
+			await expect(carry()).rejects.toThrow(
+				`${link} is a link or no folder, so the carry isn't placed through it.`,
+			);
+
+			expect(readFileSync(join(outside, ".victimrc"), "utf8")).toBe(
+				"keep me\n",
+			);
+			expect(readFileSync(join(outside, "victim.txt"), "utf8")).toBe("kept\n");
+			expect(existsSync(left), "the dead carry waits").toBe(true);
+		},
+	);
 
 	it("sweeps a record whose next write was cut off, by the one before it", async () => {
 		const { home, into } = await homeWithWork();

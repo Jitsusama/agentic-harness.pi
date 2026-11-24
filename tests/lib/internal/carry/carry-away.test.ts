@@ -21,6 +21,7 @@ import {
 	carryAway,
 } from "../../../../lib/internal/carry/carry-away.ts";
 import { readHandover } from "../../../../lib/internal/carry/handover.ts";
+import { stagingOf } from "../../../../lib/internal/carry/stage.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,
@@ -408,7 +409,7 @@ describe("carrying a session's work away", () => {
 		expect(plain.handover.sessionFile).toBe("2026-11-07_s-6.jsonl");
 		expect(readFileSync(join(into, "2026-11-07_s-6.jsonl"), "utf8")).toBe(log);
 		expect(
-			readdirSync(join(into, "..", "..", "tmp")),
+			readdirSync(stagingOf(into)),
 			"nothing is left where it was gzipped",
 		).toEqual([]);
 	});
@@ -432,7 +433,7 @@ describe("carrying a session's work away", () => {
 			}),
 		).rejects.toThrow(/gzipped, still over the 0\.0 MiB the share carries/);
 		expect(readdirSync(into), "no bundle, file or done file").toEqual([]);
-		expect(readdirSync(join(into, "..", "..", "tmp"))).toEqual([]);
+		expect(readdirSync(stagingOf(into))).toEqual([]);
 	});
 
 	// A session carrying itself is closed once its done file is there, so
