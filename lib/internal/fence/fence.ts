@@ -101,6 +101,7 @@ import { pinnedAbove } from "./fence-pins.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
 import { pastQuestTempLink, questTempArgs } from "./fence-quest-temp.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
+import { workerSocketRule } from "./fence-worker-socket.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -281,8 +282,8 @@ export interface FencePlace extends Worktrees {
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
 	readonly githubDoor?: string;
 	/**
-	 * The node's worker socket, bound back read-only past the emptied
-	 * runtime folder and told to Landlock (`fence-worker-socket.ts`).
+	 * The node's worker socket, whose folder Landlock is told of
+	 * (`fence-worker-socket.ts`).
 	 */
 	readonly workerSocket?: string;
 	/**
@@ -435,10 +436,6 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	// The system bus and X's sockets live outside the runtime folder.
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
-	}
-	// After every folder emptied above, which would hide it again.
-	if (place.workerSocket) {
-		args.push("--ro-bind", place.workerSocket, place.workerSocket);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
 	args.push(...compileRootArgs(unfencedCompileRoots(place), place, disk));
@@ -743,7 +740,7 @@ export function fenceRules(place: FencePlace): string[] {
 			? letThrough(place).map((name) => join(place.runtimeDir as string, name))
 			: []),
 		...(place.githubDoor ? [place.githubDoor] : []),
-		...(place.workerSocket ? [place.workerSocket] : []),
+		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
 	return [
 		"--rwx",

@@ -1,60 +1,119 @@
 /**
  * The node's worker socket, the one socket of the mycelium node's a
  * fenced or strict command may reach, on a machine with no mesh of its
- * own, such as a cloud VM (`lib/mesh/worker-link.ts`). The fence empties
- * the runtime folder and Landlock refuses every socket it isn't told of,
- * so on S99IA2's VM trial (24 November) a strict start found no node at
- * all. The socket `MYCELIUM_WORKER_SOCKET` names is bound back read-only,
- * which a connect doesn't need written, and told to Landlock; the node
- * behind it judges what a worker may ask.
+ * own, such as a cloud VM (`lib/mesh/worker-link.ts`). Landlock refuses
+ * every socket it isn't told of, so on S99IA2's VM trial (24 November) a
+ * strict start found no node at all.
  *
- * Never the node's full socket, `work.sock`, which takes every ask the
- * person's own sessions make, whatever path names it; never a name the
- * fence keeps out (`NEVER_THROUGH`); never a link, which could be pointed
- * at either once bound; and never a path that isn't there as a socket's
- * file, or that a `..` or a doubled slash spells other than it is.
+ * Let through by what it is, never by what it isn't: the node serves it
+ * as `/run/mycelium/<realm>-worker.sock` (KP0L6A, 24 November), in a
+ * folder the machine makes at boot, and nothing else is. A path the
+ * variable names anywhere else, under another name, through a link in
+ * any part of it, or as anything but a socket, is not the worker socket
+ * and gets nothing; so neither the node's full socket, which lives in the
+ * runtime folder, nor a socket the fence keeps out can pass as it.
+ *
+ * Landlock is told of the folder rather than the socket, since a rule
+ * holds an inode and a node that restarts binds a new one: told of the
+ * socket, a fenced agent lost the node at its first restart (tried on
+ * optimus, 24 November). Landlock judges the socket a connect reaches
+ * where it really is, so a link put in the folder later reaches nothing
+ * outside it. The fence empties no folder holding it, so nothing is
+ * bound back, and a node that is down leaves a fenced command to start
+ * as ever rather than refusing a bind of a missing file.
+ *
+ * The command learns the path from the variable, handed on only when the
+ * socket is let through and never to a language server's sandbox, which
+ * runs no one's ask; every other value of it is left out.
  */
 
-import { basename, isAbsolute, join, normalize } from "node:path";
-import { workerSocket } from "../../mesh/worker-link.ts";
-import { NEVER_THROUGH } from "./fence.ts";
-import { DISK, type Disk } from "./fence-disk.ts";
+import { lstatSync, realpathSync } from "node:fs";
+import { basename, dirname } from "node:path";
+import {
+	WORKER_SOCKET_VARIABLE,
+	workerSocket,
+} from "../../mesh/worker-link.ts";
 
-/** The name of the node's full socket, which no fence lets through. */
-const NODE_SOCKET = "work.sock";
+/** The folder the node serves its worker sockets in, one a realm. */
+export const WORKER_SOCKET_FOLDER = "/run/mycelium";
+
+/** A worker socket's name, its realm's then `-worker.sock`. */
+const WORKER_SOCKET_NAME = /^[a-z0-9][a-z0-9_-]*-worker\.sock$/;
+
+/** The mode bits that let a group or anyone else write a folder. */
+const WRITTEN_BY_OTHERS = 0o022;
+
+/** What the worker socket's check reads of the disk; a test hands in its own. */
+export interface SocketDisk {
+	/** Where a path ends once every link in it is followed, if anywhere. */
+	real(path: string): string | undefined;
+	/** Whether a path is a socket, not following a link it ends in. */
+	isSocket(path: string): boolean;
+	/**
+	 * Whether only root or this process's own account may write a folder,
+	 * so nobody else can put a socket of their own in it.
+	 */
+	keptByItsOwner(folder: string): boolean;
+}
+
+/** The disk as it is. */
+export const SOCKET_DISK: SocketDisk = {
+	real(path) {
+		try {
+			return realpathSync(path);
+		} catch {
+			// Nothing there, so nothing to let through.
+			return undefined;
+		}
+	},
+	isSocket(path) {
+		try {
+			return lstatSync(path).isSocket();
+		} catch {
+			// Nothing there, so nothing to let through.
+			return false;
+		}
+	},
+	keptByItsOwner(folder) {
+		try {
+			const stat = lstatSync(folder);
+			const owner = stat.uid === 0 || stat.uid === process.getuid?.();
+			return (
+				stat.isDirectory() && owner && (stat.mode & WRITTEN_BY_OTHERS) === 0
+			);
+		} catch {
+			// No folder, so no socket in it.
+			return false;
+		}
+	},
+};
 
 /**
  * The worker socket a fenced command in `env` may reach, or none: none
- * where the machine names none, or names one the fence won't let through.
+ * where the machine names none, or names a path that isn't the node's
+ * worker socket as it really stands on disk.
  */
 export function fencedWorkerSocket(
 	env: NodeJS.ProcessEnv,
-	disk: Disk = DISK,
+	disk: SocketDisk = SOCKET_DISK,
 ): string | undefined {
 	const named = workerSocket(env);
 	if (named === undefined) return undefined;
-	if (normalize(named) !== named || basename(named) === NODE_SOCKET) {
-		return undefined;
-	}
-	if (keptOut(named, env.XDG_RUNTIME_DIR)) return undefined;
-	return disk.kind(named) === "file" ? named : undefined;
+	if (dirname(named) !== WORKER_SOCKET_FOLDER) return undefined;
+	if (!WORKER_SOCKET_NAME.test(basename(named))) return undefined;
+	if (disk.real(named) !== named) return undefined;
+	if (!disk.keptByItsOwner(WORKER_SOCKET_FOLDER)) return undefined;
+	return disk.isSocket(named) ? named : undefined;
 }
 
-/**
- * Whether `path` is, or lies in, a name the fence keeps out, read from the
- * runtime folder `runtimeDir` where it isn't absolute, a trailing `*`
- * standing for any name it begins.
- */
-function keptOut(path: string, runtimeDir: string | undefined): boolean {
-	return NEVER_THROUGH.some((name) => {
-		const whole = isAbsolute(name)
-			? name
-			: runtimeDir
-				? join(runtimeDir, name)
-				: undefined;
-		if (whole === undefined) return false;
-		return whole.endsWith("*")
-			? path.startsWith(whole.slice(0, -1))
-			: path === whole || path.startsWith(`${whole}/`);
-	});
+/** What Landlock is told of for `socket`: the folder it lies in. */
+export function workerSocketRule(socket: string): string {
+	return dirname(socket);
+}
+
+/** The variable a command is handed for `socket`, or none without one. */
+export function workerSocketPassed(
+	socket: string | undefined,
+): Record<string, string> {
+	return socket ? { [WORKER_SOCKET_VARIABLE]: socket } : {};
 }

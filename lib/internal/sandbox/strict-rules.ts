@@ -4,6 +4,7 @@
  * beside them, as landrun's rules and as pi's file tools read them.
  */
 import { join } from "node:path";
+import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -105,7 +106,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 	const sockets = [
 		"/run/nscd/socket",
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
-		...(place.workerSocket ? [place.workerSocket] : []),
+		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
 	return { runnable, readable, writable, sockets };
 }
