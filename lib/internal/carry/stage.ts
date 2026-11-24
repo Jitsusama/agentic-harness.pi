@@ -79,9 +79,12 @@ export interface Stage {
 	 */
 	place(names: readonly string[], gone?: readonly string[]): void;
 	/**
-	 * The handover's path of the file `write` writes in the staging
-	 * folder it is given and answers, placed as `place` places it: a
-	 * carry's done file goes last of all, so none is ever written in the
+	 * Has `write` write one file in the staging folder it is given and
+	 * answer its path, then places that file as `place` places it,
+	 * answering its path in the handover; throws, placing nothing, where
+	 * the path answered isn't directly in the staging folder. Nothing
+	 * here makes it the last file placed: a carry asks it last, for its
+	 * done file, which is so written in the staging folder, never in the
 	 * handover itself, which a fenced command may have swapped.
 	 */
 	placeLast(write: (folder: string) => string): string;
@@ -156,6 +159,7 @@ export async function staged<T>(
 	const stage: Stage = {
 		folder,
 		placeLast(write) {
+			// Last only as the carry asks it last; placed as any other.
 			const file = write(folder);
 			if (dirname(file) !== folder) {
 				throw new Error(`${file} isn't in the staging folder ${folder}.`);
