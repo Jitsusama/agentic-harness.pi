@@ -296,8 +296,13 @@ export async function createEngine(
 		const building = host
 			.run(sessionId, () => build(record, manager, request, mark, turn))
 			.then(
-				() => "built" as const,
+				() => {
+					// A build leaves its load's garbage behind, which only a stir collects.
+					quiet.stirred();
+					return "built" as const;
+				},
 				(error: unknown) => {
+					quiet.stirred();
 					// Closed while it was built: the close has let it go, so there is nothing to park.
 					if (record.closing) throw error;
 					try {

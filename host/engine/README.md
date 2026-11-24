@@ -375,8 +375,9 @@ itself opens the log afresh, as pi's does. It wraps the session instance
 only, and answers as pi does once the view lets go.
 quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
-one, once something has stirred (a turn started or ended, or a
-conversation was let go) and the host is quiet: no tool call or job
+one, once something has stirred (a conversation's build settled, a
+turn started or ended, or a conversation was let go) and the host is
+quiet: no tool call or job
 running, and no viewer's key or resize for 30 s. A conversation
 mid-turn that only waits on the model doesn't hold it off, since the
 attended host almost always has one, and the pause costs it at most a

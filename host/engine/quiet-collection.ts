@@ -5,8 +5,8 @@
  * of turns holds gigabytes its heap no longer uses (K7's measure: Pss
  * 460 to 940 MB fell to 205 to 240 after one).
  *
- * So once a turn ends, a conversation closes or one parks, the host runs
- * one last-resort collection, a pause of about a quarter second on a
+ * So once a conversation's build settles, a turn ends, a conversation
+ * closes or one parks, the host runs one last-resort collection, a pause of about a quarter second on a
  * fresh host, when it is quiet: no tool call or job running, and no
  * viewer's key or resize for VIEWER_QUIET_MS. A conversation mid-turn that is only waiting on
  * the model doesn't count against it, since the attended host almost
@@ -23,6 +23,11 @@
  * Where V8 exposes no gc, or its gc throws, it says so once and
  * collects nothing more, rather than keeping the host, and every
  * conversation in it, from starting or running.
+ *
+ * A build counts as a stir, since a child that only opened its
+ * conversation otherwise kept its load's garbage for as long as it sat:
+ * over 1100 MB, a heap of about 900 MB, in 7 of 101 runs of the child's
+ * own test from 20 to 24 November.
  *
  * The pause grows with the heap a collection walks, about a second for
  * each GB the live hosts used, while what it gives back shrinks beside
@@ -99,7 +104,7 @@ export interface QuietReading {
 
 /** What gives the host's pages back once it has been quiet. */
 export interface QuietCollection {
-	/** A turn started or ended, or a conversation closed: there is garbage to collect. */
+	/** A conversation's build settled, a turn started or ended, or a conversation closed: there is garbage to collect. */
 	stirred(): void;
 	/** A conversation parked: it may bring one collection forward. */
 	parked(): void;
