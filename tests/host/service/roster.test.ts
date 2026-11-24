@@ -303,6 +303,23 @@ describe("openRoster", () => {
 		);
 	});
 
+	// An adopted conversation's id comes from its file, and a roster holding
+	// one no start can read refuses every start after (5BACCAC3's F79 on #2076).
+	it("refuses a hold the next start couldn't read, and keeps the roster readable", async () => {
+		const roster = await openRoster({ key: KEY, dir, owner: first });
+		await roster.hold(entry(A));
+		await expect(
+			roster.hold(entry("not-a-uuid", "/sessions/forged.jsonl")),
+		).rejects.toThrow("not one a start could read");
+		await expect(
+			roster.replace(A, entry("not-a-uuid", "/sessions/forged.jsonl")),
+		).rejects.toThrow("not one a start could read");
+		await roster.close();
+		const next = await openRoster({ key: KEY, dir, owner: second });
+		expect(next.entries().map((held) => held.sessionId)).toEqual([A]);
+		await next.close();
+	});
+
 	it("serializes concurrent holds and refuses a second hold of one id or file", async () => {
 		const roster = await openRoster({ key: KEY, dir, owner: first });
 		await Promise.all([roster.hold(entry(A)), roster.hold(entry(B))]);

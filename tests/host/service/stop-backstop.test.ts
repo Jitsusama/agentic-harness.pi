@@ -40,9 +40,11 @@ import { backstopStop } from ${JSON.stringify(BACKSTOP)};
 const [mode, file] = process.argv.slice(2);
 const ids = mode === "parked" ? [] : ["a", "b"];
 // The loop's wall clock ten minutes ahead of the thread's, as when the clock
-// is stepped back between arming and the thread starting.
+// is stepped back between arming and the thread starting, or behind it, as
+// when it is stepped forward.
 const wallClock = Date.now;
 if (mode === "stepped") Date.now = () => wallClock() + 600_000;
+if (mode === "forward") Date.now = () => wallClock() - 600_000;
 const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
 Date.now = wallClock;
 if (mode === "moved") backstop.held(["b"]);
@@ -96,6 +98,11 @@ function run(mode: string, file: string): Promise<Ended> {
 	});
 }
 
+/** How long the backstop's line says it waited, in ms. */
+function waitedOf(ended: Ended): number {
+	return Number(/after (-?\d+) ms/.exec(ended.said)?.[1]);
+}
+
 /** The mark a child left, as the next start reads it. */
 function marked(file: string): unknown {
 	return JSON.parse(readFileSync(file, "utf8"));
@@ -129,6 +136,24 @@ describe("backstopStop", () => {
 		const ended = await run("stepped", join(dir, "not-parked.json"));
 		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
 		expect(ended.took, "well short of its spin").toBeLessThan(CHILD_MS / 2);
+		expect(waitedOf(ended), "what it says it waited").toBeGreaterThanOrEqual(
+			WITHIN_MS,
+		);
+		expect(waitedOf(ended)).toBeLessThan(CHILD_MS / 2);
+	});
+
+	// 5BACCAC3's F80 and F81 on #2076: a step forward never ends it early,
+	// nor makes what it says it waited untrue.
+	it("never ends early when the wall clock steps forward before its thread starts", {
+		timeout: 2 * CHILD_MS,
+	}, async () => {
+		const ended = await run("forward", join(dir, "not-parked.json"));
+		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
+		expect(ended.took, "not before its time").toBeGreaterThanOrEqual(WITHIN_MS);
+		expect(waitedOf(ended), "what it says it waited").toBeGreaterThanOrEqual(
+			WITHIN_MS,
+		);
+		expect(waitedOf(ended)).toBeLessThan(CHILD_MS / 2);
 	});
 
 	it("names what was unparked as last told, which the held loop can't update", {

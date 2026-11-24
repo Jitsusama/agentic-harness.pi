@@ -283,9 +283,12 @@ describe("hostBackend", () => {
 			engine: failing.fake,
 			say: besideStarts(said),
 		});
+		// Never held, since no start could read it back (F79), and undone.
 		await expect(backend.execute(anOpen())).rejects.toThrow(
-			"extension load failed",
+			"not one a start could read",
 		);
+		expect(failing.fake.start).not.toHaveBeenCalled();
+		expect(roster.entries()).toEqual([]);
 		expect(said.filter((line) => line.includes("undoing"))).toEqual([
 			"id\\npi-host: forged: undoing its failed start failed too, discarding its engine: its folder is gone",
 		]);
