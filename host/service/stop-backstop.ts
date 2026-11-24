@@ -58,9 +58,21 @@ parentPort.on("message", (told) => {
 	if (told === "done") process.exit(0);
 	else ids = told;
 });
-// From when it was armed, since a starved machine may be slow to start it.
-setTimeout(() => {
-	const waited = Date.now() - began;
+// From when it was armed, since a starved machine may be slow to start it,
+// on the process's monotonic clock, which its threads share: a wall clock
+// stepped either way can neither hold the end past systemd's kill nor bring
+// it early.
+const sinceArmed = () => Number(process.hrtime.bigint() / 1000000n) - began;
+function fire() {
+	// A timer may fire a millisecond early: never end it early. Both reads
+	// are whole ms rounded down, so only a count past within is sure to be
+	// within's whole time.
+	const short = within - sinceArmed();
+	if (short >= 0) {
+		setTimeout(fire, short + 1);
+		return;
+	}
+	const waited = sinceArmed();
 	const left = ids.length > 0 ? ": " + ids.join(", ") : "";
 	// The mark first, as a write to a journal that has stopped reading can block.
 	if (ids.length > 0)
@@ -76,8 +88,17 @@ setTimeout(() => {
 		// With no journal to write to, the end still matters.
 	}
 	process.kill(pid, "SIGKILL");
-}, Math.max(0, within - (Date.now() - began)));
+}
+setTimeout(fire, Math.max(0, within - sinceArmed()));
 `;
+
+/** The process's monotonic clock, in whole ms, as the thread reads it. */
+function monotonicMs(): number {
+	return Number(process.hrtime.bigint() / NS_PER_MS);
+}
+
+/** Nanoseconds in a millisecond, as hrtime counts them. */
+const NS_PER_MS = 1_000_000n;
 
 /** A backstop that couldn't start, leaving the stop to its loop's timer. */
 const UNARMED: Backstop = { held() {}, done() {} };
@@ -96,7 +117,7 @@ export function backstopStop(options: BackstopOptions): Backstop {
 		ids: [...options.ids],
 		fd: options.fd ?? STDERR,
 		pid: process.pid,
-		began: Date.now(),
+		began: monotonicMs(),
 	};
 	const unarmed = (error: unknown) =>
 		sayUnarmed(

@@ -137,12 +137,33 @@ export function startLine(
 		sessionId === undefined
 			? `A conversation not yet named, ${
 					request.op === "open"
-						? `opening in ${request.cwd}`
-						: `adopted from ${request.sessionFile}`
+						? `opening in ${onOneLine(request.cwd)}`
+						: `adopted from ${onOneLine(request.sessionFile)}`
 				}`
-			: `${sessionAddress(sessionId)} (${sessionId})`;
+			: `${onOneLine(sessionAddress(sessionId))} (${onOneLine(sessionId)})`;
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
+}
+
+/** The escapes a journal reader knows by sight, for the controls that have one. */
+const NAMED_ESCAPES: Readonly<Record<string, string>> = {
+	"\n": "\\n",
+	"\r": "\\r",
+	"\t": "\\t",
+};
+
+/**
+ * Words a requester chose, or a reason quoting them, with every control
+ * character (C0, DEL and C1) written as an escape, so they can't break the
+ * journal entry they are said in, forge another or move a terminal's cursor.
+ */
+export function onOneLine(text: string): string {
+	return text.replace(
+		/\p{Cc}/gu,
+		(control) =>
+			NAMED_ESCAPES[control] ??
+			`\\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	);
 }
 
 /**
@@ -159,11 +180,11 @@ export function firstLine(reason: unknown): string {
 		text = "";
 	}
 	if (typeof text !== "string") return "";
-	return (
+	return onOneLine(
 		text
 			.split(/\r?\n|\r/)
 			.map((line) => line.trim())
-			.find((line) => line.length > 0) ?? ""
+			.find((line) => line.length > 0) ?? "",
 	);
 }
 

@@ -32,6 +32,7 @@ import { setTimeout as pauseFor } from "node:timers/promises";
 import { isOwner } from "../../lib/core/process/index.ts";
 import {
 	ENV_NAME,
+	isRosterEntry,
 	parseRoster,
 	type Roster,
 	type RosterEntry,
@@ -198,6 +199,13 @@ function writable(
 	const refused = launchRefusal(entry.launch ?? {});
 	if (refused) throw new Error(refused);
 	const file = resolve(entry.file);
+	// A roster holding one entry no start can read is refused whole at the
+	// next start, so a conversation whose file names an id that isn't pi's
+	// UUID is never held.
+	if (!isRosterEntry({ ...entry, file }))
+		throw new Error(
+			`Conversation's hold is not one a start could read: ${JSON.stringify(entry.sessionId)}`,
+		);
 	if (
 		held.some(
 			(other) =>

@@ -72,7 +72,12 @@ beforeEach(async () => {
 		opens: () => policy.opening,
 		close: vi.fn(),
 	};
-	children = hostChildren({
+	children = hosting(true);
+});
+
+/** The hosting, with the engine resting one given up, or not able to. */
+function hosting(restsGivenUp: boolean): HostedChildren {
+	return hostChildren({
 		key,
 		folder,
 		units,
@@ -82,10 +87,14 @@ beforeEach(async () => {
 			rested.push(entry);
 			return resting;
 		},
-		restGivenUp(entry) {
-			givenUp.push(entry);
-			return givingUp;
-		},
+		...(restsGivenUp
+			? {
+					restGivenUp(entry: RosterEntry) {
+						givenUp.push(entry);
+						return givingUp;
+					},
+				}
+			: {}),
 		report: (error) => reported.push(error),
 		say: (line) => said.push(line),
 		became: (previousId, nextId) => told.push([previousId, nextId]),
@@ -95,7 +104,7 @@ beforeEach(async () => {
 			exitsWithinMs: 500,
 		},
 	});
-});
+}
 
 afterEach(async () => {
 	children.close();
@@ -185,6 +194,23 @@ describe("a host's children", () => {
 		await vi.waitFor(() =>
 			expect(said).toContain(
 				`${a}: its child was given up, and nothing watches its wake until it is asked for, as this host runs it now`,
+			),
+		);
+	});
+
+	// F36: the one fallback, for an engine with no rest for one given up.
+	it("says one given up that an engine with no rest for it can't rest", async () => {
+		children.close();
+		children = hosting(false);
+		units.next = { silent: true };
+
+		await expect(
+			children.backend.resume(entryIn(folder, a), false, true),
+		).rejects.toThrow("as children.json says");
+
+		await vi.waitFor(() =>
+			expect(said).toContain(
+				`${a}: its child was given up, and nothing watches its wake until it is asked for, as this engine rests none given up`,
 			),
 		);
 	});

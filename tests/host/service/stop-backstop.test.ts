@@ -39,7 +39,14 @@ const child = `
 import { backstopStop } from ${JSON.stringify(BACKSTOP)};
 const [mode, file] = process.argv.slice(2);
 const ids = mode === "parked" ? [] : ["a", "b"];
+// The loop's wall clock ten minutes ahead of the thread's, as when the clock
+// is stepped back between arming and the thread starting, or behind it, as
+// when it is stepped forward.
+const wallClock = Date.now;
+if (mode === "stepped") Date.now = () => wallClock() + 600_000;
+if (mode === "forward") Date.now = () => wallClock() - 600_000;
 const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
+Date.now = wallClock;
 if (mode === "moved") backstop.held(["b"]);
 if (mode === "done") {
 	backstop.done();
@@ -91,6 +98,11 @@ function run(mode: string, file: string): Promise<Ended> {
 	});
 }
 
+/** How long the backstop's line says it waited, in ms. */
+function waitedOf(ended: Ended): number {
+	return Number(/after (-?\d+) ms/.exec(ended.said)?.[1]);
+}
+
 /** The mark a child left, as the next start reads it. */
 function marked(file: string): unknown {
 	return JSON.parse(readFileSync(file, "utf8"));
@@ -111,10 +123,39 @@ describe("backstopStop", () => {
 			at: expect.any(Number),
 			ids: ["a", "b"],
 		});
-		const waited = Number(/after (\d+) ms/.exec(ended.said)?.[1]);
-		expect(waited, "counted from when it was armed").toBeGreaterThanOrEqual(
+		// Whole ms rounded down from both ends, so only a count past the
+		// bound is sure to be its whole time (5BACCAC3's F113 on #2076).
+		expect(
+			waitedOf(ended),
+			"counted from when it was armed, past its bound",
+		).toBeGreaterThan(WITHIN_MS);
+	});
+
+	// F49: what is owed never passes what it was armed with.
+	it("still ends within its bound when the wall clock steps back before its thread starts", {
+		timeout: 2 * CHILD_MS,
+	}, async () => {
+		const ended = await run("stepped", join(dir, "not-parked.json"));
+		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
+		expect(ended.took, "well short of its spin").toBeLessThan(CHILD_MS / 2);
+		expect(waitedOf(ended), "what it says it waited").toBeGreaterThanOrEqual(
 			WITHIN_MS,
 		);
+		expect(waitedOf(ended)).toBeLessThan(CHILD_MS / 2);
+	});
+
+	// 5BACCAC3's F80 and F81 on #2076: a step forward never ends it early,
+	// nor makes what it says it waited untrue.
+	it("never ends early when the wall clock steps forward before its thread starts", {
+		timeout: 2 * CHILD_MS,
+	}, async () => {
+		const ended = await run("forward", join(dir, "not-parked.json"));
+		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
+		expect(ended.took, "not before its time").toBeGreaterThanOrEqual(WITHIN_MS);
+		expect(waitedOf(ended), "what it says it waited").toBeGreaterThan(
+			WITHIN_MS,
+		);
+		expect(waitedOf(ended)).toBeLessThan(CHILD_MS / 2);
 	});
 
 	it("names what was unparked as last told, which the held loop can't update", {

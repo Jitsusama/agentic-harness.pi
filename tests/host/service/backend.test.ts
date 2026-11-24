@@ -224,6 +224,132 @@ describe("hostBackend", () => {
 		expect(roster.entries()).toHaveLength(1);
 	});
 
+	it("still drops an unregistered start whose discard fails, saying why or that none was given", async () => {
+		const said: string[] = [];
+		const failing = engine({
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+			discard: vi
+				.fn<ConversationEngine["discard"]>()
+				.mockRejectedValueOnce(new Error("its folder is gone"))
+				// What a library may throw: something with no message at all.
+				.mockRejectedValueOnce({ code: "EIO" }),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: besideStarts(said),
+		});
+		for (const _ of [1, 2])
+			await expect(backend.execute(anOpen())).rejects.toThrow(
+				"extension load failed",
+			);
+		expect(roster.entries(), "dropped though its discard failed").toEqual([]);
+		const undone = said.filter((line) => line.includes("undoing"));
+		expect(undone).toEqual([
+			expect.stringMatching(
+				/: undoing its failed start failed too, discarding its engine: its folder is gone$/,
+			),
+			expect.stringMatching(
+				/: undoing its failed start failed too, discarding its engine, with no reason given$/,
+			),
+		]);
+	});
+
+	// F48: an adopted conversation's id comes from a file the requester
+	// names, so the undo's line escapes it as the start's line does.
+	it("escapes the conversation's id in the line saying its undo failed", async () => {
+		const said: string[] = [];
+		const failing = engine({
+			prepare: vi.fn(async () => ({
+				sessionId: "id\npi-host: forged",
+				file: join(dir, `${randomUUID()}.jsonl`),
+				cwd: dir,
+			})),
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+			discard: vi.fn(async () => {
+				throw new Error("its folder is gone");
+			}),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: besideStarts(said),
+		});
+		// Never held, since no start could read it back (F79), and undone.
+		await expect(backend.execute(anOpen())).rejects.toThrow(
+			"not one a start could read",
+		);
+		expect(failing.fake.start).not.toHaveBeenCalled();
+		expect(roster.entries()).toEqual([]);
+		expect(said.filter((line) => line.includes("undoing"))).toEqual([
+			"id\\npi-host: forged: undoing its failed start failed too, discarding its engine: its folder is gone",
+		]);
+	});
+
+	// F22: each undo is named, so a failed drop reads apart from a failed discard.
+	it("says which undo failed when its hold can't be dropped", async () => {
+		const said: string[] = [];
+		const failing = engine({
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+		});
+		vi.spyOn(roster, "drop").mockRejectedValueOnce(
+			new Error("the roster is locked"),
+		);
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: besideStarts(said),
+		});
+		await expect(backend.execute(anOpen())).rejects.toThrow(
+			"extension load failed",
+		);
+		expect(said.filter((line) => line.includes("undoing"))).toEqual([
+			expect.stringMatching(
+				/: undoing its failed start failed too, dropping its hold: the roster is locked$/,
+			),
+		]);
+	});
+
+	// F24: a journal that can't take the undo's line must not skip the drop.
+	it("still drops an unregistered start's hold when saying its failed discard throws", async () => {
+		const failing = engine({
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+			discard: vi
+				.fn<ConversationEngine["discard"]>()
+				.mockRejectedValueOnce(new Error("its folder is gone")),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: (line) => {
+				if (line.includes("undoing")) throw new Error("the journal is gone");
+			},
+		});
+		await expect(backend.execute(anOpen())).rejects.toThrow(
+			"extension load failed",
+		);
+		expect(
+			roster.entries(),
+			"dropped though its line couldn't be said",
+		).toEqual([]);
+	});
+
 	it("holds the launch environment prepare derived, and a restart's resume gets it back exactly", async () => {
 		const launch = { SHOPIFY_EXP_ARM: "treatment", SHOPIFY_EXP_ID: "e1" };
 		const derived = engine({

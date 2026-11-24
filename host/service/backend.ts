@@ -22,7 +22,7 @@ import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
-import { firstLine, type PhaseEnd, startLine } from "./status.ts";
+import { firstLine, onOneLine, type PhaseEnd, startLine } from "./status.ts";
 import {
 	OPEN_UNSETTLED,
 	unsettledMessage,
@@ -693,7 +693,9 @@ export function hostBackend(options: {
 				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
-			await undoing(prepared, () => engine.discard(prepared));
+			await undoing(prepared, "discarding its engine", () =>
+				engine.discard(prepared),
+			);
 			throw error;
 		}
 		mark("roster");
@@ -703,10 +705,13 @@ export function hostBackend(options: {
 			// Registered and failed: the engine parked it, so it stays held for
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
-				await undoing(prepared, async () => {
-					await engine.discard(prepared);
-					await roster.drop(prepared.sessionId);
-				});
+				// Each on its own, so a discard that fails still drops its hold.
+				await undoing(prepared, "discarding its engine", () =>
+					engine.discard(prepared),
+				);
+				await undoing(prepared, "dropping its hold", () =>
+					roster.drop(prepared.sessionId),
+				);
 			} else if (typeof error === "object" && error !== null) {
 				// Its repeat is told the same, not given a second.
 				leftHeld.set(error, prepared.sessionId);
@@ -717,14 +722,27 @@ export function hostBackend(options: {
 	}
 
 	// Undoing a failed start that fails too is said, and the start's own
-	// failure is still the one its caller and the journal hear (F52).
-	async function undoing(prepared: Prepared, undo: () => Promise<void>) {
+	// failure is still the one its caller and the journal hear (F52). Each
+	// undo is named, so the journal says which one failed. An adopted
+	// conversation's id comes from a file the requester names, so it is
+	// escaped as the start's own line escapes it (F48).
+	async function undoing(
+		prepared: Prepared,
+		step: string,
+		undo: () => Promise<void>,
+	) {
 		try {
 			await undo();
 		} catch (error) {
-			options.say?.(
-				`${prepared.sessionId}: undoing its failed start failed too: ${firstLine(error)}`,
-			);
+			const why = firstLine(error);
+			try {
+				options.say?.(
+					`${onOneLine(prepared.sessionId)}: undoing its failed start failed too, ${step}${why ? `: ${why}` : ", with no reason given"}`,
+				);
+			} catch {
+				// A journal that can't take the line must not skip the next undo;
+				// the start's own failure is still thrown to its caller.
+			}
 		}
 	}
 

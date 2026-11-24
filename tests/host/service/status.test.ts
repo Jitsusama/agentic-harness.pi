@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	describeStep,
 	droppedNames,
+	firstLine,
 	phaseTimes,
 	readyCount,
 	readyStatus,
@@ -152,5 +153,52 @@ describe("startLine", () => {
 			"A conversation not yet named, adopted from /s/one.jsonl: its adopt took 0.5 s",
 			"A conversation not yet named, opening in /work: its open took 0.5 s",
 		]);
+	});
+
+	// F39: a path a requester names keeps the journal entry on one line.
+	it("escapes what a path holds that would break its line", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: "/work\npi-host: forged\r\tx" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			"A conversation not yet named, opening in /work\\npi-host: forged\\r\\tx: its open took 0.5 s",
+		);
+	});
+
+	// F20: DEL and the C1 controls, which JSON leaves raw, are escaped too.
+	it("escapes DEL, the C1 controls and a terminal's escape in a path", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "adopt", sessionFile: "/s/\u001b[2J\u007f\u0085\u009b.jsonl" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			"A conversation not yet named, adopted from /s/\\u001b[2J\\u007f\\u0085\\u009b.jsonl: its adopt took 0.5 s",
+		);
+	});
+
+	// F25: an adopted conversation's id comes from a file the requester names.
+	// F47: its address, the id's last eight characters, is escaped too.
+	it("escapes a named conversation's id, and the address made from it", () => {
+		expect(
+			startLine("id\u001bx\nyz", { op: "open", cwd: "/w" }, 1_000, [], 1_500),
+		).toBe("ID\\u001bX\\nYZ (id\\u001bx\\nyz): its open took 0.5 s");
+	});
+});
+
+describe("firstLine", () => {
+	// F23: a reason may quote the path, so its line is escaped as the path is.
+	it("escapes the controls left in the line it keeps", () => {
+		expect(firstLine(new Error("ENOENT: '/s/\u001b[2J\tx'\nat open"))).toBe(
+			"ENOENT: '/s/\\u001b[2J\\tx'",
+		);
 	});
 });
