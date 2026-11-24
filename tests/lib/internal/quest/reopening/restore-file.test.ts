@@ -175,6 +175,46 @@ describe("the restore file", () => {
 		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("hosted");
 	});
 
+	it("leaves out a hosted session whose last window the person closed, and only that", () => {
+		const closed = new Set(["01a1eeee-ffff", "01a1cccc-dddd"]);
+		const parkedHosted = {
+			record: closeRecord(
+				hostedIn("01a1fafa-0101"),
+				"parked",
+				new Date("2026-10-29T04:00:00Z"),
+			),
+			heartbeatAt: "2026-10-29T04:00:00Z",
+		};
+		closed.add("01a1fafa-0101");
+		const file = restoreFileOf(
+			[...hostedRecords(), parkedHosted],
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ viewerClosed: (id) => closed.has(id) },
+		);
+		expect(
+			file.sessions.map((entry) => entry.id).sort(),
+			"a plain pi's tab isn't a hosted window, so a mark never hides it",
+		).toEqual(["01a1abab-cdcd", "01a1cccc-dddd", "01a1eded-0000"]);
+		const open = restoreFileOf([...hostedRecords(), parkedHosted], "this");
+		expect(
+			open.sessions.map((entry) => entry.id).sort(),
+			"with no marks, the closed and the parked are offered as before",
+		).toEqual([
+			"01a1abab-cdcd",
+			"01a1cccc-dddd",
+			"01a1eded-0000",
+			"01a1eeee-ffff",
+			"01a1fafa-0101",
+		]);
+	});
+
 	it("gives a saved hosted session its viewer's words, resuming its log with its own variables, never the writer's", () => {
 		// The writer runs fenced, so its own variables would show in an
 		// unfenced session's words if they ever leaked into them.

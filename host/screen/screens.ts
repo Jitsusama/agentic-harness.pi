@@ -160,6 +160,11 @@ export function hostScreens(options: {
 	ask?: StartupAsker;
 	/** Told how many windows view a conversation, each time one joins or leaves. */
 	viewers?: (sessionId: string, count: number) => void;
+	/**
+	 * Told when the person closed a conversation's last window, and when a
+	 * window views it again (ViewerTerminal.whenClosed).
+	 */
+	closed?: (sessionId: string, closed: boolean) => void;
 }): HostScreens {
 	const live = new Map<string, Screen>();
 	const early = new Map<string, Early>();
@@ -195,6 +200,9 @@ export function hostScreens(options: {
 		// keeps its terminal under the new id.
 		made.terminal.whenViewed((count) =>
 			options.viewers?.(made.terminal.sessionId, count),
+		);
+		made.terminal.whenClosed((closed) =>
+			options.closed?.(made.terminal.sessionId, closed),
 		);
 		return made;
 	}

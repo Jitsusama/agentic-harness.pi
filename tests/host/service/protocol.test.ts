@@ -213,6 +213,8 @@ describe("wire validation", () => {
 		for (const value of [
 			{ type: "edited", id: "1", text: "new words" },
 			{ type: "edited", id: "1" },
+			// A viewer leaving because its window was closed by hand.
+			{ type: "leave", why: "closed" },
 		])
 			expect(parseViewer(value)).toEqual(value);
 		for (const value of [
@@ -221,6 +223,9 @@ describe("wire validation", () => {
 			{ type: "resize", rows: -1, columns: 80 },
 			{ type: "edited", text: "no id" },
 			{ type: "edited", id: "1", text: "x", file: "/tmp/draft" },
+			{ type: "leave" },
+			{ type: "leave", why: "stopping" },
+			{ type: "leave", why: "closed", sessionId: B },
 		])
 			expect(() => parseViewer(value)).toThrow("Invalid host viewer");
 	});

@@ -54,6 +54,8 @@ export interface ViewerConnection {
 	resize(rows: number, columns: number): void;
 	/** The client's answer to an edit it was sent; one it wasn't is dropped. */
 	edited?(id: string, text?: string): void;
+	/** The client says why it is about to go: its window was closed. */
+	leave?(why: "closed"): void;
 	detach(): void;
 }
 
@@ -515,7 +517,9 @@ export async function listenControl(options: {
 					if (input.type === "input") attached.input(input.data);
 					else if (input.type === "resize")
 						attached.resize(input.rows, input.columns);
-					else attached.edited?.(input.id, input.text);
+					else if (input.type === "edited")
+						attached.edited?.(input.id, input.text);
+					else attached.leave?.(input.why);
 				});
 				return;
 			}

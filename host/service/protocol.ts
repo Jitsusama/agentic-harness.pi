@@ -110,6 +110,10 @@ const viewer = z.discriminatedUnion("type", [
 		id: text.max(128),
 		text: z.string().optional(),
 	}),
+	// Said just before a viewer goes because the person closed its window,
+	// never as its machine stops, so the conversation isn't offered back
+	// in a window after the next boot.
+	z.strictObject({ type: z.literal("leave"), why: z.literal("closed") }),
 ]);
 
 const reply = z.discriminatedUnion("ok", [

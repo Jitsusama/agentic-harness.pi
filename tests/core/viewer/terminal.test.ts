@@ -371,6 +371,62 @@ describe("persistent viewer terminal", () => {
 		expect(viewed.mock.calls).toEqual([[1], [2], [1], [0]]);
 	});
 
+	it("says its window was closed only when the last viewer to go said so", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		const closed = vi.fn<(closed: boolean) => void>();
+		terminal.whenClosed(closed);
+
+		const one = terminal.attach(viewer());
+		expect(
+			closed.mock.calls,
+			"a first join clears what a host before held",
+		).toEqual([[false]]);
+		const two = terminal.attach(viewer());
+		one.leave("closed");
+		one.detach();
+		expect(
+			closed.mock.calls,
+			"another viewer stays, so no window was closed for good",
+		).toEqual([[false]]);
+		two.detach();
+		expect(
+			closed.mock.calls,
+			"the last to go said nothing, as at a machine's stop",
+		).toEqual([[false]]);
+
+		const three = terminal.attach(viewer());
+		three.leave("closed");
+		expect(closed.mock.calls, "said, but not yet gone").toEqual([[false]]);
+		three.detach();
+		three.detach();
+		expect(closed.mock.calls, "the last to go closed its window, once").toEqual(
+			[[false], [true]],
+		);
+		const four = terminal.attach(viewer());
+		terminal.attach(viewer());
+		expect(
+			closed.mock.calls,
+			"a window viewing it again clears the close, once",
+		).toEqual([[false], [true], [false]]);
+		four.leave("closed");
+		terminal.dispose();
+		expect(
+			closed.mock.calls,
+			"a conversation closing is no window closed by the person",
+		).toEqual([[false], [true], [false]]);
+	});
+
+	it("says a close in the conversation the terminal now follows", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		const said: string[] = [];
+		terminal.whenClosed((closed) => said.push(`${ambientSession()}:${closed}`));
+		const one = terminal.attach(viewer());
+		terminal.rebind("b");
+		one.leave("closed");
+		one.detach();
+		expect(said).toEqual(["a:false", "b:true"]);
+	});
+
 	it("tells pi's key reader its viewers speak kitty's protocol once it starts", () => {
 		setKittyProtocolActive(false);
 		cleanups.push(() => setKittyProtocolActive(false));

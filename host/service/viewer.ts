@@ -35,6 +35,7 @@ export function noticingInput(
 			const connection = bridge.attach(request, sink);
 			return {
 				edited: (id, text) => connection.edited?.(id, text),
+				leave: (why) => connection.leave?.(why),
 				detach: () => connection.detach(),
 				input: (data) => {
 					noticed();

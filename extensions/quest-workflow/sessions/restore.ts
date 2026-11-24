@@ -18,6 +18,7 @@ import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/fro
 import { extractTitle } from "../../../lib/internal/quest/documents/quest-doc.ts";
 import { windowWorkspaceOf } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { takeUpCarried } from "../../../lib/internal/quest/reopening/carried.ts";
+import { viewerWasClosed } from "../../../lib/internal/quest/reopening/closed-viewers.ts";
 import {
 	bootEndedBefore,
 	type RestoreEntry,
@@ -179,6 +180,7 @@ export function refreshRestoreFile(
 				parentOf: logParents(logs),
 				logOf: (sessionId) => logs.get(sessionId),
 				viewsBefore: viewsIn(restoreFilePath(stateHome)),
+				viewerClosed: viewerWasClosed,
 			},
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
