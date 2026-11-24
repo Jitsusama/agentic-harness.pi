@@ -190,9 +190,13 @@ describe("arriving with a tree to clone from origin", () => {
 			did: "cloned",
 		});
 		expect(
-			fetches.map(({ args }) => args.at(-1)),
+			fetches.filter(({ args }) =>
+				args.some(
+					(arg) => arg.includes("--orphan") || arg.includes("/src/app"),
+				),
+			),
 			"git is asked nothing for the refused one",
-		).toEqual([expect.stringMatching(/\/src\/other\.cloning-/)]);
+		).toEqual([]);
 	});
 });
 
