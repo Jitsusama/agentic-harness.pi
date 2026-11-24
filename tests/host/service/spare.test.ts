@@ -159,6 +159,14 @@ describe("a warm spare", () => {
 		});
 	});
 
+	it("leaves once its slot is cleared, as a host does once its unit has gone", async () => {
+		const marks = spareMarks(slotFile);
+		const waiting = spareUntilTaken(waitOf());
+		await until(marks.warm);
+		await rm(folder, { recursive: true, force: true });
+		await expect(waiting).resolves.toEqual({ left: "its slot was cleared" });
+	});
+
 	it("leaves, never warm, when its warm fails", async () => {
 		const waiting = spareUntilTaken(
 			waitOf({

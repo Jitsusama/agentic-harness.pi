@@ -15,7 +15,10 @@
  * where the child listens, and SLOT.d/ is the child's own, for its life,
  * which nothing here reads. The slot is the conversation's id for a
  * resume and a fresh one for an open; the child names its conversation
- * when it is watched, so routes go by that, never by the slot.
+ * when it is watched, so routes go by that, never by the slot. A warm
+ * spare's slot (spare.ts) is a fresh one too, its file `{"spare": true}`
+ * until a take names what it resumes, with SLOT.warm or SLOT.taken
+ * beside it.
  */
 import { execFile } from "node:child_process";
 import {
@@ -35,6 +38,7 @@ import {
 } from "../../lib/core/session/roster.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { MAX_SOCKET_PATH_BYTES } from "./address.ts";
+import { spareMarks } from "./spare.ts";
 
 /** Where one child's files are, and the unit it runs as. */
 export interface Slot {
@@ -117,6 +121,22 @@ export async function writeSlot(
 			}
 		: {};
 	await writeHeld(slot, held);
+}
+
+/** Write `slot` as a warm spare's, before its unit starts: it names nothing yet. */
+export async function writeSpareSlot(slot: Slot): Promise<void> {
+	await writeHeld(slot, { spare: true });
+}
+
+/** Whether `slot`'s file says a warm spare waits in it, untaken. */
+export async function slotSpare(slot: Slot): Promise<boolean> {
+	try {
+		const held: unknown = JSON.parse(await readFile(slot.file, "utf8"));
+		return isRecord(held) && held.spare === true;
+	} catch {
+		// Gone or half written: nothing says a spare waits there.
+		return false;
+	}
 }
 
 /**
@@ -202,6 +222,9 @@ export async function slotHolds(slot: Slot): Promise<string | undefined> {
 export async function clearSlot(slot: Slot): Promise<void> {
 	await rm(slot.file, { force: true });
 	await rm(asideOf(slot), { force: true });
+	const marks = spareMarks(slot.file);
+	await rm(marks.warm, { force: true });
+	await rm(marks.taken, { force: true });
 	await rm(slot.socket, { force: true });
 	await rm(slot.folder, { force: true, recursive: true });
 }

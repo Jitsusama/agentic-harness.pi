@@ -137,6 +137,10 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 				};
 		} else if (Date.now() - lookedAt >= lookMs) {
 			lookedAt = Date.now();
+			// A take renames one mark into the other, so with both gone the
+			// slot was cleared, and nothing will ever take this spare.
+			if (!((await exists(marks.warm)) || (await exists(marks.taken))))
+				return { left: "its slot was cleared" };
 			const why = (await wait.moved()) ?? overSize();
 			if (why && (await leave(marks))) return { left: why };
 		}

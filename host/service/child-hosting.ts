@@ -70,6 +70,7 @@ export function hostChildren(options: {
 		roster,
 		report,
 		...(options.say ? { say: options.say } : {}),
+		spares: () => policy.spares?.() ?? false,
 		ended: (sessionId, why) => rest(sessionId, why),
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),

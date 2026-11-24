@@ -20,6 +20,10 @@ import { heldChildren } from "../../../../host/service/children.ts";
 import type { HostIdentity } from "../../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../../host/service/framing.ts";
 import type { SessionIdentity } from "../../../../host/service/protocol.ts";
+import {
+	isSpareSlot,
+	spareUntilTaken,
+} from "../../../../host/service/spare.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 
 export const key = "work-background";
@@ -30,6 +34,8 @@ export const b = "b0000000-0000-4000-8000-000000000002";
  * supervisor has to wait for it as it waits for a real one.
  */
 export const LISTENS_AFTER_MS = 150;
+/** How often a fake spare looks at its install and its marks. */
+export const SPARE_LOOKS_EVERY_MS = 20;
 
 // Each test's own, set afresh before it by superviseEachTest; read
 // through these live bindings, and replaced only by superviseAgain.
@@ -157,6 +163,10 @@ export interface FakeUnits extends Units {
 		neverListens?: boolean;
 		/** Listens no sooner than this settles, for a test to order a step. */
 		listensWhen?: Promise<void>;
+		/** A spare's warm settles no sooner than this, for a test to take it cold. */
+		warmsWhen?: Promise<void>;
+		/** A spare leaves untaken at its first look, as one whose install moved. */
+		spareLeaves?: boolean;
 	};
 	/** What each child started does where `next` says nothing, by its unit. */
 	traitsOf?: (unit: string) => FakeUnits["next"];
@@ -366,6 +376,29 @@ function fakeUnits(): FakeUnits {
 					fake.children.delete(unit);
 					return;
 				}
+				// A spare waits warm for a take, as spare.ts does, and then runs
+				// as the child its slot now names.
+				if (isSpareSlot(slot.file)) {
+					const end = await spareUntilTaken({
+						slotFile: slot.file,
+						warm: async () => {
+							await next.warmsWhen;
+						},
+						moved: async () => {
+							if (!fake.children.has(unit)) return "its unit stopped";
+							return next.spareLeaves ? "its install moved" : undefined;
+						},
+						size: () => undefined,
+						report: () => undefined,
+						lookMs: SPARE_LOOKS_EVERY_MS,
+						slotLookMs: SPARE_LOOKS_EVERY_MS / 2,
+						takeWithinMs: 1_000,
+					});
+					if ("left" in end) {
+						fake.children.delete(unit);
+						return;
+					}
+				}
 				if (next.neverListens) return;
 				runChild(slot, next, its, fake).then(
 					(child) => fake.children.set(unit, child),
@@ -437,6 +470,10 @@ interface Clocks {
 	starvedWithinMs?: number;
 	turnHeldWithinMs?: number;
 	turnWaitSaidMs?: number;
+	spareAfterMs?: number;
+	spareCheckMs?: number;
+	/** Whether the supervisor keeps a warm spare, as its policy would say. */
+	spares?: () => boolean;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {
