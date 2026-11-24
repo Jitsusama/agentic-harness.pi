@@ -203,6 +203,24 @@ describe("sending", () => {
 		expect(answer).toContain("It goes to 5GV2AH;");
 	});
 
+	// A paused presence may name no address, and still hears its groups.
+	it("counts a peer it reaches that names no address, never saying it reached nobody", async () => {
+		peer("session-n", [], ["#optimus"]);
+		const { tools } = await startSession();
+
+		const alone = await send(tools, "#optimus", "fyi", "built");
+		peer("session-w", ["WCJQSG"], ["#optimus"]);
+		const shared = await send(tools, "#optimus", "fyi", "built again");
+
+		expect(alone).toContain(
+			"It goes to a peer naming no address; mesh_read says when each has it.",
+		);
+		expect(alone).not.toContain("No peer on the mesh is reached");
+		expect(shared).toContain(
+			"It goes to WCJQSG and a peer naming no address; mesh_read",
+		);
+	});
+
 	it("says when a peer it was addressed to has ended, and reaches no one there", async () => {
 		// A dead session was once sent work for six hours.
 		peer("session-w", ["WCJQSG"], ["#optimus"], true);

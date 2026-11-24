@@ -49,7 +49,7 @@ import {
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";
-import { oneLine } from "../../lib/mesh/one-line.ts";
+import { oneLine, plainQuotes } from "../../lib/mesh/one-line.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
@@ -565,11 +565,16 @@ function inAnotherCheckout(lease: Lease, checkout: string | undefined) {
 	);
 }
 
-/** Who holds these, for the peer reaching: "5GV2AH (since 00:31, working on x) is". */
+/**
+ * Who holds these, for the peer reaching: "5GV2AH (since 00:31, working
+ * on x) is". A presence's addresses are read only in an address's shape
+ * (lib/mesh/presence.ts), but a paused one may name none, so a holder
+ * naming none is said as a peer that does; it opens a sentence.
+ */
 function holders(held: readonly (Held & { holder: Presence })[]): string {
 	const each = held.map(
-		({ holder, lease }) =>
-			`${holder.addresses[0]} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${cut(holder.worksOn)}` : ""})`,
+		({ holder, lease }, at) =>
+			`${holder.addresses[0] ?? `${at === 0 ? "A" : "a"} peer naming no address`} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${cut(holder.worksOn)}` : ""})`,
 	);
 	return `${each.join(" and ")} ${each.length === 1 ? "is" : "are"}`;
 }
@@ -577,7 +582,8 @@ function holders(held: readonly (Held & { holder: Presence })[]): string {
 /**
  * What a peer's changes in one checkout are, to follow "is". A holder
  * writes its why as it likes, so it is said on one line and its
- * backticks as quotes, which can't close the code span it is said in.
+ * backticks and their lookalikes as quotes, which can't close the code
+ * span it is said in.
  */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
@@ -591,7 +597,7 @@ function changingText(leases: readonly Lease[]): string {
 			.filter(claimsCheckout)
 			.map((lease) =>
 				lease.why
-					? `working on what \`${oneLine(lease.why).replaceAll("`", "'")}\` left`
+					? `working on what \`${plainQuotes(oneLine(lease.why))}\` left`
 					: "working on all of them",
 			),
 	]

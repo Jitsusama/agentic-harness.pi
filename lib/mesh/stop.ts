@@ -39,6 +39,20 @@ export interface Stop {
 	readonly why?: string;
 }
 
+/**
+ * The longest reason a stop is read with: a stopper writes its why as
+ * it likes, and every refused send and listing on the peer it stopped
+ * says it, so one never floods them.
+ */
+export const STOP_WHY_CHARS = 200;
+
+/** A stop's reason, cut to `STOP_WHY_CHARS`. */
+function whyCut(why: string): string {
+	return why.length > STOP_WHY_CHARS
+		? `${why.slice(0, STOP_WHY_CHARS)}...`
+		: why;
+}
+
 /** The stops in a presence as read from outside, keeping the valid. */
 export function stopsFrom(value: unknown): Stop[] {
 	if (!Array.isArray(value)) return [];
@@ -53,7 +67,7 @@ export function stopsFrom(value: unknown): Stop[] {
 				address: stop.address,
 				at: stop.at,
 				...(typeof stop.session === "string" ? { session: stop.session } : {}),
-				...(typeof stop.why === "string" ? { why: stop.why } : {}),
+				...(typeof stop.why === "string" ? { why: whyCut(stop.why) } : {}),
 			},
 		];
 	});

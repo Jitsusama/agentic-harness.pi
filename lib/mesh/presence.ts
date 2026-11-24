@@ -792,15 +792,34 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
 }
 
 /**
+ * The longest group a presence may name: a quest's group twelve deep,
+ * where the deepest on equilibrius on 23 November was five (41 long).
+ */
+const MOST_GROUP_CHARS = 96;
+
+/**
+ * The most groups or joined groups a presence may name, each printed
+ * a line of its own; the most any on equilibrius named on 23 November
+ * was 20.
+ */
+const MOST_GROUPS = 64;
+
+/**
  * Whether a group a presence names is one a group is named as, read
  * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,
  * `@5GV2AH`), so none starts a line or forges a field: the shape held
  * to rather than a list of breaks, which can't hold, as mesh_groups
  * already lists them. All 555 groups and joined groups on equilibrius's
- * presences on 24 November read back so.
+ * presences on 24 November read back so. And no longer than a group
+ * runs, so none floods the line it is on.
  */
 function isGroupShaped(group: string): boolean {
-	return groupNamed(group) === group;
+	return group.length <= MOST_GROUP_CHARS && groupNamed(group) === group;
+}
+
+/** The groups a presence names that may be printed, at most `MOST_GROUPS`. */
+function groupsShaped(groups: readonly string[]): string[] {
+	return groups.filter(isGroupShaped).slice(0, MOST_GROUPS);
 }
 
 /** Presence read from outside, or nothing when it is not one. */
@@ -837,10 +856,8 @@ function presenceFrom(value: unknown): Presence | undefined {
 	return {
 		session: one.session,
 		addresses,
-		groups: one.groups.filter(isGroupShaped),
-		...(strings(one.joined)
-			? { joined: one.joined.filter(isGroupShaped) }
-			: {}),
+		groups: groupsShaped(one.groups),
+		...(strings(one.joined) ? { joined: groupsShaped(one.joined) } : {}),
 		...(stopsFrom(one.stops).length > 0 ? { stops: stopsFrom(one.stops) } : {}),
 		worksOn: said(one.worksOn) ?? "",
 		owns: strings(one.owns) ? one.owns : [],

@@ -561,6 +561,13 @@ describe("groups", () => {
 				],
 				joined: ["OWNERQ,quest,QEST-20261021-OWNERQ,idle"],
 			});
+			// Well-shaped, but long enough or many enough to flood the section.
+			cell("session-g3", "GROUP3", {
+				groups: ["#harness", `#${"a".repeat(5000)}`, `@${"A".repeat(5000)}`],
+			});
+			cell("session-g4", "GROUP4", {
+				groups: Array.from({ length: 100 }, (_, at) => `#flood${at}`),
+			});
 			cell("session-t", "STEPPR", {
 				busy: true,
 				stepDetail: {
@@ -667,6 +674,18 @@ describe("groups", () => {
 				),
 				"only its real group lists it",
 			).toEqual([expect.stringMatching(/^#harness: .*GROUP2/)]);
+			expect(
+				lines.filter((line) => line.includes("GROUP3")),
+				"no group of 5000 lists it",
+			).toEqual([
+				expect.stringMatching(/^#harness: .*GROUP3/),
+				expect.stringMatching(/^GROUP3, idle: a bid/),
+			]);
+			expect(
+				lines.filter((line) => line.startsWith("#flood")),
+				"at most 64 groups of one presence are listed",
+			).toHaveLength(64);
+			expect(lines.filter((line) => line.length > 1000)).toEqual([]);
 			// Read by line, whichever order the presences come in.
 			const stopLines = lines.filter((line) =>
 				line.includes("stopped this peer reaching it"),
@@ -681,7 +700,7 @@ describe("groups", () => {
 				),
 			);
 			expect(stopLines).toContain(
-				'STOPP2 stopped this peer reaching it, saying "y\\": it sees what this peer sends as one line only. OWNERQ stopped this peer reaching it, saying \\"z": it sees what this peer sends as one line only.',
+				`STOPP2 stopped this peer reaching it, saying "y': it sees what this peer sends as one line only. OWNERQ stopped this peer reaching it, saying 'z": it sees what this peer sends as one line only.`,
 			);
 		},
 	);
