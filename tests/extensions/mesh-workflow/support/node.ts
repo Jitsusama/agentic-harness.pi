@@ -16,7 +16,9 @@ export const nodeAsked: string[] = [];
 
 /**
  * A node listing these cells and ties, and the environment a session
- * reaches it by; it answers for ties only once `tiesHeld` settles, so a
+ * reaches it by. Like the live node, it answers with only the fields
+ * asked beside the key and kind, so a field a session forgets to ask
+ * for is missing here too. It answers for ties only once `tiesHeld` settles, so a
  * test can act while a find waits on it. Given a function, it holds each
  * ask for ties on what that call returns, so a test can tell how many
  * are out at once. Close it with `closeNodes` after the test.
@@ -40,8 +42,20 @@ export async function node(
 				const ask = JSON.parse(said.slice(0, end));
 				said = said.slice(end + 1);
 				nodeAsked.push(String(ask.kind));
-				const records =
+				const listed =
 					ask.kind === "cell" ? cells : ask.kind === "tie" ? ties : undefined;
+				const fields: unknown = ask.fields;
+				const kept = Array.isArray(fields)
+					? new Set(["key", "kind", ...fields.map(String)])
+					: undefined;
+				const records =
+					kept === undefined
+						? listed
+						: listed?.map((record) =>
+								Object.fromEntries(
+									Object.entries(record).filter(([field]) => kept.has(field)),
+								),
+							);
 				const reply =
 					ask.ask === "list" && records
 						? { id: ask.id, records }

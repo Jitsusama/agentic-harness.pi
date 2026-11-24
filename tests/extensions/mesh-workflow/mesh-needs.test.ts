@@ -218,7 +218,10 @@ describe("sending to a need", () => {
 		);
 		expect(said).not.toContain("no live cell within three ties");
 		expect(said).toContain(
-			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering more of it, unless J7XHQN has stopped this one.",
+			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering as much of it or more, unless J7XHQN has stopped this one.",
+		);
+		expect(said, "only the owner works on dates").toContain(
+			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
 		);
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
 		expect(said).toContain(ASK_WHO_OWNS_IT);
@@ -266,7 +269,7 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("J7XHQN worked on more of dates delivery");
 		expect(said).toContain(
-			"No cell works on fonts, so it found nobody and it was routed by dates delivery alone.",
+			"No cell works on fonts, and no live cell on dates, so they found nobody and it was routed by delivery alone.",
 		);
 	});
 
@@ -417,6 +420,9 @@ describe("sending to a need", () => {
 
 		expect(said, "a record that old owns nothing").toContain("went to 5HJZ8Z");
 		expect(said).not.toContain("isn't present now");
+		expect(said, "its asker still hears of dates").toContain(
+			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
+		);
 	});
 
 	it("says which words of its about no cell works on, when it goes by the rest", async () => {

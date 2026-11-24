@@ -147,9 +147,17 @@ describe("an ended cell owning a need", () => {
 			asked("A", "dates", "delivery"),
 			reach(AT - 7 * HOUR),
 		);
+		const edge = routeNeed(
+			asked("A", "dates", "delivery"),
+			reach(AT - OWNER_TIE_AGE_MS),
+		);
 
 		expect(7 * HOUR).toBeGreaterThan(OWNER_TIE_AGE_MS);
 		expect(lately).toMatchObject({ fit: null, ended: ["J"], fellShort: "B" });
+		expect(edge, "six hours to the millisecond still counts").toMatchObject({
+			fit: null,
+			fellShort: "B",
+		});
 		expect(long, "a crashed record stops owning").toMatchObject({
 			path: ["B"],
 			fit: "B",
@@ -218,6 +226,45 @@ describe("an ended cell owning a need", () => {
 			path: ["H2", "J"],
 			fit: "J",
 		});
+	});
+
+	it("owns nothing where once back its own narrower hub would name a cell sharing less", () => {
+		const reach = {
+			foragers: cells({
+				A: [],
+				H2: [],
+				O: [],
+				X: ["dates"],
+				J: ["lanes", "dates", "delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1], ["J", "O", 1]),
+			hubs: [
+				{ subject: "lanes:dates", hub: "J", fits: ["X"] },
+				{ subject: "dates", hub: "H2", fits: ["J"] },
+			],
+		};
+
+		const found = routeNeed(asked("A", "lanes", "dates", "delivery"), {
+			...reach,
+			live: (address) => address !== "J",
+		});
+		const back = routeNeed(asked("A", "lanes", "dates", "delivery"), {
+			...reach,
+			live: () => true,
+		});
+
+		expect(back, "J's own hub names X ahead of H2").toMatchObject({
+			path: ["J", "X"],
+			fit: "X",
+		});
+		expect(found, "so a resend would never reach J").toMatchObject({
+			path: ["B"],
+			fit: "B",
+			ended: ["J"],
+			unheld: ["lanes"],
+		});
+		expect(found).not.toHaveProperty("fellShort");
 	});
 
 	it("owns it past a nearer ended cell working on less, tried alone", () => {
@@ -291,6 +338,30 @@ describe("an ended cell owning a need", () => {
 		expect(found).not.toHaveProperty("fellShort");
 	});
 
+	it("owns nothing when the tie it sent on is old and only another's is fresh", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				O: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(
+				["A", "B", 1],
+				["J", "O", 1, AT - 20 * HOUR],
+				["A", "J", 1, AT, [true, false]],
+			),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "spoken on and fresh must be one tie").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
 	it("owns nothing by a tie heard more than six hours ahead, or at no time a number weighs", () => {
 		const reach = (heard: number) => ({
 			foragers: cells({ A: [], J: ["dates", "delivery"], B: ["delivery"] }),
@@ -311,9 +382,14 @@ describe("an ended cell owning a need", () => {
 			asked("A", "dates", "delivery"),
 			reach(AT + HOUR),
 		);
+		const unweighed = routeNeed(
+			asked("A", "dates", "delivery"),
+			reach(Number.NaN),
+		);
 
 		expect(ahead).toMatchObject({ path: ["B"], fit: "B" });
 		expect(endless).toMatchObject({ path: ["B"], fit: "B" });
+		expect(unweighed).toMatchObject({ path: ["B"], fit: "B" });
 		expect(stepped, "a clock stepped back an hour").toMatchObject({
 			fit: null,
 			ended: ["J"],
@@ -417,7 +493,11 @@ describe("what a fit and an owner are weighed by", () => {
 			fit: "B",
 			ended: ["J"],
 		});
-		expect(long).toMatchObject({ path: ["B"], fit: "B" });
+		expect(long, "dates is still said, J unnamed").toMatchObject({
+			path: ["B"],
+			fit: "B",
+			unheld: ["dates"],
+		});
 		expect(long).not.toHaveProperty("ended");
 	});
 

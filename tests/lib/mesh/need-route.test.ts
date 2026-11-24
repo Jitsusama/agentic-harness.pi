@@ -918,6 +918,32 @@ describe("asking the node for a need's fit", () => {
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
 	});
 
+	it("asks the node who sent on each tie today, so an ended owner is found", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:J", title: "Dates Delivery" },
+				{ key: "cell:B", title: "Delivery Lanes" },
+			],
+			tie: [
+				{ key: "tie:A~B", strength: 3, heard: AT, today: [1, 1] },
+				{ key: "tie:A~J", strength: 1, heard: AT, today: [0, 1] },
+			],
+		});
+
+		const found = await needAt(socket, asked("A", "dates", "delivery"), {
+			live: (address) => address !== "J",
+			stopped: () => false,
+			keep: root,
+		});
+
+		expect(found, "J's own sending on its tie").toMatchObject({
+			fit: null,
+			ended: ["J"],
+			fellShort: "B",
+		});
+	});
+
 	it("keeps a lost need as it is routed", async () => {
 		const socket = await serving({
 			cell: [

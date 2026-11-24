@@ -136,6 +136,12 @@ export interface NeedRecord extends Omit<NeedAsked, "fromText" | "selves"> {
 	 * when none, or when the need was found.
 	 */
 	readonly stopped?: readonly string[];
+	/**
+	 * Words kept that no cell there works on, only ended ones, so the
+	 * asker hears of them however long ago those cells were heard from;
+	 * said for a need found or owned, left out when none.
+	 */
+	readonly unheld?: readonly string[];
 }
 
 /** What a need is routed over. */
@@ -477,9 +483,9 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  *
  * Lost, with no path, when none is within `MOST_HOPS`, or when it has
  * an owner that has ended: routed again with one ended cell heard from
- * lately (`heardWithin`) counted as there, though never walked through,
- * it goes to that cell, which works on more of what the asker lacks
- * than the fit found. Each such cell is tried alone, and the one
+ * lately (`heardWithin`) counted as there, as a hub too, though never
+ * walked through, it goes to that cell, which works on more of what the
+ * asker lacks than the fit found. Each such cell is tried alone, and the one
  * working on most owns it; the fit is then named in `fellShort`. So an
  * ended cell owns a need only where routing would send it there were it
  * alone back, by the same hubs and walks, and an ended cell never sends
@@ -657,7 +663,10 @@ function routeAs(
 		for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
 			if (chosen !== undefined && !rankSame(chosen.ranked, ranked)) break;
 			const { hub } = ranked;
-			if (!live(hub.hub)) continue;
+			// A cell counted back may be a hub, as it is once really back:
+			// one naming a cell sharing less for a narrower subject leaves
+			// it owning nothing, since a resend would go there.
+			if (!present(hub.hub)) continue;
 			const fit = best(
 				hub.fits.filter((one) => !endedHolder(one, word) && fitsOn(one, word)),
 			);
@@ -694,7 +703,8 @@ function routeAs(
 	// cell sharing less is a misroute. Being routing itself, it finds an
 	// owner only where a live cell there would be found, by the same hubs
 	// and walks, so a resend once it is back reaches it, or a cell covering
-	// more that it leads to.
+	// as much or more that it leads to: walked through, it may reach one
+	// found first or found by a word it lacks.
 	const owners = reach.foragers
 		.map(({ address }) => address)
 		.filter(
@@ -704,27 +714,41 @@ function routeAs(
 				heardWithin(reach.ties, address, said.at) &&
 				routeAs(said, reach, address).fit === address,
 		);
+	// Words only ended cells work on are said, whenever those were heard
+	// from, else the asker hears nothing of them, as a need about dates
+	// delivery going by delivery alone once did. Read as fitsOn reads a
+	// word, but of any cell there, so one that stopped the asker holds it.
+	const there = (address: string, word: string) =>
+		!selves.has(address) &&
+		present(address) &&
+		holds(address, word) &&
+		!holdsOtherNumber(address, word);
+	const unheld = lacking.filter(
+		(word) => !reach.foragers.some(({ address }) => there(address, word)),
+	);
+	const saidUnheld = unheld.length > 0 ? { unheld } : {};
 	const owner = best(owners);
 	if (owner !== undefined) {
-		return { ...record([], null, new Set([owner])), fellShort: found.fit };
+		return {
+			...record([], null, new Set([owner])),
+			fellShort: found.fit,
+			...saidUnheld,
+		};
 	}
-	// An ended cell heard from lately working on a word no live cell does
-	// is named too: else its asker hears nothing of that word, as a need
-	// about dates delivery going by delivery alone once did.
-	const unheld = rarest
-		.filter(({ count }) => count === 0)
-		.map(({ word }) => word);
+	// An ended cell heard from lately working on such a word is named.
 	const named = new Set(passed.get(found.word));
 	for (const { address } of reach.foragers) {
 		if (
 			ended(address) &&
 			heardWithin(reach.ties, address, said.at) &&
-			unheld.some((word) => holds(address, word))
+			unheld.some(
+				(word) => holds(address, word) && !holdsOtherNumber(address, word),
+			)
 		) {
 			named.add(address);
 		}
 	}
-	return record(found.path, found.fit, named);
+	return { ...record(found.path, found.fit, named), ...saidUnheld };
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the
