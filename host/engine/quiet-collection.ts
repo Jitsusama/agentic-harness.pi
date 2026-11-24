@@ -201,7 +201,8 @@ export function quietCollection(options: {
 			return;
 		}
 		const reading = options.reading();
-		const working = reading.tools + reading.jobs + reading.builds > 0;
+		// Each on its own, so a count gone wrong can't cancel another out.
+		const working = reading.tools > 0 || reading.jobs > 0 || reading.builds > 0;
 		dueSince ??= now;
 		if (working && now - dueSince < CEILING_MS) {
 			arm(Math.min(now + SETTLE_MS, dueSince + CEILING_MS));

@@ -1232,9 +1232,12 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => [],
 		run: async (engine, host) => {
 			refusedStore = "opened";
-			await open(engine, {}).catch(() => {
+			const failed = await open(engine, {}).then(
+				() => false,
 				// The open fails as start-fails shows; what follows is the collection.
-			});
+				() => true,
+			);
+			if (!failed) throw new Error("the open on a refused store was built");
 			const id = readEntry().sessionId;
 			await until(
 				"the host to collect once the failed build settled",
@@ -1242,6 +1245,29 @@ const scenarios: Record<string, Scenario> = {
 				COLLECTED_WITHIN_MS,
 			);
 			await host.close(id);
+			return {};
+		},
+	},
+	/** Leave one start asking its person about its folder, build another beside it, and sit until the host collects. */
+	"asking-collected": {
+		responses: () => [],
+		screens: trustScreens,
+		run: async (engine, host) => {
+			const asking = await open(
+				engine,
+				{},
+				{ cwd: project("asking"), attended: true },
+			);
+			if (trustAsked.length !== 1)
+				throw new Error("the start in an untrusted folder never asked");
+			const built = await open(engine, {});
+			await until(
+				"the host to collect while a start waits on its person",
+				collectedQuietly,
+				COLLECTED_WITHIN_MS,
+			);
+			await host.close(asking);
+			await host.stop(built);
 			return {};
 		},
 	},

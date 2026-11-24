@@ -235,17 +235,23 @@ export async function createEngine(
 
 	/**
 	 * A build, counted as running until it settles, before what follows
-	 * its settling stirs a collection; one that throws at once is counted
-	 * out at once.
+	 * its settling stirs a collection, or until it calls the `countOut` it
+	 * is handed; one that throws at once is counted out at once.
 	 */
-	function countedBuild<T>(start: () => Promise<T>): Promise<T> {
+	function countedBuild<T>(
+		start: (countOut: () => void) => Promise<T>,
+	): Promise<T> {
+		let counted = true;
 		buildsRunning++;
-		try {
-			return start().finally(() => {
-				buildsRunning--;
-			});
-		} catch (error) {
+		const countOut = (): void => {
+			if (!counted) return;
+			counted = false;
 			buildsRunning--;
+		};
+		try {
+			return start(countOut).finally(countOut);
+		} catch (error) {
+			countOut();
 			throw error;
 		}
 	}
@@ -309,12 +315,22 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId } = traits;
 		const record = register(traits, launch, request, hintsFor(request));
+		let countOut = (): void => {
+			// Set once the build is counted, which is before it can ask anything.
+		};
 		const asking = new Promise<"asking">((done) => {
-			record.asked = () => done("asking");
+			record.asked = () => {
+				// A build waiting on its person loses nothing to a pause, and counted on it would hold collections off until they answer.
+				countOut();
+				done("asking");
+			};
 		});
-		const building = countedBuild(() =>
-			host.run(sessionId, () => build(record, manager, request, mark, turn)),
-		).then(
+		const building = countedBuild((out) => {
+			countOut = out;
+			return host.run(sessionId, () =>
+				build(record, manager, request, mark, turn),
+			);
+		}).then(
 			() => {
 				// A build leaves its load's garbage behind, which only a stir collects.
 				quiet.stirred();

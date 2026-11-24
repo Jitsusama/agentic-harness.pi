@@ -698,6 +698,7 @@ describe("the host's engine", () => {
 	it.each([
 		["is built", "open-collected"],
 		["fails", "start-fails-collected"],
+		["is built beside a start asking its person", "asking-collected"],
 	])(
 		"collects what a conversation's load left once its build %s, with nothing else to stir it",
 		async (_settled, scenario) => {
