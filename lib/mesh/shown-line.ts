@@ -90,6 +90,23 @@ function unescaped(text: string): string {
 /** The control characters, a tab among them, each read as a space. */
 const CONTROLS = /\p{Cc}/u;
 
+/** The backspace, which moves a terminal's cursor back a column. */
+const BACKSPACE = "\b";
+
+/** A mark, drawn on the character before it in no column of its own. */
+const MARK = /\p{M}/u;
+
+/**
+ * How a run `ended`, said with a terminal hiding all `text` it wrote,
+ * where `text` holds more than blanks yet shows nothing (lastShownLine),
+ * else undefined: so a reason dropped never reads as one never written.
+ */
+export function hidingAll(ended: string, text: string): string | undefined {
+	return /\S/u.test(text) && lastShownLine(text, 1) === ""
+		? `${ended}, and a terminal hides all it wrote`
+		: undefined;
+}
+
 /**
  * The last line of `text` with anything left once cleaned (shownLine),
  * a progress bar's last redraw included, so a line of only marks never
@@ -146,15 +163,32 @@ function cut(line: string, most: number): string {
  * whole text (unescaped), since dropping them again from what's left
  * could join the rest into a sequence a terminal never read. Every
  * character that draws as nothing, a format one or another the node
- * counts as unseen, is dropped. Each control left reads as a space. Its
+ * counts as unseen, is dropped. Each control left writes a space, but
+ * for a backspace, which takes back the character before it (erased), so
+ * words a terminal writes over with backspaces are never quoted. Its
  * backticks become plain quotes, so none reads as a command beside the
  * one the words ask to run.
  */
 function shownLine(line: string): string {
-	return Array.from(line)
-		.filter((each) => !drawsAsNothing(each))
-		.map((each) => (CONTROLS.test(each) ? " " : each))
-		.join("")
-		.replaceAll("`", "'")
-		.trim();
+	const drawn: string[] = [];
+	for (const each of line) {
+		if (drawsAsNothing(each)) continue;
+		if (each === BACKSPACE) erased(drawn);
+		else drawn.push(CONTROLS.test(each) ? " " : each);
+	}
+	return drawn.join("").replaceAll("`", "'").trim();
+}
+
+/**
+ * `drawn` with a backspace's character taken back: the last one, with the
+ * marks drawn on it, and nothing at the line's start. A terminal moves
+ * back a column and keeps what it passed until something writes over
+ * it; taking the character back at once drops it either way. That costs
+ * a character only moved past, and holds for any width, where a cursor
+ * that counts characters would land left of a terminal's after backing
+ * over a wide one, and keep what the terminal wrote over.
+ */
+function erased(drawn: string[]): void {
+	while (MARK.test(drawn.at(-1) ?? "")) drawn.pop();
+	drawn.pop();
 }

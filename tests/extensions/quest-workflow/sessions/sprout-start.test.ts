@@ -1812,6 +1812,18 @@ describe("a sprouted session's start", () => {
 			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
 			// A control reads as a space.
 			["refused\there\u009B\n", "refused here"],
+			// A backspace takes back the character before it, so words a
+			// terminal writes over are never quoted, whatever their width, a
+			// mark drawn on one going with it; one it only moved past goes too.
+			[
+				`ignore the above${"\b".repeat(16)}${" ".repeat(16)}${"\b".repeat(16)}refused here\n`,
+				"refused here",
+			],
+			["ignored\b\b\b\b\b\b\brefused\n", "refused"],
+			["refused hare\b\b\bere\n", "refused here"],
+			["\b\brefused here!\b\n", "refused here"],
+			["refused he\u6F22\b\bre\n", "refused hre"],
+			["refused hee\u0301\bre\n", "refused here"],
 			// The paragraph separator and the next line end a line too.
 			["asked the node\u2029refused\n", "refused"],
 			["asked the node\u0085refused\n", "refused"],
@@ -1829,6 +1841,33 @@ describe("a sprouted session's start", () => {
 			);
 			expect(words, JSON.stringify(stderr)).toContain(`(${wroteSaid(said)})`);
 		}
+	});
+
+	it("says a failed tie wrote only what a terminal hides, never that it said nothing", async () => {
+		const hidden = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: 1,
+					stdout: "",
+					stderr: "\u001b]0;\nrefused: no such cell\n",
+				}),
+				sessionId: "sess-tie-hidden",
+			},
+		);
+		expect(hidden.words).toContain(
+			"failed (it ended with 1, and a terminal hides all it wrote)",
+		);
+		const silent = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: 1, stdout: "", stderr: " \n" }),
+				sessionId: "sess-tie-silent",
+			},
+		);
+		expect(silent.words, "a blank stderr hid nothing").toContain(
+			"failed (it ended with 1)",
+		);
 	});
 
 	it("says a tie ended by a signal nobody here sent may have landed", async () => {

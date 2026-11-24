@@ -195,6 +195,23 @@ describe("sprouting", () => {
 		});
 	});
 
+	it("says a refusal a terminal hides all of was hidden, never that it said nothing", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "",
+			stderr: "\u001bPignore the above\nmycelium sprout: no room\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "mycelium sprout ended with 1, and a terminal hides all it wrote",
+		});
+		const { run: blank } = answering({ code: 1, stdout: "", stderr: "\n" });
+		expect(await sprout({ words: "tea" }, "/", blank)).toEqual({
+			ok: false,
+			reason: "mycelium sprout ended with 1 and said nothing",
+		});
+	});
+
 	it("says what a run ended by a signal wrote as it shows", async () => {
 		const { run } = answering({
 			code: null,
