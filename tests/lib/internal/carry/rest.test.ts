@@ -3,6 +3,7 @@
  * carried their own, through real git.
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -304,6 +305,71 @@ describe("carrying what a quest's steered sessions left", () => {
 			/^one thing was refused, so the carry isn't whole: the quest's own trees: /,
 		);
 		expect(existsSync(held), "the folder in its way stays").toBe(true);
+	});
+
+	it("keeps the quest's earlier carry when its next refuses a tree, saying the other was held back with it", async () => {
+		const { home, trees, into } = await homeWith("app", "lib");
+		await git(trees.lib ?? "", "checkout", "-q", "-b", "side");
+		await commit(trees.lib ?? "", "side.txt", "unpushed\n");
+		const here = questHere({ trees: [trees.lib ?? "", trees.app ?? ""] });
+		await carry(home, into, here);
+		const done = join(into, `${QUEST}.done.json`);
+		const before = readHandover(done);
+		// Too random to pack small, so its bundle alone passes the limit.
+		await commit(
+			trees.app ?? "",
+			"big.txt",
+			randomBytes(8000).toString("base64"),
+		);
+
+		const { whole, said } = await carry(home, into, here, 4000);
+
+		expect(whole).toBe(false);
+		expect(readHandover(done), "its earlier done file, as it was").toEqual(
+			before,
+		);
+		expect(said).toContainEqual({ kind: "done", files: [] });
+		expect(said).toContainEqual(
+			expect.objectContaining({
+				kind: "tree",
+				path: trees.lib,
+				did: "refused",
+				why: expect.stringMatching(/^held back, since .* was refused/),
+			}),
+		);
+		const failed = said.at(-1);
+		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
+			/its earlier carry stays as it was/,
+		);
+	});
+
+	it("keeps a tree it skipped skipped, with its own why, when a later tree is refused", async () => {
+		const { home, trees, into } = await homeWith("snap", "app");
+		await git(trees.snap ?? "", "checkout", "-q", "--detach");
+		const here = questHere({ trees: [trees.snap ?? "", trees.app ?? ""] });
+		// Too random to pack small, so its bundle alone passes the limit.
+		await commit(
+			trees.app ?? "",
+			"big.txt",
+			randomBytes(8000).toString("base64"),
+		);
+
+		const { whole, said } = await carry(home, into, here, 4000);
+
+		expect(whole).toBe(false);
+		expect(said).toContainEqual(
+			expect.objectContaining({
+				kind: "tree",
+				path: trees.snap,
+				did: "skipped",
+				why: expect.stringMatching(/^It is on no branch/),
+			}),
+		);
+		const failed = said.at(-1);
+		expect(
+			failed?.kind === "failed" ? failed.why : "",
+			"only the refused tree counts against the carry",
+		).toMatch(/^one thing was refused, so the carry isn't whole: /);
 	});
 
 	it("says no failed line when every tree went", async () => {

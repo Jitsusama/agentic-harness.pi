@@ -20,6 +20,7 @@ import {
 } from "../../../../extensions/mesh-workflow/index.ts";
 import type { HubTiming } from "../../../../extensions/mesh-workflow/tools/above.ts";
 import type { ExecResult } from "../../../../lib/core/exec/exec.ts";
+import { isRecord } from "../../../../lib/internal/record.ts";
 import { ALL } from "../../../../lib/mesh/group.ts";
 import { createBoard, type Lease } from "../../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../../lib/mesh/message.ts";
@@ -176,6 +177,9 @@ export async function startSession(
 			getSessionId: () => session,
 			getSessionFile: () => join(fixture.root, `${session}.jsonl`),
 			getBranch: () => branch,
+			// The branch read back from its last entry, as pi's walk reads it.
+			getLeafId: () => idOf(branch.at(-1)),
+			getEntry: (id: string) => branch.find((entry) => idOf(entry) === id),
 			getSessionName: () => undefined,
 			getCwd: () => fixture.root,
 		},
@@ -336,6 +340,11 @@ export function sentOut(): Message[] {
 		.ids()
 		.map((id) => transport.read(id))
 		.filter((one): one is Message => one?.pid === process.pid);
+}
+
+/** A branch entry's id, when it carries one. */
+function idOf(entry: unknown): string | undefined {
+	return isRecord(entry) && typeof entry.id === "string" ? entry.id : undefined;
 }
 
 /** This peer, paused by its person. */

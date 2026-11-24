@@ -21,6 +21,7 @@ import {
 	holdsOver,
 	NOTED,
 	noted,
+	personsPath,
 } from "../delivery.ts";
 import type { HoldEnd } from "../leases.ts";
 import { folds, QUIET_STATUS, quietStatus } from "../quiet.ts";
@@ -250,7 +251,7 @@ export function createHanding(m: MeshState) {
 			messages,
 			carried,
 			keptAbove(m.peer?.orchestratedBy, m.hub),
-			m.peer?.stewardedBy,
+			personsPath(m.peer),
 		);
 		// What asked for a turn, or answers this peer, shows on a quiet
 		// screen though a pause held its turn back.

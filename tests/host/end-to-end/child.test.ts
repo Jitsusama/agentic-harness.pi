@@ -42,21 +42,22 @@ const LISTEN_MS = 30_000;
  * The most a child on pi's engine may hold with one conversation open, in
  * MB: about twice the 527 MB the first one measured held (20 November),
  * so a child grown much heavier fails here. It is read once the child has
- * sent its heap line, not straight after the open: the open's own peak
- * reached 1155 and 1195 MB in 2 of 31 runs and fell to under 400 MB
- * seconds later, so it measured when the collector last ran.
+ * collected what its open's load left, as a quiet child does, not straight
+ * after the open: uncollected, a child that only opened held over 1100 MB,
+ * a heap of about 900 MB, in 7 of 101 runs from 20 to 24 November, and
+ * held it for as long as it sat.
  */
 const CHILD_RSS_MB = 1024;
-/** How long a child may take to send a line with its heap: its heap timer, and a margin. */
-const HEAP_LINE_MS = 45_000;
+/** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
+const COLLECTED_MS = 30_000;
+/** What a child says once it has collected while quiet. */
+const COLLECTED = "Collected while quiet";
 /** How long a child's first open on pi's engine may take: it loads the whole harness, cold in a fresh seal. */
 const OPEN_MS = 90_000;
-/** A real-engine case: a start, a cold open, a heap line and a close. */
+/** A real-engine case: a start, a cold open, its collection and a close. */
 const REAL_CASE_MS = 240_000;
 /** How much a kB of /proc's VmRSS is of a MB. */
 const KB_PER_MB = 1024;
-/** How many bytes a watch's heap counts in a MB. */
-const BYTES_PER_MB = 1024 * 1024;
 
 let sealed: Seal;
 /** Every child a case started, each with its exit, stopped before the seal goes. */
@@ -208,29 +209,32 @@ function watching(socket: string) {
 	return heard();
 }
 
-/** The heap the next state line on `lines` says, within HEAP_LINE_MS. */
-async function heapLine(
-	lines: AsyncGenerator<unknown>,
-): Promise<{ used: number; limit: number }> {
-	let stop = (): void => undefined;
-	const late = new Promise<never>((_, reject) => {
-		// A child that sends no heap within its timer's period is stuck.
-		const timer = setTimeout(
-			() => reject(new Error(`no heap line within ${HEAP_LINE_MS} ms`)),
-			HEAP_LINE_MS,
-		);
-		stop = () => clearTimeout(timer);
-	});
-	try {
-		for (;;) {
-			const next = await Promise.race([lines.next(), late]);
-			if (next.done) throw new Error("the watch ended before a heap line");
-			const line = parseWatchLine(next.value);
-			if (line.type === "state") return line.heap;
-		}
-	} finally {
-		stop();
+/** Wait until what `said` holds includes `words`, or fail after `withinMs`. */
+async function saying(
+	said: () => string,
+	words: string,
+	withinMs: number,
+): Promise<void> {
+	const until = Date.now() + withinMs;
+	while (!said().includes(words)) {
+		if (Date.now() > until)
+			throw new Error(`not said within ${withinMs} ms: ${words}\n${said()}`);
+		// A child's stderr arrives in its own time; a short look keeps the wait close to it.
+		await new Promise((done) => setTimeout(done, 200));
 	}
+}
+
+/**
+ * The heap a child's collection says it went from and to, as `900 of
+ * 950 MB to 112 of 300 MB`, read from its own line rather than a state
+ * line, which may have been sent before the collection (F2 on #2104).
+ */
+function collectedHeap(said: string): string {
+	const [, before, after] =
+		/Collected while quiet[^\n]*?, heap (\d+ of \d+ MB) to (\d+ of \d+ MB)/.exec(
+			said,
+		) ?? [];
+	return before === undefined ? "unread" : `${before} to ${after}`;
 }
 
 /** Each line after the answer, up to and with the ending. */
@@ -350,10 +354,10 @@ it(
 				const openedMs = Date.now() - opening;
 				const watched = parseWatchResult(resultIn((await lines.next()).value));
 				const atOpen = await residentMb(child.process.pid);
-				const heap = await heapLine(lines);
+				await saying(child.errors, COLLECTED, COLLECTED_MS);
 				const held = await residentMb(child.process.pid);
 				process.stdout.write(
-					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB with a heap of ${(heap.used / BYTES_PER_MB).toFixed(0)} of ${(heap.limit / BYTES_PER_MB).toFixed(0)} MB\n`,
+					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${collectedHeap(child.errors())}\n`,
 				);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {

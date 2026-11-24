@@ -3,7 +3,13 @@
  * message of the log, as pi's own session does from a whole open.
  */
 
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	copyFileSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -306,6 +312,21 @@ describe("a held session's /fork list", () => {
 			"kept two",
 			"after",
 		]);
+		expect(heldSession(file).getUserMessagesForForking()).toEqual(whole);
+	});
+
+	it("lists a user message among parts of no type, as pi does", () => {
+		const file = compactedLog();
+		// Parts pi's types forbid, so they go in as a log on disk holds them.
+		const typed = '{"type":"text","text":"early two in parts"}';
+		const log = readFileSync(file, "utf8");
+		expect(log).toContain(typed);
+		writeFileSync(
+			file,
+			log.replace(typed, `"stray",{"text":"untyped"},${typed}`),
+		);
+		const whole = wholeSession(file).getUserMessagesForForking();
+		expect(whole.map((point) => point.text)).toContain("early two in parts");
 		expect(heldSession(file).getUserMessagesForForking()).toEqual(whole);
 	});
 

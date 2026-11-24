@@ -125,7 +125,7 @@ function hearingOf(state: QuestState, params: QuestToolParams): QuestResult {
 	if (!fm) {
 		return refuse(`${target.questId}'s README has no readable front matter.`);
 	}
-	const declare = `${subjectsSaid(target.questId, fm)}${stewards(fm) ? " It is the person's steward." : ""}`;
+	const declare = `${subjectsSaid(target.questId, fm)}${stewardSaid(fm)}`;
 	const stray = fm._extra?.hears;
 	if (stray !== undefined) {
 		const said = JSON.stringify(stray);
@@ -281,6 +281,19 @@ function setSteward(state: QuestState, params: QuestToolParams): QuestResult {
 	return ok(
 		`${target.questId} now ${what}, from each session's next refresh of its quest.`,
 	);
+}
+
+/**
+ * Whether a quest is the person's steward, said after its subjects,
+ * naming a steward written by hand that can't be read, which makes it
+ * none.
+ */
+function stewardSaid(fm: QuestFrontMatter): string {
+	if (stewards(fm)) return " It is the person's steward.";
+	const stray = fm._extra?.steward;
+	if (stray === undefined) return "";
+	const said = JSON.stringify(stray);
+	return ` Its front matter says steward: ${said}, but only true makes a steward, so it is not the person's steward.`;
 }
 
 /**

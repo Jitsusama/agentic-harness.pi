@@ -4,11 +4,14 @@
  * again pace them, and what a peer woken from a park reads.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GLANCE, NOTED } from "../../../extensions/mesh-workflow/delivery.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import { SESSION_WOKEN } from "../../../lib/internal/session/park.ts";
 import {
+	fixture,
 	fromElsewhere,
 	judging,
 	notYours,
@@ -485,5 +488,174 @@ describe("asking again", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
 		expect(sent[0]?.message.content).toContain("has had no answer from WCJQSG");
+	});
+});
+
+/** A branch whose last run ended saying `last`. */
+function endedSaying(last: string): unknown[] {
+	return [
+		{ type: "message", id: "e0", parentId: null, message: { role: "user" } },
+		{
+			type: "message",
+			id: "e1",
+			parentId: "e0",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: `Rebased (a).\n\n${last}` }],
+			},
+		},
+	];
+}
+
+const BLOCKED_ON_2AF2DH =
+	"Blocked: (b)'s rebase waits on 2AF2DH landing main in World's store.";
+
+/** A message carried in from another realm, written as the node writes one. */
+function crossedIn(over: Record<string, unknown>): void {
+	const id = `${Date.now()}-2AF2DH-1-0000cafe`;
+	const dir = join(fixture.paths.mesh, "messages");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, `${id}.json`),
+		JSON.stringify({
+			v: 1,
+			id,
+			at: new Date().toISOString(),
+			from: "2AF2DH",
+			to: ["@7M6JKG"],
+			intent: "fyi",
+			text: "main is 4f1e2d3c",
+			pid: 1,
+			...over,
+		}),
+	);
+}
+
+describe("a peer resting blocked on another", () => {
+	// J6OCG0 on 23 Nov: its run ended blocked on 2AF2DH's sha, which came
+	// as an fyi to it with no thread, and it sat idle until that night.
+	it("takes a turn for what that peer sends it, however it is sent", async () => {
+		peer("session-2af", ["2AF2DH"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		fromElsewhere({
+			from: "2AF2DH",
+			to: ["@7M6JKG"],
+			text: "main is 4f1e2d3c in World's store",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+	});
+
+	it.each([
+		["another peer", "Blocked: waits on ISXEG8's on-VM checks.", "@7M6JKG"],
+		["a group it is in", BLOCKED_ON_2AF2DH, "#all"],
+		["a run that ended done", "Done: waited on 2AF2DH and merged.", "@7M6JKG"],
+	])("takes none for an fyi when blocked on %s", async (_, last, to) => {
+		peer("session-2af", ["2AF2DH"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(last),
+		);
+
+		fromElsewhere({ from: "2AF2DH", to: [to], text: "main is 4f1e2d3c" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("wakes once a blocked run, and again once another ends blocked", async () => {
+		peer("session-2af", ["2AF2DH"], []);
+		const branch = endedSaying(BLOCKED_ON_2AF2DH);
+		const { sent } = await startSession({}, { isIdle: () => true }, branch);
+
+		fromElsewhere({ from: "2AF2DH", to: ["@7M6JKG"], text: "rebasing (b)" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ from: "2AF2DH", to: ["@7M6JKG"], text: "still rebasing" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		branch.push({
+			type: "message",
+			id: "e2",
+			parentId: "e1",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: BLOCKED_ON_2AF2DH }],
+			},
+		});
+		fromElsewhere({ from: "2AF2DH", to: ["@7M6JKG"], text: "main moved" });
+		await vi.waitFor(() => expect(sent).toHaveLength(3));
+
+		expect(sent.map((one) => one.options)).toEqual([
+			{ triggerTurn: true },
+			{ triggerTurn: false },
+			{ triggerTurn: true },
+		]);
+	});
+
+	it("wakes for any of the peers its line names", async () => {
+		peer("session-isx", ["ISXEG8"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying("Blocked: waits on 2AF2DH landing main and ISXEG8's checks."),
+		);
+
+		fromElsewhere({ from: "ISXEG8", to: ["@7M6JKG"], text: "checks green" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+	});
+
+	// A `from` is only what its sender wrote: one with no presence here,
+	// or from another realm, is not the peer the line names.
+	it("takes none from a sender with no presence here", async () => {
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		fromElsewhere({ from: "main", to: ["@7M6JKG"], text: "main is 4f1e2d3c" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("takes none from a peer of that address in another realm", async () => {
+		peer("session-2af", ["2AF2DH"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		crossedIn({ fromRealm: "personal" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("leaves a busy peer's run to read it", async () => {
+		peer("session-2af", ["2AF2DH"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => false },
+			endedSaying(BLOCKED_ON_2AF2DH),
+		);
+
+		fromElsewhere({
+			from: "2AF2DH",
+			to: ["@7M6JKG"],
+			text: "main is 4f1e2d3c",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
 	});
 });

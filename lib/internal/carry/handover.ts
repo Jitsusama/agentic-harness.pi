@@ -154,7 +154,6 @@ function isHandedTree(value: unknown): value is HandedTree {
 		isPlace(tree.path) &&
 		typeof tree.origin === "string" &&
 		tree.origin !== "" &&
-		!tree.origin.startsWith("-") &&
 		isBranch(tree.branch) &&
 		typeof tree.head === "string" &&
 		COMMIT.test(tree.head) &&
@@ -194,13 +193,28 @@ function isPlace(value: unknown): value is string {
 	return !value.split("/").includes("..");
 }
 
-/** A branch git would take that no command could read as a flag. */
+/** A branch's name, as git could take it, climbing nowhere. */
 function isBranch(value: unknown): value is string {
 	return (
 		typeof value === "string" &&
 		value !== "" &&
-		!value.startsWith("-") &&
 		!value.split("/").includes("..") &&
 		!/[\s~^:?*[\\]/.test(value)
 	);
+}
+
+/**
+ * The name in `tree` a git command could read as a flag, or none: its
+ * origin, or its branch or a remote branch it needs with any part
+ * starting with `-`, since a remote branch's `<remote>/<branch>` reaches
+ * git as two arguments. Only that tree is refused for it, so the rest
+ * of its done file still arrives.
+ */
+export function flagIn(tree: HandedTree): string | undefined {
+	const flagLike = (name: string) =>
+		name.split("/").some((part) => part.startsWith("-"));
+	if (tree.origin.startsWith("-")) return tree.origin;
+	if (flagLike(tree.branch)) return tree.branch;
+	return tree.needs.find((need) => need.on !== undefined && flagLike(need.on))
+		?.on;
 }

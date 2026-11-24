@@ -112,6 +112,9 @@ async function peer(id: string) {
 			getSessionId: () => id,
 			getSessionFile: () => join(root, `${id}.jsonl`),
 			getBranch: () => [],
+			// An empty branch, read back from its leaf as pi's walk reads it.
+			getLeafId: () => null,
+			getEntry: () => undefined,
 			getSessionName: () => undefined,
 			getCwd: () => cwd,
 		},

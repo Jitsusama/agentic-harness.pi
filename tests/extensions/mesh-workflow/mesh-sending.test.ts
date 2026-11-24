@@ -4,7 +4,7 @@
  * back what was sent.
  */
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { NOTED } from "../../../extensions/mesh-workflow/delivery.ts";
@@ -446,6 +446,116 @@ describe("sending", () => {
 		expect(await send(tools, "person", "question", "May I?")).toContain(
 			"Not sent: no orchestrator is above this peer's quest",
 		);
+	});
+
+	// With a mark to another quest, nothing but the steward's own clause
+	// counts a question to the steward's address as for the person's hands.
+	it("counts the person's acts on a question to the steward, apart from any orchestrator", async () => {
+		onQuest();
+		const readme = (id: string, extra: string) =>
+			`---\nid: ${id}\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${extra}---\n# ${id}\n`;
+		const write = (id: string, text: string) =>
+			writeFileSync(join(fixture.paths.quests, id, "README.md"), text);
+		write(
+			"QEST-20261021-5GV2AH",
+			readme("QEST-20261021-5GV2AH", "steward: true\n"),
+		);
+		mkdirSync(join(fixture.paths.quests, "QEST-20261021-0RCHST"), {
+			recursive: true,
+		});
+		write(
+			"QEST-20261021-0RCHST",
+			readme("QEST-20261021-0RCHST", "orchestrator: true\n"),
+		);
+		write(
+			"QEST-20261021-7M6JKG",
+			readme(
+				"QEST-20261021-7M6JKG",
+				"orchestratedBy: QEST-20261021-0RCHST\n",
+			).replace("parent: null", "parent: QEST-20261021-5GV2AH"),
+		);
+		peer("session-s", ["5GV2AH"], []);
+		const { tools } = await startSession(noNode());
+
+		expect(
+			await send(
+				tools,
+				"person",
+				"question",
+				"May Joel touch the key at 02:00?",
+			),
+		).toContain("Not sent: this asks for the person's hands");
+	});
+
+	// The note reaches the steward only through the peer's roles, so it is
+	// read off a message as delivered rather than off the note alone.
+	it("names the person's steward in the note a delivered message carries", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-s", ["5GV2AH"], []);
+		const { sent } = await startSession();
+
+		fromElsewhere({ intent: "hold", text: "hold heavy builds" });
+
+		await vi.waitFor(() =>
+			expect(sent.map(({ message }) => message.content)).toContainEqual(
+				expect.stringContaining("hold heavy builds"),
+			),
+		);
+		expect(sent.map(({ message }) => message.content)).toContainEqual(
+			expect.stringContaining(
+				"otherwise to the person's steward, 5GV2AH, as a question (mesh_send to: person)",
+			),
+		);
+	});
+
+	// A steward whose window closed carries nothing, so `person` falls
+	// back as if none were set, rather than reaching nobody.
+	it("reads `person` as `orchestrator` while no live session answers to the steward", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		const { tools } = await startSession(noNode());
+
+		expect(await send(tools, "person", "question", "May I?")).toContain(
+			"Not sent: no orchestrator is above this peer's quest",
+		);
+	});
+
+	// The steward's own session tells the person in its reply, so the
+	// word reaches nobody from it, never its orchestrator.
+	it("sends nothing to `person` from the steward's own session", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: QEST-20261021-5GV2AH\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-7M6JKG\n",
+		);
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-o", ["5GV2AH"], []);
+		const { tools } = await startSession(noNode());
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+
+		const alone = await send(tools, "person", "question", "May I?");
+		const mixed = await send(tools, "person, #harness", "fyi", "Landed.");
+
+		expect(
+			[alone, mixed, transport.ids().map((id) => transport.read(id)?.to)],
+			"refused, then only the group",
+		).toEqual([
+			expect.stringContaining(
+				"Not sent: your quest is the person's steward, so `person` names nobody past you.",
+			),
+			expect.stringContaining("`person` was left out"),
+			[["#harness"]],
+		]);
 	});
 
 	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the

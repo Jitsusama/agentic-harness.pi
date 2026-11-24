@@ -14,7 +14,7 @@ import { onTurnEnd } from "../../../lib/internal/session/turn-end.ts";
 import { RUN_KINDS } from "../../../lib/mesh/lease.ts";
 import { toolDetail } from "../../../lib/mesh/step.ts";
 import { localDay, noUsage, withCall } from "../../../lib/mesh/usage.ts";
-import { NOTED, noted } from "../delivery.ts";
+import { NOTED, noted, personsPath } from "../delivery.ts";
 import { parkHeavyCalls, parkWaitingCalls, reloading } from "../leases.ts";
 import {
 	assistantText,
@@ -74,7 +74,7 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 					messages,
 					carried,
 					keptAbove(m.peer?.orchestratedBy, m.hub),
-					m.peer?.stewardedBy,
+					personsPath(m.peer),
 				),
 				display: true,
 				details: delivered(messages, carried, {

@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
 	type ArrivalLine,
 	arrive,
@@ -67,11 +68,14 @@ async function carriedFromTrees() {
 	return { origin, from, head };
 }
 
-/** Arrives on a machine whose home is `home`, keeping every line said. */
-async function arriveAt(home: string, from: string) {
+/**
+ * Arrives on a machine whose home is `home`, keeping every line said,
+ * running its commands through `through`.
+ */
+async function arriveAt(home: string, from: string, through: Exec = exec) {
 	const said: ArrivalLine[] = [];
 	const whole = await arrive({
-		exec,
+		exec: through,
 		from,
 		session: SESSION,
 		home,
@@ -221,6 +225,37 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 			"refs/heads/topic",
 		]);
 		expect(now.code === 0 ? now.stdout.trim() : undefined).toBe(stood);
+	});
+
+	it("says it left the branch where git couldn't say which the refused tree was on", async () => {
+		const { origin, from, head } = await carriedFromTrees();
+		const home = folder(made, "arriving");
+		const checkout = await cloneAt(origin, join(home, "src", "origin"));
+		const patch = readdirSync(from).find((name) => name.endsWith(".patch"));
+		writeFileSync(join(from, patch ?? "none"), "no patch at all\n");
+		// Once its changes fail to apply, git can't say where its HEAD is.
+		let applied = false;
+		const unreadHead: Exec = (command, args) => {
+			if (args.includes("apply")) applied = true;
+			return applied && args.includes("symbolic-ref")
+				? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: broken\n" })
+				: exec(command, args);
+		};
+
+		const { whole, said, tree } = await arriveAt(home, from, unreadHead);
+
+		expect(whole).toBe(false);
+		expect(String(said[0]?.kind === "tree" && said[0].why)).toMatch(
+			new RegExp(
+				`^Its changes didn't apply.*And its branch topic may be left at ${head}, since git couldn't say which branch the tree was on: fatal: broken\\.$`,
+				"s",
+			),
+		);
+		expect(existsSync(tree), "the cut tree is taken out").toBe(false);
+		expect(
+			await git(checkout, "rev-parse", "topic"),
+			"left where settling put it, as said",
+		).toBe(head);
 	});
 
 	it("clones it as before where no checkout the fence guards holds its origin", async () => {
