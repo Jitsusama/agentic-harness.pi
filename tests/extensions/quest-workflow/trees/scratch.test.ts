@@ -153,7 +153,9 @@ describe("where a quest's TMPDIR link lies", () => {
 		const runtime = join(root, "run");
 		mkdirSync(runtime, { mode: 0o755 });
 		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
-		const quest = `QEST-20260101-${process.pid}`;
+		// Its own id, as /tmp is shared with every other run on the machine.
+		const own = process.pid.toString(36).toUpperCase().padStart(6, "0");
+		const quest = `QEST-20260101-${own.slice(-6)}`;
 
 		const dir = questTempDir(workspaces, quest) ?? "";
 		try {
