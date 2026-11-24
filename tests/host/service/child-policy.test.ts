@@ -58,6 +58,16 @@ describe("a host's child policy", () => {
 		expect(policy.opens(), "an open went to a child").toBe(false);
 	});
 
+	it("keeps a warm spare only when it says so, which a file of before leaves off", async () => {
+		await written({ v: 1, all: true, sessions: [] });
+		policy = await watchedChildPolicy(file, report);
+		expect(policy.spares?.(), "a spare kept unasked").toBe(false);
+
+		await written({ v: 1, all: true, spares: true });
+		await until("it keeps a spare", () => policy?.spares?.() === true);
+		expect(report).not.toHaveBeenCalled();
+	});
+
 	it("follows its file as it changes, with no restart", async () => {
 		policy = await watchedChildPolicy(file, report);
 		await written({ v: 1, all: false, sessions: [a] });

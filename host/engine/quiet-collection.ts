@@ -475,6 +475,16 @@ export function pssBytes(): number | undefined {
 }
 
 /**
+ * This process's proportional set size in bytes once a last-resort
+ * collection has run, or as it stands where none can run; nothing where
+ * there is none to read.
+ */
+export function collectedPss(): number | undefined {
+	lastResortCollect()?.();
+	return pssBytes();
+}
+
+/**
  * Another process's Pss in bytes, as pssBytes reads this one's, but off
  * this thread: the kernel walks the process's mappings under its lock,
  * so one held up under memory pressure holds up no one here. Nothing

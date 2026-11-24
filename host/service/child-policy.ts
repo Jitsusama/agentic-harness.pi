@@ -2,7 +2,9 @@
  * Which conversations a host runs in children of their own (children.ts),
  * as a file beside the host's state says: `{"v":1,"all":true}` moves
  * every one, an open or adopt among them, and `"sessions": [ids]` moves
- * only those, as each next wakes or the host next starts. With no file,
+ * only those, as each next wakes or the host next starts. `"spares": true`
+ * keeps one warm spare child (spare.ts) waiting for the next resume to
+ * take, off by default. With no file,
  * nothing moves, so a host whose machine has no child unit runs every
  * conversation itself, as before. One it can't read keeps what it last
  * read, since an editor's write is empty for a moment; a folder it can't
@@ -26,6 +28,8 @@ export interface ChildPolicy {
 	moves(sessionId: string): boolean;
 	/** Whether a conversation opened or adopted now starts in a child. */
 	opens(): boolean;
+	/** Whether the host keeps a warm spare child for its next resume. */
+	spares?(): boolean;
 	/** Stop following the file. */
 	close(): void;
 }
@@ -34,11 +38,12 @@ const POLICY = z.strictObject({
 	v: z.literal(1),
 	all: z.boolean().default(false),
 	sessions: z.array(z.uuid()).default([]),
+	spares: z.boolean().default(false),
 });
 
 type Read = z.infer<typeof POLICY>;
 
-const NONE: Read = { v: 1, all: false, sessions: [] };
+const NONE: Read = { v: 1, all: false, sessions: [], spares: false };
 
 /** Where the host keyed `key` keeps its child policy. */
 export function childPolicyFile(key: string): string {
@@ -111,7 +116,12 @@ export async function watchedChildPolicy(
 				`${file} can't be watched, so every conversation stays in the host: ${String(error)}`,
 			),
 		);
-		return { moves: () => false, opens: () => false, close: () => undefined };
+		return {
+			moves: () => false,
+			opens: () => false,
+			spares: () => false,
+			close: () => undefined,
+		};
 	}
 	watcher.on("error", (error) =>
 		report(
@@ -124,6 +134,7 @@ export async function watchedChildPolicy(
 	return {
 		moves: (sessionId) => read.all || named.has(sessionId),
 		opens: () => read.all,
+		spares: () => read.spares,
 		close: () => watcher.close(),
 	};
 }

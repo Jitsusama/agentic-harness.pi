@@ -23,6 +23,7 @@ import type { ChildEnding } from "./child-watch.ts";
 import { type HeldChildren, heldChildren, passedOn } from "./children.ts";
 import { hostRefusal } from "./dispatch.ts";
 import type { ControlRequest } from "./protocol.ts";
+import { versionsMove } from "./what-starts.ts";
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -70,6 +71,8 @@ export function hostChildren(options: {
 		roster,
 		report,
 		...(options.say ? { say: options.say } : {}),
+		spares: () => policy.spares?.() ?? false,
+		spareMoved: versionsMove(),
 		ended: (sessionId, why) => rest(sessionId, why),
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),

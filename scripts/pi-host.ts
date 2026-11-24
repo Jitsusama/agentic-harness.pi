@@ -26,7 +26,9 @@
  * (host/service/child.ts). It exits once its conversation ends, 0 when
  * it was parked, closed or released, and 1 when it failed or its stop ran
  * out of time before the conversation parked. It exits 78 when its slot
- * or environment is refused, before it listens or says any ending.
+ * or environment is refused, before it listens or says any ending. A
+ * child whose slot is a warm spare's warms first and waits to be taken
+ * (host/service/spare.ts), exiting 0 should it leave untaken.
  */
 
 import { flushCompileCache, registerHooks } from "node:module";
@@ -61,11 +63,24 @@ const {
 	EXIT_MISCONFIGURED,
 	exitStatusOf,
 	HostMisconfigured,
+	spareFirst,
 	startHostProgram,
 } = await import("../host/service/program.ts");
 const { reportToJournal } = await import("../host/service/run.ts");
 
 try {
+	const spare = await spareFirst({
+		argv: process.argv.slice(2),
+		env: process.env,
+		say: (line) => process.stderr.write(`pi-host: ${line}\n`),
+	});
+	if (spare && "left" in spare) {
+		process.stderr.write(
+			`pi-host: A warm spare leaves untaken, as ${spare.left}\n`,
+		);
+		if (compiled.state === "on") flushCompileCache();
+		process.exit(0);
+	}
 	const run = await startHostProgram({
 		argv: process.argv.slice(2),
 		env: process.env,

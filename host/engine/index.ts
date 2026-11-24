@@ -27,8 +27,9 @@ export {
 	loadHostPi,
 } from "./host-pi.ts";
 export { KEY_VARIABLES } from "./kept-requests.ts";
-export type { StartupDiagnostic } from "./pi-session.ts";
+export { type StartupDiagnostic, warmSessions } from "./pi-session.ts";
 export { HOST_READS } from "./process-env.ts";
+export { collectedPss } from "./quiet-collection.ts";
 export type { ConversationResources } from "./resources.ts";
 export {
 	type ConversationIdentity,
