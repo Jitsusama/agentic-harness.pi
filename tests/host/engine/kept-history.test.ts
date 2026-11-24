@@ -486,6 +486,22 @@ describe("a held conversation and its whole log", () => {
 		},
 	);
 
+	it.each<[string, LogShape]>([
+		["the kept entry a message", { before: "answer" }],
+		["the kept entry an answer", { before: "answer", keepFrom: "assistant" }],
+	])(
+		"keeps pi's usage totals once when the entry before the kept turns is a costed answer, %s",
+		async (_, shape) => {
+			const breakdown = await pisBreakdown();
+			const file = compactedLog(shape);
+			const whole = breakdown(SessionManager.open(file).getEntries());
+			const held = breakdown(hold(file).getEntries());
+			expect(rounded(held)).toEqual(rounded(whole));
+			const cost = whole.reduce((total, entry) => total + entry.cost, 0);
+			expect(cost).toBeCloseTo(4.75);
+		},
+	);
+
 	it("keeps what an earlier rollover record carried", () => {
 		const file = compactedLog({ rolled: true });
 		const whole = SessionManager.open(file).getBranch();
