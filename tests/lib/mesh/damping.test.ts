@@ -137,7 +137,8 @@ describe("a sender's news", () => {
 	});
 
 	// Two cells blocked on each other wake each other with fresh news,
-	// none of it in a thread, so only this cap ends their exchange.
+	// none of it in a thread, so this cap is what slows their exchange to
+	// its count of wakes an hour each way; it doesn't end it.
 	it("caps the news that wakes a peer blocked on its sender", () => {
 		const damper = createDamper();
 		damper.handed(many("WCJQSG"), at);
