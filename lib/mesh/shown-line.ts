@@ -1,10 +1,13 @@
 /**
- * A line mycelium wrote, as a terminal shows it, for quoting: what it
- * relays may come from a node or a peer, so nothing a terminal hides
- * (an escape sequence's string, a character that draws as nothing) is
- * quoted as if it were the reason. One copy, for a sprout's own refusal
- * (sprout.ts) and a sprouted session's tie (the quest workflow's
- * sprout start), so the two can't drift apart.
+ * A line mycelium wrote, cleaned for quoting: what it relays may come
+ * from a node or a peer, so neither an escape sequence, nor the string
+ * one hides, nor a character that draws as nothing is quoted as if it
+ * were the reason. Sequences are dropped, not carried out, so words a
+ * terminal would conceal (SGR 8), erase or write over in place are still
+ * quoted, though with no escape left the model and Joel read the same
+ * words. One copy, for a sprout's own refusal (sprout.ts), the node's
+ * (node.ts) and a sprouted session's tie (the quest workflow's sprout
+ * start), so they can't drift apart.
  */
 
 import { drawsAsNothing } from "../internal/unseen.ts";
@@ -99,10 +102,39 @@ const CONTROLS = /\p{Cc}/u;
  */
 export function lastShownLine(text: string, most: number): string {
 	const lines = unescaped(text).split(LINE_ENDS);
+	return cut(lastShownFrom(lines, 0), most);
+}
+
+/**
+ * The first and the last line of `text` with anything left once cleaned,
+ * as lastShownLine cleans them, joined by " / " where they're two, cut to
+ * `most` as it cuts. A refusal is quoted so, since a program's parser
+ * puts the cause first and a hint last (clap's "error: unexpected
+ * argument" above "For more information, try '--help'."), and its own
+ * reason is one line, quoted whole.
+ */
+export function shownEnds(text: string, most: number): string {
+	const lines = unescaped(text).split(LINE_ENDS);
+	let first = "";
+	let at = 0;
+	for (; at < lines.length && first === ""; at += 1) {
+		first = shownLine(lines[at] ?? "");
+	}
+	const last = lastShownFrom(lines, at);
+	return cut(last === "" ? first : `${first} / ${last}`, most);
+}
+
+/** The last of `lines` from `from` on with anything left once cleaned. */
+function lastShownFrom(lines: readonly string[], from: number): string {
 	let line = "";
-	for (let at = lines.length - 1; at >= 0 && line === ""; at -= 1) {
+	for (let at = lines.length - 1; at >= from && line === ""; at -= 1) {
 		line = shownLine(lines[at] ?? "");
 	}
+	return line;
+}
+
+/** `line` cut to `most` whole characters, ended with "..." where cut. */
+function cut(line: string, most: number): string {
 	const characters = Array.from(line);
 	return characters.length > most
 		? `${characters.slice(0, most).join("")}...`
@@ -110,14 +142,16 @@ export function lastShownLine(text: string, most: number): string {
 }
 
 /**
- * A line as it shows. Its escape sequences (ESCAPES) and every character
- * that draws as nothing, a format one or another the node counts as
- * unseen, are dropped. Each control left reads as a space. Its backticks
- * become plain quotes, so none reads as a command beside the one the
- * words ask to run.
+ * A line as it shows, its escape sequences already dropped from the
+ * whole text (unescaped), since dropping them again from what's left
+ * could join the rest into a sequence a terminal never read. Every
+ * character that draws as nothing, a format one or another the node
+ * counts as unseen, is dropped. Each control left reads as a space. Its
+ * backticks become plain quotes, so none reads as a command beside the
+ * one the words ask to run.
  */
 function shownLine(line: string): string {
-	return Array.from(unescaped(line))
+	return Array.from(line)
 		.filter((each) => !drawsAsNothing(each))
 		.map((each) => (CONTROLS.test(each) ? " " : each))
 		.join("")

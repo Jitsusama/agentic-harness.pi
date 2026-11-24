@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
 import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
-import { lastShownLine } from "./shown-line.ts";
+import { shownEnds } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -68,9 +68,10 @@ export type RunProgram = (
 export const SPROUT_PATIENCE_MS = START_PATIENCE_MS + 10_000;
 
 /**
- * The most characters of mycelium's own words a refusal says: the last
- * line it wrote on stderr as it shows (lastShownLine), since what it
- * relays may come from a node or a peer.
+ * The most characters of mycelium's own words a refusal says: the first
+ * and last lines it wrote on stderr as they show (shownEnds), the cause
+ * and any hint after it, since what it relays may come from a node or a
+ * peer.
  */
 const MOST_SAID = 500;
 
@@ -168,7 +169,7 @@ export async function sprout(
 		};
 	}
 	const line = ran.stdout.trim().split("\n").at(-1);
-	const said = lastShownLine(ran.stderr, MOST_SAID);
+	const said = shownEnds(ran.stderr, MOST_SAID);
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
 	if (ran.code === 0) return startedOrMayLand(line);
