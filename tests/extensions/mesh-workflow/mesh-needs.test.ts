@@ -140,11 +140,15 @@ describe("sending to a need", () => {
 		);
 		const { tools } = await startSession(env);
 
-		await sending(tools, {
+		const said = await sending(tools, {
 			to: "need",
 			intent: "fyi",
 			text: `The carry failed with ghp_${"Ab3".repeat(14)} in its log.`,
 		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "a text's words go unsaid").not.toContain("No cell works on");
+		expect(said.toLowerCase()).not.toContain("ab3ab3");
 
 		const [day] = readdirSync(join(fixture.paths.mesh, "needs"));
 		const file = readFileSync(
@@ -179,6 +183,299 @@ describe("sending to a need", () => {
 		expect(said).toContain("5HJZ8Z works on it but has ended");
 		expect(said, "with no stopper, any peer may be named").toContain(
 			"Name the peers it is for by address.",
+		);
+	});
+
+	it("is refused, naming the owner that ended and the live cell found, when the owner worked on more of it", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates Delivery" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land?",
+			about: "dates delivery",
+		});
+
+		expect(said, "a live cell was found, so it never says none was").toContain(
+			"Not sent: J7XHQN worked on more of dates delivery than 5HJZ8Z, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it.",
+		);
+		expect(said).not.toContain("no live cell within three ties");
+		expect(said).toContain(
+			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering as much of it or more, unless J7XHQN has stopped this one.",
+		);
+		expect(said, "only the owner works on dates").toContain(
+			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
+		);
+		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
+		expect(said).toContain(ASK_WHO_OWNS_IT);
+		expectNoBarAbove(said);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids()).toEqual([]);
+		const [day] = readdirSync(join(fixture.paths.mesh, "needs"));
+		const kept = JSON.parse(
+			readFileSync(join(fixture.paths.mesh, "needs", day ?? ""), "utf8"),
+		);
+		expect(kept, "kept as lost, naming who fell short").toMatchObject({
+			fit: null,
+			ended: ["J7XHQN"],
+			fellShort: "5HJZ8Z",
+			path: [],
+		});
+	});
+
+	it("names the words no cell works on in a refusal for an owner not present", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates Delivery" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land, fonts and all?",
+			about: "dates delivery fonts",
+		});
+
+		expect(said).toContain("J7XHQN worked on more of dates delivery");
+		expect(said).toContain(
+			"No cell works on fonts, and no live cell on dates, so they found nobody and it was routed by delivery alone.",
+		);
+	});
+
+	it("says nothing of a joined id whose every part routed it", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Mesh Workflow" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who reads a need's words?",
+			about: "mesh-workflow need",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "need, held by none, is still named").toContain(
+			"No cell works on need, so it found nobody",
+		);
+		expect(said).not.toContain("mesh-workflow, ");
+		expect(said).not.toContain("No cell works on mesh-workflow");
+	});
+
+	it("says nothing of a joined id whose short part could never be a word, but names a numbered one", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Pi Host" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who runs leg 27 on the pi host?",
+			about: "pi-host leg-27",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "pi is too short to be a word").not.toMatch(
+			/No cell works on [^.]*pi-host/,
+		);
+		expect(said, "its number said apart may be anything's").toMatch(
+			/No cell works on [^.]*leg-27/,
+		);
+	});
+
+	it("says nothing of the words no cell works on once it kept the most a need keeps", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{
+					key: "cell:5HJZ8Z",
+					title:
+						"Carry Fonts Glyphs Kerning Ligatures Hinting Weights Widths Serifs Italics Accents Spacing Margins",
+				},
+			],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep all of these?",
+			about:
+				"carry fonts glyphs kerning ligatures hinting weights widths serifs italics accents spacing margins",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "a held word was dropped, so none is named").not.toContain(
+			"No cell works on",
+		);
+	});
+
+	it("names every word no cell works on, however many, when it kept fewer than the most", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep all of these?",
+			about:
+				"carry fonts glyphs kerning ligatures hinting weights widths serifs italics accents spacing margins",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said).toContain("No cell works on fonts, glyphs, kerning,");
+		expect(said).toContain(
+			"margins, so they found nobody and it was routed by carry alone.",
+		);
+	});
+
+	it("never names a word too long to be one, as it may be a token", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep it?",
+			about: `carry ghp_${"Ab3".repeat(14)}`,
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said.toLowerCase()).not.toContain("ab3ab3");
+	});
+
+	it("takes the live cell found when its owner was last heard over six hours ago", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates Delivery" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now() - 7 * 60 * 60 * 1000,
+					today: [0, 1],
+				},
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land?",
+			about: "dates delivery",
+		});
+
+		expect(said, "a record that old owns nothing").toContain("went to 5HJZ8Z");
+		expect(said).not.toContain("isn't present now");
+		expect(said, "its asker still hears of dates").toContain(
+			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
+		);
+	});
+
+	it("says which words of its about no cell works on, when it goes by the rest", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep its fonts?",
+			about: "fonts carry",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said).toContain(
+			"No cell works on fonts, so it found nobody and it was routed by carry alone.",
+		);
+	});
+
+	it("names an ended cell heard from lately that works on a word no live cell does", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land?",
+			about: "dates delivery",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "its asker hears of dates").toContain(
+			"J7XHQN works on it but has ended, so it was passed over.",
 		);
 	});
 

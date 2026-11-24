@@ -16,7 +16,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../../lib/internal/quest/documents/frontmatter.ts";
-import { localPeer } from "../../../../lib/mesh/peer.ts";
+import { localPeer, withLiveSteward } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { wantId } from "../../../../lib/mesh/want.ts";
 import { presence, session, surroundingsAt } from "./support/presences.ts";
@@ -42,7 +42,7 @@ describe("this session's peer", () => {
 			`---\nid: ${id}\nkind: ${parent === "null" ? "quest" : "subquest"}\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-25\nupdated: 2026-10-25\n${marked ? "orchestrator: true\n" : ""}---\n# ${id}\n`;
 		const stewarded = (text: string) =>
 			text.replace("---\n#", "steward: true\n---\n#");
-		// A live session on the steward quest, answering to its address.
+		// A live session on the steward quest, signing with its address.
 		const stewardThere = () =>
 			presence({
 				session: "00000000-0000-0000-0000-000000000005",
@@ -333,7 +333,7 @@ describe("this session's peer", () => {
 
 		// Read from the quests alone, a steward whose window closed would
 		// keep every quest below it off the launcher, and reach nobody.
-		it("names no steward while no live session answers to it, keeping its questions in the launcher", () => {
+		it("names no steward while no live session signs with its address, keeping its questions in the launcher", () => {
 			write(
 				[
 					[MISSION, stewarded(readme(MISSION, "null"))],
@@ -354,6 +354,49 @@ describe("this session's peer", () => {
 				[absent, kept, peer.stewardedBy, peer.wants],
 				"none and shown, then the steward and kept for it",
 			).toEqual([undefined, "question", "WCJQSG", undefined]);
+		});
+
+		// A closed window leaves its presence on disk until it expires, so
+		// only the census says the steward is gone.
+		it("names no steward whose session the census no longer counts", () => {
+			write(
+				[
+					[MISSION, stewarded(readme(MISSION, "null"))],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const base = surroundings();
+			base.presences.publish(stewardThere());
+			const counting = (live: Set<string>) =>
+				localPeer({ ...base, live: () => live }).stewardedBy;
+
+			expect(
+				[
+					counting(new Set([session, stewardThere().session])),
+					counting(new Set([session])),
+				],
+				"kept while counted, gone once not",
+			).toEqual(["WCJQSG", undefined]);
+		});
+
+		// A session that only ran the steward's quest earlier still answers
+		// to its address, but carries nothing for the person.
+		it("counts a steward live only while a session other than this one signs with it", () => {
+			const roles = { stewardedBy: "WCJQSG" };
+			const signing = presence({ session: "s-2", addresses: ["WCJQSG"] });
+			const older = presence({
+				session: "s-2",
+				addresses: ["P9R1KI", "WCJQSG"],
+			});
+			const own = presence({ session, addresses: ["WCJQSG"] });
+
+			expect(
+				[[signing], [older], [own]].map(
+					(live) => withLiveSteward(roles, live, session).stewardedBy,
+				),
+				"kept, then dropped twice",
+			).toEqual(["WCJQSG", undefined, undefined]);
 		});
 
 		// The steward's own session ends the person's path, though an

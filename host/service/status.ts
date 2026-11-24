@@ -123,7 +123,8 @@ export function phaseTimes(
  * How long a conversation's open or adopt took, begun at `began` and
  * settled at `ended`, and each phase within it; one that failed before
  * pi named its conversation is said as a conversation not yet named,
- * with where it was asked to open or the file it was asked to adopt.
+ * with where it was asked to open or the file it was asked to adopt,
+ * quoted.
  */
 export function startLine(
 	sessionId: string | undefined,
@@ -138,12 +139,64 @@ export function startLine(
 		sessionId === undefined
 			? `A conversation not yet named, ${
 					request.op === "open"
-						? `opening in ${onOneLine(request.cwd)}`
-						: `adopted from ${onOneLine(request.sessionFile)}`
+						? `opening in ${quoted(request.cwd)}`
+						: `adopted from ${quoted(request.sessionFile)}`
 				}`
-			: `${onOneLine(sessionAddress(sessionId))} (${onOneLine(sessionId)})`;
+			: named(sessionId);
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
+}
+
+/**
+ * A named conversation's address and id, escaped; an adopted one's id
+ * comes from the requester's file, so it is bounded as a path is.
+ */
+function named(sessionId: string): string {
+	const { kept, cut } = bounded(sessionId);
+	return `${onOneLine(sessionAddress(sessionId))} (${onOneLine(kept)}${cut})`;
+}
+
+/**
+ * startLine for a start that failed, with the first line of why, quoted
+ * and escaped as a path is, since the reason most often repeats the path
+ * it couldn't open (F1 on #2107); or that it gave no reason.
+ */
+export function failedStartLine(
+	sessionId: string | undefined,
+	request:
+		| { readonly op: "open"; readonly cwd: string }
+		| { readonly op: "adopt"; readonly sessionFile: string },
+	began: number,
+	phases: readonly PhaseEnd[],
+	ended: number,
+	reason: unknown,
+): string {
+	const why = firstLineText(reason);
+	return `${startLine(sessionId, request, began, phases, ended)}, failing${
+		why ? `: ${quoted(why)}` : ", with no reason given"
+	}`;
+}
+
+/**
+ * The most characters of one requester's words a line keeps: a path
+ * holds at most 4096 bytes, but a reason or an adopted id holds any
+ * number, and journald splits a line past its LineMax into a second
+ * entry whose start the requester would choose (F2 on #2107). Each kept
+ * character escapes to at most ten, so a line stays far below 48 KiB.
+ */
+const MOST_KEPT = 500;
+
+/** `text` cut to MOST_KEPT characters, and words saying how many went, if any did. */
+function bounded(text: string): {
+	readonly kept: string;
+	readonly cut: string;
+} {
+	const points = Array.from(text);
+	if (points.length <= MOST_KEPT) return { kept: text, cut: "" };
+	return {
+		kept: points.slice(0, MOST_KEPT).join(""),
+		cut: `, cut after ${MOST_KEPT} of its ${points.length} characters`,
+	};
 }
 
 /** The escapes a journal reader knows by sight, for the characters that have one. */
@@ -157,6 +210,9 @@ const NAMED_ESCAPES: Readonly<Record<string, string>> = {
 /** A control (C0, DEL, C1) or a line or paragraph separator, which end a line. */
 const BREAKS_A_LINE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 
+/** A surrogate left unpaired, which UTF-8 can't hold, so the journal would show a replacement in its place (F27). */
+const UNPAIRED = /\p{Cs}/u;
+
 /** The widest code point a four-digit `\u` escape can name. */
 const LAST_FOUR_DIGIT = 0xffff;
 
@@ -168,16 +224,32 @@ function escaped(point: number): string {
 }
 
 /**
- * Words a requester chose, with every character that would break the
- * journal entry, forge another, move a terminal's cursor or read as other
- * than it is written as an escape: controls, line and paragraph
- * separators, and what draws as nothing, bidi marks and zero widths among
- * them. A backslash is doubled, so a path holding the text `\n` never
- * reads as one holding a newline; the words go straight into the line, so
- * nothing escapes them again.
+ * Words a requester chose, with these written as escapes: controls, line
+ * and paragraph separators and unpaired surrogates, which break a journal
+ * entry, forge another or move a terminal's cursor, and what drawsAsNothing
+ * counts (format characters such as bidi marks and zero widths, and the
+ * fillers and selectors it lists). Controls and separators would break a
+ * journal entry, forge another or move a terminal's cursor; an unpaired
+ * surrogate would show as a replacement, hiding what the requester sent.
+ * A character that only looks like another, a Cyrillic letter for a
+ * Latin one, passes as it is (F29), as does a paired astral character.
+ * A backslash is doubled, so a path holding the text `\n` never reads as
+ * one holding a newline.
  */
 export function onOneLine(text: string): string {
 	return escapedFor(text, true);
+}
+
+/**
+ * Words a requester chose, escaped as onOneLine does and between double
+ * quotes, a quote inside escaped, so a path can't pass its tail off as the
+ * line's own words (F31). Backslashes are doubled before quotes are
+ * escaped, so a backslash the words end on can't close the quote. Past
+ * MOST_KEPT characters, the rest is left out and the line says so.
+ */
+function quoted(text: string): string {
+	const { kept, cut } = bounded(text);
+	return `"${onOneLine(kept).replaceAll('"', '\\"')}"${cut}`;
 }
 
 /**
@@ -191,7 +263,11 @@ function escapedFor(text: string, doubling: boolean): string {
 	for (const each of text) {
 		const named = each === "\\" && !doubling ? each : NAMED_ESCAPES[each];
 		if (named !== undefined) said += named;
-		else if (BREAKS_A_LINE.test(each) || drawsAsNothing(each))
+		else if (
+			BREAKS_A_LINE.test(each) ||
+			UNPAIRED.test(each) ||
+			drawsAsNothing(each)
+		)
 			said += escaped(each.codePointAt(0) ?? 0);
 		else said += each;
 	}
@@ -206,6 +282,11 @@ function escapedFor(text: string, doubling: boolean): string {
  * this already escaped reads the same once escaped again.
  */
 export function firstLine(reason: unknown): string {
+	return escapedFor(firstLineText(reason), false);
+}
+
+/** The first line of why something failed that says anything, as it is, or nothing. */
+function firstLineText(reason: unknown): string {
 	let text: unknown;
 	try {
 		text = reason instanceof Error ? reason.message : reason;
@@ -214,12 +295,11 @@ export function firstLine(reason: unknown): string {
 		text = "";
 	}
 	if (typeof text !== "string") return "";
-	return escapedFor(
+	return (
 		text
 			.split(/\r?\n|\r/)
 			.map((line) => line.trim())
-			.find((line) => line.length > 0) ?? "",
-		false,
+			.find((line) => line.length > 0) ?? ""
 	);
 }
 

@@ -609,19 +609,51 @@ describe("a need routed by declared subjects", () => {
 		});
 	});
 
-	it("keeps the words live cells would take over one only an ended cell holds", () => {
+	it("keeps a word only an ended cell holds by how rare it is, going to the live cell holding more", () => {
 		const taken = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
 		const found = routeNeed(asked("A", "gone", ...taken), {
-			foragers: cells({ A: [], B: taken, E: ["gone"] }),
+			foragers: cells({ A: [], B: taken, C: taken, E: ["gone"] }),
 			ties: ties(["A", "B", 1], ["A", "E", 2]),
 			hubs: [],
 			live: (address) => address !== "E",
 		});
 
-		expect(found.words, "the ended cell's word is dropped first").toEqual(
-			taken,
-		);
-		expect(found.fit).toBe("B");
+		expect(found.words, "one cell held gone, two each other word").toEqual([
+			"gone",
+			...taken.slice(0, MOST_WORDS - 1),
+		]);
+		expect(found, "B works on more of it than E did").toMatchObject({
+			fit: "B",
+			path: ["B"],
+		});
+	});
+
+	// Kept rarest first, gone stays though past MOST_WORDS, so the owner
+	// check sees E hold every kept word where B holds all but one.
+	it("sees an ended owner past the most words a need keeps", () => {
+		const taken = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
+		const found = routeNeed(asked("A", "gone", ...taken), {
+			foragers: cells({
+				A: [],
+				B: taken,
+				C: taken,
+				D: taken.slice(-1),
+				E: ["gone", ...taken.slice(0, -1)],
+			}),
+			ties: ties(["A", "B", 1], ["A", "E", 2]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found.words, "gone, then the first taken").toEqual([
+			"gone",
+			...taken.slice(0, -1),
+		]);
+		expect(found, "E worked on every kept word").toMatchObject({
+			fit: null,
+			ended: ["E"],
+			fellShort: "B",
+		});
 	});
 
 	it("never takes a live cell that stopped the asker, naming it as that", () => {

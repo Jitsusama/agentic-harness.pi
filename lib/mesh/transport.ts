@@ -315,10 +315,13 @@ export function folderTransport(dir: string): Transport {
 			.pop();
 	return {
 		send(draft) {
+			const id = stampId(draft);
+			// The time its id carries, to the millisecond, as a mycelium node
+			// holds a message sent through it to (mycelium#421).
 			const message: Message = {
 				v: ENVELOPE,
-				id: stampId(draft),
-				at: new Date().toISOString(),
+				id,
+				at: new Date(stampedAt(id) ?? Date.now()).toISOString(),
 				...draft,
 			};
 			writeAtomically(dir, `${message.id}.json`, JSON.stringify(message));

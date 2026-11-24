@@ -393,6 +393,12 @@ describe("a peer resting blocked on the sender", () => {
 		expect(attend(sentNow, { ...blocked, ...over })).toEqual(wakes);
 	});
 
+	it("takes a turn for news sent to it, though its sender's presence says it", () => {
+		expect(
+			attend(message({ to: ["@5GV2AH"] }), { ...blocked, restates: true }),
+		).toEqual(wakes);
+	});
+
 	it("glances at news to a group that answers nothing, as another's", () => {
 		expect(attend(message(), blocked)).toEqual({
 			attention: "glance",
@@ -407,7 +413,7 @@ describe("a peer resting blocked on the sender", () => {
 			attend(finding, { ...blocked, now: sent + MOST_HOLD_MS + FYI_MS })
 				.attention,
 			"nor does a stale one wake it",
-		).not.toBe("turn");
+		).toBe("note");
 	});
 
 	it("glances at news past its hour and a hold past its longest", () => {

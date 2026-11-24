@@ -22,8 +22,11 @@
 
 import { needNamed } from "../../../lib/mesh/group.ts";
 import {
+	LONGEST_WORD,
+	MOST_WORDS,
 	type NeedRecord,
 	needId,
+	saysWord,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -104,6 +107,33 @@ export async function needRead(
 		return refused(`${retry} ${ASK_WHO_OWNS_IT}`);
 	}
 	const ended = endedText(found);
+	// On 24 November a need about "dates delivery" went by delivery alone,
+	// the dates cell having left the node, and its asker heard nothing of
+	// dates. Only when MOST_WORDS were kept may a word some cell holds
+	// have been dropped, so then nothing is said of the rest; nor of a
+	// text's words, which may hold a token, nor of a word past
+	// LONGEST_WORD, which is a token, not a word of work. A joined id,
+	// mesh-workflow or pi-host, is held by none whose title says mesh
+	// workflow or pi host, yet its parts
+	// routed it, so it goes unsaid when the words kept say it as routing
+	// reads them: every part long and rare enough to be a word, and a
+	// numbered id, leg-27, only whole. A word kept that only ended cells
+	// work on, which routing says, is said whatever was dropped.
+	const kept = new Set(found.words);
+	const unasked = unaskedText(
+		fromText || found.words.length >= MOST_WORDS
+			? []
+			: words.filter(
+					(word) => word.length <= LONGEST_WORD && !saysWord(word, kept),
+				),
+		found.unheld ?? [],
+		found.words,
+	);
+	if (found.fit === null && found.fellShort !== undefined) {
+		return refused(
+			`${ownerText(found, found.fellShort, about)}${unasked} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${ASK_WHO_OWNS_IT}`,
+		);
+	}
 	if (found.fit === null) {
 		// A peer that stopped this one refuses a send, so it isn't offered.
 		const instead =
@@ -111,7 +141,7 @@ export async function needRead(
 				? "Name another peer it is for by address."
 				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
+			`no live cell within three ties that hears this peer works on ${about}.${unasked}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
 		);
 	}
 	if (found.fit === asker) {
@@ -121,8 +151,50 @@ export async function needRead(
 	}
 	return {
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
-		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended} ${NEED_GRANTS_NOTHING}`,
+		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${unasked}${ended} ${NEED_GRANTS_NOTHING}`,
 	};
+}
+
+/**
+ * The words of an about no cell works on, and of those kept no live
+ * cell does, as a sentence, or nothing. Said with the words it was
+ * routed by, so a word only ended cells work on is left out of those.
+ */
+function unaskedText(
+	noCell: readonly string[],
+	noLive: readonly string[],
+	kept: readonly string[],
+): string {
+	const unheld = new Set(noLive);
+	const routed = kept.filter((word) => !unheld.has(word));
+	const count = noCell.length + noLive.length;
+	if (count === 0 || routed.length === 0) return "";
+	const cells = [
+		...(noCell.length > 0 ? [`No cell works on ${noCell.join(", ")}`] : []),
+		...(noLive.length > 0
+			? [
+					noCell.length > 0
+						? `no live cell on ${noLive.join(", ")}`
+						: `No live cell works on ${noLive.join(", ")}`,
+				]
+			: []),
+	].join(", and ");
+	const one = count === 1;
+	return ` ${cells}, so ${one ? "it" : "they"} found nobody and it was routed by ${routed.join(" ")} alone.`;
+}
+
+/**
+ * Why a need whose owner has ended is lost though a live cell was found:
+ * routing would have sent it to the one cell named in `ended`, were it
+ * alone there, and that cell worked on more of it than `fit`. Said as
+ * not present, since the node lists it with no presence here, which a
+ * link down to its machine leaves too. Once it is back a resend reaches
+ * it, or a cell covering as much or more that it leads to; unless it
+ * stopped this one, which is known only of a present cell.
+ */
+function ownerText(found: NeedRecord, fit: string, about: string): string {
+	const owner = (found.ended ?? []).join(", ");
+	return `${owner} worked on more of ${about} than ${fit}, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it. Sending it again once ${owner} is present reaches ${owner} or a cell covering as much of it or more, unless ${owner} has stopped this one.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */

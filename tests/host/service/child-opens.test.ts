@@ -442,13 +442,55 @@ describe("a new conversation", () => {
 			},
 		});
 		expect(Date.now() - asked, "at its time, not later").toBeLessThan(1_000);
+		// The whole line, to its end (F19 on #2097); its figures are under a
+		// second here, so open-25 below pins them where they aren't.
 		expect(
 			reported.map(String),
 			"the journal says where its time went",
 		).toContainEqual(
-			expect.stringContaining("Request open-18: The host spent"),
+			expect.stringMatching(
+				/^Request open-18: The host spent \d+ s of its 0 s before it could begin this one, \d+ s weighing the conversations it runs and \d+ s waiting for its turn behind the conversations already starting, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter$/,
+			),
 		);
 		expect(units.started, "no unit started for it").toHaveLength(2);
+		supervisor.close();
+		for (const one of held) await expect(one).rejects.toThrow();
+	});
+
+	// F103 on #2080: time spent weighing before the gate is no turn's wait.
+	it("says a begin turned away at the gate weighed apart from waiting for its turn", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 10_000,
+				unsettledWithinMs: 2_000,
+				leastFirstAskMs: 4_000,
+			},
+		});
+		units.traitsOf = () => ({ neverListens: true });
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+
+		// 3 s of its 10 s gone before it asks a turn, which then lapses with
+		// its least of 6 s still left, 1 s on.
+		const refused = await supervisor.begin(
+			opening("open-25"),
+			Date.now() - 3_000,
+		);
+
+		// Its whole and its wait are whatever the gate's timer gave, which
+		// a loaded machine fires late (F18); its weighing was 3 s exactly.
+		const said =
+			/The host spent (\d+) s of its 10 s before it could begin this one, 3 s weighing the conversations it runs and (\d+) s waiting for its turn/;
+		const message = refused.ok ? "" : refused.error.message;
+		const [, whole, wait] = message.match(said) ?? [];
+		expect(message, "its weighing said apart from its wait").toMatch(said);
+		expect(Number(whole), "its parts add up to its whole").toBe(
+			3 + Number(wait),
+		);
+		expect(Number(wait), "it waited for its turn").toBeGreaterThanOrEqual(1);
+		expect(reported.map(String)).toContainEqual(
+			expect.stringMatching(new RegExp(`^Request open-25: ${said.source}`)),
+		);
 		supervisor.close();
 		for (const one of held) await expect(one).rejects.toThrow();
 	});

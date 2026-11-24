@@ -15,6 +15,7 @@ import {
 	STARTS_AT_ONCE,
 } from "../../../host/service/child-supervisor.ts";
 import { slotOf } from "../../../host/service/child-units.ts";
+import type * as StartGate from "../../../host/service/start-gate.ts";
 import {
 	a,
 	b,
@@ -38,6 +39,27 @@ import {
 	supervisor,
 	units,
 } from "./support/supervised-children.ts";
+
+/** Each turn asked of the supervisor's gate: whether a hurry was already given. */
+const gateAsks = vi.hoisted((): { hurriedAlready: boolean }[] => []);
+
+// The real gate, its asks seen, so a case can wait for a start to be
+// queued rather than guess how long it takes to get there.
+vi.mock("../../../host/service/start-gate.ts", async (original) => {
+	const actual = await original<typeof StartGate>();
+	return {
+		...actual,
+		startGate: (atOnce: number): StartGate.StartGate => {
+			const gate = actual.startGate(atOnce);
+			return {
+				turn(ask) {
+					gateAsks.push({ hurriedAlready: ask.hurry?.aborted === true });
+					return gate.turn(ask);
+				},
+			};
+		},
+	};
+});
 
 superviseEachTest();
 
@@ -878,8 +900,11 @@ describe("children starting at once", () => {
 
 	// F33: a host's start resumes every conversation it holds, none ahead,
 	// so a wake for one still queued must hurry that start, not wait behind
-	// every resume queued before it.
+	// every resume queued before it. Its hurry comes before the start has
+	// awaited anything, as resume-held.ts's late hurry does (F100). Ahead
+	// from its first ask, it says no move (F20 on #2097).
 	it("starts a queued resume a wake comes to wait on before the resumes queued ahead of it", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
 		const holdingFirst = deferred();
 		const holdingSecond = deferred();
 		const first = nth(1);
@@ -909,9 +934,86 @@ describe("children starting at once", () => {
 			units.started[2],
 			"the start the wake waits on given the first turn freed",
 		).toBe(unitOf(owed));
+		const line = said.find((one) => one.startsWith(`${unitOf(owed)}: waited`));
+		expect(line, "its wait is said").toBeDefined();
+		expect(line, "hurried before it asked, it was moved nowhere").not.toContain(
+			"going ahead",
+		);
 
 		holdingSecond.settle();
 		await Promise.all([...starting, ...later]);
+	});
+
+	// F102 on #2080: the case above hurries a start before it reaches the
+	// gate; this one hurries a start already waiting there.
+	it("moves a resume already waiting at the gate ahead once a wake comes to wait on it, and says so", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
+		const [first, second] = [nth(1), nth(2)];
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
+		gateAsks.length = 0;
+		const starting = [first, second].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const queued = [3, 4, 5].map(nth);
+		const later = queued.map((id) => supervisor.resume(entry(id)));
+		const owed = nth(5);
+		await vi.waitFor(() => expect(gateAsks).toHaveLength(5));
+		expect(gateAsks[4], "queued before any hurry").toEqual({
+			hurriedAlready: false,
+		});
+
+		const waking = supervisor.resume(entry(owed), true);
+		holdingSecond.settle();
+		await waking;
+		expect(
+			units.started[2],
+			"the start the wake waits on given the first turn freed",
+		).toBe(unitOf(owed));
+		expect(
+			said.find((line) => line.startsWith(`${unitOf(owed)}: waited`)),
+			"the journal says it was moved ahead",
+		).toMatch(/going ahead of those nobody waits on \d+\.\d s in/);
+
+		holdingFirst.settle();
+		await Promise.all([...starting, ...later]);
+	});
+
+	// F16 on #2097: the gate moves only a start that isn't ahead already.
+	it("says no move for a woken start a later wake comes to wait on", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
+		const [first, second] = [nth(1), nth(2)];
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
+		gateAsks.length = 0;
+		const starting = [first, second].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const owed = nth(3);
+		const woken = supervisor.resume(entry(owed), true);
+		await vi.waitFor(() => expect(gateAsks).toHaveLength(3));
+
+		const wokenAgain = supervisor.resume(entry(owed), true);
+		holdingFirst.settle();
+		await Promise.all([woken, wokenAgain]);
+		const line = said.find((one) => one.startsWith(`${unitOf(owed)}: waited`));
+		expect(line, "its wait is said").toBeDefined();
+		expect(line, "already ahead, it was moved nowhere").not.toContain(
+			"going ahead",
+		);
+
+		holdingSecond.settle();
+		await Promise.all(starting);
 	});
 
 	it("times a child's listening from its own start, not from the wait for its turn", async () => {
@@ -1048,7 +1150,8 @@ describe("children starting at once", () => {
 			"the start that waited past its said time",
 		).toEqual([
 			expect.stringMatching(
-				new RegExp(`^${unitOf(nth(3))}: waited 0\\.\\d s for its turn`),
+				// Its wait's length is the load's, not the behaviour's (F105).
+				new RegExp(`^${unitOf(nth(3))}: waited \\d+\\.\\d s for its turn`),
 			),
 		]);
 		systemd.settle();

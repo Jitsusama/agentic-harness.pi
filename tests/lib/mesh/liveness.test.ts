@@ -544,6 +544,43 @@ describe("a session elsewhere's liveness", () => {
 		).toBe("gone");
 	});
 
+	// A session parked there between turns has no process, so its node
+	// holds it ended, but the presence it wrote says parked: what is sent
+	// to it starts it again, as a park here does.
+	it("is present while its node holds it ended and its presence says it parked", async () => {
+		const parked = presence({
+			session: "far",
+			machine: "equilibrius",
+			state: "parked",
+		});
+
+		expect(
+			await livenessOf(parked, machine({}), node({ far: "ended" })),
+			"a parked session its node holds ended",
+		).toBe("present");
+		expect(
+			await livenessOf(parked, machine({}), node({})),
+			"a parked session its node holds no more",
+		).toBe("gone");
+		// Only a park: a session that last said anything else and ended is gone.
+		for (const state of ["listening", "busy", "waiting", "paused"] as const) {
+			expect(
+				await livenessOf(
+					presence({ session: "far", machine: "equilibrius", state }),
+					machine({}),
+					node({ far: "ended" }),
+				),
+				`an ended session that last said ${state}`,
+			).toBe("gone");
+		}
+		const { present } = await census(
+			[parked],
+			machine({}),
+			node({ far: "ended" }),
+		);
+		expect(present.map((one) => one.session)).toEqual(["far"]);
+	});
+
 	// A dropped link, or a node a switch is restarting, says nothing of
 	// whether the session runs, so its leases and holds stand.
 	it("can't be told while its machine is out of reach, or no node answers", async () => {

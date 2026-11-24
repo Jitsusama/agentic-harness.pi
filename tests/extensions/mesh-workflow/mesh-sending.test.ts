@@ -1,7 +1,9 @@
 /**
  * Sending on the mesh: how a send is signed, where it goes and what it
  * refuses, how a message that names no group finds one, and reading
- * back what was sent.
+ * back what was sent. Long because its cases follow send.ts's one
+ * path from `to` to a delivery, and split apart they would each build
+ * the same session and quests.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -513,13 +515,17 @@ describe("sending", () => {
 	});
 
 	// A steward whose window closed carries nothing, so `person` falls
-	// back as if none were set, rather than reaching nobody.
-	it("reads `person` as `orchestrator` while no live session answers to the steward", async () => {
+	// back as if none were set, rather than reaching nobody; nor does one
+	// that only lists the steward's address among older ones, not signing.
+	it("reads `person` as `orchestrator` while no live session signs with the steward's address", async () => {
 		onQuest();
 		writeFileSync(
 			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
 			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-5GV2AH\n",
 		);
+		// One that ended, and one that only ran the steward's quest earlier.
+		peer("session-s", ["5GV2AH"], [], true);
+		peer("session-q", ["P9R1KI", "5GV2AH"], []);
 		const { tools } = await startSession(noNode());
 
 		expect(await send(tools, "person", "question", "May I?")).toContain(
@@ -556,6 +562,41 @@ describe("sending", () => {
 			expect.stringContaining("`person` was left out"),
 			[["#harness"]],
 		]);
+		const unnamed = await tools
+			.get("mesh_send")
+			?.execute("call-2", { intent: "fyi", text: "Landed." });
+		const unspaced = await send(tools, "#harness,#ops", "fyi", "Landed.");
+		expect(
+			[unnamed?.content[0]?.text ?? "", unspaced],
+			"no `to` and one never naming `person` go as written",
+		).not.toContainEqual(
+			expect.stringMatching(/person's steward|`person` was left out/),
+		);
+		expect(unspaced, "one never naming `person` is sent").toContain("Sent as");
+		expect(transport.read(transport.ids().at(-1) ?? "")?.to).toEqual([
+			"#harness",
+			"#ops",
+		]);
+
+		peer("session-w", ["WCJQSG"], []);
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "Landed where?",
+		});
+		const replied = await tools.get("mesh_send")?.execute("call-3", {
+			intent: "fyi",
+			re: asked.id,
+			text: "On main.",
+		});
+		expect(replied?.content[0]?.text, "a reply naming no `to`").toContain(
+			"Sent as",
+		);
+		const reply = transport
+			.ids()
+			.map((id) => transport.read(id))
+			.find((one) => one?.re === asked.id);
+		expect(reply?.to, "goes back to its asker").toEqual(["@WCJQSG"]);
 	});
 
 	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the

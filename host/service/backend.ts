@@ -22,7 +22,13 @@ import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
-import { firstLine, onOneLine, type PhaseEnd, startLine } from "./status.ts";
+import {
+	failedStartLine,
+	firstLine,
+	onOneLine,
+	type PhaseEnd,
+	startLine,
+} from "./status.ts";
 import {
 	OPEN_UNSETTLED,
 	unsettledMessage,
@@ -639,12 +645,16 @@ export function hostBackend(options: {
 				sessionId = id;
 			});
 		} catch (error) {
-			const line = startLine(sessionId, request, began, phases, Date.now());
-			const why = firstLine(error);
+			const line = failedStartLine(
+				sessionId,
+				request,
+				began,
+				phases,
+				Date.now(),
+				error,
+			);
 			try {
-				options.say?.(
-					`${line}, failing${why ? `: ${why}` : ", with no reason given"}`,
-				);
+				options.say?.(line);
 			} catch {
 				// A journal that can't take the line never replaces the start's
 				// own failure, which its caller still hears (F120).

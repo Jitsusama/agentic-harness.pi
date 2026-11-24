@@ -118,7 +118,7 @@ and can answer a question or a gate left open on screen.
   business, apart from it. A session's presence names the
   nearest steward above its quest as `stewardedBy`, walked up
   `parent` (`lib/internal/quest/fields/orchestration.ts`),
-  while a live session answers to it, and the bare word
+  while a live session signs with it, and the bare word
   `to: person` reaches it. With no live steward, `person` reads
   as `orchestrator`, so the word works the same on every quest.
   The delivery note sends the person's path to the steward, but
@@ -491,8 +491,10 @@ and its groups.
   run's `Blocked:` line names: on 2026-11-23 a session blocked
   on another's promised sha sat idle for hours, since the sha
   came as an fyi with no thread. Each run that ends blocked is
-  woken so once, under the hourly cap on one sender's news, and
-  an orchestrator's pivot acks stay notes. A
+  woken so once, under the hourly cap on one sender's news, which
+  slows two cells blocked on each other to ten wakes an hour each
+  way without ending their exchange, and an orchestrator's pivot
+  acks stay notes. A
   busy peer has it steered into the run under way, read after the
   current tool, since a note waits for the model's current call
   to end, and when that call was the run's last, it waited for
