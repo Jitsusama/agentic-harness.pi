@@ -367,6 +367,77 @@ describe("attention", () => {
 	});
 });
 
+describe("a peer resting blocked on the sender", () => {
+	const sent = Date.parse("2026-10-22T02:22:00.000Z");
+	const blocked: Standing = {
+		...standing,
+		idle: true,
+		awaits: true,
+		concern: "other",
+		now: sent,
+	};
+	const wakes = {
+		attention: "turn",
+		why: "from the peer this peer rests blocked on",
+		unblocks: true,
+	};
+
+	it.each([
+		["news sent to it", message({ to: ["@5GV2AH"] }), {}],
+		[
+			"a finding sent to it",
+			message({ intent: "finding", to: ["@5GV2AH"] }),
+			{},
+		],
+		[
+			"news to a group answering it",
+			message({ re: "0-5GV2AH-1-bbbb" }),
+			{ answers: true },
+		],
+	])("takes a turn for %s", (_, sentNow, over) => {
+		expect(attend(sentNow, { ...blocked, ...over })).toEqual(wakes);
+	});
+
+	it("leaves news to a group that answers nothing for its next turn", () => {
+		expect(attend(message(), blocked).attention).not.toBe("turn");
+	});
+
+	it("glances at news past its hour and a hold past its longest", () => {
+		const late = { ...blocked, now: sent + MOST_HOLD_MS + FYI_MS };
+		expect(attend(message({ to: ["@5GV2AH"] }), late).attention).toBe("glance");
+		expect(
+			attend(message({ intent: "hold", to: ["@5GV2AH"] }), late).attention,
+		).toBe("glance");
+	});
+
+	it("hears a question or hold from it as one put to the peer, owed an answer", () => {
+		for (const intent of ["question", "hold"] as const) {
+			expect(attend(message({ intent, to: ["@5GV2AH"] }), blocked)).toEqual({
+				attention: "turn",
+				why: "sent to this peer",
+				addressed: true,
+			});
+		}
+	});
+
+	it("keeps an orchestrator's pivot acks as notes, from the sessions it leads", () => {
+		const ack = message({ to: ["@5GV2AH"], re: "0-5GV2AH-1-pivot" });
+		const led = { ...blocked, led: true, answers: true };
+		expect(attend(ack, led).attention).toBe("note");
+		expect(
+			attend(message({ to: ["@5GV2AH"] }), { ...led, answers: false })
+				.attention,
+		).toBe("act");
+	});
+
+	it("wakes nothing for a busy peer, whose run reads it", () => {
+		expect(
+			attend(message({ to: ["@5GV2AH"] }), { ...blocked, idle: false })
+				.attention,
+		).toBe("note");
+	});
+});
+
 describe("a classifier's concern", () => {
 	it("trusts a sure 'not yours' and nothing less", () => {
 		const other = (p: number) => ({

@@ -38,15 +38,15 @@
  * nothing but acknowledge. The exception is an answer to a question this
  * peer asked, which gets a turn however it was sent, since the peer is
  * waiting on it: an answer sent as an fyi would otherwise sit until
- * something else started a turn. So does whatever a peer sends to an
- * idle peer whose last run ended blocked on it, by its address or in
- * answer to it: on 23 Nov J6OCG0 ended "Blocked: ... waits on 2AF2DH",
+ * something else started a turn. An fyi more than {@link FYI_MS} old
+ * when it reaches the peer is a glance, and so is a hold older than the
+ * longest a hold stands ({@link MOST_HOLD_MS}), which no longer holds
+ * anything. Fresh news or a finding a peer sends to an idle peer whose
+ * last run ended blocked on it, by its address or in answer to it, takes
+ * a turn too: on 23 Nov J6OCG0 ended "Blocked: ... waits on 2AF2DH",
  * 2AF2DH's promised sha came as an fyi with no thread, and J6OCG0 sat
- * idle on it from 06:17 until that night. A message to a group it is in still
- * waits, as does one from any other peer. Any other fyi more
- * than {@link FYI_MS} old when it reaches the peer is a glance, and so is
- * a hold older than the longest a hold stands ({@link MOST_HOLD_MS}),
- * which no longer holds anything.
+ * idle on it from 06:17 until that night. A message to a group it is in
+ * still waits, as does one from any other peer.
  *
  * What a message is worth is held to what the peer can afford by
  * damping (see damping.ts), which this module knows nothing of.
@@ -146,6 +146,14 @@ export interface Heed {
 	 * to the end of a run waits for the person to speak.
 	 */
 	readonly addressed?: boolean;
+	/**
+	 * It wakes a peer resting blocked on its sender. Each run that ends
+	 * blocked is woken once so, and news after that waits for a run to
+	 * end blocked again. Unlike an awaited answer it stays under the
+	 * damper's hourly cap on one sender's news, which is what bounds two
+	 * cells blocked on each other.
+	 */
+	readonly unblocks?: boolean;
 }
 
 /**
@@ -168,13 +176,6 @@ export function attend(message: Message, at: Standing): Heed {
 		return {
 			attention: "turn",
 			why: "answering this peer's question",
-			awaited: true,
-		};
-	}
-	if (at.awaits && (at.answers || isHomeTo(message, at.receiver.addresses))) {
-		return {
-			attention: "turn",
-			why: "from the peer this peer rests blocked on",
 			awaited: true,
 		};
 	}
@@ -216,6 +217,28 @@ export function attend(message: Message, at: Standing): Heed {
 		return {
 			attention: "act",
 			why: `${message.intent === "fyi" ? "news" : "a finding"} from a session it leads`,
+		};
+	}
+	// A peer resting blocked on the sender waits on its next word, which on
+	// 23 November came as an fyi to it with no thread, and J6OCG0 sat idle
+	// on it from 06:17 until that night. Only news fresh enough to hear
+	// counts, and an orchestrator's pivot acks stay notes: they answer what
+	// it sent, and say nothing of what it waits on. A landing its sender's
+	// presence shows is still woken for, since that may be what it waits
+	// on. A question or hold is heard below as one put to the peer, owed
+	// an answer however it ends. The hour's cap on one sender's news still
+	// holds, and each run that ends blocked is woken once.
+	if (
+		at.awaits &&
+		at.idle &&
+		(message.intent === "fyi" || message.intent === "finding") &&
+		!(at.led && answerOnly) &&
+		(at.answers || isHomeTo(message, at.receiver.addresses))
+	) {
+		return {
+			attention: "turn",
+			why: "from the peer this peer rests blocked on",
+			unblocks: true,
 		};
 	}
 	// Status an orchestrator reads from its sender's presence costs it

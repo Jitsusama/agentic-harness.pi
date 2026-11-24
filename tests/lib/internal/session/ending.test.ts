@@ -3,7 +3,7 @@ import type { BranchReader } from "../../../../lib/internal/session/branch-walk.
 import {
 	blockedLine,
 	endingOf,
-	lastRunText,
+	lastRun,
 	type SaidEntry,
 } from "../../../../lib/internal/session/ending.ts";
 
@@ -75,7 +75,10 @@ describe("what a run last said", () => {
 			heard("a mesh message"),
 			{ type: "model_change" },
 		);
-		expect(lastRunText(session)).toBe("Looked.\nBlocked: 2AF2DH's sha.");
+		expect(lastRun(session)).toEqual({
+			id: "e1",
+			text: "Looked.\nBlocked: 2AF2DH's sha.",
+		});
 	});
 
 	it("is nothing when the last assistant message called a tool", () => {
@@ -86,20 +89,42 @@ describe("what a run last said", () => {
 				{ type: "toolCall", id: "t", name: "bash" },
 			),
 		);
-		expect(lastRunText(session)).toBeUndefined();
+		expect(lastRun(session)).toBeUndefined();
 	});
 
 	it("is nothing for a session with nothing said", () => {
-		expect(lastRunText(branch())).toBeUndefined();
-		expect(lastRunText(branch(heard("only heard")))).toBeUndefined();
+		expect(lastRun(branch())).toBeUndefined();
+		expect(lastRun(branch(heard("only heard")))).toBeUndefined();
+	});
+
+	it.each([
+		["a prompt", "user"],
+		["a tool's result", "toolResult"],
+	])("is nothing once %s came after, since a run is under way", (_, role) => {
+		const session = branch(said({ type: "text", text: "Blocked: old." }), {
+			type: "message",
+			message: { role, content: "go" },
+		});
+		expect(lastRun(session)).toBeUndefined();
+	});
+
+	// A cell left blocked overnight hears hundreds of glances; on 24 Nov a
+	// walk of 200 entries would have lost its Blocked: line to them.
+	it("reads back past a night of what the mesh wrote", () => {
+		const night = Array.from({ length: 2000 }, () => heard("noise"));
+		const session = branch(
+			said({ type: "text", text: "Blocked: far back." }),
+			...night,
+		);
+		expect(lastRun(session)?.text).toBe("Blocked: far back.");
 	});
 
 	it("stops reading back after a bounded walk", () => {
-		const many = Array.from({ length: 250 }, () => heard("noise"));
+		const many = Array.from({ length: 10_001 }, () => heard("noise"));
 		const session = branch(
 			said({ type: "text", text: "Blocked: far back." }),
 			...many,
 		);
-		expect(lastRunText(session)).toBeUndefined();
+		expect(lastRun(session)).toBeUndefined();
 	});
 });

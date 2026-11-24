@@ -42,11 +42,12 @@ export function blockedLine(text: string): string | undefined {
 
 /**
  * The most entries read back from the leaf for the last thing a run said.
- * What lands after a run ends is a few mesh deliveries and pi's own marks,
- * so a run's text is a handful of entries back; a walk this long has met
- * something other than an ended run.
+ * What lands after a run ends is mesh deliveries and pi's own marks, never
+ * a message of the conversation, and a cell left idle overnight gathers
+ * hundreds of glances and notes: a walk stops at the first message, so
+ * this bounds only a branch gone wrong, at a cost of a map lookup each.
  */
-const MOST_READ_BACK = 200;
+const MOST_READ_BACK = 10_000;
 
 /** A session entry as the walk back reads it. */
 export interface SaidEntry extends LinkedEntry {
@@ -54,39 +55,45 @@ export interface SaidEntry extends LinkedEntry {
 	readonly message?: unknown;
 }
 
+/** What a run last said, and the entry that said it. */
+export interface RunEnd {
+	/** The id of the assistant message entry that ended the run. */
+	readonly id: string;
+	readonly text: string;
+}
+
 /**
- * The text of the session's last assistant message, when that message
- * ended its run with words rather than a tool call; nothing when the last
- * one called a tool, said nothing, or lies too far back to be the run's
- * end. Reading back from the leaf costs only the entries since, never the
- * whole branch.
+ * The session's last message, when it is an assistant's that ended its
+ * run with words rather than a tool call; nothing when it called a tool,
+ * said nothing, is some other message (a prompt, a tool's result: a run
+ * under way), or lies too far back. Entries that are no message, what the
+ * mesh and pi's own marks write, are passed over. Reading back from the
+ * leaf costs only the entries since, never the whole branch.
  */
-export function lastRunText(
-	session: BranchReader<SaidEntry>,
-): string | undefined {
+export function lastRun(session: BranchReader<SaidEntry>): RunEnd | undefined {
 	let id = session.getLeafId();
 	for (let read = 0; id && read < MOST_READ_BACK; read += 1) {
 		const entry = session.getEntry(id);
 		if (!entry) return undefined;
-		const said = assistantSaid(entry);
-		if (said !== undefined) return said || undefined;
+		if (entry.type === "message") {
+			const said = assistantSaid(entry);
+			return said ? { id: entry.id, text: said } : undefined;
+		}
 		id = entry.parentId;
 	}
 	return undefined;
 }
 
 /**
- * What an assistant message entry said: its text when it called no tool,
- * an empty string when it called one, nothing when it is no assistant
- * message.
+ * What a message entry said: its text when it is an assistant's that
+ * called no tool, and nothing otherwise.
  */
 function assistantSaid(entry: SaidEntry): string | undefined {
-	if (entry.type !== "message") return undefined;
 	const message = entry.message;
 	if (!isRecord(message) || message.role !== "assistant") return undefined;
 	const content = Array.isArray(message.content) ? message.content : [];
 	if (content.some((part) => isRecord(part) && part.type === "toolCall")) {
-		return "";
+		return undefined;
 	}
 	return content
 		.flatMap((part) =>
