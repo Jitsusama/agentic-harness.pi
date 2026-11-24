@@ -53,10 +53,10 @@ const CHILD_RSS_MB = 512;
  * The least, in MB, a quiet child's collection must take off its heap.
  * Twenty-five collections on 23 and 24 November took 96 to 830 MB off
  * (208 to 112 the least), and one made a no-op took 0, so this is a third
- * under the least seen. It is more than a scavenge of the young
- * generation frees (a semi-space is 16 MB by default), which the reads
- * around the collection could set off with no collection at all (F11 on
- * #2129), and more than the line's rounding to whole MB.
+ * under the least seen. A collection cut to a scavenge of the young
+ * generation, which the reads around it could set off with no collection
+ * at all, took 29 MB off (24 November), and passed when any fall did (F11
+ * on #2129); this fails it, with room to spare.
  */
 const HEAP_FALL_MB = 64;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
