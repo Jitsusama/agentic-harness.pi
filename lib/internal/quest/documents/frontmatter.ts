@@ -381,9 +381,43 @@ function captureExtras(
 	for (const key of Object.keys(raw)) {
 		if (known.has(key)) continue;
 		extras ??= {};
-		extras[key] = raw[key];
+		putOwn(extras, key, raw[key]);
 	}
 	return extras;
+}
+
+/**
+ * Set a key as the object's own field. A plain assignment to
+ * `__proto__` would swap the object's prototype instead, and a
+ * person's field of that name would be lost.
+ */
+function putOwn(
+	target: Record<string, unknown>,
+	key: string,
+	value: unknown,
+): void {
+	Object.defineProperty(target, key, {
+		value,
+		enumerable: true,
+		writable: true,
+		configurable: true,
+	});
+}
+
+/**
+ * Write the person's own extra fields after the known ones, never over
+ * one. Only the payload's own keys count as written: `in` would also
+ * see `constructor` or `toString` on every object and drop an extra of
+ * that name.
+ */
+function putExtras(
+	payload: Record<string, unknown>,
+	extras: Record<string, unknown> | undefined,
+): void {
+	if (!extras) return;
+	for (const [key, value] of Object.entries(extras)) {
+		if (!Object.hasOwn(payload, key)) putOwn(payload, key, value);
+	}
 }
 
 /**
@@ -782,11 +816,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	if (fm.scratchDir) payload.scratchDir = fm.scratchDir;
 	if (fm.primaryPlanId) payload.primaryPlanId = fm.primaryPlanId;
 	if (fm.verify) payload.verify = fm.verify;
-	if (fm._extra) {
-		for (const [key, value] of Object.entries(fm._extra)) {
-			if (!(key in payload)) payload[key] = value;
-		}
-	}
+	putExtras(payload, fm._extra);
 	return renderYamlBlock(payload);
 }
 
@@ -814,10 +844,6 @@ export function serializeDocumentFrontMatter(fm: DocumentFrontMatter): string {
 	};
 	if (fm.rounds !== undefined) payload.rounds = fm.rounds;
 	if (fm.subject) payload.subject = fm.subject;
-	if (fm._extra) {
-		for (const [key, value] of Object.entries(fm._extra)) {
-			if (!(key in payload)) payload[key] = value;
-		}
-	}
+	putExtras(payload, fm._extra);
 	return renderYamlBlock(payload);
 }
