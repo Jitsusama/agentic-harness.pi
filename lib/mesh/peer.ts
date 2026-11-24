@@ -19,6 +19,11 @@
  *
  * What it waits on is never kept across a start, since whatever asked
  * belonged to the process that ended.
+ *
+ * Long because `localPeer` is one closure over the peer's state: its
+ * addresses, groups, roles and the presence last published are refreshed
+ * together, each read from the others, and split apart every part would
+ * pass that state around. Pure readers it uses stand outside it, above.
  */
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
