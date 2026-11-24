@@ -40,6 +40,13 @@ export const UNVOUCHED = "mesh-unvouched";
 export const UNJUDGED = "mesh-unjudged";
 
 /**
+ * The customType of the entry saying the node behind a worker socket
+ * refused a message, the presence or the watch (lib/mesh/worker-link.ts),
+ * shown without a turn so the next one reads it.
+ */
+export const WORKER_REFUSED = "mesh-worker-refused";
+
+/**
  * The most glances one digest spells out. Past it they are counted, so
  * a flood of other peers' news costs a line, not a page; the swarm
  * handed signals over "at most six of a kind".

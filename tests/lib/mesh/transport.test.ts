@@ -66,6 +66,17 @@ describe("the folder transport", () => {
 		expect(readdirSync(join(dir, "messages", WRITING))).toEqual([]);
 	});
 
+	it("stamps each message at the time its id carries, within a millisecond too", () => {
+		const transport = folderTransport(dir);
+
+		const sent = Array.from({ length: 20 }, (_, n) =>
+			transport.send(draft({ text: `${n}` })),
+		);
+
+		for (const one of sent)
+			expect(Date.parse(one.at), one.id).toBe(Number(one.id.split("-")[0]));
+	});
+
 	it("keeps two messages sent in the same millisecond", () => {
 		const transport = folderTransport(dir);
 

@@ -273,6 +273,9 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		// its presence marked ended and its leases released (85PKB2).
 		m.presences.settle();
 		m.board.settle();
+		// Last, so the ended presence above goes to the node before the link
+		// hangs up; the next load, a reload's or another session's, opens its own.
+		m.workerLink?.close();
 		m.peer = undefined;
 		m.hideWants?.();
 		m.hideWants = undefined;
