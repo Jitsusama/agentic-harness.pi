@@ -55,7 +55,9 @@ export function questTempArgs(
  * `path` as pi's file tools judge it: a path through the session's own
  * link as the path in its scratch it leads to, since the runtime folder
  * is otherwise closed to them. The link itself stays in the runtime
- * folder, so replacing it is refused as writing there is.
+ * folder, so replacing it is refused as writing there is. This reads
+ * the name alone, never where the link leads, so it is safe only beside
+ * a check of the path's real place, as the file tools' refusal makes.
  */
 export function pastQuestTempLink(
 	path: string,

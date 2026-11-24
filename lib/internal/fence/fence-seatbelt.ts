@@ -199,8 +199,6 @@ const UNSAID: Readonly<Record<string, number>> = {
 	"--proc": 1,
 	"--perms": 1,
 	"--dev-bind": 2,
-	// A quest's TMPDIR link, which a Mac's command finds where pi made it.
-	"--symlink": 2,
 };
 
 /**

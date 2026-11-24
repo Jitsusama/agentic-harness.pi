@@ -107,16 +107,24 @@ function inside(child: string, folder: string): boolean {
  * it, the quests' links among them, about once a second for 70 s, and
  * background jobs writing through a link failed until it was remade.
  * And a fenced command may write `/tmp`, so it could plant or swap a
- * link there; the fence lays the runtime folder empty but for this
- * session's own link (fence-quest-temp.ts), which nothing inside writes.
+ * link there. The fence lays each command a runtime folder of its own,
+ * empty but for this session's own link (fence-quest-temp.ts): what a
+ * command plants there dies with it, reaching no other command and not
+ * pi outside.
  */
-function shortLinkRoot(env: NodeJS.ProcessEnv = process.env): string {
+export function shortLinkRoot(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): string {
 	const runtime = env.XDG_RUNTIME_DIR;
-	const linux = process.platform === "linux";
+	const linux = platform === "linux";
 	return linux && runtime && isPrivateFolder(runtime) ? runtime : systemTemp();
 }
 
-/** Whether `folder` is a folder of this account's that no other may reach. */
+/**
+ * Whether `folder` is a folder of this account's that no other may reach:
+ * itself, not a link to one, whose target could change under it.
+ */
 function isPrivateFolder(folder: string): boolean {
 	try {
 		const stat = lstatSync(folder);
@@ -246,7 +254,11 @@ export function questTempDir(
 	const link = path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`);
 	try {
 		const made = linkTo(link, tmp);
-		if (made) return made;
+		if (made) {
+			// Made again, so a later failure is a new one, and said.
+			saidUnlinked.delete(link);
+			return made;
+		}
 		sayUnlinked(link, tmp, "something not our link sits there");
 	} catch (error) {
 		// A temp directory we cannot write a link into still leaves the
@@ -256,7 +268,7 @@ export function questTempDir(
 	return tmp;
 }
 
-/** The links already said to be unmade, so each is said once a process. */
+/** The links said to be unmade since each was last made, so each failure is said once. */
 const saidUnlinked = new Set<string>();
 
 /**

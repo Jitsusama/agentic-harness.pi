@@ -4,6 +4,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -21,6 +22,7 @@ import {
 	dropTempLink,
 	questCommandEnvironment,
 	questTempDir,
+	shortLinkRoot,
 	TEMP_LINK_PREFIX,
 } from "../../../../extensions/quest-workflow/scratch.ts";
 import { removeQuestWorkspace } from "../../../../lib/core/internal/quest/workspace.ts";
@@ -100,9 +102,14 @@ describe("a quest's TMPDIR", () => {
 	});
 
 	it("never replaces a file that is not a link, and uses tmp/ itself", () => {
-		writeFileSync(join(links, `${TEMP_LINK_PREFIX}${QUEST}`), "somebody's");
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			writeFileSync(join(links, `${TEMP_LINK_PREFIX}${QUEST}`), "somebody's");
 
-		expect(questTempDir(workspaces, QUEST, links)).toBe(tmpOf());
+			expect(questTempDir(workspaces, QUEST, links)).toBe(tmpOf());
+		} finally {
+			said.mockRestore();
+		}
 	});
 
 	it("says once that it is tmp/ itself, so a link that can't be made is seen", () => {
@@ -118,6 +125,38 @@ describe("a quest's TMPDIR", () => {
 				.filter((line) => line.includes("couldn't be made"));
 			expect(lines).toHaveLength(1);
 			expect(lines[0]).toContain(tmpOf());
+		} finally {
+			said.mockRestore();
+		}
+	});
+
+	// F13 and F17 on #2125: once for each link, and again for a failure
+	// after the link was made, so a passing race can't hide a lasting one.
+	it("says each link's failure once, and a failure after it was made again", () => {
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			const link = join(links, `${TEMP_LINK_PREFIX}${QUEST}`);
+			const others = join(root, "u");
+			mkdirSync(others);
+			writeFileSync(link, "somebody's");
+			writeFileSync(join(others, `${TEMP_LINK_PREFIX}${QUEST}`), "theirs");
+
+			questTempDir(workspaces, QUEST, links);
+			questTempDir(workspaces, QUEST, others);
+			rmSync(link);
+			questTempDir(workspaces, QUEST, links);
+			rmSync(link);
+			writeFileSync(link, "somebody's again");
+			questTempDir(workspaces, QUEST, links);
+
+			const lines = said.mock.calls
+				.map(([line]) => String(line))
+				.filter((line) => line.includes("couldn't be made"));
+			expect(lines.map((line) => line.includes(others))).toEqual([
+				false,
+				true,
+				false,
+			]);
 		} finally {
 			said.mockRestore();
 		}
@@ -164,6 +203,61 @@ describe("where a quest's TMPDIR link lies", () => {
 
 			expect(env?.TMPDIR).toBe(link);
 			expect(readlinkSync(link)).toBe(tmpOf());
+		},
+	);
+
+	// F7 on #2125: a Mac's seatbelt closes its runtime folder whole, so a
+	// TMPDIR there would leave its fenced commands with none.
+	it("is the system temp directory on a Mac, even beside a private runtime folder", () => {
+		const runtime = join(root, "run");
+		mkdirSync(runtime, { mode: 0o700 });
+
+		expect(shortLinkRoot({ XDG_RUNTIME_DIR: runtime }, "linux")).toBe(runtime);
+		expect(shortLinkRoot({ XDG_RUNTIME_DIR: runtime }, "darwin")).toBe("/tmp");
+	});
+
+	// F4 and F9 on #2125: each of the privacy check's conditions.
+	it("is the system temp directory when the runtime folder is a link, group-readable or unset", () => {
+		const runtime = join(root, "run");
+		mkdirSync(runtime, { mode: 0o700 });
+		const linked = join(root, "run-link");
+		symlinkSync(runtime, linked);
+		const shared = join(root, "run-group");
+		mkdirSync(shared);
+		chmodSync(shared, 0o750);
+
+		expect(shortLinkRoot({ XDG_RUNTIME_DIR: linked }, "linux")).toBe("/tmp");
+		expect(shortLinkRoot({ XDG_RUNTIME_DIR: shared }, "linux")).toBe("/tmp");
+		expect(shortLinkRoot({}, "linux")).toBe("/tmp");
+		expect(
+			shortLinkRoot({ XDG_RUNTIME_DIR: join(root, "gone") }, "linux"),
+		).toBe("/tmp");
+	});
+
+	// F3 and F8 on #2125: conclude calls it with no roots, and an older
+	// session's link still lies in /tmp.
+	it.skipIf(process.platform !== "linux")(
+		"is taken away from the runtime folder and from /tmp at conclude, and only its own",
+		() => {
+			const runtime = join(root, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			const own = process.pid.toString(36).toUpperCase().padStart(6, "0");
+			const quest = `QEST-20260102-${own.slice(-6)}`;
+			const other = `QEST-20260103-${own.slice(-6)}`;
+			const made = questTempDir(workspaces, quest) ?? "";
+			const kept = questTempDir(workspaces, other) ?? "";
+			const older = join("/tmp", `${TEMP_LINK_PREFIX}${quest}`);
+			symlinkSync(join(workspaces, quest, "tmp"), older);
+			try {
+				dropTempLink(quest);
+
+				expect(existsSync(made), `${made} is gone`).toBe(false);
+				expect(existsSync(older), `${older} is gone`).toBe(false);
+				expect(readlinkSync(kept)).toBe(join(workspaces, other, "tmp"));
+			} finally {
+				rmSync(older, { force: true });
+			}
 		},
 	);
 
