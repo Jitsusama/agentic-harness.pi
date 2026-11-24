@@ -3,9 +3,10 @@
  * rollover would keep, through pi's own session manager, while its file,
  * its id and everything that reads the whole log stay as they were.
  *
- * Long because every case here builds its log with the one compacted-log
- * builder and holds it through the same helpers, so splitting it would
- * only move those helpers into a fixture each part imports.
+ * Long because every case here writes its log through the same helpers
+ * (the compacted-log builder, or the exchanges it is built from) and
+ * reads it back through the same readers, so splitting it would only
+ * move those helpers into a fixture each part imports.
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -477,10 +478,13 @@ describe("a held conversation and its whole log", () => {
 		expect(whole).toBeCloseTo(4.5);
 	});
 
-	it.each<[string, LogShape]>([
+	// Each shape of kept entry, a costed answer just before the kept turns.
+	const COSTED_BEFORE: [string, LogShape][] = [
 		["the kept entry a message", { before: "answer" }],
 		["the kept entry an answer", { before: "answer", keepFrom: "assistant" }],
-	])(
+	];
+
+	it.each(COSTED_BEFORE)(
 		"keeps the spend once when the entry before the kept turns is a costed answer, %s",
 		(_, shape) => {
 			const file = compactedLog(shape);
@@ -490,10 +494,7 @@ describe("a held conversation and its whole log", () => {
 		},
 	);
 
-	it.each<[string, LogShape]>([
-		["the kept entry a message", { before: "answer" }],
-		["the kept entry an answer", { before: "answer", keepFrom: "assistant" }],
-	])(
+	it.each(COSTED_BEFORE)(
 		"keeps pi's usage totals once when the entry before the kept turns is a costed answer, %s",
 		async (_, shape) => {
 			const breakdown = await pisBreakdown();
