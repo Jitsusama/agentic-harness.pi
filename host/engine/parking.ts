@@ -39,15 +39,15 @@
  * at once, while the drain itself stays for the gap: one woken parks
  * again as soon as it is idle. As the restart comes, or the host stops,
  * they are held again, so one written then waits for the next host.
+ *
+ * A wake file is read and removed off the thread, as a wake lands at any
+ * moment on the loop every conversation the host serves shares. So
+ * whether one waits while held is known only once its read comes back:
+ * the count `letThrough` answers is of the wakes and steers seen held,
+ * and a wake written but not yet seen is still woken as it lifts.
  */
-import {
-	existsSync,
-	type FSWatcher,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	watch,
-} from "node:fs";
+import { type FSWatcher, mkdirSync, rmSync, watch } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	clearRefusedWake,
@@ -70,12 +70,17 @@ import {
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
 
-/** What a wake file holds, or nothing where it went before it was read. */
-function readWritten(file: string): string {
+/**
+ * What a wake file holds, read off the thread: nothing where there is
+ * none, and an empty write where it is there but can't be read, since
+ * anything written wakes.
+ */
+async function readWritten(file: string): Promise<string | undefined> {
 	try {
-		return readFileSync(file, "utf8");
-	} catch {
-		// Gone between its event and this read: a wake that names no message.
+		return await readFile(file, "utf8");
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT")
+			return undefined;
 		return "";
 	}
 }
@@ -172,7 +177,13 @@ interface Sleeper {
 	/** A steer's wake is asked and not yet settled. */
 	waking?: boolean;
 	/** Look at its wake file again, waking it for one written, and say whether it did. */
-	woken?: () => boolean;
+	woken?: () => Promise<boolean>;
+	/** Its wake file was last seen written while its wake was held. */
+	wakeHeld?: boolean;
+	/** A look at its wake file under way, which a second stir waits behind. */
+	looking?: Promise<boolean>;
+	/** It stirred during a look, so it looks again once that ends. */
+	stirred?: boolean;
 	/** Wake it for this steer. */
 	steered?: (steer: string) => void;
 	/** A steer that landed while the host held its wakes. */
@@ -318,15 +329,52 @@ export function parking(options: {
 					report(unkept);
 				}
 			});
-		// Whether it asked a wake, so a release asks no second for a held steer.
-		const woken = (): boolean => {
-			const watching = sleepers.get(sessionId);
-			if (!watching || !existsSync(file) || holding(sessionId)) return false;
-			const messageId = wakeAskedBy(readWritten(file));
-			rmSync(file, { force: true });
+		// Whether it asked a wake, so a release asks no second for a held
+		// steer. `holding` is asked only once a wake is there, so it says one
+		// landed, as a steer's does.
+		const lookAt = async (watching: Sleeper): Promise<boolean> => {
+			const written = await readWritten(file);
+			if (sleepers.get(sessionId) !== watching) return false;
+			if (written === undefined || holding(sessionId)) {
+				watching.wakeHeld = written !== undefined;
+				return false;
+			}
+			watching.wakeHeld = false;
+			try {
+				await rm(file, { force: true });
+			} catch (error) {
+				// Asked all the same: a wake left on disk wakes it again at most.
+				report(error);
+			}
+			// Resumed or closed meanwhile, it needs no wake.
+			if (sleepers.get(sessionId) !== watching) return false;
 			watching.heldSteer = undefined;
-			void ask(watching, messageId);
+			void ask(watching, wakeAskedBy(written));
 			return true;
+		};
+		// One look at a time, so a wake's several events ask it once; one
+		// stirring during a look looks again once it ends, for a wake written
+		// after that look's read.
+		const woken = (): Promise<boolean> => {
+			const watching = sleepers.get(sessionId);
+			if (!watching) return Promise.resolve(false);
+			if (watching.looking) {
+				watching.stirred = true;
+				return watching.looking;
+			}
+			const looking = lookAt(watching)
+				.catch((error: unknown) => {
+					report(error);
+					return false;
+				})
+				.finally(() => {
+					watching.looking = undefined;
+					if (!watching.stirred) return;
+					watching.stirred = false;
+					void woken();
+				});
+			watching.looking = looking;
+			return looking;
 		};
 		// A steer landing while its wake is asked would ask the same wake again.
 		const steered = (steer: string) => {
@@ -343,7 +391,7 @@ export function parking(options: {
 			});
 		};
 		const watcher = watch(folderOf(sessionId), (_, name) => {
-			if (name === WAKE_FILE) woken();
+			if (name === WAKE_FILE) void woken();
 		});
 		watcher.unref();
 		watcher.on("error", report);
@@ -355,7 +403,7 @@ export function parking(options: {
 		};
 		sleepers.set(sessionId, sleeper);
 		// One written between its park and this watch.
-		woken();
+		void woken();
 		const steers = options.steers;
 		if (steers && sleepers.get(sessionId) === sleeper)
 			sleeper.steers = watchWakingSteers({
@@ -562,18 +610,23 @@ export function parking(options: {
 		},
 	};
 
-	// Wake each one asked for through its file or a steer while wakes were held, answering how many.
+	/**
+	 * Wake each one asked for through its file or a steer while wakes were
+	 * held, answering how many were seen held. Every wake file is looked at
+	 * again, off the thread, so one written but not yet seen wakes too; a
+	 * held steer is asked only where its file asked no wake.
+	 */
 	function wakeHeld(): number {
 		let woken = 0;
 		for (const sleeper of [...sleepers.values()]) {
-			if (sleeper.woken?.()) {
-				woken++;
-				continue;
-			}
 			const steer = sleeper.heldSteer;
-			if (steer === undefined) continue;
-			sleeper.steered?.(steer);
-			woken++;
+			if (sleeper.wakeHeld === true || steer !== undefined) woken++;
+			const looking = sleeper.woken?.() ?? Promise.resolve(false);
+			void looking.then((asked) => {
+				if (asked || steer === undefined) return;
+				if (sleeper.heldSteer !== steer) return;
+				sleeper.steered?.(steer);
+			});
 		}
 		return woken;
 	}

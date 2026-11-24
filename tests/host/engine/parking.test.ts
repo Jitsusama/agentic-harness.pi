@@ -1,5 +1,10 @@
-/** Parking a conversation: a park under way can be waited on, and a wake says how it went. */
-import { spawn } from "node:child_process";
+/**
+ * Parking a conversation: a park under way can be waited on, and a wake
+ * says how it went. Long because parking's one contract, `parking()`,
+ * holds its wakes, steers, drain and carried calls together, and each
+ * case drives that one module through a real wake folder.
+ */
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -218,6 +223,57 @@ describe("parking a conversation", () => {
 		expect(stop, "nothing parked again: it already was").not.toHaveBeenCalled();
 		parked.unwatch("a");
 		parked.unwatch("b");
+	});
+
+	// A wake lands on the loop every conversation the host serves shares,
+	// and on 23 November an open of one held that loop 5 s. A wake file
+	// that is a pipe nobody writes for 2 s stands in for a slow disk.
+	it("reads a wake off the thread, so a slow read holds nothing else up", async () => {
+		const asking = vi.fn((_sessionId: string) => Promise.resolve());
+		const { parked } = held(asking);
+		await mkdir(join(dir, "a"), { recursive: true });
+		const wake = parked.wakeFile("a");
+		expect(spawnSync("mkfifo", [wake]).status, "a pipe made").toBe(0);
+		const writer = spawn("sh", [
+			"-c",
+			'sleep 2; printf message > "$1"',
+			"sh",
+			wake,
+		]);
+		const written = new Promise((resolve) => writer.on("exit", resolve));
+
+		const from = performance.now();
+		parked.rests("a");
+		// A tick of 20 ms comes back long before the pipe is written.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(
+			performance.now() - from,
+			"the loop went on while the wake was read",
+		).toBeLessThan(1000);
+
+		await written;
+		await until("the wake to be asked", () => asking.mock.calls.length > 0);
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		parked.unwatch("a");
+	});
+
+	it("wakes for a wake it can neither read nor remove, saying why", async () => {
+		const asking = vi.fn((_sessionId: string) => Promise.resolve());
+		const { parked, report, letStop } = held(asking);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+
+		// A folder where the file goes: it reads as nothing, and won't go.
+		await mkdir(parked.wakeFile("a"));
+
+		await until("the wake to be asked", () => asking.mock.calls.length > 0);
+		expect(asking, "anything there wakes it").toHaveBeenCalledWith("a");
+		expect(report, "why it stays").toHaveBeenCalledWith(
+			expect.objectContaining({ code: expect.stringMatching(/EISDIR/) }),
+		);
+		parked.unwatch("a");
 	});
 
 	it("keeps a refused wake's message and why beside its wake file, until it runs", async () => {
