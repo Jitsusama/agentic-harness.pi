@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	carryProposed,
 	keepProposed,
 	keptProposed,
-	MOST_KEPT,
 	opensOneOf,
 	ownChangesBeside,
 	proposedIn,
@@ -62,6 +62,26 @@ describe("a session's own changes", () => {
 		expect(opensOneOf(`${PR}3.diff`, [PR])).toBe(false);
 		expect(opensOneOf(PR, [`${PR}.diff`])).toBe(true);
 	});
+
+	it("reads Graphite's view and GitHub's issue path of a pull request as the pull request", () => {
+		const views = [
+			"https://app.graphite.com/github/pr/Jitsusama/agentic-harness.pi/12",
+			"https://app.graphite.dev/github/pr/jitsusama/agentic-harness.pi/12/files",
+			"https://github.com/Jitsusama/agentic-harness.pi/issues/12",
+		];
+		for (const target of views) expect(opensOneOf(target, [PR])).toBe(true);
+		expect(
+			opensOneOf(
+				"https://app.graphite.com/github/pr/Jitsusama/agentic-harness.pi/123",
+				[PR],
+			),
+		).toBe(false);
+		expect(
+			opensOneOf(PR, [
+				"https://app.graphite.com/github/pr/Jitsusama/agentic-harness.pi/12",
+			]),
+		).toBe(true);
+	});
 });
 
 describe("the record of what a quest proposed", () => {
@@ -83,36 +103,50 @@ describe("the record of what a quest proposed", () => {
 		keepProposed(dir, "QEST-1", [`${PR}/`, `${PR}3`]);
 		keepProposed(dir, "0193-session", ["https://github.com/o/r/pull/9"]);
 
-		expect(keptProposed(dir, ["QEST-1"])).toEqual([PR, `${PR}3`]);
+		expect(keptProposed(dir, ["QEST-1"]).sort()).toEqual([PR, `${PR}3`]);
 		expect(keptProposed(dir, [undefined, "0193-session"])).toEqual([
 			"https://github.com/o/r/pull/9",
 		]);
 		expect(keptProposed(dir, ["QEST-2", ""])).toEqual([]);
 	});
 
-	it("keeps the newest, and an owner's id never names a file outside the folder", () => {
+	it("keeps every change, and an owner's id never names a folder outside the record", () => {
 		const dir = records();
 		const many = Array.from(
-			{ length: MOST_KEPT + 5 },
+			{ length: 250 },
 			(_, at) => `https://github.com/o/r/pull/${at}`,
 		);
 		keepProposed(dir, "../away", many);
 
-		const kept = keptProposed(dir, ["../away"]);
-		expect(kept).toHaveLength(MOST_KEPT);
-		expect(kept.at(-1)).toBe(many.at(-1));
-		expect(readdirSync(dir).filter((name) => name.endsWith(".json"))).toEqual([
-			"___away.json",
-		]);
+		expect(keptProposed(dir, ["../away"]).sort()).toEqual([...many].sort());
+		expect(readdirSync(dir)).toEqual(["___away"]);
 	});
 
-	it("reads a torn record as nothing, and the next proposal rewrites it", () => {
+	// Two sessions of one quest proposing at once each write files of
+	// their own, so neither rewrites what the other kept.
+	it("keeps what two writers kept at once, and a torn file loses only its own change", () => {
 		const dir = records();
 		keepProposed(dir, "QEST-1", [PR]);
-		writeFileSync(join(dir, "QEST-1.json"), "{torn");
-		expect(keptProposed(dir, ["QEST-1"])).toEqual([]);
-
 		keepProposed(dir, "QEST-1", [`${PR}3`]);
-		expect(keptProposed(dir, ["QEST-1"])).toEqual([`${PR}3`]);
+		const folder = join(dir, "QEST-1");
+		const [first] = readdirSync(folder).filter((name) =>
+			name.endsWith(".json"),
+		);
+		writeFileSync(join(folder, first ?? "none.json"), "{torn");
+
+		expect(keptProposed(dir, ["QEST-1"])).toHaveLength(1);
+		keepProposed(dir, "QEST-1", [PR, `${PR}3`]);
+		expect(keptProposed(dir, ["QEST-1"]).sort()).toEqual([PR, `${PR}3`]);
+	});
+
+	it("carries a session's record to the id its rollover took, past a chain of them", () => {
+		const dir = records();
+		keepProposed(dir, "0193-first", [PR]);
+		carryProposed(dir, "0193-first", "0193-second");
+		carryProposed(dir, "0193-second", "0193-third");
+		carryProposed(dir, "0193-nobody", "0193-fourth");
+
+		expect(keptProposed(dir, ["0193-third"])).toEqual([PR]);
+		expect(keptProposed(dir, ["0193-fourth"])).toEqual([]);
 	});
 });

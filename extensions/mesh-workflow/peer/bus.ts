@@ -30,6 +30,7 @@ import {
 import { onWants } from "../../../lib/internal/session/wants.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
+	carryProposed,
 	keepProposed,
 	ownChangesBeside,
 } from "../../../lib/mesh/looks/own-changes.ts";
@@ -47,18 +48,53 @@ import type { Handing } from "./handing.ts";
 import { endLooksOfQuests, resolveLooksAt } from "./looks.ts";
 import { ledBy, type MeshState } from "./mesh.ts";
 
+/** The message a session is told its own changes went unkept with. */
+const OWN_CHANGES_UNKEPT = "mesh-own-changes-unkept";
+
 /**
- * Keep `urls` as proposed under this session's quest, or the session
- * where it has none. A record that can't be written is left: the log's
- * review_offer answer still names them for this session.
+ * Keep `urls` as proposed under this session's quest, and under the
+ * session itself, so a quest's other sessions are refused them and the
+ * session still is when its quest's README can't be read; held until
+ * the peer is made, as its landings are. A record that can't be written
+ * is said once in the session's own words, since the guard is then only
+ * as good as the log: a codemode proposal or a rollover slips past it.
  */
-function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
-	if (!(m.paths.looks && m.peer)) return;
-	const owner = m.presences.of(m.peer.session)?.quest ?? m.peer.session;
+export function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
+	if (!m.paths.looks) return;
+	if (!m.peer) {
+		m.unproposed.push(...urls);
+		return;
+	}
+	const dir = ownChangesBeside(m.paths.looks);
+	const quest = m.presences.of(m.peer.session)?.quest;
 	try {
-		keepProposed(ownChangesBeside(m.paths.looks), owner, urls);
+		if (quest) keepProposed(dir, quest, urls);
+		keepProposed(dir, m.peer.session, urls);
+	} catch (error) {
+		m.pi.sendMessage({
+			customType: OWN_CHANGES_UNKEPT,
+			content: `The record of what this session proposed could not be written (${error instanceof Error ? error.message : String(error)}), so show_person refuses only what this session's log names: never point the person at ${urls.join(", ")}.`,
+			display: true,
+		});
+	}
+}
+
+/**
+ * Carry what a session kept as proposed under its own id to the fresh
+ * log a rollover made of it, under its new id. A record that can't be
+ * carried is left: its quest's record still holds it for a quest's
+ * session, and the guard falls back to the log for the rest.
+ */
+export function carryOwnChanges(
+	m: MeshState,
+	previous: string,
+	session: string,
+): void {
+	if (!m.paths.looks) return;
+	try {
+		carryProposed(ownChangesBeside(m.paths.looks), previous, session);
 	} catch {
-		// Said in the doc comment: the log still holds what was proposed.
+		// Said in the doc comment: the quest's record and the log remain.
 	}
 }
 

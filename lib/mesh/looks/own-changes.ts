@@ -12,9 +12,14 @@
  * rollover, a /tree or a fork; the record is not, and it also holds what
  * the quest's other sessions proposed, and what a codemode script
  * proposed through review_offer, whose answer never reaches the log.
+ *
+ * A record is a folder per owner holding a file per change, each
+ * written whole and never rewritten, so two sessions of one quest
+ * proposing at once both keep theirs, and a torn file loses only itself.
  */
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isRecord } from "../../internal/record.ts";
 import { writeWhole } from "../../internal/write-whole.ts";
@@ -22,10 +27,7 @@ import { writeWhole } from "../../internal/write-whole.ts";
 /** The tool a session proposes its changes with. */
 const PROPOSING_TOOL = "review_offer";
 
-/** How many of an owner's proposals its record keeps, newest last. */
-export const MOST_KEPT = 200;
-
-/** The version of a record's shape. */
+/** The version of a kept change's shape. */
 const RECORD_VERSION = 1;
 
 /**
@@ -57,14 +59,25 @@ export function proposedIn(entries: readonly unknown[]): string[] {
  * A change's URL as compared: one case, https, no `www.`, no query,
  * fragment or trailing slash, and a GitHub pull request's `.diff` or
  * `.patch` read as the pull request. GitHub reads owners and names in
- * any case, so a differently spelled URL opens the same change.
+ * any case, so a differently spelled URL opens the same change; it
+ * sends `/issues/N` of a pull request to the pull request, and
+ * Graphite's view of one is the same change (the GitHub provider's
+ * claims read it so).
  */
-export function changeKey(url: string): string {
+export function proposedKey(url: string): string {
 	return url
 		.trim()
 		.toLowerCase()
 		.replace(/^http:\/\//, "https://")
 		.replace(/^https:\/\/www\./, "https://")
+		.replace(
+			/^https:\/\/app\.graphite\.(?:com|dev)\/github\/pr\/([^/]+)\/([^/]+)\/(\d+)/,
+			"https://github.com/$1/$2/pull/$3",
+		)
+		.replace(
+			/^(https:\/\/github\.com\/[^/]+\/[^/]+)\/issues\/(\d+)/,
+			"$1/pull/$2",
+		)
 		.replace(/[?#].*$/, "")
 		.replace(/\/+$/, "")
 		.replace(/(\/pull\/\d+)\.(?:diff|patch)$/, "$1");
@@ -79,9 +92,9 @@ export function opensOneOf(
 	target: string,
 	proposed: readonly string[],
 ): boolean {
-	const opened = changeKey(target);
+	const opened = proposedKey(target);
 	return proposed.some((url) => {
-		const change = changeKey(url);
+		const change = proposedKey(url);
 		if (change === "") return false;
 		return opened === change || opened.startsWith(`${change}/`);
 	});
@@ -92,36 +105,46 @@ export function ownChangesBeside(looks: string): string {
 	return join(dirname(looks), "own-changes");
 }
 
-/** The file an owner's record is kept in: a quest's id or a session's. */
-function recordFile(dir: string, owner: string): string {
-	return join(dir, `${owner.replace(/[^\w-]/g, "_")}.json`);
+/** The folder an owner's record is kept in: a quest's id or a session's. */
+function ownerFolder(dir: string, owner: string): string {
+	return join(dir, owner.replace(/[^\w-]/g, "_"));
 }
 
-/** What an owner's record holds, or nothing where none is kept or it is torn. */
-function readKept(file: string): string[] {
-	let text: string;
+/** The file one change is kept in, named by its key, so it is kept once. */
+function changeFile(key: string): string {
+	return `${createHash("sha256").update(key).digest("hex").slice(0, 32)}.json`;
+}
+
+/** The kept change a file holds, or nothing where it is torn. */
+function readChange(file: string): string | undefined {
+	let parsed: unknown;
 	try {
-		text = readFileSync(file, "utf8");
+		parsed = JSON.parse(readFileSync(file, "utf8"));
+	} catch {
+		// Gone or torn: a file is written whole, so only a write that never
+		// finished is torn, and it loses only its own change.
+		return undefined;
+	}
+	if (!isRecord(parsed) || typeof parsed.url !== "string") return undefined;
+	return parsed.url === "" ? undefined : parsed.url;
+}
+
+/** The files of an owner's record, or none where it keeps nothing yet. */
+function changeFiles(folder: string): string[] {
+	try {
+		return readdirSync(folder)
+			.filter((name) => name.endsWith(".json"))
+			.sort();
 	} catch {
 		// No record yet: nothing proposed under this owner.
 		return [];
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		// A torn record holds nothing to go by; the next proposal rewrites it.
-		return [];
-	}
-	if (!isRecord(parsed) || !Array.isArray(parsed.urls)) return [];
-	return parsed.urls.filter(
-		(url): url is string => typeof url === "string" && url !== "",
-	);
 }
 
 /**
- * Keep `urls` as proposed under `owner`, beside what it already holds,
- * the newest {@link MOST_KEPT}. Nothing when `owner` is empty.
+ * Keep `urls` as proposed under `owner`, a file a change, beside what
+ * it already holds, each as first spelled: one kept whole already is
+ * left as it is. Nothing when `owner` is empty.
  */
 export function keepProposed(
 	dir: string,
@@ -129,19 +152,34 @@ export function keepProposed(
 	urls: readonly string[],
 ): void {
 	if (owner.trim() === "" || urls.length === 0) return;
-	const file = recordFile(dir, owner);
-	const kept = readKept(file);
-	const known = new Set(kept.map(changeKey));
+	const folder = ownerFolder(dir, owner);
 	for (const url of urls) {
-		const key = changeKey(url);
-		if (key === "" || known.has(key)) continue;
-		known.add(key);
-		kept.push(url.trim());
+		const key = proposedKey(url);
+		if (key === "") continue;
+		const file = join(folder, changeFile(key));
+		if (readChange(file) !== undefined) continue;
+		writeWhole(
+			file,
+			`${JSON.stringify({ v: RECORD_VERSION, url: url.trim() })}\n`,
+		);
 	}
-	writeWhole(
-		file,
-		`${JSON.stringify({ v: RECORD_VERSION, urls: kept.slice(-MOST_KEPT) })}\n`,
-	);
+}
+
+/**
+ * Carry what `from` kept to `to`, as a session rolled over into a
+ * fresh log under a new id carries on as the same peer: a session with
+ * no quest keeps its record under its own id, which the rollover
+ * replaces. Each rollover carries it on, so a chain of them keeps it.
+ */
+export function carryProposed(dir: string, from: string, to: string): void {
+	if (from.trim() === "" || to.trim() === "" || from === to) return;
+	const source = ownerFolder(dir, from);
+	const names = changeFiles(source);
+	if (names.length === 0) return;
+	const target = ownerFolder(dir, to);
+	mkdirSync(target, { recursive: true });
+	for (const name of names)
+		copyFileSync(join(source, name), join(target, name));
 }
 
 /** The URLs kept as proposed under any of `owners`. */
@@ -151,9 +189,14 @@ export function keptProposed(
 ): string[] {
 	return owners
 		.filter((owner): owner is string => !!owner && owner.trim() !== "")
-		.flatMap((owner) => readKept(recordFile(dir, owner)));
+		.flatMap((owner) => {
+			const folder = ownerFolder(dir, owner);
+			return changeFiles(folder).flatMap(
+				(name) => readChange(join(folder, name)) ?? [],
+			);
+		});
 }
 
 /** What a session is told when it points the person at its own change. */
 export const OWN_CHANGE_REFUSED =
-	"This session or its quest proposed that change, and the person reviews no change his sessions put up (Joel, 24 November: review it yourself, take it out of draft and ask for review when you are comfortable with it). Have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer; what only he can decide goes to him as a question, through mesh_send to person.";
+	"This session or its quest proposed that change, and the person reviews no change his sessions put up (Joel, 24 November: review it yourself, take it out of draft and ask for review when you are comfortable with it). Have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer; what only he can decide goes to him as a question, through mesh_send to person, saying what to decide in words rather than asking anyone to put the change on his look list.";
