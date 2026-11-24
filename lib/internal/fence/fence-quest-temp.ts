@@ -37,9 +37,11 @@ export function questTempLink(
 
 /**
  * bubblewrap's arguments for the link, made in the fence's own runtime
- * folder, which no command inside can write: so none can plant another
- * quest's link in its place, as `/tmp` let one. Nothing for a session on
- * no quest, which has no link.
+ * folder. A command inside may write that folder, but it is a tmpfs of
+ * that command's own, seen by nothing outside, so a link swapped there
+ * reaches no other command, as one swapped in `/tmp` did; and pi's file
+ * tools map the link by its name, never following it. Nothing for a
+ * session on no quest, which has no link.
  */
 export function questTempArgs(
 	runtimeDir: string,
