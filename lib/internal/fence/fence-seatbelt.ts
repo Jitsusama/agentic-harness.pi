@@ -66,9 +66,10 @@ export const MACH_ALLOWED = [
  * the keychains, 1Password's group container, browsers' profiles and
  * cookies, Mail and Messages, and gh's and op's settings. A terminal
  * may hold Full Disk Access, which a command it runs inherits, so
- * macOS's own privacy prompts are no guard (ISXEG8, 16 November).
+ * macOS's own privacy prompts are no guard (ISXEG8, 16 November). pi's
+ * own file tools are kept from them too (`../sandbox/sandbox-files.ts`).
  */
-export const MAC_HIDDEN = [
+export const MAC_SECRETS = [
 	"Library/Keychains",
 	"Library/Group Containers/2BUA8C4S2C.com.1password",
 	"Library/Application Support/1Password",
@@ -81,12 +82,22 @@ export const MAC_HIDDEN = [
 	"Library/Messages",
 	".config/gh",
 	".config/op",
-	// Every realm's messages, steers and sessions, which a run's output
-	// would carry to whoever asked it (ISXEG8, 16 November).
+] as const;
+
+/**
+ * Every realm's messages, steers and sessions, which a run's output
+ * would carry to whoever asked it (ISXEG8, 16 November). pi's own file
+ * tools still read them, as on Linux, since pi points the model at its
+ * own files there: a web page's capture, a session's log.
+ */
+const MAC_PI_STATE = [
 	".local/state/pi",
 	".pi/agent",
 	".local/state/mycelium",
 ] as const;
+
+/** What the profile hides in the home folder: the Mac's secrets and pi's state. */
+export const MAC_HIDDEN = [...MAC_SECRETS, ...MAC_PI_STATE] as const;
 
 /**
  * What in the home folder runs later as the person, kept from writes

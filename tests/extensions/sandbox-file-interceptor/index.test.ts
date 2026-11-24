@@ -185,6 +185,78 @@ describe("a fenced session's reads of a hidden key", () => {
 	});
 });
 
+describe("a fenced session's file tools on a Mac", () => {
+	// Until 24 November they kept only to Linux's lists there, so a read
+	// of the keychains or a write to a launch agent, which the seatbelt
+	// refuses every command, went through pi's own process.
+	const fence = { PI_SANDBOX: "fence" };
+	const onMac = (toolName: string, input: unknown, mac = true) =>
+		fileToolRefusal({ toolName, input }, { cwd: work, env: fence, home, mac });
+
+	it("read none of the Mac's own secrets, however their names are cased", () => {
+		mkdirSync(join(home, "Library/Keychains"), { recursive: true });
+		writeFileSync(join(home, "Library/Keychains/login.keychain-db"), "k\n");
+		for (const path of [
+			"~/Library/Keychains/login.keychain-db",
+			"~/library/KEYCHAINS/login.keychain-db",
+			"~/.config/gh/hosts.yml",
+			"~/.CONFIG/GH/hosts.yml",
+		]) {
+			expect(onMac("read", { path }), path).toContain("the Mac's own secrets");
+		}
+		expect(onMac("ls", { path: "~/Library/Keychains" })).toContain(
+			"secret_run",
+		);
+		symlinkSync(join(home, "library/keychains"), join(work, "keys"));
+		expect(onMac("read", { path: "keys/login.keychain-db" })).toContain(
+			"the Mac's own secrets",
+		);
+	});
+
+	it("read what runs later as the person, but never write it", () => {
+		mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+		const agent = "~/Library/LaunchAgents/a.plist";
+		expect(onMac("read", { path: agent })).toBeUndefined();
+		for (const path of [agent, "~/library/launchagents/a.plist"]) {
+			expect(onMac("write", { path, content: "x" }), path).toContain(
+				"read-only, as its commands' seatbelt does",
+			);
+		}
+		expect(
+			onMac("write", { path: "/opt/homebrew/bin/git", content: "x" }),
+		).toContain("Homebrew");
+	});
+
+	it("hold Linux's lists however a name is cased, as the volume opens it", () => {
+		expect(onMac("read", { path: "~/.NPMRC" })).toContain(
+			"reads ~/.npmrc without its tokens",
+		);
+		expect(onMac("write", { path: "~/.ZSHRC", content: "x" })).toContain(
+			"startup files",
+		);
+		// A case-sensitive volume opens another file, which is no secret.
+		expect(onMac("read", { path: "~/.NPMRC" }, false)).toBeUndefined();
+	});
+
+	it("read and write the work, and read pi's own state, as on Linux", () => {
+		mkdirSync(join(home, ".local/state/pi/web"), { recursive: true });
+		writeFileSync(join(home, ".local/state/pi/web/page.md"), "page\n");
+		expect(onMac("read", { path: "notes.md" })).toBeUndefined();
+		expect(
+			onMac("write", { path: "notes.md", content: "x" }),
+		).toBeUndefined();
+		expect(
+			onMac("read", { path: "~/.local/state/pi/web/page.md" }),
+		).toBeUndefined();
+	});
+
+	it("keep to Linux's lists alone off a Mac", () => {
+		expect(
+			onMac("read", { path: "~/Library/Keychains/login.keychain-db" }, false),
+		).toBeUndefined();
+	});
+});
+
 describe("a strict session's writes", () => {
 	it("reach the work, a file not yet made among them", () => {
 		expect(refusal("write", { path: "new/deeper/file.md" })).toBeUndefined();

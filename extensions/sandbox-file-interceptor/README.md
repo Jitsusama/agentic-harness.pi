@@ -62,6 +62,17 @@ the work open and the desktop closed, and pi's file tools follow it:
   holds the clipboard's pictures and the desktop's sockets.
 - **Every link** is followed as above, so a link made in the work
   leads nowhere the fence refuses.
+- **On a Mac** they also keep to what the fence's seatbelt closes to
+  every command: the Mac's own secrets (the keychains, 1Password's,
+  the browsers' profiles and cookies, Mail, Messages, and gh's and
+  op's settings) are refused both ways, and what runs later as the
+  person (the launch agents, preferences, services, scripts, apps'
+  containers, the apps, Homebrew and `/usr/local`) is refused for
+  writing. The lists are the seatbelt's own, so the tools refuse
+  nothing a command may do. Each path is matched as the volume folds
+  case, so `~/.NPMRC` is `~/.npmrc`. pi's own state, which the
+  seatbelt hides from commands, reads as on Linux, since pi points
+  the model at its own files there.
 
 Everything else, the home folder's hidden entries and the work, reads
 and writes as it did.

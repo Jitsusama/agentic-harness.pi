@@ -96,9 +96,10 @@ export function compiledCode(
  * holding one would grant the file itself. With `hidden`, only what the
  * fence hides, which reading would already hand over: ~/.ssh among them,
  * which the fence empties but for what `FENCE_HIDDEN.sshKept` keeps.
- * Each is spelled as the list spells it; closedHere follows its links.
+ * Each is spelled as the list spells it; closedHere follows its links,
+ * and pi's file tools spell a path the way the list does on a Mac.
  */
-function closedPaths(
+export function closedPaths(
 	home: string,
 	mac: boolean,
 	hidden: boolean,
