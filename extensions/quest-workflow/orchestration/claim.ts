@@ -50,28 +50,28 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { sessionEnv } from "../../lib/core/session/index.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+import { sessionEnv } from "../../../lib/core/session/index.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	orchestrates,
 	questsOrchestratedBy,
-} from "../../lib/internal/quest/fields/orchestration.ts";
+} from "../../../lib/internal/quest/fields/orchestration.ts";
 import {
 	journalCommand,
 	sayInJournal,
-} from "../../lib/internal/session/journal.ts";
-import { isParking, PARKING } from "../../lib/internal/session/park.ts";
-import { nodeSocket, realmOf } from "../../lib/mesh/node.ts";
+} from "../../../lib/internal/session/journal.ts";
+import { isParking, PARKING } from "../../../lib/internal/session/park.ts";
+import { nodeSocket, realmOf } from "../../../lib/mesh/node.ts";
 import {
 	type ClaimPlace,
 	type ClaimTold,
 	type OrchestrationClaim,
 	tellOrchestrates,
-} from "../../lib/mesh/orchestrates.ts";
-import { isOpen } from "./desktop/orchestrators.ts";
-import { endReasonForShutdown } from "./session-registry.ts";
-import type { QuestState } from "./state.ts";
-import { currentSessionId } from "./verbs/shared.ts";
+} from "../../../lib/mesh/orchestrates.ts";
+import { isOpen } from "../desktop/orchestrators.ts";
+import { endReasonForShutdown } from "../session-registry.ts";
+import type { QuestState } from "../state.ts";
+import { currentSessionId } from "../verbs/shared.ts";
 
 /** How often a turn's start looks again, and a failed ask waits to be asked again. */
 export const CLAIM_LOOKED_AGAIN_MS = 5 * 60_000;
@@ -279,6 +279,12 @@ export function claimKeeper(
 	 * so one failing isn't asked again each minute.
 	 */
 	let sentAt: number | undefined;
+	/**
+	 * When a look last came due, sent or not: one that finds nothing to
+	 * send, as a session holding nothing does, starts the period again
+	 * too, so it reads the quests once a period rather than each minute.
+	 */
+	let dueAt: number | undefined;
 	/** Whether the node has answered a claim of this keeper's yet. */
 	let claimAnswered = false;
 	/** The troubles said since the last answer, so one that recurs is said once. */
@@ -468,8 +474,14 @@ export function claimKeeper(
 			} else if (retryAt !== undefined && now() >= retryAt) {
 				retryAt = undefined;
 				look(session, place, true);
-			} else if (now() - (sentAt ?? lookedAt) >= CLAIM_LOOKED_AGAIN_MS)
+			} else if (
+				now() -
+					Math.max(sentAt ?? lookedAt, dueAt ?? Number.NEGATIVE_INFINITY) >=
+				CLAIM_LOOKED_AGAIN_MS
+			) {
+				dueAt = now();
 				look(session, place, true);
+			}
 		},
 		stop() {
 			stopped = true;

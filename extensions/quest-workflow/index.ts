@@ -35,9 +35,12 @@ import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import { budgetWhenCappedSetting, questWorkflowNow } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { settleLaunchedSpawn } from "./launched-spawn.ts";
-import { keepOrchestrationClaimed } from "./orchestration-claim.ts";
+import { keepOrchestrationClaimed } from "./orchestration/claim.ts";
+import {
+	STANDING_RULES,
+	standingRules,
+} from "./orchestration/standing-rules.ts";
 import { questCommandEnvironment } from "./scratch.ts";
-import { STANDING_RULES, standingRules } from "./standing-rules.ts";
 import { createQuestState } from "./state.ts";
 import { watchToolCalls } from "./wiring/calls.ts";
 import { registerQuestCommands } from "./wiring/commands.ts";

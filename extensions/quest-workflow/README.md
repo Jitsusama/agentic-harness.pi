@@ -82,7 +82,7 @@ shipped and tested.
 - **The node's record of an orchestration**: a session with an
   open marked quest loaded tells the mycelium node it heads that
   quest and orchestrates each open quest it is nearest above
-  (`mycelium orchestrates`, `orchestration-claim.ts`), at session
+  (`mycelium orchestrates`, `orchestration/claim.ts`), at session
   start, after each quest action, and at a turn's start once the
   quest changed, or five minutes after it last sent a claim or a forget, by
   a turn or a timer that looks each minute, when it says the claim
