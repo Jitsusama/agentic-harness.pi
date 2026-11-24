@@ -20,6 +20,7 @@ import {
 	createEditNotes,
 	createHeavyCalls,
 	takeHeavyCalls,
+	takeWaitingCalls,
 } from "../leases.ts";
 import { delivered, type MeshState } from "./mesh.ts";
 
@@ -53,7 +54,13 @@ export function watchHeavyWork(m: MeshState) {
 			.catch(() => {});
 
 	// The calls a reload carried over from the runtime before this one.
-	const heavyCalls = createHeavyCalls(heavy, undefined, takeHeavyCalls());
+	for (const [call, job] of takeWaitingCalls()) m.waitingCalls.set(call, job);
+	const heavyCalls = createHeavyCalls(
+		heavy,
+		undefined,
+		takeHeavyCalls(),
+		m.waitingCalls,
+	);
 	const editNotes = createEditNotes();
 
 	// A change claims its file, and a peer reaching for a file another is

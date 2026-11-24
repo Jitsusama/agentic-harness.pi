@@ -35,6 +35,7 @@ import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
 import { moveHolder } from "../../../lib/internal/session/move-waiting.ts";
 import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
+import { findJobHost } from "../../../lib/jobs/host.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
 import { createDamper } from "../../../lib/mesh/damping.ts";
@@ -55,7 +56,7 @@ import { toldIn } from "../../../lib/mesh/told.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
 import type { Settling } from "../acts.ts";
-import { carryThisSession } from "../carrying.ts";
+import { CARRY_NOTE, carryThisSession } from "../carrying.ts";
 import { createGlances } from "../glances.ts";
 import { handOverOf } from "../in-place.ts";
 import { createLeasing, queueKept, type TakenCall } from "../leases.ts";
@@ -124,6 +125,8 @@ export function createState(
 	const unowned: LeaseEvent[] = [];
 	// Bash calls taken up from a restart or a move before it had its leases.
 	const takenUnowned: TakenCall[] = [];
+	// Background jobs judged waits by their whole command (leases/heavy-calls.ts).
+	const waitingCalls = new Map<string, string>();
 	const leasing = createLeasing({
 		board,
 		presences,
@@ -338,6 +341,22 @@ export function createState(
 			if (m.ctx) endConversation(m.ctx, by);
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
+		// Every job still running; the carry names only those that read as
+		// waits, since a fleet or a round is carried rather than stopped, so
+		// only a shell job's label is read when its command wasn't kept.
+		stopping: () => {
+			const waits = new Set(waitingCalls.values());
+			return (findJobHost(pi.events)?.running?.() ?? []).map((job) => ({
+				label: job.label,
+				waits: job.kind === "shell" ? waits.has(job.id) || undefined : false,
+			}));
+		},
+		// Idle, pi writes it into the log at once, so the log carries it.
+		note: (text) =>
+			pi.sendMessage(
+				{ customType: CARRY_NOTE, content: text, display: true },
+				{ triggerTurn: false },
+			),
 	});
 	// The hold this window's moves keep on a session's reload, which knows
 	// the session it holds, so a stop lets go of that one after its peer
@@ -426,6 +445,7 @@ export function createState(
 		tidy,
 		unowned,
 		takenUnowned,
+		waitingCalls,
 		leasing,
 		answered,
 		left,

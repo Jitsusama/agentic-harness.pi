@@ -71,6 +71,9 @@ export interface CarryingPlaces {
 	readonly timing?: HoldTiming;
 }
 
+/** What a note a carry writes into its conversation is typed as. */
+export const CARRY_NOTE = "mesh-carry-note";
+
 /**
  * Carries this session's work for the machine `to`, answering the done
  * file it wrote; throws, saying why, when it couldn't carry at all.
