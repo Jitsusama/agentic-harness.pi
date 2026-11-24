@@ -1414,11 +1414,12 @@ describe("why a session stays awake", () => {
 			unwoken.stop();
 			expect(readParked(SESSION, folder), "no marker").toBeUndefined();
 
-			// Its markers' folder a file, so its marker can't be written.
-			rmSync(join(folder, "parked"), { recursive: true, force: true });
-			writeFileSync(join(folder, "parked"), "");
+			// Its markers' folder made a file once the watch has cleared its
+			// marker as it starts, so the marker its park writes can't be.
 			const wake = join(folder, "conversation.wake");
 			const unmarked = watching(run, { MYCELIUM_WAKE: wake });
+			rmSync(join(folder, "parked"), { recursive: true, force: true });
+			writeFileSync(join(folder, "parked"), "");
 			expect(() => unmarked.turnEnded(true), "its marker unwritten").toThrow();
 			expect(existsSync(wake), "its wake taken back").toBe(false);
 			unmarked.stop();
