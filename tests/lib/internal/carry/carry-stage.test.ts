@@ -11,11 +11,13 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
@@ -111,6 +113,34 @@ function filesIn(into: string) {
 function staging(into: string): string[] {
 	const tmp = join(dirname(dirname(into)), "tmp");
 	return existsSync(tmp) ? readdirSync(tmp) : [];
+}
+
+/**
+ * A staging folder `name` in the tmp/ beside `into`, as a carry whose
+ * process is gone would leave it, its record holding `record`.
+ */
+function plant(into: string, name: string, record: object): string {
+	const left = join(dirname(dirname(into)), "tmp", name);
+	mkdirSync(join(left, ".before"), { recursive: true });
+	writeFileSync(
+		join(left, ".carry.json"),
+		JSON.stringify({
+			into,
+			owner: "s-p",
+			machine: hostname(),
+			pid: spawnSync(process.execPath, ["-e", ""]).pid,
+			placed: [],
+			...record,
+		}),
+	);
+	return left;
+}
+
+/** A folder outside the handover holding a file someone keeps. */
+function outsideWithVictim(): string {
+	const outside = folder(made, "outside");
+	writeFileSync(join(outside, "victim.txt"), "kept\n");
+	return outside;
 }
 
 describe("a carry staged before the handover", () => {
@@ -550,6 +580,110 @@ describe("a carry staged before the handover", () => {
 		await carryQuestTrees(exec, [], into, home, QUEST);
 
 		expect(filesIn(into), "what it placed stays").toEqual(after);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("leaves a record naming another folder, or a name that climbs out, and what it names", async () => {
+		const { home, into } = await homeWithWork();
+		mkdirSync(into, { recursive: true });
+		const outside = outsideWithVictim();
+		const victim = join(outside, "victim.txt");
+		plant(into, "carrying-elsewhere", {
+			into: outside,
+			placed: ["victim.txt"],
+		});
+		plant(into, "carrying-climbs", { placed: [relative(into, victim)] });
+		plant(into, "carrying-owner", { owner: "../s-p" });
+
+		await carryQuestTrees(exec, [], into, home, QUEST);
+
+		expect(readFileSync(victim, "utf8")).toBe("kept\n");
+		expect(staging(into).sort(), "none of them is swept").toEqual([
+			"carrying-climbs",
+			"carrying-elsewhere",
+			"carrying-owner",
+		]);
+	});
+
+	it("leaves a staging folder, or its .before, that is a link to another folder", async () => {
+		const { home, into } = await homeWithWork();
+		mkdirSync(into, { recursive: true });
+		const outside = outsideWithVictim();
+		const linked = plant(into, "carrying-linked", {});
+		rmSync(join(linked, ".before"), { recursive: true });
+		symlinkSync(outside, join(linked, ".before"));
+		const away = folder(made, "away");
+		mkdirSync(join(away, ".before"));
+		writeFileSync(join(away, ".before", "victim.txt"), "theirs\n");
+		symlinkSync(away, join(dirname(dirname(into)), "tmp", "carrying-whole"));
+		writeFileSync(
+			join(away, ".carry.json"),
+			JSON.stringify({
+				into,
+				owner: "s-p",
+				machine: hostname(),
+				pid: spawnSync(process.execPath, ["-e", ""]).pid,
+				placed: [],
+			}),
+		);
+
+		await carryQuestTrees(exec, [], into, home, QUEST);
+
+		expect(readFileSync(join(outside, "victim.txt"), "utf8")).toBe("kept\n");
+		expect(readFileSync(join(away, ".before", "victim.txt"), "utf8")).toBe(
+			"theirs\n",
+		);
+		expect(filesIn(into), "nothing is put back through a link").toEqual({});
+		expect(staging(into)).toContain("carrying-linked");
+		expect(staging(into)).toContain("carrying-whole");
+	});
+
+	it("sweeps a record whose next write was cut off, by the one before it", async () => {
+		const { home, into } = await homeWithWork();
+		mkdirSync(into, { recursive: true });
+		writeFileSync(join(into, "app-placed.bundle"), "half a carry\n");
+		const left = plant(into, "carrying-cut", {
+			placed: ["app-placed.bundle"],
+		});
+		writeFileSync(join(left, ".carry.json.writing"), '{"into":');
+
+		await carryQuestTrees(exec, [], into, home, QUEST);
+
+		expect(filesIn(into), "what it placed is taken out").toEqual({});
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("fails before moving anything when a folder stands at a name it places", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const carry = () =>
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-h", cwd: tree },
+				trees: [tree],
+				whole: true,
+			});
+		const first = await carry();
+		const bundle = first.handover.trees[0]?.bundle ?? "none";
+		rmSync(into, { recursive: true });
+		mkdirSync(join(into, bundle), { recursive: true });
+		writeFileSync(join(into, bundle, "kept.txt"), "someone's\n");
+		renames.length = 0;
+
+		await expect(carry()).rejects.toThrow(
+			`A folder stands at ${join(into, bundle)}`,
+		);
+
+		expect(readFileSync(join(into, bundle, "kept.txt"), "utf8")).toBe(
+			"someone's\n",
+		);
+		expect(filesIn(into)).toEqual({});
+		expect(
+			renames.filter(([, to]) => dirname(to) === into),
+			"nothing was renamed into the handover",
+		).toEqual([]);
 		expect(staging(into)).toEqual([]);
 	});
 });

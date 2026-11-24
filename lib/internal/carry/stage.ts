@@ -15,8 +15,14 @@
  * whose process is gone: where the owner's done file stands, the carry
  * did too, and its folder goes; where none does, what it placed comes
  * out and what it replaced goes back.
+ *
+ * tmp/ is the quest's own scratch, which its fenced commands write, so a
+ * record there is only a claim. A sweep acts on one only within this
+ * carry's own handover, by plain names, through folders that aren't
+ * links, so it reaches nothing those commands couldn't already.
  */
 
+import { randomUUID } from "node:crypto";
 import {
 	lstatSync,
 	mkdirSync,
@@ -44,14 +50,15 @@ export interface Stage {
 	/**
 	 * Renames `names` from the folder into the handover, moving `gone`
 	 * and any file of those names already there aside first, kept until
-	 * the carry stands. A folder at a name is left where it is, so placing
-	 * over it fails rather than deleting what it holds.
+	 * the carry stands. A folder at any of `names` fails it before
+	 * anything moves, rather than deleting what it holds; a folder at one
+	 * of `gone` is left where it is.
 	 */
 	place(names: readonly string[], gone?: readonly string[]): void;
 }
 
 /** A staging folder's record. */
-interface Record {
+interface StageRecord {
 	/** The handover the carry places into. */
 	readonly into: string;
 	/** The session or quest whose done file the carry writes. */
@@ -76,28 +83,31 @@ export async function staged<T>(
 ): Promise<T> {
 	const tmp = join(dirname(dirname(into)), "tmp");
 	mkdirSync(tmp, { recursive: true });
-	sweep(tmp);
+	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
 	const aside = join(folder, BEFORE);
 	mkdirSync(aside);
 	const placed: string[] = [];
 	const moved: string[] = [];
 	const record = (): void =>
-		writeFileSync(
-			join(folder, RECORD),
-			JSON.stringify({
-				into,
-				owner,
-				machine: hostname(),
-				pid: process.pid,
-				placed,
-			} satisfies Record),
-		);
+		writeRecord(folder, {
+			into,
+			owner,
+			machine: hostname(),
+			pid: process.pid,
+			placed,
+		});
 	record();
 	let keep = false;
 	const stage: Stage = {
 		folder,
 		place(names, gone = []) {
+			const held = names.find((name) => isFolder(join(into, name)));
+			if (held !== undefined) {
+				throw new Error(
+					`A folder stands at ${join(into, held)}, so the carry isn't placed over it.`,
+				);
+			}
 			for (const name of [...gone, ...names]) {
 				if (moved.includes(name) || !besideFolder(join(into, name))) continue;
 				renameSync(join(into, name), join(aside, name));
@@ -155,22 +165,40 @@ function putBack(
 	return { stuck, left };
 }
 
+/** Writes `record` whole, so a kill mid-write leaves the one before. */
+function writeRecord(folder: string, record: StageRecord): void {
+	const writing = join(folder, `${RECORD}.writing`);
+	writeFileSync(writing, JSON.stringify(record));
+	renameSync(writing, join(folder, RECORD));
+}
+
 /**
- * Finishes each carry staged in `tmp` whose process is gone from this
- * machine. One whose record can't be read is left, since nothing says
- * where its files go; so is anything that fails, for a later carry.
+ * Finishes each carry staged in `tmp` for the handover `into` whose
+ * process is gone from this machine. One whose record can't be read, or
+ * names another handover or a name that isn't plain, is left, since
+ * nothing trustworthy says where its files go; so is anything that
+ * fails, for a later carry.
  */
-function sweep(tmp: string): void {
+function sweep(tmp: string, into: string): void {
 	for (const name of readdirSync(tmp)) {
 		if (!name.startsWith(STAGING)) continue;
-		const folder = join(tmp, name);
 		try {
-			const record = readRecord(folder);
-			if (record === undefined || running(record)) continue;
-			const done = doneFileOf(record.into, record.owner);
+			const found = join(tmp, name);
+			if (!isFolder(found) || !isFolder(join(found, BEFORE))) continue;
+			const record = readRecord(found);
+			if (record?.into !== into || running(record)) continue;
+			// Claimed by a rename, which only one carry wins, then marked as
+			// this process's, so no other sweeps it while this one does.
+			const folder = join(tmp, `${STAGING}swept-${randomUUID()}`);
+			renameSync(found, folder);
+			writeRecord(folder, {
+				...record,
+				machine: hostname(),
+				pid: process.pid,
+			});
 			// Its done file standing means it stood: what waits aside is old.
-			if (!isFile(done)) {
-				const back = putBack(record.into, join(folder, BEFORE), record.placed);
+			if (!isFile(doneFileOf(into, record.owner))) {
+				const back = putBack(into, join(folder, BEFORE), record.placed);
 				if (back.stuck.length > 0 || back.left.length > 0) continue;
 			}
 			rmSync(folder, { recursive: true, force: true });
@@ -181,20 +209,20 @@ function sweep(tmp: string): void {
 }
 
 /** A staging folder's record, if it holds one in shape. */
-function readRecord(folder: string): Record | undefined {
+function readRecord(folder: string): StageRecord | undefined {
 	try {
 		const read: unknown = JSON.parse(
 			readFileSync(join(folder, RECORD), "utf8"),
 		);
 		if (typeof read !== "object" || read === null) return undefined;
-		const { into, owner, machine, pid, placed } = read as Partial<Record>;
+		const { into, owner, machine, pid, placed } = read as Partial<StageRecord>;
 		if (
 			typeof into !== "string" ||
-			typeof owner !== "string" ||
+			!plain(owner) ||
 			typeof machine !== "string" ||
 			typeof pid !== "number" ||
 			!Array.isArray(placed) ||
-			!placed.every((one): one is string => typeof one === "string")
+			!placed.every(plain)
 		) {
 			return undefined;
 		}
@@ -208,7 +236,7 @@ function readRecord(folder: string): Record | undefined {
  * Whether the carry `record` names may still be running: its process is
  * alive, or it ran on another machine, where this one can't tell.
  */
-function running(record: Record): boolean {
+function running(record: StageRecord): boolean {
 	if (record.machine !== hostname()) return true;
 	try {
 		process.kill(record.pid, 0);
@@ -216,6 +244,27 @@ function running(record: Record): boolean {
 	} catch (error) {
 		// EPERM is a live process another user owns.
 		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+}
+
+/** Whether `name` names one entry of the folder it is joined to. */
+function plain(name: unknown): name is string {
+	return (
+		typeof name === "string" &&
+		name !== "" &&
+		name !== "." &&
+		name !== ".." &&
+		!name.includes("/") &&
+		!name.includes("\0")
+	);
+}
+
+/** Whether a folder, not a link to one, is at `path`. */
+function isFolder(path: string): boolean {
+	try {
+		return lstatSync(path).isDirectory();
+	} catch {
+		return false;
 	}
 }
 
