@@ -67,6 +67,7 @@ import {
 import { runSteps, stepsOf } from "./steps.ts";
 import {
 	GIT_WALK,
+	searchesHomeWhole,
 	searchesWorldWhole,
 	type Where,
 	worldWalks,
@@ -286,7 +287,11 @@ export function kindOf(
 	// Before a stamp: what a timed run times may be the stamp's own suite.
 	if (timesARun(runs, where)) return "timed-run";
 	if (stamps(runs, where)) return "stamp";
+	// A search of the whole home folder is refused once (world-walk.ts's
+	// homeSearchRefusal); made again, it walks World's checkouts with
+	// everything else, so it waits as a whole-World search does.
 	if (searchesWorldWhole(command, where)) return "build";
+	if (searchesHomeWhole(command, where) !== undefined) return "build";
 	// An evaluation's expression is quoted, which reading the steps blanks
 	// as prose, so what it evaluates is read from the command as written.
 	if (EVALUATES.test(runs) && SYSTEM_EVALUATION.test(command)) return "build";
