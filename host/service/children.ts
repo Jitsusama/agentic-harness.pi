@@ -21,8 +21,15 @@
  * by the host's thread.
  */
 
+import { startTicksFromProcSync } from "../../lib/internal/process-ticks.ts";
+import { pssBytes } from "../engine/quiet-collection.ts";
 import type { ControlBackend, HostIdentity } from "./dispatch.ts";
-import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type {
+	ControlRequest,
+	Measured,
+	MemoryAnswer,
+	SessionIdentity,
+} from "./protocol.ts";
 
 /** Where the child running one conversation answers, and who it is. */
 export interface ChildRoute {
@@ -32,39 +39,69 @@ export interface ChildRoute {
 	readonly identity: HostIdentity;
 }
 
+/** A heap as a child's V8 said it, in bytes. */
+export interface HeapSaid {
+	readonly used: number;
+	readonly limit: number;
+}
+
+/** One conversation a child runs, with the heap it last said. */
+export interface HeldChild {
+	readonly conversation: SessionIdentity;
+	readonly route: ChildRoute;
+	/** Its last heap, and when the host heard it; absent until one is said. */
+	readonly heap?: NonNullable<Measured["heap"]>;
+}
+
 /** The conversations children run, as the host's control listener reads them. */
 export interface ChildRoutes {
 	/** The child running a conversation, or nothing while the host runs it. */
 	routeOf(sessionId: string): ChildRoute | undefined;
 	/** Each conversation a child runs, as a list names it. */
 	listed(): readonly SessionIdentity[];
+	/** Each conversation a child runs, with its route and last heap. */
+	held(): readonly HeldChild[];
 }
 
 /** The routes, kept as children start, change and end. */
 export interface HeldChildren extends ChildRoutes {
 	/** A child runs `conversation` now, answering at `route`. */
 	hold(conversation: SessionIdentity, route: ChildRoute): void;
-	/** The child's conversation changed state, as the child said. */
-	update(conversation: SessionIdentity): void;
+	/**
+	 * The child's conversation changed state, as the child said, with its
+	 * heap when the line carried one; a line without keeps the last.
+	 */
+	update(conversation: SessionIdentity, heap?: HeapSaid): void;
 	/** No child runs the conversation any longer. */
 	drop(sessionId: string): void;
 }
 
-/** An empty set of routes, filled as children start. */
-export function heldChildren(): HeldChildren {
-	const held = new Map<
-		string,
-		{ conversation: SessionIdentity; route: ChildRoute }
-	>();
+/** An empty set of routes, filled as children start; `now` dates each heap heard. */
+export function heldChildren(now: () => Date = () => new Date()): HeldChildren {
+	const held = new Map<string, HeldChild>();
 	return {
 		routeOf: (sessionId) => held.get(sessionId)?.route,
 		listed: () => [...held.values()].map(({ conversation }) => conversation),
+		held: () => [...held.values()],
 		hold(conversation, route) {
 			held.set(conversation.sessionId, { conversation, route });
 		},
-		update(conversation) {
+		update(conversation, heap) {
 			const was = held.get(conversation.sessionId);
-			if (was) held.set(conversation.sessionId, { ...was, conversation });
+			if (!was) return;
+			held.set(conversation.sessionId, {
+				...was,
+				conversation,
+				...(heap
+					? {
+							heap: {
+								used: heap.used,
+								limit: heap.limit,
+								at: now().toISOString(),
+							},
+						}
+					: {}),
+			});
 		},
 		drop(sessionId) {
 			held.delete(sessionId);
@@ -86,7 +123,49 @@ export function passedOn(
 		: request;
 }
 
-/** Whether a list result carries the sessions the host itself runs. */
+/**
+ * A child's Pss in bytes, read as asked rather than reported, since its
+ * heap hides most of it: in #2104's lane a child held 758 MB of Pss beside
+ * 228 MB of heap. Nothing once its pid is gone, or taken by a process
+ * that started at another tick, so another process's memory is never
+ * reported as the child's. The ticks are read after the Pss, so a pid
+ * taken between the two reads is caught too.
+ */
+export function childPss(
+	owner: HostIdentity["owner"],
+	proc: ProcReads = { pss: pssBytes, startTicks: startTicksFromProcSync },
+): number | undefined {
+	const pss = proc.pss(owner.pid);
+	if (pss === undefined) return undefined;
+	if (
+		owner.startTicks !== undefined &&
+		proc.startTicks(owner.pid) !== owner.startTicks
+	)
+		return undefined;
+	return pss;
+}
+
+/** What childPss reads of a process from procfs, each nothing where unread. */
+export interface ProcReads {
+	readonly pss: (pid: number) => number | undefined;
+	readonly startTicks: (pid: number) => number | undefined;
+}
+
+/** One child's entry in a memory answer, each reading absent where unread. */
+function childMemory(
+	child: HeldChild,
+	pss: (owner: HostIdentity["owner"]) => number | undefined,
+): MemoryAnswer["sessions"][number] {
+	const read = pss(child.route.identity.owner);
+	return {
+		sessionId: child.conversation.sessionId,
+		state: child.conversation.state,
+		...(child.heap ? { heap: child.heap } : {}),
+		...(read === undefined ? {} : { pss: read }),
+	};
+}
+
+/** Whether a list or memory result carries the sessions the host itself runs. */
 function isListResult(
 	value: unknown,
 ): value is { sessions: SessionIdentity[]; host: HostIdentity } {
@@ -98,29 +177,36 @@ function isListResult(
 }
 
 /**
- * The host's backend with its children's conversations in every list,
- * so a caller reading what the host holds sees them all, whichever
- * thread runs each. A conversation in both, as while a child takes one
- * up, is named once, by its child.
+ * The host's backend with its children's conversations in every list
+ * and memory answer, so a caller reading what the host holds sees them
+ * all, whichever thread runs each. A conversation in both, as while a
+ * child takes one up, is named once, by its child. Memory gives each
+ * child's last heap and its Pss, read through `pss` as the answer is
+ * made.
  */
 export function listingChildren(
 	backend: ControlBackend,
 	children: ChildRoutes,
+	pss: (owner: HostIdentity["owner"]) => number | undefined = childPss,
 ): ControlBackend {
 	return {
 		identity: backend.identity,
 		async execute(request) {
 			const result = await backend.execute(request);
-			if (request.op !== "list" || !isListResult(result)) return result;
-			const theirs = children.listed();
-			const moved = new Set(theirs.map(({ sessionId }) => sessionId));
-			return {
-				...result,
-				sessions: [
-					...result.sessions.filter(({ sessionId }) => !moved.has(sessionId)),
-					...theirs,
-				],
-			};
+			if (request.op !== "list" && request.op !== "memory") return result;
+			if (!isListResult(result)) return result;
+			const held = children.held();
+			const moved = new Set(
+				held.map(({ conversation }) => conversation.sessionId),
+			);
+			const ours = result.sessions.filter(
+				({ sessionId }) => !moved.has(sessionId),
+			);
+			const theirs =
+				request.op === "list"
+					? held.map(({ conversation }) => conversation)
+					: held.map((child) => childMemory(child, pss));
+			return { ...result, sessions: [...ours, ...theirs] };
 		},
 	};
 }

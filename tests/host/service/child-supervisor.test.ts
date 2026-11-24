@@ -1209,6 +1209,24 @@ describe("what a child says", () => {
 		);
 	});
 
+	it("keeps the heap it reports, and when it was heard", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: { used: 200, limit: 4000 },
+		});
+
+		await vi.waitFor(() =>
+			expect(routes.held()[0]?.heap, "the heap the child said").toEqual({
+				used: 200,
+				limit: 4000,
+				at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+			}),
+		);
+	});
+
 	it("moves the route when its conversation becomes another", async () => {
 		await supervisor.resume(entry(a));
 		const route = routes.routeOf(a);

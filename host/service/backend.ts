@@ -6,8 +6,10 @@
  * step leaves it held for the next start rather than lost.
  */
 import { resolve } from "node:path";
+import { getHeapStatistics } from "node:v8";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import { pssBytes } from "../engine/quiet-collection.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import { CHILD_SAID_UNSETTLED, leftRunning } from "./child-requests.ts";
@@ -17,7 +19,7 @@ import {
 	type ControlReply,
 	hostRefusal,
 } from "./dispatch.ts";
-import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type { ControlRequest, Measured, SessionIdentity } from "./protocol.ts";
 import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -326,9 +328,25 @@ export function hostBackend(options: {
 	attachSlowMs?: number;
 	/** Children to run conversations in; without, the host runs every one. */
 	children?: BackendChildren;
+	/** What memory the host itself takes now; its heap and Pss unless given. */
+	own?: () => Measured;
 }): HostBackend {
 	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
+	const own =
+		options.own ??
+		((): Measured => {
+			const stats = getHeapStatistics();
+			const pss = pssBytes();
+			return {
+				heap: {
+					used: stats.used_heap_size,
+					limit: stats.heap_size_limit,
+					at: now().toISOString(),
+				},
+				...(pss === undefined ? {} : { pss }),
+			};
+		});
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
 	let beginning = 0;
@@ -857,6 +875,18 @@ export function hostBackend(options: {
 							...stranded(),
 						],
 						host: options.identity,
+					};
+				case "memory":
+					// A conversation on this thread has no memory of its own to
+					// read apart from the host's, so it is named with none; one in
+					// a child gets its child's beside it (children.ts).
+					return {
+						host: options.identity,
+						own: own(),
+						sessions: [
+							...host.list().map((held) => live(held.id)),
+							...stranded(),
+						].map(({ sessionId, state }) => ({ sessionId, state })),
 					};
 				case "close":
 				case "release":

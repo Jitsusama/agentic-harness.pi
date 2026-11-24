@@ -1,4 +1,8 @@
-/** A host passing each request for a conversation a child runs to the child's own socket. */
+/**
+ * A host passing each request for a conversation a child runs to the child's own socket.
+ * Long because it tests one module, children.ts, and its cases share the host, the child
+ * and the stand-in child sockets set up here.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import {
 	createConnection,
@@ -9,7 +13,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { heldChildren } from "../../../host/service/children.ts";
+import {
+	childPss,
+	heldChildren,
+	listingChildren,
+} from "../../../host/service/children.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type {
 	ControlBackend,
@@ -25,6 +33,7 @@ import {
 	listenControl,
 	type ViewerSink,
 } from "../../../host/service/server.ts";
+import { startTicksFromProcSync } from "../../../lib/internal/process-ticks.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
@@ -719,4 +728,121 @@ describe("a host with conversations in children", () => {
 		).toBeGreaterThan(DRAWN / 2);
 		window.destroy();
 	});
+});
+
+describe("a host's memory with conversations in children", () => {
+	const at = "2026-11-24T07:30:00.000Z";
+	// A child of its own pid, so a Pss read for the host's shows as wrong.
+	const running: HostIdentity = {
+		...child,
+		owner: { pid: process.pid + 1, startedAt: 2 },
+	};
+	// The host answering for itself, a conversation it runs parked among them.
+	const own: ControlBackend = {
+		identity: host,
+		execute: async () => ({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [{ sessionId: b, state: "parked" }],
+		}),
+	};
+	async function measured(
+		pss: (pid: HostIdentity["owner"]) => number | undefined,
+	) {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+		return listingChildren(own, held, pss).execute({
+			v: 1,
+			id: "m",
+			op: "memory",
+		});
+	}
+
+	it("answers a child's last heap and the Pss read for its process", async () => {
+		const read: HostIdentity["owner"][] = [];
+		const answer = await measured((owner) => {
+			read.push(owner);
+			return 3000;
+		});
+
+		expect(answer).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: b, state: "parked" },
+				{
+					sessionId: a,
+					state: "idle",
+					heap: { used: 200, limit: 4000, at },
+					pss: 3000,
+				},
+			],
+		});
+		expect(read, "the child's own process, not the host's").toEqual([
+			running.owner,
+		]);
+	});
+	it("answers no Pss for a child gone before it was read, keeping its heap", async () => {
+		const answer = await measured(() => undefined);
+
+		expect(answer).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: b, state: "parked" },
+				{ sessionId: a, state: "idle", heap: { used: 200, limit: 4000, at } },
+			],
+		});
+	});
+	it("keeps a child's last heap through a state line that carries none", () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+
+		held.update({ ...conversation(a), state: "busy" });
+
+		expect(held.held()).toStrictEqual([
+			{
+				conversation: { ...conversation(a), state: "busy" },
+				route: { socket: childPath, identity: running },
+				heap: { used: 200, limit: 4000, at },
+			},
+		]);
+	});
+	it("reads a child's Pss only while its pid is the process that started", () => {
+		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
+		const proc = (ticks: number | undefined, pss = 3000) => ({
+			pss: (pid: number) => (pid === 4242 ? pss : undefined),
+			startTicks: (pid: number) => (pid === 4242 ? ticks : undefined),
+		});
+
+		expect(childPss(owner, proc(700)), "still the child").toBe(3000);
+		expect(childPss(owner, proc(701)), "its pid reused").toBeUndefined();
+		expect(
+			childPss(owner, proc(undefined)),
+			"gone between the two reads",
+		).toBeUndefined();
+		expect(
+			childPss({ pid: 4242, startedAt: 1 }, proc(701)),
+			"an owner kept without ticks",
+		).toBe(3000);
+	});
+	it.runIf(process.platform === "linux")(
+		"reads a child's Pss from procfs only while its pid is still the process that started",
+		() => {
+			const ticks = startTicksFromProcSync(process.pid);
+			const self = { pid: process.pid, startedAt: 1, startTicks: ticks };
+
+			expect(childPss(self), "this process").toBeGreaterThan(1024 * 1024);
+			expect(
+				childPss({ ...self, startTicks: (ticks ?? 0) + 1 }),
+				"its pid taken by another process",
+			).toBeUndefined();
+			expect(
+				childPss({ pid: 2 ** 22 + 1, startedAt: 1 }),
+				"no such process",
+			).toBeUndefined();
+		},
+	);
 });

@@ -71,6 +71,9 @@ const request = z.discriminatedUnion("op", [
 		env: carried,
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
+	// What memory the host and each conversation's child take: an op of its
+	// own, since a client reading list strictly would refuse its new fields.
+	z.strictObject({ ...envelope, op: z.literal("memory") }),
 	// A child host's one conversation, followed for as long as the
 	// connection lasts (child.ts): what the supervisor that started it
 	// hears it by.
@@ -146,8 +149,32 @@ const drained = z.strictObject({
 	heavy: z.array(text),
 });
 
+// A heap as V8 said it, in bytes, and when: a child's as its last state
+// line said it, so `at` is when the host heard that line.
+const heapReading = z.strictObject({
+	used: count,
+	limit: count,
+	at: z.iso.datetime({ offset: true }),
+});
+// Each is absent where it can't be read, never zero: a conversation on the
+// host's own thread or parked, or a child gone before its Pss was read.
+const measured = { heap: heapReading.optional(), pss: count.optional() };
+const memory = z.strictObject({
+	host: expectedHost,
+	own: z.strictObject(measured),
+	sessions: z.array(
+		z.strictObject({ sessionId, state: identity.shape.state, ...measured }),
+	),
+});
+
 /** A hosted conversation as open, adopt and list report it. */
 export type SessionIdentity = z.infer<typeof identity>;
+
+/** Memory's answer: the host's own, and each conversation's child's. */
+export type MemoryAnswer = z.infer<typeof memory>;
+
+/** What memory one process takes, each reading absent where it can't be read. */
+export type Measured = MemoryAnswer["own"];
 
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
@@ -220,6 +247,11 @@ export function parseAdoptResult(value: unknown): SessionIdentity {
 /** List's result, with the full identity to guard a later request with. */
 export function parseListResult(value: unknown): z.infer<typeof listed> {
 	return result(listed, value);
+}
+
+/** Memory's result: the host's heap and Pss, and each child's beside its conversation. */
+export function parseMemoryResult(value: unknown): MemoryAnswer {
+	return result(memory, value);
 }
 
 /** Release, close, abort and attach answer with the session they acted on. */

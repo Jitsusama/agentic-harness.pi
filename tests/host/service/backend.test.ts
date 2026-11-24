@@ -20,6 +20,7 @@ import {
 	type ControlRequest,
 	parseDrainResult,
 	parseListResult,
+	parseMemoryResult,
 	parseOpenResult,
 	parseSessionResult,
 } from "../../../host/service/protocol.ts";
@@ -105,6 +106,7 @@ function register(conversation: {
 function backendWith(
 	fake: ConversationEngine,
 	admitAnother?: () => Promise<void>,
+	more: Partial<Parameters<typeof hostBackend>[0]> = {},
 ) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
@@ -113,6 +115,7 @@ function backendWith(
 		engine: fake,
 		...(admitAnother ? { admitAnother } : {}),
 		now: () => new Date("2026-11-09T16:00:00.000Z"),
+		...more,
 	});
 }
 
@@ -196,6 +199,30 @@ describe("hostBackend", () => {
 				since: "2026-11-09T16:00:00.000Z",
 			}),
 		]);
+	});
+
+	it("answers its own memory, and none for a conversation on its thread, parked or not", async () => {
+		const own = {
+			heap: { used: 1, limit: 2, at: "2026-11-09T16:00:00.000Z" },
+			pss: 3,
+		};
+		const backend = backendWith(engine().fake, undefined, { own: () => own });
+		const running = parseOpenResult(await backend.execute(anOpen()));
+		const resting = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o2" }),
+		);
+		host.state(resting.sessionId, "parked");
+
+		expect(
+			parseMemoryResult(await backend.execute({ v: 1, id: "m", op: "memory" })),
+		).toStrictEqual({
+			host: { key: host.key, owner: host.owner },
+			own,
+			sessions: [
+				{ sessionId: running.sessionId, state: "idle" },
+				{ sessionId: resting.sessionId, state: "parked" },
+			],
+		});
 	});
 
 	it("undoes a start that never registered, but keeps one that registered and failed", async () => {

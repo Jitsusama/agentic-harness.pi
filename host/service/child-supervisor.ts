@@ -1108,9 +1108,9 @@ export function childSupervisor(options: {
 								// Its failure is the watch's, thrown below.
 								kept = first.catch(() => undefined);
 							},
-							state: (conversation) => {
+							state: (conversation, heap) => {
 								if (conversation.sessionId === current)
-									routes.update(conversation);
+									routes.update(conversation, heap);
 							},
 							became(previousId, conversation, entry) {
 								const next = conversation.sessionId;

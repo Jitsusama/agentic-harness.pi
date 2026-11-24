@@ -461,16 +461,17 @@ function uncollectedLine(
 }
 
 /**
- * This process's proportional set size in bytes, from the kernel's
- * rollup of its mappings, or nothing where there is none to read.
+ * A process's proportional set size in bytes, this one's unless `pid`
+ * names another, from the kernel's rollup of its mappings, or nothing
+ * where there is none to read: no procfs, or no such process.
  */
-export function pssBytes(): number | undefined {
+export function pssBytes(pid?: number): number | undefined {
 	try {
-		const rollup = readFileSync("/proc/self/smaps_rollup", "utf8");
+		const rollup = readFileSync(`/proc/${pid ?? "self"}/smaps_rollup`, "utf8");
 		const kb = /^Pss:\s+(\d+) kB$/m.exec(rollup)?.[1];
 		return kb === undefined ? undefined : Number(kb) * KB;
 	} catch {
-		// Not Linux, or no procfs: the line says the Pss went unread.
+		// Not Linux, no procfs or no such process: the Pss goes unread.
 		return undefined;
 	}
 }
