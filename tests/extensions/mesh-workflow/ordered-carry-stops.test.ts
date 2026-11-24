@@ -196,7 +196,7 @@ describe("an ordered carry a step of fails", () => {
 		expect(one.refused).toEqual([]);
 		expect(one.did).toEqual(["carry to penelope"]);
 		expect(told.at(-1)).toContain(
-			"but it couldn't close here: the session is stale. Each run here is stopped, so the two never both work; end it here once it starts there.",
+			"but it couldn't close here: the session is stale. Each run here is stopped, so the two never both work.",
 		);
 
 		await one.ordering.order(ORDER);
@@ -219,7 +219,7 @@ describe("an ordered carry a step of fails", () => {
 
 		expect(one.did).toEqual(["carry to penelope", "abort"]);
 		expect(told.at(-1)).toBe(
-			"This run is stopped: the session was carried to penelope and runs there, so end it here.",
+			"This run is stopped: the session was carried to penelope and runs there.",
 		);
 	});
 
@@ -242,11 +242,11 @@ describe("an ordered carry a step of fails", () => {
 		one.ordering.turnEnded();
 
 		expect(told).toContain(
-			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work; end it here once it starts there.",
+			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work.",
 		);
 		expect(one.did.at(-1)).toBe("abort");
 		expect(told.at(-1), "a turn's end says why too").toBe(
-			"This run is stopped: the session was carried to penelope and runs there, so end it here.",
+			"This run is stopped: the session was carried to penelope and runs there.",
 		);
 	});
 
@@ -348,7 +348,7 @@ describe("an ordered carry's close", () => {
 	const UNCLOSED =
 		"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, but it couldn't close here:";
 	const STOPPED =
-		"This run is stopped: the session was carried to penelope and runs there, so end it here.";
+		"This run is stopped: the session was carried to penelope and runs there.";
 
 	it("counts as failed once it hangs past its deadline, saying so once, and says why each later run is stopped", async () => {
 		const told: string[] = [];
@@ -362,7 +362,7 @@ describe("an ordered carry's close", () => {
 
 		await vi.waitFor(() =>
 			expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
-				`${UNCLOSED} it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work; end it here once it starts there.`,
+				`${UNCLOSED} it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work.`,
 			]),
 		);
 		one.ordering.started();
@@ -409,5 +409,70 @@ describe("an ordered carry's close", () => {
 		await new Promise((done) => setTimeout(done, 60));
 
 		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([]);
+	});
+
+	it("keeps a close that failed in the host's journal, for a conversation nobody watches", async () => {
+		const kept: string[] = [];
+		const one = session({
+			journal: (text) => kept.push(text),
+			close: () => {
+				throw new Error("the engine is gone");
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(kept).toEqual([
+			`${UNCLOSED} the engine is gone. Each run here is stopped, so the two never both work.`,
+		]);
+	});
+
+	it("says a close that lands past its deadline closed after all, on screen and in the journal", async () => {
+		const told: string[] = [];
+		const kept: string[] = [];
+		let land: (() => void) | undefined;
+		const one = session({
+			tell: (text) => told.push(text),
+			journal: (text) => kept.push(text),
+			close: (_, _failed, closed) => {
+				land = closed;
+			},
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+		await vi.waitFor(() =>
+			expect(kept.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+		);
+
+		land?.();
+		land?.();
+
+		const after =
+			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, and it closed here after all.";
+		expect(
+			told.filter((line) => line === after),
+			"once",
+		).toHaveLength(1);
+		expect(kept.at(-1)).toBe(after);
+	});
+
+	it("says nothing more where it lands in time, however late it is told again", async () => {
+		const kept: string[] = [];
+		let land: (() => void) | undefined;
+		const one = session({
+			journal: (text) => kept.push(text),
+			close: (_, _failed, closed) => {
+				land = closed;
+				closed();
+			},
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+
+		// Past its deadline, as the clock it was given reads it.
+		await new Promise((done) => setTimeout(done, 60));
+		land?.();
+
+		expect(kept).toEqual([]);
 	});
 });

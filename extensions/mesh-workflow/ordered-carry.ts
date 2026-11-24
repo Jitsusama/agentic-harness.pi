@@ -183,6 +183,11 @@ export interface OrderedCarryHost {
 	/** Say on screen what happened. */
 	readonly tell: (text: string) => void;
 	/**
+	 * Keep a line in the host's journal, for a conversation nobody
+	 * watches; plain pi keeps none.
+	 */
+	readonly journal?: (text: string) => void;
+	/**
 	 * Whether a carry of this session is under way besides this
 	 * ordering's, as a person's Carry is once a refusal has let go.
 	 */
@@ -294,6 +299,16 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			host.tell(text);
 		} catch {
 			// The screen is gone; what it said is written where it matters.
+		}
+	};
+	// Said on screen and kept in the host's journal, for a conversation
+	// nobody watches; neither stops what it goes with.
+	const sayAndKeep = (text: string) => {
+		say(text);
+		try {
+			host.journal?.(text);
+		} catch {
+			// A journal that can't be written leaves the screen to say it.
 		}
 	};
 
@@ -478,10 +493,14 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 					noted.length === 0
 						? ""
 						: ` The background commands its note named as stopped still run here, so stop them too: ${noted.join("; ")}.`;
-				say(
-					`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work; end it here once it starts there.${running}`,
+				sayAndKeep(
+					`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work.${running}`,
 				);
 			},
+			closedLate: () =>
+				sayAndKeep(
+					`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, and it closed here after all.`,
+				),
 			...(host.closeMs === undefined ? {} : { closeMs: host.closeMs }),
 		});
 	};
