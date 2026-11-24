@@ -2,6 +2,11 @@
  * Presences as kept on disk: what a peer's file says once read back,
  * read again only once it changes, what a malformed one reads as, and
  * how a host's conversations read them from one mirror.
+ *
+ * Long because it reads back every field a presence keeps, each with
+ * the forged forms a reader must turn away, against the one scratch root
+ * set up and cleared here; its cases split along with presence.ts, itself
+ * past 800 lines, by what each part reads.
  */
 import {
 	existsSync,
