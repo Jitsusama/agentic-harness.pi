@@ -22,6 +22,7 @@
  */
 
 import { startTicksFromProc } from "../../lib/internal/process-ticks.ts";
+import { settledWithin } from "../../lib/internal/settled.ts";
 import { pssBytesOf } from "../engine/quiet-collection.ts";
 import type { ControlBackend, HostIdentity } from "./dispatch.ts";
 import type {
@@ -145,12 +146,12 @@ export function passedOn(
  * another process's memory is never reported as the child's. The ticks
  * are read after the Pss, so a pid taken between the two reads is caught
  * too. The Pss is read off the host's thread, one child at a time, as
- * hostPss reads it; the ticks are read at once, since the kernel answers
+ * hostProcReads reads it; the ticks are read at once, since the kernel answers
  * a process's stat without the lock its mappings are walked under.
  */
 export async function childPss(
 	owner: HostIdentity["owner"],
-	proc: ProcReads = { pss: hostPss, startTicks: startTicksFromProc },
+	proc: ProcReads = hostProcReads,
 ): Promise<number | undefined> {
 	const pss = await proc.pss(owner.pid);
 	if (pss === undefined || owner.startTicks === undefined) return undefined;
@@ -184,14 +185,24 @@ export function oneReadAtOnce(
 	};
 }
 
-/** The host's reads of its children's Pss, one at a time for the whole host. */
-const hostPss = oneReadAtOnce(pssBytesOf);
-
 /** What childPss reads of a process from procfs, each nothing where unread. */
 export interface ProcReads {
 	readonly pss: (pid: number) => Promise<number | undefined>;
 	readonly startTicks: (pid: number) => Promise<number | undefined>;
 }
+
+/** The host's own reads of its children, their Pss one at a time for the whole host. */
+export const hostProcReads: ProcReads = {
+	pss: oneReadAtOnce(pssBytesOf),
+	startTicks: startTicksFromProc,
+};
+
+/**
+ * How long a memory answer waits on a child's Pss: well within the 30 s
+ * a client waits on the answer, and long past the milliseconds a read
+ * takes when nothing holds it up.
+ */
+const PSS_WAIT_MS = 5_000;
 
 /** How a memory answer reads a child's Pss, nothing where it can't be had. */
 export type ReadPss = (
@@ -202,8 +213,9 @@ export type ReadPss = (
 async function childMemory(
 	child: HeldChild,
 	pss: ReadPss,
+	waitMs: number,
 ): Promise<MemoryAnswer["sessions"][number]> {
-	const read = await pss(child.route.identity.owner);
+	const read = await settledWithin(pss(child.route.identity.owner), waitMs);
 	return {
 		sessionId: child.conversation.sessionId,
 		state: child.conversation.state,
@@ -229,12 +241,15 @@ function isListResult(
  * all, whichever thread runs each. A conversation in both, as while a
  * child takes one up, is named once, by its child. Memory gives each
  * child's last heap and its Pss, read through `pss` as the answer is
- * made.
+ * made. A Pss not read within `waitMs`, as a child's held up under memory
+ * pressure and those queued behind it, is answered as unread, so one
+ * stuck child never withholds the rest of the answer.
  */
 export function listingChildren(
 	backend: ControlBackend,
 	children: ChildRoutes,
 	pss: ReadPss = childPss,
+	waitMs = PSS_WAIT_MS,
 ): ControlBackend {
 	return {
 		identity: backend.identity,
@@ -252,7 +267,9 @@ export function listingChildren(
 			const theirs =
 				request.op === "list"
 					? held.map(({ conversation }) => conversation)
-					: await Promise.all(held.map((child) => childMemory(child, pss)));
+					: await Promise.all(
+							held.map((child) => childMemory(child, pss, waitMs)),
+						);
 			return { ...result, sessions: [...ours, ...theirs] };
 		},
 	};

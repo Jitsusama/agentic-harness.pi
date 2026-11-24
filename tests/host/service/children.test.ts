@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	childPss,
 	heldChildren,
+	hostProcReads,
 	listingChildren,
 	oneReadAtOnce,
 	type ReadPss,
@@ -892,6 +893,41 @@ describe("a host's memory with conversations in children", () => {
 			{ sessionId: a, state: "idle", pss: running.owner.pid * 10 },
 			{ sessionId: b, state: "idle", pss: other.owner.pid * 10 },
 		]);
+	});
+	it("answers without a child's Pss still unread once its wait has passed, the rest read", async () => {
+		const other = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: other });
+
+		const answer = await listingChildren(
+			own,
+			held,
+			(owner) =>
+				owner.pid === running.owner.pid
+					? new Promise<number | undefined>(() => {})
+					: Promise.resolve(3000),
+			20,
+		).execute({ v: 1, id: "m", op: "memory" });
+
+		expect(parseMemoryResult(answer)).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: a, state: "idle" },
+				{ sessionId: b, state: "idle", pss: 3000 },
+			],
+		});
+	});
+	it("gives a pid's read in progress to each caller of the host's own reads", async () => {
+		const first = hostProcReads.pss(running.owner.pid);
+		const again = hostProcReads.pss(running.owner.pid);
+
+		expect(again, "one read, shared").toBe(first);
+		await first;
 	});
 	describe("one read at once", () => {
 		/** A read of each pid that settles only when the test says. */
