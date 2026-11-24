@@ -129,13 +129,14 @@ export function personNamed(
 /**
  * What `to` says with the word `person` left out, for the person's own
  * steward, who tells the person in its reply rather than through
- * anyone; nothing when the word is all it names.
+ * anyone; nothing when the word is all it names. A `to` that never
+ * names the word comes back as written, so an empty one still routes
+ * by rule or back to the asker.
  */
 export function personLeftOut(written: string): string | undefined {
-	const rest = written
-		.split(",")
-		.map((one) => one.trim())
-		.filter((one) => one !== "" && !isPerson(one));
+	const parts = written.split(",").map((one) => one.trim());
+	if (!parts.some(isPerson)) return written;
+	const rest = parts.filter((one) => one !== "" && !isPerson(one));
 	return rest.length > 0 ? rest.join(", ") : undefined;
 }
 

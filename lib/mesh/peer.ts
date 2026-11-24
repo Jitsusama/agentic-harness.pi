@@ -371,9 +371,11 @@ export function orchestrationRoles(
 
 /**
  * The roles, with the steward kept only while a live session other than
- * this one answers to its address. Read from the quests alone, a
- * steward whose window closed would keep every quest below it off the
- * person's launcher, and sends to it would reach nobody.
+ * this one signs with its address, as yieldsTo reads a signature. Read
+ * from the quests alone, a steward whose window closed would keep every
+ * quest below it off the person's launcher, and sends to it would reach
+ * nobody; counting any session that answers to the address would keep
+ * one that only ran the steward's quest earlier, which carries nothing.
  */
 export function withLiveSteward(
 	roles: Roles,
@@ -383,7 +385,7 @@ export function withLiveSteward(
 	const steward = roles.stewardedBy;
 	if (steward === undefined) return roles;
 	const there = live.some(
-		(one) => one.session !== session && one.addresses.includes(steward),
+		(one) => one.session !== session && one.addresses[0] === steward,
 	);
 	if (there) return roles;
 	const { stewardedBy: _absent, ...rest } = roles;

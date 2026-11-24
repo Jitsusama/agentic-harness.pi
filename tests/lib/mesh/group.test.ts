@@ -39,6 +39,15 @@ describe("the person in `to`", () => {
 		).toEqual(["#harness", undefined]);
 	});
 
+	// An empty `to` routes by rule or back to the asker, and one spaced
+	// its own way must not read as having lost the word.
+	it("leaves a `to` that never names it as written", () => {
+		expect([personLeftOut(""), personLeftOut("#harness,#ops ")]).toEqual([
+			"",
+			"#harness,#ops ",
+		]);
+	});
+
 	it("names the steward once, though it was also named by address", () => {
 		expect(personNamed("WCJQSG, person", "WCJQSG")).toBe("WCJQSG");
 	});

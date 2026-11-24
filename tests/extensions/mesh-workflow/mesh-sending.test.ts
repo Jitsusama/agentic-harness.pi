@@ -1,7 +1,9 @@
 /**
  * Sending on the mesh: how a send is signed, where it goes and what it
  * refuses, how a message that names no group finds one, and reading
- * back what was sent.
+ * back what was sent. Long because its cases follow send.ts's one
+ * path from `to` to a delivery, and split apart they would each build
+ * the same session and quests.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -520,6 +522,9 @@ describe("sending", () => {
 			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
 			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-5GV2AH\n",
 		);
+		// One that ended, and one that only ran the steward's quest earlier.
+		peer("session-s", ["5GV2AH"], [], true);
+		peer("session-q", ["P9R1KI", "5GV2AH"], []);
 		const { tools } = await startSession(noNode());
 
 		expect(await send(tools, "person", "question", "May I?")).toContain(
@@ -556,6 +561,16 @@ describe("sending", () => {
 			expect.stringContaining("`person` was left out"),
 			[["#harness"]],
 		]);
+		const unnamed = await tools
+			.get("mesh_send")
+			?.execute("call-2", { intent: "fyi", text: "Landed." });
+		const unspaced = await send(tools, "#harness,#ops", "fyi", "Landed.");
+		expect(
+			[unnamed?.content[0]?.text ?? "", unspaced],
+			"no `to` and one never naming `person` go as written",
+		).not.toContainEqual(
+			expect.stringMatching(/person's steward|`person` was left out/),
+		);
 	});
 
 	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the
