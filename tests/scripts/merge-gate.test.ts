@@ -8,6 +8,10 @@
  * are judged. A change that passes goes on to host-gate.sh,
  * which lets a change that touches nothing hosts run through without a
  * test:host run.
+ *
+ * Long because every case drives the one gate through the same harness,
+ * change and gate helpers, which hold main's rules, lists and settings,
+ * and a second file would have to copy them and keep them in step.
  */
 
 import { execFile } from "node:child_process";
