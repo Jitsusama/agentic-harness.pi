@@ -7,6 +7,7 @@
  * to a meaningful level").
  */
 
+import { isRecord } from "../internal/record.ts";
 import { oneLine } from "./one-line.ts";
 
 /** The command line that lists every cell needing the person. */
@@ -60,8 +61,8 @@ function needOf(line: string): Need | undefined {
 		// A line torn or not JSON is no cell: the rest still read.
 		return undefined;
 	}
-	if (typeof value !== "object" || value === null) return undefined;
-	const cell = value as Record<string, unknown>;
+	if (!isRecord(value)) return undefined;
+	const cell = value;
 	if (typeof cell.name !== "string" || cell.name === "") return undefined;
 	const said = (field: unknown) =>
 		typeof field === "string" && field.trim() !== ""

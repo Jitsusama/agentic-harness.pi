@@ -20,7 +20,8 @@ import type {
 import { clearLook, type Look, openLook } from "../../lib/mesh/looks/looks.ts";
 import type { Need } from "../../lib/mesh/needs.ts";
 import { oneLine } from "../../lib/mesh/one-line.ts";
-import { lookLine, needLine, whatWaits } from "./tools/person.ts";
+import type { SaidTo } from "../../lib/mesh/said-to.ts";
+import { lookLine, needLine, saidLine, whatWaits } from "./tools/person.ts";
 
 /** How long opening a link may take before it counts as failed. */
 const OPEN_TIMEOUT_MS = 10_000;
@@ -36,10 +37,11 @@ export interface NeedsDeps {
 	readonly machine?: string;
 }
 
-/** One row he can pick: a cell's want, or a look. */
+/** One row he can pick: a cell's want, a look, or what he said to one. */
 type Row =
 	| { readonly label: string; readonly need: Need }
-	| { readonly label: string; readonly look: Look };
+	| { readonly label: string; readonly look: Look }
+	| { readonly label: string; readonly said: SaidTo };
 
 /** The acts a look offers. */
 const OPEN = "Open it";
@@ -50,7 +52,7 @@ const LEAVE = "Leave it";
 /** Show what waits on the person, and take the act he picks. */
 export async function needsCommand(deps: NeedsDeps): Promise<void> {
 	const now = deps.now?.() ?? Date.now();
-	const waits = await whatWaits(deps.exec, deps.looks);
+	const waits = await whatWaits(deps.exec, deps.looks, now);
 	if (!waits.needs.ok) {
 		deps.ui.notify(
 			`The cells couldn't be read: ${waits.needs.reason}`,
@@ -61,6 +63,10 @@ export async function needsCommand(deps: NeedsDeps): Promise<void> {
 	const rows: Row[] = [
 		...needs.map((need) => ({ label: needLine(need, now), need })),
 		...waits.looks.map((look) => ({ label: `Look: ${lookLine(look)}`, look })),
+		...(waits.said.ok ? waits.said.said : []).map((said) => ({
+			label: `You said ${saidLine(said, now)}`,
+			said,
+		})),
 	].map((row, index) => ({ ...row, label: `${index + 1}. ${row.label}` }));
 	if (rows.length === 0) {
 		deps.ui.notify("Nothing waits on you.", "info");
@@ -73,6 +79,10 @@ export async function needsCommand(deps: NeedsDeps): Promise<void> {
 	if (!row) return;
 	if ("need" in row) {
 		await goTo(deps, row.need.name, row.need.machine);
+		return;
+	}
+	if ("said" in row) {
+		await goTo(deps, row.said.address, row.said.machine);
 		return;
 	}
 	await actOnLook(deps, row.look);

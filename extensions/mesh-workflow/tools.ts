@@ -494,7 +494,7 @@ export function registerTools(
 		exposure: "deferred",
 		label: "Mesh",
 		description:
-			"Read what waits on the person across the machine: every cell that needs them (asked, held at an approval or blocked), longest waiting first, with what it asks, and their look list, newest first. It only reads: the person acts on these with /needs or in the launcher, and no tool answers, opens or clears anything in their name. Use it when asked what needs them, what is waiting or what is on their list.",
+			"Read what waits on the person across the machine: every cell that needs them (asked, held at an approval or blocked), longest waiting first, with what it asks; their look list, newest first; and what they said to sessions from outside their windows in the last day, with whether each was taken up, is being worked on or was answered. It only reads: the person acts on these with /needs or in the launcher, and no tool answers, opens or clears anything in their name. Use it when asked what needs them, what is waiting or what is on their list.",
 		parameters: Type.Object({}),
 		execute: async (_id, _params, _signal, _onUpdate, ctx) => {
 			const waits = await whatWaits(
@@ -504,17 +504,19 @@ export function registerTools(
 			const records = [
 				...(waits.needs.ok ? waits.needs.needs : []),
 				...waits.looks,
+				...(waits.said.ok ? waits.said.said : []),
 			];
 			return answer(
 				citeListing(openSessionStore(ctx), {
 					view: whatWaitsText(waits, Date.now()),
 					records,
-					unit: "cells needing the person, then their looks",
+					unit: "cells needing the person, their looks, then what they said",
 					narrowing: "Query the cited records by name, machine, kind or state.",
 				}),
 				{
 					needs: waits.needs.ok ? waits.needs.needs.length : undefined,
 					looks: waits.looks.length,
+					said: waits.said.ok ? waits.said.said.length : undefined,
 				},
 			);
 		},

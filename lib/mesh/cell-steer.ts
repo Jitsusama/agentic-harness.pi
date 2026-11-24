@@ -12,6 +12,7 @@
  * person typed it.
  */
 
+import { isRecord } from "../internal/record.ts";
 import { askAt, NODE_PATIENCE_MS } from "./node.ts";
 
 /** What a cell may be asked to do from another session. */
@@ -104,9 +105,4 @@ export function steeredFrom(line: string): Steered {
 		ok: false,
 		reason: `the node answered what this harness can't read: ${line.slice(0, 200)}`,
 	};
-}
-
-/** Whether `value` is a plain object, read by its keys. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -405,10 +405,15 @@ and can answer a question or a gate left open on screen.
   meaningful level"). It lists every cell needing him, longest
   waiting first, from `mycelium cells --standing needs-you -o json`
   (`lib/mesh/needs.ts`), the one way the surfaces table names, then
-  his looks still standing, newest first, cited through the result
-  store ([`tools/person.ts`](tools/person.ts)). It only reads.
+  his looks still standing, newest first, then what he said to
+  sessions from outside their windows in the last day, from
+  `mycelium said` (`lib/mesh/said-to.ts`), each answered, being
+  worked on, not taken up yet or put in its prompt, all cited through
+  the result store ([`tools/person.ts`](tools/person.ts)). It only
+  reads.
   `/needs`, which only he types, lists the same and takes the act he
-  picks ([`needs-command.ts`](needs-command.ts)): a cell's want goes
+  picks ([`needs-command.ts`](needs-command.ts)): a cell's want, or
+  something he said, goes
   to that cell by the map's link, `mycelium:cell/<address>@<machine>/go`,
   where he answers it, since the node takes a person's word from no
   agent process; a look opens, marked opened as the launcher marks it,

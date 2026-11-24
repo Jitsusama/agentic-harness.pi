@@ -27,6 +27,18 @@ const listing = [
 	}),
 ].join("\n");
 
+/** What he said lately, as `mycelium said` lists it, oldest first. */
+const saidListing = [
+	JSON.stringify({
+		address: "D4E5F6",
+		machine: "optimus",
+		at: "2026-11-24T14:10:00.000Z",
+		taken_up: "2026-11-24T14:10:01.000Z",
+		text: "Carry on with the sweep",
+		kind: "said",
+	}),
+].join("\n");
+
 /** What a run of /needs did: what it ran, and what it told him. */
 interface Ran {
 	readonly ran: string[][];
@@ -35,13 +47,15 @@ interface Ran {
 }
 
 /**
- * /needs run against fakes: the node lists `cells`, every link opens, and
- * he picks each of `picks` in turn, by the start of its label.
+ * /needs run against fakes: the node lists `cells` and what he `said`,
+ * every link opens, and he picks each of `picks` in turn, by words of
+ * its label.
  */
 async function run(
 	picks: readonly string[],
 	cells = listing,
 	refusal?: number,
+	said = "",
 ): Promise<Ran> {
 	const ran: string[][] = [];
 	const told: string[] = [];
@@ -52,7 +66,12 @@ async function run(
 			ran.push([command, ...args]);
 			if (command === "mycelium") {
 				return refusal === undefined
-					? { stdout: cells, stderr: "", code: 0, killed: false }
+					? {
+							stdout: args[0] === "said" ? said : cells,
+							stderr: "",
+							code: 0,
+							killed: false,
+						}
 					: { stdout: "", stderr: "no node", code: refusal, killed: false };
 			}
 			return { stdout: "", stderr: "", code: 0, killed: false };
@@ -177,6 +196,15 @@ describe("/needs", () => {
 		expect(asked[0]).toHaveLength(1);
 	});
 
+	it("shows how what he said stands, and goes to the cell he said it to", async () => {
+		const { asked, ran } = await run(["You said"], "", undefined, saidListing);
+
+		expect(asked[0]).toEqual([
+			"1. You said to D4E5F6 on optimus, 20 min ago: Carry on with the sweep (working)",
+		]);
+		expect(ran.at(-1)).toEqual(["xdg-open", "mycelium:cell/D4E5F6@optimus/go"]);
+	});
+
 	it("says nothing waits when nothing does, and asks nothing", async () => {
 		const { told, asked } = await run([], "");
 
@@ -201,11 +229,23 @@ describe("what the model reads of it", () => {
 					],
 				},
 				looks: [look()],
+				said: {
+					ok: true,
+					said: [
+						{
+							address: "D4E5F6",
+							at: "2026-11-24T14:25:00Z",
+							text: "Ship it",
+							standing: "answered",
+						},
+					],
+				},
 			},
 			NOW,
 		);
 
 		expect(text).toContain("- A1B2C3, waiting 30 min: a yes");
+		expect(text).toContain("- to D4E5F6, 5 min ago: Ship it (answered)");
 		expect(text).toMatch(
 			/- \[[^\]]+\] The plan from 85PKB2 \(page\): Worth a read\./,
 		);
@@ -214,7 +254,11 @@ describe("what the model reads of it", () => {
 
 	it("says why the cells couldn't be read, rather than that none need him", () => {
 		const text = whatWaitsText(
-			{ needs: { ok: false, reason: "mycelium couldn't be run" }, looks: [] },
+			{
+				needs: { ok: false, reason: "mycelium couldn't be run" },
+				looks: [],
+				said: { ok: false, reason: "mycelium couldn't be run" },
+			},
 			NOW,
 		);
 
@@ -222,5 +266,6 @@ describe("what the model reads of it", () => {
 			"The cells couldn't be read: mycelium couldn't be run.",
 		);
 		expect(text).not.toContain("No cell needs");
+		expect(text).toContain("What the person said couldn't be read");
 	});
 });

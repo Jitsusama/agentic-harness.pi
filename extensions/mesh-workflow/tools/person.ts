@@ -14,6 +14,11 @@ import {
 	needsFrom,
 } from "../../../lib/mesh/needs.ts";
 import { oneLine } from "../../../lib/mesh/one-line.ts";
+import {
+	SAID_COMMAND,
+	type SaidTo,
+	saidFrom,
+} from "../../../lib/mesh/said-to.ts";
 import { lastedText } from "./said.ts";
 
 /** How long the node's listing of cells may take to answer. */
@@ -22,33 +27,45 @@ const NEEDS_TIMEOUT_MS = 20_000;
 /** The most of a refusal's words said back. */
 const MOST_REFUSAL = 200;
 
+/** How far back what the person said is read, and the most of it shown. */
+const SAID_WITHIN_MS = 24 * 60 * 60 * 1000;
+const MOST_SAID = 10;
+
 /** The cells needing the person, or why they couldn't be read. */
-export type NeedsRead =
-	| { readonly ok: true; readonly needs: readonly Need[] }
+export type NeedsRead = Read<{ readonly needs: readonly Need[] }>;
+
+/** What the node gave, or why it couldn't be read. */
+export type Read<T> =
+	| ({ readonly ok: true } & T)
 	| { readonly ok: false; readonly reason: string };
 
-/** What waits on the person: the cells' wants, and his look list. */
+/** What the person said to sessions lately, or why it couldn't be read. */
+export type SaidRead = Read<{ readonly said: readonly SaidTo[] }>;
+
+/** What waits on the person: the cells' wants, his look list, and what he said. */
 export interface WhatWaits {
 	readonly needs: NeedsRead;
 	readonly looks: readonly Look[];
+	readonly said: SaidRead;
 }
 
-/** Read every cell needing the person from the machine's node. */
-export async function needsRead(
+/** Run `mycelium` with `args`, answering its output or why it gave none. */
+async function myceliumSays(
 	exec: ExtensionAPI["exec"],
-): Promise<NeedsRead> {
+	args: readonly string[],
+): Promise<Read<{ readonly stdout: string }>> {
 	try {
-		const ran = await exec("mycelium", [...NEEDS_COMMAND], {
+		const ran = await exec("mycelium", [...args], {
 			timeout: NEEDS_TIMEOUT_MS,
 		});
 		if (ran.code !== 0) {
 			const said = oneLine(ran.stderr).slice(0, MOST_REFUSAL);
 			return {
 				ok: false,
-				reason: `the node's listing ended ${ran.code}${said ? `: ${said}` : ""}`,
+				reason: `mycelium ${args[0]} ended ${ran.code}${said ? `: ${said}` : ""}`,
 			};
 		}
-		return { ok: true, needs: needsFrom(ran.stdout) };
+		return { ok: true, stdout: ran.stdout };
 	} catch (error) {
 		return {
 			ok: false,
@@ -57,15 +74,46 @@ export async function needsRead(
 	}
 }
 
+/** Read every cell needing the person from the machine's node. */
+export async function needsRead(
+	exec: ExtensionAPI["exec"],
+): Promise<NeedsRead> {
+	const read = await myceliumSays(exec, NEEDS_COMMAND);
+	return read.ok ? { ok: true, needs: needsFrom(read.stdout) } : read;
+}
+
+/** Read what the person said to sessions in the last day, from the node. */
+export async function saidRead(
+	exec: ExtensionAPI["exec"],
+	now: number,
+): Promise<SaidRead> {
+	const read = await myceliumSays(exec, SAID_COMMAND);
+	return read.ok
+		? { ok: true, said: saidFrom(read.stdout, now - SAID_WITHIN_MS, MOST_SAID) }
+		: read;
+}
+
 /** Read what waits on the person: the cells' wants, and the looks in `looks`. */
 export async function whatWaits(
 	exec: ExtensionAPI["exec"],
 	looks: string | undefined,
+	now: number = Date.now(),
 ): Promise<WhatWaits> {
+	const [needs, said] = await Promise.all([
+		needsRead(exec),
+		saidRead(exec, now),
+	]);
 	return {
-		needs: await needsRead(exec),
+		needs,
 		looks: looks === undefined ? [] : standingLooksIn(looks),
+		said,
 	};
+}
+
+/** One thing the person said, and how it stands, on a line. */
+export function saidLine(said: SaidTo, now: number): string {
+	const where = said.machine ? ` on ${said.machine}` : "";
+	return `to ${said.address}${where}, ${lastedText(now - Date.parse(said.at))} ago: ${said.text || "(an act)"} (${said.standing})`;
 }
 
 /** One cell's want of the person, on a line. */
@@ -98,12 +146,20 @@ export function whatWaitsText(waits: WhatWaits, now: number): string {
 		waits.looks.length === 0
 			? ["Nothing is on the person's look list."]
 			: waits.looks.map((look) => `- [${look.id}] ${lookLine(look)}`);
+	const said = waits.said.ok
+		? waits.said.said.length === 0
+			? ["Nothing in the last day."]
+			: waits.said.said.map((one) => `- ${saidLine(one, now)}`)
+		: [`What the person said couldn't be read: ${waits.said.reason}.`];
 	return [
 		"Cells needing the person, longest waiting first:",
 		...needs,
 		"",
 		"The person's look list, newest first:",
 		...looks,
+		"",
+		"What the person said to sessions from outside their windows, newest first, and how each stands:",
+		...said,
 		"",
 		"Only the person acts on these, with /needs in a pi window or in the launcher.",
 	].join("\n");
