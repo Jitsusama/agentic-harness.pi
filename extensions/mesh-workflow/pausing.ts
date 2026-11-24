@@ -49,6 +49,11 @@
  */
 
 import type { SteerAct } from "../../lib/mesh/steer.ts";
+import {
+	type CarriedClose,
+	closeCarried,
+	stoppedRun,
+} from "./carried-close.ts";
 
 /** What pausing needs from its session. */
 export interface PausingHost {
@@ -68,8 +73,19 @@ export interface PausingHost {
 	readonly tell: (text: string) => void;
 	/** Say it in the host's journal too, where the session has one. */
 	readonly journal: (text: string) => void;
-	/** End the session, as /exit does, saying `by` asked. */
-	readonly close: (by: string) => void;
+	/**
+	 * End the session, as /exit does, saying `by` asked; where `failed`
+	 * is given, a close that fails throws or is told to it once it has,
+	 * as a host's close does after this returns, and one that lands is
+	 * told to `closed`.
+	 */
+	readonly close: (
+		by: string,
+		failed?: (error: unknown) => void,
+		closed?: () => void,
+	) => void;
+	/** How long a carried close may take before it counts as failed (carried-close.ts). */
+	readonly closeMs?: number;
 	/**
 	 * Carry its work for the machine `to`, once its run has wound down,
 	 * settling once its done file is written.
@@ -127,6 +143,9 @@ function writtenAt(at: string | undefined): number {
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
 	let carrying = false;
+	// The close asked once carried, which says where this session's work
+	// went though it couldn't close here, as each run it then stops says.
+	let closing: CarriedClose | undefined;
 	// When the run in progress began, unknown until one begins here.
 	let runBegan = Number.NEGATIVE_INFINITY;
 	// When the person last talked to it, as their talk says.
@@ -214,16 +233,39 @@ export function createPausing(host: PausingHost): Pausing {
 				return;
 			}
 			host.tell(`Carried to ${to}; closing.`);
-			host.close(`a carry to ${to} ${steeredBy(from)}`);
+			closing = closeCarried({
+				to,
+				close: (failed, closed) =>
+					host.close(`a carry to ${to} ${steeredBy(from)}`, failed, closed),
+				// Kept in the journal too, for a window nobody watches.
+				unclosed: (why) => {
+					const line = `Carried to ${to}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work; end it here once it starts there.`;
+					sayAnyway(() => host.tell(line));
+					sayAnyway(() => host.journal(line));
+				},
+				...(host.closeMs === undefined ? {} : { closeMs: host.closeMs }),
+			});
 		},
 		started() {
 			runBegan = host.now();
-			if (host.paused() || carrying) host.abort();
+			if (!host.paused() && !carrying) return;
+			const goneTo = closing?.goneTo();
+			if (goneTo !== undefined) sayAnyway(() => host.tell(stoppedRun(goneTo)));
+			host.abort();
 		},
 		turnEnded() {
 			if (host.paused() && !host.idle()) host.abort();
 		},
 	};
+}
+
+/** Runs `say`, which a stale screen or journal may throw from, regardless. */
+function sayAnyway(say: () => void): void {
+	try {
+		say();
+	} catch {
+		// Nothing more can say it; the run is still stopped.
+	}
 }
 
 /** What the session reads when its person resumes it. */

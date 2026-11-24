@@ -1,11 +1,12 @@
 /**
  * Pause, Resume, Stop and Close from outside a session's window.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CLOCKS_DIFFER_MS,
 	createPausing,
 	type Pausing,
+	type PausingHost,
 } from "../../../extensions/mesh-workflow/pausing.ts";
 
 interface Session {
@@ -24,6 +25,13 @@ interface Session {
 function session(
 	idle: boolean,
 	carry: (to: string) => Promise<void> = async () => {},
+	closing: Pick<PausingHost, "closeMs"> & {
+		/** What the host's close then does, given its failed and closed. */
+		readonly afterwards?: (
+			failed: (error: unknown) => void,
+			closed: () => void,
+		) => void;
+	} = {},
 ): Session {
 	const did: string[] = [];
 	const told: string[] = [];
@@ -58,10 +66,14 @@ function session(
 			carryOn: () => did.push("carry on"),
 			tell: (text) => told.push(text),
 			journal: (text) => journal.push(text),
-			close: (by) => {
+			close: (by, failed, closed) => {
 				did.push("close");
 				closedBy.push(by);
+				if (closing.afterwards && failed && closed)
+					closing.afterwards(failed, closed);
+				else closed?.();
 			},
+			...(closing.closeMs === undefined ? {} : { closeMs: closing.closeMs }),
 			carry: async (to) => {
 				did.push(`carry to ${to}`);
 				underWay = to;
@@ -383,5 +395,59 @@ describe("carrying a session to another machine", () => {
 		carried();
 		await first;
 		expect(one.did).toEqual(["carry to penelope", "abort", "close"]);
+	});
+});
+
+describe("the person's Carry from outside the window, once carried", () => {
+	const UNCLOSED =
+		"Carried to penelope, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work; end it here once it starts there.";
+	const STOPPED =
+		"This run is stopped: the session was carried to penelope and runs there, so end it here.";
+
+	it("says once, in its journal too, where its close fails late, and why each run after it is stopped", async () => {
+		let failClose: ((error: unknown) => void) | undefined;
+		const one = session(true, async () => {}, {
+			afterwards: (failed) => {
+				failClose = failed;
+			},
+		});
+		await one.pausing.carry("penelope");
+
+		failClose?.(new Error("the engine is gone"));
+		failClose?.(new Error("the engine is gone"));
+		one.pausing.started();
+
+		expect(one.told.filter((line) => line === UNCLOSED)).toHaveLength(1);
+		expect(one.journal, "a window nobody watches is told too").toContain(
+			UNCLOSED,
+		);
+		expect(one.did.at(-1)).toBe("abort");
+		expect(one.told.at(-1)).toBe(STOPPED);
+	});
+
+	it("counts a close that hangs past its deadline as failed", async () => {
+		const one = session(true, async () => {}, {
+			afterwards: () => undefined,
+			closeMs: 20,
+		});
+		await one.pausing.carry("penelope");
+
+		await vi.waitFor(() =>
+			expect(one.told).toContain(
+				"Carried to penelope, but it couldn't close here: it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work; end it here once it starts there.",
+			),
+		);
+	});
+
+	it("says nothing more where its close lands", async () => {
+		const one = session(true);
+		await one.pausing.carry("penelope");
+
+		one.pausing.started();
+
+		expect(one.told.at(-1)).toBe("Carried to penelope; closing.");
+		expect(one.did.at(-1), "a run is still ended while it closes").toBe(
+			"abort",
+		);
 	});
 });

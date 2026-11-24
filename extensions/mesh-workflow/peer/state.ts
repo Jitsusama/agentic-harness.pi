@@ -280,8 +280,9 @@ export function createState(
 		journal,
 		// Plain pi waits until it is idle, so the run just ended winds down
 		// first; a host closes it as a Close over its socket does.
-		close: (by) => {
-			if (m.ctx) endConversation(m.ctx, by);
+		close: (by, failed, closed) => {
+			if (m.ctx) endConversation(m.ctx, by, failed, closed);
+			else if (failed) throw new Error("the session has no context to close");
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
@@ -356,9 +357,9 @@ export function createState(
 					undefined
 			);
 		},
-		close: (by, failed) => {
+		close: (by, failed, closed) => {
 			if (!m.ctx) throw new Error("the session has no context to close");
-			endConversation(m.ctx, by, failed);
+			endConversation(m.ctx, by, failed, closed);
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 		// Every job still running; the carry names only those that read as
