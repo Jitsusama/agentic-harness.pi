@@ -28,6 +28,28 @@ import { real } from "./tree-git.ts";
  */
 export const TEMP_LINK_PREFIX = "pi-quest-";
 
+/** The folder beside the quests' scratches where carries stage (stage.ts). */
+export const CARRY_STAGING = ".carrying";
+
+/**
+ * Make the scratches' root, and the staging carries keep in it, before
+ * any command runs, whatever its sandbox: a root not made yet lies in
+ * the cache a Mac's fence lets a command write, where it could make
+ * the root, or the staging in it as a link, before a carry did. A root
+ * the person made a link to elsewhere stays one. Answers nothing, and
+ * one that can't be made is left for the fence and the carry to refuse.
+ */
+export function makeScratches(root: string = questWorkspacesRoot()): void {
+	try {
+		mkdirSync(root, { recursive: true });
+		if (!lstatSync(join(root, CARRY_STAGING), { throwIfNoEntry: false })) {
+			mkdirSync(join(root, CARRY_STAGING), { mode: 0o700 });
+		}
+	} catch {
+		// One made meanwhile, or that can't be, is read as it stands.
+	}
+}
+
 /**
  * Where quests' scratch folders live, and the one of the quest
  * `temporary` (a session's `TMPDIR`) names, if it names one: by its
@@ -35,7 +57,10 @@ export const TEMP_LINK_PREFIX = "pi-quest-";
  * link is never followed: it lies in `/tmp`, which a fenced command
  * writes, and swapped for one into another quest's scratch it would
  * have that scratch, and its share, bound writable (85PKB2, 19
- * November). An own folder that is a link, or isn't there, is none.
+ * November). An own folder that is a link, or isn't there, is none,
+ * as is one whose name starts with a dot: no quest's id does, and the
+ * staging carries keep beside the scratches is one (stage.ts), which a
+ * `TMPDIR` naming it would otherwise have bound writable.
  */
 export function questScratch(
 	temporary: string | undefined,
@@ -43,7 +68,7 @@ export function questScratch(
 ): { root: string; own?: string } {
 	const top = real(root);
 	const quest = temporary ? questNamed(resolve(temporary), top, root) : "";
-	if (quest === "" || quest === "." || quest === "..") return { root: top };
+	if (quest === "" || quest.startsWith(".")) return { root: top };
 	const own = join(top, quest);
 	return isFolderItself(own) ? { root: top, own } : { root: top };
 }

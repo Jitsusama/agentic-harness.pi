@@ -32,13 +32,16 @@ import {
 	realpathSync,
 	rmSync,
 } from "node:fs";
-import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import type { Exec } from "../../core/exec/index.ts";
+import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/reopening/carried.ts";
+import { real, within } from "../sandbox/tree-git.ts";
+import { cutTreeDir } from "../work-records.ts";
 import { ZIPPED } from "./carry-away.ts";
+import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
 	type HandedTree,
@@ -49,15 +52,15 @@ import {
 import type { CarriedNote } from "./notes.ts";
 import {
 	BOUNDED,
-	FETCHING,
 	gitIn,
 	type Held,
 	holdToOrigin,
+	saidOf,
 	takeView,
 	type ViewGit,
 } from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
-import { twinOf } from "./twin.ts";
+import { guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -76,6 +79,15 @@ const LOOK_MS = 1000;
  * unzipping stops there.
  */
 export const LARGEST_UNZIPPED = 2 * 1024 * 1024 * 1024;
+
+/**
+ * How long a tree already here has to fetch its origin, and a tree to
+ * fetch the commits it needs, all told, over any transport. A tree far
+ * behind a big trunk on a slow link takes long, so this only stops a
+ * fetch that would never end; `BOUNDED` stops an http link that stalls
+ * well before.
+ */
+const CATCHING_UP = 3600;
 
 /** Time, as arriving reads and spends it; a test gives a fake one. */
 export interface Clock {
@@ -136,6 +148,8 @@ export interface Arriving {
 	) => Promise<number>;
 	/** The most a gzipped session file unzips to; `LARGEST_UNZIPPED` unless a test names less. */
 	readonly largestUnzipped?: number;
+	/** Where the work tool cuts trees; its own folder unless a test names one. */
+	readonly trees?: string;
 }
 
 /** Arrives with the session; answers whether everything came and stands. */
@@ -143,9 +157,10 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const { from, home, say } = arriving;
 	const handover = await waitForHandover(arriving);
 	if (handover === undefined) return false;
+	const trees = arriving.trees ?? cutTreeDir();
 	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
-		const line = await arriveTree(arriving.exec, tree, from, home);
+		const line = await arriveTree(arriving.exec, tree, from, home, trees);
 		say(line);
 		if (line.did !== "refused") brought.push(tree);
 	}
@@ -401,6 +416,8 @@ type TreeGit = ViewGit;
 /** How a tree stood before it was given its commits. */
 type Readied =
 	| { readonly kind: "cloned"; readonly unsure?: string }
+	/** Cut as a worktree of a checkout the fence guards. */
+	| ({ readonly kind: "cut" } & Cut)
 	| { readonly kind: "fetched" | "already" }
 	| { readonly kind: "refused"; readonly why: string };
 
@@ -410,30 +427,71 @@ async function arriveTree(
 	tree: HandedTree,
 	from: string,
 	home: string,
+	trees: string,
 ): Promise<Extract<ArrivalLine, { kind: "tree" }>> {
 	const path = underHome(tree.path, home);
 	const git = gitIn(exec, path);
 	const line = { kind: "tree" as const, path, branch: tree.branch };
-	const readied = await readyTree(exec, git, tree, from, path);
+	const readied = await readyTree(exec, git, tree, from, path, {
+		home,
+		trees,
+	});
 	if (readied.kind === "refused") {
 		return { ...line, did: "refused", why: readied.why };
 	}
 	if (readied.kind === "already") return { ...line, did: "fetched" };
-	// Only a tree cloned here takes the sparse checkout it left in; one
+	const made = readied.kind === "cloned" || readied.kind === "cut";
+	// Only a tree made here takes the sparse checkout it left in; one
 	// already here keeps its own.
 	const unsparse =
-		readied.kind === "cloned" && tree.sparse !== undefined
+		made && tree.sparse !== undefined
 			? await standSparse(git.run, tree.sparse)
 			: undefined;
 	const why = unsparse ?? (await settleTree(git, tree, from));
 	if (why === undefined) {
+		if (readied.kind === "cut") return { ...line, did: "cloned" };
 		return readied.kind === "cloned" && readied.unsure !== undefined
 			? { ...line, did: readied.kind, unsure: readied.unsure }
 			: { ...line, did: readied.kind };
 	}
-	// A clone made here holds nothing of anyone's, so arriving again starts afresh.
+	// A tree made here holds nothing of anyone's, so arriving again starts
+	// afresh; one cut leaves the checkout's branch where it stood.
+	if (readied.kind === "cut") {
+		// Cut on no branch, it is on its own only once settling checked it
+		// out there, so a branch another brought to the head stays.
+		const on = await git.run("symbolic-ref", "-q", "HEAD");
+		const settled =
+			on.code === 0 && on.stdout.trim() === `refs/heads/${tree.branch}`
+				? tree.head
+				: undefined;
+		const cutLeft = await uncut(exec, readied, path, tree.branch, settled);
+		const left = [unreadHead(on, tree), cutLeft].filter(
+			(one) => one !== undefined,
+		);
+		if (left.length > 0) {
+			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
+			return {
+				...line,
+				did: "refused",
+				why: `${stopped} And ${left.join(", and ")}.`,
+			};
+		}
+	}
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
 	return { ...line, did: "refused", why };
+}
+
+/**
+ * Why the branch a cut tree settled may be left at the carried head,
+ * where git couldn't say which branch the tree was on; nothing where it
+ * said, or the tree stood on no branch, which `-q` answers with 1 alone.
+ */
+function unreadHead(on: ExecResult, tree: HandedTree): string | undefined {
+	if (on.code === 0 || (on.code === 1 && on.stderr.trim() === "")) {
+		return undefined;
+	}
+	const said = on.stderr.trim() || `git exited ${on.code}`;
+	return `its branch ${tree.branch} may be left at ${tree.head}, since git couldn't say which branch the tree was on: ${said}`;
 }
 
 /**
@@ -446,9 +504,29 @@ async function readyTree(
 	tree: HandedTree,
 	from: string,
 	path: string,
+	here: { readonly home: string; readonly trees: string },
 ): Promise<Readied> {
 	const no = (why: string): Readied => ({ kind: "refused", why });
 	if (!existsSync(path)) {
+		// The tree isn't there yet, so it is found through its parent's real path.
+		if (within(join(real(dirname(path)), basename(path)), here.trees)) {
+			const checkout = await guardedCheckoutOf(
+				exec,
+				path,
+				tree.origin,
+				here.home,
+			);
+			if (checkout !== undefined) {
+				const holder = await holderOf(exec, checkout, tree.branch);
+				if (holder !== undefined) {
+					return no(
+						`Its branch ${tree.branch} is checked out at ${holder}, which shares its branches, so it isn't moved from under it.`,
+					);
+				}
+				const cut = await cutFrom(exec, checkout, path, tree.branch);
+				return "why" in cut ? no(cut.why) : { kind: "cut", ...cut };
+			}
+		}
 		const twin = await twinOf(exec, path, tree.origin);
 		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
 		const cloned = await exec("git", [
@@ -461,7 +539,7 @@ async function readyTree(
 		]);
 		return cloned.code === 0
 			? { kind: "cloned" }
-			: no(`git couldn't clone ${tree.origin}: ${cloned.stderr.trim()}`);
+			: no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {
@@ -482,11 +560,11 @@ async function readyTree(
 		);
 	}
 	const fetched = await git
-		.within(FETCHING)
+		.within(CATCHING_UP)
 		.run(...BOUNDED, "fetch", "-q", "origin");
 	return fetched.code === 0
 		? { kind: "fetched" }
-		: no(`git couldn't fetch its origin: ${fetched.stderr.trim()}`);
+		: no(`git couldn't fetch its origin: ${saidOf(fetched)}`);
 }
 
 /**
@@ -618,8 +696,8 @@ async function settleTree(
 
 /**
  * Brings the commits the tree needs: what the bundle left out, from the
- * remote branch each was on, then the bundle's own. Answers why not, or
- * nothing once its head is here.
+ * remote branch each was on, within `CATCHING_UP` all told, then the
+ * bundle's own. Answers why not, or nothing once its head is here.
  */
 async function takeCommits(
 	git: TreeGit,
@@ -628,21 +706,31 @@ async function takeCommits(
 ): Promise<string | undefined> {
 	const has = (commit: string) =>
 		git.ok("cat-file", "-e", `${commit}^{commit}`);
+	const ends = Date.now() + CATCHING_UP * 1000;
+	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	for (const need of tree.needs) {
 		if (await has(need.commit)) continue;
+		const needs = `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}`;
 		const [remote, ...branch] = (need.on ?? "").split("/");
 		if (
-			remote &&
-			branch.length > 0 &&
-			(await git.ok("remote", "get-url", remote))
+			!remote ||
+			branch.length === 0 ||
+			!(await git.ok("remote", "get-url", "--", remote))
 		) {
-			await git
-				.within(FETCHING)
-				.run(...BOUNDED, "fetch", "-q", remote, branch.join("/"));
+			return `${needs}, which no remote here gave.`;
 		}
-		if (!(await has(need.commit))) {
-			return `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}, which no remote here gave.`;
+		if (left() <= 0) {
+			return `${needs}, but the ${CATCHING_UP} seconds its needs had all told ran out before it was asked for.`;
 		}
+		// Past `--`, so neither reads as a flag, though the handover
+		// already refuses a part that would.
+		const fetched = await git
+			.within(left())
+			.run(...BOUNDED, "fetch", "-q", "--", remote, branch.join("/"));
+		if (await has(need.commit)) continue;
+		return fetched.code === 0
+			? `${needs}, which no remote here gave.`
+			: `${needs}, but git couldn't fetch it: ${saidOf(fetched)}`;
 	}
 	if (tree.bundle !== undefined) {
 		const fetched = await git.run(

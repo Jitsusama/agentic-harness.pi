@@ -320,6 +320,30 @@ describe("openRoster", () => {
 		await next.close();
 	});
 
+	// F117: the refusal covers every part the reader refuses, and says which.
+	it("names which part of a hold a start couldn't read", async () => {
+		const roster = await openRoster({ key: KEY, dir, owner: first });
+		await expect(
+			roster.hold(entry("not-a-uuid", "/sessions/forged.jsonl")),
+		).rejects.toThrow(`"not-a-uuid", its id isn't pi's UUID`);
+		await expect(roster.hold({ ...entry(A), cwd: "work" })).rejects.toThrow(
+			"its cwd isn't an absolute path",
+		);
+		await expect(roster.hold({ ...entry(A), quest: "" })).rejects.toThrow(
+			"its quest is empty",
+		);
+		await expect(roster.hold({ ...entry(A), since: "soon" })).rejects.toThrow(
+			"its since isn't a time",
+		);
+		await expect(
+			roster.hold({ ...entry("not-a-uuid"), cwd: "work" }),
+		).rejects.toThrow(
+			"mending none of its id, cwd, quest or since alone makes it readable",
+		);
+		expect(roster.entries()).toEqual([]);
+		await roster.close();
+	});
+
 	it("serializes concurrent holds and refuses a second hold of one id or file", async () => {
 		const roster = await openRoster({ key: KEY, dir, owner: first });
 		await Promise.all([roster.hold(entry(A)), roster.hold(entry(B))]);

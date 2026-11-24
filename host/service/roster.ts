@@ -200,11 +200,11 @@ function writable(
 	if (refused) throw new Error(refused);
 	const file = resolve(entry.file);
 	// A roster holding one entry no start can read is refused whole at the
-	// next start, so a conversation whose file names an id that isn't pi's
-	// UUID is never held.
+	// next start, so an entry the roster's reader would refuse, such as one
+	// whose file names an id that isn't pi's UUID, is never held.
 	if (!isRosterEntry({ ...entry, file }))
 		throw new Error(
-			`Conversation's hold is not one a start could read: ${JSON.stringify(entry.sessionId)}`,
+			`Conversation's hold is not one a start could read: ${JSON.stringify(entry.sessionId)}, ${unreadablePart({ ...entry, file })}`,
 		);
 	if (
 		held.some(
@@ -220,6 +220,31 @@ function writable(
 		...(launch && Object.keys(launch).length > 0 ? { launch } : {}),
 	};
 }
+
+/**
+ * Which part of an entry the roster's reader refuses, in words, for a
+ * refusal to name; `isRosterEntry` alone decides whether it is refused.
+ */
+function unreadablePart(entry: RosterEntry): string {
+	const parts: readonly [string, RosterEntry][] = [
+		["its id isn't pi's UUID", { ...entry, sessionId: SOME_UUID }],
+		["its cwd isn't an absolute path", { ...entry, cwd: "/" }],
+		[
+			"its quest is empty",
+			{ ...entry, ...(entry.quest === undefined ? {} : { quest: "q" }) },
+		],
+		["its since isn't a time", { ...entry, since: new Date(0).toISOString() }],
+	];
+	const refused = parts
+		.filter(([, mended]) => isRosterEntry(mended))
+		.map(([words]) => words);
+	return refused.length > 0
+		? refused.join(", ")
+		: "mending none of its id, cwd, quest or since alone makes it readable";
+}
+
+/** A UUID as pi writes one, to try an entry with its id mended. */
+const SOME_UUID = "00000000-0000-4000-8000-000000000000";
 
 /** Why a launch environment can't be written down, or nothing when it can. */
 function launchRefusal(

@@ -22,12 +22,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	FENCE_RUN_HELP,
 	type FenceRunAsk,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
+import { questWorkspacesRoot } from "../../../../lib/internal/quest/workspace/workspace-root.ts";
 import { macSandbox } from "../../../../lib/internal/sandbox/mac-sandbox.ts";
 
 /** A file rule in a sandbox-exec profile: what it does, to which operations, on which path. */
@@ -238,6 +239,44 @@ describe("the fence on a Mac", () => {
 		expect(text).toContain(
 			`(allow file-read* file-write* (subpath "${join(home, ".cache")}"))`,
 		);
+	});
+
+	it("writes in ~/.cache no quest's scratch nor a carry's staging beside them, but its own quest's", () => {
+		vi.stubEnv("XDG_CACHE_HOME", join(home, ".cache"));
+		try {
+			const root = questWorkspacesRoot();
+			mkdirSync(join(root, "QEST-1", "tmp"), { recursive: true });
+			mkdirSync(join(root, "OTHER"), { recursive: true });
+			const made = fenceRunText(
+				{ kind: "fence", folder, words: ["true"] },
+				{
+					env: { TMPDIR: join(root, "QEST-1", "tmp") },
+					home,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+
+			for (const refused of [
+				join(root, ".carrying", "QEST-1", "record.json"),
+				join(root, "OTHER", "notes.md"),
+			]) {
+				expect(deciding(made.text, refused, "file-write*"), refused).toMatch(
+					/^\(deny /,
+				);
+			}
+			for (const written of [
+				join(root, "QEST-1", "tmp", "notes.md"),
+				join(home, ".cache", "go-build", "x"),
+			]) {
+				expect(deciding(made.text, written, "file-write*"), written).toMatch(
+					/^\(allow /,
+				);
+			}
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("leaves caches be where strict keeps them read-only, or ~/.cache isn't there, and execs the command", () => {

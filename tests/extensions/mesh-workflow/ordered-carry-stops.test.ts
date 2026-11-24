@@ -223,6 +223,50 @@ describe("an ordered carry a step of fails", () => {
 		);
 	});
 
+	it("says why it stops each later run where a host's close fails after it was asked", async () => {
+		const told: string[] = [];
+		let failClose: ((error: unknown) => void) | undefined;
+		let idle = true;
+		const one = session({
+			tell: (text) => told.push(text),
+			idle: () => idle,
+			close: (by, failed) => {
+				one.did.push(`close: ${by}`);
+				failClose = failed;
+			},
+		});
+		await one.ordering.order(ORDER);
+
+		failClose?.(new Error("the engine is gone"));
+		idle = false;
+		one.ordering.turnEnded();
+
+		expect(told).toContain(
+			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work; end it here once it starts there.",
+		);
+		expect(one.did.at(-1)).toBe("abort");
+		expect(told.at(-1), "a turn's end says why too").toBe(
+			"This run is stopped: the session was carried to penelope and runs there, so end it here.",
+		);
+	});
+
+	it("names the waits its note called stopped as still running where it couldn't close", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			stopping: () => labelled("sleep 600"),
+			close: () => {
+				throw new Error("the session is stale");
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(told.at(-1)).toMatch(
+			/couldn't close here: the session is stale\..* The background commands its note named as stopped still run here, so stop them too: sleep 600\.$/,
+		);
+	});
+
 	it("still closes once carried, though its screen has gone stale", async () => {
 		const one = session({
 			tell: () => {

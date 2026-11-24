@@ -466,11 +466,17 @@ is followed by judgment, not by a regex.
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.
 
-  `repo-quality-standard` sits with them, and five of its rules
+  `repo-quality-standard` sits with them, and six of its rules
   are held by the gate: 🟢 rule 1's code files past 800 lines and
   folders past 40 entries, each saying why, past the shrink-only
   list in `tests/package/code/long-files-waiting.txt`
-  (`tests/package/code/every-long-file-says-why.test.ts`), 🟢 rule 4's
+  (`tests/package/code/every-long-file-says-why.test.ts`), 🟢 its
+  strictest lint, a linter turned off by a suppression comment no
+  more often than the shrink-only list in
+  `tests/package/code/suppressions-waiting.txt` allows
+  (`tests/package/code/linters-stay-on.test.ts`), these two run, main's
+  copy over the head, by `scripts/merge-gate.sh` at every merge as well as
+  by `pnpm test`, 🟢 rule 4's
   unchecked index reads, refused by `pnpm typecheck` under
   `noUncheckedIndexedAccess` in `tsconfig.json`, 🟢 rule 5's programs of more than
   five lines written as strings, past the shrink-only list in

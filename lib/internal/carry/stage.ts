@@ -12,7 +12,8 @@
  * and no done file, its earlier carry stranded in `.before`. So each
  * folder keeps a record of whose carry it is, which process runs it and
  * what it placed, and the next carry beside it finishes the job for any
- * whose process is gone: where the owner's done file stands, the carry
+ * whose process is gone, or, in this process, whose carry has returned:
+ * where the owner's done file stands, the carry
  * did too, and its folder goes; where none does, what it placed comes
  * out and what it replaced goes back.
  *
@@ -38,16 +39,32 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { processGlobal } from "../process/process-global.ts";
+import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf } from "./handover.ts";
 
 /** The folder beside the quest scratches that carries stage in. */
-const STAGING_ROOT = ".carrying";
+const STAGING_ROOT = CARRY_STAGING;
 /** What a staging folder's name starts with. */
 const STAGING = "carrying-";
 /** Where a staging folder keeps what placed files replaced. */
 const BEFORE = ".before";
 /** A staging folder's record of whose carry it is. */
 const RECORD = ".carry.json";
+
+/**
+ * The staging folders whose carry this process runs now. One of its own
+ * not among them was kept by a carry that failed and has returned, so
+ * the next carry sweeps it before placing anything: left until this
+ * process ended, it would put back what came before a later carry's
+ * files, over them.
+ *
+ * It is the process's, not this module's: pi's loader gives each
+ * extension its own copy of this file, and a reload another, and a copy
+ * with a set of its own would take another's running carry as returned
+ * and undo it.
+ */
+const live = processGlobal("pi.carry.staging.live", () => new Set<string>());
 
 /** A carry's staging folder, and how what is staged there is placed. */
 export interface Stage {
@@ -60,6 +77,13 @@ export interface Stage {
 	 * of `gone` is left where it is.
 	 */
 	place(names: readonly string[], gone?: readonly string[]): void;
+	/**
+	 * The handover's path of the file `write` writes in the staging
+	 * folder it is given and answers, placed as `place` places it: a
+	 * carry's done file goes last of all, so none is ever written in the
+	 * handover itself, which a fenced command may have swapped.
+	 */
+	placeLast(write: (folder: string) => string): string;
 }
 
 /** A staging folder's record. */
@@ -101,13 +125,11 @@ export async function staged<T>(
 	owner: string,
 	work: (stage: Stage) => Promise<T>,
 ): Promise<T> {
-	const tmp = stagingOf(into);
-	mkdirSync(tmp, { recursive: true });
+	const tmp = stagingMade(into);
 	unlinked(into);
 	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
 	const aside = join(folder, BEFORE);
-	mkdirSync(aside);
 	const placed: string[] = [];
 	const moved: string[] = [];
 	const record = (failed = false): void =>
@@ -119,10 +141,27 @@ export async function staged<T>(
 			placed,
 			...(failed ? { failed } : {}),
 		});
-	record();
+	live.add(folder);
+	try {
+		mkdirSync(aside);
+		record();
+	} catch (error) {
+		// Nothing is placed yet, so the folder holds nothing to keep.
+		live.delete(folder);
+		rmSync(folder, { recursive: true, force: true });
+		throw error;
+	}
 	let keep = false;
 	const stage: Stage = {
 		folder,
+		placeLast(write) {
+			const file = write(folder);
+			if (dirname(file) !== folder) {
+				throw new Error(`${file} isn't in the staging folder ${folder}.`);
+			}
+			stage.place([basename(file)]);
+			return join(into, basename(file));
+		},
 		place(names, gone = []) {
 			unlinked(into);
 			const held = names.find((name) => isFolder(join(into, name)));
@@ -168,6 +207,7 @@ export async function staged<T>(
 			{ cause: error },
 		);
 	} finally {
+		live.delete(folder);
 		if (!keep) rmSync(folder, { recursive: true, force: true });
 	}
 }
@@ -175,13 +215,18 @@ export async function staged<T>(
 /**
  * Takes each of `placed` out of `into` and puts back each file waiting
  * in `aside`, answering the names that couldn't come out (`stuck`) and
- * those that couldn't go back (`left`).
+ * those that couldn't go back (`left`). A handover swapped for a link
+ * since it was placed into takes nothing out and has nothing put back,
+ * so both wait for a later carry.
  */
 function putBack(
 	into: string,
 	aside: string,
 	placed: readonly string[],
 ): { stuck: string[]; left: string[] } {
+	if (!undo(() => unlinked(into))) {
+		return { stuck: [...placed], left: readdirSync(aside) };
+	}
 	const stuck = placed.filter(
 		(name) => !undo(() => rmSync(join(into, name), { force: true })),
 	);
@@ -191,11 +236,51 @@ function putBack(
 	return { stuck, left };
 }
 
+/**
+ * Makes the staging folder for carries into `into`, and the folder of
+ * staging folders above it, one at a time, answering its path; throws
+ * where either is a link. Where the scratches' folder was made only
+ * now, a fenced command could have made the folder of staging folders
+ * first, as a link to one it may write.
+ */
+function stagingMade(into: string): string {
+	const tmp = stagingOf(into);
+	const root = dirname(tmp);
+	mkdirSync(dirname(root), { recursive: true });
+	for (const path of [root, tmp]) {
+		if (!exists(path)) mkdirSync(path);
+		if (!isFolder(path)) {
+			throw new Error(
+				`${path} is a link or no folder, so no carry is staged through it.`,
+			);
+		}
+	}
+	return tmp;
+}
+
 /** Writes `record` whole, so a kill mid-write leaves the one before. */
 function writeRecord(folder: string, record: StageRecord): void {
 	const writing = join(folder, `${RECORD}.writing`);
 	writeFileSync(writing, JSON.stringify(record));
 	renameSync(writing, join(folder, RECORD));
+}
+
+/**
+ * Makes the handover `into`, and each folder between it and its quest's
+ * scratch, one at a time, refusing any that is a link before it makes
+ * anything below it, so no folder is made wherever a link leads.
+ */
+export function handoverMade(into: string): void {
+	const scratch = dirname(dirname(into));
+	mkdirSync(scratch, { recursive: true });
+	unlinked(into);
+	const steps = relative(scratch, into).split(sep);
+	for (let at = 1; at <= steps.length; at++) {
+		const path = join(scratch, ...steps.slice(0, at));
+		// One made as a link since the check fails here, as it exists.
+		if (!exists(path)) mkdirSync(path);
+	}
+	unlinked(into);
 }
 
 /**
@@ -232,7 +317,7 @@ function sweep(tmp: string, into: string): void {
 			const found = join(tmp, name);
 			if (!isFolder(found) || !isFolder(join(found, BEFORE))) continue;
 			const record = readRecord(found);
-			if (record?.into !== into || running(record)) continue;
+			if (record?.into !== into || running(record, found)) continue;
 			// Claimed by a rename, which only one carry wins, then marked as
 			// this process's, so no other sweeps it while this one does.
 			const folder = join(tmp, `${STAGING}swept-${randomUUID()}`);
@@ -291,11 +376,13 @@ function readRecord(folder: string): StageRecord | undefined {
 }
 
 /**
- * Whether the carry `record` names may still be running: its process is
- * alive, or it ran on another machine, where this one can't tell.
+ * Whether the carry `record` in `folder` names may still be running: its
+ * process is alive, or it ran on another machine, where this one can't
+ * tell. One of this process's own runs only while its carry does.
  */
-function running(record: StageRecord): boolean {
+function running(record: StageRecord, folder: string): boolean {
 	if (record.machine !== hostname()) return true;
+	if (record.pid === process.pid) return live.has(folder);
 	try {
 		process.kill(record.pid, 0);
 		return true;

@@ -6,7 +6,8 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+import type { Exec } from "../../../../../lib/core/exec/index.ts";
 import {
 	type ArrivalLine,
 	type Arriving,
@@ -38,6 +39,33 @@ export function fakeClock(at: (now: number) => void = () => {}): Clock {
 			at(now);
 		},
 	};
+}
+
+/**
+ * An exec that keeps each git fetch's arguments and the seconds it was
+ * bounded to, read from the clock its call was given just before it, or
+ * none where it had none. The clock is read through a spy on
+ * `AbortSignal.timeout`, which a test's `vi.restoreAllMocks` ends.
+ */
+export function boundedFetches(): {
+	through: Exec;
+	fetches: { args: string[]; seconds?: number }[];
+} {
+	let bound: number | undefined;
+	const timeout = AbortSignal.timeout.bind(AbortSignal);
+	vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+		bound = ms / 1000;
+		return timeout(ms);
+	});
+	const fetches: { args: string[]; seconds?: number }[] = [];
+	const through: Exec = (command, args) => {
+		if (command === "git" && args.includes("fetch")) {
+			fetches.push(bound === undefined ? { args } : { args, seconds: bound });
+		}
+		bound = undefined;
+		return exec(command, args);
+	};
+	return { through, fetches };
 }
 
 /** The quest's scratch the handover folder `from` lies in. */
@@ -98,13 +126,44 @@ export function arrivals(made: string[]) {
 		return { origin, from, head };
 	}
 
-	/** Arrives on a machine whose home is `home`, keeping every line said. */
+	/**
+	 * A session carried from a tree whose commits on `branches` were
+	 * pushed to origin after a twin was cloned beside the arriving tree at
+	 * `home`, so it needs each from origin. A branch but `topic` is cut
+	 * from it and merged back into it. Answers the commit each was pushed
+	 * at, too.
+	 */
+	async function needingOrigin(
+		home: string,
+		branches: readonly string[] = ["topic"],
+	) {
+		const pushed: Record<string, string> = {};
+		const sent = await carried(undefined, {}, async (tree) => {
+			const url = await git(tree, "remote", "get-url", "origin");
+			await cloneAt(url, join(home, "src", "twin"));
+			for (const branch of branches) {
+				await git(tree, "checkout", "-q", "-B", branch, "topic");
+				pushed[branch] = await commit(tree, `${branch}.txt`, "pushed\n");
+				await git(tree, "push", "-q", "origin", branch);
+				await git(tree, "checkout", "-q", "topic");
+			}
+			const cut = branches.filter((branch) => branch !== "topic");
+			if (cut.length > 0) await git(tree, "merge", "-q", "--no-edit", ...cut);
+		});
+		return { ...sent, pushed };
+	}
+
+	/**
+	 * Arrives on a machine whose home is `home`, keeping every line said,
+	 * running its commands through `through`.
+	 */
 	async function arriveAt(
 		home: string,
 		from: string,
 		clock: Clock = fakeClock(),
 		taken: CarriedNote[][] = [],
 		limits: Pick<Arriving, "largestUnzipped"> = {},
+		through: Exec = exec,
 	) {
 		const said: ArrivalLine[] = [];
 		const store = folder(made, "store");
@@ -114,7 +173,7 @@ export function arrivals(made: string[]) {
 				taken.push([...notes]);
 				return notes.length;
 			},
-			exec,
+			exec: through,
 			from,
 			session: SESSION,
 			home,
@@ -127,5 +186,5 @@ export function arrivals(made: string[]) {
 		return { whole, said, store };
 	}
 
-	return { carried, arriveAt };
+	return { carried, needingOrigin, arriveAt };
 }

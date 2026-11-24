@@ -27,12 +27,26 @@ export interface Ending {
  * End the conversation `ctx` runs, as pi's shutdown does, saying who
  * asked. pi's shutdown carries no reason, so in a host it goes through
  * the host's close, whose journal line names `by`; plain pi shuts down
- * as it always has.
+ * as it always has. A close that fails is told to `failed`, which a
+ * host's close does after this returns, as it isn't awaited; plain pi's
+ * shutdown throws to the caller where no `failed` is given.
  */
-export function endConversation(ctx: Ending, by: string): void {
+export function endConversation(
+	ctx: Ending,
+	by: string,
+	failed?: (error: unknown) => void,
+): void {
 	const host = hosted();
 	if (!host) {
-		ctx.shutdown();
+		if (!failed) {
+			ctx.shutdown();
+			return;
+		}
+		try {
+			ctx.shutdown();
+		} catch (error) {
+			failed(error);
+		}
 		return;
 	}
 	const sessionId = ctx.sessionManager.getSessionId();
@@ -46,9 +60,21 @@ export function endConversation(ctx: Ending, by: string): void {
 			// its standard error, says so. pi's shutdown is no fallback: in a
 			// host it ends in this same close, only without saying who asked.
 			process.stderr.write(
-				`pi-host: ${sessionId} didn't close, asked by ${by}: ${error instanceof Error ? error.message : String(error)}\n`,
+				`pi-host: ${sessionId} didn't close, asked by ${by}: ${messageOf(error)}\n`,
 			);
+			// Thrown here, it would be a rejection nothing handles.
+			try {
+				failed?.(error);
+			} catch (telling) {
+				process.stderr.write(
+					`pi-host: ${sessionId}'s failed close couldn't be told: ${messageOf(telling)}\n`,
+				);
+			}
 		});
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** Close a local hosted conversation; never send a host a session's SIGTERM. */

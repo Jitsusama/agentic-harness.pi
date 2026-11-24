@@ -185,6 +185,36 @@ describe("startLine", () => {
 		);
 	});
 
+	// F115: what reorders or hides the text around it, or ends a line
+	// outside the controls, is escaped as a control is.
+	it("escapes bidi marks, zero widths and line separators in a path", () => {
+		expect(
+			startLine(
+				undefined,
+				{
+					op: "open",
+					cwd: "/w/\u202egpj.exe\u200b\u2028x\u2029\u{e0041}",
+				},
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			"A conversation not yet named, opening in /w/\\u202egpj.exe\\u200b\\u2028x\\u2029\\u{e0041}: its open took 0.5 s",
+		);
+	});
+
+	// F116: a backslash is doubled, so written text never reads as an escape.
+	it("tells a path holding a backslash and n from one holding a newline", () => {
+		const written = (cwd: string) =>
+			startLine(undefined, { op: "open", cwd }, 1_000, [], 1_500);
+
+		expect(written("/w\\n")).toBe(
+			"A conversation not yet named, opening in /w\\\\n: its open took 0.5 s",
+		);
+		expect(written("/w\\n")).not.toBe(written("/w\n"));
+	});
+
 	// F25: an adopted conversation's id comes from a file the requester names.
 	// F47: its address, the id's last eight characters, is escaped too.
 	it("escapes a named conversation's id, and the address made from it", () => {
@@ -200,5 +230,14 @@ describe("firstLine", () => {
 		expect(firstLine(new Error("ENOENT: '/s/\u001b[2J\tx'\nat open"))).toBe(
 			"ENOENT: '/s/\\u001b[2J\\tx'",
 		);
+	});
+
+	// F24: systemd's failures and the roster's refusal carry a reason already
+	// escaped, which the journal's line escapes again.
+	it("reads the same when a reason it escaped is escaped again", () => {
+		const once = firstLine(new Error("ended with 1: /s/\t\u001b\u2028\\x"));
+
+		expect(firstLine(new Error(`failed: ${once}`))).toBe(`failed: ${once}`);
+		expect(firstLine(new Error(JSON.stringify("a\nb")))).toBe('"a\\nb"');
 	});
 });

@@ -40,7 +40,6 @@ import {
 	copyFileSync,
 	createReadStream,
 	createWriteStream,
-	mkdirSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -63,7 +62,7 @@ import {
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
 import { sparseOf } from "./sparse.ts";
-import { type Stage, staged } from "./stage.ts";
+import { handoverMade, type Stage, staged } from "./stage.ts";
 
 /** What is carried, and where. */
 export interface Carrying {
@@ -147,7 +146,7 @@ export interface CarriedAway {
  * writes its done file last.
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
-	mkdirSync(carrying.into, { recursive: true });
+	handoverMade(carrying.into);
 	return staged(carrying.into, carrying.session.id, (stage) =>
 		carryAll(carrying, stage),
 	);
@@ -206,7 +205,11 @@ async function carryAll(
 			? {}
 			: { notes: carrying.notes }),
 	};
-	return { file: writeHandover(into, handover), handover, trees };
+	return {
+		file: stage.placeLast((folder) => writeHandover(folder, handover)),
+		handover,
+		trees,
+	};
 }
 
 /**
@@ -291,10 +294,14 @@ export interface QuestTreesCarried {
  * go aside first, and come back where writing fails. Where no tree goes,
  * no done file is written, since one of no trees and no session would
  * start nothing there, and the earlier one goes with what it names: it
- * would name trees this carry refused, skipped or left to a session's
- * own carry, which would then arrive twice. A bundle or
- * patch larger than `largest` refuses its tree, since the share would
- * refuse it.
+ * would name trees this carry skipped or left to a session's own carry,
+ * which would then arrive twice. Where any tree is refused, though, the
+ * carry isn't whole and nothing is placed: the earlier one stays as it
+ * was, so a passing error never takes the last good carry with it, and
+ * no tree after it is staged: each other tree is answered as held back
+ * with it, since its bundle goes with the staging. A bundle or patch
+ * larger than `largest` refuses its tree, since the share would refuse
+ * it.
  */
 export async function carryQuestTrees(
 	exec: Exec,
@@ -304,7 +311,7 @@ export async function carryQuestTrees(
 	quest: string,
 	largest = SHARE_LARGEST_FILE,
 ): Promise<QuestTreesCarried> {
-	mkdirSync(into, { recursive: true });
+	handoverMade(into);
 	return staged(into, quest, async (stage) => {
 		const trees = await stageTrees(
 			exec,
@@ -313,18 +320,25 @@ export async function carryQuestTrees(
 			home,
 			quest,
 			largest,
+			true,
 		);
+		const refused = trees.find((one) => one.kind === "refused");
+		if (refused !== undefined) {
+			return { trees: heldBackWith(refused.path, paths, trees) };
+		}
 		const handed = trees.flatMap((one) =>
 			one.kind === "carried" ? [one.tree] : [],
 		);
 		stage.place(filesOf(trees), earlierOf(into, home, quest));
 		if (handed.length === 0) return { trees };
-		const file = writeHandover(into, {
-			session: quest,
-			quest,
-			cwd: "~",
-			trees: handed,
-		});
+		const file = stage.placeLast((folder) =>
+			writeHandover(folder, {
+				session: quest,
+				quest,
+				cwd: "~",
+				trees: handed,
+			}),
+		);
 		return { trees, file };
 	});
 }
@@ -337,13 +351,37 @@ async function stageTrees(
 	home: string,
 	owner: string,
 	largest: number,
+	untilRefused = false,
 ): Promise<TreeCarried[]> {
 	const trees: TreeCarried[] = [];
 	for (const path of paths) {
 		const one = await carryTreeAway(exec, path, stage, home, owner);
-		trees.push(withinShare(one, stage, largest));
+		const within = withinShare(one, stage, largest);
+		trees.push(within);
+		if (untilRefused && within.kind === "refused") break;
 	}
 	return trees;
+}
+
+/**
+ * Each of `paths` as a quest's carry refused for `refused` answers it:
+ * that one with its own why, one skipped (gone, or on no branch) with
+ * its own, since it would never have gone, and every other held back
+ * with it, whether it was staged or not yet tried.
+ */
+function heldBackWith(
+	refused: string,
+	paths: readonly string[],
+	staged: readonly TreeCarried[],
+): TreeCarried[] {
+	return paths.map(
+		(path) =>
+			staged.find((one) => one.kind !== "carried" && one.path === path) ?? {
+				kind: "refused",
+				path,
+				why: `held back, since ${refused} was refused and a quest's own trees go together; its earlier carry stays as it was`,
+			},
+	);
 }
 
 /**

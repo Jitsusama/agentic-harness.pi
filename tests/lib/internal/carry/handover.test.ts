@@ -107,6 +107,33 @@ describe("a handover", () => {
 				{ ...handover, trees: [{ ...tree, branch: "-rf" }] },
 			],
 			[
+				"a branch a segment of which reads as a flag",
+				{ ...handover, trees: [{ ...tree, branch: "topic/--orphan" }] },
+			],
+			[
+				"a remote branch needed whose branch reads as a flag",
+				{
+					...handover,
+					trees: [
+						{
+							...tree,
+							needs: [
+								{ commit: "b".repeat(40), on: "origin/--upload-pack=./PWNED" },
+							],
+						},
+					],
+				},
+			],
+			[
+				"a remote branch needed whose remote reads as a flag",
+				{
+					...handover,
+					trees: [
+						{ ...tree, needs: [{ commit: "b".repeat(40), on: "-x/main" }] },
+					],
+				},
+			],
+			[
 				"an origin read as a flag",
 				{ ...handover, trees: [{ ...tree, origin: "--upload-pack=x" }] },
 			],

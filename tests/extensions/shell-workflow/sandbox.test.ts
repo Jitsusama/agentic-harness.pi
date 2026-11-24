@@ -29,7 +29,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEMP_LINK_PREFIX as QUESTS_LINK_PREFIX } from "../../../extensions/quest-workflow/scratch.ts";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
 import {
+	CARRY_STAGING,
 	direnvTrusts,
+	makeScratches,
 	makeShares,
 	questScratch,
 	questShare,
@@ -427,6 +429,14 @@ describe("a session's quest scratch folder", () => {
 				root,
 			});
 			expect(questScratch(undefined, root)).toEqual({ root });
+			mkdirSync(join(root, ".carrying/tmp"), { recursive: true });
+			expect(
+				questScratch(join(root, ".carrying/tmp"), root),
+				"a carry's staging is no quest's",
+			).toEqual({ root });
+			expect(questScratch(join(base, "pi-quest-.carrying"), root)).toEqual({
+				root,
+			});
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}
@@ -521,6 +531,29 @@ describe("a session's quest shared folder", () => {
 				makeShares({ own: join(base, "quest-workspace", "QEST-1") }, root),
 			).toEqual({ root, own: join(root, "QEST-1") });
 			expect(statSync(join(root, "QEST-1")).mode & 0o777).toBe(0o700);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("makes the scratches and the staging carries keep in them before any command runs", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
+		const root = join(base, "quest-workspace");
+		try {
+			makeScratches(root);
+			const staging = join(root, CARRY_STAGING);
+			expect(lstatSync(staging).isDirectory(), "a folder, no link").toBe(true);
+			expect(statSync(staging).mode & 0o777, "its owner's alone").toBe(0o700);
+
+			rmSync(staging, { recursive: true });
+			const elsewhere = join(base, "elsewhere");
+			mkdirSync(elsewhere);
+			symlinkSync(elsewhere, staging);
+			makeScratches(root);
+			expect(
+				lstatSync(staging).isSymbolicLink(),
+				"one planted is left for the carry to refuse",
+			).toBe(true);
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}

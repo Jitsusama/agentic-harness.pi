@@ -2,9 +2,14 @@
  * A carry staged before it reaches the handover: the share sends what it
  * finds there at once, so nothing of a carry may land there before the
  * carry stands, and a carry that fails leaves what an earlier one left.
+ *
+ * Long because each way a carry can fail between staging and the
+ * handover is told through the one mock of node:fs that makes it fail,
+ * which a file of its own would have to repeat.
  */
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
 	chmodSync,
 	existsSync,
@@ -377,6 +382,49 @@ describe("a carry staged before the handover", () => {
 		expect(staging(into)).toEqual([]);
 	});
 
+	it.each([
+		["every tree", "none"],
+		["the first of two", "after"],
+		["the second of two, after bundling the first", "before"],
+	] as const)(
+		"leaves a quest's earlier carry of its own trees as it was when its next one refuses %s",
+		async (_, another) => {
+			const { origin, home, tree, into } = await homeWithWork();
+			const other = await cloneAt(origin, join(home, "src", "lib"));
+			await git(other, "checkout", "-q", "-b", "side");
+			await commit(other, "side.txt", "unpushed\n");
+			await carryQuestTrees(exec, [tree, other], into, home, QUEST);
+			const before = filesIn(into);
+			// Too random to pack small, so its bundle alone passes the limit.
+			await commit(tree, "big.txt", randomBytes(8000).toString("base64"));
+
+			const paths = {
+				none: [tree],
+				after: [tree, other],
+				before: [other, tree],
+			}[another];
+
+			const next = await carryQuestTrees(exec, paths, into, home, QUEST, 4000);
+
+			expect(next.trees.map((one) => one.path)).toEqual(paths);
+			expect(
+				next.trees.map((one) => one.kind),
+				"none of its trees goes",
+			).toEqual(paths.map(() => "refused"));
+			const held = next.trees.find((one) => one.path === other);
+			if (another !== "none") {
+				expect(held?.kind === "refused" ? held.why : "").toBe(
+					`held back, since ${tree} was refused and a quest's own trees go together; its earlier carry stays as it was`,
+				);
+			}
+			expect(next.file, "no done file of a carry that isn't whole").toBe(
+				undefined,
+			);
+			expect(filesIn(into), "its earlier carry, as it was").toEqual(before);
+			expect(staging(into)).toEqual([]);
+		},
+	);
+
 	it("puts back a quest's earlier carry of its own trees when its next done file can't be written", async () => {
 		const { origin, home, tree, into } = await homeWithWork();
 		const other = await cloneAt(origin, join(home, "src", "lib"));
@@ -502,7 +550,7 @@ describe("a carry staged before the handover", () => {
 	});
 
 	it.skipIf(ROOT)(
-		"names what couldn't go back, and the next carry puts it back once its process is gone",
+		"names what couldn't go back, and the next carry puts it back once its carry has returned",
 		async () => {
 			const { home, tree, into } = await homeWithWork();
 			const carry = () =>
@@ -542,17 +590,17 @@ describe("a carry staged before the handover", () => {
 				"it names only what it left in the handover",
 			).toBe(true);
 
+			// Another process's, still alive, may still be carrying.
+			const owned = (pid: number) =>
+				writeFileSync(record, JSON.stringify({ ...stuck, pid }));
+			owned(process.ppid);
 			await sweepBy();
-			expect(staging(into), "its process still runs").toEqual([kept]);
+			expect(staging(into), "another live process's waits").toEqual([kept]);
 
-			const gone = spawnSync(process.execPath, ["-e", ""]).pid;
-			writeFileSync(
-				record,
-				JSON.stringify({
-					...JSON.parse(readFileSync(record, "utf8")),
-					pid: gone,
-				}),
-			);
+			// This process's, whose carry has returned, goes back before the
+			// next carry places anything, so its .before is never put back
+			// over a later carry's files once this process ends.
+			owned(process.pid);
 			await sweepBy();
 
 			expect(filesIn(into), "its first carry is back").toEqual(before);
@@ -704,6 +752,31 @@ describe("a carry staged before the handover", () => {
 			expect(existsSync(left), "the dead carry waits").toBe(true);
 		},
 	);
+
+	it("makes no handover where a linked folder of handovers leads", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const outside = outsideWithVictim();
+		mkdirSync(dirname(dirname(into)), { recursive: true });
+		symlinkSync(outside, dirname(into));
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-m", cwd: tree },
+				trees: [tree],
+				whole: true,
+			}),
+		).rejects.toThrow(
+			`${dirname(into)} is a link or no folder, so the carry isn't placed through it.`,
+		);
+
+		expect(readdirSync(outside), "nothing was made there").toEqual([
+			"victim.txt",
+		]);
+	});
 
 	it("sweeps a record whose next write was cut off, by the one before it", async () => {
 		const { home, into } = await homeWithWork();

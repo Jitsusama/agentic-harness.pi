@@ -17,6 +17,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import { guardsGitFolder } from "../fence/fence.ts";
+import { real } from "../sandbox/tree-git.ts";
 
 /** How many folders above the tree's own are looked through. */
 const LEVELS = 3;
@@ -26,12 +28,13 @@ const MOST_BESIDE = 64;
 
 /**
  * The git common folder of a repository here whose origin is `origin`,
- * found beside `path`; or nothing.
+ * found beside `path`, that `take` takes; or nothing.
  */
 export async function twinOf(
 	exec: Exec,
 	path: string,
 	origin: string,
+	take: (common: string) => boolean = () => true,
 ): Promise<string | undefined> {
 	const name = basename(path);
 	let above = dirname(path);
@@ -39,13 +42,70 @@ export async function twinOf(
 		for (const candidate of beside(above, name)) {
 			if (candidate === path) continue;
 			const common = await commonOf(exec, candidate, origin);
-			if (common !== undefined) return common;
+			if (common !== undefined && take(common)) return common;
 		}
 		const up = dirname(above);
 		if (up === above) return undefined;
 		above = up;
 	}
 	return undefined;
+}
+
+/**
+ * The git folder of a checkout the fence guards whose origin is
+ * `origin`, for a tree where the work tool cuts them to be a worktree
+ * of: one beside `path` as a twin is found, since a sibling tree is a
+ * worktree of one, or one under `~/src` where the origin's own path
+ * names it (`src/<host>/<owner>/<repo>`, `src/<owner>/<repo>` or
+ * `src/<repo>`); or nothing.
+ */
+export async function guardedCheckoutOf(
+	exec: Exec,
+	path: string,
+	origin: string,
+	home: string,
+): Promise<string | undefined> {
+	const guarded = (common: string) => guardsGitFolder(real(common), real(home));
+	const twin = await twinOf(exec, path, origin, guarded);
+	if (twin !== undefined) return twin;
+	for (const candidate of namedIn(home, origin)) {
+		if (!existsSync(candidate)) continue;
+		const common = await commonOf(exec, candidate, origin);
+		if (common !== undefined && guarded(common)) return common;
+	}
+	return undefined;
+}
+
+/**
+ * Where under `~/src` a checkout of `origin` would be, from the path
+ * it names: `git@host:owner/repo.git`, a URL, or a plain path.
+ */
+function namedIn(home: string, origin: string): string[] {
+	const scp = /^[^/@:]+@([^:/]+):(.+)$/.exec(origin);
+	let host: string | undefined;
+	let path = origin;
+	if (scp) {
+		host = scp[1];
+		path = scp[2] ?? "";
+	} else if (URL.canParse(origin)) {
+		const url = new URL(origin);
+		host = url.hostname === "" ? undefined : url.hostname;
+		path = url.pathname;
+	}
+	const parts = path
+		.replace(/\.git\/?$/, "")
+		.split("/")
+		.filter((part) => part !== "" && part !== "." && part !== "..");
+	const repo = parts.at(-1);
+	if (repo === undefined) return [];
+	const owner = parts.at(-2);
+	return [
+		...(host !== undefined && owner !== undefined
+			? [join(home, "src", host, owner, repo)]
+			: []),
+		...(owner === undefined ? [] : [join(home, "src", owner, repo)]),
+		join(home, "src", repo),
+	];
 }
 
 /** The folders in `folder`, and each one's own folder named `name`. */
