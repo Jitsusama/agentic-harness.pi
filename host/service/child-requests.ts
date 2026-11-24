@@ -93,10 +93,17 @@ export const CHILD_SAID_UNSETTLED =
 
 /**
  * Where a begin refused as too late spent its time: weighing the
- * conversations the host runs, or waiting for a turn among the children
- * already starting.
+ * conversations the host runs, or, after `weighedMs` of that, waiting
+ * for a turn among the children already starting.
  */
-export type TooLateCause = "weighing" | "turn";
+export type TooLateCause =
+	| { readonly kind: "weighing" }
+	| { readonly kind: "turn"; readonly weighedMs: number };
+
+/** A begin that spent its time weighing, refused before it asked a turn. */
+const WEIGHED: TooLateCause = { kind: "weighing" };
+
+const MS_PER_SECOND = 1000;
 
 /**
  * Where a begin's time went when the host spent `spentMs` of its
@@ -109,13 +116,16 @@ function tooLateWords(
 	withinMs: number,
 	cause: TooLateCause,
 ): string {
-	const spent = Math.round(spentMs / 1000);
-	const within = Math.round(withinMs / 1000);
+	const seconds = (ms: number) => Math.round(ms / MS_PER_SECOND);
+	// A turn's wait is said apart from the weighing before it, so a
+	// loaded census doesn't read as a full gate. The wait is what's left
+	// of the rounded whole, so the parts add up to it (F17).
+	const weighed = seconds(cause.kind === "turn" ? cause.weighedMs : 0);
 	const where =
-		cause === "turn"
-			? "waiting for its turn behind the conversations already starting"
-			: "weighing the conversations it runs";
-	return `The host spent ${spent} s of its ${within} s ${where} before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
+		cause.kind === "turn"
+			? `before it could begin this one, ${weighed} s weighing the conversations it runs and ${Math.max(0, seconds(spentMs) - weighed)} s waiting for its turn behind the conversations already starting`
+			: "weighing the conversations it runs before it could begin this one";
+	return `The host spent ${seconds(spentMs)} s of its ${seconds(withinMs)} s ${where}, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
 }
 
 /**
@@ -128,7 +138,7 @@ export function tooLateLine(
 	request: { readonly id: string; readonly quest?: string | undefined },
 	spentMs: number,
 	withinMs: number,
-	cause: TooLateCause = "weighing",
+	cause: TooLateCause = WEIGHED,
 ): string {
 	const plain = (word: string) => word.replace(/\p{Cc}/gu, " ");
 	const quest =
@@ -147,7 +157,7 @@ export function beganTooLate(
 	id: string,
 	spentMs: number,
 	withinMs: number,
-	cause: TooLateCause = "weighing",
+	cause: TooLateCause = WEIGHED,
 ): ControlReply {
 	const reply: ControlReply = {
 		v: 1,
