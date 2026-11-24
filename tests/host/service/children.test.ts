@@ -366,9 +366,40 @@ describe("a host with conversations in children", () => {
 		window.write(attaching(c, [DIRECT_ATTACH]));
 
 		const answer = (await messages(window).next()).value;
-		expect(answer).toMatchObject({ ok: false });
+		expect(answer).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
 		expect(answer, "no socket is named").not.toHaveProperty("result");
 		window.end();
+	});
+	// F26: what a window sent after its attach was meant for the child.
+	it("acts on nothing such a window sent after its attach once it names the child's socket", async () => {
+		const window = createConnection(hostPath);
+		window.write(
+			attaching(a, [DIRECT_ATTACH]) +
+				line({
+					v: 1,
+					id: "close",
+					op: "close",
+					sessionId: a,
+					expectedHost: host,
+				}),
+		);
+
+		expect(
+			await untilClosed(messages(window)),
+			"the redirect alone, not the close's answer",
+		).toEqual([
+			{
+				v: 1,
+				id: "view",
+				ok: true,
+				result: { sessionId: a, socket: childPath },
+			},
+		]);
+		expect(childAsked, "no close passed on to the child").toEqual([]);
+		expect(asked, "nor run by the host").toEqual([]);
 	});
 	it("asks the child to end its conversation under the child's own name", async () => {
 		const reply = await controlRequest(hostPath, {

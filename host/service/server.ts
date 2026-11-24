@@ -222,6 +222,9 @@ export async function listenControl(options: {
 		// Once a watch is asked, what ends it; the connection then takes
 		// nothing more from its other end.
 		let unwatch: (() => void) | undefined;
+		// Once a window is told a child's socket to join, whatever it sent
+		// after its attach was meant for the child, so none of it is read.
+		let redirected = false;
 		// Until the window's first frame goes, what it does: nothing, unless
 		// the line saying it was sent nothing in time has gone, when the
 		// frame is journaled too, as is a leaving with nothing drawn.
@@ -477,6 +480,7 @@ export async function listenControl(options: {
 				request.features?.includes(DIRECT_ATTACH)
 			) {
 				child.destroy();
+				redirected = true;
 				send({
 					v: 1,
 					id: request.id,
@@ -623,6 +627,7 @@ export async function listenControl(options: {
 				for (const [at, value] of values.entries()) {
 					if (socket.destroyed || ended) break;
 					const child = await receive(value);
+					if (redirected) return;
 					if (child) {
 						passed = true;
 						passOn(child, values.slice(at + 1), frames.rest());
