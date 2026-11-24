@@ -56,8 +56,25 @@ export const FIRST_RECENT = 50;
  */
 export const MOST_AHEAD_MS = 5 * 60 * 1000;
 
+/**
+ * Whether the id `a` was stamped after `b`: by their stamps' times, then
+ * by the ids themselves, never as strings alone, since a stamp of fewer
+ * digits sorts after every real one as a string though it is long past.
+ */
+function stampedAfter(a: string, b: string): boolean {
+	const at = stampedAt(a) ?? 0;
+	const bt = stampedAt(b) ?? 0;
+	return at === bt ? a > b : at > bt;
+}
+
 /** The most of a node's why said to the session, as for an unreadable line. */
 const MOST_WHY = 200;
+
+/**
+ * The longest line read from the node: a watch's batch of fifty messages
+ * runs to tens of kilobytes, so 16 MiB is only ever a node gone wrong.
+ */
+const MOST_LINE = 16 * 1024 * 1024;
 
 /** The latest a Date can hold, past which an id's stamp is no time at all. */
 const LATEST_TIME_MS = 8.64e15;
@@ -135,9 +152,10 @@ type Awaited =
 export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 	const firstRetry = options.retryMs ?? FIRST_RETRY_MS;
 	let closed = false;
-	// Each refusal is told once until something the node takes, so a node
-	// that refuses on each reconnect or each presence fills no conversation.
-	const told = new Set<string>();
+	// Each refusal is told once until the node takes something of the same
+	// kind, so a node that refuses on each reconnect or each presence fills
+	// no conversation, and a presence taken doesn't bring back a watch's.
+	const told = new Map<string, Refused["what"]>();
 	let presence: Presence | undefined;
 	// What waits for the presence connection: messages not yet written to
 	// it, and those written whose replies haven't come.
@@ -157,7 +175,7 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		const why = oneLine(refusal.why).slice(0, MOST_WHY);
 		const key = JSON.stringify([refusal.what, refusal.id, why]);
 		if (told.has(key)) return;
-		told.add(key);
+		told.set(key, refusal.what);
 		try {
 			options.refused({ ...refusal, why });
 		} catch {
@@ -166,17 +184,27 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		}
 	};
 
-	const taken = () => told.clear();
+	/** Forget what was told of `what`, now the node took one of it. */
+	const taken = (what: Refused["what"]) => {
+		for (const [key, kind] of told) if (kind === what) told.delete(key);
+	};
 
-	/** Whether `id` was stamped by someone else, at no time too far ahead. */
+	/**
+	 * Whether `id` was stamped by someone else, at no time too far ahead,
+	 * with as many digits as now's: the node orders a watch's `since` by
+	 * id, so a take-up stamped with fewer would sort after every real one.
+	 */
 	const movesTakeUp = (id: string, own: readonly string[]) => {
 		const from = senderOf(id);
 		const at = stampedAt(id);
+		const now = Date.now();
 		return (
 			from !== undefined &&
 			!own.includes(from) &&
 			at !== undefined &&
-			at <= Date.now() + MOST_AHEAD_MS
+			at <= now + MOST_AHEAD_MS &&
+			String(Math.trunc(at)).length === String(now).length &&
+			id.startsWith(String(Math.trunc(at)))
 		);
 	};
 
@@ -209,18 +237,36 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		if (asked.kind === "presence") {
 			if (reply.ok) {
 				retries.hold = firstRetry;
-				taken();
+				taken("presence");
 				if (!holding) {
 					holding = true;
 					openWatch();
 				}
-			} else refuse({ what: "presence", why: reply.why });
+			} else {
+				refuse({ what: "presence", why: reply.why });
+				presentAgain();
+			}
 			return;
 		}
 		// A send the node already holds, as one said again after a drop that
 		// came after the node took it, is refused as said: it went.
-		if (reply.ok || saidAlready(reply.why)) taken();
+		if (reply.ok || saidAlready(reply.why)) taken("send");
 		else refuse({ what: "send", id: asked.message.id, why: reply.why });
+	};
+
+	/**
+	 * Say the presence again on the hold's backoff, after the node refused
+	 * it: a session left idle publishes nothing new, so without this one
+	 * passing refusal would leave it with no watch until its work changed.
+	 */
+	const presentAgain = () => {
+		if (closed || again !== undefined) return;
+		again = later("hold", () => {
+			again = undefined;
+			if (closed || holding || presence === undefined) return;
+			if (held === undefined) openHold();
+			else if (!held.connecting) presentOn(held, presence);
+		});
 	};
 
 	const openHold = () => {
@@ -228,15 +274,27 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		if (closed || held !== undefined || presence === undefined) return;
 		const socket = connect(options.socket);
 		held = socket;
+		let reached = false;
 		socket.setEncoding("utf8");
 		socket.on("connect", () => {
+			reached = true;
 			if (presence !== undefined) presentOn(socket, presence);
 			for (const message of unsent.splice(0)) sendOn(socket, message);
 		});
-		socket.on("data", lines(replied, refuse));
+		socket.on("data", lines(replied, refuse, "presence"));
 		// A drop takes the watch with it, since the node watches only for a
 		// session whose presence is held; what wasn't answered goes again.
-		socket.on("error", () => socket.destroy());
+		// A node that can't be reached at all is told once, so a session
+		// cut off by a node that's down or a socket misnamed knows it.
+		socket.on("error", (error: NodeJS.ErrnoException) => {
+			if (!reached) {
+				refuse({
+					what: "presence",
+					why: `the node's worker socket at ${options.socket} can't be reached (${error.code ?? error.message}), so it tries again`,
+				});
+			}
+			socket.destroy();
+		});
 		socket.on("close", () => {
 			if (held !== socket) return;
 			held = undefined;
@@ -269,16 +327,20 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			return;
 		}
 		retries.watch = firstRetry;
-		if (said.messages.length > 0) taken();
+		taken("watch");
 		const own = presence?.addresses ?? [];
 		for (const message of said.messages) {
+			// Heard from elsewhere, its pid names a process on another
+			// machine, so it is kept as a hosted one, read by address alone:
+			// a pid alike by chance, or copied, never makes it this session's.
 			try {
-				options.keep(message);
+				options.keep({ ...message, hosted: true });
 			} catch (error) {
 				refuse({ what: "unkept", id: message.id, why: String(error) });
 				continue;
 			}
-			const newer = newestKept === undefined || message.id > newestKept;
+			const newer =
+				newestKept === undefined || stampedAfter(message.id, newestKept);
 			if (newer && movesTakeUp(message.id, own)) newestKept = message.id;
 		}
 	};
@@ -290,12 +352,14 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 	 */
 	const takeUpFrom = (own: readonly string[]): string | undefined => {
 		if (newestKept !== undefined) return newestKept;
-		const heldFromElsewhere = options
-			.held()
-			.filter((id) => movesTakeUp(id, own))
-			.sort()
-			.at(-1);
-		return heldFromElsewhere ?? options.lastRead?.(own);
+		let newest: string | undefined;
+		for (const id of options.held()) {
+			if (!movesTakeUp(id, own)) continue;
+			if (newest === undefined || stampedAfter(id, newest)) newest = id;
+		}
+		if (newest !== undefined) return newest;
+		const read = options.lastRead?.(own);
+		return read !== undefined && movesTakeUp(read, own) ? read : undefined;
 	};
 
 	const openWatch = () => {
@@ -315,7 +379,7 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 				},
 			}),
 		);
-		socket.on("data", lines(heard, refuse));
+		socket.on("data", lines(heard, refuse, "watch"));
 		socket.on("error", () => socket.destroy());
 		socket.on("close", () => {
 			if (watching !== socket) return;
@@ -333,7 +397,14 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			else if (held === undefined && again === undefined) openHold();
 		},
 		relay(message) {
-			if (closed) return;
+			if (closed) {
+				refuse({
+					what: "unsent",
+					id: message.id,
+					why: "the session's link to the node had closed",
+				});
+				return;
+			}
 			if (held !== undefined && !held.connecting) sendOn(held, message);
 			else {
 				unsent.push(message);
@@ -430,16 +501,24 @@ export function refusalText(refusal: Refused): string {
 
 /**
  * Calls back with each whole line a socket's text holds, as it comes.
- * A line that throws is told through `refuse` and the next read: a throw
- * out of a socket's listener is an uncaught exception, which ends pi.
+ * A line that throws is told through `refuse`, as of the connection
+ * `what` names, and the next read: a throw out of a socket's listener is
+ * an uncaught exception, which ends pi. A run past `MOST_LINE` with no
+ * end is dropped and told, so a node gone wrong can't fill pi's memory.
  */
 function lines(
 	each: (line: string) => void,
 	refuse: (refusal: Refused) => void,
+	what: "presence" | "watch",
 ): (chunk: string) => void {
 	let said = "";
 	return (chunk) => {
 		said += chunk;
+		if (said.length > MOST_LINE && !said.includes("\n")) {
+			said = "";
+			refuse({ what, why: `it said over ${MOST_LINE} characters with no end` });
+			return;
+		}
 		let end = said.indexOf("\n");
 		while (end >= 0) {
 			const line = said.slice(0, end);
@@ -449,7 +528,7 @@ function lines(
 					each(line);
 				} catch (error) {
 					refuse({
-						what: "watch",
+						what,
 						why: `a line it heard failed: ${String(error)}`,
 					});
 				}

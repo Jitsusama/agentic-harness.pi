@@ -113,6 +113,19 @@ function message(id: string, text = "hello"): Message {
 	};
 }
 
+/**
+ * An id stamped `ago` before now by `from`, as the mesh mints them: real
+ * 13-digit stamps, so a test of take-up orders them as the node will.
+ */
+function stamped(ago: number, from = "KP0L6A", tail = "aa"): string {
+	return `${Date.now() - ago}-${from}-7-${tail}`;
+}
+
+/** A message as kept from the watch: from elsewhere, read by address. */
+function heardAs(one: Message): Message {
+	return { ...one, hosted: true };
+}
+
 /** What a session using the link has been handed. */
 interface Session {
 	readonly kept: Message[];
@@ -123,6 +136,7 @@ interface Session {
 function linked(
 	held: readonly string[] = [],
 	keep: (one: Message) => void = () => undefined,
+	lastRead?: () => string | undefined,
 ): Session {
 	const session: Session = { kept: [], refused: [] };
 	link = createWorkerLink({
@@ -132,6 +146,7 @@ function linked(
 			session.kept.push(one);
 		},
 		held: () => held,
+		...(lastRead ? { lastRead } : {}),
 		refused: (one) => session.refused.push(one),
 		retryMs: 10,
 	});
@@ -240,7 +255,10 @@ describe("a worker's link to its node", () => {
 		);
 		await until("the message is kept", () => session.kept.length === 1);
 
-		expect(session.kept).toEqual([message("2-KP0L6A-7-bb")]);
+		expect(
+			session.kept,
+			"kept as hosted, so its pid never makes it this session's",
+		).toEqual([heardAs(message("2-KP0L6A-7-bb"))]);
 	});
 
 	it("tells the session which send the node refused, and why", async () => {
@@ -275,6 +293,39 @@ describe("a worker's link to its node", () => {
 		expect(held.connections, "no watch opens").toHaveLength(1);
 	});
 
+	it("says a refused presence again, and watches once the node takes it", async () => {
+		let refusals = 1;
+		const held = await node((asked, on) => {
+			if ("Presence" in asked && refusals > 0) {
+				refusals -= 1;
+				return ['{"Err":"that session lives elsewhere"}'];
+			}
+			return agreed()(asked, on);
+		});
+		const session = linked();
+
+		link?.present(presence());
+		await until("the watch opens", () => held.connections.length === 2);
+
+		expect(held.connections[0]?.said, "the same presence, said again").toEqual([
+			{ Presence: { presence: presence() } },
+			{ Presence: { presence: presence() } },
+		]);
+		expect(session.refused).toHaveLength(1);
+	});
+
+	it("tells once a node it can't reach", async () => {
+		const session = linked();
+
+		link?.present(presence());
+		await until("the refusal is told", () => session.refused.length === 1);
+		await quietFor(30, 5);
+
+		expect(session.refused).toHaveLength(1);
+		expect(session.refused[0]?.what).toBe("presence");
+		expect(session.refused[0]?.why).toContain("can't be reached (ENOENT)");
+	});
+
 	it("takes a send the node already holds as sent", async () => {
 		const held = await node((asked, on) =>
 			"Send" in asked
@@ -303,14 +354,51 @@ describe("a worker's link to its node", () => {
 		link?.present(presence());
 		await until("the first is refused", () => session.refused.length === 1);
 		link?.present({ ...presence(), busy: true });
+		// Each refused presence is said again on the hold's backoff too.
 		await until(
-			"both presences are answered",
-			() => (held.connections[0]?.said.length ?? 0) === 2,
+			"the second presence and a retry are answered",
+			() => (held.connections[0]?.said.length ?? 0) >= 3,
 		);
 		await quietFor(10, 5);
 
 		expect(session.refused, "the second refusal is the first's").toHaveLength(
 			1,
+		);
+	});
+
+	it("tells a refusal again once the node takes one of its kind, not another's", async () => {
+		const id = "3-W0RK3R-42-cc";
+		const held = await node((asked, on) =>
+			JSON.stringify(asked).includes(id)
+				? ['{"Err":"a worker sends no hold"}']
+				: agreed()(asked, on),
+		);
+		const session = linked();
+		link?.present(presence());
+		await until("the watch opens", () => held.connections.length === 2);
+
+		link?.relay(message(id));
+		await until("the send is refused", () => session.refused.length === 1);
+		link?.present({ ...presence(), busy: true });
+		link?.relay(message(id));
+		await until(
+			"all are answered",
+			() => (held.connections[0]?.said.length ?? 0) === 4,
+		);
+		expect(session.refused, "a presence taken clears no send's").toHaveLength(
+			1,
+		);
+
+		link?.relay(message("4-W0RK3R-42-dd"));
+		await until(
+			"the taken send is answered",
+			() => (held.connections[0]?.said.length ?? 0) === 5,
+		);
+		await quietFor(10, 3);
+		link?.relay(message(id));
+		await until(
+			"the send is refused again",
+			() => session.refused.length === 2,
 		);
 	});
 
@@ -348,10 +436,12 @@ describe("a worker's link to its node", () => {
 		]);
 	});
 
-	it("never takes up from its own sends or a stamp far ahead", async () => {
+	it("never takes up from its own sends, a stamp far ahead or one too short", async () => {
 		const held = await node(agreed());
-		const ahead = `${Date.now() + 60 * 60 * 1000}-KP0L6A-7-bb`;
-		linked(["5-KP0L6A-7-aa", "9-W0RK3R-42-zz", ahead]);
+		const elsewhere = stamped(60_000);
+		const own = stamped(1000, "W0RK3R", "zz");
+		const ahead = stamped(-60 * 60 * 1000, "KP0L6A", "bb");
+		linked([elsewhere, own, ahead, "9-KP0L6A-7-cc"]);
 
 		link?.present(presence());
 		await until(
@@ -360,7 +450,73 @@ describe("a worker's link to its node", () => {
 		);
 
 		expect(held.connections[1]?.said).toEqual([
-			{ Watch: { session: "sess-1", groups: null, since: "5-KP0L6A-7-aa" } },
+			{ Watch: { session: "sess-1", groups: null, since: elsewhere } },
+		]);
+	});
+
+	it("never takes up from what it hears of its own, far ahead or too short", async () => {
+		const elsewhere = stamped(60_000);
+		let dropped = false;
+		const held = await node((asked, on) => {
+			if ("Watch" in asked && !dropped) {
+				return [
+					'{"Ok":"Watching"}',
+					JSON.stringify({
+						MessagesChanged: {
+							messages: [
+								message(elsewhere),
+								message(stamped(1000, "W0RK3R", "zz")),
+								message(stamped(-60 * 60 * 1000, "KP0L6A", "bb")),
+								message("9-KP0L6A-7-cc"),
+							],
+						},
+					}),
+				];
+			}
+			return agreed()(asked, on);
+		});
+		const session = linked();
+		link?.present(presence());
+		await until("all four are kept", () => session.kept.length === 4);
+
+		dropped = true;
+		held.connections[0]?.socket.destroy();
+		await until(
+			"the watch asks again",
+			() => (held.connections[3]?.said.length ?? 0) === 1,
+		);
+
+		expect(held.connections[3]?.said).toEqual([
+			{ Watch: { session: "sess-1", groups: null, since: elsewhere } },
+		]);
+	});
+
+	it("takes up from the last read when it holds nothing from elsewhere, within bounds", async () => {
+		const read = stamped(60_000);
+		const held = await node(agreed());
+		linked([stamped(1000, "W0RK3R", "zz")], undefined, () => read);
+		link?.present(presence());
+		await until(
+			"the watch asks",
+			() => (held.connections[1]?.said.length ?? 0) === 1,
+		);
+
+		expect(held.connections[1]?.said).toEqual([
+			{ Watch: { session: "sess-1", groups: null, since: read } },
+		]);
+	});
+
+	it("asks for the latest when the last read is far ahead", async () => {
+		const held = await node(agreed());
+		linked([], undefined, () => stamped(-60 * 60 * 1000));
+		link?.present(presence());
+		await until(
+			"the watch asks",
+			() => (held.connections[1]?.said.length ?? 0) === 1,
+		);
+
+		expect(held.connections[1]?.said).toEqual([
+			{ Watch: { session: "sess-1", groups: null, recent: FIRST_RECENT } },
 		]);
 	});
 
@@ -378,8 +534,9 @@ describe("a worker's link to its node", () => {
 		const session = linked();
 		link?.present(presence());
 		await until("the watch opens", () => held.connections.length === 2);
+		const heardId = stamped(1000, "KP0L6A", "dd");
 		held.connections[1]?.socket.write(
-			`${JSON.stringify({ Message: { message: message("4-KP0L6A-7-dd") } })}\n`,
+			`${JSON.stringify({ Message: { message: message(heardId) } })}\n`,
 		);
 		await until("a message is kept", () => session.kept.length === 1);
 
@@ -399,14 +556,15 @@ describe("a worker's link to its node", () => {
 			{ Send: { message: message("5-W0RK3R-42-ee") } },
 		]);
 		expect(held.connections[3]?.said, "it takes up from what it kept").toEqual([
-			{ Watch: { session: "sess-1", groups: null, since: "4-KP0L6A-7-dd" } },
+			{ Watch: { session: "sess-1", groups: null, since: heardId } },
 		]);
 		expect(session.refused).toEqual([]);
 	});
 
 	it("takes up from the newest message the session holds", async () => {
 		const held = await node(agreed());
-		linked(["9-KP0L6A-7-zz"]);
+		const newest = stamped(1000, "KP0L6A", "zz");
+		linked([stamped(60_000), newest]);
 
 		link?.present(presence());
 		await until(
@@ -415,13 +573,13 @@ describe("a worker's link to its node", () => {
 		);
 
 		expect(held.connections[1]?.said).toEqual([
-			{ Watch: { session: "sess-1", groups: null, since: "9-KP0L6A-7-zz" } },
+			{ Watch: { session: "sess-1", groups: null, since: newest } },
 		]);
 	});
 
 	it("hangs up for good once closed", async () => {
 		const held = await node(agreed());
-		linked();
+		const session = linked();
 		link?.present(presence());
 		await until("the watch opens", () => held.connections.length === 2);
 
@@ -433,6 +591,13 @@ describe("a worker's link to its node", () => {
 		await quietFor(10, 5);
 
 		expect(held.connections, "nothing opens again").toHaveLength(2);
+		expect(session.refused, "a send after the close is told").toEqual([
+			{
+				what: "unsent",
+				id: "6-W0RK3R-42-ff",
+				why: "the session's link to the node had closed",
+			},
+		]);
 	});
 });
 
