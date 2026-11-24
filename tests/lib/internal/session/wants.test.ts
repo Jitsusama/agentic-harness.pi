@@ -7,6 +7,7 @@
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	ASKED_CHARS,
 	answerWant,
 	createOwnWants,
 	createWants,
@@ -144,6 +145,176 @@ describe("a want", () => {
 		bus.emit("session:wants:v1", { kind: "question", said: "no since" });
 
 		expect(heard).toEqual([]);
+	});
+});
+
+// A run that ended on two questions said only the last, cut to a line,
+// and the person couldn't answer from the launcher (24 November).
+describe("a want's whole ask", () => {
+	const REPLY =
+		"Two things before I go on:\n\n\n\n1. Keep the cache?\n2. The signing pause: yes, no or partly?";
+
+	it("is said beside its line, its paragraphs kept", () => {
+		const { heard, wants } = bound();
+
+		wants.raise(
+			"question",
+			"2. The signing pause: yes, no or partly?",
+			AT,
+			undefined,
+			REPLY,
+		);
+
+		expect(heard).toEqual([
+			{
+				kind: "question",
+				since: AT.toISOString(),
+				said: "2. The signing pause: yes, no or partly?",
+				asked:
+					"Two things before I go on:\n\n1. Keep the cache?\n2. The signing pause: yes, no or partly?",
+			},
+		]);
+	});
+
+	it("holds each of its lines to one, so nothing in it redraws a screen", () => {
+		const { heard, wants } = bound();
+
+		wants.raise(
+			"blocked",
+			"OTP",
+			AT,
+			undefined,
+			"Needs\u001b[2J your\r\nOTP\u2028now",
+		);
+
+		expect(heard[0] && "asked" in heard[0] ? heard[0].asked : undefined).toBe(
+			"Needs [2J your\nOTP now",
+		);
+	});
+
+	it("is left out where it says no more than the line", () => {
+		const { heard, wants } = bound();
+
+		wants.raise(
+			"question",
+			"Which launcher?",
+			AT,
+			undefined,
+			"  Which launcher?\n",
+		);
+
+		expect(heard[0]).not.toHaveProperty("asked");
+	});
+
+	it("is cut in its middle, keeping the start and the questions it ends on", () => {
+		const { heard, wants } = bound();
+		const long = `What I did.\n\n${Array.from({ length: 1000 }, () => "word").join(" ")}\n\n1. Keep the cache?\n2. Sign now?`;
+
+		wants.raise("question", "2. Sign now?", AT, undefined, long);
+
+		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
+		expect(asked.length).toBeLessThanOrEqual(ASKED_CHARS);
+		expect(asked.length).toBeGreaterThan(ASKED_CHARS - 40);
+		expect(asked).toMatch(/^What I did\.\n\nword word/);
+		expect(asked).toMatch(/word\n\n1\. Keep the cache\?\n2\. Sign now\?$/);
+		const [head = "", count = "", tail = ""] = asked.split(
+			/\n\n\u2026 \((\d+) characters cut\)\n\n/,
+		);
+		expect(
+			head.length + Number(count) + tail.length,
+			"the cut says how much went",
+		).toBe(long.length);
+	});
+
+	it("never splits a character at its cut", () => {
+		const { heard, wants } = bound();
+		// One letter first, so the start's cut falls inside a pair.
+		const rockets = `x${"\u{1F680}".repeat(ASKED_CHARS)}`;
+
+		wants.raise("question", "Go?", AT, undefined, `${rockets}\nGo?`);
+
+		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
+		expect(asked.length).toBeLessThanOrEqual(ASKED_CHARS);
+		expect(asked, "no lone half of a pair").not.toMatch(/\p{Cs}/u);
+		expect(asked).toMatch(/\nGo\?$/);
+	});
+
+	it("keeps the indentation of its lists and code", () => {
+		const { heard, wants } = bound();
+
+		wants.raise(
+			"question",
+			"2. Signing?",
+			AT,
+			undefined,
+			"1. Cache?\n   - keep  it\n   - drop it\n2. Signing?",
+		);
+
+		expect(heard[0] && "asked" in heard[0] ? heard[0].asked : undefined).toBe(
+			"1. Cache?\n   - keep  it\n   - drop it\n2. Signing?",
+		);
+	});
+
+	it("puts a credential it quotes out of sight", () => {
+		const { heard, wants } = bound();
+		const token = `ghp_${"aB3dE5fG7hJ9kL1mN2pQ4rS6tU8vW0xY2zA4".slice(0, 36)}`;
+
+		wants.raise(
+			"blocked",
+			"Blocked: the push",
+			AT,
+			undefined,
+			`Tried with ${token}.\n\nBlocked: the push`,
+		);
+
+		const asked = heard[0] && "asked" in heard[0] ? (heard[0].asked ?? "") : "";
+		expect(asked).toMatch(/Blocked: the push$/);
+		expect(asked).not.toContain(token);
+	});
+
+	it("is said again when it alone changes, and not when nothing does", () => {
+		const { heard, wants } = bound();
+
+		wants.raise("question", "Go on?", AT, undefined, "First.\n\nGo on?");
+		wants.raise("question", "Go on?", AT, undefined, "First.\n\nGo on?");
+		wants.raise("question", "Go on?", AT, undefined, "Second.\n\nGo on?");
+		wants.raise("question", "Go on?", AT);
+
+		expect(heard.map((one) => ("asked" in one ? one.asked : "none"))).toEqual([
+			"First.\n\nGo on?",
+			"Second.\n\nGo on?",
+			"none",
+		]);
+	});
+
+	it("goes with an owner's want and a panel's", async () => {
+		vi.useFakeTimers();
+		const { heard, wants } = bound();
+		createOwnWants(wants).say("blocked", "needs your OTP", AT, REPLY);
+		let answer: (value: string) => void = () => undefined;
+		const waited = waitedOn(
+			"approval",
+			"Open PR #1",
+			new Promise<string>((resolve) => {
+				answer = resolve;
+			}),
+			wants,
+			10,
+			undefined,
+			"Open PR #1\n\nagainst main",
+		);
+		vi.advanceTimersByTime(10);
+		answer("yes");
+		await waited;
+
+		expect(
+			heard
+				.filter((one) => one.said !== null)
+				.map((one) => ("asked" in one ? one.asked : undefined)),
+		).toEqual([
+			"Two things before I go on:\n\n1. Keep the cache?\n2. The signing pause: yes, no or partly?",
+			"Open PR #1\n\nagainst main",
+		]);
 	});
 });
 

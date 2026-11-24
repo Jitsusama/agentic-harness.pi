@@ -21,11 +21,13 @@
  */
 
 import {
+	ASKED_CHARS,
 	askFrom,
 	oneLine,
 	type WantAsk,
 	type WantKind,
 	wantId,
+	wholeAsk,
 } from "../internal/session/wants.ts";
 
 export type { WantAsk, WantKind };
@@ -53,6 +55,12 @@ export interface Want {
 	readonly since: string;
 	/** What it asked or said, in one short line. */
 	readonly said: string;
+	/**
+	 * The whole of what it asked, its paragraphs kept and bounded, where
+	 * that says more than `said`: a run ending on several questions said
+	 * only the last in its line. Absent from older harnesses.
+	 */
+	readonly asked?: string;
 	/**
 	 * The choices an ask offers, so the launcher can answer it in place
 	 * by writing the answer to the session's steer folder (see steer.ts).
@@ -87,11 +95,19 @@ export function wantFrom(value: unknown): Want | undefined {
 	if (!Number.isFinite(since)) return undefined;
 	const began = new Date(since).toISOString();
 	const ask = askFrom(one.ask);
+	const said = oneLine(one.said);
+	// A writer holds its ask to ASKED_CHARS, so one past it is no harness's
+	// and is not read, rather than folded whole on every census.
+	const asked =
+		typeof one.asked === "string" && one.asked.length <= ASKED_CHARS
+			? wholeAsk(one.asked, said)
+			: undefined;
 	return {
 		id: wantId(one.kind, began),
 		kind: one.kind,
 		since: began,
-		said: oneLine(one.said),
+		said,
+		...(asked === undefined ? {} : { asked }),
 		...(ask ? { ask } : {}),
 	};
 }

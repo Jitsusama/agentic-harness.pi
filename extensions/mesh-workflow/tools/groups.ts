@@ -283,6 +283,15 @@ function isGroup(group: string): boolean {
 	return groupNamed(group) === group;
 }
 
+/**
+ * A want as mesh_groups may list it: its one line, without the whole of
+ * what it asks, another session's paragraphs, which no listing prints.
+ */
+function listedWant(want: NonNullable<Presence["wants"]>): typeof want {
+	const { asked: _whole, ...line } = want;
+	return { ...line, said: oneLine(want.said) };
+}
+
 /** One presence as mesh_groups may list it, or none. */
 function listed(one: Presence): Presence[] {
 	const [signature, ...others] = one.addresses;
@@ -302,9 +311,7 @@ function listed(one: Presence): Presence[] {
 			(stepDetail.kind !== "tool" || isName(stepDetail.name))
 				? { stepDetail: { ...stepDetail, detail: oneLine(stepDetail.detail) } }
 				: {}),
-			...(wants !== undefined
-				? { wants: { ...wants, said: oneLine(wants.said) } }
-				: {}),
+			...(wants !== undefined ? { wants: listedWant(wants) } : {}),
 		},
 	];
 }

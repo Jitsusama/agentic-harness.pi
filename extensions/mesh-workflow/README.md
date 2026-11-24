@@ -1375,7 +1375,16 @@ idle. So while it waits, its presence carries `wants`:
 it began waiting; `said` is what it asked or said, on one line
 of at most 120 characters. `id` is its kind and `since`, which
 stay put while `said` changes with a count of calls held, so a
-launcher keys its notice by `id` and posts it once. Each kind stands until it is
+launcher keys its notice by `id` and posts it once. `asked`, where
+there is more to say than the line holds, is the whole of what it
+asked, its paragraphs and indentation kept: the reply a run ended
+asking or blocked on, the ask tool's questions, or the calls held
+while the person was away. It is at most 4000 characters; a longer
+one keeps its start and its end, where the questions are, and says
+how many characters its middle cut. A credential it quotes is put
+out of sight before it is said, since every peer reads a presence.
+A reader shows it in full and falls back to `said`; an older
+harness leaves it out, and a reader ignores one past 4000. Each kind stands until it is
 settled, and while more than one stands, presence holds the
 one that has stood longest. The field is absent when nothing
 waits. The desktop reads it to mark a session that wants Joel, and
