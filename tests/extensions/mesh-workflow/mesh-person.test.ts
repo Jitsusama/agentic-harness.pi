@@ -205,6 +205,42 @@ describe("the person's look list, from show_person", () => {
 		});
 	});
 
+	it("refuses a look at a change the session proposed, and keeps one it didn't", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools } = await startSession();
+		const branch = [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "review_offer",
+					details: { ok: true, url: pr.target },
+				},
+			},
+		];
+		const ctx = { sessionManager: { getBranch: () => branch } };
+		const show = (params: Record<string, unknown>) =>
+			tools
+				.get("show_person")
+				?.execute("call-s", params, undefined, undefined, ctx);
+
+		const own = await show(pr);
+		const itsDiff = await show({
+			...pr,
+			kind: "diff",
+			target: `${pr.target}/files`,
+		});
+
+		expect(own?.content[0]?.text).toContain("review it yourself");
+		expect(itsDiff?.content[0]?.text).toContain("Nothing was added");
+		expect(looksIn(join(fixture.root, "looks")), "neither was kept").toEqual(
+			[],
+		);
+		await show({ ...pr, target: "https://github.com/o/r/pull/9" });
+		expect(looksIn(join(fixture.root, "looks"))).toHaveLength(1);
+	});
+
 	it("takes a look back when its session says it no longer applies", async () => {
 		onQuest();
 		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };

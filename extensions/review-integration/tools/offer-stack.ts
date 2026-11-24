@@ -197,7 +197,14 @@ export async function proposeStack(
 			...made.map((one) => `   ${proposalLine(one)}`),
 			...(noted ? [`   ${GLYPH.refused} ${noted}`] : []),
 		].join("\n"),
-		{ ok: true, proposed: made.length, asked: drafts.length },
+		{
+			ok: true,
+			proposed: made.length,
+			asked: drafts.length,
+			// Read by show_person, which keeps a session's own changes off
+			// the person's look list (lib/mesh/looks/own-changes.ts).
+			urls: made.map((one) => one.url),
+		},
 	);
 }
 

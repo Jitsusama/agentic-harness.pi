@@ -369,7 +369,10 @@ and can answer a question or a gate left open on screen.
   read only them. A look is refused that names a message's or
   quest's id, a session's address, a path or code, or runs past its
   limits, since he reads it hours later without the agents' context.
-  Nothing here removes one. A look says whether it `asks` for
+  A pull request or diff look at a change the session proposed, read
+  from its log's review_offer answers
+  (`lib/mesh/looks/own-changes.ts`), is refused too: he reviews no
+  change his sessions put up (24 November). Nothing here removes one. A look says whether it `asks` for
   something back: it does when it has choices, wants his own words,
   or has an act other than Just See, and a look kept without the
   field counts as asking. Each names its `cell`, its session's own
