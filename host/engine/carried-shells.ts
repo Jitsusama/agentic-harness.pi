@@ -218,15 +218,32 @@ function isKeptCall(value: unknown): value is KeptCall {
 	);
 }
 
-/** What an earlier restart wrote down, or none when it wrote nothing readable. */
-async function readKept(file: string): Promise<KeptCall[]> {
+/**
+ * What an earlier restart wrote down, none when it wrote nothing
+ * readable, or nothing at all while the file is there but can't be read
+ * for the moment (EMFILE, EACCES), so no caller writes over it unread.
+ */
+async function readKept(file: string): Promise<KeptCall[] | undefined> {
+	let text: string;
 	try {
-		const read: unknown = JSON.parse(await readFile(file, "utf8"));
+		text = await readFile(file, "utf8");
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT")
+			return [];
+		return undefined;
+	}
+	try {
+		const read: unknown = JSON.parse(text);
 		return Array.isArray(read) ? read.filter(isKeptCall) : [];
 	} catch {
-		// No file: no restart kept anything, or the last look let it all go.
+		// Written whole, so a list that won't parse was never one to keep.
 		return [];
 	}
+}
+
+/** Which kept call this is, across two reads of the kept file. */
+function keptAs(call: KeptCall): string {
+	return JSON.stringify([call.session, call.job, call.at, call.work.mark]);
 }
 
 /** Keep a host's carried calls through its restart, and watch an earlier one's. */
@@ -264,7 +281,9 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	};
 	// Each look and keep reads the kept file and writes it back off the
 	// thread, so one waits for the last to land, or a look's older list
-	// would write over what a restart's keep just added.
+	// would write over what a restart's keep just added. A turn holds only
+	// that read and write, never a look's judging of each call, so a
+	// restart's keep never waits on a slow look's reads of every `.end`.
 	let keptFileTurn: Promise<unknown> = Promise.resolve();
 	const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
 		const turn = keptFileTurn.then(work, work);
@@ -348,30 +367,29 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 
 	async function look(holds: (session: string) => boolean): Promise<void> {
 		await lookRecorded(holds);
-		await inTurn(() => lookKept(holds));
+		await lookKept(holds);
 	}
 
 	/** Stop each call an earlier restart kept that is due and nobody holds. */
 	async function lookKept(holds: (session: string) => boolean): Promise<void> {
 		const kept = await readKept(keptFile());
-		if (kept.length === 0) return;
-		const left: KeptCall[] = [];
+		if (kept === undefined || kept.length === 0) return;
+		// The calls this look settles: each ended, was taken up or stopped.
+		const settled = new Set<string>();
 		for (const call of kept) {
 			const out = await runs(call.work);
 			// Not known yet: kept for the next look, never stopped unread.
-			if (out === undefined) {
-				left.push(call);
+			if (out === undefined) continue;
+			if (!out || holds(call.session)) {
+				settled.add(keptAs(call));
 				continue;
 			}
-			if (!out || holds(call.session)) continue;
 			const due = Math.min(
 				call.work.deadline ?? Number.POSITIVE_INFINITY,
 				call.at + STRAY_FOR_MS,
 			);
-			if (now() < due) {
-				left.push(call);
-				continue;
-			}
+			if (now() < due) continue;
+			settled.add(keptAs(call));
 			stop(call.work);
 			const why =
 				call.work.deadline !== undefined && call.work.deadline <= due
@@ -381,7 +399,15 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 				`Stopped \`${call.label}\` (${call.job} of ${call.session}), carried through a restart: its conversation never came back and ${why}`,
 			);
 		}
-		if (left.length !== kept.length) await write(left);
+		if (settled.size === 0) return;
+		// Read again in its turn, so what a restart kept meanwhile stays; one
+		// left for an unreadable file is settled again by the next look.
+		await inTurn(async () => {
+			const current = await readKept(keptFile());
+			if (current === undefined) return;
+			const left = current.filter((call) => !settled.has(keptAs(call)));
+			if (left.length !== current.length) await write(left);
+		});
 	}
 
 	const scoped = () => options.scoped ?? spawnersScoped();
@@ -430,9 +456,21 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			const moved: number[] = [];
 			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));
 			// What an earlier restart kept and nobody took up yet goes on too.
-			await inTurn(async () =>
-				write([...(await readKept(keptFile())), ...carried]),
-			);
+			await inTurn(async () => {
+				const earlier = await readKept(keptFile());
+				// Never written over unread: the calls this restart carries are
+				// still recorded as they run, and a later host's look of those
+				// stops each a day on, while an earlier list lost is lost.
+				if (earlier === undefined) {
+					options.report(
+						new Error(
+							`Kept no list of this restart's ${carried.length} carried call(s): ${keptFile()} couldn't be read for the moment, and writing it unread would lose what an earlier restart kept`,
+						),
+					);
+					return;
+				}
+				await write([...earlier, ...carried]);
+			});
 			return moved;
 		},
 		watch(holds) {

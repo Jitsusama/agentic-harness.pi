@@ -5,7 +5,7 @@
  * case drives that one module through a real wake folder.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, watch } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,7 @@ import {
 	type Parking,
 	parking,
 	UNRECORDED_HOLDS_MS,
+	WATCH_STARTS_MS,
 } from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
@@ -202,6 +203,35 @@ describe("parking a conversation", () => {
 
 		await until("the wake file to wake it", () => asking.mock.calls.length > 0);
 		expect(asking, "it was woken").toHaveBeenCalledWith("a");
+		parked.unwatch("a");
+	});
+
+	// On 24 November a Mac's watch never heard 3 of 500 writes made in
+	// its first 10 ms. A watch of a folder of its own hears nothing of
+	// `a`'s, standing in for one that missed the write.
+	it("wakes for a write its watch missed as it started, as a Mac's can", async () => {
+		const asking = vi.fn((_sessionId: string) => Promise.resolve());
+		const deaf = await mkdtemp(join(dir, "deaf-"));
+		const parked = parking({
+			stateDir: dir,
+			stop: () => Promise.resolve(),
+			asking: () => asking,
+			report: vi.fn(),
+			watch: () => watch(deaf, () => undefined),
+		});
+		await parked.park("a");
+		// Written once the look as its watch began has read no file, as the
+		// Mac's lost writes came: 20 ms is a tenth of WATCH_STARTS_MS.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		await writeFile(parked.wakeFile("a"), "message");
+		expect(asking, "unheard by its watch").not.toHaveBeenCalled();
+
+		await until(
+			"the look once its watch started to wake it",
+			() => asking.mock.calls.length > 0,
+			WATCH_STARTS_MS + 2000,
+		);
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
 		parked.unwatch("a");
 	});
 
@@ -576,7 +606,9 @@ describe("parking while the host drains", () => {
 	// hours, as background work kept the drain's restart past its ceiling.
 	it("wakes one held once the restart passes its ceiling, and its next wake at once once it parks again", async () => {
 		const { asking, asked } = timedWake();
-		const { parked, letStop } = held(asking, () => true);
+		// Asked only once a wake's read lands, so it says the wake was seen.
+		const holding = vi.fn((_sessionId: string) => true);
+		const { parked, letStop } = held(asking, () => true, holding);
 		const parkOnce = async () => {
 			const parking = parked.park("a");
 			letStop();
@@ -585,6 +617,7 @@ describe("parking while the host drains", () => {
 		await parkOnce();
 		const wake = parked.wakeFile("a");
 		wakeAsTheMeshDoes(wake);
+		await until("the wake to be held", () => holding.mock.calls.length > 0);
 		await quietFor(STEER_WAKES_WITHIN_MS, 3);
 		expect(asked, "held before the ceiling").toEqual([]);
 
@@ -631,7 +664,8 @@ describe("parking while the host drains", () => {
 			["lifted", (parked: Parking) => parked.release()],
 		] as const) {
 			const { asking, asked } = timedWake();
-			const { parked, letStop } = held(asking, () => true);
+			const holding = vi.fn((_sessionId: string) => true);
+			const { parked, letStop } = held(asking, () => true, holding);
 			const parking = parked.park("a");
 			letStop();
 			await parking;
@@ -639,6 +673,10 @@ describe("parking while the host drains", () => {
 			holdAgain(parked);
 
 			wakeAsTheMeshDoes(parked.wakeFile("a"));
+			await until(
+				`${how}: the wake to be held`,
+				() => holding.mock.calls.length > 0,
+			);
 			await quietFor(STEER_WAKES_WITHIN_MS, 3);
 			expect(asked, `${how}: held again`).toEqual([]);
 			expect(parked.letThrough(true), `${how}: let through again`).toBe(1);

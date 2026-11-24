@@ -96,6 +96,23 @@ export const PARKED = "parked while idle";
  */
 export const UNRECORDED_HOLDS_MS = 60 * 60 * 1000;
 
+/**
+ * How long after its watch starts a wake file is looked at once more. A
+ * Mac's watch can miss a write in its first moments: on 24 November
+ * 3 of 500 writes made 0 to 10 ms after the watch began were never
+ * heard, and none of 400 made 50 or 200 ms after, nor any late.
+ */
+export const WATCH_STARTS_MS = 250;
+
+/** Watch a conversation's folder, telling `heard` the name of each entry that changes. */
+export type FolderWatch = (
+	folder: string,
+	heard: (name: string | null) => void,
+) => FSWatcher;
+
+const watchFolder: FolderWatch = (folder, heard) =>
+	watch(folder, (_, name) => heard(name));
+
 /** What parks and wakes the engine's conversations. */
 export interface Parking {
 	/** Where a sender wakes this conversation once it parks. */
@@ -190,6 +207,8 @@ interface Sleeper {
 	heldSteer?: string;
 	/** Stops looking at the bash calls its park carried. */
 	calls?: () => void;
+	/** The look once its watch's first moments pass. */
+	started?: ReturnType<typeof setTimeout>;
 }
 
 /** Where the person's steers wait, and whose they are for each conversation. */
@@ -245,6 +264,8 @@ export function parking(options: {
 	readonly lookEveryMs?: number;
 	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
 	readonly wakeAgainMs?: number;
+	/** How a parked conversation's folder is watched; node's `fs.watch` by default. */
+	readonly watch?: FolderWatch;
 	/** A line for the journal: a park that carried calls, and their end. */
 	readonly said?: (line: string) => void;
 	/** Keeps a refused wake, unless `signal` aborts first; on disk off the thread unless a test says. */
@@ -287,6 +308,7 @@ export function parking(options: {
 		sleeper?.wake.close();
 		sleeper?.steers?.close();
 		sleeper?.calls?.();
+		if (sleeper?.started) clearTimeout(sleeper.started);
 		sleepers.delete(sessionId);
 	}
 
@@ -354,7 +376,8 @@ export function parking(options: {
 		};
 		// One look at a time, so a wake's several events ask it once; one
 		// stirring during a look looks again once it ends, for a wake written
-		// after that look's read.
+		// after that look's read. Each answers once its looks again are done
+		// too, so a release asks a held steer only where no look asked a wake.
 		const woken = (): Promise<boolean> => {
 			const watching = sleepers.get(sessionId);
 			if (!watching) return Promise.resolve(false);
@@ -367,11 +390,11 @@ export function parking(options: {
 					report(error);
 					return false;
 				})
-				.finally(() => {
+				.then(async (asked) => {
 					watching.looking = undefined;
-					if (!watching.stirred) return;
+					if (!watching.stirred) return asked;
 					watching.stirred = false;
-					void woken();
+					return (await woken()) || asked;
 				});
 			watching.looking = looking;
 			return looking;
@@ -390,9 +413,12 @@ export function parking(options: {
 				watching.waking = false;
 			});
 		};
-		const watcher = watch(folderOf(sessionId), (_, name) => {
-			if (name === WAKE_FILE) void woken();
-		});
+		const watcher = (options.watch ?? watchFolder)(
+			folderOf(sessionId),
+			(name) => {
+				if (name === WAKE_FILE) void woken();
+			},
+		);
 		watcher.unref();
 		watcher.on("error", report);
 		const sleeper: Sleeper = {
@@ -404,6 +430,14 @@ export function parking(options: {
 		sleepers.set(sessionId, sleeper);
 		// One written between its park and this watch.
 		void woken();
+		// And one written as the watch started, which a Mac's can miss: a
+		// single look, since no write later than its first moments went
+		// unheard. Unref'd, as a host stopping needs no look.
+		sleeper.started = setTimeout(() => {
+			sleeper.started = undefined;
+			if (sleepers.get(sessionId) === sleeper) void woken();
+		}, WATCH_STARTS_MS);
+		sleeper.started.unref();
 		const steers = options.steers;
 		if (steers && sleepers.get(sessionId) === sleeper)
 			sleeper.steers = watchWakingSteers({
