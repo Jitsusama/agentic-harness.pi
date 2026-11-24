@@ -80,6 +80,12 @@ import {
  */
 export const HOST_PARKS = "its host parks it";
 
+/**
+ * What every child host since 19 November is started with, naming its
+ * slot (host/service/child.ts, `childSlot`); a shared host has none.
+ */
+const CHILD_KEY_ENV = "PI_HOST_CHILD_KEY";
+
 /** The host this conversation runs in, when that host can park it alone. */
 function parkingHost(): { park(sessionId: string): void } | undefined {
 	const host = hosted();
@@ -480,9 +486,15 @@ export function watch(
 		const moving =
 			host.draining?.(session) === true || host.rolling?.(session) === true;
 		if (!moving) return "its host neither drains nor rolls";
-		return host.wakeHeld?.(session) === true
-			? undefined
-			: "its host would wake it again here at once";
+		// A child older than wakeHeld, its watch reloaded onto this one,
+		// holds every wake while its host drains and none while it only
+		// rolls: its drain says, since a child never passes a ceiling. A
+		// shared host does, letting wakes through while its drain stands,
+		// so one older than wakeHeld keeps its runs going.
+		const held = host.wakeHeld
+			? host.wakeHeld(session)
+			: Boolean(env[CHILD_KEY_ENV]) && host.drains?.() === true;
+		return held ? undefined : "its host would wake it again here at once";
 	};
 	const decide = (goesOn = false): string | undefined => {
 		if (parked) return "parking already";

@@ -24,9 +24,10 @@
  *   output when set.
  *
  * Long because it reads and writes the same two shapes: each
- * field's parser sits in the file with the keys its
- * serializer writes, so a field added on one side sits
- * beside the other side's keys, where a reader sees the gap.
+ * field's parser is in the same file as the keys its
+ * serializer writes, so a field added on one side is found
+ * missing from the other in one file, and the round-trip
+ * test over every field fails until both sides hold it.
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -543,7 +544,6 @@ export function explainDocumentFrontMatter(text: string): string[] {
 	return said;
 }
 
-/** Parse a quest document (plan/research/brief/report) front-matter. */
 /**
  * Why a document's front-matter will not parse, or undefined when it
  * will.
@@ -581,6 +581,7 @@ export function documentFrontMatterProblem(text: string): string | undefined {
 	return `its front-matter is missing or unreadable: ${detail.join(", ")}`;
 }
 
+/** Parse a quest document (plan/research/brief/report) front-matter. */
 export function parseDocumentFrontMatter(
 	text: string,
 ): { frontMatter: DocumentFrontMatter; body: string } | undefined {
