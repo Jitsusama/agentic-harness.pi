@@ -42,14 +42,14 @@ function onlyLooks(step: string): boolean {
  * limit's options read one way only: `-s` and `-k` take the word after
  * them and no other option is read as either.
  */
-const UNDER =
+export const UNDER =
 	/^\s*(?:\(\s*|\$\(\s*|for\s+\w+\s+in\s+\$\(\s*|timeout(?:\s+-[sk]\s+\S+|\s+--\w[\w-]*(?:=\S+)?|\s+-(?![sk](?:\s|$))\w[\w-]*(?:=\S+)?)*\s+\S+\s+|env(?:\s+-u\s+\S+|\s+-i|\s+[A-Za-z_]\w*=\S*)*\s+|direnv\s+exec\s+\S+\s+)/;
 
 /** The flags that ask a tool how it is called or which version it is. */
 const ASKS = new Set(["--help", "-h", "--version"]);
 
 /** Whether a step's arguments, up to what it writes to, only ask {@link ASKS}. */
-function asksHowToCall(step: string): boolean {
+export function asksHowToCall(step: string): boolean {
 	const args: string[] = [];
 	for (const word of step.trim().split(/\s+/).slice(1)) {
 		if (/^(?:\d|&)?>|^[|;&)]/.test(word)) break;
@@ -83,6 +83,26 @@ function withoutComments(command: string): string {
 
 /** A command's steps as the shell runs them, quoted prose, comments and heredocs blanked. */
 export function shellSteps(command: string): string[] {
+	return blanked(command).split(SEGMENTS);
+}
+
+/**
+ * A command's steps as {@link shellSteps} gives them, each saying
+ * whether a pipe feeds it, as `rg node` is fed in `ps aux | rg node`.
+ */
+export function pipedSteps(
+	command: string,
+): { readonly step: string; readonly piped: boolean }[] {
+	const parts = blanked(command).split(SEPARATED);
+	const steps: { step: string; piped: boolean }[] = [];
+	for (let at = 0; at < parts.length; at += 2) {
+		steps.push({ step: parts[at] ?? "", piped: parts[at - 1] === "|" });
+	}
+	return steps;
+}
+
+/** A command with its heredocs, comments and quoted prose blanked. */
+function blanked(command: string): string {
 	return (
 		withoutComments(command)
 			// A pipe or a semicolon inside the word is its own, as in
@@ -94,12 +114,14 @@ export function shellSteps(command: string): string[] {
 					? "''"
 					: quoted.slice(1, -1).replace(/[|;&]/g, " "),
 			)
-			.split(SEGMENTS)
 	);
 }
 
 /** Where a command's steps and the parts of its pipes end. */
 const SEGMENTS = /\n|;|&&|\|\|?/;
+
+/** {@link SEGMENTS}, kept in the split so a step knows what came before it. */
+const SEPARATED = /(\n|;|&&|\|\|?)/;
 
 /**
  * A git command that only reads the history, past options such as
@@ -126,7 +148,7 @@ const LOOKS = new RegExp(
  * One set from `$(` leaves the command inside, since that is what the
  * step runs: `w=$(readlink -f x)` reads, `d=$(nix build ...)` builds.
  */
-const ASSIGNMENTS =
+export const ASSIGNMENTS =
 	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\(\s*|(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$)))+/;
 
 /** A command's steps, in order, each whole, never a line of a heredoc or a comment. */

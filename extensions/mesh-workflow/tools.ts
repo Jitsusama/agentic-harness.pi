@@ -13,6 +13,8 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import {
 	LOOK_KINDS,
 	type Pointing,
@@ -35,6 +37,13 @@ import {
 } from "./tools/groups.ts";
 import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { NEED_GRANTS_NOTHING } from "./tools/need.ts";
+import {
+	forAModel,
+	ONLY_THE_PERSON_ACTS,
+	waitingRecords,
+	whatWaits,
+	whatWaitsText,
+} from "./tools/person.ts";
 import { MOST_READ, read } from "./tools/read.ts";
 import { type SendParams, send, sendAcross } from "./tools/send.ts";
 import { type SproutParams, sproutFrom } from "./tools/sprout.ts";
@@ -47,6 +56,8 @@ export function registerTools(
 	pi: ExtensionAPI,
 	local: () => Local | undefined,
 	quiet: () => boolean = () => false,
+	// The person's looks folder, which a session keeps on the mesh or off it.
+	looksFolder: () => string | undefined = () => local()?.looks,
 ): void {
 	const using =
 		<P>(act: (at: Local, params: P) => Answer | Promise<Answer>) =>
@@ -448,7 +459,7 @@ export function registerTools(
 			folder: Type.Optional(
 				Type.String({
 					description:
-						"The repository's folder it works in; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
+						"The folder it works in: a repository's, or one within it such as a World zone's, which it starts in as named; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
 				}),
 			),
 			machine: Type.Optional(
@@ -483,6 +494,42 @@ export function registerTools(
 				{ groups: at.peer.groups },
 			);
 		}),
+	});
+
+	pi.registerTool({
+		name: "person_needs",
+		// New: loaded on demand until sessions are seen to call it.
+		exposure: "deferred",
+		label: "Mesh",
+		description:
+			"Read what waits on the person across the machine: every cell that needs them (asked, held at an approval or blocked), longest waiting first, with what it asks; their look list, newest first; and what they said to sessions from outside their windows in the last day, with whether each was taken up, is being worked on or was answered. It only reads: the person acts on these with /needs or in the launcher, and no tool answers, opens or clears anything in their name. Use it when asked what needs them, what is waiting or what is on their list.",
+		parameters: Type.Object({}),
+		execute: async (_id, _params, signal, _onUpdate, ctx) => {
+			const now = Date.now();
+			const waits = forAModel(
+				await whatWaits(
+					(command, args, options) => pi.exec(command, args, options),
+					looksFolder(),
+					now,
+					signal,
+				),
+			);
+			return answer(
+				citeListing(openSessionStore(ctx), {
+					view: whatWaitsText(waits, now),
+					trailer: ONLY_THE_PERSON_ACTS,
+					records: waitingRecords(waits),
+					unit: "cells needing the person, their looks, then what they said",
+					narrowing:
+						"Query the cited records by type (need, look or said), then a need by name or machine, a look by kind or state, and a said row by address or standing.",
+				}),
+				{
+					needs: waits.needs.ok ? waits.needs.needs.length : undefined,
+					looks: waits.looks.ok ? waits.looks.looks.length : undefined,
+					said: waits.said.ok ? waits.said.said.length : undefined,
+				},
+			);
+		},
 	});
 }
 

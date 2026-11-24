@@ -134,12 +134,14 @@ export async function dropMergedBranch(
  * it last moved, as in a reftable checkout. Trunk's merged branches are
  * listed at once and handed to git in batches, at most
  * {@link MOST_A_SWEEP} a call, the rest left for the next: core.nix's
- * checkout held 4,762 merged ones on 19 November.
+ * checkout held 4,762 merged ones on 19 November. Any branch `kept` names
+ * stays, as one whose worktree went from a session still live does.
  */
 export async function dropSettledMergedBranches(
 	exec: Exec,
 	checkout: string,
 	settledBefore: number,
+	kept: ReadonlySet<string> = new Set(),
 ): Promise<WentBranch[]> {
 	const trunk = await remoteTrunk(exec, checkout);
 	if (trunk === undefined) return [];
@@ -176,7 +178,8 @@ export async function dropSettledMergedBranches(
 			({ branch }) =>
 				deletable(branch) &&
 				!trunk.endsWith(`/${branch}`) &&
-				!parents.has(branch),
+				!parents.has(branch) &&
+				!kept.has(branch),
 		)
 		.slice(0, MOST_A_SWEEP);
 	if (going.length === 0) return [];

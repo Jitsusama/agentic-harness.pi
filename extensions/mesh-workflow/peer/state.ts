@@ -349,6 +349,7 @@ export function createState(
 			await refuseInHandover(m.peer.session, why, at);
 		},
 		tell: (text) => notify(text, "info"),
+		journal,
 		// Another carry than this ordering's own, as a person's Carry is.
 		carrying: () => {
 			const session = sessionOf();

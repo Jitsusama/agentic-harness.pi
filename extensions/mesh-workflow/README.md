@@ -399,6 +399,40 @@ and can answer a question or a gate left open on screen.
   launcher answers it with the steer act `answer` below, and the
   session resolves it ("answered: <label>", with `answer` and
   `answeredAt`) and tells its agent what he picked.
+- `person_needs`: read what waits on the person across the machine,
+  so every window he is in shows what the launcher shows (Joel, 24
+  November: "any interface i'm in should be directly engagable to a
+  meaningful level"). It lists every cell needing him, longest
+  waiting first, from `mycelium cells --standing needs-you -o json`
+  (`lib/mesh/needs.ts`), the one way the surfaces table names, then
+  his looks still standing, newest first, then what he said to
+  sessions from outside their windows in the last day, from
+  `mycelium said` (`lib/mesh/said-to.ts`), each answered, being
+  worked on, not taken up yet or put in its prompt, all cited through
+  the result store ([`tools/person.ts`](tools/person.ts)). It only
+  reads. A part it couldn't read (the node refused, its run was
+  stopped, its listing held no line it reads, or the look list was
+  unreadable) is said as unread, never as nothing waiting, and a
+  model sees only the first 80 characters of each thing he said.
+  `/needs`, which only he types, lists the same and takes the act he
+  picks ([`needs-command.ts`](needs-command.ts)): a cell's want, or
+  something he said, goes
+  to that cell by the map's link, `mycelium:cell/<address>@<machine>/go`,
+  where he answers it, since the node takes a person's word from no
+  agent process. It says "Nothing waits on you." only when every
+  part was read, and warns of each part that wasn't. A look opens,
+  shown with its target, only by a web address for a pull request,
+  page or diff and by an absolute path for a file, marked opened as the launcher marks it,
+  or clears as "cleared by you", or goes to the cell that pointed.
+  `/cell ADDRESS [go|hold|wake]`, also typed only by him, goes to
+  another cell by the same link, on the machine the node says runs
+  it, or steers it a `pause` (hold once its turn ends) or a `resume`
+  (wake and carry on) through the node ([`cell-command.ts`](cell-command.ts),
+  `lib/mesh/cell-steer.ts`). Those steers are signed with this
+  session's address, never as the person, which the node refuses from
+  an agent's process; a session obeys a pause or resume whoever signs
+  it, as Steer below says, and a resume wakes a cell parked on this
+  machine.
 
 ## Context, Not a Prompt
 

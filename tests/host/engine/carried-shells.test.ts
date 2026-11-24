@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -269,6 +275,53 @@ describe("carried shells", () => {
 		expect(kept().map((call) => call.session)).toEqual(["s1"]);
 	});
 
+	// A call's end read off the thread can fail for a moment, as on
+	// EMFILE; a restart then keeps the call rather than drop one still out.
+	it("keeps through its own stop a call whose end can't be read for the moment", async () => {
+		const shells = make({
+			running: () => Promise.reject(new Error("EMFILE reading the end")),
+			table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),
+		});
+		const parked = bus();
+		shells.heard(parked);
+		parked.emit(HOST_RESTARTING_EVENT, { session: "s1" });
+		parked.emit(JOBS_CARRIED, carriedOn("s1", shell("m1")));
+
+		expect(await shells.keep()).toEqual([201]);
+		expect(kept().map((call) => call.session)).toEqual(["s1"]);
+	});
+
+	// An earlier restart's list that can't be read for the moment, as on
+	// EMFILE, would be lost if written over unread; this restart's calls
+	// are still recorded as they run, for a later host's look.
+	it("writes no kept list over one it can't read for the moment, saying so", async () => {
+		const file = join(stateDir, KEPT_FILE);
+		const earlier: KeptCall = {
+			session: "s0",
+			job: "j0",
+			label: "make old",
+			at: now,
+			work: shell("m0"),
+		};
+		writeFileSync(file, JSON.stringify([earlier]));
+		// The folder's own mode lets afterEach remove it, even unreadable.
+		chmodSync(file, 0o000);
+		const shells = make({
+			table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),
+		});
+		const parked = bus();
+		shells.heard(parked);
+		parked.emit(HOST_RESTARTING_EVENT, { session: "s1" });
+		parked.emit(JOBS_CARRIED, carriedOn("s1", shell("m1")));
+
+		expect(await shells.keep(), "its call still moves").toEqual([201]);
+		chmodSync(file, 0o600);
+		expect(kept(), "the earlier list as it was").toEqual([earlier]);
+		expect(String(reported[0]), "why nothing was kept").toContain(
+			"couldn't be read for the moment",
+		);
+	});
+
 	// Its new holder takes the calls up, so this host's restart must
 	// neither keep them nor, a day on, stop them (#1981 F29).
 	it("keeps nothing of a conversation released to another holder", async () => {
@@ -514,11 +567,12 @@ describe("carried shells", () => {
 				const look = watched(() => false, {
 					recorded: () => looks.shift() ?? [],
 				});
-				void look();
+				const first = look();
 				void look();
 				cameBack([]);
-				// One turn of the event loop lets the first look's finally run.
-				await new Promise((resolve) => setImmediate(resolve));
+				// The first look reads the kept file off the thread once its
+				// folder comes back, so it is waited out, finally and all.
+				await first;
 				void look();
 				void look();
 				expect(
@@ -543,6 +597,77 @@ describe("carried shells", () => {
 				await look();
 				expect(stopped).toEqual([]);
 			});
+		});
+
+		it("neither stops nor lets go of a call whose end can't be read for the moment", async () => {
+			keptEarlier(call(shell("m1")));
+			const look = watched(() => false, {
+				running: () => Promise.reject(new Error("EMFILE reading the end")),
+			});
+			now += STRAY_FOR_MS;
+			await look();
+			expect(stopped).toEqual([]);
+			expect(kept()).toHaveLength(1);
+		});
+
+		it("never stops a recorded call whose end can't be read for the moment", async () => {
+			const work = shell("m1", { startedAt: now });
+			const look = watched(() => false, {
+				recorded: () => [
+					{ session: "s1", id: "j1", kind: "bash", label: "make test", work },
+				],
+				running: () => Promise.reject(new Error("EMFILE reading the end")),
+			});
+			now += STRAY_FOR_MS;
+			await look();
+			expect(stopped).toEqual([]);
+		});
+
+		// The look and a restart's keep each read the kept file and write it
+		// back off the thread; unserialised, the look's older list would
+		// write over the call the keep had just added. A host's stop waits
+		// on its keep, so the keep never waits on the look's reads.
+		it("keeps what a restart adds while a look is still reading, without waiting for it", async () => {
+			keptEarlier({ ...call(shell("m0")), session: "s0" });
+			let asked: () => void = () => undefined;
+			const reading = new Promise<void>((resolve) => {
+				asked = resolve;
+			});
+			let answer: (running: boolean) => void = () => undefined;
+			let look: (() => void | Promise<void>) | undefined;
+			const shells = make({
+				every: (_ms, run) => {
+					look = run;
+					return () => {};
+				},
+				table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),
+				running: (work) => {
+					if (work.mark !== "m0") return true;
+					asked();
+					return new Promise<boolean>((resolve) => {
+						answer = resolve;
+					});
+				},
+			});
+			shells.watch(() => false);
+			const parked = bus();
+			shells.heard(parked);
+			parked.emit(HOST_RESTARTING_EVENT, { session: "s1" });
+			parked.emit(JOBS_CARRIED, carriedOn("s1", shell("m1")));
+			now += STRAY_FOR_MS;
+
+			const looking = look?.();
+			await reading;
+			expect(await shells.keep(), "kept as the look reads").toEqual([201]);
+			expect(
+				kept().map((each) => each.session),
+				"the earlier call and the restart's",
+			).toEqual(["s0", "s1"]);
+			answer(true);
+			await looking;
+
+			expect(stopped).toEqual([shell("m0")]);
+			expect(kept().map((each) => each.session)).toEqual(["s1"]);
 		});
 
 		it("lets go of a call a conversation here holds, or that ended", async () => {
