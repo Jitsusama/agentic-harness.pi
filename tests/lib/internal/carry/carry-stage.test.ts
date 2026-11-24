@@ -17,7 +17,7 @@ import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
 	CarryNotWhole,
 	carryAway,
-	carryTrees,
+	carryQuestTrees,
 } from "../../../../lib/internal/carry/carry-away.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -235,8 +235,16 @@ describe("a carry staged before the handover", () => {
 		const { home, tree, into } = await homeWithWork();
 		await commit(tree, "big.txt", "unpushed\n".repeat(400));
 
-		const trees = await carryTrees(exec, [tree], into, home, QUEST, 200);
+		const { trees, file } = await carryQuestTrees(
+			exec,
+			[tree],
+			into,
+			home,
+			QUEST,
+			200,
+		);
 
+		expect(file, "no done file of no trees").toBeUndefined();
 		expect(trees).toEqual([
 			{
 				kind: "refused",
@@ -247,6 +255,46 @@ describe("a carry staged before the handover", () => {
 			},
 		]);
 		expect(readdirSync(into)).toEqual([]);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("takes out what a quest's earlier carry of its own trees named and its next one doesn't", async () => {
+		const { origin, home, tree, into } = await homeWithWork();
+		const other = await cloneAt(origin, join(home, "src", "lib"));
+		await git(other, "checkout", "-q", "-b", "side");
+		await commit(other, "side.txt", "unpushed\n");
+		const first = await carryQuestTrees(exec, [tree, other], into, home, QUEST);
+		const dropped = Object.keys(filesIn(into)).filter((name) =>
+			name.startsWith("lib-"),
+		);
+		expect(first.file).toBe(join(into, `${QUEST}.done.json`));
+		expect(dropped, "its first carry bundled the second tree").not.toEqual([]);
+
+		const next = await carryQuestTrees(exec, [tree], into, home, QUEST);
+
+		expect(next.file).toBe(join(into, `${QUEST}.done.json`));
+		for (const name of dropped) {
+			expect(existsSync(join(into, name)), `${name} is gone`).toBe(false);
+		}
+		expect(
+			Object.keys(filesIn(into)).filter((name) => name.startsWith("app-")),
+			"its own tree's bundle and patch stay",
+		).toHaveLength(2);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("puts back a quest's earlier carry of its own trees when its next done file can't be written", async () => {
+		const { home, tree, into } = await homeWithWork();
+		await carryQuestTrees(exec, [tree], into, home, QUEST);
+		const before = filesIn(into);
+		await commit(tree, "later.txt", "after its first carry\n");
+		failing.add(QUEST);
+
+		await expect(
+			carryQuestTrees(exec, [tree], into, home, QUEST),
+		).rejects.toThrow("the disk is full");
+
+		expect(filesIn(into), "its first carry is as it was").toEqual(before);
 		expect(staging(into)).toEqual([]);
 	});
 });

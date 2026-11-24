@@ -352,22 +352,30 @@ function withinShare(
 	return one;
 }
 
+/** What carrying a quest's own trees did: each tree, and its done file. */
+export interface QuestTreesCarried {
+	readonly trees: readonly TreeCarried[];
+	readonly file?: string;
+}
+
 /**
- * Carries each tree at `paths` into `into`, its bundle and patch beside
- * where a done file goes, named for `owner`, the session or quest whose
- * done file names them, and says what became of each; writes no done
- * file, which whoever names them writes once they are all in place. A
- * bundle or patch larger than `largest` refuses its tree, since the
- * share would refuse it.
+ * Carries each tree at `paths` into `into` under `quest`'s own done
+ * file, says what became of each, and writes that done file last, as a
+ * session's carry does: the quest's earlier done file and what it names
+ * go aside first, and come back where writing fails. Where no tree goes,
+ * no done file is written, since one of no trees and no session would
+ * start nothing there, and the earlier one stays as it was. A bundle or
+ * patch larger than `largest` refuses its tree, since the share would
+ * refuse it.
  */
-export async function carryTrees(
+export async function carryQuestTrees(
 	exec: Exec,
 	paths: readonly string[],
 	into: string,
 	home: string,
-	owner: string,
+	quest: string,
 	largest = SHARE_LARGEST_FILE,
-): Promise<TreeCarried[]> {
+): Promise<QuestTreesCarried> {
 	mkdirSync(into, { recursive: true });
 	return staged(into, async (stage) => {
 		const trees = await stageTrees(
@@ -375,11 +383,21 @@ export async function carryTrees(
 			paths,
 			stage.folder,
 			home,
-			owner,
+			quest,
 			largest,
 		);
-		stage.place(filesOf(trees));
-		return trees;
+		const handed = trees.flatMap((one) =>
+			one.kind === "carried" ? [one.tree] : [],
+		);
+		if (handed.length === 0) return { trees };
+		stage.place(filesOf(trees), earlierOf(into, quest));
+		const file = writeHandover(into, {
+			session: quest,
+			quest,
+			cwd: "~",
+			trees: handed,
+		});
+		return { trees, file };
 	});
 }
 
