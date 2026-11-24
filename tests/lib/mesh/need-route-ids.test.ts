@@ -337,6 +337,9 @@ describe("a need for the id a cell holds", () => {
 
 	// A said id inside a held one vouches only for its own words: pass-3
 	// is no leave for leg-26's leg (#2136's round 2, F2, F7 and F11).
+	// Whether leg-26's pass 3 is work on leg 27's pass is left open: a pass
+	// number may or may not belong to its leg, and no need has said.
+	// (#2136's round 3, F1.)
 	it("takes no leg-26 cell at leg because its id also holds another number said", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("leg 27 pass 3")), fromText: true },
@@ -347,9 +350,30 @@ describe("a need for the id a cell holds", () => {
 			},
 		);
 
-		expect(found.words, "pass, which pass-3 works on, and no leg").toEqual([
-			"pass",
-		]);
+		expect(found.words, "no leg").not.toContain("leg");
+	});
+
+	// Among words as rare as each other, the one fewer live cells work on
+	// goes first, counting no cell that holds it only as another leg's
+	// (#2136's round 3, F3 and F5).
+	it("breaks a tie on leg by the live cells working on leg 27, not every leg's", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 lines")), fromText: true },
+			{
+				foragers: cells({
+					A: [],
+					L: ["leg"],
+					N: ["lines"],
+					P: wordsOf("leg-26"),
+				}),
+				ties: ties(["A", "L", 1], ["A", "N", 1], ["A", "P", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "L, leg going before lines by name").toMatchObject({
+			fit: "L",
+		});
 	});
 
 	// A word another leg's cells hold is no commoner for them, so it is
