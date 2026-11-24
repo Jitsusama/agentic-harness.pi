@@ -203,7 +203,9 @@ describe("carrying a steered session's work", () => {
 		const file = join(folder(made, "sessions"), "2026-11-23_s-whole.jsonl");
 		writeFileSync(file, '{"type":"session","id":"s-whole"}\n');
 		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
-		const before = existsSync(into) ? readdirSync(into) : [];
+		// Whether or not an earlier test made the handover.
+		const inHandover = () => (existsSync(into) ? readdirSync(into).sort() : []);
+		const before = inHandover();
 
 		await expect(
 			carryThisSession(session("s-whole", tree, file), "penelope", { home }),
@@ -211,7 +213,7 @@ describe("carrying a steered session's work", () => {
 			`a tree can't go, so nothing was carried:\n${plain}: git couldn't`,
 		);
 
-		expect(readdirSync(into).sort()).toEqual([...before].sort());
+		expect(inHandover()).toEqual(before);
 		expect(existsSync(join(into, "s-whole.done.json"))).toBe(false);
 		expect(carryUnderWay("s-whole")).toBeUndefined();
 	});

@@ -16,18 +16,12 @@ import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import {
 	carryAway,
-	carryTrees,
+	carryQuestTrees,
 	SHARE_LARGEST_FILE,
 	type TreeCarried,
 	ZIPPED,
 } from "./carry-away.ts";
-import {
-	doneFileOf,
-	doneNames,
-	readHandover,
-	withinHome,
-	writeHandover,
-} from "./handover.ts";
+import { doneFileOf, doneNames, readHandover, withinHome } from "./handover.ts";
 import type { QuestHere } from "./quest-here.ts";
 
 /** One line carrying the rest says, as `pi-carry` prints it. */
@@ -129,22 +123,16 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 				.map((tree) => tree.path),
 		]),
 	].filter(unhandled);
-	const trees = await carryTrees(exec, left, into, home, here.quest);
-	tell(here.quest, trees);
-	const handed = trees.flatMap((one) =>
-		one.kind === "carried" ? [one.tree] : [],
+	const quest = await carryQuestTrees(
+		exec,
+		left,
+		into,
+		home,
+		here.quest,
+		largest,
 	);
-	// A done file of no trees and no session would start nothing there.
-	if (handed.length > 0) {
-		files.push(
-			writeHandover(into, {
-				session: here.quest,
-				quest: here.quest,
-				cwd: "~",
-				trees: handed,
-			}),
-		);
-	}
+	tell(here.quest, quest.trees);
+	if (quest.file !== undefined) files.push(quest.file);
 	say({ kind: "done", files });
 	if (refused.length === 0) return true;
 	say({

@@ -24,6 +24,15 @@
  * it is, so a machine whose harness can't unzip still takes it. One
  * still larger once gzipped is refused, saying so, and no done file is
  * written for it.
+ *
+ * Everything a carry writes is staged in the quest scratch's tmp/, which
+ * the share never reads, and renamed into the handover only once the
+ * carry stands: the share sends what it finds there at once, so a carry
+ * refused after writing a tree's patch would have sent that tree's
+ * uncommitted work anyway, and one session carrying again would have
+ * written over the bundle its own done file still names. What a placed
+ * file replaces waits in the staging folder until the done file is
+ * written, and goes back where that fails.
  */
 
 import { createHash } from "node:crypto";
@@ -31,9 +40,9 @@ import {
 	copyFileSync,
 	createReadStream,
 	createWriteStream,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
-	readdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -47,8 +56,10 @@ import { bundleTree, neededFrom } from "../../core/work/carry.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { patchChanges } from "./changes.ts";
 import {
+	doneFileOf,
 	type HandedTree,
 	type Handover,
+	readHandover,
 	withinHome,
 	writeHandover,
 } from "./handover.ts";
@@ -80,10 +91,10 @@ export interface Carrying {
 	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
 	readonly largestFile?: number;
 	/**
-	 * Carry all or nothing: when any tree is refused, write no done file,
-	 * take back what this carry put in the handover, and throw naming
-	 * each, so the session stays where it is with all its work. A session
-	 * carrying itself asks this; `pi-carry` carries what it can.
+	 * Carry all or nothing: when any tree is refused, put nothing in the
+	 * handover and throw naming each, so the session stays where it is
+	 * with all its work. A session carrying itself asks this; `pi-carry`
+	 * carries what it can.
 	 */
 	readonly whole?: boolean;
 }
@@ -137,47 +148,50 @@ export interface CarriedAway {
  * writes its done file last.
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
-	const { into, session } = carrying;
-	mkdirSync(into, { recursive: true });
-	if (!carrying.whole) return await carryAll(carrying);
-	// The handover is the quest's, so other sessions' files are here too,
-	// though none under this session's names; of those, only what this
-	// call wrote anew is taken back, leaving a done file of its own from
-	// before what it names.
-	const before = new Set(readdirSync(into));
-	const ours = [
-		...(session.file === undefined
-			? []
-			: [basename(session.file), `${basename(session.file)}${ZIPPED}`]),
-		...carrying.trees.flatMap((path) => {
-			const name = nameFor(path, session.id);
-			return [`${name}.bundle`, `${name}.patch`];
-		}),
-	].filter((name) => !before.has(name));
-	let kept = false;
-	try {
-		const carried = await carryAll(carrying);
-		kept = true;
-		return carried;
-	} finally {
-		if (!kept) takeBack(into, ours);
-	}
+	mkdirSync(carrying.into, { recursive: true });
+	return staged(carrying.into, (stage) => carryAll(carrying, stage));
 }
 
-/** carryAway's work, throwing CarryNotWhole when a whole carry can't go. */
-async function carryAll(carrying: Carrying): Promise<CarriedAway> {
+/**
+ * carryAway's work, staged in `stage`, throwing CarryNotWhole when a
+ * whole carry can't go.
+ */
+async function carryAll(
+	carrying: Carrying,
+	stage: Stage,
+): Promise<CarriedAway> {
 	const { exec, into, home, session } = carrying;
-	// The file first, so one refused leaves no tree's bundle for the share.
+	// The file first, so one refused takes no tree's time.
 	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
 	const sessionFile =
 		session.file === undefined
 			? undefined
-			: await copyBeside(session.file, into, largest);
-	const trees = (
-		await carryTrees(exec, carrying.trees, into, home, session.id)
-	).map((one) => withinShare(one, into, largest));
+			: await copyBeside(session.file, stage.folder, largest);
+	const trees = await stageTrees(
+		exec,
+		carrying.trees,
+		stage.folder,
+		home,
+		session.id,
+		largest,
+	);
 	if (carrying.whole && trees.some((one) => one.kind === "refused")) {
 		throw new CarryNotWhole(trees);
+	}
+	// An earlier done file of this session goes aside first, so the share
+	// never finds it naming a bundle this carry replaced, and with it
+	// what it names, so none this carry doesn't name again is left behind.
+	stage.place(filesOf(trees), earlierOf(into, session.id));
+	if (sessionFile !== undefined) {
+		// Each form drops the other an earlier carry left.
+		stage.place(
+			[sessionFile],
+			[
+				sessionFile.endsWith(ZIPPED)
+					? sessionFile.slice(0, -ZIPPED.length)
+					: `${sessionFile}${ZIPPED}`,
+			],
+		);
 	}
 	const handover: Handover = {
 		session: session.id,
@@ -195,9 +209,125 @@ async function carryAll(carrying: Carrying): Promise<CarriedAway> {
 }
 
 /**
+ * The done file of `session`'s earlier carry into `into`, if any, and
+ * each file it names there: its session file, bundles and patches.
+ */
+function earlierOf(into: string, session: string): string[] {
+	const done = doneFileOf(into, session);
+	const earlier = readHandover(done);
+	const named = [
+		earlier?.sessionFile,
+		...(earlier?.trees ?? []).flatMap((tree) => [tree.bundle, tree.patch]),
+	];
+	return [
+		basename(done),
+		// A name with a folder in it is no file this carry wrote.
+		...named.filter(
+			(name): name is string =>
+				name !== undefined && name !== "" && name === basename(name),
+		),
+	];
+}
+
+/** The bundles and patches of the trees carried. */
+function filesOf(trees: readonly TreeCarried[]): string[] {
+	return trees.flatMap((one) =>
+		one.kind === "carried"
+			? [one.tree.bundle, one.tree.patch].filter(
+					(name): name is string => name !== undefined,
+				)
+			: [],
+	);
+}
+
+/**
+ * A carry's staging folder, beside the handover `into`, and how what is
+ * staged there is placed.
+ */
+interface Stage {
+	readonly folder: string;
+	/**
+	 * Renames `names` from the folder into the handover, moving `gone`
+	 * and any file of those names already there aside first, kept until
+	 * the carry stands.
+	 */
+	place(names: readonly string[], gone?: readonly string[]): void;
+}
+
+/**
+ * What `work` answers, given a staging folder in the quest scratch's
+ * tmp/, which the share never reads, on the volume `into` is on, so a
+ * rename places a file whole. Where `work` throws, the files it placed
+ * are taken out of `into` and what they replaced put back; either way
+ * the staging folder goes.
+ */
+async function staged<T>(
+	into: string,
+	work: (stage: Stage) => Promise<T>,
+): Promise<T> {
+	const tmp = join(dirname(dirname(into)), "tmp");
+	mkdirSync(tmp, { recursive: true });
+	const folder = mkdtempSync(join(tmp, "carrying-"));
+	const aside = join(folder, ".before");
+	mkdirSync(aside);
+	const placed: string[] = [];
+	const moved: string[] = [];
+	let keep = false;
+	const stage: Stage = {
+		folder,
+		place(names, gone = []) {
+			for (const name of [...gone, ...names]) {
+				if (moved.includes(name) || !existsSync(join(into, name))) continue;
+				renameSync(join(into, name), join(aside, name));
+				moved.push(name);
+			}
+			for (const name of names) {
+				renameSync(join(folder, name), join(into, name));
+				placed.push(name);
+			}
+		},
+	};
+	try {
+		return await work(stage);
+	} catch (error) {
+		const stuck: string[] = [];
+		for (const name of placed) {
+			if (!undo(() => rmSync(join(into, name), { force: true }))) {
+				stuck.push(name);
+			}
+		}
+		for (const name of moved) {
+			if (!undo(() => renameSync(join(aside, name), join(into, name)))) {
+				stuck.push(name);
+			}
+		}
+		if (stuck.length === 0) throw error;
+		// What couldn't go back stays in the staging folder to be found.
+		keep = true;
+		throw new Error(
+			`${error instanceof Error ? error.message : String(error)}; and ${stuck.join(", ")} couldn't be put back as they were, so what they were waits in ${aside}`,
+			{ cause: error },
+		);
+	} finally {
+		if (!keep) rmSync(folder, { recursive: true, force: true });
+	}
+}
+
+/** Whether `step` ran without throwing. */
+function undo(step: () => void): boolean {
+	try {
+		step();
+		return true;
+	} catch {
+		// The caller names what didn't go back.
+		return false;
+	}
+}
+
+/**
  * A carried tree whose bundle or patch the share would refuse, refused
- * here instead, with both taken out of `into`, so nothing closes for a
- * carry the share then fails.
+ * here instead, with both taken out of the staging folder `into`, so
+ * nothing closes for a carry the share then fails.
  */
 function withinShare(
 	one: TreeCarried,
@@ -222,31 +352,68 @@ function withinShare(
 	return one;
 }
 
-/**
- * Removes `names`, what a carry that won't go wrote anew in `into`, so
- * the share never sends them.
- */
-function takeBack(into: string, names: readonly string[]): void {
-	for (const name of names) rmSync(join(into, name), { force: true });
+/** What carrying a quest's own trees did: each tree, and its done file. */
+export interface QuestTreesCarried {
+	readonly trees: readonly TreeCarried[];
+	readonly file?: string;
 }
 
 /**
- * Carries each tree at `paths` into `into`, its bundle and patch beside
- * where a done file goes, named for `owner`, the session or quest whose
- * done file names them, and says what became of each; writes no done
- * file, which whoever names them writes once they are all in place.
+ * Carries each tree at `paths` into `into` under `quest`'s own done
+ * file, says what became of each, and writes that done file last, as a
+ * session's carry does: the quest's earlier done file and what it names
+ * go aside first, and come back where writing fails. Where no tree goes,
+ * no done file is written, since one of no trees and no session would
+ * start nothing there, and the earlier one stays as it was. A bundle or
+ * patch larger than `largest` refuses its tree, since the share would
+ * refuse it.
  */
-export async function carryTrees(
+export async function carryQuestTrees(
 	exec: Exec,
 	paths: readonly string[],
 	into: string,
 	home: string,
-	owner: string,
-): Promise<TreeCarried[]> {
+	quest: string,
+	largest = SHARE_LARGEST_FILE,
+): Promise<QuestTreesCarried> {
 	mkdirSync(into, { recursive: true });
+	return staged(into, async (stage) => {
+		const trees = await stageTrees(
+			exec,
+			paths,
+			stage.folder,
+			home,
+			quest,
+			largest,
+		);
+		const handed = trees.flatMap((one) =>
+			one.kind === "carried" ? [one.tree] : [],
+		);
+		if (handed.length === 0) return { trees };
+		stage.place(filesOf(trees), earlierOf(into, quest));
+		const file = writeHandover(into, {
+			session: quest,
+			quest,
+			cwd: "~",
+			trees: handed,
+		});
+		return { trees, file };
+	});
+}
+
+/** Each tree at `paths` carried into the staging folder `stage`. */
+async function stageTrees(
+	exec: Exec,
+	paths: readonly string[],
+	stage: string,
+	home: string,
+	owner: string,
+	largest: number,
+): Promise<TreeCarried[]> {
 	const trees: TreeCarried[] = [];
 	for (const path of paths) {
-		trees.push(await carryTreeAway(exec, path, into, home, owner));
+		const one = await carryTreeAway(exec, path, stage, home, owner);
+		trees.push(withinShare(one, stage, largest));
 	}
 	return trees;
 }
@@ -372,7 +539,9 @@ async function carryTreeAway(
  * trees of one name never share one, and nor do two sessions of one
  * quest carrying one tree: the handover is the quest's, and a carry
  * writing over another session's bundle would leave that session's done
- * file naming bytes it never carried.
+ * file naming bytes it never carried. The hash is 64 bits, since a
+ * clash would put one tree's bundle under another's name and nothing
+ * checks for one.
  */
 export function nameFor(path: string, owner: string): string {
 	const readable = basename(path)
@@ -381,53 +550,40 @@ export function nameFor(path: string, owner: string): string {
 	const hash = createHash("sha256")
 		.update(`${owner}\0${path}`)
 		.digest("hex")
-		.slice(0, 8);
+		.slice(0, 16);
 	return `${readable || "tree"}-${hash}`;
 }
 
 /**
- * Copies a session's file beside the done file, answering its name
- * there: gzipped when it is larger than `largest`, so the share takes it.
- * The gzip is written in the quest scratch's tmp/, which the share never
- * reads, and renamed in whole, so the share never sees half of it; a
- * gzip still over `largest` is refused, since the share would refuse it
- * too. Each name drops the other form an earlier carry left.
+ * Copies a session's file into the staging folder `stage`, answering its
+ * name there: gzipped when it is larger than `largest`, so the share
+ * takes it. A gzip still over `largest` is refused, since the share
+ * would refuse it too.
  */
 async function copyBeside(
 	file: string,
-	into: string,
+	stage: string,
 	largest: number,
 ): Promise<string> {
 	const name = basename(file);
-	const zipped = `${name}${ZIPPED}`;
 	const size = statSync(file).size;
 	if (size <= largest) {
-		rmSync(join(into, zipped), { force: true });
-		copyFileSync(file, join(into, name));
+		copyFileSync(file, join(stage, name));
 		return name;
 	}
-	const tmp = join(dirname(dirname(into)), "tmp");
-	mkdirSync(tmp, { recursive: true });
-	const staging = mkdtempSync(join(tmp, "carrying-"));
-	try {
-		const staged = join(staging, zipped);
-		await pipeline(
-			createReadStream(file),
-			createGzip({ level: constants.Z_BEST_COMPRESSION }),
-			createWriteStream(staged),
+	const zipped = `${name}${ZIPPED}`;
+	await pipeline(
+		createReadStream(file),
+		createGzip({ level: constants.Z_BEST_COMPRESSION }),
+		createWriteStream(join(stage, zipped)),
+	);
+	const gzipped = statSync(join(stage, zipped)).size;
+	if (gzipped > largest) {
+		throw new Error(
+			`its file ${name} is ${mib(size)} MiB, and ${mib(gzipped)} MiB gzipped, still over the ${mib(largest)} MiB the share carries, so it stays here until the share takes larger files`,
 		);
-		const gzipped = statSync(staged).size;
-		if (gzipped > largest) {
-			throw new Error(
-				`its file ${name} is ${mib(size)} MiB, and ${mib(gzipped)} MiB gzipped, still over the ${mib(largest)} MiB the share carries, so it stays here until the share takes larger files`,
-			);
-		}
-		renameSync(staged, join(into, zipped));
-		rmSync(join(into, name), { force: true });
-		return zipped;
-	} finally {
-		rmSync(staging, { recursive: true, force: true });
 	}
+	return zipped;
 }
 
 /** `bytes` in MiB, to one place. */

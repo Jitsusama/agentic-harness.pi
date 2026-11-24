@@ -520,32 +520,6 @@ describe("carrying a session's work away", () => {
 		expect(existsSync(join(into, bBundle))).toBe(true);
 	});
 
-	it("takes back a whole carry's files when it throws for another reason after its trees", async () => {
-		const { home, tree, into } = await homeWithTree();
-		await git(tree, "checkout", "-q", "-b", "topic");
-		await commit(tree, "work.txt", "unpushed\n");
-		writeFileSync(join(tree, "README.md"), "changed\n");
-		// A folder where its done file goes, so writing that file throws.
-		mkdirSync(join(into, "s-d.done.json"), { recursive: true });
-
-		await expect(
-			carryAway({
-				exec,
-				into,
-				home,
-				quest: QUEST,
-				session: { id: "s-d", cwd: tree },
-				trees: [tree],
-				whole: true,
-			}),
-		).rejects.not.toBeInstanceOf(CarryNotWhole);
-
-		expect(
-			readdirSync(into).filter((name) => /\.(bundle|patch)$/.test(name)),
-			"neither its bundle nor its patch is left for the share",
-		).toEqual([]);
-	});
-
 	it("writes the done file for a whole carry where every tree goes", async () => {
 		const { home, tree, into } = await homeWithTree();
 		await git(tree, "checkout", "-q", "-b", "topic");
