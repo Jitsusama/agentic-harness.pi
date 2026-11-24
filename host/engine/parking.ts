@@ -20,12 +20,16 @@
  * (`ran`); one that can't be written wakes it as soon as it parks, and
  * a close for good stops the calls, which nobody would take up.
  *
- * While the host drains for a restart (`holding`), a wake through the
- * file or a steer is held: the file stays on disk and the steer in its
- * inbox, so a conversation parked to let the host restart stays parked.
- * Lifting the drain (`release`) wakes each one asked for meanwhile, and
- * the next host's `rests` reads the file left for it. A viewer typing or
- * a window opening is never held.
+ * While the host drains for a restart, or its code is stale and no
+ * window views the conversation (`holding`), a wake through the file or a
+ * steer is held: the file stays on disk and the steer in its inbox, so a
+ * conversation parked to let the host restart, or to roll onto new code,
+ * stays parked. Lifting the drain (`release`) wakes each one asked for
+ * meanwhile that is held no more, and the next host's `rests` reads the
+ * file left for it. A viewer typing or a window opening is never held.
+ * Since a window keeps a stale child running, one viewed is woken here.
+ * `holds` says whether a wake would be held now, so a run steps off
+ * mid-way only where it goes on in the next start.
  *
  * A drain holds them only until its restart passes the settle ceiling
  * (`letThrough`): from then the host waits for a gap, which background
@@ -125,6 +129,12 @@ export interface Parking {
 	 */
 	mayCarry(sessionId: string): boolean;
 	/**
+	 * Whether a wake of it asked now would be held for the next start,
+	 * rather than wake it here: `holding` says so, and no drain's restart
+	 * has passed its ceiling.
+	 */
+	holds(sessionId: string): boolean;
+	/**
 	 * It was closed: stop watching, and forget a wake refused it. Closed
 	 * `forGood`, the calls its park carried are stopped, since nobody
 	 * takes them up; released to another holder, they are only forgotten,
@@ -206,8 +216,13 @@ export function parking(options: {
 	readonly parked?: (sessionId: string) => void;
 	/** Its steer inboxes, watched while it rests; none, only the wake file wakes it. */
 	readonly steers?: SteerInboxes;
-	/** Whether wakes through the file and steers are held now, as the host drains. */
-	readonly holding?: () => boolean;
+	/**
+	 * Whether this one's wakes through the file and steers are held now: as
+	 * the host drains, or as its code is stale and no window views it.
+	 */
+	readonly holding?: (sessionId: string) => boolean;
+	/** Whether the host drains for a restart, whose ceiling `letThrough` passes. */
+	readonly draining?: () => boolean;
 	/**
 	 * Whether the host keeps a carried bash call alive through a stop, so a
 	 * park carries them (carried-shells.ts); none, it carries none.
@@ -231,7 +246,8 @@ export function parking(options: {
 	const keepRefusal = options.keepRefusal ?? writeRefusedWakeOff;
 	// Whether this drain's restart passed its ceiling, until the drain lifts.
 	let through = false;
-	const holding = () => !through && options.holding?.() === true;
+	const holding = (sessionId: string) =>
+		!through && options.holding?.(sessionId) === true;
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
 	const sleepers = new Map<string, Sleeper>();
@@ -305,7 +321,7 @@ export function parking(options: {
 		// Whether it asked a wake, so a release asks no second for a held steer.
 		const woken = (): boolean => {
 			const watching = sleepers.get(sessionId);
-			if (!watching || !existsSync(file) || holding()) return false;
+			if (!watching || !existsSync(file) || holding(sessionId)) return false;
 			const messageId = wakeAskedBy(readWritten(file));
 			rmSync(file, { force: true });
 			watching.heldSteer = undefined;
@@ -316,7 +332,7 @@ export function parking(options: {
 		const steered = (steer: string) => {
 			const watching = sleepers.get(sessionId);
 			if (!watching || watching.waking) return;
-			if (holding()) {
+			if (holding(sessionId)) {
 				watching.heldSteer = steer;
 				return;
 			}
@@ -530,6 +546,7 @@ export function parking(options: {
 				report(error);
 			}
 		},
+		holds: holding,
 		release() {
 			through = false;
 			wakeHeld();
@@ -539,7 +556,7 @@ export function parking(options: {
 				through = false;
 				return undefined;
 			}
-			if (!holding()) return undefined;
+			if (through || options.draining?.() !== true) return undefined;
 			through = true;
 			return wakeHeld();
 		},

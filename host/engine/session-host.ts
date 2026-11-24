@@ -147,6 +147,8 @@ export class SessionHost implements Host {
 	private stale = false;
 	// Whether a park keeps a conversation's bash calls, as the engine says once it can.
 	private carriedBy?: (id: string) => boolean;
+	// Whether a wake would be held for the next start, as the engine's parking says.
+	private wakesHeldBy?: (id: string) => boolean;
 
 	constructor(options: {
 		key: string;
@@ -444,6 +446,32 @@ export class SessionHost implements Host {
 	/** Whether the host's own code is stale, as roll said. */
 	rolls(): boolean {
 		return this.stale;
+	}
+
+	/**
+	 * Whether this conversation's wakes are held now: while the host
+	 * drains, until the next host reads them, and while it rolls, its code
+	 * stale and no window viewing it, since its child then ends and the
+	 * wake starts a fresh one, where waking here would run the stale code
+	 * again. A window keeps a stale child running, so one viewed wakes here
+	 * rather than miss its peers and steers until the window closes.
+	 */
+	holdsWakes(id: string): boolean {
+		return this.drains() || this.rolling(id);
+	}
+
+	/**
+	 * Whether a wake of this conversation asked now would be held for the
+	 * next start, as its parking says once the engine has said how to
+	 * ask; until then, as `holdsWakes` says.
+	 */
+	wakeHeld(id: string): boolean {
+		return this.wakesHeldBy?.(id) ?? this.holdsWakes(id);
+	}
+
+	/** Say how to tell whether a wake would be held, as the engine's parking knows. */
+	holdsWakesAs(held: (id: string) => boolean): void {
+		this.wakesHeldBy = held;
 	}
 
 	/** Whether a park of this conversation carries its bash calls; none until the engine says. */

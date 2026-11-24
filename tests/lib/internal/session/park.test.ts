@@ -114,6 +114,18 @@ describe("the wakes kept", () => {
 		expect(existsSync(wakesPath("waking", folder)), "its own stays").toBe(true);
 	});
 
+	// A run stepped off by its host is no park rule's churn.
+	it("notes a wake that went on from a step off as such, and no other", () => {
+		const at = Date.now();
+		const parkedAt = new Date(at).toISOString();
+		const stepped = noteWake("a", { parkedAt, goesOn: true }, folder, () => at);
+		const rested = noteWake("b", { parkedAt }, folder, () => at);
+		expect(
+			{ stepped: stepped.goesOn, rested: rested.goesOn },
+			"as each marker said",
+		).toEqual({ stepped: true, rested: undefined });
+	});
+
 	it("sweeps nothing, and says nothing, where no wakes were ever kept", async () => {
 		await expect(sweepWakes(folder)).resolves.toBeUndefined();
 	});

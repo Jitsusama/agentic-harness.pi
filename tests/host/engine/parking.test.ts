@@ -40,12 +40,15 @@ afterEach(async () => {
 
 /**
  * Parking whose stop waits until let go, and whose wake is `asking`;
- * `a` answers to ADDRESS, with its steer inboxes under `steers`, and a
- * refusal is kept through `keepRefusal` where given.
+ * `a` answers to ADDRESS, with its steer inboxes under `steers`. Its host
+ * drains as `draining` says, holding each wake while it does unless
+ * `holding` says otherwise, and a refusal is kept through `keepRefusal`
+ * where given.
  */
 function held(
 	asking: (sessionId: string) => Promise<void>,
-	holding?: () => boolean,
+	draining?: () => boolean,
+	holding: ((sessionId: string) => boolean) | undefined = draining,
 	keepRefusal?: () => Promise<boolean>,
 ) {
 	let stopped: (() => void) | undefined;
@@ -66,6 +69,7 @@ function held(
 			addressesOf: (sessionId) => (sessionId === "a" ? [ADDRESS] : []),
 		},
 		...(holding ? { holding } : {}),
+		...(draining ? { draining } : {}),
 		...(keepRefusal ? { keepRefusal } : {}),
 	});
 	return { parked, stop, report, letStop: () => stopped?.() };
@@ -413,7 +417,7 @@ describe("parking a conversation", () => {
 					keep = () => resolve(true);
 				}),
 		);
-		const { parked, letStop } = held(asking, undefined, keepRefusal);
+		const { parked, letStop } = held(asking, undefined, undefined, keepRefusal);
 		const parking = parked.park("a");
 		letStop();
 		await parking;
@@ -528,7 +532,9 @@ describe("parking while the host drains", () => {
 		await quietFor(STEER_WAKES_WITHIN_MS, 3);
 		expect(asked, "held before the ceiling").toEqual([]);
 
+		expect(parked.holds("a"), "a wake held before the ceiling").toBe(true);
 		expect(parked.letThrough(true), "the one held, woken").toBe(1);
+		expect(parked.holds("a"), "a wake let through past it").toBe(false);
 		await until("the held wake to be asked", () => asked.length > 0);
 		expect(existsSync(wake), "its wake read").toBe(false);
 		expect(parked.letThrough(true), "said once a drain").toBeUndefined();
@@ -544,11 +550,15 @@ describe("parking while the host drains", () => {
 
 	it("wakes one held for a steer once the restart passes its ceiling", async () => {
 		const { asking, asked } = timedWake();
-		const { parked, letStop } = held(asking, () => true);
+		// Asked only as a wake or a steer lands, so it says the steer was
+		// seen: a quiet spell alone let a slow watch see it after the ceiling.
+		const holding = vi.fn((_sessionId: string) => true);
+		const { parked, letStop } = held(asking, () => true, holding);
 		const parking = parked.park("a");
 		letStop();
 		await parking;
 		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
+		await until("the steer to be held", () => holding.mock.calls.length > 0);
 		await quietFor(STEER_WAKES_WITHIN_MS, 3);
 		expect(asked, "held before the ceiling").toEqual([]);
 
@@ -594,6 +604,48 @@ describe("parking while the host drains", () => {
 		wakeAsTheMeshDoes(parked.wakeFile("a"));
 		await quietFor(STEER_WAKES_WITHIN_MS, 3);
 		expect(asked, "the drain holds it").toEqual([]);
+		parked.unwatch("a");
+	});
+
+	// 23 November: a stale child holds the wake of one no window views, so
+	// it starts on current code, and wakes one a window keeps it running for.
+	it("holds only the wakes its host holds for that conversation", async () => {
+		const { asking, asked } = timedWake();
+		const holding = vi.fn((sessionId: string) => sessionId !== "a");
+		const { parked, letStop } = held(asking, () => false, holding);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		expect(
+			{ a: parked.holds("a"), b: parked.holds("b") },
+			"as its host says of each",
+		).toEqual({ a: false, b: true });
+
+		wakeAsTheMeshDoes(parked.wakeFile("a"));
+		await until("its wake, held for another only", () => asked.length > 0);
+		expect(holding, "asked of it by name").toHaveBeenCalledWith("a");
+		parked.unwatch("a");
+	});
+
+	// A roll waits for the child to end, never for a gap a ceiling stands for.
+	it("lets no held wake through while its host holds it with no drain", async () => {
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(
+			asking,
+			() => false,
+			() => true,
+		);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+		wakeAsTheMeshDoes(wake);
+
+		expect(parked.letThrough(true), "no drain to pass").toBeUndefined();
+		expect(parked.holds("a"), "still held").toBe(true);
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "held for the next start").toEqual([]);
+		expect(existsSync(wake), "its wake left for it").toBe(true);
 		parked.unwatch("a");
 	});
 

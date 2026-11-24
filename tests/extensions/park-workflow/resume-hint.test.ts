@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { hideResumeHint } from "../../../extensions/park-workflow/watch.ts";
+import { hideResumeHint } from "../../../extensions/park-workflow/restart.ts";
 
 // KP0L6A, 11 November: a parked window ended with three lines saying the
 // same thing, pushing Joel's last screen up.

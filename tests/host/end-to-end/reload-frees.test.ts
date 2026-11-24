@@ -193,5 +193,8 @@ it(
 			).toEqual([`onto two: ${ONE}`, `onto three: ${ONE}`]);
 		});
 	},
-	ROUND_TRIP_MS * 3,
+	// An open and two reloads, as long as the case above's open and three
+	// reloads: at three round trips it took 255 to 259 s of its 270 s on
+	// passing runs, and timed out at 272 s on a lent builder 12% slower.
+	ROUND_TRIP_MS * 4,
 );

@@ -189,6 +189,17 @@ describe("an orchestrator", () => {
 		expect(ask.refusals, "a restart loses none of their findings").toEqual([]);
 	});
 
+	// A run stepping off as its host drains is woken as it parks, so it
+	// goes on in the next start as soon as a restart would.
+	it("lets an orchestrator step off mid-run, woken as it parks, while sessions it leads work", async () => {
+		leading();
+		const { emit } = await startSession();
+		const ask = { session, refusals: [] as string[], goesOn: true };
+
+		emit(PARK_ASK, ask);
+		expect(ask.refusals).toEqual([]);
+	});
+
 	// The same evening it named RCTRF8 twice, one of its two sessions long
 	// crashed, and 6TMMZY, a quest concluded before that morning's boot.
 	it("names only the sessions it leads that still run, each once", async () => {

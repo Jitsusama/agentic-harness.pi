@@ -346,7 +346,9 @@ input pipeline or screen. No unit or running host is installed yet.
   (`SessionHost.roll`). Its conversation then parks at its next quiet
   moment, idle time aside, unless a window views it
   (`Host.rolling`), and the next wake starts a fresh child on current
-  code. Unlike a drain, a roll holds no wake.
+  code. Its wakes are held as a drain's are (`SessionHost.holdsWakes`),
+  so a woken one waits for that fresh child, but only while no window
+  views it, since a window keeps the child running.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A
