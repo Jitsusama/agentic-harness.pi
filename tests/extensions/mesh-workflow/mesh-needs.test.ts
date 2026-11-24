@@ -200,7 +200,10 @@ describe("sending to a need", () => {
 			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering as much of it or more, unless J7XHQN has stopped this one.",
 		);
 		expect(said, "only the owner works on dates").toContain(
-			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
+			"No live cell works on dates, so it found nobody and the live cell was found by delivery alone.",
+		);
+		expect(said, "never said to be routed, being sent nowhere").not.toContain(
+			"routed by",
 		);
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
 		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
@@ -248,8 +251,29 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("J7XHQN worked on more of dates delivery");
 		expect(said).toContain(
-			"No cell works on fonts, and no live cell on dates, so they found nobody and it was routed by delivery alone.",
+			"No cell works on fonts, and no live cell on dates, so they found nobody and the live cell was found by delivery alone.",
 		);
+	});
+
+	it("names the words no cell works on in a refusal for a need found nowhere, never saying it was routed", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Dates Delivery" }],
+			[],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land, fonts and all?",
+			about: "dates delivery fonts",
+		});
+
+		expect(said).toContain(
+			"works on dates delivery. No cell works on fonts. It is counted as lost",
+		);
+		expect(said).not.toContain("routed by");
 	});
 
 	it("says nothing of a joined id whose every part routed it", async () => {
