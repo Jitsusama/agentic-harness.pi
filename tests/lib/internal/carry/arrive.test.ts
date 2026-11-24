@@ -340,7 +340,7 @@ describe("arriving with a carried session", () => {
 		expect(said[0]).toMatchObject({
 			did: "cloned",
 			unsure: expect.stringMatching(
-				/^Origin's branches past the twin didn't come, so they wait under refs\/carry\/twin\/: \S/,
+				/^1 of origin's branches past the twin didn't come, so they wait under refs\/carry\/twin\/: main\. \S/,
 			),
 		});
 	});
