@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	describeStep,
 	droppedNames,
+	failedStartLine,
 	firstLine,
 	phaseTimes,
 	readyCount,
@@ -267,6 +268,89 @@ describe("startLine", () => {
 		expect(
 			startLine("id\u001bx\nyz", { op: "open", cwd: "/w" }, 1_000, [], 1_500),
 		).toBe("ID\\u001bX\\nYZ (id\\u001bx\\nyz): its open took 0.5 s");
+	});
+
+	// F13 on #2107: backslashes are doubled before quotes are escaped, so a
+	// path ending on a backslash can't close its quote early.
+	it("keeps a path's backslash before a quote from closing the quote", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: '/w\\": its open took 0.1 s' },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w\\\\\\": its open took 0.1 s": its open took 0.5 s',
+		);
+	});
+
+	// F8 on #2107: a look-alike and a paired astral character pass as they are.
+	it("passes a look-alike letter and a paired astral character as they are", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: "/w/\u0430\u{1f600}" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w/\u0430\u{1f600}": its open took 0.5 s',
+		);
+	});
+
+	// F2 on #2107: journald splits a line past its LineMax, so a requester's
+	// words are cut, and the line says how many it left out.
+	it("cuts a long path and a long adopted id, saying how much went", () => {
+		const long = `/${"\u{1f600}".repeat(600)}`;
+		const kept = `/${"\u{1f600}".repeat(499)}`;
+
+		expect(
+			startLine(undefined, { op: "open", cwd: long }, 1_000, [], 1_500),
+		).toBe(
+			`A conversation not yet named, opening in "${kept}", cut after 500 of its 601 characters: its open took 0.5 s`,
+		);
+		expect(
+			startLine("a".repeat(510), { op: "open", cwd: "/w" }, 1_000, [], 1_500),
+		).toBe(
+			`AAAAAAAA (${"a".repeat(500)}, cut after 500 of its 510 characters): its open took 0.5 s`,
+		);
+	});
+});
+
+describe("failedStartLine", () => {
+	// F1 on #2107: the reason most often repeats the path, so it is quoted
+	// and escaped as the path is, backslashes doubled.
+	it("quotes why a start failed, escaped as its path is", () => {
+		expect(
+			failedStartLine(
+				undefined,
+				{ op: "open", cwd: '/w\\"' },
+				1_000,
+				[],
+				1_500,
+				new Error(`ENOENT: chdir '/w\\": its open took 0.1 s'\nat x`),
+			),
+		).toBe(
+			`A conversation not yet named, opening in "/w\\\\\\"": its open took 0.5 s, failing: "ENOENT: chdir '/w\\\\\\": its open took 0.1 s'"`,
+		);
+	});
+
+	it("says a start that failed with no reason", () => {
+		expect(
+			failedStartLine(
+				undefined,
+				{ op: "open", cwd: "/w" },
+				1_000,
+				[],
+				1_500,
+				{},
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w": its open took 0.5 s, failing, with no reason given',
+		);
 	});
 });
 

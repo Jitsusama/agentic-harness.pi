@@ -1206,7 +1206,7 @@ describe("hostBackend", () => {
 		).rejects.toThrow("pi would not open it");
 		expect(said[1], "a failed one says how far it got, and why").toMatch(
 			new RegExp(
-				`: its open took ${seconds} \\(prepare ${seconds}, roster ${seconds}, services ${seconds}, rest ${seconds}\\), failing: pi would not open it$`,
+				`: its open took ${seconds} \\(prepare ${seconds}, roster ${seconds}, services ${seconds}, rest ${seconds}\\), failing: "pi would not open it"$`,
 			),
 		);
 	});
@@ -1257,7 +1257,7 @@ describe("hostBackend", () => {
 					),
 				),
 				expect.stringMatching(
-					/its open took .*, failing: extension load failed$/,
+					/its open took .*, failing: "extension load failed"$/,
 				),
 			]),
 		);
