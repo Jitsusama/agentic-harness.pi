@@ -530,11 +530,12 @@ describe("carried shells", () => {
 				const look = watched(() => false, {
 					recorded: () => looks.shift() ?? [],
 				});
-				void look();
+				const first = look();
 				void look();
 				cameBack([]);
-				// One turn of the event loop lets the first look's finally run.
-				await new Promise((resolve) => setImmediate(resolve));
+				// The first look reads the kept file off the thread once its
+				// folder comes back, so it is waited out, finally and all.
+				await first;
 				void look();
 				void look();
 				expect(
