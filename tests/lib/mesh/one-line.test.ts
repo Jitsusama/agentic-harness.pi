@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	isName,
-	oneLine,
-	plainQuotes,
-} from "../../../lib/mesh/one-line.ts";
+import { isName, oneLine, plainQuotes } from "../../../lib/mesh/one-line.ts";
 
 describe("oneLine", () => {
 	it.each([

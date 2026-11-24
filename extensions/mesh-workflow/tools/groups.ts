@@ -194,7 +194,18 @@ function standsText(peer: Peer): string {
 		: "This peer is in its home group and #machine only.";
 }
 
-export function groupsText(standing: Census, peer: Peer): string {
+/**
+ * mesh_groups' own part: this peer, the groups and who is in each, and
+ * the stops either way. The stops this peer is under are read from
+ * `everyone`, the census before `listable`, since a stopper that names no
+ * address is left out of the listing yet its stop still holds, and
+ * `stopsText` names it only as a peer naming no address.
+ */
+export function groupsText(
+	standing: Census,
+	peer: Peer,
+	everyone: readonly Presence[] = standing.present,
+): string {
 	// The census already reads a resuming past of a running session as
 	// gone, so every member here is a session that is there or coming back.
 	const members = new Map<string, string[]>();
@@ -243,7 +254,7 @@ export function groupsText(standing: Census, peer: Peer): string {
 		peer.stops.length > 0
 			? `\nStopped by this peer: ${peer.stops.map((one) => one.address).join(", ")}.`
 			: "";
-	const stops = stoppedBy(peer, standing.present);
+	const stops = stoppedBy(peer, everyone);
 	const stoppedHere = stops.length > 0 ? `\n${stopsText(stops)}` : "";
 	const waiting = wantsText(standing.present);
 	const more = `${gone}${resuming}${stopping}${stoppedHere}${waiting}`;

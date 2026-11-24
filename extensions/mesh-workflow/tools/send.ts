@@ -782,9 +782,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		at.presences.refusal,
 	);
 	notes.unshift(...reachNotes);
-	const glancing = stops.filter(({ stopper }) =>
-		reaches(message, stopper, -1),
-	);
+	const glancing = stops.filter(({ stopper }) => reaches(message, stopper, -1));
 	if (glancing.length > 0) {
 		// A stopper says its addresses as it likes, and this opens a line.
 		const who = peersNamed(
