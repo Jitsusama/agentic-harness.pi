@@ -42,9 +42,11 @@ const LISTEN_MS = 30_000;
  * The most a child on pi's engine may hold with one conversation open, in
  * MB, once it has collected what its open's load left, as a quiet child
  * does. Fifteen collected children held 300 to 347 MB (23 and 24
- * November), so this is half as much again as the most of them, and a
- * child grown much heavier, or one whose collection frees nothing, fails
- * here. Straight after the open, uncollected, a child held 714 to 1226 MB.
+ * November), so this is 165 MB over the most of them, and a child grown
+ * much heavier fails here. Straight after the open, uncollected, a child
+ * held 714 to 1226 MB, but the first one measured (20 November) held 527
+ * MB, perhaps uncollected, so it is the heap's required fall, not this
+ * bound, that fails a collection freeing nothing.
  */
 const CHILD_RSS_MB = 512;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
@@ -369,12 +371,16 @@ it(
 				process.stdout.write(
 					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
 				);
-				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
-				// F6 on #2104: the collection itself freed the open's load, which
-				// left the heap at 208 MB or more, and 121 MB or less after it.
+				// F6 on #2104: the collection itself freed some of the open's load.
+				// It has taken the heap from 208 MB or more to 121 MB or less, but
+				// any fall passes here; a collection that frees nothing fails.
+				expect(heap.words, "the collection's line reads a heap").not.toBe(
+					"unread",
+				);
 				expect(heap.usedAfter, "MB the heap uses once collected").toBeLessThan(
 					heap.usedBefore ?? 0,
 				);
+				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {
 					v: 1,
 					id: "c",
