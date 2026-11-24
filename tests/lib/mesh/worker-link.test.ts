@@ -520,6 +520,33 @@ describe("a worker's link to its node", () => {
 		]);
 	});
 
+	// The node orders since by id as a string, so a short stamp, taken up
+	// alone, would sort after every real one and the watch would hear nothing.
+	it.each([
+		["held", ["9-KP0L6A-7-cc"], undefined],
+		["last read", [], "9-KP0L6A-7-cc"],
+		[
+			"held with leading zeros",
+			[`000${Date.now() % 1e10}-KP0L6A-7-cc`],
+			undefined,
+		],
+	] as const)(
+		"asks for the latest when the only %s stamp is too short",
+		async (_, kept, read) => {
+			const held = await node(agreed());
+			linked([...kept], undefined, () => read);
+			link?.present(presence());
+			await until(
+				"the watch asks",
+				() => (held.connections[1]?.said.length ?? 0) === 1,
+			);
+
+			expect(held.connections[1]?.said).toEqual([
+				{ Watch: { session: "sess-1", groups: null, recent: FIRST_RECENT } },
+			]);
+		},
+	);
+
 	it("opens again after a drop, saying its presence and what went unanswered", async () => {
 		let dropped = false;
 		const held = await node((asked, on) => {
