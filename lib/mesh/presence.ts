@@ -672,8 +672,10 @@ export function createPresences(
 		expire(before) {
 			removeStaged(dir, before);
 			for (const { path, stamp } of unreadable(dir, before)) {
-				// A publish renamed over it since it was judged is a live
-				// writer's, so it is kept.
+				// A publish renamed over it before this re-stat is a live
+				// writer's, so it is kept. One landing between the re-stat
+				// and the unlink is still lost: the race is narrowed, not
+				// closed, since nothing unlinks a path only at one inode.
 				if (stampOf(path) !== stamp) continue;
 				removeQuietly(path);
 				folder().drop(path);

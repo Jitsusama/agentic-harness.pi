@@ -327,7 +327,8 @@ describe("groups", () => {
 		expect(sent).toContain("WAITER (held at an approval since");
 		expect(sent).toContain("IDLERX is idle, and an fyi starts no turn");
 		expect(sent).not.toContain("OWNERQ");
-		// Neither unshaped first address is named anywhere in the reply.
+		// Neither shaped non-address first address is named anywhere in
+		// the reply.
 		expect(sent).not.toContain("PERSON");
 		expect(sent).not.toMatch(/\bPerson\b/);
 	});

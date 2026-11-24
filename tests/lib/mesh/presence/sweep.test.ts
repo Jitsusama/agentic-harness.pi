@@ -1,7 +1,8 @@
 /**
  * The sweep of presence files no reader can read: it judges only text
  * it read, so a read that failed keeps the file, and it keeps a file a
- * publish landed on after it was judged.
+ * publish landed on while it was read. A publish between the re-stat
+ * and the unlink is beyond any test here.
  */
 import {
 	existsSync,
@@ -81,7 +82,7 @@ describe("the sweep of unreadable presences", () => {
 
 	// The writer's publish renames a whole new file over the path, after
 	// the sweep read the torn one and before it removed it.
-	it("keeps a file a publish landed on after it was judged", () => {
+	it("keeps a file a publish landed on while it was read", () => {
 		const { dir, torn } = tornAndOld();
 		const presences = createPresences(dir);
 		const published = JSON.stringify(presence({ session: "s-torn" }));
