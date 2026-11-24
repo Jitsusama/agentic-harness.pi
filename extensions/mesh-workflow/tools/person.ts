@@ -6,18 +6,25 @@
  * calls, so no agent answers or clears anything as him.
  */
 
+import { stat } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Look, standingLooksIn } from "../../../lib/mesh/looks/looks.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
+import {
+	type Look,
+	standingLooksListed,
+} from "../../../lib/mesh/looks/looks.ts";
 import {
 	NEEDS_COMMAND,
 	type Need,
 	needsFrom,
+	unreadNeeds,
 } from "../../../lib/mesh/needs.ts";
 import { oneLine } from "../../../lib/mesh/one-line.ts";
 import {
 	SAID_COMMAND,
 	type SaidTo,
 	saidFrom,
+	unreadSaid,
 } from "../../../lib/mesh/said-to.ts";
 import { lastedText } from "./said.ts";
 
@@ -31,6 +38,13 @@ const MOST_REFUSAL = 200;
 const SAID_WITHIN_MS = 24 * 60 * 60 * 1000;
 const MOST_SAID = 10;
 
+/**
+ * The most of what the person said that a model is shown of each thing,
+ * since every session's model may read it: enough to place it, never a
+ * whole message he wrote for one session alone.
+ */
+const MOST_SAID_SHOWN = 80;
+
 /** The cells needing the person, or why they couldn't be read. */
 export type NeedsRead = Read<{ readonly needs: readonly Need[] }>;
 
@@ -42,22 +56,43 @@ export type Read<T> =
 /** What the person said to sessions lately, or why it couldn't be read. */
 export type SaidRead = Read<{ readonly said: readonly SaidTo[] }>;
 
+/** The looks standing on the person's list, or why they couldn't be read. */
+export type LooksRead = Read<{ readonly looks: readonly Look[] }>;
+
 /** What waits on the person: the cells' wants, his look list, and what he said. */
 export interface WhatWaits {
 	readonly needs: NeedsRead;
-	readonly looks: readonly Look[];
+	readonly looks: LooksRead;
 	readonly said: SaidRead;
+}
+
+/** Whether every part of what waits was read. */
+export function whollyRead(waits: WhatWaits): boolean {
+	return waits.needs.ok && waits.looks.ok && waits.said.ok;
 }
 
 /** Run `mycelium` with `args`, answering its output or why it gave none. */
 async function myceliumSays(
 	exec: ExtensionAPI["exec"],
 	args: readonly string[],
+	signal: AbortSignal | undefined,
 ): Promise<Read<{ readonly stdout: string }>> {
 	try {
+		// Run from the root, as lib/mesh runs it, since a session's folder
+		// may be a tree a sweep has taken.
 		const ran = await exec("mycelium", [...args], {
 			timeout: NEEDS_TIMEOUT_MS,
+			cwd: "/",
+			...(signal ? { signal } : {}),
 		});
+		// pi's exec answers a run its clock killed with code 0, its output
+		// torn, so being killed is a failure whatever the code says.
+		if (ran.killed) {
+			return {
+				ok: false,
+				reason: `mycelium ${args[0]} was stopped before it answered, after at most ${NEEDS_TIMEOUT_MS / 1000} s`,
+			};
+		}
 		if (ran.code !== 0) {
 			const said = oneLine(ran.stderr).slice(0, MOST_REFUSAL);
 			return {
@@ -74,23 +109,66 @@ async function myceliumSays(
 	}
 }
 
+/** Why `command`'s answer couldn't be read, when none of its lines reads. */
+function unreadReason(command: string, unread: string): string {
+	return `mycelium ${command} answered nothing this harness reads: ${oneLine(unread).slice(0, MOST_REFUSAL)}`;
+}
+
 /** Read every cell needing the person from the machine's node. */
 export async function needsRead(
 	exec: ExtensionAPI["exec"],
+	signal?: AbortSignal,
 ): Promise<NeedsRead> {
-	const read = await myceliumSays(exec, NEEDS_COMMAND);
-	return read.ok ? { ok: true, needs: needsFrom(read.stdout) } : read;
+	const read = await myceliumSays(exec, NEEDS_COMMAND, signal);
+	if (!read.ok) return read;
+	const unread = unreadNeeds(read.stdout);
+	if (unread !== undefined) {
+		return { ok: false, reason: unreadReason("cells", unread) };
+	}
+	return { ok: true, needs: needsFrom(read.stdout) };
 }
 
 /** Read what the person said to sessions in the last day, from the node. */
 export async function saidRead(
 	exec: ExtensionAPI["exec"],
 	now: number,
+	signal?: AbortSignal,
 ): Promise<SaidRead> {
-	const read = await myceliumSays(exec, SAID_COMMAND);
-	return read.ok
-		? { ok: true, said: saidFrom(read.stdout, now - SAID_WITHIN_MS, MOST_SAID) }
-		: read;
+	const read = await myceliumSays(exec, SAID_COMMAND, signal);
+	if (!read.ok) return read;
+	const unread = unreadSaid(read.stdout);
+	if (unread !== undefined) {
+		return { ok: false, reason: unreadReason("said", unread) };
+	}
+	return {
+		ok: true,
+		said: saidFrom(read.stdout, now - SAID_WITHIN_MS, MOST_SAID),
+	};
+}
+
+/**
+ * Read the looks standing in `folder`: none when there is no folder yet,
+ * and a failure when this session keeps none or it can't be read, so an
+ * unread list never reads as an empty one.
+ */
+export async function looksRead(
+	folder: string | undefined,
+): Promise<LooksRead> {
+	if (folder === undefined) {
+		return { ok: false, reason: "this session keeps no look list" };
+	}
+	try {
+		await stat(folder);
+	} catch (error) {
+		if (isRecord(error) && error.code === "ENOENT") {
+			return { ok: true, looks: [] };
+		}
+		return {
+			ok: false,
+			reason: oneLine(String(error)),
+		};
+	}
+	return { ok: true, looks: await standingLooksListed(folder) };
 }
 
 /** Read what waits on the person: the cells' wants, and the looks in `looks`. */
@@ -98,17 +176,62 @@ export async function whatWaits(
 	exec: ExtensionAPI["exec"],
 	looks: string | undefined,
 	now: number = Date.now(),
+	signal?: AbortSignal,
 ): Promise<WhatWaits> {
-	const [needs, said] = await Promise.all([
-		needsRead(exec),
-		saidRead(exec, now),
+	const [needs, said, standing] = await Promise.all([
+		needsRead(exec, signal),
+		saidRead(exec, now, signal),
+		looksRead(looks),
 	]);
+	return { needs, looks: standing, said };
+}
+
+/**
+ * What waits, as a model is shown it: each thing the person said held
+ * to its start, since any session's model may read it.
+ */
+export function forAModel(waits: WhatWaits): WhatWaits {
+	if (!waits.said.ok) return waits;
 	return {
-		needs,
-		looks: looks === undefined ? [] : standingLooksIn(looks),
-		said,
+		...waits,
+		said: {
+			ok: true,
+			said: waits.said.said.map((one) => {
+				// By code point, so a cut never splits a surrogate pair.
+				const points = [...one.text];
+				return {
+					...one,
+					text:
+						points.length > MOST_SAID_SHOWN
+							? `${points.slice(0, MOST_SAID_SHOWN).join("")}...`
+							: one.text,
+				};
+			}),
+		},
 	};
 }
+
+/** The records a stored answer cites, each saying what it is. */
+export function waitingRecords(waits: WhatWaits): readonly unknown[] {
+	return [
+		...(waits.needs.ok ? waits.needs.needs : []).map((need) => ({
+			type: "need",
+			...need,
+		})),
+		...(waits.looks.ok ? waits.looks.looks : []).map((look) => ({
+			type: "look",
+			...look,
+		})),
+		...(waits.said.ok ? waits.said.said : []).map((said) => ({
+			type: "said",
+			...said,
+		})),
+	];
+}
+
+/** The line a cut view keeps last: who acts on these. */
+export const ONLY_THE_PERSON_ACTS =
+	"Only the person acts on these, with /needs in a pi window or in the launcher.";
 
 /** One thing the person said, and how it stands, on a line. */
 export function saidLine(said: SaidTo, now: number): string {
@@ -142,10 +265,11 @@ export function whatWaitsText(waits: WhatWaits, now: number): string {
 			? ["No cell needs the person now."]
 			: waits.needs.needs.map((need) => `- ${needLine(need, now)}`)
 		: [`The cells couldn't be read: ${waits.needs.reason}.`];
-	const looks =
-		waits.looks.length === 0
+	const looks = waits.looks.ok
+		? waits.looks.looks.length === 0
 			? ["Nothing is on the person's look list."]
-			: waits.looks.map((look) => `- [${look.id}] ${lookLine(look)}`);
+			: waits.looks.looks.map((look) => `- [${look.id}] ${lookLine(look)}`)
+		: [`The look list couldn't be read: ${waits.looks.reason}.`];
 	const said = waits.said.ok
 		? waits.said.said.length === 0
 			? ["Nothing in the last day."]
@@ -160,7 +284,5 @@ export function whatWaitsText(waits: WhatWaits, now: number): string {
 		"",
 		"What the person said to sessions from outside their windows, newest first, and how each stands:",
 		...said,
-		"",
-		"Only the person acts on these, with /needs in a pi window or in the launcher.",
 	].join("\n");
 }

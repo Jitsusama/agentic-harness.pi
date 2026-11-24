@@ -9,6 +9,7 @@
 
 import { isRecord } from "../internal/record.ts";
 import { oneLine } from "./one-line.ts";
+import { firstUnread } from "./unread-lines.ts";
 
 /** The command line that lists every cell needing the person. */
 export const NEEDS_COMMAND = [
@@ -49,6 +50,14 @@ export function needsFrom(listing: string): Need[] {
 			if (first === second) return 0;
 			return first < second ? -1 : 1;
 		});
+}
+
+/**
+ * The listing's first line when it holds lines and none is a cell, so
+ * it is in a shape this harness can't read; nothing when it reads.
+ */
+export function unreadNeeds(listing: string): string | undefined {
+	return firstUnread(listing, (line) => needOf(line) !== undefined);
 }
 
 /** The need one line of the listing holds, or none. */

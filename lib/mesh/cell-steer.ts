@@ -13,7 +13,8 @@
  */
 
 import { isRecord } from "../internal/record.ts";
-import { askAt, NODE_PATIENCE_MS } from "./node.ts";
+import { CELL_ADDRESS } from "./cell-link.ts";
+import { type Heard, hearAt, NODE_PATIENCE_MS } from "./node.ts";
 
 /** What a cell may be asked to do from another session. */
 export type CellAct = "hold" | "wake";
@@ -32,12 +33,21 @@ export type Steered =
 	| { readonly ok: true; readonly machine: string }
 	| { readonly ok: false; readonly reason: string };
 
-/** Ask the node one request, answering its line or nothing. */
-export type Ask = (
+/** Ask the node one request, hearing its line, its silence or no node. */
+export type Hear = (
 	socket: string | undefined,
 	request: unknown,
 	patience: number,
-) => Promise<string | undefined>;
+) => Promise<Heard>;
+
+/**
+ * Who steers: the address its steer is signed by, and every address the
+ * session goes by, its own cell's among them, none of which it may steer.
+ */
+export interface Signer {
+	readonly from: string;
+	readonly own: readonly string[];
+}
 
 /** The steer that asks cell `act` of a cell, signed `from`. */
 export function cellSteer(
@@ -49,40 +59,49 @@ export function cellSteer(
 }
 
 /**
- * Ask the cell going by `address` to `act`, signed `from`, through the
- * node at `socket`: answers the machine told, or the node's reason.
+ * Ask the cell going by `address` to `act`, signed by `signer`, through
+ * the node at `socket`: answers the machine told, or the node's reason.
  */
 export async function steerCell(
 	socket: string | undefined,
 	address: string,
 	act: CellAct,
-	from: string,
-	ask: Ask = askAt,
+	signer: Signer,
+	hear: Hear = hearAt,
 ): Promise<Steered> {
-	if (!/^[A-Za-z0-9]{1,16}$/u.test(address)) {
+	if (!CELL_ADDRESS.test(address)) {
 		return { ok: false, reason: `${address} isn't a cell's address` };
 	}
-	if (address.toUpperCase() === from.toUpperCase()) {
+	const typed = address.toUpperCase();
+	if ([signer.from, ...signer.own].some((own) => own.toUpperCase() === typed)) {
 		return {
 			ok: false,
 			reason: `${address} is this session: it can't ${act} itself from here`,
 		};
 	}
-	const line = await ask(
+	const heard = await hear(
 		socket,
-		{ Steer: { address, steer: cellSteer(act, from) } },
+		{ Steer: { address, steer: cellSteer(act, signer.from) } },
 		STEER_PATIENCE_MS,
 	);
-	if (line === undefined) {
+	if (heard.kind === "unreached") {
 		return {
 			ok: false,
 			reason:
 				socket === undefined
 					? "no mycelium node runs here to steer it through"
-					: `the node answered nothing within ${STEER_PATIENCE_MS / 1000} s, so ${address} may or may not have been told`,
+					: `no mycelium node answered at ${socket}, so nothing was sent`,
 		};
 	}
-	return steeredFrom(line);
+	if (heard.kind === "silent") {
+		return {
+			ok: false,
+			reason: heard.hungUp
+				? `the node took the steer and hung up before it answered, so ${address} may or may not have been told`
+				: `the node answered nothing within ${STEER_PATIENCE_MS / 1000} s, so ${address} may or may not have been told`,
+		};
+	}
+	return steeredFrom(heard.line);
 }
 
 /** A steer's answer read: the machine told, or the node's reason. */

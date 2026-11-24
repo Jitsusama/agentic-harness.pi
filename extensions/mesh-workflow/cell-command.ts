@@ -15,8 +15,11 @@ import type {
 	ExtensionAPI,
 	ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
+import { sessionAddress } from "../../lib/mesh/address.ts";
+import { cellLink } from "../../lib/mesh/cell-link.ts";
 import {
 	type CellAct,
+	type Signer,
 	type Steered,
 	steerCell,
 } from "../../lib/mesh/cell-steer.ts";
@@ -42,12 +45,14 @@ export interface CellDeps {
 	readonly ui: Pick<ExtensionUIContext, "select" | "notify">;
 	/** This session's address, which signs what it steers. */
 	readonly from: string | undefined;
+	/** Every address this session goes by, none of which it steers. */
+	readonly own: readonly string[];
 	/** The sessions the node holds, or nothing when none answers. */
 	readonly sessions: () => Promise<readonly NodeSession[] | undefined>;
 	readonly steer: (
 		address: string,
 		act: CellAct,
-		from: string,
+		signer: Signer,
 	) => Promise<Steered>;
 	/** This machine's short name, for a cell the node names none for. */
 	readonly machine: string;
@@ -87,7 +92,10 @@ export async function cellCommand(args: string, deps: CellDeps): Promise<void> {
 		);
 		return;
 	}
-	const steered = await deps.steer(typed.address, act, deps.from);
+	const steered = await deps.steer(typed.address, act, {
+		from: deps.from,
+		own: deps.own,
+	});
 	deps.ui.notify(
 		steered.ok
 			? `${typed.address} on ${steered.machine} was told to ${act === "hold" ? "hold once its turn ends" : "wake and carry on"}, as ${deps.from} asked.`
@@ -108,21 +116,45 @@ async function picked(
 	return OFFERED.find(([, label]) => label === choice)?.[0];
 }
 
-/** Go to the cell `address`, on the machine the node says runs it. */
+/**
+ * Go to the cell `address`, on the machine the node says runs it. A
+ * session goes by its signing address and by the one its id gives, so
+ * either finds it.
+ */
 async function goTo(deps: CellDeps, address: string): Promise<void> {
 	const sessions = await deps.sessions();
-	const machine =
-		sessions?.find(
-			(session) => session.address?.toUpperCase() === address.toUpperCase(),
-		)?.machine ?? deps.machine;
-	const link = `mycelium:cell/${address.toUpperCase()}@${machine}/go`;
+	const wanted = address.toUpperCase();
+	const found = sessions?.find(
+		(session) =>
+			session.address?.toUpperCase() === wanted ||
+			sessionAddress(session.id) === wanted,
+	);
+	if (sessions === undefined) {
+		deps.ui.notify(
+			`The node didn't say where ${wanted} runs, so going to it on ${deps.machine}.`,
+			"info",
+		);
+	}
+	const machine = found?.machine ?? deps.machine;
+	const link = cellLink(address, machine);
+	if (link === undefined) {
+		deps.ui.notify(
+			`${oneLine(address)} on ${oneLine(machine) || "no machine"} isn't a cell the map can go to.`,
+			"warning",
+		);
+		return;
+	}
 	try {
 		const ran = await deps.exec("xdg-open", [link], {
 			timeout: OPEN_TIMEOUT_MS,
+			cwd: "/",
 		});
-		if (ran.code !== 0) {
+		// pi's exec answers a run its clock killed with code 0.
+		if (ran.code !== 0 || ran.killed) {
 			deps.ui.notify(
-				`${address} didn't open (${ran.code}): ${oneLine(ran.stderr) || link}`,
+				ran.killed
+					? `${address} didn't open within ${OPEN_TIMEOUT_MS / 1000} s: ${link}`
+					: `${address} didn't open (${ran.code}): ${oneLine(ran.stderr) || link}`,
 				"warning",
 			);
 		}
@@ -140,15 +172,16 @@ export function liveCellDeps(
 	ui: CellDeps["ui"],
 	socket: string | undefined,
 	from: string | undefined,
+	own: readonly string[],
 	machine: string,
 ): CellDeps {
 	return {
 		exec: (command, args, options) => pi.exec(command, args, options),
 		ui,
 		from,
+		own,
 		sessions: () => nodeSessionsAt(socket),
-		steer: (address, act, signedBy) =>
-			steerCell(socket, address, act, signedBy),
+		steer: (address, act, signer) => steerCell(socket, address, act, signer),
 		machine,
 	};
 }

@@ -9,6 +9,7 @@
 
 import { isRecord } from "../internal/record.ts";
 import { oneLine } from "./one-line.ts";
+import { firstUnread } from "./unread-lines.ts";
 
 /** The command line that lists what the person said. */
 export const SAID_COMMAND = ["said"] as const;
@@ -48,6 +49,15 @@ export function saidFrom(
 		})
 		.sort((one, other) => Date.parse(other.at) - Date.parse(one.at))
 		.slice(0, most);
+}
+
+/**
+ * The listing's first line when it holds lines and none is a thing
+ * said, so it is in a shape this harness can't read; nothing when it
+ * reads.
+ */
+export function unreadSaid(listing: string): string | undefined {
+	return firstUnread(listing, (line) => saidOf(line) !== undefined);
 }
 
 /** The thing said one line of the listing holds, or none. */

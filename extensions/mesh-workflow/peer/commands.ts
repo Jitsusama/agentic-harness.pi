@@ -4,6 +4,7 @@
  */
 
 import { hostname } from "node:os";
+import { sessionAddress } from "../../../lib/mesh/address.ts";
 import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { agentsAt, nodeSocket } from "../../../lib/mesh/node.ts";
 import { expandable } from "../../../lib/ui/expandable.ts";
@@ -106,6 +107,7 @@ export function registerCommands(m: MeshState, f: Handing) {
 					at.ui,
 					nodeSocket(m.env),
 					m.peer?.signature,
+					m.peer ? [...m.peer.addresses, sessionAddress(m.peer.session)] : [],
 					hostname().split(".")[0] ?? "",
 				),
 			),

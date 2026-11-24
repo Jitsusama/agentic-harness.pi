@@ -138,5 +138,10 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					...(m.waiting ? { waiting: m.waiting } : {}),
 				}
 			: undefined;
-	registerTools(m.pi, local, () => m.quiet);
+	registerTools(
+		m.pi,
+		local,
+		() => m.quiet,
+		() => m.paths.looks,
+	);
 }

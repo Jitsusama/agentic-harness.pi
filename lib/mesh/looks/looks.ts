@@ -796,9 +796,12 @@ export function answerLook(
 	});
 }
 
-/** Every look still standing on the person's list in `dir`, newest first. */
-export function standingLooksIn(dir: string): Look[] {
-	return looksIn(dir).filter(stands);
+/**
+ * Every look still standing on the person's list in `dir`, newest first,
+ * read off the thread as {@link looksListed} reads them.
+ */
+export async function standingLooksListed(dir: string): Promise<Look[]> {
+	return (await looksListed(dir)).filter(stands);
 }
 
 /**

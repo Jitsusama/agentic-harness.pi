@@ -7,7 +7,7 @@ import {
 	looksIn,
 	openLook,
 	pointAt,
-	standingLooksIn,
+	standingLooksListed,
 } from "../../../../lib/mesh/looks/looks.ts";
 
 let dir: string;
@@ -37,13 +37,13 @@ function point(n: number) {
 // Joel, 24 November: "any interface i'm in should be directly engagable
 // to a meaningful level"; a pi session acts on his list as the launcher does.
 describe("the person's list, acted on from a session", () => {
-	it("lists only the looks still standing, newest first", () => {
+	it("lists only the looks still standing, newest first", async () => {
 		const first = point(1);
 		const second = point(2);
 		const third = point(3);
 		clearLook(dir, second.id);
 
-		expect(standingLooksIn(dir).map((look) => look.id)).toEqual([
+		expect((await standingLooksListed(dir)).map((look) => look.id)).toEqual([
 			third.id,
 			first.id,
 		]);

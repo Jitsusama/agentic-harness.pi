@@ -5,27 +5,43 @@ import {
 	cellCommand,
 	typedCell,
 } from "../../../extensions/mesh-workflow/cell-command.ts";
-import type { CellAct } from "../../../lib/mesh/cell-steer.ts";
+import { sessionAddress } from "../../../lib/mesh/address.ts";
+import type { CellAct, Signer } from "../../../lib/mesh/cell-steer.ts";
+
+/** Who the session steering signs as, and goes by. */
+const SIGNER: Signer = { from: "85PKB2", own: ["85PKB2"] };
 
 /** What a run of /cell did: what it ran, steered and told him. */
 interface Ran {
 	readonly ran: string[][];
-	readonly steered: [string, CellAct, string][];
+	readonly steered: [string, CellAct, Signer][];
 	readonly told: string[];
 }
 
 /** /cell run against fakes, he picking `pick` when asked. */
 async function run(
 	args: string,
-	options: { pick?: string; from?: string | undefined; refused?: string } = {},
+	options: {
+		pick?: string;
+		from?: string | undefined;
+		refused?: string;
+		code?: number;
+		killed?: boolean;
+		unheard?: boolean;
+	} = {},
 ): Promise<Ran> {
 	const ran: string[][] = [];
-	const steered: [string, CellAct, string][] = [];
+	const steered: [string, CellAct, Signer][] = [];
 	const told: string[] = [];
 	const deps: CellDeps = {
 		exec: async (command, rest) => {
 			ran.push([command, ...rest]);
-			return { stdout: "", stderr: "", code: 0, killed: false };
+			return {
+				stdout: "",
+				stderr: "",
+				code: options.code ?? 0,
+				killed: options.killed ?? false,
+			};
 		},
 		ui: {
 			select: async (_title: string, choices: string[]) =>
@@ -37,11 +53,21 @@ async function run(
 			},
 		},
 		from: "from" in options ? options.from : "85PKB2",
-		sessions: async () => [
-			{ id: "s1", address: "A1B2C3", machine: "tern", state: "idle" },
-		],
-		steer: async (address, act, from) => {
-			steered.push([address, act, from]);
+		own: ["85PKB2"],
+		sessions: async () =>
+			options.unheard
+				? undefined
+				: [
+						{ id: "s1", address: "A1B2C3", machine: "tern", state: "idle" },
+						{
+							id: "01a1-session-0000-77d3c0de",
+							address: "QPLM42",
+							machine: "heron",
+							state: "idle",
+						},
+					],
+		steer: async (address, act, signer) => {
+			steered.push([address, act, signer]);
 			return options.refused
 				? { ok: false, reason: options.refused }
 				: { ok: true, machine: "tern" };
@@ -72,6 +98,39 @@ describe("/cell", () => {
 		expect(ran).toEqual([["xdg-open", "mycelium:cell/A1B2C3@tern/go"]]);
 	});
 
+	it("finds a cell by the address its id gives as well as the one it signs", async () => {
+		const { ran } = await run(
+			`${sessionAddress("01a1-session-0000-77d3c0de").toLowerCase()} go`,
+		);
+
+		expect(ran).toEqual([
+			[
+				"xdg-open",
+				`mycelium:cell/${sessionAddress("01a1-session-0000-77d3c0de")}@heron/go`,
+			],
+		]);
+	});
+
+	it("says it guesses this machine when the node didn't answer", async () => {
+		const { ran, told } = await run("A1B2C3 go", { unheard: true });
+
+		expect(ran).toEqual([["xdg-open", "mycelium:cell/A1B2C3@optimus/go"]]);
+		expect(told.join("\n")).toContain("didn't say where A1B2C3 runs");
+	});
+
+	it("opens nothing for a name the map can't go to", async () => {
+		const { ran, told } = await run("../x go");
+
+		expect(ran).toEqual([]);
+		expect(told.join("\n")).toContain("isn't a cell the map can go to");
+	});
+
+	it("says a link whose opener was stopped didn't open", async () => {
+		const { told } = await run("A1B2C3 go", { killed: true });
+
+		expect(told.join("\n")).toContain("didn't open within");
+	});
+
 	it("goes to a cell the node doesn't name on this machine", async () => {
 		const { ran } = await run("Z9Y8X7 go");
 
@@ -83,8 +142,8 @@ describe("/cell", () => {
 		const woken = await run("A1B2C3 wake");
 
 		expect([...held.steered, ...woken.steered]).toEqual([
-			["A1B2C3", "hold", "85PKB2"],
-			["A1B2C3", "wake", "85PKB2"],
+			["A1B2C3", "hold", SIGNER],
+			["A1B2C3", "wake", SIGNER],
 		]);
 		expect(held.told[0]).toContain("A1B2C3 on tern was told to hold");
 		expect(woken.told[0]).toContain("wake and carry on");
@@ -94,7 +153,7 @@ describe("/cell", () => {
 		const { steered } = await run("A1B2C3", { pick: "Hold" });
 		const none = await run("A1B2C3");
 
-		expect(steered).toEqual([["A1B2C3", "hold", "85PKB2"]]);
+		expect(steered).toEqual([["A1B2C3", "hold", SIGNER]]);
 		expect([...none.steered, ...none.ran]).toEqual([]);
 	});
 

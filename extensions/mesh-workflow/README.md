@@ -410,13 +410,19 @@ and can answer a question or a gate left open on screen.
   `mycelium said` (`lib/mesh/said-to.ts`), each answered, being
   worked on, not taken up yet or put in its prompt, all cited through
   the result store ([`tools/person.ts`](tools/person.ts)). It only
-  reads.
+  reads. A part it couldn't read (the node refused, its run was
+  stopped, its listing held no line it reads, or the look list was
+  unreadable) is said as unread, never as nothing waiting, and a
+  model sees only the first 80 characters of each thing he said.
   `/needs`, which only he types, lists the same and takes the act he
   picks ([`needs-command.ts`](needs-command.ts)): a cell's want, or
   something he said, goes
   to that cell by the map's link, `mycelium:cell/<address>@<machine>/go`,
   where he answers it, since the node takes a person's word from no
-  agent process; a look opens, marked opened as the launcher marks it,
+  agent process. It says "Nothing waits on you." only when every
+  part was read, and warns of each part that wasn't. A look opens,
+  shown with its target, only by a web address for a pull request,
+  page or diff and by an absolute path for a file, marked opened as the launcher marks it,
   or clears as "cleared by you", or goes to the cell that pointed.
   `/cell ADDRESS [go|hold|wake]`, also typed only by him, goes to
   another cell by the same link, on the machine the node says runs
