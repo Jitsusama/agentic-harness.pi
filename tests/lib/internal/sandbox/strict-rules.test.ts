@@ -1,11 +1,13 @@
 /**
  * The strict profile lets a command read nothing of the person's but
  * settings, write only its work and its own folders, and reach no socket
- * but name lookups and Nix's door for sandboxes.
+ * but name lookups and Nix's door for sandboxes. What nix-offload needs
+ * of the builders, a command is given and pi's own tools are not.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+	fileReach,
 	NIX_DOOR,
 	strictRules,
 } from "../../../../lib/internal/sandbox/strict-rules.ts";
@@ -50,6 +52,33 @@ describe("the strict profile", () => {
 			.filter(([, path]) => path === "/home/someone/src/thing/.git")
 			.map(([flag]) => flag);
 		expect(flags, "the repository is read-only").toEqual(["--ro"]);
+	});
+
+	it("gives a command what nix-offload needs of the builders, and pi's own tools none of it", () => {
+		const place = {
+			home: "/home/someone",
+			runtimeDir: undefined,
+			cwd: "/home/someone/src/thing",
+			builders: {
+				readable: ["/run/nix-offload-lines", "/run/nix-offload"],
+				writable: [
+					"/run/offload-wants",
+					"/home/someone/.local/state/nix-offload",
+				],
+			},
+		};
+		const given = strictRules(place);
+		const flagOf = (path: string) =>
+			given.filter(([, one]) => one === path).map(([flag]) => flag);
+		expect(flagOf("/run/nix-offload"), "a lender's folder").toEqual(["--ro"]);
+		expect(flagOf("/run/offload-wants"), "the wants").toEqual(["--rw"]);
+		const tools = [...fileReach(place, "read"), ...fileReach(place, "write")];
+		for (const path of [
+			...place.builders.readable,
+			...place.builders.writable,
+		]) {
+			expect(tools, "pi's own tools reach the builders").not.toContain(path);
+		}
 	});
 
 	it("reaches no socket but name lookups and Nix's door for sandboxes", () => {

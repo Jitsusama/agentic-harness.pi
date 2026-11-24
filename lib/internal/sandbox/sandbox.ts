@@ -76,6 +76,7 @@ import {
 	bwrapArgsFile,
 	guardedListFile,
 } from "../fence/fence-args-file.ts";
+import { buildersReach } from "../fence/fence-builders.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
 import {
 	bwrapWords,
@@ -84,6 +85,7 @@ import {
 } from "../fence/fence-command.ts";
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
+import { DISK } from "../fence/fence-disk.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
 import {
 	guardedFolders,
@@ -923,7 +925,9 @@ export function wrapFor(
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
-				...(served ? { served } : {}),
+				// A server sends nothing to the builders; a command may, so it
+				// reads them as each command starts, lenders coming and going.
+				...(served ? { served } : { builders: buildersReach(DISK, home) }),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();

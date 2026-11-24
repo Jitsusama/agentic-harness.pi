@@ -20,6 +20,15 @@
  * it, which a single folder for every token, made by root, closes:
  * /run/nix-offload-tokens, a file a lender (5FWIUS [8b62b8aa]), hidden
  * whole, since everything in it is a token.
+ *
+ * A strict command (Landlock, through landrun) is given what nix-offload
+ * reads and writes the same way, as paths rather than binds: on 24
+ * November one in the strict sandbox was refused /run/nix-offload/lender
+ * and its own journal, so `nix-offload there` said no builder was lent
+ * while 18 were (80ECO2 [9b5c1cda]). A folder holding no secret is given
+ * whole, since Landlock ties a file's grant to the file as it was when
+ * the command started, and a lender replaces its files as it goes. One
+ * holding a secret is given entry by entry, the secret left out.
  */
 
 import { basename, join } from "node:path";
@@ -42,6 +51,15 @@ const TOKENS = "nix-offload-tokens";
 
 /** What in a lender's folder no fenced command may read. */
 const SECRETS: ReadonlySet<string> = new Set(["cloud-token"]);
+
+/** Where nix-offload puts each run's want, which every run writes. */
+const WANTS = "offload-wants";
+
+/** nix-offload's own state in the home folder: its journal, passes and runs. */
+const STATE = ".local/state/nix-offload";
+
+/** What in nix-offload's state no strict command may read: its store's signing key. */
+const STATE_SECRETS: ReadonlySet<string> = new Set(["store_ed25519"]);
 
 /** Whether `name`, in /run, is a lender's folder. */
 function isLender(name: string): boolean {
@@ -79,6 +97,59 @@ export function buildersFolderArgs(
 			});
 		return ["--tmpfs", folder, ...kept, "--remount-ro", folder];
 	});
+}
+
+/** What a strict command may read and write of the builders. */
+export interface BuildersReach {
+	readonly readable: readonly string[];
+	readonly writable: readonly string[];
+}
+
+/**
+ * What a strict command needs of the builders to run `nix-offload`:
+ * root's lines and standing builders, each lender's folder but its
+ * token, and the folder of tokens never; the wants to write, and
+ * nix-offload's state but its signing key.
+ */
+export function buildersReach(
+	disk: Disk,
+	home: string,
+	run: string = RUN,
+): BuildersReach {
+	const lenders = lenderFolders(disk, run).filter(
+		(folder) => basename(folder) !== TOKENS,
+	);
+	return {
+		readable: [
+			...[...NO_TOKEN].sort().map((name) => join(run, name)),
+			...lenders.flatMap((folder) => keptOf(disk, folder, SECRETS)),
+		],
+		writable: [
+			join(run, WANTS),
+			...keptOf(disk, join(home, STATE), STATE_SECRETS),
+		],
+	};
+}
+
+/**
+ * `folder` whole when it holds none of `secrets`, or else each of its
+ * files and folders but those, so a secret is never in reach.
+ */
+function keptOf(
+	disk: Disk,
+	folder: string,
+	secrets: ReadonlySet<string>,
+): string[] {
+	const names = disk.entries(folder);
+	if (!names.some((name) => secrets.has(name))) return [folder];
+	return names
+		.filter((name) => !secrets.has(name))
+		.sort()
+		.map((name) => join(folder, name))
+		.filter((path) => {
+			const kind = disk.kind(path);
+			return kind === "file" || kind === "folder";
+		});
 }
 
 /** The lender's folder's name `path` lies in, if it lies in one. */

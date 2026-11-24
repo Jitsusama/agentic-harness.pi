@@ -270,6 +270,12 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   are out of reach both ways, since they hold tokens, code your shell
   runs at every start, and scripts other sessions run unfenced. No
   signal reaches a process outside the sandbox.
+- **The lent builders.** So `nix-offload there` can send work out, a
+  command reads root's builder lines and each lender's folder in
+  `/run`, and writes `/run/offload-wants` and
+  `~/.local/state/nix-offload`. It never reaches a cloud token or the
+  store's signing key: `/run/nix-offload-tokens` stays out of reach,
+  and a folder holding a secret is given entry by entry without it.
 - **The network** stays open.
 
 The strict profile costs 20 to 35 ms a command. The queue still reads the command as

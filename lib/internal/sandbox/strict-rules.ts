@@ -4,6 +4,7 @@
  * beside them, as landrun's rules and as pi's file tools read them.
  */
 import { join } from "node:path";
+import type { BuildersReach } from "../fence/fence-builders.ts";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -46,6 +47,11 @@ export interface SandboxPlace {
 	 * them.
 	 */
 	readonly served?: boolean;
+	/**
+	 * What nix-offload needs of the lent builders, so a strict command can
+	 * send work to them; pi's own file tools are never given it.
+	 */
+	readonly builders?: BuildersReach;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -88,6 +94,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		home(".config/dev"),
 		home(".config/nix/nix.conf"),
 		...(place.repository ? [place.repository] : []),
+		...(place.builders?.readable ?? []),
 	];
 	const own = sandboxFolders(place.home);
 	const writable = [
@@ -99,12 +106,27 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		"/dev/full",
 		"/dev/zero",
 		"/dev/shm",
+		...(place.builders?.writable ?? []),
 	];
 	const sockets = [
 		"/run/nscd/socket",
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
 	];
 	return { runnable, readable, writable, sockets };
+}
+
+/**
+ * `place` without the builders' paths, for what pi's own tools reach:
+ * only a command sends work to the builders.
+ */
+function withoutBuilders(place: SandboxPlace): SandboxPlace {
+	return {
+		home: place.home,
+		runtimeDir: place.runtimeDir,
+		cwd: place.cwd,
+		...(place.repository ? { repository: place.repository } : {}),
+		...(place.served ? { served: place.served } : {}),
+	};
 }
 
 /**
@@ -143,7 +165,7 @@ export type FileUse = "read" | "write";
  * sandbox keeps from commands.
  */
 export function fileReach(place: SandboxPlace, use: FileUse): string[] {
-	const { runnable, readable, writable } = strictPaths(place);
+	const { runnable, readable, writable } = strictPaths(withoutBuilders(place));
 	const ours = (path: string) => path !== "/proc" && !path.startsWith("/dev/");
 	const written = writable.filter(ours);
 	if (use === "write") return written;
@@ -159,7 +181,7 @@ export function fileReach(place: SandboxPlace, use: FileUse): string[] {
  * widens no command's.
  */
 export function strictHomeReads(place: SandboxPlace): string[] {
-	const { runnable, readable } = strictPaths(place);
+	const { runnable, readable } = strictPaths(withoutBuilders(place));
 	const inHome = (path: string) =>
 		path === place.home || path.startsWith(`${place.home}/`);
 	return [...runnable, ...readable, place.cwd].filter(inHome);

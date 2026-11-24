@@ -3,7 +3,8 @@
  * cloud token never there, even once the lender replaces it while a
  * command runs, and everything else readable but not writable. It skips
  * only where no bubblewrap can make a namespace, as inside another
- * sandbox.
+ * sandbox. And what a strict command is given of the builders, as
+ * paths: everything nix-offload needs, and never a token or its key.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -25,6 +26,7 @@ import {
 } from "../../../../lib/internal/fence/fence.ts";
 import {
 	buildersFolderArgs,
+	buildersReach,
 	lenderFolders,
 } from "../../../../lib/internal/fence/fence-builders.ts";
 import { DISK, type Disk } from "../../../../lib/internal/fence/fence-disk.ts";
@@ -151,6 +153,84 @@ describe("the lenders' folders in the fence's arguments", () => {
 		expect(args.join(" "), "the folder isn't covered").toContain(
 			"--tmpfs /run/nix-offload-more",
 		);
+	});
+});
+
+describe("what a strict command reaches of the builders", () => {
+	const state = "/home/u/.local/state/nix-offload";
+	const held: Record<string, readonly string[]> = {
+		"/run": [
+			"nix-offload",
+			"nix-offload-more",
+			"nix-offload-tokens",
+			"nix-offload-lines",
+			"nix-offload-standing",
+			"offload-wants",
+		],
+		// An older lender still keeping its token beside the rest.
+		"/run/nix-offload": ["lender", "cloud-token", "waiting", "a-link"],
+		"/run/nix-offload-more": ["lender", "health.json"],
+		"/run/nix-offload-tokens": ["nix-offload", "nix-offload-more"],
+		[state]: ["there.jsonl", "store_ed25519", "runs.jsonl", "passed"],
+	};
+	const disk: Disk = {
+		kind: (path) =>
+			path.endsWith("a-link")
+				? "link"
+				: path in held || path.endsWith("waiting") || path.endsWith("passed")
+					? "folder"
+					: "file",
+		entries: (folder) => held[folder] ?? [],
+	};
+	const reach = buildersReach(disk, "/home/u");
+
+	it("reads root's lines and standing builders, and a lender holding no token whole", () => {
+		expect(reach.readable).toEqual(
+			expect.arrayContaining([
+				"/run/nix-offload-lines",
+				"/run/nix-offload-standing",
+				"/run/nix-offload-more",
+			]),
+		);
+	});
+
+	it("reads a lender holding its token entry by entry, without the token or a link", () => {
+		const inLender = reach.readable.filter((path) =>
+			path.startsWith("/run/nix-offload/"),
+		);
+		expect(inLender, "what of the lender is read").toEqual([
+			"/run/nix-offload/lender",
+			"/run/nix-offload/waiting",
+		]);
+		expect(reach.readable, "the lender was read whole").not.toContain(
+			"/run/nix-offload",
+		);
+	});
+
+	it("never reaches the tokens' folder or any token", () => {
+		const every = [...reach.readable, ...reach.writable];
+		for (const path of every) {
+			expect(path, "a token is in reach").not.toMatch(
+				/nix-offload-tokens|cloud-token|store_ed25519/,
+			);
+		}
+	});
+
+	it("writes the wants and nix-offload's state, all but its signing key", () => {
+		expect(reach.writable).toEqual([
+			"/run/offload-wants",
+			`${state}/passed`,
+			`${state}/runs.jsonl`,
+			`${state}/there.jsonl`,
+		]);
+	});
+
+	it("writes nix-offload's state whole where it holds no key yet", () => {
+		const bare: Disk = { kind: () => "folder", entries: () => [] };
+		expect(buildersReach(bare, "/home/u").writable).toEqual([
+			"/run/offload-wants",
+			state,
+		]);
 	});
 });
 
