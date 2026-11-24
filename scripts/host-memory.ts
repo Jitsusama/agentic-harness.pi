@@ -2,7 +2,9 @@
  * What memory each host and each of its conversations' children take, as
  * the host's memory answer says it: the host's own Pss and heap, then a
  * line each conversation, with the median and total Pss of the children
- * read. It is the live measure of memory per agent, changing nothing.
+ * read. It is the live measure of each conversation's own process,
+ * changing nothing; what a child starts, as a tool's shell, is its own
+ * process and not counted.
  * Node runs it as it stands, stripping the types:
  *
  *   node scripts/host-memory.ts [attended|background]...

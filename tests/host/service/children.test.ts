@@ -17,6 +17,7 @@ import {
 	childPss,
 	heldChildren,
 	listingChildren,
+	type ReadPss,
 } from "../../../host/service/children.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type {
@@ -748,9 +749,7 @@ describe("a host's memory with conversations in children", () => {
 			sessions: [{ sessionId: b, state: "parked" }],
 		}),
 	};
-	async function measured(
-		pss: (pid: HostIdentity["owner"]) => number | undefined,
-	) {
+	async function measured(pss: ReadPss) {
 		const held = heldChildren(() => new Date(at));
 		held.hold(conversation(a), { socket: childPath, identity: running });
 		held.update(conversation(a), { used: 200, limit: 4000 });
@@ -763,7 +762,7 @@ describe("a host's memory with conversations in children", () => {
 
 	it("answers a child's last heap and the Pss read for its process", async () => {
 		const read: HostIdentity["owner"][] = [];
-		const answer = await measured((owner) => {
+		const answer = await measured(async (owner) => {
 			read.push(owner);
 			return 3000;
 		});
@@ -797,7 +796,11 @@ describe("a host's memory with conversations in children", () => {
 			execute: async () => ({ host, sessions: [] }),
 		};
 
-		const answer = await listingChildren(listing, held, () => 3000).execute({
+		const answer = await listingChildren(
+			listing,
+			held,
+			async () => 3000,
+		).execute({
 			v: 1,
 			id: "l",
 			op: "list",
@@ -809,7 +812,7 @@ describe("a host's memory with conversations in children", () => {
 		});
 	});
 	it("answers no Pss for a child gone before it was read, keeping its heap", async () => {
-		const answer = await measured(() => undefined);
+		const answer = await measured(async () => undefined);
 
 		expect(answer).toStrictEqual({
 			host,
@@ -835,52 +838,54 @@ describe("a host's memory with conversations in children", () => {
 			},
 		]);
 	});
-	it("reads a child's Pss only while its pid is the process that started", () => {
+	it("reads a child's Pss only while its pid is the process that started", async () => {
 		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
 		const proc = (ticks: number | undefined, pss = 3000) => ({
-			pss: (pid: number) => (pid === 4242 ? pss : undefined),
-			startTicks: (pid: number) => (pid === 4242 ? ticks : undefined),
+			pss: async (pid: number) => (pid === 4242 ? pss : undefined),
+			startTicks: async (pid: number) => (pid === 4242 ? ticks : undefined),
 		});
 
-		expect(childPss(owner, proc(700)), "still the child").toBe(3000);
-		expect(childPss(owner, proc(701)), "its pid reused").toBeUndefined();
+		expect(await childPss(owner, proc(700)), "still the child").toBe(3000);
+		expect(await childPss(owner, proc(701)), "its pid reused").toBeUndefined();
 		expect(
-			childPss(owner, proc(undefined)),
+			await childPss(owner, proc(undefined)),
 			"gone between the two reads",
 		).toBeUndefined();
 		expect(
-			childPss({ pid: 4242, startedAt: 1 }, proc(700)),
+			await childPss({ pid: 4242, startedAt: 1 }, proc(700)),
 			"an owner kept without ticks to tell",
 		).toBeUndefined();
 	});
-	it("reads a child's ticks after its Pss, so a pid taken between the two is caught", () => {
+	it("reads a child's ticks once its Pss is read, so a pid taken between the two is caught", async () => {
 		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
-		// The pid is taken by another process as its Pss is read.
+		// The pid is taken by another process by the time its Pss is read,
+		// so ticks read first, or beside it, still name the child.
 		let taken = false;
 		const proc = {
-			pss: () => {
+			pss: async () => {
+				await Promise.resolve();
 				taken = true;
 				return 3000;
 			},
-			startTicks: () => (taken ? 701 : 700),
+			startTicks: async () => (taken ? 701 : 700),
 		};
 
-		expect(childPss(owner, proc)).toBeUndefined();
+		expect(await childPss(owner, proc)).toBeUndefined();
 	});
 	it.runIf(process.platform === "linux")(
 		"reads a child's Pss from procfs only while its pid is still the process that started",
-		() => {
+		async () => {
 			const ticks = startTicksFromProcSync(process.pid);
 			const self = { pid: process.pid, startedAt: 1, startTicks: ticks };
 
-			expect(childPss(self), "this process").toBeGreaterThan(1024 * 1024);
+			expect(await childPss(self), "this process").toBeGreaterThan(1024 * 1024);
 			expect(
-				childPss({ ...self, startTicks: (ticks ?? 0) + 1 }),
+				await childPss({ ...self, startTicks: (ticks ?? 0) + 1 }),
 				"its pid taken by another process",
 			).toBeUndefined();
 			expect(
-				childPss({ pid: 2 ** 22 + 1, startedAt: 1 }),
-				"no such process",
+				await childPss({ ...self, pid: 2 ** 22 + 1 }),
+				"no such process, past the kernel's highest pid",
 			).toBeUndefined();
 		},
 	);

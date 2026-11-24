@@ -1242,10 +1242,20 @@ describe("what a child says", () => {
 			conversation: { ...conversation(a), state: "busy" },
 			heap: { used: 200.5, limit: 4000 },
 		});
-
 		await vi.waitFor(() =>
 			expect(routes.child(a)?.conversation.state, "the line taken").toBe(
 				"busy",
+			),
+		);
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: { used: 200, limit: -1 },
+		});
+
+		await vi.waitFor(() =>
+			expect(routes.child(a)?.conversation.state, "the line taken").toBe(
+				"idle",
 			),
 		);
 		expect(routes.child(a)?.heap, "the last heap kept").toMatchObject(said);

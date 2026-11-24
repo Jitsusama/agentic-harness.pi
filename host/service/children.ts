@@ -21,8 +21,8 @@
  * by the host's thread.
  */
 
-import { startTicksFromProcSync } from "../../lib/internal/process-ticks.ts";
-import { pssBytes } from "../engine/quiet-collection.ts";
+import { startTicksFromProc } from "../../lib/internal/process-ticks.ts";
+import { pssBytesOf } from "../engine/quiet-collection.ts";
 import type { ControlBackend, HostIdentity } from "./dispatch.ts";
 import type {
 	ControlRequest,
@@ -144,29 +144,37 @@ export function passedOn(
  * that started at another tick, or named without ticks to tell, so
  * another process's memory is never reported as the child's. The ticks
  * are read after the Pss, so a pid taken between the two reads is caught
- * too.
+ * too. Each is read off the host's thread, so a child held up under
+ * memory pressure holds up no conversation.
  */
-export function childPss(
+export async function childPss(
 	owner: HostIdentity["owner"],
-	proc: ProcReads = { pss: pssBytes, startTicks: startTicksFromProcSync },
-): number | undefined {
-	const pss = proc.pss(owner.pid);
+	proc: ProcReads = { pss: pssBytesOf, startTicks: startTicksFromProc },
+): Promise<number | undefined> {
+	const pss = await proc.pss(owner.pid);
 	if (pss === undefined || owner.startTicks === undefined) return undefined;
-	return proc.startTicks(owner.pid) === owner.startTicks ? pss : undefined;
+	return (await proc.startTicks(owner.pid)) === owner.startTicks
+		? pss
+		: undefined;
 }
 
 /** What childPss reads of a process from procfs, each nothing where unread. */
 export interface ProcReads {
-	readonly pss: (pid: number) => number | undefined;
-	readonly startTicks: (pid: number) => number | undefined;
+	readonly pss: (pid: number) => Promise<number | undefined>;
+	readonly startTicks: (pid: number) => Promise<number | undefined>;
 }
 
+/** How a memory answer reads a child's Pss, nothing where it can't be had. */
+export type ReadPss = (
+	owner: HostIdentity["owner"],
+) => Promise<number | undefined>;
+
 /** One child's entry in a memory answer, each reading absent where unread. */
-function childMemory(
+async function childMemory(
 	child: HeldChild,
-	pss: (owner: HostIdentity["owner"]) => number | undefined,
-): MemoryAnswer["sessions"][number] {
-	const read = pss(child.route.identity.owner);
+	pss: ReadPss,
+): Promise<MemoryAnswer["sessions"][number]> {
+	const read = await pss(child.route.identity.owner);
 	return {
 		sessionId: child.conversation.sessionId,
 		state: child.conversation.state,
@@ -191,13 +199,13 @@ function isListResult(
  * and memory answer, so a caller reading what the host holds sees them
  * all, whichever thread runs each. A conversation in both, as while a
  * child takes one up, is named once, by its child. Memory gives each
- * child's last heap and its Pss, read through `pss` as the answer is
- * made.
+ * child's last heap and its Pss, each child read at once through `pss`
+ * as the answer is made.
  */
 export function listingChildren(
 	backend: ControlBackend,
 	children: ChildRoutes,
-	pss: (owner: HostIdentity["owner"]) => number | undefined = childPss,
+	pss: ReadPss = childPss,
 ): ControlBackend {
 	return {
 		identity: backend.identity,
@@ -215,7 +223,7 @@ export function listingChildren(
 			const theirs =
 				request.op === "list"
 					? held.map(({ conversation }) => conversation)
-					: held.map((child) => childMemory(child, pss));
+					: await Promise.all(held.map((child) => childMemory(child, pss)));
 			return { ...result, sessions: [...ours, ...theirs] };
 		},
 	};
