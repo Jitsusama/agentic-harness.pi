@@ -9,11 +9,12 @@ import {
 	chmodSync,
 	existsSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
 import { cutFrom, uncut } from "../../../../lib/internal/carry/cut.ts";
@@ -478,4 +479,143 @@ describe("cutting with a git too old to say a ref is missing", () => {
 			expect(existsSync(at), "nothing was cut").toBe(false);
 		},
 	);
+
+	/** The checkout with its branches' folder moved elsewhere and linked back. */
+	async function linkedHeads() {
+		const one = await checkout();
+		const heads = join(one.gitDir, "refs", "heads");
+		const elsewhere = join(folder(made, "elsewhere"), "heads");
+		renameSync(heads, elsewhere);
+		symlinkSync(elsewhere, heads);
+		return { ...one, elsewhere };
+	}
+
+	it("cuts a branch that isn't there through a linked folder of branches", async () => {
+		const { gitDir } = await linkedHeads();
+		const at = join(folder(made, "trees"), "old-linked-fresh");
+
+		expect(await cutFrom(old, gitDir, at, "fresh")).toEqual({
+			checkout: gitDir,
+			before: undefined,
+		});
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses where a linked folder of branches can't be read, which a link alone hid",
+		async () => {
+			const { gitDir, elsewhere } = await linkedHeads();
+			const at = join(folder(made, "trees"), "old-linked-unreadable");
+			chmodSync(elsewhere, 0o000);
+			let refused: Awaited<ReturnType<typeof cutFrom>>;
+			try {
+				refused = await cutFrom(old, gitDir, at, "fresh");
+			} finally {
+				chmodSync(elsewhere, 0o755);
+			}
+
+			expect("why" in refused ? refused.why : "").toMatch(
+				/refs\/heads can't be read, so git can't say whether refs\/heads\/fresh is there$/,
+			);
+			expect(existsSync(at), "nothing was cut").toBe(false);
+		},
+	);
+
+	// git prints the ref's path as it was given the git dir, `..` and all.
+	it("refuses a branch's unlisted file through a git dir that isn't normalised", async () => {
+		const { gitDir } = await checkout();
+		writeFileSync(
+			join(gitDir, "refs", "heads", "fresh"),
+			"ref: refs/heads/nowhere\n",
+		);
+		const unlisted: Exec = async (command, args) =>
+			args.includes("for-each-ref")
+				? { code: 0, stdout: "", stderr: "" }
+				: old(command, args);
+		const at = join(folder(made, "trees"), "old-unnormalised");
+
+		const refused = await cutFrom(unlisted, `${gitDir}/../.git`, at, "fresh");
+
+		expect("why" in refused ? refused.why : "").toMatch(
+			/git has refs\/heads\/fresh at .*\/\.git\/refs\/heads\/fresh but didn't list it$/,
+		);
+		expect(existsSync(at), "nothing was cut").toBe(false);
+	});
+
+	it("looks for a branch's file through a relative git dir", async () => {
+		const { gitDir } = await checkout();
+		const unlisted: Exec = async (command, args) =>
+			args.includes("for-each-ref")
+				? { code: 0, stdout: "", stderr: "" }
+				: old(command, args);
+		const at = join(folder(made, "trees"), "old-relative");
+
+		const refused = await cutFrom(
+			unlisted,
+			relative(process.cwd(), gitDir),
+			at,
+			"topic",
+		);
+
+		expect("why" in refused ? refused.why : "").toMatch(
+			/git has refs\/heads\/topic at .* but didn't list it$/,
+		);
+	});
+
+	it("reads every folder of a branch named in parts", async () => {
+		const { path, gitDir } = await checkout();
+		await git(path, "branch", "team/topic", "topic");
+		const unlisted: Exec = async (command, args) =>
+			args.includes("for-each-ref")
+				? { code: 0, stdout: "", stderr: "" }
+				: old(command, args);
+
+		expect(
+			await cutFrom(
+				old,
+				gitDir,
+				join(folder(made, "trees"), "old-parts"),
+				"team/fresh",
+			),
+			"one that isn't there is cut",
+		).toEqual({ checkout: gitDir, before: undefined });
+		const refused = await cutFrom(
+			unlisted,
+			gitDir,
+			join(folder(made, "trees"), "old-parts-unlisted"),
+			"team/topic",
+		);
+		expect("why" in refused ? refused.why : "").toMatch(
+			/git has refs\/heads\/team\/topic at .* but didn't list it$/,
+		);
+	});
+
+	it("refuses where a folder of branches stands at the branch's own path", async () => {
+		const { path, gitDir } = await checkout();
+		await git(path, "branch", "team/topic", "topic");
+		const at = join(folder(made, "trees"), "old-folder");
+
+		const refused = await cutFrom(old, gitDir, at, "team");
+
+		expect("why" in refused ? refused.why : "").toMatch(
+			/a folder of refs stands at .*refs\/heads\/team, so git can't make refs\/heads\/team there$/,
+		);
+		expect(existsSync(at), "nothing was cut").toBe(false);
+	});
+
+	// 129 is also SIGHUP's 128 and 1, as exec reports a killed command.
+	it("refuses where git was hung up on, rather than taking it for an old one", async () => {
+		const { gitDir } = await checkout();
+		const hungUp = failing("show-ref", {
+			code: 129,
+			stderr: "git was killed by SIGHUP",
+		});
+		const at = join(folder(made, "trees"), "old-hung-up");
+
+		const refused = await cutFrom(hungUp, gitDir, at, "fresh");
+
+		expect("why" in refused ? refused.why : "").toBe(
+			"git was killed by SIGHUP",
+		);
+		expect(existsSync(at), "nothing was cut").toBe(false);
+	});
 });
