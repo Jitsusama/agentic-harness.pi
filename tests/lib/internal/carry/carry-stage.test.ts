@@ -4,13 +4,17 @@
  * carry stands, and a carry that fails leaves what an earlier one left.
  */
 
+import { spawnSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
+	mkdirSync,
 	readdirSync,
 	readFileSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
@@ -29,8 +33,22 @@ import {
 	removeAll,
 } from "./support/machines.ts";
 
-/** The sessions whose done file can't be written. */
-const failing = vi.hoisted(() => new Set<string>());
+/** The sessions whose done file can't be written, and what happens first. */
+const failing = vi.hoisted(() => new Map<string, () => void>());
+
+/** Every rename made, as from and to, in order. */
+const renames = vi.hoisted((): [string, string][] => []);
+
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	return {
+		...real,
+		renameSync: (...args: Parameters<typeof real.renameSync>) => {
+			renames.push([String(args[0]), String(args[1])]);
+			real.renameSync(...args);
+		},
+	};
+});
 
 vi.mock(
 	"../../../../lib/internal/carry/handover.ts",
@@ -44,7 +62,11 @@ vi.mock(
 			writeHandover: (
 				...args: Parameters<typeof real.writeHandover>
 			): string => {
-				if (failing.has(args[1].session)) throw new Error("the disk is full");
+				const fail = failing.get(args[1].session);
+				if (fail !== undefined) {
+					fail();
+					throw new Error("the disk is full");
+				}
 				return real.writeHandover(...args);
 			},
 		};
@@ -54,8 +76,12 @@ vi.mock(
 const made: string[] = [];
 afterEach(() => {
 	failing.clear();
+	renames.length = 0;
 	removeAll(made);
 });
+
+/** Whether this runs as root, whom a folder's mode doesn't stop. */
+const ROOT = process.getuid?.() === 0;
 
 const QUEST = "QEST-20261107-CARRY2";
 
@@ -169,7 +195,7 @@ describe("a carry staged before the handover", () => {
 		const before = filesIn(into);
 		await commit(tree, "later.txt", "after its first carry\n");
 		writeFileSync(file, '{"type":"message"}\n'.repeat(500));
-		failing.add("s-d");
+		failing.set("s-d", () => {});
 
 		await expect(
 			carryAway({
@@ -288,13 +314,180 @@ describe("a carry staged before the handover", () => {
 		await carryQuestTrees(exec, [tree], into, home, QUEST);
 		const before = filesIn(into);
 		await commit(tree, "later.txt", "after its first carry\n");
-		failing.add(QUEST);
+		failing.set(QUEST, () => {});
 
 		await expect(
 			carryQuestTrees(exec, [tree], into, home, QUEST),
 		).rejects.toThrow("the disk is full");
 
 		expect(filesIn(into), "its first carry is as it was").toEqual(before);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("moves a session's earlier done file aside before any new bundle lands", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const carry = () =>
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-o", cwd: tree },
+				trees: [tree],
+				whole: true,
+			});
+		await carry();
+		await commit(tree, "later.txt", "after its first carry\n");
+		renames.length = 0;
+
+		const next = await carry();
+
+		const bundle = join(into, next.handover.trees[0]?.bundle ?? "none");
+		const aside = renames.findIndex(
+			([from]) => from === join(into, "s-o.done.json"),
+		);
+		const landed = renames.findIndex(([, to]) => to === bundle);
+		expect(aside, "its earlier done file went aside").toBeGreaterThanOrEqual(0);
+		expect(landed, "its new bundle landed").toBeGreaterThan(aside);
+	});
+
+	it("fails rather than delete a folder at its done file's name", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const held = join(into, "s-f.done.json");
+		mkdirSync(held, { recursive: true });
+		writeFileSync(join(held, "kept.txt"), "someone's\n");
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-f", cwd: tree },
+				trees: [tree],
+				whole: true,
+			}),
+		).rejects.toThrow();
+
+		expect(readFileSync(join(held, "kept.txt"), "utf8")).toBe("someone's\n");
+		expect(filesIn(into), "its bundle and patch were taken out").toEqual({});
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("leaves a file its earlier done file names that no carry of its own writes", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const carry = () =>
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-n", cwd: tree },
+				trees: [tree],
+				whole: true,
+			});
+		const first = await carry();
+		writeFileSync(join(into, "theirs.bundle"), "another carry's\n");
+		writeFileSync(join(into, "s-x.done.json"), "{}\n");
+		const done = JSON.parse(readFileSync(first.file, "utf8"));
+		done.sessionFile = "s-x.done.json";
+		done.trees[0].patch = "theirs.bundle";
+		writeFileSync(first.file, JSON.stringify(done));
+
+		await carry();
+
+		expect(readFileSync(join(into, "theirs.bundle"), "utf8")).toBe(
+			"another carry's\n",
+		);
+		expect(readFileSync(join(into, "s-x.done.json"), "utf8")).toBe("{}\n");
+	});
+
+	it.skipIf(ROOT)(
+		"names what couldn't go back, and the next carry puts it back once its process is gone",
+		async () => {
+			const { home, tree, into } = await homeWithWork();
+			const carry = () =>
+				carryAway({
+					exec,
+					into,
+					home,
+					quest: QUEST,
+					session: { id: "s-k", cwd: tree },
+					trees: [tree],
+					whole: true,
+				});
+			await carry();
+			const before = filesIn(into);
+			await commit(tree, "later.txt", "after its first carry\n");
+			// As a carry killed after placing: nothing in the handover can move.
+			failing.set("s-k", () => chmodSync(into, 0o500));
+
+			try {
+				await expect(carry()).rejects.toThrow(
+					/the disk is full; .*\.bundle.* couldn't be taken out of [^;]*; .*s-k\.done\.json.* couldn't be put back, and wait in /,
+				);
+			} finally {
+				chmodSync(into, 0o755);
+			}
+			failing.clear();
+			expect(existsSync(join(into, "s-k.done.json"))).toBe(false);
+			const [kept] = staging(into);
+			expect(kept, "its staging folder waits").toMatch(/^carrying-/);
+			const tmp = join(dirname(dirname(into)), "tmp");
+			const sweepBy = () => carryQuestTrees(exec, [], into, home, QUEST);
+
+			await sweepBy();
+			expect(staging(into), "its process still runs").toEqual([kept]);
+
+			const record = join(tmp, kept ?? "none", ".carry.json");
+			const gone = spawnSync(process.execPath, ["-e", ""]).pid;
+			writeFileSync(
+				record,
+				JSON.stringify({
+					...JSON.parse(readFileSync(record, "utf8")),
+					pid: gone,
+				}),
+			);
+			await sweepBy();
+
+			expect(filesIn(into), "its first carry is back").toEqual(before);
+			expect(staging(into)).toEqual([]);
+		},
+	);
+
+	it("drops a staging folder whose carry stood before its process went", async () => {
+		const { home, tree, into } = await homeWithWork();
+		await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-g", cwd: tree },
+			trees: [tree],
+			whole: true,
+		});
+		const after = filesIn(into);
+		const tmp = join(dirname(dirname(into)), "tmp");
+		const left = join(tmp, "carrying-left");
+		mkdirSync(join(left, ".before"), { recursive: true });
+		writeFileSync(join(left, ".before", "s-g.done.json"), "older\n");
+		const placed = Object.keys(after).filter(
+			(name) => name !== "s-g.done.json",
+		);
+		writeFileSync(
+			join(left, ".carry.json"),
+			JSON.stringify({
+				into,
+				owner: "s-g",
+				machine: hostname(),
+				pid: spawnSync(process.execPath, ["-e", ""]).pid,
+				placed,
+			}),
+		);
+
+		await carryQuestTrees(exec, [], into, home, QUEST);
+
+		expect(filesIn(into), "what it placed stays").toEqual(after);
 		expect(staging(into)).toEqual([]);
 	});
 });
