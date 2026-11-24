@@ -73,7 +73,9 @@ turn uploads: the whole context, which on 10 November saturated the
 uplink of the machine the sessions ran on. `PI_COMPACTION_CEILING_TOKENS`
 sets a size past which the trigger fires whatever rent has been paid,
 as long as at least 30k would be dropped; below that, what a compaction
-keeps already sits near the ceiling. Replayed over that day's 104,350
+keeps already sits near the ceiling. A summary that keeps failing ahead
+still waits out its turns there, so past the ceiling only pi's own
+trigger at the window's edge is certain. Replayed over that day's 104,350
 turns, a 200k ceiling sent 11.7 percent fewer tokens for about 5
 percent more in dollars, some $130 a day, which was judged too dear to
 be the default; at 180k, 16.9 percent fewer for 16 percent more.
@@ -99,30 +101,35 @@ it was written is dropped and one written on the spot: everything after
 its point would stay verbatim and be read again every turn, which costs
 more than writing it again. It is logged as unused, with the sizes.
 
-A summary that failed ahead is written ahead once more when the
-trigger next fires, rather than on the spot, which holds the session
-while it writes: on 22 November four failed ahead, three at the output
-cap, and each next turn waited 7 to 16 minutes on one written on the
-spot. After a try that stopped at its cap, every summary of that
-compaction, ahead or on the spot, is asked for half the size, as a
-limit, so the rest of the cap is left for thinking.
+A summary that failed ahead is written ahead again when the trigger
+next fires, never on the spot, which holds the session while it
+writes: on 22 November four failed ahead, three at the output cap, and
+each next turn waited 7 to 16 minutes on one written on the spot.
+After two failures, each next try waits first, for twice as many
+firing turns as the wait before it: two, then four, then eight, up to
+32. So a summary that keeps failing costs a try now and then, and
+nobody waits for any of them. After a try that stopped at its cap,
+every summary of that compaction, ahead or on the spot, is asked for
+half the size, as a limit, so the rest of the cap is left for
+thinking.
 
 A move in the session tree that keeps the point a summary written
 ahead covers keeps the summary and the failed tries, since the
 compaction to come covers that point too. A move off it drops a
 summary still being written or ready, logging it as unused, and
-starts the count again.
+starts the count again, ending any wait with it.
 
 Only when the summary cannot be written from the cache (see Writing the
-Summary), or has failed ahead twice, does the session compact on the
-spot, and the notice says why. One on the spot that is cancelled or
-fails leaves the next summary to be written ahead once more, so the
-session isn't held again for one it gave up; the count and the
-shorter summaries go on. Each compaction's entry records `written`
-(`ahead` or `on the spot`), how long the summary took (`summaryMs`)
-and how long anybody waited for it (`waitedMs`). A summary written
-ahead that went unused is logged as a
-`compaction-summary-ahead-unused` entry with the reason.
+Summary) does the trigger compact on the spot, and the notice says
+why. pi's own trigger at the window's edge compacts on the spot too,
+when nothing written ahead is ready, since the next turn would not
+fit. One on the spot that is cancelled or fails leaves the next
+summary to be written ahead once more, so the session isn't held
+again for one it gave up; the count and the shorter summaries go on.
+Each compaction's entry records `written` (`ahead` or `on the spot`),
+how long the summary took (`summaryMs`) and how long anybody waited
+for it (`waitedMs`). A summary written ahead that went unused is
+logged as a `compaction-summary-ahead-unused` entry with the reason.
 
 ## Compacting While Idle
 
@@ -357,8 +364,9 @@ but it does not write summaries itself. It asks a chain of providers
 
 On the spot, the first provider whose assessment passes writes, and a
 failure passes the compaction to the next. Ahead, the first that
-passes writes, and a failure leaves the compaction to a second try
-ahead, then to the walk on the spot; one that pi's own compaction was
+passes writes, and a failure leaves the compaction to the trigger,
+which writes it ahead again, as Writing Ahead says, rather than on
+the spot; one that pi's own compaction was
 waiting on goes to the walk on the spot at once, since that
 compaction can't wait for another. The host keeps everything around
 the summary: the clock on each write, the verbatim tail, the file

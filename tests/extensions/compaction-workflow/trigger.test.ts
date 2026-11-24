@@ -425,7 +425,9 @@ describe("the compaction trigger", () => {
 			expect(closingOf(1)).toContain("a limit, not a target");
 		});
 
-		it("compacts on the spot once a second try ahead has failed too", async () => {
+		// A summary written on the spot holds the conversation's next turn
+		// for as long as it takes, which on 22 November was 7 to 16 minutes.
+		it("never compacts on the spot once a second try ahead has failed too, but waits longer each time before it tries ahead again", async () => {
 			completeSimple.mockResolvedValue(capped);
 			const { fire, entries, state, ctx } = await toTheEdge(true);
 			await endTurn(fire, ranTools, ctx);
@@ -436,9 +438,27 @@ describe("the compaction trigger", () => {
 			await new Promise((r) => setTimeout(r, 0));
 			expect(state.compactions).toHaveLength(0);
 
-			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions).toHaveLength(1);
-			expect(completeSimple).toHaveBeenCalledTimes(2);
+			/** The firing turns until the next try ahead, at most `most`. */
+			const turnsToNextTry = async (most: number) => {
+				const calls = completeSimple.mock.calls.length;
+				for (let turn = 1; turn <= most; turn++) {
+					await endTurn(fire, ranTools, ctx);
+					if (completeSimple.mock.calls.length > calls) {
+						// One tick, for the try's failure to be counted.
+						await new Promise((r) => setTimeout(r, 0));
+						return turn;
+					}
+				}
+				return Number.POSITIVE_INFINITY;
+			};
+			expect(await turnsToNextTry(10), "after the second failure").toBe(3);
+			expect(await turnsToNextTry(10), "after the third failure").toBe(5);
+			expect(await turnsToNextTry(20), "after the fourth failure").toBe(9);
+			expect(state.compactions, "compacted on the spot").toHaveLength(0);
+			expect(completeSimple).toHaveBeenCalledTimes(5);
+			expect(closingOf(4), "still asked for less").toContain(
+				"Keep it to at most",
+			);
 			// Each recorded with which try it was, the second asked for half.
 			expect(
 				entries
@@ -447,7 +467,33 @@ describe("the compaction trigger", () => {
 			).toEqual([
 				expect.objectContaining({ tries: 1, halved: false }),
 				expect.objectContaining({ tries: 2, halved: true }),
+				expect.objectContaining({ tries: 3, halved: true }),
+				expect.objectContaining({ tries: 4, halved: true }),
+				expect.objectContaining({ tries: 5, halved: true }),
 			]);
+		});
+
+		// What the trigger says of a wait, and of the try that ends it
+		// (5BACCAC3's F26 and F30 on #2082).
+		it("says when it waits to try ahead again, and that the try ending the wait follows a failure", async () => {
+			const at = await failedTwice();
+			const { fire, ctx } = at;
+			const notify = vi.fn((_message: string, _kind: string) => {});
+			Object.assign(ctx, { hasUI: true, ui: { notify } });
+			await endTurn(fire, ranTools, ctx);
+			expect(notify).toHaveBeenCalledTimes(1);
+			expect(notify.mock.calls[0]?.[0]).toMatch(
+				/failed again: the summary hit the token cap\. Another is written in the background in 2 turns, and nothing waits for it meanwhile\./,
+			);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(notify, "nothing said while it waits").toHaveBeenCalledTimes(1);
+			await endTurn(fire, ranTools, ctx);
+			expect(completeSimple).toHaveBeenCalledTimes(3);
+			expect(notify).toHaveBeenCalledTimes(2);
+			expect(notify.mock.calls[1]?.[0]).toMatch(
+				/^Writing a compaction summary in the background at \d+k tokens again, since the last one failed: the summary hit the token cap/,
+			);
 		});
 
 		/** The session at the edge, two summaries ahead failed at their cap. */
@@ -518,15 +564,13 @@ describe("the compaction trigger", () => {
 
 		it("tries ahead afresh for the next compaction once one has landed", async () => {
 			const at = await failedTwice();
-			const { fire, state, ctx } = at;
-			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions).toHaveLength(1);
-			// pi asks for the summary, which fails again on the spot, asked for
-			// less; pi's own summariser lands the compaction.
+			const { fire, ctx } = at;
+			// pi compacts at the window's edge and asks for the summary, which
+			// fails again on the spot, asked for less; pi's own summariser
+			// lands the compaction.
 			await fire("session_before_compact", compactEvent(), ctx);
 			expect(closingOf(2)).toContain("Keep it to at most");
 			await fire("session_compact", { compactionEntry: {} }, ctx);
-			state.compactions[0]?.onComplete?.();
 
 			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
 				false,
@@ -560,20 +604,27 @@ describe("the compaction trigger", () => {
 			const { fire, state, ctx } = at;
 			await movesOnPast(at);
 
+			// Past its tries, so it waits before the next, which is still asked
+			// for less.
 			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			await endTurn(fire, ranTools, ctx);
 			expect(completeSimple).toHaveBeenCalledTimes(2);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(3));
+			expect(state.compactions, "compacted on the spot").toHaveLength(0);
+			expect(closingOf(2), "still asked for less").toContain(
+				"Keep it to at most",
+			);
 		});
 
-		// A compaction stopped after its failure was taken leaves nothing
-		// held ahead, only the count, which the point it covered still
-		// holds (5BACCAC3's F74 on #2033).
+		// A failure the trigger has taken leaves nothing held ahead, only
+		// the count, which the point it covered still holds (5BACCAC3's
+		// F74 on #2033).
 		it("keeps counting across such a move once nothing is held ahead", async () => {
 			const at = await failedTwice();
 			const { fire, state, ctx } = at;
 			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions, "compacted on the spot").toHaveLength(1);
-			state.compactions[0]?.onError?.(new Error("Compaction cancelled"));
+			expect(completeSimple).toHaveBeenCalledTimes(2);
 			await movesOnPast(at);
 
 			for (let turn = 0; turn < 40; turn++) {
@@ -581,9 +632,7 @@ describe("the compaction trigger", () => {
 				await endTurn(fire, ranTools, ctx);
 			}
 			expect(completeSimple).toHaveBeenCalledTimes(3);
-			// A compaction on the spot given up leaves the next written
-			// ahead once more, the session not held for it (F94).
-			expect(state.compactions, "tried ahead, not on the spot").toHaveLength(1);
+			expect(state.compactions, "tried ahead, not on the spot").toHaveLength(0);
 			expect(closingOf(2), "still asked for less").toContain(
 				"Keep it to at most",
 			);
@@ -593,15 +642,30 @@ describe("the compaction trigger", () => {
 		// it starts the count again (5BACCAC3's F93 on #2033).
 		it("tries ahead afresh once such a move leaves the point, nothing held ahead", async () => {
 			const at = await failedTwice();
-			const { fire, state, ctx } = at;
+			const { fire, ctx } = at;
+			// The failure taken, and the wait begun, before the move ends both.
 			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions, "compacted on the spot").toHaveLength(1);
-			state.compactions[0]?.onError?.(new Error("Compaction cancelled"));
+			expect(completeSimple).toHaveBeenCalledTimes(2);
 			await movesBackOff(at);
 
 			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
 				false,
 			);
+			expect(closingOf(2), "asked full size again").toContain("Make it about");
+		});
+
+		it("ends the wait for the next try ahead once a move leaves the point the failed tries covered", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			await movesBackOff(at);
+			const reply = { ...replyEntry, id: "b1" };
+			state.branch = [userEntry, reply];
+			state.leaf = reply.id;
+
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(3));
 			expect(closingOf(2), "asked full size again").toContain("Make it about");
 		});
 

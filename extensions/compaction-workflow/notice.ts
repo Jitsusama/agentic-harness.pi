@@ -23,6 +23,13 @@ export type SummaryTiming =
 			/** Why the summary written ahead before this one failed, if one did. */
 			againAfter?: string;
 	  }
+	| {
+			/** Written ahead again once `afterTurns` more turns have fired. */
+			ahead: "later";
+			afterTurns: number;
+			/** Why the last summary written ahead failed. */
+			reason: string;
+	  }
 	| { ahead: false; reason: string };
 
 function dollars(amount: number): string {
@@ -53,6 +60,14 @@ export function compactionNotice(
 	decision: TriggerDecision,
 	timing: SummaryTiming,
 ): string {
+	if (timing.ahead === "later") {
+		return (
+			`At ${size(tokens)}, a compaction summary written in the background ` +
+			`failed again: ${timing.reason}. Another is written in the background ` +
+			`in ${timing.afterTurns} turns, and nothing waits for it meanwhile. ` +
+			priced(decision)
+		);
+	}
 	if (timing.ahead) {
 		const again =
 			timing.againAfter === undefined
