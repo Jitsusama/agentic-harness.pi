@@ -337,7 +337,9 @@ describe("openRoster", () => {
 		);
 		await expect(
 			roster.hold({ ...entry("not-a-uuid"), cwd: "work" }),
-		).rejects.toThrow("more than one of its parts refused");
+		).rejects.toThrow(
+			"mending none of its id, cwd, quest or since alone makes it readable",
+		);
 		expect(roster.entries()).toEqual([]);
 		await roster.close();
 	});

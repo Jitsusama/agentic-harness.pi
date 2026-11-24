@@ -168,17 +168,28 @@ function escaped(point: number): string {
 }
 
 /**
- * Words a requester chose, or a reason quoting them, with every character
- * that would break the journal entry, forge another, move a terminal's
- * cursor or read as other than it is written as an escape: controls, line
- * and paragraph separators, and what draws as nothing, bidi marks and zero
- * widths among them. A backslash is doubled, so a path holding the text
- * `\n` never reads as one holding a newline.
+ * Words a requester chose, with every character that would break the
+ * journal entry, forge another, move a terminal's cursor or read as other
+ * than it is written as an escape: controls, line and paragraph
+ * separators, and what draws as nothing, bidi marks and zero widths among
+ * them. A backslash is doubled, so a path holding the text `\n` never
+ * reads as one holding a newline; the words go straight into the line, so
+ * nothing escapes them again.
  */
 export function onOneLine(text: string): string {
+	return escapedFor(text, true);
+}
+
+/**
+ * `text` with what would break or disguise a journal line escaped, a
+ * backslash doubled only when `doubling`: a reason may already hold
+ * another reason's escapes, so doubling there would make a newline read
+ * as the text `\n` once it is escaped twice (F24).
+ */
+function escapedFor(text: string, doubling: boolean): string {
 	let said = "";
 	for (const each of text) {
-		const named = NAMED_ESCAPES[each];
+		const named = each === "\\" && !doubling ? each : NAMED_ESCAPES[each];
 		if (named !== undefined) said += named;
 		else if (BREAKS_A_LINE.test(each) || drawsAsNothing(each))
 			said += escaped(each.codePointAt(0) ?? 0);
@@ -190,7 +201,9 @@ export function onOneLine(text: string): string {
 /**
  * The first line of why something failed that says anything, to keep a
  * journal entry on one line, or nothing for a reason with no message;
- * the start's report says the rest, stack and all.
+ * the start's report says the rest, stack and all. Escaped as words are
+ * but for a backslash, which stays single, so a reason wrapping a reason
+ * this already escaped reads the same once escaped again.
  */
 export function firstLine(reason: unknown): string {
 	let text: unknown;
@@ -201,11 +214,12 @@ export function firstLine(reason: unknown): string {
 		text = "";
 	}
 	if (typeof text !== "string") return "";
-	return onOneLine(
+	return escapedFor(
 		text
 			.split(/\r?\n|\r/)
 			.map((line) => line.trim())
 			.find((line) => line.length > 0) ?? "",
+		false,
 	);
 }
 

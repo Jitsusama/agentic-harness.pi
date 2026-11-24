@@ -240,7 +240,7 @@ function unreadablePart(entry: RosterEntry): string {
 		.map(([words]) => words);
 	return refused.length > 0
 		? refused.join(", ")
-		: "more than one of its parts refused";
+		: "mending none of its id, cwd, quest or since alone makes it readable";
 }
 
 /** A UUID as pi writes one, to try an entry with its id mended. */

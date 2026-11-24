@@ -231,4 +231,13 @@ describe("firstLine", () => {
 			"ENOENT: '/s/\\u001b[2J\\tx'",
 		);
 	});
+
+	// F24: systemd's failures and the roster's refusal carry a reason already
+	// escaped, which the journal's line escapes again.
+	it("reads the same when a reason it escaped is escaped again", () => {
+		const once = firstLine(new Error("ended with 1: /s/\t\u001b\u2028\\x"));
+
+		expect(firstLine(new Error(`failed: ${once}`))).toBe(`failed: ${once}`);
+		expect(firstLine(new Error(JSON.stringify("a\nb")))).toBe('"a\\nb"');
+	});
 });

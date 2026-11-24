@@ -68,7 +68,8 @@ parentPort.on("message", (told) => {
 // stepped either way can neither hold the end past systemd's kill nor bring
 // it early. Counted in ns, so no rounding can read an early end as on time.
 const sinceArmed = () => process.hrtime.bigint() - began;
-const bound = BigInt(within) * 1000000n;
+// Whole ms rounded up, as BigInt refuses a fraction and a bound must never end early.
+const bound = BigInt(Math.ceil(within)) * 1000000n;
 function fire() {
 	// A timer may fire a millisecond early: never end it early.
 	const short = bound - sinceArmed();
