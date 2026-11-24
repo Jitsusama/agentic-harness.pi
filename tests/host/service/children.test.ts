@@ -1,4 +1,8 @@
-/** A host passing each request for a conversation a child runs to the child's own socket. */
+/**
+ * A host passing each request for a conversation a child runs to the child's own socket.
+ * Long because it tests one module, children.ts, and its cases share the host, the child
+ * and the stand-in child sockets set up here.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import {
 	createConnection,
@@ -9,7 +13,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { heldChildren } from "../../../host/service/children.ts";
+import {
+	childPss,
+	heldChildren,
+	hostProcReads,
+	listingChildren,
+	oneReadAtOnce,
+	type ReadPss,
+} from "../../../host/service/children.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type {
 	ControlBackend,
@@ -19,12 +30,15 @@ import { jsonLines } from "../../../host/service/framing.ts";
 import {
 	type ControlRequest,
 	DIRECT_ATTACH,
+	parseListResult,
+	parseMemoryResult,
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import {
 	listenControl,
 	type ViewerSink,
 } from "../../../host/service/server.ts";
+import { startTicksFromProcSync } from "../../../lib/internal/process-ticks.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
@@ -719,4 +733,376 @@ describe("a host with conversations in children", () => {
 		).toBeGreaterThan(DRAWN / 2);
 		window.destroy();
 	});
+});
+
+describe("a host's memory with conversations in children", () => {
+	const at = "2026-11-24T07:30:00.000Z";
+	// A child of its own pid, so a Pss read for the host's shows as wrong.
+	const running: HostIdentity = {
+		...child,
+		owner: { pid: process.pid + 1, startedAt: 2 },
+	};
+	// The host answering for itself, a conversation it runs parked among them.
+	const own: ControlBackend = {
+		identity: host,
+		execute: async () => ({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [{ sessionId: b, state: "parked" }],
+		}),
+	};
+	async function measured(pss: ReadPss) {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+		return listingChildren(own, held, pss).execute({
+			v: 1,
+			id: "m",
+			op: "memory",
+		});
+	}
+
+	it("answers a child's last heap and the Pss read for its process", async () => {
+		const read: HostIdentity["owner"][] = [];
+		const answer = await measured(async (owner) => {
+			read.push(owner);
+			return 3000;
+		});
+
+		expect(answer).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: b, state: "parked" },
+				{
+					sessionId: a,
+					state: "idle",
+					heap: { used: 200, limit: 4000, at },
+					pss: 3000,
+				},
+			],
+		});
+		expect(read, "the child's own process, not the host's").toEqual([
+			running.owner,
+		]);
+		expect(parseMemoryResult(answer), "as a client reads it").toStrictEqual(
+			answer,
+		);
+	});
+	it("answers a list without a child's heap, which a client reading it strictly would refuse", async () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+		const listing: ControlBackend = {
+			identity: host,
+			execute: async () => ({ host, sessions: [] }),
+		};
+
+		const answer = await listingChildren(
+			listing,
+			held,
+			async () => 3000,
+		).execute({
+			v: 1,
+			id: "l",
+			op: "list",
+		});
+
+		expect(parseListResult(answer)).toStrictEqual({
+			host,
+			sessions: [conversation(a)],
+		});
+	});
+	it("answers no Pss for a child gone before it was read, keeping its heap", async () => {
+		const answer = await measured(async () => undefined);
+
+		expect(answer).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: b, state: "parked" },
+				{ sessionId: a, state: "idle", heap: { used: 200, limit: 4000, at } },
+			],
+		});
+	});
+	it("keeps a child's last heap through a state line that carries none", () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+
+		held.update({ ...conversation(a), state: "busy" });
+
+		expect(held.held()).toStrictEqual([
+			{
+				conversation: { ...conversation(a), state: "busy" },
+				route: { socket: childPath, identity: running },
+				heap: { used: 200, limit: 4000, at },
+			},
+		]);
+	});
+	it("reads a child's Pss only while its pid is the process that started", async () => {
+		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
+		const proc = (ticks: number | undefined, pss = 3000) => ({
+			pss: async (pid: number) => (pid === 4242 ? pss : undefined),
+			startTicks: async (pid: number) => (pid === 4242 ? ticks : undefined),
+		});
+
+		expect(await childPss(owner, proc(700)), "still the child").toBe(3000);
+		expect(await childPss(owner, proc(701)), "its pid reused").toBeUndefined();
+		expect(
+			await childPss(owner, proc(undefined)),
+			"gone between the two reads",
+		).toBeUndefined();
+		expect(
+			await childPss({ pid: 4242, startedAt: 1 }, proc(700)),
+			"an owner kept without ticks to tell",
+		).toBeUndefined();
+	});
+	it("reads a child's ticks once its Pss is read, so a pid taken between the two is caught", async () => {
+		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
+		// The pid is taken by another process by the time its Pss is read,
+		// so ticks read first, or beside it, still name the child.
+		let taken = false;
+		const proc = {
+			pss: async () => {
+				await Promise.resolve();
+				taken = true;
+				return 3000;
+			},
+			startTicks: async () => (taken ? 701 : 700),
+		};
+
+		expect(await childPss(owner, proc)).toBeUndefined();
+	});
+	it("gives each child the Pss read for its own process", async () => {
+		const other = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: other });
+
+		const answer = await listingChildren(
+			own,
+			held,
+			async (owner) => owner.pid * 10,
+		).execute({ v: 1, id: "m", op: "memory" });
+
+		expect(parseMemoryResult(answer).sessions).toStrictEqual([
+			{ sessionId: a, state: "idle", pss: running.owner.pid * 10 },
+			{ sessionId: b, state: "idle", pss: other.owner.pid * 10 },
+		]);
+	});
+	it("answers without a child's Pss still unread once its wait has passed, the rest read", async () => {
+		const other = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: other });
+
+		const answer = await listingChildren(
+			own,
+			held,
+			(owner) =>
+				owner.pid === running.owner.pid
+					? new Promise<number | undefined>(() => {})
+					: Promise.resolve(3000),
+			20,
+		).execute({ v: 1, id: "m", op: "memory" });
+
+		expect(parseMemoryResult(answer)).toStrictEqual({
+			host,
+			own: { heap: { used: 1, limit: 2, at } },
+			sessions: [
+				{ sessionId: a, state: "idle" },
+				{ sessionId: b, state: "idle", pss: 3000 },
+			],
+		});
+	});
+	it("answers every child queued behind a stuck read within one wait, each unread", async () => {
+		const second = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const third = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 2 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: second });
+		held.hold(conversation(c), { socket: childPath, identity: third });
+		const queued = oneReadAtOnce((pid) =>
+			pid === running.owner.pid
+				? new Promise<number | undefined>(() => {})
+				: Promise.resolve(3000),
+		);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			let answer: unknown;
+			const asked = listingChildren(own, held, (owner) => queued(owner.pid), 50)
+				.execute({ v: 1, id: "m", op: "memory" })
+				.then((given) => {
+					answer = given;
+				});
+			await vi.advanceTimersByTimeAsync(50);
+
+			expect(answer, "answered once one wait has passed").toBeDefined();
+			expect(parseMemoryResult(answer).sessions).toStrictEqual([
+				{ sessionId: a, state: "idle" },
+				{ sessionId: b, state: "idle" },
+				{ sessionId: c, state: "idle" },
+			]);
+			await asked;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("reads each child's Pss through the host's own reads unless given another", async () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		const through = vi.spyOn(hostProcReads, "pss");
+		try {
+			await listingChildren(own, held).execute({ v: 1, id: "m", op: "memory" });
+
+			expect(through).toHaveBeenCalledWith(running.owner.pid);
+		} finally {
+			through.mockRestore();
+		}
+	});
+	it("gives a pid's read in progress to each caller of the host's own reads", async () => {
+		const first = hostProcReads.pss(running.owner.pid);
+		const again = hostProcReads.pss(running.owner.pid);
+
+		expect(again, "one read, shared").toBe(first);
+		await first;
+	});
+	describe("one read at once", () => {
+		/** A read of each pid that settles only when the test says. */
+		function held() {
+			const started: number[] = [];
+			const settle = new Map<number, (pss: number) => void>();
+			const read = (pid: number) => {
+				started.push(pid);
+				return new Promise<number | undefined>((resolve) =>
+					settle.set(pid, resolve),
+				);
+			};
+			return { started, settle, read };
+		}
+
+		it("starts a read only once the one before it has settled", async () => {
+			const reads = held();
+			const pss = oneReadAtOnce(reads.read);
+
+			const first = pss(1);
+			const second = pss(2);
+			await vi.waitFor(() =>
+				expect(reads.started, "the second held back").toEqual([1]),
+			);
+			reads.settle.get(1)?.(100);
+
+			expect(await first).toBe(100);
+			await vi.waitFor(() => expect(reads.started).toEqual([1, 2]));
+			reads.settle.get(2)?.(200);
+			expect(await second).toBe(200);
+		});
+		it("gives a pid's read in progress to each caller asking for it meanwhile", async () => {
+			const reads = held();
+			const pss = oneReadAtOnce(reads.read);
+
+			const asked = [pss(1), pss(1), pss(1)];
+			await vi.waitFor(() => expect(reads.started).toEqual([1]));
+			reads.settle.get(1)?.(100);
+
+			expect(await Promise.all(asked)).toEqual([100, 100, 100]);
+			expect(reads.started, "read once").toEqual([1]);
+		});
+		it("gives a read pending past the wait to no later caller, nor one queued behind it", async () => {
+			const reads = held();
+			let clock = 0;
+			const pss = oneReadAtOnce(reads.read, 50, () => clock);
+			const stuck = pss(1);
+			const queued = pss(2);
+			await vi.waitFor(() => expect(reads.started).toEqual([1]));
+
+			clock = 49;
+			expect(pss(1), "within the wait, shared").toBe(stuck);
+			expect(pss(2), "within the wait, shared").toBe(queued);
+			clock = 50;
+			const late = pss(1);
+			const lateQueued = pss(2);
+			const lateNew = pss(3);
+
+			expect(late, "past the wait").not.toBe(stuck);
+			expect(lateQueued, "past the wait").not.toBe(queued);
+			expect(await late).toBeUndefined();
+			expect(await lateQueued).toBeUndefined();
+			expect(await lateNew, "a pid first asked behind it").toBeUndefined();
+
+			reads.settle.get(1)?.(100);
+			expect(await stuck).toBe(100);
+			await vi.waitFor(() => expect(reads.started).toEqual([1, 2]));
+			reads.settle.get(2)?.(200);
+			expect(await queued).toBe(200);
+			// A read queued for the late pid would start once the queue drains.
+			await new Promise(setImmediate);
+			expect(reads.started, "nothing queued for a late pid").toEqual([1, 2]);
+			const fresh = pss(3);
+			await vi.waitFor(() =>
+				expect(reads.started, "no read queued for a late caller").toEqual([
+					1, 2, 3,
+				]),
+			);
+			reads.settle.get(3)?.(300);
+			expect(await fresh).toBe(300);
+		});
+		it("times its wait on a clock the wall clock's steps don't move", async () => {
+			const reads = held();
+			vi.useFakeTimers({ toFake: ["Date"], now: 0 });
+			try {
+				const pss = oneReadAtOnce(reads.read, 1);
+				const stuck = pss(1);
+				// A real pause, the wall clock frozen, so only a clock it doesn't move passes the wait.
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				expect(pss(1), "past the wait, the wall clock still").not.toBe(stuck);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+		it("reads a pid afresh once its last read has settled, even one that failed", async () => {
+			let reads = 0;
+			const pss = oneReadAtOnce(async () => {
+				reads += 1;
+				if (reads === 1) throw new Error("refused");
+				return reads * 100;
+			});
+
+			await expect(pss(1)).rejects.toThrow("refused");
+			expect(await pss(1)).toBe(200);
+			expect(await pss(1)).toBe(300);
+		});
+	});
+	it.runIf(process.platform === "linux")(
+		"reads a child's Pss from procfs only while its pid is still the process that started",
+		async () => {
+			const ticks = startTicksFromProcSync(process.pid);
+			const self = { pid: process.pid, startedAt: 1, startTicks: ticks };
+
+			expect(await childPss(self), "this process").toBeGreaterThan(1024 * 1024);
+			expect(
+				await childPss({ ...self, startTicks: (ticks ?? 0) + 1 }),
+				"its pid taken by another process",
+			).toBeUndefined();
+			expect(
+				await childPss({ ...self, pid: 2 ** 22 + 1 }),
+				"no such process, past the kernel's highest pid",
+			).toBeUndefined();
+		},
+	);
 });

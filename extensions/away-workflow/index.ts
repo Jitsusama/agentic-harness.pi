@@ -132,6 +132,7 @@ import {
 import {
 	blockedNotice,
 	freshReach,
+	heldAsk,
 	heldNotice,
 	heldWant,
 	stopNotice,
@@ -241,7 +242,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 		const said = heldWant(now.held);
-		if (said) wanting.say("approval", said);
+		if (said) wanting.say("approval", said, undefined, heldAsk(now.held));
 		else void withdrawNotices(["held"]);
 	};
 
@@ -359,7 +360,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			pi.appendEntry(UNWOKEN_ENTRY, unwoken);
 		}
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
-			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
+			wanting.say(
+				"blocked",
+				blockedLine(finished.lastText) ?? "Blocked",
+				undefined,
+				finished.lastText,
+			);
 			reachUnlessWanted(
 				"blocked",
 				blockedNotice(where(), since, finished.lastText, reached),
@@ -679,7 +685,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			if (!finished) return;
 			const asked = lastLine(finished.lastText);
 			if ((ctx.hasUI || hosted()) && asked && endsAsking(asked)) {
-				wanting.say("question", asked);
+				// Its line is the last of the reply; the launcher shows the whole.
+				wanting.say("question", asked, undefined, finished.lastText);
 			}
 			waitForAnswer(ctx, finished);
 			return;

@@ -297,7 +297,7 @@ export interface Machine {
  * while it can't be: the first ask comes with the first keep, after the
  * session has started.
  */
-function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
+export function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
 	const warning = callWarning();
 	onTurnEnd(pi, (_turn, ctx) => {
 		if (!ctx.hasUI) return;

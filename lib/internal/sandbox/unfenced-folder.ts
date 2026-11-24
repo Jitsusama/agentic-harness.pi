@@ -292,6 +292,18 @@ function closedHere(
 }
 
 /**
+ * Whether strict lets pi's file tools read nothing in `cwd` either: the
+ * home folder or one holding it, or a folder lying in or holding what the
+ * fence hides. A folder strict refuses only for its commands, as a plain
+ * checkout holding its git folder, is still read, so a session started
+ * there keeps its repository's files and AGENTS.md.
+ */
+export function strictReadsNothingIn(cwd: string, home: string): boolean {
+	if (unfencedFolder(cwd, home) === undefined) return false;
+	return within(home, cwd) || hiddenFolder(cwd, home) !== undefined;
+}
+
+/**
  * Why pi's file tools can't read in `cwd` either, when it lies in or holds
  * a path the fence hides: reading there hands over what the fence empties.
  */

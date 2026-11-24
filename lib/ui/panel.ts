@@ -60,7 +60,18 @@ export async function promptSingle(
 	const kind = config.want?.kind ?? "approval";
 	const said = config.want?.said ?? config.title ?? UNTITLED_WANT;
 	const ask = config.want?.ask;
-	if (!ask) return waitedOn(kind, said, showSinglePrompt(ctx, config));
+	const asked = config.want?.asked;
+	if (!ask) {
+		return waitedOn(
+			kind,
+			said,
+			showSinglePrompt(ctx, config),
+			sessionWants(),
+			WANT_AFTER_MS,
+			undefined,
+			asked,
+		);
+	}
 	return askedElsewhereToo(ctx, config, kind, said, ask);
 }
 
@@ -96,6 +107,7 @@ async function askedElsewhereToo(
 				if (given) away.abort();
 			},
 		},
+		config.want?.asked,
 	);
 	return given ?? result;
 }
@@ -128,6 +140,10 @@ export async function promptTabbed(
 		config.want?.kind ?? "approval",
 		config.want?.said ?? config.title ?? UNTITLED_WANT,
 		showTabbedPrompt(ctx, config),
+		sessionWants(),
+		WANT_AFTER_MS,
+		undefined,
+		config.want?.asked,
 	);
 }
 

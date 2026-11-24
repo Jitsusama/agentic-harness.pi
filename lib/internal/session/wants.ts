@@ -26,11 +26,17 @@
  * November). An answer given there reaches the panel that raised the
  * want by the want's id, through {@link Wants.answer}, and the panel
  * takes it as if it were typed.
+ *
+ * A want can carry the whole of what it asks beside its one line, its
+ * paragraphs kept, since a run ending on several questions said only the
+ * last of them, cut to a line, and the person couldn't answer from the
+ * launcher (KP0L6A, 24 November).
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { sessionCell } from "../../core/session/index.ts";
 import { oneLine as folded } from "../../mesh/one-line.ts";
+import { scrubSecrets } from "../secrets/secrets.ts";
 
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
@@ -52,6 +58,8 @@ export type WantEvent =
 			readonly since: string;
 			/** One short line saying what is wanted. */
 			readonly said: string;
+			/** The whole of what it asks, where that says more than `said`. */
+			readonly asked?: string;
 			/** The choices it can be answered with, when it is an ask. */
 			readonly ask?: WantAsk;
 	  }
@@ -156,14 +164,86 @@ export function oneLine(text: string): string {
 		: `${line.slice(0, SAID_CHARS - 1).trimEnd()}\u2026`;
 }
 
+/**
+ * The longest a want's whole ask is said at: a reply runs to a few
+ * paragraphs, and a presence is rewritten as it changes, so one pasted
+ * whole can't swell every write of it.
+ */
+export const ASKED_CHARS = 4000;
+
+/**
+ * How much of a long ask's start is kept before its cut: enough to say
+ * what it is about, leaving the rest to its end, where a reply puts its
+ * questions and an away run its `Blocked:` line.
+ */
+const HEAD_CHARS = 600;
+
+/**
+ * What may redraw a reader's screen, break a line or hide inside one, as
+ * lib/mesh/one-line.ts names it, less the plain spaces an ask indents
+ * with; a lone half of a surrogate pair too, which a strict reader
+ * refuses.
+ */
+const UNSEEN_CLASS =
+	"[\\p{Cc}\\p{Cf}\\p{Cs}\\p{Zl}\\p{Zp}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
+const UNSEEN = new RegExp(UNSEEN_CLASS, "gu");
+
+/**
+ * The whole of what a want asks, its paragraphs and indentation kept, or
+ * nothing when it says no more than `said`. Nothing in a line may redraw
+ * a reader's screen, blank lines between paragraphs are kept to one, and
+ * past {@link ASKED_CHARS} its middle is cut where the cut shows, saying
+ * how much went, so its start and its end, where the questions are, stay.
+ */
+export function wholeAsk(text: string, said: string): string | undefined {
+	const whole = text
+		.split(/\r?\n/)
+		.map((line) => line.replace(UNSEEN, " ").trimEnd())
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.replace(/^\n+|\s+$/g, "");
+	if (whole.trim() === "" || whole.trim() === said) return undefined;
+	return whole.length <= ASKED_CHARS ? whole : middleCut(whole);
+}
+
+/** `whole` held to {@link ASKED_CHARS}, its middle cut where the cut shows. */
+function middleCut(whole: string): string {
+	const note = (gone: number) => `\n\n\u2026 (${gone} characters cut)\n\n`;
+	// The note's count never has more digits than the whole's length.
+	const room = ASKED_CHARS - note(whole.length).length;
+	const head = whole.slice(0, apart(whole, HEAD_CHARS, -1)).trimEnd();
+	const from = apart(whole, whole.length - (room - head.length), 1);
+	const tail = whole.slice(from).trimStart();
+	return `${head}${note(whole.length - head.length - tail.length)}${tail}`;
+}
+
+/**
+ * `at`, or the index a step `by` from it when `at` falls between the two
+ * halves of a surrogate pair, so a cut there never splits a character.
+ */
+function apart(text: string, at: number, by: -1 | 1): number {
+	const low = text.charCodeAt(at);
+	const high = text.charCodeAt(at - 1);
+	const splits =
+		low >= 0xdc00 && low <= 0xdfff && high >= 0xd800 && high <= 0xdbff;
+	return splits ? at + by : at;
+}
+
 /** The wants a session has standing, said on whichever bus is bound. */
 export interface Wants {
 	/**
 	 * Raise a want of this kind, or change what one already standing says.
 	 * The answer lowers this raising; the want ends once every raising of
-	 * its kind is lowered, or when {@link Wants.end} ends it.
+	 * its kind is lowered, or when {@link Wants.end} ends it. `asked` is
+	 * the whole of what it asks, said beside its line (see `wholeAsk`).
 	 */
-	raise(kind: WantKind, said: string, now?: Date, ask?: AskedWant): () => void;
+	raise(
+		kind: WantKind,
+		said: string,
+		now?: Date,
+		ask?: AskedWant,
+		asked?: string,
+	): () => void;
 	/** End every raising of this kind, as the person's answer does. */
 	end(kind: WantKind): void;
 	/**
@@ -186,6 +266,7 @@ export interface AskedWant extends WantAsk {
 interface Standing {
 	readonly since: string;
 	said: string;
+	asked?: string;
 	raised: number;
 	ask?: AskedWant;
 }
@@ -226,14 +307,21 @@ export function createWants(): Wants {
 			kind,
 			since: want.since,
 			said: want.said,
+			...(want.asked === undefined ? {} : { asked: want.asked }),
 			...(want.ask ? { ask: choicesOf(want.ask) } : {}),
 		});
 	const end = (kind: WantKind) => {
 		if (standing.delete(kind)) say({ kind, said: null });
 	};
 	return {
-		raise(kind, said, now = new Date(), ask = undefined) {
+		raise(kind, said, now = new Date(), ask = undefined, asked = undefined) {
 			const line = oneLine(said);
+			// A presence is read by every peer and kept a day after its session
+			// ends, so a credential a reply quoted goes no further than its log.
+			const whole =
+				asked === undefined
+					? undefined
+					: wholeAsk(scrubSecrets(asked).text, line);
 			const current = standing.get(kind);
 			const want: Standing = current ?? {
 				since: now.toISOString(),
@@ -243,8 +331,15 @@ export function createWants(): Wants {
 			want.raised += 1;
 			// The newest ask is the one an answer from away goes to.
 			const asks = ask !== undefined && ask !== want.ask;
-			if (current === undefined || current.said !== line || asks) {
+			if (
+				current === undefined ||
+				current.said !== line ||
+				current.asked !== whole ||
+				asks
+			) {
 				want.said = line;
+				if (whole === undefined) delete want.asked;
+				else want.asked = whole;
 				if (ask) want.ask = ask;
 				standing.set(kind, want);
 				sayStanding(kind, want);
@@ -321,8 +416,11 @@ export function sessionWants(): Wants {
  * while the person is away, a run that ended blocked or asking.
  */
 export interface OwnWants {
-	/** Say this kind is wanted, keeping when it was first wanted. */
-	say(kind: WantKind, said: string, now?: Date): void;
+	/**
+	 * Say this kind is wanted, keeping when it was first wanted, with the
+	 * whole of what it asks when that says more than its line.
+	 */
+	say(kind: WantKind, said: string, now?: Date, asked?: string): void;
 	/** This caller no longer wants this kind. */
 	settle(kind: WantKind): void;
 }
@@ -399,10 +497,10 @@ export function forgetWants(): void {
 export function createOwnWants(wants: Wants): OwnWants {
 	const lowers = new Map<WantKind, () => void>();
 	return {
-		say(kind, said, now) {
+		say(kind, said, now, asked) {
 			// Raised anew before the old is lowered, so the want never ends
 			// between the two and keeps the time it started.
-			const lower = wants.raise(kind, said, now);
+			const lower = wants.raise(kind, said, now, undefined, asked);
 			lowers.get(kind)?.();
 			lowers.set(kind, lower);
 		},
@@ -424,7 +522,8 @@ export const WANT_AFTER_MS = 5_000;
  * Wait for an answer, raising a want of this kind if it has not come
  * within {@link WANT_AFTER_MS}. The want dates from when the wait began,
  * and is lowered however the wait ends. An `ask` says its choices with
- * the want, and takes an answer given away from the panel.
+ * the want, and takes an answer given away from the panel; `asked` is the
+ * whole of what it asks, said beside its line.
  */
 export async function waitedOn<T>(
 	kind: WantKind,
@@ -433,11 +532,12 @@ export async function waitedOn<T>(
 	wants: Wants = sessionWants(),
 	afterMs: number = WANT_AFTER_MS,
 	ask: AskedWant | undefined = undefined,
+	asked: string | undefined = undefined,
 ): Promise<T> {
 	const began = new Date();
 	let lower: (() => void) | undefined;
 	const timer = setTimeout(() => {
-		lower = wants.raise(kind, said, began, ask);
+		lower = wants.raise(kind, said, began, ask, asked);
 	}, afterMs);
 	timer.unref?.();
 	try {

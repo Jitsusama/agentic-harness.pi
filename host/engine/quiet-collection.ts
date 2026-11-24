@@ -52,6 +52,7 @@
  * leave a large heap skipped for good in the same way, so none is.
  */
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
 	getHeapCodeStatistics,
 	getHeapSpaceStatistics,
@@ -466,9 +467,7 @@ function uncollectedLine(
  */
 export function pssBytes(): number | undefined {
 	try {
-		const rollup = readFileSync("/proc/self/smaps_rollup", "utf8");
-		const kb = /^Pss:\s+(\d+) kB$/m.exec(rollup)?.[1];
-		return kb === undefined ? undefined : Number(kb) * KB;
+		return pssOfRollup(readFileSync("/proc/self/smaps_rollup", "utf8"));
 	} catch {
 		// Not Linux, or no procfs: the line says the Pss went unread.
 		return undefined;
@@ -483,6 +482,27 @@ export function pssBytes(): number | undefined {
 export function collectedPss(): number | undefined {
 	lastResortCollect()?.();
 	return pssBytes();
+}
+
+/**
+ * Another process's Pss in bytes, as pssBytes reads this one's, but off
+ * this thread: the kernel walks the process's mappings under its lock,
+ * so one held up under memory pressure holds up no one here. Nothing
+ * where there is none to read: no procfs, or no such process.
+ */
+export async function pssBytesOf(pid: number): Promise<number | undefined> {
+	try {
+		return pssOfRollup(await readFile(`/proc/${pid}/smaps_rollup`, "utf8"));
+	} catch {
+		// Not Linux, no procfs or no such process: the Pss goes unread.
+		return undefined;
+	}
+}
+
+/** The Pss a smaps_rollup gives, in bytes, or nothing where it gives none. */
+function pssOfRollup(rollup: string): number | undefined {
+	const kb = /^Pss:\s+(\d+) kB$/m.exec(rollup)?.[1];
+	return kb === undefined ? undefined : Number(kb) * KB;
 }
 
 /**
