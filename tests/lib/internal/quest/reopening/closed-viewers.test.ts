@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	closedViewersDir,
@@ -52,9 +52,11 @@ describe("a closed viewer's mark", () => {
 	});
 
 	it("says why it couldn't be kept, and the next is still kept", async () => {
-		writeFileSync(join(state, "quest-workflow"), "a file where a folder goes");
+		const dir = closedViewersDir();
+		mkdirSync(dirname(dir), { recursive: true });
+		writeFileSync(dir, "a file where a folder goes");
 		await expect(keepViewerClosed("01a1eeee-ffff", true)).rejects.toThrow();
-		rmSync(join(state, "quest-workflow"));
+		rmSync(dir);
 		await keepViewerClosed("01a1eeee-ffff", true);
 		expect(viewerWasClosed("01a1eeee-ffff")).toBe(true);
 	});
