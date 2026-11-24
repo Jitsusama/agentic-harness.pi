@@ -129,7 +129,10 @@ describe("a working folder the sandbox won't let commands write", () => {
 	it("is one spelled through a quest's TMPDIR link in the runtime folder, though it leads into the scratch", () => {
 		// strict gives each command a TMPDIR of its own and never bound a
 		// quest's scratch, so a folder named through the link is judged
-		// where it is spelled: in the runtime folder the fence hides.
+		// where it is spelled: in the runtime folder the fence hides. This
+		// says what holds rather than guarding a change: the folder check
+		// reads no TMPDIR, so it refuses the path for lying in the runtime
+		// folder alone (F12 on #2125).
 		const runtime = mkdtempSync(join(tmpdir(), "unfenced-run-"));
 		const scratch = mkdtempSync(join(tmpdir(), "unfenced-scratch-"));
 		const link = join(runtime, "pi-quest-QEST-20261124-ABCDEF");

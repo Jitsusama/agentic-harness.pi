@@ -110,30 +110,62 @@ function inside(child: string, folder: string): boolean {
  * link there. The fence lays each command a runtime folder of its own,
  * empty but for this session's own link (fence-quest-temp.ts): what a
  * command plants there dies with it, reaching no other command and not
- * pi outside.
+ * pi outside. On Linux, a runtime folder refused is said once, since
+ * the links then lie where 22 November's did.
  */
 export function shortLinkRoot(
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
 ): string {
+	if (platform !== "linux") return systemTemp();
 	const runtime = env.XDG_RUNTIME_DIR;
-	const linux = platform === "linux";
-	return linux && runtime && isPrivateFolder(runtime) ? runtime : systemTemp();
+	if (!runtime) return inSystemTemp("XDG_RUNTIME_DIR is unset");
+	const fault = privacyFault(runtime);
+	return fault === undefined
+		? runtime
+		: inSystemTemp(`the runtime folder ${runtime} ${fault}`);
 }
 
 /**
- * Whether `folder` is a folder of this account's that no other may reach:
- * itself, not a link to one, whose target could change under it.
+ * Why `folder` isn't a folder of this account's that no other may reach,
+ * itself and not a link to one, whose target could change under it; or
+ * undefined when it is.
  */
-function isPrivateFolder(folder: string): boolean {
+function privacyFault(folder: string): string | undefined {
+	let stat: ReturnType<typeof lstatSync>;
 	try {
-		const stat = lstatSync(folder);
-		const ours = !process.getuid || stat.uid === process.getuid();
-		return stat.isDirectory() && ours && (stat.mode & 0o077) === 0;
-	} catch {
-		// Not there: no runtime folder to link in.
-		return false;
+		stat = lstatSync(folder);
+	} catch (error) {
+		return `can't be read: ${error instanceof Error ? error.message : String(error)}`;
 	}
+	if (stat.isSymbolicLink()) return "is a link";
+	if (!stat.isDirectory()) return "is not a folder";
+	if (process.getuid && stat.uid !== process.getuid()) {
+		return "belongs to another account";
+	}
+	const mode = stat.mode & 0o777;
+	return (mode & 0o077) === 0
+		? undefined
+		: `is open to others, mode ${mode.toString(8)}`;
+}
+
+/** The reasons said for links in the system temp directory, so each is said once. */
+const saidInSystemTemp = new Set<string>();
+
+/**
+ * The system temp directory, saying once on stderr, a host's journal,
+ * why the links lie there, so a host where they could be emptied again
+ * is seen.
+ */
+function inSystemTemp(why: string): string {
+	const temp = systemTemp();
+	if (!saidInSystemTemp.has(why)) {
+		saidInSystemTemp.add(why);
+		process.stderr.write(
+			`[quest-workflow] TMPDIR links lie in ${temp}, which anything may empty, since ${why}\n`,
+		);
+	}
+	return temp;
 }
 
 /** The system temp directory: `/tmp` when there is one, else the OS temp. */
