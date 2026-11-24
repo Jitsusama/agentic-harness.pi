@@ -7,6 +7,14 @@ import {
 } from "../../lib/core/session/roster.ts";
 import { asCarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 
+/**
+ * The attach feature saying a client joins a child itself: attaching to a
+ * conversation a child runs, it is answered with the child's `socket`
+ * and attaches there, so what it types and is drawn never cross the
+ * host's thread. A client without it has its bytes passed through.
+ */
+export const DIRECT_ATTACH = "direct";
+
 const text = z.string().min(1);
 const path = text.refine(isAbsolute);
 const sessionId = z.uuid();
@@ -85,8 +93,8 @@ const request = z.discriminatedUnion("op", [
 		...geometry,
 		op: z.literal("attach"),
 		window: text.max(256).optional(),
-		// What the client can do, such as edit and suspend; a host passes over
-		// what it doesn't know, so a newer client still attaches.
+		// What the client can do, such as edit, suspend and DIRECT_ATTACH; a
+		// host passes over what it doesn't know, so a newer client still attaches.
 		features: z.array(text.max(64)).max(16).optional(),
 	}),
 ]);

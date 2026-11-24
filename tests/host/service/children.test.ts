@@ -16,9 +16,10 @@ import type {
 	HostIdentity,
 } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
-import type {
-	ControlRequest,
-	SessionIdentity,
+import {
+	type ControlRequest,
+	DIRECT_ATTACH,
+	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import {
 	listenControl,
@@ -61,7 +62,7 @@ function line(value: unknown) {
 	return `${JSON.stringify(value)}\n`;
 }
 
-function attaching(sessionId: string) {
+function attaching(sessionId: string, features?: readonly string[]) {
 	return line({
 		v: 1,
 		id: "view",
@@ -69,7 +70,16 @@ function attaching(sessionId: string) {
 		sessionId,
 		rows: 20,
 		columns: 80,
+		...(features ? { features } : {}),
 	});
+}
+
+/** Everything a connection is sent until it closes. */
+async function untilClosed(seen: ReturnType<typeof messages>) {
+	const all: unknown[] = [];
+	for (let next = await seen.next(); !next.done; next = await seen.next())
+		all.push(next.value);
+	return all;
 }
 
 let dir: string;
@@ -282,6 +292,138 @@ describe("a host with conversations in children", () => {
 		window.end();
 		await vi.waitFor(() => expect(viewed).toContain("detached"));
 	});
+	// 3e: a window that can join a child itself is told where, so what it
+	// types and what it is drawn never cross this host's thread.
+	it("names the child's socket to a window that joins children itself, and passes it nothing", async () => {
+		const window = createConnection(hostPath);
+		window.write(attaching(a, ["edit", DIRECT_ATTACH]));
+
+		expect(
+			await untilClosed(messages(window)),
+			"one answer, then the end",
+		).toEqual([
+			{
+				v: 1,
+				id: "view",
+				ok: true,
+				result: { sessionId: a, socket: childPath },
+			},
+		]);
+		expect(childAsked, "the child is asked nothing for it").toEqual([]);
+
+		const there = createConnection(childPath);
+		const seen = messages(there);
+		there.write(attaching(a, ["edit", DIRECT_ATTACH]));
+		expect((await seen.next()).value).toMatchObject({
+			ok: true,
+			result: { sessionId: a },
+		});
+		there.write(line({ type: "input", data: "hello" }));
+		await vi.waitFor(() => expect(viewed).toEqual([{ input: "hello" }]));
+		there.end();
+		expect(asked, "the host's own thread runs none of it").toEqual([]);
+		expect(reported).toEqual([]);
+	});
+	it("names the child's socket to such a window once its attach woke the conversation there", async () => {
+		hostAttach = (sessionId) =>
+			routes.hold(conversation(sessionId), {
+				socket: childPath,
+				identity: child,
+			});
+		const window = createConnection(hostPath);
+		window.write(attaching(b, [DIRECT_ATTACH]));
+
+		expect(await untilClosed(messages(window))).toEqual([
+			{
+				v: 1,
+				id: "view",
+				ok: true,
+				result: { sessionId: b, socket: childPath },
+			},
+		]);
+		expect(hostViewed, "the host's own viewer drew none of it").toEqual([]);
+	});
+	it("shows such a window a conversation it runs itself, naming no socket", async () => {
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(b, [DIRECT_ATTACH]));
+
+		expect((await seen.next()).value).toEqual({
+			v: 1,
+			id: "view",
+			ok: true,
+			result: { sessionId: b },
+		});
+		await vi.waitFor(() => expect(hostViewed).toEqual([b]));
+		window.end();
+	});
+	it("says a child it can't reach to such a window, rather than name its socket", async () => {
+		routes.hold(conversation(c), {
+			socket: join(dir, "host.d", "gone.sock"),
+			identity: child,
+		});
+		const window = createConnection(hostPath);
+		window.write(attaching(c, [DIRECT_ATTACH]));
+
+		const answer = (await messages(window).next()).value;
+		expect(answer).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+		expect(answer, "no socket is named").not.toHaveProperty("result");
+		window.end();
+	});
+	// F26: what a window sent after its attach was meant for the child.
+	it("acts on nothing such a window sent after its attach once it names the child's socket", async () => {
+		const window = createConnection(hostPath);
+		window.write(
+			attaching(a, [DIRECT_ATTACH]) +
+				line({
+					v: 1,
+					id: "close",
+					op: "close",
+					sessionId: a,
+					expectedHost: host,
+				}),
+		);
+
+		expect(
+			await untilClosed(messages(window)),
+			"the redirect alone, not the close's answer",
+		).toEqual([
+			{
+				v: 1,
+				id: "view",
+				ok: true,
+				result: { sessionId: a, socket: childPath },
+			},
+		]);
+		expect(childAsked, "no close passed on to the child").toEqual([]);
+		expect(asked, "nor run by the host").toEqual([]);
+	});
+	// F57, F58: a socket kept paused never reads the window's end, so the
+	// host held it till it closed; and half a line it sent is no fault.
+	it("lets such a window's connection go once it ends, whatever it sent after its attach", async () => {
+		const pipes = () =>
+			process.getActiveResourcesInfo().filter((kind) => kind === "PipeWrap")
+				.length;
+		const before = pipes();
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		const input = line({ type: "input", data: "hello" });
+		// Half a line with the attach, and the rest after its answer.
+		window.write(attaching(a, [DIRECT_ATTACH]) + input.slice(0, 9));
+		expect((await seen.next()).value).toMatchObject({
+			result: { sessionId: a, socket: childPath },
+		});
+		window.write(input.slice(9));
+		await untilClosed(seen);
+		await vi.waitFor(() =>
+			expect(pipes(), "the host let its end of it go").toBe(before),
+		);
+		expect(reported, "half a line after the attach is no fault").toEqual([]);
+	});
+
 	it("asks the child to end its conversation under the child's own name", async () => {
 		const reply = await controlRequest(hostPath, {
 			v: 1,

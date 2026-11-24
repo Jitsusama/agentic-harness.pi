@@ -31,7 +31,12 @@ import {
 	staleHost,
 } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
-import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
+import {
+	type ControlRequest,
+	DIRECT_ATTACH,
+	parseControl,
+	parseViewer,
+} from "./protocol.ts";
 
 const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 const SOCKET_MODE = 0o600;
@@ -217,6 +222,9 @@ export async function listenControl(options: {
 		// Once a watch is asked, what ends it; the connection then takes
 		// nothing more from its other end.
 		let unwatch: (() => void) | undefined;
+		// Once a window is told a child's socket to join, whatever it sent
+		// after its attach was meant for the child, so none of it is read.
+		let redirected = false;
 		// Until the window's first frame goes, what it does: nothing, unless
 		// the line saying it was sent nothing in time has gone, when the
 		// frame is journaled too, as is a leaving with nothing drawn.
@@ -465,6 +473,23 @@ export async function listenControl(options: {
 				child.destroy();
 				return;
 			}
+			// One that joins children itself is told the socket that just took
+			// a connection, and its connection is done with.
+			if (
+				request.op === "attach" &&
+				request.features?.includes(DIRECT_ATTACH)
+			) {
+				child.destroy();
+				redirected = true;
+				send({
+					v: 1,
+					id: request.id,
+					ok: true,
+					result: { sessionId: request.sessionId, socket: route.socket },
+				});
+				socket.end();
+				return;
+			}
 			const line = `${JSON.stringify(passedOn(request, route))}\n`;
 			if (request.op === "attach")
 				return {
@@ -594,6 +619,10 @@ export async function listenControl(options: {
 		}
 		let passed = false;
 		function received(chunk: Buffer | string) {
+			// What a redirected window sends after its attach was meant for the
+			// child: it is read and dropped, so the window's end is read too and
+			// its connection goes (F57).
+			if (redirected) return;
 			socket.pause();
 			void (async () => {
 				const values = frames.push(
@@ -602,6 +631,10 @@ export async function listenControl(options: {
 				for (const [at, value] of values.entries()) {
 					if (socket.destroyed || ended) break;
 					const child = await receive(value);
+					if (redirected) {
+						socket.resume();
+						return;
+					}
 					if (child) {
 						passed = true;
 						passOn(child, values.slice(at + 1), frames.rest());
@@ -616,7 +649,9 @@ export async function listenControl(options: {
 		}
 		socket.on("data", received);
 		socket.on("end", () => {
-			if (passed) return detach();
+			// Half a line after a redirect was the child's to read, not a fault
+			// (F58).
+			if (passed || redirected) return detach();
 			try {
 				frames.end();
 			} catch (error) {
