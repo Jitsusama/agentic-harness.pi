@@ -62,6 +62,7 @@ import {
 	createWorkerLink,
 	keptIn,
 	presentedPresences,
+	REACHED_AGAIN,
 	refusalText,
 	relayedTransport,
 	type WorkerLink,
@@ -554,6 +555,15 @@ function workerLinkFor(
 				{
 					customType: WORKER_REFUSED,
 					content: refusalText(refusal),
+					display: true,
+				},
+				{ triggerTurn: false },
+			),
+		reachedAgain: () =>
+			pi.sendMessage(
+				{
+					customType: WORKER_REFUSED,
+					content: REACHED_AGAIN,
 					display: true,
 				},
 				{ triggerTurn: false },
