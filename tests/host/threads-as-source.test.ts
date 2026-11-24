@@ -58,15 +58,23 @@ setInterval(() => kept, 1000);
 `;
 
 /**
- * A host's loop held in miniature: the watch armed, the loop spun past
- * its hold, then let go long enough for the thread to say how long it held.
+ * A host's loop held in miniature: the watch armed, profiling into the
+ * folder it is given, the loop spun past its hold and the profile's start,
+ * then let go long enough for the thread to say how long it held.
  */
 const holdChild = `
 import { watchHolds } from ${JSON.stringify(HOLD_WATCH)};
-const stop = watchHolds({ fd: 1, every: 20, after: 200, still: 60_000 });
+const [folder] = process.argv.slice(-1);
+const stop = watchHolds({
+	fd: 1,
+	every: 20,
+	after: 200,
+	still: 60_000,
+	profile: { folder, after: 300, for: 200 },
+});
 // Time for the thread to start and see the loop move before it is held.
 setTimeout(() => {
-	const until = Date.now() + 800;
+	const until = Date.now() + 1200;
 	while (Date.now() < until) {
 		// Held, as a loop doing synchronous work is.
 	}
@@ -129,10 +137,17 @@ describe("the host's threads, under a host started as module source", () => {
 	it("watches the loop and says how long it held", {
 		timeout: 2 * CHILD_MS,
 	}, async () => {
-		const ended = await runAsSource(holdChild);
+		const ended = await runAsSource(holdChild, dir);
 		expect(ended.code, `ended: ${ended.err}`).toBe(0);
 		expect(ended.out, "the watch's line once the loop turned").toMatch(
 			/the loop held /,
+		);
+		expect(
+			ended.out,
+			"the thread's inspector profiled the held main thread",
+		).toMatch(/profiled the held loop's main thread/);
+		expect(ended.out, "and kept the profile").toMatch(
+			/kept the held loop's profile in /,
 		);
 	});
 });

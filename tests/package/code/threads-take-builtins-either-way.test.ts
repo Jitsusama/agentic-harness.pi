@@ -19,23 +19,46 @@ import { packageFiles } from "./package-files.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
-/** A worker given its program as source. */
-const EVAL_WORKER = /new Worker\([^)]*eval:\s*true/s;
+/** A worker made in the file. */
+const WORKER = /\bnew Worker\(/;
 
-/** A builtin reached through require, which a module has no such name for. */
-const REQUIRED_BUILTIN = /\brequire\(\s*["']node:[^"']+["']\s*\)/g;
+/** A worker's program given as source, wherever its options say it. */
+const EVAL = /\beval:\s*true\b/;
+
+/**
+ * What only a CommonJS program has: `require` by any name, builtin or
+ * package, and the folder and file names node gives it. A module has
+ * none of them, so a thread's source that says one dies there. The
+ * whole file is read, since a program held as a string is no smaller
+ * than its file, and a module's own code has no use for them either.
+ */
+const COMMONJS_ONLY = /\brequire\s*\(|\b__dirname\b|\b__filename\b/g;
+
+/** The programs known to run as a thread's source, so the rule reads some. */
+const KNOWN_THREADS = [
+	"host/engine/checkpoints.ts",
+	"host/service/hold-watch.ts",
+	"lib/core/web/article.ts",
+];
 
 describe("threads started from source", () => {
 	it("take node's modules through process.getBuiltinModule, never require", () => {
-		const requiring = packageFiles(ROOT)
+		const threads = packageFiles(ROOT)
 			.filter((file) => file.endsWith(".ts") && !file.startsWith("tests/"))
-			.flatMap((file) => {
-				const source = readFileSync(join(ROOT, file), "utf8");
-				if (!EVAL_WORKER.test(source)) return [];
-				return [...source.matchAll(REQUIRED_BUILTIN)].map(
-					(found) => `${file}: ${found[0]}`,
-				);
-			});
+			.map((file) => ({
+				file,
+				source: readFileSync(join(ROOT, file), "utf8"),
+			}))
+			.filter(({ source }) => WORKER.test(source) && EVAL.test(source));
+		expect(
+			threads.map(({ file }) => file),
+			"the rule reads every program known to run as a thread's source",
+		).toEqual(expect.arrayContaining(KNOWN_THREADS));
+		const requiring = threads.flatMap(({ file, source }) =>
+			[...source.matchAll(COMMONJS_ONLY)].map(
+				(found) => `${file}: ${found[0]}`,
+			),
+		);
 		expect(
 			requiring,
 			"a program a thread runs from source reaches node's modules through process.getBuiltinModule",

@@ -47,6 +47,7 @@
  * profiler. It profiles once a hold, since one spin's profile says it.
  */
 
+import { writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { Worker } from "node:worker_threads";
 import { clockTicksPerSecond } from "../../lib/internal/process-ticks.ts";
@@ -704,8 +705,19 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
 	thread.unref();
-	// A thread that fails to start leaves the host as it was: unwatched.
-	thread.on("error", () => {});
+	// A thread that fails leaves the host as it was, unwatched, but says so
+	// once: on 24 November it died at its first line in every end-to-end
+	// host, and nothing said it, so a host went unwatched unseen.
+	thread.on("error", (error: unknown) => {
+		try {
+			writeSync(
+				watched.fd,
+				`pi-host: the hold watch's thread failed, so this host's holds go unwatched: ${String(error)}\n`,
+			);
+		} catch {
+			// A closed journal leaves nowhere to say it; the host runs on unwatched.
+		}
+	});
 	const tick = setInterval(() => Atomics.add(count, 0, 1), every);
 	tick.unref();
 	return () => {
