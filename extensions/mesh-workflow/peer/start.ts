@@ -39,7 +39,7 @@ import { usageFromLog } from "../../../lib/mesh/usage.ts";
 import { JUDGE_MS, SLOW_LOOKUP } from "../../../lib/prose/claims.ts";
 import { identifyCurrentTerminal } from "../../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
-import { createActs } from "../acts.ts";
+import { AT_ONCE, createActs } from "../acts.ts";
 import { type Entry, handedIn, leftToIn, saidIn } from "../glances.ts";
 import { hostedPresence } from "../in-place.ts";
 import { keptOffIn, quietIn } from "../quiet.ts";
@@ -230,7 +230,9 @@ export function onSessionStart(
 			void f.settled(waiting);
 		});
 		m.resumes?.stop();
-		m.resumes = createActs(m.peer.session, m.settling, f.resumed);
+		// A hold's end waits for this peer's turn on it before it gets here
+		// (`resumeInTurn`), so a spread of its own would undo the turns.
+		m.resumes = createActs(m.peer.session, AT_ONCE, f.resumed);
 		// Its holds and waits outlive a reload; what a run claimed does not.
 		m.own = ownLeases(m.board, m.peer.session);
 		// Restored after a reboot, nothing it claimed is under way.

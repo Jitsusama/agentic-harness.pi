@@ -227,7 +227,7 @@ describe("the settle clock", () => {
 			pi: { sendMessage: (message) => void sent.push(String(message.content)) },
 			ctx: { isIdle: () => true },
 			pausing: { paused: false },
-			leasing: { lapsed: async () => [] },
+			leasing: { lapsed: async () => [], resumed: () => {} },
 			own: undefined,
 			resumes: undefined,
 		};

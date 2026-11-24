@@ -70,6 +70,7 @@ import {
 	type MeshState,
 	STOPPED,
 } from "./mesh.ts";
+import { resumeInTurn } from "./waits.ts";
 
 /** Wakes kept to tell a later ask from a first, before they are let go. */
 const MOST_ASKED = 1000;
@@ -480,7 +481,7 @@ export function createHearing(m: MeshState, f: Handing) {
 		// A hold this peer waits on can end in a message to a group it does
 		// not hear, so ends are looked for before what reaches it.
 		const end = message ? m.leasing.ended(message) : undefined;
-		if (end) m.resumes?.add(end);
+		if (end) resumeInTurn(m, end);
 		// Answers are counted wherever they went, so a question to a group
 		// one peer took up is known as answered by every other.
 		if (

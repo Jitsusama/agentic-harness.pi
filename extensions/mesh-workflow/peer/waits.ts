@@ -8,6 +8,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { NOTED } from "../delivery.ts";
+import type { HoldEnd } from "../leases.ts";
 import { settledText } from "../wait.ts";
 import type { MeshState } from "./mesh.ts";
 
@@ -19,17 +20,43 @@ export type WaitsOn = Pick<
 	readonly pi: Pick<ExtensionAPI, "sendMessage">;
 	readonly ctx: Pick<ExtensionContext, "isIdle"> | undefined;
 	readonly pausing: { readonly paused: boolean };
-	readonly leasing: Pick<MeshState["leasing"], "lapsed">;
+	readonly leasing: Pick<MeshState["leasing"], "lapsed" | "resumed">;
 	readonly own: Pick<NonNullable<MeshState["own"]>, "leases"> | undefined;
 	readonly resumes: Pick<NonNullable<MeshState["resumes"]>, "add"> | undefined;
 };
+
+/**
+ * Carry on from a hold that is over once this peer's turn on it comes,
+ * `end.after` from now, letting go of its wait then: every waiter of a
+ * hold hears its end within seconds, so without turns they all started
+ * at once (load 99 after the hold of 24 November, 10:40). A run under
+ * way is told then too, as a note, and starts nothing.
+ */
+export function resumeInTurn(
+	m: Pick<WaitsOn, "leasing" | "resumes">,
+	end: HoldEnd,
+): void {
+	const turn = setTimeout(() => {
+		try {
+			m.leasing.resumed(end);
+		} catch {
+			// The board is being replaced or gone with the session: the wait
+			// lapses with its hold, and the turn below still comes.
+		}
+		// Read as the turn comes, since a session that ended in between
+		// stopped its own and a new start made another.
+		m.resumes?.add(end);
+	}, end.after);
+	// A turn to come never keeps a pi running that is otherwise done.
+	turn.unref?.();
+}
 
 /** The clocks over what this peer waits on. */
 export function createWaits(m: WaitsOn) {
 	/** Whether the holds waited on still stand, asked while any is. */
 	const checkWaits = async () => {
 		const ends = await m.leasing.lapsed().catch(() => []);
-		for (const end of ends) m.resumes?.add(end);
+		for (const end of ends) resumeInTurn(m, end);
 		if (!m.own?.leases.some((lease) => lease.kind === "wait")) {
 			clearInterval(m.waitClock);
 			m.waitClock = undefined;

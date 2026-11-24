@@ -37,6 +37,8 @@ import {
 	claimsCheckout,
 	HEAVY_MS,
 	type Held,
+	HOLD_TURNS,
+	type HoldTurns,
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
@@ -46,6 +48,8 @@ import {
 	othersOn,
 	RUN_LEASE_MS,
 	rewriteIn,
+	turnAfterHold,
+	waitersOn,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";
@@ -97,6 +101,11 @@ export interface HoldEnd {
 	readonly said: boolean;
 	/** What this peer said it had put off for it. */
 	readonly why?: string;
+	/**
+	 * How long this peer lets pass before its turn on it, so the hold's
+	 * waiters start in turn rather than together (`turnAfterHold`).
+	 */
+	readonly after: number;
 }
 
 /**
@@ -135,6 +144,8 @@ export interface LeaseSurroundings {
 	 * not tell the same holder of the same thing again (lib/mesh/told.ts).
 	 */
 	readonly told?: Told;
+	/** How a hold's waiters take their turns, HOLD_TURNS unless said. */
+	readonly turns?: HoldTurns;
 }
 
 /**
@@ -169,10 +180,19 @@ export interface Leasing {
 	answeredBy(message: Message): Promise<string | undefined>;
 	/** What a message this peer sent claims, or ends. */
 	sent(message: Message): void;
-	/** The hold a message ends, when this peer waits on it. */
+	/**
+	 * The hold a message ends, when this peer waits on it. Its wait
+	 * stands until `resumed`, so the waiters that hear the end later
+	 * still count this one when they work out their turns.
+	 */
 	ended(message: Message): HoldEnd | undefined;
-	/** The holds this peer waits on that have lapsed or lost their holder. */
+	/**
+	 * The holds this peer waits on that have lapsed or lost their holder,
+	 * their waits standing until `resumed` as with `ended`.
+	 */
 	lapsed(now?: number): Promise<HoldEnd[]>;
+	/** Let go of the wait on a hold that is over, as its turn comes. */
+	resumed(end: HoldEnd): void;
 	/** Heavy work this peer starts or stops; what to say when it overlaps. */
 	heavy(event: LeaseEvent): Promise<string | undefined>;
 	/**
@@ -189,6 +209,15 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 	// claim is refused again. Whether its holder is sent word is kept
 	// apart, on disk for every process of this peer (`at.told`).
 	const told = new Set<string>();
+	// The holds this peer heard are over, whose waits stand until their
+	// turn: each is told over once, however many looks or hearings see it.
+	const ending = new Set<string>();
+	/** How long this peer lets pass before its turn on the hold `id`. */
+	const turnOn = (id: string) => {
+		const session = at.peer()?.session ?? "";
+		const waiters = waitersOn(at.board.all(), id);
+		return turnAfterHold(session, waiters, at.turns ?? HOLD_TURNS);
+	};
 	const key = (held: Held) =>
 		`${held.lease.kind}|${held.lease.subject}|${held.session}|${held.lease.since}`;
 
@@ -431,16 +460,18 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					(lease) => lease.kind === "wait" && lease.subject === ref,
 				);
 				const hold = wait ? at.transport.read(ref) : undefined;
-				if (!wait || !hold) continue;
+				if (!wait || !hold || ending.has(ref)) continue;
 				if (!mayReplace(message, hold) && !byPerson(ref)) continue;
-				own.release("wait", ref);
 				// A hold replaced by another hold still holds: the wait moves to it.
 				if (message.supersedes === ref && message.intent === "hold") {
+					own.release("wait", ref);
 					const left = standsUntil(message) - Date.now();
 					if (left > 0) own.take("wait", message.id, left, wait.why);
 					return undefined;
 				}
+				ending.add(ref);
 				return {
+					after: turnOn(ref),
 					hold,
 					how: byPerson(ref)
 						? `the person said it is over: "${cut(message.text)}"`
@@ -472,20 +503,34 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							? "its holder has ended"
 							: undefined;
 				if (!how) continue;
-				// Only the look that releases the wait tells it. Looks overlap
-				// across the census read above, and another may have ended it
-				// since this one listed it.
-				if (!own.release("wait", wait.subject)) continue;
-				if (hold) {
-					ends.push({
-						hold,
-						how,
-						said: false,
-						...(wait.why !== undefined ? { why: wait.why } : {}),
-					});
+				// With no hold to tell of, the wait goes now.
+				if (!hold) {
+					own.release("wait", wait.subject);
+					continue;
 				}
+				// Only the first look to see it over tells it. Looks overlap
+				// across the census read above, and another look or a hearing
+				// may have ended it, or its turn let it go, since this one
+				// listed it.
+				const stands = own.leases.some(
+					(lease) => lease.kind === "wait" && lease.subject === wait.subject,
+				);
+				if (!stands || ending.has(wait.subject)) continue;
+				ending.add(wait.subject);
+				ends.push({
+					after: turnOn(wait.subject),
+					hold,
+					how,
+					said: false,
+					...(wait.why !== undefined ? { why: wait.why } : {}),
+				});
 			}
 			return ends;
+		},
+
+		resumed(end) {
+			ending.delete(end.hold.id);
+			at.own()?.release("wait", end.hold.id);
 		},
 
 		forgetEarlierBoots() {

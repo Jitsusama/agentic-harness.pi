@@ -47,6 +47,7 @@ import { doingFolder } from "../../lib/internal/quest/sessions/doing.ts";
 import { carriedTrust } from "../../lib/internal/session/carried-trust.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { isSubagent } from "../../lib/mesh/hand.ts";
+import { HOLD_TURNS, type HoldTurns } from "../../lib/mesh/lease.ts";
 import { waitingFolder } from "../../lib/mesh/waiting.ts";
 import {
 	SUBAGENT_READY,
@@ -122,6 +123,7 @@ export function meshWorkflow(
 	waitCheckMs: number = WAIT_CHECK_MS,
 	lookAgainMs: number = LOOK_AGAIN_MS,
 	hubTiming: HubTiming = {},
+	turns: HoldTurns = HOLD_TURNS,
 ) {
 	return (pi: ExtensionAPI) => {
 		// A conversation its host let go with its folder untrusted stays so
@@ -157,6 +159,7 @@ export function meshWorkflow(
 			waitCheckMs,
 			lookAgainMs,
 			hubTiming,
+			turns,
 		);
 		const handing = createHanding(m);
 		const waits = createWaits(m);

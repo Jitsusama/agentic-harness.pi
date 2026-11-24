@@ -22,6 +22,9 @@ export interface Settling {
 /** A minute or less: half a minute, and up to half a minute more. */
 export const SETTLING: Settling = { settleMs: 30_000, spreadMs: 30_000 };
 
+/** No wait, for what has waited its turn already. */
+export const AT_ONCE: Settling = { settleMs: 0, spreadMs: 0 };
+
 export interface Acts<T> {
 	/** Wait to act on this; the wait starts with the first waiting. */
 	add(item: T): void;

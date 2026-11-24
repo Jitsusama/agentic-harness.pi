@@ -40,7 +40,12 @@ import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
 import { createDamper } from "../../../lib/mesh/damping.ts";
 import { releaseThroughHost } from "../../../lib/mesh/host-close.ts";
-import { createBoard, type LeaseEvent } from "../../../lib/mesh/lease.ts";
+import {
+	createBoard,
+	HOLD_TURNS,
+	type HoldTurns,
+	type LeaseEvent,
+} from "../../../lib/mesh/lease.ts";
 import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -95,6 +100,7 @@ export function createState(
 	waitCheckMs: number,
 	lookAgainMs: number,
 	hubTiming: HubTiming = {},
+	turns: HoldTurns = HOLD_TURNS,
 ): MeshState {
 	const messages = join(paths.mesh, "messages");
 	const local = folderTransport(messages);
@@ -156,6 +162,7 @@ export function createState(
 		queueKept: () => queueKept(env),
 		booted: () => machineBooted(),
 		told: toldIn(join(paths.mesh, "told")),
+		turns,
 	});
 	// Messages other peers have answered, so a question to the machine
 	// that one peer took up starts no turn of the rest. A question that

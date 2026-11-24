@@ -18,6 +18,7 @@ import {
 	changesOf,
 	claimsCheckout,
 	createBoard,
+	HOLD_TURNS,
 	holdingFrom,
 	type Lease,
 	leaseEventFrom,
@@ -26,6 +27,8 @@ import {
 	ownLeases,
 	RUN_KINDS,
 	rewriteIn,
+	turnAfterHold,
+	waitersOn,
 } from "../../../lib/mesh/lease.ts";
 import { senderOf } from "../../../lib/mesh/transport.ts";
 
@@ -343,6 +346,63 @@ describe("others on a subject", () => {
 			{ session: "me", lease: lease() },
 			{ session: "me", lease: lease() },
 		]);
+	});
+});
+
+describe("turns after a hold", () => {
+	/** Sessions named as pi names them: a time and a random tail. */
+	const sessions = (count: number) =>
+		Array.from(
+			{ length: count },
+			(_, one) =>
+				`019ab${one.toString(16).padStart(3, "0")}-${Math.random().toString(16).slice(2, 10)}`,
+		);
+
+	it("start no more than four of forty waiters in any thirty seconds", () => {
+		const waiters = sessions(40);
+		const starts = waiters
+			.map((one) => turnAfterHold(one, waiters))
+			.sort((a, b) => a - b);
+
+		const crowded = starts.map(
+			(start) => starts.filter((s) => s >= start && s < start + 30_000).length,
+		);
+		expect(Math.max(...crowded)).toBeLessThanOrEqual(4);
+		expect(new Set(starts).size, "two waiters share a turn").toBe(40);
+	});
+
+	it("all start within ten minutes and a hearing, however many wait", () => {
+		const waiters = sessions(300);
+		const starts = waiters.map((one) => turnAfterHold(one, waiters));
+
+		expect(Math.max(...starts)).toBeLessThanOrEqual(
+			HOLD_TURNS.heardMs + HOLD_TURNS.mostMs,
+		);
+	});
+
+	it("count the waiter itself when the board does not list it", () => {
+		expect(turnAfterHold("b", ["a", "c"])).toBe(
+			HOLD_TURNS.heardMs + HOLD_TURNS.gapMs,
+		);
+		expect(turnAfterHold("b", ["a"])).toBe(turnAfterHold("b", ["a", "b"]));
+		expect(turnAfterHold("alone", [])).toBe(HOLD_TURNS.heardMs);
+	});
+
+	it("rank waits lapsed as well as standing, by the peer each is for", () => {
+		const wait = (over: Partial<Lease> = {}) =>
+			lease({ kind: "wait", subject: "hold-1", ...over });
+		const board = [
+			{ session: "a", leases: [wait()] },
+			{
+				session: "b",
+				leases: [wait({ until: new Date(at - 1).toISOString() })],
+			},
+			{ session: "c.hand.1", handOf: "c", leases: [wait()] },
+			{ session: "d", leases: [wait({ subject: "hold-2" })] },
+			{ session: "e", leases: [lease({ subject: "hold-1" })] },
+		];
+
+		expect(waitersOn(board, "hold-1")).toEqual(["a", "b", "c"]);
 	});
 });
 

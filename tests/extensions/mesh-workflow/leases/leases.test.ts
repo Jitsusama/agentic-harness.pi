@@ -10,6 +10,7 @@ import {
 import { ALL } from "../../../../lib/mesh/group.ts";
 import {
 	createBoard,
+	HOLD_TURNS,
 	type LeaseEvent,
 	MOST_HOLD_MS,
 	type OwnLeases,
@@ -67,7 +68,27 @@ function leasing(booted: () => number | undefined = () => undefined) {
 		});
 	const mine = (over: Partial<Draft>) =>
 		from({ from: "LUQ49E", pid: process.pid, ...over });
-	return { at, own, from, mine };
+	return { at, board, own, from, mine };
+}
+
+/** A wait on `hold` on the board, held by `session`. */
+function waiting(
+	board: ReturnType<typeof createBoard>,
+	session: string,
+	hold: string,
+) {
+	const now = Date.now();
+	board.hold({
+		session,
+		leases: [
+			{
+				kind: "wait",
+				subject: hold,
+				since: new Date(now).toISOString(),
+				until: new Date(now + MOST_HOLD_MS).toISOString(),
+			},
+		],
+	});
 }
 
 describe("a wait on a hold", () => {
@@ -81,12 +102,14 @@ describe("a wait on a hold", () => {
 
 		expect(ends).toEqual([
 			{
+				after: HOLD_TURNS.heardMs,
 				hold,
 				how: "it has stood two hours, as long as a hold lasts",
 				said: false,
 				why: "my test waits",
 			},
 		]);
+		for (const end of ends) at.resumed(end);
 		expect(own.leases).toEqual([]);
 	});
 
@@ -103,12 +126,14 @@ describe("a wait on a hold", () => {
 
 		expect(ends).toEqual([
 			{
+				after: HOLD_TURNS.heardMs,
 				hold: sent,
 				how: "the machine has restarted since it was sent",
 				said: false,
 				why: "parked for the reboot",
 			},
 		]);
+		for (const end of ends) at.resumed(end);
 		expect(own.leases).toEqual([]);
 	});
 
@@ -151,7 +176,9 @@ describe("a wait on a hold", () => {
 		expect(own.leases).toMatchObject([{ kind: "wait", subject: longer.id }]);
 
 		const over = from({ supersedes: longer.id, text: "done" });
-		expect(at.ended(over)).toMatchObject({ hold: longer, why: "waiting" });
+		const end = at.ended(over);
+		expect(end).toMatchObject({ hold: longer, why: "waiting" });
+		if (end) at.resumed(end);
 		expect(own.leases).toEqual([]);
 	});
 
@@ -184,13 +211,48 @@ describe("a wait on a hold", () => {
 			text: "the reboot is done",
 		});
 
-		expect(at.ended(over)).toEqual({
+		const end = at.ended(over);
+		expect(end).toEqual({
+			after: HOLD_TURNS.heardMs,
 			hold,
 			how: 'the person said it is over: "the reboot is done"',
 			said: true,
 			why: "parked",
 		});
+		if (end) at.resumed(end);
 		expect(own.leases).toEqual([]);
+	});
+
+	it("stands once over until its turn, so waiters that hear later still count it", () => {
+		// Every waiter of the hold that ended at 10:40 on 24 November started
+		// at once. Each ranks itself among the hold's waits, so one let go
+		// as it heard would move the places of those that heard after.
+		const { at, board, own, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "hold qemu" });
+		at.sent(mine({ re: hold.id, text: "waiting" }));
+		waiting(board, "a-first", hold.id);
+		waiting(board, "zz-last", hold.id);
+
+		const end = at.ended(from({ re: hold.id, text: "done" }));
+
+		expect(end?.after, "second of three, a gap after the first").toBe(
+			HOLD_TURNS.heardMs + HOLD_TURNS.gapMs,
+		);
+		expect(own.leases).toMatchObject([{ kind: "wait", subject: hold.id }]);
+		if (end) at.resumed(end);
+		expect(own.leases).toEqual([]);
+	});
+
+	it("is told over once while it waits its turn, heard or looked for", async () => {
+		const { at, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "hold qemu" });
+		at.sent(mine({ re: hold.id, text: "waiting" }));
+
+		const over = from({ re: hold.id, text: "done" });
+		expect(at.ended(over)).toBeDefined();
+
+		expect(at.ended(over)).toBeUndefined();
+		expect(await at.lapsed(Date.now() + MOST_HOLD_MS)).toEqual([]);
 	});
 
 	it("is not taken by the peer ending another's hold on the person's word", () => {

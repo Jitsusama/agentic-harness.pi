@@ -22,7 +22,11 @@ import type { HubTiming } from "../../../../extensions/mesh-workflow/tools/above
 import type { ExecResult } from "../../../../lib/core/exec/exec.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { ALL } from "../../../../lib/mesh/group.ts";
-import { createBoard, type Lease } from "../../../../lib/mesh/lease.ts";
+import {
+	createBoard,
+	type HoldTurns,
+	type Lease,
+} from "../../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../../lib/mesh/message.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../../lib/mesh/transport.ts";
@@ -119,6 +123,8 @@ export async function startSession(
 	lookAgainMs = 60_000,
 	// How often the hub from use is found again, left to the extension.
 	hubTiming: HubTiming = {},
+	// A hold's waiters' turns, quick enough for a test to see.
+	turns: HoldTurns = { heardMs: 40, gapMs: 10, mostMs: 1000 },
 ) {
 	// No machine's owners file: a test reads only the one it writes.
 	env.PI_OWNERS_FILE ??= join(fixture.root, "no-owners.txt");
@@ -168,6 +174,7 @@ export async function startSession(
 		waitCheckMs,
 		lookAgainMs,
 		hubTiming,
+		turns,
 	)(pi as never);
 	early(pi.events.emit);
 	const started = {

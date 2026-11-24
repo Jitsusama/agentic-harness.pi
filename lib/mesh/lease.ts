@@ -108,6 +108,53 @@ export const RUN_LEASE_MS = 10 * 60 * 1000;
 /** The longest a hold stands, and so a wait on it. */
 export const MOST_HOLD_MS = 2 * 60 * 60 * 1000;
 
+/** How a hold's waiters take their turns once it is over. */
+export interface HoldTurns {
+	/**
+	 * How long every waiter lets pass before the first turn: long enough
+	 * for each to hear the end while all their waits still stand, so they
+	 * rank themselves among the same waiters.
+	 */
+	readonly heardMs: number;
+	/** How far apart the turns are. */
+	readonly gapMs: number;
+	/** The longest the turns after one hold are spread over. */
+	readonly mostMs: number;
+}
+
+/**
+ * Ten seconds to hear it, then a turn each 8 s, closed up to fit in ten
+ * minutes: 4 starts in any 30 s up to 76 waiters.
+ */
+export const HOLD_TURNS: HoldTurns = {
+	heardMs: 10 * 1000,
+	gapMs: 8 * 1000,
+	mostMs: 10 * 60 * 1000,
+};
+
+/**
+ * How long `session` waits, once a hold it waited on is over, before its
+ * turn: its place among `waiters` (every session waiting on that hold,
+ * itself among them) a gap apart, after the time to hear it. When a
+ * hold ended at 10:40 on 24 November every waiter started at once and
+ * optimus went to load 99 during Joel's next call (1OGSE7 [12a4252f]).
+ * Each works its place out alone from the waits on the board, so no
+ * peer hands out turns.
+ */
+export function turnAfterHold(
+	session: string,
+	waiters: readonly string[],
+	turns: HoldTurns = HOLD_TURNS,
+): number {
+	const ranked = [...new Set([...waiters, session])].sort();
+	const place = ranked.indexOf(session);
+	const gap = Math.min(
+		turns.gapMs,
+		turns.mostMs / Math.max(1, ranked.length - 1),
+	);
+	return turns.heardMs + Math.round(place * gap);
+}
+
 /** How long heavy work is claimed for when whoever places it says not. */
 export const HEAVY_MS = 60 * 60 * 1000;
 
@@ -510,6 +557,24 @@ export function othersOn(
 					)
 					.map((lease) => ({ session: ownerOf(holding), lease })),
 	);
+}
+
+/**
+ * Every session waiting on the hold `subject`, its wait lapsed or not:
+ * a hold that stands its two hours lapses every wait on it at once,
+ * and those are the waiters most in need of turns.
+ */
+export function waitersOn(
+	board: readonly Holding[],
+	subject: string,
+): string[] {
+	return board
+		.filter((holding) =>
+			holding.leases.some(
+				(lease) => lease.kind === "wait" && lease.subject === subject,
+			),
+		)
+		.map(ownerOf);
 }
 
 /**
