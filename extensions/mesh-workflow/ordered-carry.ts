@@ -182,8 +182,12 @@ export interface OrderedCarryHost {
 	 * ordering's, as a person's Carry is once a refusal has let go.
 	 */
 	readonly carrying?: () => boolean;
-	/** End the session, as /exit does, saying `by` asked. */
-	readonly close: (by: string) => void;
+	/**
+	 * End the session, as /exit does, saying `by` asked; a close that
+	 * fails throws, or is told to `failed` once it has, as a host's close
+	 * does after this returns.
+	 */
+	readonly close: (by: string, failed: (error: unknown) => void) => void;
 	/** Start a turn with these words, to take up a run it ended. */
 	readonly carryOn: (text: string) => void;
 	/**
@@ -452,14 +456,34 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		say(
 			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
 		);
-		try {
-			host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
-		} catch (error) {
+		const unclosed = (error: unknown) => {
+			if (goneTo !== undefined) return;
 			goneTo = ordered.to;
+			// Only the close stops them, so those its note named still run.
+			const running =
+				noted.length === 0
+					? ""
+					: ` The background commands its note named as stopped still run here, so stop them too: ${noted.join("; ")}.`;
 			say(
-				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${error instanceof Error ? error.message : String(error)}. Each run here is stopped, so the two never both work; end it here once it starts there.`,
+				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${error instanceof Error ? error.message : String(error)}. Each run here is stopped, so the two never both work; end it here once it starts there.${running}`,
+			);
+		};
+		try {
+			host.close(`${carryOf(ordered).a}, for ${ordered.why}`, unclosed);
+		} catch (error) {
+			unclosed(error);
+		}
+	};
+
+	// Ends a run this carried session mustn't do, saying why where its
+	// close failed, so none is stopped unexplained.
+	const stopRun = () => {
+		if (goneTo !== undefined) {
+			say(
+				`This run is stopped: the session was carried to ${goneTo} and runs there, so end it here.`,
 			);
 		}
+		end();
 	};
 
 	return {
@@ -525,15 +549,10 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		// session carried.
 		started() {
 			if (!underWay && !carried) return;
-			if (goneTo !== undefined) {
-				say(
-					`This run is stopped: the session was carried to ${goneTo} and runs there, so end it here.`,
-				);
-			}
-			end();
+			stopRun();
 		},
 		turnEnded() {
-			if ((underWay || carried) && !host.idle()) end();
+			if ((underWay || carried) && !host.idle()) stopRun();
 		},
 	};
 }
