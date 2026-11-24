@@ -86,16 +86,22 @@ const NEED_CALL = "need (mesh_send to: need, about: what it is about)";
  * be minutes old and the send finds it afresh: an address here could
  * name a cell the send no longer reaches. A send the node leaves
  * unfinished still reaches the hub this session keeps (tools/send.ts).
- * `steward` is the person's steward, when a quest above is one: then
- * the person's path goes there by `person`, whoever orders the work,
- * and it is asked who owns a question when nobody else is above. It
- * passes on the person's yes as the mark's orchestrator does, since it
- * too is set in a quest's own field rather than grown by talk.
+ * `person` is the person's path when a steward sets it. Below a live
+ * steward it goes there by `person`, whoever orders the work, and the
+ * steward passes on the person's yes as the mark's orchestrator does,
+ * since it too is set in a quest's own field rather than grown by talk.
+ * It carries nothing else: who owns a work question is asked of whoever
+ * is above, or found in mesh_groups, never of the steward. On the
+ * steward's own quest the path ends in the reply, so neither its
+ * orchestrator nor another steward carries it or passes on a yes.
  */
-export function advisory(above?: Reached, steward?: string): string {
-	const otherwise =
-		steward !== undefined
-			? `otherwise to the person's steward, ${steward}, as a question (mesh_send to: person)`
+export function advisory(above?: Reached, person?: PersonsPath): string {
+	const steward = person !== undefined && "steward" in person;
+	const self = person !== undefined && "stewards" in person;
+	const otherwise = steward
+		? `otherwise to the person's steward, ${person.steward}, as a question (mesh_send to: person)`
+		: self
+			? "otherwise in your next reply, since your quest is the person's steward"
 			: above === undefined
 				? "otherwise in your next reply, since no orchestrator is above your quest"
 				: above.by === "use"
@@ -103,20 +109,47 @@ export function advisory(above?: Reached, steward?: string): string {
 					: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	const asked =
 		above === undefined
-			? steward
+			? undefined
 			: above.by === "use"
 				? "your hub from use (mesh_send to: orchestrator)"
 				: above.address;
 	const work =
-		asked === undefined
-			? `Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask the person in your reply who owns it.`
-			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${asked} who owns it.`;
-	const passer = steward ?? (above?.by === "mark" ? above.address : undefined);
-	const person =
+		asked !== undefined
+			? `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${asked} who owns it.`
+			: steward
+				? `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, find the owner in mesh_groups and ask it by address.`
+				: `Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask the person in your reply who owns it.`;
+	const passer = steward
+		? person.steward
+		: !self && above?.by === "mark"
+			? above.address
+			: undefined;
+	const grantor =
 		passer === undefined
 			? "the person, said to you"
 			: `the person, said to you or passed on by ${passer}`;
-	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${grantor}, or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+}
+
+/**
+ * The person's path when a steward sets it: the live steward above a
+ * session's quest, or the session's own quest being the steward.
+ */
+export type PersonsPath =
+	| { readonly steward: string }
+	| { readonly stewards: string };
+
+/**
+ * A peer's path to the person, read from its roles: its own quest
+ * stewarding wins over a steward above, which it never has.
+ */
+export function personsPath(peer?: {
+	readonly stewardedBy?: string;
+	readonly stewards?: string;
+}): PersonsPath | undefined {
+	if (peer?.stewards !== undefined) return { stewards: peer.stewards };
+	if (peer?.stewardedBy !== undefined) return { steward: peer.stewardedBy };
+	return undefined;
 }
 
 /** The note for a session with no orchestrator above its quest. */
@@ -172,7 +205,7 @@ export function noted(
 	messages: readonly Message[],
 	glances: readonly Message[] = [],
 	above?: Reached,
-	steward?: string,
+	person?: PersonsPath,
 ): string {
 	const each = messages.map((message) => {
 		const threads = [
@@ -199,7 +232,7 @@ export function noted(
 		...each,
 		asks.join(" "),
 		...(glances.length > 0 ? [digest(glances)] : []),
-		advisory(above, steward),
+		advisory(above, person),
 	].join("\n\n");
 }
 

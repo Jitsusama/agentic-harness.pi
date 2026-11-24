@@ -117,15 +117,20 @@ and can answer a question or a gate left open on screen.
   steward, and nothing else; who orders work is the mark's
   business, apart from it. A session's presence names the
   nearest steward above its quest as `stewardedBy`, walked up
-  `parent` (`lib/internal/quest/fields/orchestration.ts`), and
-  `to: person` reaches it. With no steward set, `person` reads
+  `parent` (`lib/internal/quest/fields/orchestration.ts`),
+  while a live session answers to it, and the bare word
+  `to: person` reaches it. With no live steward, `person` reads
   as `orchestrator`, so the word works the same on every quest.
-  The delivery note sends the person's path to the steward, and
-  with nobody else above asks it who owns a question. It passes
-  on the person's yes, as the mark's orchestrator does, since
-  it too is set in a quest's own field rather than grown by
-  talk, and a question a session ends its run on stays out of
-  the launcher, since the steward carries it.
+  The delivery note sends the person's path to the steward, but
+  never asks it who owns a work question: with nobody else
+  above, the owner is found in mesh_groups. It passes on the
+  person's yes, as the mark's orchestrator does, since it too
+  is set in a quest's own field rather than grown by talk, and
+  a question a session ends its run on stays out of the
+  launcher, since the steward carries it. The steward's own
+  session ends the path: it tells the person in its reply,
+  its questions stay in the launcher, `person` from it names
+  nobody, and stewards nested do not chain.
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,

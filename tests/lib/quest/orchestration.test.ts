@@ -53,10 +53,25 @@ describe("the person's steward", () => {
 		});
 	});
 
-	it("is never the quest itself", () => {
+	it("is never the quest itself, which stewards instead", () => {
 		const read = store(quest(MISSION, null, { steward: true }));
 
-		expect(orchestrationOf(MISSION, read)).toEqual({});
+		expect(orchestrationOf(MISSION, read)).toEqual({ stewards: MISSION });
+	});
+
+	// A steward under an orchestrator ends the person's path itself: the
+	// work hub above it still orders its work, but carries nothing of
+	// the person's for it.
+	it("is said of a steward under an orchestrator, beside the work hub", () => {
+		const read = store(
+			quest(MISSION, null, { orchestrator: true }),
+			quest(SWARM, MISSION, { steward: true }),
+		);
+
+		expect(orchestrationOf(SWARM, read)).toEqual({
+			by: MISSION,
+			stewards: SWARM,
+		});
 	});
 
 	it("is the nearer of two stewards", () => {
@@ -69,13 +84,24 @@ describe("the person's steward", () => {
 		expect(orchestrationOf(WORKER, read).steward).toBe(SWARM);
 	});
 
-	it("is read from a mark kept outside the known keys", () => {
+	it("is not chained from a steward to the one above it", () => {
 		const read = store(
-			quest(MISSION, null, { _extra: { steward: true } }),
+			quest(MISSION, null, { steward: true }),
+			quest(SWARM, MISSION, { steward: true }),
+		);
+
+		expect(orchestrationOf(SWARM, read)).toEqual({ stewards: SWARM });
+	});
+
+	// Written by hand as text, it is kept for config to name, and makes
+	// no steward.
+	it("is not a steward written by hand as text", () => {
+		const read = store(
+			quest(MISSION, null, { _extra: { steward: "yes" } }),
 			quest(LOOP, MISSION),
 		);
 
-		expect(orchestrationOf(LOOP, read).steward).toBe(MISSION);
+		expect(orchestrationOf(LOOP, read).steward).toBeUndefined();
 	});
 
 	it("ends at a loop of parents rather than walking it forever", () => {
