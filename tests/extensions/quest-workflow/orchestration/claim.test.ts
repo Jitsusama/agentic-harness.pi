@@ -4,6 +4,10 @@
  * once no orchestrating quest is loaded or once a refusal leaves an old
  * one held, never asked in a pile while the node is slow, and never
  * silenced by one ask that throws.
+ *
+ * Long because every case drives the one keeper through the same fake
+ * clock and node, each a way an ask can land, fail or race another;
+ * split, each half would rebuild that clock and node.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -19,7 +23,7 @@ import {
 	type ClaimKeeperDeps,
 	claimKeeper,
 	keepOrchestrationClaimed,
-} from "../../../../extensions/quest-workflow/orchestration-claim.ts";
+} from "../../../../extensions/quest-workflow/orchestration/claim.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { installHost } from "../../../../lib/core/session/host.ts";
 import { clearDiscoveryCache } from "../../../../lib/internal/quest/discovery/discovery.ts";
@@ -730,6 +734,31 @@ describe("an orchestrator's claim", () => {
 			claims(),
 			"the forget sent at a minute is asked again at six, and not before",
 		).toEqual([MISSION_CLAIM, "forget", "forget"]);
+	});
+
+	it("reads the quests once a period when a due look finds nothing to send", async () => {
+		let looked = 0;
+		const { state, claims, keeper, pass } = keeping(RECORDED, {
+			realm: () => {
+				looked += 1;
+				return "work";
+			},
+		});
+		state.questId = PLAIN;
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+		const atStart = looked;
+		for (let minute = 0; minute < 11; minute += 1) {
+			pass(CLAIM_TICK_MS);
+			keeper.lookIfDue("sess-1", AT);
+			await keeper.settled();
+		}
+
+		expect(claims(), "the one forget at the start").toEqual(["forget"]);
+		expect(
+			looked - atStart,
+			"looked again at five minutes and at ten, not each minute",
+		).toBe(2);
 	});
 
 	it("says a refusal once, however often it recurs", async () => {
