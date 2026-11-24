@@ -491,7 +491,16 @@ describe("the compaction trigger", () => {
 			const { fire, ctx } = at;
 			const notify = vi.fn((_message: string, _kind: string) => {});
 			Object.assign(ctx, { hasUI: true, ui: { notify } });
-			await endTurn(fire, ranTools, ctx);
+			const written = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			try {
+				await endTurn(fire, ranTools, ctx);
+				// A screen shows the wait, and the journal doesn't say it twice.
+				expect(written, "journalled beside the screen").not.toHaveBeenCalled();
+			} finally {
+				written.mockRestore();
+			}
 			expect(notify).toHaveBeenCalledTimes(1);
 			expect(notify.mock.calls[0]?.[0]).toMatch(
 				/failed again: the summary hit the token cap\. Another is written in the background after 2 more turns that call for a compaction, and nothing waits for it meanwhile\./,
@@ -531,17 +540,40 @@ describe("the compaction trigger", () => {
 		// keeps failing ahead still waits out its turns, as the README says
 		// (5BACCAC3's F86 on #2082).
 		it("waits out its turns past the ceiling too", async () => {
-			const { fire, state, ctx } = await failedTwice();
+			completeSimple.mockResolvedValue(capped);
+			// Past the ceiling at 250k, the rent of $0.032 a turn comes to about
+			// $0.22 over the seven turns here, short of the cost: only the
+			// ceiling fires each one, as the wait's notice says.
 			vi.stubEnv("PI_COMPACTION_CEILING_TOKENS", "200000");
-			expect(state.tokens, "past the ceiling").toBeGreaterThan(200_000);
-			for (let turn = 1; turn <= 2; turn++) {
+			const { fire } = activate();
+			const { state, ctx } = session();
+			await fire("session_start", { reason: "startup" }, ctx);
+			await fire("before_provider_request", { payload }, ctx);
+			state.branch = [userEntry, replyEntry];
+			state.leaf = "a1";
+			await endTurn(fire, ranTools, ctx);
+			state.tokens = 250_000;
+			for (let tried = 1; tried <= 2; tried++) {
 				await endTurn(fire, ranTools, ctx);
+				await vi.waitFor(() =>
+					expect(completeSimple).toHaveBeenCalledTimes(tried),
+				);
 				await new Promise((r) => setTimeout(r, 0));
-				expect(
-					completeSimple,
-					`tried on waiting turn ${turn}`,
-				).toHaveBeenCalledTimes(2);
 			}
+			const notify = vi.fn((_message: string, _kind: string) => {});
+			Object.assign(ctx, { hasUI: true, ui: { notify } });
+			await endTurn(fire, ranTools, ctx);
+			expect(notify).toHaveBeenCalledTimes(1);
+			expect(notify.mock.calls[0]?.[0], "fired by the ceiling").toMatch(
+				/after 2 more turns .* past the 200k-token ceiling/,
+			);
+			await new Promise((r) => setTimeout(r, 0));
+			expect(completeSimple, "tried as the wait began").toHaveBeenCalledTimes(
+				2,
+			);
+			await endTurn(fire, ranTools, ctx);
+			await new Promise((r) => setTimeout(r, 0));
+			expect(completeSimple, "tried while it waits").toHaveBeenCalledTimes(2);
 			await endTurn(fire, ranTools, ctx);
 			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(3));
 			expect(state.compactions, "compacted on the spot").toHaveLength(0);
