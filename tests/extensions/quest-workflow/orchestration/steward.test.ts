@@ -125,10 +125,12 @@ describe("making a quest the person's steward", () => {
 		);
 		const report = await run({ action: "config", id });
 		await run({ action: "config", id, ref: "subjects=steward-slip" });
-		const kept = readmeOf(id).includes('"yes"');
+		// A rewrite may say the text plainly, quoted or not.
+		const slip = /^steward: "?yes"?$/m;
+		const kept = slip.test(readmeOf(id));
 		await run({ action: "config", id, ref: "steward=true" });
 		expect(
-			[said(report), kept, stewardOf(id), readmeOf(id).includes('"yes"')],
+			[said(report), kept, stewardOf(id), slip.test(readmeOf(id))],
 			"named, kept through a rewrite, then a steward with the slip gone",
 		).toEqual([
 			expect.stringContaining(

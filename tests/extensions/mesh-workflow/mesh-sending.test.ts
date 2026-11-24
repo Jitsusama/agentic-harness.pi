@@ -456,7 +456,10 @@ describe("sending", () => {
 			`---\nid: ${id}\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${extra}---\n# ${id}\n`;
 		const write = (id: string, text: string) =>
 			writeFileSync(join(fixture.paths.quests, id, "README.md"), text);
-		write("QEST-20261021-5GV2AH", readme("QEST-20261021-5GV2AH", "steward: true\n"));
+		write(
+			"QEST-20261021-5GV2AH",
+			readme("QEST-20261021-5GV2AH", "steward: true\n"),
+		);
 		mkdirSync(join(fixture.paths.quests, "QEST-20261021-0RCHST"), {
 			recursive: true,
 		});
@@ -466,16 +469,21 @@ describe("sending", () => {
 		);
 		write(
 			"QEST-20261021-7M6JKG",
-			readme("QEST-20261021-7M6JKG", "orchestratedBy: QEST-20261021-0RCHST\n").replace(
-				"parent: null",
-				"parent: QEST-20261021-5GV2AH",
-			),
+			readme(
+				"QEST-20261021-7M6JKG",
+				"orchestratedBy: QEST-20261021-0RCHST\n",
+			).replace("parent: null", "parent: QEST-20261021-5GV2AH"),
 		);
 		peer("session-s", ["5GV2AH"], []);
 		const { tools } = await startSession(noNode());
 
 		expect(
-			await send(tools, "person", "question", "May Joel touch the key at 02:00?"),
+			await send(
+				tools,
+				"person",
+				"question",
+				"May Joel touch the key at 02:00?",
+			),
 		).toContain("Not sent: this asks for the person's hands");
 	});
 
@@ -539,11 +547,7 @@ describe("sending", () => {
 		const mixed = await send(tools, "person, #harness", "fyi", "Landed.");
 
 		expect(
-			[
-				alone,
-				mixed,
-				transport.ids().map((id) => transport.read(id)?.to),
-			],
+			[alone, mixed, transport.ids().map((id) => transport.read(id)?.to)],
 			"refused, then only the group",
 		).toEqual([
 			expect.stringContaining(

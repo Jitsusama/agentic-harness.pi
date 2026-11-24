@@ -121,9 +121,7 @@ export function personNamed(
 	if (!parts.some(isPerson)) return written;
 	return [
 		...new Set(
-			parts.map((one) =>
-				isPerson(one) ? (stewardedBy ?? ORCHESTRATOR) : one,
-			),
+			parts.map((one) => (isPerson(one) ? (stewardedBy ?? ORCHESTRATOR) : one)),
 		),
 	].join(", ");
 }
