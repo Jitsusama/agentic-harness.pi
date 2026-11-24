@@ -192,6 +192,8 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		// A reload keeps the conversation, so its close is still to come.
 		if (m.peer && !reloading(event)) closeLanded(m.peer.session);
 		m.moving.stop();
+		// The next load, a reload's or another session's, opens its own.
+		m.workerLink?.close();
 		m.unhearKeys?.();
 		m.unhearKeys = undefined;
 		// What still waits is not marked read, so the next start has it.

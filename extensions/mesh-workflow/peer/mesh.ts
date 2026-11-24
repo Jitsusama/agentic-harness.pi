@@ -34,6 +34,7 @@ import type { createReadFront } from "../../../lib/mesh/reading.ts";
 import type { sweeper } from "../../../lib/mesh/retention.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
+import type { WorkerLink } from "../../../lib/mesh/worker-link.ts";
 import type { Acts, Settling } from "../acts.ts";
 import type { Delivered } from "../delivery.ts";
 import type { createGlances } from "../glances.ts";
@@ -267,6 +268,9 @@ export interface MeshState {
 	// The same, read off the thread, for mesh_read.
 	readonly asWrittenOff: (id: string) => Promise<Message | undefined>;
 	readonly presences: ReturnType<typeof createPresences>;
+	// The node's worker socket, on a machine that names one; none, and the
+	// folder of messages is the mesh (lib/mesh/worker-link.ts).
+	readonly workerLink: WorkerLink | undefined;
 	readonly glances: ReturnType<typeof createGlances>;
 	readonly damper: ReturnType<typeof createDamper>;
 	readonly board: ReturnType<typeof createBoard>;

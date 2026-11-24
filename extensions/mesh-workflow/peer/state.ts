@@ -55,8 +55,18 @@ import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { toldIn } from "../../../lib/mesh/told.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
+import {
+	createWorkerLink,
+	keptIn,
+	presentedPresences,
+	refusalText,
+	relayedTransport,
+	type WorkerLink,
+	workerSocket,
+} from "../../../lib/mesh/worker-link.ts";
 import type { Settling } from "../acts.ts";
 import { CARRY_NOTE, carryThisSession } from "../carrying.ts";
+import { WORKER_REFUSED } from "../delivery.ts";
 import { createGlances } from "../glances.ts";
 import { handOverOf } from "../in-place.ts";
 import { createLeasing, queueKept, type TakenCall } from "../leases.ts";
@@ -83,16 +93,24 @@ export function createState(
 	lookAgainMs: number,
 	hubTiming: HubTiming = {},
 ): MeshState {
+	const messages = join(paths.mesh, "messages");
+	const local = folderTransport(messages);
+	// On a machine that keeps no mesh of its own, the node behind its worker
+	// socket carries what is sent and heard (lib/mesh/worker-link.ts).
+	const workerLink = workerLinkFor(pi, env, messages, () =>
+		local.recentIds().at(-1),
+	);
 	// Everything here reads a receptor's name as nothing, but delivery and
 	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
 	const { transport, asWritten, asWrittenOff } = heedingNoReceptor(
-		folderTransport(join(paths.mesh, "messages")),
+		workerLink ? relayedTransport(local, workerLink) : local,
 	);
 	// A host writes presence and leases off its thread; one that can't
 	// land is said once in the session's log and the host's journal, and
 	// written again.
 	const failed = sayWriteFailed((type, data) => pi.appendEntry(type, data));
-	const presences = createPresences(join(paths.mesh, "presence"), { failed });
+	const kept = createPresences(join(paths.mesh, "presence"), { failed });
+	const presences = workerLink ? presentedPresences(kept, workerLink) : kept;
 	const glances = createGlances();
 	const damper = createDamper();
 	const board = createBoard(join(paths.mesh, "leases"), { failed });
@@ -439,6 +457,7 @@ export function createState(
 		asWritten,
 		asWrittenOff,
 		presences,
+		workerLink,
 		glances,
 		damper,
 		board,
@@ -506,4 +525,33 @@ export function createState(
 	};
 	const waits = createWaits(m);
 	return m;
+}
+
+/**
+ * The link to the node's worker socket where the machine names one, each
+ * message it hears kept in the folder at `messages`, and each refusal
+ * shown without starting a turn; none where it names none.
+ */
+function workerLinkFor(
+	pi: ExtensionAPI,
+	env: NodeJS.ProcessEnv,
+	messages: string,
+	newest: () => string | undefined,
+): WorkerLink | undefined {
+	const socket = workerSocket(env);
+	if (socket === undefined) return undefined;
+	return createWorkerLink({
+		socket,
+		keep: keptIn(messages),
+		newest,
+		refused: (refusal) =>
+			pi.sendMessage(
+				{
+					customType: WORKER_REFUSED,
+					content: refusalText(refusal),
+					display: true,
+				},
+				{ triggerTurn: false },
+			),
+	});
 }
