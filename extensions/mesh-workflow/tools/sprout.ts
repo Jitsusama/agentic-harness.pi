@@ -4,6 +4,7 @@
  * Work and `mycelium sprout` start it.
  */
 
+import { asSentence, laterTry, shownAttach } from "../../../lib/mesh/node.ts";
 import {
 	type RunProgram,
 	runProgram,
@@ -39,18 +40,27 @@ export async function sproutFrom(
 	};
 	const answered = await sprout(sprouting, cwd, run, signal);
 	if (!answered.ok) {
-		return answered.mayLand
-			? answer(`The sprout may have started; ${answered.reason}.`, {
-					mayLand: true,
-				})
-			: answer(`⊘ Nothing was sprouted: ${answered.reason}`, {});
+		if (answered.mayLand) {
+			return answer(`The sprout may have started; ${answered.reason}.`, {
+				mayLand: true,
+			});
+		}
+		const later = laterTry(answered.reason);
+		const reason = later
+			? `${asSentence(answered.reason)}${later}`
+			: answered.reason;
+		return answer(`⊘ Nothing was sprouted: ${reason}`, {});
 	}
+	// The node's own words, as they show (node.ts's startedFrom), the
+	// folder and the words that join it quoted, since another node wrote
+	// them.
 	const { machine, folder, attach } = answered.started;
+	const where = folder ? `in "${folder}"` : "in its home";
 	const tied = address
 		? ` A quest it makes, it asks to tie to this cell, ${address}, on the map as it starts; one it joins, this start doesn't tie. Until the map shows the tie, it isn't there.`
 		: "";
 	return answer(
-		`Sprouted on ${machine} in ${folder}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: ${attach.join(" ")}`,
+		`Sprouted on ${machine} ${where}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: "${shownAttach(attach.join(" "))}"`,
 		{ started: answered.started },
 	);
 }

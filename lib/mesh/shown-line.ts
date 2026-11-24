@@ -9,8 +9,8 @@
  * still written as JSON text (\u001b) is quoted as that text. One copy,
  * for a sprout's own refusal (sprout.ts), the node's refusal of a start
  * (node.ts) or a placement (the quest workflow's spawn), mycelium share's
- * and a sprouted session's tie (the quest workflow's sprout start), so
- * they can't drift apart.
+ * and a sprouted session's tie (the quest workflow's sprout start), and
+ * what a start's answer names (shownValue), so they can't drift apart.
  */
 
 import { drawsAsNothing } from "../internal/unseen.ts";
@@ -125,6 +125,18 @@ export function shownEnds(text: string, most: number): string {
 	}
 	const last = lastShownFrom(lines, at);
 	return cut(last === "" ? first : `${first} / ${last}`, most);
+}
+
+/**
+ * One value a node names, a machine, a hold or a folder, as it shows on
+ * one line: cleaned as a line is (shownLine), its escapes dropped from
+ * the whole of it first, each line end read as a space, and cut to
+ * `most` as lastShownLine cuts. What another node says it started is
+ * shown so wherever the model or a terminal reads it, since a peer
+ * writes it.
+ */
+export function shownValue(text: string, most: number): string {
+	return cut(shownLine(unescaped(text).split(LINE_ENDS).join(" ")), most);
 }
 
 /** The last of `lines` from `from` on with anything left once cleaned. */

@@ -47,6 +47,8 @@ import {
 import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	agentsAt,
+	asSentence,
+	laterTry,
 	NOTHING_SHOWN,
 	type NodeStart,
 	type NodeStarted,
@@ -54,6 +56,7 @@ import {
 	placeAt,
 	placeToStartAt,
 	type StartAnswer,
+	shownAttach,
 	startAt,
 } from "../../../lib/mesh/node.ts";
 import {
@@ -390,10 +393,11 @@ export async function machineFor(
 			: [...needs, { kind: "machine", value: machine }];
 	const answer = await place(all, fence);
 	if (!answer.ok) {
+		// Quoted as it shows, since the node's words may relay a peer's.
+		const said = shownEnds(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN;
 		return {
 			ok: false,
-			// Quoted as it shows, since the node's words may relay a peer's.
-			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${shownEnds(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN}.`,
+			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${asSentence(said)}${laterTry(said)}`,
 		};
 	}
 	return { ok: true, machine: answer.machine, needs };
@@ -532,6 +536,16 @@ export function joinLine(attach: readonly string[]): string {
 }
 
 /**
+ * Where a session started held runs, as the node says it (node.ts's
+ * startedFrom), its hold and folder quoted, since another node wrote
+ * them.
+ */
+function heldAs(started: NodeStarted): string {
+	const begun = started.folder ? `"${started.folder}"` : "its home";
+	return `${started.machine} holds it as "${started.held}", begun in ${begun}`;
+}
+
+/**
  * Starts the session held on `asked.machine` and opens a terminal here
  * joined to it, or, on a dry run, says what it would do and asks the
  * node nothing.
@@ -611,7 +625,7 @@ export async function spawnHeld(
 	if (!answer.ok) {
 		return {
 			ok: false,
-			refusal: `Nothing was started on ${asked.machine}: ${answer.reason}.${unshared}`,
+			refusal: `Nothing was started on ${asked.machine}: ${asSentence(answer.reason)}${laterTry(answer.reason)}${unshared}`,
 		};
 	}
 	const outcome = window
@@ -627,11 +641,11 @@ export async function spawnHeld(
  * window opened: one opened here would land on Joel's screen.
  */
 function leftHeld(asked: HeldSpawn, started: NodeStarted): HeldSpawnOutcome {
-	const line = joinLine(started.attach);
+	const line = shownAttach(joinLine(started.attach));
 	return {
 		ok: true,
 		planned: false,
-		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${started.machine} holds it as ${started.held}, begun in ${started.folder || "its home"}). No window was opened; join it with: ${line}.`,
+		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${heldAs(started)}). No window was opened; join it with: "${line}".`,
 		details: {
 			machine: started.machine,
 			needs: asked.needs.map(needWords),
@@ -651,7 +665,8 @@ async function joined(
 	here: boolean,
 ): Promise<HeldSpawnOutcome> {
 	const line = joinLine(started.attach);
-	const held = `${started.machine} holds it as ${started.held}, begun in ${started.folder || "its home"}`;
+	const said = `"${shownAttach(line)}"`;
+	const held = heldAs(started);
 	let opened: OpenedTerminal;
 	try {
 		opened = await openTerminal(
@@ -665,14 +680,14 @@ async function joined(
 	} catch (err) {
 		return {
 			ok: false,
-			refusal: `The session started held (${held}), but its window didn't open: ${err instanceof Error ? err.message : String(err)}. Join it from a terminal with: ${line}`,
+			refusal: `The session started held (${held}), but its window didn't open: ${err instanceof Error ? err.message : String(err)}. Join it from a terminal with: ${said}`,
 		};
 	}
 	const noted = opened.notes.map((note) => ` Note: ${note}.`).join("");
 	return {
 		ok: true,
 		planned: false,
-		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${held}) and opened a ${opened.plan.layout} joined to it through ${describePlan(opened.plan)}. Closing the window leaves it running; join it again with: ${line}.${noted}`,
+		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${held}) and opened a ${opened.plan.layout} joined to it through ${describePlan(opened.plan)}. Closing the window leaves it running; join it again with: ${said}.${noted}`,
 		details: {
 			machine: started.machine,
 			needs: asked.needs.map(needWords),

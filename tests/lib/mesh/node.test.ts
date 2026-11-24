@@ -9,8 +9,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	agentsFrom,
+	asSentence,
 	heldWindowAt,
 	heldWindowFrom,
+	laterTry,
 	machineNamesAt,
 	machineNamesFrom,
 	nodeServes,
@@ -27,6 +29,22 @@ import {
 	tiesAt,
 	tiesFrom,
 } from "../../../lib/mesh/node.ts";
+
+describe("what a refusal says next", () => {
+	it("tries a reach no machine has again later, and nothing else", () => {
+		expect(laterTry("skiff lacks reach home")).toMatch(
+			/try again in some minutes/u,
+		);
+		expect(laterTry("isn't a machine named kestrel"), "a name stands").toBe("");
+		expect(laterTry("the fence refuses it"), "a fence stands").toBe("");
+	});
+
+	it("ends a reason with one full stop", () => {
+		expect(asSentence("no room")).toBe("no room.");
+		expect(asSentence("say which folder. ")).toBe("say which folder.");
+		expect(asSentence("why?")).toBe("why?");
+	});
+});
 
 let root: string;
 let servers: Server[];
@@ -403,6 +421,46 @@ describe("asking the node to start a session held", () => {
 	it("takes an answer it can't read as not started", () => {
 		const answer = startedFrom('{"Ok":{"Started":{"machine":"x"}}}');
 		expect(answer).toMatchObject({ ok: false });
+	});
+
+	it("says what a start names as it shows, its words to join it as given", () => {
+		const started = {
+			machine: "opt\u001b[8mhidden\u001b[0mimus",
+			held: "35f6\u200b5dbb",
+			folder: "/w/\u001b]0;title\u0007a\u202egnp.\u2066b\u2069\nc",
+			attach: ["mycelium", "attach", "35f6\u001b[2J"],
+		};
+		expect(startedFrom(JSON.stringify({ Ok: { Started: started } }))).toEqual({
+			ok: true,
+			started: {
+				machine: "opthiddenimus",
+				held: "35f65dbb",
+				folder: "/w/agnp.b c",
+				attach: ["mycelium", "attach", "35f6\u001b[2J"],
+			},
+		});
+	});
+
+	it("cuts what a start names to what a name or a path takes", () => {
+		const answer = startedFrom(
+			JSON.stringify({
+				Ok: {
+					Started: {
+						machine: "m".repeat(80),
+						held: "h",
+						folder: `/${"f".repeat(400)}`,
+						attach: [],
+					},
+				},
+			}),
+		);
+		expect(answer).toMatchObject({
+			ok: true,
+			started: {
+				machine: `${"m".repeat(64)}...`,
+				folder: `/${"f".repeat(299)}...`,
+			},
+		});
 	});
 
 	it("quotes an answer it can't read as it shows", () => {

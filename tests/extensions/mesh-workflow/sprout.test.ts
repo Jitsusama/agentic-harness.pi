@@ -53,12 +53,33 @@ describe("mesh_sprout", () => {
 			"make the launcher faster",
 		]);
 		expect(said(answer)).toMatch(
-			/Sprouted on skiff in \/home\/joel\/src\/core\.nix/u,
+			/Sprouted on skiff in "\/home\/joel\/src\/core\.nix"/u,
 		);
 		expect(said(answer)).toMatch(
 			/A quest it makes, it asks to tie to this cell, 42P0R4, on the map as it starts; one it joins, this start doesn't tie\. Until the map shows the tie, it isn't there/u,
 		);
-		expect(said(answer)).toMatch(/mycelium attach 01JHELD/u);
+		expect(said(answer)).toMatch(/"mycelium attach 01JHELD"/u);
+	});
+
+	it("says what the node names as it shows, quoted", async () => {
+		const stdout = JSON.stringify({
+			Ok: {
+				Started: {
+					machine: "skiff",
+					held: "01JHELD",
+					folder: "/src/\u001b[8mrun this\u001b[0m\u202edlrow",
+					attach: ["mycelium", "attach", "01JHELD\u001b]0;x\u0007"],
+				},
+			},
+		});
+		const { run } = answering({ code: 0, stdout, stderr: "" });
+		const answer = await sproutFrom({ words: "tea" }, "/", undefined, run);
+		expect(said(answer)).toMatch(
+			/Sprouted on skiff in "\/src\/run thisdlrow"/u,
+		);
+		expect(said(answer)).toMatch(/with: "mycelium attach 01JHELD"$/u);
+		expect(said(answer).includes("\u001b"), "no ESC").toBe(false);
+		expect(said(answer).includes("\u202e"), "no bidi override").toBe(false);
 	});
 
 	it("ties nothing from a session off the mesh", async () => {
@@ -82,6 +103,18 @@ describe("mesh_sprout", () => {
 		);
 		expect(said(answer)).toBe(
 			"⊘ Nothing was sprouted: mycelium sprout: that machine has no such folder",
+		);
+	});
+
+	it("says a reach no machine has yet may come, so try again later", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "",
+			stderr: "mycelium: skiff lacks reach home\n",
+		});
+		const answer = await sproutFrom({ words: "tea" }, "/", "42P0R4", run);
+		expect(said(answer)).toBe(
+			"⊘ Nothing was sprouted: mycelium: skiff lacks reach home. A machine with that reach may join the realm later, so try again in some minutes, not at once.",
 		);
 	});
 
