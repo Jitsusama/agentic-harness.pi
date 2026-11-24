@@ -43,6 +43,8 @@ export interface HeldOrder {
 	 * owes nothing, or once the start has ended.
 	 */
 	ahead(sessionId: string): Promise<void>;
+	/** Whether someone waits on its resume, as `ahead` asked. */
+	waitedOn(sessionId: string): boolean;
 	/** The next the start resumes, or none once it owes no more. */
 	next(): RosterEntry | undefined;
 	/** The start is done with it, resumed or not. */
@@ -84,6 +86,7 @@ export function heldOrder(roster: HostRoster): HeldOrder {
 			}
 			return wait.done;
 		},
+		waitedOn: (sessionId) => waiting.has(sessionId),
 		next: () => asked.shift() ?? rest.shift(),
 		settled,
 		end() {
@@ -199,9 +202,13 @@ export async function resumeHeld(options: {
 			// back once a message or a window asks. One a wake pulled forward
 			// is bounded too: given up, that wake finds it not running and
 			// resumes it itself, waiting while it starves.
-			if (options.children?.moves(sessionId))
-				await options.children.resume(entry, false, true);
-			else {
+			if (options.children?.moves(sessionId)) {
+				const resume = options.children.resume(entry, false, true);
+				// One asked for before the start reached it was hurried while
+				// nothing was starting it, so it is hurried now (F65 on #2080).
+				if (order.waitedOn(sessionId)) options.children.hurry?.(sessionId);
+				await resume;
+			} else {
 				// A child an earlier host left, which the adopt couldn't take
 				// up, may run it still: never two processes on one file.
 				await options.children?.left(sessionId);

@@ -376,16 +376,16 @@ export function hostBackend(options: {
 	}
 
 	// Asked as the call comes, not in its turn, so the start resumes those
-	// asked for in the order they were.
+	// asked for in the order they were. The host's start may be resuming it
+	// already, at the start gate behind others nobody waits on: whoever
+	// waits on that resume (a wake, a window's attach, an abort) hurries it
+	// as it asks, and one the start hasn't reached is hurried once it does.
 	function startOwes(sessionId: string): Promise<void> {
+		children?.hurry?.(sessionId);
 		return options.held?.ahead(sessionId) ?? Promise.resolve();
 	}
 
 	function wake(sessionId: string): Promise<void> {
-		// The host's start may be resuming it already, at the start gate
-		// behind others nobody waits on: this wake waits on that resume
-		// rather than starting its own, so it hurries it as it is asked.
-		children?.hurry?.(sessionId);
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
