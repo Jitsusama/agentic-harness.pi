@@ -352,6 +352,48 @@ describe("arriving beside a twin that lacks what a tree needs", () => {
 		});
 	});
 
+	it("says git's own reason where a needed commit's fetch fails, refusing the tree", async () => {
+		const home = folder(made, "arriving");
+		const { from, pushed } = await needingOrigin(home);
+		const failing: Exec = (command, args) =>
+			fetchesNeed(args)
+				? Promise.resolve({
+						code: 128,
+						stdout: "",
+						stderr: "fatal: Could not read from remote repository.\n",
+					})
+				: exec(command, args);
+
+		const { whole, said } = await arriveThrough(home, from, failing);
+
+		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
+		expect(said[0]).toMatchObject({
+			did: "refused",
+			why: `It needs ${pushed.topic} from origin/topic, but git couldn't fetch it: fatal: Could not read from remote repository.`,
+		});
+		expect(
+			existsSync(join(home, "src", "app")),
+			"the tree cloned here is taken out",
+		).toBe(false);
+	});
+
+	it("says no remote gave a needed commit where its fetch went but didn't bring it", async () => {
+		const home = folder(made, "arriving");
+		const { from, pushed } = await needingOrigin(home);
+		const empty: Exec = (command, args) =>
+			fetchesNeed(args)
+				? Promise.resolve({ code: 0, stdout: "", stderr: "" })
+				: exec(command, args);
+
+		const { whole, said } = await arriveThrough(home, from, empty);
+
+		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
+		expect(said[0]).toMatchObject({
+			did: "refused",
+			why: `It needs ${pushed.topic} from origin/topic, which no remote here gave.`,
+		});
+	});
+
 	it("shares one hour among every commit a tree needs, naming the one it ran out before", async () => {
 		const home = folder(made, "arriving");
 		const { from, pushed } = await needingOrigin(home, ["one", "two"]);
