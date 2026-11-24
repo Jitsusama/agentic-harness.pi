@@ -23,24 +23,12 @@
  * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import {
-	createReadStream,
-	createWriteStream,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	realpathSync,
-	rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
-import { placeTakenOver } from "../quest/reopening/carried.ts";
 import { real, within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
-import { ZIPPED } from "./carry-away.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
@@ -61,6 +49,7 @@ import {
 	timed,
 	type ViewGit,
 } from "./origin-view.ts";
+import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
 import { guardedCheckoutOf, twinOf } from "./twin.ts";
 
@@ -72,15 +61,6 @@ export const WAITING_SAID_MS = 30_000;
 
 /** How often the handover folder is looked at while waiting. */
 const LOOK_MS = 1000;
-
-/**
- * The most a gzipped session file is unzipped to: 2 GiB. Logs gzip
- * about four to one, so the largest the share carries, 64 MiB gzipped,
- * unzips to about 256 MiB, an eighth of it. A gzip of 64 MiB can unzip
- * to a thousand times its size, which would fill the scratch's disk, so
- * unzipping stops there.
- */
-export const LARGEST_UNZIPPED = 2 * 1024 * 1024 * 1024;
 
 /**
  * How long a tree has to clone or fetch its origin and fetch the commits
@@ -128,8 +108,8 @@ export type ArrivalLine =
 			readonly fence?: FenceKind;
 	  };
 
-/** What arriving needs. */
-export interface Arriving {
+/** What arriving needs; its scratch, sessions and unzip bound place the session. */
+export interface Arriving extends Placing {
 	readonly exec: Exec;
 	/** The handover folder the carrying machine wrote: `handover/<machine>/`. */
 	readonly from: string;
@@ -137,10 +117,6 @@ export interface Arriving {
 	readonly session: string;
 	/** This machine's home, under which paths within home are made whole. */
 	readonly home: string;
-	/** The quest's scratch folder here, which the handover folder lies in. */
-	readonly scratch: string;
-	/** pi's session store. */
-	readonly sessions: string;
 	readonly clock: Clock;
 	readonly say: (line: ArrivalLine) => void;
 	/** Adds the quest's carried facts that this machine lacks, answering how many. */
@@ -148,8 +124,6 @@ export interface Arriving {
 		quest: string,
 		notes: readonly CarriedNote[],
 	) => Promise<number>;
-	/** The most a gzipped session file unzips to; `LARGEST_UNZIPPED` unless a test names less. */
-	readonly largestUnzipped?: number;
 	/** Where the work tool cuts trees; its own folder unless a test names one. */
 	readonly trees?: string;
 }
@@ -222,80 +196,6 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		...(handover.fence === undefined ? {} : { fence: handover.fence }),
 	});
 	return whole;
-}
-
-/**
- * Places the session `id` carried at `file` for `cwd`, as
- * `placeTakenOver` does, answering where. A file carried gzipped, as
- * one larger than the share takes is, is unzipped first into the
- * scratch's tmp/, which is never shared, under its own name, and that
- * copy is removed once placed. One that unzips past
- * `arriving.largestUnzipped` is refused, saying so, once it passes it.
- */
-async function placeSession(
-	id: string,
-	file: string,
-	cwd: string,
-	arriving: Arriving,
-): Promise<string | undefined> {
-	if (!file.endsWith(ZIPPED)) {
-		return placeTakenOver(id, file, cwd, arriving.sessions);
-	}
-	const tmp = join(arriving.scratch, "tmp");
-	mkdirSync(tmp, { recursive: true });
-	const unzipping = mkdtempSync(join(tmp, "arriving-"));
-	try {
-		const plain = join(unzipping, basename(file).slice(0, -ZIPPED.length));
-		await pipeline(
-			createReadStream(file),
-			createGunzip(),
-			atMost(arriving.largestUnzipped ?? LARGEST_UNZIPPED),
-			createWriteStream(plain),
-		);
-		return placeTakenOver(id, plain, cwd, arriving.sessions);
-	} finally {
-		rmSync(unzipping, { recursive: true, force: true });
-	}
-}
-
-/** What a session file pi wrote is named with. */
-const SESSION_LOG = ".jsonl";
-
-/**
- * Whether a carried session file's name is one of the forms arriving
- * here reads: a log as pi wrote it, or one gzipped. A harness older than
- * a form a newer one carries in, as one before the gzip was for a
- * `.jsonl.gz`, could only say the file held another session.
- */
-function isReadForm(name: string): boolean {
-	return name.endsWith(SESSION_LOG) || name.endsWith(`${SESSION_LOG}${ZIPPED}`);
-}
-
-/**
- * A step of a pipeline that passes on what it is given until that
- * passes `largest` bytes, and then fails, saying so.
- */
-function atMost(
-	largest: number,
-): (source: AsyncIterable<Buffer>) => AsyncGenerator<Buffer> {
-	return async function* (source) {
-		let passed = 0;
-		for await (const chunk of source) {
-			passed += chunk.length;
-			if (passed > largest) {
-				throw new Error(
-					`it unzips to more than ${mib(largest)} MiB, the most arriving unzips, so it wasn't unzipped further`,
-				);
-			}
-			yield chunk;
-		}
-	};
-}
-
-/** `bytes` in MiB, whole when it is whole. */
-function mib(bytes: number): string {
-	const inMib = bytes / (1024 * 1024);
-	return Number.isInteger(inMib) ? String(inMib) : inMib.toFixed(1);
 }
 
 /**
