@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
 import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
-import { shownEnds } from "./shown-line.ts";
+import { hidingAll, shownEnds } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -185,11 +185,11 @@ export async function sprout(
 		};
 	}
 	if (line && (!said || isJson(line))) return startedFrom(line);
+	const ended = `mycelium sprout ended with ${ran.code ?? "no code"}`;
 	return {
 		ok: false,
 		reason:
-			said ||
-			`mycelium sprout ended with ${ran.code ?? "no code"} and said nothing`,
+			said || (hidingAll(ended, ran.stderr) ?? `${ended} and said nothing`),
 	};
 }
 

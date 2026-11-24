@@ -44,7 +44,7 @@ import {
 	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { lastShownLine } from "../../../lib/mesh/shown-line.ts";
+import { hidingAll, lastShownLine } from "../../../lib/mesh/shown-line.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -795,7 +795,8 @@ async function tie(
 		return { kind: "failed", from, why, retry: false };
 	}
 	const said = lastLine(ran.stderr);
-	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
+	const ended = `it ended with ${ran.code ?? "no code"}`;
+	const why = said ? wroteSaid(said) : (hidingAll(ended, ran.stderr) ?? ended);
 	return { kind: "failed", from, why };
 }
 
