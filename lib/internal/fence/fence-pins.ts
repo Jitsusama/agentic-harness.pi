@@ -39,6 +39,9 @@ const TAKES: Readonly<Record<string, number>> = {
 	"--ro-bind": 2,
 	"--ro-bind-try": 2,
 	"--dev-bind": 2,
+	// A link made where it lands, which mounts nothing: read as its target
+	// and the place it is made.
+	"--symlink": 2,
 };
 
 /** One option in bubblewrap's arguments, with where it is and what it mounts. */

@@ -863,6 +863,58 @@ describe("the fence's arguments", () => {
 		).toBe(false);
 	});
 
+	it("lays the session's own quest's TMPDIR link alone in the emptied runtime folder", () => {
+		const scratch = {
+			root: "/home/someone/.cache/pi/quest-workspace",
+			own: "/home/someone/.cache/pi/quest-workspace/QEST-1",
+		};
+		const link = `${place.runtimeDir}/pi-quest-QEST-1`;
+		const given = fenceArgs(
+			{ ...place, scratch },
+			diskWith(place.home, [".cache"]),
+		);
+
+		const made = given.indexOf("--symlink");
+		expect(given.slice(made, made + 3)).toEqual([
+			"--symlink",
+			`${scratch.own}/tmp`,
+			link,
+		]);
+		const emptied = given.findIndex(
+			(arg, i) => arg === "--tmpfs" && given[i + 1] === place.runtimeDir,
+		);
+		expect(
+			emptied >= 0 && made > emptied,
+			"made after the runtime folder is emptied, which would hide it",
+		).toBe(true);
+		expect(
+			given.filter((arg) => arg === "--symlink"),
+			"one link, and no other quest's",
+		).toHaveLength(1);
+		expect(
+			fenceArgs(place, diskWith(place.home, [".cache"])),
+			"a session on no quest has no link",
+		).not.toContain("--symlink");
+
+		const at = { ...place, scratch };
+		expect(
+			fenceRefusesWrite(`${link}/x`, at),
+			"pi's file tools write through the link to the scratch it leads to",
+		).toBe(false);
+		expect(
+			fenceRefusesWrite(link, at),
+			"the link itself lies in the runtime folder, so it isn't replaced",
+		).toBe(true);
+		expect(
+			fenceRefusesWrite(`${place.runtimeDir}/pi-quest-QEST-2/x`, at),
+			"another quest's link name in the runtime folder is the runtime folder's",
+		).toBe(true);
+		expect(
+			fenceRefusesWrite(`${link}/x`, { ...place }),
+			"without a quest, the link's name is the runtime folder's too",
+		).toBe(true);
+	});
+
 	it("keeps every quest's shared folder read-only but the session's own, as its scratches are", () => {
 		const share = {
 			root: "/home/someone/.cache/pi/quest-shares",

@@ -14,19 +14,13 @@ import {
 	resolve,
 	sep,
 } from "node:path";
+import { TEMP_LINK_PREFIX } from "../fence/fence-quest-temp.ts";
 import {
 	questSharesRoot,
 	questWorkspacesRoot,
 } from "../quest/workspace/workspace-root.ts";
 import { cutTreeDir } from "../work-records.ts";
 import { real } from "./tree-git.ts";
-
-/**
- * The start of the name of the link a quest's `TMPDIR` is, followed by
- * its quest's id: the quest workflow's `TEMP_LINK_PREFIX`, which a
- * test holds it to, since lib reads no extension.
- */
-export const TEMP_LINK_PREFIX = "pi-quest-";
 
 /** The folder beside the quests' scratches where carries stage (stage.ts). */
 export const CARRY_STAGING = ".carrying";
