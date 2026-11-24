@@ -4,7 +4,13 @@
  * again, read from the notes the sweep leaves for that session alone.
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,6 +31,20 @@ afterEach(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
+
+/**
+ * A worktree's folder under `dir` named `name`, its `.git` file naming a
+ * git folder whose HEAD is on `branch`, as git leaves one.
+ */
+function worktreeAt(dir: string, name: string, branch: string): string {
+	const path = join(dir, name);
+	const gitDir = join(dir, "git", name);
+	mkdirSync(path, { recursive: true });
+	mkdirSync(gitDir, { recursive: true });
+	writeFileSync(join(path, ".git"), `gitdir: ${gitDir}\n`);
+	writeFileSync(join(gitDir, "HEAD"), `ref: refs/heads/${branch}\n`);
+	return path;
+}
 
 /** A folder of notes, removed after the test. */
 function notesFolder(): string {
@@ -80,10 +100,26 @@ describe("telling a session which of its trees the sweep took", () => {
 		).toEqual(branches);
 	});
 
+	it("keeps telling of a tree while something else stands at its path", async () => {
+		const dir = notesFolder();
+		const path = worktreeAt(dir, "taken", "someone-elses");
+		keepBranch(dir, {
+			checkout: "/src/core",
+			branch: "taken",
+			commit: "e".repeat(40),
+			path,
+			sessions: ["01ours"],
+			takenAt: 1000,
+		});
+
+		expect(branchesKeptForSession(dir, "01ours")).toHaveLength(1);
+		const kept = await branchesKeptFor(nothingRun, dir, new Set(["01ours"]));
+		expect(kept.get("/src/core")).toEqual(new Set(["taken"]));
+	});
+
 	it("says nothing more of a tree once it stands again, and lets its note go", async () => {
 		const dir = notesFolder();
-		const again = join(dir, "cut-again");
-		mkdirSync(again);
+		const again = worktreeAt(dir, "cut-again", "asked-again");
 		keepBranch(dir, {
 			checkout: "/src/core",
 			branch: "asked-again",

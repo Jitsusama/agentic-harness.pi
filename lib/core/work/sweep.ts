@@ -51,6 +51,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { isLockHeld } from "../internal/file-lock.ts";
@@ -892,7 +893,10 @@ async function takeIdleWorktree(
 			{ keepBranch: true },
 		);
 	} finally {
-		if (outcome.taken.length === taken) unkeep();
+		// Undone only while the tree stands where it was: one moved aside
+		// whose leftovers wouldn't all go has left its path all the same,
+		// and its session still needs its branch and the telling.
+		if (outcome.taken.length === taken && existsSync(tree.path)) unkeep();
 	}
 }
 

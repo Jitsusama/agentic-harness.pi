@@ -288,10 +288,15 @@ export async function nothingOnlyHere(
 ): Promise<{ branch: string; commit: string; remote: string } | undefined> {
 	const git = (...args: string[]) =>
 		exec("git", ["-C", path, "--no-optional-locks", ...args]);
-	const branch = await git("symbolic-ref", "--quiet", "--short", "HEAD");
+	// The full ref, since a tag of the same name makes git shorten the
+	// branch to `heads/<name>`.
+	const branch = await git("symbolic-ref", "--quiet", "HEAD");
 	const head = await git("rev-parse", "HEAD");
-	if (branch.code !== 0 || head.code !== 0) return undefined;
-	const name = branch.stdout.trim();
+	const ref = branch.stdout.trim();
+	if (branch.code !== 0 || head.code !== 0 || !ref.startsWith("refs/heads/")) {
+		return undefined;
+	}
+	const name = ref.slice("refs/heads/".length);
 	const commit = head.stdout.trim();
 	const holding = await git(
 		"for-each-ref",
@@ -328,6 +333,15 @@ export async function nothingOnlyHere(
 		return undefined;
 	}
 	if (!(await reflogHeldElsewhere(git))) return undefined;
+	// A file marked assume-unchanged or skip-worktree hides its edits from
+	// the status, so one marked keeps the tree.
+	const marked = await git("ls-files", "-v");
+	if (
+		marked.code !== 0 ||
+		marked.stdout.split("\n").some((line) => /^(?:[a-z]|S) /.test(line))
+	) {
+		return undefined;
+	}
 	const status = await git(
 		"status",
 		"--porcelain=v1",
@@ -346,15 +360,41 @@ export async function nothingOnlyHere(
 }
 
 /**
+ * The folders builds and tools make again, by name: a repository's own
+ * `.gitignore` decides what's ignored, and ignores work as readily, as
+ * this one's `.worktrees/` and `.pi/` do.
+ */
+const MADE_AGAIN = new Set([
+	"node_modules",
+	"target",
+	".direnv",
+	"dist",
+	"build",
+	"coverage",
+	"__pycache__",
+	".pytest_cache",
+	".mypy_cache",
+	".ruff_cache",
+	".turbo",
+	".next",
+	".parcel-cache",
+	".gradle",
+	".venv",
+]);
+
+/**
  * Whether a line of `git status --ignored=matching` names what a build
- * makes again: an ignored folder, as `node_modules/` or `target/`, or an
- * ignored link, as Nix's `result`. Anything else, a change, an untracked
- * file or an ignored plain file, is work found only there.
+ * makes again: an ignored folder {@link MADE_AGAIN} names, as
+ * `node_modules/` or `target/`, or an ignored link, as Nix's `result`.
+ * Anything else, a change, an untracked file, an ignored plain file or
+ * an ignored folder of any other name, is work found only there.
  */
 function madeAgain(tree: string, line: string): boolean {
 	const ignored = /^!! (.+)$/.exec(line)?.[1];
 	if (ignored === undefined) return false;
-	if (ignored.endsWith("/")) return true;
+	if (ignored.endsWith("/")) {
+		return MADE_AGAIN.has(basename(ignored.slice(0, -1)));
+	}
 	try {
 		return lstatSync(join(tree, ignored)).isSymbolicLink();
 	} catch {

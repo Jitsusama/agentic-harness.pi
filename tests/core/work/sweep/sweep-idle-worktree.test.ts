@@ -243,6 +243,54 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		);
 	});
 
+	it("keeps one whose ignored folder no build makes, as a worktree's own .worktrees/", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "nested", IDLE);
+		writeFileSync(join(tree, ".gitignore"), ".worktrees/\n");
+		await git(tree, "add", ".gitignore");
+		await git(tree, "commit", "-q", "-m", "ignore nested trees");
+		await git(tree, "push", "-q", "origin", "nested");
+		mkdirSync(join(tree, ".worktrees", "spike"), { recursive: true });
+		writeFileSync(join(tree, ".worktrees", "spike", "notes.md"), "mine\n");
+		await leaveAlone(setup, tree, IDLE);
+
+		const outcome = await sweepWhileOpen(setup);
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(join(tree, ".worktrees", "spike", "notes.md"))).toBe(
+			true,
+		);
+	});
+
+	it("keeps one with a file marked skip-worktree, whose edits the status hides", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "hidden", IDLE);
+		writeFileSync(join(tree, "local.conf"), "shared\n");
+		await git(tree, "add", "local.conf");
+		await git(tree, "commit", "-q", "-m", "add a config");
+		await git(tree, "push", "-q", "origin", "hidden");
+		await git(tree, "update-index", "--skip-worktree", "local.conf");
+		writeFileSync(join(tree, "local.conf"), "mine\n");
+		await leaveAlone(setup, tree, IDLE);
+
+		const outcome = await sweepWhileOpen(setup);
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("names its branch whole when a tag shares the name", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "shared-name", IDLE);
+		// A tag by its ref, which asks for no signing.
+		await git(tree, "update-ref", "refs/tags/shared-name", "HEAD");
+		await leaveAlone(setup, tree, IDLE);
+
+		const outcome = await sweepWhileOpen(setup);
+
+		expect(outcome.taken.map((one) => one.branch)).toEqual(["shared-name"]);
+	});
+
 	it("keeps one whose own HEAD reflog alone holds a commit made there and reset away", async () => {
 		const setup = await setUp();
 		const { tree, commit } = await pushedAndLeft(setup, "reset", IDLE);
@@ -286,9 +334,10 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		).toEqual([]);
 	});
 
-	it("takes worktrees first, so a backlog of snapshots never starves them", async () => {
+	it("takes worktrees first with half the share, so a backlog of snapshots never starves them", async () => {
 		const setup = await setUp();
-		const { tree } = await pushedAndLeft(setup, "first", IDLE);
+		const { tree } = await pushedAndLeft(setup, "first", IDLE + HOUR);
+		await pushedAndLeft(setup, "second", IDLE);
 		// An older snapshot, which the snapshots' own turn would take first.
 		const snapshot = join(setup.state, "older-snapshot");
 		await pinnedWhereNoRefHolds(setup.main, setup.memory, snapshot, [RUNNING]);
@@ -302,10 +351,11 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 			facts: machine,
 			liveSessions: async () => new Set([OPEN_SESSION]),
 			busyAmong: async () => new Set(),
-			idleTakes: 1,
+			idleTakes: 2,
 		});
 
-		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree, snapshot]);
+		expect(outcome.idleWorktreesLeft, "worktrees left past their half").toBe(1);
 	});
 
 	it("keeps one used within the day", async () => {

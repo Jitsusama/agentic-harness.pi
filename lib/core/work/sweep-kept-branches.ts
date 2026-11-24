@@ -14,7 +14,6 @@
 
 import { createHash } from "node:crypto";
 import {
-	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -22,10 +21,11 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { resolvedPath } from "./in-use.ts";
 import { dropMergedBranch } from "./merged-branch.ts";
+import { readPlain } from "./plain-file.ts";
 
 /**
  * The folder beside the sweep's lock that keeps the notes, named once so
@@ -154,8 +154,23 @@ export function branchesKeptForSession(
 ): KeptBranch[] {
 	return keptBranches(dir)
 		.map(({ kept }) => kept)
-		.filter((kept) => kept.sessions.includes(session) && !existsSync(kept.path))
+		.filter((kept) => kept.sessions.includes(session) && !standsAgain(kept))
 		.sort((a, b) => a.takenAt - b.takenAt);
+}
+
+/**
+ * Whether the tree a note kept the branch of stands again: a worktree at
+ * its path with that branch checked out, as its `.git` file and its git
+ * folder's HEAD say. Anything else there, another branch or a folder of
+ * any kind, leaves the note standing.
+ */
+function standsAgain(kept: KeptBranch): boolean {
+	const said = /^gitdir: (.+)$/m.exec(
+		readPlain(join(kept.path, ".git")) ?? "",
+	)?.[1];
+	if (said === undefined) return false;
+	const head = readPlain(join(resolve(kept.path, said.trim()), "HEAD"))?.trim();
+	return head === `ref: refs/heads/${kept.branch}`;
 }
 
 /**
@@ -163,7 +178,7 @@ export function branchesKeptForSession(
  * resolve, once each note whose sessions have all ended is let go: its
  * branch dropped if trunk holds all of it, as release drops one, and the
  * note removed. A note whose tree stands again goes too, its work done:
- * the branch is checked out there. With `live` unknown every other note
+ * its branch is checked out at its path again. With `live` unknown every other note
  * stands, since ending one early could lose the head a session asks for.
  */
 export async function branchesKeptFor(
@@ -173,7 +188,7 @@ export async function branchesKeptFor(
 ): Promise<Map<string, Set<string>>> {
 	const kept = new Map<string, Set<string>>();
 	for (const { file, kept: note } of keptBranches(dir)) {
-		if (existsSync(note.path)) {
+		if (standsAgain(note)) {
 			rmSync(file, { force: true });
 			continue;
 		}
