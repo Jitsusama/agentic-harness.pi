@@ -58,14 +58,19 @@ parentPort.on("message", (told) => {
 	if (told === "done") process.exit(0);
 	else ids = told;
 });
-// From when it was armed, since a starved machine may be slow to start it.
+// From when it was armed, since a starved machine may be slow to start it:
+// the wall clock once, to learn what is owed, then this thread's monotonic
+// clock, so a wall clock stepped back can't hold the end past systemd's kill.
+const owed = Math.max(0, within - (Date.now() - began));
+const armed = performance.now();
 function fire() {
-	const waited = Date.now() - began;
-	// A timer may fire a millisecond early by the clock: never end it early.
-	if (waited < within) {
-		setTimeout(fire, within - waited);
+	// A timer may fire a millisecond early: never end it early.
+	const short = owed - (performance.now() - armed);
+	if (short > 0) {
+		setTimeout(fire, Math.ceil(short));
 		return;
 	}
+	const waited = Date.now() - began;
 	const left = ids.length > 0 ? ": " + ids.join(", ") : "";
 	// The mark first, as a write to a journal that has stopped reading can block.
 	if (ids.length > 0)
@@ -82,7 +87,7 @@ function fire() {
 	}
 	process.kill(pid, "SIGKILL");
 }
-setTimeout(fire, Math.max(0, within - (Date.now() - began)));
+setTimeout(fire, owed);
 `;
 
 /** A backstop that couldn't start, leaving the stop to its loop's timer. */

@@ -684,7 +684,9 @@ export function hostBackend(options: {
 				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
-			await undoing(prepared, () => engine.discard(prepared));
+			await undoing(prepared, "discarding its engine", () =>
+				engine.discard(prepared),
+			);
 			throw error;
 		}
 		mark("roster");
@@ -695,8 +697,12 @@ export function hostBackend(options: {
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
 				// Each on its own, so a discard that fails still drops its hold.
-				await undoing(prepared, () => engine.discard(prepared));
-				await undoing(prepared, () => roster.drop(prepared.sessionId));
+				await undoing(prepared, "discarding its engine", () =>
+					engine.discard(prepared),
+				);
+				await undoing(prepared, "dropping its hold", () =>
+					roster.drop(prepared.sessionId),
+				);
 			} else if (typeof error === "object" && error !== null) {
 				// Its repeat is told the same, not given a second.
 				leftHeld.set(error, prepared.sessionId);
@@ -707,15 +713,25 @@ export function hostBackend(options: {
 	}
 
 	// Undoing a failed start that fails too is said, and the start's own
-	// failure is still the one its caller and the journal hear (F52).
-	async function undoing(prepared: Prepared, undo: () => Promise<void>) {
+	// failure is still the one its caller and the journal hear (F52). Each
+	// undo is named, so the journal says which one failed.
+	async function undoing(
+		prepared: Prepared,
+		step: string,
+		undo: () => Promise<void>,
+	) {
 		try {
 			await undo();
 		} catch (error) {
 			const why = firstLine(error);
-			options.say?.(
-				`${prepared.sessionId}: undoing its failed start failed too${why ? `: ${why}` : ", with no reason given"}`,
-			);
+			try {
+				options.say?.(
+					`${prepared.sessionId}: undoing its failed start failed too, ${step}${why ? `: ${why}` : ", with no reason given"}`,
+				);
+			} catch {
+				// A journal that can't take the line must not skip the next undo;
+				// the start's own failure is still thrown to its caller.
+			}
 		}
 	}
 
