@@ -469,8 +469,8 @@ describe("a host's mirror of a folder", () => {
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
 		const before = listings();
-		// Long enough for a dozen polls, each asked for.
 		for (let poll = 0; poll < 12; poll += 1) {
+			// A poll's length a turn, so a dozen polls pass, each asked for.
 			await new Promise((done) => setTimeout(done, 25));
 			folder.files();
 		}
