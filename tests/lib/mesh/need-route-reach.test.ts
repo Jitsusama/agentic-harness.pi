@@ -267,6 +267,26 @@ describe("an ended cell owning a need", () => {
 		expect(found).not.toHaveProperty("fellShort");
 	});
 
+	it("names the ended cell working on most as owner when several would own it", () => {
+		const found = routeNeed(asked("A", "dates", "delivery", "slots"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				K: ["dates", "delivery", "slots"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "J", 1], ["A", "K", 1], ["A", "B", 1]),
+			hubs: [],
+			live: (address) => address !== "J" && address !== "K",
+		});
+
+		expect(found, "K, though listed after J").toMatchObject({
+			fit: null,
+			ended: ["K"],
+			fellShort: "B",
+		});
+	});
+
 	it("owns it past a nearer ended cell working on less, tried alone", () => {
 		const reach = {
 			foragers: cells({
@@ -362,7 +382,9 @@ describe("an ended cell owning a need", () => {
 		expect(found).not.toHaveProperty("fellShort");
 	});
 
-	it("owns nothing by a tie heard more than six hours ahead, or at no time a number weighs", () => {
+	// NaN and Infinity compare false with no guard of their own, so these
+	// pin that the check stays a comparison that does.
+	it("owns nothing by a tie heard more than six hours ahead, or at NaN or Infinity", () => {
 		const reach = (heard: number) => ({
 			foragers: cells({ A: [], J: ["dates", "delivery"], B: ["delivery"] }),
 			ties: ties(["A", "B", 1], ["A", "J", 1, heard]),

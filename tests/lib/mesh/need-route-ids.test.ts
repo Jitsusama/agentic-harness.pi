@@ -153,6 +153,24 @@ describe("a need for the id a cell holds", () => {
 		expect(found, "leg-26's cell works on no leg of 27").not.toHaveProperty(
 			"ended",
 		);
+		expect(found, "nor is leg said as only an ended cell's").not.toHaveProperty(
+			"unheld",
+		);
+	});
+
+	it("says no word of a need for leg 27 unheld that only a live leg-26 cell holds", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({ A: [], E: wordsOf("leg-26"), F: ["easing"] }),
+				ties: ties(["A", "F", 1], ["A", "E", 1]),
+				hubs: [],
+				live: () => true,
+			},
+		);
+
+		expect(found).toMatchObject({ fit: "F" });
+		expect(found).not.toHaveProperty("unheld");
 	});
 
 	it("still reaches a seam's holder by its plain words, its id unsaid", () => {

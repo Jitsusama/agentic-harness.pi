@@ -19,7 +19,9 @@
  * tie in the last day, which was heard along within `OWNER_TIE_AGE_MS`,
  * counts, so a record the node keeps after its session crashed stops
  * owning needs six hours after a tie's last message, and however much
- * others send to it, a day after its own.
+ * others send to it, a day after its own. The realm's cells are trusted
+ * to say their words honestly: one declaring broad subjects could always
+ * draw needs, and now, once ended, holds them back for that long.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -344,6 +346,7 @@ export function foragersFrom(line: string): Forager[] {
 	return recordsOf(line).flatMap((record): Forager[] => {
 		const { key, title, repo, subjects } = record;
 		if (typeof key !== "string" || !key.startsWith("cell:")) return [];
+		if (!CELL_ADDRESS.test(key.slice("cell:".length))) return [];
 		const declared = firstSubjects(subjects);
 		const said = [title, repo].filter((one) => typeof one === "string");
 		const titled = wordsOf(said.join(" "));
@@ -355,6 +358,13 @@ export function foragersFrom(line: string): Forager[] {
 		];
 	});
 }
+
+/**
+ * What a cell's address may be, so a key the node holds that says
+ * anything more never reaches a reply: an asker is told who ended and
+ * who fell short by address, in guidance it acts on.
+ */
+const CELL_ADDRESS = /^[A-Za-z0-9_-]{1,32}$/u;
 
 /**
  * The first `MOST_SUBJECTS` strings a record's `subjects` declares,
@@ -705,29 +715,40 @@ function routeAs(
 	// and walks, so a resend once it is back reaches it, or a cell covering
 	// as much or more that it leads to: walked through, it may reach one
 	// found first or found by a word it lacks.
-	const owners = reach.foragers
+	// Tried best first, so routing stops at the first that owns it: after
+	// many cells crash at once, only those ranked above it cost a route.
+	const owner = reach.foragers
 		.map(({ address }) => address)
 		.filter(
 			(address) =>
 				ended(address) &&
 				needed(address) > needed(found.fit) &&
-				heardWithin(reach.ties, address, said.at) &&
-				routeAs(said, reach, address).fit === address,
-		);
+				heardWithin(reach.ties, address, said.at),
+		)
+		.sort((one, other) =>
+			better(one, other) ? -1 : better(other, one) ? 1 : 0,
+		)
+		.find((address) => routeAs(said, reach, address).fit === address);
 	// Words only ended cells work on are said, whenever those were heard
 	// from, else the asker hears nothing of them, as a need about dates
 	// delivery going by delivery alone once did. Read as fitsOn reads a
 	// word, but of any cell there, so one that stopped the asker holds it.
-	const there = (address: string, word: string) =>
+	// A word no cell works on as this need reads it, a leg-26 cell's leg
+	// for a need for leg-27, is no ended cell's either, so goes unsaid.
+	const worksOn = (address: string, word: string) =>
 		!selves.has(address) &&
-		present(address) &&
 		holds(address, word) &&
 		!holdsOtherNumber(address, word);
-	const unheld = lacking.filter(
-		(word) => !reach.foragers.some(({ address }) => there(address, word)),
-	);
+	const unheld = lacking.filter((word) => {
+		const workers = reach.foragers.filter(({ address }) =>
+			worksOn(address, word),
+		);
+		return (
+			workers.some(({ address }) => ended(address)) &&
+			!workers.some(({ address }) => present(address))
+		);
+	});
 	const saidUnheld = unheld.length > 0 ? { unheld } : {};
-	const owner = best(owners);
 	if (owner !== undefined) {
 		return {
 			...record([], null, new Set([owner])),
@@ -787,15 +808,14 @@ function routeAs(
  * word on when. Its own sending is asked, since others asking after a
  * crashed cell may keep its ties fresh. A tie the node gave no time for
  * never counts, nor one heard further ahead of `at` than that, as a
- * clock stepped back says, nor at a time no number can weigh, so no bad
- * stamp makes a record own needs for good.
+ * clock stepped back says; a time no number weighs, NaN or Infinity,
+ * compares false, so no bad stamp makes a record own needs for good.
  */
 function heardWithin(ties: TieGraph, address: string, at: number): boolean {
 	return (ties.get(address) ?? []).some(
 		({ heard, spoke }) =>
 			spoke === true &&
 			heard !== undefined &&
-			Number.isFinite(heard) &&
 			Math.abs(at - heard) <= OWNER_TIE_AGE_MS,
 	);
 }

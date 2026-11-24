@@ -183,18 +183,20 @@ export async function needRead(
 	// numbered id, leg-27, only whole. A word kept that only ended cells
 	// work on, which routing says, is said whatever was dropped.
 	const kept = new Set(found.words);
-	const unasked = unaskedText(
-		fromText || found.words.length >= MOST_WORDS
-			? []
-			: words.filter(
-					(word) => word.length <= LONGEST_WORD && !saysWord(word, kept),
-				),
-		found.unheld ?? [],
-		found.words,
-	);
+	const unasked = (went: Went) =>
+		unaskedText(
+			fromText || found.words.length >= MOST_WORDS
+				? []
+				: words.filter(
+						(word) => word.length <= LONGEST_WORD && !saysWord(word, kept),
+					),
+			found.unheld ?? [],
+			found.words,
+			went,
+		);
 	if (found.fit === null && found.fellShort !== undefined) {
 		return refused(
-			`${ownerText(found, found.fellShort, about)}${unasked} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${await whomToAsk(at, true, gone)}`,
+			`${ownerText(found, found.fellShort, about)}${unasked("owned")} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${await whomToAsk(at, true, gone)}`,
 		);
 	}
 	if (found.fit === null) {
@@ -204,7 +206,7 @@ export async function needRead(
 				? "Name another peer it is for by address."
 				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${unasked}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${await whomToAsk(at, true, gone)}`,
+			`no live cell within three ties that hears this peer works on ${about}.${unasked("lost")}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${await whomToAsk(at, true, gone)}`,
 		);
 	}
 	if (found.fit === asker) {
@@ -214,24 +216,33 @@ export async function needRead(
 	}
 	return {
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
-		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${unasked}${ended} ${NEED_GRANTS_NOTHING}`,
+		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${unasked("sent")}${ended} ${NEED_GRANTS_NOTHING}`,
 	};
 }
 
 /**
+ * What became of a need, as its words' sentence tells it: sent to its
+ * fit, refused for an owner that ended, or lost with nothing found.
+ */
+type Went = "sent" | "owned" | "lost";
+
+/**
  * The words of an about no cell works on, and of those kept no live
- * cell does, as a sentence, or nothing. Said with the words it was
- * routed by, so a word only ended cells work on is left out of those.
+ * cell does, as a sentence, or nothing. A need sent says the words it
+ * was routed by and one refused for its owner those its fit was found
+ * by, a word only ended cells work on left out of either; a lost one,
+ * having gone nowhere, says neither.
  */
 function unaskedText(
 	noCell: readonly string[],
 	noLive: readonly string[],
 	kept: readonly string[],
+	went: Went,
 ): string {
 	const unheld = new Set(noLive);
 	const routed = kept.filter((word) => !unheld.has(word));
 	const count = noCell.length + noLive.length;
-	if (count === 0 || routed.length === 0) return "";
+	if (count === 0 || (went !== "lost" && routed.length === 0)) return "";
 	const cells = [
 		...(noCell.length > 0 ? [`No cell works on ${noCell.join(", ")}`] : []),
 		...(noLive.length > 0
@@ -242,16 +253,23 @@ function unaskedText(
 				]
 			: []),
 	].join(", and ");
+	if (went === "lost") return ` ${cells}.`;
 	const one = count === 1;
-	return ` ${cells}, so ${one ? "it" : "they"} found nobody and it was routed by ${routed.join(" ")} alone.`;
+	const by = routed.join(" ");
+	const tail =
+		went === "sent"
+			? `it was routed by ${by} alone`
+			: `the live cell was found by ${by} alone`;
+	return ` ${cells}, so ${one ? "it" : "they"} found nobody and ${tail}.`;
 }
 
 /**
  * Why a need whose owner has ended is lost though a live cell was found:
  * routing would have sent it to the one cell named in `ended`, were it
  * alone there, and that cell worked on more of it than `fit`. Said as
- * not present, since the node lists it with no presence here, which a
- * link down to its machine leaves too. Once it is back a resend reaches
+ * not present, since the node lists it with no presence here: it
+ * crashed, or its presence never reached this machine, as one whose
+ * machine is only out of reach still counts as there. Once it is back a resend reaches
  * it, or a cell covering as much or more that it leads to; unless it
  * stopped this one, which is known only of a present cell.
  */
