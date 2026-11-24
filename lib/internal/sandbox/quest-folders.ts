@@ -35,7 +35,10 @@ export const TEMP_LINK_PREFIX = "pi-quest-";
  * link is never followed: it lies in `/tmp`, which a fenced command
  * writes, and swapped for one into another quest's scratch it would
  * have that scratch, and its share, bound writable (85PKB2, 19
- * November). An own folder that is a link, or isn't there, is none.
+ * November). An own folder that is a link, or isn't there, is none,
+ * as is one whose name starts with a dot: no quest's id does, and the
+ * staging carries keep beside the scratches is one (stage.ts), which a
+ * `TMPDIR` naming it would otherwise have bound writable.
  */
 export function questScratch(
 	temporary: string | undefined,
@@ -43,7 +46,7 @@ export function questScratch(
 ): { root: string; own?: string } {
 	const top = real(root);
 	const quest = temporary ? questNamed(resolve(temporary), top, root) : "";
-	if (quest === "" || quest === "." || quest === "..") return { root: top };
+	if (quest === "" || quest.startsWith(".")) return { root: top };
 	const own = join(top, quest);
 	return isFolderItself(own) ? { root: top, own } : { root: top };
 }

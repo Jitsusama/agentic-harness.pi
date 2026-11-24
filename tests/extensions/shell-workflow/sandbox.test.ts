@@ -427,6 +427,14 @@ describe("a session's quest scratch folder", () => {
 				root,
 			});
 			expect(questScratch(undefined, root)).toEqual({ root });
+			mkdirSync(join(root, ".carrying/tmp"), { recursive: true });
+			expect(
+				questScratch(join(root, ".carrying/tmp"), root),
+				"a carry's staging is no quest's",
+			).toEqual({ root });
+			expect(questScratch(join(base, "pi-quest-.carrying"), root)).toEqual({
+				root,
+			});
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}

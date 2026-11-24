@@ -502,7 +502,7 @@ describe("a carry staged before the handover", () => {
 	});
 
 	it.skipIf(ROOT)(
-		"names what couldn't go back, and the next carry puts it back once its process is gone",
+		"names what couldn't go back, and the next carry puts it back once its carry has returned",
 		async () => {
 			const { home, tree, into } = await homeWithWork();
 			const carry = () =>
@@ -542,17 +542,17 @@ describe("a carry staged before the handover", () => {
 				"it names only what it left in the handover",
 			).toBe(true);
 
+			// Another process's, still alive, may still be carrying.
+			const owned = (pid: number) =>
+				writeFileSync(record, JSON.stringify({ ...stuck, pid }));
+			owned(process.ppid);
 			await sweepBy();
-			expect(staging(into), "its process still runs").toEqual([kept]);
+			expect(staging(into), "another live process's waits").toEqual([kept]);
 
-			const gone = spawnSync(process.execPath, ["-e", ""]).pid;
-			writeFileSync(
-				record,
-				JSON.stringify({
-					...JSON.parse(readFileSync(record, "utf8")),
-					pid: gone,
-				}),
-			);
+			// This process's, whose carry has returned, goes back before the
+			// next carry places anything, so its .before is never put back
+			// over a later carry's files once this process ends.
+			owned(process.pid);
 			await sweepBy();
 
 			expect(filesIn(into), "its first carry is back").toEqual(before);
@@ -704,6 +704,31 @@ describe("a carry staged before the handover", () => {
 			expect(existsSync(left), "the dead carry waits").toBe(true);
 		},
 	);
+
+	it("makes no handover where a linked folder of handovers leads", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const outside = outsideWithVictim();
+		mkdirSync(dirname(dirname(into)), { recursive: true });
+		symlinkSync(outside, dirname(into));
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-m", cwd: tree },
+				trees: [tree],
+				whole: true,
+			}),
+		).rejects.toThrow(
+			`${dirname(into)} is a link or no folder, so the carry isn't placed through it.`,
+		);
+
+		expect(readdirSync(outside), "nothing was made there").toEqual([
+			"victim.txt",
+		]);
+	});
 
 	it("sweeps a record whose next write was cut off, by the one before it", async () => {
 		const { home, into } = await homeWithWork();

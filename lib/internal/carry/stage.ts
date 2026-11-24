@@ -12,7 +12,8 @@
  * and no done file, its earlier carry stranded in `.before`. So each
  * folder keeps a record of whose carry it is, which process runs it and
  * what it placed, and the next carry beside it finishes the job for any
- * whose process is gone: where the owner's done file stands, the carry
+ * whose process is gone, or, in this process, whose carry has returned:
+ * where the owner's done file stands, the carry
  * did too, and its folder goes; where none does, what it placed comes
  * out and what it replaced goes back.
  *
@@ -48,6 +49,15 @@ const STAGING = "carrying-";
 const BEFORE = ".before";
 /** A staging folder's record of whose carry it is. */
 const RECORD = ".carry.json";
+
+/**
+ * The staging folders whose carry this process runs now. One of its own
+ * not among them was kept by a carry that failed and has returned, so
+ * the next carry sweeps it before placing anything: left until this
+ * process ended, it would put back what came before a later carry's
+ * files, over them.
+ */
+const live = new Set<string>();
 
 /** A carry's staging folder, and how what is staged there is placed. */
 export interface Stage {
@@ -106,6 +116,7 @@ export async function staged<T>(
 	unlinked(into);
 	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
+	live.add(folder);
 	const aside = join(folder, BEFORE);
 	mkdirSync(aside);
 	const placed: string[] = [];
@@ -168,6 +179,7 @@ export async function staged<T>(
 			{ cause: error },
 		);
 	} finally {
+		live.delete(folder);
 		if (!keep) rmSync(folder, { recursive: true, force: true });
 	}
 }
@@ -175,13 +187,18 @@ export async function staged<T>(
 /**
  * Takes each of `placed` out of `into` and puts back each file waiting
  * in `aside`, answering the names that couldn't come out (`stuck`) and
- * those that couldn't go back (`left`).
+ * those that couldn't go back (`left`). A handover swapped for a link
+ * since it was placed into takes nothing out and has nothing put back,
+ * so both wait for a later carry.
  */
 function putBack(
 	into: string,
 	aside: string,
 	placed: readonly string[],
 ): { stuck: string[]; left: string[] } {
+	if (!undo(() => unlinked(into))) {
+		return { stuck: [...placed], left: readdirSync(aside) };
+	}
 	const stuck = placed.filter(
 		(name) => !undo(() => rmSync(join(into, name), { force: true })),
 	);
@@ -196,6 +213,24 @@ function writeRecord(folder: string, record: StageRecord): void {
 	const writing = join(folder, `${RECORD}.writing`);
 	writeFileSync(writing, JSON.stringify(record));
 	renameSync(writing, join(folder, RECORD));
+}
+
+/**
+ * Makes the handover `into`, and each folder between it and its quest's
+ * scratch, one at a time, refusing any that is a link before it makes
+ * anything below it, so no folder is made wherever a link leads.
+ */
+export function handoverMade(into: string): void {
+	const scratch = dirname(dirname(into));
+	mkdirSync(scratch, { recursive: true });
+	unlinked(into);
+	const steps = relative(scratch, into).split(sep);
+	for (let at = 1; at <= steps.length; at++) {
+		const path = join(scratch, ...steps.slice(0, at));
+		// One made as a link since the check fails here, as it exists.
+		if (!exists(path)) mkdirSync(path);
+	}
+	unlinked(into);
 }
 
 /**
@@ -232,7 +267,7 @@ function sweep(tmp: string, into: string): void {
 			const found = join(tmp, name);
 			if (!isFolder(found) || !isFolder(join(found, BEFORE))) continue;
 			const record = readRecord(found);
-			if (record?.into !== into || running(record)) continue;
+			if (record?.into !== into || running(record, found)) continue;
 			// Claimed by a rename, which only one carry wins, then marked as
 			// this process's, so no other sweeps it while this one does.
 			const folder = join(tmp, `${STAGING}swept-${randomUUID()}`);
@@ -291,11 +326,13 @@ function readRecord(folder: string): StageRecord | undefined {
 }
 
 /**
- * Whether the carry `record` names may still be running: its process is
- * alive, or it ran on another machine, where this one can't tell.
+ * Whether the carry `record` in `folder` names may still be running: its
+ * process is alive, or it ran on another machine, where this one can't
+ * tell. One of this process's own runs only while its carry does.
  */
-function running(record: StageRecord): boolean {
+function running(record: StageRecord, folder: string): boolean {
 	if (record.machine !== hostname()) return true;
+	if (record.pid === process.pid) return live.has(folder);
 	try {
 		process.kill(record.pid, 0);
 		return true;
