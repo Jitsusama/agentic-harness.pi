@@ -242,9 +242,7 @@ describe("a fenced session's file tools on a Mac", () => {
 		mkdirSync(join(home, ".local/state/pi/web"), { recursive: true });
 		writeFileSync(join(home, ".local/state/pi/web/page.md"), "page\n");
 		expect(onMac("read", { path: "notes.md" })).toBeUndefined();
-		expect(
-			onMac("write", { path: "notes.md", content: "x" }),
-		).toBeUndefined();
+		expect(onMac("write", { path: "notes.md", content: "x" })).toBeUndefined();
 		expect(
 			onMac("read", { path: "~/.local/state/pi/web/page.md" }),
 		).toBeUndefined();
