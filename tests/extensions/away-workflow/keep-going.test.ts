@@ -3,7 +3,6 @@ import {
 	type Absence,
 	afterRun,
 	combine,
-	endingOf,
 	freshMemory,
 	MAX_IDLE_RUNS,
 	MAX_NUDGES,
@@ -20,26 +19,6 @@ const ABSENCE: Absence = {
 function ran(lastText: string, toolCalls = 1): RunSummary {
 	return { lastText, toolCalls, aborted: false };
 }
-
-describe("how a run said it ended", () => {
-	it.each([
-		["Done: all three PRs merged.", "done"],
-		["Notes.\n\n**Blocked:** CI needs a secret only you have.", "blocked"],
-		["- Done: shipped", "done"],
-		["blocked: no access", "blocked"],
-	] as const)("reads %j as %s", (text, ending) => {
-		expect(endingOf(text)).toBe(ending);
-	});
-
-	it.each([
-		"Blocked: the build.\n\nI'll try another approach next.",
-		"Here's a summary of what I did.",
-		"Should I go ahead with the PR?",
-		"",
-	])("reads %j as not ended", (text) => {
-		expect(endingOf(text)).toBeUndefined();
-	});
-});
 
 describe("after a run, while the person is away", () => {
 	it("sends a run that did not say Done or Blocked back, with the goal", () => {

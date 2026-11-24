@@ -35,7 +35,11 @@
 
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { makeShares, questScratch } from "../sandbox/quest-folders.ts";
+import {
+	makeScratches,
+	makeShares,
+	questScratch,
+} from "../sandbox/quest-folders.ts";
 import {
 	makeFoldersFirst,
 	SANDBOX_VARIABLE,
@@ -515,6 +519,7 @@ function macFenceText(
 	// but the session's own quest's, so a command can't write in another's,
 	// nor in the staging a carry keeps beside them (stage.ts), though the
 	// Mac's fence lets it write the rest of ~/.cache.
+	makeScratches();
 	const scratch = questScratch(place.env.TMPDIR);
 	const share = makeShares(scratch);
 	// A broker's tree is laid from its root, whichever folder in it the

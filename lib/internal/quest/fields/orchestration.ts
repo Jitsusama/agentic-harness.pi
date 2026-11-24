@@ -28,6 +28,12 @@ export interface Orchestration {
 	 * is: who carries what needs the person, apart from who orders work.
 	 */
 	readonly steward?: string;
+	/**
+	 * The quest itself, when it is the person's steward: its session ends
+	 * the person's path, talking with the person rather than through
+	 * anyone, so no steward above it and no orchestrator carries it.
+	 */
+	readonly stewards?: string;
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -42,11 +48,12 @@ export function orchestrates(fm: QuestFrontMatter): boolean {
 }
 
 /**
- * Whether a quest is the person's steward, read from `_extra` too, as
- * `orchestrates` reads its mark.
+ * Whether a quest is the person's steward. Only the parsed field counts:
+ * a steward written by hand that can't be read is kept in `_extra` for
+ * config to name, and makes no steward.
  */
 export function stewards(fm: QuestFrontMatter): boolean {
-	return fm.steward === true || fm._extra?.steward === true;
+	return fm.steward === true;
 }
 
 /** The quest a README names as its orchestrator, past the walk. */
@@ -68,18 +75,21 @@ export function orchestrationOf(
 	const own = read(quest);
 	if (!own) return {};
 	const by = orchestratorAbove(quest, own, read);
-	const steward = stewardAbove(quest, own, read);
+	const self = stewards(own);
+	const steward = self ? undefined : stewardAbove(quest, own, read);
 	return {
 		...(by ? { by } : {}),
 		...(orchestrates(own) ? { heads: quest } : {}),
 		...(steward ? { steward } : {}),
+		...(self ? { stewards: quest } : {}),
 	};
 }
 
 /**
  * The nearest quest above this one, up `parent`, that is the person's
- * steward. Never the quest itself: a steward's own session talks with
- * the person rather than through anyone.
+ * steward. Never the quest itself, and never asked of a steward: its
+ * own session talks with the person rather than through anyone, so
+ * stewards nested do not chain (see `orchestrationOf`).
  */
 function stewardAbove(
 	quest: string,

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
 	doneFileOf,
 	doneNames,
+	flagIn,
 	type Handover,
 	handoverOf,
 	readHandover,
@@ -103,12 +104,8 @@ describe("a handover", () => {
 				{ ...handover, sessionFile: "/etc/passwd" },
 			],
 			[
-				"a branch read as a flag",
-				{ ...handover, trees: [{ ...tree, branch: "-rf" }] },
-			],
-			[
-				"an origin read as a flag",
-				{ ...handover, trees: [{ ...tree, origin: "--upload-pack=x" }] },
+				"a branch climbing out",
+				{ ...handover, trees: [{ ...tree, branch: "topic/../../x" }] },
 			],
 			[
 				"a head that isn't a commit",
@@ -129,5 +126,34 @@ describe("a handover", () => {
 			expect(readHandover(arrived(said)), why).toBeUndefined();
 		}
 		expect(readHandover(join(tmpdir(), "no-such.done.json"))).toBeUndefined();
+	});
+
+	it("reads a tree naming what git could take as a flag, naming it for that tree alone to be refused", () => {
+		const tree = handover.trees[0];
+		const needing = (on: string) => [{ commit: "b".repeat(40), on }];
+		for (const [why, flagged, flag] of [
+			["a branch", { ...tree, branch: "-rf" }, "-rf"],
+			[
+				"a branch with such a part",
+				{ ...tree, branch: "topic/--orphan" },
+				"topic/--orphan",
+			],
+			[
+				"a needed remote branch's branch",
+				{ ...tree, needs: needing("origin/--upload-pack=./PWNED") },
+				"origin/--upload-pack=./PWNED",
+			],
+			[
+				"a needed remote branch's remote",
+				{ ...tree, needs: needing("-x/main") },
+				"-x/main",
+			],
+			["an origin", { ...tree, origin: "--upload-pack=x" }, "--upload-pack=x"],
+		] as const) {
+			const said = { ...handover, trees: [tree, flagged] };
+			const read = readHandover(arrived(said));
+
+			expect(read?.trees.map(flagIn), why).toEqual([undefined, flag]);
+		}
 	});
 });

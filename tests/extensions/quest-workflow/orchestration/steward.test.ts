@@ -113,21 +113,47 @@ describe("making a quest the person's steward", () => {
 		).toEqual([false, expect.stringContaining("steward=true"), undefined]);
 	});
 
-	// Written by hand as a string, the parser leaves it in _extra rather
-	// than reading it as a steward, and setting it through the tool
-	// replaces that slip rather than keeping both.
-	it("sets right a steward written by hand as text", async () => {
+	// Written by hand as a string, the parser keeps it in _extra rather
+	// than reading it as a steward, so config names the slip, a rewrite
+	// keeps it, and setting it through the tool replaces it.
+	it("names a steward written by hand as text, then sets it right", async () => {
 		const id = await made();
 		const path = join(questsRoot(), id, "README.md");
 		writeFileSync(
 			path,
 			readmeOf(id).replace(/^id: .*$/m, '$&\nsteward: "yes"'),
 		);
+		const report = await run({ action: "config", id });
+		await run({ action: "config", id, ref: "subjects=steward-slip" });
+		// A rewrite may say the text plainly, quoted or not.
+		const slip = /^steward: "?yes"?$/m;
+		const kept = slip.test(readmeOf(id));
 		await run({ action: "config", id, ref: "steward=true" });
 		expect(
-			[stewardOf(id), readmeOf(id).includes('"yes"')],
-			"a steward, the slip gone",
-		).toEqual([true, false]);
+			[said(report), kept, stewardOf(id), slip.test(readmeOf(id))],
+			"named, kept through a rewrite, then a steward with the slip gone",
+		).toEqual([
+			expect.stringContaining(
+				'says steward: "yes", but only true makes a steward',
+			),
+			true,
+			true,
+			false,
+		]);
+	});
+
+	it("clears a steward written by hand as text when set false", async () => {
+		const id = await made();
+		const path = join(questsRoot(), id, "README.md");
+		writeFileSync(
+			path,
+			readmeOf(id).replace(/^id: .*$/m, '$&\nsteward: "yes"'),
+		);
+		const cleared = await run({ action: "config", id, ref: "steward=false" });
+		expect(
+			[said(cleared), /^steward:/m.test(readmeOf(id))],
+			"cleared, the slip gone",
+		).toEqual([expect.stringContaining("now is not"), false]);
 	});
 
 	it("says in the plain report how to set it", async () => {

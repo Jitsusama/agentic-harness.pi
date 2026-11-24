@@ -18,6 +18,7 @@ import {
 	namesOrchestrator,
 	needNamed,
 	orchestratorNamed,
+	personLeftOut,
 	personNamed,
 } from "../../../lib/mesh/group.ts";
 import { lists, onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
@@ -464,9 +465,19 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// the node, so it finds the hub afresh rather than reading the one
 	// this peer keeps, which may be minutes old, unless the node gives it
 	// no answer in time. `person` reaches the steward, or reads as
-	// `orchestrator` while no steward is set, so it is read first.
+	// `orchestrator` while no steward is set, so it is read first. The
+	// steward's own session tells the person in its reply, so the word
+	// reaches nobody from it rather than its orchestrator.
 	const steward = at.peer.stewardedBy;
-	const written = personNamed(needed.to, steward);
+	const stewarding = at.peer.stewards !== undefined;
+	const rest = stewarding ? personLeftOut(needed.to) : needed.to;
+	if (rest === undefined) {
+		return answer(
+			"Not sent: your quest is the person's steward, so `person` names nobody past you. Tell the person in your reply.",
+			{ sent: false } satisfies SendDetails,
+		);
+	}
+	const written = personNamed(rest, steward);
 	const fresh = namesOrchestrator(written) ? await findAbove(at) : undefined;
 	if (fresh?.settled === true) at.nodeAnswered?.();
 	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
@@ -491,7 +502,10 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	const said = [
-		steward !== undefined && written !== needed.to
+		rest !== needed.to
+			? "`person` was left out, since your quest is the person's steward: tell the person in your reply"
+			: "",
+		steward !== undefined && written !== rest
 			? `\`person\` was read as ${steward}, the person's steward, which carries only what needs the person`
 			: "",
 		nobody !== undefined

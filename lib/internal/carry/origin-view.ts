@@ -21,7 +21,14 @@
  * as haves, since a carry onward counts only refs/remotes as on origin:
  * a tree with no origin/main would bundle all of its trunk. One fetch of
  * them all fails whole when origin has dropped any one since its list,
- * so then each comes on its own, origin's trunk first.
+ * so then each comes on its own, origin's trunk first; an origin that
+ * fails it any other way, refusing the call or out of time, would fail
+ * each the same, so then all wait aside.
+ *
+ * Origin is asked for its branches alone, by prefix: asked for every
+ * ref, World sends each tag and pull ref too, a very large listing to
+ * read within its minute. Its trunk is asked only where the branches
+ * come one at a time, since git asks HEAD of origin with no prefix.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -71,18 +78,35 @@ export const BOUNDED = [
 	"http.lowSpeedTime=30",
 ];
 
-/** How long origin has to list its branches, over any transport. */
+/**
+ * How long origin has to list its branches, or name its trunk, over any
+ * transport.
+ */
 const LISTING = 60;
 
 /**
- * How long origin has to send what a tree asks of it, over any
- * transport: the branches it moved past the twin, all told, or one
- * commit a carried tree needs.
+ * How long origin has to send the branches it moved past the twin, all
+ * told, over any transport.
  */
-export const FETCHING = 900;
+const FETCHING = 900;
 
 /** How many of the branches left aside an arrival names. */
 const NAMED = 5;
+
+/**
+ * git's word that origin lacks a ref a fetch asked for, the one failure
+ * that fetching each branch alone gets past.
+ */
+const MISSING = /couldn't find remote ref/;
+
+/**
+ * Branches that still wait aside, and git's word on why, or none where
+ * the time all told ran out before they were asked for.
+ */
+interface Missed {
+	readonly names: readonly string[];
+	readonly why?: string;
+}
 
 /**
  * Makes the tree's origin branches the twin's view of origin, or, for a
@@ -139,9 +163,9 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
 	}
 	const listed = await git
 		.within(LISTING)
-		.run(...BOUNDED, "ls-remote", "--symref", "origin", "HEAD", "refs/heads/*");
-	const origin = listed.code === 0 ? listing(listed.stdout) : undefined;
-	const theirs = origin?.heads;
+		.run(...BOUNDED, "ls-remote", "--heads", "origin");
+	const theirs =
+		listed.code === 0 ? named(listed.stdout, "refs/heads/") : undefined;
 	const moved = [...ours].filter(
 		([name, commit]) => theirs?.get(name) !== commit,
 	);
@@ -180,7 +204,6 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
 		set.flatMap(([ref]) =>
 			ref.startsWith(ASIDE) ? [ref.slice(ASIDE.length)] : [],
 		),
-		origin?.trunk,
 	);
 }
 
@@ -188,41 +211,47 @@ export async function holdToOrigin(git: ViewGit): Promise<Held> {
  * The branches `names`, set aside, fetched from origin into the tree's
  * origin branches, the twin's commits under `ASIDE` sent as haves, and
  * those that came then dropped from aside. All come in one fetch where
- * they can; where that fails, each on its own, `trunk` first, while
- * the time all told is left. Answers which wait aside still, and why,
- * or nothing.
+ * they can; where origin lacks one it listed, each on its own, origin's
+ * trunk first, while the time all told is left and origin answers.
+ * Answers which wait aside still, and why, or nothing.
  */
 async function takeAside(
 	git: ViewGit,
 	names: readonly string[],
-	trunk: string | undefined,
 ): Promise<Held> {
 	if (names.length === 0) return {};
 	const ends = Date.now() + FETCHING * 1000;
 	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	const all = await fetchAside(git, names, left());
 	if (all.code === 0) return dropAside(git, names, []);
+	if (!MISSING.test(all.stderr)) {
+		return dropAside(git, [], [{ names, why: saidOf(all) }]);
+	}
+	const trunk = await trunkOf(git, Math.min(LISTING, left()));
 	const order =
 		trunk !== undefined && names.includes(trunk)
 			? [trunk, ...names.filter((name) => name !== trunk)]
 			: names;
 	const came: string[] = [];
-	const missed: string[] = [];
-	let why = saidOf(all);
-	for (const name of order) {
-		if (left() <= 0) {
-			missed.push(name);
-			continue;
-		}
+	const gone: string[] = [];
+	let why = "";
+	const missed = (...rest: Missed[]) =>
+		dropAside(git, came, [{ names: gone, why }, ...rest]);
+	for (const [at, name] of order.entries()) {
+		if (left() <= 0) return missed({ names: order.slice(at) });
 		const one = await fetchAside(git, [name], left());
 		if (one.code === 0) {
 			came.push(name);
 			continue;
 		}
-		if (missed.length === 0) why = saidOf(one);
-		missed.push(name);
+		if (!MISSING.test(one.stderr)) {
+			return missed({ names: order.slice(at), why: saidOf(one) });
+		}
+		// Each says the one ref it lacks, so the first stands for them.
+		if (gone.length === 0) why = saidOf(one);
+		gone.push(name);
 	}
-	return dropAside(git, came, missed, why);
+	return missed();
 }
 
 /** The branches `names` fetched from origin, stopped after `seconds`. */
@@ -251,8 +280,7 @@ function fetchAside(
 async function dropAside(
 	git: ViewGit,
 	came: readonly string[],
-	missed: readonly string[],
-	why = "",
+	missed: readonly Missed[],
 ): Promise<Held> {
 	const dropped = await setRefs(
 		git,
@@ -260,12 +288,24 @@ async function dropAside(
 		[],
 		"drop the twin's commits origin's own now cover",
 	);
-	const waiting =
-		missed.length === 0
-			? undefined
-			: `${missed.length} of origin's branches past the twin didn't come, so they wait under ${ASIDE}: ${namesOf(missed)}. ${why}`.trim();
-	const unsure = [waiting, dropped].filter((said) => said !== undefined);
+	const unsure = [
+		...missed.filter(({ names }) => names.length > 0).map(waitsFor),
+		...(dropped === undefined ? [] : [dropped]),
+	];
 	return unsure.length === 0 ? {} : { unsure: unsure.join(" ") };
+}
+
+/** What an arrival says of branches that still wait aside. */
+function waitsFor({ names, why }: Missed): string {
+	const waiting = `so they wait under ${ASIDE}: ${namesOf(names)}.`;
+	return why === undefined
+		? `${names.length} of origin's branches past the twin weren't asked for before the ${FETCHING} seconds all told ran out, ${waiting}`
+		: `${names.length} of origin's branches past the twin didn't come, ${waiting} ${sentence(why)}`;
+}
+
+/** `said` ended as a sentence, so another may follow it. */
+function sentence(said: string): string {
+	return /[.!?]$/.test(said) ? said : `${said}.`;
 }
 
 /** Up to `NAMED` of `names`, and how many more. */
@@ -276,9 +316,33 @@ function namesOf(names: readonly string[]): string {
 		: shown;
 }
 
-/** What git said of why it failed. */
-function saidOf(result: ExecResult): string {
-	return result.stderr.trim() || `git exited ${result.code}`;
+/** What `timed` says first of a command it stopped. */
+const STOPPED = "git was stopped after ";
+
+/**
+ * What git said of why it failed, for an arrival line: that it was
+ * stopped, what its transport said first, such as ssh's "Could not
+ * resolve hostname", and its own `fatal:` and `error:` lines; never a
+ * server's `remote:` lines, `hint:` lines or the advice after git's
+ * own; all it said but `remote:` lines where it said none of its own;
+ * or how it exited where it said nothing.
+ */
+export function saidOf(result: ExecResult): string {
+	const lines = result.stderr
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line !== "");
+	const isOwn = (line: string) =>
+		/^(fatal|error): /.test(line) || line.startsWith(STOPPED);
+	const first = lines.findIndex(isOwn);
+	if (first === -1) {
+		const kept = lines.filter((line) => !line.startsWith("remote:"));
+		return kept.join(" ") || `git exited ${result.code}`;
+	}
+	const before = lines
+		.slice(0, first)
+		.filter((line) => !/^(remote|hint):/.test(line));
+	return [...before, ...lines.filter(isOwn)].join(" ");
 }
 
 /**
@@ -404,7 +468,7 @@ export function gitIn(exec: Exec, path: string): ViewGit {
  * What `start` answers, its commands stopped once `seconds` pass, or
  * when its call's own signal fires, whichever is first.
  */
-async function timed(
+export async function timed(
 	seconds: number,
 	start: () => Promise<ExecResult>,
 ): Promise<ExecResult> {
@@ -417,30 +481,42 @@ async function timed(
 	return clock.aborted && done.code !== 0
 		? {
 				...done,
-				stderr:
-					`git was stopped after ${seconds} seconds. ${done.stderr}`.trim(),
+				stderr: `${STOPPED}${seconds} seconds.\n${done.stderr}`.trim(),
 			}
 		: done;
 }
 
 /**
- * What `ls-remote --symref` said of origin: its branches by name, and
- * the branch its HEAD names, where it names one.
+ * The branch origin's HEAD names, asked within `seconds`; or nothing
+ * where it names none, or origin doesn't say, which loses only the
+ * trunk's place first. git sends this ask with no prefix, so origin
+ * lists every ref for it, and it is made only where needed.
  */
-function listing(said: string): {
-	heads: Map<string, string>;
-	trunk?: string;
-} {
-	const lines = said.split("\n");
-	const symref = lines.find((line) => line.startsWith("ref: "));
-	const target = symref?.slice("ref: ".length).trim().split(/\s+/)[0];
-	const heads = named(
-		lines.filter((line) => !line.startsWith("ref: ")).join("\n"),
-		"refs/heads/",
-	);
-	return target?.startsWith("refs/heads/")
-		? { heads, trunk: target.slice("refs/heads/".length) }
-		: { heads };
+async function trunkOf(
+	git: ViewGit,
+	seconds: number,
+): Promise<string | undefined> {
+	if (seconds <= 0) return undefined;
+	const asked = await git
+		.within(seconds)
+		.run(...BOUNDED, "ls-remote", "--symref", "origin", "HEAD");
+	return asked.code === 0 ? headOf(asked.stdout) : undefined;
+}
+
+/**
+ * The branch the `ref: <target>\tHEAD` line of an `ls-remote --symref`
+ * names, if any. Only HEAD's own counts: the pattern HEAD also matches a
+ * ref such as refs/remotes/up/HEAD, whose line may come first.
+ */
+function headOf(said: string): string | undefined {
+	for (const line of said.split("\n")) {
+		if (!line.startsWith("ref: ")) continue;
+		const [target, ref] = line.slice("ref: ".length).trim().split(/\s+/);
+		if (ref === "HEAD" && target?.startsWith("refs/heads/")) {
+			return target.slice("refs/heads/".length);
+		}
+	}
+	return undefined;
 }
 
 /** `<commit> <ref>` lines, tab or space apart, by name under `prefix`. */

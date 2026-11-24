@@ -75,6 +75,7 @@ import {
 	snapshot,
 	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
+import { blockedLine, endingOf } from "../../lib/internal/session/ending.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	askWakers,
@@ -110,7 +111,6 @@ import { afterJobWait, freshJobWait } from "./job-wait.ts";
 import {
 	afterRun,
 	combine,
-	endingOf,
 	freshMemory,
 	type RunSummary,
 	summarize,
@@ -130,7 +130,6 @@ import {
 	withdrawNotices,
 } from "./notices.ts";
 import {
-	blockedLine,
 	blockedNotice,
 	freshReach,
 	heldNotice,

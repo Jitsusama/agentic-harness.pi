@@ -4,6 +4,7 @@
  */
 
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
+import { blockedLine, lastRun } from "../../../lib/internal/session/ending.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
@@ -99,6 +100,12 @@ function dayBefore(id: string, other: string): boolean {
 
 /** How this peer hears and routes what reaches it. */
 export function createHearing(m: MeshState, f: Handing) {
+	/**
+	 * The run end whose `Blocked:` line last woke this peer: one wake a
+	 * blocked run, so news after it waits for a run to end blocked again.
+	 */
+	let wokeFor: string | undefined;
+
 	/** Count who is live, of `everyone` when a clock has just listed them. */
 	const countLive = async (everyone?: readonly Presence[]) => {
 		try {
@@ -327,6 +334,28 @@ export function createHearing(m: MeshState, f: Handing) {
 		// Never while starting: the first prompt is about to run, and pi
 		// refuses a second turn asked for beside it.
 		const idle = !starting && (m.ctx.isIdle?.() ?? false);
+		// An idle peer whose run ended blocked on a peer waits on that peer's
+		// next word, sent to it however it is sent, once a run. Only a peer
+		// present here counts, by the addresses its presence gives, so a stray
+		// word a line holds, such as "main", names nobody. That guards against
+		// a name, not a forger: a `from` is only what the sender wrote, as
+		// everywhere on the mesh. One from another realm is another principal
+		// (unanswered.ts), never the peer named here.
+		const ended = idle ? lastRun(m.ctx.sessionManager) : undefined;
+		const blocked =
+			ended && ended.id !== wokeFor ? blockedLine(ended.text) : undefined;
+		const awaiting = messages.map((message) => {
+			if (blocked === undefined || message.fromRealm !== undefined) {
+				return false;
+			}
+			const sender = everyone.find((one) =>
+				one.addresses.includes(message.from),
+			);
+			return (
+				sender !== undefined &&
+				mentions({ text: blocked }, { addresses: sender.addresses, owns: [] })
+			);
+		});
 		const raisedAll: Heed[] = messages.map((message, at) => {
 			// Stopped is absolute: a line, never more, whatever it is.
 			if (stopped[at]) return { attention: "glance", why: STOPPED };
@@ -335,6 +364,7 @@ export function createHearing(m: MeshState, f: Handing) {
 				idle,
 				answers: answeringAt(answering, at),
 				asked: answeringAt(asked, at),
+				...(awaiting[at] ? { awaits: true } : {}),
 				askedEach: asksEach(message, listener),
 				now: Date.now(),
 				...(restating[at] ? { restates: true } : {}),
@@ -400,6 +430,9 @@ export function createHearing(m: MeshState, f: Handing) {
 			return { message, heed };
 		});
 		f.say(damped);
+		if (heeded.some(({ heed }) => heed.unblocks && heed.attention === "turn")) {
+			wokeFor = ended?.id;
+		}
 		for (const { message, heed } of heeded) {
 			if (heed.attention === "glance") f.glance(message, heed.why);
 			if (heed.attention === "act") m.acts?.add({ message, heed });

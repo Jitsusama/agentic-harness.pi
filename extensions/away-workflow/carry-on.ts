@@ -23,7 +23,8 @@
 
 import type { Notice } from "../../lib/internal/away/notify.ts";
 import type { PlanProgress } from "../../lib/internal/away/state.ts";
-import { endingOf, MAX_NUDGES, type RunSummary } from "./keep-going.ts";
+import { endingOf } from "../../lib/internal/session/ending.ts";
+import { MAX_NUDGES, type RunSummary } from "./keep-going.ts";
 
 /**
  * How long a run's end goes unanswered before the session carries on.

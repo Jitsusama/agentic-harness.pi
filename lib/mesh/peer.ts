@@ -109,10 +109,18 @@ export interface Peer {
 	 */
 	readonly orchestrates: string | undefined;
 	/**
-	 * The address of the person's steward above its quest, when one is:
-	 * who carries what needs the person, never work questions.
+	 * The address of the person's steward above its quest, while a live
+	 * session other than this one answers to it: who carries what needs
+	 * the person, never work questions. A steward with nobody there
+	 * carries nothing, so the person's path falls back as if none were set.
 	 */
 	readonly stewardedBy?: string;
+	/**
+	 * The address of its own quest, when that quest is the person's
+	 * steward: this session ends the person's path, talking with the
+	 * person rather than through its orchestrator or another steward.
+	 */
+	readonly stewards?: string;
 	/**
 	 * The address of the orchestration its quest heads, whether this
 	 * session plays the role or another on the quest does; a hub from use
@@ -361,8 +369,29 @@ export function orchestrationRoles(
 	};
 }
 
+/**
+ * The roles, with the steward kept only while a live session other than
+ * this one answers to its address. Read from the quests alone, a
+ * steward whose window closed would keep every quest below it off the
+ * person's launcher, and sends to it would reach nobody.
+ */
+export function withLiveSteward(
+	roles: Roles,
+	live: readonly Presence[],
+	session: string,
+): Roles {
+	const steward = roles.stewardedBy;
+	if (steward === undefined) return roles;
+	const there = live.some(
+		(one) => one.session !== session && one.addresses.includes(steward),
+	);
+	if (there) return roles;
+	const { stewardedBy: _absent, ...rest } = roles;
+	return rest;
+}
+
 /** What a peer's presence says of the orchestrations it is in. */
-type Roles = {
+export type Roles = {
 	readonly orchestratedBy?: string;
 	readonly orchestrates?: string;
 	readonly stewardedBy?: string;
@@ -441,6 +470,9 @@ export function localPeer(at: Surroundings): Peer {
 	// Kept beside the roles rather than in them, since the roles are said
 	// in the presence and this is for the peer's own sends.
 	let questHeads: string | undefined;
+	// Kept beside the roles too: whether its own quest is the person's
+	// steward, which ends the person's path here.
+	let stewards: string | undefined;
 	let quest: string | undefined;
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
@@ -491,7 +523,12 @@ export function localPeer(at: Surroundings): Peer {
 	// Every want standing, the person's or not; presence says which.
 	const wanting = new Map<WantKind, Want>();
 	const forPerson = (want: Want) =>
-		wantsThePerson(want.kind, roles.stewardedBy ?? roles.orchestratedBy);
+		wantsThePerson(
+			want.kind,
+			stewards === undefined
+				? (roles.stewardedBy ?? roles.orchestratedBy)
+				: undefined,
+		);
 	const personal = () => [...wanting.values()].filter(forPerson);
 	let usage = carriedUsage(before?.usage, new Date(now()));
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
@@ -599,9 +636,16 @@ export function localPeer(at: Surroundings): Peer {
 			owns: work.owns,
 			...(work.hears ? { hears: work.hears } : {}),
 		};
-		roles = orchestrationRoles(work.orchestration, addresses[0]);
+		roles = withLiveSteward(
+			orchestrationRoles(work.orchestration, addresses[0]),
+			live,
+			at.session,
+		);
 		questHeads = work.orchestration.heads
 			? questAddress(work.orchestration.heads)
+			: undefined;
+		stewards = work.orchestration.stewards
+			? questAddress(work.orchestration.stewards)
 			: undefined;
 		quest = work.quest;
 		workspace = work.workspace;
@@ -682,6 +726,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get questHeads() {
 			return questHeads;
+		},
+		get stewards() {
+			return stewards;
 		},
 		get quest() {
 			return quest;

@@ -28,6 +28,28 @@ import { real } from "./tree-git.ts";
  */
 export const TEMP_LINK_PREFIX = "pi-quest-";
 
+/** The folder beside the quests' scratches where carries stage (stage.ts). */
+export const CARRY_STAGING = ".carrying";
+
+/**
+ * Make the scratches' root, and the staging carries keep in it, before
+ * any command runs, whatever its sandbox: a root not made yet lies in
+ * the cache a Mac's fence lets a command write, where it could make
+ * the root, or the staging in it as a link, before a carry did. A root
+ * the person made a link to elsewhere stays one. Answers nothing, and
+ * one that can't be made is left for the fence and the carry to refuse.
+ */
+export function makeScratches(root: string = questWorkspacesRoot()): void {
+	try {
+		mkdirSync(root, { recursive: true });
+		if (!lstatSync(join(root, CARRY_STAGING), { throwIfNoEntry: false })) {
+			mkdirSync(join(root, CARRY_STAGING), { mode: 0o700 });
+		}
+	} catch {
+		// One made meanwhile, or that can't be, is read as it stands.
+	}
+}
+
 /**
  * Where quests' scratch folders live, and the one of the quest
  * `temporary` (a session's `TMPDIR`) names, if it names one: by its

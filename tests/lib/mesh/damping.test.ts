@@ -136,6 +136,21 @@ describe("a sender's news", () => {
 		expect(damper.damp(fyi(), note, 0, at + HOUR_MS)).toEqual(note);
 	});
 
+	// Two cells blocked on each other wake each other with fresh news,
+	// none of it in a thread, so only this cap ends their exchange.
+	it("caps the news that wakes a peer blocked on its sender", () => {
+		const damper = createDamper();
+		damper.handed(many("WCJQSG"), at);
+		const unblocks: Heed = {
+			attention: "turn",
+			why: "from the peer this peer rests blocked on",
+			unblocks: true,
+		};
+
+		expect(damper.damp(fyi(), unblocks, 0, at).attention).toBe("glance");
+		expect(damper.damp(fyi(), unblocks, 0, at + HOUR_MS)).toEqual(unblocks);
+	});
+
 	it("counts what came before it in the same arrival, and each message once", () => {
 		const damper = createDamper();
 		const once = many("WCJQSG")[0] as Message;

@@ -1,25 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-	blockedLine,
 	blockedNotice,
 	freshReach,
 	heldNotice,
 	MOST_SAID,
 	stopNotice,
 } from "../../../extensions/away-workflow/reach.ts";
-
-describe("blockedLine", () => {
-	it("reads what the last line says it is blocked on", () => {
-		expect(blockedLine("Did things.\n\n**Blocked: the OTP.**")).toBe(
-			"the OTP.",
-		);
-		expect(blockedLine("- blocked: a decision")).toBe("a decision");
-	});
-
-	it("is nothing for a run that did not end blocked", () => {
-		expect(blockedLine("Blocked: early\nDone: all of it")).toBeUndefined();
-	});
-});
 
 describe("reaching the absent person", () => {
 	it("says held calls once an absence, and again in the next absence", () => {
