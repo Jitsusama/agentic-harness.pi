@@ -145,6 +145,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { ROLLOVER_CARRY } from "../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerFirstHead } from "./head.ts";
 import { registerCompactionHost } from "./host.ts";
@@ -337,10 +338,12 @@ function whenIdle(
 
 /**
  * Say something on standard error, where a host journals it and an
- * interactive pi's stray-output keeps it off the screen.
+ * interactive pi's stray-output keeps it off the screen. It is held to
+ * one line, since a reason is a provider's own words, and a break or an
+ * escape in one would start a journal line of its own.
  */
 function say(line: string): void {
-	process.stderr.write(`compaction-workflow: ${line}\n`);
+	process.stderr.write(`compaction-workflow: ${oneLine(line)}\n`);
 }
 
 /** The starts after which a compaction's owed run is still this session's. */
