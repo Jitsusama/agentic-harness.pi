@@ -507,6 +507,46 @@ describe("the compaction trigger", () => {
 			);
 		});
 
+		// A background host's session has no UI, and its journal is all that
+		// says it waits (5BACCAC3's F91 on #2082).
+		it("journals a wait in a session no one watches", async () => {
+			const { fire, ctx } = await failedTwice();
+			const written = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			try {
+				await endTurn(fire, ranTools, ctx);
+				const said = written.mock.calls.map(([line]) => String(line));
+				expect(said).toContainEqual(
+					expect.stringMatching(
+						/^compaction-workflow: At \d+k tokens, a compaction summary written in the background failed again: the summary hit the token cap\. Another is written in the background after 2 more turns/,
+					),
+				);
+			} finally {
+				written.mockRestore();
+			}
+		});
+
+		// Past the ceiling, which fires whatever rent was paid, a summary that
+		// keeps failing ahead still waits out its turns, as the README says
+		// (5BACCAC3's F86 on #2082).
+		it("waits out its turns past the ceiling too", async () => {
+			const { fire, state, ctx } = await failedTwice();
+			vi.stubEnv("PI_COMPACTION_CEILING_TOKENS", "200000");
+			expect(state.tokens, "past the ceiling").toBeGreaterThan(200_000);
+			for (let turn = 1; turn <= 2; turn++) {
+				await endTurn(fire, ranTools, ctx);
+				await new Promise((r) => setTimeout(r, 0));
+				expect(
+					completeSimple,
+					`tried on waiting turn ${turn}`,
+				).toHaveBeenCalledTimes(2);
+			}
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(3));
+			expect(state.compactions, "compacted on the spot").toHaveLength(0);
+		});
+
 		// The wait counts only the turns that call for a compaction, as its
 		// notice says (5BACCAC3's F20 on #2087 and F86 on #2082).
 		it("leaves a wait where it is through turns that don't call for a compaction", async () => {
