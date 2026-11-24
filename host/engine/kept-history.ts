@@ -44,7 +44,6 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
-import { contentText } from "@earendil-works/pi-ai";
 import {
 	compactionHistory,
 	FIRST_PROMPT_CARRY,
@@ -63,6 +62,7 @@ import {
 	SPEND_CARRY,
 	spentOnBranch,
 } from "../../lib/internal/spend/session-spend.ts";
+import { contentText } from "./hosted-agent/messages.ts";
 
 /** pi's session manager as the view reads and replaces it, privates included. */
 export interface HeldManager {
@@ -395,20 +395,8 @@ function messagesLeftOut(
 /** The fork point entry `id` is, when its message is a user's with text. */
 function forkPointOf(id: string, message: unknown): ForkPoint | undefined {
 	if (!isRecord(message) || message.role !== "user") return;
-	if (!isContent(message.content)) return;
-	const text = contentText(message.content, "");
+	const text = contentText(message.content);
 	return text ? { entryId: id, text } : undefined;
-}
-
-/** Whether `content` is a message's content as pi-ai reads its text. */
-function isContent(
-	content: unknown,
-): content is Parameters<typeof contentText>[0] {
-	return (
-		typeof content === "string" ||
-		(Array.isArray(content) &&
-			content.every((part) => isRecord(part) && typeof part.type === "string"))
-	);
 }
 
 /** Have `manager` hold `held`, every id its file holds still taken. */
