@@ -28,7 +28,11 @@
  * answers, as while a switch restarts the node, it can't be told, and is
  * taken as there: a link that drops says nothing of whether a session
  * runs, and judging it gone would let go of its leases and holds and tell
- * its senders it ended.
+ * its senders it ended. A session there parked between turns, its process
+ * gone, is held ended too, but its presence, as the far node keeps what
+ * that session wrote, says parked; it is there, as a park here is, since
+ * what is sent to it starts it again there. A node that keeps no parked
+ * presences, as one before mycelium#419, never sends one.
  *
  * A parked session (see parked.ts) is there too while its marker stands,
  * its process gone: it ended only to hold no memory while it waits, and
@@ -251,6 +255,7 @@ export async function livenessOf(
 		const held = await node();
 		if (held === undefined) return "unknown";
 		const state = held.get(presence.session);
+		if (state === "ended" && presence.state === "parked") return "present";
 		return state === "busy" || state === "idle"
 			? "present"
 			: state === "unreachable"
