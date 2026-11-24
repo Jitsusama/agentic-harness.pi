@@ -243,13 +243,31 @@ export function questTempDir(
 	makeWorkspace(dir, folders);
 	mkdirSync(tmp, { recursive: true });
 	shareJitiCache(tmp, jitiCache);
+	const link = path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`);
 	try {
-		return (
-			linkTo(path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`), tmp) ?? tmp
-		);
-	} catch {
+		const made = linkTo(link, tmp);
+		if (made) return made;
+		sayUnlinked(link, tmp, "something not our link sits there");
+	} catch (error) {
 		// A temp directory we cannot write a link into still leaves the
 		// workspace, whose long path is fine for everything but sockets.
-		return tmp;
+		sayUnlinked(link, tmp, error instanceof Error ? error.message : error);
 	}
+	return tmp;
+}
+
+/** The links already said to be unmade, so each is said once a process. */
+const saidUnlinked = new Set<string>();
+
+/**
+ * Say once on stderr, a host's journal, that a quest's `TMPDIR` is its
+ * scratch's own `tmp/` since its link couldn't be made, so a dangling
+ * setup is seen: the long path still works, but for sockets.
+ */
+function sayUnlinked(link: string, tmp: string, why: unknown): void {
+	if (saidUnlinked.has(link)) return;
+	saidUnlinked.add(link);
+	process.stderr.write(
+		`[quest-workflow] TMPDIR is ${tmp} itself, since its link ${link} couldn't be made: ${String(why)}\n`,
+	);
 }

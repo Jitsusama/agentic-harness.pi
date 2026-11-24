@@ -105,6 +105,24 @@ describe("a quest's TMPDIR", () => {
 		expect(questTempDir(workspaces, QUEST, links)).toBe(tmpOf());
 	});
 
+	it("says once that it is tmp/ itself, so a link that can't be made is seen", () => {
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			writeFileSync(join(links, `${TEMP_LINK_PREFIX}${QUEST}`), "somebody's");
+
+			questTempDir(workspaces, QUEST, links);
+			questTempDir(workspaces, QUEST, links);
+
+			const lines = said.mock.calls
+				.map(([line]) => String(line))
+				.filter((line) => line.includes("couldn't be made"));
+			expect(lines).toHaveLength(1);
+			expect(lines[0]).toContain(tmpOf());
+		} finally {
+			said.mockRestore();
+		}
+	});
+
 	it("is nothing without a quest", () => {
 		expect(questTempDir(workspaces, null, links)).toBeUndefined();
 	});
