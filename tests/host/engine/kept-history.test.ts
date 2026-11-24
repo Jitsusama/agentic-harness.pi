@@ -3,10 +3,10 @@
  * rollover would keep, through pi's own session manager, while its file,
  * its id and everything that reads the whole log stay as they were.
  *
- * Long because every case here writes its log through the same helpers
- * (the compacted-log builder, or the exchanges it is built from) and
- * reads it back through the same readers, so splitting it would only
- * move those helpers into a fixture each part imports.
+ * Long because it tests one module, kept-history.ts, and most of its
+ * cases share the compacted-log builder and the readers beside it, so
+ * splitting it would only move those helpers into a fixture each part
+ * imports.
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
