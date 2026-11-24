@@ -31,7 +31,12 @@ import {
 	staleHost,
 } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
-import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
+import {
+	type ControlRequest,
+	DIRECT_ATTACH,
+	parseControl,
+	parseViewer,
+} from "./protocol.ts";
 
 const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 const SOCKET_MODE = 0o600;
@@ -463,6 +468,22 @@ export async function listenControl(options: {
 			}
 			if (socket.destroyed || ended) {
 				child.destroy();
+				return;
+			}
+			// One that joins children itself is told the socket that just took
+			// a connection, and its connection is done with.
+			if (
+				request.op === "attach" &&
+				request.features?.includes(DIRECT_ATTACH)
+			) {
+				child.destroy();
+				send({
+					v: 1,
+					id: request.id,
+					ok: true,
+					result: { sessionId: request.sessionId, socket: route.socket },
+				});
+				socket.end();
 				return;
 			}
 			const line = `${JSON.stringify(passedOn(request, route))}\n`;

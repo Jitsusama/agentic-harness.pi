@@ -308,7 +308,13 @@ input pipeline or screen. No unit or running host is installed yet.
   nothing answers, as a killed host leaves, once the caller holds the
   roster lock; a live socket, a file or another user's socket is refused.
   A request naming a conversation a child runs is asked of the child,
-  and a window attaching to one is handed to the child as bytes.
+  and a window attaching to one is handed to the child as bytes. A
+  window whose attach names the `direct` feature (protocol.ts
+  `DIRECT_ATTACH`) is instead answered with the child's `socket`, once
+  the host has reached it, and attaches there itself; its keys and
+  frames then never cross the host's thread, and a host restart leaves
+  it attached. A child the host can't reach is said as
+  `child_unreachable`, as for any window.
 - children.ts: the conversations child processes run, as the host
   routes to them: each child's socket and identity, the request as the
   child takes it under its own name, and lists naming each conversation
