@@ -151,9 +151,11 @@ const drained = z.strictObject({
 
 // A heap as V8 said it, in bytes, and when: a child's as its last state
 // line said it, so `at` is when the host heard that line.
-// Memory's answer drops a field it doesn't know rather than refusing, so a
-// host that reports more doesn't break an older reader: every reading is
-// already one a reader must do without.
+// Memory's answer drops a field it doesn't know in itself, the host's own
+// readings or a conversation's, rather than refusing, so a host that reports
+// more doesn't break an older reader: every reading is already one a reader
+// must do without. The host's identity, which a later request names, and a
+// conversation's state still refuse what they don't know.
 const heapReading = z.object({
 	used: count,
 	limit: count,

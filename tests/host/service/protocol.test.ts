@@ -90,6 +90,10 @@ describe("result validation", () => {
 			() => parseMemoryResult({ ...newer, own: { pss: -1 } }),
 			"a field it knows is still checked",
 		).toThrow("Invalid host control result");
+		expect(
+			() => parseMemoryResult({ ...newer, host: { ...identity, later: 1 } }),
+			"the host's identity, which a later request names, stays strict",
+		).toThrow("Invalid host control result");
 	});
 });
 
@@ -143,6 +147,7 @@ describe("wire validation", () => {
 			// A drain for a restart, and its lift, each naming who asked.
 			{ v: 1, id: "d", op: "drain", on: true, by: "integration" },
 			{ v: 1, id: "d", op: "drain", on: false },
+			{ v: 1, id: "m", op: "memory" },
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.
 			{
@@ -163,6 +168,8 @@ describe("wire validation", () => {
 			{ ...close, env: { API_KEY: "secret" } },
 			{ ...close, op: "stop" },
 			{ ...close, id: "" },
+			// A memory answer drops what it doesn't know; its request doesn't.
+			{ v: 1, id: "m", op: "memory", sessionId: A },
 			{ v: 1, id: "a", op: "adopt", sessionFile: "relative", attended: true },
 			// Only how a session runs its commands, never a key or a path.
 			...[
