@@ -427,6 +427,33 @@ describe("trees whose repository is gone", () => {
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
+	// Root removes what a folder's mode refuses, so the tree would go.
+	it.skipIf(process.getuid?.() === 0)(
+		"puts one whose files won't all go back, with its record",
+		async () => {
+			const { memory, sweep, lostClone, state } = await setUp();
+			const { tree, clone } = await lostClone("cached");
+			const readOnly = join(tree, "cache");
+			mkdirSync(join(readOnly, "deep"), { recursive: true });
+			writeFileSync(join(readOnly, "deep", "file"), "built\n");
+			chmodSync(readOnly, 0o500);
+			try {
+				const outcome = await sweep([], (gitDir) => gitDir.startsWith(clone));
+
+				expect(outcome.taken).toEqual([]);
+				expect(outcome.refused).toEqual([
+					{ path: tree, why: expect.stringContaining("EACCES") },
+				]);
+				// What the read-only folder holds is what can't go.
+				expect(existsSync(join(readOnly, "deep")), "back home").toBe(true);
+				expect(asidesOf(state, tree), "what is aside").toEqual([]);
+				expect(memory.recall().map((one) => one.path)).toContain(tree);
+			} finally {
+				chmodSync(readOnly, 0o700);
+			}
+		},
+	);
+
 	it("keeps one whose clone went for any other reason", async () => {
 		const { sweep, lostClone } = await setUp();
 		const { tree } = await lostClone("lost");
@@ -1118,7 +1145,7 @@ describe("taking a tree in a repository of thousands", () => {
 		).toEqual([false, false]);
 	});
 
-	it("keeps a tree aside whose tracked file changed under a stale stat", async () => {
+	it("puts back home a tree whose tracked file changed under a stale stat", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		const tree = await cut("edited", ["--detach", "@", "main"]);
 		// The same size as what the index holds, under a stat it doesn't
@@ -1211,6 +1238,87 @@ describe("taking a tree in a repository of thousands", () => {
 			}
 		},
 	);
+
+	// Root removes what a folder's mode refuses, so the aside would go.
+	it.skipIf(process.getuid?.() === 0)(
+		"says where what won't go is left, and still lets its git folder go",
+		async () => {
+			const { main, memory, lockPath, cut, state } = await setUp();
+			const tree = await cut("cache", ["--detach", "@", "main"]);
+			const gitDir = await git(tree, "rev-parse", "--absolute-git-dir");
+			// Build output the commit ignores, read-only as a module cache is.
+			const readOnly = join(tree, "target", "held");
+			mkdirSync(join(readOnly, "deep"), { recursive: true });
+			writeFileSync(join(readOnly, "deep", "file"), "built\n");
+			chmodSync(readOnly, 0o500);
+			try {
+				const outcome = await sweepEndedTrees({
+					exec,
+					memory,
+					claims: [],
+					lockPath,
+					facts: machine,
+				});
+
+				const [aside] = asidesOf(state, tree);
+				expect(outcome.refused).toEqual([
+					{
+						path: tree,
+						why: expect.stringMatching(/; what is left is at .*\.going-/),
+					},
+				]);
+				expect(outcome.refused[0]?.why).toContain(aside ?? "no aside");
+				expect(existsSync(join(aside ?? "", "target", "held", "deep"))).toBe(
+					true,
+				);
+				expect(existsSync(tree), "nothing at its own path").toBe(false);
+				expect(existsSync(gitDir), "its git folder").toBe(false);
+				const listed = worktreesOf(
+					await git(main, "worktree", "list", "--porcelain"),
+				);
+				expect(listed).not.toContain(tree);
+				expect(listed).not.toContain(aside);
+			} finally {
+				for (const aside of asidesOf(state, tree)) {
+					chmodSync(join(aside, "target", "held"), 0o700);
+				}
+			}
+		},
+	);
+
+	it("leaves a git folder that names another tree by the time it would go", async () => {
+		const { memory, lockPath, cut, state } = await setUp();
+		const tree = await cut("renamed", ["--detach", "@", "main"]);
+		const gitDir = await git(tree, "rev-parse", "--absolute-git-dir");
+		const elsewhere = join(state, "elsewhere", ".git");
+		// Once the take has asked git about the aside, something points its
+		// git folder at another tree, as a repair or a move would.
+		const repointed: Exec = async (command, args) => {
+			const result = await exec(command, args);
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				writeFileSync(join(gitDir, "gitdir"), `${elsewhere}\n`);
+			}
+			return result;
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: repointed,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.refused).toEqual([
+			{
+				path: tree,
+				why: `its git folder ${gitDir} no longer names it, so it stays`,
+			},
+		]);
+		expect(existsSync(join(gitDir, "HEAD")), "its git folder").toBe(true);
+		expect(readFileSync(join(gitDir, "gitdir"), "utf8").trim()).toBe(elsewhere);
+		expect(asidesOf(state, tree), "what was aside").toEqual([]);
+	});
 });
 
 /** The worktrees `git worktree list --porcelain` names, each whole. */
