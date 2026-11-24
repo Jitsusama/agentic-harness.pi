@@ -368,10 +368,14 @@ function fakeUnits(): FakeUnits {
 			const its = pid;
 			// Named now, in this test's folder, should it listen after the test.
 			const slot = slotNamed(unit);
+			const itsTest = folder;
 			// Late on purpose: a real unit's child listens a while after its
 			// start, and the supervisor must wait that out.
 			setTimeout(async () => {
 				await next.listensWhen;
+				// Its test is over and its folder gone: a later test's report
+				// would otherwise carry what this one left running.
+				if (folder !== itsTest) return;
 				if (next.diesBeforeListening) {
 					fake.children.delete(unit);
 					return;
@@ -398,6 +402,7 @@ function fakeUnits(): FakeUnits {
 						fake.children.delete(unit);
 						return;
 					}
+					if (folder !== itsTest) return;
 				}
 				if (next.neverListens) return;
 				runChild(slot, next, its, fake).then(

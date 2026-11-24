@@ -2,11 +2,15 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
+import { slotOf } from "../../../host/service/child-units.ts";
 import { spareMarks } from "../../../host/service/spare.ts";
 import {
 	a,
 	deferred,
 	entry,
+	folder,
+	key,
+	LISTENS_AFTER_MS,
 	opening,
 	pause,
 	reported,
@@ -83,7 +87,10 @@ describe("a warm spare", () => {
 		const resumed = await supervisor.resume(entry(a));
 
 		expect(resumed.sessionId).toBe(a);
-		expect(units.started, "the spare alone, so far").toEqual([spare]);
+		expect(units.started[0]).toBe(spare);
+		expect(units.started, "a unit of its own").not.toContain(
+			slotOf(folder, key, a).unit,
+		);
 		expect(routes.routeOf(a)?.socket).toBe(slotNamed(spare).socket);
 		expect(JSON.parse(await readFile(slotNamed(spare).file, "utf8"))).toEqual({
 			session: entry(a),
@@ -114,12 +121,16 @@ describe("a warm spare", () => {
 		await supervisor.adopt();
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 		const spare = units.started[0] ?? "";
+		// A fixed wait: past the fake unit's start, so the spare is inside its
+		// warm, which only `warms` ends, when the resume asks.
+		await pause(LISTENS_AFTER_MS * 2);
 
 		const resumed = await supervisor.resume(entry(a));
 
 		expect(resumed.sessionId).toBe(a);
-		expect(units.started).toEqual([spare, slotNamed(a).unit]);
-		expect(routes.routeOf(a)?.socket).toBe(slotNamed(a).socket);
+		const own = slotOf(folder, key, a);
+		expect(units.started).toEqual([spare, own.unit]);
+		expect(routes.routeOf(a)?.socket).toBe(own.socket);
 		warms.settle();
 		await vi.waitFor(() => expect(existsSync(warmMark(spare))).toBe(true));
 	});

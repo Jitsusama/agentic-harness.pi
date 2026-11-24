@@ -134,6 +134,25 @@ describe("a warm spare", () => {
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});
 
+	it("stays for a take that lands while it decides to leave", async () => {
+		const marks = spareMarks(slotFile);
+		let took = false;
+		const waiting = spareUntilTaken(
+			waitOf({
+				// The take lands between the spare's look at its marks and its
+				// leave, the one race its leave settles on its own.
+				moved: async () => {
+					if (!took) took = await takeSpare(marks);
+					return "its install moved";
+				},
+			}),
+		);
+		await until(marks.taken);
+		expect(took).toBe(true);
+		await name({});
+		await expect(waiting).resolves.toEqual({ taken: true });
+	});
+
 	it("leaves a take that names nothing within its time", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf({ takeWithinMs: 30 }));
