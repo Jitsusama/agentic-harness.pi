@@ -42,11 +42,16 @@ const LISTEN_MS = 30_000;
  * The most a child on pi's engine may hold with one conversation open, in
  * MB: about twice the 527 MB the first one measured held (20 November),
  * so a child grown much heavier fails here. It is read once the child has
- * sent its heap line, not straight after the open: the open's own peak
- * reached 1155 and 1195 MB in 2 of 31 runs and fell to under 400 MB
- * seconds later, so it measured when the collector last ran.
+ * collected what its open's load left, as a quiet child does, not straight
+ * after the open: uncollected, a child that only opened held over 1100 MB,
+ * a heap of about 900 MB, in 7 of 101 runs from 20 to 24 November, and
+ * held it for as long as it sat.
  */
 const CHILD_RSS_MB = 1024;
+/** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
+const COLLECTED_MS = 30_000;
+/** What a child says once it has collected while quiet. */
+const COLLECTED = "Collected while quiet";
 /** How long a child may take to send a line with its heap: its heap timer, and a margin. */
 const HEAP_LINE_MS = 45_000;
 /** How long a child's first open on pi's engine may take: it loads the whole harness, cold in a fresh seal. */
@@ -209,6 +214,21 @@ function watching(socket: string) {
 }
 
 /** The heap the next state line on `lines` says, within HEAP_LINE_MS. */
+/** Wait until what `said` holds includes `words`, or fail after `withinMs`. */
+async function saying(
+	said: () => string,
+	words: string,
+	withinMs: number,
+): Promise<void> {
+	const until = Date.now() + withinMs;
+	while (!said().includes(words)) {
+		if (Date.now() > until)
+			throw new Error(`not said within ${withinMs} ms: ${words}\n${said()}`);
+		// A child's stderr arrives in its own time; a short look keeps the wait close to it.
+		await new Promise((done) => setTimeout(done, 200));
+	}
+}
+
 async function heapLine(
 	lines: AsyncGenerator<unknown>,
 ): Promise<{ used: number; limit: number }> {
@@ -350,6 +370,7 @@ it(
 				const openedMs = Date.now() - opening;
 				const watched = parseWatchResult(resultIn((await lines.next()).value));
 				const atOpen = await residentMb(child.process.pid);
+				await saying(child.errors, COLLECTED, COLLECTED_MS);
 				const heap = await heapLine(lines);
 				const held = await residentMb(child.process.pid);
 				process.stdout.write(

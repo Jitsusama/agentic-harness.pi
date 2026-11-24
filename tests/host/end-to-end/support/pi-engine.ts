@@ -112,5 +112,11 @@ export async function engine(host: SessionHost): Promise<ConversationEngine> {
 			current: async () => "sealed-key",
 			refused: () => {},
 		},
+		// What the engine says goes to stderr, as a host's goes to its journal.
+		report: (said) => {
+			process.stderr.write(
+				`pi-host: ${said instanceof Error ? (said.stack ?? said.message) : String(said)}\n`,
+			);
+		},
 	});
 }
