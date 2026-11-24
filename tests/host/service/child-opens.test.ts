@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BEGIN_TOO_LATE } from "../../../host/service/child-requests.ts";
 import { slotOf } from "../../../host/service/child-units.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
+import type * as StartGate from "../../../host/service/start-gate.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
 	a,
@@ -31,6 +32,27 @@ import {
 	supervisor,
 	units,
 } from "./support/supervised-children.ts";
+
+/** Each turn asked of the supervisor's gate, in the order it was asked. */
+const gateAsks = vi.hoisted((): { ahead: boolean }[] => []);
+
+// The real gate, its asks seen, so a case can wait for a start to be
+// queued rather than guess how long it takes to get there.
+vi.mock("../../../host/service/start-gate.ts", async (original) => {
+	const actual = await original<typeof StartGate>();
+	return {
+		...actual,
+		startGate: (atOnce: number): StartGate.StartGate => {
+			const gate = actual.startGate(atOnce);
+			return {
+				turn(ask) {
+					gateAsks.push({ ahead: ask.ahead });
+					return gate.turn(ask);
+				},
+			};
+		},
+	};
+});
 
 superviseEachTest();
 
@@ -445,28 +467,44 @@ describe("a new conversation", () => {
 				return { listensWhen: holdingB.promise };
 			return {};
 		};
+		gateAsks.length = 0;
 		const held = [a, b].map((id) => supervisor.resume(entry(id)));
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const queued = "c0000000-0000-4000-8000-000000000003";
 		const later = supervisor.resume(entry(queued));
-		// Long enough for the resume to wait at the gate before the begin
-		// asks, which a begin reaches at once and a resume only after its
-		// own awaits, and to reach its unit's start were there no gate.
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		// A begin reaches the gate at once and a resume only after its own
+		// awaits, so the resume is seen waiting before the begin asks.
+		await vi.waitFor(() => expect(gateAsks).toHaveLength(3));
 		const beginning = supervisor.begin(opening("open-24"));
-		expect(units.started, "none past the gate while it is full").toHaveLength(
-			2,
-		);
+		const all = [...held, beginning, later];
+		try {
+			expect(gateAsks, "the resume queued, then the begin ahead").toEqual([
+				{ ahead: false },
+				{ ahead: false },
+				{ ahead: false },
+				{ ahead: true },
+			]);
+			// Long enough for a begin let past a full gate to reach its unit's start.
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(units.started, "none past the gate while it is full").toHaveLength(
+				2,
+			);
 
-		holdingA.settle();
-		await vi.waitFor(() => expect(units.started).toHaveLength(3));
-		expect(
-			units.started[2],
-			"the begin given the first turn freed, not the resume that came first",
-		).not.toBe(slotOf(folder, key, queued).unit);
-		holdingB.settle();
-		await Promise.all([...held, beginning, later]);
-		expect(units.started[3]).toBe(slotOf(folder, key, queued).unit);
+			holdingA.settle();
+			await vi.waitFor(() => expect(units.started).toHaveLength(3));
+			expect(
+				units.started[2],
+				"the begin given the first turn freed, not the resume that came first",
+			).not.toBe(slotOf(folder, key, queued).unit);
+			holdingB.settle();
+			await Promise.all(all);
+			expect(units.started[3]).toBe(slotOf(folder, key, queued).unit);
+		} finally {
+			// A failed check leaves none of them pending past the case.
+			holdingA.settle();
+			holdingB.settle();
+			await Promise.allSettled(all);
+		}
 	});
 
 	// A turn given with less than its least left would start a unit only

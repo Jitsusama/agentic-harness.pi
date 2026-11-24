@@ -28,7 +28,7 @@ const owner = { pid: process.pid, startedAt: 1 };
 /** This test's folder, made fresh for each test by `useBackendBed`. */
 export let dir: string;
 /** This test's host, made fresh for each test by `useBackendBed`. */
-export let host: SessionHost;
+let host: SessionHost;
 /** This test's roster, made fresh for each test by `useBackendBed`. */
 export let roster: HostRoster;
 

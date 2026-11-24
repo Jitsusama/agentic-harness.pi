@@ -70,10 +70,10 @@ contradicts refused, its slot named before the roster holds it, an
 open answered late named rather than stopped, a begin's one deadline
 and a stop ending its ask, a resume waiting on the open's slot, and
 the gate's turns. child-adopts.test.ts has a host starting again taking
-up the children left running, once for two adopts, under the ids they now run, a busy one tried again with each
-try said, one systemd won't say has gone watched, a second one running
-a conversation stopped, and a start waiting on one it couldn't take up
-under another id.
+up the children left running, once for two adopts, under the ids they
+now run, a busy one tried again with each try said, one systemd won't
+say has gone watched, a second one running a conversation stopped, and
+a start waiting on one it couldn't take up under another id.
 support/supervised-children.ts is their fake units, roster and
 children, each child's traits set by the test that starts it.
 child-policy.test.ts checks the policy file read as it changes: one
