@@ -161,23 +161,42 @@ export async function childPss(
 }
 
 /**
+ * How long a memory answer waits on a Pss, the host's or a child's: well
+ * within the 30 s a client waits on the answer, and long past the
+ * milliseconds a read takes when nothing holds it up.
+ */
+export const PSS_WAIT_MS = 5_000;
+
+/**
  * Reads through `read` one at a time, a pid's read in progress given to
  * each caller that asks for that pid meanwhile. The kernel walks a
  * process's mappings for its Pss under the process's lock, so a child
  * held up under memory pressure holds its read up too, on one of the
  * few threads libuv shares with the host's file reads; this way it holds
  * one, however often memory is asked for, and the host's own reads go on.
+ * A read pending longer than `waitMs` is given to no later caller, who
+ * has nothing at once, since each caller awaiting a read that never ends
+ * would be kept for as long as it lasts.
  */
 export function oneReadAtOnce(
 	read: (pid: number) => Promise<number | undefined>,
+	waitMs = PSS_WAIT_MS,
+	now: () => number = Date.now,
 ): (pid: number) => Promise<number | undefined> {
-	const reading = new Map<number, Promise<number | undefined>>();
+	const reading = new Map<
+		number,
+		{ readonly read: Promise<number | undefined>; readonly since: number }
+	>();
 	let last: Promise<unknown> = Promise.resolve();
 	return (pid) => {
 		const under = reading.get(pid);
-		if (under) return under;
+		if (under) {
+			return now() - under.since < waitMs
+				? under.read
+				: Promise.resolve(undefined);
+		}
 		const next = last.then(() => read(pid)).finally(() => reading.delete(pid));
-		reading.set(pid, next);
+		reading.set(pid, { read: next, since: now() });
 		last = next.catch(() => {
 			// Its caller hears the failure; the next read goes on regardless.
 		});
@@ -196,13 +215,6 @@ export const hostProcReads: ProcReads = {
 	pss: oneReadAtOnce(pssBytesOf),
 	startTicks: startTicksFromProc,
 };
-
-/**
- * How long a memory answer waits on a Pss, the host's or a child's: well
- * within the 30 s a client waits on the answer, and long past the
- * milliseconds a read takes when nothing holds it up.
- */
-export const PSS_WAIT_MS = 5_000;
 
 /** How a memory answer reads a child's Pss, nothing where it can't be had. */
 export type ReadPss = (

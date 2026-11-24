@@ -1022,6 +1022,26 @@ describe("a host's memory with conversations in children", () => {
 			expect(await Promise.all(asked)).toEqual([100, 100, 100]);
 			expect(reads.started, "read once").toEqual([1]);
 		});
+		it("gives a read pending past the wait to no later caller, nor one queued behind it", async () => {
+			const reads = held();
+			let clock = 0;
+			const pss = oneReadAtOnce(reads.read, 50, () => clock);
+			const stuck = pss(1);
+			const queued = pss(2);
+
+			clock = 49;
+			expect(pss(1), "within the wait, shared").toBe(stuck);
+			expect(pss(2), "within the wait, shared").toBe(queued);
+			clock = 50;
+			const late = pss(1);
+			const lateQueued = pss(2);
+
+			expect(late, "past the wait").not.toBe(stuck);
+			expect(lateQueued, "past the wait").not.toBe(queued);
+			expect(await late).toBeUndefined();
+			expect(await lateQueued).toBeUndefined();
+			expect(reads.started, "no read started for them").toEqual([1]);
+		});
 		it("reads a pid afresh once its last read has settled, even one that failed", async () => {
 			let reads = 0;
 			const pss = oneReadAtOnce(async () => {
