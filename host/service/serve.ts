@@ -249,10 +249,10 @@ export async function serveHost(options: {
 					policy,
 					roster,
 					restsParked: (entry) => engine.restsParked?.(entry) ?? false,
-					restGivenUp: (entry) =>
-						engine.restGivenUp
-							? engine.restGivenUp(entry)
-							: "this engine rests none given up",
+					// An engine with none is refused by the hosting's own words.
+					...(engine.restGivenUp
+						? { restGivenUp: (entry) => engine.restGivenUp?.(entry) }
+						: {}),
 					// A child's conversation that became another is told the backend
 					// as one the host runs is, so a repeat names the one now.
 					became: (previousId, nextId) => succeeded?.(previousId, nextId),

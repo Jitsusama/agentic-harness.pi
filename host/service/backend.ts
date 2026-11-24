@@ -694,10 +694,9 @@ export function hostBackend(options: {
 			// Registered and failed: the engine parked it, so it stays held for
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
-				await undoing(prepared, async () => {
-					await engine.discard(prepared);
-					await roster.drop(prepared.sessionId);
-				});
+				// Each on its own, so a discard that fails still drops its hold.
+				await undoing(prepared, () => engine.discard(prepared));
+				await undoing(prepared, () => roster.drop(prepared.sessionId));
 			} else if (typeof error === "object" && error !== null) {
 				// Its repeat is told the same, not given a second.
 				leftHeld.set(error, prepared.sessionId);
@@ -713,8 +712,9 @@ export function hostBackend(options: {
 		try {
 			await undo();
 		} catch (error) {
+			const why = firstLine(error);
 			options.say?.(
-				`${prepared.sessionId}: undoing its failed start failed too: ${firstLine(error)}`,
+				`${prepared.sessionId}: undoing its failed start failed too${why ? `: ${why}` : ", with no reason given"}`,
 			);
 		}
 	}

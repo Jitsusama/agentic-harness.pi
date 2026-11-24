@@ -153,4 +153,19 @@ describe("startLine", () => {
 			"A conversation not yet named, opening in /work: its open took 0.5 s",
 		]);
 	});
+
+	// F39: a path a requester names keeps the journal entry on one line.
+	it("escapes what a path holds that would break its line", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: "/work\npi-host: forged\r\tx" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			"A conversation not yet named, opening in /work\\npi-host: forged\\r\\tx: its open took 0.5 s",
+		);
+	});
 });

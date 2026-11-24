@@ -137,12 +137,22 @@ export function startLine(
 		sessionId === undefined
 			? `A conversation not yet named, ${
 					request.op === "open"
-						? `opening in ${request.cwd}`
-						: `adopted from ${request.sessionFile}`
+						? `opening in ${onOneLine(request.cwd)}`
+						: `adopted from ${onOneLine(request.sessionFile)}`
 				}`
 			: `${sessionAddress(sessionId)} (${sessionId})`;
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
+}
+
+/**
+ * A path a requester named, its control characters written as escapes,
+ * so it can't break the journal entry it is said in or forge another.
+ */
+function onOneLine(text: string): string {
+	return text.replace(/\p{Cc}/gu, (control) =>
+		JSON.stringify(control).slice(1, -1),
+	);
 }
 
 /**

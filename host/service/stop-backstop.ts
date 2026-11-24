@@ -59,8 +59,13 @@ parentPort.on("message", (told) => {
 	else ids = told;
 });
 // From when it was armed, since a starved machine may be slow to start it.
-setTimeout(() => {
+function fire() {
 	const waited = Date.now() - began;
+	// A timer may fire a millisecond early by the clock: never end it early.
+	if (waited < within) {
+		setTimeout(fire, within - waited);
+		return;
+	}
 	const left = ids.length > 0 ? ": " + ids.join(", ") : "";
 	// The mark first, as a write to a journal that has stopped reading can block.
 	if (ids.length > 0)
@@ -76,7 +81,8 @@ setTimeout(() => {
 		// With no journal to write to, the end still matters.
 	}
 	process.kill(pid, "SIGKILL");
-}, Math.max(0, within - (Date.now() - began)));
+}
+setTimeout(fire, Math.max(0, within - (Date.now() - began)));
 `;
 
 /** A backstop that couldn't start, leaving the stop to its loop's timer. */

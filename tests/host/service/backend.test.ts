@@ -224,6 +224,41 @@ describe("hostBackend", () => {
 		expect(roster.entries()).toHaveLength(1);
 	});
 
+	it("still drops an unregistered start whose discard fails, saying why or that none was given", async () => {
+		const said: string[] = [];
+		const failing = engine({
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+			discard: vi
+				.fn<ConversationEngine["discard"]>()
+				.mockRejectedValueOnce(new Error("its folder is gone"))
+				// What a library may throw: something with no message at all.
+				.mockRejectedValueOnce({ code: "EIO" }),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: besideStarts(said),
+		});
+		for (const _ of [1, 2])
+			await expect(backend.execute(anOpen())).rejects.toThrow(
+				"extension load failed",
+			);
+		expect(roster.entries(), "dropped though its discard failed").toEqual([]);
+		const undone = said.filter((line) => line.includes("undoing"));
+		expect(undone).toEqual([
+			expect.stringMatching(
+				/: undoing its failed start failed too: its folder is gone$/,
+			),
+			expect.stringMatching(
+				/: undoing its failed start failed too, with no reason given$/,
+			),
+		]);
+	});
+
 	it("holds the launch environment prepare derived, and a restart's resume gets it back exactly", async () => {
 		const launch = { SHOPIFY_EXP_ARM: "treatment", SHOPIFY_EXP_ID: "e1" };
 		const derived = engine({
