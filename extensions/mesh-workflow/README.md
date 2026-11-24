@@ -118,7 +118,7 @@ and can answer a question or a gate left open on screen.
   business, apart from it. A session's presence names the
   nearest steward above its quest as `stewardedBy`, walked up
   `parent` (`lib/internal/quest/fields/orchestration.ts`),
-  while a live session answers to it, and the bare word
+  while a live session signs with it, and the bare word
   `to: person` reaches it. With no live steward, `person` reads
   as `orchestrator`, so the word works the same on every quest.
   The delivery note sends the person's path to the steward, but

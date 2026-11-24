@@ -75,9 +75,9 @@ shipped and tested.
   quest `id` names the person's steward, and `steward=false`
   clears it. Its session carries what needs the person from
   every quest below it, up to the next steward, apart from who
-  orders their work; each of those sessions names it in
-  presence as `stewardedBy`, and the mesh's `person` reaches
-  it.
+  orders their work; while a live session signs with its
+  address, each of those sessions names it in presence as
+  `stewardedBy`, and the mesh's `person` reaches it.
 - **What a session is doing**: after each quest action, each
   write to the focused plan and each start, it says (through
   `lib/internal/quest/sessions/doing.ts`)
