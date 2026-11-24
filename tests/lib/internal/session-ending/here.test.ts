@@ -30,6 +30,7 @@ import {
 	runningInHosts,
 	withinPatience,
 } from "../../../../lib/internal/session-ending/here.ts";
+import { addressOf } from "../../../support/address.ts";
 
 const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
 const missing: ExecResult = { code: 127, stdout: "", stderr: "not found" };
@@ -128,10 +129,6 @@ describe("the sessions parked on this machine", () => {
 	});
 
 	const home = () => join(state, "pi", "agentic-harness.pi");
-
-	/** A session's address as one is minted: six to eight letters. */
-	const addressOf = (session: string) =>
-		session.toUpperCase().slice(-8).padEnd(6, "X");
 
 	/** A session's presence in `mesh`, as the mesh writes it. */
 	const presence = (mesh: string, session: string, at?: string) => {

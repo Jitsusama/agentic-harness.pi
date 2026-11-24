@@ -38,7 +38,8 @@ export function refusedNotes(
 ): string[] {
 	return addressed.flatMap((one) => {
 		const refused = refusal(one);
-		// A presence says its addresses as it likes, and this opens the note.
+		// A presence's addresses are read in an address's shape, which
+		// `person` and `machine` have too, and this opens the note.
 		const address = one.addresses.find(isAddress);
 		if (!refused || address === undefined) return [];
 		return [

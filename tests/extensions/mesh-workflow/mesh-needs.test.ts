@@ -5,11 +5,12 @@
  * in its place.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	ASK_WHO_OWNS_IT,
+	FIND_WHO_OWNS_IT,
 	NEED_GRANTS_NOTHING,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -103,7 +104,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its about");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -125,7 +126,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its text");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -175,7 +176,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no live cell within three ties");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -511,7 +512,7 @@ describe("sending to a need", () => {
 		expect(said, "it points at another peer, not the one refusing").toContain(
 			"Name another peer it is for by address",
 		);
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said, "it is there, so it never reads as ended").not.toContain(
 			"has ended",
 		);
@@ -596,7 +597,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no node answered");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -619,5 +620,70 @@ describe("sending to a need", () => {
 
 		expect(description).toContain("passed to nobody in its place");
 		expectNoBarAbove(description);
+	});
+});
+
+/**
+ * The fixture's quest, 7M6JKG, under 5GV2AH, with `orchestrator: true` on
+ * whichever of the two heads an orchestration.
+ */
+function questHeadedBy(head: "5GV2AH" | "7M6JKG"): void {
+	for (const [id, parent] of [
+		["QEST-20261021-7M6JKG", "QEST-20261021-5GV2AH"],
+		["QEST-20261021-5GV2AH", "null"],
+	] as const) {
+		const heads = id.endsWith(head) ? "orchestrator: true\n" : "";
+		mkdirSync(join(fixture.paths.quests, id), { recursive: true });
+		writeFileSync(
+			join(fixture.paths.quests, id, "README.md"),
+			`---\nid: ${id}\nkind: quest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${heads}---\n# ${id}\n`,
+		);
+	}
+}
+
+/** A lost need from the fixture's session, and what its refusal said. */
+async function lostNeed(): Promise<string> {
+	peer("session-c", ["5HJZ8Z"], []);
+	const env = await node(
+		[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+		[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+	);
+	const { tools } = await startSession(env);
+	return sending(tools, {
+		to: "need",
+		intent: "question",
+		text: "Who keeps the launcher's fonts?",
+		about: "fonts",
+	});
+}
+
+describe("a lost need's refusal", () => {
+	// Each refusal is checked against these words once, so the five above
+	// stay true to a rewording and can't pass on an empty sentence.
+	it("says to ask by a question, and to find the owner where nothing is above", () => {
+		expect(ASK_WHO_OWNS_IT).toMatch(/ask the cell above .* a question to orchestrator/);
+		expect(FIND_WHO_OWNS_IT).toMatch(/find the owner in mesh_groups/);
+		expect(FIND_WHO_OWNS_IT).toMatch(/ask it by address/);
+	});
+
+	it("points at orchestrator when a mark names one above", async () => {
+		questHeadedBy("5GV2AH");
+
+		const said = await lostNeed();
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(ASK_WHO_OWNS_IT);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+	});
+
+	it("never points at orchestrator for a peer heading its own orchestration", async () => {
+		questHeadedBy("7M6JKG");
+
+		const said = await lostNeed();
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(FIND_WHO_OWNS_IT);
+		expect(said).not.toContain("question to orchestrator");
+		expectNoBarAbove(said);
 	});
 });

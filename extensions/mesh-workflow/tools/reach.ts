@@ -35,9 +35,10 @@ export function unheardOf(
 }
 
 /**
- * The address a sender is told a peer goes by. A presence says its
- * addresses as it likes, and each note opens on this one, so a peer
- * that names nothing shaped as an address is left unnamed.
+ * The address a sender is told a peer goes by. A presence's addresses
+ * are read only in an address's shape (lib/mesh/presence.ts), which
+ * `person` and `machine` have too, and each note opens on this one, so
+ * a peer that names no address is left unnamed.
  */
 function told(one: Presence): string | undefined {
 	return one.addresses.find(isAddress);

@@ -8,9 +8,13 @@
  * cell on its way a turn. A need nothing within reach works on is not
  * sent at all, and passed to nobody in its place: it is kept as lost, so
  * the measure counts it, and the sender is told to name the peers it is
- * for or, not knowing who, to ask the cell above it who owns it, by a
- * question rather than by handing the need up. Its refusals never say it went to no orchestrator, since asking
- * whoever is above who owns it is what the delivery note says to do next.
+ * for or, not knowing who, to ask whoever is above it who owns it, by a
+ * question rather than by handing the need up. The refusal names that
+ * cell only where one is above: `orchestrator` under a mark, the head
+ * of its quest by address, or a hub from use by address; with nothing
+ * above, mesh_groups, which names what each peer works on. It never
+ * says the need went to no orchestrator, since asking who owns it is
+ * still the next step.
  *
  * A need finds who works on something and grants nothing, since a cell
  * is found by what it says it works on, its title, repository and
@@ -30,6 +34,7 @@ import {
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
+import { aboveFor } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import type { SendDetails, SendParams } from "./send.ts";
 
@@ -39,11 +44,46 @@ export const NEED_GRANTS_NOTHING =
 
 /**
  * What a lost need's refusal says to do when the asker can't name who it
- * is for, which is why it asked a need: the cell above it knows who owns
- * what, and is asked by a question, never handed the need.
+ * is for, which is why it asked a need, and a mark names its
+ * orchestrator: the cell above it knows who owns what, and is asked by
+ * a question, never handed the need.
  */
 export const ASK_WHO_OWNS_IT =
 	"Not knowing who, ask the cell above this peer who owns it: a question to orchestrator.";
+
+/**
+ * What a lost need's refusal says to do, not knowing who, when nothing
+ * is above the asker for `orchestrator` to reach, or none can be found.
+ */
+export const FIND_WHO_OWNS_IT =
+	"Not knowing who, nothing above this peer can be asked, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
+
+/**
+ * Whom a lost need's refusal says to ask who owns it, by where this peer
+ * sits, so it never points at a route known to reach nobody: the mark's
+ * orchestrator, the head of its quest or a hub from use, and otherwise
+ * mesh_groups. A hub is looked for only when the node answered the need,
+ * since finding one asks the same node.
+ */
+async function whomToAsk(at: Local, nodeAnswered: boolean): Promise<string> {
+	if (at.peer.orchestratedBy !== undefined) return ASK_WHO_OWNS_IT;
+	const head = at.peer.questHeads;
+	if (head !== undefined && at.peer.orchestrates === undefined) {
+		return `Not knowing who, ask ${head}, the head of this peer's quest, who owns it: a question to ${head}.`;
+	}
+	if (at.peer.orchestrates !== undefined || !nodeAnswered) {
+		return FIND_WHO_OWNS_IT;
+	}
+	try {
+		const above = await aboveFor(at);
+		return "address" in above
+			? `Not knowing who, ask ${above.address}, the cell above this peer, who owns it: a question to ${above.address}.`
+			: FIND_WHO_OWNS_IT;
+	} catch {
+		// No hub could be found, so nothing above can be named to ask.
+		return FIND_WHO_OWNS_IT;
+	}
+}
 
 /** What `to` says once a need in it is read, or why it may not be sent. */
 export type NeedRead =
@@ -96,7 +136,7 @@ export async function needRead(
 	);
 	if (found === undefined) {
 		return refused(
-			`no node answered to say which cell works on it, and a need is passed to nobody in its place. Name the peers it is for by address. ${ASK_WHO_OWNS_IT}`,
+			`no node answered to say which cell works on it, and a need is passed to nobody in its place. Name the peers it is for by address. ${await whomToAsk(at, false)}`,
 		);
 	}
 	const about = found.words.join(" ");
@@ -104,7 +144,7 @@ export async function needRead(
 		const retry = fromText
 			? "no word of its text is one any cell works on, so it is counted as lost and passed to nobody in its place. Say what it is about in about, or name the peers it is for by address."
 			: "no word of its about is one any cell works on, so it is counted as lost and passed to nobody in its place. Say it in other words of the work, or name the peers it is for by address.";
-		return refused(`${retry} ${ASK_WHO_OWNS_IT}`);
+		return refused(`${retry} ${await whomToAsk(at, true)}`);
 	}
 	const ended = endedText(found);
 	// On 24 November a need about "dates delivery" went by delivery alone,
@@ -131,7 +171,7 @@ export async function needRead(
 	);
 	if (found.fit === null && found.fellShort !== undefined) {
 		return refused(
-			`${ownerText(found, found.fellShort, about)}${unasked} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${ASK_WHO_OWNS_IT}`,
+			`${ownerText(found, found.fellShort, about)}${unasked} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${await whomToAsk(at, true)}`,
 		);
 	}
 	if (found.fit === null) {
@@ -141,7 +181,7 @@ export async function needRead(
 				? "Name another peer it is for by address."
 				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${unasked}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
+			`no live cell within three ties that hears this peer works on ${about}.${unasked}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${await whomToAsk(at, true)}`,
 		);
 	}
 	if (found.fit === asker) {
