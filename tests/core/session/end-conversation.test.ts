@@ -78,6 +78,34 @@ it("shuts plain pi down as it always has", () => {
 	).toHaveBeenCalledTimes(1);
 });
 
+it("tells a host's failed close to whoever asked, once it has failed", async () => {
+	installed(async () => {
+		throw new Error("the engine is gone");
+	});
+	vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	const { ctx } = context();
+	const failed = vi.fn<(error: unknown) => void>();
+
+	endConversation(ctx, "a carry to penelope", failed);
+
+	expect(failed, "not before the close is tried").not.toHaveBeenCalled();
+	await vi.waitFor(() =>
+		expect(failed).toHaveBeenCalledWith(new Error("the engine is gone")),
+	);
+});
+
+it("tells plain pi's failed shutdown to whoever asked, rather than throwing", () => {
+	const { ctx, shutdown } = context();
+	shutdown.mockImplementation(() => {
+		throw new Error("the session is stale");
+	});
+	const failed = vi.fn<(error: unknown) => void>();
+
+	endConversation(ctx, "a carry to penelope", failed);
+
+	expect(failed).toHaveBeenCalledWith(new Error("the session is stale"));
+});
+
 it("says on the host's standard error when its close failed", async () => {
 	installed(async () => {
 		throw new Error("the engine is gone");
