@@ -63,7 +63,7 @@ describe.skipIf(!packageDir)(
 								isRecord(one) ? one.unexpected : undefined,
 							)
 						: undefined,
-					"each conversation's record matches plain pi's past what differs on every run",
+					`each conversation's record matches plain pi's past what differs on every run: ${JSON.stringify(isRecord(report) ? report.parity : undefined)}`,
 				).toEqual([0, 0]);
 				expect(
 					isRecord(report) && Array.isArray(report.parity)
