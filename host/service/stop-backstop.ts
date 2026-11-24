@@ -43,15 +43,19 @@ interface Armed {
 
 /**
  * The thread's whole program, as source so it runs the same whether this
- * module loaded as TypeScript or as JavaScript. The line and the mark have
+ * module loaded as TypeScript or as JavaScript. It takes node's modules
+ * through `process.getBuiltinModule`, which either module type has: a
+ * thread takes its process's flags, so under a host started with
+ * `--input-type=module` a `require` here threw and no backstop was armed
+ * (23 November, in the host's own end-to-end runs). The line and the mark have
  * the shapes unparkedLine and unparkedMarks give them (stop.ts), so the
  * next start reads either alike. A kill is the one end a thread can give
  * its process, and the only one a held loop can't put off.
  */
 const PROGRAM = `
-const { parentPort, workerData } = require("node:worker_threads");
-const { mkdirSync, writeFileSync, writeSync } = require("node:fs");
-const { dirname } = require("node:path");
+const { parentPort, workerData } = process.getBuiltinModule("node:worker_threads");
+const { mkdirSync, writeFileSync, writeSync } = process.getBuiltinModule("node:fs");
+const { dirname } = process.getBuiltinModule("node:path");
 const { within, file, fd, pid, began } = workerData;
 let ids = workerData.ids;
 parentPort.on("message", (told) => {

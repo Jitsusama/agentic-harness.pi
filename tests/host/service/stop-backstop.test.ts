@@ -37,7 +37,8 @@ const CHILD_MS = 10_000;
  */
 const child = `
 import { backstopStop } from ${JSON.stringify(BACKSTOP)};
-const [mode, file] = process.argv.slice(2);
+// Its last two, run from its file or as source after -e.
+const [mode, file] = process.argv.slice(-2);
 const ids = mode === "parked" ? [] : ["a", "b"];
 const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
 if (mode === "moved") backstop.held(["b"]);
@@ -71,13 +72,24 @@ interface Ended {
 	readonly took: number;
 }
 
-/** Run the child in `mode`, its mark at `file`. */
-function run(mode: string, file: string): Promise<Ended> {
+/**
+ * Run the child in `mode`, its mark at `file`: from its file, or as
+ * module source given to `-e`, as the host's own end-to-end runs start it.
+ */
+function run(
+	mode: string,
+	file: string,
+	started: "from its file" | "as source" = "from its file",
+): Promise<Ended> {
 	const began = Date.now();
+	const program =
+		started === "as source"
+			? ["--input-type=module", "-e", child]
+			: [join(dir, "child.mts")];
 	// Without node's own warnings, so what it says is the backstop's alone.
 	const ran = spawn(
 		process.execPath,
-		["--no-warnings", join(dir, "child.mts"), mode, file],
+		["--no-warnings", ...program, mode, file],
 		{ stdio: ["ignore", "ignore", "pipe"] },
 	);
 	let said = "";
@@ -114,6 +126,18 @@ describe("backstopStop", () => {
 		const waited = Number(/after (\d+) ms/.exec(ended.said)?.[1]);
 		expect(waited, "counted from when it was armed").toBeGreaterThanOrEqual(
 			WITHIN_MS,
+		);
+	});
+
+	// A thread takes its process's flags, and a require threw under these.
+	it("ends a host started as module source just the same", {
+		timeout: 2 * CHILD_MS,
+	}, async () => {
+		const file = join(dir, "not-parked.json");
+		const ended = await run("spin", file, "as source");
+		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
+		expect(ended.said, "the journal line").toMatch(
+			/^pi-host: stopping after \d+ ms, .+ 2 not parked: a, b; /,
 		);
 	});
 
