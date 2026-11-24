@@ -261,7 +261,12 @@ async function answersOnScreen(
 			content: (theme: Theme, width: number) =>
 				renderMarkdown(only.prompt, theme, width),
 			options: buildOptions(only),
-			want: { kind: "question", said: only.prompt, ask: wantAsk(only) },
+			want: {
+				kind: "question",
+				said: only.prompt,
+				asked: only.prompt,
+				ask: wantAsk(only),
+			},
 			closer,
 		});
 		if (!result) return null;
@@ -289,6 +294,9 @@ async function answersOnScreen(
 		want: {
 			kind: "question",
 			said: `${count(questions.length, "question")}: ${questions[0]?.prompt ?? ""}`,
+			asked: questions
+				.map((q, index) => `${index + 1}. ${q.prompt}`)
+				.join("\n\n"),
 		},
 		closer,
 	});

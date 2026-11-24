@@ -82,6 +82,20 @@ export function heldWant(
 }
 
 /**
+ * Every call held in this absence, a line each, for the want to carry
+ * beside its line, which names only the latest; nothing for one or none.
+ */
+export function heldAsk(
+	held: readonly { readonly title: string }[],
+): string | undefined {
+	if (held.length < 2) return undefined;
+	return [
+		`Holds ${count(held.length, "call")} for you:`,
+		...held.map((one) => `- ${one.title}`),
+	].join("\n");
+}
+
+/**
  * The notice for a run that rests blocked, once for each thing it is
  * blocked on. Updates `memory`.
  */
