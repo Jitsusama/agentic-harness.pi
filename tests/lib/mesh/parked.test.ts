@@ -633,7 +633,8 @@ describe("telling a holder in another language which steers wake", () => {
 	// 85PKB2, 14 November: an act added to the mesh but not to the rule
 	// would leave a parked peer asleep without anyone choosing it.
 	it("judges every act the mesh knows on purpose", () => {
-		const leftParked = ["pause", "resume", "stop"];
+		// A Park left for a parked peer has done what it asks already.
+		const leftParked = ["pause", "resume", "stop", "park"];
 
 		expect([...WAKING_STEERS.acts, ...leftParked].sort()).toEqual(
 			[...STEER_ACTS, ORDERED_CARRY].sort(),

@@ -507,6 +507,31 @@ export function isRestartAsk(data: unknown): data is RestartAsk {
 	return typeof session === "string" && typeof sessionFile === "string";
 }
 
+/**
+ * Asked on the bus by the person's Park from outside the window
+ * (mesh-workflow pausing.ts): park now, however briefly it has been
+ * idle, unless something else holds it. Joel, 24 November, by 42P0R4
+ * [f00e0dec]: hold a cell parked from the launcher, so its process ends
+ * and frees memory, then wake it on a message, a key or a window. The
+ * park watch answers before `emit` returns: `parked` once it parks, else
+ * `why` not. An ask nobody answers has no watch, since nothing here
+ * would wake it.
+ */
+export const PARK_NOW_ASK = "session:park-now-ask:v1";
+
+/** What {@link PARK_NOW_ASK} carries. */
+export interface ParkNowAsk {
+	readonly session: string;
+	parked?: boolean;
+	why?: string;
+}
+
+/** Whether a payload is a {@link ParkNowAsk}. */
+export function isParkNowAsk(data: unknown): data is ParkNowAsk {
+	if (typeof data !== "object" || data === null) return false;
+	return typeof (data as Record<string, unknown>).session === "string";
+}
+
 /** What {@link PARK_ASK} carries. */
 export interface ParkAsk {
 	readonly session: string;
