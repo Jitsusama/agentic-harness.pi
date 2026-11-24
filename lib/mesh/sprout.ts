@@ -260,9 +260,34 @@ export function runsSystemPrograms(
 /** Runs a program from the system's profiles, as {@link runsSystemPrograms} says. */
 export const runProgram: RunProgram = runsSystemPrograms();
 
-/** Runs the program at `program`, never failing but in what it resolves. */
+/**
+ * How long past its patience a run is given to be reaped before it is
+ * answered as timed out anyway: a child stopped by SIGKILL is reaped at
+ * once, but a grandchild still holding its output open keeps execFile's
+ * callback from ever running.
+ */
+const REAP_GRACE_MS = 5000;
+
+/**
+ * Runs the program at `program`, never failing but in what it resolves,
+ * and always resolving: one that runs past its patience is killed, and
+ * answered as timed out within {@link REAP_GRACE_MS} whatever it holds
+ * open, so a caller that runs one at a time is never wedged for good.
+ */
 const runFound: RunProgram = (program, args, options) =>
-	new Promise((resolve) => {
+	new Promise((done) => {
+		const deadline = setTimeout(
+			() => resolve({ code: null, stdout: "", stderr: "", timedOut: true }),
+			options.timeoutMs + REAP_GRACE_MS,
+		);
+		deadline.unref();
+		let answered = false;
+		function resolve(ran: Ran): void {
+			if (answered) return;
+			answered = true;
+			clearTimeout(deadline);
+			done(ran);
+		}
 		try {
 			runFile(program, args, options, resolve);
 		} catch (error) {
@@ -292,6 +317,8 @@ function runFile(
 		{
 			cwd: options.cwd,
 			timeout: options.timeoutMs,
+			// A program that traps or never sees SIGTERM would outlive it.
+			killSignal: "SIGKILL",
 			encoding: "utf8",
 			...(options.signal ? { signal: options.signal } : {}),
 			...(options.env ? { env: options.env } : {}),
