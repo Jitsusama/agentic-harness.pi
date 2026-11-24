@@ -1,6 +1,6 @@
 /**
  * The peer on screen and at the prompt: how its glances and notes draw,
- * and the /host and /mesh commands.
+ * and the /host, /needs and /mesh commands.
  */
 
 import { hostname } from "node:os";
@@ -9,6 +9,7 @@ import { agentsAt, nodeSocket } from "../../../lib/mesh/node.ts";
 import { expandable } from "../../../lib/ui/expandable.ts";
 import { GLANCE, NOTED } from "../delivery.ts";
 import { moveIntoHost, probeHost, startTakeUp } from "../host-command.ts";
+import { needsCommand } from "../needs-command.ts";
 import {
 	type Folding,
 	folds,
@@ -80,6 +81,17 @@ export function registerCommands(m: MeshState, f: Handing) {
 			});
 			if (refusal !== undefined) at.ui.notify(refusal, "warning");
 		},
+	});
+	// What waits on the person, acted on as he types it (needs-command.ts).
+	m.pi.registerCommand?.("needs", {
+		description:
+			"/needs: what waits on you across the machine, the cells that need you and your look list; pick one to go to its cell, or to open or clear a look.",
+		handler: (_args, at) =>
+			needsCommand({
+				exec: (command, args, options) => m.pi.exec(command, args, options),
+				looks: m.paths.looks,
+				ui: at.ui,
+			}),
 	});
 	m.pi.registerCommand?.("mesh", {
 		description:

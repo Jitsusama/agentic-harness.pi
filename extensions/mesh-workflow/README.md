@@ -399,6 +399,20 @@ and can answer a question or a gate left open on screen.
   launcher answers it with the steer act `answer` below, and the
   session resolves it ("answered: <label>", with `answer` and
   `answeredAt`) and tells its agent what he picked.
+- `person_needs`: read what waits on the person across the machine,
+  so every window he is in shows what the launcher shows (Joel, 24
+  November: "any interface i'm in should be directly engagable to a
+  meaningful level"). It lists every cell needing him, longest
+  waiting first, from `mycelium cells --standing needs-you -o json`
+  (`lib/mesh/needs.ts`), the one way the surfaces table names, then
+  his looks still standing, newest first, cited through the result
+  store ([`tools/person.ts`](tools/person.ts)). It only reads.
+  `/needs`, which only he types, lists the same and takes the act he
+  picks ([`needs-command.ts`](needs-command.ts)): a cell's want goes
+  to that cell by the map's link, `mycelium:cell/<address>@<machine>/go`,
+  where he answers it, since the node takes a person's word from no
+  agent process; a look opens, marked opened as the launcher marks it,
+  or clears as "cleared by you", or goes to the cell that pointed.
 
 ## Context, Not a Prompt
 

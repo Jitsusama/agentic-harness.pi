@@ -13,6 +13,8 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import {
 	LOOK_KINDS,
 	type Pointing,
@@ -35,6 +37,7 @@ import {
 } from "./tools/groups.ts";
 import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { NEED_GRANTS_NOTHING } from "./tools/need.ts";
+import { whatWaits, whatWaitsText } from "./tools/person.ts";
 import { MOST_READ, read } from "./tools/read.ts";
 import { type SendParams, send, sendAcross } from "./tools/send.ts";
 import { type SproutParams, sproutFrom } from "./tools/sprout.ts";
@@ -483,6 +486,38 @@ export function registerTools(
 				{ groups: at.peer.groups },
 			);
 		}),
+	});
+
+	pi.registerTool({
+		name: "person_needs",
+		// New: loaded on demand until sessions are seen to call it.
+		exposure: "deferred",
+		label: "Mesh",
+		description:
+			"Read what waits on the person across the machine: every cell that needs them (asked, held at an approval or blocked), longest waiting first, with what it asks, and their look list, newest first. It only reads: the person acts on these with /needs or in the launcher, and no tool answers, opens or clears anything in their name. Use it when asked what needs them, what is waiting or what is on their list.",
+		parameters: Type.Object({}),
+		execute: async (_id, _params, _signal, _onUpdate, ctx) => {
+			const waits = await whatWaits(
+				(command, args, options) => pi.exec(command, args, options),
+				local()?.looks,
+			);
+			const records = [
+				...(waits.needs.ok ? waits.needs.needs : []),
+				...waits.looks,
+			];
+			return answer(
+				citeListing(openSessionStore(ctx), {
+					view: whatWaitsText(waits, Date.now()),
+					records,
+					unit: "cells needing the person, then their looks",
+					narrowing: "Query the cited records by name, machine, kind or state.",
+				}),
+				{
+					needs: waits.needs.ok ? waits.needs.needs.length : undefined,
+					looks: waits.looks.length,
+				},
+			);
+		},
 	});
 }
 
