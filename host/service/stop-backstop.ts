@@ -64,10 +64,12 @@ parentPort.on("message", (told) => {
 // it early.
 const sinceArmed = () => Number(process.hrtime.bigint() / 1000000n) - began;
 function fire() {
-	// A timer may fire a millisecond early: never end it early.
+	// A timer may fire a millisecond early: never end it early. Both reads
+	// are whole ms rounded down, so only a count past within is sure to be
+	// within's whole time.
 	const short = within - sinceArmed();
-	if (short > 0) {
-		setTimeout(fire, Math.ceil(short));
+	if (short >= 0) {
+		setTimeout(fire, short + 1);
 		return;
 	}
 	const waited = sinceArmed();
