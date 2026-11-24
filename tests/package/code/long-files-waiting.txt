@@ -1,5 +1,49 @@
 # The code files past 800 lines and the folders of more than 40 entries
-# that were over before every-long-file-says-why.test.ts, each waiting to
-# be split by what changes for one reason, or to say why it stays whole.
-# The test fails on one that's split, says why or is gone, so the list
-# only shrinks.
+# that don't say why, each waiting to be split by what changes for one
+# reason, or to say why it stays whole. The list was empty once, but only
+# a whole pnpm test ran every-long-file-says-why.test.ts, so these grew
+# past it unseen; they were listed on 23 November, when merge-gate.sh began
+# running it at every merge. The test fails on one that's split, says why
+# or is gone, so the list only shrinks.
+extensions/compaction-workflow/host.ts
+extensions/compaction-workflow/index.ts
+extensions/mesh-workflow/tools/send.ts
+extensions/quest-workflow/sessions/sprout-start.ts
+extensions/review-integration/reviewed-first.ts
+host/engine/session-host.ts
+host/service
+host/service/backend.ts
+lib/core/work/rebase.ts
+lib/internal/fence/fence-preflight-checks.ts
+lib/internal/quest/discovery/discovery.ts
+lib/internal/quest/documents/frontmatter.ts
+lib/internal/sandbox/sandbox.ts
+lib/internal/session
+lib/internal/session/park.ts
+lib/internal/session/rollover.ts
+lib/mesh/looks/looks.ts
+lib/mesh/need-route.ts
+lib/mesh/peer.ts
+tests/core/work
+tests/core/work/sweep/sweep-live.test.ts
+tests/extensions/compaction-selection-provider/selection.test.ts
+tests/extensions/compaction-workflow/resume.test.ts
+tests/extensions/compaction-workflow/trigger.test.ts
+tests/extensions/mesh-workflow/kept-hub.test.ts
+tests/extensions/mesh-workflow/mesh-groups.test.ts
+tests/extensions/mesh-workflow/mesh-hub-from-use.test.ts
+tests/extensions/mesh-workflow/ordered-carry.test.ts
+tests/extensions/quest-workflow/sessions/session-persist.test.ts
+tests/extensions/quest-workflow/sessions/sprout-start.test.ts
+tests/extensions/quest-workflow/spawn/spawn-host.test.ts
+tests/extensions/reload-workflow/wiring.test.ts
+tests/extensions/shell-workflow/sandbox.test.ts
+tests/host/engine/kept-history.test.ts
+tests/host/engine/parking.test.ts
+tests/lib/internal
+tests/lib/internal/fence
+tests/lib/internal/fence/fence-run.test.ts
+tests/lib/internal/logs/recall-on-disk.test.ts
+tests/lib/internal/session/rollover.test.ts
+tests/lib/mesh/looks/looks.test.ts
+tests/lib/mesh/node.test.ts

@@ -176,14 +176,27 @@ the process lane stays one file at a time. `scripts/merge-gate.sh` is the harnes
 head changes, read from that commit, with the Biome the head pins, so a
 change written where Biome can't run (the work Mac's security software
 stops it while its wrapper exits 0) can't merge unformatted or unlinted;
-a fault already on main refuses nothing new. Then it runs
+a fault already on main refuses nothing new. Next it holds the counts
+that only fall: long files and crowded folders that don't say why
+(`tests/package/code/every-long-file-says-why.test.ts`) and linter
+suppressions (`tests/package/code/linters-stay-on.test.ts`), each past a
+shrink-only list beside it. Main's copy of each rule runs over the head's
+whole tree, under a config the gate writes, and a head whose list holds a
+line or a count main's doesn't is refused, so a head can neither loosen a
+rule nor list its own new entry. The tree is each file's blob, as
+code-health reads it: none of the head's attributes apply, a link is a
+file holding its target, and a head tracking a `node_modules` folder is
+refused. Nothing imports those rules, so before the
+gate held them only a whole `pnpm test` ran them, and by 23 November
+35 long files and 5 crowded folders sat past an empty list unrefused. Then it runs
 `scripts/host-gate.sh`: a change that touches nothing a host runs
 (`host/`, `lib/ui/`, `lib/core/session/`, `lib/core/viewer/`,
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
 vitest config, and the extensions and libraries whose tools the host
 cases drive: jobs, loadout, mesh, park, quest, reload, result store,
 spend and subagent; a folder's README.md under them doesn't count, since
-nothing a host runs reads one) merges as before; one that does merges only once the
+nothing a host runs reads one) merges as before, even from a machine
+that runs no hosts; one that does merges only once the
 keeper kept a whole run passing at that very commit, its words exactly
 those `scripts/host-test-words.sh` makes for that runtime and this
 machine's tools, since the keeper keeps any program that passed. A refusal names the
