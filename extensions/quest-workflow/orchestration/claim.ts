@@ -118,6 +118,11 @@ export interface ClaimKeeperDeps {
 	/** Where a refusal or a node that can't be asked is said. */
 	readonly journal?: (line: string) => void;
 	/**
+	 * What the loaded quest orchestrates, read from its quests as they
+	 * stand; `claimOf` by default, a walk of the whole quest tree.
+	 */
+	readonly claimed?: (state: QuestState) => OrchestrationClaim | "forget";
+	/**
 	 * Run `look` every `ms` until the returned stop is called, never
 	 * keeping the process alive; an unref'd interval by default.
 	 */
@@ -267,6 +272,7 @@ export function claimKeeper(
 	const realm = deps.realm ?? servedRealm;
 	const now = deps.now ?? (() => performance.now());
 	const journal = deps.journal ?? warnInJournal;
+	const claimed = deps.claimed ?? claimOf;
 	let holding: Holding = { kind: "unsure", heads: [] };
 	/**
 	 * When each ask that failed did, so it waits until due to be asked
@@ -387,7 +393,7 @@ export function claimKeeper(
 	const ask = async (asked: Asked): Promise<void> => {
 		const named = realm(asked.place.env ?? process.env);
 		if (named === undefined) return;
-		const claim = claimOf(state);
+		const claim = claimed(state);
 		if (claim === "forget") {
 			if (holding.kind !== "nothing") await forget(asked, named);
 			return;
