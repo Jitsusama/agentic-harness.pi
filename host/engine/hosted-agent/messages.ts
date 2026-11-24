@@ -39,14 +39,25 @@ export function normalizePromptInput(
  */
 export function queuedText(message: AgentMessage): string {
 	if (message.role !== "user") return "";
-	const { content } = message;
+	return contentText(message.content);
+}
+
+/**
+ * A message's content as text, as pi-ai's `contentText(content, "")`
+ * reads it: a string whole, or its text parts joined with nothing between.
+ * Empty for anything else. The host's code loads no pi package of its
+ * own, so it reads the text here.
+ */
+export function contentText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
-		.map((block) =>
+		.map((block: unknown) =>
 			typeof block === "object" &&
 			block !== null &&
+			"type" in block &&
 			block.type === "text" &&
+			"text" in block &&
 			typeof block.text === "string"
 				? block.text
 				: "",

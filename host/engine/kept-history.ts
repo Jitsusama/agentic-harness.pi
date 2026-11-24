@@ -62,6 +62,7 @@ import {
 	SPEND_CARRY,
 	spentOnBranch,
 } from "../../lib/internal/spend/session-spend.ts";
+import { contentText } from "./hosted-agent/messages.ts";
 
 /** pi's session manager as the view reads and replaces it, privates included. */
 export interface HeldManager {
@@ -394,24 +395,8 @@ function messagesLeftOut(
 /** The fork point entry `id` is, when its message is a user's with text. */
 function forkPointOf(id: string, message: unknown): ForkPoint | undefined {
 	if (!isRecord(message) || message.role !== "user") return;
-	const text = textOf(message.content);
+	const text = contentText(message.content);
 	return text ? { entryId: id, text } : undefined;
-}
-
-/**
- * A message's text as pi-ai's `contentText(content, "")` reads it: a
- * string whole, or its parts' text joined, since only a text part
- * carries one. It is written here because the host's code may load no
- * pi package of its own.
- */
-function textOf(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((part) =>
-			isRecord(part) && typeof part.text === "string" ? part.text : "",
-		)
-		.join("");
 }
 
 /** Have `manager` hold `held`, every id its file holds still taken. */
