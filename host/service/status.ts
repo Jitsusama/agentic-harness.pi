@@ -142,7 +142,7 @@ export function startLine(
 						? `opening in ${quoted(request.cwd)}`
 						: `adopted from ${quoted(request.sessionFile)}`
 				}`
-			: named(sessionId);
+			: namedConversation(sessionId);
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
 }
@@ -151,15 +151,22 @@ export function startLine(
 const PLAIN_ID = /^[\w.-]+$/u;
 
 /**
- * A named conversation's address and id, escaped; an adopted one's id
- * comes from the requester's file, so it is bounded as a path is, and
- * quoted unless it is plain, so one holding `): ` can't end the
- * parentheses and pass its tail off as the line's own words.
+ * A named conversation's address and id, as a journal line opens with
+ * them. An adopted one's id comes from the requester's file, so it is
+ * bounded as a path is, and it and the address made from its last eight
+ * characters are each quoted unless plain: one holding `): ` or a quote
+ * can't end the parentheses, or open the line, and pass its tail off as
+ * the line's own words. A pi-made id and its address stay bare.
  */
-function named(sessionId: string): string {
+export function namedConversation(sessionId: string): string {
 	const { kept, cut } = bounded(sessionId);
-	const id = PLAIN_ID.test(kept) ? kept : quoted(kept);
-	return `${onOneLine(sessionAddress(sessionId))} (${id}${cut})`;
+	const address = sessionAddress(sessionId);
+	return `${plainOrQuoted(address)} (${plainOrQuoted(kept)}${cut})`;
+}
+
+/** `text` bare when it is plain, else quoted and escaped as a path is. */
+function plainOrQuoted(text: string): string {
+	return PLAIN_ID.test(text) ? text : quoted(text);
 }
 
 /**
