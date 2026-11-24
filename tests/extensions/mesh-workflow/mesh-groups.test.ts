@@ -79,6 +79,8 @@ describe("groups", () => {
 		);
 	});
 
+	// Sixty-five real joins, each writing the presence file: 3.7 s
+	// alone on the Mac, past vitest's 5 s default under load.
 	it("refuses a join past the most groups a presence may name", async () => {
 		const { tools } = await startSession();
 		const said: string[] = [];
@@ -94,7 +96,7 @@ describe("groups", () => {
 		expect(refused[0]).toContain(
 			`this peer is in ${MOST_GROUPS} groups, the most a peer may be in`,
 		);
-	});
+	}, 30_000);
 
 	it("says on joining a group what was said there lately", async () => {
 		for (let n = 0; n < 12; n += 1) {
