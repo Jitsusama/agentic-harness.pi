@@ -49,6 +49,7 @@ export interface ClosingCarried {
 export function closeCarried(closing: ClosingCarried): CarriedClose {
 	const closeMs = closing.closeMs ?? CLOSE_WAIT_MS;
 	let settled = false;
+	let saidLate = false;
 	let goneTo: string | undefined;
 	const settle = (): boolean => {
 		if (settled) return false;
@@ -69,7 +70,9 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 	deadline.unref?.();
 	try {
 		closing.close(failed, () => {
-			if (!settle() && goneTo !== undefined) closing.closedLate();
+			if (settle() || goneTo === undefined || saidLate) return;
+			saidLate = true;
+			closing.closedLate();
 		});
 	} catch (error) {
 		failed(error);
