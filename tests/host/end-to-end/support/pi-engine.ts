@@ -18,6 +18,7 @@ import { createEngine } from "../../../../host/engine/engine.ts";
 import type { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { ConversationEngine } from "../../../../host/service/backend.ts";
 import { conversationBase } from "../../../../host/service/program.ts";
+import { reportToJournal } from "../../../../host/service/run.ts";
 import {
 	fauxOf,
 	SCRIPTED,
@@ -112,11 +113,7 @@ export async function engine(host: SessionHost): Promise<ConversationEngine> {
 			current: async () => "sealed-key",
 			refused: () => {},
 		},
-		// What the engine says goes to stderr, as a host's goes to its journal.
-		report: (said) => {
-			process.stderr.write(
-				`pi-host: ${said instanceof Error ? (said.stack ?? said.message) : String(said)}\n`,
-			);
-		},
+		// What the engine says goes to stderr, through the host's own report.
+		report: reportToJournal,
 	});
 }

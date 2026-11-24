@@ -6,10 +6,11 @@
  * 460 to 940 MB fell to 205 to 240 after one).
  *
  * So once a conversation's build settles, a turn ends, a conversation
- * closes or one parks, the host runs one last-resort collection, a pause of about a quarter second on a
- * fresh host, when it is quiet: no tool call or job running, and no
- * viewer's key or resize for VIEWER_QUIET_MS. A conversation mid-turn that is only waiting on
- * the model doesn't count against it, since the attended host almost
+ * closes or one parks, the host runs one last-resort collection, a
+ * pause of about a quarter second on a fresh host, when it is quiet: no
+ * tool call or job running, and no viewer's key or resize for
+ * VIEWER_QUIET_MS. A conversation mid-turn that is only waiting on the
+ * model doesn't count against it, since the attended host almost
  * always has one, and the pause costs it at most a stall in streaming.
  * It runs at most once each SPACING_MS, and a park may bring one forward
  * inside that, since a park lets most of a conversation go at once. It
