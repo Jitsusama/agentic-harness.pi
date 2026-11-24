@@ -52,7 +52,7 @@ const CHILD_RSS_MB = 512;
 /**
  * The least, in MB, a quiet child's collection must take off its heap.
  * Twenty-five collections on 23 and 24 November took 96 to 830 MB off
- * (208 to 112 the least), and one made a no-op took 0, so this is a third
+ * (208 to 112 the least), and two made no-ops took 0, so this is a third
  * under the least seen. A collection cut to a scavenge of the young
  * generation, which the reads around it could set off with no collection
  * at all, took 29 MB off (24 November), and passed when any fall did (F11
@@ -387,8 +387,9 @@ it(
 				expect(heap.words, "the collection's line reads a heap").not.toBe(
 					"unread",
 				);
+				expect(heap.usedAfter, "MB the heap uses once collected").toBeDefined();
 				expect(
-					(heap.usedBefore ?? 0) - (heap.usedAfter ?? 0),
+					(heap.usedBefore ?? 0) - (heap.usedAfter ?? Number.POSITIVE_INFINITY),
 					`MB the collection took off a heap of ${heap.words}`,
 				).toBeGreaterThanOrEqual(HEAP_FALL_MB);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
