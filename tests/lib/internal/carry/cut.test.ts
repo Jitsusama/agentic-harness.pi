@@ -5,7 +5,14 @@
  * left it.
  */
 
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
@@ -215,8 +222,51 @@ describe("taking a cut tree out again", () => {
 		expect(await standing(path, "topic")).toBe(topic);
 	});
 
-	it("leaves another tree's entry its .git names, and its branch, saying so", async () => {
+	it.skipIf(process.getuid?.() === 0)(
+		"leaves the branch of a tree that couldn't be removed, though it can't be seen",
+		async () => {
+			const { gitDir, path, main } = await checkout();
+			const { at, cut: one } = await cut(gitDir, "hidden");
+			await git(path, "update-ref", "refs/heads/topic", main);
+			const refusing = failing("remove", {
+				code: 128,
+				stderr: "fatal: no\n",
+			});
+			// Its folder can't be read, so the tree can't be seen, nor removed.
+			const parent = join(at, "..");
+			chmodSync(parent, 0o000);
+			let left: string | undefined;
+			try {
+				left = await uncut(refusing, one, at, "topic", main);
+			} finally {
+				chmodSync(parent, 0o755);
+			}
+
+			expect(left).toMatch(/, so its branch topic was left where it stands$/);
+			expect(existsSync(at), "the tree is still there").toBe(true);
+			expect(await standing(path, "topic"), "so its branch stays").toBe(main);
+		},
+	);
+
+	it("leaves another tree's entry where its .git is a link to that tree's own", async () => {
 		const { gitDir, path, main } = await checkout();
+		const { at, cut: one } = await cut(gitDir, "linked");
+		const other = await cut(gitDir, "other", "spare");
+		const theirs = await git(other.at, "rev-parse", "--absolute-git-dir");
+		rmSync(join(at, ".git"));
+		symlinkSync(join(other.at, ".git"), join(at, ".git"));
+		await git(path, "update-ref", "refs/heads/topic", main);
+		const refusing = failing("remove", { code: 128, stderr: "fatal: no\n" });
+
+		const left = await uncut(refusing, one, at, "topic", main);
+
+		expect(left).toMatch(/^git's entry for the tree cut at .* may be left /);
+		expect(existsSync(theirs), "the other tree's entry stays").toBe(true);
+		expect(existsSync(join(other.at, ".git")), "and its .git file").toBe(true);
+	});
+
+	it("leaves another tree's entry its .git names, saying so, and puts the branch back once the tree is gone", async () => {
+		const { gitDir, path, main, topic } = await checkout();
 		const { at, cut: one } = await cut(gitDir, "planted");
 		const other = await cut(gitDir, "other", "spare");
 		const [own, theirs] = [
@@ -230,10 +280,13 @@ describe("taking a cut tree out again", () => {
 		const left = await uncut(refusing, one, at, "topic", main);
 
 		expect(left).toMatch(
-			/^git's entry for the tree cut at .* may be left .*, so its branch topic was left where it stands$/,
+			/^git's entry for the tree cut at .* may be left .*, where git worktree prune takes it out$/,
 		);
 		expect(existsSync(theirs), "the other tree's entry stays").toBe(true);
 		expect(existsSync(own), "its own entry, unnamed, is said").toBe(true);
-		expect(await standing(path, "topic")).toBe(main);
+		expect(existsSync(at), "the tree itself is gone").toBe(false);
+		expect(await standing(path, "topic"), "so its branch goes back").toBe(
+			topic,
+		);
 	});
 });

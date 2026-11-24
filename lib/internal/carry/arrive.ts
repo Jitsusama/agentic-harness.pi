@@ -35,7 +35,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import type { Exec } from "../../core/exec/index.ts";
+import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/reopening/carried.ts";
 import { real, within } from "../sandbox/tree-git.ts";
@@ -459,16 +459,39 @@ async function arriveTree(
 	if (readied.kind === "cut") {
 		// Cut on no branch, it is on its own only once settling checked it
 		// out there, so a branch another brought to the head stays.
-		const on = await git.said("symbolic-ref", "-q", "HEAD");
-		const settled = on === `refs/heads/${tree.branch}` ? tree.head : undefined;
-		const left = await uncut(exec, readied, path, tree.branch, settled);
-		if (left !== undefined) {
+		const on = await git.run("symbolic-ref", "-q", "HEAD");
+		const settled =
+			on.code === 0 && on.stdout.trim() === `refs/heads/${tree.branch}`
+				? tree.head
+				: undefined;
+		const cutLeft = await uncut(exec, readied, path, tree.branch, settled);
+		const left = [unreadHead(on, tree), cutLeft].filter(
+			(one) => one !== undefined,
+		);
+		if (left.length > 0) {
 			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
-			return { ...line, did: "refused", why: `${stopped} And ${left}.` };
+			return {
+				...line,
+				did: "refused",
+				why: `${stopped} And ${left.join(", and ")}.`,
+			};
 		}
 	}
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
 	return { ...line, did: "refused", why };
+}
+
+/**
+ * Why the branch a cut tree settled may be left at the carried head,
+ * where git couldn't say which branch the tree was on; nothing where it
+ * said, or the tree stood on no branch, which `-q` answers with 1 alone.
+ */
+function unreadHead(on: ExecResult, tree: HandedTree): string | undefined {
+	if (on.code === 0 || (on.code === 1 && on.stderr.trim() === "")) {
+		return undefined;
+	}
+	const said = on.stderr.trim() || `git exited ${on.code}`;
+	return `its branch ${tree.branch} may be left at ${tree.head}, since git couldn't say which branch the tree was on: ${said}`;
 }
 
 /**
