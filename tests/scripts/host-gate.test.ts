@@ -563,6 +563,39 @@ describe("host-gate.sh", () => {
 		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
 	});
 
+	// A tag outranks a branch under a short name (PV3TE0's council on #2139,
+	// F6 and F14). Written as a ref, since this test's git signs a tag.
+	it("judges against origin's main, not a tag of the checkout's named origin/main", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		await git(on.checkout, "update-ref", "refs/tags/origin/main", sha);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
+	// A fetch of main that fails stops the gate, never judging against the
+	// main the checkout last fetched (F2, F5 and F9 on #2139).
+	it("refuses a change when origin's main can't be fetched", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		await git(on.checkout, "update-ref", "refs/remotes/origin/main", sha);
+		await git(
+			on.checkout,
+			"remote",
+			"set-url",
+			"origin",
+			join(on.checkout, "no-such-origin"),
+		);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).not.toBe(0);
+		expect(answered.said).not.toContain("touches nothing pi hosts run");
+	});
+
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();
 		const code = "host/engine/engine.ts";
