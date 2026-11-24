@@ -27,6 +27,12 @@ import {
 	createTreeBroker,
 	type TreeBroker,
 } from "../../lib/core/work/broker.ts";
+import {
+	type FetchRule,
+	type FetchRules,
+	fetchingBy,
+	parseWorkFetches,
+} from "../../lib/core/work/fetch-rules.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import {
 	type Objection,
@@ -38,6 +44,7 @@ import {
 	listTreeProviders,
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
+import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	QUEUED_LIMIT_MS,
@@ -86,13 +93,21 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
  * holds it.
  */
 export function treeExec(signal?: AbortSignal): Exec {
+	return fetchExec(signal, UNATTENDED_LIMIT_MS);
+}
+
+/**
+ * The tree provider's git on a clock of `timeoutMs` for what the queue
+ * doesn't take, as a fetch that can fall back on the start it has runs
+ * on a shorter one than the call's (`fresh-start.ts`).
+ */
+export function fetchExec(
+	signal: AbortSignal | undefined,
+	timeoutMs: number,
+): Exec {
 	const stoppedBy = signal ? { signal } : {};
 	return treeExecOver(
-		gitInEnglish({
-			...stoppedBy,
-			timeoutMs: UNATTENDED_LIMIT_MS,
-			turn: WORLD_PUSH_TURN,
-		}),
+		gitInEnglish({ ...stoppedBy, timeoutMs, turn: WORLD_PUSH_TURN }),
 		gitInEnglish({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
 	);
 }
@@ -126,10 +141,35 @@ const GIT_IN_ENGLISH: Readonly<Record<string, string>> = {
  * git of its own: guarded after, a queued push would run a tree's
  * `.git` as a sandboxed command left it, outside the sandbox. The queue
  * still reads git as it was asked, so its job says `push`.
+ *
+ * A fetch follows the `work` section's rules for its checkout
+ * (`fetch-rules.ts`): answered from a prefetch where one is kept, and
+ * otherwise run behind the turn the section names, inside the guard
+ * and the queue alike.
  */
-export function treeExecOver(direct: Exec, queued: Exec): Exec {
-	return queuedExec(direct, queued, heldGit(gitRules));
+export function treeExecOver(
+	direct: Exec,
+	queued: Exec,
+	rules: FetchRules = configuredFetchRules,
+): Exec {
+	const held = heldGit(gitRules);
+	return fetchingBy(queuedExec(direct, queued, held), rules, (rule, args) =>
+		queuedExec(direct, queued, held, rule.through)("git", [...args]),
+	);
 }
+
+/** The `work` section's fetch rule for the checkout at `gitDir`, read afresh. */
+async function configuredFetchRules(
+	gitDir: string,
+): Promise<FetchRule | undefined> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return undefined;
+	// A section written wrong fetches as it always did; the rest still holds.
+	return parseWorkFetches(loaded.config.sections[WORK_SLUG]).fetches[gitDir];
+}
+
+/** The package config's section for the work tool. */
+const WORK_SLUG = "work";
 
 /**
  * One conversation's broker and the pi sessions each tree it takes up

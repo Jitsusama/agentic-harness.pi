@@ -193,6 +193,35 @@ minutes. Its result arrives as a message
 of its own. A record never moves: its gate can wait on the person, and
 a panel left open behind a job would answer nobody.
 
+A checkout's fetches follow the package config's `work` section, keyed
+by the checkout's git folder (`lib/core/work/fetch-rules.ts`):
+
+```json
+{
+  "sections": {
+    "work": {
+      "fetches": {
+        "/home/someone/world/git": {
+          "prefetched": true,
+          "through": "a-call-is-on && exit 75; exec world-push-turn 1 \"${PI_QUEST:-work}\" --"
+        }
+      }
+    }
+  }
+}
+```
+
+With `prefetched`, a fetch of a remote's branch moves its tracking ref
+to what `refs/prefetch/remotes/` holds, never back, and a fetch naming
+no ref is answered by the prefetch, so none reaches the remote. A fetch
+the prefetch can't answer, as of a commit by its id, runs behind
+`through`, given git and its words as `"$@"`, inside the guard and the
+queue. A tree, a branch, a rebase and a sync fetch through this git
+too, not only a snapshot. On 24 November two snapshots of World each
+fetched 5.4 GB at once outside every turn. A checkout the section
+doesn't name fetches as it always did, since git's maintenance writes
+`refs/prefetch` in repositories nobody promises to keep fetched.
+
 ## Trees It Did Not Cut
 
 A quest cuts its own trees and records them in its own front

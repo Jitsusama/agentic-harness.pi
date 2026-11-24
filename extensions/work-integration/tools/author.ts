@@ -8,7 +8,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-format.ts";
 import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts";
 import {
@@ -27,6 +27,7 @@ import { sessionGateDeps } from "../../../lib/internal/guardian/session-deps.ts"
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { repositoryKey } from "../../../lib/mesh/scope.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { fetchExec } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { recordMessage } from "./message.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -154,10 +155,7 @@ export async function makeBranch(
 	// a start a fetch moved lately as it stands (fresh-start.ts).
 	const fresh = from
 		? await refreshStart(
-				spawnExec({
-					...(signal ? { signal } : {}),
-					timeoutMs: FETCH_MS,
-				}),
+				fetchExec(signal, FETCH_MS),
 				found.path,
 				from,
 				signal,
