@@ -625,11 +625,11 @@ const scenarios: Record<string, Scenario> = {
 			const prepared = await engine.prepare(request);
 			await engine.start(prepared, request);
 			await idle(engine, prepared.sessionId);
-			const adopted = heldOf(engine, prepared.sessionId, third.kept);
+			const adopted = heldOf(engine, prepared.sessionId, third);
 			await host.close(prepared.sessionId);
 			await engine.resume(first.entry);
 			await idle(engine, first.entry.sessionId);
-			const resumed = heldOf(engine, first.entry.sessionId, first.kept);
+			const resumed = heldOf(engine, first.entry.sessionId, first);
 			// Closed once compacted, so only the switch can hold it again.
 			const closedBefore = engine.view(second.entry.sessionId) === undefined;
 			await host.run(first.entry.sessionId, () =>
@@ -652,7 +652,7 @@ const scenarios: Record<string, Scenario> = {
 				},
 				UNTIL_MS,
 			);
-			const replaced = heldOf(engine, switched, second.kept);
+			const replaced = heldOf(engine, switched, second);
 			const switchedTo = summary(engine, switched).file === second.entry.file;
 			await host.close(switched);
 			return {
@@ -1796,10 +1796,15 @@ interface HeldLog {
 	readonly fileEntries: readonly {
 		readonly type: string;
 		readonly id?: string;
+		readonly parentId?: string | null;
 		readonly customType?: string;
 		readonly message?: Message;
 	}[];
-	getBranch(): readonly { readonly id: string; readonly message?: Message }[];
+	getBranch(): readonly {
+		readonly id: string;
+		readonly parentId: string | null;
+		readonly message?: Message;
+	}[];
 	appendCompaction(
 		summary: string,
 		firstKeptEntryId: string,
@@ -1830,13 +1835,13 @@ function logOf(engine: HostEngine, id: string): HeldLog | undefined {
 
 /**
  * Open a conversation, talk three turns, compact it from its second
- * user message on, and close it: its roster entry, and the first entry
- * the compaction keeps.
+ * user message on, and close it: its roster entry, the first entry the
+ * compaction keeps, and that entry's parent.
  */
 async function compacted(
 	engine: HostEngine,
 	host: SessionHost,
-): Promise<{ entry: RosterEntry; kept: string }> {
+): Promise<{ entry: RosterEntry; kept: string; parent: string | null }> {
 	const id = await open(engine, { first: "early" });
 	await idle(engine, id);
 	await prompt(engine, id, "kept");
@@ -1848,28 +1853,28 @@ async function compacted(
 	const said = (words: string) =>
 		log
 			?.getBranch()
-			.find((each) => each.message && text(each.message) === `user: ${words}`)
-			?.id;
+			.find((each) => each.message && text(each.message) === `user: ${words}`);
 	const kept = said("kept");
 	// Either missing, the case below would hold nothing to tell a kept view from a whole log.
 	if (!log || !kept || !said("early"))
 		throw new Error(`Conversation ${id} doesn't hold what it was told`);
-	log.appendCompaction("talked early on", kept, 1000);
+	log.appendCompaction("talked early on", kept.id, 1000);
 	await host.close(id);
-	return { entry, kept };
+	return { entry, kept: kept.id, parent: kept.parentId };
 }
 
 /**
  * What a conversation holds of its compacted log: the rollover record
- * kept history writes in place of what it leaves out, whether the first
- * entry after that record is the one the compaction keeps, and whether
+ * kept history writes in place of what it leaves out, whether the entry
+ * the compaction keeps is held with its parent on disk held before it, as
+ * /fork from it needs, and whether
  * the turn before it is still held; and the user messages its session
  * counts for /session and lists for /fork, which take in those left out.
  */
 function heldOf(
 	engine: HostEngine,
 	id: string,
-	kept: string,
+	{ kept, parent }: { kept: string; parent: string | null },
 ): Record<string, unknown> {
 	const entries = logOf(engine, id)?.fileEntries ?? [];
 	const record = entries.findIndex(
@@ -1877,7 +1882,10 @@ function heldOf(
 	);
 	return {
 		record: record !== -1,
-		keptNext: record !== -1 && entries[record + 1]?.id === kept,
+		keptAfterItsParent:
+			parent !== null &&
+			entries.find((entry) => entry.id === kept)?.parentId === parent &&
+			entries.some((entry) => entry.id === parent),
 		earlyHeld: entries.some(
 			(entry) =>
 				entry.message !== undefined && text(entry.message) === "user: early",

@@ -868,7 +868,7 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "kept-history");
 			const held = {
 				record: true,
-				keptNext: true,
+				keptAfterItsParent: true,
 				earlyHeld: false,
 				userMessages: 3,
 				forks: ["early", "kept", "after"],

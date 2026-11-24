@@ -451,14 +451,50 @@ function restore(
 		report(error);
 	}
 	try {
-		manager.setSessionFile(file);
+		readBack(manager, file, (path) => manager.setSessionFile(path));
 		// pi's open leaves its leaf on the file's last entry; one moved
 		// elsewhere stays where it was moved.
 		if (leaf === null || manager.byId.has(leaf)) manager.leafId = leaf;
 	} catch (reread) {
-		// pi's own open would have read this same file and failed the same
-		// way; the resume goes on with whatever pi could keep.
+		// The log is gone, now another conversation's, or fails pi's own open
+		// as it would have failed pi's: the conversation goes on as itself,
+		// with the entries pi opened it with, indexed again over whatever
+		// the read put in their place.
 		report(reread);
+		manager.fileEntries = entries;
+		try {
+			manager._buildIndex();
+		} catch (again) {
+			report(again);
+		}
+		manager.leafId = leaf;
+	}
+}
+
+/**
+ * Read `file` whole into `manager` through pi's `open` of it, refusing a
+ * file that is gone or now holds another conversation, where pi's open
+ * would start a new conversation or take on the other. A refused or
+ * failed read leaves `manager` naming its own conversation and file.
+ */
+function readBack(
+	manager: HeldManager,
+	file: string,
+	open: (file: string) => void,
+): void {
+	const { sessionId, sessionFile, flushed } = manager;
+	try {
+		if (!existsSync(file))
+			throw new Error(`${file} is gone, so its whole log can't be read back`);
+		open(file);
+		const now = manager.getSessionId();
+		if (now !== sessionId)
+			throw new Error(
+				`${file} now holds conversation ${now}, not ${sessionId}`,
+			);
+	} catch (error) {
+		Object.assign(manager, { sessionId, sessionFile, flushed });
+		throw error;
 	}
 }
 
@@ -511,19 +547,12 @@ function guard(
 		if (!holding) return;
 		const leaf = manager.leafId;
 		const entries = manager.fileEntries;
-		const { sessionId, sessionFile, flushed } = manager;
+		const { sessionId } = manager;
 		holding = false;
 		release(manager);
 		try {
-			if (!existsSync(file))
-				throw new Error(`${file} is gone, so its whole log can't be read back`);
-			pi.setSessionFile.call(manager, file);
-			if (manager.getSessionId() !== sessionId)
-				throw new Error(
-					`${file} now holds conversation ${manager.getSessionId()}, not ${sessionId}`,
-				);
+			readBack(manager, file, (path) => pi.setSessionFile.call(manager, path));
 		} catch (error) {
-			Object.assign(manager, { sessionId, sessionFile, flushed });
 			manager.fileEntries = entries;
 			manager._buildIndex();
 			manager.byId = new TakenIds(manager.byId, taken);

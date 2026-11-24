@@ -631,8 +631,9 @@ describe("a held conversation and its whole log", () => {
 		expect(added[0]?.parentId).toBe(leaf);
 	});
 
-	it("falls back to pi's whole open when the view fails to install", () => {
+	it("falls back to pi's whole open, from memory, when the view fails to install", () => {
 		const file = compactedLog();
+		const leaf = SessionManager.open(file).getLeafId();
 		const opened = SessionManager.open(file);
 		const own = opened as unknown as { _buildIndex(): void };
 		const build = own._buildIndex.bind(opened);
@@ -640,23 +641,19 @@ describe("a held conversation and its whole log", () => {
 		own._buildIndex = () => {
 			if (!failed) {
 				failed = true;
+				// Gone, the log can't be read again, so only what pi opened can put it back.
+				rmSync(file);
 				throw new Error("index broke");
 			}
 			build();
 		};
 		const report = vi.fn();
 		const held = holdKeptHistory(opened, report);
-		expect(report).toHaveBeenCalledWith(
-			expect.objectContaining({
-				message: expect.stringMatching(
-					new RegExp(
-						`^Kept history couldn't hold conversation ${opened.getSessionId()}'s log, so it holds the whole log: index broke$`,
-					),
-				),
-			}),
-		);
+		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
+			`Error: Kept history couldn't hold conversation ${opened.getSessionId()}'s log, so it holds the whole log: index broke`,
+		]);
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(held.getLeafId()).toBe(SessionManager.open(file).getLeafId());
+		expect(held.getLeafId()).toBe(leaf);
 		expect(Object.hasOwn(held, "getTree")).toBe(false);
 	});
 
@@ -685,6 +682,64 @@ describe("a held conversation and its whole log", () => {
 		expect(held.getLeafId()).toBe(target);
 		expect(held.getLeafId()).not.toBe(SessionManager.open(file).getLeafId());
 		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("stays its own conversation when its entries fail to index again and its log is gone", () => {
+		const file = compactedLog();
+		const opened = SessionManager.open(file);
+		const id = opened.getSessionId();
+		const own = opened as unknown as { _buildIndex(): void };
+		let failures = 0;
+		own._buildIndex = () => {
+			failures++;
+			if (failures === 1) rmSync(file);
+			throw new Error(`index broke ${failures}`);
+		};
+		const report = vi.fn();
+		const held = holdKeptHistory(opened, report);
+		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
+			expect.stringContaining("index broke 1"),
+			expect.stringContaining("index broke 2"),
+			`Error: ${file} is gone, so its whole log can't be read back`,
+			expect.stringContaining("index broke 3"),
+		]);
+		expect(held.getSessionId()).toBe(id);
+		expect(held.getSessionFile()).toBe(file);
+		expect(texts(held.getEntries())).toContain("early one");
+	});
+
+	it("stays its own conversation when its entries fail to index again and its log holds another", () => {
+		const file = compactedLog();
+		const opened = SessionManager.open(file);
+		const id = opened.getSessionId();
+		const leaf = opened.getLeafId();
+		const other = SessionManager.create(dir, dir);
+		exchange(other, "elsewhere");
+		const elsewhere = readFileSync(fileOf(other), "utf8");
+		const own = opened as unknown as { _buildIndex(): void };
+		const build = own._buildIndex.bind(opened);
+		let failures = 0;
+		own._buildIndex = () => {
+			if (failures < 2) {
+				failures++;
+				if (failures === 1) writeFileSync(file, elsewhere);
+				throw new Error(`index broke ${failures}`);
+			}
+			build();
+		};
+		const report = vi.fn();
+		const held = holdKeptHistory(opened, report);
+		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
+			expect.stringContaining("index broke 1"),
+			expect.stringContaining("index broke 2"),
+			`Error: ${file} now holds conversation ${other.getSessionId()}, not ${id}`,
+		]);
+		expect(held.getSessionId()).toBe(id);
+		expect(held.getLeafId()).toBe(leaf);
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(texts(held.getEntries())).not.toContain("elsewhere");
+		expect(texts(held.getBranch())).toContain("after");
+		expect(texts(held.getBranch())).not.toContain("elsewhere");
 	});
 
 	it("leaves a manager already holding a view as it stands when held again", () => {
@@ -742,6 +797,24 @@ describe("a conversation the view leaves whole", () => {
 			dropped: 3,
 			carried: { [SPEND_CARRY]: { spend: 10 } },
 		});
+		sessions.appendCompaction("what happened early", kept.id, 1000);
+		exchange(sessions, "after");
+		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("holds everything when a rollover record sits just before the kept turns", () => {
+		const sessions = SessionManager.create(dir, dir);
+		exchange(sessions, "early one");
+		sessions.appendCustomEntry(ROLLOVER_RECORD, {
+			parentSession: join(dir, "gone.jsonl"),
+			parentLeaf: "00000000",
+			dropped: 3,
+			carried: { [SPEND_CARRY]: { spend: 10 } },
+		});
+		exchange(sessions, "kept one");
+		const kept = entryReading(sessions, "kept one");
 		sessions.appendCompaction("what happened early", kept.id, 1000);
 		exchange(sessions, "after");
 		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
