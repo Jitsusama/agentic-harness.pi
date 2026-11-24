@@ -10,6 +10,7 @@
  */
 
 import { isRecord } from "../internal/record.ts";
+import { lastShownLine } from "./shown-line.ts";
 
 /** What a machine can be, as a node's placement names it. */
 export type NeedKind = "machine" | "system" | "arch" | "reach" | "accelerator";
@@ -103,7 +104,7 @@ export function placedFrom(line: string): PlaceAnswer {
 	}
 	return {
 		ok: false,
-		reason: `the node answered what this harness can't read: ${line.slice(0, 200)}`,
+		reason: `the node answered what this harness can't read: ${lastShownLine(line, 200)}`,
 	};
 }
 

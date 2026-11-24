@@ -5,9 +5,12 @@
  * were the reason. Sequences are dropped, not carried out, so words a
  * terminal would conceal (SGR 8), erase or write over in place are still
  * quoted, though with no escape left the model and Joel read the same
- * words. One copy, for a sprout's own refusal (sprout.ts), the node's
- * (node.ts) and a sprouted session's tie (the quest workflow's sprout
- * start), so they can't drift apart.
+ * words. A reply quoted unread is cleaned as written, so an escape
+ * still written as JSON text (\u001b) is quoted as that text. One copy,
+ * for a sprout's own refusal (sprout.ts), the node's refusal of a start
+ * (node.ts) or a placement (the quest workflow's spawn), mycelium share's
+ * and a sprouted session's tie (the quest workflow's sprout start), so
+ * they can't drift apart.
  */
 
 import { drawsAsNothing } from "../internal/unseen.ts";
