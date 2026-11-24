@@ -15,6 +15,7 @@ describe("how a run said it ended", () => {
 		["blocked: no access", "blocked"],
 		["Notes.\n\n**Blocked**: the OTP.", "blocked"],
 		["**Done**: shipped", "done"],
+		["__Blocked__: the OTP.", "blocked"],
 	] as const)("reads %j as %s", (text, ending) => {
 		expect(endingOf(text)).toBe(ending);
 	});
@@ -23,6 +24,9 @@ describe("how a run said it ended", () => {
 		"Blocked: the build.\n\nI'll try another approach next.",
 		"Here's a summary of what I did.",
 		"Should I go ahead with the PR?",
+		"**Blocked** on review: the round.",
+		"**Blocked**ness: how it felt.",
+		"Notes.\n\n**Done** with it: maybe.",
 		"",
 	])("reads %j as not ended", (text) => {
 		expect(endingOf(text)).toBeUndefined();
@@ -43,6 +47,17 @@ describe("blockedLine", () => {
 			blockedLine("Notes.\n\n**Blocked**: 2AF2DH's sha."),
 			"the colon past the bold",
 		).toBe("2AF2DH's sha.");
+		expect(
+			blockedLine("Notes.\n\n__Blocked__: the OTP."),
+			"an underscored label",
+		).toBe("the OTP.");
+	});
+
+	it.each([
+		"**Blocked** on review: the round.",
+		"**Blocked**ness: how it felt.",
+	])("is nothing for %j, whose label isn't the word alone", (text) => {
+		expect(blockedLine(text)).toBeUndefined();
 	});
 
 	it("is nothing for a run that did not end blocked", () => {
