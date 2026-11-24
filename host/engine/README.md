@@ -377,10 +377,14 @@ quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
 one, once something has stirred (a conversation's build settled, a
 turn started or ended, or a conversation was let go) and the host is
-quiet: no tool call, job or build running, and no viewer's key or
-resize for 30 s. A build still running holds it off, so a host resuming
-many at once doesn't pause the rest for the first one's garbage, nor
-keep the pace such a pause measured. A conversation mid-turn that only
+quiet: no tool call, job or start's build running, and no viewer's
+key or resize for 30 s. A start's build still running holds it off, so
+a host resuming many at once doesn't pause the rest for the first
+one's garbage, nor keep the pace such a pause measured. One waiting on
+its person, as a trust question does, stops holding it off once it
+asks, so an unanswered question never holds collections for an hour.
+A replacement pi builds (/new, /fork, an extension's replace) isn't
+counted, so a collection can still pause one. A conversation mid-turn that only
 waits on the model doesn't hold it off, since the attended host almost
 always has one, and the pause costs it at most a stall in streaming.
 It runs at most once in 10 minutes, and a park may bring one forward
