@@ -194,13 +194,16 @@ function isPlace(value: unknown): value is string {
 	return !value.split("/").includes("..");
 }
 
-/** A branch git would take that no command could read as a flag. */
+/**
+ * A branch git would take that no command could read as a flag: no
+ * part of it starts with `-`, since a remote branch's `<remote>/<branch>`
+ * reaches git as two arguments.
+ */
 function isBranch(value: unknown): value is string {
 	return (
 		typeof value === "string" &&
 		value !== "" &&
-		!value.startsWith("-") &&
-		!value.split("/").includes("..") &&
+		!value.split("/").some((part) => part.startsWith("-") || part === "..") &&
 		!/[\s~^:?*[\\]/.test(value)
 	);
 }

@@ -52,10 +52,10 @@ import {
 import type { CarriedNote } from "./notes.ts";
 import {
 	BOUNDED,
-	FETCHING,
 	gitIn,
 	type Held,
 	holdToOrigin,
+	saidOf,
 	takeView,
 	type ViewGit,
 } from "./origin-view.ts";
@@ -79,6 +79,15 @@ const LOOK_MS = 1000;
  * unzipping stops there.
  */
 export const LARGEST_UNZIPPED = 2 * 1024 * 1024 * 1024;
+
+/**
+ * How long a tree already here has to fetch its origin, and a tree to
+ * fetch the commits it needs, all told, over any transport. A tree far
+ * behind a big trunk on a slow link takes long, so this only stops a
+ * fetch that would never end; `BOUNDED` stops an http link that stalls
+ * well before.
+ */
+const CATCHING_UP = 3600;
 
 /** Time, as arriving reads and spends it; a test gives a fake one. */
 export interface Clock {
@@ -507,7 +516,7 @@ async function readyTree(
 		]);
 		return cloned.code === 0
 			? { kind: "cloned" }
-			: no(`git couldn't clone ${tree.origin}: ${cloned.stderr.trim()}`);
+			: no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {
@@ -528,11 +537,11 @@ async function readyTree(
 		);
 	}
 	const fetched = await git
-		.within(FETCHING)
+		.within(CATCHING_UP)
 		.run(...BOUNDED, "fetch", "-q", "origin");
 	return fetched.code === 0
 		? { kind: "fetched" }
-		: no(`git couldn't fetch its origin: ${fetched.stderr.trim()}`);
+		: no(`git couldn't fetch its origin: ${saidOf(fetched)}`);
 }
 
 /**
@@ -664,8 +673,8 @@ async function settleTree(
 
 /**
  * Brings the commits the tree needs: what the bundle left out, from the
- * remote branch each was on, then the bundle's own. Answers why not, or
- * nothing once its head is here.
+ * remote branch each was on, within `CATCHING_UP` all told, then the
+ * bundle's own. Answers why not, or nothing once its head is here.
  */
 async function takeCommits(
 	git: TreeGit,
@@ -674,21 +683,31 @@ async function takeCommits(
 ): Promise<string | undefined> {
 	const has = (commit: string) =>
 		git.ok("cat-file", "-e", `${commit}^{commit}`);
+	const ends = Date.now() + CATCHING_UP * 1000;
+	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	for (const need of tree.needs) {
 		if (await has(need.commit)) continue;
+		const needs = `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}`;
 		const [remote, ...branch] = (need.on ?? "").split("/");
 		if (
-			remote &&
-			branch.length > 0 &&
-			(await git.ok("remote", "get-url", remote))
+			!remote ||
+			branch.length === 0 ||
+			!(await git.ok("remote", "get-url", "--", remote))
 		) {
-			await git
-				.within(FETCHING)
-				.run(...BOUNDED, "fetch", "-q", remote, branch.join("/"));
+			return `${needs}, which no remote here gave.`;
 		}
-		if (!(await has(need.commit))) {
-			return `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}, which no remote here gave.`;
+		if (left() <= 0) {
+			return `${needs}, but the ${CATCHING_UP} seconds its needs had all told ran out before it was asked for.`;
 		}
+		// Past `--`, so neither reads as a flag, though the handover
+		// already refuses a part that would.
+		const fetched = await git
+			.within(left())
+			.run(...BOUNDED, "fetch", "-q", "--", remote, branch.join("/"));
+		if (await has(need.commit)) continue;
+		return fetched.code === 0
+			? `${needs}, which no remote here gave.`
+			: `${needs}, but git couldn't fetch it: ${saidOf(fetched)}`;
 	}
 	if (tree.bundle !== undefined) {
 		const fetched = await git.run(
