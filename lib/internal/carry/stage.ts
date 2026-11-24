@@ -56,8 +56,23 @@ const RECORD = ".carry.json";
  * the next carry sweeps it before placing anything: left until this
  * process ended, it would put back what came before a later carry's
  * files, over them.
+ *
+ * It is the process's, not this module's: pi's loader gives each
+ * extension its own copy of this file, and a reload another, and a copy
+ * with a set of its own would take another's running carry as returned
+ * and undo it.
  */
-const live = new Set<string>();
+const live = processWide(Symbol.for("pi.carry.staging.live"));
+
+/** The set of the process kept under `key`, made where none is yet. */
+function processWide(key: symbol): Set<string> {
+	const held = globalThis as Record<symbol, unknown>;
+	const found = held[key];
+	if (found instanceof Set) return found as Set<string>;
+	const made = new Set<string>();
+	held[key] = made;
+	return made;
+}
 
 /** A carry's staging folder, and how what is staged there is placed. */
 export interface Stage {
@@ -70,6 +85,11 @@ export interface Stage {
 	 * of `gone` is left where it is.
 	 */
 	place(names: readonly string[], gone?: readonly string[]): void;
+	/**
+	 * What `write` answers, writing into the handover once it is checked
+	 * for links again, as placing is: its done file goes last of all.
+	 */
+	write<T>(write: () => T): T;
 }
 
 /** A staging folder's record. */
@@ -111,8 +131,7 @@ export async function staged<T>(
 	owner: string,
 	work: (stage: Stage) => Promise<T>,
 ): Promise<T> {
-	const tmp = stagingOf(into);
-	mkdirSync(tmp, { recursive: true });
+	const tmp = stagingMade(into);
 	unlinked(into);
 	sweep(tmp, into);
 	const folder = mkdtempSync(join(tmp, STAGING));
@@ -154,6 +173,10 @@ export async function staged<T>(
 			for (const name of names) {
 				renameSync(join(folder, name), join(into, name));
 			}
+		},
+		write(write) {
+			unlinked(into);
+			return write();
 		},
 	};
 	try {
@@ -206,6 +229,28 @@ function putBack(
 		(name) => !undo(() => renameSync(join(aside, name), join(into, name))),
 	);
 	return { stuck, left };
+}
+
+/**
+ * Makes the staging folder for carries into `into`, and the folder of
+ * staging folders above it, one at a time, answering its path; throws
+ * where either is a link. Where the scratches' folder was made only
+ * now, a fenced command could have made the folder of staging folders
+ * first, as a link to one it may write.
+ */
+function stagingMade(into: string): string {
+	const tmp = stagingOf(into);
+	const root = dirname(tmp);
+	mkdirSync(dirname(root), { recursive: true });
+	for (const path of [root, tmp]) {
+		if (!exists(path)) mkdirSync(path);
+		if (!isFolder(path)) {
+			throw new Error(
+				`${path} is a link or no folder, so no carry is staged through it.`,
+			);
+		}
+	}
+	return tmp;
 }
 
 /** Writes `record` whole, so a kill mid-write leaves the one before. */

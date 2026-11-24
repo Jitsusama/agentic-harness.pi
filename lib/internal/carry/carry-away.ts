@@ -205,7 +205,11 @@ async function carryAll(
 			? {}
 			: { notes: carrying.notes }),
 	};
-	return { file: writeHandover(into, handover), handover, trees };
+	return {
+		file: stage.write(() => writeHandover(into, handover)),
+		handover,
+		trees,
+	};
 }
 
 /**
@@ -318,12 +322,14 @@ export async function carryQuestTrees(
 		);
 		stage.place(filesOf(trees), earlierOf(into, home, quest));
 		if (handed.length === 0) return { trees };
-		const file = writeHandover(into, {
-			session: quest,
-			quest,
-			cwd: "~",
-			trees: handed,
-		});
+		const file = stage.write(() =>
+			writeHandover(into, {
+				session: quest,
+				quest,
+				cwd: "~",
+				trees: handed,
+			}),
+		);
 		return { trees, file };
 	});
 }
