@@ -32,12 +32,14 @@ import {
 	realpathSync,
 	rmSync,
 } from "node:fs";
-import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Exec } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/reopening/carried.ts";
+import { real, within } from "../sandbox/tree-git.ts";
+import { cutTreeDir } from "../work-records.ts";
 import { ZIPPED } from "./carry-away.ts";
 import {
 	doneFileOf,
@@ -57,7 +59,7 @@ import {
 	type ViewGit,
 } from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
-import { twinOf } from "./twin.ts";
+import { guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -136,6 +138,8 @@ export interface Arriving {
 	) => Promise<number>;
 	/** The most a gzipped session file unzips to; `LARGEST_UNZIPPED` unless a test names less. */
 	readonly largestUnzipped?: number;
+	/** Where the work tool cuts trees; its own folder unless a test names one. */
+	readonly trees?: string;
 }
 
 /** Arrives with the session; answers whether everything came and stands. */
@@ -143,9 +147,10 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const { from, home, say } = arriving;
 	const handover = await waitForHandover(arriving);
 	if (handover === undefined) return false;
+	const trees = arriving.trees ?? cutTreeDir();
 	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
-		const line = await arriveTree(arriving.exec, tree, from, home);
+		const line = await arriveTree(arriving.exec, tree, from, home, trees);
 		say(line);
 		if (line.did !== "refused") brought.push(tree);
 	}
@@ -401,6 +406,8 @@ type TreeGit = ViewGit;
 /** How a tree stood before it was given its commits. */
 type Readied =
 	| { readonly kind: "cloned"; readonly unsure?: string }
+	/** Cut as a worktree of the checkout whose git folder is `checkout`. */
+	| { readonly kind: "cut"; readonly checkout: string }
 	| { readonly kind: "fetched" | "already" }
 	| { readonly kind: "refused"; readonly why: string };
 
@@ -410,30 +417,83 @@ async function arriveTree(
 	tree: HandedTree,
 	from: string,
 	home: string,
+	trees: string,
 ): Promise<Extract<ArrivalLine, { kind: "tree" }>> {
 	const path = underHome(tree.path, home);
 	const git = gitIn(exec, path);
 	const line = { kind: "tree" as const, path, branch: tree.branch };
-	const readied = await readyTree(exec, git, tree, from, path);
+	const readied = await readyTree(exec, git, tree, from, path, {
+		home,
+		trees,
+	});
 	if (readied.kind === "refused") {
 		return { ...line, did: "refused", why: readied.why };
 	}
 	if (readied.kind === "already") return { ...line, did: "fetched" };
-	// Only a tree cloned here takes the sparse checkout it left in; one
+	const made = readied.kind === "cloned" || readied.kind === "cut";
+	// Only a tree made here takes the sparse checkout it left in; one
 	// already here keeps its own.
 	const unsparse =
-		readied.kind === "cloned" && tree.sparse !== undefined
+		made && tree.sparse !== undefined
 			? await standSparse(git.run, tree.sparse)
 			: undefined;
 	const why = unsparse ?? (await settleTree(git, tree, from));
 	if (why === undefined) {
+		if (readied.kind === "cut") return { ...line, did: "cloned" };
 		return readied.kind === "cloned" && readied.unsure !== undefined
 			? { ...line, did: readied.kind, unsure: readied.unsure }
 			: { ...line, did: readied.kind };
 	}
-	// A clone made here holds nothing of anyone's, so arriving again starts afresh.
+	// A tree made here holds nothing of anyone's, so arriving again starts afresh.
+	if (readied.kind === "cut") await uncut(exec, readied.checkout, path);
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
 	return { ...line, did: "refused", why };
+}
+
+/**
+ * The tree cut as a worktree of the checkout whose git folder is
+ * `checkout`, empty and on no branch until it is settled.
+ *
+ * A tree where the work tool cuts them must be one. pi runs git there
+ * outside the fence, and only a worktree of a checkout the fence guards
+ * has settings no fenced command could have written (tree-git.ts), so
+ * a clone there was refused by every review and work call made in it.
+ */
+async function cutFrom(
+	exec: Exec,
+	checkout: string,
+	path: string,
+): Promise<Readied> {
+	const cut = await exec("git", [
+		`--git-dir=${checkout}`,
+		"worktree",
+		"add",
+		"-q",
+		"--no-checkout",
+		"--detach",
+		path,
+	]);
+	if (cut.code === 0) return { kind: "cut", checkout };
+	await uncut(exec, checkout, path);
+	return {
+		kind: "refused",
+		why: `git couldn't cut it from ${checkout}: ${cut.stderr.trim()}`,
+	};
+}
+
+/** Takes out a worktree arriving cut at `path`, and git's entry for it. */
+async function uncut(exec: Exec, checkout: string, path: string) {
+	const removed = await exec("git", [
+		`--git-dir=${checkout}`,
+		"worktree",
+		"remove",
+		"--force",
+		"--force",
+		path,
+	]);
+	if (removed.code === 0) return;
+	rmSync(path, { recursive: true, force: true });
+	await exec("git", [`--git-dir=${checkout}`, "worktree", "prune"]);
 }
 
 /**
@@ -446,9 +506,20 @@ async function readyTree(
 	tree: HandedTree,
 	from: string,
 	path: string,
+	here: { readonly home: string; readonly trees: string },
 ): Promise<Readied> {
 	const no = (why: string): Readied => ({ kind: "refused", why });
 	if (!existsSync(path)) {
+		// The tree isn't there yet, so it is found through its parent's real path.
+		if (within(join(real(dirname(path)), basename(path)), here.trees)) {
+			const checkout = await guardedCheckoutOf(
+				exec,
+				path,
+				tree.origin,
+				here.home,
+			);
+			if (checkout !== undefined) return await cutFrom(exec, checkout, path);
+		}
 		const twin = await twinOf(exec, path, tree.origin);
 		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
 		const cloned = await exec("git", [
