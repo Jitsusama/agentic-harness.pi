@@ -101,6 +101,13 @@ export interface Host {
 	 */
 	wakeHeld?(sessionId: string): boolean;
 	/**
+	 * Whether the host drains for a restart, holding the wakes of those it
+	 * parked. A child started before hosts said `wakeHeld` holds every wake
+	 * while it drains and none otherwise, so for one this answers it. A host
+	 * that never drains leaves it out.
+	 */
+	drains?(): boolean;
+	/**
 	 * Whether a window views this conversation now, so the person may be
 	 * reading it and would pay its wake at their next key. Asked at each
 	 * look. A host without screens leaves it out.

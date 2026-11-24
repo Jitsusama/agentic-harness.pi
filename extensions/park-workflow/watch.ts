@@ -480,9 +480,13 @@ export function watch(
 		const moving =
 			host.draining?.(session) === true || host.rolling?.(session) === true;
 		if (!moving) return "its host neither drains nor rolls";
-		return host.wakeHeld?.(session) === true
-			? undefined
-			: "its host would wake it again here at once";
+		// A child older than wakeHeld, its watch reloaded onto this one,
+		// holds every wake while its host drains, with no ceiling, and none
+		// while it only rolls: its drain says.
+		const held = host.wakeHeld
+			? host.wakeHeld(session)
+			: host.drains?.() === true;
+		return held ? undefined : "its host would wake it again here at once";
 	};
 	const decide = (goesOn = false): string | undefined => {
 		if (parked) return "parking already";

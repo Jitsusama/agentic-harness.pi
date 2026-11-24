@@ -1394,6 +1394,40 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 23 November: the install that brought the step-off left 37 children
+	// on older host code, whose watch it reloaded but whose host says no
+	// wakeHeld, so none stepped off (OSPHT4, plan PLAN-20261121-TXEUTV).
+	it("steps a run off in a child older than wakeHeld only while its host drains", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let drains = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => drains;
+		host.host.rolling = () => true;
+		host.host.drains = () => drains;
+		const wake = join(folder, "conversation.wake");
+		const run = session({ isIdle: () => false });
+		try {
+			// Rolling alone, an older child would wake it again in place.
+			const rolled = watching(run, { MYCELIUM_WAKE: wake });
+			expect(rolled.turnEnded(true), "rolling, not draining").toBe(
+				"its host would wake it again here at once",
+			);
+			rolled.stop();
+			expect(asked, "rolling, not parked").toEqual([]);
+			expect(existsSync(wake), "rolling, no wake written").toBe(false);
+
+			drains = true;
+			const drained = watching(run, { MYCELIUM_WAKE: wake });
+			expect(drained.turnEnded(true), "draining, it steps off").toBeUndefined();
+			expect(asked, "draining, parked").toEqual([SESSION]);
+			expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe(SESSION);
+			drained.stop();
+		} finally {
+			host.dispose();
+		}
+	});
+
 	it("keeps a run going where its wake can't be written, and takes back a wake it wrote once its park fails", () => {
 		const host = installTestHost();
 		const asked: string[] = [];
