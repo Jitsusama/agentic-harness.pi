@@ -901,8 +901,10 @@ describe("children starting at once", () => {
 	// F33: a host's start resumes every conversation it holds, none ahead,
 	// so a wake for one still queued must hurry that start, not wait behind
 	// every resume queued before it. Its hurry comes before the start has
-	// awaited anything, as resume-held.ts's late hurry does (F100).
+	// awaited anything, as resume-held.ts's late hurry does (F100). Ahead
+	// from its first ask, it says no move (F20 on #2097).
 	it("starts a queued resume a wake comes to wait on before the resumes queued ahead of it", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
 		const holdingFirst = deferred();
 		const holdingSecond = deferred();
 		const first = nth(1);
@@ -932,6 +934,11 @@ describe("children starting at once", () => {
 			units.started[2],
 			"the start the wake waits on given the first turn freed",
 		).toBe(unitOf(owed));
+		const line = said.find((one) => one.startsWith(`${unitOf(owed)}: waited`));
+		expect(line, "its wait is said").toBeDefined();
+		expect(line, "hurried before it asked, it was moved nowhere").not.toContain(
+			"going ahead",
+		);
 
 		holdingSecond.settle();
 		await Promise.all([...starting, ...later]);

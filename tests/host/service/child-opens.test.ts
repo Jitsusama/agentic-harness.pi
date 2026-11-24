@@ -442,12 +442,14 @@ describe("a new conversation", () => {
 			},
 		});
 		expect(Date.now() - asked, "at its time, not later").toBeLessThan(1_000);
+		// The whole line, to its end (F19 on #2097); its figures are under a
+		// second here, so open-25 below pins them where they aren't.
 		expect(
 			reported.map(String),
 			"the journal says where its time went",
 		).toContainEqual(
 			expect.stringMatching(
-				/^Request open-18: The host spent \d+ s of its 0 s before it could begin this one, \d+ s weighing the conversations it runs and \d+ s waiting for its turn/,
+				/^Request open-18: The host spent \d+ s of its 0 s before it could begin this one, \d+ s weighing the conversations it runs and \d+ s waiting for its turn behind the conversations already starting, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter$/,
 			),
 		);
 		expect(units.started, "no unit started for it").toHaveLength(2);
