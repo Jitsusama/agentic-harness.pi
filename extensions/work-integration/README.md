@@ -319,20 +319,23 @@ A worktree a session still open holds goes too, once nothing has used
 it for a day, by the same signs of use and the same reading of
 processes, and only with nothing found only there: on a branch, its
 head on a remote-tracking branch, no change, untracked file or ignored
-plain file (ignored folders and links, as `node_modules/` and Nix's
-`result`, are made again), no stash on its branch, no commit only its
-HEAD's reflog holds, not locked and no submodules. One whose record
-names no session stays, as nothing could tell or keep its branch for
-it. Worktrees go first, with half the share, so a backlog of snapshots
-never starves them, and `idleWorktreesLeft` says how many a run left.
+file beyond what builds make again (ignored links, as Nix's `result`,
+and ignored folders builds name, as `node_modules/` and `target/`; any
+other ignored folder, as `.worktrees/`, may hold work), no file marked
+skip-worktree or assume-unchanged, no stash on its branch, no commit
+only its HEAD's reflog holds, not locked and no submodules. One whose
+record names no session stays, as nothing could tell or keep its
+branch for it. Worktrees go first, with half the share, so a backlog
+of snapshots never starves them, and `idleWorktreesLeft` says how many
+a run left.
 Before one goes a note in `kept-branches/`, beside the lock, keeps its
 branch at its head while any session it names lives, written aside and
-renamed in, and taken back if the tree stays; a second take of the
-branch adds its sessions. Under the record's lock all of it is read
-again, branch and head included. The work tool's listing names each
-branch taken from the session first, at its head, until the tree is
-cut again, when its note goes too; asking for the branch checks out
-the same branch and head.
+renamed in, and taken back if the tree stays where it was; a second
+take of the branch adds its sessions. Under the record's lock all of
+it is read again, branch and head included. The work tool's listing
+names each branch taken from the session first, at its head, until
+that branch is checked out at its path again, when its note goes too;
+asking for the branch checks out the same branch and head.
 `idleMs` is awake time, which stops while the machine sleeps, and the
 line's `ms` is wall time. Without a suspend, `ms` less `idleMs` is the
 rest of the run: before the idle snapshots, the claims, the census of
