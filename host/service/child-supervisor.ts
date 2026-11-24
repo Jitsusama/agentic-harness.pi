@@ -63,6 +63,7 @@ import {
 	beganTooLate,
 	madeByHost,
 	reach,
+	type TooLateCause,
 	tooLateLine,
 	unsettledReply,
 } from "./child-requests.ts";
@@ -1257,24 +1258,40 @@ export function childSupervisor(options: {
 		let giveBack = (): void => undefined;
 		let lapse: ReturnType<typeof setTimeout> | undefined;
 		const asked = Date.now();
+		// When someone came to wait on it while it waited, moving it ahead.
+		let hurriedAfter: number | undefined;
+		const hurried = () => {
+			hurriedAfter = Date.now() - asked;
+		};
+		if (turn.hurry && !turn.hurry.aborted)
+			turn.hurry.addEventListener("abort", hurried, { once: true });
 		try {
-			giveBack = await gate.turn({
-				ahead: turn.ahead,
-				by: turn.by,
-				signal: turn.cut
-					? AbortSignal.any([stopping.signal, turn.cut])
-					: stopping.signal,
-				late: () =>
-					new LateForTurn(
-						`${slot.unit} waited past its time for its turn to start`,
-					),
-				...(turn.hurry ? { hurry: turn.hurry } : {}),
-			});
-			// A wait the journal can see, so a slow start reads as queued, not stuck.
+			try {
+				giveBack = await gate.turn({
+					ahead: turn.ahead,
+					by: turn.by,
+					signal: turn.cut
+						? AbortSignal.any([stopping.signal, turn.cut])
+						: stopping.signal,
+					late: () =>
+						new LateForTurn(
+							`${slot.unit} waited past its time for its turn to start`,
+						),
+					...(turn.hurry ? { hurry: turn.hurry } : {}),
+				});
+			} finally {
+				turn.hurry?.removeEventListener("abort", hurried);
+			}
+			// A wait the journal can see, so a slow start reads as queued, not
+			// stuck, and one a wake hurried reads as moved ahead (F106).
 			const waited = Date.now() - asked;
+			const moved =
+				hurriedAfter === undefined
+					? ""
+					: `, going ahead of those nobody waits on ${inSeconds(hurriedAfter)} s in, once someone came to wait on it`;
 			if (waited >= turnWaitSaidMs)
 				options.say?.(
-					`${slot.unit}: waited ${inSeconds(waited)} s for its turn to start, behind the children already starting`,
+					`${slot.unit}: waited ${inSeconds(waited)} s for its turn to start, behind the children already starting${moved}`,
 				);
 			// Given back once held its time, whatever its child does by then.
 			lapse = setTimeout(() => {
@@ -1615,10 +1632,9 @@ export function childSupervisor(options: {
 					// is, so its caller asks again rather than reading a failure (F30).
 					if (error instanceof LateForTurn) {
 						const waited = Date.now() - taken;
-						options.report(
-							tooLateLine(request, waited, beginsWithinMs, "turn"),
-						);
-						return beganTooLate(request.id, waited, beginsWithinMs, "turn");
+						const cause: TooLateCause = { kind: "turn", weighedMs: spent };
+						options.report(tooLateLine(request, waited, beginsWithinMs, cause));
+						return beganTooLate(request.id, waited, beginsWithinMs, cause);
 					}
 					throw error;
 				})

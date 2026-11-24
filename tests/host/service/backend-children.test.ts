@@ -403,8 +403,10 @@ describe("a start's resume of what the host held", () => {
 	});
 
 	// F66 on #2080: a window's attach and an abort wait on the start's
-	// resume too, so they hurry it as a wake does.
-	it("hurries the start's resume for a window's attach and an abort", async () => {
+	// resume too, so they ask its children to hurry it as a wake does. That
+	// the hurry then moves a waiting start is the supervisor's, which
+	// child-supervisor.test.ts checks at its gate (F101).
+	it("asks its children to hurry the start's resume for a window's attach and an abort", async () => {
 		const held = entry();
 		await roster.hold(held);
 		const moved = children([held.sessionId]);

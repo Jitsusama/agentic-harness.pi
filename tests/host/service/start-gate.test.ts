@@ -124,4 +124,27 @@ describe("a start gate", () => {
 			"behind the wake already ahead, before the resume that came first",
 		).toEqual(["held", "w1", "owed", "r1"]);
 	});
+
+	// F102 on #2080: a wake that came before the start asked hurries it from
+	// the outset, as the case above does once it waits.
+	it("queues a start already hurried when it asks as one someone waits on", async () => {
+		const gate = startGate(1);
+		const hurry = new AbortController();
+		hurry.abort();
+		const { order, backs } = settling({
+			held: gate.turn(ask(false)),
+			r1: gate.turn(ask(false)),
+			owed: gate.turn(ask(false, { hurry: hurry.signal })),
+		});
+		await flushed();
+		for (const next of ["held", "owed"]) {
+			backs[next]?.();
+			await flushed();
+		}
+		expect(order, "before the resume that came first").toEqual([
+			"held",
+			"owed",
+			"r1",
+		]);
+	});
 });

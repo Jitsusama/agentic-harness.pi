@@ -446,9 +446,41 @@ describe("a new conversation", () => {
 			reported.map(String),
 			"the journal says where its time went",
 		).toContainEqual(
-			expect.stringContaining("Request open-18: The host spent"),
+			expect.stringMatching(
+				/^Request open-18: The host spent \d+ s of its 0 s before it could begin this one, \d+ s weighing the conversations it runs and \d+ s waiting for its turn/,
+			),
 		);
 		expect(units.started, "no unit started for it").toHaveLength(2);
+		supervisor.close();
+		for (const one of held) await expect(one).rejects.toThrow();
+	});
+
+	// F103 on #2080: time spent weighing before the gate is no turn's wait.
+	it("says a begin turned away at the gate weighed apart from waiting for its turn", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 10_000,
+				unsettledWithinMs: 2_000,
+				leastFirstAskMs: 4_000,
+			},
+		});
+		units.traitsOf = () => ({ neverListens: true });
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+
+		// 3 s of its 10 s gone before it asks a turn, which then lapses with
+		// its least of 6 s still left, 1 s on.
+		const refused = await supervisor.begin(
+			opening("open-25"),
+			Date.now() - 3_000,
+		);
+
+		const said =
+			"The host spent 4 s of its 10 s before it could begin this one, 3 s weighing the conversations it runs and 1 s waiting for its turn";
+		expect(refused.ok ? "" : refused.error.message).toContain(said);
+		expect(reported.map(String)).toContainEqual(
+			expect.stringContaining(`Request open-25: ${said}`),
+		);
 		supervisor.close();
 		for (const one of held) await expect(one).rejects.toThrow();
 	});
