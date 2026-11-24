@@ -3,12 +3,12 @@
  * the sender is told of each.
  */
 
+import { isAddress } from "../../../lib/mesh/address.ts";
 import { homeOf } from "../../../lib/mesh/group.ts";
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, type Message, reaches } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import type { Reader } from "../../../lib/mesh/thread.ts";
 import { type Refusal, refusedNotes } from "../refusals.ts";
 import { WANTING } from "./said.ts";
