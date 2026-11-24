@@ -197,6 +197,8 @@ export async function createEngine(
 		requests.restore(entry);
 	}
 	const tools = runningTools();
+	// Builds not yet settled, which a pause to collect would hold up.
+	let buildsRunning = 0;
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
 	const quiet: QuietCollection =
 		options.collectWhenQuiet === false
@@ -231,6 +233,29 @@ export async function createEngine(
 		heard,
 	});
 
+	/**
+	 * A build, counted as running until it settles, before what follows
+	 * its settling stirs a collection, or until it calls the `countOut` it
+	 * is handed; one that throws at once is counted out at once.
+	 */
+	function countedBuild<T>(
+		start: (countOut: () => void) => Promise<T>,
+	): Promise<T> {
+		let counted = true;
+		buildsRunning++;
+		const countOut = (): void => {
+			if (!counted) return;
+			counted = false;
+			buildsRunning--;
+		};
+		try {
+			return start(countOut).finally(countOut);
+		} catch (error) {
+			countOut();
+			throw error;
+		}
+	}
+
 	/** What a pause to collect would cost the conversations now. */
 	function quietReading(): QuietReading {
 		let running = 0;
@@ -244,7 +269,7 @@ export async function createEngine(
 			.filter(
 				({ id, state }) => state === "busy" && tools.running(id) === 0,
 			).length;
-		return { tools: running, jobs, waiting };
+		return { tools: running, jobs, waiting, builds: buildsRunning };
 	}
 
 	/**
@@ -290,30 +315,40 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId } = traits;
 		const record = register(traits, launch, request, hintsFor(request));
+		let countOut = (): void => {
+			// Set once the build is counted, which is before it can ask anything.
+		};
 		const asking = new Promise<"asking">((done) => {
-			record.asked = () => done("asking");
+			record.asked = () => {
+				// A build waiting on its person loses nothing to a pause, and counted on it would hold collections off until they answer.
+				countOut();
+				done("asking");
+			};
 		});
-		const building = host
-			.run(sessionId, () => build(record, manager, request, mark, turn))
-			.then(
-				() => {
-					// A build leaves its load's garbage behind, which only a stir collects.
-					quiet.stirred();
-					return "built" as const;
-				},
-				(error: unknown) => {
-					quiet.stirred();
-					// Closed while it was built: the close has let it go, so there is nothing to park.
-					if (record.closing) throw error;
-					try {
-						host.state(sessionId, "parked");
-					} catch (parking) {
-						// Closing already: the close parks it, and the start's error is what the caller must see.
-						report(parking);
-					}
-					throw error;
-				},
+		const building = countedBuild((out) => {
+			countOut = out;
+			return host.run(sessionId, () =>
+				build(record, manager, request, mark, turn),
 			);
+		}).then(
+			() => {
+				// A build leaves its load's garbage behind, which only a stir collects.
+				quiet.stirred();
+				return "built" as const;
+			},
+			(error: unknown) => {
+				quiet.stirred();
+				// Closed while it was built: the close has let it go, so there is nothing to park.
+				if (record.closing) throw error;
+				try {
+					host.state(sessionId, "parked");
+				} catch (parking) {
+					// Closing already: the close parks it, and the start's error is what the caller must see.
+					report(parking);
+				}
+				throw error;
+			},
+		);
 		// A start whose screen is asking the person answers now, so a viewer can attach to answer; the build carries on, and says what fails.
 		// Its time is said to the ask, the phases after it never (F44).
 		if ((await Promise.race([building, asking])) === "asking") {
