@@ -476,6 +476,16 @@ export function pssBytes(): number | undefined {
 }
 
 /**
+ * This process's proportional set size in bytes once a last-resort
+ * collection has run, or as it stands where none can run; nothing where
+ * there is none to read.
+ */
+export function collectedPss(): number | undefined {
+	lastResortCollect()?.();
+	return pssBytes();
+}
+
+/**
  * V8's gc, exposed for this process alone, run as a last-resort major
  * collection: the one kind that unmaps its pooled pages. Nothing where
  * `expose` gives no gc or throws, as a V8 that drops the flag would.

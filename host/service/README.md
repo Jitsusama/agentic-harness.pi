@@ -337,6 +337,15 @@ input pipeline or screen. No unit or running host is installed yet.
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it
   resumes, SLOT.sock where it listens and SLOT.d/ for its own use.
+- spare.ts: a warm spare child, started before any conversation wants
+  it. Its slot holds `{"spare": true}`: it loads the host's pi, builds
+  pi's session services once for an empty folder of its own (on 24
+  November 6.3 to 13.6 s cold, then 0.4 to 0.5 s in the same process
+  for another folder), collects, writes SLOT.warm and waits for its
+  slot to name what it starts as. A take renames SLOT.warm to
+  SLOT.taken and a leave unlinks it, so only one lands. It leaves,
+  exiting 0, when its install's host code moves, past 200 MB once
+  collected, or when a take names nothing within 60 s.
 - stale-child.ts: a child rolling onto new code. A child never
   restarts itself, so it keeps the host code it started with; on 22
   November 15 children ran host code 34 hours old. Every five
