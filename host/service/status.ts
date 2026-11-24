@@ -8,6 +8,7 @@
  * apart from when the host says them.
  */
 
+import { drawsAsNothing } from "../../lib/internal/unseen.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { StartPhase } from "./backend.ts";
 import type { ServingHost, StartStep } from "./serve.ts";
@@ -145,31 +146,64 @@ export function startLine(
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
 }
 
-/** The escapes a journal reader knows by sight, for the controls that have one. */
+/** The escapes a journal reader knows by sight, for the characters that have one. */
 const NAMED_ESCAPES: Readonly<Record<string, string>> = {
+	"\\": "\\\\",
 	"\n": "\\n",
 	"\r": "\\r",
 	"\t": "\\t",
 };
 
+/** A control (C0, DEL, C1) or a line or paragraph separator, which end a line. */
+const BREAKS_A_LINE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+
+/** The widest code point a four-digit `\u` escape can name. */
+const LAST_FOUR_DIGIT = 0xffff;
+
+/** One code point as the escape a reader can type back. */
+function escaped(point: number): string {
+	return point > LAST_FOUR_DIGIT
+		? `\\u{${point.toString(16)}}`
+		: `\\u${point.toString(16).padStart(4, "0")}`;
+}
+
 /**
- * Words a requester chose, or a reason quoting them, with every control
- * character (C0, DEL and C1) written as an escape, so they can't break the
- * journal entry they are said in, forge another or move a terminal's cursor.
+ * Words a requester chose, with every character that would break the
+ * journal entry, forge another, move a terminal's cursor or read as other
+ * than it is written as an escape: controls, line and paragraph
+ * separators, and what draws as nothing, bidi marks and zero widths among
+ * them. A backslash is doubled, so a path holding the text `\n` never
+ * reads as one holding a newline; the words go straight into the line, so
+ * nothing escapes them again.
  */
 export function onOneLine(text: string): string {
-	return text.replace(
-		/\p{Cc}/gu,
-		(control) =>
-			NAMED_ESCAPES[control] ??
-			`\\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
-	);
+	return escapedFor(text, true);
+}
+
+/**
+ * `text` with what would break or disguise a journal line escaped, a
+ * backslash doubled only when `doubling`: a reason may already hold
+ * another reason's escapes, so doubling there would make a newline read
+ * as the text `\n` once it is escaped twice (F24).
+ */
+function escapedFor(text: string, doubling: boolean): string {
+	let said = "";
+	for (const each of text) {
+		const named = each === "\\" && !doubling ? each : NAMED_ESCAPES[each];
+		if (named !== undefined) said += named;
+		else if (BREAKS_A_LINE.test(each) || drawsAsNothing(each))
+			said += escaped(each.codePointAt(0) ?? 0);
+		else said += each;
+	}
+	return said;
 }
 
 /**
  * The first line of why something failed that says anything, to keep a
  * journal entry on one line, or nothing for a reason with no message;
- * the start's report says the rest, stack and all.
+ * the start's report says the rest, stack and all. Escaped as words are
+ * but for a backslash, which stays single, so a reason wrapping a reason
+ * this already escaped reads the same once escaped again.
  */
 export function firstLine(reason: unknown): string {
 	let text: unknown;
@@ -180,11 +214,12 @@ export function firstLine(reason: unknown): string {
 		text = "";
 	}
 	if (typeof text !== "string") return "";
-	return onOneLine(
+	return escapedFor(
 		text
 			.split(/\r?\n|\r/)
 			.map((line) => line.trim())
 			.find((line) => line.length > 0) ?? "",
+		false,
 	);
 }
 

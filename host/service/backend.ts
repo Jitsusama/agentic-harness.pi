@@ -641,9 +641,14 @@ export function hostBackend(options: {
 		} catch (error) {
 			const line = startLine(sessionId, request, began, phases, Date.now());
 			const why = firstLine(error);
-			options.say?.(
-				`${line}, failing${why ? `: ${why}` : ", with no reason given"}`,
-			);
+			try {
+				options.say?.(
+					`${line}, failing${why ? `: ${why}` : ", with no reason given"}`,
+				);
+			} catch {
+				// A journal that can't take the line never replaces the start's
+				// own failure, which its caller still hears (F120).
+			}
 			throw error;
 		}
 		// Said once it is live, so a say that throws never reads as a failed
@@ -693,7 +698,7 @@ export function hostBackend(options: {
 				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
-			await undoing(prepared, "discarding its engine", () =>
+			await undoing(prepared, "discarding what it prepared", () =>
 				engine.discard(prepared),
 			);
 			throw error;
@@ -706,7 +711,7 @@ export function hostBackend(options: {
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
 				// Each on its own, so a discard that fails still drops its hold.
-				await undoing(prepared, "discarding its engine", () =>
+				await undoing(prepared, "discarding what it prepared", () =>
 					engine.discard(prepared),
 				);
 				await undoing(prepared, "dropping its hold", () =>

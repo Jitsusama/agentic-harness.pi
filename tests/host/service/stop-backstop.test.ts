@@ -135,12 +135,13 @@ describe("backstopStop", () => {
 			at: expect.any(Number),
 			ids: ["a", "b"],
 		});
-		// Whole ms rounded down from both ends, so only a count past the
-		// bound is sure to be its whole time (5BACCAC3's F113 on #2076).
+		// Judged in ns and said in whole ms rounded down, so a wait just past
+		// its bound may read as the bound itself, never short of it
+		// (5BACCAC3's F113 on #2076).
 		expect(
 			waitedOf(ended),
-			"counted from when it was armed, past its bound",
-		).toBeGreaterThan(WITHIN_MS);
+			"counted from when it was armed, its whole bound",
+		).toBeGreaterThanOrEqual(WITHIN_MS);
 	});
 
 	// F49: what is owed never passes what it was armed with.
@@ -164,9 +165,10 @@ describe("backstopStop", () => {
 		const ended = await run("forward", join(dir, "not-parked.json"));
 		expect(ended.signal, `ended by its thread: ${ended.said}`).toBe("SIGKILL");
 		expect(ended.took, "not before its time").toBeGreaterThanOrEqual(WITHIN_MS);
-		expect(waitedOf(ended), "what it says it waited").toBeGreaterThan(
-			WITHIN_MS,
-		);
+		expect(
+			waitedOf(ended),
+			"what it says it waited, on its own clock",
+		).toBeGreaterThanOrEqual(WITHIN_MS);
 		expect(waitedOf(ended)).toBeLessThan(CHILD_MS / 2);
 	});
 

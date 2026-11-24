@@ -251,10 +251,10 @@ describe("hostBackend", () => {
 		const undone = said.filter((line) => line.includes("undoing"));
 		expect(undone).toEqual([
 			expect.stringMatching(
-				/: undoing its failed start failed too, discarding its engine: its folder is gone$/,
+				/: undoing its failed start failed too, discarding what it prepared: its folder is gone$/,
 			),
 			expect.stringMatching(
-				/: undoing its failed start failed too, discarding its engine, with no reason given$/,
+				/: undoing its failed start failed too, discarding what it prepared, with no reason given$/,
 			),
 		]);
 	});
@@ -290,21 +290,32 @@ describe("hostBackend", () => {
 		expect(failing.fake.start).not.toHaveBeenCalled();
 		expect(roster.entries()).toEqual([]);
 		expect(said.filter((line) => line.includes("undoing"))).toEqual([
-			"id\\npi-host: forged: undoing its failed start failed too, discarding its engine: its folder is gone",
+			"id\\npi-host: forged: undoing its failed start failed too, discarding what it prepared: its folder is gone",
 		]);
 	});
 
 	// F22: each undo is named, so a failed drop reads apart from a failed discard.
+	// F121: the discard runs first, and a failed drop leaves its hold behind.
 	it("says which undo failed when its hold can't be dropped", async () => {
 		const said: string[] = [];
+		const undone: string[] = [];
 		const failing = engine({
 			start: vi.fn(async () => {
 				throw new Error("extension load failed");
 			}),
+			discard: vi.fn(async () => {
+				undone.push("discard");
+			}),
 		});
-		vi.spyOn(roster, "drop").mockRejectedValueOnce(
-			new Error("the roster is locked"),
-		);
+		const drop = roster.drop.bind(roster);
+		vi.spyOn(roster, "drop")
+			.mockImplementationOnce(async () => {
+				undone.push("drop");
+				throw new Error("the roster is locked");
+			})
+			// What a library may throw: something with no message at all.
+			.mockRejectedValueOnce({ code: "EIO" })
+			.mockImplementation(drop);
 		const backend = hostBackend({
 			identity: { key: host.key, owner: host.owner },
 			host,
@@ -312,14 +323,45 @@ describe("hostBackend", () => {
 			engine: failing.fake,
 			say: besideStarts(said),
 		});
-		await expect(backend.execute(anOpen())).rejects.toThrow(
-			"extension load failed",
-		);
+		for (const _ of [1, 2])
+			await expect(backend.execute(anOpen())).rejects.toThrow(
+				"extension load failed",
+			);
+		expect(undone.slice(0, 2), "discarded before the drop").toEqual([
+			"discard",
+			"drop",
+		]);
+		expect(roster.entries(), "both holds left behind").toHaveLength(2);
 		expect(said.filter((line) => line.includes("undoing"))).toEqual([
 			expect.stringMatching(
 				/: undoing its failed start failed too, dropping its hold: the roster is locked$/,
 			),
+			expect.stringMatching(
+				/: undoing its failed start failed too, dropping its hold, with no reason given$/,
+			),
 		]);
+	});
+
+	// F120: a journal that can't take the start's failing line never
+	// replaces the failure its caller hears.
+	it("still throws a start's own failure when saying it throws", async () => {
+		const failing = engine({
+			start: vi.fn(async () => {
+				throw new Error("extension load failed");
+			}),
+		});
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: failing.fake,
+			say: (line) => {
+				if (line.includes("failing")) throw new Error("the journal is gone");
+			},
+		});
+		await expect(backend.execute(anOpen())).rejects.toThrow(
+			"extension load failed",
+		);
 	});
 
 	// F24: a journal that can't take the undo's line must not skip the drop.
