@@ -49,6 +49,16 @@ const LISTEN_MS = 30_000;
  * bound, that fails a collection freeing nothing.
  */
 const CHILD_RSS_MB = 512;
+/**
+ * The least, in MB, a quiet child's collection must take off its heap.
+ * Twenty-five collections on 23 and 24 November took 96 to 830 MB off
+ * (208 to 112 the least), and one made a no-op took 0, so this is a third
+ * under the least seen. It is more than a scavenge of the young
+ * generation frees (a semi-space is 16 MB by default), which the reads
+ * around the collection could set off with no collection at all (F11 on
+ * #2129), and more than the line's rounding to whole MB.
+ */
+const HEAP_FALL_MB = 64;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
 const COLLECTED_MS = 30_000;
 /** What a child says once it has collected while quiet. */
@@ -371,15 +381,16 @@ it(
 				process.stdout.write(
 					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
 				);
-				// F6 on #2104: the collection itself freed some of the open's load.
-				// It has taken the heap from 208 MB or more to 121 MB or less, but
-				// any fall passes here; a collection that frees nothing fails.
+				// F6 on #2104: the collection itself freed the open's load, from a
+				// heap of 208 MB or more to 121 MB or less; one that frees nothing,
+				// or only what a scavenge would, fails.
 				expect(heap.words, "the collection's line reads a heap").not.toBe(
 					"unread",
 				);
-				expect(heap.usedAfter, "MB the heap uses once collected").toBeLessThan(
-					heap.usedBefore ?? 0,
-				);
+				expect(
+					(heap.usedBefore ?? 0) - (heap.usedAfter ?? 0),
+					`MB the collection took off a heap of ${heap.words}`,
+				).toBeGreaterThanOrEqual(HEAP_FALL_MB);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {
 					v: 1,
