@@ -114,13 +114,17 @@ describe("arriving with a tree to clone from origin", () => {
 	it("takes out only what a clone killed outright made", async () => {
 		const { from, origin } = await carried();
 		const home = folder(made, "arriving");
-		// Killed with SIGKILL partway, so git can't take out what it made.
+		const path = join(home, "src", "app");
+		// Killed with SIGKILL partway, so git can't take out what it made,
+		// as something else arrives where the tree goes.
 		const killed: Exec = (command, args) => {
 			if (command !== "git" || !args.includes("clone")) {
 				return exec(command, args);
 			}
 			const into = args.at(-1) ?? "";
 			mkdirSync(join(into, ".git"), { recursive: true });
+			mkdirSync(path, { recursive: true });
+			writeFileSync(join(path, "theirs"), "kept\n");
 			return Promise.resolve({
 				code: 137,
 				stdout: "",
@@ -135,7 +139,51 @@ describe("arriving with a tree to clone from origin", () => {
 			did: "refused",
 			why: `git couldn't clone ${origin}: git was killed by SIGKILL`,
 		});
-		expect(leftIn(join(home, "src")), "nothing of it is left").toEqual([]);
+		expect(readFileSync(join(path, "theirs"), "utf8")).toBe("kept\n");
+		expect(leftIn(join(home, "src")), "nothing of the clone is left").toEqual([
+			"app",
+		]);
+	});
+
+	it("never takes a clone another arrival left beside it as its twin", async () => {
+		const { from, origin, head } = await carried();
+		const home = folder(made, "arriving");
+		await cloneAt(origin, join(home, "src", "app.cloning-1-2"));
+		const { through, fetches } = boundedFetches();
+
+		const { whole } = await arriveThrough(home, from, through);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(await git(join(home, "src", "app"), "rev-parse", "HEAD")).toBe(head);
+		expect(
+			fetches
+				.filter(({ args }) => args.includes("clone"))
+				.map(({ args }) => args.at(-2)),
+			"it is cloned from origin",
+		).toEqual([origin]);
+	});
+
+	it("clones nothing once its tree's hour has run out", async () => {
+		const { from } = await carried();
+		const home = folder(made, "arriving");
+		const other = join(home, "src", "other");
+		mkdirSync(other, { recursive: true });
+		const { through, fetches } = boundedFetches();
+		const clock = fakeClock();
+		// Looking beside the tree for a twin, as the clock reads it, takes the hour.
+		const slow: Exec = async (command, args) => {
+			if (args.includes(other)) await clock.sleep(3_600_000);
+			return through(command, args);
+		};
+
+		const { whole, said } = await arriveThrough(home, from, slow, clock);
+
+		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
+		expect(fetches.filter(({ args }) => args.includes("clone"))).toEqual([]);
+		expect(said[0]).toMatchObject({
+			did: "refused",
+			why: "It wasn't cloned, since the 3600 seconds its tree had to reach origin all told ran out.",
+		});
 	});
 
 	it("leaves what arrived where the tree goes while it cloned", async () => {

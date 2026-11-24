@@ -5,7 +5,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { chmodSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecResult } from "../../../../lib/core/exec/index.ts";
@@ -110,6 +110,21 @@ describe("git in a tree, as arrive runs it", () => {
 		expect(done.stdout.trim(), "the blob of its lines, each ended").toBe(
 			createHash("sha1").update("blob 8\0one\ntwo\n").digest("hex"),
 		);
+	});
+
+	it("runs fed git in English whatever the machine's language, since what it says is matched", async () => {
+		const path = await tree();
+		const bin = folder(made, "bin");
+		const said = join(bin, "git");
+		writeFileSync(said, '#!/bin/sh\necho "LC_ALL=$LC_ALL"\n');
+		chmodSync(said, 0o755);
+		const german = spawnExec({
+			env: { LC_ALL: "de_DE.UTF-8", PATH: `${bin}:${process.env.PATH}` },
+		});
+
+		const done = await gitIn(german, path).fed(["one"], "fetch", "--stdin");
+
+		expect(done.stdout.trim()).toBe("LC_ALL=C");
 	});
 });
 

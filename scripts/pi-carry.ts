@@ -175,7 +175,8 @@ if (
 
 // git says why in English whatever this machine's language, since what
 // it says is matched, as an arrival reads a branch origin lacks. Only
-// git: what else runs, such as lsof naming files, keeps its own locale.
+// git: what else runs, such as lsof naming files, keeps its own locale,
+// and the git an arrival feeds lines through sh sets it there itself.
 const inEnglish = spawnExec({ env: { LC_ALL: "C" } });
 const asItIs = spawnExec();
 const exec: Exec = (command, args) =>

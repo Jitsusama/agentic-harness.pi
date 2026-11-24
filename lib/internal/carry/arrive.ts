@@ -57,7 +57,7 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
-import { guardedCheckoutOf, twinOf } from "./twin.ts";
+import { CLONING, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -464,7 +464,7 @@ async function readyTree(
 		if (here.left() <= 0) return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
 		// Into a name of its own beside the tree's, renamed into place once
 		// whole, so a failed clone takes out only what it made itself.
-		const cloning = `${path}.cloning-${process.pid}-${Date.now()}`;
+		const cloning = `${path}${CLONING}${process.pid}-${Date.now()}`;
 		const cloned = await timed(here.left(), () =>
 			exec("git", [
 				...BOUNDED,
@@ -484,7 +484,12 @@ async function readyTree(
 			rmSync(cloning, { recursive: true, force: true });
 			return no("Something arrived there while it was cloned.");
 		}
-		renameSync(cloning, path);
+		try {
+			renameSync(cloning, path);
+		} catch (error) {
+			rmSync(cloning, { recursive: true, force: true });
+			return no(`Its clone couldn't be put in place: ${String(error)}`);
+		}
 		return { kind: "cloned" };
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");

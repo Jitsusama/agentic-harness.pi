@@ -23,6 +23,13 @@ import { real } from "../sandbox/tree-git.ts";
 /** How many folders above the tree's own are looked through. */
 const LEVELS = 3;
 
+/**
+ * What names a clone an arrival makes beside a tree's path, before it is
+ * renamed into place: never a twin, since it may be half made, or left
+ * by an arrival that was killed.
+ */
+export const CLONING = ".cloning-";
+
 /** How many folders in any one place are looked at, at most. */
 const MOST_BESIDE = 64;
 
@@ -114,7 +121,7 @@ function beside(folder: string, name: string): string[] {
 	let entries: string[];
 	try {
 		entries = readdirSync(folder, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory())
+			.filter((entry) => entry.isDirectory() && !entry.name.includes(CLONING))
 			.map((entry) => entry.name)
 			.sort()
 			.slice(0, MOST_BESIDE);
