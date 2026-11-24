@@ -151,8 +151,9 @@ export interface Heed {
 	 * It wakes a peer resting blocked on its sender. Each run that ends
 	 * blocked is woken once so, and news after that waits for a run to
 	 * end blocked again. Unlike an awaited answer it stays under the
-	 * damper's hourly cap on one sender's news, which is what bounds two
-	 * cells blocked on each other.
+	 * damper's hourly cap on one sender's news. That slows two cells
+	 * blocked on each other to the cap's count of wakes an hour each way;
+	 * it doesn't end their exchange.
 	 */
 	readonly unblocks?: boolean;
 }

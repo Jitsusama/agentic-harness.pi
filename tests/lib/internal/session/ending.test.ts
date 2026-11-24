@@ -13,6 +13,8 @@ describe("how a run said it ended", () => {
 		["Notes.\n\n**Blocked:** CI needs a secret only you have.", "blocked"],
 		["- Done: shipped", "done"],
 		["blocked: no access", "blocked"],
+		["Notes.\n\n**Blocked**: the OTP.", "blocked"],
+		["**Done**: shipped", "done"],
 	] as const)("reads %j as %s", (text, ending) => {
 		expect(endingOf(text)).toBe(ending);
 	});
@@ -37,6 +39,10 @@ describe("blockedLine", () => {
 			blockedLine("Notes.\n\n**Blocked:** CI needs a secret only you have."),
 			"a bold label alone",
 		).toBe("CI needs a secret only you have.");
+		expect(
+			blockedLine("Notes.\n\n**Blocked**: 2AF2DH's sha."),
+			"the colon past the bold",
+		).toBe("2AF2DH's sha.");
 	});
 
 	it("is nothing for a run that did not end blocked", () => {
