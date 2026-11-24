@@ -5,6 +5,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -34,6 +35,32 @@ afterEach(() => {
 });
 
 describe("writing a file whole", () => {
+	it.each([
+		["writeWhole", (file: string) => writeWhole(file, "new")],
+		[
+			"writeWholeBy",
+			(file: string) => writeWholeBy(file, (write) => write("new")),
+		],
+		["writeWholeOff", (file: string) => writeWholeOff(file, "new")],
+	])(
+		"%s stages nothing through a writing folder that is a link",
+		async (_, write) => {
+			const elsewhere = mkdtempSync(join(tmpdir(), "write-whole-elsewhere-"));
+			try {
+				symlinkSync(elsewhere, join(dir, WRITING));
+				const file = join(dir, "queue.json");
+
+				await expect(async () => write(file)).rejects.toThrow(
+					/is a link or no folder/,
+				);
+				expect(readdirSync(elsewhere)).toEqual([]);
+				expect(existsSync(file)).toBe(false);
+			} finally {
+				rmSync(elsewhere, { recursive: true, force: true });
+			}
+		},
+	);
+
 	it("replaces it, leaving nothing staged", () => {
 		const file = join(dir, "queue.json");
 		writeFileSync(file, "old");
