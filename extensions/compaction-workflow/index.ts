@@ -33,8 +33,10 @@
  * the first turn's end after it is ready, or at once when the session
  * is idle, the compaction applies it, which takes no time. One that
  * failed is written ahead once more, at half the size if it stopped at
- * its cap. Only when it cannot be written from the cache, or failed
- * twice, does the session compact on the spot, and the notice says why.
+ * its cap; past two failures, each next try ahead waits twice as many
+ * firing turns as the last. Only when it cannot be written from the
+ * cache does the session compact on the spot, and the notice says why;
+ * pi's own trigger at the window's edge still compacts on the spot.
  *
  * Idle: an idle session's cache expires after its lifetime, and the
  * first turn back then writes the whole context at the write price.
@@ -190,13 +192,32 @@ const DEFAULT_SUMMARY_OUTPUT_TOKENS = 12_600;
 const REFETCH_TURNS = 3;
 
 /**
- * Summaries written ahead of one compaction before it is written on
- * the spot, which holds the session while it writes. On 22 November
- * four that failed ahead, three at the output cap, each sent the next
- * turn to the spot, holding it 7 to 16 minutes; a second try ahead,
- * asked for half as much after a cap, costs a summary but no wait.
+ * Summaries written ahead of one compaction, one straight after
+ * another, before each next try waits. A summary written on the spot
+ * holds the session while it writes: on 22 November four that failed
+ * ahead, three at the output cap, each sent the next turn to the spot,
+ * holding it 7 to 16 minutes. A try ahead, asked for half as much after
+ * a cap, costs a summary but no wait, so the cost trigger never writes
+ * on the spot for a failure; it only spaces the tries out.
  */
 const AHEAD_TRIES = 2;
+
+/**
+ * The most firing turns a try ahead waits after the one before it
+ * failed. The waits double from two, so a summary that keeps failing
+ * costs a try every 32 firing turns at most, not one each turn.
+ */
+const AHEAD_WAIT_MOST_TURNS = 32;
+
+/**
+ * The firing turns the next try ahead waits after `tries` have failed:
+ * none before AHEAD_TRIES, then two, four, eight and so on, up to
+ * AHEAD_WAIT_MOST_TURNS.
+ */
+function aheadWaitTurns(tries: number): number {
+	if (tries < AHEAD_TRIES) return 0;
+	return Math.min(2 ** (tries - AHEAD_TRIES + 1), AHEAD_WAIT_MOST_TURNS);
+}
 
 /**
  * What a turn costs beyond reading its context, before the session has
@@ -428,6 +449,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let runPromptAt = Number.NEGATIVE_INFINITY;
 	let failures = 0;
 	let holdTurns = 0;
+	// Firing turns left before a summary that failed ahead past its tries
+	// is written ahead again (aheadWaitTurns).
+	let aheadWait = 0;
 
 	const conversation = conversationProvider(pi);
 	const host = registerCompactionHost(pi, {
@@ -676,6 +700,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		asked = null;
 		failures = 0;
 		holdTurns = 0;
+		aheadWait = 0;
 		const prices = pricesOf(ctx);
 		rentPaid = prices
 			? history.promptsSinceCompaction.reduce(
@@ -787,6 +812,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		awaitingRetained = true;
 		failures = 0;
 		holdTurns = 0;
+		aheadWait = 0;
 		const entry = event.compactionEntry as {
 			usage?: { output?: unknown };
 			details?: { summariser?: unknown };
@@ -870,14 +896,34 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		});
 		if (!decision.fire) return;
 
+		// The count a move off the point it covered started again ends the
+		// wait with it.
+		if (aheadWait > 0 && host.failedAhead() >= AHEAD_TRIES) {
+			aheadWait -= 1;
+			return;
+		}
+		aheadWait = 0;
 		const failed = host.takeFailure();
 		if (host.state() === "writing") return;
-		// A summary that failed ahead is written ahead once more before one
-		// is written on the spot, which holds the session while it writes.
-		const prepared =
-			failed === undefined || host.failedAhead() < AHEAD_TRIES
-				? host.prepare(ctx, tokens)
-				: { ok: false as const, reason: failed };
+		// A summary that failed ahead is written ahead again, never on the
+		// spot, which holds the session while it writes; past its tries, a
+		// wait first, so one that keeps failing isn't paid for every turn.
+		const wait = failed === undefined ? 0 : aheadWaitTurns(host.failedAhead());
+		if (wait > 0) {
+			aheadWait = wait - 1;
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					compactionNotice(tokens, decision, {
+						ahead: "later",
+						afterTurns: wait,
+						reason: failed ?? "",
+					}),
+					"info",
+				);
+			}
+			return;
+		}
+		const prepared = host.prepare(ctx, tokens);
 		if (ctx.hasUI) {
 			const timing = prepared.ok
 				? { ahead: true as const, againAfter: failed }

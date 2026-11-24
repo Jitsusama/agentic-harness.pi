@@ -99,26 +99,31 @@ it was written is dropped and one written on the spot: everything after
 its point would stay verbatim and be read again every turn, which costs
 more than writing it again. It is logged as unused, with the sizes.
 
-A summary that failed ahead is written ahead once more when the
-trigger next fires, rather than on the spot, which holds the session
-while it writes: on 22 November four failed ahead, three at the output
-cap, and each next turn waited 7 to 16 minutes on one written on the
-spot. After a try that stopped at its cap, every summary of that
-compaction, ahead or on the spot, is asked for half the size, as a
-limit, so the rest of the cap is left for thinking.
+A summary that failed ahead is written ahead again when the trigger
+next fires, never on the spot, which holds the session while it
+writes: on 22 November four failed ahead, three at the output cap, and
+each next turn waited 7 to 16 minutes on one written on the spot.
+After two failures, each next try waits first, for twice as many
+firing turns as the wait before it: two, then four, then eight, up to
+32. So a summary that keeps failing costs a try now and then, and
+nobody waits for any of them. After a try that stopped at its cap,
+every summary of that compaction, ahead or on the spot, is asked for
+half the size, as a limit, so the rest of the cap is left for
+thinking.
 
 A move in the session tree that keeps the point a summary written
 ahead covers keeps the summary and the failed tries, since the
 compaction to come covers that point too. A move off it drops a
 summary still being written or ready, logging it as unused, and
-starts the count again.
+starts the count again, ending any wait with it.
 
 Only when the summary cannot be written from the cache (see Writing the
-Summary), or has failed ahead twice, does the session compact on the
-spot, and the notice says why. One on the spot that is cancelled or
-fails leaves the next summary to be written ahead once more, so the
-session isn't held again for one it gave up; the count and the
-shorter summaries go on. Each compaction's entry records `written`
+Summary) does the trigger compact on the spot, and the notice says
+why. pi's own trigger at the window's edge compacts on the spot too,
+when nothing written ahead is ready, since the next turn would not
+fit. One on the spot that is cancelled or fails leaves the next
+summary to be written ahead once more, so the session isn't held
+again for one it gave up; the count and the shorter summaries go on. Each compaction's entry records `written`
 (`ahead` or `on the spot`), how long the summary took (`summaryMs`)
 and how long anybody waited for it (`waitedMs`). A summary written
 ahead that went unused is logged as a
