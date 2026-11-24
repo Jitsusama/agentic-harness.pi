@@ -628,6 +628,34 @@ describe("a need routed by declared subjects", () => {
 		});
 	});
 
+	// Kept rarest first, gone stays though past MOST_WORDS, so the owner
+	// check sees E hold every kept word where B holds all but one.
+	it("sees an ended owner past the most words a need keeps", () => {
+		const taken = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
+		const found = routeNeed(asked("A", "gone", ...taken), {
+			foragers: cells({
+				A: [],
+				B: taken,
+				C: taken,
+				D: taken.slice(-1),
+				E: ["gone", ...taken.slice(0, -1)],
+			}),
+			ties: ties(["A", "B", 1], ["A", "E", 2]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found.words, "gone, then the first taken").toEqual([
+			"gone",
+			...taken.slice(0, -1),
+		]);
+		expect(found, "E worked on every kept word").toMatchObject({
+			fit: null,
+			ended: ["E"],
+			fellShort: "B",
+		});
+	});
+
 	it("never takes a live cell that stopped the asker, naming it as that", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], S: ["carry"] }),

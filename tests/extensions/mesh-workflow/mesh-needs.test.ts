@@ -190,7 +190,10 @@ describe("sending to a need", () => {
 				{ key: "cell:J7XHQN", title: "Dates Delivery" },
 				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
 			],
-			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:7M6JKG~J7XHQN", strength: 1, heard: Date.now() },
+			],
 		);
 		const { tools } = await startSession(env);
 
@@ -202,7 +205,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said, "a live cell was found, so it never says none was").toContain(
-			"Not sent: J7XHQN worked on more of dates delivery than 5HJZ8Z, the live cell found, but has ended, so it was not sent to a cell sharing less of it.",
+			"Not sent: J7XHQN worked on more of dates delivery than 5HJZ8Z, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it.",
 		);
 		expect(said).not.toContain("no live cell within three ties");
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
@@ -210,6 +213,57 @@ describe("sending to a need", () => {
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
+	});
+
+	it("names the words no cell works on in a refusal for an owner not present", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates Delivery" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:7M6JKG~J7XHQN", strength: 1, heard: Date.now() },
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land, fonts and all?",
+			about: "dates delivery fonts",
+		});
+
+		expect(said).toContain("J7XHQN worked on more of dates delivery");
+		expect(said).toContain(
+			"No cell works on fonts, so it found nobody and it was asked by dates delivery alone.",
+		);
+	});
+
+	it("says nothing of a joined id whose every part routed it", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Mesh Workflow" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who reads a need's words?",
+			about: "mesh-workflow need",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "need, held by none, is still named").toContain(
+			"No cell works on need, so it found nobody",
+		);
+		expect(said).not.toContain("mesh-workflow, ");
+		expect(said).not.toContain("No cell works on mesh-workflow");
 	});
 
 	it("says which words of its about no cell works on, when it goes by the rest", async () => {

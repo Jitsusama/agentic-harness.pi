@@ -4,17 +4,18 @@
  * A session that needs something and doesn't know who holds it used to
  * ask its orchestrator, which made every orchestrator a funnel: on 16
  * November the busiest five cells carried 48% of the mesh's messages.
- * So a need now goes by its words. It is put to its rarest word first,
- * the one the fewest cells work on, since that is what narrows it. Where
- * the node names a hub for that word's subject, the hub names the fit;
- * where it names none (none do before the node's hubs land), the need
- * passes along the node's ties, strongest first, until a cell working on
- * it is reached, at most `MOST_HOPS` away. Nothing falls back to a
- * leader: a need nothing can take is counted lost, so the measure sees
- * it, and its asker is told to name the peers it is for. Nor does it
- * fall back to a broader word when every cell holding its narrowest has
- * ended: that cell owned it, and one sharing only a broader word does
- * not, so the need is lost and its asker told who ended.
+ * So a need now goes by its words. Each word is looked for: where the
+ * node names a hub for its subject, the hub names the fit; where it
+ * names none, the need passes along the node's ties, strongest first,
+ * to the nearest cell working on it, at most `MOST_HOPS` away. Of what
+ * each word found, the cell working on most of the need takes it, and
+ * among those as good, a hub's before a walk's and then the rarest
+ * word's. Nothing falls back to a leader: a need nothing can take is
+ * counted lost, so the measure sees it, and its asker is told to name
+ * the peers it is for. Nor does it go to a cell sharing less of it than
+ * an ended cell within reach did, unless a live cell within reach works
+ * on as much: that cell owned it, so the need is lost and its asker told
+ * who ended and who fell short.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -39,7 +40,9 @@
  * `agents`. At most `MOST_SUBJECTS` are read from a cell and
  * `MOST_SUBJECT_WORDS` words taken from them, and a need keeps the
  * words that route it rarest first, so a cell declaring many can't
- * crowd it, nor its asker's own. That routes a message and grants
+ * crowd out its rarer words, nor its asker's own. A cell declaring many
+ * broad words still wins a need sharing more of them than a nearer cell
+ * holding its rarest, the price of going by coverage. That routes a message and grants
  * nothing: a need finds who works on something, and a yes, a ruling or
  * a grant still comes only from the owner named by address.
  */
@@ -430,13 +433,16 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  * "checks" or "gate" sharing no other word.
  *
  * Lost, with no path, when none is within `MOST_HOPS`, or when a cell
- * that has ended worked on more of it than the fit found, which is then
- * named in `fellShort`: that cell owned it, and the fit shares less. Only
- * a cell the node still lists counts, and the node drops a cell whose
- * session ended cleanly, so an owner gone that way is never seen; one
- * whose record lingers is, for as long as it does, but only against a
- * fit sharing less of the need. A live owner beyond `MOST_HOPS` is not
- * seen either, so the need goes to the fit found.
+ * within reach that has ended worked on more of it than the fit found,
+ * which is then named in `fellShort`: that cell owned it, and the fit
+ * shares less. Within reach is where a live fit could be: at most
+ * `MOST_HOPS` along ties, or named by a live hub for one of its words.
+ * A live cell within reach working on as much as the owner did takes it
+ * instead, though each word's nearest find shared less. Only a cell the
+ * node still lists counts, and the node drops a cell whose session ended
+ * cleanly, so an owner gone that way is never seen; one whose record
+ * lingers is, for as long as it does. Coverage is counted as a fit is
+ * found, so a leg-26 cell never counts the leg of a need for leg-27.
  *
  * A cell that works on it but has ended is never taken, and is named in
  * `ended`: for a found need, when passed over for the word its fit was
@@ -536,14 +542,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	};
 	const within = rarest.filter(({ count }) => count > 0);
 	if (within.length === 0) return lost();
-	const most = (address: string) =>
-		asked.words.filter((word) => holds(address, word)).length;
-	const best = (candidates: readonly string[]) =>
-		candidates.reduce<string | undefined>(
-			(chosen, one) =>
-				chosen === undefined || most(one) > most(chosen) ? one : chosen,
-			undefined,
-		);
 
 	const saying = new Set(said.words);
 	// A need naming one numbered id, leg 27, says nothing of another,
@@ -562,6 +560,18 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		);
 	const fitsOn = (address: string, word: string) =>
 		takes(address) && holds(address, word) && !holdsOtherNumber(address, word);
+	// How much of the need a cell works on, read as fitsOn reads a word,
+	// so a leg-26 cell never counts the leg of a need for leg-27.
+	const most = (address: string) =>
+		asked.words.filter(
+			(word) => holds(address, word) && !holdsOtherNumber(address, word),
+		).length;
+	const best = (candidates: readonly string[]) =>
+		candidates.reduce<string | undefined>(
+			(chosen, one) =>
+				chosen === undefined || most(one) > most(chosen) ? one : chosen,
+			undefined,
+		);
 	const finds: {
 		readonly word: string;
 		readonly path: string[];
@@ -603,16 +613,68 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		undefined,
 	);
 	if (found === undefined) return lost();
-	// An ended cell that worked on more of it than the fit found was the
-	// need's owner: sending it to a cell sharing less of it is a misroute.
+	// An ended cell within reach that worked on more of it than the fit
+	// found was the need's owner: sending it to a cell sharing less of it
+	// is a misroute. One out of reach is no more its owner than a live
+	// cell there would be its fit, so it counts the same as one.
 	const reached = most(found.fit);
-	const owners = reach.foragers
-		.map(({ address }) => address)
-		.filter((address) => ended(address) && most(address) > reached);
-	if (owners.length > 0) {
-		return { ...record([], null, new Set(owners)), fellShort: found.fit };
+	const around = inReach();
+	const owners = [...around.keys()].filter(
+		(address) => ended(address) && most(address) > reached,
+	);
+	if (owners.length === 0) {
+		return record(found.path, found.fit, passed.get(found.word) ?? new Set());
 	}
-	return record(found.path, found.fit, passed.get(found.word) ?? new Set());
+	// A live cell within reach working on as much of it as its owner did
+	// takes it, though the nearest find for each word shared less.
+	const owned = Math.max(...owners.map(most));
+	const fuller = best(
+		[...around.keys()].filter(
+			(address) =>
+				most(address) >= owned &&
+				asked.words.some((word) => fitsOn(address, word)),
+		),
+	);
+	const fullerPath = fuller === undefined ? undefined : around.get(fuller);
+	if (fuller !== undefined && fullerPath !== undefined) {
+		return record(fullerPath, fuller, new Set(owners));
+	}
+	return { ...record([], null, new Set(owners)), fellShort: found.fit };
+
+	/**
+	 * Every cell routing could reach, each with the path to it: along the
+	 * ties, strongest first, through live cells, at most `MOST_HOPS` away,
+	 * and the fits a live hub names for one of the need's words.
+	 */
+	function inReach(): Map<string, string[]> {
+		const paths = new Map<string, string[]>();
+		const parent = new Map<string, string>();
+		let frontier = [...selves];
+		for (let hop = 1; hop <= MOST_HOPS && frontier.length > 0; hop++) {
+			const next: string[] = [];
+			for (const cell of frontier) {
+				for (const { other } of reach.ties.get(cell) ?? []) {
+					if (selves.has(other) || parent.has(other)) continue;
+					parent.set(other, cell);
+					paths.set(other, chainTo(other, selves, parent));
+					if (through(other)) next.push(other);
+				}
+			}
+			frontier = next;
+		}
+		for (const { word } of rarest) {
+			for (const { hub } of hubsFor(word, saying, reach.hubs, asked.need)) {
+				if (!live(hub.hub)) continue;
+				for (const fit of hub.fits) {
+					const direct = hub.hub === fit || selves.has(hub.hub);
+					if (!paths.has(fit) && !selves.has(fit)) {
+						paths.set(fit, direct ? [fit] : [hub.hub, fit]);
+					}
+				}
+			}
+		}
+		return paths;
+	}
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the

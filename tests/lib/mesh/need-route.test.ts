@@ -451,7 +451,7 @@ describe("routing a need", () => {
 				B: ["delivery"],
 				C: ["delivery"],
 			}),
-			ties: ties(["A", "B", 1], ["A", "C", 1]),
+			ties: ties(["A", "B", 1], ["A", "C", 1], ["A", "J", 1]),
 			hubs: [{ subject: "delivery", hub: "B", fits: ["B"] }],
 			live: (address) => address !== "J",
 		});
@@ -464,6 +464,66 @@ describe("routing a need", () => {
 		});
 	});
 
+	// An ended record out of reach is no more the need's owner than a live
+	// cell there would be its fit, so its ending makes routing no stricter.
+	it("counts no ended cell out of reach as its owner", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "J, untied, is passed by").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	// Each word's walk stops at its nearest fit, which may share less of
+	// it than a live cell a hop further out.
+	it("goes to a live cell in reach working on as much as its ended owner did", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				C: ["dates"],
+				B: ["delivery"],
+				K: ["dates", "delivery"],
+			}),
+			ties: ties(["A", "C", 2], ["A", "B", 2], ["A", "J", 1], ["C", "K", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "K, past C, holds both").toMatchObject({
+			path: ["C", "K"],
+			fit: "K",
+			ended: ["J"],
+		});
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	// Among fits on as much of it, every hub's find comes before any
+	// walk's, whichever word is rarer.
+	it("takes a hub's fit for one word before a walk's for another as narrow", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({ A: [], B: ["delivery"], K: ["dates"] }),
+			ties: ties(["A", "K", 1]),
+			hubs: [{ subject: "delivery", hub: "B", fits: ["B"] }],
+		});
+
+		expect(found, "dates sorts first, yet B's hub wins").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+	});
+
 	it("names only the ended cells that worked on more of it than the fit", () => {
 		const found = routeNeed(asked("A", "dates", "delivery"), {
 			foragers: cells({
@@ -472,7 +532,7 @@ describe("routing a need", () => {
 				E: ["delivery"],
 				B: ["delivery"],
 			}),
-			ties: ties(["A", "E", 1], ["A", "B", 2]),
+			ties: ties(["A", "E", 1], ["A", "B", 2], ["A", "J", 1]),
 			hubs: [],
 			live: (address) => address !== "J" && address !== "E",
 		});

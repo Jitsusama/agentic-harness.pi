@@ -108,12 +108,22 @@ export async function needRead(
 	// On 24 November a need about "dates delivery" went by delivery alone,
 	// the dates cell having left the node, and its asker heard nothing of
 	// dates. Past MOST_WORDS a word some cell holds is dropped too, so
-	// then nothing is said of the rest.
+	// then nothing is said of the rest. A joined id, mesh-workflow, is
+	// held by none whose title says mesh workflow, yet its parts routed
+	// it, so it goes unsaid when they were all kept.
+	const partsKept = (word: string) =>
+		/[-_]/u.test(word) &&
+		word
+			.split(/[-_]/u)
+			.filter(Boolean)
+			.every((part) => found.words.includes(part));
 	const unasked =
 		fromText || words.length > MOST_WORDS
 			? ""
 			: unaskedText(
-					words.filter((word) => !found.words.includes(word)),
+					words.filter(
+						(word) => !found.words.includes(word) && !partsKept(word),
+					),
 					about,
 				);
 	if (found.fit === null && found.fellShort !== undefined) {
@@ -151,12 +161,14 @@ function unaskedText(unasked: readonly string[], about: string): string {
 
 /**
  * Why a need whose owner has ended is lost though a live cell was found:
- * the cells named in `ended` worked on more of it than `fit`.
+ * the cells named in `ended` worked on more of it than `fit`. Said as
+ * not present, since the node lists them with no presence here, which a
+ * link down to their machine leaves too.
  */
 function ownerText(found: NeedRecord, fit: string, about: string): string {
 	const owners = found.ended ?? [];
 	const one = owners.length === 1;
-	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "has" : "have"} ended, so it was not sent to a cell sharing less of it.`;
+	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "isn't" : "aren't"} present now, so it was not sent to a cell sharing less of it.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */
