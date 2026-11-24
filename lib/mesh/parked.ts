@@ -48,13 +48,17 @@ export function saysParked(presence: Pick<Presence, "state">): boolean {
  * Whether this message would give the parked peer a turn, were it
  * there. A pivot counts from anyone: who orchestrates it is read from
  * its quest, which a sender can't see, and waking one for a pivot that
- * proves not its orchestrator's costs one start.
+ * proves not its orchestrator's costs one start. It is judged at `now`,
+ * the message's own time unless said: a sender judges as it sends, and
+ * a message carried in late is judged at the clock, so a hold that
+ * lapsed on the way wakes nobody.
  */
 export function wakes(
 	message: Message,
 	parked: Presence,
 	read: Reader,
 	sender?: Pick<Presence, "orchestratedBy">,
+	now: number = Date.parse(message.at),
 ): boolean {
 	const listener = {
 		addresses: parked.addresses,
@@ -82,7 +86,7 @@ export function wakes(
 		answers: !(led && message.intent === "fyi") && answers(message, read, self),
 		asked: answersQuestion(message, read, self),
 		askedEach: asksEach(message, listener),
-		now: Date.parse(message.at),
+		now,
 	});
 	// What it leads acts on once the mesh settles: a turn all the same.
 	return heed.attention === "turn" || (led && heed.attention === "act");
@@ -168,7 +172,9 @@ export async function wakeSteered(
 
 /**
  * Ask the holder of every parked peer this message would give a turn to
- * wake it; answers the sessions asked for.
+ * wake it; answers the sessions asked for. `judged` says when and what
+ * else decides: the time it is judged at, and a last check run only for
+ * a peer the message would wake, since it may cost a read.
  */
 export function wakeParked(
 	message: Message,
@@ -176,12 +182,17 @@ export function wakeParked(
 	read: Reader,
 	isParked: (session: string) => boolean,
 	askWake: (session: string, messageId: string) => void,
+	judged: {
+		now?: number;
+		still?: (one: Presence) => boolean;
+	} = {},
 ): string[] {
 	const woken: string[] = [];
 	const sender = everyone.find((one) => one.addresses.includes(message.from));
 	for (const one of everyone) {
 		if (!saysParked(one) || !isParked(one.session)) continue;
-		if (!wakes(message, one, read, sender)) continue;
+		if (!wakes(message, one, read, sender, judged.now)) continue;
+		if (judged.still && !judged.still(one)) continue;
 		try {
 			askWake(one.session, message.id);
 			woken.push(one.session);
@@ -190,6 +201,44 @@ export function wakeParked(
 		}
 	}
 	return woken;
+}
+
+/**
+ * Wake, as its sender would, every parked peer a message carried in from
+ * another machine gives a turn; answers the sessions asked for.
+ *
+ * Only a sender wakes a parked peer, and only through its own machine's
+ * markers, so a message a node carries in from another machine woke
+ * nobody: on 23 Nov 2026 a question from optimus sat ten minutes in a
+ * parked Mac session's folder, and its holder started it within 8 s once
+ * its wake file was written. So a running peer that sees a message land
+ * whose sender is on another machine, or isn't known here (a presence
+ * the node hasn't carried yet), wakes for it. One sent from this machine
+ * is left to its sender, who woke for it already. A peer whose read
+ * marker is at or past the message is passed over, so a message a
+ * session read before it parked never starts it again; a marker is read
+ * only for a parked peer the message would wake, since each costs a
+ * read on the thread. It is judged at the clock, not the message's
+ * time, since a carried message can land long after it was sent.
+ */
+export function wakeForCarriedIn(
+	message: Message,
+	everyone: readonly Presence[],
+	read: Reader,
+	isParked: (session: string) => boolean,
+	askWake: (session: string, messageId: string) => void,
+	handed: (addresses: readonly string[]) => string | undefined,
+): string[] {
+	const sender = everyone.find((one) => one.addresses.includes(message.from));
+	if (sender !== undefined && sender.machine === undefined) return [];
+	const unhanded = (one: Presence) => {
+		const last = handed(one.addresses);
+		return last === undefined || last < message.id;
+	};
+	return wakeParked(message, everyone, read, isParked, askWake, {
+		now: Date.now(),
+		still: unhanded,
+	});
 }
 
 /** A steer file's ending once it is whole in its inbox. */
