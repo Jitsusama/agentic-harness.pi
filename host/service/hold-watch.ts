@@ -274,15 +274,18 @@ interface Watched {
 /**
  * The thread's whole program. It is source rather than a file beside
  * this one, as web/article.ts's is, so it runs the same whether this
- * module was loaded as TypeScript or as JavaScript. Every read is its
- * own thread's to wait on, never the loop's.
+ * module was loaded as TypeScript or as JavaScript. It takes node's
+ * modules through `process.getBuiltinModule`, which either module type
+ * has: a thread takes its process's flags, so under a host started with
+ * `--input-type=module` a `require` here threw and no hold was watched.
+ * Every read is its own thread's to wait on, never the loop's.
  */
 const PROGRAM = `
-const { workerData } = require("node:worker_threads");
-const { spawn } = require("node:child_process");
-const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
-const { mkdir, readdir, rm, writeFile } = require("node:fs/promises");
-const { join } = require("node:path");
+const { workerData } = process.getBuiltinModule("node:worker_threads");
+const { spawn } = process.getBuiltinModule("node:child_process");
+const { openSync, readFileSync, readSync, readlinkSync, writeSync } = process.getBuiltinModule("node:fs");
+const { mkdir, readdir, rm, writeFile } = process.getBuiltinModule("node:fs/promises");
+const { join } = process.getBuiltinModule("node:path");
 const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat, profile } = workerData;
 const count = new Int32Array(ticks);
 const task = proc + "/task/" + pid;
@@ -593,7 +596,7 @@ const profileFor = (held, into) => {
 		});
 	(async () => {
 		try {
-			const { Session } = require("node:inspector");
+			const { Session } = process.getBuiltinModule("node:inspector");
 			session = new Session();
 			session.connectToMainThread();
 			await post("Profiler.enable");
