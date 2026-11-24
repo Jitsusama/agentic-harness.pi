@@ -550,11 +550,15 @@ describe("parking while the host drains", () => {
 
 	it("wakes one held for a steer once the restart passes its ceiling", async () => {
 		const { asking, asked } = timedWake();
-		const { parked, letStop } = held(asking, () => true);
+		// Asked only as a wake or a steer lands, so it says the steer was
+		// seen: a quiet spell alone let a slow watch see it after the ceiling.
+		const holding = vi.fn((_sessionId: string) => true);
+		const { parked, letStop } = held(asking, () => true, holding);
 		const parking = parked.park("a");
 		letStop();
 		await parking;
 		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
+		await until("the steer to be held", () => holding.mock.calls.length > 0);
 		await quietFor(STEER_WAKES_WITHIN_MS, 3);
 		expect(asked, "held before the ceiling").toEqual([]);
 
