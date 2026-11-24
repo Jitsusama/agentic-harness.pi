@@ -26,8 +26,8 @@ export function endingOf(text: string): "done" | "blocked" | undefined {
 	const last = lastLineOf(text);
 	if (!last) return undefined;
 	const bare = last.replace(DRESSING, "");
-	if (/^done:/i.test(bare)) return "done";
-	if (/^blocked:/i.test(bare)) return "blocked";
+	if (/^done(?:\*\*|__)?:/i.test(bare)) return "done";
+	if (/^blocked(?:\*\*|__)?:/i.test(bare)) return "blocked";
 	return undefined;
 }
 
@@ -35,7 +35,10 @@ export function endingOf(text: string): "done" | "blocked" | undefined {
 export function blockedLine(text: string): string | undefined {
 	if (endingOf(text) !== "blocked") return undefined;
 	return lastLineOf(text)
-		.replace(/^(?:[-*>]\s+)*(?:\*\*|__)?blocked:(?:\*\*|__)?\s*/i, "")
+		.replace(
+			/^(?:[-*>]\s+)*(?:\*\*|__)?blocked(?:\*\*|__)?:(?:\*\*|__)?\s*/i,
+			"",
+		)
 		.replace(/(?:\*\*|__)$/, "")
 		.trim();
 }

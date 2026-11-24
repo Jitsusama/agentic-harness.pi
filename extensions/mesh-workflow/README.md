@@ -491,8 +491,10 @@ and its groups.
   run's `Blocked:` line names: on 2026-11-23 a session blocked
   on another's promised sha sat idle for hours, since the sha
   came as an fyi with no thread. Each run that ends blocked is
-  woken so once, under the hourly cap on one sender's news, and
-  an orchestrator's pivot acks stay notes. A
+  woken so once, under the hourly cap on one sender's news, which
+  slows two cells blocked on each other to ten wakes an hour each
+  way without ending their exchange, and an orchestrator's pivot
+  acks stay notes. A
   busy peer has it steered into the run under way, read after the
   current tool, since a note waits for the model's current call
   to end, and when that call was the run's last, it waited for
