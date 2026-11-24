@@ -451,7 +451,7 @@ export function registerTools(
 			folder: Type.Optional(
 				Type.String({
 					description:
-						"The repository's folder it works in; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
+						"The folder it works in: a repository's, or one within it such as a World zone's, which it starts in as named; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
 				}),
 			),
 			machine: Type.Optional(
