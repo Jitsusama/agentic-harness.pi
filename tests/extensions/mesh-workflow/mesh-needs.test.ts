@@ -661,7 +661,9 @@ describe("a lost need's refusal", () => {
 	// Each refusal is checked against these words once, so the five above
 	// stay true to a rewording and can't pass on an empty sentence.
 	it("says to ask by a question, and to find the owner where nothing is above", () => {
-		expect(ASK_WHO_OWNS_IT).toMatch(/ask the cell above .* a question to orchestrator/);
+		expect(ASK_WHO_OWNS_IT).toMatch(
+			/ask the cell above .* a question to orchestrator/,
+		);
 		expect(FIND_WHO_OWNS_IT).toMatch(/find the owner in mesh_groups/);
 		expect(FIND_WHO_OWNS_IT).toMatch(/ask it by address/);
 	});
