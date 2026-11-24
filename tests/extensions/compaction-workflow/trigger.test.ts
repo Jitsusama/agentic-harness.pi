@@ -455,9 +455,10 @@ describe("the compaction trigger", () => {
 			expect(await turnsToNextTry(10), "after the third failure").toBe(5);
 			expect(await turnsToNextTry(20), "after the fourth failure").toBe(9);
 			expect(await turnsToNextTry(40), "after the fifth failure").toBe(17);
-			// Never more than 32 firing turns between tries (5BACCAC3's F84 on
-			// #2082), so one that keeps failing is still tried now and then.
 			expect(await turnsToNextTry(40), "after the sixth failure").toBe(33);
+			// Doubling would wait 64 now: never more than 32 firing turns pass
+			// between tries, so the try comes on the 33rd (5BACCAC3's F84 on
+			// #2082), and one that keeps failing is still tried now and then.
 			expect(await turnsToNextTry(40), "after the seventh, at the cap").toBe(
 				33,
 			);

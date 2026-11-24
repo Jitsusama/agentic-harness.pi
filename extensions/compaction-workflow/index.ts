@@ -34,9 +34,11 @@
  * is idle, the compaction applies it, which takes no time. One that
  * failed is written ahead once more, at half the size if it stopped at
  * its cap; past two failures, each next try ahead waits twice as many
- * firing turns as the last. Only when it cannot be written from the
- * cache does the session compact on the spot, and the notice says why;
- * pi's own trigger at the window's edge still compacts on the spot.
+ * firing turns as the last. The trigger compacts on the spot only when
+ * it cannot be written from the cache, and the notice says why. A
+ * compaction writes on the spot, too, when the summary written ahead
+ * can't become it (`applicable` in `host.ts` says when), and pi's own
+ * trigger at the window's edge still compacts on the spot.
  *
  * Idle: an idle session's cache expires after its lifetime, and the
  * first turn back then writes the whole context at the write price.
