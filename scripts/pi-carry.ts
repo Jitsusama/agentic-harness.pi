@@ -173,7 +173,9 @@ if (
 	);
 }
 
-const exec = spawnExec();
+// git says why in English whatever this machine's language, since what
+// it says is matched, as an arrival reads a branch origin lacks.
+const exec = spawnExec({ env: { LC_ALL: "C" } });
 const home = homedir();
 const workspaces = questWorkspacesRoot();
 

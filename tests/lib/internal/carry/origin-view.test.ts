@@ -207,7 +207,8 @@ describe("holding a tree's origin branches to origin", () => {
 	it("asks origin for its branches alone, never its tags or pull refs", async () => {
 		const { origin, path } = await movedOn(["main"]);
 		await git(origin, "update-ref", "refs/pull/1/head", "main");
-		await git(origin, "tag", "v1", "main");
+		// A ref, not `git tag`, which a machine set to sign tags would sign.
+		await git(origin, "update-ref", "refs/tags/v1", "main");
 		const trace = join(folder(made, "trace"), "packets");
 		const traced = spawnExec({ env: { GIT_TRACE_PACKET: trace } });
 

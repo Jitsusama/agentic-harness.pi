@@ -42,7 +42,7 @@ export function fakeClock(at: (now: number) => void = () => {}): Clock {
 }
 
 /**
- * An exec that keeps each git fetch's arguments and the seconds it was
+ * An exec that keeps each git fetch's or clone's arguments and the seconds it was
  * bounded to, read from the clock its call was given just before it, or
  * none where it had none. The clock is read through a spy on
  * `AbortSignal.timeout`, which a test's `vi.restoreAllMocks` ends.
@@ -59,7 +59,10 @@ export function boundedFetches(): {
 	});
 	const fetches: { args: string[]; seconds?: number }[] = [];
 	const through: Exec = (command, args) => {
-		if (command === "git" && args.includes("fetch")) {
+		if (
+			command === "git" &&
+			(args.includes("fetch") || args.includes("clone"))
+		) {
 			fetches.push(bound === undefined ? { args } : { args, seconds: bound });
 		}
 		bound = undefined;
