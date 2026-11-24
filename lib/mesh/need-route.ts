@@ -12,10 +12,14 @@
  * among those as good, a hub's before a walk's and then the rarest
  * word's. Nothing falls back to a leader: a need nothing can take is
  * counted lost, so the measure sees it, and its asker is told to name
- * the peers it is for. Nor does it go to a cell sharing less of it than
- * an ended cell within reach did, unless a live cell within reach works
- * on as much: that cell owned it, so the need is lost and its asker told
- * who ended and who fell short.
+ * the peers it is for. Nor does it go to a cell sharing less of what
+ * the asker lacks than an ended cell within reach did: that ended cell
+ * owned it. A live cell within reach working on as much takes it
+ * instead; with none, the need is lost and its asker told who ended and
+ * who fell short. An ended cell is within reach only through a tie at
+ * least as strong as one message `OWNER_TIE_AGE_MS` old, so a record
+ * the node keeps after its session crashed stops owning needs once its
+ * ties fade.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -42,9 +46,10 @@
  * words that route it rarest first, so a cell declaring many can't
  * crowd out its rarer words, nor its asker's own. A cell declaring many
  * broad words still wins a need sharing more of them than a nearer cell
- * holding its rarest, the price of going by coverage. That routes a message and grants
- * nothing: a need finds who works on something, and a yes, a ruling or
- * a grant still comes only from the owner named by address.
+ * holding its rarest, the price of going by coverage. That routes a
+ * message and grants nothing: a need finds who works on something, and
+ * a yes, a ruling or a grant still comes only from the owner named by
+ * address.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -147,6 +152,18 @@ export interface Reach {
 
 /** The most ties a need passes along before it counts as lost. */
 export const MOST_HOPS = 3;
+
+/**
+ * The age of the one message an ended cell's faintest tie is held to
+ * before the cell can own a need: six hours, the age a tie may reach and
+ * still make a hub (hub-from-use.ts). A tie never fades to nothing, so
+ * without it a cell that crashed a week ago would own its words for as
+ * long as the node kept its record.
+ */
+export const OWNER_TIE_AGE_MS = 6 * 60 * 60 * 1000;
+
+/** The faded strength of one message `OWNER_TIE_AGE_MS` old. */
+export const OWNER_TIE_FLOOR = 2 ** -(OWNER_TIE_AGE_MS / TIE_HALF_LIFE_MS);
 
 /** The most words a need is routed and kept by. */
 export const MOST_WORDS = 12;
@@ -433,16 +450,19 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  * "checks" or "gate" sharing no other word.
  *
  * Lost, with no path, when none is within `MOST_HOPS`, or when a cell
- * within reach that has ended worked on more of it than the fit found,
- * which is then named in `fellShort`: that cell owned it, and the fit
- * shares less. Within reach is where a live fit could be: at most
- * `MOST_HOPS` along ties, or named by a live hub for one of its words.
- * A live cell within reach working on as much as the owner did takes it
- * instead, though each word's nearest find shared less. Only a cell the
- * node still lists counts, and the node drops a cell whose session ended
- * cleanly, so an owner gone that way is never seen; one whose record
- * lingers is, for as long as it does. Coverage is counted as a fit is
- * found, so a leg-26 cell never counts the leg of a need for leg-27.
+ * within reach that has ended worked on more of what the asker lacks
+ * than the fit found: that cell owned it, and the fit shares less. The
+ * live cell within reach working on most of it is then named in
+ * `fellShort`. Within reach is where a live fit could be: at most
+ * `MOST_HOPS` along ties, the last onto an ended cell no fainter than
+ * `OWNER_TIE_FLOOR`, or named by a live hub routing would consult for
+ * one of its words. A live cell within reach working on as much as the
+ * owner did takes it instead, though each word's nearest find shared
+ * less; of several, the nearest along ties, then a hub's. Only a cell
+ * the node still lists counts, and the node drops a cell whose session
+ * ended cleanly, so an owner gone that way is never seen. Coverage is
+ * counted as a fit is found, so a leg-26 cell never counts the leg of a
+ * need for leg-27.
  *
  * A cell that works on it but has ended is never taken, and is named in
  * `ended`: for a found need, when passed over for the word its fit was
@@ -542,6 +562,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	};
 	const within = rarest.filter(({ count }) => count > 0);
 	if (within.length === 0) return lost();
+	const lacking = rarest.map(({ word }) => word);
 
 	const saying = new Set(said.words);
 	// A need naming one numbered id, leg 27, says nothing of another,
@@ -566,10 +587,20 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		asked.words.filter(
 			(word) => holds(address, word) && !holdsOtherNumber(address, word),
 		).length;
-	const best = (candidates: readonly string[]) =>
+	// How much of what the asker lacks a cell works on: the words its
+	// owner is judged by, since a word the asker holds routes nowhere and
+	// an ended sibling holding it owns nothing the live fit can't take.
+	const needed = (address: string) =>
+		lacking.filter(
+			(word) => holds(address, word) && !holdsOtherNumber(address, word),
+		).length;
+	const best = (
+		candidates: readonly string[],
+		by: (address: string) => number = most,
+	) =>
 		candidates.reduce<string | undefined>(
 			(chosen, one) =>
-				chosen === undefined || most(one) > most(chosen) ? one : chosen,
+				chosen === undefined || by(one) > by(chosen) ? one : chosen,
 			undefined,
 		);
 	const finds: {
@@ -617,34 +648,40 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	// found was the need's owner: sending it to a cell sharing less of it
 	// is a misroute. One out of reach is no more its owner than a live
 	// cell there would be its fit, so it counts the same as one.
-	const reached = most(found.fit);
+	const reached = needed(found.fit);
 	const around = inReach();
 	const owners = [...around.keys()].filter(
-		(address) => ended(address) && most(address) > reached,
+		(address) => ended(address) && needed(address) > reached,
 	);
 	if (owners.length === 0) {
 		return record(found.path, found.fit, passed.get(found.word) ?? new Set());
 	}
 	// A live cell within reach working on as much of it as its owner did
 	// takes it, though the nearest find for each word shared less.
-	const owned = Math.max(...owners.map(most));
+	const owned = Math.max(...owners.map(needed));
+	const takers = [...around.keys()].filter((address) =>
+		lacking.some((word) => fitsOn(address, word)),
+	);
 	const fuller = best(
-		[...around.keys()].filter(
-			(address) =>
-				most(address) >= owned &&
-				asked.words.some((word) => fitsOn(address, word)),
-		),
+		takers.filter((address) => needed(address) >= owned),
+		needed,
 	);
 	const fullerPath = fuller === undefined ? undefined : around.get(fuller);
 	if (fuller !== undefined && fullerPath !== undefined) {
 		return record(fullerPath, fuller, new Set(owners));
 	}
-	return { ...record([], null, new Set(owners)), fellShort: found.fit };
+	// The asker's best lead: the live cell in reach on most of it, the
+	// fit found unless one shares more.
+	const short = best([found.fit, ...takers], needed) ?? found.fit;
+	return { ...record([], null, new Set(owners)), fellShort: short };
 
 	/**
 	 * Every cell routing could reach, each with the path to it: along the
 	 * ties, strongest first, through live cells, at most `MOST_HOPS` away,
-	 * and the fits a live hub names for one of the need's words.
+	 * an ended cell only by a tie no fainter than `OWNER_TIE_FLOOR`; then
+	 * the fits a live hub names for one of the words the asker lacks, of
+	 * the hubs routing would consult: the narrowest rank, and broader ones
+	 * only while none names a live fit.
 	 */
 	function inReach(): Map<string, string[]> {
 		const paths = new Map<string, string[]>();
@@ -653,8 +690,10 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		for (let hop = 1; hop <= MOST_HOPS && frontier.length > 0; hop++) {
 			const next: string[] = [];
 			for (const cell of frontier) {
-				for (const { other } of reach.ties.get(cell) ?? []) {
+				for (const { other, strength } of reach.ties.get(cell) ?? []) {
 					if (selves.has(other) || parent.has(other)) continue;
+					// Held to reach the floor, so a strength that is no number fails.
+					if (ended(other) && !(strength >= OWNER_TIE_FLOOR)) continue;
 					parent.set(other, cell);
 					paths.set(other, chainTo(other, selves, parent));
 					if (through(other)) next.push(other);
@@ -662,8 +701,11 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			}
 			frontier = next;
 		}
-		for (const { word } of rarest) {
-			for (const { hub } of hubsFor(word, saying, reach.hubs, asked.need)) {
+		for (const word of lacking) {
+			let consulted: RankedHub | undefined;
+			for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
+				if (consulted !== undefined && !rankSame(consulted, ranked)) break;
+				const { hub } = ranked;
 				if (!live(hub.hub)) continue;
 				for (const fit of hub.fits) {
 					const direct = hub.hub === fit || selves.has(hub.hub);
@@ -671,6 +713,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 						paths.set(fit, direct ? [fit] : [hub.hub, fit]);
 					}
 				}
+				if (hub.fits.some((fit) => fitsOn(fit, word))) consulted ??= ranked;
 			}
 		}
 		return paths;
@@ -802,8 +845,10 @@ function hubsFor(
  * leg-26. An id with a part all digits is said only whole or inside
  * another, since its number said apart may belong to anything, so
  * neither `leg 27` nor `leg 27 in 100 runs` says leg-26 or leg-100.
+ * The need tool reads an about's words by it too, so it never tells an
+ * asker that no cell works on a word routing took as said.
  */
-function saysWord(word: string, saying: ReadonlySet<string>): boolean {
+export function saysWord(word: string, saying: ReadonlySet<string>): boolean {
 	if (saying.has(word)) return true;
 	if (!isJoined(word)) return false;
 	if (saidInside(word, saying)) return true;

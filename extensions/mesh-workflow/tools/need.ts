@@ -25,6 +25,7 @@ import {
 	MOST_WORDS,
 	type NeedRecord,
 	needId,
+	saysWord,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -108,22 +109,18 @@ export async function needRead(
 	// On 24 November a need about "dates delivery" went by delivery alone,
 	// the dates cell having left the node, and its asker heard nothing of
 	// dates. Past MOST_WORDS a word some cell holds is dropped too, so
-	// then nothing is said of the rest. A joined id, mesh-workflow, is
-	// held by none whose title says mesh workflow, yet its parts routed
-	// it, so it goes unsaid when they were all kept.
-	const partsKept = (word: string) =>
-		/[-_]/u.test(word) &&
-		word
-			.split(/[-_]/u)
-			.filter(Boolean)
-			.every((part) => found.words.includes(part));
+	// then nothing is said of the rest, nor of a text's words, which may
+	// hold a token. A joined id, mesh-workflow or pi-host, is held by
+	// none whose title says mesh workflow or pi host, yet its parts
+	// routed it, so it goes unsaid when the words kept say it as routing
+	// reads them: every part long and rare enough to be a word, and a
+	// numbered id, leg-27, only whole.
+	const kept = new Set(found.words);
 	const unasked =
 		fromText || words.length > MOST_WORDS
 			? ""
 			: unaskedText(
-					words.filter(
-						(word) => !found.words.includes(word) && !partsKept(word),
-					),
+					words.filter((word) => !saysWord(word, kept)),
 					about,
 				);
 	if (found.fit === null && found.fellShort !== undefined) {
@@ -168,7 +165,7 @@ function unaskedText(unasked: readonly string[], about: string): string {
 function ownerText(found: NeedRecord, fit: string, about: string): string {
 	const owners = found.ended ?? [];
 	const one = owners.length === 1;
-	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "isn't" : "aren't"} present now, so it was not sent to a cell sharing less of it.`;
+	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "isn't" : "aren't"} present now, so it was not sent to a cell sharing less of it. Sending it again once ${one ? "it is" : "one is"} present reaches ${one ? "it" : "that cell"}.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */

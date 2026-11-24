@@ -583,7 +583,7 @@ describe("routing a need", () => {
 		});
 	});
 
-	it("goes by a word as narrow as the ended owner's when a cell there holds it", () => {
+	it("goes by a word as narrow as one only an ended cell held, when a cell there holds it", () => {
 		const found = routeNeed(asked("A", "dates", "slots"), {
 			foragers: cells({ A: [], J: ["dates"], S: ["slots"] }),
 			ties: ties(["A", "S", 1]),
