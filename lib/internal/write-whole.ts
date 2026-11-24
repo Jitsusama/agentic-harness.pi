@@ -137,18 +137,36 @@ function writeAll(fd: number, piece: string | Uint8Array): void {
 	}
 }
 
-/** Replace `file` whole with `content` as `writeWhole` does, off the thread. */
+/** How a file is written whole off the thread. */
+export interface WriteWholeOffOptions extends WriteWholeOptions {
+	/**
+	 * Once it aborts, the staged content is dropped rather than renamed
+	 * into place: what wanted the file may no longer own it.
+	 */
+	readonly signal?: AbortSignal;
+}
+
+/**
+ * Replace `file` whole with `content` as `writeWhole` does, off the
+ * thread; whether it was renamed into place, which only a `signal`
+ * that aborted first stops.
+ */
 export async function writeWholeOff(
 	file: string,
 	content: string | Uint8Array,
-	options: WriteWholeOptions = {},
-): Promise<void> {
+	options: WriteWholeOffOptions = {},
+): Promise<boolean> {
 	const { writing, staged } = stagedFor(file);
 	await mkdirOff(writing, { recursive: true });
 	try {
 		if (options.durable) await writeDurablyOff(staged, content, options.mode);
 		else await writeFileOff(staged, content, { mode: options.mode });
+		if (options.signal?.aborted) {
+			await rmOff(staged, { force: true });
+			return false;
+		}
 		await renameOff(staged, file);
+		return true;
 	} catch (error) {
 		try {
 			await rmOff(staged, { force: true });

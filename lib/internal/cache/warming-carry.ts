@@ -22,15 +22,21 @@ import {
 	rmSync,
 	statSync,
 } from "node:fs";
-import { mkdir as mkdirOff } from "node:fs/promises";
+import {
+	appendFile as appendFileOff,
+	mkdir as mkdirOff,
+	readFile as readFileOff,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { gunzipSync, gzip, gzipSync } from "node:zlib";
+import { gunzip, gunzipSync, gzip, gzipSync } from "node:zlib";
+import { isGone } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { writeWhole, writeWholeOff } from "../write-whole.ts";
 
 const gzipOff = promisify(gzip);
+const gunzipOff = promisify(gunzip);
 
 /** What a session's warming carries while no pi runs it. */
 export interface WarmingCarry {
@@ -88,18 +94,22 @@ export function writeWarmingCarry(dir: string, carry: WarmingCarry): void {
 /**
  * Write a session's carry as `writeWarmingCarry` does, off the thread:
  * a host shuts down every conversation it parks, many at once as it
- * restarts, and their compressing and writing held its loop.
+ * restarts, and their compressing and writing held its loop. Once
+ * `signal` aborts the carry is no longer the writer's, so it isn't put
+ * in place; whether it was.
  */
 export async function writeWarmingCarryOff(
 	dir: string,
 	carry: WarmingCarry,
-): Promise<void> {
+	signal?: AbortSignal,
+): Promise<boolean> {
 	await mkdirOff(dir, { recursive: true, mode: OWNER_ONLY_DIR });
-	await writeWholeOff(
-		carryFile(dir, carry.sessionId),
-		await gzipOff(JSON.stringify(carry)),
-		{ mode: OWNER_ONLY },
-	);
+	const packed = await gzipOff(JSON.stringify(carry));
+	if (signal?.aborted) return false;
+	return await writeWholeOff(carryFile(dir, carry.sessionId), packed, {
+		mode: OWNER_ONLY,
+		signal,
+	});
 }
 
 /** A session's carry, left where it is, or nothing when none reads as one. */
@@ -115,12 +125,44 @@ export function readWarmingCarry(
 		return null;
 	}
 	try {
-		const carry: unknown = JSON.parse(gunzipSync(raw).toString("utf8"));
-		return isCarry(carry) && carry.sessionId === sessionId ? carry : null;
+		return carryFrom(gunzipSync(raw), sessionId);
 	} catch {
 		// A file that will not read is one nobody can use.
 		return null;
 	}
+}
+
+/**
+ * A session's carry as `readWarmingCarry` reads it, off the thread: a
+ * host reads each parked conversation's whole last request before each
+ * warm, and reading and unpacking it there held its loop for seconds
+ * while the disk was slow. A file that couldn't be read, rather than
+ * none there, rejects, so the host can say so.
+ */
+export async function readWarmingCarryOff(
+	dir: string,
+	sessionId: string,
+): Promise<WarmingCarry | null> {
+	let raw: Buffer;
+	try {
+		raw = await readFileOff(carryFile(dir, sessionId));
+	} catch (error) {
+		// No file is the usual case: nothing was kept for this session.
+		if (isGone(error)) return null;
+		throw error;
+	}
+	try {
+		return carryFrom(await gunzipOff(raw), sessionId);
+	} catch {
+		// A file that will not read is one nobody can use.
+		return null;
+	}
+}
+
+/** The carry an unpacked file holds for `sessionId`, or nothing; throws on one that won't parse. */
+function carryFrom(unpacked: Buffer, sessionId: string): WarmingCarry | null {
+	const carry: unknown = JSON.parse(unpacked.toString("utf8"));
+	return isCarry(carry) && carry.sessionId === sessionId ? carry : null;
 }
 
 /** A session's carry taken back, its file removed, or nothing. */
@@ -143,6 +185,20 @@ export function addPendingWarm(
 	appendFileSync(pendingFile(dir, sessionId), `${JSON.stringify(record)}\n`, {
 		mode: OWNER_ONLY,
 	});
+}
+
+/** Keep a warm as `addPendingWarm` does, off the thread, as a host does. */
+export async function addPendingWarmOff(
+	dir: string,
+	sessionId: string,
+	record: Readonly<Record<string, unknown>>,
+): Promise<void> {
+	await mkdirOff(dir, { recursive: true, mode: OWNER_ONLY_DIR });
+	await appendFileOff(
+		pendingFile(dir, sessionId),
+		`${JSON.stringify(record)}\n`,
+		{ mode: OWNER_ONLY },
+	);
 }
 
 /** The warms kept for a session while it was parked, taken once. */

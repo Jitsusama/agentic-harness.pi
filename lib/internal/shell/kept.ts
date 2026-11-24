@@ -61,6 +61,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	truncate,
 	writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -207,6 +208,32 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 			mode: FILE_MODE,
 		});
 		truncateSync(out, 0);
+	} catch {
+		// Removed under it, as its call ended: nothing left to keep short.
+	}
+}
+
+/**
+ * `rollIfFull`, off the thread, as a host rolls a parked conversation's
+ * calls. A conversation woken takes the roll on in the same process, so
+ * each step that changes a file asks `owns` first, and output already
+ * rolled under it is left alone: its `.old` is the newer tail.
+ */
+export async function rollIfFullOff(
+	path: string,
+	cap: number = KEPT_BYTES,
+	owns: () => boolean = () => true,
+): Promise<void> {
+	const out = `${path}.out`;
+	try {
+		if ((await stat(out)).size <= cap) return;
+		const bytes = await readFile(out);
+		if (bytes.length <= cap || !owns()) return;
+		await writeFile(`${path}.old`, bytes.subarray(bytes.length - cap), {
+			mode: FILE_MODE,
+		});
+		if (!owns()) return;
+		await truncate(out, 0);
 	} catch {
 		// Removed under it, as its call ended: nothing left to keep short.
 	}

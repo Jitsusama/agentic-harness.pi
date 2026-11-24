@@ -12,8 +12,9 @@
  */
 
 import { readFileSync, rmSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
 import { isRecord } from "../record.ts";
-import { writeWhole } from "../write-whole.ts";
+import { writeWhole, writeWholeOff } from "../write-whole.ts";
 
 /** What asked for a wake, why its host refused it, and when. */
 export interface RefusedWake {
@@ -32,9 +33,47 @@ export function refusedWakePath(wake: string): string {
 	return `${wake}.refused`;
 }
 
+/** A refusal as its file holds it. */
+const said = (refused: RefusedWake) => `${JSON.stringify(refused)}\n`;
+
 /** Keep why the wake through `wake` was refused, replacing any before it. */
 export function writeRefusedWake(wake: string, refused: RefusedWake): void {
-	writeWhole(refusedWakePath(wake), `${JSON.stringify(refused)}\n`);
+	writeWhole(refusedWakePath(wake), said(refused));
+}
+
+/**
+ * Keep a refusal as `writeRefusedWake` does, off the thread, as a host
+ * does: its rename held a host's loop 5 s while the disk was slow. Once
+ * `signal` aborts the refusal is no longer true, so it isn't put in
+ * place; whether it was.
+ */
+export async function writeRefusedWakeOff(
+	wake: string,
+	refused: RefusedWake,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	return await writeWholeOff(refusedWakePath(wake), said(refused), {
+		signal,
+	});
+}
+
+/**
+ * Take back the refusal `refused` off the thread, leaving one written
+ * since in its place, which says something still true.
+ */
+export async function takeBackRefusedWakeOff(
+	wake: string,
+	refused: RefusedWake,
+): Promise<void> {
+	const file = refusedWakePath(wake);
+	let kept: string;
+	try {
+		kept = await readFile(file, "utf8");
+	} catch {
+		// None kept is the end it was taken back for.
+		return;
+	}
+	if (kept === said(refused)) await rm(file, { force: true });
 }
 
 /** The refusal kept for the wake through `wake`, or nothing. */

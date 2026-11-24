@@ -40,11 +40,13 @@ afterEach(async () => {
 
 /**
  * Parking whose stop waits until let go, and whose wake is `asking`;
- * `a` answers to ADDRESS, with its steer inboxes under `steers`.
+ * `a` answers to ADDRESS, with its steer inboxes under `steers`, and a
+ * refusal is kept through `keepRefusal` where given.
  */
 function held(
 	asking: (sessionId: string) => Promise<void>,
 	holding?: () => boolean,
+	keepRefusal?: () => Promise<boolean>,
 ) {
 	let stopped: (() => void) | undefined;
 	const stop = vi.fn(
@@ -64,6 +66,7 @@ function held(
 			addressesOf: (sessionId) => (sessionId === "a" ? [ADDRESS] : []),
 		},
 		...(holding ? { holding } : {}),
+		...(keepRefusal ? { keepRefusal } : {}),
 	});
 	return { parked, stop, report, letStop: () => stopped?.() };
 }
@@ -394,6 +397,40 @@ describe("parking a conversation", () => {
 			messageId: `steer-${file}`,
 			reason: "the host is stopping",
 		});
+		parked.closed("a", true);
+	});
+
+	// A refusal waits on the disk, and a steer landing meanwhile is a wake
+	// of its own, not the one already answered.
+	it("asks the wake of a steer landing while an earlier steer's refusal is kept", async () => {
+		const asking = vi.fn(() =>
+			Promise.reject(new Error("the host is stopping")),
+		);
+		let keep: (() => void) | undefined;
+		const keepRefusal = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					keep = () => resolve(true);
+				}),
+		);
+		const { parked, letStop } = held(asking, undefined, keepRefusal);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+
+		giveSteer(steers(), ADDRESS, { text: "one", from: "joel" });
+		await until(
+			"the first steer's refusal to be kept",
+			() => keepRefusal.mock.calls.length > 0,
+		);
+		giveSteer(steers(), ADDRESS, { text: "two", from: "joel" });
+		await until(
+			"the second steer to ask its own wake",
+			() => asking.mock.calls.length > 1,
+			KEPT_WITHIN_MS,
+		);
+
+		keep?.();
 		parked.closed("a", true);
 	});
 

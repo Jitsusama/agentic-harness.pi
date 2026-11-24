@@ -25,9 +25,14 @@
  * `CALLS_WATCHED_MS`, counts as ended. The conversation takes it up as
  * it resumes and says its end, stops it at its limit, or holds it awake
  * as before. The record goes once the conversation runs again.
+ *
+ * Each look reads, rolls and writes off the host's thread: on 23
+ * November its sync opens of a call's `.end` held the background host's
+ * loop 5 s at a time while the disk waited on its own commits.
  */
 
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	alive,
@@ -38,7 +43,7 @@ import {
 	stopCarried,
 	withinWatch,
 } from "../../lib/internal/shell/carried.ts";
-import { endOf, rollIfFull } from "../../lib/internal/shell/kept.ts";
+import { endRead, rollIfFullOff } from "../../lib/internal/shell/kept.ts";
 import { reap } from "../../lib/internal/shell/reap.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { isJobsCarried, JOBS_CARRIED } from "../../lib/jobs/host.ts";
@@ -71,14 +76,15 @@ export { CALLS_WATCHED_MS };
 
 /**
  * Whether a carried call's shell still runs, as the call it was, within
- * its time limit and `CALLS_WATCHED_MS` of its start.
+ * its time limit and `CALLS_WATCHED_MS` of its start, its end read off
+ * the thread.
  */
-export function callRuns(
+export async function callRuns(
 	work: CarriedShell,
 	now: number = Date.now(),
-): boolean {
+): Promise<boolean> {
 	if (!withinWatch(work, now)) return false;
-	return endOf(work.keep) === undefined && alive(work.pid, work.mark);
+	return (await endRead(work.keep)) === undefined && alive(work.pid, work.mark);
 }
 
 /**
@@ -161,7 +167,7 @@ export interface CallsWatch {
 	readonly folder: string;
 	/** Its wake file, written once the last call ends. */
 	readonly wakeFile: string;
-	readonly runs?: (work: CarriedShell) => boolean;
+	readonly runs?: (work: CarriedShell) => boolean | Promise<boolean>;
 	readonly lookEveryMs?: number;
 	readonly wakeAgainMs?: number;
 	readonly now?: () => number;
@@ -184,8 +190,12 @@ export interface CallsWatch {
  * Look at the calls a conversation's park carried, rolling their output
  * as the conversation would, until none still runs; then write its wake
  * file, and again after `wakeAgainMs`, each wait twice the last up to
- * `CALLS_WAKE_AGAIN_MOST_MS`, until stopped. A write that fails is tried
- * at the next look, reported only as it first fails. Any doubt wakes:
+ * `CALLS_WAKE_AGAIN_MOST_MS`, until stopped. A look still out when the
+ * next falls due lets it pass, and one out as the watch stops rolls and
+ * writes nothing more once it sees the stop, since the woken
+ * conversation rolls its calls itself, though a write already under way
+ * lands, which costs one wake at most. A look or a write that fails is
+ * tried at the next look, reported only as it first fails. Any doubt wakes:
  * a record that can't be read, or calls with none (`unrecorded`), count
  * as ended. Answers the function that stops looking; nothing is looked
  * at where its park carried none.
@@ -209,20 +219,31 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 	let wait = watch.wakeAgainMs ?? CALLS_WAKE_AGAIN_MS;
 	let nextAt = Number.NEGATIVE_INFINITY;
 	let failing = false;
+	let lookFailing = false;
 	let said = false;
-	const look = () => {
-		const running = calls.filter(runs);
-		for (const work of running) rollIfFull(work.keep);
-		if (running.length > 0) return;
+	let looking = false;
+	let stopped = false;
+	const look = async () => {
+		const running: CarriedShell[] = [];
+		for (const work of calls) if (await runs(work)) running.push(work);
+		const owns = () => !stopped;
+		for (const work of running) {
+			if (!owns()) return;
+			await rollIfFullOff(work.keep, undefined, owns);
+		}
+		if (stopped || running.length > 0) return;
 		if (!said) watch.ended?.(calls.length);
 		said = true;
 		if (now() < nextAt) return;
 		try {
-			writeFileSync(
+			await writeFile(
 				watch.wakeFile,
 				`${JSON.stringify({ why: "the bash calls its park carried ended", at: new Date(now()).toISOString() })}\n`,
 			);
 		} catch (error) {
+			// Stopped as it wrote: the conversation runs, or is gone, and
+			// asking its wake straight would reach one no longer parked.
+			if (stopped) return;
 			if (!failing) {
 				watch.report(error);
 				watch.unwritten?.();
@@ -234,8 +255,30 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 		nextAt = now() + wait;
 		wait = Math.min(wait * 2, CALLS_WAKE_AGAIN_MOST_MS);
 	};
-	look();
-	const timer = setInterval(look, watch.lookEveryMs ?? CALLS_LOOK_MS);
+	const lookOnce = () => {
+		if (looking) return;
+		looking = true;
+		look()
+			.then(
+				() => {
+					lookFailing = false;
+				},
+				(error: unknown) => {
+					// A fault of the moment fails every look until it passes, and
+					// one line says it.
+					if (!lookFailing) watch.report(error);
+					lookFailing = true;
+				},
+			)
+			.finally(() => {
+				looking = false;
+			});
+	};
+	lookOnce();
+	const timer = setInterval(lookOnce, watch.lookEveryMs ?? CALLS_LOOK_MS);
 	timer.unref();
-	return () => clearInterval(timer);
+	return () => {
+		stopped = true;
+		clearInterval(timer);
+	};
 }

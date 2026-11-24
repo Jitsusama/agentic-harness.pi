@@ -362,12 +362,33 @@ describe("a host's children", () => {
 		expect(rested, "nothing rested").toEqual([]);
 	});
 
-	it("says so when nothing can watch a parked one's wake", async () => {
+	// 23 November: two children ended parked that restsParked declined,
+	// and nothing watched a hub's wake for 19 minutes.
+	it("rests one whose park the engine won't take as given up, so its wake is watched", async () => {
 		resting = false;
 		await children.backend.resume(held[0] as RosterEntry, false);
 		await units.childOf(a).end("parked");
 		await vi.waitFor(() =>
-			expect(said.join("\n")).toContain("nothing watches its wake"),
+			expect(
+				givenUp.map(({ sessionId }) => sessionId),
+				"rested as given up",
+			).toEqual([a]),
+		);
+		expect(
+			said.filter((line) => line.includes("nothing watches its wake")),
+			"rested, so nothing is said",
+		).toEqual([]);
+	});
+
+	it("says so, and why, when nothing can watch a parked one's wake", async () => {
+		resting = false;
+		givingUp = "its marker names another holder's wake, /elsewhere/wake";
+		await children.backend.resume(held[0] as RosterEntry, false);
+		await units.childOf(a).end("parked");
+		await vi.waitFor(() =>
+			expect(said).toContain(
+				`${a}: its child ended parked, and nothing watches its wake until it is asked for, as its marker names another holder's wake, /elsewhere/wake`,
+			),
 		);
 	});
 

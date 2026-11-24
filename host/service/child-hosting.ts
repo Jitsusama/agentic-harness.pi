@@ -79,14 +79,23 @@ export function hostChildren(options: {
 
 	// One left parked, or whose child failed, is still held: the host
 	// watches its wake again so a message or a window brings it back.
+	// One restsParked declines, as one with no marker from this boot,
+	// rests as given up, which writes the marker a park writes, or says
+	// why it can't: on 23 November two children ended parked that
+	// restsParked declined, and a hub slept unwatched for 19 minutes
+	// until a window came.
 	function rest(sessionId: string, why: ChildEnding): void {
 		if (why !== "parked" && why !== "failed") return;
 		const entry = roster.entries().find((held) => held.sessionId === sessionId);
 		if (!entry) return;
 		try {
-			if (!options.restsParked?.(entry))
+			if (options.restsParked?.(entry)) return;
+			const refused = options.restGivenUp
+				? options.restGivenUp(entry)
+				: "this engine rests none given up";
+			if (refused !== undefined)
 				options.say?.(
-					`${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for`,
+					`${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for, as ${refused}`,
 				);
 		} catch (error) {
 			report(error);

@@ -316,6 +316,8 @@ cache entry warm, on what kept-requests.ts kept of it, from the carry its sessio
 parked (`lib/internal/cache/warming-carry.ts`): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
+It reads and writes each carry off the host's thread, since a carry
+holds the whole conversation and a slow disk held the loop for seconds.
 A warm's runtime loads no extensions, so kept-providers.ts keeps what
 the conversation's extensions registered of its providers as it parks
 (Shopify's proxy registers anthropic with its address, key variable and
