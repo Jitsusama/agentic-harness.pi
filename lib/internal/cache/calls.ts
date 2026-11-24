@@ -27,13 +27,15 @@ const saidUnasked = new Set<string>();
 export async function callIsOn(
 	options: {
 		readonly program?: string;
+		/** How long an answer may take, shorter only in a test. */
+		readonly timeoutMs?: number;
 		readonly cannotAsk?: (why: string) => void;
 	} = {},
 ): Promise<boolean> {
 	const { cannotAsk } = options;
 	const onCall = await askCall({
 		program: options.program,
-		timeoutMs: ASK_TIMEOUT_MS,
+		timeoutMs: options.timeoutMs ?? ASK_TIMEOUT_MS,
 		cannotAsk:
 			cannotAsk &&
 			(({ why }) => {
