@@ -92,18 +92,18 @@ export const CHILD_SAID_UNSETTLED =
 	"The conversation's process said of itself that it gave no answer in time, which only the host may say, so the host stopped it: nothing was opened, so ask again";
 
 /**
- * Where a begin's time went when the host spent `spentMs` of its
- * `withinMs` before it could begin. It asks for a wait, since what took
- * the time was the host weighing a loaded machine, which an ask at once
- * would only weigh again.
- */
-/**
  * Where a begin refused as too late spent its time: weighing the
  * conversations the host runs, or waiting for a turn among the children
  * already starting.
  */
 export type TooLateCause = "weighing" | "turn";
 
+/**
+ * Where a begin's time went when the host spent `spentMs` of its
+ * `withinMs` before it could begin, as `cause` says. It asks for a wait,
+ * since what took the time was a loaded machine, which an ask at once
+ * would only meet again.
+ */
 function tooLateWords(
 	spentMs: number,
 	withinMs: number,
