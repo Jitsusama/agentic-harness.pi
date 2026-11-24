@@ -101,10 +101,12 @@ export interface Host {
 	 */
 	wakeHeld?(sessionId: string): boolean;
 	/**
-	 * Whether the host drains for a restart, holding the wakes of those it
-	 * parked. A child started before hosts said `wakeHeld` holds every wake
-	 * while it drains and none otherwise, so for one this answers it. A host
-	 * that never drains leaves it out.
+	 * Whether a drain for a restart stands, not whether a wake is held: a
+	 * shared host past its restart's ceiling lets wakes through while its
+	 * drain stands. A child never passes one, so for a child started
+	 * before hosts said `wakeHeld`, which holds every wake while it drains
+	 * and none otherwise, this answers it. A host that never drains leaves
+	 * it out.
 	 */
 	drains?(): boolean;
 	/**

@@ -1402,27 +1402,53 @@ describe("why a session stays awake", () => {
 		const asked: string[] = [];
 		let drains = false;
 		host.host.park = (id) => asked.push(id);
-		host.host.draining = () => drains;
+		// Woken in the drain, it isn't drained itself, while the drain stands.
+		host.host.draining = () => false;
 		host.host.rolling = () => true;
 		host.host.drains = () => drains;
 		const wake = join(folder, "conversation.wake");
 		const run = session({ isIdle: () => false });
+		const child = { MYCELIUM_WAKE: wake, PI_HOST_CHILD_KEY: "work-background" };
+		const turnEnded = (env: NodeJS.ProcessEnv) => {
+			const watched = watching(run, env);
+			try {
+				return watched.turnEnded(true);
+			} finally {
+				watched.stop();
+			}
+		};
 		try {
 			// Rolling alone, an older child would wake it again in place.
-			const rolled = watching(run, { MYCELIUM_WAKE: wake });
-			expect(rolled.turnEnded(true), "rolling, not draining").toBe(
+			expect(turnEnded(child), "rolling, not draining").toBe(
 				"its host would wake it again here at once",
 			);
-			rolled.stop();
 			expect(asked, "rolling, not parked").toEqual([]);
 			expect(existsSync(wake), "rolling, no wake written").toBe(false);
 
 			drains = true;
-			const drained = watching(run, { MYCELIUM_WAKE: wake });
-			expect(drained.turnEnded(true), "draining, it steps off").toBeUndefined();
+			// A shared host older than wakeHeld lets wakes through past its
+			// ceiling while its drain stands, so it keeps the run going.
+			expect(turnEnded({ MYCELIUM_WAKE: wake }), "a shared host").toBe(
+				"its host would wake it again here at once",
+			);
+			const drainsAsked = host.host.drains;
+			delete host.host.drains;
+			expect(turnEnded(child), "a child that says no drain").toBe(
+				"its host would wake it again here at once",
+			);
+			host.host.drains = drainsAsked;
+			expect(asked, "neither parked").toEqual([]);
+
+			// A child older than stale-child.ts says no roll: draining alone moves it.
+			delete host.host.rolling;
+			expect(turnEnded(child), "neither drained nor rolled").toBe(
+				"its host neither drains nor rolls",
+			);
+			host.host.rolling = () => true;
+
+			expect(turnEnded(child), "draining, it steps off").toBeUndefined();
 			expect(asked, "draining, parked").toEqual([SESSION]);
 			expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe(SESSION);
-			drained.stop();
 		} finally {
 			host.dispose();
 		}
@@ -1491,10 +1517,13 @@ describe("why a session stays awake", () => {
 			waited.stop();
 
 			// Past a drain's ceiling the host wakes it at once, so stepping
-			// off would park and wake it in a loop.
+			// off would park and wake it in a loop. Its drain still stands,
+			// and the host's own answer wins over it, even in a child.
 			host.host.wakeHeld = () => false;
+			host.host.drains = () => true;
 			const through = watching(session({ isIdle: () => false }), {
 				MYCELIUM_WAKE: wake,
+				PI_HOST_CHILD_KEY: "work-background",
 			});
 			expect(through.turnEnded(true), "its wake let through").toBe(
 				"its host would wake it again here at once",
