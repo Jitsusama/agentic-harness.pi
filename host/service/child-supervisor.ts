@@ -90,6 +90,7 @@ import type { HeldChildren } from "./children.ts";
 import type { ControlReply } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { HostRoster } from "./roster.ts";
+import { startGate } from "./start-gate.ts";
 
 /** The shared roster, as far as the supervisor keeps it. */
 export type KeptRoster = Pick<
@@ -152,6 +153,14 @@ export const UNSETTLED_WITHIN_MS = 10_000;
  * so a child given less is most often started only to be stopped.
  */
 export const LEAST_FIRST_ASK_MS = 20_000;
+/**
+ * How many children may be between their unit's start and their first
+ * answer at once, whatever asked for each: a start's resumes, wakes and
+ * opens all built their conversations together on a loaded machine,
+ * each judged from when it was asked, so one still waiting was given up
+ * as slow and started again. The rest wait their turn (start-gate.ts).
+ */
+export const STARTS_AT_ONCE = 2;
 /**
  * How many times a leaving child's unit is stopped and waited on before
  * its slot is left in use and the stop is left to whoever reads why.
@@ -403,6 +412,14 @@ export function childSupervisor(options: {
 	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
+	/**
+	 * The longest a start holds its turn at the gate, unless said its
+	 * listen and answer times together, as long as a child that isn't
+	 * starved takes: a starved child nobody bounds is waited on for up to
+	 * `STARVED_WITHIN_MS`, and two holding theirs all that time would hold
+	 * every other start on the host.
+	 */
+	turnHeldWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -426,6 +443,8 @@ export function childSupervisor(options: {
 	const listensWithinCpuMs =
 		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
 	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
+	const turnHeldWithinMs =
+		options.turnHeldWithinMs ?? withinMs + answersWithinMs;
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
@@ -437,6 +456,8 @@ export function childSupervisor(options: {
 	const asking = new Set<Socket>();
 	// What gives up each conversation's start under way, by its keyed id.
 	const cutting = new Map<string, AbortController>();
+	// Every child start waits its turn here, its windows timed from it.
+	const gate = startGate(STARTS_AT_ONCE);
 	// Each conversation a child is starting for, so two asks start one.
 	const starting = new Map<string, Promise<SessionIdentity>>();
 	// Each slot a child is set up in, runs in or leaves, by its unit.
@@ -1183,17 +1204,35 @@ export function childSupervisor(options: {
 	 * stopped watching, which leaves every child running for the next
 	 * host to take up. A woken one is said too: a window's attach may wake
 	 * one nothing watches, and the host keeps the watch of one whose
-	 * sleeper still stands (F23), writing back only its marker.
+	 * sleeper still stands (F23), writing back only its marker. It starts
+	 * only once the gate gives it a turn, as `turn` asks, which its work
+	 * holds until it settles, so the work's own windows count from the
+	 * unit's start; a wait the host's stop, a give-up or its caller's `by`
+	 * ends starts nothing.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
 		session: RosterEntry | undefined,
 		woken: boolean,
+		turn: { ahead: boolean; by: number; cut?: AbortSignal },
 		work: () => Promise<T>,
 	): Promise<T> {
 		// Taken only once free, so a slot another child runs in is left be.
 		let taken = false;
+		let giveBack = (): void => undefined;
+		let lapse: ReturnType<typeof setTimeout> | undefined;
 		try {
+			giveBack = await gate.turn({
+				ahead: turn.ahead,
+				by: turn.by,
+				signal: turn.cut
+					? AbortSignal.any([stopping.signal, turn.cut])
+					: stopping.signal,
+				late: () =>
+					new Error(`${slot.unit} waited past its time for its turn to start`),
+			});
+			// Given back once held its time, whatever its child does by then.
+			lapse = setTimeout(giveBack, turnHeldWithinMs);
 			await claimed(slot.unit, async () => {
 				if (!(await free(slot)))
 					throw new Error(`A child runs in ${slot.unit} already`);
@@ -1210,6 +1249,9 @@ export function childSupervisor(options: {
 				if (session) options.gaveUp?.(session.sessionId);
 			}
 			throw error;
+		} finally {
+			clearTimeout(lapse);
+			giveBack();
 		}
 	}
 
@@ -1264,10 +1306,12 @@ export function childSupervisor(options: {
 				throw new Error(`${sessionId} still runs in ${last.unit}`);
 		// Given up before its child starts, it starts none.
 		cut.throwIfAborted();
+		// A wake goes ahead: someone wrote to it.
 		return inSlot(
 			slot,
 			entry,
 			woken,
+			{ ahead: woken, by: Number.POSITIVE_INFINITY, cut },
 			async () =>
 				(
 					await watch(slot, {
@@ -1481,7 +1525,10 @@ export function childSupervisor(options: {
 				...(request.quest !== undefined ? { quest: request.quest } : {}),
 				...(request.env !== undefined ? { launch: request.env } : {}),
 			};
-			return inSlot(slot, undefined, false, async () => {
+			// Ahead, as a wake: its caller waits on it. Its wait for a turn ends
+			// while its least is still left, as its weighing above does.
+			const turn = { ahead: true, by: by - leastToBegin };
+			return inSlot(slot, undefined, false, turn, async () => {
 				const reply = await firstAsked(slot, request, by);
 				// A stop during the ask ends it, and the begin with it.
 				stillWatching();

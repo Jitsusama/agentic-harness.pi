@@ -158,6 +158,8 @@ export interface FakeUnits extends Units {
 		/** Listens no sooner than this settles, for a test to order a step. */
 		listensWhen?: Promise<void>;
 	};
+	/** What each child started does where `next` says nothing, by its unit. */
+	traitsOf?: (unit: string) => FakeUnits["next"];
 	/**
 	 * How long a stopped unit deactivates for after its stop returns, as
 	 * systemd's `--no-block` stop returns once its job is queued.
@@ -348,7 +350,7 @@ function fakeUnits(): FakeUnits {
 				fake.refusesStart = false;
 				throw new Error(`Failed to start ${unit}: Unit not found`);
 			}
-			const next = fake.next ?? {};
+			const next = fake.next ?? fake.traitsOf?.(unit) ?? {};
 			fake.next = undefined;
 			// Held as running from the start, as systemd holds a unit it runs.
 			fake.children.set(unit, undefined);
@@ -433,6 +435,7 @@ interface Clocks {
 	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
+	turnHeldWithinMs?: number;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {
