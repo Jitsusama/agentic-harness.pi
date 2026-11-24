@@ -71,27 +71,34 @@ export function mcpErrorFrom(err: unknown): McpError {
 
 /**
  * Create a connection to `config`. Injected `client`/`transport` are for
- * tests; production builds the SDK client. A `config.url` that isn't a URL
- * throws here, before anything loads.
+ * tests; production builds the SDK client, and a `config.url` that isn't a
+ * URL throws here, before anything loads. Closing is final: a later use is
+ * refused without loading the SDK.
  */
 export function createMcpConnection(
 	config: McpServerConfig,
 	deps: { client?: SdkClientLike; transport?: unknown } = {},
 ): McpConnection {
-	if (!URL.canParse(config.url)) {
+	if (!deps.client && !URL.canParse(config.url)) {
 		throw new TypeError(`MCP server ${config.id} has no valid url.`);
 	}
 	const subscribers = new Set<() => void>();
 	let built: Omit<Opened, "sdk"> | undefined;
 	let opening: Promise<Opened> | undefined;
+	let closed = false;
+	const refusal = () => new Error(`MCP connection to ${config.id} is closed.`);
 	// The client is built once, after the SDK's first load. `loadOnce`
 	// forgets a failed load, so the next use tries again.
 	const open = (): Promise<Opened> => {
+		if (closed) return Promise.reject(refusal());
 		opening = build();
 		return opening;
 	};
 	const build = async (): Promise<Opened> => {
 		const sdk = await sdkModule();
+		// Closed while the SDK loaded: the use is refused, so no client is
+		// built or handed out once close has begun.
+		if (closed) throw refusal();
 		if (built === undefined && deps.client) {
 			built = { client: deps.client, transport: deps.transport };
 		} else if (built === undefined) {
@@ -116,8 +123,10 @@ export function createMcpConnection(
 			await client.connect(transport);
 		},
 		async close() {
-			// Close waits for a use already under way but never loads the SDK
-			// itself: a connection with no client built has nothing to close.
+			// Close waits for an SDK load under way, not for what the use does
+			// next, and never loads the SDK itself: a connection with no client
+			// built has nothing to close.
+			closed = true;
 			await opening?.catch(() => {
 				// A use whose load failed built no client; its caller has the error.
 			});

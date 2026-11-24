@@ -9,25 +9,13 @@ import { McpError, type McpServerConfig } from "../../../lib/mcp/types.ts";
 
 const config: McpServerConfig = { id: "gw", url: "https://example/mcp" };
 
-/** Which of the SDK's modules and zod have loaded since the set was cleared. */
-const sdk = vi.hoisted(() => {
-	const loaded = new Set<string>();
-	const watch =
-		(name: string) =>
-		async (original: () => Promise<unknown>): Promise<unknown> => {
-			loaded.add(name);
-			return await original();
-		};
-	return { loaded, watch };
-});
-const WATCHED = ["client", "streamableHttp", "types", "zod"];
-vi.mock("@modelcontextprotocol/sdk/client/index.js", sdk.watch("client"));
-vi.mock(
-	"@modelcontextprotocol/sdk/client/streamableHttp.js",
-	sdk.watch("streamableHttp"),
-);
-vi.mock("@modelcontextprotocol/sdk/types.js", sdk.watch("types"));
-vi.mock("zod", sdk.watch("zod"));
+/** The SDK's modules and zod, each by the name its load is recorded under. */
+const WATCHED: Record<string, string> = {
+	client: "@modelcontextprotocol/sdk/client/index.js",
+	streamableHttp: "@modelcontextprotocol/sdk/client/streamableHttp.js",
+	types: "@modelcontextprotocol/sdk/types.js",
+	zod: "zod",
+};
 
 /** A fake SDK client that records requests and exposes the notification handler for triggering. */
 function fakeClient(responses: {
@@ -86,22 +74,37 @@ describe("createMcpConnection", () => {
 	it("loads neither the SDK nor zod until a connection opens", {
 		timeout: 30_000,
 	}, async () => {
+		// Registered here, after the reset, rather than hoisted: vitest keeps a
+		// hoisted mock's module across a reset, so only the first case to load
+		// the SDK would see it load.
 		vi.resetModules();
-		sdk.loaded.clear();
-		const mcp = await import("../../../lib/mcp/index.ts");
-		const unused = mcp.createMcpConnection(config);
-		await unused.close();
-		const conn = mcp.createMcpConnection(config, {
-			client: fakeClient({}),
-			transport: {},
-		});
-		await vi.dynamicImportSettled();
-		expect(
-			[...sdk.loaded],
-			"loaded by importing the library, creating or closing",
-		).toEqual([]);
-		await conn.connect();
-		expect([...sdk.loaded].sort(), "loaded by connecting").toEqual(WATCHED);
+		const loaded = new Set<string>();
+		for (const [name, specifier] of Object.entries(WATCHED)) {
+			vi.doMock(specifier, async (original: () => Promise<unknown>) => {
+				loaded.add(name);
+				return await original();
+			});
+		}
+		try {
+			const mcp = await import("../../../lib/mcp/index.ts");
+			const unused = mcp.createMcpConnection(config);
+			await unused.close();
+			const conn = mcp.createMcpConnection(config, {
+				client: fakeClient({}),
+				transport: {},
+			});
+			await vi.dynamicImportSettled();
+			expect(
+				[...loaded],
+				"loaded by importing the library, creating or closing",
+			).toEqual([]);
+			await conn.connect();
+			expect([...loaded].sort(), "loaded by connecting").toEqual(
+				Object.keys(WATCHED),
+			);
+		} finally {
+			for (const specifier of Object.values(WATCHED)) vi.doUnmock(specifier);
+		}
 	});
 
 	it("refuses a url that isn't one when the connection is created", () => {
@@ -110,14 +113,44 @@ describe("createMcpConnection", () => {
 		);
 	});
 
-	it("closes the client a use built, waiting for a use under way", async () => {
+	it("takes an injected client whatever its url", () => {
+		expect(() =>
+			createMcpConnection({ id: "gw", url: "u" }, { client: fakeClient({}) }),
+		).not.toThrow();
+	});
+
+	it("closes the client a use built", async () => {
+		const client = fakeClient({});
+		const conn = createMcpConnection(config, { client, transport: {} });
+		await conn.connect();
+		await conn.close();
+		expect(client.close).toHaveBeenCalledOnce();
+	});
+
+	it("refuses a use whose SDK load a close overtakes, building no client", async () => {
 		const client = fakeClient({});
 		const conn = createMcpConnection(config, { client, transport: {} });
 		const connecting = conn.connect();
 		await conn.close();
-		await connecting;
+		await expect(connecting).rejects.toThrow("MCP connection to gw is closed.");
+		expect(client.connect).not.toHaveBeenCalled();
+		expect(client.close).not.toHaveBeenCalled();
+	});
+
+	it("refuses every use once closed", async () => {
+		const client = fakeClient({ toolsList: { tools: [] } });
+		const conn = createMcpConnection(config, { client, transport: {} });
+		await conn.connect();
+		await conn.close();
+		const closed = "MCP connection to gw is closed.";
+		await expect(conn.connect()).rejects.toThrow(closed);
+		await expect(conn.listTools()).rejects.toThrow(closed);
+		const result = await conn.callTool("slack_post", {});
+		expect(result).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: closed }],
+		});
 		expect(client.connect).toHaveBeenCalledOnce();
-		expect(client.close).toHaveBeenCalledOnce();
 	});
 
 	it("lists tools and preserves annotations and non-standard fields in raw", async () => {
@@ -236,8 +269,36 @@ describe("a connection whose SDK fails to load", () => {
 			});
 			expect(loads.tried, "loads tried by a connect and a call").toBe(2);
 			await conn.close();
-			expect(loads.tried, "loads tried once closed").toBe(2);
+			await expect(conn.connect()).rejects.toThrow("is closed");
+			expect(loads.tried, "loads tried by a close and a use after it").toBe(2);
 			expect(client.close).not.toHaveBeenCalled();
+		} finally {
+			vi.doUnmock("../../../lib/mcp/sdk-client.ts");
+		}
+	});
+});
+
+describe("a connection given no client", () => {
+	it("builds the SDK's client once and connects it over the SDK's transport", async () => {
+		vi.resetModules();
+		const client = fakeClient({ toolsList: { tools: [] } });
+		const transport = { made: "by the SDK" };
+		const buildSdkClient = vi.fn(() => ({ client, transport }));
+		vi.doMock(
+			"../../../lib/mcp/sdk-client.ts",
+			async (original: () => Promise<object>) => ({
+				...(await original()),
+				buildSdkClient,
+			}),
+		);
+		try {
+			const fresh = await import("../../../lib/mcp/connection.ts");
+			const conn = fresh.createMcpConnection(config);
+			await conn.connect();
+			await conn.listTools();
+			expect(buildSdkClient).toHaveBeenCalledOnce();
+			expect(buildSdkClient).toHaveBeenCalledWith(config);
+			expect(client.connect).toHaveBeenCalledWith(transport);
 		} finally {
 			vi.doUnmock("../../../lib/mcp/sdk-client.ts");
 		}
