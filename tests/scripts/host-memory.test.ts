@@ -41,7 +41,7 @@ describe("a host's memory, described", () => {
 		});
 
 		expect(lines[0]).toBe(
-			"background: host Pss 150 MiB, heap 60 of 4096 MiB; 3 of 3 conversations' children read, Pss median 200 MiB, total 890 MiB",
+			"background: host Pss 150 MiB, heap 60 of 4096 MiB; a child's Pss read for 3 of 3 conversations, median 200 MiB, total 890 MiB",
 		);
 		expect(lines[2]).toMatch(
 			new RegExp(`^ {2}Pss 90 MiB +heap 50 of 4096 MiB +${AT} +idle +${ONE}$`),
@@ -56,7 +56,7 @@ describe("a host's memory, described", () => {
 			sessions: [inChild(ONE, 100, 50), inChild(TWO, 200, 90)],
 		});
 
-		expect(said).toContain("Pss median 150 MiB, total 300 MiB");
+		expect(said).toContain(", median 150 MiB, total 300 MiB");
 	});
 
 	it("says unread, never 0, where the host took no reading, and leaves those out of the children's", () => {
@@ -67,7 +67,7 @@ describe("a host's memory, described", () => {
 		});
 
 		expect(lines[0]).toBe(
-			"attended: host Pss unread, heap unread; 1 of 2 conversations' children read, Pss median 200 MiB, total 200 MiB",
+			"attended: host Pss unread, heap unread; a child's Pss read for 1 of 2 conversations, median 200 MiB, total 200 MiB",
 		);
 		expect(lines[1]).toMatch(
 			new RegExp(`^ {2}Pss unread +heap unread +parked +${ONE}$`),

@@ -68,7 +68,7 @@ export function describeMemory(kind: string, answer: MemoryAnswer): string[] {
 	const children =
 		read.length === 0
 			? "no child's Pss read"
-			: `${read.length} of ${answer.sessions.length} conversations' children read, Pss median ${mib(median(read))}, total ${mib(read.reduce((sum, each) => sum + each, 0))}`;
+			: `a child's Pss read for ${read.length} of ${answer.sessions.length} conversations, median ${mib(median(read))}, total ${mib(read.reduce((sum, each) => sum + each, 0))}`;
 	return [
 		`${kind}: host Pss ${mib(answer.own.pss)}, heap ${heapOf(answer.own.heap)}; ${children}`,
 		...answer.sessions.map(

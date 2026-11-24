@@ -212,6 +212,11 @@ describe("hostBackend", () => {
 			await backend.execute({ ...anOpen(), id: "o2" }),
 		);
 		host.state(resting.sessionId, "parked");
+		// Held by the roster, but running nowhere.
+		const stranded = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o3" }),
+		).sessionId;
+		await host.stop(stranded);
 
 		expect(
 			parseMemoryResult(await backend.execute({ v: 1, id: "m", op: "memory" })),
@@ -221,8 +226,26 @@ describe("hostBackend", () => {
 			sessions: [
 				{ sessionId: running.sessionId, state: "idle" },
 				{ sessionId: resting.sessionId, state: "parked" },
+				{ sessionId: stranded, state: "parked" },
 			],
 		});
+	});
+
+	it("reads its own heap from V8 unless told what to answer", async () => {
+		const { own } = parseMemoryResult(
+			await backendWith(engine().fake).execute({ v: 1, id: "m", op: "memory" }),
+		);
+
+		expect(own.heap?.used, "this process's heap in use").toBeGreaterThan(
+			1024 * 1024,
+		);
+		expect(own.heap?.limit).toBeGreaterThan(own.heap?.used ?? 0);
+		expect(own.heap?.at, "dated by the host's clock").toBe(
+			"2026-11-09T16:00:00.000Z",
+		);
+		if (process.platform === "linux")
+			expect(own.pss, "its Pss").toBeGreaterThan(1024 * 1024);
+		else expect(own, "no Pss off Linux").not.toHaveProperty("pss");
 	});
 
 	it("undoes a start that never registered, but keeps one that registered and failed", async () => {

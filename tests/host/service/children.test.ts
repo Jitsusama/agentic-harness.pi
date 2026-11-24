@@ -27,6 +27,8 @@ import { jsonLines } from "../../../host/service/framing.ts";
 import {
 	type ControlRequest,
 	DIRECT_ATTACH,
+	parseListResult,
+	parseMemoryResult,
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import {
@@ -782,6 +784,29 @@ describe("a host's memory with conversations in children", () => {
 		expect(read, "the child's own process, not the host's").toEqual([
 			running.owner,
 		]);
+		expect(parseMemoryResult(answer), "as a client reads it").toStrictEqual(
+			answer,
+		);
+	});
+	it("answers a list without a child's heap, which a client reading it strictly would refuse", async () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.update(conversation(a), { used: 200, limit: 4000 });
+		const listing: ControlBackend = {
+			identity: host,
+			execute: async () => ({ host, sessions: [] }),
+		};
+
+		const answer = await listingChildren(listing, held, () => 3000).execute({
+			v: 1,
+			id: "l",
+			op: "list",
+		});
+
+		expect(parseListResult(answer)).toStrictEqual({
+			host,
+			sessions: [conversation(a)],
+		});
 	});
 	it("answers no Pss for a child gone before it was read, keeping its heap", async () => {
 		const answer = await measured(() => undefined);
@@ -824,9 +849,23 @@ describe("a host's memory with conversations in children", () => {
 			"gone between the two reads",
 		).toBeUndefined();
 		expect(
-			childPss({ pid: 4242, startedAt: 1 }, proc(701)),
-			"an owner kept without ticks",
-		).toBe(3000);
+			childPss({ pid: 4242, startedAt: 1 }, proc(700)),
+			"an owner kept without ticks to tell",
+		).toBeUndefined();
+	});
+	it("reads a child's ticks after its Pss, so a pid taken between the two is caught", () => {
+		const owner = { pid: 4242, startedAt: 1, startTicks: 700 };
+		// The pid is taken by another process as its Pss is read.
+		let taken = false;
+		const proc = {
+			pss: () => {
+				taken = true;
+				return 3000;
+			},
+			startTicks: () => (taken ? 701 : 700),
+		};
+
+		expect(childPss(owner, proc)).toBeUndefined();
 	});
 	it.runIf(process.platform === "linux")(
 		"reads a child's Pss from procfs only while its pid is still the process that started",

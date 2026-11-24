@@ -61,12 +61,21 @@ export interface ChildRoutes {
 	listed(): readonly SessionIdentity[];
 	/** Each conversation a child runs, with its route and last heap. */
 	held(): readonly HeldChild[];
+	/** The child running a conversation, with its last heap, or nothing. */
+	child(sessionId: string): HeldChild | undefined;
 }
 
 /** The routes, kept as children start, change and end. */
 export interface HeldChildren extends ChildRoutes {
-	/** A child runs `conversation` now, answering at `route`. */
-	hold(conversation: SessionIdentity, route: ChildRoute): void;
+	/**
+	 * A child runs `conversation` now, answering at `route`, with the heap
+	 * it last said where it is the same child under another conversation.
+	 */
+	hold(
+		conversation: SessionIdentity,
+		route: ChildRoute,
+		heap?: HeldChild["heap"],
+	): void;
 	/**
 	 * The child's conversation changed state, as the child said, with its
 	 * heap when the line carried one; a line without keeps the last.
@@ -83,8 +92,13 @@ export function heldChildren(now: () => Date = () => new Date()): HeldChildren {
 		routeOf: (sessionId) => held.get(sessionId)?.route,
 		listed: () => [...held.values()].map(({ conversation }) => conversation),
 		held: () => [...held.values()],
-		hold(conversation, route) {
-			held.set(conversation.sessionId, { conversation, route });
+		child: (sessionId) => held.get(sessionId),
+		hold(conversation, route, heap) {
+			held.set(conversation.sessionId, {
+				conversation,
+				route,
+				...(heap ? { heap } : {}),
+			});
 		},
 		update(conversation, heap) {
 			const was = held.get(conversation.sessionId);
@@ -125,24 +139,20 @@ export function passedOn(
 
 /**
  * A child's Pss in bytes, read as asked rather than reported, since its
- * heap hides most of it: in #2104's lane a child held 758 MB of Pss beside
- * 228 MB of heap. Nothing once its pid is gone, or taken by a process
- * that started at another tick, so another process's memory is never
- * reported as the child's. The ticks are read after the Pss, so a pid
- * taken between the two reads is caught too.
+ * heap hides most of it: in #2104's lane a collected child held 327 MB
+ * beside 112 MB of heap. Nothing once its pid is gone, taken by a process
+ * that started at another tick, or named without ticks to tell, so
+ * another process's memory is never reported as the child's. The ticks
+ * are read after the Pss, so a pid taken between the two reads is caught
+ * too.
  */
 export function childPss(
 	owner: HostIdentity["owner"],
 	proc: ProcReads = { pss: pssBytes, startTicks: startTicksFromProcSync },
 ): number | undefined {
 	const pss = proc.pss(owner.pid);
-	if (pss === undefined) return undefined;
-	if (
-		owner.startTicks !== undefined &&
-		proc.startTicks(owner.pid) !== owner.startTicks
-	)
-		return undefined;
-	return pss;
+	if (pss === undefined || owner.startTicks === undefined) return undefined;
+	return proc.startTicks(owner.pid) === owner.startTicks ? pss : undefined;
 }
 
 /** What childPss reads of a process from procfs, each nothing where unread. */

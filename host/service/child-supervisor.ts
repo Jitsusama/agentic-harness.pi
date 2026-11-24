@@ -1137,12 +1137,13 @@ export function childSupervisor(options: {
 								}
 								// Its route and hold are under the spelling first answered.
 								const left = current ?? previousId;
-								const was = routes.routeOf(left);
+								const was = routes.child(left);
 								dropOwn(left);
 								runsNoLongerIn(left, slot);
 								current = next;
 								runsIn(next, slot);
-								if (was) routes.hold(conversation, was);
+								// The same child, so its last heap still stands.
+								if (was) routes.hold(conversation, was.route, was.heap);
 								keep(async () => {
 									try {
 										// It keeps what the host held of what it was.
