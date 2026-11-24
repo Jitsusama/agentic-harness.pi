@@ -174,20 +174,26 @@ export const PSS_WAIT_MS = 5_000;
  * held up under memory pressure holds its read up too, on one of the
  * few threads libuv shares with the host's file reads; this way it holds
  * one, however often memory is asked for, and the host's own reads go on.
- * A read pending longer than `waitMs` is given to no later caller, who
- * has nothing at once, since each caller awaiting a read that never ends
- * would be kept for as long as it lasts.
+ * Each caller awaiting a read that never ends would be kept for as long
+ * as it lasts, so past `waitMs` a caller has nothing at once: one whose
+ * pid's read has been pending that long, and one whose pid would queue
+ * behind a read that has been running that long. Only the pids asked
+ * for within the wait stay queued behind it. The wait is timed on a
+ * clock that only moves forward, so a step of the wall clock neither
+ * shortens it nor brings back the sharing.
  */
 export function oneReadAtOnce(
 	read: (pid: number) => Promise<number | undefined>,
 	waitMs = PSS_WAIT_MS,
-	now: () => number = Date.now,
+	now: () => number = () => performance.now(),
 ): (pid: number) => Promise<number | undefined> {
 	const reading = new Map<
 		number,
 		{ readonly read: Promise<number | undefined>; readonly since: number }
 	>();
 	let last: Promise<unknown> = Promise.resolve();
+	// When the read in progress began, while one is.
+	let runningSince: number | undefined;
 	return (pid) => {
 		const under = reading.get(pid);
 		if (under) {
@@ -195,7 +201,18 @@ export function oneReadAtOnce(
 				? under.read
 				: Promise.resolve(undefined);
 		}
-		const next = last.then(() => read(pid)).finally(() => reading.delete(pid));
+		if (runningSince !== undefined && now() - runningSince >= waitMs) {
+			return Promise.resolve(undefined);
+		}
+		const next = last
+			.then(() => {
+				runningSince = now();
+				return read(pid);
+			})
+			.finally(() => {
+				runningSince = undefined;
+				reading.delete(pid);
+			});
 		reading.set(pid, { read: next, since: now() });
 		last = next.catch(() => {
 			// Its caller hears the failure; the next read goes on regardless.

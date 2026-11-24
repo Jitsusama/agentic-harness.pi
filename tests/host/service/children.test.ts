@@ -1028,6 +1028,7 @@ describe("a host's memory with conversations in children", () => {
 			const pss = oneReadAtOnce(reads.read, 50, () => clock);
 			const stuck = pss(1);
 			const queued = pss(2);
+			await vi.waitFor(() => expect(reads.started).toEqual([1]));
 
 			clock = 49;
 			expect(pss(1), "within the wait, shared").toBe(stuck);
@@ -1035,12 +1036,40 @@ describe("a host's memory with conversations in children", () => {
 			clock = 50;
 			const late = pss(1);
 			const lateQueued = pss(2);
+			const lateNew = pss(3);
 
 			expect(late, "past the wait").not.toBe(stuck);
 			expect(lateQueued, "past the wait").not.toBe(queued);
 			expect(await late).toBeUndefined();
 			expect(await lateQueued).toBeUndefined();
-			expect(reads.started, "no read started for them").toEqual([1]);
+			expect(await lateNew, "a pid first asked behind it").toBeUndefined();
+
+			reads.settle.get(1)?.(100);
+			expect(await stuck).toBe(100);
+			await vi.waitFor(() => expect(reads.started).toEqual([1, 2]));
+			reads.settle.get(2)?.(200);
+			expect(await queued).toBe(200);
+			const fresh = pss(3);
+			await vi.waitFor(() =>
+				expect(reads.started, "no read queued for a late caller").toEqual([
+					1, 2, 3,
+				]),
+			);
+			reads.settle.get(3)?.(300);
+			expect(await fresh).toBe(300);
+		});
+		it("times its wait on a clock the wall clock's steps don't move", async () => {
+			const reads = held();
+			const wall = vi.spyOn(Date, "now").mockReturnValue(0);
+			try {
+				const pss = oneReadAtOnce(reads.read, 1);
+				const stuck = pss(1);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				expect(pss(1), "past the wait, the wall clock still").not.toBe(stuck);
+			} finally {
+				wall.mockRestore();
+			}
 		});
 		it("reads a pid afresh once its last read has settled, even one that failed", async () => {
 			let reads = 0;
