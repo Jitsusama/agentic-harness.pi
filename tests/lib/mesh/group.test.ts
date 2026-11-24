@@ -10,19 +10,33 @@ import {
 	isJoinable,
 	needNamed,
 	orchestratorNamed,
+	personLeftOut,
 	personNamed,
 } from "../../../lib/mesh/group.ts";
 
 describe("the person in `to`", () => {
 	it("is read as the address of the person's steward", () => {
 		expect(personNamed("person, #harness", "WCJQSG")).toBe("WCJQSG, #harness");
-		expect(personNamed("@Person", "WCJQSG")).toBe("WCJQSG");
+		expect(personNamed("Person", "WCJQSG")).toBe("WCJQSG");
 	});
 
 	it("reads as the orchestrator where no steward is set", () => {
-		expect(personNamed("#person, 85PKB2", undefined)).toBe(
+		expect(personNamed("person, 85PKB2", undefined)).toBe(
 			"orchestrator, 85PKB2",
 		);
+	});
+
+	// As with `need`: a group called #person, and a quest whose address
+	// is PERSON, are still reached as themselves.
+	it("is only the bare word, leaving a group or address of that name", () => {
+		expect(personNamed("#person, @PERSON", "WCJQSG")).toBe("#person, @PERSON");
+	});
+
+	it("is left out for the steward itself, which says it in its reply", () => {
+		expect(
+			[personLeftOut("person, #harness"), personLeftOut("Person")],
+			"the rest, then nothing",
+		).toEqual(["#harness", undefined]);
 	});
 
 	it("names the steward once, though it was also named by address", () => {

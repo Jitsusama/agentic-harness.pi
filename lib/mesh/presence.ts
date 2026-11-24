@@ -226,9 +226,10 @@ export interface Presence {
 	 */
 	readonly orchestrates?: string;
 	/**
-	 * The address of the person's steward above its quest, when one is
-	 * (see internal/quest/fields/orchestration.ts). The mesh resolves
-	 * "the person" from this alone.
+	 * The address of the person's steward above its quest, while a live
+	 * session answers to it (see internal/quest/fields/orchestration.ts).
+	 * Said for others to see, and trusted by nobody: a peer writes its own
+	 * presence, so a send reads `person` from its own quest walk instead.
 	 */
 	readonly stewardedBy?: string;
 	/** Its window's niri workspace, by name (windowWorkspaceOf). */

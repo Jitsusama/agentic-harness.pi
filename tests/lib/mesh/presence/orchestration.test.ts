@@ -40,6 +40,23 @@ describe("this session's peer", () => {
 		const LOOP = "QEST-20261025-QCXZEB";
 		const readme = (id: string, parent: string, marked = false) =>
 			`---\nid: ${id}\nkind: ${parent === "null" ? "quest" : "subquest"}\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-25\nupdated: 2026-10-25\n${marked ? "orchestrator: true\n" : ""}---\n# ${id}\n`;
+		const stewarded = (text: string) =>
+			text.replace("---\n#", "steward: true\n---\n#");
+		// A live session on the steward quest, answering to its address.
+		const stewardThere = () =>
+			presence({
+				session: "00000000-0000-0000-0000-000000000005",
+				addresses: ["WCJQSG", "00000005"],
+			});
+		const asks = (peer: ReturnType<typeof localPeer>) => {
+			const since = new Date(0).toISOString();
+			peer.want({
+				id: wantId("question", since),
+				kind: "question",
+				since,
+				said: "Shall I merge it?",
+			});
+		};
 		const write = (quests: [string, string][], loaded: string) => {
 			for (const [id, text] of quests) {
 				mkdirSync(join(root, "quests", id), { recursive: true });
@@ -292,6 +309,7 @@ describe("this session's peer", () => {
 				LOOP,
 			);
 			const at = surroundings();
+			at.presences.publish(stewardThere());
 			const peer = localPeer(at);
 			const since = new Date(0).toISOString();
 
@@ -311,6 +329,56 @@ describe("this session's peer", () => {
 				createPresences(join(root, "presence")).of(session)?.stewardedBy,
 			).toBe("WCJQSG");
 			expect(peer.wants).toBeUndefined();
+		});
+
+		// Read from the quests alone, a steward whose window closed would
+		// keep every quest below it off the launcher, and reach nobody.
+		it("names no steward while no live session answers to it, keeping its questions in the launcher", () => {
+			write(
+				[
+					[MISSION, stewarded(readme(MISSION, "null"))],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const at = surroundings();
+			const peer = localPeer(at);
+			asks(peer);
+			const absent = peer.stewardedBy;
+			const kept = peer.wants?.kind;
+
+			at.presences.publish(stewardThere());
+			peer.refresh();
+
+			expect(
+				[absent, kept, peer.stewardedBy, peer.wants],
+				"none and shown, then the steward and kept for it",
+			).toEqual([undefined, "question", "WCJQSG", undefined]);
+		});
+
+		// The steward's own session ends the person's path, though an
+		// orchestrator above orders its work: its questions are the
+		// person's to see, not the work hub's to carry.
+		it("keeps a steward's own questions in the launcher, under an orchestrator", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[SWARM, stewarded(readme(SWARM, MISSION))],
+				],
+				SWARM,
+			);
+			const peer = localPeer(surroundings());
+			asks(peer);
+
+			expect(
+				[
+					peer.stewards,
+					peer.stewardedBy,
+					peer.orchestratedBy,
+					peer.wants?.kind,
+				],
+				"stewards, under no steward, ordered by the mission, its question shown",
+			).toEqual(["SWARM1", undefined, "WCJQSG", "question"]);
 		});
 
 		it("lists every want standing, saying the question is its orchestrator's", () => {

@@ -109,21 +109,41 @@ export const PERSON = "person";
  * What `to` says once the word `person` in it is read as the address of
  * the person's steward above the sender's quest. With no steward set,
  * it is read as `orchestrator`, which reaches the person as it did
- * before stewards, so the word works the same on every quest.
+ * before stewards, so the word works the same on every quest. Only the
+ * bare word, as with `need`, so a group called `#person` and a quest
+ * whose address is PERSON are still reached as themselves.
  */
 export function personNamed(
 	written: string,
 	stewardedBy: string | undefined,
 ): string {
 	const parts = written.split(",").map((one) => one.trim());
-	const word = (one: string) =>
-		one.replace(/^[#@]/, "").toLowerCase() === PERSON;
-	if (!parts.some(word)) return written;
+	if (!parts.some(isPerson)) return written;
 	return [
 		...new Set(
-			parts.map((one) => (word(one) ? (stewardedBy ?? ORCHESTRATOR) : one)),
+			parts.map((one) =>
+				isPerson(one) ? (stewardedBy ?? ORCHESTRATOR) : one,
+			),
 		),
 	].join(", ");
+}
+
+/**
+ * What `to` says with the word `person` left out, for the person's own
+ * steward, who tells the person in its reply rather than through
+ * anyone; nothing when the word is all it names.
+ */
+export function personLeftOut(written: string): string | undefined {
+	const rest = written
+		.split(",")
+		.map((one) => one.trim())
+		.filter((one) => one !== "" && !isPerson(one));
+	return rest.length > 0 ? rest.join(", ") : undefined;
+}
+
+/** Whether one part of `to` is the bare word `person`. */
+function isPerson(one: string): boolean {
+	return one.toLowerCase() === PERSON;
 }
 
 /** The word in `to` that asks for whichever cell works on a need. */
