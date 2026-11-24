@@ -28,6 +28,7 @@ import {
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
+import { lockHeldMessage } from "../../../lib/core/internal/file-lock.ts";
 import type { TreeProvider } from "../../../lib/core/work/broker.ts";
 import {
 	type SweptTrees,
@@ -342,7 +343,7 @@ it("says how each sweep ended", async () => {
 	});
 });
 
-it("counts each reason naming its tree's lock or folder as one reason", async () => {
+it("counts each reason naming its tree's branch, lock or folder as one reason, and names what a lock kept", async () => {
 	// Eight reasons commoner than these, as a sweep on 23 November kept 643
 	// trees for eight, so a reason told apart by its path or pid is never
 	// counted among the commonest, and a tree kept for its lock went unseen.
@@ -351,16 +352,24 @@ it("counts each reason naming its tree's lock or folder as one reason", async ()
 			keeps.push({ path: `/t/${count}-${one}`, why: `reason ${count}` });
 		}
 	}
-	for (const pid of [101, 102, 103, 104]) {
-		keeps.push({
-			path: `/t/locked-${pid}`,
-			why: `/state/trees/locked-${pid}.lock has been held for over 10s by pid ${pid}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
-		});
-	}
+	// In the lock's own words, from a records folder with a space in it, and
+	// once from a holder that wrote no pid.
+	const locked = [101, 102, 103, 104, undefined].map((pid) => ({
+		path: `/t/locked-${pid}`,
+		why: lockHeldMessage(`/state dir/trees/locked-${pid}.lock`, pid),
+	}));
+	keeps.push(...locked);
+	// As the World provider says of a tree whose src git can't read.
 	for (const tree of ["a", "b", "c", "d", "e"]) {
 		keeps.push({
 			path: `/t/${tree}`,
 			why: `git can't read /world/trees/${tree}/src`,
+		});
+	}
+	for (const branch of ["one", "two", "three", "four", "five", "six"]) {
+		keeps.push({
+			path: `/t/branch-${branch}`,
+			why: `nothing holds it, but someone/${branch} is not contained in trunk, so it is either a squash merge or the only copy of that work`,
 		});
 	}
 
@@ -371,17 +380,19 @@ it("counts each reason naming its tree's lock or folder as one reason", async ()
 
 	const line = JSON.parse(readFileSync(sweepLog(), "utf8").trim()) as {
 		keptFor: Record<string, number>;
+		held: { path: string; why: string }[];
 	};
 	expect(line.keptFor, "the commonest reasons kept").toEqual({
 		"reason 0": 9,
 		"reason 1": 8,
 		"reason 2": 7,
 		"reason 3": 6,
+		"nothing holds it, but its branch is not contained in trunk, so it is either a squash merge or the only copy of that work": 6,
 		"reason 4": 5,
+		"its record's lock was held for over 10s by a process still running": 5,
 		"git can't read its folder": 5,
-		"its record's lock was held for over 10s by a process still running": 4,
-		"reason 5": 4,
 	});
+	expect(line.held, "the trees a lock kept, and which lock").toEqual(locked);
 });
 
 it("still says a sweep ran when forgetting what it took throws", async () => {

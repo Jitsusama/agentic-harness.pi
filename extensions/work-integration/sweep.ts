@@ -74,6 +74,15 @@ const LOST_HOLDS_FOR_MS = 24 * 60 * 60 * 1000;
 /** How many of the commonest reasons for keeping a tree a log line names. */
 const KEPT_REASONS_NAMED = 8;
 
+/** How many trees a log line names that a lock kept, each with its lock. */
+const HELD_NAMED = 10;
+
+/**
+ * A tree's record lock held past the wait, in file-lock's words, the
+ * lock's path before them, which may hold spaces.
+ */
+const LOCK_HELD = /^.+ has been held for over (\d+)s by .*$/s;
+
 /**
  * One conversation's sweep timers. In a session slot rather than module
  * state, since a host runs several conversations in one process: B's
@@ -613,6 +622,9 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		refused: outcome.refused,
 		kept: outcome.kept.length,
 		keptFor: commonest(outcome.kept.map((one) => one.why)),
+		// keptFor counts a lock as one reason, so which trees it kept, and
+		// which lock and pid to look at, are said here.
+		...held(outcome.kept),
 		dropped: outcome.dropped,
 		// Each named with its commit, so a wrong one can be put back; a
 		// sweep takes at most 500 a checkout, so a first one's line is long
@@ -628,6 +640,17 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		// or the ended trees before them took it.
 		...(outcome.idleMs === undefined ? {} : { idleMs: outcome.idleMs }),
 	};
+}
+
+/** The first trees a lock kept, with its words, or nothing when none. */
+function held(kept: SweepOutcome["kept"]): {
+	held?: { path: string; why: string }[];
+} {
+	const locked = kept
+		.filter((one) => LOCK_HELD.test(one.why))
+		.slice(0, HELD_NAMED)
+		.map(({ path, why }) => ({ path, why }));
+	return locked.length === 0 ? {} : { held: locked };
 }
 
 /**
@@ -647,10 +670,11 @@ function commonest(whys: readonly string[]): Record<string, number> {
 				"$1its branch$2",
 			)
 			.replace(
-				/^\S+ has been held for over (\d+)s by .*$/s,
+				LOCK_HELD,
 				"its record's lock was held for over $1s by a process still running",
 			)
-			.replace(/^git can't read \S+$/, "git can't read its folder");
+			// The World provider's words for a tree whose src git can't read.
+			.replace(/^git can't read .+$/s, "git can't read its folder");
 		counts.set(why, (counts.get(why) ?? 0) + 1);
 	}
 	return Object.fromEntries(

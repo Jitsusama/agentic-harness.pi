@@ -9,7 +9,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
@@ -86,15 +86,22 @@ export async function takeOrphan(
 		}
 		return;
 	}
+	// Its `.git` file is how the next sweep tells a lost clone's tree, and
+	// a removal that stops part way may already have taken it.
+	const dotGit = readPlain(join(aside, ".git"));
 	try {
 		rmSync(aside, { recursive: true, force: true });
 		outcome.taken.push({ path: tree.path });
 	} catch (error) {
 		// Read-only module caches refuse a plain removal. What is left goes
-		// back where it was, with its record, for the next sweep.
+		// back where it was, with its record and its `.git` file, for the
+		// next sweep.
 		const why = messageOf(error);
 		try {
 			renameSync(aside, tree.path);
+			const home = join(tree.path, ".git");
+			if (dotGit !== undefined && !existsSync(home))
+				writeFileSync(home, dotGit);
 			deps.memory.remember(forgotten);
 			outcome.refused.push({ path: tree.path, why });
 		} catch (back) {

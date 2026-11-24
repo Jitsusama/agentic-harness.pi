@@ -31,6 +31,7 @@ import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import { goneGitDir } from "../../../../lib/core/work/sweep-orphan.ts";
 import { guardedExec } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -448,8 +449,13 @@ describe("trees whose repository is gone", () => {
 				expect(existsSync(join(readOnly, "deep")), "back home").toBe(true);
 				expect(asidesOf(state, tree), "what is aside").toEqual([]);
 				expect(memory.recall().map((one) => one.path)).toContain(tree);
+				// Still a lost clone's tree, so the next sweep tells it so.
+				expect(goneGitDir(tree), "the git folder its .git names").toBeDefined();
 			} finally {
-				chmodSync(readOnly, 0o700);
+				for (const where of [tree, ...asidesOf(state, tree)]) {
+					if (existsSync(join(where, "cache")))
+						chmodSync(join(where, "cache"), 0o700);
+				}
 			}
 		},
 	);
@@ -1278,9 +1284,14 @@ describe("taking a tree in a repository of thousands", () => {
 				);
 				expect(listed).not.toContain(tree);
 				expect(listed).not.toContain(aside);
+				expect(
+					memory.recall().map((one) => one.path),
+					"its record",
+				).not.toContain(tree);
 			} finally {
-				for (const aside of asidesOf(state, tree)) {
-					chmodSync(join(aside, "target", "held"), 0o700);
+				for (const where of [tree, ...asidesOf(state, tree)]) {
+					const held = join(where, "target", "held");
+					if (existsSync(held)) chmodSync(held, 0o700);
 				}
 			}
 		},
