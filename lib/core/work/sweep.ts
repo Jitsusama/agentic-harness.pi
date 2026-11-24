@@ -73,10 +73,12 @@ import {
 	eachIdleSnapshot,
 	eachIdleWorktree,
 	IDLE_TAKES_PER_SWEEP,
+	type IdleChoice,
 	type IdleSnapshot,
 	type IdleWorktree,
 	lastUsed,
 	mainCheckoutOf,
+	nothingOnlyHere,
 } from "./sweep-idle.ts";
 import {
 	branchesKeptFor,
@@ -247,6 +249,12 @@ export interface SweepOutcome {
 	 */
 	idleLeft?: number;
 	/**
+	 * How many day-idle worktrees of live sessions nothing was seen
+	 * working in it left unjudged, when its share or `idleWithinMs`
+	 * stopped it with some left.
+	 */
+	idleWorktreesLeft?: number;
+	/**
 	 * How long, in milliseconds of awake time, judging and taking those
 	 * snapshots took, so a slow run's idle phase can be told from the rest:
 	 * the census of processes, the pauses and the dating of every live
@@ -356,12 +364,11 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				deps.memory.askedAt(path, key);
 			// A snapshot a quest claims stays, spent or not, as its session
 			// stands open and may come back to it.
-			const choice = {
+			const choice: IdleChoice = {
 				...deps,
 				claims: [...claims, ...untilSpent],
 				now,
 				askedAt,
-				...(deps.idleTakes === undefined ? {} : { most: deps.idleTakes }),
 				spent,
 				left: (count: number) => {
 					outcome.idleLeft = count;
@@ -371,24 +378,34 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			// takes always buys takes.
 			let before = false;
 			let given = 0;
-			for await (const idle of eachIdleSnapshot(live, choice)) {
+			// Worktrees, a day idle and the larger, go first with half the
+			// share, so a backlog of snapshots never starves them; the
+			// snapshots take the rest, and a run on a host's thread holds it
+			// no longer than before.
+			const share = deps.idleTakes ?? IDLE_TAKES_PER_SWEEP;
+			const worktrees: IdleChoice = {
+				...choice,
+				most: Math.ceil(share / 2),
+				left: (count: number) => {
+					outcome.idleWorktreesLeft = count;
+				},
+			};
+			for await (const idle of eachIdleWorktree(live, worktrees)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
 				given += 1;
+				await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
+			}
+			for await (const idle of eachIdleSnapshot(live, {
+				...choice,
+				most: share - given,
+			})) {
+				if (before) await deps.betweenIdleTakes?.();
+				before = true;
 				// Any failure but a held lock, which every take may meet or which
 				// may leave a tree moved aside, ends the run unjudged, so the run
 				// says so and leaves no stamp.
 				await takeIdle(deps, facts, idle, now, outcome);
-			}
-			// Worktrees take what the snapshots left of the share, so a run on
-			// a host's thread holds it no longer than before.
-			const most = (deps.idleTakes ?? IDLE_TAKES_PER_SWEEP) - given;
-			if (most > 0) {
-				for await (const idle of eachIdleWorktree(live, { ...choice, most })) {
-					if (before) await deps.betweenIdleTakes?.();
-					before = true;
-					await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
-				}
 			}
 		} catch (error) {
 			// A census or a take failing leaves the other providers' trees
@@ -822,68 +839,77 @@ async function takeIdleWorktree(
 	const sessions = [...(tree.sessions ?? [])];
 	const why = `unused for ${hours} h while its session stayed open, its branch on ${remote}`;
 	const taken = outcome.taken.length;
-	await takeBack(
-		deps,
-		facts,
-		main,
-		tree,
-		{
-			path: tree.path,
-			branch,
-			...(sessions.length > 0 ? { sessions } : {}),
-			commit,
-			remote,
-			why,
-		},
-		outcome,
-		(take) =>
-			deps.memory.whileUnusedSince(
-				tree.path,
-				usedAt,
-				async () => {
-					const path = resolved(tree.path);
-					const busy = await deps.busyAmong?.([path]);
-					return (
-						busy !== undefined &&
-						!busy.has(path) &&
-						lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
-							usedAt &&
-						(await stillOnlyElsewhere(deps.exec, tree.path, commit)) &&
-						take()
-					);
-				},
-				tree.identity.key,
-			),
-		{ keepBranch: true },
-	);
-	if (outcome.taken.length > taken) {
-		keepBranch(keptDir, {
-			checkout: main,
-			branch,
-			commit,
-			path: tree.path,
-			sessions,
-			takenAt: now,
-		});
+	// The note goes in first, so a sweep cut off mid-take leaves the branch
+	// kept, and comes out again when the tree stays.
+	const unkeep = keepBranch(keptDir, {
+		checkout: main,
+		branch,
+		commit,
+		path: tree.path,
+		sessions,
+		takenAt: now,
+	});
+	try {
+		await takeBack(
+			deps,
+			facts,
+			main,
+			tree,
+			{
+				path: tree.path,
+				branch,
+				...(sessions.length > 0 ? { sessions } : {}),
+				commit,
+				remote,
+				why,
+			},
+			outcome,
+			(take) =>
+				deps.memory.whileUnusedSince(
+					tree.path,
+					usedAt,
+					async () => {
+						const path = resolved(tree.path);
+						const busy = await deps.busyAmong?.([path]);
+						return (
+							busy !== undefined &&
+							!busy.has(path) &&
+							lastUsed(
+								tree,
+								deps.memory.askedAt(tree.path, tree.identity.key),
+							) <= usedAt &&
+							(await stillOnlyElsewhere(
+								deps.exec,
+								tree.path,
+								branch,
+								commit,
+							)) &&
+							take()
+						);
+					},
+					tree.identity.key,
+				),
+			{ keepBranch: true },
+		);
+	} finally {
+		if (outcome.taken.length === taken) unkeep();
 	}
 }
 
 /**
- * Whether a worktree is still at `commit` with nothing changed or
- * untracked, read under its record's lock just before it goes, since a
- * session may have written there while the sweep chose.
+ * Whether a worktree still holds nothing found only there, on the same
+ * branch at the same head, read again under its record's lock just
+ * before it goes, since a session may have written, committed or
+ * switched there while the sweep chose.
  */
 async function stillOnlyElsewhere(
 	exec: Exec,
 	path: string,
+	branch: string,
 	commit: string,
 ): Promise<boolean> {
-	const git = (...args: string[]) =>
-		exec("git", ["-C", path, "--no-optional-locks", ...args]);
-	const head = await git("rev-parse", "HEAD");
-	if (head.code !== 0 || head.stdout.trim() !== commit) return false;
-	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
-	return status.code === 0 && status.stdout.trim() === "";
+	const now = await nothingOnlyHere(exec, path);
+	return now?.branch === branch && now.commit === commit;
 }
 
 /**

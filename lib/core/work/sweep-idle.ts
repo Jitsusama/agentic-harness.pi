@@ -23,7 +23,7 @@
  * ask, and one on code from before the dating carries a stale `usedAt`.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, lstatSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { GIT_REFUSED } from "../../internal/sandbox/tree-git.ts";
 import type { Exec } from "../exec/index.ts";
@@ -215,10 +215,12 @@ export async function* eachIdleSnapshot(
  * there, at most `choice.most` of them, least recently used first, each
  * judged once the one before it has been dealt with. Kept by every rule
  * a snapshot is kept by (a process working in it, a claim, a session's
- * folder in it), and also when it has a change or an untracked file, a
- * stash on its branch, a head no remote-tracking branch holds, or no
- * branch checked out. Throws, as {@link eachIdleSnapshot} does, when the
- * machine can't say which processes hold them.
+ * folder in it), and also when its record names no session to tell and
+ * keep its branch for, or it has a change, an untracked file, an ignored
+ * file, a stash on its branch, a head no remote-tracking branch holds, a
+ * commit only its own HEAD's reflog holds, or no branch checked out.
+ * Throws, as {@link eachIdleSnapshot} does, when the machine can't say
+ * which processes hold them.
  */
 export async function* eachIdleWorktree(
 	held: readonly HeldTree[],
@@ -232,7 +234,9 @@ export async function* eachIdleWorktree(
 				tree.providerId === "git-worktree" &&
 				!tree.identity.shareable &&
 				Array.isArray(tree.owners) &&
-				tree.owners.length > 0,
+				tree.owners.length > 0 &&
+				Array.isArray(tree.sessions) &&
+				tree.sessions.length > 0,
 		)
 		.map((tree) => ({
 			tree,
@@ -252,9 +256,14 @@ export async function* eachIdleWorktree(
 		throw new Error("the machine can't say which processes hold its trees");
 	}
 	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
+	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
 	let given = 0;
-	for (const { tree, usedAt, path } of aged) {
-		if (given >= most || choice.spent?.() === true) return;
+	for (const [at, { tree, usedAt, path }] of aged.entries()) {
+		if (given >= most || (given >= floor && choice.spent?.() === true)) {
+			const left = aged.slice(at).filter((one) => !busy.has(one.path)).length;
+			if (left > 0) choice.left?.(left);
+			return;
+		}
 		if (busy.has(path)) continue;
 		const settled = await nothingOnlyHere(choice.exec, tree.path);
 		if (settled === undefined) continue;
@@ -266,11 +275,14 @@ export async function* eachIdleWorktree(
 /**
  * The branch, head and remote branch of a worktree that holds nothing
  * found only there: on a branch, its head on some remote-tracking
- * branch, with no change, staged or not, no untracked file and no stash
- * made on that branch. Not one git refuses to remove. The status, read
- * last as the dearest, takes no optional locks.
+ * branch, with no change, staged or not, no untracked or ignored file,
+ * no stash made on that branch, and no commit its own HEAD's reflog
+ * alone holds, as one made there and reset away. An ignored folder is
+ * build output made again, but an ignored file may be a `.env` or notes
+ * nobody pushed. Not one git refuses to remove. The status, read last as
+ * the dearest, takes no optional locks.
  */
-async function nothingOnlyHere(
+export async function nothingOnlyHere(
 	exec: Exec,
 	path: string,
 ): Promise<{ branch: string; commit: string; remote: string } | undefined> {
@@ -315,9 +327,71 @@ async function nothingOnlyHere(
 	) {
 		return undefined;
 	}
-	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
-	if (status.code !== 0 || status.stdout.trim() !== "") return undefined;
+	if (!(await reflogHeldElsewhere(git))) return undefined;
+	const status = await git(
+		"status",
+		"--porcelain=v1",
+		"--untracked-files=all",
+		"--ignored=matching",
+	);
+	if (
+		status.code !== 0 ||
+		status.stdout
+			.split("\n")
+			.some((line) => line !== "" && !madeAgain(path, line))
+	) {
+		return undefined;
+	}
 	return { branch: name, commit, remote };
+}
+
+/**
+ * Whether a line of `git status --ignored=matching` names what a build
+ * makes again: an ignored folder, as `node_modules/` or `target/`, or an
+ * ignored link, as Nix's `result`. Anything else, a change, an untracked
+ * file or an ignored plain file, is work found only there.
+ */
+function madeAgain(tree: string, line: string): boolean {
+	const ignored = /^!! (.+)$/.exec(line)?.[1];
+	if (ignored === undefined) return false;
+	if (ignored.endsWith("/")) return true;
+	try {
+		return lstatSync(join(tree, ignored)).isSymbolicLink();
+	} catch {
+		// Gone, or a name git quoted: kept, as nothing says it can be made.
+		return false;
+	}
+}
+
+/**
+ * The most commits a worktree's HEAD reflog is judged by; one that has
+ * been at more is kept rather than read further.
+ */
+const REFLOG_MOST = 2000;
+
+/**
+ * Whether every commit a worktree's HEAD has been at is held by some
+ * branch or remote-tracking branch, so nothing goes with its reflog.
+ */
+async function reflogHeldElsewhere(
+	git: (...args: string[]) => Promise<{ code: number; stdout: string }>,
+): Promise<boolean> {
+	const reflog = await git("reflog", "--format=%H", "HEAD");
+	if (reflog.code !== 0) return false;
+	const been = [
+		...new Set(reflog.stdout.split("\n").filter((line) => line !== "")),
+	];
+	if (been.length === 0) return true;
+	if (been.length > REFLOG_MOST) return false;
+	const alone = await git(
+		"rev-list",
+		"--max-count=1",
+		...been,
+		"--not",
+		"--branches",
+		"--remotes",
+	);
+	return alone.code === 0 && alone.stdout.trim() === "";
 }
 
 /**

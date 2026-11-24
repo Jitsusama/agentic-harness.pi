@@ -11,6 +11,7 @@
 
 import { basename, dirname, join, resolve } from "node:path";
 import type { HeldTree } from "./broker.ts";
+import { resolvedPath } from "./in-use.ts";
 import { dropSettledMergedBranches } from "./merged-branch.ts";
 import { readPlain } from "./plain-file.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
@@ -50,7 +51,7 @@ export async function dropSettledBranches(
 			deps.exec,
 			main,
 			settledBefore,
-			kept.get(main),
+			kept.get(resolvedPath(main)),
 		);
 		if (went.length > 0) outcome.branches.push({ checkout: main, went });
 	}

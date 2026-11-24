@@ -87,18 +87,20 @@ export async function listHeld(
 						session,
 					),
 				);
-	const after = went === "" ? "" : `\n${went}`;
 	if (held.length === 0) {
 		return say(
-			`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.${after}`,
+			`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.${went === "" ? "" : `\n${went}`}`,
 			{ ok: true, held: 0 },
 		);
 	}
 	return say(
 		citeListing(openSessionStore(ctx), {
-			view:
-				held.map((one) => treeLine(one, broker.cutHere(one.path))).join("\n") +
-				after,
+			// First, so a long listing's budget never cuts the telling off on
+			// the machines holding the most trees, where it matters most.
+			view: [
+				...(went === "" ? [] : [went]),
+				...held.map((one) => treeLine(one, broker.cutHere(one.path))),
+			].join("\n"),
 			records: [...held],
 			unit: "trees",
 			narrowing: "Query the stored result for the trees you need.",

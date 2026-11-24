@@ -14,14 +14,17 @@
 
 import { createHash } from "node:crypto";
 import {
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../exec/index.ts";
+import { resolvedPath } from "./in-use.ts";
 import { dropMergedBranch } from "./merged-branch.ts";
 
 /**
@@ -68,14 +71,51 @@ function isKeptBranch(value: unknown): value is KeptBranch {
 	);
 }
 
-/** Write a note keeping `kept.branch` in `kept.checkout`, under `dir`. */
-export function keepBranch(dir: string, kept: KeptBranch): void {
+/**
+ * Write a note keeping `kept.branch` in `kept.checkout`, under `dir`,
+ * before its tree goes, so a sweep cut off mid-take never leaves a branch
+ * unkept. A note already there for the branch keeps its sessions too, so
+ * a second take never ends the first session's claim. Written aside and
+ * renamed in, so a reader sees the old note or the new one whole. Gives
+ * back what to call to put the folder as it was if the take fails.
+ */
+export function keepBranch(dir: string, kept: KeptBranch): () => void {
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(
-		noteFile(dir, kept.checkout, kept.branch),
-		JSON.stringify(kept, null, 2),
-		"utf8",
-	);
+	const file = noteFile(dir, kept.checkout, kept.branch);
+	let before: string | undefined;
+	try {
+		before = readFileSync(file, "utf8");
+	} catch {
+		// No note yet for this branch: the take makes the first.
+	}
+	const earlier = noteIn(before);
+	const sessions = [
+		...new Set([...(earlier?.sessions ?? []), ...kept.sessions]),
+	];
+	writeWhole(file, JSON.stringify({ ...kept, sessions }, null, 2));
+	return () => {
+		if (before === undefined) rmSync(file, { force: true });
+		else writeWhole(file, before);
+	};
+}
+
+/** The note `text` holds, if it reads as one. */
+function noteIn(text: string | undefined): KeptBranch | undefined {
+	if (text === undefined) return undefined;
+	try {
+		const note: unknown = JSON.parse(text);
+		return isKeptBranch(note) ? note : undefined;
+	} catch {
+		// Half-written by a sweep before renames: as good as none.
+		return undefined;
+	}
+}
+
+/** Write `text` to `file` aside, then rename it in. */
+function writeWhole(file: string, text: string): void {
+	const aside = `${file}.${process.pid}.writing`;
+	writeFileSync(aside, text, "utf8");
+	renameSync(aside, file);
 }
 
 /** Every note under `dir`, with the file each is in; none where none can be read. */
@@ -104,9 +144,9 @@ export function keptBranches(
 }
 
 /**
- * The notes under `dir` naming `session`, oldest first: the worktrees
- * the sweep took from it, so it can be told which went and how to have
- * each again.
+ * The notes under `dir` naming `session` whose trees haven't been cut
+ * again, oldest first: the worktrees the sweep took from it, so it can
+ * be told which went and how to have each again.
  */
 export function branchesKeptForSession(
 	dir: string,
@@ -114,16 +154,17 @@ export function branchesKeptForSession(
 ): KeptBranch[] {
 	return keptBranches(dir)
 		.map(({ kept }) => kept)
-		.filter((kept) => kept.sessions.includes(session))
+		.filter((kept) => kept.sessions.includes(session) && !existsSync(kept.path))
 		.sort((a, b) => a.takenAt - b.takenAt);
 }
 
 /**
- * The branches the notes under `dir` keep, by checkout, once each note
- * whose sessions have all ended is let go: its branch dropped if trunk
- * holds all of it, as release drops one, and the note removed. With
- * `live` unknown every note stands, since ending one early could lose
- * the head a session asks for.
+ * The branches the notes under `dir` keep, by checkout as its links
+ * resolve, once each note whose sessions have all ended is let go: its
+ * branch dropped if trunk holds all of it, as release drops one, and the
+ * note removed. A note whose tree stands again goes too, its work done:
+ * the branch is checked out there. With `live` unknown every other note
+ * stands, since ending one early could lose the head a session asks for.
  */
 export async function branchesKeptFor(
 	exec: Exec,
@@ -132,6 +173,10 @@ export async function branchesKeptFor(
 ): Promise<Map<string, Set<string>>> {
 	const kept = new Map<string, Set<string>>();
 	for (const { file, kept: note } of keptBranches(dir)) {
+		if (existsSync(note.path)) {
+			rmSync(file, { force: true });
+			continue;
+		}
 		const ended =
 			live !== undefined && !note.sessions.some((session) => live.has(session));
 		if (ended) {
@@ -139,9 +184,10 @@ export async function branchesKeptFor(
 			rmSync(file, { force: true });
 			continue;
 		}
-		const branches = kept.get(note.checkout) ?? new Set<string>();
+		const checkout = resolvedPath(note.checkout);
+		const branches = kept.get(checkout) ?? new Set<string>();
 		branches.add(note.branch);
-		kept.set(note.checkout, branches);
+		kept.set(checkout, branches);
 	}
 	return kept;
 }
