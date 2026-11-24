@@ -62,13 +62,10 @@ export async function cutFrom(
 	path: string,
 	branch: string,
 ): Promise<Cut | { readonly why: string }> {
-	const stood = await exec("git", [
-		`--git-dir=${checkout}`,
-		"rev-parse",
-		"--verify",
-		"-q",
-		`refs/heads/${branch}`,
-	]);
+	const stood = await whereStands(exec, checkout, branch);
+	if ("why" in stood) {
+		return { why: `git couldn't read ${branch} in ${checkout}: ${stood.why}` };
+	}
 	const cut = await exec("git", [
 		`--git-dir=${checkout}`,
 		"worktree",
@@ -83,34 +80,110 @@ export async function cutFrom(
 			why: `git couldn't cut it from ${checkout}: ${cut.stderr.trim()}`,
 		};
 	}
-	const before = stood.code === 0 ? stood.stdout.trim() : undefined;
-	return { checkout, before };
+	return { checkout, before: stood.at };
+}
+
+/**
+ * Where `branch` stands in the checkout whose git folder is `checkout`:
+ * none only where git says it isn't there (`rev-parse -q` answers 1),
+ * since any other failure says nothing of whether it is, and reading it
+ * as absent would have a branch put back by deleting it.
+ */
+async function whereStands(
+	exec: Exec,
+	checkout: string,
+	branch: string,
+): Promise<{ readonly at: string | undefined } | { readonly why: string }> {
+	const stood = await exec("git", [
+		`--git-dir=${checkout}`,
+		"rev-parse",
+		"--verify",
+		"-q",
+		`refs/heads/${branch}`,
+	]);
+	if (stood.code === 0) return { at: stood.stdout.trim() };
+	if (stood.code === 1) return { at: undefined };
+	return {
+		why: stood.stderr.trim() || `rev-parse answered ${stood.code}`,
+	};
 }
 
 /**
  * Takes out the tree `cut` made at `path`, git's entry for it alone, and
- * puts its branch back where it stood in the checkout, or takes out the
- * one settling made; answers what couldn't be, or nothing.
+ * puts its branch back where it stood in the checkout where settling
+ * moved it to `settled`, or takes out the one settling made; answers
+ * what couldn't be, or nothing. A branch anything else moved meanwhile
+ * is left where it is, and it never throws.
  */
 export async function uncut(
 	exec: Exec,
 	cut: Cut,
 	path: string,
 	branch: string,
+	settled: string,
 ): Promise<string | undefined> {
-	const git = (...args: string[]) =>
-		exec("git", [`--git-dir=${cut.checkout}`, ...args]);
-	const entry = entryOf(path, cut.checkout);
-	const removed = await git("worktree", "remove", "--force", "--force", path);
-	if (removed.code !== 0) {
+	const left: string[] = [];
+	const taken = await takenOut(exec, cut.checkout, path);
+	if (taken !== undefined) left.push(taken);
+	const put = await putBack(exec, cut, branch, settled);
+	if (put !== undefined) left.push(put);
+	return left.length === 0 ? undefined : left.join(", and ");
+}
+
+/** Takes out the tree at `path` and its entry; answers why not, or nothing. */
+async function takenOut(
+	exec: Exec,
+	checkout: string,
+	path: string,
+): Promise<string | undefined> {
+	const entry = entryOf(path, checkout);
+	const removed = await exec("git", [
+		`--git-dir=${checkout}`,
+		"worktree",
+		"remove",
+		"--force",
+		"--force",
+		path,
+	]);
+	if (removed.code === 0) return undefined;
+	try {
 		rmSync(path, { recursive: true, force: true });
-		if (entry !== undefined) rmSync(entry, { recursive: true, force: true });
+		if (entry !== undefined) {
+			rmSync(entry, { recursive: true, force: true });
+			return undefined;
+		}
+		// Pruning would take out other trees' entries too, so it is named.
+		return `git's entry for the tree cut at ${path} may be left in ${checkout}, where git worktree prune takes it out`;
+	} catch (error) {
+		return `the tree cut at ${path} couldn't be taken out: ${error instanceof Error ? error.message : String(error)}`;
 	}
+}
+
+/**
+ * Puts `branch` back where `cut` found it, only where it still stands
+ * where settling left it: git's update-ref is given that as the old
+ * value, so it refuses a branch moved meanwhile.
+ */
+async function putBack(
+	exec: Exec,
+	cut: Cut,
+	branch: string,
+	settled: string,
+): Promise<string | undefined> {
+	const stands = await whereStands(exec, cut.checkout, branch);
+	if ("why" in stands) {
+		return `its branch ${branch} couldn't be read in ${cut.checkout}, so it was left: ${stands.why}`;
+	}
+	// Settling never moved it, or something else did since.
+	if (stands.at !== settled || stands.at === cut.before) return undefined;
 	const ref = `refs/heads/${branch}`;
-	const put =
-		cut.before === undefined
-			? await git("update-ref", "-d", ref)
-			: await git("update-ref", ref, cut.before);
+	const put = await exec("git", [
+		`--git-dir=${cut.checkout}`,
+		"update-ref",
+		...(cut.before === undefined
+			? ["-d", ref, settled]
+			: [ref, cut.before, settled]),
+	]);
 	return put.code === 0
 		? undefined
 		: `its branch ${branch} couldn't be put back in ${cut.checkout}: ${put.stderr.trim()}`;
@@ -119,7 +192,7 @@ export async function uncut(
 /**
  * The folder in `checkout`'s worktrees that the worktree at `path` names
  * as its own, read from its .git file; none where it names one outside
- * them, or can't be read.
+ * them, one that doesn't name the tree back, or can't be read.
  */
 function entryOf(path: string, checkout: string): string | undefined {
 	try {
@@ -130,7 +203,12 @@ function entryOf(path: string, checkout: string): string | undefined {
 		const entry = isAbsolute(said[1]) ? said[1] : resolve(path, said[1]);
 		const worktrees = realpathSync(join(checkout, "worktrees"));
 		const real = realpathSync(entry);
-		return real !== worktrees && within(real, worktrees) ? real : undefined;
+		if (real === worktrees || !within(real, worktrees)) return undefined;
+		// Another tree's entry, named by a .git file planted here, stays.
+		const back = readFileSync(join(real, "gitdir"), "utf8").trim();
+		return realpathSync(back) === realpathSync(join(path, ".git"))
+			? real
+			: undefined;
 	} catch {
 		return undefined;
 	}

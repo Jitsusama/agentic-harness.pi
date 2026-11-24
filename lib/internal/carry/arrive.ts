@@ -448,9 +448,10 @@ async function arriveTree(
 	// A tree made here holds nothing of anyone's, so arriving again starts
 	// afresh; one cut leaves the checkout's branch where it stood.
 	if (readied.kind === "cut") {
-		const left = await uncut(exec, readied, path, tree.branch);
+		const left = await uncut(exec, readied, path, tree.branch, tree.head);
 		if (left !== undefined) {
-			return { ...line, did: "refused", why: `${why} And ${left}.` };
+			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
+			return { ...line, did: "refused", why: `${stopped} And ${left}.` };
 		}
 	}
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
