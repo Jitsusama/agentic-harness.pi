@@ -376,6 +376,9 @@ export function orchestrationRoles(
  * quest below it off the person's launcher, and sends to it would reach
  * nobody; counting any session that answers to the address would keep
  * one that only ran the steward's quest earlier, which carries nothing.
+ * The signature is each peer's own word, trusted here as yieldsTo trusts
+ * it: a session of the person's that wrongly signs as the steward keeps
+ * questions off his launcher until it stops.
  */
 export function withLiveSteward(
 	roles: Roles,

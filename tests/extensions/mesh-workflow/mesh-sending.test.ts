@@ -515,8 +515,9 @@ describe("sending", () => {
 	});
 
 	// A steward whose window closed carries nothing, so `person` falls
-	// back as if none were set, rather than reaching nobody.
-	it("reads `person` as `orchestrator` while no live session answers to the steward", async () => {
+	// back as if none were set, rather than reaching nobody; nor does one
+	// that only lists the steward's address among older ones, not signing.
+	it("reads `person` as `orchestrator` while no live session signs with the steward's address", async () => {
 		onQuest();
 		writeFileSync(
 			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
@@ -571,6 +572,31 @@ describe("sending", () => {
 		).not.toContainEqual(
 			expect.stringMatching(/person's steward|`person` was left out/),
 		);
+		expect(unspaced, "one never naming `person` is sent").toContain("Sent as");
+		expect(transport.read(transport.ids().at(-1) ?? "")?.to).toEqual([
+			"#harness",
+			"#ops",
+		]);
+
+		peer("session-w", ["WCJQSG"], []);
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "Landed where?",
+		});
+		const replied = await tools.get("mesh_send")?.execute("call-3", {
+			intent: "fyi",
+			re: asked.id,
+			text: "On main.",
+		});
+		expect(replied?.content[0]?.text, "a reply naming no `to`").toContain(
+			"Sent as",
+		);
+		const reply = transport
+			.ids()
+			.map((id) => transport.read(id))
+			.find((one) => one?.re === asked.id);
+		expect(reply?.to, "goes back to its asker").toEqual(["@WCJQSG"]);
 	});
 
 	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the

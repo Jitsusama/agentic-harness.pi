@@ -42,7 +42,7 @@ describe("this session's peer", () => {
 			`---\nid: ${id}\nkind: ${parent === "null" ? "quest" : "subquest"}\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-25\nupdated: 2026-10-25\n${marked ? "orchestrator: true\n" : ""}---\n# ${id}\n`;
 		const stewarded = (text: string) =>
 			text.replace("---\n#", "steward: true\n---\n#");
-		// A live session on the steward quest, answering to its address.
+		// A live session on the steward quest, signing with its address.
 		const stewardThere = () =>
 			presence({
 				session: "00000000-0000-0000-0000-000000000005",
@@ -333,7 +333,7 @@ describe("this session's peer", () => {
 
 		// Read from the quests alone, a steward whose window closed would
 		// keep every quest below it off the launcher, and reach nobody.
-		it("names no steward while no live session answers to it, keeping its questions in the launcher", () => {
+		it("names no steward while no live session signs with its address, keeping its questions in the launcher", () => {
 			write(
 				[
 					[MISSION, stewarded(readme(MISSION, "null"))],
@@ -366,10 +366,18 @@ describe("this session's peer", () => {
 				],
 				LOOP,
 			);
-			const at = { ...surroundings(), live: () => new Set([session]) };
-			at.presences.publish(stewardThere());
+			const base = surroundings();
+			base.presences.publish(stewardThere());
+			const counting = (live: Set<string>) =>
+				localPeer({ ...base, live: () => live }).stewardedBy;
 
-			expect(localPeer(at).stewardedBy).toBeUndefined();
+			expect(
+				[
+					counting(new Set([session, stewardThere().session])),
+					counting(new Set([session])),
+				],
+				"kept while counted, gone once not",
+			).toEqual(["WCJQSG", undefined]);
 		});
 
 		// A session that only ran the steward's quest earlier still answers
