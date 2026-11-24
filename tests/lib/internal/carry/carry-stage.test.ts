@@ -23,6 +23,7 @@ import {
 	carryAway,
 	carryQuestTrees,
 } from "../../../../lib/internal/carry/carry-away.ts";
+import { readHandover } from "../../../../lib/internal/carry/handover.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,
@@ -299,28 +300,89 @@ describe("a carry staged before the handover", () => {
 		const next = await carryQuestTrees(exec, [tree], into, home, QUEST);
 
 		expect(next.file).toBe(join(into, `${QUEST}.done.json`));
-		for (const name of dropped) {
-			expect(existsSync(join(into, name)), `${name} is gone`).toBe(false);
-		}
 		expect(
-			Object.keys(filesIn(into)).filter((name) => name.startsWith("app-")),
-			"its own tree's bundle and patch stay",
-		).toHaveLength(2);
+			Object.keys(filesIn(into)).sort(),
+			"only its own tree's bundle and patch, and its new done file",
+		).toEqual(
+			[
+				...next.trees.flatMap((one) =>
+					one.kind === "carried"
+						? [one.tree.bundle, one.tree.patch].filter(
+								(name) => name !== undefined,
+							)
+						: [],
+				),
+				`${QUEST}.done.json`,
+			].sort(),
+		);
+		expect(
+			readHandover(join(into, `${QUEST}.done.json`))?.trees.map(
+				(one) => one.path,
+			),
+		).toEqual(["~/src/app"]);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("takes out a quest's earlier carry of its own trees when its next one hands none", async () => {
+		const { home, tree, into } = await homeWithWork();
+		await carryQuestTrees(exec, [tree], into, home, QUEST);
+		expect(Object.keys(filesIn(into))).toContain(`${QUEST}.done.json`);
+		await git(tree, "checkout", "-q", "--detach");
+
+		const next = await carryQuestTrees(exec, [tree], into, home, QUEST);
+
+		expect(next.trees.map((one) => one.kind)).toEqual(["skipped"]);
+		expect(next.file).toBeUndefined();
+		expect(
+			filesIn(into),
+			"no done file names a tree this carry skipped",
+		).toEqual({});
 		expect(staging(into)).toEqual([]);
 	});
 
 	it("puts back a quest's earlier carry of its own trees when its next done file can't be written", async () => {
-		const { home, tree, into } = await homeWithWork();
-		await carryQuestTrees(exec, [tree], into, home, QUEST);
+		const { origin, home, tree, into } = await homeWithWork();
+		const other = await cloneAt(origin, join(home, "src", "lib"));
+		await git(other, "checkout", "-q", "-b", "side");
+		await commit(other, "side.txt", "unpushed\n");
+		const mine = await cloneAt(origin, join(home, "src", "mine"));
+		await git(mine, "checkout", "-q", "-b", "own");
+		await commit(mine, "own.txt", "unpushed\n");
+		await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-b", cwd: mine },
+			trees: [mine],
+			whole: true,
+		});
+		await carryQuestTrees(exec, [tree, other], into, home, QUEST);
 		const before = filesIn(into);
+		const dropped = Object.keys(before).filter((name) =>
+			name.startsWith("lib-"),
+		);
+		expect(dropped, "its first carry bundled the second tree").not.toEqual([]);
 		await commit(tree, "later.txt", "after its first carry\n");
-		failing.set(QUEST, () => {});
+		let asideWhileWriting: string[] = [];
+		failing.set(QUEST, () => {
+			asideWhileWriting = dropped.filter(
+				(name) => !existsSync(join(into, name)),
+			);
+		});
 
 		await expect(
 			carryQuestTrees(exec, [tree], into, home, QUEST),
 		).rejects.toThrow("the disk is full");
 
-		expect(filesIn(into), "its first carry is as it was").toEqual(before);
+		expect(
+			asideWhileWriting,
+			"what only its first carry named was out while it wrote",
+		).toEqual(dropped);
+		expect(
+			filesIn(into),
+			"its first carry, and the session's beside it, are as they were",
+		).toEqual(before);
 		expect(staging(into)).toEqual([]);
 	});
 

@@ -290,7 +290,9 @@ export interface QuestTreesCarried {
  * session's carry does: the quest's earlier done file and what it names
  * go aside first, and come back where writing fails. Where no tree goes,
  * no done file is written, since one of no trees and no session would
- * start nothing there, and the earlier one stays as it was. A bundle or
+ * start nothing there, and the earlier one goes with what it names: it
+ * would name trees this carry refused, skipped or left to a session's
+ * own carry, which would then arrive twice. A bundle or
  * patch larger than `largest` refuses its tree, since the share would
  * refuse it.
  */
@@ -315,8 +317,8 @@ export async function carryQuestTrees(
 		const handed = trees.flatMap((one) =>
 			one.kind === "carried" ? [one.tree] : [],
 		);
-		if (handed.length === 0) return { trees };
 		stage.place(filesOf(trees), earlierOf(into, home, quest));
+		if (handed.length === 0) return { trees };
 		const file = writeHandover(into, {
 			session: quest,
 			quest,

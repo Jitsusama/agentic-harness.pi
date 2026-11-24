@@ -3,7 +3,7 @@
  * carried their own, through real git.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
@@ -264,6 +264,46 @@ describe("carrying what a quest's steered sessions left", () => {
 		);
 		expect(existsSync(join(into, "s-huge.done.json"))).toBe(false);
 		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
+	});
+
+	it("refuses a quest's own tree whose bundle is larger than the share carries", async () => {
+		const { home, trees, into } = await homeWith("big");
+		await git(trees.big ?? "", "checkout", "-q", "-b", "wide");
+		await commit(trees.big ?? "", "big.txt", "unpushed\n".repeat(400));
+
+		const { whole, said } = await carry(
+			home,
+			into,
+			questHere({ trees: [trees.big ?? ""] }),
+			200,
+		);
+
+		expect(whole).toBe(false);
+		const failed = said.at(-1);
+		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
+			/\.bundle is \d+ bytes, over the 200 bytes the share carries/,
+		);
+		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
+	});
+
+	it("says a failed line when the quest's own carry throws, leaving what stood there", async () => {
+		const { home, trees, into } = await homeWith("app");
+		const held = join(into, `${QUEST}.done.json`);
+		mkdirSync(held, { recursive: true });
+
+		const { whole, said } = await carry(
+			home,
+			into,
+			questHere({ trees: [trees.app ?? ""] }),
+		);
+
+		expect(whole).toBe(false);
+		expect(said).toContainEqual({ kind: "done", files: [] });
+		const failed = said.at(-1);
+		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
+			/^one thing was refused, so the carry isn't whole: the quest's own trees: /,
+		);
+		expect(existsSync(held), "the folder in its way stays").toBe(true);
 	});
 
 	it("says no failed line when every tree went", async () => {
