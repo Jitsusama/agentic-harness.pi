@@ -110,6 +110,38 @@ describe("a quest's TMPDIR", () => {
 	});
 });
 
+describe("where a quest's TMPDIR link lies", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	// A Mac's fence closes its runtime folder whole, so its links stay in /tmp.
+	it.skipIf(process.platform !== "linux")("is the login's runtime folder when it is this account's alone, out of /tmp", () => {
+		// /tmp is anybody's to empty: on 22 November a test suite run with
+		// no TMPDIR took every name in it, the quests' links among them.
+		const runtime = join(root, "run");
+		mkdirSync(runtime, { mode: 0o700 });
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+
+		const dir = questTempDir(workspaces, QUEST) ?? "";
+
+		expect(dir).toBe(join(runtime, `${TEMP_LINK_PREFIX}${QUEST}`));
+		expect(readlinkSync(dir)).toBe(tmpOf());
+	});
+
+	it("is the system temp directory when the runtime folder is open to others", () => {
+		const runtime = join(root, "run");
+		mkdirSync(runtime, { mode: 0o755 });
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		const quest = `QEST-20260101-${process.pid}`;
+
+		const dir = questTempDir(workspaces, quest) ?? "";
+		try {
+			expect(dir).toBe(join("/tmp", `${TEMP_LINK_PREFIX}${quest}`));
+		} finally {
+			dropTempLink(quest, ["/tmp"]);
+		}
+	});
+});
+
 describe("a quest's compiled TypeScript", () => {
 	const shared = () => join(root, "system", "jiti");
 	const cacheOf = () => join(tmpOf(), "jiti");
@@ -196,8 +228,8 @@ describe("what a quest's commands carry", () => {
 			join(links, `${TEMP_LINK_PREFIX}${other}`),
 		);
 
-		dropTempLink(QUEST, links);
-		dropTempLink("QEST-20260101-NOLINK", links);
+		dropTempLink(QUEST, [links]);
+		dropTempLink("QEST-20260101-NOLINK", [links]);
 
 		expect(existsSync(link), `${link} is removed`).toBe(false);
 		expect(

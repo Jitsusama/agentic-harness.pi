@@ -9,8 +9,9 @@
  * goal nobody disputed. Setting `TMPDIR` gets the same outcome without
  * a refusal, since `mktemp` and most tools already follow it.
  *
- * `TMPDIR` is a short link in the system temp directory rather than the
- * workspace path itself, because the workspace path is about 75
+ * `TMPDIR` is a short link in the login's runtime folder, or the system
+ * temp directory where there is no runtime folder of this account's
+ * alone (a Mac), rather than the workspace path itself, because the workspace path is about 75
  * characters and a Unix socket path may be at most 107. Tools that make
  * one under `TMPDIR` (Python's multiprocessing adds 33 characters) would
  * fail past that. The bytes still land in the workspace, where they are
@@ -96,7 +97,38 @@ function inside(child: string, folder: string): boolean {
 	return child === folder || child.startsWith(folder + path.sep);
 }
 
-/** Where the short link goes: `/tmp` when there is one, else the OS temp. */
+/**
+ * Where the short link goes: on Linux, the login's runtime folder where
+ * it is this account's alone, else the system temp directory. A Mac's
+ * fence closes its runtime folder whole, so its links stay in `/tmp`.
+ *
+ * Not `/tmp` first, since anything any account runs may empty it: on
+ * 22 November a test suite run with no `TMPDIR` removed every name in
+ * it, the quests' links among them, about once a second for 70 s, and
+ * background jobs writing through a link failed until it was remade.
+ * And a fenced command may write `/tmp`, so it could plant or swap a
+ * link there; the fence lays the runtime folder empty but for this
+ * session's own link (fence-quest-temp.ts), which nothing inside writes.
+ */
+function shortLinkRoot(env: NodeJS.ProcessEnv = process.env): string {
+	const runtime = env.XDG_RUNTIME_DIR;
+	const linux = process.platform === "linux";
+	return linux && runtime && isPrivateFolder(runtime) ? runtime : systemTemp();
+}
+
+/** Whether `folder` is a folder of this account's that no other may reach. */
+function isPrivateFolder(folder: string): boolean {
+	try {
+		const stat = lstatSync(folder);
+		const ours = !process.getuid || stat.uid === process.getuid();
+		return stat.isDirectory() && ours && (stat.mode & 0o077) === 0;
+	} catch {
+		// Not there: no runtime folder to link in.
+		return false;
+	}
+}
+
+/** The system temp directory: `/tmp` when there is one, else the OS temp. */
 function systemTemp(): string {
 	try {
 		// macOS's /tmp is a link to /private/tmp, which serves as well.
@@ -144,7 +176,7 @@ const QUEST_ENV = "PI_QUEST";
 export function questCommandEnvironment(
 	workspaceRoot: string,
 	questId: string | null,
-	linkRoot: string = systemTemp(),
+	linkRoot: string = shortLinkRoot(),
 ): Record<string, string> | undefined {
 	if (!questId) return undefined;
 	let tmp: string | undefined;
@@ -169,13 +201,19 @@ export function questCommandEnvironment(
 }
 
 /**
- * Take away a quest's short link once its workspace is gone, when it is
- * still ours and points there.
+ * Take away a quest's short links once its workspace is gone, when each
+ * is still ours and points there: where links go now, and in the system
+ * temp directory, where they went before.
  */
 export function dropTempLink(
 	questId: string,
-	linkRoot: string = systemTemp(),
+	linkRoots: readonly string[] = [shortLinkRoot(), systemTemp()],
 ): void {
+	for (const root of new Set(linkRoots)) dropLinkIn(root, questId);
+}
+
+/** Take away the quest's link in `linkRoot`, when it is ours and points there. */
+function dropLinkIn(linkRoot: string, questId: string): void {
 	const link = path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`);
 	try {
 		const stat = lstatSync(link);
@@ -196,7 +234,7 @@ export function dropTempLink(
 export function questTempDir(
 	workspaceRoot: string,
 	questId: string | null,
-	linkRoot: string = systemTemp(),
+	linkRoot: string = shortLinkRoot(),
 	folders: WorkspaceFolders = btrfsFolders,
 	jitiCache: string = path.join(tmpdir(), JITI_FOLDER),
 ): string | undefined {

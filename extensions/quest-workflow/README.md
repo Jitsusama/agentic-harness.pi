@@ -499,9 +499,12 @@ while it waits its turn leaves without running.
   adopts that tree and goes ahead, and a homeless write goes
   ahead and is noted for the quest. Across stages, `/dev` nodes
   always flow. The agent's commands run with `TMPDIR` set
-  to `/tmp/pi-quest-<ID>`, a link to the loaded quest's scratch
-  folder's `tmp/`, and `GOCACHE` and `GOMODCACHE` in the scratch
-  folder's `cache/`. Conclude and retire remove the whole scratch
+  to `$XDG_RUNTIME_DIR/pi-quest-<ID>` on Linux, where that folder
+  is the account's alone, and to `/tmp/pi-quest-<ID>` elsewhere: a
+  link to the loaded quest's scratch folder's `tmp/`, out of a
+  `/tmp` anything may empty, and laid alone in the fence's runtime
+  folder, so nothing fenced plants another. `GOCACHE` and
+  `GOMODCACHE` lie in the scratch folder's `cache/`. Conclude and retire remove the whole scratch
   folder, unless a process still works in it, which leaves it to the
   disk guard; a path named in system temp is refused with that remedy. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.

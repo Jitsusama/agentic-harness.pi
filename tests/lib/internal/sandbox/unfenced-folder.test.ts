@@ -126,6 +126,29 @@ describe("a working folder the sandbox won't let commands write", () => {
 		}
 	});
 
+	it("is one spelled through a quest's TMPDIR link in the runtime folder, though it leads into the scratch", () => {
+		// strict gives each command a TMPDIR of its own and never bound a
+		// quest's scratch, so a folder named through the link is judged
+		// where it is spelled: in the runtime folder the fence hides.
+		const runtime = mkdtempSync(join(tmpdir(), "unfenced-run-"));
+		const scratch = mkdtempSync(join(tmpdir(), "unfenced-scratch-"));
+		const link = join(runtime, "pi-quest-QEST-20261124-ABCDEF");
+		symlinkSync(scratch, link);
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		try {
+			const refusal = unfencedFolder(join(link, "work"), home);
+			expect(refusal).toContain("a path the fence hides");
+			expect(
+				unfencedFolder(join(scratch, "work"), home),
+				"the scratch spelled as itself is not the runtime folder's",
+			).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(runtime, { recursive: true, force: true });
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	});
+
 	it("lets pi-fence grant a compile folder reached through a linked root, which the fence lays no tmpfs over and no host compiles into", () => {
 		// A runtime folder of its own, whose compile root is a link, as one
 		// planted there would be: bubblewrap can't mount over the link, so
