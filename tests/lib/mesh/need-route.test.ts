@@ -235,6 +235,56 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ path: ["C"], fit: "C" });
 	});
 
+	// On 24 November "core nix gate checks" went to a cell on Delta's
+	// signature checks, sharing only "checks", past every core.nix cell.
+	it("goes to a cell working on more of it over the rarest word's only holder", () => {
+		const found = routeNeed(asked("A", "core", "nix", "gate", "checks"), {
+			foragers: cells({
+				A: [],
+				M: ["checks", "delta"],
+				K: ["core", "nix"],
+				L: ["core", "nix"],
+				Z: ["gate", "aquifer"],
+				Y: ["gate", "aquifer"],
+			}),
+			ties: ties(["A", "M", 9], ["A", "Z", 9], ["A", "K", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["K"], fit: "K" });
+	});
+
+	it("takes a walk's fit working on more of it over a hub's working on less", () => {
+		const found = routeNeed(asked("A", "harness", "host", "gate"), {
+			foragers: cells({
+				A: [],
+				Z: ["gate"],
+				H: [],
+				P: ["harness", "host"],
+				Q: ["harness"],
+			}),
+			ties: ties(["A", "P", 1]),
+			hubs: [{ subject: "gate", hub: "H", fits: ["Z"] }],
+		});
+
+		expect(found).toMatchObject({ path: ["P"], fit: "P" });
+	});
+
+	it("goes by the rarest word among fits working on as much of it", () => {
+		const found = routeNeed(asked("A", "aquifer", "mint"), {
+			foragers: cells({
+				A: [],
+				B: ["aquifer"],
+				C: ["aquifer"],
+				D: ["mint"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "D", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["D"], fit: "D" });
+	});
+
 	it(`counts it lost past ${MOST_HOPS} hops, never sending it to a leader`, () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], B: [], C: [], D: [], E: ["carry"] }),
@@ -369,6 +419,18 @@ describe("routing a need", () => {
 
 		expect(found).toMatchObject({ path: ["C", "D"], fit: "D" });
 		expect([...(found.ended ?? [])].sort()).toEqual(["B", "F"]);
+	});
+
+	it("names none ended that was passed over only for a word its fit wasn't found by", () => {
+		const found = routeNeed(asked("A", "carry", "tree"), {
+			foragers: cells({ A: [], C: ["carry", "tree"], E: ["tree"] }),
+			ties: ties(["A", "E", 1], ["A", "C", 2]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found).toMatchObject({ path: ["C"], fit: "C" });
+		expect(found).not.toHaveProperty("ended");
 	});
 
 	it("names none ended when every cell on the way is there", () => {

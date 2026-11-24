@@ -414,13 +414,17 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
 
 /**
  * Where a need goes: already held when its asker works on every word;
- * else, by the words it doesn't work on, rarest first, to a word's
- * narrowest hub naming a fit that is there; else along ties to the
- * nearest cell working on the rarest word any cell within reach works
- * on, taking of the cells as near the one working on most of the need.
+ * else to the cell found for one of the words it doesn't work on that
+ * works on most of the need, found through a word's narrowest hub naming
+ * a fit that is there or along ties to the nearest cell working on it.
+ * Among cells working on as many, a hub's find before any walk's, and
+ * among those the rarest word's. Taken by its rarest word alone, 15 of
+ * 84 needs kept on 23 and 24 November, replayed over the node's cells of
+ * the 24th, went to cells on "checks" or "gate" sharing no other word.
  * Lost, with no path, when none is within `MOST_HOPS`, or when every
  * cell holding its narrowest word has ended (`ownerEnded`). A cell that
- * works on it but has ended is never taken, and is named in `ended`;
+ * works on it but has ended is never taken, and is named in `ended`:
+ * for a found need, when passed over for the word its fit was found by;
  * one that stopped the asker is named in `stopped` when the need is lost.
  * Only a cell `live` says is there is taken.
  */
@@ -443,9 +447,18 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			self: (address) => selves.has(address),
 		}),
 	};
-	const passed = new Set<string>();
+	// By the word each was passed over for: every word's finds are looked
+	// at before one is taken, and a found need names only the cells passed
+	// over for the word its fit was found by.
+	const passed = new Map<string, Set<string>>();
 	const refusing = new Set<string>();
-	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
+	const everyPassed = () =>
+		new Set([...passed.values()].flatMap((one) => [...one]));
+	const record = (
+		path: readonly string[],
+		fit: string | null,
+		named: ReadonlySet<string> = everyPassed(),
+	): NeedRecord => ({
 		need: asked.need,
 		asker: asked.asker,
 		words: asked.words,
@@ -453,7 +466,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		fit,
 		at: asked.at,
 		cells: reach.foragers.length,
-		...(passed.size > 0 ? { ended: [...passed] } : {}),
+		...(named.size > 0 ? { ended: [...named] } : {}),
 		...(refusing.size > 0 ? { stopped: [...refusing] } : {}),
 	});
 	const wordsHeld = new Map(
@@ -473,7 +486,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	/** Whether a cell would take it but has ended, noting it when so. */
 	const endedHolder = (address: string, word: string) => {
 		const gone = ended(address) && holds(address, word);
-		if (gone) passed.add(address);
+		if (gone) passed.set(word, (passed.get(word) ?? new Set()).add(address));
 		return gone;
 	};
 	const rarest = asked.words
@@ -520,6 +533,11 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		);
 	const fitsOn = (address: string, word: string) =>
 		takes(address) && holds(address, word) && !holdsOtherNumber(address, word);
+	const finds: {
+		readonly word: string;
+		readonly path: string[];
+		readonly fit: string;
+	}[] = [];
 	for (const { word } of within) {
 		// Among hubs that rank the same, the one whose fit works on most of
 		// the need; among those, the first the lot drew.
@@ -539,15 +557,25 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		if (chosen !== undefined) {
 			const { ranked, fit } = chosen;
 			const direct = ranked.hub.hub === fit || selves.has(ranked.hub.hub);
-			return record(direct ? [fit] : [ranked.hub.hub, fit], fit);
+			finds.push({ word, path: direct ? [fit] : [ranked.hub.hub, fit], fit });
 		}
 	}
-
 	for (const { word } of within) {
 		const path = walkTo(word);
-		if (path !== undefined) return record(path, path.at(-1) ?? null);
+		const fit = path?.at(-1);
+		if (path !== undefined && fit !== undefined)
+			finds.push({ word, path, fit });
 	}
-	return lost();
+	// Hubs' finds first, then walks', each rarest word first, so of fits
+	// working on as much of the need the first found wins, as before.
+	const found = finds.reduce<(typeof finds)[number] | undefined>(
+		(chosen, one) =>
+			chosen === undefined || most(one.fit) > most(chosen.fit) ? one : chosen,
+		undefined,
+	);
+	return found === undefined
+		? lost()
+		: record(found.path, found.fit, passed.get(found.word) ?? new Set());
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the
