@@ -7,6 +7,7 @@ import {
 	needsCommand,
 } from "../../../extensions/mesh-workflow/needs-command.ts";
 import { whatWaitsText } from "../../../extensions/mesh-workflow/tools/person.ts";
+import { sessionAddress } from "../../../lib/mesh/address.ts";
 import { looksIn, pointAt } from "../../../lib/mesh/looks/looks.ts";
 
 let dir: string;
@@ -159,7 +160,11 @@ describe("/needs", () => {
 
 		const { ran } = await run(["Look:", "Open it"]);
 
-		expect(ran.at(-1)).toEqual(["xdg-open", "mycelium:cell/85PKB2@optimus/go"]);
+		// The cell is the pointing session's own address, not the one it signs with.
+		expect(ran.at(-1)).toEqual([
+			"xdg-open",
+			`mycelium:cell/${sessionAddress("S9")}@optimus/go`,
+		]);
 	});
 
 	it("clears a picked look off his list, as the launcher does", async () => {
