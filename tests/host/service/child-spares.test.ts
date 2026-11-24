@@ -171,6 +171,92 @@ describe("a warm spare", () => {
 		expect(reported).toEqual([]);
 	});
 
+	it("starts no sooner than its wait after a take, however often the check looks", async () => {
+		const after = 400;
+		superviseAgain({
+			clocks: { spares: () => true, spareAfterMs: after, spareCheckMs: 20 },
+		});
+		// A fixed wait: nothing starting before the adopt is the claim, so no
+		// event marks its end; past several checks, one would have started.
+		await pause(SETTLED_MS / 3);
+		expect(units.started, "before the adopt").toEqual([]);
+		const adopted = Date.now();
+		await supervisor.adopt();
+		await warmSpare();
+		expect(Date.now() - adopted).toBeGreaterThanOrEqual(after - 20);
+
+		const took = Date.now();
+		await supervisor.resume(entry(a));
+
+		await vi.waitFor(() => expect(units.started).toHaveLength(2), {
+			timeout: after * 5,
+		});
+		expect(Date.now() - took).toBeGreaterThanOrEqual(after - 20);
+		expect(reported).toEqual([]);
+	});
+
+	it("found gone by a take is let go then, and replaced without waiting for the check", async () => {
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: 60_000,
+			},
+		});
+		let first = true;
+		units.traitsOf = () => {
+			const leaves = first;
+			first = false;
+			return { spareLeaves: leaves };
+		};
+		await supervisor.adopt();
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+		const left = units.started[0] ?? "";
+		await vi.waitFor(() => expect(units.children.has(left)).toBe(false));
+
+		const resumed = await supervisor.resume(entry(a));
+
+		expect(resumed.sessionId).toBe(a);
+		const own = slotOf(folder, key, a);
+		expect(units.started.slice(0, 2)).toEqual([left, own.unit]);
+		expect(
+			said.some((line) => line.includes(`${left}: a warm spare left untaken`)),
+		).toBe(true);
+		await vi.waitFor(() => expect(units.started).toHaveLength(3));
+		await vi.waitFor(() =>
+			expect(existsSync(slotNamed(left).file)).toBe(false),
+		);
+		expect(reported).toEqual([]);
+	});
+
+	it("is stopped and replaced once it runs past its warm's limit with no warm mark", async () => {
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: SPARE_CHECK_MS,
+				spareWarmWithinMs: 200,
+			},
+		});
+		units.next = { warmsWhen: new Promise<void>(() => undefined) };
+		await supervisor.adopt();
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+		const stuck = units.started[0] ?? "";
+
+		await vi.waitFor(() => expect(units.stopped).toContain(stuck));
+
+		expect(
+			said.some((line) =>
+				line.includes(`${stuck}: stopped a spare that never warmed`),
+			),
+		).toBe(true);
+		await vi.waitFor(() => {
+			expect(units.started).toHaveLength(2);
+			expect(existsSync(warmMark(units.started[1] ?? ""))).toBe(true);
+		});
+		expect(reported).toEqual([]);
+	});
+
 	it("is let go and replaced once it leaves untaken", async () => {
 		keepingSpares();
 		let first = true;

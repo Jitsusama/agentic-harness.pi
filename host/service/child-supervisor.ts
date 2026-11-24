@@ -193,6 +193,13 @@ export const SPARE_AFTER_MS = 10_000;
 /** How often the host asks whether its spare still runs, or should. */
 export const SPARE_CHECK_MS = 60_000;
 /**
+ * How long a spare may run with no warm mark before the host stops it,
+ * as one whose warm will never settle. A probe on 24 November built a
+ * spare's services in 6.3 to 13.6 s cold, and starts reached 32 s at
+ * p90 on a loaded machine; this is well past both.
+ */
+export const SPARE_WARM_WITHIN_MS = 120_000;
+/**
  * A spare that leaves untaken within this long of its start left for
  * a fault, its warm's or its size, rather than for its install moving.
  */
@@ -481,9 +488,10 @@ export function childSupervisor(options: {
 	 * version is taken as it stands.
 	 */
 	spareMoved?: (version: string) => Promise<string | undefined>;
-	/** For tests: SPARE_AFTER_MS and SPARE_CHECK_MS. */
+	/** For tests: SPARE_AFTER_MS, SPARE_CHECK_MS and SPARE_WARM_WITHIN_MS. */
 	spareAfterMs?: number;
 	spareCheckMs?: number;
+	spareWarmWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -621,7 +629,11 @@ export function childSupervisor(options: {
 	// host has given spares up for it.
 	let sparesLost = 0;
 	let sparesGivenUp = false;
+	// Whether a spare may start now: not before the adopt has settled, nor
+	// within SPARE_AFTER_MS of a take, so none builds beside a start.
+	let spareDue = false;
 	const spareAfterMs = options.spareAfterMs ?? SPARE_AFTER_MS;
+	const spareWarmWithinMs = options.spareWarmWithinMs ?? SPARE_WARM_WITHIN_MS;
 	const spareTimers = new Set<ReturnType<typeof setTimeout>>();
 	const spareCheck = setInterval(
 		() => void checkSpare().catch(options.report),
@@ -631,7 +643,7 @@ export function childSupervisor(options: {
 
 	/** Start a spare, unless one runs or starts, or none is wanted. */
 	function keepSpare(): void {
-		if (closing || spare || startingSpare || sparesGivenUp) return;
+		if (closing || !spareDue || spare || startingSpare || sparesGivenUp) return;
 		if (!options.spares?.()) return;
 		startingSpare = true;
 		const slot = slotOf(options.folder, options.key, randomUUID());
@@ -653,11 +665,18 @@ export function childSupervisor(options: {
 			});
 	}
 
-	/** Start a spare in a moment, as after a take or an adopt. */
+	/**
+	 * Start a spare in a moment, as after a take or an adopt, and none
+	 * sooner: the check's own start waits for it too.
+	 */
 	function spareSoon(): void {
 		if (closing) return;
+		spareDue = false;
+		for (const timer of spareTimers) clearTimeout(timer);
+		spareTimers.clear();
 		const timer = setTimeout(() => {
 			spareTimers.delete(timer);
+			spareDue = true;
 			keepSpare();
 		}, spareAfterMs);
 		timer.unref();
@@ -678,8 +697,30 @@ export function childSupervisor(options: {
 	}
 
 	/**
-	 * Let the spare go once its unit has gone, or once the policy wants
-	 * none, and start another where one is wanted.
+	 * Let go a spare that left untaken, or is leaving, or never warmed:
+	 * say how long it ran, count it toward giving spares up, and free its
+	 * slot, stopping it first where it still runs and is let go `stopNow`.
+	 */
+	function spareLeft(
+		kept: { slot: Slot; started: number },
+		why: "left untaken" | "never warmed",
+		stopNow: boolean,
+	): void {
+		spare = undefined;
+		const lived = Date.now() - kept.started;
+		options.say?.(
+			why === "left untaken"
+				? `${kept.slot.unit}: a warm spare left untaken after ${inSeconds(lived)} s`
+				: `${kept.slot.unit}: stopped a spare that never warmed within ${inSeconds(spareWarmWithinMs)} s`,
+		);
+		spareLost(lived);
+		void leave(kept.slot, stopNow);
+	}
+
+	/**
+	 * Let the spare go once its unit has gone, once it has run too long
+	 * without warming, or once the policy wants none, and start another
+	 * where one is wanted and due.
 	 */
 	async function checkSpare(): Promise<void> {
 		const kept = spare;
@@ -687,19 +728,19 @@ export function childSupervisor(options: {
 			const wanted = options.spares?.() ?? false;
 			const gone =
 				wanted && (await units.gone(kept.slot.unit).catch(() => false));
+			const cold =
+				wanted &&
+				!gone &&
+				Date.now() - kept.started > spareWarmWithinMs &&
+				(await warmVersion(spareMarks(kept.slot.file)).catch(() => "")) ===
+					undefined;
 			// A take that began meanwhile settles it instead.
 			if (spare !== kept || takingSpare) return;
-			if (!wanted || gone) {
+			if (!wanted) {
 				spare = undefined;
-				if (gone) {
-					const lived = Date.now() - kept.started;
-					options.say?.(
-						`${kept.slot.unit}: a warm spare left untaken after ${inSeconds(lived)} s`,
-					);
-					spareLost(lived);
-				}
-				void leave(kept.slot, !gone);
-			}
+				void leave(kept.slot, true);
+			} else if (gone) spareLeft(kept, "left untaken", false);
+			else if (cold) spareLeft(kept, "never warmed", true);
 		}
 		keepSpare();
 	}
@@ -714,7 +755,16 @@ export function childSupervisor(options: {
 		takingSpare = true;
 		try {
 			// A spare that crashed leaves its mark, which a take would land on.
-			if (await units.gone(kept.slot.unit).catch(() => true)) return undefined;
+			// One gone is let go now, so its replacement need not wait for the
+			// check; one systemd can't say of is passed over and kept.
+			const gone = await units.gone(kept.slot.unit).catch(() => undefined);
+			if (gone !== false) {
+				if (gone) {
+					spareLeft(kept, "left untaken", false);
+					spareSoon();
+				}
+				return undefined;
+			}
 			const marks = spareMarks(kept.slot.file);
 			const version = await warmVersion(marks);
 			if (version === undefined) return undefined;
@@ -730,7 +780,12 @@ export function childSupervisor(options: {
 				spareSoon();
 				return undefined;
 			}
-			if (!(await takeSpare(marks))) return undefined;
+			// Its mark gone since it was read, the spare is leaving on its own.
+			if (!(await takeSpare(marks))) {
+				spareLeft(kept, "left untaken", false);
+				spareSoon();
+				return undefined;
+			}
 			spare = undefined;
 			sparesLost = 0;
 			options.say?.(

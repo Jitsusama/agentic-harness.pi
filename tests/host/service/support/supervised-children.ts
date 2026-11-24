@@ -480,6 +480,7 @@ interface Clocks {
 	turnWaitSaidMs?: number;
 	spareAfterMs?: number;
 	spareCheckMs?: number;
+	spareWarmWithinMs?: number;
 	/** Whether the supervisor keeps a warm spare, as its policy would say. */
 	spares?: () => boolean;
 	/** Why a spare's version no longer fits, as its install would say. */

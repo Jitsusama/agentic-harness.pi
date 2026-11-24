@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	isSpareSlot,
 	type SpareWait,
@@ -150,8 +150,10 @@ describe("a warm spare", () => {
 				},
 			}),
 		);
-		await until(marks.taken);
-		expect(took).toBe(true);
+		// The taken mark is there once the rename lands, a moment before the
+		// take that made it hears so.
+		await vi.waitFor(() => expect(took).toBe(true));
+		expect(existsSync(marks.taken)).toBe(true);
 		await name({});
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});

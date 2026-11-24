@@ -389,14 +389,17 @@ input pipeline or screen. No unit or running host is installed yet.
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. Where its policy says, it keeps one warm spare
-  started 10 s after its adopt and after each take, which a start
+  started 10 s after its adopt and after each take, and never sooner,
+  which a start
   given its turn takes in place of starting a unit, said as "took a
   warm spare" in the journal; a spare still warming is passed over,
   and one whose version its install has moved on from is passed over
   and stopped, said as "passed over a warm spare", so no wake lands
   on code a fresh start would no longer run.
-  One that leaves untaken is let go and replaced, and once three in a
-  row leave within 300 s of starting the host keeps none until it
+  One that leaves untaken is let go and replaced, whether the check or
+  a take finds it gone, and one with no warm mark 120 s after its start
+  is stopped, said as "stopped a spare that never warmed". Once three
+  in a row leave within 300 s of starting the host keeps none until it
   restarts. A host taking up its last one's slots stops every spare
   left untaken, since it may run old code. To halt the children's
   conversations too, stop their units:
