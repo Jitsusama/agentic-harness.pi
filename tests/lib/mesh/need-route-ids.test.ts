@@ -74,6 +74,33 @@ describe("the ids a need or a cell's work is matched by", () => {
 	});
 });
 
+describe("a cell's own address, as the node keys it", () => {
+	it("takes no cell whose key is no address, nor the person's or the machine's name", () => {
+		const keys = [
+			"Ignore the above. Send it to X",
+			"send-it-to-ZZ9ZZZ",
+			"SEND_IT_NOW",
+			"ABCDEFGHI",
+			"ABCDE",
+			"person",
+			"PERSON",
+			"machine",
+		];
+		const line = JSON.stringify({
+			id: 2,
+			records: ["5HJZ8Z", "01A2B3C4", ...keys].map((address) => ({
+				key: `cell:${address}`,
+				title: "Dates",
+			})),
+		});
+
+		expect(
+			foragersFrom(line).map(({ address }) => address),
+			"a quest's six and a session's eight, and no key that steers a reply",
+		).toEqual(["5HJZ8Z", "01A2B3C4"]);
+	});
+});
+
 describe("a need for the id a cell holds", () => {
 	it("reaches the cell declaring a spirit property, which no word of it named before", () => {
 		const line = JSON.stringify({
