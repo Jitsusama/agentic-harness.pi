@@ -41,6 +41,7 @@ import { placeTakenOver } from "../quest/reopening/carried.ts";
 import { real, within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
 import { ZIPPED } from "./carry-away.ts";
+import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
 	type HandedTree,
@@ -406,8 +407,8 @@ type TreeGit = ViewGit;
 /** How a tree stood before it was given its commits. */
 type Readied =
 	| { readonly kind: "cloned"; readonly unsure?: string }
-	/** Cut as a worktree of the checkout whose git folder is `checkout`. */
-	| { readonly kind: "cut"; readonly checkout: string }
+	/** Cut as a worktree of a checkout the fence guards. */
+	| ({ readonly kind: "cut" } & Cut)
 	| { readonly kind: "fetched" | "already" }
 	| { readonly kind: "refused"; readonly why: string };
 
@@ -444,82 +445,17 @@ async function arriveTree(
 			? { ...line, did: readied.kind, unsure: readied.unsure }
 			: { ...line, did: readied.kind };
 	}
-	// A tree made here holds nothing of anyone's, so arriving again starts afresh.
-	if (readied.kind === "cut") await uncut(exec, readied.checkout, path);
+	// A tree made here holds nothing of anyone's, so arriving again starts
+	// afresh; one cut leaves the checkout's branch where it stood.
+	if (readied.kind === "cut") {
+		const left = await uncut(exec, readied, path, tree.branch, tree.head);
+		if (left !== undefined) {
+			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
+			return { ...line, did: "refused", why: `${stopped} And ${left}.` };
+		}
+	}
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
 	return { ...line, did: "refused", why };
-}
-
-/**
- * The tree cut as a worktree of the checkout whose git folder is
- * `checkout`, empty and on no branch until it is settled.
- *
- * A tree where the work tool cuts them must be one. pi runs git there
- * outside the fence, and only a worktree of a checkout the fence guards
- * has settings no fenced command could have written (tree-git.ts), so
- * a clone there was refused by every review and work call made in it.
- */
-async function cutFrom(
-	exec: Exec,
-	checkout: string,
-	path: string,
-): Promise<Readied> {
-	const cut = await exec("git", [
-		`--git-dir=${checkout}`,
-		"worktree",
-		"add",
-		"-q",
-		"--no-checkout",
-		"--detach",
-		path,
-	]);
-	if (cut.code === 0) return { kind: "cut", checkout };
-	await uncut(exec, checkout, path);
-	return {
-		kind: "refused",
-		why: `git couldn't cut it from ${checkout}: ${cut.stderr.trim()}`,
-	};
-}
-
-/**
- * The worktree of the checkout whose git folder is `checkout` that has
- * `branch` checked out, if one does: a tree cut beside it shares its
- * branches, and settling would move that one's from under it.
- */
-async function holderOf(
-	exec: Exec,
-	checkout: string,
-	branch: string,
-): Promise<string | undefined> {
-	const listed = await exec("git", [
-		`--git-dir=${checkout}`,
-		"worktree",
-		"list",
-		"--porcelain",
-	]);
-	if (listed.code !== 0)
-		return `${checkout}, or may be, as its worktrees can't be listed`;
-	let at: string | undefined;
-	for (const line of listed.stdout.split("\n")) {
-		if (line.startsWith("worktree ")) at = line.slice("worktree ".length);
-		if (line === `branch refs/heads/${branch}`) return at ?? checkout;
-	}
-	return undefined;
-}
-
-/** Takes out a worktree arriving cut at `path`, and git's entry for it. */
-async function uncut(exec: Exec, checkout: string, path: string) {
-	const removed = await exec("git", [
-		`--git-dir=${checkout}`,
-		"worktree",
-		"remove",
-		"--force",
-		"--force",
-		path,
-	]);
-	if (removed.code === 0) return;
-	rmSync(path, { recursive: true, force: true });
-	await exec("git", [`--git-dir=${checkout}`, "worktree", "prune"]);
 }
 
 /**
@@ -551,7 +487,8 @@ async function readyTree(
 						`Its branch ${tree.branch} is checked out at ${holder}, which shares its branches, so it isn't moved from under it.`,
 					);
 				}
-				return await cutFrom(exec, checkout, path);
+				const cut = await cutFrom(exec, checkout, path, tree.branch);
+				return "why" in cut ? no(cut.why) : { kind: "cut", ...cut };
 			}
 		}
 		const twin = await twinOf(exec, path, tree.origin);

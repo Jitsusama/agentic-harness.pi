@@ -5,7 +5,13 @@
  * checkout holds its origin.
  */
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -181,6 +187,40 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 			await git(checkout, "worktree", "list", "--porcelain"),
 			"and git keeps no entry for it",
 		).not.toContain(tree);
+	});
+
+	it.each([
+		["takes out the branch it made", false],
+		["puts the branch back where it stood", true],
+	])("refused once cut, %s in the checkout", async (_, branched) => {
+		const { origin, from } = await carriedFromTrees();
+		const home = folder(made, "arriving");
+		const checkout = await cloneAt(origin, join(home, "src", "origin"));
+		if (branched) await git(checkout, "branch", "topic");
+		const stood = branched
+			? await git(checkout, "rev-parse", "topic")
+			: undefined;
+		// Its changes no longer apply, so it is refused after its checkout.
+		const patch = readdirSync(from).find((name) => name.endsWith(".patch"));
+		writeFileSync(join(from, patch ?? "none"), "no patch at all\n");
+
+		const { whole, said, tree } = await arriveAt(home, from);
+
+		expect(whole).toBe(false);
+		expect(said[0]).toMatchObject({ did: "refused" });
+		expect(String(said[0]?.kind === "tree" && said[0].why)).toMatch(
+			/^Its changes didn't apply/,
+		);
+		expect(existsSync(tree)).toBe(false);
+		const now = await exec("git", [
+			"-C",
+			checkout,
+			"rev-parse",
+			"--verify",
+			"-q",
+			"refs/heads/topic",
+		]);
+		expect(now.code === 0 ? now.stdout.trim() : undefined).toBe(stood);
 	});
 
 	it("clones it as before where no checkout the fence guards holds its origin", async () => {
