@@ -35,7 +35,13 @@ afterEach(() => {
 const REFUSED: ExecResult = {
 	code: 128,
 	stdout: "",
-	stderr: "fatal: Could not read from remote repository.",
+	stderr: [
+		"remote: this origin is down for the night",
+		"fatal: Could not read from remote repository.",
+		"",
+		"Please make sure you have the correct access rights",
+		"and the repository exists.",
+	].join("\n"),
 };
 
 /** A tree with nothing in it, for git to run in. */

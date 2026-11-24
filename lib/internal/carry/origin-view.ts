@@ -85,11 +85,10 @@ export const BOUNDED = [
 const LISTING = 60;
 
 /**
- * How long origin has to send what a tree asks of it, over any
- * transport: the branches it moved past the twin, all told, or one
- * commit a carried tree needs.
+ * How long origin has to send the branches it moved past the twin, all
+ * told, over any transport.
  */
-export const FETCHING = 900;
+const FETCHING = 900;
 
 /** How many of the branches left aside an arrival names. */
 const NAMED = 5;
@@ -317,9 +316,27 @@ function namesOf(names: readonly string[]): string {
 		: shown;
 }
 
-/** What git said of why it failed. */
-function saidOf(result: ExecResult): string {
-	return result.stderr.trim() || `git exited ${result.code}`;
+/** What `timed` says first of a command it stopped. */
+const STOPPED = "git was stopped after ";
+
+/**
+ * What git said of why it failed, for an arrival line: its own `fatal:`
+ * and `error:` lines and that it was stopped, never a server's
+ * `remote:` lines or the hints after; all it said but those `remote:`
+ * lines where it said none of its own; or how it exited where it said
+ * nothing.
+ */
+export function saidOf(result: ExecResult): string {
+	const lines = result.stderr
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line !== "");
+	const own = lines.filter(
+		(line) => /^(fatal|error): /.test(line) || line.startsWith(STOPPED),
+	);
+	const kept =
+		own.length > 0 ? own : lines.filter((line) => !line.startsWith("remote:"));
+	return kept.join(" ") || `git exited ${result.code}`;
 }
 
 /**
@@ -458,8 +475,7 @@ async function timed(
 	return clock.aborted && done.code !== 0
 		? {
 				...done,
-				stderr:
-					`git was stopped after ${seconds} seconds. ${done.stderr}`.trim(),
+				stderr: `${STOPPED}${seconds} seconds.\n${done.stderr}`.trim(),
 			}
 		: done;
 }
