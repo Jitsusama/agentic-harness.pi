@@ -638,11 +638,19 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 function commonest(whys: readonly string[]): Record<string, number> {
 	const counts = new Map<string, number>();
 	for (const said of whys) {
-		// The one reason that names its tree's branch, counted as one reason.
-		const why = said.replace(
-			/^(nothing holds it, but )\S+( is not contained in trunk)/,
-			"$1its branch$2",
-		);
+		// Reasons that name their tree's branch, lock or folder, each counted
+		// as one reason: told apart by a path or a pid, a tree kept for its
+		// record's lock would never be among the commonest, and went unseen.
+		const why = said
+			.replace(
+				/^(nothing holds it, but )\S+( is not contained in trunk)/,
+				"$1its branch$2",
+			)
+			.replace(
+				/^\S+ has been held for over (\d+)s by .*$/s,
+				"its record's lock was held for over $1s by a process still running",
+			)
+			.replace(/^git can't read \S+$/, "git can't read its folder");
 		counts.set(why, (counts.get(why) ?? 0) + 1);
 	}
 	return Object.fromEntries(

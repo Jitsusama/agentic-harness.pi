@@ -52,6 +52,9 @@ const rests: (number | undefined)[] = [];
 /** The exec each sweep was given to run git with. */
 const execs: Exec[] = [];
 
+/** The trees the next sweep keeps, and why, as the library says. */
+const keeps: { path: string; why: string }[] = [];
+
 /** The idle takes and time each sweep was given, which a host leaves as the library's. */
 const idleAsks: { takes?: number; within?: number; paused: boolean }[] = [];
 
@@ -99,6 +102,7 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
+			kept: [...keeps],
 			...(idle.partly === undefined ? {} : { idleUnjudged: idle.partly }),
 		};
 	},
@@ -129,6 +133,7 @@ beforeEach(() => {
 	delete idle.skipped;
 	delete idle.failed;
 	delete idle.partly;
+	keeps.length = 0;
 	host = installTestHost();
 });
 afterEach(() => {
@@ -334,6 +339,48 @@ it("says how each sweep ended", async () => {
 		rested: "rested",
 		skipped: "skipped",
 		failed: "failed",
+	});
+});
+
+it("counts each reason naming its tree's lock or folder as one reason", async () => {
+	// Eight reasons commoner than these, as a sweep on 23 November kept 643
+	// trees for eight, so a reason told apart by its path or pid is never
+	// counted among the commonest, and a tree kept for its lock went unseen.
+	for (const [count, why] of [9, 8, 7, 6, 5, 4, 3, 3].entries()) {
+		for (let one = 0; one < why; one++) {
+			keeps.push({ path: `/t/${count}-${one}`, why: `reason ${count}` });
+		}
+	}
+	for (const pid of [101, 102, 103, 104]) {
+		keeps.push({
+			path: `/t/locked-${pid}`,
+			why: `/state/trees/locked-${pid}.lock has been held for over 10s by pid ${pid}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
+		});
+	}
+	for (const tree of ["a", "b", "c", "d", "e"]) {
+		keeps.push({
+			path: `/t/${tree}`,
+			why: `git can't read /world/trees/${tree}/src`,
+		});
+	}
+
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept() {},
+	});
+
+	const line = JSON.parse(readFileSync(sweepLog(), "utf8").trim()) as {
+		keptFor: Record<string, number>;
+	};
+	expect(line.keptFor, "the commonest reasons kept").toEqual({
+		"reason 0": 9,
+		"reason 1": 8,
+		"reason 2": 7,
+		"reason 3": 6,
+		"reason 4": 5,
+		"git can't read its folder": 5,
+		"its record's lock was held for over 10s by a process still running": 4,
+		"reason 5": 4,
 	});
 });
 
