@@ -67,9 +67,13 @@ async function buildTemplate(): Promise<string> {
 	// config must not decide whether the suite passes. gpgsign is
 	// disabled the same way: a machine with commit signing on by
 	// default must not make these commits hang on a signing prompt.
+	// Tags too: with tag.gpgsign on, a plain `git tag` is made signed
+	// and annotated, so it opens an editor for its message and waits
+	// there, outliving the test that ran it.
 	await git(dir, "config", "user.email", "test@example.com");
 	await git(dir, "config", "user.name", "Test");
 	await git(dir, "config", "commit.gpgsign", "false");
+	await git(dir, "config", "tag.gpgsign", "false");
 	writeFileSync(join(dir, "README.md"), "scratch repo\n");
 	await git(dir, "add", "README.md");
 	await git(dir, "commit", "-qm", "initial");
