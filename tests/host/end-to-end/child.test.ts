@@ -40,14 +40,13 @@ const CASE_MS = 60_000;
 const LISTEN_MS = 30_000;
 /**
  * The most a child on pi's engine may hold with one conversation open, in
- * MB: about twice the 527 MB the first one measured held (20 November),
- * so a child grown much heavier fails here. It is read once the child has
- * collected what its open's load left, as a quiet child does, not straight
- * after the open: uncollected, a child that only opened held over 1100 MB,
- * a heap of about 900 MB, in 7 of 101 runs from 20 to 24 November, and
- * held it for as long as it sat.
+ * MB, once it has collected what its open's load left, as a quiet child
+ * does. Fifteen collected children held 300 to 347 MB (23 and 24
+ * November), so this is half as much again as the most of them, and a
+ * child grown much heavier, or one whose collection frees nothing, fails
+ * here. Straight after the open, uncollected, a child held 714 to 1226 MB.
  */
-const CHILD_RSS_MB = 1024;
+const CHILD_RSS_MB = 512;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
 const COLLECTED_MS = 30_000;
 /** What a child says once it has collected while quiet. */
@@ -226,15 +225,25 @@ async function saying(
 
 /**
  * The heap a child's collection says it went from and to, as `900 of
- * 950 MB to 112 of 300 MB`, read from its own line rather than a state
- * line, which may have been sent before the collection (F2 on #2104).
+ * 950 MB to 112 of 300 MB`, and the MB it used each side, read from its
+ * own line rather than a state line, which may have been sent before the
+ * collection (F2 on #2104).
  */
-function collectedHeap(said: string): string {
-	const [, before, after] =
-		/Collected while quiet[^\n]*?, heap (\d+ of \d+ MB) to (\d+ of \d+ MB)/.exec(
+function collectedHeap(said: string): {
+	readonly words: string;
+	readonly usedBefore?: number;
+	readonly usedAfter?: number;
+} {
+	const [, before, usedBefore, after, usedAfter] =
+		/Collected while quiet[^\n]*?, heap ((\d+) of \d+ MB) to ((\d+) of \d+ MB)/.exec(
 			said,
 		) ?? [];
-	return before === undefined ? "unread" : `${before} to ${after}`;
+	if (before === undefined) return { words: "unread" };
+	return {
+		words: `${before} to ${after}`,
+		usedBefore: Number(usedBefore),
+		usedAfter: Number(usedAfter),
+	};
 }
 
 /** Each line after the answer, up to and with the ending. */
@@ -356,10 +365,16 @@ it(
 				const atOpen = await residentMb(child.process.pid);
 				await saying(child.errors, COLLECTED, COLLECTED_MS);
 				const held = await residentMb(child.process.pid);
+				const heap = collectedHeap(child.errors());
 				process.stdout.write(
-					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${collectedHeap(child.errors())}\n`,
+					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
 				);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
+				// F6 on #2104: the collection itself freed the open's load, which
+				// left the heap at 208 MB or more, and 121 MB or less after it.
+				expect(heap.usedAfter, "MB the heap uses once collected").toBeLessThan(
+					heap.usedBefore ?? 0,
+				);
 				const closed = await controlRequest(child.socket, {
 					v: 1,
 					id: "c",
