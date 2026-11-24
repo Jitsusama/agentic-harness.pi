@@ -12,10 +12,10 @@
  */
 
 import type { RefusedWake } from "../../lib/internal/session/refused-wake.ts";
+import { isAddress } from "../../lib/mesh/address.ts";
 import { clock } from "../../lib/mesh/message.ts";
 import { oneLine } from "../../lib/mesh/one-line.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
-import { isAddress } from "../../lib/mesh/steer-who.ts";
 
 /** A parked peer's refused wake, when its host keeps one. */
 export type Refusal = (presence: Presence) => RefusedWake | undefined;

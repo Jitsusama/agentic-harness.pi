@@ -31,6 +31,7 @@ import {
 	MOST_WORDS,
 	type NeedRecord,
 	needId,
+	partOfNumbered,
 	saysWord,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
@@ -180,15 +181,20 @@ export async function needRead(
 	// workflow or pi host, yet its parts
 	// routed it, so it goes unsaid when the words kept say it as routing
 	// reads them: every part long and rare enough to be a word, and a
-	// numbered id, leg-27, only whole. A word kept that only ended cells
-	// work on, which routing says, is said whatever was dropped.
+	// numbered id, leg-27, only whole, and its parts not apart from it,
+	// since a leg-26 cell's leg is no work on it. A word kept that only
+	// ended cells work on, which routing says, is said whatever was dropped.
 	const kept = new Set(found.words);
+	const saying = new Set(words);
 	const unasked = (went: Went) =>
 		unaskedText(
 			fromText || found.words.length >= MOST_WORDS
 				? []
 				: words.filter(
-						(word) => word.length <= LONGEST_WORD && !saysWord(word, kept),
+						(word) =>
+							word.length <= LONGEST_WORD &&
+							!saysWord(word, kept) &&
+							!partOfNumbered(word, saying),
 					),
 			found.unheld ?? [],
 			found.words,

@@ -4,6 +4,7 @@
  */
 
 import { isId, prefixOf } from "../../../lib/internal/quest/creation/id.ts";
+import { isAddress } from "../../../lib/mesh/address.ts";
 import {
 	groupNamed,
 	groupsNamed,
@@ -17,7 +18,6 @@ import type { Tie } from "../../../lib/mesh/node.ts";
 import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach } from "./reach.ts";
