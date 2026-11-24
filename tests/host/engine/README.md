@@ -12,7 +12,8 @@ is scrubbed from each streamed update, the committed result and the
 saved output file, and that a printed environment is scrubbed as a
 dump by the arguments the call ran with, with no extension loaded.
 parked-warming.test.ts warms a parked conversation's carry on fake
-timers with a scripted send, over real files. kept-providers.test.ts
+timers with a scripted send, over real files, and a wake landing
+while a carry is read or written. kept-providers.test.ts
 keeps what a conversation's extensions registered of its providers and
 registers it on a warm's runtime, over real files. left-running.test.ts
 keeps what a park noted for a day beside what is carried, and drops a

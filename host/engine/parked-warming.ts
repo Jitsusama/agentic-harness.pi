@@ -32,6 +32,15 @@
  * rewrite early. A held warm has sent nothing, so it isn't in flight
  * and holds up no restart; the next host finds it still due in the
  * carry and sends it once the call ends.
+ *
+ * Every read and write of a carry goes off the host's thread. Each
+ * holds the whole conversation, and on 23 November the background
+ * host's loop held 18 times in a day, up to 15 s at once, opening and
+ * renaming carries while the disk waited on its own commits. Once a
+ * warm's write is under way, a wake can land before it ends; so it
+ * looks again before each step, and a carry its rename put back after
+ * the wake is removed, since the waking session takes the carry and
+ * a stale one left would be warmed again after a restart.
  */
 
 import {
@@ -46,10 +55,11 @@ import {
 } from "../../lib/internal/cache/cache-warming.ts";
 import { CALL_LOOK_MS } from "../../lib/internal/cache/calls.ts";
 import {
-	addPendingWarm,
-	readWarmingCarry,
+	addPendingWarmOff,
+	readWarmingCarryOff,
+	removeWarmingCarryOff,
 	type WarmingCarry,
-	writeWarmingCarry,
+	writeWarmingCarryOff,
 } from "../../lib/internal/cache/warming-carry.ts";
 import type { ModelRuntime } from "./pi-session.ts";
 
@@ -79,6 +89,26 @@ export interface ParkedWarming {
 	inFlight(): number;
 }
 
+/** Where the warming keeps each carry and the warms sent on it. */
+export interface CarryFiles {
+	read(dir: string, sessionId: string): Promise<WarmingCarry | null>;
+	write(dir: string, carry: WarmingCarry): Promise<void>;
+	remove(dir: string, sessionId: string): Promise<void>;
+	addPending(
+		dir: string,
+		sessionId: string,
+		record: Readonly<Record<string, unknown>>,
+	): Promise<void>;
+}
+
+/** The carries on disk, every step off the thread. */
+const OFF_THREAD: CarryFiles = {
+	read: readWarmingCarryOff,
+	write: writeWarmingCarryOff,
+	remove: removeWarmingCarryOff,
+	addPending: addPendingWarmOff,
+};
+
 /** One parked conversation's warming. */
 interface Warming {
 	readonly controller: AbortController;
@@ -105,8 +135,11 @@ export function parkedWarming(options: {
 	/** A call outlasted the entry, so its warming ended unsent. */
 	readonly held: (sessionId: string) => void;
 	readonly report: (error: unknown) => void;
+	/** Where carries are kept; on disk off the thread unless a test says. */
+	readonly files?: CarryFiles;
 }): ParkedWarming {
 	const { carries, pending, report } = options;
+	const files = options.files ?? OFF_THREAD;
 	const warmings = new Map<string, Warming>();
 	let flying = 0;
 
@@ -116,6 +149,11 @@ export function parkedWarming(options: {
 		if (warming.timer !== undefined) clearTimeout(warming.timer);
 		warming.controller.abort();
 		warmings.delete(sessionId);
+	};
+
+	/** Stop `warming` if it is still the conversation's, never a later one. */
+	const stopIf = (sessionId: string, warming: Warming) => {
+		if (warmings.get(sessionId) === warming) stop(sessionId);
 	};
 
 	/** When its next warm falls due and when that is too late, or nothing to warm. */
@@ -136,7 +174,7 @@ export function parkedWarming(options: {
 				void warm(sessionId, warming).catch((error: unknown) => {
 					// A rejection from a timer has nobody above it; warming is
 					// never worth taking the host down.
-					stop(sessionId);
+					stopIf(sessionId, warming);
 					report(error);
 				}),
 			Math.max(0, at - Date.now()),
@@ -146,10 +184,10 @@ export function parkedWarming(options: {
 
 	const warm = async (sessionId: string, warming: Warming) => {
 		warming.timer = undefined;
-		const carry = readWarmingCarry(carries, sessionId);
+		const carry = await files.read(carries, sessionId);
 		const next = carry ? due(carry) : undefined;
 		if (!carry || !next || !(await options.enabled())) {
-			stop(sessionId);
+			stopIf(sessionId, warming);
 			return;
 		}
 		if (warmings.get(sessionId) !== warming) return;
@@ -170,17 +208,39 @@ export function parkedWarming(options: {
 			warming.heldSince === undefined ? undefined : sentAt - warming.heldSince;
 		warming.heldSince = undefined;
 		flying += 1;
-		let sent: WarmSent;
 		try {
-			sent = await options.send(carry, warming.controller.signal);
+			await sendAndKeep(sessionId, warming, carry, {
+				sentAt,
+				deadline: next.deadline,
+				heldForCallMs,
+			});
 		} finally {
 			flying -= 1;
 		}
+	};
+
+	/**
+	 * Send the warm and keep what it did, its writes counted in flight
+	 * with it, so a restart waits for the carry to land whole.
+	 */
+	const sendAndKeep = async (
+		sessionId: string,
+		warming: Warming,
+		carry: WarmingCarry,
+		when: {
+			readonly sentAt: number;
+			readonly deadline: number;
+			readonly heldForCallMs: number | undefined;
+		},
+	) => {
+		const { sentAt, deadline, heldForCallMs } = when;
+		const sent = await options.send(carry, warming.controller.signal);
 		// It woke or closed while the warm was out: its session owns the
 		// carry now, and nothing more is written.
-		if (warming.controller.signal.aborted) return;
+		const woke = () => warming.controller.signal.aborted;
+		if (woke()) return;
 		if (!sent.ok) {
-			if (!warming.retried && Date.now() + RETRY_AFTER_MS <= next.deadline) {
+			if (!warming.retried && Date.now() + RETRY_AFTER_MS <= deadline) {
 				warming.retried = true;
 				schedule(sessionId, warming, Date.now() + RETRY_AFTER_MS);
 				return;
@@ -196,8 +256,14 @@ export function parkedWarming(options: {
 			refreshedAt: sentAt,
 			warms: missed ? MAX_IDLE_WARMS : carry.warms + 1,
 		};
-		writeWarmingCarry(carries, warmed);
-		addPendingWarm(pending, sessionId, {
+		await files.write(carries, warmed);
+		if (woke()) {
+			// Its session may have taken the carry before the rename put it
+			// back; the warm goes unrecorded, as one still out at a wake does.
+			await files.remove(carries, sessionId);
+			return;
+		}
+		await files.addPending(pending, sessionId, {
 			provider: sent.message.provider,
 			model: sent.message.responseModel ?? sent.message.model,
 			usage: sent.message.usage,
@@ -215,15 +281,26 @@ export function parkedWarming(options: {
 	return {
 		start(sessionId) {
 			stop(sessionId);
-			const carry = readWarmingCarry(carries, sessionId);
-			const next = carry ? due(carry) : undefined;
-			if (!next) return;
+			// Taken as its own before its carry is read, so a wake while it
+			// reads stops it.
 			const warming: Warming = {
 				controller: new AbortController(),
 				retried: false,
 			};
 			warmings.set(sessionId, warming);
-			schedule(sessionId, warming, next.dueAt);
+			void files
+				.read(carries, sessionId)
+				.then((carry) => {
+					if (warmings.get(sessionId) !== warming) return;
+					const next = carry ? due(carry) : undefined;
+					if (next) schedule(sessionId, warming, next.dueAt);
+					else stop(sessionId);
+				})
+				.catch((error: unknown) => {
+					// As a timer's, a read's rejection has nobody above it.
+					stopIf(sessionId, warming);
+					report(error);
+				});
 		},
 		stop,
 		inFlight: () => flying,

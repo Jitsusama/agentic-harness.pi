@@ -3,19 +3,24 @@
  * on the schedule the session's own warming kept, 54 minutes after the
  * entry was last refreshed and at most four warms in all, and records
  * each warm for the session's next start. Fake timers stand in for the
- * hours; the carries are real files.
+ * hours; the carries are real files, read and written through the sync
+ * functions so each step lands in turn, apart from the cases that drive
+ * the host's own off-thread files.
  */
 import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type CarryFiles,
 	parkedWarming,
 	type WarmSent,
 } from "../../../host/engine/parked-warming.ts";
 import {
+	addPendingWarm,
 	readWarmingCarry,
 	takePendingWarms,
+	takeWarmingCarry,
 	type WarmingCarry,
 	writeWarmingCarry,
 } from "../../../lib/internal/cache/warming-carry.ts";
@@ -98,11 +103,24 @@ function reply(cacheWrite = 0): WarmSent {
 	};
 }
 
+/** The carries on disk through the sync functions, each step settled in turn. */
+const inTurn: CarryFiles = {
+	read: async (dir, sessionId) => readWarmingCarry(dir, sessionId),
+	write: async (dir, carry) => writeWarmingCarry(dir, carry),
+	remove: async (dir, sessionId) => {
+		takeWarmingCarry(dir, sessionId);
+	},
+	addPending: async (dir, sessionId, record) =>
+		addPendingWarm(dir, sessionId, record),
+};
+
 function warmer(
 	options: {
 		send?: (carry: WarmingCarry) => Promise<WarmSent>;
 		enabled?: boolean;
 		call?: { on: boolean };
+		/** Left out, the sync files; `null`, the host's own off the thread. */
+		files?: CarryFiles | null;
 	} = {},
 ) {
 	const sent: WarmingCarry[] = [];
@@ -119,6 +137,7 @@ function warmer(
 		callOn: async () => options.call?.on ?? false,
 		held,
 		report,
+		...(options.files === null ? {} : { files: options.files ?? inTurn }),
 	});
 	return { warming, sent, report, held };
 }
@@ -338,5 +357,97 @@ describe("warming a parked conversation while a call is on", () => {
 			0, 0, 1,
 		]);
 		expect(readWarmingCarry(carries, "s2")).toMatchObject({ warms: 2 });
+	});
+});
+
+/** A promise held open until the test lets it go. */
+function heldOpen<T>() {
+	let release: (value: T) => void = () => undefined;
+	const promise = new Promise<T>((resolve) => {
+		release = resolve;
+	});
+	return { promise, release };
+}
+
+describe("warming a parked conversation off the host's thread", () => {
+	it("reads, warms and keeps the carry through the host's own files", async () => {
+		parkedCarry({ warms: 1 });
+		const { warming, sent } = warmer({ files: null });
+
+		warming.start("s2");
+		// The read is real I/O; its timer is set once it lands.
+		await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+		await wait(WARM_EVERY);
+		await vi.waitFor(() =>
+			expect(readWarmingCarry(carries, "s2")?.warms).toBe(2),
+		);
+		await vi.waitFor(() => expect(warming.inFlight()).toBe(0));
+
+		expect(sent).toHaveLength(1);
+		expect(takePendingWarms(pending, "s2")).toEqual([
+			expect.objectContaining({ warm: 2, parked: true }),
+		]);
+	});
+
+	it("leaves no carry and records nothing when it wakes while the carry is written", async () => {
+		parkedCarry({ warms: 1 });
+		const writing = heldOpen<undefined>();
+		const { warming } = warmer({
+			files: {
+				...inTurn,
+				write: async (dir, carry) => {
+					await writing.promise;
+					writeWarmingCarry(dir, carry);
+				},
+			},
+		});
+
+		warming.start("s2");
+		await wait(WARM_EVERY);
+		const outWhileWriting = warming.inFlight();
+		// Its session wakes and takes the carry; the write lands after.
+		warming.stop("s2");
+		takeWarmingCarry(carries, "s2");
+		writing.release(undefined);
+		await wait(10 * WARM_EVERY);
+
+		expect([
+			outWhileWriting,
+			warming.inFlight(),
+			readdirSync(carries).filter((name) => name !== WRITING),
+			takePendingWarms(pending, "s2").length,
+		]).toEqual([1, 0, [], 0]);
+	});
+
+	it("sets no timer for one that wakes while its carry is read", async () => {
+		parkedCarry();
+		const reading = heldOpen<WarmingCarry | null>();
+		const { warming, sent } = warmer({
+			files: { ...inTurn, read: () => reading.promise },
+		});
+
+		warming.start("s2");
+		warming.stop("s2");
+		reading.release(readWarmingCarry(carries, "s2"));
+		await wait(0);
+		const timers = vi.getTimerCount();
+		await wait(10 * WARM_EVERY);
+
+		expect([timers, sent.length]).toEqual([0, 0]);
+	});
+
+	it("says a read that fails, and warms nothing", async () => {
+		parkedCarry();
+		const { warming, sent, report } = warmer({
+			files: {
+				...inTurn,
+				read: () => Promise.reject(new Error("EIO")),
+			},
+		});
+
+		warming.start("s2");
+		await wait(10 * WARM_EVERY);
+
+		expect([sent.length, report.mock.calls]).toEqual([0, [[new Error("EIO")]]]);
 	});
 });
