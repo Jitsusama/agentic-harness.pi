@@ -47,6 +47,15 @@ import {
 	underHome,
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
+import {
+	BOUNDED,
+	FETCHING,
+	gitIn,
+	type Held,
+	holdToOrigin,
+	takeView,
+	type ViewGit,
+} from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
 import { twinOf } from "./twin.ts";
 
@@ -79,6 +88,11 @@ export type ArrivalLine =
 			readonly branch: string;
 			readonly did: "cloned" | "fetched" | "refused";
 			readonly why?: string;
+			/**
+			 * For a tree that arrived, why it claims less of origin than
+			 * origin holds, so a carry onward may bundle more.
+			 */
+			readonly unsure?: string;
 	  }
 	| { readonly kind: "failed"; readonly why: string }
 	| {
@@ -320,16 +334,13 @@ function namedFiles(handover: Handover, from: string): string[] {
 	].map((name) => join(from, name));
 }
 
-/** git run in one tree, three ways of hearing it. */
-interface TreeGit {
-	run(...args: string[]): Promise<{ code: number; stderr: string }>;
-	ok(...args: string[]): Promise<boolean>;
-	said(...args: string[]): Promise<string | undefined>;
-}
+/** git run in one tree, three ways of hearing it, and its refs set. */
+type TreeGit = ViewGit;
 
 /** How a tree stood before it was given its commits. */
 type Readied =
-	| { readonly kind: "cloned" | "fetched" | "already" }
+	| { readonly kind: "cloned"; readonly unsure?: string }
+	| { readonly kind: "fetched" | "already" }
 	| { readonly kind: "refused"; readonly why: string };
 
 /** One tree put in place here, or refused with why. */
@@ -340,7 +351,7 @@ async function arriveTree(
 	home: string,
 ): Promise<Extract<ArrivalLine, { kind: "tree" }>> {
 	const path = underHome(tree.path, home);
-	const git = treeGit(exec, path);
+	const git = gitIn(exec, path);
 	const line = { kind: "tree" as const, path, branch: tree.branch };
 	const readied = await readyTree(exec, git, tree, from, path);
 	if (readied.kind === "refused") {
@@ -354,7 +365,11 @@ async function arriveTree(
 			? await standSparse(git.run, tree.sparse)
 			: undefined;
 	const why = unsparse ?? (await settleTree(git, tree, from));
-	if (why === undefined) return { ...line, did: readied.kind };
+	if (why === undefined) {
+		return readied.kind === "cloned" && readied.unsure !== undefined
+			? { ...line, did: readied.kind, unsure: readied.unsure }
+			: { ...line, did: readied.kind };
+	}
 	// A clone made here holds nothing of anyone's, so arriving again starts afresh.
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
 	return { ...line, did: "refused", why };
@@ -405,9 +420,12 @@ async function readyTree(
 			"The tree already there has changes of its own, which arriving would write over.",
 		);
 	}
-	return (await git.ok("fetch", "-q", "origin"))
+	const fetched = await git
+		.within(FETCHING)
+		.run(...BOUNDED, "fetch", "-q", "origin");
+	return fetched.code === 0
 		? { kind: "fetched" }
-		: no("git couldn't fetch its origin.");
+		: no(`git couldn't fetch its origin: ${fetched.stderr.trim()}`);
 }
 
 /**
@@ -447,22 +465,29 @@ async function cloneTwin(
 			why: `git couldn't clone ${twin}: ${cloned.stderr.trim()}`,
 		};
 	}
-	const why = await asOrigin(treeGit(exec, path), twin, tree.origin);
-	if (why === undefined) return { kind: "cloned" };
+	const held = await asOrigin(gitIn(exec, path), twin, tree.origin);
+	if (held.why === undefined) {
+		return held.unsure === undefined
+			? { kind: "cloned" }
+			: { kind: "cloned", unsure: held.unsure };
+	}
 	rmSync(path, { recursive: true, force: true });
-	return { kind: "refused", why };
+	return { kind: "refused", why: held.why };
 }
 
 /**
  * A tree cloned from `twin` made to hold only what `origin` holds: its
- * origin branches the twin's view of origin, no branch of its own, and
- * `origin` its remote. Answers why not, or nothing.
+ * origin branches the twin's view of origin, held to origin's own list,
+ * no branch of its own, and `origin` its remote. A twin with no view of
+ * origin, such as a bare clone, lends its own branches as the view, since
+ * origin's list then keeps only those that match. Answers why not, or
+ * why it claims less of origin than origin holds, or nothing.
  */
 async function asOrigin(
 	git: TreeGit,
 	twin: string,
 	origin: string,
-): Promise<string | undefined> {
+): Promise<Held> {
 	// The one branch a clone makes, the twin's own, goes; checking out
 	// the carried branch later makes it again from the carried head.
 	const own = await git.said("symbolic-ref", "-q", "HEAD");
@@ -472,28 +497,22 @@ async function asOrigin(
 	) {
 		const dropped = await git.run("update-ref", "-d", own);
 		if (dropped.code !== 0) {
-			return `git couldn't drop the twin's branch: ${dropped.stderr.trim()}`;
+			return {
+				why: `git couldn't drop the twin's branch: ${dropped.stderr.trim()}`,
+			};
 		}
 	}
-	// The clone's pointer to the twin's own branch, which the prune drops.
+	// The clone's pointer to the twin's own branch, which goes with it.
 	await git.run("symbolic-ref", "-q", "-d", "refs/remotes/origin/HEAD");
-	// Pruned to the twin's view of origin; its objects are here already.
-	const viewed = await git.run(
-		"fetch",
-		"-q",
-		"--prune",
-		"--no-tags",
-		twin,
-		"+refs/remotes/origin/*:refs/remotes/origin/*",
-		"^refs/remotes/origin/HEAD",
-	);
-	if (viewed.code !== 0) {
-		return `git couldn't take the twin's view of its origin: ${viewed.stderr.trim()}`;
-	}
+	const why = await takeView(git, twin);
+	if (why !== undefined) return { why };
 	const pointed = await git.run("remote", "set-url", "origin", origin);
-	return pointed.code === 0
-		? undefined
-		: `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`;
+	if (pointed.code !== 0) {
+		return {
+			why: `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`,
+		};
+	}
+	return holdToOrigin(git);
 }
 
 /**
@@ -536,18 +555,6 @@ async function settleTree(
 		: `Its changes didn't apply: ${applied.stderr.trim()}`;
 }
 
-function treeGit(exec: Exec, path: string): TreeGit {
-	const run = (...args: string[]) => exec("git", ["-C", path, ...args]);
-	return {
-		run,
-		ok: async (...args) => (await run(...args)).code === 0,
-		said: async (...args) => {
-			const result = await run(...args);
-			return result.code === 0 ? result.stdout.trim() : undefined;
-		},
-	};
-}
-
 /**
  * Brings the commits the tree needs: what the bundle left out, from the
  * remote branch each was on, then the bundle's own. Answers why not, or
@@ -568,7 +575,9 @@ async function takeCommits(
 			branch.length > 0 &&
 			(await git.ok("remote", "get-url", remote))
 		) {
-			await git.run("fetch", "-q", remote, branch.join("/"));
+			await git
+				.within(FETCHING)
+				.run(...BOUNDED, "fetch", "-q", remote, branch.join("/"));
 		}
 		if (!(await has(need.commit))) {
 			return `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}, which no remote here gave.`;
