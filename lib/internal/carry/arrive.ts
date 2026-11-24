@@ -44,6 +44,7 @@ import { ZIPPED } from "./carry-away.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
+	flagIn,
 	type HandedTree,
 	type Handover,
 	readHandover,
@@ -57,6 +58,7 @@ import {
 	holdToOrigin,
 	saidOf,
 	takeView,
+	timed,
 	type ViewGit,
 } from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
@@ -81,8 +83,8 @@ const LOOK_MS = 1000;
 export const LARGEST_UNZIPPED = 2 * 1024 * 1024 * 1024;
 
 /**
- * How long a tree already here has to fetch its origin, and a tree to
- * fetch the commits it needs, all told, over any transport. A tree far
+ * How long a tree has to clone or fetch its origin and fetch the commits
+ * it needs, all told, over any transport. A tree far
  * behind a big trunk on a slow link takes long, so this only stops a
  * fetch that would never end; `BOUNDED` stops an http link that stalls
  * well before.
@@ -160,7 +162,11 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const trees = arriving.trees ?? cutTreeDir();
 	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
-		const line = await arriveTree(arriving.exec, tree, from, home, trees);
+		const line = await arriveTree(arriving.exec, tree, from, {
+			home,
+			trees,
+			left: secondsLeft(arriving.clock, CATCHING_UP),
+		});
 		say(line);
 		if (line.did !== "refused") brought.push(tree);
 	}
@@ -421,21 +427,41 @@ type Readied =
 	| { readonly kind: "fetched" | "already" }
 	| { readonly kind: "refused"; readonly why: string };
 
+/** Where a tree arrives, and the seconds it has left to reach origin in. */
+interface Here {
+	readonly home: string;
+	readonly trees: string;
+	readonly left: () => number;
+}
+
+/** The whole seconds left of `seconds` from now, as `clock` reads it. */
+function secondsLeft(clock: Clock, seconds: number): () => number {
+	const ends = clock.now() + seconds * 1000;
+	return () => Math.ceil((ends - clock.now()) / 1000);
+}
+
+/** Why a call to origin isn't made: its tree's time ran out. */
+const OUT_OF_TIME = `the ${CATCHING_UP} seconds its tree had to reach origin all told ran out`;
+
 /** One tree put in place here, or refused with why. */
 async function arriveTree(
 	exec: Exec,
 	tree: HandedTree,
 	from: string,
-	home: string,
-	trees: string,
+	here: Here,
 ): Promise<Extract<ArrivalLine, { kind: "tree" }>> {
-	const path = underHome(tree.path, home);
+	const path = underHome(tree.path, here.home);
 	const git = gitIn(exec, path);
 	const line = { kind: "tree" as const, path, branch: tree.branch };
-	const readied = await readyTree(exec, git, tree, from, path, {
-		home,
-		trees,
-	});
+	const flag = flagIn(tree);
+	if (flag !== undefined) {
+		return {
+			...line,
+			did: "refused",
+			why: `Its done file names ${flag}, which git could read as an option, so it isn't given to git.`,
+		};
+	}
+	const readied = await readyTree(exec, git, tree, from, path, here);
 	if (readied.kind === "refused") {
 		return { ...line, did: "refused", why: readied.why };
 	}
@@ -447,7 +473,7 @@ async function arriveTree(
 		made && tree.sparse !== undefined
 			? await standSparse(git.run, tree.sparse)
 			: undefined;
-	const why = unsparse ?? (await settleTree(git, tree, from));
+	const why = unsparse ?? (await settleTree(git, tree, from, here.left));
 	if (why === undefined) {
 		if (readied.kind === "cut") return { ...line, did: "cloned" };
 		return readied.kind === "cloned" && readied.unsure !== undefined
@@ -504,7 +530,7 @@ async function readyTree(
 	tree: HandedTree,
 	from: string,
 	path: string,
-	here: { readonly home: string; readonly trees: string },
+	here: Here,
 ): Promise<Readied> {
 	const no = (why: string): Readied => ({ kind: "refused", why });
 	if (!existsSync(path)) {
@@ -529,14 +555,18 @@ async function readyTree(
 		}
 		const twin = await twinOf(exec, path, tree.origin);
 		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
-		const cloned = await exec("git", [
-			"clone",
-			"-q",
-			"--no-checkout",
-			"--",
-			tree.origin,
-			path,
-		]);
+		const cloned = await timed(here.left(), () =>
+			exec("git", [
+				...BOUNDED,
+				"clone",
+				"-q",
+				"--no-checkout",
+				"--",
+				tree.origin,
+				path,
+			]),
+		);
+		if (cloned.code !== 0) rmSync(path, { recursive: true, force: true });
 		return cloned.code === 0
 			? { kind: "cloned" }
 			: no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
@@ -560,7 +590,7 @@ async function readyTree(
 		);
 	}
 	const fetched = await git
-		.within(CATCHING_UP)
+		.within(here.left())
 		.run(...BOUNDED, "fetch", "-q", "origin");
 	return fetched.code === 0
 		? { kind: "fetched" }
@@ -662,8 +692,9 @@ async function settleTree(
 	git: TreeGit,
 	tree: HandedTree,
 	from: string,
+	left: () => number,
 ): Promise<string | undefined> {
-	const why = await takeCommits(git, tree, from);
+	const why = await takeCommits(git, tree, from, left);
 	if (why !== undefined) return why;
 	const local = await git.said(
 		"rev-parse",
@@ -696,18 +727,18 @@ async function settleTree(
 
 /**
  * Brings the commits the tree needs: what the bundle left out, from the
- * remote branch each was on, within `CATCHING_UP` all told, then the
- * bundle's own. Answers why not, or nothing once its head is here.
+ * remote branch each was on, within the `left` seconds its tree has,
+ * then the bundle's own. Answers why not, or nothing once its head is
+ * here.
  */
 async function takeCommits(
 	git: TreeGit,
 	tree: HandedTree,
 	from: string,
+	left: () => number,
 ): Promise<string | undefined> {
 	const has = (commit: string) =>
 		git.ok("cat-file", "-e", `${commit}^{commit}`);
-	const ends = Date.now() + CATCHING_UP * 1000;
-	const left = () => Math.ceil((ends - Date.now()) / 1000);
 	for (const need of tree.needs) {
 		if (await has(need.commit)) continue;
 		const needs = `It needs ${need.commit}${need.on ? ` from ${need.on}` : ""}`;
@@ -720,7 +751,7 @@ async function takeCommits(
 			return `${needs}, which no remote here gave.`;
 		}
 		if (left() <= 0) {
-			return `${needs}, but the ${CATCHING_UP} seconds its needs had all told ran out before it was asked for.`;
+			return `${needs}, but ${OUT_OF_TIME} before it was asked for.`;
 		}
 		// Past `--`, so neither reads as a flag, though the handover
 		// already refuses a part that would.
