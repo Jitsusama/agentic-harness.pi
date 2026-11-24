@@ -70,6 +70,15 @@ export const FIND_WHILE_QUIET =
 	"Not knowing who, nothing above this peer could be found while the node is quiet, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
 
 /**
+ * What a lost need's refusal says to do, not knowing who, when the node
+ * answered but the mesh doesn't list this peer yet, as while its first
+ * publish waits: nothing above can be found for a peer not listed, and
+ * the node isn't why.
+ */
+export const FIND_WHILE_UNLISTED =
+	"Not knowing who, nothing above this peer could be found while the mesh doesn't list it yet, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
+
+/**
  * Whom a lost need's refusal says to ask who owns it, by where this peer
  * sits, so it never points at a route known to reach nobody and never
  * says nothing is above while `orchestrator` would still reach a hub:
@@ -100,7 +109,8 @@ async function whomToAsk(
 	try {
 		const found = orKept(await findAbove(at), at.keptHub);
 		if ("address" in found.above) return hub(found.above.address);
-		return found.settled ? FIND_WHO_OWNS_IT : FIND_WHILE_QUIET;
+		if (found.settled) return FIND_WHO_OWNS_IT;
+		return found.unasked === true ? FIND_WHILE_UNLISTED : FIND_WHILE_QUIET;
 	} catch {
 		// No hub could be found, so nothing above can be named to ask; a
 		// throw says nothing settled, so the refusal says none was found.

@@ -13,10 +13,10 @@ import { peersNamed } from "./reach.ts";
  * and a reader takes each line as one stopper's and each sentence as
  * the tool's own. So each stop has a line of its own, opening on the
  * first of its stopper's addresses that is one, or on "A peer naming
- * no address" when none is, since a stop that bars a send is said either way; and its
- * reason is folded to that line, its quotes said as `'`, and quoted as
- * a string, which it can't close, straight or curly, to say a stop of
- * another peer's after it.
+ * no address" when none is, since a stop that bars a send is said
+ * either way; and its reason is folded to that line, its quotes said as
+ * `'`, and quoted as a string, which it can't close, straight or curly,
+ * to say a stop of another peer's after it.
  */
 export function stopsText(
 	stops: ReturnType<typeof stoppedBy>,
