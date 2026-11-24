@@ -118,10 +118,12 @@ function tooLateWords(
 ): string {
 	const seconds = (ms: number) => Math.round(ms / MS_PER_SECOND);
 	// A turn's wait is said apart from the weighing before it, so a
-	// loaded census doesn't read as a full gate.
+	// loaded census doesn't read as a full gate. The wait is what's left
+	// of the rounded whole, so the parts add up to it (F17).
+	const weighed = seconds(cause.kind === "turn" ? cause.weighedMs : 0);
 	const where =
 		cause.kind === "turn"
-			? `before it could begin this one, ${seconds(cause.weighedMs)} s weighing the conversations it runs and ${seconds(spentMs - cause.weighedMs)} s waiting for its turn behind the conversations already starting`
+			? `before it could begin this one, ${weighed} s weighing the conversations it runs and ${Math.max(0, seconds(spentMs) - weighed)} s waiting for its turn behind the conversations already starting`
 			: "weighing the conversations it runs before it could begin this one";
 	return `The host spent ${seconds(spentMs)} s of its ${seconds(withinMs)} s ${where}, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
 }

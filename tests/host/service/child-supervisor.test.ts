@@ -977,6 +977,38 @@ describe("children starting at once", () => {
 		await Promise.all([...starting, ...later]);
 	});
 
+	// F16 on #2097: the gate moves only a start that isn't ahead already.
+	it("says no move for a woken start a later wake comes to wait on", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
+		const [first, second] = [nth(1), nth(2)];
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
+		gateAsks.length = 0;
+		const starting = [first, second].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const owed = nth(3);
+		const woken = supervisor.resume(entry(owed), true);
+		await vi.waitFor(() => expect(gateAsks).toHaveLength(3));
+
+		const wokenAgain = supervisor.resume(entry(owed), true);
+		holdingFirst.settle();
+		await Promise.all([woken, wokenAgain]);
+		const line = said.find((one) => one.startsWith(`${unitOf(owed)}: waited`));
+		expect(line, "its wait is said").toBeDefined();
+		expect(line, "already ahead, it was moved nowhere").not.toContain(
+			"going ahead",
+		);
+
+		holdingSecond.settle();
+		await Promise.all(starting);
+	});
+
 	it("times a child's listening from its own start, not from the wait for its turn", async () => {
 		superviseAgain({
 			clocks: { listensWithinMs: 300, answersWithinMs: 5_000 },

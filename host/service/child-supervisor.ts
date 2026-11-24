@@ -1258,12 +1258,13 @@ export function childSupervisor(options: {
 		let giveBack = (): void => undefined;
 		let lapse: ReturnType<typeof setTimeout> | undefined;
 		const asked = Date.now();
-		// When someone came to wait on it while it waited, moving it ahead.
+		// When someone came to wait on it while it waited, moving it ahead;
+		// the gate moves none already ahead, so none is said for one (F16).
 		let hurriedAfter: number | undefined;
 		const hurried = () => {
 			hurriedAfter = Date.now() - asked;
 		};
-		if (turn.hurry && !turn.hurry.aborted)
+		if (!turn.ahead && turn.hurry && !turn.hurry.aborted)
 			turn.hurry.addEventListener("abort", hurried, { once: true });
 		try {
 			try {

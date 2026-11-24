@@ -475,11 +475,19 @@ describe("a new conversation", () => {
 			Date.now() - 3_000,
 		);
 
+		// Its whole and its wait are whatever the gate's timer gave, which
+		// a loaded machine fires late (F18); its weighing was 3 s exactly.
 		const said =
-			"The host spent 4 s of its 10 s before it could begin this one, 3 s weighing the conversations it runs and 1 s waiting for its turn";
-		expect(refused.ok ? "" : refused.error.message).toContain(said);
+			/The host spent (\d+) s of its 10 s before it could begin this one, 3 s weighing the conversations it runs and (\d+) s waiting for its turn/;
+		const message = refused.ok ? "" : refused.error.message;
+		const [, whole, wait] = message.match(said) ?? [];
+		expect(message, "its weighing said apart from its wait").toMatch(said);
+		expect(Number(whole), "its parts add up to its whole").toBe(
+			3 + Number(wait),
+		);
+		expect(Number(wait), "it waited for its turn").toBeGreaterThanOrEqual(1);
 		expect(reported.map(String)).toContainEqual(
-			expect.stringContaining(`Request open-25: ${said}`),
+			expect.stringMatching(new RegExp(`^Request open-25: ${said.source}`)),
 		);
 		supervisor.close();
 		for (const one of held) await expect(one).rejects.toThrow();
