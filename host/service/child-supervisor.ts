@@ -185,6 +185,13 @@ const LEFT_EVERY_MS = 250;
 const LEFT_AT_MOST_MS = 2_000;
 /** How much of why a child couldn't be watched goes in the journal. */
 const SAID_CHARS = 300;
+/**
+ * How long a start may wait for its turn before the journal says so:
+ * past a second's listen, so one a busy host's starts hold reads as
+ * queued rather than stuck, and a quiet host says nothing.
+ */
+const TURN_WAIT_SAID_MS = 2_000;
+const MS_PER_SECOND = 1_000;
 /** The longest a slot's name runs, as every conversation id does. */
 const LONGEST_NAME = "00000000-0000-4000-8000-000000000000";
 
@@ -251,6 +258,9 @@ export interface ChildSupervisor {
 	close(): void;
 }
 
+/** A start whose caller's time passed while it waited for its turn at the gate. */
+class LateForTurn extends Error {}
+
 /** A child's refusal of the conversation it was asked to start. */
 class RefusedBeginning extends Error {
 	readonly reply: ControlReply;
@@ -295,6 +305,11 @@ const ANSWERING: Doing = {
 
 function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** `ms` as seconds to a tenth, as the journal says a wait. */
+function inSeconds(ms: number): string {
+	return (ms / MS_PER_SECOND).toFixed(1);
 }
 
 /** The supervisor stopped watching while a child was being set up. */
@@ -420,6 +435,11 @@ export function childSupervisor(options: {
 	 * every other start on the host.
 	 */
 	turnHeldWithinMs?: number;
+	/**
+	 * How long a start may wait for its turn at the gate before the journal
+	 * says how long it waited, unless said `TURN_WAIT_SAID_MS`.
+	 */
+	turnWaitSaidMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -445,6 +465,7 @@ export function childSupervisor(options: {
 	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
 	const turnHeldWithinMs =
 		options.turnHeldWithinMs ?? withinMs + answersWithinMs;
+	const turnWaitSaidMs = options.turnWaitSaidMs ?? TURN_WAIT_SAID_MS;
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
@@ -456,6 +477,9 @@ export function childSupervisor(options: {
 	const asking = new Set<Socket>();
 	// What gives up each conversation's start under way, by its keyed id.
 	const cutting = new Map<string, AbortController>();
+	// What moves each conversation's start nobody waited on ahead at the
+	// gate, once a wake comes to wait on it (F33), by its keyed id.
+	const hastening = new Map<string, AbortController>();
 	// Every child start waits its turn here, its windows timed from it.
 	const gate = startGate(STARTS_AT_ONCE);
 	// Each conversation a child is starting for, so two asks start one.
@@ -1214,13 +1238,19 @@ export function childSupervisor(options: {
 		slot: Slot,
 		session: RosterEntry | undefined,
 		woken: boolean,
-		turn: { ahead: boolean; by: number; cut?: AbortSignal },
+		turn: {
+			ahead: boolean;
+			by: number;
+			cut?: AbortSignal;
+			hurry?: AbortSignal;
+		},
 		work: () => Promise<T>,
 	): Promise<T> {
 		// Taken only once free, so a slot another child runs in is left be.
 		let taken = false;
 		let giveBack = (): void => undefined;
 		let lapse: ReturnType<typeof setTimeout> | undefined;
+		const asked = Date.now();
 		try {
 			giveBack = await gate.turn({
 				ahead: turn.ahead,
@@ -1229,10 +1259,24 @@ export function childSupervisor(options: {
 					? AbortSignal.any([stopping.signal, turn.cut])
 					: stopping.signal,
 				late: () =>
-					new Error(`${slot.unit} waited past its time for its turn to start`),
+					new LateForTurn(
+						`${slot.unit} waited past its time for its turn to start`,
+					),
+				...(turn.hurry ? { hurry: turn.hurry } : {}),
 			});
+			// A wait the journal can see, so a slow start reads as queued, not stuck.
+			const waited = Date.now() - asked;
+			if (waited >= turnWaitSaidMs)
+				options.say?.(
+					`${slot.unit}: waited ${inSeconds(waited)} s for its turn to start, behind the children already starting`,
+				);
 			// Given back once held its time, whatever its child does by then.
-			lapse = setTimeout(giveBack, turnHeldWithinMs);
+			lapse = setTimeout(() => {
+				options.say?.(
+					`${slot.unit}: held its turn to start ${inSeconds(turnHeldWithinMs)} s with no answer, so the next start goes ahead beside it`,
+				);
+				giveBack();
+			}, turnHeldWithinMs);
 			await claimed(slot.unit, async () => {
 				if (!(await free(slot)))
 					throw new Error(`A child runs in ${slot.unit} already`);
@@ -1268,20 +1312,28 @@ export function childSupervisor(options: {
 		// Set first, so a give-up asked while it waits on an adopt counts.
 		const cut = new AbortController();
 		cutting.set(keyed(sessionId), cut);
+		const hurry = new AbortController();
+		hastening.set(keyed(sessionId), hurry);
 		try {
-			return await startedIn(entry, woken, bounded, cut.signal);
+			return await startedIn(entry, woken, bounded, cut.signal, hurry.signal);
 		} finally {
 			if (cutting.get(keyed(sessionId)) === cut)
 				cutting.delete(keyed(sessionId));
+			if (hastening.get(keyed(sessionId)) === hurry)
+				hastening.delete(keyed(sessionId));
 		}
 	}
 
-	/** Resume `entry` in a child of its own slot, until `cut` gives it up. */
+	/**
+	 * Resume `entry` in a child of its own slot, until `cut` gives it up,
+	 * going ahead at the gate once `hurry` says someone waits on it.
+	 */
 	async function startedIn(
 		entry: RosterEntry,
 		woken: boolean,
 		bounded: boolean,
 		cut: AbortSignal,
+		hurry: AbortSignal,
 	): Promise<SessionIdentity> {
 		await listing;
 		const { sessionId } = entry;
@@ -1311,7 +1363,7 @@ export function childSupervisor(options: {
 			slot,
 			entry,
 			woken,
-			{ ahead: woken, by: Number.POSITIVE_INFINITY, cut },
+			{ ahead: woken, by: Number.POSITIVE_INFINITY, cut, hurry },
 			async () =>
 				(
 					await watch(slot, {
@@ -1491,7 +1543,10 @@ export function childSupervisor(options: {
 		resume(entry, woken = false, bounded = false) {
 			const { sessionId } = entry;
 			const already = starting.get(keyed(sessionId));
-			if (already) return already;
+			if (already) {
+				if (woken) hastening.get(keyed(sessionId))?.abort();
+				return already;
+			}
 			const start = started(entry, woken, bounded).finally(() =>
 				starting.delete(keyed(sessionId)),
 			);
@@ -1545,6 +1600,15 @@ export function childSupervisor(options: {
 			})
 				.catch((error) => {
 					if (error instanceof RefusedBeginning) return error.reply;
+					// Turned away at the gate, it is refused as one weighed too late
+					// is, so its caller asks again rather than reading a failure (F30).
+					if (error instanceof LateForTurn) {
+						const waited = Date.now() - taken;
+						options.report(
+							tooLateLine(request, waited, beginsWithinMs, "turn"),
+						);
+						return beganTooLate(request.id, waited, beginsWithinMs, "turn");
+					}
 					throw error;
 				})
 				.finally(() => {

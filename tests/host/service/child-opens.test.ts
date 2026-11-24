@@ -411,13 +411,54 @@ describe("a new conversation", () => {
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const asked = Date.now();
 
-		await expect(supervisor.begin(opening("open-18"))).rejects.toThrow(
-			"waited past its time",
-		);
+		// F30: refused as too late, so its caller asks again, not as a failure.
+		const refused = await supervisor.begin(opening("open-18"));
+		expect(refused).toMatchObject({
+			id: "open-18",
+			ok: false,
+			error: {
+				code: "begin_too_late",
+				message: expect.stringContaining("waiting for its turn"),
+			},
+		});
 		expect(Date.now() - asked, "at its time, not later").toBeLessThan(1_000);
+		expect(
+			reported.map(String),
+			"the journal says where its time went",
+		).toContainEqual(
+			expect.stringContaining("Request open-18: The host spent"),
+		);
 		expect(units.started, "no unit started for it").toHaveLength(2);
 		supervisor.close();
 		for (const one of held) await expect(one).rejects.toThrow();
+	});
+
+	// F37: its caller waits on it, as a wake's writer does.
+	it("starts a begin before the resumes queued ahead of it", async () => {
+		const holding = deferred();
+		units.traitsOf = (unit) =>
+			unit === slotOf(folder, key, a).unit ||
+			unit === slotOf(folder, key, b).unit
+				? { listensWhen: holding.promise }
+				: {};
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const queued = "c0000000-0000-4000-8000-000000000003";
+		const later = supervisor.resume(entry(queued));
+		const beginning = supervisor.begin(opening("open-24"));
+		// Long enough for both to reach their unit's start were there no gate.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(units.started, "none past the gate while it is full").toHaveLength(
+			2,
+		);
+
+		holding.settle();
+		await Promise.all([...held, beginning, later]);
+		expect(
+			units.started[2],
+			"the begin given the first turn freed, not the resume that came first",
+		).not.toBe(slotOf(folder, key, queued).unit);
+		expect(units.started[3]).toBe(slotOf(folder, key, queued).unit);
 	});
 
 	// A turn given with less than its least left would start a unit only
@@ -435,13 +476,22 @@ describe("a new conversation", () => {
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const asked = Date.now();
 
-		await expect(supervisor.begin(opening("open-23"), asked)).rejects.toThrow(
-			"waited past its time",
-		);
+		const refused = await supervisor.begin(opening("open-23"), asked);
+		expect(refused).toMatchObject({
+			ok: false,
+			error: { code: "begin_too_late" },
+		});
+		const waited = Date.now() - asked;
 		expect(
-			Date.now() - asked,
+			waited,
 			"at its time less its least, not its whole time",
 		).toBeLessThan(2_000);
+		// Its least is its unsettled time and least first ask, 400 + 800 ms,
+		// so its turn lapses 2400 - 1200 ms after it was asked.
+		expect(
+			waited,
+			"waited out its time less its least, not refused at once",
+		).toBeGreaterThanOrEqual(1_100);
 		expect(units.started, "no unit started for it").toHaveLength(2);
 		supervisor.close();
 		for (const one of held) await expect(one).rejects.toThrow();

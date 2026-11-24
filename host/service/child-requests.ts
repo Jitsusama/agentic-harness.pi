@@ -97,10 +97,25 @@ export const CHILD_SAID_UNSETTLED =
  * the time was the host weighing a loaded machine, which an ask at once
  * would only weigh again.
  */
-function tooLateWords(spentMs: number, withinMs: number): string {
+/**
+ * Where a begin refused as too late spent its time: weighing the
+ * conversations the host runs, or waiting for a turn among the children
+ * already starting.
+ */
+export type TooLateCause = "weighing" | "turn";
+
+function tooLateWords(
+	spentMs: number,
+	withinMs: number,
+	cause: TooLateCause,
+): string {
 	const spent = Math.round(spentMs / 1000);
 	const within = Math.round(withinMs / 1000);
-	return `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
+	const where =
+		cause === "turn"
+			? "waiting for its turn behind the conversations already starting"
+			: "weighing the conversations it runs";
+	return `The host spent ${spent} s of its ${within} s ${where} before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
 }
 
 /**
@@ -113,23 +128,26 @@ export function tooLateLine(
 	request: { readonly id: string; readonly quest?: string | undefined },
 	spentMs: number,
 	withinMs: number,
+	cause: TooLateCause = "weighing",
 ): string {
 	const plain = (word: string) => word.replace(/\p{Cc}/gu, " ");
 	const quest =
 		request.quest !== undefined ? ` for quest ${plain(request.quest)}` : "";
-	return `Request ${plain(request.id)}${quest}: ${tooLateWords(spentMs, withinMs)}`;
+	return `Request ${plain(request.id)}${quest}: ${tooLateWords(spentMs, withinMs, cause)}`;
 }
 
 /**
  * The answer to `id` when the host spent `spentMs` of its `withinMs`
  * before it could begin, leaving too little for a child to start and
  * answer: refused before any child starts, naming where the time went,
- * since a start then would only be stopped again on a loaded machine.
+ * as `cause` says, since a start then would only be stopped again on a
+ * loaded machine.
  */
 export function beganTooLate(
 	id: string,
 	spentMs: number,
 	withinMs: number,
+	cause: TooLateCause = "weighing",
 ): ControlReply {
 	const reply: ControlReply = {
 		v: 1,
@@ -137,7 +155,7 @@ export function beganTooLate(
 		ok: false,
 		error: {
 			code: BEGIN_TOO_LATE,
-			message: tooLateWords(spentMs, withinMs),
+			message: tooLateWords(spentMs, withinMs, cause),
 		},
 	};
 	madeHere.add(reply);

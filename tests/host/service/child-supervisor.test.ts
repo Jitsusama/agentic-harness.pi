@@ -838,11 +838,80 @@ describe("children starting at once", () => {
 
 		expect(
 			Math.max(...seen.waiting),
-			"children started and not yet answered, at each start",
-		).toBeLessThanOrEqual(2);
-		expect(resumed.map(({ sessionId }) => sessionId)).toEqual(ids);
+			"children started and not yet answered, at their most: the gate's whole width, never more",
+		).toBe(STARTS_AT_ONCE);
+		expect(STARTS_AT_ONCE, "as the case's name says").toBe(2);
+		expect(
+			resumed.map(({ sessionId }) => sessionId),
+			"each resume answered with its own conversation",
+		).toEqual(ids);
 		expect(units.started).toHaveLength(5);
-		expect(STARTS_AT_ONCE).toBe(2);
+	});
+
+	it("gives a turn back as soon as a start fails, not once its time is held", async () => {
+		const failing = nth(1);
+		const holding = deferred();
+		const start = units.start;
+		units.start = async (unit) => {
+			await start(unit);
+			if (unit === unitOf(failing)) throw new Error("systemd refused it");
+		};
+		units.traitsOf = (unit) =>
+			unit === unitOf(nth(2)) ? { listensWhen: holding.promise } : {};
+		const failed = expect(supervisor.resume(entry(failing))).rejects.toThrow(
+			"systemd refused it",
+		);
+		const hanging = supervisor.resume(entry(nth(2)));
+		await failed;
+		const asked = Date.now();
+
+		const after = await supervisor.resume(entry(nth(3)));
+
+		expect(after.sessionId).toBe(nth(3));
+		expect(
+			Date.now() - asked,
+			"the failed start's turn was free at once, not after its 120 s",
+		).toBeLessThan(2_000);
+		holding.settle();
+		await hanging;
+	});
+
+	// F33: a host's start resumes every conversation it holds, none ahead,
+	// so a wake for one still queued must hurry that start, not wait behind
+	// every resume queued before it.
+	it("starts a queued resume a wake comes to wait on before the resumes queued ahead of it", async () => {
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
+		const first = nth(1);
+		const second = nth(2);
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
+		const starting = [
+			supervisor.resume(entry(first)),
+			supervisor.resume(entry(second)),
+		];
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const queued = [3, 4, 5].map(nth);
+		const later = queued.map((id) => supervisor.resume(entry(id)));
+		const owed = nth(5);
+		const waking = supervisor.resume(entry(owed), true);
+		// Long enough for each queued start to reach its unit's start were
+		// there no gate.
+		await pause(100);
+
+		holdingFirst.settle();
+		await waking;
+		expect(
+			units.started[2],
+			"the start the wake waits on given the first turn freed",
+		).toBe(unitOf(owed));
+
+		holdingSecond.settle();
+		await Promise.all([...starting, ...later]);
 	});
 
 	it("times a child's listening from its own start, not from the wait for its turn", async () => {
@@ -948,7 +1017,7 @@ describe("children starting at once", () => {
 	// A starved child nobody bounds is waited on for minutes; holding its
 	// turn all that time would hold every other start on the host.
 	it("gives a turn back once it has been held its whole time, so starts that hang leave the rest to start", async () => {
-		superviseAgain({ clocks: { turnHeldWithinMs: 300 } });
+		superviseAgain({ clocks: { turnHeldWithinMs: 300, turnWaitSaidMs: 200 } });
 		const systemd = deferred();
 		const start = units.start;
 		units.start = async (unit) => {
@@ -966,6 +1035,22 @@ describe("children starting at once", () => {
 			Date.now() - asked,
 			"once a turn was held its time, not when a hung start settles",
 		).toBeLessThan(2_000);
+		// F39: the journal says both, so a slow start reads as queued, not stuck.
+		expect(
+			said.filter((line) => line.includes("held its turn to start 0.3 s")),
+			"each lapsed turn said once",
+		).toEqual([
+			expect.stringContaining(unitOf(nth(1))),
+			expect.stringContaining(unitOf(nth(2))),
+		]);
+		expect(
+			said.filter((line) => line.includes("for its turn to start")),
+			"the start that waited past its said time",
+		).toEqual([
+			expect.stringMatching(
+				new RegExp(`^${unitOf(nth(3))}: waited 0\\.\\d s for its turn`),
+			),
+		]);
 		systemd.settle();
 		await Promise.allSettled(hanging);
 	});

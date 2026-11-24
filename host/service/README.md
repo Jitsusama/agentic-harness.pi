@@ -363,8 +363,9 @@ input pipeline or screen. No unit or running host is installed yet.
   CPU it gains while watched, within the same 10 minutes. Its journal
   says as it starts waiting and as it listens or answers. Three keep a 60 s bound to listen and are refused
   at it without asking systemd: a caller's open or adopt, and a host
-  starting's take-ups and resumes, which go a few at a time, so a
-  starved child there would hold those behind it. A start's resume
+  starting's take-ups and resumes, since every child start waits its
+  turn at one gate (start-gate.ts), so a starved child there would
+  hold those behind it. A start's resume
   that a wake pulled forward is bounded too; given up, that wake
   resumes it itself and waits while it starves. A host starting takes up the
   children an earlier one left running, and a host stopping leaves
@@ -383,6 +384,20 @@ input pipeline or screen. No unit or running host is installed yet.
   the roster's write of what it became has landed (`left`), one that
   fails being reported and let go; while one still runs, the resume
   fails.
+- start-gate.ts: the one gate every child start passes, whatever asked
+  for it, letting `STARTS_AT_ONCE` (2) between their unit's start and
+  their first answer at once, since many building their conversations
+  together on a loaded machine were each judged slow and started
+  again. Those someone waits on (a wake, an open, an adopt, or a
+  start's resume a wake comes to wait on) go first, the rest in the
+  order they asked. A turn is given back once its child answers,
+  fails or is given up, or once held its listen and answer times
+  together (120 s), so starved children let two more start each time
+  rather than holding every other start. A wait its caller's time,
+  the host's stop or a give-up ends leaves the queue at once; a begin
+  whose time runs out there is refused as too late, as one weighed
+  too late is. The journal says a start that waited over 2 s for its
+  turn and each turn given back unanswered.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,

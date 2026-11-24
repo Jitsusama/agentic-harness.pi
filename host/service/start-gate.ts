@@ -20,6 +20,12 @@ export interface StartAsk {
 	readonly signal: AbortSignal;
 	/** The error it is refused with once `by` passes while it waits. */
 	late(): Error;
+	/**
+	 * Moves it ahead once aborted, as someone coming to wait on a start
+	 * that nobody waited on when it asked does: a wake for a conversation
+	 * a host's start still owes.
+	 */
+	readonly hurry?: AbortSignal;
 }
 
 /** The gate, as the supervisor asks it for a turn. */
@@ -34,7 +40,7 @@ export interface StartGate {
 
 /** One start waiting its turn. */
 interface Waiting {
-	readonly ahead: boolean;
+	ahead: boolean;
 	go(): void;
 }
 
@@ -52,6 +58,13 @@ export function startGate(atOnce: number): StartGate {
 			running -= 1;
 			letNext();
 		};
+	}
+
+	/** Queue `one` behind every start already waiting ahead, if it is ahead, else last. */
+	function queue(one: Waiting): void {
+		const behind = one.ahead ? waiting.findIndex((other) => !other.ahead) : -1;
+		if (behind < 0) waiting.push(one);
+		else waiting.splice(behind, 0, one);
 	}
 
 	function letNext(): void {
@@ -74,29 +87,36 @@ export function startGate(atOnce: number): StartGate {
 					return;
 				}
 				let timer: ReturnType<typeof setTimeout> | undefined;
+				const settled = () => {
+					if (timer !== undefined) clearTimeout(timer);
+					ask.signal.removeEventListener("abort", aborted);
+					ask.hurry?.removeEventListener("abort", hurried);
+				};
 				const leave = (why: unknown) => {
 					const at = waiting.indexOf(one);
 					if (at >= 0) waiting.splice(at, 1);
-					if (timer !== undefined) clearTimeout(timer);
-					ask.signal.removeEventListener("abort", aborted);
+					settled();
 					reject(why);
 				};
 				const aborted = () => leave(ask.signal.reason);
 				const one: Waiting = {
-					ahead: ask.ahead,
+					ahead: ask.ahead || ask.hurry?.aborted === true,
 					go() {
-						if (timer !== undefined) clearTimeout(timer);
-						ask.signal.removeEventListener("abort", aborted);
+						settled();
 						resolve(given());
 					},
 				};
-				// Behind every start already waiting ahead, before the rest.
-				const behind = ask.ahead
-					? waiting.findIndex((other) => !other.ahead)
-					: -1;
-				if (behind < 0) waiting.push(one);
-				else waiting.splice(behind, 0, one);
+				const hurried = () => {
+					const at = waiting.indexOf(one);
+					if (at < 0 || one.ahead) return;
+					waiting.splice(at, 1);
+					one.ahead = true;
+					queue(one);
+				};
+				queue(one);
 				ask.signal.addEventListener("abort", aborted, { once: true });
+				if (!one.ahead)
+					ask.hurry?.addEventListener("abort", hurried, { once: true });
 				if (ask.by !== Number.POSITIVE_INFINITY)
 					timer = setTimeout(
 						() => leave(ask.late()),
