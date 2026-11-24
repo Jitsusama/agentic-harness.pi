@@ -501,7 +501,7 @@ async function readyTree(
 			renameSync(cloning, path);
 		} catch (error) {
 			rmSync(cloning, { recursive: true, force: true });
-			return no(`Its clone couldn't be put in place: ${String(error)}`);
+			return no(`Its clone couldn't be put in place: ${messageOf(error)}`);
 		}
 		return { kind: "cloned" };
 	}

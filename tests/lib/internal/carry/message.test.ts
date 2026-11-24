@@ -14,6 +14,15 @@ describe("saying what was thrown", () => {
 		);
 	});
 
+	it("says where what was thrown said nothing, as a bare error does", () => {
+		// As `new Error()` makes it, which the linter won't let be written.
+		const bare = Object.assign(new Error("said"), { message: "" });
+		expect(messageOf(bare)).toBe(
+			"something was thrown that said nothing of why",
+		);
+		expect(messageOf("")).toBe("something was thrown that said nothing of why");
+	});
+
 	it("says a thrown value that isn't an error as itself", () => {
 		expect(messageOf("no space left")).toBe("no space left");
 		expect(messageOf(7)).toBe("7");

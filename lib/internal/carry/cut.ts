@@ -124,12 +124,23 @@ async function whereStands(
 		.map((one) => one.trim())
 		.filter((one) => one.endsWith(` ${ref}`));
 	const why =
-		missing.code === 0 ? `git has ${ref} but didn't list it` : whyOf(missing);
+		missing.code === 0
+			? `git has ${ref} but didn't list it`
+			: missing.code === UNKNOWN_OPTION
+				? `this git can't say whether ${ref} is there, since \`show-ref --exists\` needs git 2.43 or newer`
+				: whyOf(missing);
 	return { why: [...named, why].join("; ") };
 }
 
 /** What `git show-ref --exists` answers for a ref that is missing, and only that. */
 const MISSING = 2;
+
+/**
+ * What git answers for an option it doesn't know, as a git older than
+ * 2.43 does `--exists`, printing its whole usage, which says nothing of
+ * the ref.
+ */
+const UNKNOWN_OPTION = 129;
 
 /** What git said on standard error, or the code it answered with. */
 function whyOf(said: { code: number; stderr: string }): string {

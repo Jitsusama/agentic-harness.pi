@@ -211,8 +211,13 @@ describe("cutting a tree from the person's checkout", () => {
 	it.each([
 		[
 			"a git too old to ask",
-			{ code: 129, stderr: "error: unknown option `exists'\n" },
-			/unknown option `exists'$/,
+			// What a git older than 2.43 prints: the error, then its whole usage.
+			{
+				code: 129,
+				stderr:
+					"error: unknown option `exists'\nusage: git show-ref [--head] [-d | --dereference]\n   or: git show-ref --verify [-q | --quiet] [-d | --dereference]\n",
+			},
+			/can't say whether refs\/heads\/fresh is there, since `show-ref --exists` needs git 2\.43 or newer$/,
 		],
 		["a git that never ran", { code: 1, stderr: "" }, /answered 1$/],
 	])(
