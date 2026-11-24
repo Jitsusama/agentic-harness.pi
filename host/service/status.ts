@@ -123,7 +123,8 @@ export function phaseTimes(
  * How long a conversation's open or adopt took, begun at `began` and
  * settled at `ended`, and each phase within it; one that failed before
  * pi named its conversation is said as a conversation not yet named,
- * with where it was asked to open or the file it was asked to adopt.
+ * with where it was asked to open or the file it was asked to adopt,
+ * quoted.
  */
 export function startLine(
 	sessionId: string | undefined,
@@ -138,8 +139,8 @@ export function startLine(
 		sessionId === undefined
 			? `A conversation not yet named, ${
 					request.op === "open"
-						? `opening in ${onOneLine(request.cwd)}`
-						: `adopted from ${onOneLine(request.sessionFile)}`
+						? `opening in ${quoted(request.cwd)}`
+						: `adopted from ${quoted(request.sessionFile)}`
 				}`
 			: `${onOneLine(sessionAddress(sessionId))} (${onOneLine(sessionId)})`;
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
@@ -157,6 +158,9 @@ const NAMED_ESCAPES: Readonly<Record<string, string>> = {
 /** A control (C0, DEL, C1) or a line or paragraph separator, which end a line. */
 const BREAKS_A_LINE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 
+/** A surrogate left unpaired, which UTF-8 can't hold, so the journal would show a replacement in its place (F27). */
+const UNPAIRED = /\p{Cs}/u;
+
 /** The widest code point a four-digit `\u` escape can name. */
 const LAST_FOUR_DIGIT = 0xffff;
 
@@ -168,16 +172,27 @@ function escaped(point: number): string {
 }
 
 /**
- * Words a requester chose, with every character that would break the
- * journal entry, forge another, move a terminal's cursor or read as other
- * than it is written as an escape: controls, line and paragraph
- * separators, and what draws as nothing, bidi marks and zero widths among
- * them. A backslash is doubled, so a path holding the text `\n` never
+ * Words a requester chose, with these written as escapes: controls, line
+ * and paragraph separators and unpaired surrogates, which break a journal
+ * entry, forge another or move a terminal's cursor, and what drawsAsNothing
+ * counts (format characters such as bidi marks and zero widths, and the
+ * fillers and selectors it lists). A character that only looks like
+ * another, a Cyrillic letter for a Latin one, passes as it is (F29). A
+ * backslash is doubled, so a path holding the text `\n` never
  * reads as one holding a newline; the words go straight into the line, so
  * nothing escapes them again.
  */
 export function onOneLine(text: string): string {
 	return escapedFor(text, true);
+}
+
+/**
+ * Words a requester chose, escaped as onOneLine does and between double
+ * quotes, a quote inside escaped, so a path can't pass its tail off as the
+ * line's own words (F31).
+ */
+function quoted(text: string): string {
+	return `"${onOneLine(text).replaceAll('"', '\\"')}"`;
 }
 
 /**
@@ -191,7 +206,11 @@ function escapedFor(text: string, doubling: boolean): string {
 	for (const each of text) {
 		const named = each === "\\" && !doubling ? each : NAMED_ESCAPES[each];
 		if (named !== undefined) said += named;
-		else if (BREAKS_A_LINE.test(each) || drawsAsNothing(each))
+		else if (
+			BREAKS_A_LINE.test(each) ||
+			UNPAIRED.test(each) ||
+			drawsAsNothing(each)
+		)
 			said += escaped(each.codePointAt(0) ?? 0);
 		else said += each;
 	}

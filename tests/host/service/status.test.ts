@@ -150,9 +150,24 @@ describe("startLine", () => {
 			],
 			"each names what it was asked for",
 		).toEqual([
-			"A conversation not yet named, adopted from /s/one.jsonl: its adopt took 0.5 s",
-			"A conversation not yet named, opening in /work: its open took 0.5 s",
+			'A conversation not yet named, adopted from "/s/one.jsonl": its adopt took 0.5 s',
+			'A conversation not yet named, opening in "/work": its open took 0.5 s',
 		]);
+	});
+
+	// F31: a path is quoted, so its tail can't pass for the line's own words.
+	it("quotes a path, and a quote inside it", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: '/w": its open took 0.1 s' },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w\\": its open took 0.1 s": its open took 0.5 s',
+		);
 	});
 
 	// F39: a path a requester names keeps the journal entry on one line.
@@ -166,7 +181,7 @@ describe("startLine", () => {
 				1_500,
 			),
 		).toBe(
-			"A conversation not yet named, opening in /work\\npi-host: forged\\r\\tx: its open took 0.5 s",
+			'A conversation not yet named, opening in "/work\\npi-host: forged\\r\\tx": its open took 0.5 s',
 		);
 	});
 
@@ -181,7 +196,7 @@ describe("startLine", () => {
 				1_500,
 			),
 		).toBe(
-			"A conversation not yet named, adopted from /s/\\u001b[2J\\u007f\\u0085\\u009b.jsonl: its adopt took 0.5 s",
+			'A conversation not yet named, adopted from "/s/\\u001b[2J\\u007f\\u0085\\u009b.jsonl": its adopt took 0.5 s',
 		);
 	});
 
@@ -200,7 +215,38 @@ describe("startLine", () => {
 				1_500,
 			),
 		).toBe(
-			"A conversation not yet named, opening in /w/\\u202egpj.exe\\u200b\\u2028x\\u2029\\u{e0041}: its open took 0.5 s",
+			'A conversation not yet named, opening in "/w/\\u202egpj.exe\\u200b\\u2028x\\u2029\\u{e0041}": its open took 0.5 s',
+		);
+	});
+
+	// F28: what draws as nothing without being a format character, a
+	// combining grapheme joiner and a Hangul filler, is escaped too.
+	it("escapes what draws as nothing outside the format characters", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: "/w/a\u034fb\u3164c" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w/a\\u034fb\\u3164c": its open took 0.5 s',
+		);
+	});
+
+	// F27: a surrogate left unpaired, which UTF-8 can't hold, is escaped.
+	it("escapes an unpaired surrogate in a path", () => {
+		expect(
+			startLine(
+				undefined,
+				{ op: "open", cwd: "/w/\ud800x\udfff" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			'A conversation not yet named, opening in "/w/\\ud800x\\udfff": its open took 0.5 s',
 		);
 	});
 
@@ -210,7 +256,7 @@ describe("startLine", () => {
 			startLine(undefined, { op: "open", cwd }, 1_000, [], 1_500);
 
 		expect(written("/w\\n")).toBe(
-			"A conversation not yet named, opening in /w\\\\n: its open took 0.5 s",
+			'A conversation not yet named, opening in "/w\\\\n": its open took 0.5 s',
 		);
 		expect(written("/w\\n")).not.toBe(written("/w\n"));
 	});
