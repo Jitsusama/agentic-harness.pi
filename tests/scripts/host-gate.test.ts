@@ -607,6 +607,34 @@ describe("host-gate.sh", () => {
 		expect(answered.said).toContain(`runtime link ${gone} names nothing`);
 	});
 
+	it("refuses a host change when the runtime link dangles in a folder that's there", async () => {
+		// GNU's readlink -f answers a dangling link's target, so the existence
+		// test is what refuses it there; macOS's readlink refuses it first.
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		kept(on, sha, testHost(on));
+		const links = join(on.state, "pi-host");
+		mkdirSync(links, { recursive: true });
+		const dangling = join(links, "dangling");
+		symlinkSync(join(links, "nowhere"), dangling);
+
+		const answered = await gate({ ...on, runtime: dangling }, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`runtime link ${dangling} names nothing`);
+	});
+
+	it("lets a change hosts don't run through on a machine with no runtime link", async () => {
+		const on = await harness();
+		const sha = await change(on, "docs/notes.md");
+		const gone = join(on.state, "pi-host", "gone");
+
+		const answered = await gate({ ...on, runtime: gone }, sha);
+
+		expect(answered.code).toBe(0);
+		expect(answered.said).toContain("touches nothing pi hosts run");
+	});
+
 	it("takes a run on the tools this machine had before its latest switch", async () => {
 		const on = await harness();
 		const sha = await change(on, "host/engine/engine.ts");

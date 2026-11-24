@@ -2,11 +2,15 @@
 
 How the code is laid out: a domain owns its seams, a helper lives once, a
 relative import names its `.ts` file, a program lives in its own file,
-a long file says why it is long, a test imports each shell script it
-runs, and googleapis' types come from each API's own module, so a
+a long file says why it is long, a linter is turned off no more often
+than before, a test imports each shell script it runs, and googleapis' types come from each API's own module, so a
 typecheck reads six APIs rather than 328, and the model providers'
 SDKs stay out of it.
 
-Two lists wait here and only shrink: `long-files-waiting.txt`, the long
-files not yet split, and `embedded-programs.txt`, the programs still
-written inside another file.
+Three lists wait here and only shrink: `long-files-waiting.txt`, the long
+files not yet split, `suppressions-waiting.txt`, each file's suppression
+comments not yet fixed away, and `embedded-programs.txt`, the programs
+still written inside another file. `scripts/merge-gate.sh` runs main's
+copy of the first two rules at every merge, since nothing imports them
+for `pnpm check` to reach, with main's `package-files.ts`, which lists the
+package's files for both as code-health does.

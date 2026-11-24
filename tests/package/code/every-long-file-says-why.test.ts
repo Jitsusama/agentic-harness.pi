@@ -16,26 +16,24 @@
  * that's split, says why or is gone fails until it's taken off.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, relative } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { isCode, packageFiles } from "./package-files.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
-/** Folders that are not the package's own: tools' output and checkouts. */
-const SKIPPED = new Set(["node_modules", "dist", "coverage"]);
-
 /** The shrink-only list of files and folders past their limit. */
 const LIST = join(import.meta.dirname, "long-files-waiting.txt");
+
+/** How long a walk of the whole tree may take on a busy machine. */
+const WALK = { timeout: 60_000 };
 
 /** The most lines a code file holds before it says why. */
 const MOST_LINES = 800;
 
 /** The most entries a folder holds before it says why. */
 const MOST_ENTRIES = 40;
-
-/** What counts as code: what the package runs or tests. */
-const CODE = new Set([".ts", ".mjs", ".js", ".sh"]);
 
 /** The notes a folder says why in. */
 const NOTES = ["README.md", "AGENTS.md"];
@@ -80,7 +78,11 @@ function openingComment(text: string): string {
 
 /** Whether a code file's opening comment has a sentence beginning "Long because". */
 function saysWhyLong(text: string): boolean {
-	return /(^|[.:;!?] )Long because\b/.test(openingComment(text));
+	// Not followed by a letter or digit, as Rust's is_alphanumeric reads
+	// one, not only ASCII's, which \b would.
+	return /(^|[.:;!?] )Long because(?![\p{Alphabetic}\p{N}])/u.test(
+		openingComment(text),
+	);
 }
 
 /** Whether a folder's README.md or AGENTS.md has a sentence beginning "Many entries because". */
@@ -89,7 +91,9 @@ function saysWhyMany(folder: string): boolean {
 		const path = join(folder, note);
 		if (!existsSync(path)) return false;
 		const text = readFileSync(path, "utf8").split(/\s+/).join(" ");
-		return /\bMany entries because\b/.test(text);
+		return /(?<![\p{Alphabetic}\p{N}_])Many entries because(?![\p{Alphabetic}\p{N}_])/u.test(
+			text,
+		);
 	});
 }
 
@@ -100,29 +104,33 @@ interface Over {
 	readonly reasoned: number;
 }
 
-/** The files and folders under a folder past their limit. */
-function over(
-	dir: string,
-	found: Over = { unreasoned: [], reasoned: 0 },
-): Over {
-	const entries = readdirSync(dir).filter((entry) => entry !== ".git");
-	let reasoned = found.reasoned;
-	const unreasoned = found.unreasoned;
-	if (entries.length > MOST_ENTRIES) {
-		if (saysWhyMany(dir)) reasoned++;
-		else unreasoned.push(relative(ROOT, dir) || ".");
+/**
+ * The package's files and folders past their limit, a folder's entries
+ * being the files and folders right in it, as code-health counts them.
+ */
+function over(): Over {
+	const files = packageFiles(ROOT).sort();
+	const entries = new Map<string, Set<string>>();
+	for (const file of files) {
+		const parts = file.split("/");
+		parts.forEach((part, depth) => {
+			const folder = parts.slice(0, depth).join("/");
+			entries.set(folder, (entries.get(folder) ?? new Set()).add(part));
+		});
 	}
-	for (const entry of entries.sort()) {
-		const path = join(dir, entry);
-		if (statSync(path).isDirectory()) {
-			if (entry.startsWith(".") || SKIPPED.has(entry)) continue;
-			reasoned = over(path, { unreasoned, reasoned }).reasoned;
-		} else if (CODE.has(extname(entry))) {
-			const text = readFileSync(path, "utf8");
-			if (lineCount(text) <= MOST_LINES) continue;
-			if (saysWhyLong(text)) reasoned++;
-			else unreasoned.push(relative(ROOT, path));
-		}
+	const unreasoned: string[] = [];
+	let reasoned = 0;
+	for (const [folder, inside] of entries) {
+		if (inside.size <= MOST_ENTRIES) continue;
+		if (saysWhyMany(join(ROOT, folder))) reasoned++;
+		else unreasoned.push(folder || ".");
+	}
+	for (const file of files) {
+		if (!isCode(file)) continue;
+		const text = readFileSync(join(ROOT, file), "utf8");
+		if (lineCount(text) <= MOST_LINES) continue;
+		if (saysWhyLong(text)) reasoned++;
+		else unreasoned.push(file);
 	}
 	return { unreasoned, reasoned };
 }
@@ -159,21 +167,36 @@ describe("the package's code", () => {
 			saysWhyLong("/** It is not Long because of the tests. */\n"),
 			"the words mid-sentence don't count",
 		).toBe(false);
+		expect(
+			saysWhyLong("// Long becauseé\n"),
+			"a letter past ASCII straight after isn't the words, as Rust reads it",
+		).toBe(false);
+		expect(
+			isCode("lib/.ts"),
+			"a file named only by its extension is code",
+		).toBe(true);
+		expect(
+			isCode("flake.nix"),
+			"code-health's languages past the package's are code",
+		).toBe(true);
+		expect(isCode("lib/vendor.min.js"), "a minified file is generated").toBe(
+			false,
+		);
 		expect(lineCount("a\nb\n"), "a closing newline makes no line").toBe(2);
 		expect(lineCount("a\nb"), "a last line without one counts").toBe(2);
 	});
 
-	it("say why a long file or crowded folder stays whole", () => {
+	it("say why a long file or crowded folder stays whole", WALK, () => {
 		const waiting = listed();
-		const unsaid = over(ROOT).unreasoned.filter((path) => !waiting.has(path));
+		const unsaid = over().unreasoned.filter((path) => !waiting.has(path));
 		expect(
 			unsaid,
 			`these are past ${MOST_LINES} lines or ${MOST_ENTRIES} entries: split each by what changes for one reason, or say why it stays whole, a file in its opening comment in a sentence beginning "Long because", a folder in its README.md in one beginning "Many entries because":\n${unsaid.join("\n")}`,
 		).toEqual([]);
 	});
 
-	it("keep the waiting list no longer than what's left", () => {
-		const still = new Set(over(ROOT).unreasoned);
+	it("keep the waiting list no longer than what's left", WALK, () => {
+		const still = new Set(over().unreasoned);
 		const stale = [...listed()].filter((path) => !still.has(path));
 		expect(
 			stale,

@@ -26,13 +26,6 @@ sha=${1:?Name the commit to merge: host-gate.sh SHA}
 # branch's own copy can predate the runner the gate's records come from.
 runner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-test-there.sh"
 state=${XDG_STATE_HOME:-$HOME/.local/state}
-# A runtime link that names nothing would compare every run against a
-# path no run was on, refusing each with a reason that hides the cause.
-runtime_link=${PI_HOST_RUNTIME:-$state/pi-host/runtime}
-if ! runtime=$(readlink -e "$runtime_link"); then
-	echo "host-gate: the hosts' runtime link $runtime_link names nothing; switch the machine, or set PI_HOST_RUNTIME to the runtime the hosts are proven on" >&2
-	exit 1
-fi
 # What nix-offload says when this machine runs no keeper.
 NO_KEEPER=69
 # How far back a system generation's tools still count. A run sends the
@@ -95,6 +88,17 @@ if [[ -z $touched ]]; then
   exit 0
 fi
 
+# A runtime link that names nothing would compare every run against a
+# path no run was on, refusing each with a reason that hides the cause.
+# It is read only here, past the change that needs no run, so a machine
+# that runs no hosts, a Mac, can still merge one. readlink -f, then a
+# test that the path is there, since macOS's readlink has no -e.
+runtime_link=${PI_HOST_RUNTIME:-$state/pi-host/runtime}
+if ! runtime=$(readlink -f "$runtime_link") || [[ ! -e $runtime ]]; then
+	echo "host-gate: the hosts' runtime link $runtime_link names nothing; switch the machine, or set PI_HOST_RUNTIME to the runtime the hosts are proven on" >&2
+	exit 1
+fi
+
 # shellcheck source=host-test-words.sh
 source "$(dirname "${BASH_SOURCE[0]}")/host-test-words.sh"
 host_test_words "$runtime"
@@ -132,7 +136,8 @@ else
   why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
 
-count=$(echo "$touched" | wc -l)
+# Arithmetic drops the spaces macOS's wc pads its count with.
+count=$(($(echo "$touched" | wc -l)))
 echo "host-gate: $sha changes $count path(s) pi hosts run, such as $(echo "$touched" | head -n 1), and $why." >&2
 echo "$clear." >&2
 exit 1
