@@ -84,16 +84,21 @@ shipped and tested.
   quest and orchestrates each open quest it is nearest above
   (`mycelium orchestrates`, `orchestration-claim.ts`), at session
   start, after each quest action, and at a turn's start once the
-  quest changed, or every five minutes, by a turn or a timer, when
-  it says the claim again in case the node let it lapse. Between
-  those, a claim the node last recorded for this session is not
-  asked again, and one it refused or never answered waits five
-  minutes. Loading a quest that orchestrates nothing forgets the
-  claim, so does a conversation ending by a quit or a swap (not a
-  reload or a park), and a session that starts with nothing to
-  claim forgets once, for a claim made before a reload. A refusal
-  leaves the node holding what it held, so a quest headed before,
-  or one an earlier session claimed, is then forgotten. The node refuses a
+  quest changed, or every five minutes, by a turn or a timer that
+  looks each minute, when it says the claim again in case the node
+  let it lapse. Between those, a claim the node last recorded for
+  this session is not asked again, and one it refused or never
+  answered waits five minutes, each ask on its own wait. Loading a
+  quest that orchestrates nothing forgets the claim, so does a
+  conversation ending by a quit or a swap (not a reload or a park),
+  whose end waits up to 1.5 s for that forget, and a session that
+  starts with nothing to claim forgets once, for a claim made before
+  a reload. A refusal leaves the node holding what it held, so a
+  quest headed before, or one an earlier session claimed, is then
+  forgotten, and the claim asked again once an earlier session's is.
+  A claim refused before the node ever answered forgets what it held
+  before and is asked once more half a minute on, since a swap's
+  successor can reach the node ahead of its predecessor's forget. The node refuses a
   quest another session heads or lists, and each refusal is logged
   once as a warning in the system journal, tagged `pi`. Asks run
   one at a time with the session's own environment, at most one

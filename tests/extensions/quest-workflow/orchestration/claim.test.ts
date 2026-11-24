@@ -13,6 +13,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	CLAIM_LOOKED_AGAIN_MS,
+	CLAIM_RETRIED_AFTER_START_MS,
+	CLAIM_TICK_MS,
 	type ClaimKeeperDeps,
 	claimKeeper,
 	keepOrchestrationClaimed,
@@ -93,6 +95,7 @@ function keeping(
 		state,
 		asked,
 		claims: () => asked.map((one) => one.claim),
+		claimsOnly: () => asked.filter((one) => one.claim !== "forget"),
 		said,
 		keeper: claimKeeper(state, deps),
 		pass: (ms: number) => {
@@ -373,25 +376,23 @@ describe("an orchestrator's claim", () => {
 		expect(said, "and its refusal is said once").toHaveLength(1);
 	});
 
-	it("forgets an earlier session's claim of the quest the node refuses it", async () => {
-		let refusing = true;
-		const { state, asked, keeper } = keeping((ask) =>
-			ask.claim !== "forget" && ask.session === "sess-2" && refusing
-				? REFUSED
-				: RECORDED,
-		);
+	it("forgets an earlier session's claim of the quest the node refuses it, then claims", async () => {
+		let refused = false;
+		const { state, asked, keeper } = keeping((ask) => {
+			if (ask.claim === "forget" || ask.session !== "sess-2" || refused)
+				return RECORDED;
+			refused = true;
+			return REFUSED;
+		});
 		state.questId = MISSION;
 		keeper.look("sess-1", AT);
 		await keeper.settled();
 		keeper.look("sess-2", AT);
 		await keeper.settled();
-		refusing = false;
-		keeper.look("sess-2", AT);
-		await keeper.settled();
 
 		expect(
 			asked.map(({ claim, session }) => [claim, session]),
-			"the old session's claim is let go, and this one claims at the next look",
+			"the old session's claim is let go, and this one claims at once",
 		).toEqual([
 			[MISSION_CLAIM, "sess-1"],
 			[MISSION_CLAIM, "sess-2"],
@@ -429,6 +430,90 @@ describe("an orchestrator's claim", () => {
 			{ heads: OTHER, quests: [] },
 			"forget",
 		]);
+	});
+
+	it("waits out a refusal and says it once, though the forget after it failed", async () => {
+		const { state, claims, said, keeper } = keeping((ask) => {
+			if (ask.claim === "forget") return TIMED_OUT;
+			return ask.claim.heads === OTHER ? REFUSED : RECORDED;
+		});
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = OTHER;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"neither the refused claim nor its forget is asked again at once",
+		).toEqual([MISSION_CLAIM, { heads: OTHER, quests: [] }, "forget"]);
+		expect(said, "the refusal and the forget each said once").toHaveLength(2);
+	});
+
+	it("forgets what it held before and asks once more soon, when refused before any answer", async () => {
+		let claimsAsked = 0;
+		const { state, claims, keeper, pass } = keeping((ask) => {
+			if (ask.claim === "forget") return RECORDED;
+			claimsAsked += 1;
+			return claimsAsked === 1 ? REFUSED : RECORDED;
+		});
+		state.questId = MISSION;
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+		expect(
+			claims(),
+			"a predecessor's forget may be on its way, so not again at once",
+		).toEqual([MISSION_CLAIM, "forget"]);
+
+		pass(CLAIM_RETRIED_AFTER_START_MS);
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+		expect(claims(), "asked once more soon after").toEqual([
+			MISSION_CLAIM,
+			"forget",
+			MISSION_CLAIM,
+		]);
+	});
+
+	it("asks soon after a refusal at the start only once", async () => {
+		const { state, claimsOnly, keeper, pass } = keeping((ask) =>
+			ask.claim === "forget" ? RECORDED : REFUSED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+		for (const _ of [1, 2, 3]) {
+			pass(CLAIM_RETRIED_AFTER_START_MS);
+			keeper.lookIfDue("sess-2", AT);
+			await keeper.settled();
+		}
+
+		expect(
+			claimsOnly(),
+			"the second refusal is the node's own word, waited out",
+		).toHaveLength(2);
+	});
+
+	it("forgets a claim that timed out under the session that asked it", async () => {
+		const { state, asked, keeper } = keeping((ask) =>
+			ask.claim === "forget" ? RECORDED : TIMED_OUT,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = PLAIN;
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+
+		expect(asked.at(-1), "the node may hold it under sess-1").toMatchObject({
+			claim: "forget",
+			session: "sess-1",
+		});
 	});
 
 	it("still lets go of the quest it headed when a claim that timed out is refused", async () => {
@@ -499,18 +584,23 @@ describe("an orchestrator's claim", () => {
 	});
 
 	it("waits until due to ask again what the node refused", async () => {
-		const { state, asked, keeper, pass } = keeping(REFUSED);
+		const { state, claimsOnly, keeper, pass } = keeping((ask) =>
+			ask.claim === "forget" ? RECORDED : REFUSED,
+		);
 		state.questId = MISSION;
 		keeper.look("sess-1", AT);
 		await keeper.settled();
 		keeper.look("sess-1", AT);
 		await keeper.settled();
-		expect(asked, "a refused claim is not asked again at once").toHaveLength(1);
+		expect(
+			claimsOnly(),
+			"a refused claim is not asked again at once",
+		).toHaveLength(1);
 
 		pass(CLAIM_LOOKED_AGAIN_MS);
 		keeper.look("sess-1", AT);
 		await keeper.settled();
-		expect(asked, "it is asked again once due").toHaveLength(2);
+		expect(claimsOnly(), "it is asked again once due").toHaveLength(2);
 	});
 
 	it("is asked at a turn's start only once it is due, or the quest changed", async () => {
@@ -540,7 +630,9 @@ describe("an orchestrator's claim", () => {
 	});
 
 	it("says a refusal once, however often it recurs", async () => {
-		const { state, said, keeper, pass } = keeping(REFUSED);
+		const { state, claimsOnly, said, keeper, pass } = keeping((ask) =>
+			ask.claim === "forget" ? RECORDED : REFUSED,
+		);
 		state.questId = MISSION;
 		keeper.look("sess-1", AT);
 		await keeper.settled();
@@ -548,6 +640,7 @@ describe("an orchestrator's claim", () => {
 		keeper.lookIfDue("sess-1", AT);
 		await keeper.settled();
 
+		expect(claimsOnly(), "it was refused twice").toHaveLength(2);
 		expect(said, "one line in the journal").toHaveLength(1);
 		expect(said[0], "it says the node's words").toContain(
 			"another session heads it",
@@ -693,7 +786,7 @@ describe("an orchestrator's claim", () => {
 
 describe("the claim's wiring", () => {
 	type Event = { toolName?: string; reason?: string };
-	type Handler = (event: Event, ctx: unknown) => void;
+	type Handler = (event: Event, ctx: unknown) => unknown;
 
 	function wired(overrides: Partial<ClaimKeeperDeps> = {}) {
 		const handlers = new Map<string, Handler>();
@@ -711,6 +804,7 @@ describe("the claim's wiring", () => {
 		const asks: Ask[] = [];
 		let clock = 0;
 		let tick: (() => void) | undefined;
+		let tickEvery: number | undefined;
 		let ticking = false;
 		const deps: ClaimKeeperDeps = {
 			tell: async (claim, session, realm, place) => {
@@ -721,8 +815,9 @@ describe("the claim's wiring", () => {
 			realm: () => "work",
 			now: () => clock,
 			journal: () => undefined,
-			every: (look) => {
+			every: (look, ms) => {
 				tick = look;
+				tickEvery = ms;
 				ticking = true;
 				return () => {
 					ticking = false;
@@ -750,6 +845,7 @@ describe("the claim's wiring", () => {
 				clock += ms;
 			},
 			tick: () => tick?.(),
+			tickEvery: () => tickEvery,
 			ticking: () => ticking,
 		};
 	}
@@ -803,6 +899,40 @@ describe("the claim's wiring", () => {
 
 		fire("session_shutdown", { reason: "reload" }, "sess-1");
 		expect(ticking(), "the timer stops as the session does").toBe(false);
+	});
+
+	it("ticks well inside the due period, so a claim is never a period late", () => {
+		const { tickEvery } = wired();
+		expect(tickEvery(), "a tick a minute").toBe(CLAIM_TICK_MS);
+		expect(CLAIM_TICK_MS * 4, "several ticks to a period").toBeLessThanOrEqual(
+			CLAIM_LOOKED_AGAIN_MS,
+		);
+	});
+
+	it("hands pi the last forget to wait on as a conversation quits", async () => {
+		const answer = held<ClaimTold>();
+		let asks = 0;
+		const { fire, settle } = wired({
+			tell: (claim) => {
+				asks += 1;
+				return claim === "forget" ? answer.promise : Promise.resolve(RECORDED);
+			},
+		});
+		fire("session_start", {}, "sess-1");
+		await settle();
+		let done = false;
+		const ending = Promise.resolve(
+			fire("session_shutdown", { reason: "quit" }, "sess-1"),
+		).then(() => {
+			done = true;
+		});
+		await settle();
+		expect(asks, "the forget was sent").toBe(2);
+		expect(done, "pi is still waiting on it").toBe(false);
+
+		answer.release(RECORDED);
+		await ending;
+		expect(done, "and done once it is answered").toBe(true);
 	});
 
 	it("forgets as a conversation is swapped or quit, never on a reload or a park", async () => {

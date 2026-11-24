@@ -4,9 +4,12 @@
  * The node routes a message for an orchestrator by the claims it holds,
  * and refuses a quest another session already claims, so two sessions
  * that each load the same orchestrating quest can't both play it. It
- * proves who claims from the asking process: in a pi host every
+ * takes who claims from the asking process: in a pi host every
  * session shares one process, so the node tells them apart only by the
- * asking process's own `PI_SESSION_ID`. A claim is therefore asked
+ * asking process's own `PI_SESSION_ID`. That is no proof: any process
+ * of the same account can set it, so a claim is only as trustworthy as
+ * every process the account runs, its agents' shells among them. A
+ * claim is therefore asked
  * through `mycelium orchestrates`, run as a child whose environment
  * names the session, rather than over the socket from the host's own
  * process, which names none.
