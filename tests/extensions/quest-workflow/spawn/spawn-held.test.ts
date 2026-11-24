@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
 	agentCommand,
@@ -182,12 +183,52 @@ describe("spawning on a machine", () => {
 		expect(kitty.calls.spawned, "no window opened").toEqual([]);
 		expect(kitty.calls.typed).toEqual([]);
 		expect(outcome.ok && outcome.message).toContain(
-			"Started a held session on equilibrius (equilibrius holds it as c97b4852, begun in /Users/joel/src/core.nix)",
+			'Started a held session on equilibrius (equilibrius holds it as "c97b4852", begun in "/Users/joel/src/core.nix")',
 		);
 		expect(outcome.ok && outcome.details).toMatchObject({
 			machine: "equilibrius",
 			held: "c97b4852",
 		});
+	});
+
+	it("says the words that join it as they show, and keeps them as given", async () => {
+		const attach = ["mycelium", "attach", "c97b\u001b[2J\u202e4852"];
+		const { start } = node({
+			ok: true,
+			started: { ...equilibrius.started, attach },
+		});
+		const outcome = await spawnHeld(asked(fakeDriver("kitty")), start, shares);
+		expect(outcome.ok && outcome.message).toContain(
+			"with: 'mycelium' 'attach' 'c97b4852'.",
+		);
+		const message = outcome.ok ? outcome.message : "";
+		expect(message.includes("\u001b"), "no ESC").toBe(false);
+		expect(message.includes("\u202e"), "no bidi override").toBe(false);
+		expect(outcome.ok && outcome.details).toMatchObject({ attach });
+	});
+
+	it("runs the words that join it here as given, saying them as they show", async () => {
+		const kitty = fakeDriver("kitty");
+		const machine = hostname().split(".")[0] ?? "";
+		const attach = ["mycelium", "attach", "c97b\u001b[2J4852"];
+		const { start } = node({
+			ok: true,
+			started: { ...equilibrius.started, machine, attach },
+		});
+		const outcome = await spawnHeld(
+			{ ...asked(kitty), machine },
+			start,
+			shares,
+		);
+		const ran = kitty.calls.typed.map((one) => one.text).join("");
+		expect(ran, "the window runs the words as given").toContain(
+			joinLine(attach),
+		);
+		const message = outcome.ok ? outcome.message : "";
+		expect(message).toContain(
+			"join it again with: 'mycelium' 'attach' 'c97b4852'.",
+		);
+		expect(message.includes("\u001b"), "says no ESC").toBe(false);
 	});
 
 	it("tells the node the fence it declares, and starts it in that sandbox", async () => {
@@ -428,7 +469,7 @@ describe("the machine a spawn starts on", () => {
 		expect(await machineFor(undefined, ["reach=home"], place)).toEqual({
 			ok: false,
 			refusal:
-				"Nothing was started, since mycelium's node placed it nowhere: no machine takes it: optimus lacks reach=home.",
+				"Nothing was started, since mycelium's node placed it nowhere: no machine takes it: optimus lacks reach=home. A machine with that reach may join the realm later, so try again in some minutes, not at once.",
 		});
 		const bad = await machineFor(undefined, ["home"], place);
 		expect(!bad.ok && bad.refusal).toContain('"home" is not a need');

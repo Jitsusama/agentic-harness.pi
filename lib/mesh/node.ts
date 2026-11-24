@@ -37,7 +37,7 @@ import {
 	placedFrom,
 } from "./placement.ts";
 import type { Said } from "./receptor.ts";
-import { shownEnds } from "./shown-line.ts";
+import { shownEnds, shownValue } from "./shown-line.ts";
 
 /** What a `message` kind's record key opens with, before the id. */
 const MESSAGE_KEY = "message:";
@@ -199,7 +199,12 @@ export interface NodeStart {
 	readonly once?: string;
 }
 
-/** A program the node started held, and how to join it. */
+/**
+ * A program the node started held, and how to join it. Its machine, hold
+ * and folder are as they show (shownValue), since another node writes
+ * them and they're only ever said; its words to join it are as given, to
+ * be run, and said only as they show (shownAttach).
+ */
 export interface NodeStarted {
 	readonly machine: string;
 	/** The id its holder keeps it by there. */
@@ -208,6 +213,41 @@ export interface NodeStarted {
 	readonly folder: string;
 	/** The words that join it from a terminal here, to be run as given. */
 	readonly attach: readonly string[];
+}
+
+/**
+ * The most characters said of a started program's machine and hold,
+ * each a name or an id, and of its folder and the words that join it,
+ * each a path or a command.
+ */
+const MOST_NAMED = 64;
+const MOST_PATH = 300;
+
+/**
+ * What a refusal for `reason` says to do next, or nothing. A machine
+ * lacking a reach is refused only until a machine declaring it links to
+ * the realm (one made, lent or back) or a node restarts with new facts,
+ * so it is tried again minutes apart rather than at once; naming no such
+ * machine, and a fence's refusals, stand.
+ */
+export function laterTry(reason: string): string {
+	return /\black(?:s)? reach\b/u.test(reason)
+		? " A machine with that reach may join the realm later, so try again in some minutes, not at once."
+		: "";
+}
+
+/**
+ * `reason` as a sentence: ended with a full stop unless it ends one
+ * itself, as a refusal told in mycelium's own words may.
+ */
+export function asSentence(reason: string): string {
+	const said = reason.trimEnd();
+	return /[.!?]$/u.test(said) ? said : `${said}.`;
+}
+
+/** Words that join a started program, `line` as given, as they show. */
+export function shownAttach(line: string): string {
+	return shownValue(line, MOST_PATH);
 }
 
 /** What a start comes to: started, or why not, as the node says it. */
@@ -308,9 +348,12 @@ export function startedFrom(line: string): StartAnswer {
 		return {
 			ok: true,
 			started: {
-				machine: started.machine,
-				held: started.held,
-				folder: typeof started.folder === "string" ? started.folder : "",
+				machine: shownValue(started.machine, MOST_NAMED),
+				held: shownValue(started.held, MOST_NAMED),
+				folder:
+					typeof started.folder === "string"
+						? shownValue(started.folder, MOST_PATH)
+						: "",
 				attach: started.attach,
 			},
 		};
