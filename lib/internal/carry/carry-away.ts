@@ -40,7 +40,6 @@ import {
 	copyFileSync,
 	createReadStream,
 	createWriteStream,
-	mkdirSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -63,7 +62,7 @@ import {
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
 import { sparseOf } from "./sparse.ts";
-import { type Stage, staged } from "./stage.ts";
+import { handoverMade, type Stage, staged } from "./stage.ts";
 
 /** What is carried, and where. */
 export interface Carrying {
@@ -147,7 +146,7 @@ export interface CarriedAway {
  * writes its done file last.
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
-	mkdirSync(carrying.into, { recursive: true });
+	handoverMade(carrying.into);
 	return staged(carrying.into, carrying.session.id, (stage) =>
 		carryAll(carrying, stage),
 	);
@@ -206,7 +205,11 @@ async function carryAll(
 			? {}
 			: { notes: carrying.notes }),
 	};
-	return { file: writeHandover(into, handover), handover, trees };
+	return {
+		file: stage.write(() => writeHandover(into, handover)),
+		handover,
+		trees,
+	};
 }
 
 /**
@@ -306,7 +309,7 @@ export async function carryQuestTrees(
 	quest: string,
 	largest = SHARE_LARGEST_FILE,
 ): Promise<QuestTreesCarried> {
-	mkdirSync(into, { recursive: true });
+	handoverMade(into);
 	return staged(into, quest, async (stage) => {
 		const trees = await stageTrees(
 			exec,
@@ -322,12 +325,14 @@ export async function carryQuestTrees(
 		);
 		stage.place(filesOf(trees), earlierOf(into, home, quest));
 		if (handed.length === 0) return { trees };
-		const file = writeHandover(into, {
-			session: quest,
-			quest,
-			cwd: "~",
-			trees: handed,
-		});
+		const file = stage.write(() =>
+			writeHandover(into, {
+				session: quest,
+				quest,
+				cwd: "~",
+				trees: handed,
+			}),
+		);
 		return { trees, file };
 	});
 }

@@ -35,6 +35,7 @@
 
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { makeShares, questScratch } from "../sandbox/quest-folders.ts";
 import {
 	makeFoldersFirst,
 	SANDBOX_VARIABLE,
@@ -510,6 +511,12 @@ function macFenceText(
 	// too, so pi's folder in it is kept from them below.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;
+	// As on Linux (sandbox.ts): every quest's scratch and share read-only
+	// but the session's own quest's, so a command can't write in another's,
+	// nor in the staging a carry keeps beside them (stage.ts), though the
+	// Mac's fence lets it write the rest of ~/.cache.
+	const scratch = questScratch(place.env.TMPDIR);
+	const share = makeShares(scratch);
 	// A broker's tree is laid from its root, whichever folder in it the
 	// run starts in, so its .git stays read-only as the fence keeps it.
 	const mounts = fenceArgs(
@@ -517,6 +524,8 @@ function macFenceText(
 			home,
 			runtimeDir: undefined,
 			...sessionWorktrees(tree ?? folder, undefined, treesRoot),
+			scratch,
+			share,
 			...(npmrc ? { npmrc } : {}),
 			docker: dockerHoldsCredentials(home),
 			tempCaches: caches,
