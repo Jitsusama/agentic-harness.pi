@@ -481,7 +481,7 @@ and its groups.
   address or as one of each a question went to, and any answer
   to a question it asked, whether the peer is idle or busy. It
   also covers a question answering one it sent, while idle, and
-  fresh news or a finding sent to an idle peer, by its address
+  fresh news sent to an idle peer, by its address
   or in answer to it, by a present peer of this realm its last
   run's `Blocked:` line names: on 2026-11-23 a session blocked
   on another's promised sha sat idle for hours, since the sha

@@ -336,9 +336,11 @@ export function createHearing(m: MeshState, f: Handing) {
 		const idle = !starting && (m.ctx.isIdle?.() ?? false);
 		// An idle peer whose run ended blocked on a peer waits on that peer's
 		// next word, sent to it however it is sent, once a run. Only a peer
-		// present here counts, by the addresses its presence gives: a `from`
-		// is only what the sender wrote, and one from another realm is
-		// another principal (unanswered.ts), never the peer named here.
+		// present here counts, by the addresses its presence gives, so a stray
+		// word a line holds, such as "main", names nobody. That guards against
+		// a name, not a forger: a `from` is only what the sender wrote, as
+		// everywhere on the mesh. One from another realm is another principal
+		// (unanswered.ts), never the peer named here.
 		const ended = idle ? lastRun(m.ctx.sessionManager) : undefined;
 		const blocked =
 			ended && ended.id !== wokeFor ? blockedLine(ended.text) : undefined;

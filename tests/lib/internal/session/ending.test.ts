@@ -33,6 +33,10 @@ describe("blockedLine", () => {
 			"the OTP.",
 		);
 		expect(blockedLine("- blocked: a decision")).toBe("a decision");
+		expect(
+			blockedLine("Notes.\n\n**Blocked:** CI needs a secret only you have."),
+			"a bold label alone",
+		).toBe("CI needs a secret only you have.");
 	});
 
 	it("is nothing for a run that did not end blocked", () => {
@@ -120,11 +124,16 @@ describe("what a run last said", () => {
 	});
 
 	it("stops reading back after a bounded walk", () => {
-		const many = Array.from({ length: 10_001 }, () => heard("noise"));
-		const session = branch(
-			said({ type: "text", text: "Blocked: far back." }),
-			...many,
+		const behind = (noise: number) =>
+			lastRun(
+				branch(
+					said({ type: "text", text: "Blocked: far back." }),
+					...Array.from({ length: noise }, () => heard("noise")),
+				),
+			)?.text;
+		expect(behind(9_999), "the last entry the walk reads").toBe(
+			"Blocked: far back.",
 		);
-		expect(lastRun(session)).toBeUndefined();
+		expect(behind(10_000), "one past it").toBeUndefined();
 	});
 });

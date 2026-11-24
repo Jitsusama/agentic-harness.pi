@@ -385,11 +385,6 @@ describe("a peer resting blocked on the sender", () => {
 	it.each([
 		["news sent to it", message({ to: ["@5GV2AH"] }), {}],
 		[
-			"a finding sent to it",
-			message({ intent: "finding", to: ["@5GV2AH"] }),
-			{},
-		],
-		[
 			"news to a group answering it",
 			message({ re: "0-5GV2AH-1-bbbb" }),
 			{ answers: true },
@@ -398,8 +393,21 @@ describe("a peer resting blocked on the sender", () => {
 		expect(attend(sentNow, { ...blocked, ...over })).toEqual(wakes);
 	});
 
-	it("leaves news to a group that answers nothing for its next turn", () => {
-		expect(attend(message(), blocked).attention).not.toBe("turn");
+	it("glances at news to a group that answers nothing, as another's", () => {
+		expect(attend(message(), blocked)).toEqual({
+			attention: "glance",
+			why: "about another peer's own work",
+		});
+	});
+
+	it("keeps a finding sent to it for its next turn, held to no hour or cap", () => {
+		const finding = message({ intent: "finding", to: ["@5GV2AH"] });
+		expect(attend(finding, blocked).attention).toBe("note");
+		expect(
+			attend(finding, { ...blocked, now: sent + MOST_HOLD_MS + FYI_MS })
+				.attention,
+			"nor does a stale one wake it",
+		).not.toBe("turn");
 	});
 
 	it("glances at news past its hour and a hold past its longest", () => {

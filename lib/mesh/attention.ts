@@ -41,12 +41,13 @@
  * something else started a turn. An fyi more than {@link FYI_MS} old
  * when it reaches the peer is a glance, and so is a hold older than the
  * longest a hold stands ({@link MOST_HOLD_MS}), which no longer holds
- * anything. Fresh news or a finding a peer sends to an idle peer whose
+ * anything. Fresh news a peer sends to an idle peer whose
  * last run ended blocked on it, by its address or in answer to it, takes
  * a turn too: on 23 Nov J6OCG0 ended "Blocked: ... waits on 2AF2DH",
  * 2AF2DH's promised sha came as an fyi with no thread, and J6OCG0 sat
  * idle on it from 06:17 until that night. A message to a group it is in
- * still waits, as does one from any other peer.
+ * still waits, as do a finding, which no hour or cap holds, and one from
+ * any other peer.
  *
  * What a message is worth is held to what the peer can afford by
  * damping (see damping.ts), which this module knows nothing of.
@@ -221,17 +222,20 @@ export function attend(message: Message, at: Standing): Heed {
 	}
 	// A peer resting blocked on the sender waits on its next word, which on
 	// 23 November came as an fyi to it with no thread, and J6OCG0 sat idle
-	// on it from 06:17 until that night. Only news fresh enough to hear
-	// counts, and an orchestrator's pivot acks stay notes: they answer what
-	// it sent, and say nothing of what it waits on. A landing its sender's
-	// presence shows is still woken for, since that may be what it waits
-	// on. A question or hold is heard below as one put to the peer, owed
-	// an answer however it ends. The hour's cap on one sender's news still
-	// holds, and each run that ends blocked is woken once.
+	// on it from 06:17 until that night. Only news counts, which is held
+	// to its hour above and to the damper's cap on one sender's news: a
+	// finding is held to neither, so two cells blocked on each other could
+	// wake each other by findings turn for turn, and it waits for the next
+	// turn as any finding does. An orchestrator's pivot acks stay notes:
+	// they answer what it sent, and say nothing of what it waits on. A
+	// landing its sender's presence shows is still woken for, since that
+	// may be what it waits on. A question or hold is heard below as one put
+	// to the peer, owed an answer however it ends. Each run that ends
+	// blocked is woken once.
 	if (
 		at.awaits &&
 		at.idle &&
-		(message.intent === "fyi" || message.intent === "finding") &&
+		message.intent === "fyi" &&
 		!(at.led && answerOnly) &&
 		(at.answers || isHomeTo(message, at.receiver.addresses))
 	) {

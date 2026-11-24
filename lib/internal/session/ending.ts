@@ -35,7 +35,7 @@ export function endingOf(text: string): "done" | "blocked" | undefined {
 export function blockedLine(text: string): string | undefined {
 	if (endingOf(text) !== "blocked") return undefined;
 	return lastLineOf(text)
-		.replace(/^(?:[-*>]\s+)*(?:\*\*|__)?blocked:\s*/i, "")
+		.replace(/^(?:[-*>]\s+)*(?:\*\*|__)?blocked:(?:\*\*|__)?\s*/i, "")
 		.replace(/(?:\*\*|__)$/, "")
 		.trim();
 }
