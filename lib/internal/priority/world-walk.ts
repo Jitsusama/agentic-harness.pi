@@ -1,6 +1,7 @@
 /**
  * Walks of World's git objects: which steps of a command walk them, what
- * each walk does, and whether a search covers the whole of World.
+ * each walk does, and whether a search covers the whole of World, or
+ * the whole home folder that holds it.
  */
 
 import { homedir } from "node:os";
@@ -87,6 +88,205 @@ export function searchesWorldWhole(command: string, where: Where): boolean {
 		}
 	}
 	return false;
+}
+
+/**
+ * A search of a whole home folder or disk: the tool that runs it, and
+ * the folder it starts from.
+ */
+export interface HomeSearch {
+	readonly tool: string;
+	readonly root: string;
+}
+
+/**
+ * The deepest a search from a home folder goes and is still a look: to
+ * `~/world/trees`, never into a tree's files.
+ */
+const SHALLOW_DEPTH = 2;
+
+/** Each search tool read for a home walk, with its options that take the next word as their value. */
+const SEARCH_VALUED: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	["rg", new Set([...RG_VALUED, "-d", "--max-depth", "--maxdepth"])],
+	[
+		"grep",
+		new Set([
+			...["-e", "-f", "-m", "-A", "-B", "-C", "-d", "-D"],
+			...["--regexp", "--file", "--max-count", "--context"],
+			...["--after-context", "--before-context"],
+		]),
+	],
+	[
+		"fd",
+		new Set([
+			...["-e", "-t", "-E", "-d", "-j", "-S", "-o", "-c"],
+			...["--extension", "--type", "--exclude", "--max-depth"],
+			...["--min-depth", "--exact-depth", "--threads", "--size"],
+			...["--changed-within", "--changed-before", "--owner", "--color"],
+			...["--base-directory", "--search-path"],
+		]),
+	],
+]);
+
+/** Each tool's options that give its pattern, so every word it names is a path. */
+const GIVES_PATTERN = new Set(["-e", "-f", "--regexp", "--file", "--files"]);
+
+/** Each tool's options that limit how deep it goes. */
+const DEPTH = new Set(["-d", "--max-depth", "--maxdepth", "--exact-depth"]);
+
+/** grep's options that have it search the folders it names. */
+const RECURSIVE = /^(?:-[a-zA-Z]*[rR][a-zA-Z]*|--(?:dereference-)?recursive)$/;
+
+/** What a step runs under before its search: a time limit, a lower priority, `time`, `command`. */
+const UNDER =
+	/^(?:(?:g?timeout(?:\s+-[sk]\s+\S+|\s+-\S+)*\s+\S+|nice(?:\s+-n\s*\S+|\s+-\d+)?|time|command|nohup)\s+)+/;
+
+/** Where a search's words end: a redirection, as `2>/dev/null`, or input. */
+const WORDS_END = /^(?:\d|&)?>|^</;
+
+/**
+ * Whether a command searches a whole home folder or the disk: `find`,
+ * `rg`, a recursive `grep` or `fd` started from `/`, the home or a
+ * folder holding it, by a path it names or, naming none, the folder it
+ * runs in after any `cd`. Over a home folder one walks every World
+ * checkout beside every cache: at 18:56 on 23 November an agent's
+ * `find ~ -maxdepth 6 -path '*cadence*'` held its call 60 s and ran on
+ * past its timeout (4UKB4W). A search kept within
+ * {@link SHALLOW_DEPTH} levels only lists folders, and is left alone,
+ * as a search of a narrower folder is. A path named through a variable
+ * other than `$HOME` is unknown, so it is never read as the home.
+ */
+export function searchesHomeWhole(
+	command: string,
+	where: Where,
+): HomeSearch | undefined {
+	const pathOf = (word: string, from: string | undefined) => {
+		const expanded = word
+			.replace(/^~(?=\/|$)/, where.home)
+			.replace(/^\$(?:HOME\b|\{HOME\})/, where.home);
+		if (expanded.includes("$") || expanded.startsWith("~")) return undefined;
+		if (isAbsolute(expanded)) return resolve(expanded);
+		return from === undefined ? undefined : resolve(from, expanded);
+	};
+	const holdsHome = (path: string | undefined) =>
+		path !== undefined &&
+		(path === where.home ||
+			where.home.startsWith(path.endsWith("/") ? path : `${path}/`));
+	let folder = where.cwd;
+	for (const whole of shellSteps(command)) {
+		const words = whole.trim().replace(UNDER, "").split(/\s+/).filter(Boolean);
+		const [tool = "", ...rest] = words;
+		if (tool === "cd" || tool === "pushd") {
+			folder = rest[0] ? pathOf(rest[0], folder) : where.home;
+			continue;
+		}
+		const search = tool === "find" ? findOf(rest) : searchOf(tool, rest);
+		if (search === undefined) continue;
+		if (search.depth !== undefined && search.depth <= SHALLOW_DEPTH) continue;
+		const roots =
+			search.paths.length > 0
+				? search.paths.map((path) => pathOf(path, folder))
+				: [folder];
+		const root = roots.find(holdsHome);
+		if (root !== undefined) return { tool, root };
+	}
+	return undefined;
+}
+
+/** The paths a search names, and how deep it goes when it says. */
+interface Search {
+	readonly paths: readonly string[];
+	readonly depth?: number;
+}
+
+/**
+ * What a `find` searches: the words before its first test or action,
+ * past its own options, and its `-maxdepth`.
+ */
+function findOf(words: readonly string[]): Search {
+	let at = 0;
+	while (/^-(?:[HLP]|O\d|D)$/.test(words[at] ?? "")) {
+		at += words[at] === "-D" ? 2 : 1;
+	}
+	const paths: string[] = [];
+	for (; at < words.length; at += 1) {
+		const word = words[at] ?? "";
+		if (/^[-(!]|^\\\(/.test(word) || WORDS_END.test(word)) break;
+		paths.push(word);
+	}
+	const limit = words.indexOf("-maxdepth");
+	const depth = limit < 0 ? undefined : Number(words[limit + 1]);
+	return { paths, depth: Number.isNaN(depth) ? undefined : depth };
+}
+
+/**
+ * What an `rg`, a recursive `grep` or an `fd` searches: the words it
+ * names after its pattern, or all of them when an option gives the
+ * pattern, and how deep it goes. Nothing for any other command, or a
+ * `grep` that isn't recursive.
+ */
+function searchOf(tool: string, words: readonly string[]): Search | undefined {
+	const valued = SEARCH_VALUED.get(tool);
+	if (valued === undefined) return undefined;
+	let recursive = tool !== "grep";
+	let patternGiven = false;
+	let depth: number | undefined;
+	const named: string[] = [];
+	for (let at = 0; at < words.length; at += 1) {
+		const word = words[at] ?? "";
+		if (WORDS_END.test(word)) break;
+		if (word === "--") {
+			named.push(...words.slice(at + 1).filter((w) => !WORDS_END.test(w)));
+			break;
+		}
+		// fd runs what follows these on each file it finds.
+		if (tool === "fd" && /^(?:-x|-X|--exec|--exec-batch)$/.test(word)) break;
+		if (!word.startsWith("-") || word === "-") {
+			named.push(word);
+			continue;
+		}
+		const [option = word, inline] = word.startsWith("--")
+			? word.split(/[=](.*)/s)
+			: [word];
+		if (tool === "grep" && RECURSIVE.test(word)) recursive = true;
+		if (GIVES_PATTERN.has(option)) patternGiven = true;
+		let value = inline;
+		if (value === undefined && valued.has(option)) {
+			at += 1;
+			value = words[at];
+		}
+		if (tool !== "grep" && DEPTH.has(option)) depth = Number(value);
+		const joined = /^-d(\d+)$/.exec(word)?.[1];
+		if (tool !== "grep" && joined !== undefined) depth = Number(joined);
+		if (option === "--search-path" && value !== undefined) {
+			named.push(value);
+			patternGiven ||= named.length === 1;
+		}
+	}
+	if (!recursive) return undefined;
+	const paths = patternGiven ? named : named.slice(1);
+	return { paths, depth: Number.isNaN(depth) ? undefined : depth };
+}
+
+/**
+ * Why a search of a whole home folder or the disk is refused, naming a
+ * narrower folder to search, or nothing for any other command. Made
+ * again unchanged it goes ahead, waiting its turn as a build does
+ * (queue.ts's `kindOf`), since a search of everything is sometimes
+ * what is wanted.
+ */
+export function homeSearchRefusal(
+	command: string,
+	where: Where,
+): string | undefined {
+	const search = searchesHomeWhole(command, where);
+	if (search === undefined) return undefined;
+	const root = search.root === where.home ? "~" : search.root;
+	const whole =
+		search.root === where.home
+			? "the whole home folder"
+			: "every home folder on the machine";
+	return `This ${search.tool} searches every folder from ${root}, which takes in ${whole}, World's checkouts and every cache with it: on 23 November one such find held its call for 60 seconds and ran on past its timeout. Search a narrower folder instead, such as the repository you mean (~/src/<host>/<org>/<repo>) or one World zone, or keep it shallow: find ${root} -maxdepth 2, or --max-depth 2 for rg and fd. Made again unchanged, it waits its turn as a build does.`;
 }
 
 /**

@@ -185,6 +185,17 @@ to rebase a branch the stale-cutoff check finds old, and names the
 form above for a stacked one. On 6 November 5 sessions had pushed World that way 20 times.
 `-n`, a dry run for a push, is left alone.
 
+A `find`, `rg`, recursive `grep` or `fd` started from the whole home
+folder, the disk or a folder holding the home (`~`, `$HOME`, `/`, or
+the folder it runs in when it names none) is refused by the
+`home-search` guard, on every platform. Such a search walks every
+World checkout and every cache: at 18:56 on 23 November one agent's
+`find ~ -maxdepth 6 -path '*cadence*'` held its call 60 s and ran on
+past its timeout. The refusal names a narrower folder, or a depth of
+2 or less, which only lists folders and is left alone. The guard
+redirects, so the same search made again goes ahead, and the queue
+reads it as a build, as it does a search of a whole World checkout.
+
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.
 
