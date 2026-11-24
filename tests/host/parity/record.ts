@@ -8,6 +8,7 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PROSE_CLASSIFIER_ENV } from "../../../lib/classifier/jev.ts";
 import {
 	type MockProvider,
 	mockProvider,
@@ -78,6 +79,11 @@ export async function record(options: {
 		XDG_CACHE_HOME: join(home, ".cache"),
 		PATH: process.env.PATH ?? "",
 		LANG: "C.UTF-8",
+		// The reply check looks for its classifier once pi settles and
+		// writes why it found none when the lookup ends, which races the
+		// script's next command on either side, so its record would land
+		// before or after that command's own. The soak runs it off too.
+		[PROSE_CLASSIFIER_ENV]: "off",
 	};
 	const extensions = [...options.extensions, probe];
 	const launch =
