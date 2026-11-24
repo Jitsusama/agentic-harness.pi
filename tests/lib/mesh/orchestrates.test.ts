@@ -159,7 +159,7 @@ describe("telling the node", () => {
 			],
 			[
 				{ code: null, stdout: "", stderr: "", noFolder: true },
-				"folder is gone",
+				"mycelium's folder, /, is gone",
 				false,
 			],
 			[

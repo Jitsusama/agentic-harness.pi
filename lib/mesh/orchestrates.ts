@@ -78,8 +78,8 @@ export function claimArguments(
 
 /**
  * Tell the node in `realm` what `session` orchestrates, or that it
- * orchestrates nothing, run from the place's folder with its environment
- * naming the session. Never throws: a node that can't be asked, or
+ * orchestrates nothing, run from {@link ASKED_FROM} with the place's
+ * environment naming the session. Never throws: a node that can't be asked, or
  * refuses, is said in what it answers, on one line.
  */
 export async function tellOrchestrates(
@@ -100,7 +100,7 @@ export async function tellOrchestrates(
 /** What a run of `mycelium orchestrates` came to. */
 function toldBy(ran: Ran): ClaimTold {
 	if (ran.missing) return unasked("mycelium isn't installed here");
-	if (ran.noFolder) return unasked("the session's folder is gone");
+	if (ran.noFolder) return unasked(`mycelium's folder, ${ASKED_FROM}, is gone`);
 	if (ran.neverRan) return unasked(`mycelium couldn't start (${ran.neverRan})`);
 	if (ran.timedOut)
 		return sentUnanswered(

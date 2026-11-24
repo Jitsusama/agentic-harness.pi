@@ -273,11 +273,12 @@ export function claimKeeper(
 	 */
 	const failed = new Map<string, number>();
 	/**
-	 * When a claim was last sent, which the claim is said again a period
-	 * after: a look that sends nothing, as a quest action's mostly does,
-	 * puts it off no further.
+	 * When a claim or a forget was last sent, which it is said again a
+	 * period after: a look that sends nothing, as a quest action's mostly
+	 * does, puts it off no further, and a forget sends its own period on,
+	 * so one failing isn't asked again each minute.
 	 */
-	let claimSentAt: number | undefined;
+	let sentAt: number | undefined;
 	/** Whether the node has answered a claim of this keeper's yet. */
 	let claimAnswered = false;
 	/** The troubles said since the last answer, so one that recurs is said once. */
@@ -323,7 +324,7 @@ export function claimKeeper(
 		key: string,
 		followUp = false,
 	): Promise<ClaimTold["kind"]> => {
-		if (claim !== "forget") claimSentAt = now();
+		sentAt = now();
 		const told = await tell(claim, session, named, asked.place);
 		if (claim !== "forget" && told.kind !== "unasked") claimAnswered = true;
 		if (told.kind === "recorded") {
@@ -467,7 +468,7 @@ export function claimKeeper(
 			} else if (retryAt !== undefined && now() >= retryAt) {
 				retryAt = undefined;
 				look(session, place, true);
-			} else if (now() - (claimSentAt ?? lookedAt) >= CLAIM_LOOKED_AGAIN_MS)
+			} else if (now() - (sentAt ?? lookedAt) >= CLAIM_LOOKED_AGAIN_MS)
 				look(session, place, true);
 		},
 		stop() {

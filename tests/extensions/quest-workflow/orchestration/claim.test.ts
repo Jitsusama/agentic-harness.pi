@@ -546,7 +546,7 @@ describe("an orchestrator's claim", () => {
 
 	it("sends nothing after a refusal that lands as the session stops", async () => {
 		const slow = held<ClaimTold>();
-		const { state, asked, keeper, pass } = keeping((ask) =>
+		const { state, asked, keeper } = keeping((ask) =>
 			ask.claim === "forget" ? RECORDED : slow.promise,
 		);
 		state.questId = MISSION;
@@ -554,13 +554,10 @@ describe("an orchestrator's claim", () => {
 		keeper.stop();
 		slow.release(REFUSED);
 		await keeper.settled();
-		pass(CLAIM_RETRIED_AFTER_START_MS);
-		keeper.lookIfDue("sess-1", AT);
-		await keeper.settled();
 
 		expect(
 			asked.map(({ claim }) => claim),
-			"no forget or retry follows, which could undo a reloaded keeper's claim",
+			"no forget follows, which could undo a reloaded keeper's claim",
 		).toEqual([MISSION_CLAIM]);
 	});
 
@@ -710,6 +707,29 @@ describe("an orchestrator's claim", () => {
 			claimsOnly(),
 			"a look that sent nothing put off saying it again no further",
 		).toHaveLength(2);
+	});
+
+	it("asks a failing forget again a period after it was sent, not each minute", async () => {
+		const { state, claims, keeper, pass } = keeping((ask) =>
+			ask.claim === "forget" ? TIMED_OUT : RECORDED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		pass(60_000);
+		state.questId = PLAIN;
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+		for (let minute = 0; minute < 6; minute += 1) {
+			pass(CLAIM_TICK_MS);
+			keeper.lookIfDue("sess-1", AT);
+			await keeper.settled();
+		}
+
+		expect(
+			claims(),
+			"the forget sent at a minute is asked again at six, and not before",
+		).toEqual([MISSION_CLAIM, "forget", "forget"]);
 	});
 
 	it("says a refusal once, however often it recurs", async () => {

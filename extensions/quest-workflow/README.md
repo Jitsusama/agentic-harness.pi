@@ -84,7 +84,7 @@ shipped and tested.
   quest and orchestrates each open quest it is nearest above
   (`mycelium orchestrates`, `orchestration-claim.ts`), at session
   start, after each quest action, and at a turn's start once the
-  quest changed, or five minutes after the claim was last sent, by
+  quest changed, or five minutes after it last sent a claim or a forget, by
   a turn or a timer that looks each minute, when it says the claim
   again in case the node let it lapse. Between those, a claim the node last recorded for
   this session is not asked again, and one it refused or never
