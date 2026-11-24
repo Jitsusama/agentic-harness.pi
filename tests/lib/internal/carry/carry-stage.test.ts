@@ -379,9 +379,10 @@ describe("a carry staged before the handover", () => {
 	});
 
 	it.each([
-		["every tree", false],
-		["one tree of two", true],
-	])(
+		["every tree", "none"],
+		["the first of two", "after"],
+		["the second of two, after bundling the first", "before"],
+	] as const)(
 		"leaves a quest's earlier carry of its own trees as it was when its next one refuses %s",
 		async (_, another) => {
 			const { origin, home, tree, into } = await homeWithWork();
@@ -393,18 +394,25 @@ describe("a carry staged before the handover", () => {
 			// Too random to pack small, so its bundle alone passes the limit.
 			await commit(tree, "big.txt", randomBytes(8000).toString("base64"));
 
-			const next = await carryQuestTrees(
-				exec,
-				another ? [tree, other] : [tree],
-				into,
-				home,
-				QUEST,
-				4000,
-			);
+			const paths = {
+				none: [tree],
+				after: [tree, other],
+				before: [other, tree],
+			}[another];
 
-			expect(next.trees.map((one) => one.kind)).toEqual(
-				another ? ["refused", "carried"] : ["refused"],
-			);
+			const next = await carryQuestTrees(exec, paths, into, home, QUEST, 4000);
+
+			expect(next.trees.map((one) => one.path)).toEqual(paths);
+			expect(
+				next.trees.map((one) => one.kind),
+				"none of its trees goes",
+			).toEqual(paths.map(() => "refused"));
+			const held = next.trees.find((one) => one.path === other);
+			if (another !== "none") {
+				expect(held?.kind === "refused" ? held.why : "").toBe(
+					`held back, since ${tree} was refused and a quest's own trees go together; its earlier carry stays as it was`,
+				);
+			}
 			expect(next.file, "no done file of a carry that isn't whole").toBe(
 				undefined,
 			);
