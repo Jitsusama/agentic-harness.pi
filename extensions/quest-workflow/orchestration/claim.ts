@@ -477,7 +477,10 @@ export function claimKeeper(
 			} else if (
 				now() -
 					Math.max(sentAt ?? lookedAt, dueAt ?? Number.NEGATIVE_INFINITY) >=
-				CLAIM_LOOKED_AGAIN_MS
+					CLAIM_LOOKED_AGAIN_MS &&
+				// With no node to tell, the look stays due, so a node back from
+				// a restart hears the claim within the minute, not a period on.
+				realm(place.env ?? process.env) !== undefined
 			) {
 				dueAt = now();
 				look(session, place, true);

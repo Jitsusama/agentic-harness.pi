@@ -15,6 +15,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
+import { systemProgram } from "../internal/sandbox/system-program.ts";
 import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
 
 /** New work to sprout, as the person or the session says it. */
@@ -231,8 +232,36 @@ function isJson(line: string): boolean {
 	}
 }
 
-/** Runs a program as {@link RunProgram} says, through node's execFile. */
-export const runProgram: RunProgram = (program, args, options) =>
+/**
+ * Runs a program as {@link RunProgram} says, through node's execFile,
+ * finding it with `find`: by default only in the system's profiles,
+ * never on the environment's PATH. pi runs it unfenced, and a session's
+ * PATH can hold a folder a fenced command writes, such as a project's
+ * `.direnv/bin` (system-program.ts), so a planted `mycelium` there
+ * would run as the person. One the profiles don't hold is missing.
+ */
+export function runsSystemPrograms(
+	find: (program: string) => string | undefined = systemProgram,
+): RunProgram {
+	return (program, args, options) => {
+		const found = find(program);
+		if (found === undefined) {
+			return Promise.resolve({
+				code: null,
+				stdout: "",
+				stderr: "",
+				missing: true,
+			});
+		}
+		return runFound(found, args, options);
+	};
+}
+
+/** Runs a program from the system's profiles, as {@link runsSystemPrograms} says. */
+export const runProgram: RunProgram = runsSystemPrograms();
+
+/** Runs the program at `program`, never failing but in what it resolves. */
+const runFound: RunProgram = (program, args, options) =>
 	new Promise((resolve) => {
 		try {
 			runFile(program, args, options, resolve);

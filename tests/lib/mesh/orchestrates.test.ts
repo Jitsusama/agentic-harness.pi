@@ -59,7 +59,15 @@ describe("telling the node", () => {
 			{ heads: HEADS, quests: BELOW },
 			"sess-42",
 			"work",
-			{ env: { PATH: "/the/session/s", MYCELIUM_REALM: "work" } },
+			// A host's env names its current session already; an ended or
+			// swapped-out session's forget must still go under its own id.
+			{
+				env: {
+					PATH: "/the/session/s",
+					MYCELIUM_REALM: "work",
+					PI_SESSION_ID: "sess-other",
+				},
+			},
 			run,
 		);
 
@@ -75,7 +83,7 @@ describe("telling the node", () => {
 		).toBe("sess-42");
 		expect(
 			asked[0]?.env?.PATH,
-			"the rest of the environment is the session's, so its mycelium is found",
+			"the rest of the environment is the session's",
 		).toBe("/the/session/s");
 		expect(
 			asked[0]?.cwd,
