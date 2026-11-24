@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	clearRefusedWake,
+	clearRefusedWakeOff,
 	readRefusedWake,
 	wakeAskedBy,
 	writeRefusedWake,
+	writeRefusedWakeOff,
 } from "../../../../lib/internal/session/refused-wake.ts";
 
 let dir: string;
@@ -32,6 +34,18 @@ describe("a refused wake", () => {
 
 		expect(readRefusedWake(wake), "read back whole").toEqual(refused);
 		clearRefusedWake(wake);
+		expect(readRefusedWake(wake), "gone once cleared").toBeUndefined();
+	});
+
+	// A host keeps one on the loop every conversation shares.
+	it("is kept and cleared off the thread, as on it", async () => {
+		const refused = { reason: "the host is stopping", at: "now" };
+
+		await writeRefusedWakeOff(wake, refused);
+
+		expect(readRefusedWake(wake), "read back whole").toEqual(refused);
+		await clearRefusedWakeOff(wake);
+		await clearRefusedWakeOff(wake);
 		expect(readRefusedWake(wake), "gone once cleared").toBeUndefined();
 	});
 

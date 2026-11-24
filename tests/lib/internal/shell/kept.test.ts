@@ -26,6 +26,7 @@ import {
 	outputOf,
 	pidOf,
 	rollIfFull,
+	rollIfFullOff,
 	sweepKept,
 	sweepKeptNowAndThen,
 	teePersists,
@@ -143,6 +144,27 @@ describe("a kept call", () => {
 		writeFileSync(`${path}.out`, "short\n");
 		rollIfFull(path, 100);
 		expect(outputOf(path)).toBe("short\n");
+	});
+
+	// A host rolls a parked conversation's calls on the loop every
+	// conversation shares, so it does so off the thread.
+	it("keeps only its output's tail off the thread, as on it", async () => {
+		const path = await makeKept(folder());
+		writeFileSync(`${path}.out`, "aaaa\nbbbb\ncccc\n");
+		await rollIfFullOff(path, 10);
+		expect(statSync(`${path}.out`).size, ".out starts again").toBe(0);
+		writeFileSync(`${path}.out`, "dddd\n", { flag: "a" });
+		expect(outputOf(path)).toBe("bbbb\ncccc\ndddd\n");
+		expect(statSync(`${path}.old`).mode & PERMISSIONS, "private").toBe(PRIVATE);
+	});
+
+	it("rolls nothing off the thread under the cap, or once removed", async () => {
+		const path = await makeKept(folder());
+		writeFileSync(`${path}.out`, "short\n");
+		await rollIfFullOff(path, 100);
+		expect(outputOf(path)).toBe("short\n");
+		await removeKept(path);
+		await expect(rollIfFullOff(path, 0)).resolves.toBeUndefined();
 	});
 
 	it("names the group of each call handed on, and only those", async () => {

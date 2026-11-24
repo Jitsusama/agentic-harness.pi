@@ -78,44 +78,48 @@ describe("whether a carried call still runs", () => {
 		if (linux) live.child.kill("SIGKILL");
 	});
 
-	it.runIf(linux)("runs while its shell is there with its mark", () => {
-		expect(callRuns(live.work)).toBe(true);
+	it.runIf(linux)("runs while its shell is there with its mark", async () => {
+		expect(await callRuns(live.work)).toBe(true);
 	});
 
 	it.runIf(linux)(
 		"has ended once its end is written, its shell there or not",
-		() => {
-			expect(callRuns(live.work), "before its end").toBe(true);
+		async () => {
+			expect(await callRuns(live.work), "before its end").toBe(true);
 			writeFileSync(`${live.work.keep}.end`, "0\n");
-			expect(callRuns(live.work)).toBe(false);
+			expect(await callRuns(live.work)).toBe(false);
 		},
 	);
 
 	it.runIf(linux)(
 		"has ended past its time limit, or a day after it started, so its conversation wakes",
-		() => {
+		async () => {
 			const now = Date.now();
 			const late = { ...live.work, deadline: now + 1 };
-			expect(callRuns(late, now), "before its limit").toBe(true);
-			expect(callRuns(late, now + 1), "at its limit").toBe(false);
+			expect(await callRuns(late, now), "before its limit").toBe(true);
+			expect(await callRuns(late, now + 1), "at its limit").toBe(false);
 			const old = { ...live.work, startedAt: now };
-			expect(callRuns(old, now + CALLS_WATCHED_MS - 1), "within a day").toBe(
-				true,
+			expect(
+				await callRuns(old, now + CALLS_WATCHED_MS - 1),
+				"within a day",
+			).toBe(true);
+			expect(await callRuns(old, now + CALLS_WATCHED_MS), "a day on").toBe(
+				false,
 			);
-			expect(callRuns(old, now + CALLS_WATCHED_MS), "a day on").toBe(false);
 		},
 	);
 
-	it("has ended once its shell is gone", () => {
-		expect(callRuns(call("gone", { pid: 2 ** 22 + 1 })), "no such pid").toBe(
-			false,
-		);
+	it("has ended once its shell is gone", async () => {
+		expect(
+			await callRuns(call("gone", { pid: 2 ** 22 + 1 })),
+			"no such pid",
+		).toBe(false);
 	});
 
 	// On a Mac no environment can be read, so the pid alone says.
-	it.runIf(linux)("has ended once another process holds its pid", () => {
+	it.runIf(linux)("has ended once another process holds its pid", async () => {
 		expect(
-			callRuns({ ...live.work, mark: "a-mark-nothing-carries" }),
+			await callRuns({ ...live.work, mark: "a-mark-nothing-carries" }),
 			"its shell, without the call's mark",
 		).toBe(false);
 	});
@@ -172,7 +176,7 @@ describe("watching the calls a park carried", () => {
 			report: (error) => reported.push(error),
 		});
 		try {
-			expect(reported.length, "the first write fails").toBeGreaterThan(0);
+			await until("the first write to fail", () => reported.length > 0);
 			mkdirSync(folder);
 			await until("the wake to be written", () => existsSync(wakeFile));
 			expect(JSON.parse(readFileSync(wakeFile, "utf8")).why).toBe(
@@ -249,14 +253,14 @@ describe("watching the calls a park carried", () => {
 			ended: (calls) => ended.push(calls),
 		});
 		try {
-			expect(existsSync(join(dir, "wake")), "woken").toBe(true);
+			await until("the wake", () => existsSync(join(dir, "wake")));
 			expect(ended, "said as none it can name").toEqual([0]);
 		} finally {
 			stop();
 		}
 	});
 
-	it("wakes at once for calls it couldn't record, however they run", () => {
+	it("wakes at once for calls it couldn't record, however they run", async () => {
 		const stop = watchCarriedCalls({
 			folder: dir,
 			wakeFile: join(dir, "wake"),
@@ -266,7 +270,7 @@ describe("watching the calls a park carried", () => {
 			report: () => {},
 		});
 		try {
-			expect(existsSync(join(dir, "wake"))).toBe(true);
+			await until("the wake", () => existsSync(join(dir, "wake")));
 		} finally {
 			stop();
 		}
@@ -289,6 +293,52 @@ describe("watching the calls a park carried", () => {
 				() => statSync(`${chatty.keep}.out`).size <= KEPT_BYTES,
 			);
 			expect(existsSync(join(dir, "wake")), "still running").toBe(false);
+		} finally {
+			stop();
+		}
+	});
+
+	// Its looks read off the thread, so one can be out as the watch stops.
+	it("writes no wake for a look still out as the watch stops", async () => {
+		keepCarriedCalls(dir, [call("ended")]);
+		let answer: (runs: boolean) => void = () => undefined;
+		let looks = 0;
+		const stop = watchCarriedCalls({
+			folder: dir,
+			wakeFile: join(dir, "wake"),
+			runs: () => {
+				looks++;
+				return new Promise((resolve) => {
+					answer = resolve;
+				});
+			},
+			lookEveryMs: LOOK_MS,
+			report: () => {},
+		});
+		stop();
+		answer(false);
+		await quietFor(LOOK_MS, 3);
+
+		expect([looks, existsSync(join(dir, "wake"))]).toEqual([1, false]);
+	});
+
+	it("starts no look while the last is still out", async () => {
+		keepCarriedCalls(dir, [call("slow")]);
+		let looks = 0;
+		const stop = watchCarriedCalls({
+			folder: dir,
+			wakeFile: join(dir, "wake"),
+			runs: () => {
+				looks++;
+				// Never answers, as a look stuck on a slow disk.
+				return new Promise<boolean>(() => undefined);
+			},
+			lookEveryMs: LOOK_MS,
+			report: () => {},
+		});
+		try {
+			await quietFor(LOOK_MS, 5);
+			expect(looks).toBe(1);
 		} finally {
 			stop();
 		}

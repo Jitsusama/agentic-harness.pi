@@ -12,8 +12,9 @@
  */
 
 import { readFileSync, rmSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { isRecord } from "../record.ts";
-import { writeWhole } from "../write-whole.ts";
+import { writeWhole, writeWholeOff } from "../write-whole.ts";
 
 /** What asked for a wake, why its host refused it, and when. */
 export interface RefusedWake {
@@ -35,6 +36,22 @@ export function refusedWakePath(wake: string): string {
 /** Keep why the wake through `wake` was refused, replacing any before it. */
 export function writeRefusedWake(wake: string, refused: RefusedWake): void {
 	writeWhole(refusedWakePath(wake), `${JSON.stringify(refused)}\n`);
+}
+
+/**
+ * Keep a refusal as `writeRefusedWake` does, off the thread, as a host
+ * does: its rename held a host's loop 5 s while the disk was slow.
+ */
+export async function writeRefusedWakeOff(
+	wake: string,
+	refused: RefusedWake,
+): Promise<void> {
+	await writeWholeOff(refusedWakePath(wake), `${JSON.stringify(refused)}\n`);
+}
+
+/** Clear a refusal as `clearRefusedWake` does, off the thread. */
+export async function clearRefusedWakeOff(wake: string): Promise<void> {
+	await rm(refusedWakePath(wake), { force: true });
 }
 
 /** The refusal kept for the wake through `wake`, or nothing. */

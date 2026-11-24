@@ -47,8 +47,9 @@ import {
 import { join } from "node:path";
 import {
 	clearRefusedWake,
+	clearRefusedWakeOff,
 	wakeAskedBy,
-	writeRefusedWake,
+	writeRefusedWakeOff,
 } from "../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
@@ -210,7 +211,7 @@ export function parking(options: {
 	 */
 	readonly carries?: () => boolean;
 	/** Whether a carried call still runs; its shell, read from the machine, by default. */
-	readonly callRuns?: (work: CarriedShell) => boolean;
+	readonly callRuns?: (work: CarriedShell) => boolean | Promise<boolean>;
 	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
 	readonly lookEveryMs?: number;
 	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
@@ -263,18 +264,21 @@ export function parking(options: {
 		mkdirSync(folderOf(sessionId), { recursive: true });
 		// Woken for `messageId`, or for nothing named; a refusal is kept beside its file.
 		const ask = (watching: Sleeper, messageId: string | undefined) =>
-			wake(sessionId).catch((error: unknown) => {
+			wake(sessionId).catch(async (error: unknown) => {
 				// Reported as it failed; kept for the mesh to say, until the next
 				// message writes the file again or the conversation runs. One
 				// settling once this watch is gone, at a close or another park,
-				// would outlive what cleared it.
+				// would outlive what cleared it, so one whose watch went while it
+				// was written, off the thread, is taken back.
 				if (sleepers.get(sessionId) !== watching) return;
 				try {
-					writeRefusedWake(file, {
+					await writeRefusedWakeOff(file, {
 						...(messageId === undefined ? {} : { messageId }),
 						reason: error instanceof Error ? error.message : String(error),
 						at: new Date().toISOString(),
 					});
+					if (sleepers.get(sessionId) !== watching)
+						await clearRefusedWakeOff(file);
 				} catch (unkept) {
 					report(unkept);
 				}

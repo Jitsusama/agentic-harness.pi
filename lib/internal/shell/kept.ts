@@ -61,6 +61,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	truncate,
 	writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -207,6 +208,24 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 			mode: FILE_MODE,
 		});
 		truncateSync(out, 0);
+	} catch {
+		// Removed under it, as its call ended: nothing left to keep short.
+	}
+}
+
+/** `rollIfFull`, off the thread, as a host rolls a parked conversation's calls. */
+export async function rollIfFullOff(
+	path: string,
+	cap: number = KEPT_BYTES,
+): Promise<void> {
+	const out = `${path}.out`;
+	try {
+		if ((await stat(out)).size <= cap) return;
+		const bytes = await readFile(out);
+		await writeFile(`${path}.old`, bytes.subarray(bytes.length - cap), {
+			mode: FILE_MODE,
+		});
+		await truncate(out, 0);
 	} catch {
 		// Removed under it, as its call ended: nothing left to keep short.
 	}
