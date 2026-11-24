@@ -23,7 +23,13 @@
  * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
@@ -51,7 +57,7 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
-import { guardedCheckoutOf, twinOf } from "./twin.ts";
+import { CLONING, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -455,6 +461,10 @@ async function readyTree(
 		}
 		const twin = await twinOf(exec, path, tree.origin);
 		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
+		if (here.left() <= 0) return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
+		// Into a name of its own beside the tree's, renamed into place once
+		// whole, so a failed clone takes out only what it made itself.
+		const cloning = `${path}${CLONING}${process.pid}-${Date.now()}`;
 		const cloned = await timed(here.left(), () =>
 			exec("git", [
 				...BOUNDED,
@@ -463,13 +473,24 @@ async function readyTree(
 				"--no-checkout",
 				"--",
 				tree.origin,
-				path,
+				cloning,
 			]),
 		);
-		if (cloned.code !== 0) rmSync(path, { recursive: true, force: true });
-		return cloned.code === 0
-			? { kind: "cloned" }
-			: no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
+		if (cloned.code !== 0) {
+			rmSync(cloning, { recursive: true, force: true });
+			return no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
+		}
+		if (existsSync(path)) {
+			rmSync(cloning, { recursive: true, force: true });
+			return no("Something arrived there while it was cloned.");
+		}
+		try {
+			renameSync(cloning, path);
+		} catch (error) {
+			rmSync(cloning, { recursive: true, force: true });
+			return no(`Its clone couldn't be put in place: ${String(error)}`);
+		}
+		return { kind: "cloned" };
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {
@@ -489,6 +510,8 @@ async function readyTree(
 			"The tree already there has changes of its own, which arriving would write over.",
 		);
 	}
+	if (here.left() <= 0)
+		return no(`It didn't fetch its origin, since ${OUT_OF_TIME}.`);
 	const fetched = await git
 		.within(here.left())
 		.run(...BOUNDED, "fetch", "-q", "origin");
@@ -653,8 +676,8 @@ async function takeCommits(
 		if (left() <= 0) {
 			return `${needs}, but ${OUT_OF_TIME} before it was asked for.`;
 		}
-		// Past `--`, so neither reads as a flag, though the handover
-		// already refuses a part that would.
+		// Past `--`, so neither reads as a flag, though arrival already
+		// refuses a tree naming one that would.
 		const fetched = await git
 			.within(left())
 			.run(...BOUNDED, "fetch", "-q", "--", remote, branch.join("/"));

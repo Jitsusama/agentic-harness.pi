@@ -24,6 +24,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { constants } from "node:os";
 import { count } from "../../ui/count.ts";
 import { callSignal } from "./call-signal.ts";
 import { startClock, type Turn } from "./clock.ts";
@@ -194,16 +195,31 @@ function runUnattended(
 		});
 		// `close` rather than `exit`, so the output is all read; a stopped
 		// group's pipes close once the group is gone.
-		child.on("close", (code) => {
+		child.on("close", (code, killedBy) => {
+			const said =
+				stderr === "" || stderr.endsWith("\n") ? stderr : `${stderr}\n`;
 			if (stopped !== undefined) {
-				const said =
-					stderr === "" || stderr.endsWith("\n") ? stderr : `${stderr}\n`;
 				settle({ code: stopped.code, stdout, stderr: `${said}${stopped.why}` });
+				return;
+			}
+			// Killed from outside, as by the kernel's OOM killer: a caller
+			// reading exit 1 as an answer (git's "no") mustn't take it for one.
+			if (code === null && killedBy !== null) {
+				settle({
+					code: exitOfSignal(killedBy),
+					stdout,
+					stderr: `${said}${command} was killed by ${killedBy}`,
+				});
 				return;
 			}
 			settle({ code: code ?? 1, stdout, stderr });
 		});
 	});
+}
+
+/** A signal's exit code as a shell reports it: 128 and its number. */
+function exitOfSignal(signal: NodeJS.Signals): number {
+	return 128 + (constants.signals[signal] ?? 0);
 }
 
 /** Signals a whole process group, which may already have gone. */

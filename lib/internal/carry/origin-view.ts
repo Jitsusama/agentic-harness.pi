@@ -434,7 +434,8 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 			writeFileSync(file, `${lines.join("\n")}\n`);
 			return await exec("sh", [
 				"-c",
-				'f=$1 p=$2; shift 2; exec git -C "$p" "$@" < "$f"',
+				// In English, since what git says is matched (MISSING).
+				'f=$1 p=$2; shift 2; LC_ALL=C; export LC_ALL; exec git -C "$p" "$@" < "$f"',
 				"sh",
 				file,
 				path,

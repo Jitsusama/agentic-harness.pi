@@ -35,8 +35,12 @@ import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import { budgetWhenCappedSetting, questWorkflowNow } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { settleLaunchedSpawn } from "./launched-spawn.ts";
+import { keepOrchestrationClaimed } from "./orchestration/claim.ts";
+import {
+	STANDING_RULES,
+	standingRules,
+} from "./orchestration/standing-rules.ts";
 import { questCommandEnvironment } from "./scratch.ts";
-import { STANDING_RULES, standingRules } from "./standing-rules.ts";
 import { createQuestState } from "./state.ts";
 import { watchToolCalls } from "./wiring/calls.ts";
 import { registerQuestCommands } from "./wiring/commands.ts";
@@ -109,6 +113,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	watchToolCalls(pi, state, questsRoot, budgets);
 	keepTurnsCurrent(pi, state, budgets);
 	followSessionLife(pi, state, budgets, stayedBecause);
+
+	// The node routes to an orchestrator by the quests its session claims,
+	// so a session heading one tells it what it orchestrates.
+	keepOrchestrationClaimed(pi, state);
 
 	// Tell the model which quest the conversation is on, which document
 	// is focused and at what stage, without re-deriving it from disk on
