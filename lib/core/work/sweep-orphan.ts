@@ -9,7 +9,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
@@ -86,23 +86,61 @@ export async function takeOrphan(
 		}
 		return;
 	}
+	// Its `.git` file is how the next sweep tells a lost clone's tree, and
+	// a removal that stops part way may already have taken it.
+	const dotGit = readPlain(join(aside, ".git"));
 	try {
 		rmSync(aside, { recursive: true, force: true });
 		outcome.taken.push({ path: tree.path });
 	} catch (error) {
 		// Read-only module caches refuse a plain removal. What is left goes
-		// back where it was, with its record, for the next sweep.
+		// back where it was, with its record and its `.git` file, for the
+		// next sweep.
 		const why = messageOf(error);
+		// Something standing at the tree's path by now, even an empty folder
+		// a rename would land over, keeps what is left aside.
+		if (existsSync(tree.path)) {
+			outcome.refused.push({
+				path: tree.path,
+				why: `${why}; what is left is at ${aside}: its path is taken again`,
+			});
+			return;
+		}
 		try {
 			renameSync(aside, tree.path);
-			deps.memory.remember(forgotten);
-			outcome.refused.push({ path: tree.path, why });
 		} catch (back) {
 			outcome.refused.push({
 				path: tree.path,
 				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
 			});
+			return;
 		}
+		deps.memory.remember(forgotten);
+		outcome.refused.push({
+			path: tree.path,
+			why: restoreDotGit(tree.path, dotGit, why),
+		});
+	}
+}
+
+/**
+ * Writes a put-back tree's `.git` file again if the removal took it,
+ * creating it only, so it never follows a link or overwrites a file that
+ * appeared meanwhile. The tree is home with its record either way; a
+ * failure only adds to what the refusal says.
+ */
+function restoreDotGit(
+	path: string,
+	dotGit: string | undefined,
+	why: string,
+): string {
+	if (dotGit === undefined) return why;
+	try {
+		writeFileSync(join(path, ".git"), dotGit, { flag: "wx" });
+		return why;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") return why;
+		return `${why}; its .git file couldn't be written back: ${messageOf(error)}`;
 	}
 }
 

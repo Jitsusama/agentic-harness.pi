@@ -74,6 +74,15 @@ const LOST_HOLDS_FOR_MS = 24 * 60 * 60 * 1000;
 /** How many of the commonest reasons for keeping a tree a log line names. */
 const KEPT_REASONS_NAMED = 8;
 
+/** How many trees a log line names that a lock kept, each with its lock. */
+const HELD_NAMED = 10;
+
+/**
+ * A tree's record lock held past the wait, in file-lock's words, the
+ * lock's path before them, which may hold spaces.
+ */
+const LOCK_HELD = /^.+ has been held for over (\d+)s by .*$/s;
+
 /**
  * One conversation's sweep timers. In a session slot rather than module
  * state, since a host runs several conversations in one process: B's
@@ -613,6 +622,9 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		refused: outcome.refused,
 		kept: outcome.kept.length,
 		keptFor: commonest(outcome.kept.map((one) => one.why)),
+		// keptFor counts a lock as one reason, so which trees it kept, and
+		// which lock and pid to look at, are said here.
+		...held(outcome.kept),
 		dropped: outcome.dropped,
 		// Each named with its commit, so a wrong one can be put back; a
 		// sweep takes at most 500 a checkout, so a first one's line is long
@@ -630,6 +642,17 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 	};
 }
 
+/** The first trees a lock kept, with its words, or nothing when none. */
+function held(kept: SweepOutcome["kept"]): {
+	held?: { path: string; why: string }[];
+} {
+	const locked = kept
+		.filter((one) => LOCK_HELD.test(one.why))
+		.slice(0, HELD_NAMED)
+		.map(({ path, why }) => ({ path, why }));
+	return locked.length === 0 ? {} : { held: locked };
+}
+
 /**
  * The commonest reasons trees were kept, with how many each, so a log
  * line says what stands between the disk and its trees without naming
@@ -638,11 +661,20 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 function commonest(whys: readonly string[]): Record<string, number> {
 	const counts = new Map<string, number>();
 	for (const said of whys) {
-		// The one reason that names its tree's branch, counted as one reason.
-		const why = said.replace(
-			/^(nothing holds it, but )\S+( is not contained in trunk)/,
-			"$1its branch$2",
-		);
+		// Reasons that name their tree's branch, lock or folder, each counted
+		// as one reason: told apart by a path or a pid, a tree kept for its
+		// record's lock would never be among the commonest, and went unseen.
+		const why = said
+			.replace(
+				/^(nothing holds it, but )\S+( is not contained in trunk)/,
+				"$1its branch$2",
+			)
+			.replace(
+				LOCK_HELD,
+				"its record's lock was held for over $1s by a process still running",
+			)
+			// The World provider's words for a tree whose src git can't read.
+			.replace(/^git can't read .+$/s, "git can't read its folder");
 		counts.set(why, (counts.get(why) ?? 0) + 1);
 	}
 	return Object.fromEntries(

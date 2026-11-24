@@ -254,15 +254,16 @@ machine kept 746 ended snapshots, 25 GiB, most at a pull request's
 head from before a rebase. Its HEAD's reflog must name only that
 commit, since a commit made there and then left is held by that
 reflog alone. Files the commit under review tells git to ignore go
-with it, as build output does. It looks again under
-the tree's record lock before acting, so a session that took the
-tree up since is seen. Under that lock it only moves the tree aside
-and forgets its record; the removal comes after. A lock another
-process holds past the wait keeps that tree alone, saying so, rather
-than end the run: on 22 November a live snapshot's lock, held past
-10 s on a loaded machine, failed a whole run 40 minutes in, and it
-logged none of what it took. The move is a rename that points git's
-own folder for the tree at its new place, as git's move does, so pi's
+with it, as build output does. It looks again under the tree's
+record lock before acting, so a session that took the tree up since
+is seen. Under that lock it only moves the tree aside and forgets
+its record; the removal comes after. A lock another process holds
+past the wait keeps that tree alone, saying so, and the log line
+names up to ten such trees with their lock and pid, rather than end
+the run: on 22 November a live session holding a snapshot's record
+lock past 10 s on a loaded machine failed a whole run 40 minutes in,
+and it logged none of what it took. The move is a rename that points
+git's own folder for the tree at its new place, as git's move does, so pi's
 guarded git still runs there and a tree cut at the old place gets a
 folder of its own. The removal takes the tree and that folder, after
 the checks git's remove makes: not locked, no submodule, nothing
@@ -272,7 +273,8 @@ write who ran in it.
 Git's move and remove read every worktree the repository has, which
 with 2,061 cost 29 s and 19 s a take, so a run took 20 of 1,800.
 Dropping a merged branch with `git branch -D` still reads them all,
-but detached snapshots, most of what a sweep takes, have none.
+but that cost 0.27 s with 1,130, and detached snapshots, most of
+what a sweep takes, have no branch to drop.
 A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
 the broker never cut are left alone. A taken tree's branch stays,

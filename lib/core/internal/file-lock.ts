@@ -51,6 +51,18 @@ class LockHeld extends Error {
 }
 
 /**
+ * What a live holder keeping `lockPath` past the wait is said as, `holder`
+ * its pid when it wrote one. One place, so a reader that counts these, as
+ * the sweep's log does, reads the words a lock really says.
+ */
+export function lockHeldMessage(
+	lockPath: string,
+	holder: number | undefined,
+): string {
+	return `${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`;
+}
+
+/**
  * Whether an error is a live holder keeping the lock past the wait,
  * rather than the lock's folder or the writer failing. Told by its code,
  * so an error from any copy of this module counts.
@@ -127,10 +139,7 @@ async function acquire(lockPath: string): Promise<number> {
 		}
 		if (await takeOverIfStale(lockPath)) continue;
 		if (Date.now() >= deadline) {
-			const holder = await holderOf(lockPath);
-			throw new LockHeld(
-				`${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
-			);
+			throw new LockHeld(lockHeldMessage(lockPath, await holderOf(lockPath)));
 		}
 		await new Promise((done) => setTimeout(done, RETRY_MS));
 	}
