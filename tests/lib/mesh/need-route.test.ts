@@ -87,12 +87,14 @@ describe("the words a need or a cell's work is matched by", () => {
 });
 
 describe("the ties a need walks", () => {
-	it("joins each tie at both ends, faded to now, strongest first", () => {
+	it("joins each tie at both ends, faded to now, strongest first, with when it was heard and who spoke", () => {
+		const twoHours = AT - 2 * 60 * 60 * 1000;
 		const line = JSON.stringify({
 			id: 2,
 			records: [
-				{ key: "tie:A~B", strength: 4, heard: AT },
-				{ key: "tie:A~C", strength: 8, heard: AT - 2 * 60 * 60 * 1000 },
+				{ key: "tie:A~B", strength: 4, heard: AT, today: [0, 3] },
+				{ key: "tie:A~C", strength: 8, heard: twoHours, today: [2, 0] },
+				{ key: "tie:B~C", strength: 1, heard: AT, today: "none" },
 				{ key: "tie:A", strength: 9, heard: AT },
 			],
 		});
@@ -100,10 +102,17 @@ describe("the ties a need walks", () => {
 		const graph = tieGraphFrom(line, AT);
 
 		expect(graph.get("A")).toEqual([
-			{ other: "B", strength: 4 },
-			{ other: "C", strength: 4 },
+			{ other: "B", strength: 4, heard: AT, spoke: false },
+			{ other: "C", strength: 4, heard: twoHours, spoke: true },
 		]);
-		expect(graph.get("C")).toEqual([{ other: "A", strength: 4 }]);
+		expect(graph.get("B")).toEqual([
+			{ other: "A", strength: 4, heard: AT, spoke: true },
+			{ other: "C", strength: 1, heard: AT, spoke: false },
+		]);
+		expect(graph.get("C")).toEqual([
+			{ other: "A", strength: 4, heard: twoHours, spoke: false },
+			{ other: "B", strength: 1, heard: AT, spoke: false },
+		]);
 	});
 });
 
@@ -233,6 +242,56 @@ describe("routing a need", () => {
 		});
 
 		expect(found).toMatchObject({ path: ["C"], fit: "C" });
+	});
+
+	// On 24 November "core nix gate checks" went to a cell on Delta's
+	// signature checks, sharing only "checks", past every core.nix cell.
+	it("goes to a cell working on more of it over the rarest word's only holder", () => {
+		const found = routeNeed(asked("A", "core", "nix", "gate", "checks"), {
+			foragers: cells({
+				A: [],
+				M: ["checks", "delta"],
+				K: ["core", "nix"],
+				L: ["core", "nix"],
+				Z: ["gate", "aquifer"],
+				Y: ["gate", "aquifer"],
+			}),
+			ties: ties(["A", "M", 9], ["A", "Z", 9], ["A", "K", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["K"], fit: "K" });
+	});
+
+	it("takes a walk's fit working on more of it over a hub's working on less", () => {
+		const found = routeNeed(asked("A", "harness", "host", "gate"), {
+			foragers: cells({
+				A: [],
+				Z: ["gate"],
+				H: [],
+				P: ["harness", "host"],
+				Q: ["harness"],
+			}),
+			ties: ties(["A", "P", 1]),
+			hubs: [{ subject: "gate", hub: "H", fits: ["Z"] }],
+		});
+
+		expect(found).toMatchObject({ path: ["P"], fit: "P" });
+	});
+
+	it("goes by the rarest word among fits working on as much of it", () => {
+		const found = routeNeed(asked("A", "aquifer", "mint"), {
+			foragers: cells({
+				A: [],
+				B: ["aquifer"],
+				C: ["aquifer"],
+				D: ["mint"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "D", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["D"], fit: "D" });
 	});
 
 	it(`counts it lost past ${MOST_HOPS} hops, never sending it to a leader`, () => {
@@ -371,6 +430,18 @@ describe("routing a need", () => {
 		expect([...(found.ended ?? [])].sort()).toEqual(["B", "F"]);
 	});
 
+	it("names none ended that was passed over only for a word its fit wasn't found by", () => {
+		const found = routeNeed(asked("A", "carry", "tree"), {
+			foragers: cells({ A: [], C: ["carry", "tree"], E: ["tree"] }),
+			ties: ties(["A", "E", 1], ["A", "C", 2]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found).toMatchObject({ path: ["C"], fit: "C" });
+		expect(found).not.toHaveProperty("ended");
+	});
+
 	it("names none ended when every cell on the way is there", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], B: ["carry"] }),
@@ -379,6 +450,194 @@ describe("routing a need", () => {
 		});
 
 		expect(found).not.toHaveProperty("ended");
+	});
+
+	it("counts it lost, naming who ended and the fit, when an ended cell worked on more of it", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+				C: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "C", 1], ["A", "J", 1]),
+			hubs: [{ subject: "delivery", hub: "B", fits: ["B"] }],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "B and C share only delivery").toMatchObject({
+			path: [],
+			fit: null,
+			ended: ["J"],
+			fellShort: "B",
+		});
+	});
+
+	// An ended record out of reach is no more the need's owner than a live
+	// cell there would be its fit, so its ending makes routing no stricter.
+	it("counts no ended cell out of reach as its owner", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "J, untied, is passed by").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	// Each word's walk stops at its nearest fit, so routing would have
+	// sent it to J, a hop out, were J back, and never to K behind C.
+	it("counts it lost when its ended owner was nearer than a fuller live cell", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				C: ["dates"],
+				B: ["delivery"],
+				K: ["dates", "delivery"],
+			}),
+			ties: ties(["A", "C", 2], ["A", "B", 2], ["A", "J", 1], ["C", "K", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "J would have had it, not K").toMatchObject({
+			path: [],
+			fit: null,
+			ended: ["J"],
+			fellShort: "C",
+		});
+	});
+
+	// Among fits on as much of it, every hub's find comes before any
+	// walk's, whichever word is rarer.
+	it("takes a hub's fit for one word before a walk's for another as narrow", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({ A: [], B: ["delivery"], K: ["dates"] }),
+			ties: ties(["A", "K", 1]),
+			hubs: [{ subject: "delivery", hub: "B", fits: ["B"] }],
+		});
+
+		expect(found, "dates sorts first, yet B's hub wins").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+	});
+
+	it("names only the ended cells that worked on more of it than the fit", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				E: ["delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "E", 1], ["A", "B", 2], ["A", "J", 1]),
+			hubs: [],
+			live: (address) => address !== "J" && address !== "E",
+		});
+
+		expect(found, "E held no more of it than B").toMatchObject({
+			fit: null,
+			ended: ["J"],
+			fellShort: "B",
+		});
+	});
+
+	it("goes to the fit found when an ended cell held a word of it but no more of it", () => {
+		// A record the node keeps after its session ended, holding a word
+		// no live cell does, never stops a need a live cell works on as much.
+		const found = routeNeed(asked("A", "niche", "delivery", "slots"), {
+			foragers: cells({
+				A: [],
+				E: ["niche"],
+				B: ["delivery", "slots"],
+				C: ["delivery", "slots"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "E", 1]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found).toMatchObject({ path: ["B"], fit: "B" });
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	it("goes by the word fewest cells hold, ended ones counted, when live holders tie", () => {
+		const found = routeNeed(asked("A", "alpha", "zulu"), {
+			foragers: cells({
+				A: [],
+				K: ["zulu"],
+				B: ["alpha"],
+				E1: ["alpha"],
+				E2: ["alpha"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "K", 2]),
+			hubs: [],
+			live: (address) => !address.startsWith("E"),
+		});
+
+		expect(found, "three cells held alpha, one zulu").toMatchObject({
+			path: ["K"],
+			fit: "K",
+		});
+	});
+
+	it("goes by a word as narrow as one only an ended cell held, when a cell there holds it", () => {
+		const found = routeNeed(asked("A", "dates", "slots"), {
+			foragers: cells({ A: [], J: ["dates"], S: ["slots"] }),
+			ties: ties(["A", "S", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found).toMatchObject({ path: ["S"], fit: "S" });
+	});
+
+	it("goes by its narrowest word when a cell there holds it beside one that ended", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates"],
+				K: ["dates"],
+				B: ["delivery"],
+				C: ["delivery"],
+				D: ["delivery"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "K", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found).toMatchObject({ path: ["K"], fit: "K" });
+	});
+
+	it("goes by a broader word when its narrowest is held only by a cell that stopped the asker", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				S: ["dates"],
+				B: ["delivery"],
+				C: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "S won't hear A, so delivery routes it").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
 	});
 
 	it("puts it to the subject's hub first, which names the fit", () => {
@@ -657,6 +916,32 @@ describe("asking the node for a need's fit", () => {
 
 		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
+	});
+
+	it("asks the node who sent on each tie today, so an ended owner is found", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:J", title: "Dates Delivery" },
+				{ key: "cell:B", title: "Delivery Lanes" },
+			],
+			tie: [
+				{ key: "tie:A~B", strength: 3, heard: AT, today: [1, 1] },
+				{ key: "tie:A~J", strength: 1, heard: AT, today: [0, 1] },
+			],
+		});
+
+		const found = await needAt(socket, asked("A", "dates", "delivery"), {
+			live: (address) => address !== "J",
+			stopped: () => false,
+			keep: root,
+		});
+
+		expect(found, "J's own sending on its tie").toMatchObject({
+			fit: null,
+			ended: ["J"],
+			fellShort: "B",
+		});
 	});
 
 	it("keeps a lost need as it is routed", async () => {

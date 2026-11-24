@@ -117,6 +117,44 @@ describe("a need for the id a cell holds", () => {
 		expect(found, "leg 26's holder").toMatchObject({ fit: "L26" });
 	});
 
+	// A need for leg 27 counts no leg of leg-26's toward its ended holder,
+	// as its fit is never taken on that word either.
+	it("counts no ended cell another leg's owner by the word leg", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({
+					A: [],
+					E: wordsOf("leg-26 easing"),
+					F: ["easing"],
+				}),
+				ties: ties(["A", "E", 1], ["A", "F", 1]),
+				hubs: [],
+				live: (address) => address !== "E",
+			},
+		);
+
+		expect(found, "F, on easing").toMatchObject({ fit: "F" });
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	it("names no ended cell of another leg as working on a word no live cell holds", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({ A: [], O: [], E: wordsOf("leg-26"), F: ["easing"] }),
+				ties: ties(["A", "F", 1], ["E", "O", 1]),
+				hubs: [],
+				live: (address) => address !== "E",
+			},
+		);
+
+		expect(found, "F, on easing").toMatchObject({ fit: "F" });
+		expect(found, "leg-26's cell works on no leg of 27").not.toHaveProperty(
+			"ended",
+		);
+	});
+
 	it("still reaches a seam's holder by its plain words, its id unsaid", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("the node kubelet path")), fromText: true },
