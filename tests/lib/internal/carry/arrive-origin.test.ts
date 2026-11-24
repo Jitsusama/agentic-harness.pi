@@ -25,7 +25,13 @@ import {
 	fakeClock,
 	SESSION,
 } from "./support/arriving.ts";
-import { cloneAt, exec, folder, removeAll } from "./support/machines.ts";
+import {
+	cloneAt,
+	commit,
+	exec,
+	folder,
+	removeAll,
+} from "./support/machines.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -350,6 +356,27 @@ describe("arriving beside a twin that lacks what a tree needs", () => {
 			did: "refused",
 			why: `It needs ${pushed.topic} from origin/topic, but git couldn't fetch it: git was stopped after 3600 seconds.`,
 		});
+	});
+
+	it("bounds the fetch of origin's branches past the twin, fed through sh, by its own quarter hour", async () => {
+		const home = folder(made, "arriving");
+		const { from, head } = await carried(undefined, {}, async (tree) => {
+			const url = await git(tree, "remote", "get-url", "origin");
+			await cloneAt(url, join(home, "src", "twin"));
+			const other = await cloneAt(url, join(folder(made, "elsewhere"), "o"));
+			await commit(other, "main.txt", "moved on, never here\n");
+			await git(other, "push", "-q", "origin", "main");
+		});
+		const { through, fetches } = boundedFetches();
+
+		const { whole } = await arriveThrough(home, from, through);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(await git(join(home, "src", "app"), "rev-parse", "HEAD")).toBe(head);
+		const aside = fetches.filter(({ args }) => args.includes("--stdin"));
+		expect(aside, "one fetch of main, past the twin").toHaveLength(1);
+		expect(aside[0]?.args.slice(-2)).toEqual(["--stdin", "origin"]);
+		expect(aside[0]?.seconds, "within its quarter hour").toBe(900);
 	});
 
 	it("says git's own reason where a needed commit's fetch fails, refusing the tree", async () => {
