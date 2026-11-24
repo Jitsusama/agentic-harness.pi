@@ -362,8 +362,9 @@ but it does not write summaries itself. It asks a chain of providers
 
 On the spot, the first provider whose assessment passes writes, and a
 failure passes the compaction to the next. Ahead, the first that
-passes writes, and a failure leaves the compaction to a second try
-ahead, then to the walk on the spot; one that pi's own compaction was
+passes writes, and a failure leaves the compaction to the trigger,
+which writes it ahead again, as Writing Ahead says, rather than on
+the spot; one that pi's own compaction was
 waiting on goes to the walk on the spot at once, since that
 compaction can't wait for another. The host keeps everything around
 the summary: the clock on each write, the verbatim tail, the file

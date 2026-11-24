@@ -15,7 +15,8 @@
  * The chain is walked in order. On the spot, the first provider whose
  * `assess` passes writes, and a failure moves on to the next. Ahead,
  * the first that passes writes, and a failure leaves the compaction to
- * the walk on the spot. When every provider declines or fails, pi's own
+ * the trigger, which writes it ahead again later rather than on the
+ * spot. When every provider declines or fails, pi's own
  * summariser runs as it would with no extension, and the reason is
  * recorded, so the worst case is pi's behaviour.
  *

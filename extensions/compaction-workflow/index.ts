@@ -91,7 +91,9 @@
  * off, and `PI_COMPACTION_FLOOR_TOKENS` sets a size it never compacts
  * at or below; there is none by default. Past a ceiling set by
  * `PI_COMPACTION_CEILING_TOKENS`, none by default, it compacts whatever
- * rent has been paid, since every turn uploads its whole context.
+ * rent has been paid, since every turn uploads its whole context; a
+ * summary that keeps failing ahead still waits its turns there, so past
+ * the ceiling only pi's trigger at the window's edge is certain.
  */
 
 import type {
@@ -452,6 +454,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// Firing turns left before a summary that failed ahead past its tries
 	// is written ahead again (aheadWaitTurns).
 	let aheadWait = 0;
+	/** The failure the wait under way began on, for the try that ends it. */
+	let waitedOn: string | undefined;
 
 	const conversation = conversationProvider(pi);
 	const host = registerCompactionHost(pi, {
@@ -896,21 +900,27 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		});
 		if (!decision.fire) return;
 
-		// The count a move off the point it covered started again ends the
-		// wait with it.
+		// A wait lasts only while the failures it waits out still count: a
+		// count started again, by a move off the point they covered or a
+		// compaction that landed, ends it with them.
 		if (aheadWait > 0 && host.failedAhead() >= AHEAD_TRIES) {
 			aheadWait -= 1;
 			return;
 		}
 		aheadWait = 0;
-		const failed = host.takeFailure();
+		const fresh = host.takeFailure();
+		// The try a wait ends on follows the failure the wait began on.
+		const failed =
+			fresh ?? (host.failedAhead() >= AHEAD_TRIES ? waitedOn : undefined);
+		waitedOn = undefined;
 		if (host.state() === "writing") return;
 		// A summary that failed ahead is written ahead again, never on the
 		// spot, which holds the session while it writes; past its tries, a
 		// wait first, so one that keeps failing isn't paid for every turn.
-		const wait = failed === undefined ? 0 : aheadWaitTurns(host.failedAhead());
+		const wait = fresh === undefined ? 0 : aheadWaitTurns(host.failedAhead());
 		if (wait > 0) {
 			aheadWait = wait - 1;
+			waitedOn = fresh;
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					compactionNotice(tokens, decision, {
