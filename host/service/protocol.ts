@@ -151,7 +151,10 @@ const drained = z.strictObject({
 
 // A heap as V8 said it, in bytes, and when: a child's as its last state
 // line said it, so `at` is when the host heard that line.
-const heapReading = z.strictObject({
+// Memory's answer drops a field it doesn't know rather than refusing, so a
+// host that reports more doesn't break an older reader: every reading is
+// already one a reader must do without.
+const heapReading = z.object({
 	used: count,
 	limit: count,
 	at: z.iso.datetime({ offset: true }),
@@ -159,11 +162,11 @@ const heapReading = z.strictObject({
 // Each is absent where it can't be read, never zero: a conversation on the
 // host's own thread or parked, or a child gone before its Pss was read.
 const measured = { heap: heapReading.optional(), pss: count.optional() };
-const memory = z.strictObject({
+const memory = z.object({
 	host: expectedHost,
-	own: z.strictObject(measured),
+	own: z.object(measured),
 	sessions: z.array(
-		z.strictObject({ sessionId, state: identity.shape.state, ...measured }),
+		z.object({ sessionId, state: identity.shape.state, ...measured }),
 	),
 });
 
