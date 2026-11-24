@@ -6,6 +6,10 @@
  * `nix-offload passed ran` does, or say it runs no keeper. The tools the
  * words name come from a profile of the test's own, as from the
  * account's and the system's on a machine.
+ *
+ * Long because every case, host-test-there.sh's too, judges the gate's
+ * one rule through the same clone, keeper and profile, which a second
+ * file would have to copy and keep in step.
  */
 
 import { execFile } from "node:child_process";
