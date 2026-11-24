@@ -2,6 +2,10 @@
  * A hosted conversation opened from a compacted log holds only what a
  * rollover would keep, through pi's own session manager, while its file,
  * its id and everything that reads the whole log stay as they were.
+ *
+ * Long because every case here builds its log with the one compacted-log
+ * builder and holds it through the same helpers, so splitting it would
+ * only move those helpers into a fixture each part imports.
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
