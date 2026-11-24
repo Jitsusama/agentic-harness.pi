@@ -10,6 +10,7 @@ import {
 	spareMarks,
 	spareUntilTaken,
 	takeSpare,
+	warmVersion,
 } from "../../../host/service/spare.ts";
 
 const MB = 1024 * 1024;
@@ -140,8 +141,10 @@ describe("a warm spare", () => {
 		const waiting = spareUntilTaken(
 			waitOf({
 				// The take lands between the spare's look at its marks and its
-				// leave, the one race its leave settles on its own.
+				// leave, the one race its leave settles on its own. Unmoved
+				// until warm, as its look before the warm mark would leave.
 				moved: async () => {
+					if (!existsSync(marks.warm)) return undefined;
 					if (!took) took = await takeSpare(marks);
 					return "its install moved";
 				},
@@ -149,6 +152,35 @@ describe("a warm spare", () => {
 		);
 		await until(marks.taken);
 		expect(took).toBe(true);
+		await name({});
+		await expect(waiting).resolves.toEqual({ taken: true });
+	});
+
+	it("leaves, never warm, when its install moves during its warm", async () => {
+		let moved = false;
+		const waiting = spareUntilTaken(
+			waitOf({
+				warm: async () => {
+					moved = true;
+				},
+				moved: async () => (moved ? "its install moved" : undefined),
+				lookMs: 60_000,
+			}),
+		);
+		await expect(waiting).resolves.toEqual({ left: "its install moved" });
+		expect(existsSync(spareMarks(slotFile).warm)).toBe(false);
+	});
+
+	it("says in its warm mark the version it runs, for a take to judge", async () => {
+		const marks = spareMarks(slotFile);
+		expect(await warmVersion(marks), "before it is warm").toBeUndefined();
+		const waiting = spareUntilTaken(
+			waitOf({ version: "/install/versions/one" }),
+		);
+		await until(marks.warm);
+		expect(await warmVersion(marks)).toBe("/install/versions/one");
+		expect(await takeSpare(marks)).toBe(true);
+		expect(await warmVersion(marks), "once taken").toBeUndefined();
 		await name({});
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});

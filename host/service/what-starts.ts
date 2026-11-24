@@ -97,6 +97,23 @@ export function installMovesFrom(
 	};
 }
 
+/**
+ * Ask, for any version a process runs, whether its install has moved on
+ * to other host code, as `installMovesFrom` does for one: each version's
+ * ask is kept, so a version is read once however often it is asked of.
+ */
+export function versionsMove(): (root: string) => Promise<string | undefined> {
+	const asks = new Map<string, () => Promise<string | undefined>>();
+	return (root) => {
+		let ask = asks.get(root);
+		if (!ask) {
+			ask = installMovesFrom(root);
+			asks.set(root, ask);
+		}
+		return ask();
+	};
+}
+
 /** Every module the host program under `root` reaches, in a stable order. */
 export async function hostModules(root: string): Promise<string[]> {
 	const seen = new Set<string>();

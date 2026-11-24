@@ -341,11 +341,12 @@ input pipeline or screen. No unit or running host is installed yet.
   it. Its slot holds `{"spare": true}`: it loads the host's pi, builds
   pi's session services once for an empty folder of its own (on 24
   November 6.3 to 13.6 s cold, then 0.4 to 0.5 s in the same process
-  for another folder), collects, writes SLOT.warm and waits for its
-  slot to name what it starts as. A take renames SLOT.warm to
-  SLOT.taken and a leave unlinks it, so only one lands. It leaves,
-  exiting 0, when its install's host code moves, past 200 MB once
-  collected, or when a take names nothing within 60 s.
+  for another folder), collects, looks once more at its install,
+  writes SLOT.warm holding the version it runs and waits for its slot
+  to name what it starts as. A take renames SLOT.warm to SLOT.taken
+  and a leave unlinks it, so only one lands. It leaves, exiting 0,
+  when its install's host code moves, past 200 MB once collected, or
+  when a take names nothing within 60 s.
 - stale-child.ts: a child rolling onto new code. A child never
   restarts itself, so it keeps the host code it started with; on 22
   November 15 children ran host code 34 hours old. Every five
@@ -390,7 +391,10 @@ input pipeline or screen. No unit or running host is installed yet.
   conversations. Where its policy says, it keeps one warm spare
   started 10 s after its adopt and after each take, which a start
   given its turn takes in place of starting a unit, said as "took a
-  warm spare" in the journal; a spare still warming is passed over.
+  warm spare" in the journal; a spare still warming is passed over,
+  and one whose version its install has moved on from is passed over
+  and stopped, said as "passed over a warm spare", so no wake lands
+  on code a fresh start would no longer run.
   One that leaves untaken is let go and replaced, and once three in a
   row leave within 300 s of starting the host keeps none until it
   restarts. A host taking up its last one's slots stops every spare

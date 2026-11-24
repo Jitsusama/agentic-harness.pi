@@ -63,6 +63,8 @@ describe("a warm spare", () => {
 			clocks: { spareAfterMs: SPARE_AFTER_MS, spareCheckMs: SPARE_CHECK_MS },
 		});
 		await supervisor.adopt();
+		// A fixed wait: nothing starting is the claim, so no event marks its
+		// end; past several spare checks, a spare kept would have started.
 		await pause(SETTLED_MS);
 
 		expect(units.started).toEqual([]);
@@ -135,6 +137,40 @@ describe("a warm spare", () => {
 		await vi.waitFor(() => expect(existsSync(warmMark(spare))).toBe(true));
 	});
 
+	it("is passed over once its install moved since it warmed, and replaced", async () => {
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: SPARE_CHECK_MS,
+				spareMoved: async (version) =>
+					version === "one"
+						? "the install's two changes the host's own code"
+						: undefined,
+			},
+		});
+		units.next = { spareVersion: "one" };
+		await supervisor.adopt();
+		const spare = await warmSpare();
+
+		const resumed = await supervisor.resume(entry(a));
+
+		expect(resumed.sessionId).toBe(a);
+		const own = slotOf(folder, key, a);
+		expect(units.started.slice(0, 2)).toEqual([spare, own.unit]);
+		expect(routes.routeOf(a)?.socket).toBe(own.socket);
+		expect(
+			said.some((line) =>
+				line.includes(
+					`${spare}: passed over a warm spare, since the install's two changes`,
+				),
+			),
+		).toBe(true);
+		await vi.waitFor(() => expect(units.started).toHaveLength(3));
+		await vi.waitFor(() => expect(units.stopped).toContain(spare));
+		expect(reported).toEqual([]);
+	});
+
 	it("is let go and replaced once it leaves untaken", async () => {
 		keepingSpares();
 		let first = true;
@@ -165,6 +201,8 @@ describe("a warm spare", () => {
 				true,
 			),
 		);
+		// A fixed wait: no fourth start is the claim, so no event marks its
+		// end; past several spare checks, a spare still kept would have started.
 		await pause(SETTLED_MS);
 		expect(units.started).toHaveLength(3);
 	});

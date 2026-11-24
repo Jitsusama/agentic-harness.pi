@@ -102,7 +102,7 @@ import type { HeldChildren } from "./children.ts";
 import type { ControlReply } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { HostRoster } from "./roster.ts";
-import { spareMarks, takeSpare } from "./spare.ts";
+import { spareMarks, takeSpare, warmVersion } from "./spare.ts";
 import { startGate } from "./start-gate.ts";
 
 /** The shared roster, as far as the supervisor keeps it. */
@@ -475,6 +475,12 @@ export function childSupervisor(options: {
 	turnWaitSaidMs?: number;
 	/** Whether to keep a warm spare child, as the child policy says. */
 	spares?: () => boolean;
+	/**
+	 * Why a spare running `version` no longer fits, once its install has
+	 * moved to other host code; none while it fits. A spare that says no
+	 * version is taken as it stands.
+	 */
+	spareMoved?: (version: string) => Promise<string | undefined>;
 	/** For tests: SPARE_AFTER_MS and SPARE_CHECK_MS. */
 	spareAfterMs?: number;
 	spareCheckMs?: number;
@@ -709,7 +715,22 @@ export function childSupervisor(options: {
 		try {
 			// A spare that crashed leaves its mark, which a take would land on.
 			if (await units.gone(kept.slot.unit).catch(() => true)) return undefined;
-			if (!(await takeSpare(spareMarks(kept.slot.file)))) return undefined;
+			const marks = spareMarks(kept.slot.file);
+			const version = await warmVersion(marks);
+			if (version === undefined) return undefined;
+			const unfit = version ? await options.spareMoved?.(version) : undefined;
+			if (unfit) {
+				// It leaves on its own at its next look; stopped now, so the next
+				// spare starts on the code a fresh start runs.
+				spare = undefined;
+				options.say?.(
+					`${kept.slot.unit}: passed over a warm spare, since ${unfit}`,
+				);
+				void leave(kept.slot, true);
+				spareSoon();
+				return undefined;
+			}
+			if (!(await takeSpare(marks))) return undefined;
 			spare = undefined;
 			sparesLost = 0;
 			options.say?.(

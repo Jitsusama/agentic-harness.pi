@@ -167,6 +167,8 @@ export interface FakeUnits extends Units {
 		warmsWhen?: Promise<void>;
 		/** A spare leaves untaken at its first look, as one whose install moved. */
 		spareLeaves?: boolean;
+		/** The version a spare says in its warm mark; none said where unset. */
+		spareVersion?: string;
 	};
 	/** What each child started does where `next` says nothing, by its unit. */
 	traitsOf?: (unit: string) => FakeUnits["next"];
@@ -394,6 +396,7 @@ function fakeUnits(): FakeUnits {
 						},
 						size: () => undefined,
 						report: () => undefined,
+						...(next.spareVersion ? { version: next.spareVersion } : {}),
 						lookMs: SPARE_LOOKS_EVERY_MS,
 						slotLookMs: SPARE_LOOKS_EVERY_MS / 2,
 						takeWithinMs: 1_000,
@@ -479,6 +482,8 @@ interface Clocks {
 	spareCheckMs?: number;
 	/** Whether the supervisor keeps a warm spare, as its policy would say. */
 	spares?: () => boolean;
+	/** Why a spare's version no longer fits, as its install would say. */
+	spareMoved?: (version: string) => Promise<string | undefined>;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {

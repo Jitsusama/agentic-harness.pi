@@ -446,6 +446,7 @@ export async function spareFirst(options: {
 			await warmSessions(pi.modules, cwd);
 		},
 		moved: installMovesFrom(hostRoot()),
+		version: hostRoot(),
 		size: collectedPss,
 		report: options.say,
 	});

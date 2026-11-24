@@ -18,10 +18,14 @@
  * gone. It leaves, exiting 0, when its install moves, when it holds more
  * than SPARE_MOST_BYTES, when a take names nothing within TAKE_WITHIN_MS,
  * and when its warm fails; its supervisor starts another.
+ *
+ * SLOT.warm holds the version the spare runs, so its supervisor can pass
+ * over a spare whose install moved since it last looked, rather than
+ * wake a conversation on code a fresh start would no longer run.
  */
 
 import { readFileSync } from "node:fs";
-import { rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { setTimeout as pause } from "node:timers/promises";
 import { isRecord } from "../../lib/internal/record.ts";
 
@@ -45,7 +49,10 @@ export type SpareEnd = { readonly taken: true } | { readonly left: string };
 
 /** The marks beside a spare's slot file that settle a take against a leave. */
 export interface SpareMarks {
-	/** Written once warm; renamed to `taken` by a take, unlinked by a leave. */
+	/**
+	 * Written once warm, holding the version it runs; renamed to `taken`
+	 * by a take, unlinked by a leave.
+	 */
 	readonly warm: string;
 	readonly taken: string;
 }
@@ -54,6 +61,22 @@ export interface SpareMarks {
 export function spareMarks(slotFile: string): SpareMarks {
 	const base = slotFile.replace(/\.json$/, "");
 	return { warm: `${base}.warm`, taken: `${base}.taken` };
+}
+
+/**
+ * The version a warm spare runs, as its warm mark says: none once it has
+ * left or been taken, or before it is warm, and an empty one from a spare
+ * that says none.
+ */
+export async function warmVersion(
+	marks: SpareMarks,
+): Promise<string | undefined> {
+	try {
+		return await readFile(marks.warm, "utf8");
+	} catch (error) {
+		if (isMissing(error)) return undefined;
+		throw error;
+	}
 }
 
 /** Whether `slotFile` holds a spare's `{"spare": true}`, read as it stands now. */
@@ -87,6 +110,8 @@ export interface SpareWait {
 	/** What the spare holds now, in bytes, collected first where it can be; none unread. */
 	readonly size: () => number | undefined;
 	readonly report: (said: string) => void;
+	/** The version the spare runs, written into its warm mark for a take to judge. */
+	readonly version?: string;
 	readonly lookMs?: number;
 	readonly slotLookMs?: number;
 	readonly takeWithinMs?: number;
@@ -121,9 +146,11 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 	wait.report(
 		`A warm spare: warmed in ${(warmed / MS_PER_SECOND).toFixed(1)} s, holding ${held === undefined ? "an unread size" : `${Math.round(held / MB)} MB`}`,
 	);
-	const tooBig = overSize();
-	if (tooBig) return { left: tooBig };
-	await writeFile(marks.warm, "");
+	// Its install may have moved during a warm on a loaded machine: a spare
+	// marked warm on old code could be taken before its next look.
+	const unfit = (await wait.moved()) ?? overSize();
+	if (unfit) return { left: unfit };
+	await writeFile(marks.warm, wait.version ?? "");
 	let lookedAt = Date.now();
 	let takenAt: number | undefined;
 	for (;;) {
