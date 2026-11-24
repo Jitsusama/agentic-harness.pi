@@ -1049,6 +1049,9 @@ describe("a host's memory with conversations in children", () => {
 			await vi.waitFor(() => expect(reads.started).toEqual([1, 2]));
 			reads.settle.get(2)?.(200);
 			expect(await queued).toBe(200);
+			// A read queued for the late pid would start once the queue drains.
+			await new Promise(setImmediate);
+			expect(reads.started, "nothing queued for a late pid").toEqual([1, 2]);
 			const fresh = pss(3);
 			await vi.waitFor(() =>
 				expect(reads.started, "no read queued for a late caller").toEqual([
@@ -1060,15 +1063,16 @@ describe("a host's memory with conversations in children", () => {
 		});
 		it("times its wait on a clock the wall clock's steps don't move", async () => {
 			const reads = held();
-			const wall = vi.spyOn(Date, "now").mockReturnValue(0);
+			vi.useFakeTimers({ toFake: ["Date"], now: 0 });
 			try {
 				const pss = oneReadAtOnce(reads.read, 1);
 				const stuck = pss(1);
+				// A real pause, the wall clock frozen, so only a clock it doesn't move passes the wait.
 				await new Promise((resolve) => setTimeout(resolve, 20));
 
 				expect(pss(1), "past the wait, the wall clock still").not.toBe(stuck);
 			} finally {
-				wall.mockRestore();
+				vi.useRealTimers();
 			}
 		});
 		it("reads a pid afresh once its last read has settled, even one that failed", async () => {
