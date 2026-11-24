@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	orchestrationOf,
+	questsOrchestratedBy,
 	windowWorkspaceOf,
 } from "../../../lib/internal/quest/fields/orchestration.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
@@ -211,5 +212,40 @@ describe("the workspace a quest's session window opens on", () => {
 
 	it("is none for a quest it can't read", () => {
 		expect(windowWorkspaceOf(KARST, store())).toBeUndefined();
+	});
+});
+
+describe("the quests an orchestrator orchestrates", () => {
+	it("are those it is nearest above, in order of id, and none past a nested one", () => {
+		const read = store(
+			quest(MISSION, null, { orchestrator: true }),
+			quest(SWARM, MISSION, { orchestrator: true }),
+			quest(WORKER, SWARM),
+			quest(LOOP, MISSION),
+			quest(KARST, null),
+		);
+		const all = [WORKER, LOOP, SWARM, MISSION, KARST];
+
+		expect(
+			questsOrchestratedBy(MISSION, all, read),
+			"the mission heads the loop and the nested swarm, not the swarm's worker",
+		).toEqual([LOOP, SWARM]);
+		expect(
+			questsOrchestratedBy(SWARM, all, read),
+			"the swarm heads its own worker",
+		).toEqual([WORKER]);
+	});
+
+	it("are none for a quest that isn't marked, or can't be read", () => {
+		const read = store(quest(MISSION, null), quest(LOOP, MISSION));
+
+		expect(
+			questsOrchestratedBy(MISSION, [LOOP], read),
+			"an unmarked quest orchestrates nothing",
+		).toEqual([]);
+		expect(
+			questsOrchestratedBy(KARST, [LOOP], read),
+			"a quest not found orchestrates nothing",
+		).toEqual([]);
 	});
 });

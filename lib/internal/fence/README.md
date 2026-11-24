@@ -147,6 +147,9 @@ would miss what another binds over it.
   into the emptied runtime folder, only where it is a folder of the
   person's alone, so a fenced writer and one outside take one lock; an
   empty file in its place otherwise, so a fenced writer writes no quest.
+- **`fence-quest-temp.ts`**: the session's own quest's `TMPDIR` link,
+  made alone in the emptied runtime folder, and a path through it read
+  as the scratch it leads to when pi's file tools write.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.

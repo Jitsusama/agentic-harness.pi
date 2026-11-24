@@ -55,6 +55,8 @@ export type RunProgram = (
 		readonly cwd: string;
 		readonly timeoutMs: number;
 		readonly signal?: AbortSignal;
+		/** Its whole environment, when not this process's own. */
+		readonly env?: NodeJS.ProcessEnv;
 	},
 ) => Promise<Ran>;
 
@@ -263,6 +265,7 @@ function runFile(
 			timeout: options.timeoutMs,
 			encoding: "utf8",
 			...(options.signal ? { signal: options.signal } : {}),
+			...(options.env ? { env: options.env } : {}),
 		},
 		(error, stdout, stderr) => {
 			// A system error's code (EAGAIN, EACCES) is the spawn's own
