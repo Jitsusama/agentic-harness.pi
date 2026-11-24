@@ -164,21 +164,24 @@ export function gitRules(
 const LONGEST_TEXT = 128 * 1024 - 4 * 1024;
 
 /**
- * Why a fenced command's `text` is refused as too long: the fence's lists
- * written into it, when pi's runtime folder couldn't hold them, or else
- * the `command` itself.
+ * Why a fenced command's `text` is refused as too long, or nothing when
+ * it starts: the fence's lists written into it, when pi's runtime folder
+ * couldn't hold them, or else the `command` itself. `listedInline` says
+ * whether other lists went in it too, asked only of a text too long.
+ * pi-fence's strict fence (`fence-run.ts`) is held to it as well.
  */
-function tooLong(
+export function tooLong(
 	text: string,
 	command: string,
 	args: readonly string[] | ArgsFile,
-	listedInline: boolean,
-): string {
+	listedInline: () => boolean = () => false,
+): string | undefined {
+	if (Buffer.byteLength(text) <= LONGEST_TEXT) return undefined;
 	// Quoted, as it goes into the text, each quote it holds taking four.
 	const own = Buffer.byteLength(quoted(command));
 	const said = `The fenced command's text is ${Buffer.byteLength(text)} bytes, past the ${LONGEST_TEXT} Linux passes in one string, ${own} of them the command's own`;
 	// The lists are blamed only when they, not the command, are most of it.
-	return (!("path" in args) || listedInline) && own < LONGEST_TEXT / 2
+	return (!("path" in args) || listedInline()) && own < LONGEST_TEXT / 2
 		? `${said}, since pi's runtime folder couldn't hold the fence's lists; check that XDG_RUNTIME_DIR names a folder pi can write, and that it isn't full.`
 		: `${said}; put it in a script and run that.`;
 }
@@ -889,17 +892,15 @@ export function wrapFor(
 				);
 				// What can't go in a file is said rather than left to fail with
 				// a bare E2BIG.
-				return Buffer.byteLength(text) > LONGEST_TEXT
-					? refused(
-							tooLong(
-								text,
-								command,
-								made.args,
-								guarded.length > 0 &&
-									guardedListFile(fence.runtimeDir, guarded) === undefined,
-							),
-						)
-					: text;
+				const long = tooLong(
+					text,
+					command,
+					made.args,
+					() =>
+						guarded.length > 0 &&
+						guardedListFile(fence.runtimeDir, guarded) === undefined,
+				);
+				return long === undefined ? text : refused(long);
 			};
 		}
 		case "strict": {

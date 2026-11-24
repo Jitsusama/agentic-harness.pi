@@ -51,9 +51,10 @@ const UNSET = [
 /**
  * The descriptor bubblewrap reads its arguments file on. bubblewrap
  * closes it once read, and the command inside closes it again before it
- * runs, so it never holds the file whatever bubblewrap does.
+ * runs, so it never holds the file whatever bubblewrap does. pi-fence's
+ * strict fence (`fence-run.ts`) reads its file on it too.
  */
-const ARGS_FD = 3;
+export const ARGS_FD = 3;
 
 /**
  * The shell text that runs `command` in the agent fence: bubblewrap
