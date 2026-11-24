@@ -4,7 +4,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, statfsSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, statfsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
 import { isId, prefixOf } from "../../lib/internal/quest/creation/id.ts";
@@ -86,7 +86,11 @@ const STRICT_FOLDER = "work";
  * home could read nothing and had to spawn itself again. It is never the
  * workspace itself, whose `tmp/` holds, on a Mac, compiled code that no
  * strict command may take as its own. With `make`, it is made on the
- * way; undefined for an ID that names no workspace.
+ * way. Undefined for an ID that names no workspace, where something
+ * other than a folder of its own stands at its path (a file, or a link
+ * that would open the session elsewhere), or where it can't be made, as
+ * on a full or read-only cache: the spawn then opens where it would have,
+ * and strict's own refusal there says why.
  */
 export function strictFolderOf(
 	root: string,
@@ -97,9 +101,17 @@ export function strictFolderOf(
 	const dir = workspaceDirOf(root, questId);
 	if (!dir) return;
 	const folder = join(dir, STRICT_FOLDER);
+	const there = lstatSync(folder, { throwIfNoEntry: false });
+	if (there !== undefined && !there.isDirectory()) return;
 	if (make) {
-		makeWorkspace(dir, folders);
-		mkdirSync(folder, { recursive: true });
+		try {
+			makeWorkspace(dir, folders);
+			mkdirSync(folder, { recursive: true });
+		} catch {
+			// A cache that can't be written leaves the spawn where it was
+			// going, which is no worse than before strict had a folder.
+			return;
+		}
 	}
 	return folder;
 }

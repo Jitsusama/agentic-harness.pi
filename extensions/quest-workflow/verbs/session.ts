@@ -40,7 +40,10 @@ import {
 	spawnedWords,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liveness.ts";
-import { unfencedFolder } from "../../../lib/internal/sandbox/unfenced-folder.ts";
+import {
+	strictReadsNothingIn,
+	unfencedFolder,
+} from "../../../lib/internal/sandbox/unfenced-folder.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
@@ -98,6 +101,7 @@ import {
 import {
 	claimRunning,
 	placementFence,
+	runsPi,
 	spawnFence,
 	spawnFenced,
 	stagedById,
@@ -367,20 +371,24 @@ async function spawnNaming(
 	said.fence = fence;
 	const { sandbox } = started;
 	if (sandbox) said.handed = sandbox;
-	// Strict runs no command in home, nor in a folder holding what runs
-	// outside it, so a strict spawn here whose folder nobody named opens in
-	// its quest's workspace instead of one where it could do nothing.
+	// Strict neither runs a command nor lets pi read in home, nor in a
+	// folder lying in or holding what the fence hides, so a strict pi here
+	// whose folder nobody named opens in its quest's workspace instead of
+	// one where it could do nothing. A checkout strict only won't run in is
+	// kept, since there it still reads the code and its AGENTS.md.
+	const home = homedir();
 	const strictFolder =
 		sandbox === "strict" &&
 		!given &&
 		landsHere &&
-		unfencedFolder(cwd, homedir()) !== undefined
+		runsPi(params.command) &&
+		strictReadsNothingIn(cwd, home)
 			? strictFolderOf(defaultWorkspaceRoot(), questIdForSpawn, !params.dryRun)
 			: undefined;
-	if (strictFolder) {
+	if (strictFolder && unfencedFolder(strictFolder, home) === undefined) {
+		chosenBy = `${describeCwdSource("strict")}, not ${cwd}, where strict reads nothing`;
 		cwd = strictFolder;
 		cwdSource = "strict";
-		chosenBy = describeCwdSource("strict");
 	}
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),

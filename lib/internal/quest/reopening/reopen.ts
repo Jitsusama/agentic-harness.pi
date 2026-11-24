@@ -44,8 +44,7 @@ const SOURCE_WORDS: Record<CwdSource, string> = {
 	ancestorRepoRoot: "a parent quest's repo",
 	spawner: "the spawning session's repo",
 	home: "home, as nothing better was known",
-	strict:
-		"its quest's workspace, as strict would run nothing in the folder it would have opened in",
+	strict: "its quest's workspace, where strict reads and runs",
 };
 
 /** What chose the folder, as a person reads it in what spawn answers. */
