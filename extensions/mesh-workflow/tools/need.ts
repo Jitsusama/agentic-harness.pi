@@ -22,6 +22,7 @@
 
 import { needNamed } from "../../../lib/mesh/group.ts";
 import {
+	LONGEST_WORD,
 	MOST_WORDS,
 	type NeedRecord,
 	needId,
@@ -108,19 +109,22 @@ export async function needRead(
 	const ended = endedText(found);
 	// On 24 November a need about "dates delivery" went by delivery alone,
 	// the dates cell having left the node, and its asker heard nothing of
-	// dates. Past MOST_WORDS a word some cell holds is dropped too, so
-	// then nothing is said of the rest, nor of a text's words, which may
-	// hold a token. A joined id, mesh-workflow or pi-host, is held by
+	// dates. Only when MOST_WORDS were kept may a word some cell holds
+	// have been dropped, so then nothing is said of the rest; nor of a
+	// text's words, which may hold a token, nor of a word past
+	// LONGEST_WORD, which is a token, not a word of work. A joined id, mesh-workflow or pi-host, is held by
 	// none whose title says mesh workflow or pi host, yet its parts
 	// routed it, so it goes unsaid when the words kept say it as routing
 	// reads them: every part long and rare enough to be a word, and a
 	// numbered id, leg-27, only whole.
 	const kept = new Set(found.words);
 	const unasked =
-		fromText || words.length > MOST_WORDS
+		fromText || found.words.length >= MOST_WORDS
 			? ""
 			: unaskedText(
-					words.filter((word) => !saysWord(word, kept)),
+					words.filter(
+						(word) => word.length <= LONGEST_WORD && !saysWord(word, kept),
+					),
 					about,
 				);
 	if (found.fit === null && found.fellShort !== undefined) {
@@ -158,14 +162,15 @@ function unaskedText(unasked: readonly string[], about: string): string {
 
 /**
  * Why a need whose owner has ended is lost though a live cell was found:
- * the cells named in `ended` worked on more of it than `fit`. Said as
- * not present, since the node lists them with no presence here, which a
- * link down to their machine leaves too.
+ * routing would have sent it to the one cell named in `ended`, were it
+ * there, and that cell worked on more of it than `fit`. Said as not
+ * present, since the node lists it with no presence here, which a link
+ * down to its machine leaves too; routing it again finds that cell
+ * once it is back.
  */
 function ownerText(found: NeedRecord, fit: string, about: string): string {
-	const owners = found.ended ?? [];
-	const one = owners.length === 1;
-	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "isn't" : "aren't"} present now, so it was not sent to a cell sharing less of it. Sending it again once ${one ? "it is" : "one is"} present reaches ${one ? "it" : "that cell"}.`;
+	const owner = (found.ended ?? []).join(", ");
+	return `${owner} worked on more of ${about} than ${fit}, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it. Sending it again once ${owner} is present reaches it.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */

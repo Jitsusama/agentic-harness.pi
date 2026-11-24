@@ -47,12 +47,23 @@ export const routeNeed = (
 export const cells = (held: Record<string, string[]>): Forager[] =>
 	Object.entries(held).map(([address, words]) => ({ address, words }));
 
-/** Ties as pairs of ends, each as strong as given, both ways. */
-export const ties = (...pairs: [string, string, number][]): TieGraph => {
-	const graph = new Map<string, { other: string; strength: number }[]>();
-	for (const [one, other, strength] of pairs) {
-		graph.set(one, [...(graph.get(one) ?? []), { other, strength }]);
-		graph.set(other, [...(graph.get(other) ?? []), { other: one, strength }]);
+/**
+ * Ties as pairs of ends, each as strong as given, both ways, last heard
+ * when given or else when every need here is asked.
+ */
+export const ties = (
+	...pairs: [string, string, number, number?][]
+): TieGraph => {
+	const graph = new Map<
+		string,
+		{ other: string; strength: number; heard: number }[]
+	>();
+	for (const [one, other, strength, heard = AT] of pairs) {
+		graph.set(one, [...(graph.get(one) ?? []), { other, strength, heard }]);
+		graph.set(other, [
+			...(graph.get(other) ?? []),
+			{ other: one, strength, heard },
+		]);
 	}
 	return graph;
 };

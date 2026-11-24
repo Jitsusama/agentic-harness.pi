@@ -13,13 +13,12 @@
  * word's. Nothing falls back to a leader: a need nothing can take is
  * counted lost, so the measure sees it, and its asker is told to name
  * the peers it is for. Nor does it go to a cell sharing less of what
- * the asker lacks than an ended cell within reach did: that ended cell
- * owned it. A live cell within reach working on as much takes it
- * instead; with none, the need is lost and its asker told who ended and
- * who fell short. An ended cell is within reach only through a tie at
- * least as strong as one message `OWNER_TIE_AGE_MS` old, so a record
- * the node keeps after its session crashed stops owning needs once its
- * ties fade.
+ * the asker lacks than an ended cell it would have gone to were that
+ * cell back: that cell owned it, so the need is lost and its asker told
+ * who ended and who fell short. Only a cell heard from along some tie
+ * within `OWNER_TIE_AGE_MS` counts, so a record the node keeps after
+ * its session crashed stops owning needs six hours after its last
+ * message.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -76,10 +75,17 @@ export interface Hub {
 	readonly fits: readonly string[];
 }
 
-/** Each cell's ties, strongest first. */
+/**
+ * Each cell's ties, strongest first, each with when a message last went
+ * along it where the node says.
+ */
 export type TieGraph = ReadonlyMap<
 	string,
-	readonly { readonly other: string; readonly strength: number }[]
+	readonly {
+		readonly other: string;
+		readonly strength: number;
+		readonly heard?: number;
+	}[]
 >;
 
 /** A need as its asker puts it. */
@@ -154,22 +160,21 @@ export interface Reach {
 export const MOST_HOPS = 3;
 
 /**
- * The age of the one message an ended cell's faintest tie is held to
- * before the cell can own a need: six hours, the age a tie may reach and
- * still make a hub (hub-from-use.ts). A tie never fades to nothing, so
- * without it a cell that crashed a week ago would own its words for as
- * long as the node kept its record.
+ * How long after the last message along any of its ties an ended cell
+ * may still own a need: six hours, the age a tie may reach and still
+ * make a hub (hub-from-use.ts). It is an age, not a faded strength, so
+ * a crashed cell's busy tie to its orchestrator holds it no longer than
+ * a quiet one. Ties never fade to nothing, so without it a cell that
+ * crashed a week ago would own its words for as long as the node kept
+ * its record.
  */
 export const OWNER_TIE_AGE_MS = 6 * 60 * 60 * 1000;
-
-/** The faded strength of one message `OWNER_TIE_AGE_MS` old. */
-export const OWNER_TIE_FLOOR = 2 ** -(OWNER_TIE_AGE_MS / TIE_HALF_LIFE_MS);
 
 /** The most words a need is routed and kept by. */
 export const MOST_WORDS = 12;
 
 /** The longest word a need keeps: longer is a token, not a word of work. */
-const LONGEST_WORD = 32;
+export const LONGEST_WORD = 32;
 
 /**
  * Random bytes in a need's id, so two in one moment differ without a
@@ -388,11 +393,19 @@ function wordsBeyond(
  * A cell's own talk, `tie:<A>`, names no other end and is left out.
  */
 export function tieGraphFrom(line: string, now: number): TieGraph {
-	const graph = new Map<string, { other: string; strength: number }[]>();
-	const tieTo = (one: string, other: string, strength: number) => {
+	const graph = new Map<
+		string,
+		{ other: string; strength: number; heard: number }[]
+	>();
+	const tieTo = (
+		one: string,
+		other: string,
+		strength: number,
+		heard: number,
+	) => {
 		const ties = graph.get(one);
-		if (ties === undefined) graph.set(one, [{ other, strength }]);
-		else ties.push({ other, strength });
+		if (ties === undefined) graph.set(one, [{ other, strength, heard }]);
+		else ties.push({ other, strength, heard });
 	};
 	for (const record of recordsOf(line)) {
 		const { key, strength, heard } = record;
@@ -401,8 +414,8 @@ export function tieGraphFrom(line: string, now: number): TieGraph {
 		const [one, other, ...more] = key.slice("tie:".length).split("~");
 		if (one === undefined || other === undefined || more.length > 0) continue;
 		const faded = strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS);
-		tieTo(one, other, faded);
-		tieTo(other, one, faded);
+		tieTo(one, other, faded, heard);
+		tieTo(other, one, faded, heard);
 	}
 	for (const ties of graph.values()) {
 		ties.sort((a, b) => b.strength - a.strength);
@@ -441,44 +454,57 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
 /**
  * Where a need goes: already held when its asker works on every word;
  * else to the cell found for one of the words it doesn't work on that
- * works on most of the need, found through a word's narrowest hub naming
- * a fit that is there or along ties to the nearest cell working on it.
- * Among cells working on as many, a hub's find before any walk's, and
- * among those the rarest word's, rarest counting ended holders too.
+ * works on most of what the asker lacks, then most of the need, found
+ * through a word's narrowest hub naming a fit that is there or along
+ * ties to the nearest cell working on it. Among cells working on as
+ * many, a hub's find before any walk's, and among those the rarest
+ * word's, rarest counting ended holders too.
  * Taken by its rarest word alone, 15 of 84 needs kept on 23 and 24
  * November, replayed over the node's cells of the 24th, went to cells on
  * "checks" or "gate" sharing no other word.
  *
- * Lost, with no path, when none is within `MOST_HOPS`, or when a cell
- * within reach that has ended worked on more of what the asker lacks
- * than the fit found: that cell owned it, and the fit shares less. The
- * live cell within reach working on most of it is then named in
- * `fellShort`. Within reach is where a live fit could be: at most
- * `MOST_HOPS` along ties, the last onto an ended cell no fainter than
- * `OWNER_TIE_FLOOR`, or named by a live hub routing would consult for
- * one of its words. A live cell within reach working on as much as the
- * owner did takes it instead, though each word's nearest find shared
- * less; of several, the nearest along ties, then a hub's. Only a cell
- * the node still lists counts, and the node drops a cell whose session
- * ended cleanly, so an owner gone that way is never seen. Coverage is
- * counted as a fit is found, so a leg-26 cell never counts the leg of a
- * need for leg-27.
+ * Lost, with no path, when none is within `MOST_HOPS`, or when it has
+ * an owner that has ended: routed again with every ended cell heard
+ * from within `OWNER_TIE_AGE_MS` counted as there, though never walked
+ * through, it goes to one of them working on more of what the asker
+ * lacks than the fit found. The fit is then named in `fellShort`. So an
+ * ended cell owns a need only where routing would send it there were it
+ * back, by the same hubs and walks, and an ended cell never sends a
+ * need anywhere routing wouldn't. Only a cell the node still lists
+ * counts, and the node drops a cell whose session ended cleanly, so an
+ * owner gone that way is never seen. Coverage is counted as a fit is
+ * found, so a leg-26 cell never counts the leg of a need for leg-27.
  *
  * A cell that works on it but has ended is never taken, and is named in
  * `ended`: for a found need, when passed over for the word its fit was
- * found by; for a lost one, every such cell, or the owners alone when an
+ * found by; for a lost one, every such cell, or the owner alone when an
  * owner made it lost. One that stopped the asker is named in `stopped`
  * when the need is lost. Only a cell `live` says is there is taken.
  */
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
+	return routeAs(said, reach, false);
+}
+
+/**
+ * A need routed as `routeNeed` says, or, with `recentCount`, as if every
+ * ended cell heard from within `OWNER_TIE_AGE_MS` were there to take it,
+ * which is how its owner is found.
+ */
+function routeAs(
+	said: NeedAsked,
+	reach: Reach,
+	recentCount: boolean,
+): NeedRecord {
 	const selves = new Set([said.asker, ...(said.selves ?? [])]);
 	const { live } = reach;
 	const stopper = reach.stopped ?? (() => false);
 	const stops = (address: string) => !selves.has(address) && stopper(address);
+	const present = (address: string) =>
+		live(address) || (recentCount && heardWithin(reach.ties, address, said.at));
 	const takes = (address: string) =>
-		!selves.has(address) && live(address) && !stops(address);
+		!selves.has(address) && present(address) && !stops(address);
 	const ended = (address: string) =>
-		!selves.has(address) && !live(address) && !stops(address);
+		!selves.has(address) && !present(address) && !stops(address);
 	// A need goes to its fit alone, so a cell it is found through never
 	// hears it: one that stopped the asker may still be walked through.
 	const through = (address: string) => !selves.has(address) && live(address);
@@ -594,13 +620,16 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		lacking.filter(
 			(word) => holds(address, word) && !holdsOtherNumber(address, word),
 		).length;
-	const best = (
-		candidates: readonly string[],
-		by: (address: string) => number = most,
-	) =>
+	// A fit is weighed by what the asker lacks first, since a word it
+	// holds routes nowhere, then by the whole need, so of cells as useful
+	// the one nearer the asker's own work.
+	const better = (one: string, than: string) =>
+		needed(one) > needed(than) ||
+		(needed(one) === needed(than) && most(one) > most(than));
+	const best = (candidates: readonly string[]) =>
 		candidates.reduce<string | undefined>(
 			(chosen, one) =>
-				chosen === undefined || by(one) > by(chosen) ? one : chosen,
+				chosen === undefined || better(one, chosen) ? one : chosen,
 			undefined,
 		);
 	const finds: {
@@ -620,7 +649,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 				hub.fits.filter((one) => !endedHolder(one, word) && fitsOn(one, word)),
 			);
 			if (fit === undefined) continue;
-			if (chosen === undefined || most(fit) > most(chosen.fit)) {
+			if (chosen === undefined || better(fit, chosen.fit)) {
 				chosen = { ranked, fit };
 			}
 		}
@@ -640,108 +669,63 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	// working on as much of the need the first found wins, as before.
 	const found = finds.reduce<(typeof finds)[number] | undefined>(
 		(chosen, one) =>
-			chosen === undefined || most(one.fit) > most(chosen.fit) ? one : chosen,
+			chosen === undefined || better(one.fit, chosen.fit) ? one : chosen,
 		undefined,
 	);
 	if (found === undefined) return lost();
-	// An ended cell within reach that worked on more of it than the fit
-	// found was the need's owner: sending it to a cell sharing less of it
-	// is a misroute. One out of reach is no more its owner than a live
-	// cell there would be its fit, so it counts the same as one.
-	const reached = needed(found.fit);
-	const around = inReach();
-	const owners = [...around.keys()].filter(
-		(address) => ended(address) && needed(address) > reached,
-	);
-	if (owners.length === 0) {
-		return record(found.path, found.fit, passed.get(found.word) ?? new Set());
+	if (recentCount) return record(found.path, found.fit, new Set());
+	// Routed again as if each cell heard from lately were there: where
+	// that sends it to one of them working on more of what the asker
+	// lacks than the fit found, that cell owned it, and sending it to a
+	// cell sharing less is a misroute. Being routing itself, it finds an
+	// owner only where a live cell there would be found, by the same hubs
+	// and walks, so the need reaches that owner once it is back.
+	const owner = routeAs(said, reach, true).fit;
+	if (owner !== null && !live(owner) && needed(owner) > needed(found.fit)) {
+		return { ...record([], null, new Set([owner])), fellShort: found.fit };
 	}
-	// A live cell within reach working on as much of it as its owner did
-	// takes it, though the nearest find for each word shared less.
-	const owned = Math.max(...owners.map(needed));
-	const takers = [...around.keys()].filter((address) =>
-		lacking.some((word) => fitsOn(address, word)),
-	);
-	const fuller = best(
-		takers.filter((address) => needed(address) >= owned),
-		needed,
-	);
-	const fullerPath = fuller === undefined ? undefined : around.get(fuller);
-	if (fuller !== undefined && fullerPath !== undefined) {
-		return record(fullerPath, fuller, new Set(owners));
-	}
-	// The asker's best lead: the live cell in reach on most of it, the
-	// fit found unless one shares more.
-	const short = best([found.fit, ...takers], needed) ?? found.fit;
-	return { ...record([], null, new Set(owners)), fellShort: short };
-
-	/**
-	 * Every cell routing could reach, each with the path to it: along the
-	 * ties, strongest first, through live cells, at most `MOST_HOPS` away,
-	 * an ended cell only by a tie no fainter than `OWNER_TIE_FLOOR`; then
-	 * the fits a live hub names for one of the words the asker lacks, of
-	 * the hubs routing would consult: the narrowest rank, and broader ones
-	 * only while none names a live fit.
-	 */
-	function inReach(): Map<string, string[]> {
-		const paths = new Map<string, string[]>();
-		const parent = new Map<string, string>();
-		let frontier = [...selves];
-		for (let hop = 1; hop <= MOST_HOPS && frontier.length > 0; hop++) {
-			const next: string[] = [];
-			for (const cell of frontier) {
-				for (const { other, strength } of reach.ties.get(cell) ?? []) {
-					if (selves.has(other) || parent.has(other)) continue;
-					// Held to reach the floor, so a strength that is no number fails.
-					if (ended(other) && !(strength >= OWNER_TIE_FLOOR)) continue;
-					parent.set(other, cell);
-					paths.set(other, chainTo(other, selves, parent));
-					if (through(other)) next.push(other);
-				}
-			}
-			frontier = next;
-		}
-		for (const word of lacking) {
-			let consulted: RankedHub | undefined;
-			for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
-				if (consulted !== undefined && !rankSame(consulted, ranked)) break;
-				const { hub } = ranked;
-				if (!live(hub.hub)) continue;
-				for (const fit of hub.fits) {
-					const direct = hub.hub === fit || selves.has(hub.hub);
-					if (!paths.has(fit) && !selves.has(fit)) {
-						paths.set(fit, direct ? [fit] : [hub.hub, fit]);
-					}
-				}
-				if (hub.fits.some((fit) => fitsOn(fit, word))) consulted ??= ranked;
-			}
-		}
-		return paths;
-	}
+	return record(found.path, found.fit, passed.get(found.word) ?? new Set());
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the
-	 * nearest live cell working on `word`, or nothing within reach.
+	 * nearest cell there to take it working on `word`, or nothing within
+	 * reach. A cell heard from lately but not present, routed as if there,
+	 * may be found but is never walked through, since it can't pass a
+	 * need on.
 	 */
 	function walkTo(word: string): string[] | undefined {
 		const parent = new Map<string, string>();
 		let frontier = [...selves];
 		for (let hop = 1; hop <= MOST_HOPS && frontier.length > 0; hop++) {
 			const next: string[] = [];
+			const reached: string[] = [];
 			for (const cell of frontier) {
 				for (const { other } of reach.ties.get(cell) ?? []) {
 					if (selves.has(other) || parent.has(other)) continue;
-					if (endedHolder(other, word) || !through(other)) continue;
+					if (endedHolder(other, word)) continue;
+					if (through(other)) next.push(other);
+					else if (!fitsOn(other, word)) continue;
 					parent.set(other, cell);
-					next.push(other);
+					reached.push(other);
 				}
 			}
-			const fit = best(next.filter((one) => fitsOn(one, word)));
+			const fit = best(reached.filter((one) => fitsOn(one, word)));
 			if (fit !== undefined) return chainTo(fit, selves, parent);
 			frontier = next;
 		}
 		return undefined;
 	}
+}
+
+/**
+ * Whether a message went along any of a cell's ties within
+ * `OWNER_TIE_AGE_MS` of `at`, by the node's word on when; a tie the
+ * node gave no time for never counts.
+ */
+function heardWithin(ties: TieGraph, address: string, at: number): boolean {
+	return (ties.get(address) ?? []).some(
+		({ heard }) => heard !== undefined && at - heard <= OWNER_TIE_AGE_MS,
+	);
 }
 
 /**

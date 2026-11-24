@@ -87,7 +87,7 @@ describe("the words a need or a cell's work is matched by", () => {
 });
 
 describe("the ties a need walks", () => {
-	it("joins each tie at both ends, faded to now, strongest first", () => {
+	it("joins each tie at both ends, faded to now, strongest first, with when it was heard", () => {
 		const line = JSON.stringify({
 			id: 2,
 			records: [
@@ -100,10 +100,12 @@ describe("the ties a need walks", () => {
 		const graph = tieGraphFrom(line, AT);
 
 		expect(graph.get("A")).toEqual([
-			{ other: "B", strength: 4 },
-			{ other: "C", strength: 4 },
+			{ other: "B", strength: 4, heard: AT },
+			{ other: "C", strength: 4, heard: AT - 2 * 60 * 60 * 1000 },
 		]);
-		expect(graph.get("C")).toEqual([{ other: "A", strength: 4 }]);
+		expect(graph.get("C")).toEqual([
+			{ other: "A", strength: 4, heard: AT - 2 * 60 * 60 * 1000 },
+		]);
 	});
 });
 
@@ -485,9 +487,9 @@ describe("routing a need", () => {
 		expect(found).not.toHaveProperty("fellShort");
 	});
 
-	// Each word's walk stops at its nearest fit, which may share less of
-	// it than a live cell a hop further out.
-	it("goes to a live cell in reach working on as much as its ended owner did", () => {
+	// Each word's walk stops at its nearest fit, so routing would have
+	// sent it to J, a hop out, were J back, and never to K behind C.
+	it("counts it lost when its ended owner was nearer than a fuller live cell", () => {
 		const found = routeNeed(asked("A", "dates", "delivery"), {
 			foragers: cells({
 				A: [],
@@ -501,12 +503,12 @@ describe("routing a need", () => {
 			live: (address) => address !== "J",
 		});
 
-		expect(found, "K, past C, holds both").toMatchObject({
-			path: ["C", "K"],
-			fit: "K",
+		expect(found, "J would have had it, not K").toMatchObject({
+			path: [],
+			fit: null,
 			ended: ["J"],
+			fellShort: "C",
 		});
-		expect(found).not.toHaveProperty("fellShort");
 	});
 
 	// Among fits on as much of it, every hub's find comes before any
