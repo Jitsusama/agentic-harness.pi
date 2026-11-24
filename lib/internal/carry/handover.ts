@@ -32,7 +32,12 @@ export const HANDOVER = "handover";
 export interface HandedTree {
 	/** Where it is, within home: `~/src/...`. */
 	readonly path: string;
-	/** Where its origin is, which the other machine clones or fetches. */
+	/**
+	 * Where its origin is, which the other machine clones or fetches. Read
+	 * whatever it says; arrival refuses only this tree where it begins
+	 * with a dash, or a part of its branch or a need's does, as
+	 * {@link flagIn} tells it, so git is never given one.
+	 */
 	readonly origin: string;
 	/** The branch it was on. */
 	readonly branch: string;
