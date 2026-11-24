@@ -70,6 +70,26 @@ import {
 	STOPPED,
 } from "./mesh.ts";
 
+/** Wakes kept to tell a later ask from a first, before they are let go. */
+const MOST_ASKED = 1000;
+
+/**
+ * The parked peers each message carried in was asked to wake, by any
+ * hearing in this process: every running peer judges every arrival, and
+ * a host runs many, whose holder would otherwise be asked the same wake
+ * once a conversation.
+ */
+const askedWakes = new Set<string>();
+
+/** Ask `session`'s holder to wake it for `messageId`, once a process. */
+function askWakeOnce(session: string, messageId: string): void {
+	const asked = `${session} ${messageId}`;
+	if (askedWakes.has(asked)) return;
+	askWake(session, messageId);
+	if (askedWakes.size >= MOST_ASKED) askedWakes.clear();
+	askedWakes.add(asked);
+}
+
 /** Whether an id was stamped on a day before another's, both in time. */
 function dayBefore(id: string, other: string): boolean {
 	const day = dayOf(id);
@@ -247,9 +267,6 @@ export function createHearing(m: MeshState, f: Handing) {
 			});
 		}
 		if (drops.length > 0) f.handedOver(drops.map(([message]) => message));
-		// Heard as it lands, a message from another machine wakes whoever its
-		// sender couldn't; a catch-up's were heard by peers running then.
-		if (!starting) wakeForElsewhere(messages);
 		if (messages.length === 0 || !m.ctx) return;
 		m.peer.refresh();
 		identity();
@@ -421,6 +438,12 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (!written) m.seen.delete(id);
 		const message =
 			written && !readsAsReceptor(written.from) ? written : undefined;
+		// Woken for before what reaches this peer is sorted out, since a
+		// question carried in to a parked peer's own home reaches no peer
+		// running here. An old copy written back at the top wakes nobody.
+		if (message && !(m.caughtUpFrom !== undefined && id <= m.caughtUpFrom)) {
+			wakeForElsewhere(message);
+		}
 		// A hold this peer waits on can end in a message to a group it does
 		// not hear, so ends are looked for before what reaches it.
 		const end = message ? m.leasing.ended(message) : undefined;
@@ -560,23 +583,24 @@ export function createHearing(m: MeshState, f: Handing) {
 		}
 	};
 
-	/** Wakes the parked peers here that messages carried in give a turn. */
-	const wakeForElsewhere = (messages: readonly Message[]) => {
-		if (messages.length === 0) return;
+	/**
+	 * Wakes the parked peers here that a message carried in gives a turn.
+	 * It takes a peer running here to hear it land: on a machine whose
+	 * every session is parked, the node that carries it in wakes them.
+	 */
+	const wakeForElsewhere = (message: Message) => {
 		try {
-			const everyone = m.presences.all();
-			for (const message of messages) {
-				wakeForCarriedIn(
-					message,
-					everyone,
-					(id) => m.transport.read(id),
-					isParked,
-					askWake,
-					(addresses) => m.transport.lastRead(addresses),
-				);
-			}
+			wakeForCarriedIn(
+				message,
+				m.presences.all(),
+				(id) => m.transport.read(id),
+				isParked,
+				askWakeOnce,
+				(addresses) => m.transport.lastRead(addresses),
+			);
 		} catch {
-			// Unwoken, a parked peer reads them at its next start all the same.
+			// Every running peer judges this arrival, and the node carrying it
+			// in wakes for it too; unwoken, it is read at the next start.
 		}
 	};
 

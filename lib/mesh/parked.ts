@@ -200,11 +200,13 @@ export function wakeParked(
  * markers, so a message a node carries in from another machine woke
  * nobody: on 23 Nov 2026 a question from optimus sat ten minutes in a
  * parked Mac session's folder, and its holder started it within 8 s once
- * its wake file was written. So a running peer that hears a message whose
- * sender is on another machine, or isn't known here, wakes for it. One
- * sent from this machine is left to its sender, who woke for it already.
- * A peer already handed the message is passed over, so a message a
- * session read before it parked never starts it again.
+ * its wake file was written. So a running peer that sees a message land
+ * whose sender is on another machine, or isn't known here (a presence
+ * the node hasn't carried yet), wakes for it. One sent from this machine
+ * is left to its sender, who woke for it already. A peer whose read
+ * marker is at or past the message is passed over, so a message a
+ * session read before it parked never starts it again; only parked
+ * peers' markers are read, since each costs a read on the thread.
  */
 export function wakeForCarriedIn(
 	message: Message,
@@ -216,19 +218,16 @@ export function wakeForCarriedIn(
 ): string[] {
 	const sender = everyone.find((one) => one.addresses.includes(message.from));
 	if (sender !== undefined && sender.machine === undefined) return [];
-	const unhanded = new Set(
-		everyone
-			.filter((one) => {
-				const last = handed(one.addresses);
-				return last === undefined || last < message.id;
-			})
-			.map((one) => one.session),
-	);
+	const unhanded = (session: string) => {
+		const one = everyone.find((presence) => presence.session === session);
+		const last = one ? handed(one.addresses) : undefined;
+		return last === undefined || last < message.id;
+	};
 	return wakeParked(
 		message,
 		everyone,
 		read,
-		(session) => unhanded.has(session) && isParked(session),
+		(session) => isParked(session) && unhanded(session),
 		askWake,
 	);
 }
