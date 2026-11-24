@@ -50,7 +50,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { sessionCwd, sessionEnv } from "../../lib/core/session/index.ts";
+import { sessionEnv } from "../../lib/core/session/index.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
 	orchestrates,
@@ -194,11 +194,11 @@ function unrefInterval(look: () => void, ms: number): () => void {
 }
 
 /**
- * Where the session asks from, read while its hook runs: its folder, and
- * its own environment, which in a pi host isn't the host's.
+ * Where the session asks from, read while its hook runs: its own
+ * environment, which in a pi host isn't the host's.
  */
 function placeOf(ctx: ExtensionContext): Required<ClaimPlace> {
-	return { cwd: sessionCwd(ctx), env: sessionEnv(ctx).snapshot() };
+	return { env: sessionEnv(ctx).snapshot() };
 }
 
 /** What a claim keeper does, apart from pi's wiring. */
