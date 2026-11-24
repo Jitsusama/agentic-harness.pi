@@ -173,6 +173,18 @@ describe("a peer's hand", () => {
 		expect(handLeases()).toBeUndefined();
 	});
 
+	it("gives heavy work back when another handler refuses the call, which then never answers", async () => {
+		const { bash, fire } = await startHand();
+
+		expect(await bash("1", "nix build .#x")).toBeUndefined();
+		await settle();
+		expect(handLeases()?.leases).toMatchObject([{ subject: "build" }]);
+
+		await fire("tool_execution_end", { toolCallId: "1", isError: true });
+		await settle();
+		expect(handLeases()).toBeUndefined();
+	});
+
 	it("holds back a heavy command once while a hold reaching its peer stands", async () => {
 		const hold = othersHold("hold builds: rebooting");
 		const { bash } = await startHand();
