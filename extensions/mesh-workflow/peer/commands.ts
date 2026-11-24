@@ -1,12 +1,13 @@
 /**
  * The peer on screen and at the prompt: how its glances and notes draw,
- * and the /host, /needs and /mesh commands.
+ * and the /host, /needs, /cell and /mesh commands.
  */
 
 import { hostname } from "node:os";
 import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { agentsAt, nodeSocket } from "../../../lib/mesh/node.ts";
 import { expandable } from "../../../lib/ui/expandable.ts";
+import { cellCommand, liveCellDeps } from "../cell-command.ts";
 import { GLANCE, NOTED } from "../delivery.ts";
 import { moveIntoHost, probeHost, startTakeUp } from "../host-command.ts";
 import { needsCommand } from "../needs-command.ts";
@@ -92,6 +93,22 @@ export function registerCommands(m: MeshState, f: Handing) {
 				looks: m.paths.looks,
 				ui: at.ui,
 			}),
+	});
+	// Another cell, gone to, held or woken as he types it (cell-command.ts).
+	m.pi.registerCommand?.("cell", {
+		description:
+			"/cell ADDRESS [go|hold|wake]: go to another session's window, hold it once its turn ends, or wake it to carry on; with no act, pick one.",
+		handler: (args, at) =>
+			cellCommand(
+				args,
+				liveCellDeps(
+					m.pi,
+					at.ui,
+					nodeSocket(m.env),
+					m.peer?.signature,
+					hostname().split(".")[0] ?? "",
+				),
+			),
 	});
 	m.pi.registerCommand?.("mesh", {
 		description:

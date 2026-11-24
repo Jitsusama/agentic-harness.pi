@@ -413,6 +413,15 @@ and can answer a question or a gate left open on screen.
   where he answers it, since the node takes a person's word from no
   agent process; a look opens, marked opened as the launcher marks it,
   or clears as "cleared by you", or goes to the cell that pointed.
+  `/cell ADDRESS [go|hold|wake]`, also typed only by him, goes to
+  another cell by the same link, on the machine the node says runs
+  it, or steers it a `pause` (hold once its turn ends) or a `resume`
+  (wake and carry on) through the node ([`cell-command.ts`](cell-command.ts),
+  `lib/mesh/cell-steer.ts`). Those steers are signed with this
+  session's address, never as the person, which the node refuses from
+  an agent's process; a session obeys a pause or resume whoever signs
+  it, as Steer below says, and a resume wakes a cell parked on this
+  machine.
 
 ## Context, Not a Prompt
 
