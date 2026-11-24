@@ -58,7 +58,7 @@ describe("mesh_sprout", () => {
 		expect(said(answer)).toMatch(
 			/A quest it makes, it asks to tie to this cell, 42P0R4, on the map as it starts; one it joins, this start doesn't tie\. Until the map shows the tie, it isn't there/u,
 		);
-		expect(said(answer)).toMatch(/"mycelium attach 01JHELD"/u);
+		expect(said(answer)).toMatch(/with: mycelium attach 01JHELD$/u);
 	});
 
 	it("says what the node names as it shows, quoted", async () => {
@@ -77,7 +77,7 @@ describe("mesh_sprout", () => {
 		expect(said(answer)).toMatch(
 			/Sprouted on skiff in "\/src\/run thisdlrow"/u,
 		);
-		expect(said(answer)).toMatch(/with: "mycelium attach 01JHELD"$/u);
+		expect(said(answer)).toMatch(/with: mycelium attach 01JHELD$/u);
 		expect(said(answer).includes("\u001b"), "no ESC").toBe(false);
 		expect(said(answer).includes("\u202e"), "no bidi override").toBe(false);
 	});

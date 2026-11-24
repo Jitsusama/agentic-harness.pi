@@ -52,15 +52,15 @@ export async function sproutFrom(
 		return answer(`⊘ Nothing was sprouted: ${reason}`, {});
 	}
 	// The node's own words, as they show (node.ts's startedFrom), the
-	// folder and the words that join it quoted, since another node wrote
-	// them.
+	// folder quoted, since another node wrote it. The words that join it
+	// end the line unquoted, so they copy as the shell would run them.
 	const { machine, folder, attach } = answered.started;
 	const where = folder ? `in "${folder}"` : "in its home";
 	const tied = address
 		? ` A quest it makes, it asks to tie to this cell, ${address}, on the map as it starts; one it joins, this start doesn't tie. Until the map shows the tie, it isn't there.`
 		: "";
 	return answer(
-		`Sprouted on ${machine} ${where}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: "${shownAttach(attach.join(" "))}"`,
+		`Sprouted on ${machine} ${where}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: ${shownAttach(attach.join(" "))}`,
 		{ started: answered.started },
 	);
 }

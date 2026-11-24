@@ -645,7 +645,7 @@ function leftHeld(asked: HeldSpawn, started: NodeStarted): HeldSpawnOutcome {
 	return {
 		ok: true,
 		planned: false,
-		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${heldAs(started)}). No window was opened; join it with: "${line}".`,
+		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${heldAs(started)}). No window was opened; join it with: ${line}.`,
 		details: {
 			machine: started.machine,
 			needs: asked.needs.map(needWords),
@@ -665,7 +665,7 @@ async function joined(
 	here: boolean,
 ): Promise<HeldSpawnOutcome> {
 	const line = joinLine(started.attach);
-	const said = `"${shownAttach(line)}"`;
+	const said = shownAttach(line);
 	const held = heldAs(started);
 	let opened: OpenedTerminal;
 	try {
