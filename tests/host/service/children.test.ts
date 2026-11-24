@@ -401,6 +401,29 @@ describe("a host with conversations in children", () => {
 		expect(childAsked, "no close passed on to the child").toEqual([]);
 		expect(asked, "nor run by the host").toEqual([]);
 	});
+	// F57, F58: a socket kept paused never reads the window's end, so the
+	// host held it till it closed; and half a line it sent is no fault.
+	it("lets such a window's connection go once it ends, whatever it sent after its attach", async () => {
+		const pipes = () =>
+			process.getActiveResourcesInfo().filter((kind) => kind === "PipeWrap")
+				.length;
+		const before = pipes();
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		const input = line({ type: "input", data: "hello" });
+		// Half a line with the attach, and the rest after its answer.
+		window.write(attaching(a, [DIRECT_ATTACH]) + input.slice(0, 9));
+		expect((await seen.next()).value).toMatchObject({
+			result: { sessionId: a, socket: childPath },
+		});
+		window.write(input.slice(9));
+		await untilClosed(seen);
+		await vi.waitFor(() =>
+			expect(pipes(), "the host let its end of it go").toBe(before),
+		);
+		expect(reported, "half a line after the attach is no fault").toEqual([]);
+	});
+
 	it("asks the child to end its conversation under the child's own name", async () => {
 		const reply = await controlRequest(hostPath, {
 			v: 1,

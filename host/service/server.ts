@@ -619,6 +619,10 @@ export async function listenControl(options: {
 		}
 		let passed = false;
 		function received(chunk: Buffer | string) {
+			// What a redirected window sends after its attach was meant for the
+			// child: it is read and dropped, so the window's end is read too and
+			// its connection goes (F57).
+			if (redirected) return;
 			socket.pause();
 			void (async () => {
 				const values = frames.push(
@@ -627,7 +631,10 @@ export async function listenControl(options: {
 				for (const [at, value] of values.entries()) {
 					if (socket.destroyed || ended) break;
 					const child = await receive(value);
-					if (redirected) return;
+					if (redirected) {
+						socket.resume();
+						return;
+					}
 					if (child) {
 						passed = true;
 						passOn(child, values.slice(at + 1), frames.rest());
@@ -642,7 +649,9 @@ export async function listenControl(options: {
 		}
 		socket.on("data", received);
 		socket.on("end", () => {
-			if (passed) return detach();
+			// Half a line after a redirect was the child's to read, not a fault
+			// (F58).
+			if (passed || redirected) return detach();
 			try {
 				frames.end();
 			} catch (error) {
