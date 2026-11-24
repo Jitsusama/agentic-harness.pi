@@ -42,12 +42,18 @@ describe("saying a call can't be asked about", () => {
 	it("says it once, at the end of the turn after it was heard", async () => {
 		const { ctx, notify } = context(true);
 
+		const saidBy: number[] = [];
 		await endTurn(fire, {}, ctx);
+		saidBy.push(notify.mock.calls.length);
+		heard(refused);
+		saidBy.push(notify.mock.calls.length);
+		await endTurn(fire, {}, ctx);
+		saidBy.push(notify.mock.calls.length);
 		heard(refused);
 		await endTurn(fire, {}, ctx);
-		heard(refused);
-		await endTurn(fire, {}, ctx);
+		saidBy.push(notify.mock.calls.length);
 
+		expect(saidBy, "said counts after each step").toEqual([0, 0, 1, 1]);
 		expect(notify.mock.calls).toEqual([
 			[
 				"a-call-is-on doesn't take --here, so heavy work starts even while you're on a call.",

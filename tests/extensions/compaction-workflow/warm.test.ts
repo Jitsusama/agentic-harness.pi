@@ -28,7 +28,10 @@ vi.mock("../../../lib/internal/config/loader.ts", async (original) => ({
 
 /** Whether a call is on, as a-call-is-on would say, which each test may set. */
 let callOn = false;
-/** Why a call can't be asked about, said on each ask, which a test may set. */
+/**
+ * Why a call can't be asked about, said on each ask, which a test may set.
+ * The real one says each reason once a process; calls.test.ts pins that.
+ */
 let unasked: string | undefined;
 vi.mock("../../../lib/internal/cache/calls.ts", async (original) => ({
 	...(await original<object>()),
