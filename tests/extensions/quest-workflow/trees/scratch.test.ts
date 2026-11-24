@@ -114,18 +114,40 @@ describe("where a quest's TMPDIR link lies", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
 	// A Mac's fence closes its runtime folder whole, so its links stay in /tmp.
-	it.skipIf(process.platform !== "linux")("is the login's runtime folder when it is this account's alone, out of /tmp", () => {
-		// /tmp is anybody's to empty: on 22 November a test suite run with
-		// no TMPDIR took every name in it, the quests' links among them.
-		const runtime = join(root, "run");
-		mkdirSync(runtime, { mode: 0o700 });
-		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+	it.skipIf(process.platform !== "linux")(
+		"is the login's runtime folder when it is this account's alone, out of /tmp",
+		() => {
+			// /tmp is anybody's to empty: on 22 November a test suite run with
+			// no TMPDIR took every name in it, the quests' links among them.
+			const runtime = join(root, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
 
-		const dir = questTempDir(workspaces, QUEST) ?? "";
+			const dir = questTempDir(workspaces, QUEST) ?? "";
 
-		expect(dir).toBe(join(runtime, `${TEMP_LINK_PREFIX}${QUEST}`));
-		expect(readlinkSync(dir)).toBe(tmpOf());
-	});
+			expect(dir).toBe(join(runtime, `${TEMP_LINK_PREFIX}${QUEST}`));
+			expect(readlinkSync(dir)).toBe(tmpOf());
+		},
+	);
+
+	it.skipIf(process.platform !== "linux")(
+		"is made again by the next command once the runtime folder is emptied",
+		() => {
+			// The user manager empties the runtime folder when it stops, so a
+			// link made only as the quest loaded would leave TMPDIR dangling.
+			const runtime = join(root, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			const link = join(runtime, `${TEMP_LINK_PREFIX}${QUEST}`);
+			questCommandEnvironment(workspaces, QUEST);
+			rmSync(link);
+
+			const env = questCommandEnvironment(workspaces, QUEST);
+
+			expect(env?.TMPDIR).toBe(link);
+			expect(readlinkSync(link)).toBe(tmpOf());
+		},
+	);
 
 	it("is the system temp directory when the runtime folder is open to others", () => {
 		const runtime = join(root, "run");

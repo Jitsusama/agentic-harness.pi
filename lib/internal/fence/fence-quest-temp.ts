@@ -6,8 +6,14 @@
  */
 
 import { basename, join } from "node:path";
-import { TEMP_LINK_PREFIX } from "../sandbox/quest-folders.ts";
 import type { OwnFolders } from "./fence-own.ts";
+
+/**
+ * The start of the name of the link a quest's `TMPDIR` is, followed by
+ * its quest's id: the quest workflow's `TEMP_LINK_PREFIX`, which a
+ * test holds it to, since lib reads no extension.
+ */
+export const TEMP_LINK_PREFIX = "pi-quest-";
 
 /** The folder in a quest's scratch its `TMPDIR` link leads to. */
 const TEMP_FOLDER = "tmp";

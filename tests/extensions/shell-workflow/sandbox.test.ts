@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEMP_LINK_PREFIX as QUESTS_LINK_PREFIX } from "../../../extensions/quest-workflow/scratch.ts";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
+import { TEMP_LINK_PREFIX } from "../../../lib/internal/fence/fence-quest-temp.ts";
 import {
 	CARRY_STAGING,
 	direnvTrusts,
@@ -35,7 +36,6 @@ import {
 	makeShares,
 	questScratch,
 	questShare,
-	TEMP_LINK_PREFIX,
 } from "../../../lib/internal/sandbox/quest-folders.ts";
 import {
 	askTheCloudAhead,

@@ -338,11 +338,19 @@ describe("the fence's mounts as a profile", () => {
 
 	it("refuses a mount it can't say, rather than leaving it open", () => {
 		expect(() =>
-			seatbeltProfile(["--symlink", "/a", "/b"], { sockets: [], real: same }),
-		).toThrow(/--symlink/);
+			seatbeltProfile(["--chmod", "0777", "/b"], { sockets: [], real: same }),
+		).toThrow(/--chmod/);
 		expect(() =>
 			seatbeltProfile(["--bind", "/a"], { sockets: [], real: same }),
 		).toThrow(/--bind/);
+	});
+
+	it("says nothing of a quest's TMPDIR link, which a Mac's command finds where pi made it", () => {
+		const { profile } = seatbeltProfile(["--symlink", "/a", "/b"], {
+			sockets: [],
+			real: same,
+		});
+		expect(profile).not.toContain('"/b"');
 	});
 });
 
