@@ -507,6 +507,28 @@ describe("the compaction trigger", () => {
 			);
 		});
 
+		// The wait counts only the turns that call for a compaction, as its
+		// notice says (5BACCAC3's F20 on #2087 and F86 on #2082).
+		it("leaves a wait where it is through turns that don't call for a compaction", async () => {
+			const { fire, state, ctx } = await failedTwice();
+			await endTurn(fire, ranTools, ctx);
+			// Under the floor, which no turn at the edge is, nothing is compacted.
+			vi.stubEnv("PI_COMPACTION_FLOOR_TOKENS", "100000");
+			state.tokens = 60_000;
+			for (let turn = 0; turn < 5; turn++) await endTurn(fire, ranTools, ctx);
+			state.tokens = 300_000;
+			await endTurn(fire, ranTools, ctx);
+			expect(
+				completeSimple,
+				"tried before the wait was out",
+			).toHaveBeenCalledTimes(2);
+			await endTurn(fire, ranTools, ctx);
+			expect(
+				completeSimple,
+				"tried once the wait was out",
+			).toHaveBeenCalledTimes(3);
+		});
+
 		/** The session at the edge, two summaries ahead failed at their cap. */
 		async function failedTwice() {
 			completeSimple.mockResolvedValue(capped);
