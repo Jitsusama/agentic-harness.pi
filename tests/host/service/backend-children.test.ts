@@ -441,6 +441,123 @@ describe("a request that reached the host before the child's route did", () => {
 });
 
 describe("a start's resume of what the host held", () => {
+	// F23 on #2080: the wake waits on the start's own resume, so the hurry
+	// it gives as it resumes could never reach a start still at the gate.
+	it("hurries the start's own resume of one a wake asks for while it waits", async () => {
+		const waiting = entry();
+		await roster.hold(waiting);
+		const moved = children([waiting.sessionId]);
+		const hurry = vi.fn((_sessionId: string) => {});
+		let go = (): void => undefined;
+		const atTheGate = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		moved.fake.resume.mockImplementationOnce(async (held: RosterEntry) => {
+			await atTheGate;
+			moved.runs.set(held.sessionId, shown(held));
+			return shown(held);
+		});
+		const order = heldOrder(roster);
+		const backend = backendWith(
+			engine(),
+			{ ...moved.fake, hurry },
+			undefined,
+			order,
+		);
+		const started = resumeHeld({
+			roster,
+			engine: engine(),
+			children: moved.fake,
+			order,
+		});
+		await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalledTimes(1));
+
+		const woke = backend.wake(waiting.sessionId);
+		await vi.waitFor(() =>
+			expect(hurry, "hurried while it waits").toHaveBeenCalledWith(
+				waiting.sessionId,
+			),
+		);
+		go();
+		await Promise.all([woke, started]);
+		expect(
+			moved.fake.resume,
+			"resumed once, by the start",
+		).toHaveBeenCalledTimes(1);
+	});
+
+	// F65 on #2080: a wake that comes before the start reaches it hurries
+	// nothing, since nothing starts it yet; the start hurries it once it does.
+	it("hurries the resume of one asked for before the start reached it", async () => {
+		const first = entry();
+		const asked = entry();
+		for (const held of [first, asked]) await roster.hold(held);
+		const moved = children([first.sessionId, asked.sessionId]);
+		const seen: string[] = [];
+		const hurry = vi.fn((sessionId: string) => {
+			seen.push(`hurry ${sessionId}`);
+		});
+		let go = (): void => undefined;
+		const firstWaits = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		moved.fake.resume.mockImplementation(async (held: RosterEntry) => {
+			seen.push(`resume ${held.sessionId}`);
+			if (held.sessionId === first.sessionId) await firstWaits;
+			moved.runs.set(held.sessionId, shown(held));
+			return shown(held);
+		});
+		const order = heldOrder(roster);
+		const withHurry = { ...moved.fake, hurry };
+		const backend = backendWith(engine(), withHurry, undefined, order);
+		const started = resumeHeld({
+			roster,
+			engine: engine(),
+			children: withHurry,
+			order,
+		});
+		await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalledTimes(1));
+
+		const woke = backend.wake(asked.sessionId);
+		go();
+		await Promise.all([woke, started]);
+		const resumedAt = seen.indexOf(`resume ${asked.sessionId}`);
+		expect(resumedAt, "the start resumed it").toBeGreaterThan(0);
+		expect(
+			seen.slice(resumedAt + 1),
+			"hurried once the start had it",
+		).toContain(`hurry ${asked.sessionId}`);
+	});
+
+	// F66 on #2080: a window's attach and an abort wait on the start's
+	// resume too, so they hurry it as a wake does.
+	it("hurries the start's resume for a window's attach and an abort", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const moved = children([held.sessionId]);
+		moved.runs.set(held.sessionId, shown(held));
+		const hurry = vi.fn((_sessionId: string) => {});
+		const backend = backendWith(engine(), { ...moved.fake, hurry });
+
+		await backend.execute({
+			v: 1,
+			id: "a",
+			op: "attach",
+			sessionId: held.sessionId,
+			rows: 24,
+			columns: 80,
+		});
+		expect(hurry, "by the attach").toHaveBeenCalledWith(held.sessionId);
+		hurry.mockClear();
+		await backend.execute({
+			v: 1,
+			id: "x",
+			op: "abort",
+			sessionId: held.sessionId,
+		});
+		expect(hurry, "by the abort").toHaveBeenCalledWith(held.sessionId);
+	});
+
 	it("counts a moved one whose child doesn't start as not resumed", async () => {
 		const moving = entry();
 		await roster.hold(moving);
