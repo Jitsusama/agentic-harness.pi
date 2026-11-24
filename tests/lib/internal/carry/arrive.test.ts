@@ -693,4 +693,32 @@ describe("arriving with a carried session", () => {
 			why: "The quest's 1 notes weren't taken up: database is locked",
 		});
 	});
+
+	it("says notes it couldn't take up though what was thrown can't say itself", async () => {
+		const { from } = await carried(undefined, {
+			notes: [{ text: "kept for later", tags: [] }],
+		});
+		const said: ArrivalLine[] = [];
+
+		const whole = await arrive({
+			exec,
+			from,
+			session: SESSION,
+			home: folder(made, "arriving"),
+			scratch: scratchOf(from),
+			sessions: folder(made, "store"),
+			clock: fakeClock(),
+			say: (line) => said.push(line),
+			takeNotes: async () => {
+				// No prototype, so no toString: String() of it throws.
+				throw Object.create(null);
+			},
+		});
+
+		expect(whole, "an arrival without its notes is not whole").toBe(false);
+		expect(said).toContainEqual({
+			kind: "failed",
+			why: expect.stringMatching(/^The quest's 1 notes weren't taken up: \S/),
+		});
+	});
 });

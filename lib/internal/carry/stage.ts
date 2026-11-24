@@ -42,6 +42,7 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf } from "./handover.ts";
+import { messageOf } from "./message.ts";
 
 /** The folder beside the quest scratches that carries stage in. */
 const STAGING_ROOT = CARRY_STAGING;
@@ -194,7 +195,7 @@ export async function staged<T>(
 		placed.splice(0, placed.length, ...back.stuck);
 		undo(() => record(true));
 		throw new Error(
-			`${error instanceof Error ? error.message : String(error)}; ${[
+			`${messageOf(error)}; ${[
 				back.stuck.length === 0
 					? ""
 					: `${back.stuck.join(", ")} couldn't be taken out of ${into}`,

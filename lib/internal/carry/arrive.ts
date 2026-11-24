@@ -44,6 +44,7 @@ import {
 	readHandover,
 	underHome,
 } from "./handover.ts";
+import { messageOf } from "./message.ts";
 import type { CarriedNote } from "./notes.ts";
 import {
 	BOUNDED,
@@ -181,7 +182,7 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	} catch (error) {
 		say({
 			kind: "failed",
-			why: `${handover.sessionFile} couldn't be placed: ${error instanceof Error ? error.message : String(error)}`,
+			why: `${handover.sessionFile} couldn't be placed: ${messageOf(error)}`,
 		});
 		say({ kind: "sessions", sessions: [] });
 		return false;
@@ -219,7 +220,7 @@ async function notesTaken(
 	} catch (error) {
 		arriving.say({
 			kind: "failed",
-			why: `The quest's ${handover.notes.length} notes weren't taken up: ${error instanceof Error ? error.message : String(error)}`,
+			why: `The quest's ${handover.notes.length} notes weren't taken up: ${messageOf(error)}`,
 		});
 		return false;
 	}

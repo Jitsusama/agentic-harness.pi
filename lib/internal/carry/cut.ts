@@ -14,6 +14,7 @@ import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { within } from "../sandbox/tree-git.ts";
+import { messageOf } from "./message.ts";
 
 /** A tree cut from the checkout whose git folder is `checkout`. */
 export interface Cut {
@@ -206,7 +207,7 @@ async function takenOut(
 		// Pruning would take out other trees' entries too, so it is named.
 		return `git's entry for the tree cut at ${path} may be left in ${checkout}, where git worktree prune takes it out`;
 	} catch (error) {
-		return `the tree cut at ${path} couldn't be taken out: ${error instanceof Error ? error.message : String(error)}`;
+		return `the tree cut at ${path} couldn't be taken out: ${messageOf(error)}`;
 	}
 }
 
