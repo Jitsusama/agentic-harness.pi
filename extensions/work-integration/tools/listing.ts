@@ -4,6 +4,7 @@
  * provider that cut it isn't here to remove it.
  */
 
+import { dirname, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
@@ -12,8 +13,14 @@ import {
 	blocksRepoint,
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
+import {
+	branchesKeptForSession,
+	KEPT_BRANCHES,
+	type KeptBranch,
+} from "../../../lib/core/work/sweep-kept-branches.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { GLYPH, treeLine } from "../render.ts";
+import { sweepLockPath } from "../sweep.ts";
 import { CLAIMED_PROVIDER } from "./held.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
@@ -51,23 +58,47 @@ export async function datedHeld(
 	return standing.filter((tree) => tree !== undefined);
 }
 
+/**
+ * What to say of the worktrees the sweep took from this session, unused
+ * a day with nothing only there: each branch at the head it kept, and
+ * how to have it again. Nothing when none went.
+ */
+export function takenWhileIdle(went: readonly KeptBranch[]): string {
+	if (went.length === 0) return "";
+	const each = went
+		.map((one) => `${one.branch} at ${one.commit.slice(0, 12)}`)
+		.join(", ");
+	return `${GLYPH.named} Taken while unused a day, nothing only there, each branch kept at its head: ${each}. Ask with action 'tree' and its branch to have one again as it was.`;
+}
+
 /** List the trees the broker holds, one line each, dating each use. */
 export async function listHeld(
 	broker: TreeBroker,
 	ctx: ExtensionContext,
 ): Promise<Answer> {
 	const held = await datedHeld(broker, broker.held());
+	const session = ctx.sessionManager?.getSessionId?.();
+	const went =
+		session === undefined
+			? ""
+			: takenWhileIdle(
+					branchesKeptForSession(
+						join(dirname(sweepLockPath()), KEPT_BRANCHES),
+						session,
+					),
+				);
+	const after = went === "" ? "" : `\n${went}`;
 	if (held.length === 0) {
 		return say(
-			`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.`,
+			`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.${after}`,
 			{ ok: true, held: 0 },
 		);
 	}
 	return say(
 		citeListing(openSessionStore(ctx), {
-			view: held
-				.map((one) => treeLine(one, broker.cutHere(one.path)))
-				.join("\n"),
+			view:
+				held.map((one) => treeLine(one, broker.cutHere(one.path))).join("\n") +
+				after,
 			records: [...held],
 			unit: "trees",
 			narrowing: "Query the stored result for the trees you need.",

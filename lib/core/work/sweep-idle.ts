@@ -43,6 +43,13 @@ import { pinnedCommit } from "./tree.ts";
 export const IDLE_HELD_MS = 4 * 60 * 60 * 1000;
 
 /**
+ * How long a worktree a live session holds goes unused before the sweep
+ * takes it, once nothing is only there: a day, past a session's working
+ * day, since a worktree is where its session writes and comes back to.
+ */
+export const IDLE_WORKTREE_MS = 24 * 60 * 60 * 1000;
+
+/**
  * How many such snapshots one sweep takes at most, oldest first, unless
  * its caller says otherwise, so a sweep on a host's thread holds the
  * lock and the host's time for no longer than that many removals. Who
@@ -54,6 +61,20 @@ export const IDLE_TAKES_PER_SWEEP = 20;
 export interface IdleSnapshot {
 	tree: HeldTree;
 	commit: string;
+	/** When it was last used, in milliseconds since the epoch. */
+	usedAt: number;
+}
+
+/**
+ * A worktree to take, with the branch it is on, its head and the remote
+ * branch holding that head.
+ */
+export interface IdleWorktree {
+	tree: HeldTree;
+	branch: string;
+	commit: string;
+	/** The remote-tracking branch holding its head, as `origin/main`. */
+	remote: string;
 	/** When it was last used, in milliseconds since the epoch. */
 	usedAt: number;
 }
@@ -186,6 +207,117 @@ export async function* eachIdleSnapshot(
 		given += 1;
 		yield { tree, commit, usedAt };
 	}
+}
+
+/**
+ * The worktrees among `held`, which live sessions hold, that nothing has
+ * used within {@link IDLE_WORKTREE_MS} and that hold nothing found only
+ * there, at most `choice.most` of them, least recently used first, each
+ * judged once the one before it has been dealt with. Kept by every rule
+ * a snapshot is kept by (a process working in it, a claim, a session's
+ * folder in it), and also when it has a change or an untracked file, a
+ * stash on its branch, a head no remote-tracking branch holds, or no
+ * branch checked out. Throws, as {@link eachIdleSnapshot} does, when the
+ * machine can't say which processes hold them.
+ */
+export async function* eachIdleWorktree(
+	held: readonly HeldTree[],
+	choice: IdleChoice,
+): AsyncGenerator<IdleWorktree> {
+	const since = choice.now - IDLE_WORKTREE_MS;
+	const claimed = choice.claims.map(resolved);
+	const aged = held
+		.filter(
+			(tree) =>
+				tree.providerId === "git-worktree" &&
+				!tree.identity.shareable &&
+				Array.isArray(tree.owners) &&
+				tree.owners.length > 0,
+		)
+		.map((tree) => ({
+			tree,
+			usedAt: lastUsed(tree, choice.askedAt(tree.path, tree.identity.key)),
+			path: resolved(tree.path),
+		}))
+		.filter(({ usedAt }) => usedAt <= since)
+		.filter(({ path }) => {
+			const inside = (one: string) =>
+				one === path || one.startsWith(`${path}/`);
+			return !claimed.some((one) => inside(one) || path.startsWith(`${one}/`));
+		})
+		.sort((a, b) => a.usedAt - b.usedAt);
+	if (aged.length === 0) return;
+	const busy = await choice.busyAmong?.(aged.map(({ path }) => path));
+	if (busy === undefined) {
+		throw new Error("the machine can't say which processes hold its trees");
+	}
+	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
+	let given = 0;
+	for (const { tree, usedAt, path } of aged) {
+		if (given >= most || choice.spent?.() === true) return;
+		if (busy.has(path)) continue;
+		const settled = await nothingOnlyHere(choice.exec, tree.path);
+		if (settled === undefined) continue;
+		given += 1;
+		yield { tree, usedAt, ...settled };
+	}
+}
+
+/**
+ * The branch, head and remote branch of a worktree that holds nothing
+ * found only there: on a branch, its head on some remote-tracking
+ * branch, with no change, staged or not, no untracked file and no stash
+ * made on that branch. Not one git refuses to remove. The status, read
+ * last as the dearest, takes no optional locks.
+ */
+async function nothingOnlyHere(
+	exec: Exec,
+	path: string,
+): Promise<{ branch: string; commit: string; remote: string } | undefined> {
+	const git = (...args: string[]) =>
+		exec("git", ["-C", path, "--no-optional-locks", ...args]);
+	const branch = await git("symbolic-ref", "--quiet", "--short", "HEAD");
+	const head = await git("rev-parse", "HEAD");
+	if (branch.code !== 0 || head.code !== 0) return undefined;
+	const name = branch.stdout.trim();
+	const commit = head.stdout.trim();
+	const holding = await git(
+		"for-each-ref",
+		`--contains=${commit}`,
+		"--format=%(refname:short)",
+		"refs/remotes",
+	);
+	// Its own remote branch is named first, as the place to find it; a
+	// remote's HEAD, which git shortens to the remote's bare name, only
+	// repeats its default branch.
+	const remotes = holding.stdout
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.includes("/") && !line.endsWith("/HEAD"));
+	const remote = remotes.find((one) => one.endsWith(`/${name}`)) ?? remotes[0];
+	if (holding.code !== 0 || remote === undefined) return undefined;
+	// The stash is the repository's, shared by every tree; git names the
+	// branch each entry was made on in its message.
+	const stashes = await git("stash", "list", "--format=%gs");
+	if (
+		stashes.code !== 0 ||
+		stashes.stdout
+			.split("\n")
+			.some((line) => /^(?:WIP on|On) (.+?):/.exec(line)?.[1] === name)
+	) {
+		return undefined;
+	}
+	const own = await git("rev-parse", "--absolute-git-dir");
+	if (
+		own.code !== 0 ||
+		existsSync(join(own.stdout.trim(), "locked")) ||
+		existsSync(join(path, ".gitmodules"))
+	) {
+		return undefined;
+	}
+	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
+	if (status.code !== 0 || status.stdout.trim() !== "") return undefined;
+	return { branch: name, commit, remote };
 }
 
 /**

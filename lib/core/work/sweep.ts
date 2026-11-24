@@ -51,6 +51,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { dirname, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { isLockHeld } from "../internal/file-lock.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
@@ -70,10 +71,18 @@ import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	checkoutOf,
 	eachIdleSnapshot,
+	eachIdleWorktree,
+	IDLE_TAKES_PER_SWEEP,
 	type IdleSnapshot,
+	type IdleWorktree,
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
+import {
+	branchesKeptFor,
+	KEPT_BRANCHES,
+	keepBranch,
+} from "./sweep-kept-branches.ts";
 import { type LockFresh, sweepLock } from "./sweep-lock.ts";
 import { goneGitDir, standingRepository, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
@@ -326,12 +335,14 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				outcome,
 			});
 		}
+		const keptDir = join(dirname(deps.lockPath), KEPT_BRANCHES);
 		await dropSettledBranches(
 			deps,
 			[...repositories.byMain.keys()],
 			held.filter((tree) => tree.providerId === GIT_WORKTREE),
 			now - PUSHED_SETTLE_MS,
 			outcome,
+			await branchesKeptFor(deps.exec, keptDir, await deps.liveSessions?.()),
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		const { idleWithinMs } = deps;
@@ -359,13 +370,25 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			// Each is taken before the next is judged, so the time judging
 			// takes always buys takes.
 			let before = false;
+			let given = 0;
 			for await (const idle of eachIdleSnapshot(live, choice)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
+				given += 1;
 				// Any failure but a held lock, which every take may meet or which
 				// may leave a tree moved aside, ends the run unjudged, so the run
 				// says so and leaves no stamp.
 				await takeIdle(deps, facts, idle, now, outcome);
+			}
+			// Worktrees take what the snapshots left of the share, so a run on
+			// a host's thread holds it no longer than before.
+			const most = (deps.idleTakes ?? IDLE_TAKES_PER_SWEEP) - given;
+			if (most > 0) {
+				for await (const idle of eachIdleWorktree(live, { ...choice, most })) {
+					if (before) await deps.betweenIdleTakes?.();
+					before = true;
+					await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
+				}
 			}
 		} catch (error) {
 			// A census or a take failing leaves the other providers' trees
@@ -778,6 +801,92 @@ async function takeIdle(
 }
 
 /**
+ * Take a worktree a live session left clean, its branch on a remote, as
+ * {@link takeIdle} takes a snapshot, keeping its branch at its head for
+ * as long as a session its record names lives, so asking for it again
+ * checks out the same branch and head. Who works in it, its use and what
+ * only it holds are read again under its record's lock.
+ */
+async function takeIdleWorktree(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	idle: IdleWorktree,
+	now: number,
+	outcome: SweepOutcome,
+	keptDir: string,
+): Promise<void> {
+	const { tree, branch, commit, remote, usedAt } = idle;
+	const main = await mainCheckoutOf(deps.exec, tree.path);
+	if (main === undefined) return;
+	const hours = Math.floor((now - usedAt) / 3_600_000);
+	const sessions = [...(tree.sessions ?? [])];
+	const why = `unused for ${hours} h while its session stayed open, its branch on ${remote}`;
+	const taken = outcome.taken.length;
+	await takeBack(
+		deps,
+		facts,
+		main,
+		tree,
+		{
+			path: tree.path,
+			branch,
+			...(sessions.length > 0 ? { sessions } : {}),
+			commit,
+			remote,
+			why,
+		},
+		outcome,
+		(take) =>
+			deps.memory.whileUnusedSince(
+				tree.path,
+				usedAt,
+				async () => {
+					const path = resolved(tree.path);
+					const busy = await deps.busyAmong?.([path]);
+					return (
+						busy !== undefined &&
+						!busy.has(path) &&
+						lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
+							usedAt &&
+						(await stillOnlyElsewhere(deps.exec, tree.path, commit)) &&
+						take()
+					);
+				},
+				tree.identity.key,
+			),
+		{ keepBranch: true },
+	);
+	if (outcome.taken.length > taken) {
+		keepBranch(keptDir, {
+			checkout: main,
+			branch,
+			commit,
+			path: tree.path,
+			sessions,
+			takenAt: now,
+		});
+	}
+}
+
+/**
+ * Whether a worktree is still at `commit` with nothing changed or
+ * untracked, read under its record's lock just before it goes, since a
+ * session may have written there while the sweep chose.
+ */
+async function stillOnlyElsewhere(
+	exec: Exec,
+	path: string,
+	commit: string,
+): Promise<boolean> {
+	const git = (...args: string[]) =>
+		exec("git", ["-C", path, "--no-optional-locks", ...args]);
+	const head = await git("rev-parse", "HEAD");
+	if (head.code !== 0 || head.stdout.trim() !== commit) return false;
+	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
+	return status.code === 0 && status.stdout.trim() === "";
+}
+
+/**
  * Move a tree aside under its record's lock, then remove it, with no git
  * command that reads every worktree but a merged branch's drop (see
  * `sweep-take.ts`). A removal git
@@ -795,6 +904,7 @@ async function takeBack(
 	guard: (take: () => Promise<boolean>) => Promise<HeldTree | undefined> = (
 		take,
 	) => deps.memory.whileUnheld(tree.path, take, facts),
+	how: { keepBranch?: boolean } = {},
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	let moveRefused: string | undefined;
@@ -853,6 +963,7 @@ async function takeBack(
 	}
 	const gone =
 		taken.branch !== undefined &&
+		how.keepBranch !== true &&
 		(await dropMergedBranch(deps.exec, main, taken.branch));
 	outcome.taken.push(gone ? { ...taken, branchGone: true } : taken);
 }
