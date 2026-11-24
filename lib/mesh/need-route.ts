@@ -59,8 +59,8 @@ import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
+import { isAddress } from "./address.ts";
 import { listAt, TIE_HALF_LIFE_MS } from "./node.ts";
-import { isAddress } from "./steer-who.ts";
 import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** A cell and the words of what it works on. */
@@ -501,8 +501,11 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  * an owner that has ended: routed again with one ended cell heard from
  * lately (`heardWithin`) counted as there, as a hub too, though never
  * walked through, it goes to that cell, which works on more of what the
- * asker lacks than the fit found. Each such cell is tried alone, and the one
- * working on most owns it; the fit is then named in `fellShort`. So an
+ * asker lacks than the fit found. Each such cell is tried alone, best
+ * first by what it works on, at most `MOST_OWNER_TRIES` of them, and the
+ * first that routing would send it to owns it; the fit is then named in
+ * `fellShort`. Past that many, an owner ranked lower is never tried, and
+ * the need goes to the fit found, as delivery would rather. So an
  * ended cell owns a need only where routing would send it there were it
  * alone back, by the same hubs and walks, and an ended cell never sends
  * a need anywhere routing wouldn't. Only a cell the node still lists
