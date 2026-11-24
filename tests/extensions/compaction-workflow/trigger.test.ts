@@ -473,7 +473,6 @@ describe("the compaction trigger", () => {
 			]);
 		});
 
-		/** The session at the edge, two summaries ahead failed at their cap. */
 		// What the trigger says of a wait, and of the try that ends it
 		// (5BACCAC3's F26 and F30 on #2082).
 		it("says when it waits to try ahead again, and that the try ending the wait follows a failure", async () => {
@@ -484,7 +483,7 @@ describe("the compaction trigger", () => {
 			await endTurn(fire, ranTools, ctx);
 			expect(notify).toHaveBeenCalledTimes(1);
 			expect(notify.mock.calls[0]?.[0]).toMatch(
-				/failed again: .+\. Another is written in the background in 2 turns, and nothing waits for it meanwhile\./,
+				/failed again: the summary hit the token cap\. Another is written in the background in 2 turns, and nothing waits for it meanwhile\./,
 			);
 
 			await endTurn(fire, ranTools, ctx);
@@ -493,10 +492,11 @@ describe("the compaction trigger", () => {
 			expect(completeSimple).toHaveBeenCalledTimes(3);
 			expect(notify).toHaveBeenCalledTimes(2);
 			expect(notify.mock.calls[1]?.[0]).toMatch(
-				/^Writing a compaction summary in the background at \d+k tokens again, since the last one failed: .+/,
+				/^Writing a compaction summary in the background at \d+k tokens again, since the last one failed: the summary hit the token cap/,
 			);
 		});
 
+		/** The session at the edge, two summaries ahead failed at their cap. */
 		async function failedTwice() {
 			completeSimple.mockResolvedValue(capped);
 			const at = await toTheEdge(true);

@@ -73,7 +73,9 @@ turn uploads: the whole context, which on 10 November saturated the
 uplink of the machine the sessions ran on. `PI_COMPACTION_CEILING_TOKENS`
 sets a size past which the trigger fires whatever rent has been paid,
 as long as at least 30k would be dropped; below that, what a compaction
-keeps already sits near the ceiling. Replayed over that day's 104,350
+keeps already sits near the ceiling. A summary that keeps failing ahead
+still waits out its turns there, so past the ceiling only pi's own
+trigger at the window's edge is certain. Replayed over that day's 104,350
 turns, a 200k ceiling sent 11.7 percent fewer tokens for about 5
 percent more in dollars, some $130 a day, which was judged too dear to
 be the default; at 180k, 16.9 percent fewer for 16 percent more.
@@ -123,11 +125,11 @@ why. pi's own trigger at the window's edge compacts on the spot too,
 when nothing written ahead is ready, since the next turn would not
 fit. One on the spot that is cancelled or fails leaves the next
 summary to be written ahead once more, so the session isn't held
-again for one it gave up; the count and the shorter summaries go on. Each compaction's entry records `written`
-(`ahead` or `on the spot`), how long the summary took (`summaryMs`)
-and how long anybody waited for it (`waitedMs`). A summary written
-ahead that went unused is logged as a
-`compaction-summary-ahead-unused` entry with the reason.
+again for one it gave up; the count and the shorter summaries go on.
+Each compaction's entry records `written` (`ahead` or `on the spot`),
+how long the summary took (`summaryMs`) and how long anybody waited
+for it (`waitedMs`). A summary written ahead that went unused is
+logged as a `compaction-summary-ahead-unused` entry with the reason.
 
 ## Compacting While Idle
 
