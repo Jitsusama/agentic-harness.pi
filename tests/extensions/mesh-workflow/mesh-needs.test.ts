@@ -227,7 +227,7 @@ describe("sending to a need", () => {
 			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
 		);
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
-		expect(said).toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
