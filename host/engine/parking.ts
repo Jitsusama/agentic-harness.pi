@@ -47,7 +47,8 @@ import {
 import { join } from "node:path";
 import {
 	clearRefusedWake,
-	clearRefusedWakeOff,
+	type RefusedWake,
+	takeBackRefusedWakeOff,
 	wakeAskedBy,
 	writeRefusedWakeOff,
 } from "../../lib/internal/session/refused-wake.ts";
@@ -155,6 +156,8 @@ export interface Parking {
 /** A parked conversation's watches, until it wakes or is closed. */
 interface Sleeper {
 	readonly wake: FSWatcher;
+	/** Aborted as it stops being watched, when no refusal of its wake is true. */
+	readonly gone: AbortController;
 	steers?: SteerWatch;
 	/** A steer's wake is asked and not yet settled. */
 	waking?: boolean;
@@ -218,7 +221,14 @@ export function parking(options: {
 	readonly wakeAgainMs?: number;
 	/** A line for the journal: a park that carried calls, and their end. */
 	readonly said?: (line: string) => void;
+	/** Keeps a refused wake, unless `signal` aborts first; on disk off the thread unless a test says. */
+	readonly keepRefusal?: (
+		wake: string,
+		refused: RefusedWake,
+		signal: AbortSignal,
+	) => Promise<boolean>;
 }): Parking {
+	const keepRefusal = options.keepRefusal ?? writeRefusedWakeOff;
 	// Whether this drain's restart passed its ceiling, until the drain lifts.
 	let through = false;
 	const holding = () => !through && options.holding?.() === true;
@@ -246,6 +256,7 @@ export function parking(options: {
 
 	function stopWatching(sessionId: string): void {
 		const sleeper = sleepers.get(sessionId);
+		sleeper?.gone.abort();
 		sleeper?.wake.close();
 		sleeper?.steers?.close();
 		sleeper?.calls?.();
@@ -262,23 +273,31 @@ export function parking(options: {
 		stopWatching(sessionId);
 		const file = wakeFile(sessionId);
 		mkdirSync(folderOf(sessionId), { recursive: true });
-		// Woken for `messageId`, or for nothing named; a refusal is kept beside its file.
-		const ask = (watching: Sleeper, messageId: string | undefined) =>
-			wake(sessionId).catch(async (error: unknown) => {
+		// Woken for `messageId`, or for nothing named; a refusal is kept
+		// beside its file. `settled` is told as the wake is answered, before
+		// any refusal is kept, since keeping one waits on the disk.
+		const ask = (
+			watching: Sleeper,
+			messageId: string | undefined,
+			settled?: () => void,
+		) =>
+			wake(sessionId).then(settled, async (error: unknown) => {
+				settled?.();
 				// Reported as it failed; kept for the mesh to say, until the next
 				// message writes the file again or the conversation runs. One
 				// settling once this watch is gone, at a close or another park,
-				// would outlive what cleared it, so one whose watch went while it
-				// was written, off the thread, is taken back.
+				// would outlive what cleared it: so it isn't put in place once the
+				// watch goes, and one already renamed then is taken back.
 				if (sleepers.get(sessionId) !== watching) return;
+				const refused: RefusedWake = {
+					...(messageId === undefined ? {} : { messageId }),
+					reason: error instanceof Error ? error.message : String(error),
+					at: new Date().toISOString(),
+				};
 				try {
-					await writeRefusedWakeOff(file, {
-						...(messageId === undefined ? {} : { messageId }),
-						reason: error instanceof Error ? error.message : String(error),
-						at: new Date().toISOString(),
-					});
-					if (sleepers.get(sessionId) !== watching)
-						await clearRefusedWakeOff(file);
+					const kept = await keepRefusal(file, refused, watching.gone.signal);
+					if (kept && sleepers.get(sessionId) !== watching)
+						await takeBackRefusedWakeOff(file, refused);
 				} catch (unkept) {
 					report(unkept);
 				}
@@ -303,7 +322,7 @@ export function parking(options: {
 			}
 			watching.heldSteer = undefined;
 			watching.waking = true;
-			void ask(watching, `steer-${steer}`).finally(() => {
+			void ask(watching, `steer-${steer}`, () => {
 				watching.waking = false;
 			});
 		};
@@ -312,7 +331,12 @@ export function parking(options: {
 		});
 		watcher.unref();
 		watcher.on("error", report);
-		const sleeper: Sleeper = { wake: watcher, woken, steered };
+		const sleeper: Sleeper = {
+			wake: watcher,
+			gone: new AbortController(),
+			woken,
+			steered,
+		};
 		sleepers.set(sessionId, sleeper);
 		// One written between its park and this watch.
 		woken();

@@ -415,10 +415,25 @@ async function warmed(before: number): Promise<void> {
 		() => keysSeen.length > before || failed(),
 		UNTIL_MS,
 	);
+	// A host keeps the warm off its thread, making the folder and then the
+	// file before it appends the warm, so only a whole line says it is in.
 	await until(
 		"its warm to be kept or fail",
-		() => existsSync(pendingWarmsDir()) || failed(),
+		() => keptWarms() || failed(),
 		UNTIL_MS,
+	);
+}
+
+/** Whether any warm is kept for a parked conversation's next start. */
+function keptWarms(): boolean {
+	const dir = pendingWarmsDir();
+	return (
+		existsSync(dir) &&
+		readdirSync(dir).some(
+			(name) =>
+				name.endsWith(".jsonl") &&
+				readFileSync(join(dir, name), "utf8").endsWith("\n"),
+		)
 	);
 }
 

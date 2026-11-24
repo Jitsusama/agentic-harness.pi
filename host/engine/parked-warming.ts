@@ -37,10 +37,13 @@
  * holds the whole conversation, and on 23 November the background
  * host's loop held 18 times in a day, up to 15 s at once, opening and
  * renaming carries while the disk waited on its own commits. Once a
- * warm's write is under way, a wake can land before it ends; so it
- * looks again before each step, and a carry its rename put back after
- * the wake is removed, since the waking session takes the carry and
- * a stale one left would be warmed again after a restart.
+ * warm has gone, a wake can land before what it did is kept, so each
+ * step looks again before it runs. The warm is kept for the ledger
+ * first, since it was paid for whatever follows. The warmed carry is
+ * then written, and dropped unrenamed once a wake lands, since the
+ * waking session owns the carry then: a rename already under way puts
+ * the newer carry in place for its start, and one landing after the
+ * start took it leaves a carry the next park writes over.
  */
 
 import {
@@ -57,7 +60,6 @@ import { CALL_LOOK_MS } from "../../lib/internal/cache/calls.ts";
 import {
 	addPendingWarmOff,
 	readWarmingCarryOff,
-	removeWarmingCarryOff,
 	type WarmingCarry,
 	writeWarmingCarryOff,
 } from "../../lib/internal/cache/warming-carry.ts";
@@ -92,8 +94,12 @@ export interface ParkedWarming {
 /** Where the warming keeps each carry and the warms sent on it. */
 export interface CarryFiles {
 	read(dir: string, sessionId: string): Promise<WarmingCarry | null>;
-	write(dir: string, carry: WarmingCarry): Promise<void>;
-	remove(dir: string, sessionId: string): Promise<void>;
+	/** Write a carry whole, unless `signal` aborts before it is in place; whether it was. */
+	write(
+		dir: string,
+		carry: WarmingCarry,
+		signal: AbortSignal,
+	): Promise<boolean>;
 	addPending(
 		dir: string,
 		sessionId: string,
@@ -105,7 +111,6 @@ export interface CarryFiles {
 const OFF_THREAD: CarryFiles = {
 	read: readWarmingCarryOff,
 	write: writeWarmingCarryOff,
-	remove: removeWarmingCarryOff,
 	addPending: addPendingWarmOff,
 };
 
@@ -256,13 +261,8 @@ export function parkedWarming(options: {
 			refreshedAt: sentAt,
 			warms: missed ? MAX_IDLE_WARMS : carry.warms + 1,
 		};
-		await files.write(carries, warmed);
-		if (woke()) {
-			// Its session may have taken the carry before the rename put it
-			// back; the warm goes unrecorded, as one still out at a wake does.
-			await files.remove(carries, sessionId);
-			return;
-		}
+		// Kept before the carry, since it was paid for: a wake landing as
+		// it is appended has its start record it, or the start after.
 		await files.addPending(pending, sessionId, {
 			provider: sent.message.provider,
 			model: sent.message.responseModel ?? sent.message.model,
@@ -273,6 +273,13 @@ export function parkedWarming(options: {
 			parked: true,
 			...(heldForCallMs === undefined ? {} : { heldForCallMs }),
 		});
+		if (woke()) return;
+		const written = await files.write(
+			carries,
+			warmed,
+			warming.controller.signal,
+		);
+		if (!written || woke()) return;
 		const after = due(warmed);
 		if (after) schedule(sessionId, warming, after.dueAt);
 		else stop(sessionId);

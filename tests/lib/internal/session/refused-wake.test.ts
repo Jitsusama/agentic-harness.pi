@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	clearRefusedWake,
-	clearRefusedWakeOff,
 	readRefusedWake,
+	takeBackRefusedWakeOff,
 	wakeAskedBy,
 	writeRefusedWake,
 	writeRefusedWakeOff,
@@ -38,15 +38,42 @@ describe("a refused wake", () => {
 	});
 
 	// A host keeps one on the loop every conversation shares.
-	it("is kept and cleared off the thread, as on it", async () => {
+	it("is kept and taken back off the thread, as on it", async () => {
 		const refused = { reason: "the host is stopping", at: "now" };
 
-		await writeRefusedWakeOff(wake, refused);
+		expect(await writeRefusedWakeOff(wake, refused), "kept").toBe(true);
 
 		expect(readRefusedWake(wake), "read back whole").toEqual(refused);
-		await clearRefusedWakeOff(wake);
-		await clearRefusedWakeOff(wake);
-		expect(readRefusedWake(wake), "gone once cleared").toBeUndefined();
+		await takeBackRefusedWakeOff(wake, refused);
+		await takeBackRefusedWakeOff(wake, refused);
+		expect(readRefusedWake(wake), "gone once taken back").toBeUndefined();
+	});
+
+	it("is not put in place once its signal aborts", async () => {
+		const gone = new AbortController();
+		gone.abort();
+
+		const kept = await writeRefusedWakeOff(
+			wake,
+			{ reason: "the host is stopping", at: "now" },
+			gone.signal,
+		);
+
+		expect(
+			[kept, readRefusedWake(wake)],
+			"none kept for a watch already gone",
+		).toEqual([false, undefined]);
+	});
+
+	it("leaves a later refusal in place as an earlier one is taken back", async () => {
+		const earlier = { reason: "the host is stopping", at: "then" };
+		const later = { reason: "the rollout gate is shut", at: "now" };
+		await writeRefusedWakeOff(wake, earlier);
+		await writeRefusedWakeOff(wake, later);
+
+		await takeBackRefusedWakeOff(wake, earlier);
+
+		expect(readRefusedWake(wake), "the later one stands").toEqual(later);
 	});
 
 	it("is nothing where none was written, or what was written is no record", async () => {

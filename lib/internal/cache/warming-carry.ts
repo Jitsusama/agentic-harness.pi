@@ -26,11 +26,11 @@ import {
 	appendFile as appendFileOff,
 	mkdir as mkdirOff,
 	readFile as readFileOff,
-	rm as rmOff,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gunzipSync, gzip, gzipSync } from "node:zlib";
+import { isGone } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { writeWhole, writeWholeOff } from "../write-whole.ts";
@@ -94,18 +94,22 @@ export function writeWarmingCarry(dir: string, carry: WarmingCarry): void {
 /**
  * Write a session's carry as `writeWarmingCarry` does, off the thread:
  * a host shuts down every conversation it parks, many at once as it
- * restarts, and their compressing and writing held its loop.
+ * restarts, and their compressing and writing held its loop. Once
+ * `signal` aborts the carry is no longer the writer's, so it isn't put
+ * in place; whether it was.
  */
 export async function writeWarmingCarryOff(
 	dir: string,
 	carry: WarmingCarry,
-): Promise<void> {
+	signal?: AbortSignal,
+): Promise<boolean> {
 	await mkdirOff(dir, { recursive: true, mode: OWNER_ONLY_DIR });
-	await writeWholeOff(
-		carryFile(dir, carry.sessionId),
-		await gzipOff(JSON.stringify(carry)),
-		{ mode: OWNER_ONLY },
-	);
+	const packed = await gzipOff(JSON.stringify(carry));
+	if (signal?.aborted) return false;
+	return await writeWholeOff(carryFile(dir, carry.sessionId), packed, {
+		mode: OWNER_ONLY,
+		signal,
+	});
 }
 
 /** A session's carry, left where it is, or nothing when none reads as one. */
@@ -132,7 +136,8 @@ export function readWarmingCarry(
  * A session's carry as `readWarmingCarry` reads it, off the thread: a
  * host reads each parked conversation's whole last request before each
  * warm, and reading and unpacking it there held its loop for seconds
- * while the disk was slow.
+ * while the disk was slow. A file that couldn't be read, rather than
+ * none there, rejects, so the host can say so.
  */
 export async function readWarmingCarryOff(
 	dir: string,
@@ -141,9 +146,10 @@ export async function readWarmingCarryOff(
 	let raw: Buffer;
 	try {
 		raw = await readFileOff(carryFile(dir, sessionId));
-	} catch {
+	} catch (error) {
 		// No file is the usual case: nothing was kept for this session.
-		return null;
+		if (isGone(error)) return null;
+		throw error;
 	}
 	try {
 		return carryFrom(await gunzipOff(raw), sessionId);
@@ -157,14 +163,6 @@ export async function readWarmingCarryOff(
 function carryFrom(unpacked: Buffer, sessionId: string): WarmingCarry | null {
 	const carry: unknown = JSON.parse(unpacked.toString("utf8"));
 	return isCarry(carry) && carry.sessionId === sessionId ? carry : null;
-}
-
-/** Remove a session's carry, off the thread; none there is the same end. */
-export async function removeWarmingCarryOff(
-	dir: string,
-	sessionId: string,
-): Promise<void> {
-	await rmOff(carryFile(dir, sessionId), { force: true });
 }
 
 /** A session's carry taken back, its file removed, or nothing. */

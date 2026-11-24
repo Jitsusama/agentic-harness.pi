@@ -1,11 +1,13 @@
 /**
  * A session's warming carry, written off the thread as a restart's
  * shutdown writes it: it reads back whole, readable by its owner alone,
- * with nothing left in the folder it was staged in; and read, removed
- * and its warms kept off the thread, as a host warming it does.
+ * with nothing left in the folder it was staged in, unless what wrote
+ * it let it go first; and read and its warms kept off the thread, as a
+ * host warming it does.
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	renameSync,
@@ -20,7 +22,6 @@ import {
 	addPendingWarmOff,
 	readWarmingCarry,
 	readWarmingCarryOff,
-	removeWarmingCarryOff,
 	takePendingWarms,
 	type WarmingCarry,
 	writeWarmingCarry,
@@ -69,6 +70,28 @@ describe("a warming carry written off the thread", () => {
 		]);
 		expect(readdirSync(join(dir, ".writing"))).toEqual([]);
 	});
+
+	it("is put in place only while its writer still owns it", async () => {
+		writeWarmingCarry(dir, { ...carry(), warms: 3 });
+		const letGo = new AbortController();
+		const kept = await writeWarmingCarryOff(
+			dir,
+			carry(),
+			new AbortController().signal,
+		);
+		letGo.abort();
+		const dropped = await writeWarmingCarryOff(
+			dir,
+			{ ...carry(), warms: 5 },
+			letGo.signal,
+		);
+		expect([
+			kept,
+			dropped,
+			readWarmingCarry(dir, "s1")?.warms,
+			readdirSync(join(dir, ".writing")),
+		]).toEqual([true, false, carry().warms, []]);
+	});
 });
 
 describe("a warming carry read off the thread", () => {
@@ -92,14 +115,13 @@ describe("a warming carry read off the thread", () => {
 		renameSync(join(dir, "s2.json.gz"), join(dir, "s1.json.gz"));
 		expect(await readWarmingCarryOff(dir, "s1")).toBeNull();
 	});
-});
 
-describe("a warming carry removed off the thread", () => {
-	it("is gone, and removing none is the same end", async () => {
-		writeWarmingCarry(dir, carry());
-		await removeWarmingCarryOff(dir, "s1");
-		await removeWarmingCarryOff(dir, "s1");
-		expect(readWarmingCarry(dir, "s1")).toBeNull();
+	// A host says a carry it couldn't read, rather than taking it for none.
+	it("rejects when its file is there but can't be read", async () => {
+		mkdirSync(join(dir, "s1.json.gz"), { recursive: true });
+		await expect(readWarmingCarryOff(dir, "s1")).rejects.toMatchObject({
+			code: "EISDIR",
+		});
 	});
 });
 

@@ -191,10 +191,11 @@ export interface CallsWatch {
  * as the conversation would, until none still runs; then write its wake
  * file, and again after `wakeAgainMs`, each wait twice the last up to
  * `CALLS_WAKE_AGAIN_MOST_MS`, until stopped. A look still out when the
- * next falls due lets it pass, and one out as the watch stops writes no
- * wake once it sees the stop, though a write already under way lands,
- * which costs one wake at most. A write that fails is tried
- * at the next look, reported only as it first fails. Any doubt wakes:
+ * next falls due lets it pass, and one out as the watch stops rolls and
+ * writes nothing more once it sees the stop, since the woken
+ * conversation rolls its calls itself, though a write already under way
+ * lands, which costs one wake at most. A look or a write that fails is
+ * tried at the next look, reported only as it first fails. Any doubt wakes:
  * a record that can't be read, or calls with none (`unrecorded`), count
  * as ended. Answers the function that stops looking; nothing is looked
  * at where its park carried none.
@@ -218,13 +219,18 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 	let wait = watch.wakeAgainMs ?? CALLS_WAKE_AGAIN_MS;
 	let nextAt = Number.NEGATIVE_INFINITY;
 	let failing = false;
+	let lookFailing = false;
 	let said = false;
 	let looking = false;
 	let stopped = false;
 	const look = async () => {
 		const running: CarriedShell[] = [];
 		for (const work of calls) if (await runs(work)) running.push(work);
-		for (const work of running) await rollIfFullOff(work.keep);
+		const owns = () => !stopped;
+		for (const work of running) {
+			if (!owns()) return;
+			await rollIfFullOff(work.keep, undefined, owns);
+		}
 		if (stopped || running.length > 0) return;
 		if (!said) watch.ended?.(calls.length);
 		said = true;
@@ -235,6 +241,9 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 				`${JSON.stringify({ why: "the bash calls its park carried ended", at: new Date(now()).toISOString() })}\n`,
 			);
 		} catch (error) {
+			// Stopped as it wrote: the conversation runs, or is gone, and
+			// asking its wake straight would reach one no longer parked.
+			if (stopped) return;
 			if (!failing) {
 				watch.report(error);
 				watch.unwritten?.();
@@ -250,7 +259,17 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 		if (looking) return;
 		looking = true;
 		look()
-			.catch(watch.report)
+			.then(
+				() => {
+					lookFailing = false;
+				},
+				(error: unknown) => {
+					// A fault of the moment fails every look until it passes, and
+					// one line says it.
+					if (!lookFailing) watch.report(error);
+					lookFailing = true;
+				},
+			)
 			.finally(() => {
 				looking = false;
 			});

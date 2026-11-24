@@ -128,6 +128,21 @@ describe("writing a file whole off the thread", () => {
 		expect(readFileSync(file, "utf8")).toBe("new");
 		expect(readdirSync(join(dir, "presence", WRITING))).toEqual([]);
 	});
+
+	it("drops what it staged, leaving the file as it was, once its signal aborts", async () => {
+		const file = join(dir, "a.json");
+		writeFileSync(file, "old");
+		const letGo = new AbortController();
+		letGo.abort();
+
+		const written = await writeWholeOff(file, "new", { signal: letGo.signal });
+
+		expect([
+			written,
+			readFileSync(file, "utf8"),
+			readdirSync(join(dir, WRITING)),
+		]).toEqual([false, "old", []]);
+	});
 });
 
 /**

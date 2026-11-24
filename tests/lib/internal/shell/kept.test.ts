@@ -167,6 +167,29 @@ describe("a kept call", () => {
 		await expect(rollIfFullOff(path, 0)).resolves.toBeUndefined();
 	});
 
+	// A host rolls a parked conversation's calls, and the conversation
+	// woken rolls them itself; a roll its host gave up changes nothing more.
+	it("changes nothing more off the thread once its roller no longer owns it", async () => {
+		const path = await makeKept(folder());
+		writeFileSync(`${path}.out`, "aaaa\nbbbb\ncccc\n");
+
+		await rollIfFullOff(path, 10, () => false);
+		expect(
+			[existsSync(`${path}.old`), outputOf(path)],
+			"nothing rolled for one owned no more",
+		).toEqual([false, "aaaa\nbbbb\ncccc\n"]);
+
+		let asked = 0;
+		await rollIfFullOff(path, 10, () => {
+			asked += 1;
+			return asked === 1;
+		});
+		expect(
+			statSync(`${path}.out`).size,
+			".out kept whole once owned no more after its tail was kept",
+		).toBe("aaaa\nbbbb\ncccc\n".length);
+	});
+
 	it("names the group of each call handed on, and only those", async () => {
 		const where = folder();
 		const carried = await makeKept(where);
