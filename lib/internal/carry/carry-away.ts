@@ -291,10 +291,12 @@ export interface QuestTreesCarried {
  * go aside first, and come back where writing fails. Where no tree goes,
  * no done file is written, since one of no trees and no session would
  * start nothing there, and the earlier one goes with what it names: it
- * would name trees this carry refused, skipped or left to a session's
- * own carry, which would then arrive twice. A bundle or
- * patch larger than `largest` refuses its tree, since the share would
- * refuse it.
+ * would name trees this carry skipped or left to a session's own carry,
+ * which would then arrive twice. Where any tree is refused, though, the
+ * carry isn't whole and nothing is placed: the earlier one stays as it
+ * was, so a passing error never takes the last good carry with it. A
+ * bundle or patch larger than `largest` refuses its tree, since the
+ * share would refuse it.
  */
 export async function carryQuestTrees(
 	exec: Exec,
@@ -314,6 +316,7 @@ export async function carryQuestTrees(
 			quest,
 			largest,
 		);
+		if (trees.some((one) => one.kind === "refused")) return { trees };
 		const handed = trees.flatMap((one) =>
 			one.kind === "carried" ? [one.tree] : [],
 		);

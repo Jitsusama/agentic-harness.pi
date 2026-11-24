@@ -5,6 +5,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
 	chmodSync,
 	existsSync,
@@ -376,6 +377,41 @@ describe("a carry staged before the handover", () => {
 		).toEqual({});
 		expect(staging(into)).toEqual([]);
 	});
+
+	it.each([
+		["every tree", false],
+		["one tree of two", true],
+	])(
+		"leaves a quest's earlier carry of its own trees as it was when its next one refuses %s",
+		async (_, another) => {
+			const { origin, home, tree, into } = await homeWithWork();
+			const other = await cloneAt(origin, join(home, "src", "lib"));
+			await git(other, "checkout", "-q", "-b", "side");
+			await commit(other, "side.txt", "unpushed\n");
+			await carryQuestTrees(exec, [tree, other], into, home, QUEST);
+			const before = filesIn(into);
+			// Too random to pack small, so its bundle alone passes the limit.
+			await commit(tree, "big.txt", randomBytes(8000).toString("base64"));
+
+			const next = await carryQuestTrees(
+				exec,
+				another ? [tree, other] : [tree],
+				into,
+				home,
+				QUEST,
+				4000,
+			);
+
+			expect(next.trees.map((one) => one.kind)).toEqual(
+				another ? ["refused", "carried"] : ["refused"],
+			);
+			expect(next.file, "no done file of a carry that isn't whole").toBe(
+				undefined,
+			);
+			expect(filesIn(into), "its earlier carry, as it was").toEqual(before);
+			expect(staging(into)).toEqual([]);
+		},
+	);
 
 	it("puts back a quest's earlier carry of its own trees when its next done file can't be written", async () => {
 		const { origin, home, tree, into } = await homeWithWork();
