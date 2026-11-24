@@ -94,6 +94,31 @@ it("tells a host's failed close to whoever asked, once it has failed", async () 
 	);
 });
 
+it("says on the host's standard error when telling a failed close throws, rather than leaving a rejection unhandled", async () => {
+	installed(async () => {
+		throw new Error("the engine is gone");
+	});
+	const wrote = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	const unhandled = vi.fn();
+	process.on("unhandledRejection", unhandled);
+	const { ctx } = context();
+
+	try {
+		endConversation(ctx, "a carry to penelope", () => {
+			throw new Error("its screen is gone");
+		});
+
+		await vi.waitFor(() =>
+			expect(String(wrote.mock.calls.at(1)?.at(0))).toBe(
+				`pi-host: ${SESSION}'s failed close couldn't be told: its screen is gone\n`,
+			),
+		);
+		expect(unhandled).not.toHaveBeenCalled();
+	} finally {
+		process.off("unhandledRejection", unhandled);
+	}
+});
+
 it("tells plain pi's failed shutdown to whoever asked, rather than throwing", () => {
 	const { ctx, shutdown } = context();
 	shutdown.mockImplementation(() => {
