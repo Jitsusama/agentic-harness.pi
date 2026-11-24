@@ -918,7 +918,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		// spot, which holds the session while it writes; past its tries, a
 		// wait first, so one that keeps failing isn't paid for every turn.
 		const wait = fresh === undefined ? 0 : aheadWaitTurns(host.failedAhead());
-		if (wait > 0) {
+		if (fresh !== undefined && wait > 0) {
 			aheadWait = wait - 1;
 			waitedOn = fresh;
 			if (ctx.hasUI) {
@@ -926,7 +926,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 					compactionNotice(tokens, decision, {
 						ahead: "later",
 						afterTurns: wait,
-						reason: failed ?? "",
+						reason: fresh,
 					}),
 					"info",
 				);

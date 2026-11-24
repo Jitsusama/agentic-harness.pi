@@ -119,9 +119,11 @@ compaction to come covers that point too. A move off it drops a
 summary still being written or ready, logging it as unused, and
 starts the count again, ending any wait with it.
 
-Only when the summary cannot be written from the cache (see Writing the
-Summary) does the trigger compact on the spot, and the notice says
-why. pi's own trigger at the window's edge compacts on the spot too,
+The trigger itself compacts on the spot only when the summary cannot be
+written from the cache (see Writing the Summary), and the notice says
+why. Any compaction writes one on the spot, too, when the summary ready
+ahead is dropped as above, or when a `/compact` asks for a focus it was
+written without. pi's own trigger at the window's edge compacts on the spot too,
 when nothing written ahead is ready, since the next turn would not
 fit. One on the spot that is cancelled or fails leaves the next
 summary to be written ahead once more, so the session isn't held

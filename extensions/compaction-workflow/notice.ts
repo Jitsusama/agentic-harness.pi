@@ -64,7 +64,8 @@ export function compactionNotice(
 		return (
 			`At ${size(tokens)}, a compaction summary written in the background ` +
 			`failed again: ${timing.reason}. Another is written in the background ` +
-			`in ${timing.afterTurns} turns, and nothing waits for it meanwhile. ` +
+			`after ${timing.afterTurns} more turns that call for a compaction, ` +
+			"and nothing waits for it meanwhile. " +
 			priced(decision)
 		);
 	}

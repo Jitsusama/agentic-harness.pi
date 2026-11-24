@@ -43,8 +43,8 @@ describe("telling the user why the session is compacting", () => {
 			}),
 		).toBe(
 			"At 265k tokens, a compaction summary written in the background failed again: " +
-				"it stopped at its output cap. Another is written in the background in 4 turns, " +
-				"and nothing waits for it meanwhile. " +
+				"it stopped at its output cap. Another is written in the background after 4 more turns " +
+				"that call for a compaction, and nothing waits for it meanwhile. " +
 				"Compacting costs about $0.63 (summary $0.22, rewrite $0.34, re-fetching $0.07), " +
 				"and what it drops has cost $0.63 in reads since the last compaction",
 		);

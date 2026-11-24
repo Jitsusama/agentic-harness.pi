@@ -454,9 +454,16 @@ describe("the compaction trigger", () => {
 			expect(await turnsToNextTry(10), "after the second failure").toBe(3);
 			expect(await turnsToNextTry(10), "after the third failure").toBe(5);
 			expect(await turnsToNextTry(20), "after the fourth failure").toBe(9);
+			expect(await turnsToNextTry(40), "after the fifth failure").toBe(17);
+			// Never more than 32 firing turns between tries (5BACCAC3's F84 on
+			// #2082), so one that keeps failing is still tried now and then.
+			expect(await turnsToNextTry(40), "after the sixth failure").toBe(33);
+			expect(await turnsToNextTry(40), "after the seventh, at the cap").toBe(
+				33,
+			);
 			expect(state.compactions, "compacted on the spot").toHaveLength(0);
-			expect(completeSimple).toHaveBeenCalledTimes(5);
-			expect(closingOf(4), "still asked for less").toContain(
+			expect(completeSimple).toHaveBeenCalledTimes(8);
+			expect(closingOf(7), "still asked for less").toContain(
 				"Keep it to at most",
 			);
 			// Each recorded with which try it was, the second asked for half.
@@ -470,6 +477,9 @@ describe("the compaction trigger", () => {
 				expect.objectContaining({ tries: 3, halved: true }),
 				expect.objectContaining({ tries: 4, halved: true }),
 				expect.objectContaining({ tries: 5, halved: true }),
+				expect.objectContaining({ tries: 6, halved: true }),
+				expect.objectContaining({ tries: 7, halved: true }),
+				expect.objectContaining({ tries: 8, halved: true }),
 			]);
 		});
 
@@ -483,7 +493,7 @@ describe("the compaction trigger", () => {
 			await endTurn(fire, ranTools, ctx);
 			expect(notify).toHaveBeenCalledTimes(1);
 			expect(notify.mock.calls[0]?.[0]).toMatch(
-				/failed again: the summary hit the token cap\. Another is written in the background in 2 turns, and nothing waits for it meanwhile\./,
+				/failed again: the summary hit the token cap\. Another is written in the background after 2 more turns that call for a compaction, and nothing waits for it meanwhile\./,
 			);
 
 			await endTurn(fire, ranTools, ctx);
