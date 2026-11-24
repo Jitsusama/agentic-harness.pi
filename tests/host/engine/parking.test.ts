@@ -965,20 +965,23 @@ describe("a park that carries bash calls", () => {
 		parked.unwatch("a");
 	});
 
-	it("wakes it when its stop fails after its calls were carried, with nobody watching them", async () => {
-		const { parked, asking } = carrying(
-			[call("loop")],
-			new Set([join(dir, "loop")]),
-			true,
-			{
-				afterCarry: () => {
-					throw new Error("the stop failed late");
-				},
+	// 24 November (#2099 F108): a stop failing after the carry woke it at
+	// once, and the wake found it held and not running, so it stayed so.
+	it("watches the calls it carried when its stop fails after, and wakes it only once they end", async () => {
+		const runs = new Set([join(dir, "loop")]);
+		const { parked, asking } = carrying([call("loop")], runs, true, {
+			afterCarry: () => {
+				throw new Error("the stop failed late");
 			},
-		);
+		});
 		await parked.park("a");
+
+		expect(parked.watches("a"), "rests as a parked one").toBe(true);
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "no wake while its call runs").not.toHaveBeenCalled();
+		runs.clear();
 		await until(
-			"a wake for calls nobody watches",
+			"the ended call to wake it",
 			() => asking.mock.calls.length > 0,
 		);
 		parked.unwatch("a");
@@ -1162,5 +1165,123 @@ describe("a park that carries bash calls", () => {
 
 		expect(stop).toHaveBeenCalledTimes(1);
 		parked.unwatch("a");
+	});
+});
+
+/**
+ * Parking whose stop fails its first `fails` tries, as a cleanup that
+ * throws does, and whose wake asks its park to settle first, as the
+ * service's wake does, noting the order of each.
+ */
+function failingStop(fails = 1) {
+	let left = fails;
+	const order: string[] = [];
+	const stop = vi.fn(
+		async (_sessionId: string, _why: string, carrying: boolean) => {
+			order.push(`stop carrying ${carrying}`);
+			left--;
+			if (left >= 0) throw new Error("cleanup failed");
+		},
+	);
+	const report = vi.fn();
+	const said = vi.fn((_sessionId: string) => {
+		order.push("parked");
+	});
+	const asking = vi.fn(async (sessionId: string) => {
+		await parked.settled(sessionId);
+		order.push("woken");
+	});
+	const parked: Parking = parking({
+		stateDir: dir,
+		stop,
+		asking: () => asking,
+		report,
+		parked: said,
+		carries: () => true,
+	});
+	return { parked, stop, report, said, asking, order };
+}
+
+// 24 November (#2099 F108): a park whose stop failed was left held and
+// not running, with no watch, so a wake said it was stuck and only a
+// close let it go.
+describe("a park whose stop fails", () => {
+	it("rests owed its stop, tried again as it settles, carrying nothing, and parked once that holds", async () => {
+		const { parked, stop, said, report } = failingStop();
+		await parked.park("a");
+
+		expect(report, "the failure said").toHaveBeenCalledOnce();
+		expect(parked.watches("a"), "its wake watched").toBe(true);
+		expect(said, "not yet parked").not.toHaveBeenCalled();
+		await parked.settled("a");
+		expect(stop, "tried again").toHaveBeenCalledTimes(2);
+		expect(stop, "carrying nothing").toHaveBeenLastCalledWith(
+			"a",
+			PARKED,
+			false,
+		);
+		expect(said, "parked once it holds").toHaveBeenCalledExactlyOnceWith("a");
+		await parked.settled("a");
+		expect(stop, "owed no more").toHaveBeenCalledTimes(2);
+		parked.unwatch("a");
+	});
+
+	it("tries its stop once for settles asked together", async () => {
+		const { parked, stop } = failingStop();
+		await parked.park("a");
+
+		await Promise.all([parked.settled("a"), parked.settled("a")]);
+
+		expect(stop).toHaveBeenCalledTimes(2);
+		parked.unwatch("a");
+	});
+
+	it("wakes for a wake written after it, its stop tried first", async () => {
+		const { parked, asking, order } = failingStop();
+		await parked.park("a");
+
+		wakeAsTheMeshDoes(parked.wakeFile("a"));
+		await until("the wake to be asked", () => order.includes("woken"));
+
+		expect(asking).toHaveBeenCalledExactlyOnceWith("a");
+		expect(order, "stopped, then parked, then woken").toEqual([
+			"stop carrying true",
+			"stop carrying false",
+			"parked",
+			"woken",
+		]);
+		parked.unwatch("a");
+	});
+
+	it("stays owed a stop that fails again, said, and tries it at the next settle", async () => {
+		const { parked, stop, said, report } = failingStop(2);
+		await parked.park("a");
+
+		await expect(
+			parked.settled("a"),
+			"a failed try never rejects",
+		).resolves.toBeUndefined();
+		expect(report, "each failure said").toHaveBeenCalledTimes(2);
+		expect(said, "not parked").not.toHaveBeenCalled();
+		await parked.settled("a");
+		expect(stop, "tried a third time").toHaveBeenCalledTimes(3);
+		expect(said, "parked at last").toHaveBeenCalledOnce();
+		parked.unwatch("a");
+	});
+
+	it("is owed nothing once it runs or is closed", async () => {
+		const ran = failingStop();
+		await ran.parked.park("a");
+		ran.parked.running("a");
+		await ran.parked.settled("a");
+		expect(ran.stop, "run: not tried again").toHaveBeenCalledOnce();
+		ran.parked.unwatch("a");
+
+		const closed = failingStop();
+		await closed.parked.park("a");
+		closed.parked.closed("a", true);
+		await closed.parked.settled("a");
+		expect(closed.stop, "closed: not tried again").toHaveBeenCalledOnce();
+		expect(closed.parked.watches("a"), "closed: unwatched").toBe(false);
 	});
 });

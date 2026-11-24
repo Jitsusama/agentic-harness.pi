@@ -132,7 +132,12 @@ export interface Parking {
 	 * and ask again.
 	 */
 	wake(sessionId: string): Promise<void>;
-	/** Once a park of it under way has settled, at once when none is. */
+	/**
+	 * Once a park of it under way has settled, at once when none is. One
+	 * whose stop failed is owed it: each call tries the stop again, once at
+	 * a time, and settles as that try does, never rejecting, so a wake, an
+	 * attach or a close goes on to find it parked or still held.
+	 */
 	settled(sessionId: string): Promise<void>;
 	/** Whether its wake is watched now, as a woken one's is until it moves out. */
 	watches(sessionId: string): boolean;
@@ -291,6 +296,10 @@ export function parking(options: {
 	const unrecorded = new Map<string, CarriedShell[]>();
 	// Conversations whose calls couldn't be recorded, and until when they carry none.
 	const uncarried = new Map<string, number>();
+	// Conversations whose park's stop failed while the host still holds them,
+	// each watched as a parked one is and owed that stop, with the try at it
+	// under way, if any.
+	const owed = new Map<string, Promise<void> | undefined>();
 	const now = options.now ?? Date.now;
 	const mayCarry = (sessionId: string): boolean => {
 		const until = uncarried.get(sessionId);
@@ -314,6 +323,7 @@ export function parking(options: {
 
 	// Once it runs or is closed, no refusal of a wake says anything true.
 	function forget(sessionId: string): void {
+		owed.delete(sessionId);
 		stopWatching(sessionId);
 		clearRefusedWake(wakeFile(sessionId));
 	}
@@ -499,6 +509,7 @@ export function parking(options: {
 	async function park(sessionId: string, asked: Settling["asked"]) {
 		let wakeAtOnce = false;
 		let watched = false;
+		let stopped = false;
 		try {
 			// Only what this park carries is watched, never a record an
 			// earlier one left.
@@ -519,6 +530,7 @@ export function parking(options: {
 					PARKED,
 					(options.carries?.() ?? false) && mayCarry(sessionId),
 				);
+				stopped = true;
 			} finally {
 				stopping.delete(sessionId);
 			}
@@ -530,10 +542,16 @@ export function parking(options: {
 			watchWake(sessionId, held);
 			watched = true;
 		} catch (error) {
-			// Stopped but unwatched, only a viewer or an attach wakes it; not
-			// stopped, it stays held as a failed close leaves it. Either way,
-			// calls it carried would end with nobody to wake it: it wakes.
 			report(error);
+			// Not stopped, it stays held as a failed close leaves it, its
+			// cleanup perhaps half run: it rests as a parked one does, its
+			// wakes and the calls it carried watched, and is owed its stop,
+			// which `settled` tries again before a wake, an attach or a close
+			// (#2099 F108). Undoing the stop instead would run it on what a
+			// half run cleanup left.
+			if (!stopped) watched = restOwed(sessionId);
+			// Stopped but unwatched, only a viewer or an attach wakes it, and
+			// calls it carried would end with nobody to wake it: it wakes.
 			wakeAtOnce = !watched && carriedSome(sessionId);
 			unrecorded.delete(sessionId);
 		} finally {
@@ -550,6 +568,49 @@ export function parking(options: {
 					for (const one of asked) one.reject(error);
 				},
 			);
+	}
+
+	// Rest one whose park's stop failed, owed that stop, answering whether
+	// its wake is watched.
+	function restOwed(sessionId: string): boolean {
+		const held = unrecorded.get(sessionId);
+		owed.set(sessionId, undefined);
+		try {
+			watchWake(sessionId, held);
+			return true;
+		} catch (error) {
+			report(error);
+			return false;
+		}
+	}
+
+	// Try once more the stop a failed park owes it, one try at a time. It
+	// carries nothing: the first try told the carry before it failed, or
+	// failed before any was carried, and calls carried now would be
+	// recorded by no park. A try that fails is reported and stays owed.
+	function stopOwed(sessionId: string): Promise<void> {
+		if (!owed.has(sessionId)) return Promise.resolve();
+		const trying = owed.get(sessionId);
+		if (trying) return trying;
+		const trial: Promise<void> = options.stop(sessionId, PARKED, false).then(
+			() => {
+				// Run or closed meanwhile, nothing is owed it any more.
+				if (owed.get(sessionId) !== trial) return;
+				owed.delete(sessionId);
+				try {
+					options.parked?.(sessionId);
+				} catch (error) {
+					// Parked all the same, its wake watched since the park.
+					report(error);
+				}
+			},
+			(error: unknown) => {
+				report(error);
+				if (owed.get(sessionId) === trial) owed.set(sessionId, undefined);
+			},
+		);
+		owed.set(sessionId, trial);
+		return trial;
 	}
 
 	// Whether its park carried calls, in a record or none it could write;
@@ -569,6 +630,8 @@ export function parking(options: {
 		mayCarry,
 		watches: (sessionId) => sleepers.has(sessionId),
 		running(sessionId) {
+			// It runs, so the stop a failed park owed it is no longer owed.
+			owed.delete(sessionId);
 			rmSync(wakeFile(sessionId), { force: true });
 			clearRefusedWake(wakeFile(sessionId));
 			// What its park carried stays watched until it really runs (`ran`):
@@ -615,7 +678,8 @@ export function parking(options: {
 		},
 		rests: watchWake,
 		wake,
-		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
+		settled: (sessionId) =>
+			settling.get(sessionId)?.done ?? stopOwed(sessionId),
 		unwatch: forget,
 		closed(sessionId, forGood) {
 			forget(sessionId);
