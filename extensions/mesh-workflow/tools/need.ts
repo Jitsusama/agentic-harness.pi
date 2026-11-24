@@ -87,6 +87,15 @@ export const FIND_WHILE_UNLISTED =
 	"Not knowing who, nothing above this peer could be found while the mesh doesn't list it yet, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
 
 /**
+ * What a lost need's refusal says to do, not knowing who, when the node
+ * answered the need but the find for what is above couldn't settle for
+ * another reason, and this peer keeps no hub: the node was heard, so it
+ * isn't blamed, and the refusal says only that none could be found.
+ */
+export const FIND_NONE_FOUND =
+	"Not knowing who, nothing above this peer could be found just now, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
+
+/**
  * Whom a lost need's refusal says to ask who owns it, by where this peer
  * sits, so it never points at a route known to reach nobody and never
  * says nothing is above while `orchestrator` would still reach a hub:
@@ -95,7 +104,9 @@ export const FIND_WHILE_UNLISTED =
  * it), and otherwise mesh_groups. A fresh hub is looked for only when
  * the node answered the need, since finding one asks the same node;
  * otherwise the kept hub alone is read, judged against `gone`, the
- * sessions the need's own census found no longer on the mesh.
+ * sessions the need's own census found no longer on the mesh. The fresh
+ * find reads the census and the node's ties again, as a send's does,
+ * so a lost refusal under no mark costs a second listing of each.
  */
 async function whomToAsk(
 	at: Local,
@@ -115,10 +126,14 @@ async function whomToAsk(
 		return kept === undefined ? FIND_WHILE_QUIET : hub(kept);
 	}
 	try {
-		const found = orKept(await findAbove(at), at.keptHub);
+		const fresh = await findAbove(at);
+		// As a send does, a settled find tells the kept hub the node is back,
+		// so a keeping backed off from a node that was down asks again.
+		if (fresh.settled) at.nodeAnswered?.();
+		const found = orKept(fresh, at.keptHub);
 		if ("address" in found.above) return hub(found.above.address);
 		if (found.settled) return FIND_WHO_OWNS_IT;
-		return found.unasked === true ? FIND_WHILE_UNLISTED : FIND_WHILE_QUIET;
+		return found.unasked === true ? FIND_WHILE_UNLISTED : FIND_NONE_FOUND;
 	} catch {
 		// No hub could be found, so nothing above can be named to ask; a
 		// throw says nothing settled, so the refusal says none was found,
@@ -216,7 +231,7 @@ export async function needRead(
 							!partOfNumbered(word, saying),
 					),
 			found.unheld ?? [],
-			found.words,
+			found.by ?? [],
 			went,
 		);
 	if (found.fit === null && found.fellShort !== undefined) {
@@ -255,20 +270,20 @@ type Went = "sent" | "owned" | "lost";
  * The words of an about no cell works on, and of those kept no live
  * cell does, as a sentence, or nothing. A need sent says the words it
  * was routed by and one refused for its owner those its fit was found
- * by, a word only ended cells work on left out of either. A lost one,
- * having gone nowhere, says neither, and carries no `noLive`: routing
- * says words only ended cells work on just once it found a live cell.
+ * by, as routing says them in `by`: only words the live cell found
+ * works on as the need reads them, never one the asker, a stopper or a
+ * cell not reached alone holds. A lost one, having gone nowhere, says
+ * neither, and carries no `noLive`: routing says words only ended
+ * cells work on just once it found a live cell.
  */
 function unaskedText(
 	noCell: readonly string[],
 	noLive: readonly string[],
-	kept: readonly string[],
+	routed: readonly string[],
 	went: Went,
 ): string {
-	const unheld = new Set(noLive);
-	const routed = kept.filter((word) => !unheld.has(word));
 	const count = noCell.length + noLive.length;
-	if (count === 0 || routed.length === 0) return "";
+	if (count === 0 || (went !== "lost" && routed.length === 0)) return "";
 	const cells = [
 		...(noCell.length > 0 ? [`No cell works on ${noCell.join(", ")}`] : []),
 		...(noLive.length > 0

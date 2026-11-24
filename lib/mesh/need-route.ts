@@ -19,9 +19,12 @@
  * tie in the last day, which was heard along within `OWNER_TIE_AGE_MS`,
  * counts, so a record the node keeps after its session crashed stops
  * owning needs six hours after a tie's last message, and however much
- * others send to it, a day after its own. The realm's cells are trusted
- * to say their words honestly: one declaring broad subjects could always
- * draw needs, and now, once ended, holds them back for that long.
+ * others send to it, a day after its own. Ended means only that no
+ * presence here lists it, so a cell still sending with none, as one on
+ * a machine whose presence never reached this one, owns needs for as
+ * long as it keeps sending and that long after. The realm's cells are
+ * trusted to say their words honestly: one declaring broad subjects
+ * could always draw needs, and, so ended, holds them back for as long.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -145,6 +148,14 @@ export interface NeedRecord extends Omit<NeedAsked, "fromText" | "selves"> {
 	 * said for a need found or owned, left out when none.
 	 */
 	readonly unheld?: readonly string[];
+	/**
+	 * The words kept that the live cell found works on, as the need reads
+	 * them: those it was routed by, or for a need owned by an ended cell,
+	 * those `fellShort` was found by. Never a word only the asker, a
+	 * cell that stopped it or one not reached holds; left out when the
+	 * need was lost with no live cell found, or held by its asker.
+	 */
+	readonly by?: readonly string[];
 }
 
 /** What a need is routed over. */
@@ -771,11 +782,13 @@ function routeAs(
 		);
 	});
 	const saidUnheld = unheld.length > 0 ? { unheld } : {};
+	const by = asked.words.filter((word) => worksOnWord(found.fit, word));
 	if (owner !== undefined) {
 		return {
 			...record([], null, new Set([owner])),
 			fellShort: found.fit,
 			...saidUnheld,
+			by,
 		};
 	}
 	// An ended cell heard from lately working on such a word is named.
@@ -789,7 +802,7 @@ function routeAs(
 			named.add(address);
 		}
 	}
-	return { ...record(found.path, found.fit, named), ...saidUnheld };
+	return { ...record(found.path, found.fit, named), ...saidUnheld, by };
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the

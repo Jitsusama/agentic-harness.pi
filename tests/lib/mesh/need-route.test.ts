@@ -724,7 +724,7 @@ describe("routing a need", () => {
 		expect(found.words).toEqual(many.slice(0, MOST_WORDS));
 	});
 
-	it("writes the judge's line: the need, its asker and words, and the realm's size", () => {
+	it("writes the judge's line: the need, its asker and words, the realm's size and what it went by", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], B: ["carry"] }),
 			ties: ties(["A", "B", 1]),
@@ -739,6 +739,7 @@ describe("routing a need", () => {
 			fit: "B",
 			at: AT,
 			cells: 2,
+			by: ["carry"],
 		});
 	});
 });
