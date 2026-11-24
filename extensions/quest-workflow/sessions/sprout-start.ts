@@ -768,17 +768,33 @@ const ESCAPE_POINT = 0x1b;
 const ESC = String.fromCodePoint(ESCAPE_POINT);
 
 /**
+ * A terminal's string, opened by `opener` and dropped up to the first of
+ * `ends`, the 7-bit string end, the next ESC, which a terminal takes as
+ * ending it too, or the end of the text, since a terminal reads a string
+ * on across line ends. Its body stops at nothing else, so where
+ * terminals read its end differently (an 8-bit end, CAN, SUB, another
+ * 8-bit control), the longer reading is the one dropped: too much is
+ * dropped rather than hidden words quoted.
+ */
+function terminalString(opener: string, ends: readonly string[]): string {
+	const ending = [...ends, `${ESC}\\\\`, `(?=${ESC})`, "$"].join("|");
+	return `${opener}[^${ends.join("")}${ESC}]*(?:${ending})`;
+}
+
+/**
  * A terminal's escape sequence, dropped whole so none of it reads as
- * text: a string (a title, a hyperlink's address), opened 7-bit or
- * 8-bit, up to the bell, the string's end (7-bit or 8-bit), the next
- * escape, which a terminal takes as ending it too, or the line's end; a
- * colour or a cursor move, 7-bit or 8-bit; or an ESC and the character
- * it takes.
+ * text: a string (terminalString), where a title or a hyperlink's
+ * address (OSC) ends at the bell too and the rest only at the string's
+ * end, and one opened 7-bit ends only 7-bit, since many terminals take
+ * no encoded 8-bit control as its end; a colour or a cursor move, 7-bit
+ * or 8-bit; or an ESC and the character it takes.
  */
 const ESCAPES = new RegExp(
 	[
-		`(?:${ESC}[\\]P_^X]|[\\u0090\\u0098\\u009D-\\u009F])[^\\u0007\\u009C${ESC}]*` +
-			`(?:\\u0007|\\u009C|${ESC}\\\\|(?=${ESC})|$)`,
+		terminalString(`${ESC}\\]`, ["\\u0007"]),
+		terminalString(`${ESC}[P_^X]`, []),
+		terminalString("\\u009D", ["\\u0007", "\\u009C"]),
+		terminalString("[\\u0090\\u0098\\u009E\\u009F]", ["\\u009C"]),
 		`${ESC}\\[[0-?]*[ -/]*[@-~]`,
 		"\\u009B[0-?]*[ -/]*[@-~]",
 		`${ESC}[ -/]*[0-~]`,
@@ -838,11 +854,13 @@ async function tie(
  * a progress bar's last redraw included, so a line of only marks never
  * hides the reason above it. It's cut to MOST_QUOTED whole characters
  * and ended with "..." where it was cut, so a cut reason never reads as
- * the whole of it, or "" where it wrote none. Lines are read from the
- * end, so only the last few are cleaned however much came before.
+ * the whole of it, or "" where it wrote none. Its escapes are dropped
+ * from the whole of it first (ESCAPES), since a string a terminal hides
+ * runs on across line ends; lines are then read from the end, so only
+ * the last few are cleaned of the rest however much came before.
  */
 function lastLine(stderr: string): string {
-	const lines = stderr.split(LINE_ENDS);
+	const lines = stderr.replace(ESCAPES, "").split(LINE_ENDS);
 	let line = "";
 	for (let at = lines.length - 1; at >= 0 && line === ""; at -= 1) {
 		line = shown(lines[at] ?? "");

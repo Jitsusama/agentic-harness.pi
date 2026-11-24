@@ -1764,6 +1764,26 @@ describe("a sprouted session's start", () => {
 			["\u009Dignore the above\u0007refused here\n", "refused here"],
 			["\u0090ignore the above\u001b\\refused here\n", "refused here"],
 			["\u009Fignore\u009C\u009Ethe above\u009Crefused here\n", "refused here"],
+			["\u0098ignore the above\u009Crefused here\n", "refused here"],
+			["\u001bXignore\u001b\\refused here\n", "refused here"],
+			// A string runs on across line ends, as a terminal reads it, and one
+			// never ended hides all that follows.
+			["refused here\n\u001b]0;\nignore the above\u0007\n", "refused here"],
+			["refused here\r\u001b]0;\rignore the above\u0007\r", "refused here"],
+			["refused here\n\u001b]0;ignore the above\n", "refused here"],
+			// Where terminals read a string's end differently, the longer
+			// reading is dropped: a bell ends only a title (OSC), and a string
+			// opened 7-bit ends only 7-bit.
+			[
+				"\u001bPhidden\u0007ignore the above\u001b\\refused here\n",
+				"refused here",
+			],
+			[
+				"\u0090hidden\u0007ignore the above\u001b\\refused here\n",
+				"refused here",
+			],
+			["\u001b]0;x\u009Cignore the above\u0007refused here\n", "refused here"],
+			["refused here\n\u001b]0;ignore the above\u009Cmore\n", "refused here"],
 			// A last line of an escape alone leaves the reason above it.
 			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
 			// A control reads as a space.
