@@ -46,6 +46,8 @@ export function fakeClock(at: (now: number) => void = () => {}): Clock {
  * bounded to, read from the clock its call was given just before it, or
  * none where it had none. The clock is read through a spy on
  * `AbortSignal.timeout`, which a test's `vi.restoreAllMocks` ends.
+ * A fetch fed its refs through sh, as origin-view's `fed` runs one, is
+ * kept too, with sh's arguments, which end in git's own.
  */
 export function boundedFetches(): {
 	through: Exec;
@@ -60,7 +62,7 @@ export function boundedFetches(): {
 	const fetches: { args: string[]; seconds?: number }[] = [];
 	const through: Exec = (command, args) => {
 		if (
-			command === "git" &&
+			(command === "git" || (command === "sh" && runsGit(args))) &&
 			(args.includes("fetch") || args.includes("clone"))
 		) {
 			fetches.push(bound === undefined ? { args } : { args, seconds: bound });
@@ -69,6 +71,11 @@ export function boundedFetches(): {
 		return exec(command, args);
 	};
 	return { through, fetches };
+}
+
+/** Whether sh's `args` run a script that runs git. */
+function runsGit(args: readonly string[]): boolean {
+	return args[0] === "-c" && /\bgit\b/.test(args[1] ?? "");
 }
 
 /** The quest's scratch the handover folder `from` lies in. */

@@ -14,6 +14,7 @@ import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { within } from "../sandbox/tree-git.ts";
+import { messageOf } from "./message.ts";
 
 /** A tree cut from the checkout whose git folder is `checkout`. */
 export interface Cut {
@@ -85,11 +86,15 @@ export async function cutFrom(
 
 /**
  * Where `branch` stands in the checkout whose git folder is `checkout`:
- * none only where git listed its branches whole and named no such one,
- * saying nothing on standard error, since a ref it can't read is
- * skipped with a warning, and reading one as absent would have a
- * branch put back by deleting it. `rev-parse` can't tell absent from
- * unreadable, nor from a git that never ran: each answers 1.
+ * where git lists it, or none only where git then says outright that
+ * its ref is missing, since reading one it can't read as absent would
+ * have a branch put back by deleting it. Listing alone can't say so: it
+ * skips a ref it can't read with a warning, as it does a broken one
+ * beside it such as `topic-old`, and skips a folder of refs it can't
+ * open without a word. `show-ref --exists` answers 2 for a missing ref
+ * alone, and 1 for one it couldn't look up; `rev-parse` can't tell
+ * absent from unreadable, nor from a git that never ran: each answers 1.
+ * What else git says on standard error is no reason to refuse.
  */
 async function whereStands(
 	exec: Exec,
@@ -103,12 +108,32 @@ async function whereStands(
 		"--format=%(objectname) %(refname)",
 		ref,
 	]);
-	const said = listed.stderr.trim();
-	if (listed.code !== 0 || said !== "") {
-		return { why: said || `git answered ${listed.code}` };
-	}
+	if (listed.code !== 0) return { why: whyOf(listed) };
 	const line = listed.stdout.split("\n").find((one) => one.endsWith(` ${ref}`));
-	return { at: line?.slice(0, -` ${ref}`.length) };
+	if (line !== undefined) return { at: line.slice(0, -` ${ref}`.length) };
+	const missing = await exec("git", [
+		`--git-dir=${checkout}`,
+		"show-ref",
+		"--exists",
+		ref,
+	]);
+	if (missing.code === MISSING) return { at: undefined };
+	// The listing's own word on the ref, such as that it is broken, first.
+	const named = listed.stderr
+		.split("\n")
+		.map((one) => one.trim())
+		.filter((one) => one.endsWith(` ${ref}`));
+	const why =
+		missing.code === 0 ? `git has ${ref} but didn't list it` : whyOf(missing);
+	return { why: [...named, why].join("; ") };
+}
+
+/** What `git show-ref --exists` answers for a ref that is missing, and only that. */
+const MISSING = 2;
+
+/** What git said on standard error, or the code it answered with. */
+function whyOf(said: { code: number; stderr: string }): string {
+	return said.stderr.trim() || `git answered ${said.code}`;
 }
 
 /**
@@ -182,7 +207,7 @@ async function takenOut(
 		// Pruning would take out other trees' entries too, so it is named.
 		return `git's entry for the tree cut at ${path} may be left in ${checkout}, where git worktree prune takes it out`;
 	} catch (error) {
-		return `the tree cut at ${path} couldn't be taken out: ${error instanceof Error ? error.message : String(error)}`;
+		return `the tree cut at ${path} couldn't be taken out: ${messageOf(error)}`;
 	}
 }
 

@@ -121,6 +121,121 @@ describe("cutting a tree from the person's checkout", () => {
 		expect(existsSync(at)).toBe(false);
 	});
 
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses the cut where the branch's own ref can't be opened",
+		async () => {
+			const { gitDir } = await checkout();
+			const ref = join(gitDir, "refs", "heads", "topic");
+			const at = join(folder(made, "trees"), "unopened");
+			chmodSync(ref, 0o000);
+			let refused: Awaited<ReturnType<typeof cutFrom>>;
+			try {
+				refused = await cutFrom(exec, gitDir, at, "topic");
+			} finally {
+				chmodSync(ref, 0o644);
+			}
+
+			expect(refused).toMatchObject({
+				why: expect.stringMatching(/^git couldn't read topic /),
+			});
+			expect(existsSync(at), "nothing was cut").toBe(false);
+		},
+	);
+
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses the cut where the branches' folder can't be read, though git lists nothing and says nothing",
+		async () => {
+			const { gitDir } = await checkout();
+			const heads = join(gitDir, "refs", "heads");
+			const at = join(folder(made, "trees"), "unlisted");
+			chmodSync(heads, 0o000);
+			let refused: Awaited<ReturnType<typeof cutFrom>>;
+			try {
+				refused = await cutFrom(exec, gitDir, at, "topic");
+			} finally {
+				chmodSync(heads, 0o755);
+			}
+
+			expect(refused).toMatchObject({
+				why: expect.stringMatching(/^git couldn't read topic /),
+			});
+			expect(existsSync(at), "nothing was cut").toBe(false);
+		},
+	);
+
+	it("cuts beside a broken ref of another branch whose name begins with its own", async () => {
+		const { gitDir, topic } = await checkout();
+		writeFileSync(join(gitDir, "refs", "heads", "topic-old"), "not a sha\n");
+
+		const { cut: beside } = await cut(gitDir, "beside-broken");
+
+		expect(beside).toEqual({ checkout: gitDir, before: topic });
+	});
+
+	it("cuts a branch that isn't there beside a broken ref of another", async () => {
+		const { gitDir } = await checkout();
+		writeFileSync(join(gitDir, "refs", "heads", "fresh-old"), "not a sha\n");
+
+		const { cut: fresh } = await cut(gitDir, "fresh-beside-broken", "fresh");
+
+		expect(fresh).toEqual({ checkout: gitDir, before: undefined });
+	});
+
+	it.each([
+		["it stands", "topic"],
+		["it isn't there", "fresh"],
+	])(
+		"cuts though git warns of something else while listing the branch, where %s",
+		async (_, branch) => {
+			const { gitDir, topic } = await checkout();
+			const warned: Exec = async (command, args) => {
+				const done = await exec(command, args);
+				return args.includes("for-each-ref")
+					? {
+							...done,
+							stderr: `warning: unable to access '/home/x/.config/git/attributes': Permission denied\n${done.stderr}`,
+						}
+					: done;
+			};
+			const at = join(folder(made, "trees"), `warned-${branch}`);
+
+			const one = await cutFrom(warned, gitDir, at, branch);
+
+			expect(one).toEqual({
+				checkout: gitDir,
+				before: branch === "topic" ? topic : undefined,
+			});
+		},
+	);
+
+	it.each([
+		[
+			"a git too old to ask",
+			{ code: 129, stderr: "error: unknown option `exists'\n" },
+			/unknown option `exists'$/,
+		],
+		["a git that never ran", { code: 1, stderr: "" }, /answered 1$/],
+	])(
+		"refuses the cut of a branch it doesn't list where %s can't say it is missing",
+		async (_, answer, why) => {
+			const { gitDir } = await checkout();
+			const at = join(folder(made, "trees"), "unsure");
+
+			const refused = await cutFrom(
+				failing("show-ref", answer),
+				gitDir,
+				at,
+				"fresh",
+			);
+
+			expect(refused).toMatchObject({
+				why: expect.stringMatching(/^git couldn't read fresh /),
+			});
+			expect("why" in refused ? refused.why : "").toMatch(why);
+			expect(existsSync(at), "nothing was cut").toBe(false);
+		},
+	);
+
 	it("reads a branch git lists whole without it as none", async () => {
 		const { gitDir } = await checkout();
 

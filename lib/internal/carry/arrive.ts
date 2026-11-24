@@ -44,6 +44,7 @@ import {
 	readHandover,
 	underHome,
 } from "./handover.ts";
+import { messageOf } from "./message.ts";
 import type { CarriedNote } from "./notes.ts";
 import {
 	BOUNDED,
@@ -181,7 +182,7 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	} catch (error) {
 		say({
 			kind: "failed",
-			why: `${handover.sessionFile} couldn't be placed: ${error instanceof Error ? error.message : String(error)}`,
+			why: `${handover.sessionFile} couldn't be placed: ${messageOf(error)}`,
 		});
 		say({ kind: "sessions", sessions: [] });
 		return false;
@@ -219,7 +220,7 @@ async function notesTaken(
 	} catch (error) {
 		arriving.say({
 			kind: "failed",
-			why: `The quest's ${handover.notes.length} notes weren't taken up: ${error instanceof Error ? error.message : String(error)}`,
+			why: `The quest's ${handover.notes.length} notes weren't taken up: ${messageOf(error)}`,
 		});
 		return false;
 	}
@@ -397,7 +398,7 @@ async function arriveTree(
 				? tree.head
 				: undefined;
 		const cutLeft = await uncut(exec, readied, path, tree.branch, settled);
-		const left = [unreadHead(on, tree), cutLeft].filter(
+		const left = [unreadHead(on, tree, readied.before), cutLeft].filter(
 			(one) => one !== undefined,
 		);
 		if (left.length > 0) {
@@ -415,15 +416,27 @@ async function arriveTree(
 
 /**
  * Why the branch a cut tree settled may be left at the carried head,
- * where git couldn't say which branch the tree was on; nothing where it
- * said, or the tree stood on no branch, which `-q` answers with 1 alone.
+ * where git couldn't say which branch the tree was on, with where it
+ * stood `before` the cut, or that it wasn't there, so it can be put
+ * back by hand; nothing where git said, or the tree stood on no branch,
+ * which `-q` answers with 1 alone. spawnExec answers for a git a
+ * signal stopped with 137, saying so (#2119), never 1 alone, so one
+ * reads as unsaid, not as on no branch.
  */
-function unreadHead(on: ExecResult, tree: HandedTree): string | undefined {
+function unreadHead(
+	on: ExecResult,
+	tree: HandedTree,
+	before: string | undefined,
+): string | undefined {
 	if (on.code === 0 || (on.code === 1 && on.stderr.trim() === "")) {
 		return undefined;
 	}
 	const said = on.stderr.trim() || `git exited ${on.code}`;
-	return `its branch ${tree.branch} may be left at ${tree.head}, since git couldn't say which branch the tree was on: ${said}`;
+	const stood =
+		before === undefined
+			? "though there was no such branch before"
+			: `where it stood at ${before} before`;
+	return `its branch ${tree.branch} may be left at ${tree.head}, ${stood}, since git couldn't say which branch the tree was on: ${said}`;
 }
 
 /**

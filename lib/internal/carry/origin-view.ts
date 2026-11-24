@@ -39,6 +39,7 @@ import {
 	type ExecResult,
 	withCallSignal,
 } from "../../core/exec/index.ts";
+import { messageOf } from "./message.ts";
 
 /** git run in one tree, as arrive hears it. */
 export interface ViewGit {
@@ -443,7 +444,7 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 			]);
 		} catch (error) {
 			// Exec answers rather than throws, and so does this.
-			return { code: 1, stdout: "", stderr: String(error) };
+			return { code: 1, stdout: "", stderr: messageOf(error) };
 		} finally {
 			if (folder !== undefined) {
 				rmSync(folder, { recursive: true, force: true });
