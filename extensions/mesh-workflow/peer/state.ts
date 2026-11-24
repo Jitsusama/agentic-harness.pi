@@ -34,6 +34,10 @@ import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
 import { moveHolder } from "../../../lib/internal/session/move-waiting.ts";
+import {
+	PARK_NOW_ASK,
+	type ParkNowAsk,
+} from "../../../lib/internal/session/park.ts";
 import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
 import { findJobHost } from "../../../lib/jobs/host.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
@@ -80,7 +84,7 @@ import {
 	orderedHolds,
 	refuseInHandover,
 } from "../ordered-carry.ts";
-import { createPausing, RESUMED_TEXT } from "../pausing.ts";
+import { createPausing, NOTHING_WAKES, RESUMED_TEXT } from "../pausing.ts";
 import { createTalks } from "../talks.ts";
 import type { HubTiming } from "../tools/above.ts";
 import { type Waiting, watchSettling } from "../wait.ts";
@@ -292,6 +296,16 @@ export function createState(
 		carryUnderWay: () => {
 			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
+		},
+		// Its park watch answers (park-workflow watch.ts); with none, the
+		// session has nothing that would wake it.
+		park: () => {
+			const session = sessionOf();
+			if (session === undefined) return "the session isn't there to park";
+			const ask: ParkNowAsk = { session };
+			pi.events.emit(PARK_NOW_ASK, ask);
+			if (ask.parked === true) return undefined;
+			return ask.why ?? NOTHING_WAKES;
 		},
 	});
 	// A host's conversation has no window of its own to hand over.

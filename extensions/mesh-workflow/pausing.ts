@@ -1,6 +1,6 @@
 /**
- * Pause, Resume, Stop, Close and Carry: what the person does to a session
- * from outside its window besides talk, through a steer's `act`.
+ * Pause, Resume, Stop, Park, Close and Carry: what the person does to a
+ * session from outside its window besides talk, through a steer's `act`.
  *
  * - Stop ends the run in progress at once; the session stays open and
  *   listening.
@@ -10,6 +10,13 @@
  *   it, and the mesh hands its messages over without a turn.
  * - Resume clears the pause and has the session carry on; a talk or
  *   typing in the window does the same, its words being the turn.
+ * - Park ends its process now if it is idle, or else once the turn it is
+ *   on ends, as Pause waits, so it holds no memory; it stays held, and a
+ *   message, a key or a window wakes it, as a park after an idle hour
+ *   does (park-workflow). It is refused, saying why, where anything else
+ *   holds it, where parking is off, or where neither a holder nor a host
+ *   keeps it to wake it, since parking that one would only end it. A
+ *   talk, Resume, Stop, Close or Carry before it lands calls it off.
  * - Close ends the session for good, as /exit does: any run in progress
  *   is ended, then pi shuts down, so its record reads closed rather
  *   than lost and nothing offers it back unasked. Its quest, trees and
@@ -39,8 +46,11 @@
  * wake and ended the run a key the person typed had begun (KP0L6A, 17
  * November). So a Stop written before the run in progress began is
  * dropped, as is a Pause written before the person last talked to it,
- * since a talk ends a pause; each is said in the window and in a host's
- * journal. A Pause left for a parked session with no talk since still
+ * since a talk ends a pause, and a Park written before the person last
+ * talked to it or before it last started here: a Park doesn't wake a
+ * session already parked, so one left for it is read as a message wakes
+ * it, and would park it again at once. Each is said in the window and
+ * in a host's journal. A Pause left for a parked session with no talk since still
  * holds when it wakes. Writer and reader keep their own clocks, so a
  * steer within {@link CLOCKS_DIFFER_MS} of either moment still acts, as
  * does one with no time that can be read. A session made in the middle
@@ -54,6 +64,14 @@ import {
 	closeCarried,
 	stoppedRun,
 } from "./carried-close.ts";
+
+/**
+ * Why a Park is refused where no park watch answers: one starts only for
+ * a person's session that a holder or a host keeps (park-workflow), and
+ * parking any other would only end it.
+ */
+export const NOTHING_WAKES =
+	"nothing here would wake it: neither a holder nor a host that parks one conversation alone keeps it, so parking it would only end it";
 
 /** What pausing needs from its session. */
 export interface PausingHost {
@@ -93,6 +111,11 @@ export interface PausingHost {
 	readonly carry: (to: string) => Promise<void>;
 	/** The machine a carry under way takes its work to, if one is. */
 	readonly carryUnderWay: () => string | undefined;
+	/**
+	 * Park it now, idle time aside, as its park watch does once nothing
+	 * holds it; answers why not.
+	 */
+	readonly park: () => string | undefined;
 }
 
 /** Pausing for one session. */
@@ -118,8 +141,10 @@ export interface Pausing {
 	talked(at?: string): void;
 	/** A run started: a paused session ends it at once. */
 	started(): void;
-	/** A turn ended, its tools done: a pause asked for mid-run lands. */
+	/** A turn ended, its tools done: a pause or park asked for mid-run lands. */
 	turnEnded(): void;
+	/** Its run settled, pi idle: a park asked for mid-run parks it. */
+	settled(): void;
 }
 
 /** Where a steer came from, as its writer signed it, for a host's journal. */
@@ -143,6 +168,10 @@ function writtenAt(at: string | undefined): number {
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
 	let carrying = false;
+	// When this session started here, before which a Park is stale.
+	const began = host.now();
+	// A Park asked for mid-run, by whom, to land once its run settles.
+	let parking: { from: string | undefined } | undefined;
 	// The close asked once carried, which says where this session's work
 	// went though it couldn't close here, as each run it then stops says.
 	let closing: CarriedClose | undefined;
@@ -163,6 +192,22 @@ export function createPausing(host: PausingHost): Pausing {
 		host.tell(line);
 		host.journal(line);
 	};
+	const park = (from: string | undefined) => {
+		const why = host.park();
+		if (why === undefined) {
+			sayAnyway(() => host.journal(`Parked ${steeredBy(from)}.`));
+			return;
+		}
+		const line = `A Park ${steeredBy(from)}, was refused: ${why}.`;
+		host.tell(line);
+		host.journal(line);
+	};
+	// A Park waiting on its run, called off by what the person did since.
+	const callOffPark = (by: string) => {
+		if (parking === undefined) return;
+		parking = undefined;
+		host.tell(`The Park from outside this window is called off: ${by}.`);
+	};
 	return {
 		get paused() {
 			return host.paused();
@@ -176,6 +221,25 @@ export function createPausing(host: PausingHost): Pausing {
 				dropped("A Pause", from, at, "the person last talked to this session");
 				return;
 			}
+			if (act === "park" && before(at, talkedAt)) {
+				dropped("A Park", from, at, "the person last talked to this session");
+				return;
+			}
+			if (act === "park" && before(at, began)) {
+				dropped("A Park", from, at, "this session last started");
+				return;
+			}
+			if (act === "park") {
+				if (host.idle()) {
+					park(from);
+					return;
+				}
+				parking = { from };
+				host.tell("Parking from outside this window after the current turn.");
+				return;
+			}
+			// Any other act is the person's latest word on it.
+			callOffPark(`a ${act[0]?.toUpperCase()}${act.slice(1)} came after it`);
 			if (act === "close") {
 				if (!host.idle()) host.abort();
 				host.tell("Closed from outside this window.");
@@ -206,6 +270,7 @@ export function createPausing(host: PausingHost): Pausing {
 			const said = writtenAt(at);
 			talkedAt = Math.max(talkedAt, Number.isNaN(said) ? host.now() : said);
 			host.setPaused(false);
+			callOffPark("the person talked to this session");
 		},
 		async carry(to, from) {
 			// One under way may yet be refused, an ordered one by what it
@@ -218,6 +283,7 @@ export function createPausing(host: PausingHost): Pausing {
 				host.journal(line);
 				return;
 			}
+			callOffPark("a Carry came after it");
 			carrying = true;
 			if (!host.idle()) host.abort();
 			host.tell(
@@ -259,7 +325,13 @@ export function createPausing(host: PausingHost): Pausing {
 			host.abort();
 		},
 		turnEnded() {
-			if (host.paused() && !host.idle()) host.abort();
+			if ((host.paused() || parking) && !host.idle()) host.abort();
+		},
+		settled() {
+			if (parking === undefined) return;
+			const { from } = parking;
+			parking = undefined;
+			park(from);
 		},
 	};
 }

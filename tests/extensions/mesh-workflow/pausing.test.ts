@@ -1,10 +1,11 @@
 /**
- * Pause, Resume, Stop and Close from outside a session's window.
+ * Pause, Resume, Stop, Park and Close from outside a session's window.
  */
 import { describe, expect, it, vi } from "vitest";
 import {
 	CLOCKS_DIFFER_MS,
 	createPausing,
+	NOTHING_WAKES,
 	type Pausing,
 	type PausingHost,
 } from "../../../extensions/mesh-workflow/pausing.ts";
@@ -31,6 +32,10 @@ function session(
 			failed: (error: unknown) => void,
 			closed: () => void,
 		) => void;
+		/** Why its park watch won't park it, or nothing where it parks. */
+		readonly park?: () => string | undefined;
+		/** When it started here, by its clock; 0 unless given. */
+		readonly startsAt?: number;
 	} = {},
 ): Session {
 	const did: string[] = [];
@@ -38,7 +43,7 @@ function session(
 	const journal: string[] = [];
 	const closedBy: string[] = [];
 	let paused = false;
-	const state = { idle, time: 0 };
+	const state = { idle, time: closing.startsAt ?? 0 };
 	// The machine a carry under way takes its work to, as the carry's
 	// hold says it from when it is asked until it settles.
 	let underWay: string | undefined;
@@ -84,6 +89,10 @@ function session(
 				}
 			},
 			carryUnderWay: () => underWay,
+			park: () => {
+				did.push("park");
+				return closing.park?.();
+			},
 		}),
 		did,
 		told,
@@ -289,6 +298,132 @@ describe("a stop or pause written before what it would end", () => {
 		resuming.pausing.act("resume", "joel", written(5_000));
 		expect(resuming.pausing.paused, "the resume still lands").toBe(false);
 		expect(resuming.did.at(-1)).toBe("carry on");
+	});
+});
+
+// Joel, 24 November, by 42P0R4 [f00e0dec]: hold a cell parked from the
+// launcher, so its process ends and frees memory, then wake it on a
+// message, a key or a window.
+describe("parking a session from outside its window", () => {
+	it("parks an idle one at once, saying who steered it in its host's journal", () => {
+		const idle = session(true);
+
+		idle.pausing.act("park", "joel");
+
+		expect(idle.did).toEqual(["park"]);
+		expect(idle.journal).toEqual([
+			"Parked from outside its window, steered by joel.",
+		]);
+	});
+
+	it("lets the turn under way finish, ends the run there, and parks once it settles", () => {
+		const busy = session(false);
+
+		busy.pausing.act("park", "joel");
+		expect(busy.did, "nothing parks mid-turn").toEqual([]);
+		expect(busy.told.at(-1)).toContain("after the current turn");
+
+		busy.pausing.turnEnded();
+		expect(busy.did).toEqual(["abort"]);
+
+		busy.idle = true;
+		busy.pausing.settled();
+		busy.pausing.settled();
+		expect(busy.did, "asked once, as it settles").toEqual(["abort", "park"]);
+		expect(busy.pausing.paused, "a park is no pause").toBe(false);
+	});
+
+	it("stays awake and says why where its park watch refuses, on screen and in the journal", () => {
+		const held = session(true, undefined, { park: () => "a prompt is open" });
+
+		held.pausing.act("park", "joel");
+
+		const line =
+			"A Park from outside its window, steered by joel, was refused: a prompt is open.";
+		expect(held.told).toEqual([line]);
+		expect(held.journal).toEqual([line]);
+	});
+
+	it("says why where nothing would wake it, in the words the host gives", () => {
+		const unheld = session(true, undefined, { park: () => NOTHING_WAKES });
+
+		unheld.pausing.act("park", "joel");
+
+		expect(unheld.told.at(-1)).toContain("parking it would only end it");
+	});
+
+	it("is called off by a talk, Resume, Stop, Pause or Close before it lands", () => {
+		const after: Record<string, (one: Session) => void> = {
+			talk: (one) => one.pausing.talked(),
+			resume: (one) => one.pausing.act("resume"),
+			stop: (one) => one.pausing.act("stop"),
+			pause: (one) => one.pausing.act("pause"),
+			close: (one) => one.pausing.act("close"),
+		};
+		for (const [what, then] of Object.entries(after)) {
+			const busy = session(false);
+			busy.pausing.act("park", "joel");
+			then(busy);
+			busy.idle = true;
+			busy.pausing.settled();
+
+			expect(busy.did, what).not.toContain("park");
+			expect(busy.told.join("\n"), what).toContain("called off");
+		}
+	});
+
+	it("is called off by a Carry before it lands", async () => {
+		const busy = session(false);
+		busy.pausing.act("park", "joel");
+
+		await busy.pausing.carry("osprey", "joel");
+		busy.idle = true;
+		busy.pausing.settled();
+
+		expect(busy.did).not.toContain("park");
+		expect(busy.told.join("\n")).toContain("a Carry came after it");
+	});
+
+	// A Park doesn't wake a session already parked, so one left for it is
+	// read as a message wakes it, and would park it again before it read
+	// the message.
+	it("drops a Park written before it last started here, saying so", () => {
+		const woken = session(true, undefined, { startsAt: 20_000 });
+
+		woken.pausing.act("park", "joel", written(5_000));
+
+		expect(woken.did, "the wake's message is read").toEqual([]);
+		expect(woken.told.at(-1)).toContain("this session last started");
+		expect(woken.journal).toEqual(woken.told);
+	});
+
+	it("parks for one written as it started, within what clocks differ by, or saying no time", () => {
+		for (const at of [written(20_000 - CLOCKS_DIFFER_MS), undefined]) {
+			const one = session(true, undefined, { startsAt: 20_000 });
+
+			one.pausing.act("park", "joel", at);
+
+			expect(one.did, String(at)).toEqual(["park"]);
+		}
+	});
+
+	it("drops a Park written before the person last talked to it", () => {
+		const one = session(true);
+		one.time = 30_000;
+		one.pausing.talked(written(20_000));
+
+		one.pausing.act("park", "joel", written(10_000));
+
+		expect(one.did).toEqual([]);
+		expect(one.told.at(-1)).toContain("the person last talked");
+	});
+
+	it("asks nothing as a run settles where no Park waits", () => {
+		const one = session(true);
+
+		one.pausing.settled();
+
+		expect(one.did).toEqual([]);
 	});
 });
 
