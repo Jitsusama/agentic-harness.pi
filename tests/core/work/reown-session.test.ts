@@ -8,7 +8,7 @@
  * drops.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -89,6 +89,27 @@ describe("a session resumed in a new host", () => {
 
 		expect(changed).toBe(1);
 		expect(memory.recall()[0]?.owners).toEqual([US]);
+	});
+
+	it("leaves when the tree was last asked for as it was", async () => {
+		// A sweep reads the record's last write as the session's last ask,
+		// so a restart rewriting every record it holds would make each of
+		// its trees look used that moment, and none idle for another day.
+		const memory = memoryAt();
+		memory.remember(tree("asked", ["a"], BEFORE));
+		const file = join(root, "cut", "asked.json");
+		const lastAsked = new Date("2026-11-20T12:00:00Z");
+		utimesSync(file, lastAsked, lastAsked);
+
+		await memory.reownSession("a", facts);
+
+		expect(
+			memory.recall()[0]?.owners,
+			"the restart should still re-own it",
+		).toEqual([US]);
+		expect(memory.askedAt(join(root, "asked"), "asked")).toBe(
+			lastAsked.getTime(),
+		);
 	});
 
 	it("keeps the host's other conversation and a holder still running", async () => {
