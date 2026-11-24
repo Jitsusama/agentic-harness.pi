@@ -533,6 +533,36 @@ describe("host-gate.sh", () => {
 		});
 	});
 
+	// Y9XISP on 24 November: a refspec that fetches no main, or a ref of the
+	// checkout's named origin/main, could set main at the head itself.
+	it("judges against main as origin has it, whatever the checkout's refspec fetches", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		await git(
+			on.checkout,
+			"config",
+			"remote.origin.fetch",
+			"+refs/heads/none:refs/remotes/origin/none",
+		);
+		await git(on.checkout, "update-ref", "refs/remotes/origin/main", sha);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
+	it("judges against origin's main, not a branch of the checkout's named origin/main", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		await git(on.checkout, "branch", "origin/main", sha);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();
 		const code = "host/engine/engine.ts";

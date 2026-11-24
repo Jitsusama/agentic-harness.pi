@@ -72,9 +72,14 @@ driven='^(extensions/(job|loadout|mesh|park|quest|reload|result-store|spend|suba
 # counts, since a host could read it.
 prose='(^|/)README\.md$'
 
-git fetch -q origin main
+# Main is fetched to its remote branch by name, since the checkout's own
+# refspec might leave origin/main where it was, and read by its full ref,
+# since a tag or branch of the checkout's named origin/main would outrank
+# it under the short name: either could set main at the head, so that
+# nothing reads as changed.
+git fetch -q origin +refs/heads/main:refs/remotes/origin/main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
-base=$(git merge-base origin/main "$sha")
+base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing. A rename is listed as
 # the path it left and the path it took, so hosted code moved to a README
