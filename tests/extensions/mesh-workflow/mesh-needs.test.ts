@@ -734,6 +734,26 @@ describe("a lost need's refusal", () => {
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 	}, 15_000);
+
+	// The node answered the need, then left the refusal's own find for a hub
+	// unfinished; the hub this peer keeps is read for it, as a send reads it.
+	it("names the hub this peer keeps when the node answers the need but not the find", async () => {
+		let asks = 0;
+		let answered = 1;
+		const started = await underHub(() => {
+			asks += 1;
+			return asks <= answered ? Promise.resolve() : new Promise(() => {});
+		});
+		await untilHubKept(started.emit);
+		// Only the need's own ask for ties is answered from here.
+		answered = asks + 1;
+
+		const said = await fontsNeed(started.tools);
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(HUB_NAMED);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
+	}, 15_000);
 });
 
 /** What a refusal says to ask the fixture's hub from use, 5GV2AH. */
