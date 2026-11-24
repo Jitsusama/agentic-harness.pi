@@ -117,6 +117,10 @@ interface Shape {
 	readonly stateBefore?: boolean;
 	/** After the compaction, this pointing at the first message, then "after". */
 	readonly pointAtEarly?: "label" | "context_edit";
+	/** A user message, "just before", sent right before "kept one". */
+	readonly twoInARow?: boolean;
+	/** After the compaction, a label marking "kept one". */
+	readonly labelKept?: boolean;
 }
 
 /**
@@ -154,6 +158,7 @@ function compactedLog(shape: Shape = {}): string {
 	sessions.appendMessage(answer("answer to early three"));
 	sessions.appendMessage(shell());
 	if (shape.stateBefore) sessions.appendModelChange("faux", "faux-2");
+	if (shape.twoInARow) sessions.appendMessage(user("just before"));
 	const keptOne = sessions.appendMessage(user("kept one"));
 	const answered = sessions.appendMessage(
 		answer("answer to kept one", "call-2"),
@@ -174,6 +179,7 @@ function compactedLog(shape: Shape = {}): string {
 		sessions.appendLabelChange(early, "start");
 	if (shape.pointAtEarly === "context_edit")
 		sessions.appendContextEdit(early, null);
+	if (shape.labelKept) sessions.appendLabelChange(keptOne, "pinned");
 	sessions.appendMessage(user("after"));
 	sessions.appendMessage(answer("answer to after"));
 	const file = sessions.getSessionFile();
@@ -196,7 +202,7 @@ function heldSession(
 	file: string,
 	report: (said: unknown) => void = () => {},
 ): AgentSession {
-	const manager = holdKeptHistory(SessionManager.open(file));
+	const manager = holdKeptHistory(SessionManager.open(file), report);
 	expect(Object.hasOwn(manager, "getTree")).toBe(true);
 	const session = piSession(manager);
 	countLeftOut(session, report);
@@ -232,52 +238,16 @@ describe("a held session's /session counts", () => {
 		expect(counts(heldSession(file))).toEqual(whole);
 	});
 
-	it("count each message once when the view is held again", () => {
-		const file = compactedLog();
-		const session = heldSession(file);
-		holdKeptHistory(session.sessionManager);
-		expect(counts(session)).toEqual(counts(wholeSession(file)));
-	});
-
-	it("count each message once when a new compaction comes between holds", () => {
+	it("count each message once when a new compaction comes before the view is held again", () => {
 		const file = compactedLog();
 		const session = heldSession(file);
 		compactAgain(session.sessionManager);
 		holdKeptHistory(session.sessionManager);
-		expect(saysUser(session.sessionManager, "after")).toBe(false);
+		expect(saysUser(session.sessionManager, "after")).toBe(true);
 		expect(counts(session)).toEqual(counts(wholeSession(file)));
-	});
-
-	it("count every message of the log when holding it again fails", () => {
-		const file = compactedLog();
-		const session = heldSession(file);
-		const manager = session.sessionManager;
-		compactAgain(manager);
-		const back = manager
-			.getEntries()
-			.find(
-				(entry) =>
-					entry.type === "message" &&
-					entry.message.role === "assistant" &&
-					JSON.stringify(entry.message.content).includes("answer to later one"),
-			)?.id;
-		if (!back) throw new Error("expected the later answer");
-		manager.branch(back);
-		const own = manager as unknown as { _buildIndex(): void };
-		const build = own._buildIndex.bind(manager);
-		let failed = false;
-		own._buildIndex = () => {
-			if (failed) return build();
-			failed = true;
-			throw new Error("index broke");
-		};
-		const report = vi.fn();
-		holdKeptHistory(manager, report);
-		expect(String(report.mock.calls[0]?.[0])).toContain("index broke");
-		expect(Object.hasOwn(manager, "getTree")).toBe(false);
-		expect(saysUser(manager, "early one")).toBe(true);
-		expect(manager.getLeafId()).toBe(back);
-		expect(counts(session)).toEqual(counts(wholeSession(file)));
+		expect(session.getUserMessagesForForking()).toEqual(
+			wholeSession(file).getUserMessagesForForking(),
+		);
 	});
 
 	it("keep counting what the log left after a read-back is refused", () => {
@@ -384,17 +354,6 @@ describe("a held session's /fork list", () => {
 		expect(session.getUserMessagesForForking()).toEqual(whole);
 	});
 
-	it("lists every user message once when a new compaction comes between holds", () => {
-		const file = compactedLog();
-		const session = heldSession(file);
-		compactAgain(session.sessionManager);
-		holdKeptHistory(session.sessionManager);
-		expect(saysUser(session.sessionManager, "after")).toBe(false);
-		expect(session.getUserMessagesForForking()).toEqual(
-			wholeSession(file).getUserMessagesForForking(),
-		);
-	});
-
 	it("lists every user message without reading the log again", () => {
 		const file = compactedLog();
 		const whole = wholeSession(file).getUserMessagesForForking();
@@ -407,47 +366,103 @@ describe("a held session's /fork list", () => {
 });
 
 describe("a held session's /fork, through pi's own", () => {
-	it.each<[string, Shape, string, boolean]>([
-		["a message only the log holds", {}, "early two in parts", true],
-		["the first kept message", {}, "kept one", true],
-		["a kept message after it", {}, "kept two", true],
+	it.each<[string, Shape, string, number]>([
+		["a message only the log holds", {}, "early two in parts", 1],
+		["the first kept message", {}, "kept one", 0],
+		["a kept message after it", {}, "kept two", 0],
 		[
 			"a message just before the first kept entry",
 			{ keepAnswer: true },
 			"kept one",
-			true,
+			0,
+		],
+		[
+			"the first of two messages just before the first kept entry",
+			{ keepAnswer: true, twoInARow: true },
+			"just before",
+			0,
+		],
+		[
+			"the second of two messages just before the first kept entry",
+			{ keepAnswer: true, twoInARow: true },
+			"kept one",
+			0,
 		],
 		[
 			"the first kept message, after state the view keeps",
 			{ stateBefore: true },
 			"kept one",
-			true,
+			0,
+		],
+		[
+			"a message just before the first kept entry, after state the view keeps",
+			{ keepAnswer: true, stateBefore: true },
+			"kept one",
+			0,
+		],
+		[
+			"a kept message after a labelled one before the first kept entry",
+			{ keepAnswer: true, labelKept: true },
+			"kept two",
+			0,
 		],
 		[
 			"a message after a label on an entry left out",
 			{ pointAtEarly: "label" },
 			"after",
-			true,
+			0,
 		],
-		[
-			"a message after an edit of an entry left out",
-			{ pointAtEarly: "context_edit" },
-			"after",
-			false,
-		],
-	])("forks from %s as from the whole log", async (_, shape, text, holds) => {
-		const file = compactedLog(shape);
+	])(
+		"forks from %s as from the whole log",
+		async (_, shape, text, readsBack) => {
+			const file = compactedLog(shape);
+			const whole = wholeSession(file);
+			const at = whole
+				.getUserMessagesForForking()
+				.find((point) => point.text === text)?.entryId;
+			if (!at) throw new Error(`expected ${text} listed`);
+			const expected = await forkOf(whole, at);
+			const report = vi.fn();
+			const held = heldSession(file, report);
+			expect(await forkOf(held, at)).toEqual(expected);
+			const said = report.mock.calls.map(([what]) => String(what));
+			expect(said).toHaveLength(readsBack);
+			for (const what of said) expect(what).toContain("whole log back");
+		},
+	);
+
+	it("forks from a message after an edit of an entry left out as from the whole log, said held whole", async () => {
+		const file = compactedLog({ pointAtEarly: "context_edit" });
 		const whole = wholeSession(file);
 		const at = whole
 			.getUserMessagesForForking()
-			.find((point) => point.text === text)?.entryId;
-		if (!at) throw new Error(`expected ${text} listed`);
+			.find((point) => point.text === "after")?.entryId;
+		if (!at) throw new Error("expected after listed");
 		const expected = await forkOf(whole, at);
-		const manager = holdKeptHistory(SessionManager.open(file));
-		expect(Object.hasOwn(manager, "getTree")).toBe(holds);
+		const report = vi.fn();
+		const manager = holdKeptHistory(SessionManager.open(file), report);
+		expect(Object.hasOwn(manager, "getTree")).toBe(false);
+		const said = report.mock.calls.map(([what]) => String(what));
+		expect(said).toEqual([
+			expect.stringMatching(
+				/holds the whole log: a context_edit entry it would leave out sits before kept message/,
+			),
+		]);
 		const held = piSession(manager);
 		countLeftOut(held, () => {});
 		expect(await forkOf(held, at)).toEqual(expected);
+	});
+
+	it("keeps a label on a message held before the first kept entry", () => {
+		const file = compactedLog({ keepAnswer: true, labelKept: true });
+		const whole = wholeSession(file);
+		const keptOne = whole
+			.getUserMessagesForForking()
+			.find((point) => point.text === "kept one")?.entryId;
+		if (!keptOne) throw new Error("expected kept one listed");
+		expect(whole.sessionManager.getLabel(keptOne)).toBe("pinned");
+		const held = heldSession(file).sessionManager;
+		expect(held.getLabel(keptOne)).toBe("pinned");
 	});
 });
 

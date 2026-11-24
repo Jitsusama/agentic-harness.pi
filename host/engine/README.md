@@ -342,7 +342,8 @@ a failed replacement and a drop while parked let it go.
 kept-history.ts has a conversation pi opens from a compacted log hold
 only what a rollover would keep of it: the entries from the last
 compaction's first kept entry on, the state from before it, and any
-user messages right before it, since pi forks from one at its parent. A log
+user messages right before it with the entry before those, since pi
+forks from one at its parent. A log
 of 98.6 MB held 142 MB of heap whole, against 30 MB for that view
 (126 MB against 14 over a bare session's). The file and session id
 stay as they are, so the roster, socket, store and mesh address do
@@ -361,11 +362,13 @@ twice, here and in pi's own open of it, where a whole open reads it
 once. It
 holds on a resume, a wake, an adoption and a replacement by an older
 log, and leaves pi's full open alone when anything fails or pi's
-privates aren't what it reads.
+privates aren't what it reads; a manager already holding a view is
+left as it stands.
 kept-history-session.ts has each session pi builds count and list the
 messages a held log left on disk: /session's message counts add the
-ones the view counted as it held, and /fork's list is the text of every
-user message the log held then, kept in the order pi lists them from a
+ones the view counted as it held, and /fork's list is the full text of
+every user message the log held then (241 KB measured for a 360 MB
+log), kept in the order pi lists them from a
 whole open, with those sent since after it. Neither reads the log
 again, so listing what /fork offers never holds up the host; the fork
 itself opens the log afresh, as pi's does. It wraps the session instance

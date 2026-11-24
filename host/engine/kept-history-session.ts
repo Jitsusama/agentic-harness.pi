@@ -11,7 +11,7 @@
  * disk, and the text of every user message the log held then. Neither
  * reads the log again, so /fork never waits on it: listing a 360 MB log's
  * 628 user messages from disk took 0.7 to 2 s of the thread every
- * conversation in a host shares, where their text holds 222 KB.
+ * conversation in a host shares, where their full text measured 241 KB.
  *
  * Only the session instance is wrapped, never pi's class, and only while
  * its manager holds a view: once the whole log is read back, or the

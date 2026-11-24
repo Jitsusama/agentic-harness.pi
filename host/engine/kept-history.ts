@@ -13,20 +13,24 @@
  * keeps its log and holds the rollover's view of it instead, never
  * writing that view.
  *
- * Just before the first kept entry, and any user messages right before
- * it, the view holds a rollover record that is never written, under the
- * id of the entry it stands in for: pi forks from a user message by
- * opening the file afresh at its parent, so each one held keeps its own.
- * The record names this same file as the parent, so
- * session_recall reads exactly what the view left out (recall-on-disk),
+ * pi forks from a user message by opening the file afresh at its parent,
+ * so the view also holds any user messages right before the first kept
+ * entry, and the entry before them as it stands, unless the state kept
+ * already holds it: each user message held keeps its own parent. Before
+ * those, the view holds a rollover record that is never written, under
+ * an id of its own, so session_recall and every lookup still find the
+ * entry before, not the record; like the state, it hangs off a parent
+ * of the view's, and a branch to it reads the log back. The record names this same file as the parent,
+ * so session_recall reads exactly what the view left out (recall-on-disk),
  * and it carries the spend of the turns left out, so spend-workflow's
  * total reads as before. Usage entries, also never written, carry the
  * tokens and cost of every entry left out, so pi's footer and /session
  * totals read as before. The messages left out are counted too, and the
- * text of every user message kept, for /session's counts and /fork's
- * list (kept-history-session.ts), so neither reads the log again. Every
- * id in the file stays taken, so pi never gives a new entry an id an
- * older one has.
+ * full text of every user message in the log, for /session's counts and
+ * /fork's list (kept-history-session.ts), so neither reads the log again;
+ * that text measured 241 KB for a 360 MB log. Every id in the file stays
+ * taken, so pi never gives a new entry an id an older one has. A manager
+ * already holding a view is left as it stands.
  *
  * Whatever needs the whole tree has the whole log read back first:
  * /tree, a lookup or branch to an entry from before the last compaction
@@ -49,6 +53,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import {
 	type Entry,
 	keptView,
+	pointedAt,
 	ROLLOVER_RECORD,
 	type RolloverRecord,
 	recordIndex,
@@ -169,6 +174,10 @@ export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
 		}
 		return manager;
 	}
+	// A manager already holding a view is left as it stands: every caller
+	// holds a manager pi has just opened, so this only keeps a second hold
+	// from counting the first view's entries as the whole log.
+	if (leftOutOf(manager)) return manager;
 	const file = manager.getSessionFile();
 	// Only a log already on disk: until then pi's first write is the whole log.
 	if (!file || !manager.flushed) return manager;
@@ -181,9 +190,7 @@ export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
 		return manager;
 	}
 	if (!held) return manager;
-	// An earlier view's entries are only part of the log, and its guards
-	// and counts go with it, so only pi's own open of the file puts it back.
-	const original = leftOutOf(manager) ? undefined : manager.fileEntries;
+	const original = manager.fileEntries;
 	const leaf = manager.leafId;
 	try {
 		install(manager, file, held, report);
@@ -209,7 +216,7 @@ interface Held {
 	readonly entries: unknown[];
 	/** The ids held that need the whole log to branch to or from. */
 	readonly dated: ReadonlySet<string>;
-	/** The messages left on disk, with any an earlier view left. */
+	/** The messages left on disk. */
 	readonly left: LeftOut;
 }
 
@@ -230,29 +237,46 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const taken = new Set(manager.byId.keys());
 	const firstKept = branch[view.from];
 	if (!firstKept) return undefined;
-	// pi forks from a user message by opening the file afresh at the parent
-	// the view gives it, so the user messages just before the first kept
-	// entry are held as they stand, and the record stands in for the entry
-	// before them under its id: every user message held keeps its parent.
+	// pi forks from a user message by opening the file afresh at its
+	// parent, so the user messages just before the first kept entry are
+	// held as they stand, with the entry before them unless the state kept
+	// already holds it: every user message held keeps its own parent.
 	let start = view.from;
 	while (start > 0 && isUserMessage(branch[start - 1])) start--;
-	const run = branch.slice(start, view.from);
 	const before = branch[start - 1];
+	// A record held after this one would be read in its place.
+	if (!before || isRolloverRecord(before)) return undefined;
+	const viewIds = new Set(view.entries.map((entry) => entry.id));
+	const beforeHeld = viewIds.has(before.id);
+	const run = branch.slice(beforeHeld ? start : start - 1, view.from);
+	const runIds = new Set(run.map((entry) => entry.id));
+	const at = view.entries.findIndex((entry) => entry.id === firstKept.id);
+	if (at === -1) return undefined;
+	const state = view.entries.slice(0, at);
+	// With labels and edits of the entries held beside them, as the view
+	// holds those of everything it keeps.
+	const kept = branch.slice(view.from).filter((entry) => {
+		const target = pointedAt(entry);
+		return (
+			viewIds.has(entry.id) || (target !== undefined && runIds.has(target))
+		);
+	});
+	const keptIds = new Set([...state, ...run, ...kept].map((entry) => entry.id));
+	const left = branch.filter((entry) => !keptIds.has(entry.id));
 	// With only those left out, the view would save nothing.
-	if (!before || view.dropped === run.length) return undefined;
+	if (left.length === 0) return undefined;
 	// A leaf the view leaves out, such as a label on an entry left on disk,
 	// would have the next turn hang off the entry before it, forking the log.
 	const leaf = branch[branch.length - 1];
-	if (!view.entries.some((entry) => entry.id === leaf?.id)) return undefined;
+	if (leaf === undefined || !keptIds.has(leaf.id)) return undefined;
 
-	const left = branch.slice(0, start);
-	// The turn that paid the session's first prompt is left on disk, so
+	// The turn that paid the session's first prompt may be left on disk, so
 	// the trigger reads that prompt from here.
 	const { firstPromptTokens } = compactionHistory(left);
 	const record: RolloverRecord = {
 		parentSession: file,
 		parentLeaf: before.id,
-		dropped: view.dropped - run.length,
+		dropped: left.length,
 		carried: {
 			...rolledFrom(left)?.carried,
 			[SPEND_CARRY]: { spend: spentOnBranch(left) },
@@ -261,34 +285,28 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 				: { [FIRST_PROMPT_CARRY]: { firstPromptTokens } }),
 		},
 	};
-	const at = view.entries.findIndex((entry) => entry.id === firstKept.id);
-	if (at === -1) return undefined;
-	const keptIds = new Set([...view.entries, ...run].map((entry) => entry.id));
-	// The state kept from before them may end with that entry itself; the
-	// record then goes first, and nothing held answers in its place.
-	const beforeHeld = keptIds.has(before.id);
 	const usage = usageLeftOut(manager.fileEntries, keptIds).map(
-		(left): Entry => ({
+		(spent): Entry => ({
 			type: "usage",
 			id: freshId(taken),
 			parentId: null,
 			timestamp: before.timestamp,
 			kind: "kept-history",
-			...left,
+			...spent,
 			note: "turns this conversation keeps on disk",
 		}),
 	);
 	const recordEntry: Entry = {
 		type: "custom",
-		id: beforeHeld ? freshId(taken) : before.id,
+		id: freshId(taken),
 		parentId: null,
 		timestamp: before.timestamp,
 		customType: ROLLOVER_RECORD,
 		data: record,
 	};
-	const state = view.entries.slice(0, at);
 	const standIns = [...usage, recordEntry];
-	const kept = view.entries.slice(at);
+	// When the state kept ends with the entry before the run, the record
+	// goes first, so that entry stays the run's parent.
 	const ordered = beforeHeld
 		? [...standIns, ...state, ...run, ...kept]
 		: [...state, ...standIns, ...run, ...kept];
@@ -307,7 +325,10 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 		let parent = onBranch.get(entry.id)?.parentId ?? null;
 		while (parent !== entry.parentId) {
 			const between = parent === null ? undefined : onBranch.get(parent);
-			if (between?.type !== "label") return undefined;
+			if (between?.type !== "label")
+				throw new Error(
+					`a ${between?.type ?? "missing"} entry it would leave out sits before kept message ${entry.id}, so a fork from that message would lose it`,
+				);
 			parent = between.parentId;
 		}
 	}
@@ -323,41 +344,38 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const dated = new Set(
 		chained.map((entry) => entry.id).filter((id) => !live.has(id)),
 	);
-	const onDisk = messagesLeftOut(
-		manager.fileEntries,
-		keptIds,
-		leftOutOf(manager),
-	);
+	const onDisk = messagesLeftOut(manager.fileEntries, keptIds);
 	return { entries: [header, ...chained], dated, left: onDisk };
+}
+
+/** Whether `entry` is a rollover record. */
+function isRolloverRecord(entry: Entry): boolean {
+	return entry.type === "custom" && entry.customType === ROLLOVER_RECORD;
 }
 
 /**
  * The messages of `entries` not in `kept`, on any branch, counted as pi's
- * `getSessionStats` counts them, added to what an earlier view of the
- * same manager left out, since those are no longer among its entries;
- * and every user message with text of the log, the earlier view's first,
- * as pi's `getUserMessagesForForking` lists them from a whole open.
+ * `getSessionStats` counts them, and every user message with text of the
+ * log, as pi's `getUserMessagesForForking` lists them from a whole open.
  */
 function messagesLeftOut(
 	entries: readonly unknown[],
 	kept: ReadonlySet<string>,
-	earlier: LeftOut | undefined,
 ): LeftOut {
-	const forks = [...(earlier?.forks ?? [])];
-	const listed = new Set(forks.map((point) => point.entryId));
+	const forks: ForkPoint[] = [];
 	const left = {
-		userMessages: earlier?.userMessages ?? 0,
-		assistantMessages: earlier?.assistantMessages ?? 0,
-		toolCalls: earlier?.toolCalls ?? 0,
-		toolResults: earlier?.toolResults ?? 0,
-		totalMessages: earlier?.totalMessages ?? 0,
+		userMessages: 0,
+		assistantMessages: 0,
+		toolCalls: 0,
+		toolResults: 0,
+		totalMessages: 0,
 		forks,
 	};
 	for (const entry of entries) {
 		if (!isRecord(entry) || entry.type !== "message") continue;
 		if (typeof entry.id !== "string") continue;
 		const point = forkPointOf(entry.id, entry.message);
-		if (point && !listed.has(point.entryId)) forks.push(point);
+		if (point) forks.push(point);
 		if (kept.has(entry.id)) continue;
 		left.totalMessages++;
 		const message = isRecord(entry.message) ? entry.message : {};
@@ -413,25 +431,24 @@ function install(
 
 /**
  * Put back pi's own full open after the view failed to install: the
- * `entries` it opened with, or with none, the file read whole again.
+ * `entries` it opened with, or when those fail to index, the file read
+ * whole again.
  */
 function restore(
 	manager: HeldManager,
-	entries: unknown[] | undefined,
+	entries: unknown[],
 	leaf: string | null,
 	file: string,
 	report: Report,
 ): void {
 	release(manager);
-	if (entries !== undefined) {
-		try {
-			manager.fileEntries = entries;
-			manager._buildIndex();
-			manager.leafId = leaf;
-			return;
-		} catch (error) {
-			report(error);
-		}
+	try {
+		manager.fileEntries = entries;
+		manager._buildIndex();
+		manager.leafId = leaf;
+		return;
+	} catch (error) {
+		report(error);
 	}
 	try {
 		manager.setSessionFile(file);

@@ -101,6 +101,11 @@ interface LogShape {
 	readonly abandoned?: boolean;
 	/** The prompt, in tokens, of the answer to "early one". */
 	readonly earlyPrompt?: number;
+	/**
+	 * What comes right before "kept one": an extension's note, or an
+	 * answer costing 0.25 that says "zephyr".
+	 */
+	readonly before?: "note" | "answer";
 }
 
 /**
@@ -126,7 +131,9 @@ function compactedLog(shape: LogShape = {}): string {
 	}
 	sessions.appendCustomEntry("away-state", { away: true });
 	exchange(sessions, "early two", 2);
-	sessions.appendCustomMessageEntry("peers", "a note", false);
+	if (shape.before === "answer")
+		sessions.appendMessage(answer("zephyr has the last word", 0.25));
+	else sessions.appendCustomMessageEntry("peers", "a note", false);
 	exchange(sessions, "kept one");
 	const kept = sessions
 		.getBranch()
@@ -187,6 +194,27 @@ function linesAdded(file: string, before: string): Entry[] {
 		.trim()
 		.split("\n")
 		.map((line) => JSON.parse(line) as Entry);
+}
+
+/** The entry of `entries` whose text is `text`. */
+function entryAt<E>(entries: readonly E[], text: string): E {
+	const found = entries.find((entry) => texts([entry]).includes(text));
+	if (!found) throw new Error(`expected an entry reading ${text}`);
+	return found;
+}
+
+/** What session_recall answers `request` with on `branch`, the log on disk read too. */
+function recalled(
+	branch: ReturnType<SessionManager["getBranch"]>,
+	request: { readonly entryId?: string; readonly query?: string },
+) {
+	const asked = askedBy(request);
+	const disk = markedOnDisk(branch, asked);
+	return recallAnswer(
+		[...disk.marked, ...markEntries(branch, asked)],
+		request,
+		asked,
+	);
 }
 
 describe("a conversation held from a compacted log", () => {
@@ -298,20 +326,51 @@ describe("a conversation held from a compacted log", () => {
 			);
 		expect(left).toHaveLength(2);
 		for (const entry of left) {
-			const request = { entryId: entry.id };
-			const asked = askedBy(request);
-			const disk = markedOnDisk(branch, asked);
-			const found = recallAnswer(
-				[...disk.marked, ...markEntries(branch, asked)],
-				request,
-				asked,
-			);
+			const found = recalled(branch, { entryId: entry.id });
 			expect(found.kind === "entry" && found.entry).toEqual({
 				id: entry.id,
 				text: texts([entry]).join("\n"),
 			});
 		}
 	});
+
+	it.each<[string, LogShape, string]>([
+		["an extension's note", {}, "note"],
+		["an answer", { before: "answer" }, "zephyr"],
+		[
+			"an answer, the kept entry an answer too",
+			{ before: "answer", keepFrom: "assistant" },
+			"zephyr",
+		],
+	])(
+		"reads the entry just before the kept turns as the whole log does, when it is %s",
+		(_, shape, word) => {
+			const file = compactedLog(shape);
+			const whole = SessionManager.open(file).getBranch();
+			const before = whole[whole.indexOf(entryAt(whole, "kept one")) - 1];
+			if (!before) throw new Error("expected an entry before kept one");
+			const report = vi.fn();
+			const held = hold(file, report);
+			// It hangs off the view's own chain, as the state kept does; a
+			// branch to it reads the log back, so only its parent differs.
+			expect(held.getEntry(before.id)).toEqual({
+				...before,
+				parentId: expect.any(String),
+			});
+			const byId = recalled(held.getBranch(), { entryId: before.id });
+			expect(byId.kind).toBe("entry");
+			expect(byId).toEqual(recalled(whole, { entryId: before.id }));
+			const byWord = recalled(held.getBranch(), { query: word });
+			const wholeWord = recalled(whole, { query: word });
+			expect(
+				byWord.kind === "hits" && byWord.hits.map((hit) => hit.id),
+			).toEqual([before.id]);
+			expect(
+				wholeWord.kind === "hits" && wholeWord.hits.map((hit) => hit.id),
+			).toEqual([before.id]);
+			expect(report).not.toHaveBeenCalled();
+		},
+	);
 
 	it("shows the whole tree", () => {
 		const file = compactedLog();
@@ -413,6 +472,19 @@ describe("a held conversation and its whole log", () => {
 		expect(spentOnBranch(held.getBranch())).toBeCloseTo(whole);
 		expect(whole).toBeCloseTo(4.5);
 	});
+
+	it.each<[string, LogShape]>([
+		["the kept entry a message", { before: "answer" }],
+		["the kept entry an answer", { before: "answer", keepFrom: "assistant" }],
+	])(
+		"keeps the spend once when the entry before the kept turns is a costed answer, %s",
+		(_, shape) => {
+			const file = compactedLog(shape);
+			const whole = spentOnBranch(SessionManager.open(file).getBranch());
+			expect(spentOnBranch(hold(file).getBranch())).toBeCloseTo(whole);
+			expect(whole).toBeCloseTo(4.75);
+		},
+	);
 
 	it("keeps what an earlier rollover record carried", () => {
 		const file = compactedLog({ rolled: true });
@@ -586,6 +658,51 @@ describe("a held conversation and its whole log", () => {
 		expect(texts(held.getEntries())).toContain("early one");
 		expect(held.getLeafId()).toBe(SessionManager.open(file).getLeafId());
 		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("reads its log afresh, its leaf where it was, when its own entries fail to index again", () => {
+		const file = compactedLog();
+		const opened = SessionManager.open(file);
+		const target = entryReading(opened, "after").id;
+		opened.branch(target);
+		const own = opened as unknown as { _buildIndex(): void };
+		const build = own._buildIndex.bind(opened);
+		let failures = 0;
+		own._buildIndex = () => {
+			if (failures < 2) {
+				failures++;
+				throw new Error(`index broke ${failures}`);
+			}
+			build();
+		};
+		const report = vi.fn();
+		const held = holdKeptHistory(opened, report);
+		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
+			expect.stringContaining("index broke 1"),
+			expect.stringContaining("index broke 2"),
+		]);
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(held.getLeafId()).toBe(target);
+		expect(held.getLeafId()).not.toBe(SessionManager.open(file).getLeafId());
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("leaves a manager already holding a view as it stands when held again", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		exchange(held, "later one");
+		const kept = entryReading(held, "later one").id;
+		exchange(held, "later two");
+		held.appendCompaction("what happened since", kept, 1000);
+		exchange(held, "latest");
+		const entries = held.getEntries();
+		const leaf = held.getLeafId();
+		const report = vi.fn();
+		expect(holdKeptHistory(held, report)).toBe(held);
+		expect(held.getEntries()).toEqual(entries);
+		expect(texts(held.getEntries())).toContain("after");
+		expect(held.getLeafId()).toBe(leaf);
+		expect(report).not.toHaveBeenCalled();
 	});
 });
 
