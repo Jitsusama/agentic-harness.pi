@@ -39,9 +39,9 @@
  * peer asked, which gets a turn however it was sent, since the peer is
  * waiting on it: an answer sent as an fyi would otherwise sit until
  * something else started a turn. An fyi more than {@link FYI_MS} old
- * when it reaches the peer is a glance, and so is a hold older than the
- * longest a hold stands ({@link MOST_HOLD_MS}), which no longer holds
- * anything. Fresh news a peer sends to an idle peer whose
+ * when it reaches the peer is a glance, and so is a hold past its end
+ * ({@link holdEnds}: the end it said, or the longest a hold stands),
+ * which no longer holds anything. Fresh news a peer sends to an idle peer whose
  * last run ended blocked on it, by its address or in answer to it, takes
  * a turn too: on 23 Nov J6OCG0 ended "Blocked: ... waits on 2AF2DH",
  * 2AF2DH's promised sha came as an fyi with no thread, and J6OCG0 sat
@@ -68,7 +68,7 @@
  */
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
-import { MOST_HOLD_MS } from "./lease.ts";
+import { holdEnds } from "./lease.ts";
 import { isHomeTo, type Message } from "./message.ts";
 import type { Presence } from "./presence.ts";
 
@@ -191,9 +191,9 @@ export function attend(message: Message, at: Standing): Heed {
 	if (
 		message.intent === "hold" &&
 		at.now !== undefined &&
-		at.now - Date.parse(message.at) > MOST_HOLD_MS
+		at.now > holdEnds(message)
 	) {
-		return { attention: "glance", why: "a hold past the longest one stands" };
+		return { attention: "glance", why: "a hold past its end" };
 	}
 	// On 7 November three orchestrators sat on their sessions' findings and
 	// landings, noted with no turn, until they parked, and Joel woke each

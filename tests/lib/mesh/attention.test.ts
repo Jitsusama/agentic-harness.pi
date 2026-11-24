@@ -329,6 +329,22 @@ describe("attention", () => {
 		).toBe("note");
 	});
 
+	it("glances at a hold past the end it said", () => {
+		const ends = Date.parse("2026-10-22T04:40:00.000Z");
+		const held = message({
+			intent: "hold",
+			to: ["@5GV2AH"],
+			at: "2026-10-22T04:00:00.000Z",
+			ends: new Date(ends).toISOString(),
+		});
+
+		expect(attend(held, { ...standing, now: ends + 1 })).toEqual({
+			attention: "glance",
+			why: "a hold past its end",
+		});
+		expect(attend(held, { ...standing, now: ends }).attention).toBe("turn");
+	});
+
 	it("glances at a hold older than the longest a hold stands", () => {
 		const sent = Date.parse("2026-10-22T04:00:00.000Z");
 		const held = message({
@@ -338,7 +354,7 @@ describe("attention", () => {
 		});
 
 		expect(attend(held, { ...standing, now: sent + MOST_HOLD_MS + 1 })).toEqual(
-			{ attention: "glance", why: "a hold past the longest one stands" },
+			{ attention: "glance", why: "a hold past its end" },
 		);
 		expect(
 			attend(held, { ...standing, now: sent + MOST_HOLD_MS }).attention,

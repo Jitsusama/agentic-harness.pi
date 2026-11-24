@@ -24,7 +24,7 @@
 
 import { ambientSession, sessionEnv } from "../core/session/index.ts";
 import { type Holding, isCurrent, type Lease } from "./lease.ts";
-import { type Listener, type Message, reaches } from "./message.ts";
+import { holdStarts, type Listener, type Message, reaches } from "./message.ts";
 
 /** The environment variable a peer names its session in. */
 export const MESH_SESSION_ENV = "PI_MESH_SESSION";
@@ -96,7 +96,10 @@ export function holdsReaching(
 		)
 		.flatMap((lease) => {
 			const hold = read(lease.subject);
-			return hold?.intent === "hold" && reaches(hold, listener, pid)
+			// One sent ahead holds nobody until its window opens.
+			return hold?.intent === "hold" &&
+				holdStarts(hold) <= now &&
+				reaches(hold, listener, pid)
 				? [{ hold, lease }]
 				: [];
 		})

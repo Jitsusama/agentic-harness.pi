@@ -113,6 +113,22 @@ describe("the holds reaching a peer", () => {
 		).toEqual(["a-1", "b-2"]);
 	});
 
+	it("leave out a hold sent ahead until its window opens", () => {
+		const ahead = message({
+			id: "ahead",
+			starts: new Date(at + minutes(5)).toISOString(),
+		});
+		const board = [{ session: "holder", leases: [hold("ahead")] }];
+		const listener = { addresses: ["LUQ49E"], groups: [] };
+		const holding = (now: number) =>
+			holdsReaching(board, () => ahead, listener, 7, now).map(
+				({ hold }) => hold.id,
+			);
+
+		expect(holding(at), "before it starts").toEqual([]);
+		expect(holding(at + minutes(5)), "once it starts").toEqual(["ahead"]);
+	});
+
 	it("include one sent to its home group", () => {
 		const home = [
 			{ session: "holder", leases: [hold("home")] },

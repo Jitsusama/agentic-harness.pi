@@ -39,6 +39,7 @@ import {
 	type Held,
 	HOLD_TURNS,
 	type HoldTurns,
+	holdEnds,
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
@@ -424,7 +425,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			if (!own || !peer) return;
 			const now = Date.now();
 			if (message.intent === "hold") {
-				own.take("hold", message.id, MOST_HOLD_MS, cut(message.text), now);
+				const left = standsUntil(message) - now;
+				if (left > 0)
+					own.take("hold", message.id, left, cut(message.text), now);
 			}
 			// Answering or replacing its own hold is how a holder ends it.
 			for (const ended of [message.re, message.supersedes]) {
@@ -493,15 +496,20 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const ends: HoldEnd[] = [];
 			for (const wait of waits) {
 				const hold = at.transport.read(wait.subject);
+				// A hold that said when it ends ends then, as its holder said.
+				const endedAsSaid =
+					hold?.ends !== undefined && Date.parse(hold.ends) <= now;
 				// A holder restored after a reboot answers at its old address,
 				// so it is not gone, but what it held off was the machine's.
-				const how = !isCurrent(wait, now)
-					? "it has stood two hours, as long as a hold lasts"
-					: hold && booted !== undefined && Date.parse(hold.at) < booted
-						? "the machine has restarted since it was sent"
-						: hold && heldByGone(hold.from, present, gone)
-							? "its holder has ended"
-							: undefined;
+				const how = endedAsSaid
+					? `its holder said it ends at ${clock({ at: hold?.ends ?? "" })}`
+					: !isCurrent(wait, now)
+						? "it has stood two hours, as long as a hold lasts"
+						: hold && booted !== undefined && Date.parse(hold.at) < booted
+							? "the machine has restarted since it was sent"
+							: hold && heldByGone(hold.from, present, gone)
+								? "its holder has ended"
+								: undefined;
 				if (!how) continue;
 				// With no hold to tell of, the wait goes now.
 				if (!hold) {
@@ -521,7 +529,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					after: turnOn(wait.subject),
 					hold,
 					how,
-					said: false,
+					said: endedAsSaid,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				});
 			}
@@ -581,9 +589,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 }
 
 /** When a hold stops standing, however long its holder is there. */
-function standsUntil(hold: Pick<Message, "at">): number {
-	return Date.parse(hold.at) + MOST_HOLD_MS;
-}
+const standsUntil = holdEnds;
 
 /** Whether the peer signing with this address has ended, by the census. */
 function heldByGone(

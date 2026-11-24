@@ -79,7 +79,13 @@ function sentBy(
 	dir: string,
 	ago: number,
 	from: string,
-	over: { intent?: string; re?: string; endsHold?: true; pid?: number } = {},
+	over: {
+		intent?: string;
+		re?: string;
+		endsHold?: true;
+		pid?: number;
+		ends?: string;
+	} = {},
 ): string {
 	// A pid of each sender's own, since a shared one reads as the same sender.
 	const pid =
@@ -99,6 +105,7 @@ function sentBy(
 			pid,
 			...(over.re ? { re: over.re } : {}),
 			...(over.endsHold ? { endsHold: true } : {}),
+			...(over.ends ? { ends: over.ends } : {}),
 		}),
 	);
 	return id;
@@ -184,6 +191,23 @@ describe("a folder of messages", () => {
 		transport.settle(now);
 		expect(transport.recentIds()).toEqual([]);
 		expect(transport.ids()).toEqual([hold, parked, end]);
+	});
+
+	it("moves a hold once past the end it said, with no word after it", () => {
+		const transport = folderTransport(messages);
+		const over = sentBy(messages, RECENT_MS + 4000, "WCJQSG", {
+			intent: "hold",
+			ends: new Date(now - 1000).toISOString(),
+		});
+		const ahead = sentBy(messages, RECENT_MS + 3000, "16V6F4", {
+			intent: "hold",
+			ends: new Date(Date.now() + 60_000).toISOString(),
+		});
+
+		transport.settle(now - RECENT_MS);
+
+		expect(transport.recentIds()).toEqual([ahead]);
+		expect(transport.ids()).toEqual([over, ahead]);
 	});
 
 	it("ends a hold on another peer's word only when it says so", () => {

@@ -6,6 +6,7 @@ import { ALL } from "../../../lib/mesh/group.ts";
 import {
 	asksEach,
 	clock,
+	heading,
 	isHomeTo,
 	type Message,
 	messageFrom,
@@ -53,6 +54,46 @@ describe("an envelope", () => {
 		expect(
 			messageFrom({ ...message(), re: "0-X-1-bbbb", endsHold: "yes" }),
 		).toEqual({ ...message(), re: "0-X-1-bbbb" });
+	});
+
+	it("keeps a hold's window only where each end reads as a time, its end after its start", () => {
+		const window = {
+			starts: "2026-10-21T22:30:00.000Z",
+			ends: "2026-10-21T23:10:00.000Z",
+		};
+		expect(messageFrom({ ...message(), ...window })).toEqual({
+			...message(),
+			...window,
+		});
+		expect(
+			messageFrom({ ...message(), starts: "soon", ends: 7 }),
+			"neither reads as a time",
+		).toEqual(message());
+		expect(
+			messageFrom({ ...message(), ends: "2026-10-21T21:00:00.000Z" }),
+			"an end before it was sent",
+		).toEqual(message());
+		expect(
+			messageFrom({ ...message(), ...window, ends: window.starts }),
+			"an end at its start",
+		).toEqual({ ...message(), starts: window.starts });
+		expect(
+			messageFrom({ ...message(), intent: "fyi", ...window }),
+			"only a hold has a window",
+		).toEqual(message({ intent: "fyi" }));
+	});
+
+	it("heads a hold with its window, and one with none as before", () => {
+		const at = (iso: string) => clock({ at: iso });
+		const starts = "2026-10-21T22:30:00.000Z";
+		const ends = "2026-10-21T23:10:00.000Z";
+		expect(heading(message({ starts, ends }))).toContain(
+			`hold (${at(starts)} to ${at(ends)}) from WCJQSG`,
+		);
+		expect(heading(message({ ends }))).toContain(
+			`hold (now to ${at(ends)}) from`,
+		);
+		expect(heading(message())).toContain("] hold from WCJQSG");
 	});
 
 	it("reads an intent it does not know as an fyi", () => {

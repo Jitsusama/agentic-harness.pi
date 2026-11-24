@@ -113,6 +113,39 @@ describe("a wait on a hold", () => {
 		expect(own.leases).toEqual([]);
 	});
 
+	it("ends at the time its holder said, as said, with no word from it", async () => {
+		// On 24 Nov a hold sent at 12:14 for a 12:30 to 13:00 call said
+		// 13:10 in its text, and only its holder remembering could end it.
+		const { at, own, from, mine } = leasing();
+		const endsAt = Date.now() + 40 * 60_000;
+		const ends = new Date(endsAt).toISOString();
+		const hold = from({ intent: "hold", text: "hold for a call", ends });
+		at.sent(mine({ re: hold.id, text: "parked for the call" }));
+
+		expect(own.leases.map((lease) => lease.until)).toEqual([ends]);
+		expect(await at.lapsed(endsAt - 1)).toEqual([]);
+		expect(await at.lapsed(endsAt)).toEqual([
+			{
+				after: HOLD_TURNS.heardMs,
+				hold,
+				how: `its holder said it ends at ${clock({ at: ends })}`,
+				said: true,
+				why: "parked for the call",
+			},
+		]);
+	});
+
+	it("is held by its holder until the end it said", () => {
+		const { at, own, mine } = leasing();
+		const ends = new Date(Date.now() + 40 * 60_000).toISOString();
+		const hold = mine({ intent: "hold", text: "hold for a call", ends });
+		at.sent(hold);
+
+		expect(
+			own.leases.map(({ kind, subject, until }) => ({ kind, subject, until })),
+		).toEqual([{ kind: "hold", subject: hold.id, until: ends }]);
+	});
+
 	it("ends once the machine has restarted since the hold, though its holder is back", async () => {
 		// After a reboot every session came back at the same address, so no
 		// holder was gone, and seven peers sat parked on a hold whose holder

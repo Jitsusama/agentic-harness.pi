@@ -69,7 +69,7 @@ export function registerTools(
 		// tools and went through codemode; one line names the seven.
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, mesh_sprout starts new work as a cell of its own, and mesh_end lets an orchestrator end a session of its own.",
-		description: `Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. When you don't know who holds what you need, send to need with about saying what it is about: it goes to the one live cell that works on it, found by the node's hubs and ties, and is refused, passed to nobody in its place, when none is within reach. ${NEED_GRANTS_NOTHING} A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself with re and endsHold when work may resume; a reboot ends it too. Answering your own hold without endsHold leaves it held. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave \`to\` out and the mesh picks, saying where. mesh_groups lists the groups.`,
+		description: `Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. When you don't know who holds what you need, send to need with about saying what it is about: it goes to the one live cell that works on it, found by the node's hubs and ties, and is refused, passed to nobody in its place, when none is within reach. ${NEED_GRANTS_NOTHING} A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself with re and endsHold when work may resume; a reboot ends it too. Answering your own hold without endsHold leaves it held. When a hold's end is known, give endsAt (and startsAt for one sent ahead), so it ends on time by itself. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave \`to\` out and the mesh picks, saying where. mesh_groups lists the groups.`,
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -100,6 +100,18 @@ export function registerTools(
 				Type.Boolean({
 					description:
 						"true when the hold named by re is over: your own, as you end it, or another peer's only when the person has told you it is, which ends once they confirm, never on your own judgement",
+				}),
+			),
+			startsAt: Type.Optional(
+				Type.String({
+					description:
+						"For a hold sent ahead: when it starts holding, as HH:MM on this machine's clock or an ISO time; nobody is held before then. Left out, it holds from now",
+				}),
+			),
+			endsAt: Type.Optional(
+				Type.String({
+					description:
+						"For a hold whose end is known, such as a call's: when it ends by itself, as HH:MM on this machine's clock or an ISO time, and every peer waiting on it gets a turn then without anyone ending it. Left out, it holds until ended, two hours at most",
 				}),
 			),
 			realm: Type.Optional(

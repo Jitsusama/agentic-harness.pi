@@ -50,6 +50,7 @@ import {
 	type WholeWritesOptions,
 	wholeWrites,
 } from "../internal/write-whole.ts";
+import { holdStarts, type Message } from "./message.ts";
 import { checkoutOf, repositoryName } from "./scope.ts";
 import {
 	removeQuietly,
@@ -107,6 +108,18 @@ export const RUN_LEASE_MS = 10 * 60 * 1000;
 
 /** The longest a hold stands, and so a wait on it. */
 export const MOST_HOLD_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * When a hold stops standing, in milliseconds, however long its holder
+ * is there: when it says it ends, or the longest a hold stands from its
+ * start, whichever comes first.
+ */
+export function holdEnds(
+	hold: Pick<Message, "at" | "starts" | "ends">,
+): number {
+	const most = holdStarts(hold) + MOST_HOLD_MS;
+	return hold.ends === undefined ? most : Math.min(Date.parse(hold.ends), most);
+}
 
 /** How a hold's waiters take their turns once it is over. */
 export interface HoldTurns {

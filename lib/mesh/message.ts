@@ -68,6 +68,17 @@ export interface Message {
 	 */
 	readonly endsHold?: true;
 	/**
+	 * When a hold sent ahead starts holding, as an ISO time; absent, it
+	 * holds from when it was sent. Only a hold carries it.
+	 */
+	readonly starts?: string;
+	/**
+	 * When a hold ends by itself, as an ISO time, without its holder
+	 * saying so; absent, it stands until its holder ends it, for two hours
+	 * at most. Only a hold carries it.
+	 */
+	readonly ends?: string;
+	/**
 	 * The realm it crossed from, written by the node that carried it in
 	 * (see flow.ts). Nothing said here reaches back there, so nobody here
 	 * can answer it.
@@ -88,6 +99,8 @@ export type Draft = Pick<
 	| "re"
 	| "supersedes"
 	| "endsHold"
+	| "starts"
+	| "ends"
 >;
 
 /** The process sending, with a stamp when it shares ownership with siblings. */
@@ -154,7 +167,40 @@ export function messageFrom(value: unknown): Message | undefined {
 		...(typeof one.fromRealm === "string" && one.fromRealm !== ""
 			? { fromRealm: one.fromRealm }
 			: {}),
+		...windowOf(one),
 	};
+}
+
+/**
+ * A hold's window as written, each end kept only when it reads as a
+ * time, and its end only when it falls after its start; nothing for a
+ * message that isn't a hold.
+ */
+function windowOf(
+	one: Record<string, unknown>,
+): Pick<Message, "starts" | "ends"> {
+	if (intentOf(one.intent) !== "hold") return {};
+	const time = (value: unknown): string | undefined =>
+		typeof value === "string" && Number.isFinite(Date.parse(value))
+			? value
+			: undefined;
+	const starts = time(one.starts);
+	const ends = time(one.ends);
+	const from = Date.parse(starts ?? (typeof one.at === "string" ? one.at : ""));
+	const endsAfter =
+		ends !== undefined && !(Number.isFinite(from) && Date.parse(ends) <= from);
+	return {
+		...(starts !== undefined ? { starts } : {}),
+		...(endsAfter ? { ends } : {}),
+	};
+}
+
+/**
+ * When a hold starts holding, in milliseconds: its `starts`, or when it
+ * was sent.
+ */
+export function holdStarts(hold: Pick<Message, "at" | "starts">): number {
+	return Date.parse(hold.starts ?? hold.at);
 }
 
 /**
@@ -248,7 +294,16 @@ export function line(message: Message): string {
  * a sender is told of what it sent, since the text is already before it.
  */
 export function heading(message: Message): string {
-	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${sender(message)} to ${message.to.join(", ")}`;
+	return `${clock(message)} [${shortId(message)}] ${message.intent}${windowSaid(message)} from ${sender(message)} to ${message.to.join(", ")}`;
+}
+
+/** A hold's window as a reader is told it, such as ` (12:15 to 13:10)`. */
+function windowSaid(message: Message): string {
+	const { starts, ends } = message;
+	if (starts === undefined && ends === undefined) return "";
+	const from = starts !== undefined ? clock({ at: starts }) : "now";
+	const until = ends !== undefined ? clock({ at: ends }) : "its end";
+	return ` (${from} to ${until})`;
 }
 
 /** Who sent a message, with the realm it crossed from when it did. */

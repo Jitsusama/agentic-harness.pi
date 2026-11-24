@@ -735,7 +735,16 @@ doing only when it is the easy thing:
   the run.
 - **hold:** a hold sent claims what it holds, until its sender
   answers (`re`) or replaces (`supersedes`) it, or for two
-  hours at most. A hold that answers a hold goes as an fyi,
+  hours at most. A hold whose end is known says it: mesh_send's
+  `endsAt` (HH:MM on this machine's clock, or an ISO time)
+  writes `ends`, and the hold ends then by itself, its waiters
+  handed it back as one its holder ended, so a call's hold no
+  longer waits on its holder remembering. `startsAt` writes
+  `starts`, and a hold sent ahead holds nobody until then; the
+  two hours count from it. A message heads a windowed hold as
+  `hold (12:30 to 13:10)`. Both are optional fields an older
+  reader leaves unread, and the machine's node carries them
+  between machines only once its record knows them. A hold that answers a hold goes as an fyi,
   saying so: its sender's end would hold everyone again, and
   another peer's answer would park everyone it reached. Only
   a replacement keeps a hold a hold. No lease outlives the boot it was taken in:

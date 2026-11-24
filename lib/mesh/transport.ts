@@ -409,8 +409,13 @@ function settleFolder(dir: string, before: number): void {
 		),
 	);
 	const days = dayListings(dir);
+	const now = Date.now();
 	for (const hold of holds) {
-		if (!ended.has(hold.id) && endedAway(hold, days)) ended.add(hold.id);
+		// A hold that said when it ends is over then, with no word after it.
+		const endedAsSaid = hold.ends !== undefined && Date.parse(hold.ends) <= now;
+		if (endedAsSaid || (!ended.has(hold.id) && endedAway(hold, days))) {
+			ended.add(hold.id);
+		}
 	}
 	const standing = new Set(
 		holds.filter((hold) => !ended.has(hold.id)).map((hold) => hold.id),

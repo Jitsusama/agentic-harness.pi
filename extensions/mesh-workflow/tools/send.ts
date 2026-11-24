@@ -21,6 +21,7 @@ import {
 	personLeftOut,
 	personNamed,
 } from "../../../lib/mesh/group.ts";
+import { holdNote, windowAsked } from "../../../lib/mesh/hold-window.ts";
 import { lists, onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
@@ -229,6 +230,10 @@ export interface SendParams {
 	readonly re?: string;
 	readonly supersedes?: string;
 	readonly endsHold?: boolean;
+	/** When a hold starts holding, as an ISO time or HH:MM here. */
+	readonly startsAt?: string;
+	/** When a hold ends by itself, as an ISO time or HH:MM here. */
+	readonly endsAt?: string;
 	readonly realm?: string;
 	/** What a need named in `to` is about; its text, when left out. */
 	readonly about?: string;
@@ -742,6 +747,13 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			? questionTaken(at, to)
 			: undefined;
 	const re = answersNamed ?? taken?.id;
+	const asked = windowAsked(
+		intent.intent,
+		params.startsAt,
+		params.endsAt,
+		Date.now(),
+	);
+	notes.push(...asked.notes);
 	if (taken) {
 		notes.push(
 			`It answers [${shortId(taken)}], the question this peer took up; name re to say it answers another.`,
@@ -756,6 +768,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		...(re ? { re } : {}),
 		...(supersedes ? { supersedes } : {}),
 		...(ended.hold && re === ended.hold.id ? { endsHold: true as const } : {}),
+		...asked.window,
 	});
 	at.sent(message);
 	// A peer reads what it writes to: overnight Skynet listened to one
@@ -794,9 +807,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	if (message.intent === "hold") {
-		notes.push(
-			`It holds for two hours at most: answer [${shortId(message)}] with endsHold, or replace it, when it is over, so whoever waits on it carries on.`,
-		);
+		notes.push(holdNote(message));
 	}
 	const answered = re ? at.transport.read(re) : undefined;
 	if (message.endsHold && answered) {
