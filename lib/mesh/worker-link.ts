@@ -217,7 +217,9 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			} else refuse({ what: "presence", why: reply.why });
 			return;
 		}
-		if (reply.ok) taken();
+		// A send the node already holds, as one said again after a drop that
+		// came after the node took it, is refused as said: it went.
+		if (reply.ok || saidAlready(reply.why)) taken();
 		else refuse({ what: "send", id: asked.message.id, why: reply.why });
 	};
 
@@ -500,6 +502,15 @@ export function eventFrom(line: string): Heard {
 					message !== undefined && isBareId(message.id),
 			),
 	};
+}
+
+/**
+ * Whether the node refused a send because it already holds that id
+ * (mycelium#421: "<id> is said already, and a worker can't write over
+ * it"), which means the message reached it.
+ */
+function saidAlready(why: string): boolean {
+	return / is said already\b/.test(why);
 }
 
 /**

@@ -275,6 +275,27 @@ describe("a worker's link to its node", () => {
 		expect(held.connections, "no watch opens").toHaveLength(1);
 	});
 
+	it("takes a send the node already holds as sent", async () => {
+		const held = await node((asked, on) =>
+			"Send" in asked
+				? [
+						'{"Err":"3-W0RK3R-42-cc is said already, and a worker can\'t write over it"}',
+					]
+				: agreed()(asked, on),
+		);
+		const session = linked();
+		link?.present(presence());
+
+		link?.relay(message("3-W0RK3R-42-cc"));
+		await until(
+			"the send is answered",
+			() => (held.connections[0]?.said.length ?? 0) === 2,
+		);
+		await quietFor(10, 5);
+
+		expect(session.refused).toEqual([]);
+	});
+
 	it("tells a refusal said again only once", async () => {
 		const held = await node(() => ['{"Err":"that session lives elsewhere"}']);
 		const session = linked();
