@@ -434,7 +434,7 @@ describe("trees whose repository is gone", () => {
 		async () => {
 			const { memory, sweep, lostClone, state } = await setUp();
 			const { tree, clone } = await lostClone("cached");
-			const readOnly = join(tree, "cache");
+			const readOnly = join(tree, listedAfterGitFile(tree));
 			mkdirSync(join(readOnly, "deep"), { recursive: true });
 			writeFileSync(join(readOnly, "deep", "file"), "built\n");
 			chmodSync(readOnly, 0o500);
@@ -452,13 +452,36 @@ describe("trees whose repository is gone", () => {
 				// Still a lost clone's tree, so the next sweep tells it so.
 				expect(goneGitDir(tree), "the git folder its .git names").toBeDefined();
 			} finally {
+				const name = basename(readOnly);
 				for (const where of [tree, ...asidesOf(state, tree)]) {
-					if (existsSync(join(where, "cache")))
-						chmodSync(join(where, "cache"), 0o700);
+					if (existsSync(join(where, name)))
+						chmodSync(join(where, name), 0o700);
 				}
 			}
 		},
 	);
+
+	/**
+	 * A folder name the tree lists after its `.git` file. A removal goes in
+	 * the order the folder lists, so only a read-only folder after the file
+	 * leaves the file gone, the case the put-back must mend; the order is
+	 * the filesystem's, creation order on some and a hash on others.
+	 */
+	function listedAfterGitFile(tree: string): string {
+		for (let i = 0; i < 64; i++) {
+			const name = `cache-${i}`;
+			mkdirSync(join(tree, name));
+			const listed = readdirSync(tree);
+			if (listed.indexOf(name) > listed.indexOf(".git")) {
+				for (const other of listed) {
+					if (other.startsWith("cache-") && other !== name)
+						rmSync(join(tree, other), { recursive: true });
+				}
+				return name;
+			}
+		}
+		throw new Error(`no folder name ${tree} lists after its .git file`);
+	}
 
 	it("keeps one whose clone went for any other reason", async () => {
 		const { sweep, lostClone } = await setUp();

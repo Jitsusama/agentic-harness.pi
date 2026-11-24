@@ -97,19 +97,50 @@ export async function takeOrphan(
 		// back where it was, with its record and its `.git` file, for the
 		// next sweep.
 		const why = messageOf(error);
+		// Something standing at the tree's path by now, even an empty folder
+		// a rename would land over, keeps what is left aside.
+		if (existsSync(tree.path)) {
+			outcome.refused.push({
+				path: tree.path,
+				why: `${why}; what is left is at ${aside}: its path is taken again`,
+			});
+			return;
+		}
 		try {
 			renameSync(aside, tree.path);
-			const home = join(tree.path, ".git");
-			if (dotGit !== undefined && !existsSync(home))
-				writeFileSync(home, dotGit);
-			deps.memory.remember(forgotten);
-			outcome.refused.push({ path: tree.path, why });
 		} catch (back) {
 			outcome.refused.push({
 				path: tree.path,
 				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
 			});
+			return;
 		}
+		deps.memory.remember(forgotten);
+		outcome.refused.push({
+			path: tree.path,
+			why: restoreDotGit(tree.path, dotGit, why),
+		});
+	}
+}
+
+/**
+ * Writes a put-back tree's `.git` file again if the removal took it,
+ * creating it only, so it never follows a link or overwrites a file that
+ * appeared meanwhile. The tree is home with its record either way; a
+ * failure only adds to what the refusal says.
+ */
+function restoreDotGit(
+	path: string,
+	dotGit: string | undefined,
+	why: string,
+): string {
+	if (dotGit === undefined) return why;
+	try {
+		writeFileSync(join(path, ".git"), dotGit, { flag: "wx" });
+		return why;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") return why;
+		return `${why}; its .git file couldn't be written back: ${messageOf(error)}`;
 	}
 }
 

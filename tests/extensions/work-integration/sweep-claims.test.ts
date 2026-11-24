@@ -395,6 +395,31 @@ it("counts each reason naming its tree's branch, lock or folder as one reason, a
 	expect(line.held, "the trees a lock kept, and which lock").toEqual(locked);
 });
 
+it("names at most ten trees a lock kept, the first ten it met", async () => {
+	const locked = Array.from({ length: 12 }, (_, pid) => ({
+		path: `/t/locked-${pid}`,
+		why: lockHeldMessage(`/state/trees/locked-${pid}.lock`, pid),
+	}));
+	keeps.push(...locked);
+
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept() {},
+	});
+
+	const line = JSON.parse(readFileSync(sweepLog(), "utf8").trim()) as {
+		keptFor: Record<string, number>;
+		held: { path: string; why: string }[];
+	};
+	expect(line.held, "the trees named").toEqual(locked.slice(0, 10));
+	expect(
+		line.keptFor[
+			"its record's lock was held for over 10s by a process still running"
+		],
+		"every tree a lock kept, counted",
+	).toBe(12);
+});
+
 it("still says a sweep ran when forgetting what it took throws", async () => {
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], untilSpent: [] }),
