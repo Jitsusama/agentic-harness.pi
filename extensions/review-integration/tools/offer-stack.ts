@@ -8,7 +8,7 @@
  * case each has to say plainly.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget, Change } from "../../../lib/core/review/index.ts";
 import {
 	proposalComplaint,
@@ -19,6 +19,7 @@ import { composePrBody } from "../../../lib/core/sections/compose.ts";
 import { PR_SHAPE } from "../../../lib/core/sections/sanctioned.ts";
 import { usesDepth } from "../../../lib/core/sections/shape.ts";
 import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
+import { sayProposed } from "../../../lib/internal/session/landings.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { GLYPH, proposalLine } from "../render.ts";
@@ -56,6 +57,7 @@ export async function proposeStack(
 	bound: BoundTarget,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
+	bus?: Pick<EventBus, "emit">,
 ): Promise<Answer> {
 	if (params.draft === undefined) {
 		return refuse(
@@ -190,6 +192,10 @@ export async function proposeStack(
 	// place they are all known at once: left to the caller it is one edit
 	// per change, each its own gated call, each easy to forget half way.
 	const noted = await annotateStack(authoring, made, drafts);
+	sayProposed(
+		bus,
+		made.map((one) => one.url),
+	);
 
 	return say(
 		[

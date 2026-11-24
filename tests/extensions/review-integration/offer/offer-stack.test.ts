@@ -23,6 +23,7 @@ import {
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
 import { composePrBody } from "../../../../lib/core/sections/index.ts";
+import { SESSION_PROPOSED_CHANGES } from "../../../../lib/internal/session/landings.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
 import {
 	activate,
@@ -112,6 +113,8 @@ function madeFrom(id: string, head: string): Change {
 		author: { id: "joel.gerber@shopify.com" },
 		base: "main",
 		head: head || "topic",
+		// The second change's backend gives no URL, as some don't.
+		...(id === "2" ? {} : { url: `https://example.invalid/${id}` }),
 	};
 }
 
@@ -133,6 +136,43 @@ const stack = {
 afterEach(() => {
 	clearReviewProviders();
 	clearTargetBindings();
+});
+
+describe("what a stack's proposal says it made", () => {
+	// show_person keeps a session's own changes off the person's look list
+	// by these (lib/mesh/looks/own-changes.ts).
+	it("answers with each change's URL and says those it has on the bus", async () => {
+		const { provider } = recordingProvider();
+		registerReviewProvider(provider);
+		const stub = activate({
+			"log -1 --format=%s": { stdout: "A Tip Subject" },
+		});
+
+		const answer = await toolNamed(stub, "review_offer").execute(
+			"1",
+			{
+				...stack,
+				bodies: [bodyFor("the first thing"), bodyFor("the second thing")],
+			},
+			undefined,
+			undefined,
+			HEADLESS,
+		);
+
+		expect(answer).toMatchObject({
+			details: {
+				urls: ["https://example.invalid/1", undefined],
+			},
+		});
+		expect(
+			stub.emitted.filter((one) => one.event === SESSION_PROPOSED_CHANGES),
+		).toEqual([
+			{
+				event: SESSION_PROPOSED_CHANGES,
+				data: { urls: ["https://example.invalid/1"] },
+			},
+		]);
+	});
 });
 
 describe("proposing a stack with bodies", () => {

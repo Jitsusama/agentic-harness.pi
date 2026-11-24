@@ -9,6 +9,7 @@ import { onDid } from "../../../lib/internal/session/events.ts";
 import {
 	onClosed,
 	onLanded,
+	onProposed,
 	onUnlanded,
 	withoutLanding,
 } from "../../../lib/internal/session/landings.ts";
@@ -28,6 +29,10 @@ import {
 } from "../../../lib/internal/session/wakers.ts";
 import { onWants } from "../../../lib/internal/session/wants.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
+import {
+	keepProposed,
+	ownChangesBeside,
+} from "../../../lib/mesh/looks/own-changes.ts";
 import { type Message, senderIdentity } from "../../../lib/mesh/message.ts";
 import { holderSteers } from "../../../lib/mesh/parked.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
@@ -41,6 +46,21 @@ import { meshWakers, type Own } from "../wakers.ts";
 import type { Handing } from "./handing.ts";
 import { endLooksOfQuests, resolveLooksAt } from "./looks.ts";
 import { ledBy, type MeshState } from "./mesh.ts";
+
+/**
+ * Keep `urls` as proposed under this session's quest, or the session
+ * where it has none. A record that can't be written is left: the log's
+ * review_offer answer still names them for this session.
+ */
+function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
+	if (!(m.paths.looks && m.peer)) return;
+	const owner = m.presences.of(m.peer.session)?.quest ?? m.peer.session;
+	try {
+		keepProposed(ownChangesBeside(m.paths.looks), owner, urls);
+	} catch {
+		// Said in the doc comment: the log still holds what was proposed.
+	}
+}
 
 /** Hear what this session's other extensions say over the bus. */
 export function onBus(m: MeshState, f: Handing) {
@@ -66,6 +86,9 @@ export function onBus(m: MeshState, f: Handing) {
 			} else m.unlanded.push(landing);
 			if (landing.url) resolveLooksAt(m.paths.looks, landing.url, "merged");
 		});
+		// What it proposes is kept per quest, so show_person keeps it off
+		// the person's look list past a rollover (lib/mesh/looks/own-changes.ts).
+		onProposed(m.pi.events, (urls) => keepOwnChanges(m, urls));
 		// A change closed unmerged no longer needs the person either.
 		onClosed(m.pi.events, (url) =>
 			resolveLooksAt(m.paths.looks, url, "closed"),

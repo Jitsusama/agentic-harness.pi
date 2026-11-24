@@ -8,8 +8,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
+import { SESSION_PROPOSED_CHANGES } from "../../../lib/internal/session/landings.ts";
 import { wantsShown } from "../../../lib/internal/session/wants.ts";
 import { looksIn } from "../../../lib/mesh/looks/looks.ts";
+import {
+	keptProposed,
+	OWN_CHANGE_REFUSED,
+	ownChangesBeside,
+} from "../../../lib/mesh/looks/own-changes.ts";
 import { fixture, onQuest, session, startSession } from "./support/mesh.ts";
 
 describe("what waits on the person", () => {
@@ -232,13 +238,44 @@ describe("the person's look list, from show_person", () => {
 			target: `${pr.target}/files`,
 		});
 
-		expect(own?.content[0]?.text).toContain("review it yourself");
-		expect(itsDiff?.content[0]?.text).toContain("Nothing was added");
-		expect(looksIn(join(fixture.root, "looks")), "neither was kept").toEqual(
-			[],
-		);
+		const asPage = await show({ ...pr, kind: "page", act: "Just See" });
+
+		for (const refused of [own, itsDiff, asPage]) {
+			expect(refused?.content[0]?.text).toBe(
+				`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+			);
+		}
+		expect(looksIn(join(fixture.root, "looks")), "none was kept").toEqual([]);
 		await show({ ...pr, target: "https://github.com/o/r/pull/9" });
 		expect(looksIn(join(fixture.root, "looks"))).toHaveLength(1);
+	});
+
+	// A rollover starts a log without the review_offer answers, and a
+	// codemode proposal never puts one there: what the bus said is kept.
+	it("refuses a change its quest proposed, though the log no longer names it", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { emit, tools } = await startSession();
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+
+		emit(SESSION_PROPOSED_CHANGES, { urls: [pr.target] });
+		const refused = await show({
+			...pr,
+			target: `${pr.target.replace("Jitsusama", "jitsusama")}.diff`,
+			kind: "diff",
+		});
+
+		expect(refused?.content[0]?.text).toBe(
+			`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+		);
+		expect(
+			keptProposed(ownChangesBeside(join(fixture.root, "looks")), [
+				"QEST-20261021-7M6JKG",
+			]),
+			"kept under its quest, for the sessions after it",
+		).toEqual([pr.target]);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
 	});
 
 	it("takes a look back when its session says it no longer applies", async () => {

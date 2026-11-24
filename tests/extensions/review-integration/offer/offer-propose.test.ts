@@ -26,6 +26,7 @@ import {
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
 import { composePrBody } from "../../../../lib/core/sections/index.ts";
+import { SESSION_PROPOSED_CHANGES } from "../../../../lib/internal/session/landings.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
 import {
 	activate,
@@ -205,6 +206,35 @@ describe("proposing through the tool", () => {
 
 		expect(asked).toHaveLength(2);
 		expect(asked[1]?.repo.key).toBe(world.key);
+	});
+
+	// show_person keeps a session's own changes off the person's look list
+	// by these (lib/mesh/looks/own-changes.ts): the answer's url for this
+	// session's log, and the bus for its quest's record.
+	it("answers with the change's URL and says it on the bus", async () => {
+		const { provider } = recordingProvider();
+		registerReviewProvider(provider);
+		const stub = activate();
+
+		const answer = await toolNamed(stub, "review_offer").execute(
+			"1",
+			proposal,
+			undefined,
+			undefined,
+			HEADLESS,
+		);
+
+		expect(answer).toMatchObject({
+			details: { url: "https://example.invalid/1" },
+		});
+		expect(
+			stub.emitted.filter((one) => one.event === SESSION_PROPOSED_CHANGES),
+		).toEqual([
+			{
+				event: SESSION_PROPOSED_CHANGES,
+				data: { urls: ["https://example.invalid/1"] },
+			},
+		]);
 	});
 
 	it("refuses a login where the backend names people by email", async () => {
