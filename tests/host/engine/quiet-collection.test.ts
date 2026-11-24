@@ -37,7 +37,12 @@ describe("the host's collection once quiet", () => {
 	});
 
 	function counted(
-		reading: () => QuietReading = () => ({ tools: 0, jobs: 0, waiting: 0 }),
+		reading: () => QuietReading = () => ({
+			tools: 0,
+			jobs: 0,
+			waiting: 0,
+			builds: 0,
+		}),
 	) {
 		const collect = vi.fn();
 		const said: string[] = [];
@@ -96,6 +101,7 @@ describe("the host's collection once quiet", () => {
 			tools: 0,
 			jobs: 0,
 			waiting: 3,
+			builds: 0,
 		}));
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS);
@@ -103,17 +109,18 @@ describe("the host's collection once quiet", () => {
 		expect(said[0]).toMatch(/with 3 conversations waiting on the model$/);
 	});
 
-	it("never collects while a tool call or job runs, collecting once none does", () => {
+	it("never collects while a tool call, job or build runs, collecting once none does", () => {
 		for (const running of [
-			{ tools: 1, jobs: 0 },
-			{ tools: 0, jobs: 1 },
+			{ tools: 1, jobs: 0, builds: 0 },
+			{ tools: 0, jobs: 1, builds: 0 },
+			{ tools: 0, jobs: 0, builds: 1 },
 		]) {
 			let now = running;
 			const { collect, quiet } = counted(() => ({ ...now, waiting: 1 }));
 			quiet.stirred();
 			vi.advanceTimersByTime(SPACING_MS * 2);
 			expect(collect).not.toHaveBeenCalled();
-			now = { tools: 0, jobs: 0 };
+			now = { tools: 0, jobs: 0, builds: 0 };
 			vi.advanceTimersByTime(SETTLE_MS);
 			expect(collect).toHaveBeenCalledTimes(1);
 			quiet.stop();
@@ -125,6 +132,7 @@ describe("the host's collection once quiet", () => {
 			tools: 1,
 			jobs: 2,
 			waiting: 0,
+			builds: 3,
 		}));
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS + CEILING_MS - 1);
@@ -132,7 +140,7 @@ describe("the host's collection once quiet", () => {
 		vi.advanceTimersByTime(1);
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said[0]).toMatch(
-			/waiting on the model, and 1 tool calls and 2 jobs running, due for 60 minutes$/,
+			/waiting on the model, and 1 tool calls, 2 jobs and 3 builds running, due for 60 minutes$/,
 		);
 	});
 
@@ -141,6 +149,7 @@ describe("the host's collection once quiet", () => {
 			tools: 0,
 			jobs: 1,
 			waiting: 0,
+			builds: 0,
 		}));
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS + CEILING_MS - VIEWER_QUIET_MS / 2);
@@ -192,7 +201,12 @@ describe("the host's collection once quiet", () => {
 
 	it("holds what a park owes while a viewer types or a tool runs", () => {
 		let tools = 1;
-		const { collect, quiet } = counted(() => ({ tools, jobs: 0, waiting: 0 }));
+		const { collect, quiet } = counted(() => ({
+			tools,
+			jobs: 0,
+			waiting: 0,
+			builds: 0,
+		}));
 		quiet.viewed();
 		quiet.parked();
 		vi.advanceTimersByTime(VIEWER_QUIET_MS * 2);
@@ -215,7 +229,7 @@ describe("the host's collection once quiet", () => {
 	it("says a pause over a second as the loop held, as the watchdog says a late beat", () => {
 		const said: string[] = [];
 		const quiet = quietCollection({
-			reading: () => ({ tools: 0, jobs: 0, waiting: 2 }),
+			reading: () => ({ tools: 0, jobs: 0, waiting: 2, builds: 0 }),
 			collect: () => {},
 			weigh: () => undefined,
 			heap: () => undefined,
@@ -237,7 +251,7 @@ describe("the host's collection once quiet", () => {
 		const said: string[] = [];
 		let now = 0;
 		const quiet = quietCollection({
-			reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+			reading: () => ({ tools: 0, jobs: 0, waiting: 0, builds: 0 }),
 			collect: () => {
 				now += 400;
 			},
@@ -270,7 +284,7 @@ describe("the host's collection once quiet", () => {
 		let now = 0;
 		let reads = 0;
 		const quiet = quietCollection({
-			reading: () => ({ tools: 0, jobs: 0, waiting: 1 }),
+			reading: () => ({ tools: 0, jobs: 0, waiting: 1, builds: 0 }),
 			collect,
 			weigh: () => undefined,
 			heap: () => ({
@@ -406,7 +420,7 @@ describe("the host's collection once quiet", () => {
 		]) {
 			const said: string[] = [];
 			const quiet = quietCollection({
-				reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+				reading: () => ({ tools: 0, jobs: 0, waiting: 0, builds: 0 }),
 				exposeGc,
 				report: (one) => said.push(one),
 			});
@@ -425,7 +439,7 @@ describe("the host's collection once quiet", () => {
 			throw new Error("unknown flavor");
 		});
 		const quiet = quietCollection({
-			reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+			reading: () => ({ tools: 0, jobs: 0, waiting: 0, builds: 0 }),
 			collect,
 			weigh: () => undefined,
 			report: (one) => said.push(one),
