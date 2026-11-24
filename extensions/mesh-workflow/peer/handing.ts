@@ -250,6 +250,7 @@ export function createHanding(m: MeshState) {
 			messages,
 			carried,
 			keptAbove(m.peer?.orchestratedBy, m.hub),
+			m.peer?.stewardedBy,
 		);
 		// What asked for a turn, or answers this peer, shows on a quiet
 		// screen though a pause held its turn back.

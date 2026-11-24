@@ -86,22 +86,36 @@ const NEED_CALL = "need (mesh_send to: need, about: what it is about)";
  * be minutes old and the send finds it afresh: an address here could
  * name a cell the send no longer reaches. A send the node leaves
  * unfinished still reaches the hub this session keeps (tools/send.ts).
+ * `steward` is the person's steward, when a quest above is one: then
+ * the person's path goes there by `person`, whoever orders the work,
+ * and it is asked who owns a question when nobody else is above. It
+ * passes on the person's yes as the mark's orchestrator does, since it
+ * too is set in a quest's own field rather than grown by talk.
  */
-export function advisory(above?: Reached): string {
+export function advisory(above?: Reached, steward?: string): string {
 	const otherwise =
+		steward !== undefined
+			? `otherwise to the person's steward, ${steward}, as a question (mesh_send to: person)`
+			: above === undefined
+				? "otherwise in your next reply, since no orchestrator is above your quest"
+				: above.by === "use"
+					? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
+					: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
+	const asked =
 		above === undefined
-			? "otherwise in your next reply, since no orchestrator is above your quest"
+			? steward
 			: above.by === "use"
-				? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
-				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
+				? "your hub from use (mesh_send to: orchestrator)"
+				: above.address;
 	const work =
-		above === undefined
+		asked === undefined
 			? `Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask the person in your reply who owns it.`
-			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${above.by === "use" ? "your hub from use (mesh_send to: orchestrator)" : above.address} who owns it.`;
+			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${asked} who owns it.`;
+	const passer = steward ?? (above?.by === "mark" ? above.address : undefined);
 	const person =
-		above?.by === "mark"
-			? `the person, said to you or passed on by ${above.address}`
-			: "the person, said to you";
+		passer === undefined
+			? "the person, said to you"
+			: `the person, said to you or passed on by ${passer}`;
 	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
 
@@ -158,6 +172,7 @@ export function noted(
 	messages: readonly Message[],
 	glances: readonly Message[] = [],
 	above?: Reached,
+	steward?: string,
 ): string {
 	const each = messages.map((message) => {
 		const threads = [
@@ -184,7 +199,7 @@ export function noted(
 		...each,
 		asks.join(" "),
 		...(glances.length > 0 ? [digest(glances)] : []),
-		advisory(above),
+		advisory(above, steward),
 	].join("\n\n");
 }
 

@@ -5,8 +5,9 @@
  * effective values, marking each as set in the file or fallen
  * back to a built-in default, so the user can see and trust what
  * the harness is doing without guessing paths. Given a `ref`, it sets a
- * quest's own setting instead: how its sessions hear the mesh, or the
- * subjects they say they work on; given only an `id`, it says both.
+ * quest's own setting instead: how its sessions hear the mesh, the
+ * subjects they say they work on, or whether it is the person's
+ * steward; given only an `id`, it says all three.
  */
 
 import { readFileSync } from "node:fs";
@@ -20,6 +21,7 @@ import { dataDir, packageConfigPath } from "../../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
+import { stewards } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
 import {
 	declaredSubjects,
@@ -56,6 +58,16 @@ const SUBJECTS_USAGE = `config with id and ref subjects=a,b sets the subjects a 
 /** The ref that sets a quest's subjects, before its list. */
 const SUBJECTS_REF = "subjects=";
 
+/** How the report says a quest is made the person's steward. */
+const STEWARD_USAGE =
+	"config with id and ref steward=true makes a quest the person's steward, whose session carries what needs the person from every quest below it, up to the next steward, and nothing else; steward=false clears it.";
+
+/** The ref that says whether a quest is the person's steward. */
+const STEWARD_REF = "steward=";
+
+/** Every setting a quest's own `ref` can name, for a refusal or report. */
+const USAGE = `${HEARS_USAGE} ${SUBJECTS_USAGE} ${STEWARD_USAGE}`;
+
 /** How a quest's hearing reads, said as its sessions doing it. */
 const ONLY_PUT = "only what is put to them, glancing at the rest";
 const AS_EVERY_PEER = "as every peer does";
@@ -71,6 +83,9 @@ export async function config(
 ): Promise<QuestResult> {
 	if (params.ref?.trim().startsWith(SUBJECTS_REF)) {
 		return setSubjects(state, params);
+	}
+	if (params.ref?.trim().startsWith(STEWARD_REF)) {
+		return setSteward(state, params);
 	}
 	if (params.ref?.trim()) return setHearing(state, params);
 	if (params.id?.trim()) return hearingOf(state, params);
@@ -110,18 +125,16 @@ function hearingOf(state: QuestState, params: QuestToolParams): QuestResult {
 	if (!fm) {
 		return refuse(`${target.questId}'s README has no readable front matter.`);
 	}
-	const declare = subjectsSaid(target.questId, fm);
+	const declare = `${subjectsSaid(target.questId, fm)}${stewards(fm) ? " It is the person's steward." : ""}`;
 	const stray = fm._extra?.hears;
 	if (stray !== undefined) {
 		const said = JSON.stringify(stray);
 		return ok(
-			`${target.questId}'s front matter says hears: ${said}, but ${said} isn't a way of hearing, so its sessions hear ${AS_EVERY_PEER}. ${declare} ${HEARS_USAGE} ${SUBJECTS_USAGE}`,
+			`${target.questId}'s front matter says hears: ${said}, but ${said} isn't a way of hearing, so its sessions hear ${AS_EVERY_PEER}. ${declare} ${USAGE}`,
 		);
 	}
 	const how = fm.hears === "addressed" ? ONLY_PUT : AS_EVERY_PEER;
-	return ok(
-		`${target.questId}'s sessions hear ${how}. ${declare} ${HEARS_USAGE} ${SUBJECTS_USAGE}`,
-	);
+	return ok(`${target.questId}'s sessions hear ${how}. ${declare} ${USAGE}`);
 }
 
 /**
@@ -213,7 +226,7 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 function setHearing(state: QuestState, params: QuestToolParams): QuestResult {
 	const said = /^hears=(addressed|all)$/.exec(params.ref?.trim() ?? "")?.at(1);
 	if (said !== "addressed" && said !== "all") {
-		return refuse(`Nothing changed: ${HEARS_USAGE} ${SUBJECTS_USAGE}`);
+		return refuse(`Nothing changed: ${USAGE}`);
 	}
 	const target = questNamed(state, params);
 	if ("refusal" in target) return refuse(target.refusal);
@@ -238,6 +251,47 @@ function setHearing(state: QuestState, params: QuestToolParams): QuestResult {
 	return ok(
 		`${target.questId}'s sessions now hear ${how}, from their next delivery.`,
 	);
+}
+
+/**
+ * Make the quest `id` names (else the loaded one) the person's steward,
+ * or no longer, on its front matter, so every session below it finds
+ * the same steward by walking up its parents.
+ */
+function setSteward(state: QuestState, params: QuestToolParams): QuestResult {
+	const said = /^steward=(true|false)$/.exec(params.ref?.trim() ?? "")?.at(1);
+	if (said === undefined) return refuse(`Nothing changed: ${USAGE}`);
+	const target = questNamed(state, params);
+	if ("refusal" in target) return refuse(target.refusal);
+	const next = said === "true";
+	let changed = false;
+	const outcome = mutateQuestFrontMatter(target.questDir, (fm) => {
+		const stray = fm._extra?.steward !== undefined;
+		if (fm.steward === (next || undefined) && !stray) return undefined;
+		changed = true;
+		const plain = withoutSteward(fm);
+		return next ? { ...plain, steward: true } : plain;
+	});
+	if (!outcome.ok) return refuse(outcome.guidance);
+	const what = next
+		? "is the person's steward, carrying what needs the person from every quest below it"
+		: "is not the person's steward";
+	if (!changed) return ok(`${target.questId} already ${what}.`);
+	appendJourneyByPath(target.questDir, `It now ${what}.`);
+	return ok(
+		`${target.questId} now ${what}, from each session's next refresh of its quest.`,
+	);
+}
+
+/**
+ * A quest's front matter without the steward setting, one written by
+ * hand that the parser left in `_extra` included.
+ */
+function withoutSteward(fm: QuestFrontMatter): QuestFrontMatter {
+	const { steward: _dropped, _extra, ...rest } = fm;
+	if (!_extra) return rest;
+	const { steward: _stray, ...others } = _extra;
+	return Object.keys(others).length > 0 ? { ...rest, _extra: others } : rest;
 }
 
 /**
@@ -272,7 +326,7 @@ async function configReport(): Promise<QuestResult> {
 		`Start into a host: ${summary.startHost} (${summary.startHostSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
-	lines.push(`A quest's own: ${HEARS_USAGE} ${SUBJECTS_USAGE}`);
+	lines.push(`A quest's own: ${USAGE}`);
 
 	return ok(lines.join("\n"), { summary, warning: section.warning });
 }

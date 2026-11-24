@@ -10,7 +10,29 @@ import {
 	isJoinable,
 	needNamed,
 	orchestratorNamed,
+	personNamed,
 } from "../../../lib/mesh/group.ts";
+
+describe("the person in `to`", () => {
+	it("is read as the address of the person's steward", () => {
+		expect(personNamed("person, #harness", "WCJQSG")).toBe("WCJQSG, #harness");
+		expect(personNamed("@Person", "WCJQSG")).toBe("WCJQSG");
+	});
+
+	it("reads as the orchestrator where no steward is set", () => {
+		expect(personNamed("#person, 85PKB2", undefined)).toBe(
+			"orchestrator, 85PKB2",
+		);
+	});
+
+	it("names the steward once, though it was also named by address", () => {
+		expect(personNamed("WCJQSG, person", "WCJQSG")).toBe("WCJQSG");
+	});
+
+	it("leaves a `to` that does not name it as written", () => {
+		expect(personNamed("#harness,85PKB2", "WCJQSG")).toBe("#harness,85PKB2");
+	});
+});
 
 describe("a need in `to`", () => {
 	it("is taken out, and said, as the bare word in any case", () => {

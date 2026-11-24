@@ -102,6 +102,30 @@ export function namesOrchestrator(written: string): boolean {
 /** The word in `to` that names the sender's orchestrator. */
 export const ORCHESTRATOR = "orchestrator";
 
+/** The word in `to` that names whoever carries what needs the person. */
+export const PERSON = "person";
+
+/**
+ * What `to` says once the word `person` in it is read as the address of
+ * the person's steward above the sender's quest. With no steward set,
+ * it is read as `orchestrator`, which reaches the person as it did
+ * before stewards, so the word works the same on every quest.
+ */
+export function personNamed(
+	written: string,
+	stewardedBy: string | undefined,
+): string {
+	const parts = written.split(",").map((one) => one.trim());
+	const word = (one: string) =>
+		one.replace(/^[#@]/, "").toLowerCase() === PERSON;
+	if (!parts.some(word)) return written;
+	return [
+		...new Set(
+			parts.map((one) => (word(one) ? (stewardedBy ?? ORCHESTRATOR) : one)),
+		),
+	].join(", ");
+}
+
 /** The word in `to` that asks for whichever cell works on a need. */
 export const NEED = "need";
 

@@ -225,6 +225,12 @@ export interface Presence {
 	 * signs with the quest's address, which is the one that had it first.
 	 */
 	readonly orchestrates?: string;
+	/**
+	 * The address of the person's steward above its quest, when one is
+	 * (see internal/quest/fields/orchestration.ts). The mesh resolves
+	 * "the person" from this alone.
+	 */
+	readonly stewardedBy?: string;
 	/** Its window's niri workspace, by name (windowWorkspaceOf). */
 	readonly workspace?: string;
 	/**
@@ -755,6 +761,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(typeof one.orchestrates === "string"
 			? { orchestrates: one.orchestrates }
+			: {}),
+		...(typeof one.stewardedBy === "string"
+			? { stewardedBy: one.stewardedBy }
 			: {}),
 		...(typeof one.workspace === "string" && one.workspace !== ""
 			? { workspace: one.workspace }

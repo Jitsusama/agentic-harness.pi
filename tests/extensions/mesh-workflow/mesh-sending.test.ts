@@ -411,6 +411,43 @@ describe("sending", () => {
 		expect(narrowed).toContain("`orchestrator` reached nobody");
 	});
 
+	it("sends `person` to the person's steward, counting his acts as an orchestrator would", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nsteward: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-s", ["5GV2AH"], []);
+		const { tools } = await startSession(noNode());
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		const asking = "May Joel touch the key at 02:00?";
+
+		expect(await send(tools, "person", "question", asking)).toContain(
+			"Not sent: this asks for the person's hands",
+		);
+		const sent = await send(
+			tools,
+			"person",
+			"question",
+			`${asking} His acts: 1; the fewest: 1.`,
+		);
+
+		expect(transport.ids()).toHaveLength(1);
+		expect(transport.read(transport.ids()[0] ?? "")?.to).toEqual(["@5GV2AH"]);
+		expect(sent).toContain(
+			"`person` was read as 5GV2AH, the person's steward, which carries only what needs the person",
+		);
+	});
+
+	it("reads `person` as `orchestrator` where no steward is set", async () => {
+		onQuest();
+		const { tools } = await startSession(noNode());
+
+		expect(await send(tools, "person", "question", "May I?")).toContain(
+			"Not sent: no orchestrator is above this peer's quest",
+		);
+	});
+
 	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the
 	// person spread one paste over four approvals, uncounted.
 	it("refuses a question asking the orchestrator for the person's hands until it counts his acts", async () => {

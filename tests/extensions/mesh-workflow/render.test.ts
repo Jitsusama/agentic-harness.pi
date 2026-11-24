@@ -82,6 +82,43 @@ describe("the mesh on screen", () => {
 		}
 	});
 
+	it("names the person's steward over the orchestrator, when a quest above is one", () => {
+		for (const above of [
+			{ address: "5GV2AH", by: "mark" } as const,
+			undefined,
+		]) {
+			expect(noted([message()], [], above, "WCJQSG")).toContain(
+				"otherwise to the person's steward, WCJQSG, as a question (mesh_send to: person), saying who it came from, what happened",
+			);
+		}
+	});
+
+	// A steward is set in a quest's own field, as a mark is, so it passes
+	// on the person's yes; and with nobody else above, it is who is asked
+	// who owns a question, never the person in a reply it does not carry.
+	it("has the steward pass on the person's yes, and be asked who owns a question when nobody else is above", () => {
+		const alone = noted([message()], [], undefined, "WCJQSG");
+		expect(alone).toContain(
+			"That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask WCJQSG who owns it.",
+		);
+		expect(alone).not.toContain("Ask the person in your reply");
+		expect(alone).toContain(
+			grants("the person, said to you or passed on by WCJQSG"),
+		);
+
+		const marked = noted(
+			[message()],
+			[],
+			{ address: "5GV2AH", by: "mark" },
+			"WCJQSG",
+		);
+		expect(marked).toContain("ask 5GV2AH who owns it.");
+		expect(marked).toContain(
+			grants("the person, said to you or passed on by WCJQSG"),
+		);
+		expect(marked).not.toContain("passed on by 5GV2AH");
+	});
+
 	// A hub from use is chosen by how much it talks, which any cell above
 	// can grow, so only the mark's orchestrator passes on the person's yes,
 	// and never some other peer telling it.

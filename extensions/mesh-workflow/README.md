@@ -112,6 +112,20 @@ and can answer a question or a gate left open on screen.
   model, which answers nothing it is sent, has the mesh tell
   its orchestrator once, as a finding naming the model and
   why it can't be set back (`lib/internal/session/no-model.ts`).
+- **Steward:** a quest marked `steward: true` carries what
+  needs the person from every quest below it, up to the next
+  steward, and nothing else; who orders work is the mark's
+  business, apart from it. A session's presence names the
+  nearest steward above its quest as `stewardedBy`, walked up
+  `parent` (`lib/internal/quest/fields/orchestration.ts`), and
+  `to: person` reaches it. With no steward set, `person` reads
+  as `orchestrator`, so the word works the same on every quest.
+  The delivery note sends the person's path to the steward, and
+  with nobody else above asks it who owns a question. It passes
+  on the person's yes, as the mark's orchestrator does, since
+  it too is set in a quest's own field rather than grown by
+  talk, and a question a session ends its run on stays out of
+  the launcher, since the steward carries it.
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
@@ -396,7 +410,8 @@ on at start never starts a turn.
 Every delivery ends by saying what to do with it: act now on a
 question or a hold put to this peer, tell the person at once
 anything they must act on (in the reply when talking with them,
-to the quest's orchestrator as a question otherwise, saying
+to the person's steward, or with none the quest's
+orchestrator, as a question otherwise, saying
 who it came from, what happened, why it matters and the one
 thing to do), keep that path for what needs the person alone,
 take a question about work to its owner or to `need`, asking
@@ -404,8 +419,8 @@ the orchestrator only who owns one neither finds an owner for,
 settle work shared with a peer between the two (a yes, ruling
 or grant still comes only from the person or from the work's
 owner, the peer whose own quest holds it, as `mesh_groups`
-names it, by address; only the mark's orchestrator passes on
-the person's yes), and
+names it, by address; only the person's steward, or with none
+the mark's orchestrator, passes on the person's yes), and
 take the rest as context, with no acknowledgement. A session
 with nobody above asks the person in its reply about work that
 is theirs, and asks them who owns a question neither the owner
