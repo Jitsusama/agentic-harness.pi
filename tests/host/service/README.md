@@ -18,6 +18,11 @@ are refused before anything is held, and that two opens at once can't
 both go first. Its start-order tests hold one resume back and check one
 asked for goes next, and that a window, wake and close asked meanwhile
 each wait for the start's own resume rather than resuming again.
+backend-children.test.ts drives that backend with fake children: what
+moves resumes and wakes in a child, and a start's resume is hurried for
+whoever waits on it. backend-child-opens.test.ts has its opens and
+adopts in a child, and the refusals it passes on. Both share
+support/backend-children.ts.
 rollout.test.ts judges a `loaded/` folder with fake pid and dating
 facts, and dates roots against a throwaway git repository in a private
 folder: self, dead and malformed files, roots dated once, cleared roots
@@ -63,9 +68,9 @@ open asked of the child without the host's identity, a refusal
 stopping its child, an open or adopt of a held id or one its watch
 contradicts refused, its slot named before the roster holds it, an
 open answered late named rather than stopped, a begin's one deadline
-and a stop ending its ask, a resume waiting on the open's slot, and a
-host starting again taking up the children left running, once for two
-adopts, under the ids they now run, a busy one tried again with each
+and a stop ending its ask, a resume waiting on the open's slot, and
+the gate's turns. child-adopts.test.ts has a host starting again taking
+up the children left running, once for two adopts, under the ids they now run, a busy one tried again with each
 try said, one systemd won't say has gone watched, a second one running
 a conversation stopped, and a start waiting on one it couldn't take up
 under another id.
