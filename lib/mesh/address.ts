@@ -43,12 +43,19 @@ export interface QuestRecords {
 	readonly trees?: string;
 }
 
-/** What every address is minted as: a quest's six, or a session's eight. */
+/**
+ * What every address is minted as, a quest's six or a session's eight,
+ * held loosely to six to eight letters or digits in any case: one line,
+ * and nothing after it, since `$` without the `m` flag ends the input.
+ */
 const SHAPE = /^[A-Za-z0-9]{6,8}$/;
 
 /**
- * Whether a name has an address's shape, in any letters. Nothing else
- * is one, so a presence read from a file keeps only these.
+ * Whether a name has an address's shape, in any letters, which a
+ * presence read from a file keeps its addresses to. The shape guards
+ * printing, not identity: `person` and `machine` have it too, and
+ * steer-who.ts's `isAddress` turns those away, and a well-shaped name
+ * another process wrote still reads as whoever it names.
  */
 export function isAddressShaped(name: string): boolean {
 	return SHAPE.test(name);

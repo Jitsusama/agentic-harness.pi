@@ -25,6 +25,7 @@ import {
 	sweeper,
 } from "../../../lib/mesh/retention.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
+import { addressOf } from "../../support/address.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse("2026-10-22T06:00:00Z");
@@ -105,14 +106,6 @@ function sentBy(
 
 /** The day folder a message sent this long before now moves to. */
 const dayAgo = (ago: number) => new Date(now - ago).toISOString().slice(0, 10);
-
-/** A session's address as one is minted: six to eight letters. */
-const addressOf = (session: string) =>
-	session
-		.replace(/[^a-z0-9]/gi, "")
-		.slice(-8)
-		.toUpperCase()
-		.padEnd(6, "X");
 
 const presence = (session: string, at: number): Presence => ({
 	session,

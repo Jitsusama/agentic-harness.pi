@@ -9,6 +9,7 @@ move is tested beside that step, pause or move.
 | File                    | Tests                                                   |
 | ----------------------- | ------------------------------------------------------- |
 | `store.test.ts`         | presences kept on disk and read back                    |
+| `sweep.test.ts`         | the sweep of files no reader can read, and what it kept |
 | `window.test.ts`        | the window title and terminal window the desktop finds  |
 | `quest.test.ts`         | what its quest and folder say, and the groups they give |
 | `orchestration.test.ts` | its place in an orchestration                           |
