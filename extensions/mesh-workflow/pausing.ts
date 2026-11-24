@@ -239,7 +239,12 @@ export function createPausing(host: PausingHost): Pausing {
 					host.close(`a carry to ${to} ${steeredBy(from)}`, failed, closed),
 				// Kept in the journal too, for a window nobody watches.
 				unclosed: (why) => {
-					const line = `Carried to ${to}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work; end it here once it starts there.`;
+					const line = `Carried to ${to}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work.`;
+					sayAnyway(() => host.tell(line));
+					sayAnyway(() => host.journal(line));
+				},
+				closedLate: () => {
+					const line = `Carried to ${to}, and it closed here after all.`;
 					sayAnyway(() => host.tell(line));
 					sayAnyway(() => host.journal(line));
 				},

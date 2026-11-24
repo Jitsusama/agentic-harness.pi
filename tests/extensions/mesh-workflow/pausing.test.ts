@@ -400,9 +400,9 @@ describe("carrying a session to another machine", () => {
 
 describe("the person's Carry from outside the window, once carried", () => {
 	const UNCLOSED =
-		"Carried to penelope, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work; end it here once it starts there.";
+		"Carried to penelope, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work.";
 	const STOPPED =
-		"This run is stopped: the session was carried to penelope and runs there, so end it here.";
+		"This run is stopped: the session was carried to penelope and runs there.";
 
 	it("says once, in its journal too, where its close fails late, and why each run after it is stopped", async () => {
 		let failClose: ((error: unknown) => void) | undefined;
@@ -434,8 +434,48 @@ describe("the person's Carry from outside the window, once carried", () => {
 
 		await vi.waitFor(() =>
 			expect(one.told).toContain(
-				"Carried to penelope, but it couldn't close here: it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work; end it here once it starts there.",
+				"Carried to penelope, but it couldn't close here: it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work.",
 			),
+		);
+	});
+
+	it("says a close that lands past its deadline closed after all, once, in its journal too", async () => {
+		let land: (() => void) | undefined;
+		const one = session(true, async () => {}, {
+			afterwards: (_failed, closed) => {
+				land = closed;
+			},
+			closeMs: 20,
+		});
+		await one.pausing.carry("penelope");
+		await vi.waitFor(() =>
+			expect(one.journal.some((line) => line.includes("hadn't closed"))).toBe(
+				true,
+			),
+		);
+
+		land?.();
+		land?.();
+
+		const after = "Carried to penelope, and it closed here after all.";
+		expect(one.told.filter((line) => line === after)).toHaveLength(1);
+		expect(one.journal.at(-1)).toBe(after);
+	});
+
+	it("never counts a close that landed as failed, once its deadline has passed", async () => {
+		const one = session(true, async () => {}, { closeMs: 20 });
+		await one.pausing.carry("penelope");
+
+		// Past its deadline, as the clock it was given reads it.
+		await new Promise((done) => setTimeout(done, 60));
+		one.pausing.started();
+
+		expect(one.journal).toEqual([]);
+		expect(one.told.filter((line) => line.includes("couldn't close"))).toEqual(
+			[],
+		);
+		expect(one.told.at(-1), "nor says a run stopped for it").toBe(
+			"Carried to penelope; closing.",
 		);
 	});
 

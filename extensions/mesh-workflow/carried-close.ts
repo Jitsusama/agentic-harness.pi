@@ -8,7 +8,12 @@
  * stops ended without a word. So a close that hasn't landed within its
  * deadline counts as failed. A failure is said once, whichever comes
  * first, a failure told, a throw or the deadline, and from then each
- * run the session stops says why: its work runs elsewhere.
+ * run the session stops says why: its work runs elsewhere. A close that
+ * lands past its deadline says so, so what was said of it isn't left
+ * standing.
+ *
+ * Nothing here asks a person to end the session: a host's later close
+ * joins the one that hangs (SessionHost.finish), so it couldn't.
  */
 
 /** How long a carried session's close may take before it counts as failed. */
@@ -34,6 +39,8 @@ export interface ClosingCarried {
 	) => void;
 	/** Say that it couldn't close, with `why`; never throws. */
 	readonly unclosed: (why: string) => void;
+	/** Say that it closed after all, once `unclosed` was said; never throws. */
+	readonly closedLate: () => void;
 	/** How long the close may take; {@link CLOSE_WAIT_MS} unless a test names less. */
 	readonly closeMs?: number;
 }
@@ -62,7 +69,7 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 	deadline.unref?.();
 	try {
 		closing.close(failed, () => {
-			settle();
+			if (!settle() && goneTo !== undefined) closing.closedLate();
 		});
 	} catch (error) {
 		failed(error);
@@ -72,13 +79,14 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 
 /** What a run stopped once its session's close failed says. */
 export function stoppedRun(goneTo: string): string {
-	return `This run is stopped: the session was carried to ${goneTo} and runs there, so end it here.`;
+	return `This run is stopped: the session was carried to ${goneTo} and runs there.`;
 }
 
 /** What was thrown, in words; never throws, as it is said from a catch. */
 function messageOf(error: unknown): string {
 	try {
-		return error instanceof Error ? String(error.message) : String(error);
+		const said = error instanceof Error ? String(error.message) : String(error);
+		return said === "" ? "something was thrown that said nothing of why" : said;
 	} catch {
 		// What was thrown can't say itself; that the close failed still is.
 		return "something was thrown that can't be put in words";
