@@ -1,0 +1,36 @@
+# The code files that turn a linter off, and how many times each still
+# does, as code-health counted them on 23 November. linters-stay-on.test.ts
+# holds every file to its count here, and the list only shrinks.
+host/cutover/machine.ts 1
+lib/core/internal/notes/sanitize.ts 1
+lib/core/lsp/standalone/server.ts 1
+lib/core/review/config.ts 1
+lib/core/verify/run.ts 1
+lib/core/viewer/modes.ts 2
+lib/core/web/evaluate/probe.ts 2
+lib/core/web/mermaid.ts 1
+lib/core/work/stranded.ts 1
+lib/mcp/content.ts 1
+lib/subagent/runpi/supervisor.mjs 1
+lib/ui/gate/gate-queue.ts 1
+scripts/check-there.sh 1
+scripts/host-send-runtime.sh 1
+skills/github-sub-issue-guide/scripts/query-sub-issues.sh 1
+tests/core/web/telemetry/failure.test.ts 1
+tests/extensions/browser-integration/tools-take-turns.test.ts 1
+tests/extensions/render-padding.test.ts 1
+tests/extensions/shell-workflow/sandbox.test.ts 6
+tests/extensions/work-integration/publish-objection.test.ts 7
+tests/host/end-to-end/keys.test.ts 1
+tests/host/end-to-end/screens.test.ts 1
+tests/lib/internal/fence/fence-args-file.test.ts 1
+tests/lib/internal/fence/fence-cloud.test.ts 4
+tests/lib/internal/fence/fence-text-arguments.test.ts 1
+tests/lib/internal/fence/fence.test.ts 5
+tests/lib/internal/pineapple/writes.test.ts 1
+tests/lib/internal/priority/only-waits.test.ts 7
+tests/lib/internal/session/carried-model.test.ts 1
+tests/lib/mesh/presence/window.test.ts 2
+tests/lib/quest/frontmatter.test.ts 1
+tests/package/code/programs-live-in-their-own-files.test.ts 1
+tests/support/every-extension.ts 1

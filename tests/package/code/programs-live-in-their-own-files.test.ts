@@ -33,6 +33,9 @@ const SKIPPED = new Set(["node_modules", "dist", "coverage"]);
 /** The shrink-only list of files and the programs each still embeds. */
 const LIST = join(import.meta.dirname, "embedded-programs.txt");
 
+/** How long a walk of the whole tree may take on a busy machine. */
+const WALK = { timeout: 60_000 };
+
 /** How many lines a splice may run before it counts as a program. */
 const MOST_LINES = 5;
 
@@ -324,7 +327,7 @@ describe("the package's code", () => {
 		).toEqual(new Map([["sql", 1]]));
 	});
 
-	it("write each program in a file of its own language", () => {
+	it("write each program in a file of its own language", WALK, () => {
 		const now = counted();
 		const before = listed();
 		const grown = [...now]
@@ -338,14 +341,18 @@ describe("the package's code", () => {
 		).toEqual([]);
 	});
 
-	it("keep the list of embedded programs no longer than what's left", () => {
-		const now = counted();
-		const stale = [...listed()]
-			.filter(([key, count]) => count > (now.get(key) ?? 0))
-			.map(([key, count]) => `${key} ${now.get(key) ?? 0} (listed ${count})`);
-		expect(
-			stale,
-			`these files embed fewer programs than tests/package/code/embedded-programs.txt allows; lower each to the count given, or remove it at 0, since the list only shrinks:\n${stale.join("\n")}`,
-		).toEqual([]);
-	});
+	it(
+		"keep the list of embedded programs no longer than what's left",
+		WALK,
+		() => {
+			const now = counted();
+			const stale = [...listed()]
+				.filter(([key, count]) => count > (now.get(key) ?? 0))
+				.map(([key, count]) => `${key} ${now.get(key) ?? 0} (listed ${count})`);
+			expect(
+				stale,
+				`these files embed fewer programs than tests/package/code/embedded-programs.txt allows; lower each to the count given, or remove it at 0, since the list only shrinks:\n${stale.join("\n")}`,
+			).toEqual([]);
+		},
+	);
 });

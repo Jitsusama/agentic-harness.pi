@@ -96,6 +96,7 @@ const PROCESS_TESTS = [
 	"tests/core/lsp/standalone/fenced-start.test.ts",
 	"tests/extensions/session-ending-interceptor/remembered.test.ts",
 	"tests/scripts/host-join.test.ts",
+	"tests/scripts/merge-gate.test.ts",
 	"tests/scripts/pi-carry.test.ts",
 	"tests/scripts/pi-fence.test.ts",
 	"tests/scripts/pi-host.test.ts",
