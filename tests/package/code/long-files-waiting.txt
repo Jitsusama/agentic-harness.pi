@@ -16,14 +16,12 @@ host/service/backend.ts
 lib/core/work/rebase.ts
 lib/internal/fence/fence-preflight-checks.ts
 lib/internal/quest/discovery/discovery.ts
-lib/internal/quest/documents/frontmatter.ts
 lib/internal/sandbox/sandbox.ts
 lib/internal/session
 lib/internal/session/park.ts
 lib/internal/session/rollover.ts
 lib/mesh/looks/looks.ts
 lib/mesh/need-route.ts
-lib/mesh/peer.ts
 tests/core/work
 tests/core/work/sweep/sweep-live.test.ts
 tests/extensions/compaction-selection-provider/selection.test.ts

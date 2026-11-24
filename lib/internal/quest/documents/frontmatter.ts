@@ -22,6 +22,11 @@
  *   `name`, `cwd`, `started` and `status` fields.
  * - Optional fields (`due`, `eta`, etc.) only appear in the
  *   output when set.
+ *
+ * Long because it reads and writes the same two shapes: each
+ * field's parser sits in the file with the keys its
+ * serializer writes, so a field added on one side sits
+ * beside the other side's keys, where a reader sees the gap.
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
