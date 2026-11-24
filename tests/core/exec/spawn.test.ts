@@ -63,6 +63,14 @@ describe("a command run unattended", () => {
 		expect(result.stderr).toContain("no-such-binary-anywhere");
 	});
 
+	it("reports a command killed from outside by its signal, never as a plain no", async () => {
+		const killed = await spawnExec()("sh", ["-c", "kill -KILL $$"]);
+		expect(killed.code).toBe(137);
+		expect(killed.stderr).toContain("sh was killed by SIGKILL");
+		const no = await spawnExec()("sh", ["-c", "exit 1"]);
+		expect(no).toMatchObject({ code: 1, stderr: "" });
+	});
+
 	it("runs where it is told to", async () => {
 		const dir = realpathSync(mkdtempSync(join(tmpdir(), "spawn-")));
 		const result = await spawnExec({ cwd: dir })("pwd", []);
