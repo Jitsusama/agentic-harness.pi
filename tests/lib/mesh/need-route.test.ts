@@ -381,6 +381,74 @@ describe("routing a need", () => {
 		expect(found).not.toHaveProperty("ended");
 	});
 
+	it("counts it lost, naming who ended, when every cell holding its narrowest word has", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+				C: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "C", 1]),
+			hubs: [{ subject: "delivery", hub: "B", fits: ["B"] }],
+			live: (address) => address !== "J",
+		});
+
+		expect(found, "B and C share only delivery").toMatchObject({
+			path: [],
+			fit: null,
+			ended: ["J"],
+		});
+	});
+
+	it("goes by a word as narrow as the ended owner's when a cell there holds it", () => {
+		const found = routeNeed(asked("A", "dates", "slots"), {
+			foragers: cells({ A: [], J: ["dates"], S: ["slots"] }),
+			ties: ties(["A", "S", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found).toMatchObject({ path: ["S"], fit: "S" });
+	});
+
+	it("goes by its narrowest word when a cell there holds it beside one that ended", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates"],
+				K: ["dates"],
+				B: ["delivery"],
+				C: ["delivery"],
+				D: ["delivery"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "K", 1]),
+			hubs: [],
+			live: (address) => address !== "J",
+		});
+
+		expect(found).toMatchObject({ path: ["K"], fit: "K" });
+	});
+
+	it("goes by a broader word when its narrowest is held only by a cell that stopped the asker", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				S: ["dates"],
+				B: ["delivery"],
+				C: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "S won't hear A, so delivery routes it").toMatchObject({
+			path: ["B"],
+			fit: "B",
+		});
+	});
+
 	it("puts it to the subject's hub first, which names the fit", () => {
 		const hubs: Hub[] = [{ subject: "carry", hub: "H", fits: ["F"] }];
 		const found = routeNeed(asked("A", "carry"), {
