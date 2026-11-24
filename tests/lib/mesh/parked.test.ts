@@ -254,6 +254,40 @@ describe("waking a parked peer for a message carried in", () => {
 		]);
 	});
 
+	it("reads a peer's marker only when the message would wake it", () => {
+		const read: string[][] = [];
+		wakeForCarriedIn(
+			message({ intent: "fyi" }),
+			[parked, elsewhere],
+			nothing,
+			() => true,
+			() => undefined,
+			(addresses) => {
+				read.push([...addresses]);
+				return undefined;
+			},
+		);
+		expect(read).toEqual([]);
+	});
+
+	it("judges a hold at the clock, so one that lapsed on the way wakes nobody", () => {
+		const judged = (at: string) => {
+			const asked: string[] = [];
+			wakeForCarriedIn(
+				message({ intent: "hold", at }),
+				[parked, elsewhere],
+				nothing,
+				(session) => session === "s-parked",
+				(session) => asked.push(session),
+				unread,
+			);
+			return asked;
+		};
+		const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+		expect(judged(threeHoursAgo.toISOString())).toEqual([]);
+		expect(judged(new Date().toISOString())).toEqual(["s-parked"]);
+	});
+
 	it("lets an fyi from another machine wait, as its sender's would", () => {
 		const asked: string[] = [];
 		wakeForCarriedIn(

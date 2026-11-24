@@ -440,10 +440,10 @@ export function createHearing(m: MeshState, f: Handing) {
 			written && !readsAsReceptor(written.from) ? written : undefined;
 		// Woken for before what reaches this peer is sorted out, since a
 		// question carried in to a parked peer's own home reaches no peer
-		// running here. An old copy written back at the top wakes nobody.
-		if (message && !(m.caughtUpFrom !== undefined && id <= m.caughtUpFrom)) {
-			wakeForElsewhere(message);
-		}
+		// running here. Not held to this peer's catch-up mark, since mail
+		// carried in late keeps its sender's older stamp: the parked peer's
+		// own marker passes over what it read, and the clock what lapsed.
+		if (message) wakeForElsewhere(message);
 		// A hold this peer waits on can end in a message to a group it does
 		// not hear, so ends are looked for before what reaches it.
 		const end = message ? m.leasing.ended(message) : undefined;
@@ -585,13 +585,16 @@ export function createHearing(m: MeshState, f: Handing) {
 
 	/**
 	 * Wakes the parked peers here that a message carried in gives a turn.
-	 * It takes a peer running here to hear it land: on a machine whose
-	 * every session is parked, the node that carries it in wakes them.
+	 * It takes a peer running here to hear it land. On a machine whose
+	 * every session is parked nothing here hears it: that waits on the
+	 * node writing the wake as it carries the message in (KP0L6A's
+	 * mycelium change), and until then on the machine's next start.
 	 */
 	const wakeForElsewhere = (message: Message) => {
 		try {
 			wakeForCarriedIn(
 				message,
+				// Kept parses, a stat a file (a host's mirror on a host).
 				m.presences.all(),
 				(id) => m.transport.read(id),
 				isParked,
@@ -599,8 +602,8 @@ export function createHearing(m: MeshState, f: Handing) {
 				(addresses) => m.transport.lastRead(addresses),
 			);
 		} catch {
-			// Every running peer judges this arrival, and the node carrying it
-			// in wakes for it too; unwoken, it is read at the next start.
+			// Every running peer judges this arrival, so another may wake for
+			// it; unwoken, it is read at the parked peer's next start.
 		}
 	};
 

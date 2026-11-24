@@ -11,8 +11,9 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { writeParked } from "../../../lib/internal/session/park.ts";
 import { homeOf } from "../../../lib/mesh/group.ts";
-import type { Message } from "../../../lib/mesh/message.ts";
+import { ENVELOPE, type Message } from "../../../lib/mesh/message.ts";
 import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
+import { writeAtomically } from "../../../lib/mesh/transport.ts";
 import { fixture, fromElsewhere, startSession } from "./support/mesh.ts";
 
 /** Two parked sessions here, by session and address. */
@@ -26,6 +27,43 @@ const asleep = {
 
 /** How long a wake has to land after its message does, in milliseconds. */
 const WAKE_WITHIN_MS = 5000;
+
+/** How far back a session with no read marker catches up, as start.ts. */
+const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
+
+/** A day, in milliseconds. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A question to a parked session's home, stamped by its sender before
+ * the catch-up a session started now reads from, landing late as a node
+ * carrying it from another machine would write it. Its stamp stays on
+ * the catch-up's day, which messages from a day before never leave.
+ */
+function carriedLate(address: string): Message {
+	const catchUp = Date.now() - FIRST_CATCH_UP_MS;
+	const stamp = Math.max(
+		catchUp - 60_000,
+		Math.floor(catchUp / DAY_MS) * DAY_MS,
+	);
+	const pid = process.pid + 1;
+	const message: Message = {
+		v: ENVELOPE,
+		id: `${stamp}-85PKB2-${pid}-0a1b2c3d`,
+		at: new Date(stamp).toISOString(),
+		from: "85PKB2",
+		to: [homeOf(address)],
+		intent: "question",
+		text: "are you awake?",
+		pid,
+	};
+	writeAtomically(
+		join(fixture.paths.mesh, "messages"),
+		`${message.id}.json`,
+		JSON.stringify(message),
+	);
+	return message;
+}
 
 /** The file a parked session's holder wakes it on. */
 const wakeOf = (address: string) => join(fixture.root, `${address}.wake`);
@@ -105,6 +143,15 @@ describe("a message carried in to a parked session's own home", () => {
 		await startSession();
 		await vi.waitFor(
 			() => expect(wokenFor(asleep.first.address)).toBe(question.id),
+			{ timeout: WAKE_WITHIN_MS },
+		);
+	});
+
+	it("wakes it when it lands stamped before the catch-up", async () => {
+		await startSession();
+		const late = carriedLate(asleep.first.address);
+		await vi.waitFor(
+			() => expect(wokenFor(asleep.first.address)).toBe(late.id),
 			{ timeout: WAKE_WITHIN_MS },
 		);
 	});
