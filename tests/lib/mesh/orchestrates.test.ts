@@ -13,15 +13,16 @@ import type { Ran, RunProgram } from "../../../lib/mesh/sprout.ts";
 const HEADS = "QEST-20261007-WCJQSG";
 const BELOW = ["QEST-20261025-85PKB2", "QEST-20261122-1OGSE7"];
 
-/** A runner answering `ran`, keeping each ask's program, arguments and env. */
+/** A runner answering `ran`, keeping each ask's program, arguments, folder and env. */
 function answering(ran: Ran) {
 	const asked: {
 		program: string;
 		args: readonly string[];
+		cwd: string | undefined;
 		env: NodeJS.ProcessEnv | undefined;
 	}[] = [];
 	const run: RunProgram = async (program, args, options) => {
-		asked.push({ program, args, env: options.env });
+		asked.push({ program, args, cwd: options.cwd, env: options.env });
 		return ran;
 	};
 	return { run, asked };
@@ -58,7 +59,7 @@ describe("telling the node", () => {
 			{ heads: HEADS, quests: BELOW },
 			"sess-42",
 			"work",
-			{ cwd: "/", env: { PATH: "/the/session/s", MYCELIUM_REALM: "work" } },
+			{ env: { PATH: "/the/session/s", MYCELIUM_REALM: "work" } },
 			run,
 		);
 
@@ -76,11 +77,15 @@ describe("telling the node", () => {
 			asked[0]?.env?.PATH,
 			"the rest of the environment is the session's, so its mycelium is found",
 		).toBe("/the/session/s");
+		expect(
+			asked[0]?.cwd,
+			"from a folder always there, never the session's, which a sweep may take",
+		).toBe("/");
 	});
 
 	it("runs with this process's environment where no session's is given", async () => {
 		const { run, asked } = answering(OK);
-		await tellOrchestrates("forget", "sess-42", "work", { cwd: "/" }, run);
+		await tellOrchestrates("forget", "sess-42", "work", {}, run);
 		expect(asked[0]?.env?.PATH, "this process's PATH").toBe(process.env.PATH);
 	});
 
@@ -93,12 +98,36 @@ describe("telling the node", () => {
 		});
 
 		expect(
-			await tellOrchestrates("forget", "sess-42", "work", { cwd: "/" }, run),
+			await tellOrchestrates("forget", "sess-42", "work", {}, run),
 			"the node's Err is a refusal",
 		).toEqual({
 			kind: "refused",
 			why: "P9R1KI's session already heads QEST-20261007-WCJQSG by this node's record",
 		});
+	});
+
+	it("reads the node's refusal as one, however mycelium ends", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: '{"Err":"another session heads it"}\n',
+			stderr: "",
+		});
+		expect(
+			await tellOrchestrates("forget", "sess-42", "work", {}, run),
+			"an Err is the node's word even when mycelium ends badly",
+		).toEqual({ kind: "refused", why: "another session heads it" });
+	});
+
+	it("says what it was told on one line", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: '{"Err":"refused\\npi: a forged line"}\n',
+			stderr: "",
+		});
+		expect(
+			await tellOrchestrates("forget", "sess-42", "work", {}, run),
+			"one journal entry, never a second line someone else wrote",
+		).toEqual({ kind: "refused", why: "refused pi: a forged line" });
 	});
 
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {
@@ -125,7 +154,17 @@ describe("telling the node", () => {
 			],
 			[
 				{ code: 0, stdout: "not the node's\n", stderr: "" },
-				"mycelium ended with 0",
+				"ended well with no reply it reads",
+				true,
+			],
+			[
+				{ code: null, stdout: "", stderr: "", noFolder: true },
+				"folder is gone",
+				false,
+			],
+			[
+				{ code: null, stdout: "", stderr: "", neverRan: "EACCES" },
+				"couldn't start (EACCES)",
 				false,
 			],
 		];
@@ -134,7 +173,7 @@ describe("telling the node", () => {
 				"forget",
 				"s",
 				"work",
-				{ cwd: "/" },
+				{},
 				answering(ran).run,
 			);
 			expect(told.kind, `${says}: never answered`).toBe("unasked");

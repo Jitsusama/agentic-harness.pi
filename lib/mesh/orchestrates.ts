@@ -40,12 +40,21 @@ export type ClaimTold =
 			readonly mayLand?: true;
 	  };
 
-/** Where a claim is asked from: the session's folder and environment. */
+/** Where a claim is asked from: the session's environment. */
 export interface ClaimPlace {
-	readonly cwd: string;
 	/** The session's environment, this process's unless given. */
 	readonly env?: NodeJS.ProcessEnv;
 }
+
+/**
+ * The folder `mycelium orchestrates` runs in. A claim names its realm
+ * and session and reads nothing of its folder, so it runs from one that
+ * is always there, never the session's: that may be a quest's tree a
+ * sweep has taken, which would leave a claim no forget could reach, and
+ * a relative entry on the session's PATH would find a `mycelium` its
+ * agent wrote there.
+ */
+const ASKED_FROM = "/";
 
 /** How long `mycelium orchestrates` has to answer. */
 export const CLAIM_PATIENCE_MS = 20_000;
@@ -71,7 +80,7 @@ export function claimArguments(
  * Tell the node in `realm` what `session` orchestrates, or that it
  * orchestrates nothing, run from the place's folder with its environment
  * naming the session. Never throws: a node that can't be asked, or
- * refuses, is said in what it answers.
+ * refuses, is said in what it answers, on one line.
  */
 export async function tellOrchestrates(
 	claim: OrchestrationClaim | "forget",
@@ -81,7 +90,7 @@ export async function tellOrchestrates(
 	run: RunProgram = runProgram,
 ): Promise<ClaimTold> {
 	const ran = await run("mycelium", claimArguments(claim, realm), {
-		cwd: place.cwd,
+		cwd: ASKED_FROM,
 		timeoutMs: CLAIM_PATIENCE_MS,
 		env: { ...(place.env ?? process.env), PI_SESSION_ID: session },
 	});
@@ -99,14 +108,26 @@ function toldBy(ran: Ran): ClaimTold {
 		);
 	const reply = lastJson(ran.stdout);
 	if (isRecord(reply) && typeof reply.Err === "string")
-		return { kind: "refused", why: reply.Err.slice(0, MOST_SAID) };
+		return { kind: "refused", why: oneLine(reply.Err) };
 	if (ran.code === 0 && isRecord(reply) && "Ok" in reply)
 		return { kind: "recorded" };
-	const said = ran.stderr.trim().slice(0, MOST_SAID);
-	// Killed before it ended, its ask may already be with the node.
+	const said = oneLine(ran.stderr);
+	// Killed before it ended, its ask may already be with the node; and one
+	// that ended well with words it can't read most likely was recorded,
+	// which costs no more than a forget to treat as maybe.
 	if (ran.code === null)
 		return sentUnanswered(said || "mycelium was stopped before it answered");
+	if (ran.code === 0)
+		return sentUnanswered(said || "mycelium ended well with no reply it reads");
 	return unasked(said || `mycelium ended with ${ran.code}`);
+}
+
+/**
+ * What mycelium or the node said, cut short and folded onto one line, so
+ * it is one journal entry and the same trouble reads the same each time.
+ */
+function oneLine(said: string): string {
+	return said.replace(/\s+/gu, " ").trim().slice(0, MOST_SAID);
 }
 
 /** A claim the node never had, and why. */

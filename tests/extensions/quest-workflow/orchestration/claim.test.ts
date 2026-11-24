@@ -10,8 +10,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	CLAIM_END_WAIT_MS,
 	CLAIM_LOOKED_AGAIN_MS,
 	CLAIM_RETRIED_AFTER_START_MS,
 	CLAIM_TICK_MS,
@@ -113,7 +114,7 @@ function held<T>() {
 	return { promise, release };
 }
 
-const AT = { cwd: "/" };
+const AT: ClaimPlace = {};
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "orchestration-claim-"));
@@ -480,9 +481,11 @@ describe("an orchestrator's claim", () => {
 		]);
 	});
 
-	it("asks soon after a refusal at the start only once", async () => {
+	it("asks soon after a refusal at the start only once, however its forget is answered", async () => {
 		const { state, claimsOnly, keeper, pass } = keeping((ask) =>
-			ask.claim === "forget" ? RECORDED : REFUSED,
+			ask.claim === "forget"
+				? { kind: "unasked", why: "connecting to the node: refused" }
+				: REFUSED,
 		);
 		state.questId = MISSION;
 		keeper.look("sess-2", AT);
@@ -497,6 +500,68 @@ describe("an orchestrator's claim", () => {
 			claimsOnly(),
 			"the second refusal is the node's own word, waited out",
 		).toHaveLength(2);
+	});
+
+	it("asks soon once more when its first claim is refused after a start's forget", async () => {
+		let claimsAsked = 0;
+		const { state, claims, keeper, pass } = keeping((ask) => {
+			if (ask.claim === "forget") return RECORDED;
+			claimsAsked += 1;
+			return claimsAsked === 1 ? REFUSED : RECORDED;
+		});
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+		state.questId = MISSION;
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+		pass(CLAIM_RETRIED_AFTER_START_MS);
+		keeper.lookIfDue("sess-2", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"a quest loaded late is still the first claim, so its refusal is retried soon, forgetting nothing twice",
+		).toEqual(["forget", MISSION_CLAIM, MISSION_CLAIM]);
+	});
+
+	it("asks a claim at once after the forget before it failed", async () => {
+		const { state, claims, keeper } = keeping((ask) =>
+			ask.claim === "forget" ? TIMED_OUT : RECORDED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = PLAIN;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"a failed forget waits on its own, never holding back the claim after it",
+		).toEqual([MISSION_CLAIM, "forget", MISSION_CLAIM]);
+	});
+
+	it("sends nothing after a refusal that lands as the session stops", async () => {
+		const slow = held<ClaimTold>();
+		const { state, asked, keeper, pass } = keeping((ask) =>
+			ask.claim === "forget" ? RECORDED : slow.promise,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		keeper.stop();
+		slow.release(REFUSED);
+		await keeper.settled();
+		pass(CLAIM_RETRIED_AFTER_START_MS);
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			asked.map(({ claim }) => claim),
+			"no forget or retry follows, which could undo a reloaded keeper's claim",
+		).toEqual([MISSION_CLAIM]);
 	});
 
 	it("forgets a claim that timed out under the session that asked it", async () => {
@@ -629,6 +694,24 @@ describe("an orchestrator's claim", () => {
 		).toEqual({ heads: NESTED, quests: [WORKER] });
 	});
 
+	it("says the claim again a period after it was sent, though a quest action looked between", async () => {
+		const { state, claimsOnly, keeper, pass } = keeping();
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		pass(CLAIM_LOOKED_AGAIN_MS - 60_000);
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		pass(60_000);
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claimsOnly(),
+			"a look that sent nothing put off saying it again no further",
+		).toHaveLength(2);
+	});
+
 	it("says a refusal once, however often it recurs", async () => {
 		const { state, claimsOnly, said, keeper, pass } = keeping((ask) =>
 			ask.claim === "forget" ? RECORDED : REFUSED,
@@ -708,7 +791,7 @@ describe("an orchestrator's claim", () => {
 		expect(asked, "only the ask already sent").toHaveLength(1);
 	});
 
-	it("forgets as the conversation ends, once the ask in flight is done", async () => {
+	it("forgets as the conversation ends at once, beside the ask in flight", async () => {
 		const slow = held<ClaimTold>();
 		let first = true;
 		const { state, asked, keeper } = keeping(() => {
@@ -719,18 +802,20 @@ describe("an orchestrator's claim", () => {
 		state.questId = MISSION;
 		keeper.look("sess-1", AT);
 		keeper.end("sess-2", AT);
-		slow.release(RECORDED);
-		await keeper.settled();
-		keeper.look("sess-1", AT);
-		await keeper.settled();
-
+		await new Promise((resolve) => setImmediate(resolve));
 		expect(
 			asked.map(({ claim, session }) => [claim, session]),
-			"one last forget, under the session the node holds, then nothing",
+			"the last forget goes before the claim is answered, under the session that asked it",
 		).toEqual([
 			[MISSION_CLAIM, "sess-1"],
 			["forget", "sess-1"],
 		]);
+
+		slow.release(RECORDED);
+		await keeper.settled();
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		expect(asked, "then nothing").toHaveLength(2);
 	});
 
 	it("forgets nothing as it ends holding nothing", async () => {
@@ -746,7 +831,7 @@ describe("an orchestrator's claim", () => {
 		]);
 	});
 
-	it("asks the node of the session's own environment, from where it looked", async () => {
+	it("asks the node of the session's own environment", async () => {
 		const realms: NodeJS.ProcessEnv[] = [];
 		const { state, asked, keeper } = keeping(RECORDED, {
 			realm: (env) => {
@@ -756,7 +841,7 @@ describe("an orchestrator's claim", () => {
 		});
 		state.questId = MISSION;
 		const env = { MYCELIUM_REALM: "second", PATH: "/session/bin" };
-		keeper.look("sess-1", { cwd: "/session", env });
+		keeper.look("sess-1", { env });
 		await keeper.settled();
 
 		expect(realms, "the realm is the session's").toEqual([env]);
@@ -765,7 +850,7 @@ describe("an orchestrator's claim", () => {
 			"asked of that realm, with that environment",
 		).toMatchObject({
 			realm: "second",
-			place: { cwd: "/session", env },
+			place: { env },
 		});
 	});
 
@@ -933,6 +1018,33 @@ describe("the claim's wiring", () => {
 		answer.release(RECORDED);
 		await ending;
 		expect(done, "and done once it is answered").toBe(true);
+	});
+
+	it("waits on a quit's last forget no longer than its cap", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const never = held<ClaimTold>();
+			const { fire, settle } = wired({
+				tell: (claim) =>
+					claim === "forget" ? never.promise : Promise.resolve(RECORDED),
+			});
+			fire("session_start", {}, "sess-1");
+			await settle();
+			let done = false;
+			const ending = Promise.resolve(
+				fire("session_shutdown", { reason: "quit" }, "sess-1"),
+			).then(() => {
+				done = true;
+			});
+			await vi.advanceTimersByTimeAsync(CLAIM_END_WAIT_MS - 1);
+			expect(done, "still waiting just short of the cap").toBe(false);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await ending;
+			expect(done, "a forget never answered holds pi no longer").toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("forgets as a conversation is swapped or quit, never on a reload or a park", async () => {

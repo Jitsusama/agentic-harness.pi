@@ -23,11 +23,13 @@
  * claimed, which it then forgets before claiming again. An ask that may
  * have landed adds to what the node may hold rather than replacing it,
  * so a refusal after one still lets go of every quest headed before. A
- * claim refused before the node ever answered forgets what it may hold
- * from before and is asked once more half a minute on, since a swap's
- * successor can reach the node ahead of its predecessor's forget; the
- * predecessor's end waits a little for that forget, so it mostly lands
- * first.
+ * keeper's first claim, refused, forgets what it may hold from before and
+ * is asked once more at the first turn or tick from half a minute on,
+ * since a swap's successor can reach the node ahead of its predecessor's
+ * forget; the predecessor's end sends that forget at once, beside any ask
+ * still in flight, and waits a little for it, so it mostly lands first.
+ * The claim is said again a few minutes after it was last sent, however
+ * many quest actions came between.
  *
  * At most one ask runs at a time and at most one waits behind it, which
  * reads the quests as they are when it runs, so a burst of quest actions,
@@ -39,8 +41,8 @@
  * Every ask runs off the turn with what its hook read then, the session's
  * own environment among it, and never touches the context it was started
  * from, so a reload finds nothing stale; one in flight as the session
- * shuts down is the last, and a throw anywhere in one is said, never left
- * to end the process.
+ * shuts down sends nothing after it, and a throw anywhere in one is said,
+ * never left to end the process.
  */
 
 import { existsSync } from "node:fs";
@@ -77,22 +79,25 @@ export const CLAIM_LOOKED_AGAIN_MS = 5 * 60_000;
 /**
  * How often the timer asks whether a look is due. Well inside the due
  * period, so an idle claim is said again within a minute of being due
- * rather than a whole period late when a tick lands just short of it.
+ * rather than a whole period late when a tick lands just short of it,
+ * and a start's retry comes within a minute and a half of its refusal.
  */
 export const CLAIM_TICK_MS = 60_000;
 
 /**
- * How soon a claim refused before the node ever answered this keeper is
- * asked once more. A swap's successor claims as it starts, while its
- * predecessor's forget may still be on its way, held behind an ask of up
- * to 20 s; past that the refusal is the node's own word.
+ * How soon, at the earliest, the keeper's first claim, refused, is asked
+ * once more: at the first turn or tick past it. A swap's successor claims
+ * as it starts, while its predecessor's forget may still be on its way;
+ * past that the refusal is the node's own word.
  */
 export const CLAIM_RETRIED_AFTER_START_MS = 30_000;
 
 /**
  * The longest a conversation's end waits for its last forget, well inside
- * the 3 s a mycelium holder gives pi before it kills it; past it the
- * forget still goes, unwaited.
+ * the 3 s a mycelium holder gives pi before it kills it. The forget is
+ * started at once, so what the cap cuts short is the wait for its answer,
+ * not its sending; a forget that goes unanswered leaves the node to let
+ * the claim lapse.
  */
 export const CLAIM_END_WAIT_MS = 1_500;
 
@@ -205,8 +210,8 @@ export interface ClaimKeeper {
 	/** Ask nothing more, as the session reloads or parks. */
 	stop(): void;
 	/**
-	 * Ask nothing more but a last forget once any ask in flight is done,
-	 * under whichever session the node may hold a claim for, as the
+	 * Ask nothing more but a last forget, sent at once beside any ask in
+	 * flight, under whichever session the node may hold a claim for, as the
 	 * conversation ends for good; done once that forget is.
 	 */
 	end(session: string | undefined, place: ClaimPlace): Promise<void>;
@@ -232,7 +237,6 @@ type Holding =
 			readonly kind: "unsure";
 			readonly heads: readonly string[];
 			readonly session?: string;
-			readonly fromStart?: true;
 	  };
 
 /** The session the node may hold `holding` under, if the keeper knows it. */
@@ -262,17 +266,26 @@ export function claimKeeper(
 	const realm = deps.realm ?? servedRealm;
 	const now = deps.now ?? (() => performance.now());
 	const journal = deps.journal ?? warnInJournal;
-	let holding: Holding = { kind: "unsure", heads: [], fromStart: true };
+	let holding: Holding = { kind: "unsure", heads: [] };
 	/**
 	 * When each ask that failed did, so it waits until due to be asked
 	 * again, apart from every other ask's wait.
 	 */
 	const failed = new Map<string, number>();
+	/**
+	 * When a claim was last sent, which the claim is said again a period
+	 * after: a look that sends nothing, as a quest action's mostly does,
+	 * puts it off no further.
+	 */
+	let claimSentAt: number | undefined;
+	/** Whether the node has answered a claim of this keeper's yet. */
+	let claimAnswered = false;
 	/** The troubles said since the last answer, so one that recurs is said once. */
 	const saidTroubles = new Set<string>();
-	/** When a claim refused at the start is asked once more, and whether it was. */
+	/** When the first claim, refused, is asked once more. */
 	let retryAt: number | undefined;
-	let refusedAtStart = false;
+	/** The session the ask running now asks under. */
+	let askingAs: string | undefined;
 	let lookedAt: number | undefined;
 	/** The quest loaded when it last looked, since a slow start loads late. */
 	let lookedOn: string | null | undefined;
@@ -310,7 +323,9 @@ export function claimKeeper(
 		key: string,
 		followUp = false,
 	): Promise<ClaimTold["kind"]> => {
+		if (claim !== "forget") claimSentAt = now();
 		const told = await tell(claim, session, named, asked.place);
+		if (claim !== "forget" && told.kind !== "unasked") claimAnswered = true;
 		if (told.kind === "recorded") {
 			holding =
 				claim === "forget"
@@ -373,10 +388,13 @@ export function claimKeeper(
 		if (!asked.again && holding.kind === "claim" && holding.key === key) return;
 		if (waitsOut(key, asked.again)) return;
 		const before = holding;
+		const first = !claimAnswered;
 		const told = await put(claim, asked.session, named, asked, key);
 		// An ask that may have landed is let be, or a forget could undo it;
-		// it is held unsure, and the next look says it again.
-		if (told !== "refused") return;
+		// it is held unsure, and the next look says it again. One that
+		// finished as the session ended sends nothing more: the end's own
+		// forget is already on its way, and a reload's keeper claims afresh.
+		if (told !== "refused" || stopped) return;
 		// A refusal leaves the node holding what it held, so a quest headed
 		// before, and no longer loaded, is let go, and so is the same quest
 		// held under an earlier session, which the node refuses this one for.
@@ -386,17 +404,16 @@ export function claimKeeper(
 		// Once an earlier session's claim is let go this one's may stand, so
 		// it is asked again at once; a refusal of another quest's is waited out.
 		if (otherSession) {
-			await forget(asked, named);
-			if (holding.kind === "nothing")
+			await forget(asked, named, true);
+			if (holding.kind === "nothing" && !stopped)
 				await put(claim, asked.session, named, asked, key);
 			return;
 		}
-		// Refused before the node ever answered: what it holds from before is
-		// let go, and the claim asked once more soon, in case what refused
-		// it was a predecessor's claim whose forget was still on its way.
-		if (before.kind === "unsure" && before.fromStart && !refusedAtStart) {
-			refusedAtStart = true;
-			await forget(asked, named, true);
+		// The first claim refused: what the node holds from before is let go,
+		// and the claim asked once more soon, in case what refused it was a
+		// predecessor's claim whose forget was still on its way.
+		if (first) {
+			if (holding.kind !== "nothing") await forget(asked, named, true);
 			retryAt = now() + CLAIM_RETRIED_AFTER_START_MS;
 			return;
 		}
@@ -407,6 +424,7 @@ export function claimKeeper(
 		let asked: Asked | undefined = first;
 		while (asked && !stopped) {
 			try {
+				askingAs = asked.session;
 				await ask(asked);
 			} catch (error) {
 				say(`quest-workflow: an orchestration claim failed: ${String(error)}`);
@@ -442,12 +460,14 @@ export function claimKeeper(
 	return {
 		look: (session, place) => look(session, place),
 		lookIfDue(session, place) {
-			if (lookedAt === undefined || lookedOn !== state.questId)
+			if (lookedAt === undefined || lookedOn !== state.questId) {
+				// Another quest is claimed afresh, so a retry for the last one lapses.
+				retryAt = undefined;
 				look(session, place);
-			else if (retryAt !== undefined && now() >= retryAt) {
+			} else if (retryAt !== undefined && now() >= retryAt) {
 				retryAt = undefined;
 				look(session, place, true);
-			} else if (now() - lookedAt >= CLAIM_LOOKED_AGAIN_MS)
+			} else if (now() - (claimSentAt ?? lookedAt) >= CLAIM_LOOKED_AGAIN_MS)
 				look(session, place, true);
 		},
 		stop() {
@@ -461,13 +481,18 @@ export function claimKeeper(
 			}
 			stopped = true;
 			waiting = undefined;
-			const inFlight = running;
+			// Sent at once rather than behind an ask in flight, which can take
+			// 20 s where a quit gives the forget a moment; one in flight may yet
+			// land a claim, so the forget goes even while nothing is held.
+			const inFlight = running === undefined ? undefined : askingAs;
 			const last = async (): Promise<void> => {
-				await inFlight;
-				if (holding.kind === "nothing") return;
+				if (inFlight === undefined && holding.kind === "nothing") return;
 				const named = realm(place.env ?? process.env);
 				if (named === undefined) return;
-				await forget({ session, place, again: true }, named);
+				// Under the session the node may hold a claim for, or else the
+				// one the ask in flight asks under.
+				const under = inFlight ?? session;
+				await forget({ session: under, place, again: true }, named);
 			};
 			ending = last().catch((error: unknown) => {
 				say(`quest-workflow: an orchestration claim failed: ${String(error)}`);
