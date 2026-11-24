@@ -19,6 +19,7 @@ import {
 	WRITING,
 	wholeWrites,
 	writeWhole,
+	writeWholeBy,
 	writeWholeOff,
 } from "../../../lib/internal/write-whole.ts";
 
@@ -41,6 +42,60 @@ describe("writing a file whole", () => {
 
 		expect(readFileSync(file, "utf8")).toBe("new");
 		expect(readdirSync(dir).sort()).toEqual([WRITING, "queue.json"]);
+		expect(readdirSync(join(dir, WRITING))).toEqual([]);
+	});
+
+	it("replaces it with what is written a piece at a time, leaving nothing staged", () => {
+		const file = join(dir, "log.jsonl");
+		writeFileSync(file, "old");
+
+		writeWholeBy(
+			file,
+			(write) => {
+				write("café ");
+				write(Buffer.from([0xff, 0x0a]));
+				write(new Uint8Array(0));
+				write("end\n");
+			},
+			{ durable: true },
+		);
+
+		expect(readFileSync(file)).toEqual(
+			Buffer.concat([
+				Buffer.from("café "),
+				Buffer.from([0xff, 0x0a]),
+				Buffer.from("end\n"),
+			]),
+		);
+		expect(readdirSync(join(dir, WRITING))).toEqual([]);
+	});
+
+	it("leaves it as it was, and nothing staged, when what writes the pieces throws", () => {
+		const file = join(dir, "log.jsonl");
+		writeFileSync(file, "old");
+
+		expect(() =>
+			writeWholeBy(file, (write) => {
+				write("half");
+				throw new Error("the source went");
+			}),
+		).toThrow("the source went");
+
+		expect(readFileSync(file, "utf8")).toBe("old");
+		expect(readdirSync(join(dir, WRITING))).toEqual([]);
+	});
+
+	it("leaves it as it was, and nothing staged, when what writes the pieces answers a promise", () => {
+		const file = join(dir, "log.jsonl");
+		writeFileSync(file, "old");
+
+		expect(() =>
+			writeWholeBy(file, async (write) => {
+				write("half");
+			}),
+		).toThrow("what fills it answered a promise");
+
+		expect(readFileSync(file, "utf8")).toBe("old");
 		expect(readdirSync(join(dir, WRITING))).toEqual([]);
 	});
 });
