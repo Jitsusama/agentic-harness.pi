@@ -48,7 +48,7 @@ export const agreed =
 	(asked) => {
 		if ("Presence" in asked) return ['{"Ok":"Present"}'];
 		if ("Send" in asked) {
-			const sent = asked["Send"];
+			const sent = asked.Send;
 			const message =
 				typeof sent === "object" && sent !== null && "message" in sent
 					? sent.message
