@@ -108,6 +108,12 @@ export interface NeedRecord extends Omit<NeedAsked, "fromText" | "selves"> {
 	 */
 	readonly ended?: readonly string[];
 	/**
+	 * The live cell found for a need counted lost because a cell named in
+	 * `ended` worked on more of it, so the asker can still name it; left
+	 * out otherwise.
+	 */
+	readonly fellShort?: string;
+	/**
 	 * Cells that work on a need counted lost but stopped its asker, so
 	 * the asker is told why rather than that no cell works on it; left out
 	 * when none, or when the need was found.
@@ -418,15 +424,25 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  * works on most of the need, found through a word's narrowest hub naming
  * a fit that is there or along ties to the nearest cell working on it.
  * Among cells working on as many, a hub's find before any walk's, and
- * among those the rarest word's. Taken by its rarest word alone, 15 of
- * 84 needs kept on 23 and 24 November, replayed over the node's cells of
- * the 24th, went to cells on "checks" or "gate" sharing no other word.
- * Lost, with no path, when none is within `MOST_HOPS`, or when every
- * cell holding its narrowest word has ended (`ownerEnded`). A cell that
- * works on it but has ended is never taken, and is named in `ended`:
- * for a found need, when passed over for the word its fit was found by;
- * one that stopped the asker is named in `stopped` when the need is lost.
- * Only a cell `live` says is there is taken.
+ * among those the rarest word's, rarest counting ended holders too.
+ * Taken by its rarest word alone, 15 of 84 needs kept on 23 and 24
+ * November, replayed over the node's cells of the 24th, went to cells on
+ * "checks" or "gate" sharing no other word.
+ *
+ * Lost, with no path, when none is within `MOST_HOPS`, or when a cell
+ * that has ended worked on more of it than the fit found, which is then
+ * named in `fellShort`: that cell owned it, and the fit shares less. Only
+ * a cell the node still lists counts, and the node drops a cell whose
+ * session ended cleanly, so an owner gone that way is never seen; one
+ * whose record lingers is, for as long as it does, but only against a
+ * fit sharing less of the need. A live owner beyond `MOST_HOPS` is not
+ * seen either, so the need goes to the fit found.
+ *
+ * A cell that works on it but has ended is never taken, and is named in
+ * `ended`: for a found need, when passed over for the word its fit was
+ * found by; for a lost one, every such cell, or the owners alone when an
+ * owner made it lost. One that stopped the asker is named in `stopped`
+ * when the need is lost. Only a cell `live` says is there is taken.
  */
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	const selves = new Set([said.asker, ...(said.selves ?? [])]);
@@ -443,7 +459,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	const asked = {
 		...said,
 		words: keptWords(said, reach.foragers, {
-			takes,
+			standing: (address) => takes(address) || ended(address),
 			self: (address) => selves.has(address),
 		}),
 	};
@@ -489,10 +505,25 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		if (gone) passed.set(word, (passed.get(word) ?? new Set()).add(address));
 		return gone;
 	};
+	// Narrowest by every cell that holds it, ended ones too, so a word
+	// many ended cells held never goes before one a single live cell
+	// does; then by those there to take it; then by the word.
+	const everyHolder = (word: string) =>
+		reach.foragers.filter(
+			({ address }) =>
+				(takes(address) || ended(address)) && holds(address, word),
+		).length;
 	const rarest = asked.words
 		.filter((word) => !ownWord(word))
-		.map((word) => ({ word, count: holders(word).length }))
-		.sort((a, b) => a.count - b.count || a.word.localeCompare(b.word));
+		.map((word) => ({
+			word,
+			count: holders(word).length,
+			all: everyHolder(word),
+		}))
+		.sort(
+			(a, b) =>
+				a.all - b.all || a.count - b.count || a.word.localeCompare(b.word),
+		);
 	/** Lost, naming every cell that works on it but has ended or stopped it. */
 	const lost = () => {
 		for (const { word } of rarest) {
@@ -505,8 +536,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	};
 	const within = rarest.filter(({ count }) => count > 0);
 	if (within.length === 0) return lost();
-	const standing = (address: string) => !selves.has(address) && !stops(address);
-	if (ownerEnded(rarest, reach.foragers, standing, holds)) return lost();
 	const most = (address: string) =>
 		asked.words.filter((word) => holds(address, word)).length;
 	const best = (candidates: readonly string[]) =>
@@ -573,9 +602,17 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			chosen === undefined || most(one.fit) > most(chosen.fit) ? one : chosen,
 		undefined,
 	);
-	return found === undefined
-		? lost()
-		: record(found.path, found.fit, passed.get(found.word) ?? new Set());
+	if (found === undefined) return lost();
+	// An ended cell that worked on more of it than the fit found was the
+	// need's owner: sending it to a cell sharing less of it is a misroute.
+	const reached = most(found.fit);
+	const owners = reach.foragers
+		.map(({ address }) => address)
+		.filter((address) => ended(address) && most(address) > reached);
+	if (owners.length > 0) {
+		return { ...record([], null, new Set(owners)), fellShort: found.fit };
+	}
+	return record(found.path, found.fit, passed.get(found.word) ?? new Set());
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the
@@ -606,9 +643,9 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
  * The words a need is routed and kept by: only those some cell works
  * on, none past `LONGEST_WORD` and at most `MOST_WORDS`, so a token in
  * what was said, in its text or its `about`, never reaches the file.
- * Past `MOST_WORDS`, those that route it are kept rarest first, counted
- * over the cells that would take it; then those only cells there to name
- * but not to take hold, ended or stopping the asker, which say why the
+ * Past `MOST_WORDS`, those that route it or name its ended owner are
+ * kept rarest first, counted over the cells there to take it or ended;
+ * then those only cells that stopped the asker hold, which say why the
  * need is lost; then those the asker holds, which route nowhere; among
  * words as rare, the first said. They stay in the order said.
  */
@@ -616,14 +653,14 @@ function keptWords(
 	asked: NeedAsked,
 	foragers: readonly Forager[],
 	cells: {
-		readonly takes: (address: string) => boolean;
+		readonly standing: (address: string) => boolean;
 		readonly self: (address: string) => boolean;
 	},
 ): string[] {
 	const takers = new Map<string, number>();
 	const ownHold = new Set<string>();
 	for (const { address, words } of foragers) {
-		const taking = cells.takes(address) ? 1 : 0;
+		const taking = cells.standing(address) ? 1 : 0;
 		const own = cells.self(address);
 		for (const word of words) {
 			takers.set(word, (takers.get(word) ?? 0) + taking);
@@ -637,8 +674,8 @@ function keptWords(
 	const rarity = (word: string) => {
 		if (ownHold.has(word)) return Number.POSITIVE_INFINITY;
 		const count = takers.get(word) ?? 0;
-		// A cell not the asker's either takes or is there to name, ended
-		// or stopping it, so a held word no cell takes is an untaken one.
+		// A cell not the asker's takes it, has ended or stopped the asker,
+		// so a held word none of the first two hold is a stopper's alone.
 		return count > 0 ? count : UNTAKEN_ONLY;
 	};
 	const rarest = new Set(
@@ -648,42 +685,11 @@ function keptWords(
 }
 
 /**
- * How rare a word held only by cells there to name but not to take
- * ranks: past every word a live cell would take, and before those the
- * asker holds.
+ * How rare a word held only by cells that stopped the asker ranks: past
+ * every word a cell there or ended holds, and before those the asker
+ * holds.
  */
 const UNTAKEN_ONLY = Number.MAX_SAFE_INTEGER;
-
-/**
- * Whether every cell holding a need's narrowest word has ended. The
- * narrowest is the word the fewest cells hold, counting those that have
- * ended as well as those there, but not the asker's own or those that
- * stopped it; among words as narrow, one any cell there takes is enough
- * to route on. A need routed past an ended owner on a broader word goes
- * to a cell that shares only that word: on 24 November "dates delivery"
- * went to the lent builders' cell once the dates cell had ended, and
- * "cloud slots" twice to cells that run no cloud slot.
- */
-function ownerEnded(
-	rarest: readonly { readonly word: string; readonly count: number }[],
-	foragers: readonly Forager[],
-	standing: (address: string) => boolean,
-	holds: (address: string, word: string) => boolean,
-): boolean {
-	const held = rarest
-		.map(({ word, count }) => ({
-			count,
-			all: foragers.filter(
-				({ address }) => standing(address) && holds(address, word),
-			).length,
-		}))
-		.filter(({ all }) => all > 0);
-	if (held.length === 0) return false;
-	const fewest = Math.min(...held.map(({ all }) => all));
-	return held
-		.filter(({ all }) => all === fewest)
-		.every(({ count }) => count === 0);
-}
 
 /**
  * The hubs whose subject's narrowest part says `word`, and says nothing

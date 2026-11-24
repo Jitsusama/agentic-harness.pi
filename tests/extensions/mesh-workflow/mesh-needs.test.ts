@@ -182,6 +182,57 @@ describe("sending to a need", () => {
 		);
 	});
 
+	it("is refused, naming the owner that ended and the live cell found, when the owner worked on more of it", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates Delivery" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land?",
+			about: "dates delivery",
+		});
+
+		expect(said, "a live cell was found, so it never says none was").toContain(
+			"Not sent: J7XHQN worked on more of dates delivery than 5HJZ8Z, the live cell found, but has ended, so it was not sent to a cell sharing less of it.",
+		);
+		expect(said).not.toContain("no live cell within three ties");
+		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
+		expect(said).toContain(ASK_WHO_OWNS_IT);
+		expectNoBarAbove(said);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids()).toEqual([]);
+	});
+
+	it("says which words of its about no cell works on, when it goes by the rest", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep its fonts?",
+			about: "fonts carry",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said).toContain(
+			"No cell works on fonts, so it found nobody and it was asked by carry alone.",
+		);
+	});
+
 	it("takes no cell that stopped this one, since it can't be written to", async () => {
 		createPresences(join(fixture.paths.mesh, "presence")).publish({
 			session: "session-c",

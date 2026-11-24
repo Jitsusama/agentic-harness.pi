@@ -22,6 +22,7 @@
 
 import { needNamed } from "../../../lib/mesh/group.ts";
 import {
+	MOST_WORDS,
 	type NeedRecord,
 	needId,
 	wordsOf,
@@ -104,6 +105,22 @@ export async function needRead(
 		return refused(`${retry} ${ASK_WHO_OWNS_IT}`);
 	}
 	const ended = endedText(found);
+	// On 24 November a need about "dates delivery" went by delivery alone,
+	// the dates cell having left the node, and its asker heard nothing of
+	// dates. Past MOST_WORDS a word some cell holds is dropped too, so
+	// then nothing is said of the rest.
+	const unasked =
+		fromText || words.length > MOST_WORDS
+			? ""
+			: unaskedText(
+					words.filter((word) => !found.words.includes(word)),
+					about,
+				);
+	if (found.fit === null && found.fellShort !== undefined) {
+		return refused(
+			`${ownerText(found, found.fellShort, about)}${unasked} It is counted as lost and passed to nobody in its place. Name ${found.fellShort} or another peer it is for by address if it will do. ${ASK_WHO_OWNS_IT}`,
+		);
+	}
 	if (found.fit === null) {
 		// A peer that stopped this one refuses a send, so it isn't offered.
 		const instead =
@@ -111,7 +128,7 @@ export async function needRead(
 				? "Name another peer it is for by address."
 				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
+			`no live cell within three ties that hears this peer works on ${about}.${unasked}${ended}${stoppedText(found)} It is counted as lost and passed to nobody in its place. ${instead} ${ASK_WHO_OWNS_IT}`,
 		);
 	}
 	if (found.fit === asker) {
@@ -121,8 +138,25 @@ export async function needRead(
 	}
 	return {
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
-		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended} ${NEED_GRANTS_NOTHING}`,
+		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${unasked}${ended} ${NEED_GRANTS_NOTHING}`,
 	};
+}
+
+/** The words of an about no cell works on, as a sentence, or nothing. */
+function unaskedText(unasked: readonly string[], about: string): string {
+	if (unasked.length === 0) return "";
+	const one = unasked.length === 1;
+	return ` No cell works on ${unasked.join(", ")}, so ${one ? "it" : "they"} found nobody and it was asked by ${about} alone.`;
+}
+
+/**
+ * Why a need whose owner has ended is lost though a live cell was found:
+ * the cells named in `ended` worked on more of it than `fit`.
+ */
+function ownerText(found: NeedRecord, fit: string, about: string): string {
+	const owners = found.ended ?? [];
+	const one = owners.length === 1;
+	return `${owners.join(", ")} worked on more of ${about} than ${fit}, the live cell found, but ${one ? "has" : "have"} ended, so it was not sent to a cell sharing less of it.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */

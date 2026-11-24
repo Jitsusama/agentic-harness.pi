@@ -443,7 +443,7 @@ describe("routing a need", () => {
 		expect(found).not.toHaveProperty("ended");
 	});
 
-	it("counts it lost, naming who ended, when every cell holding its narrowest word has", () => {
+	it("counts it lost, naming who ended and the fit, when an ended cell worked on more of it", () => {
 		const found = routeNeed(asked("A", "dates", "delivery"), {
 			foragers: cells({
 				A: [],
@@ -460,6 +460,66 @@ describe("routing a need", () => {
 			path: [],
 			fit: null,
 			ended: ["J"],
+			fellShort: "B",
+		});
+	});
+
+	it("names only the ended cells that worked on more of it than the fit", () => {
+		const found = routeNeed(asked("A", "dates", "delivery"), {
+			foragers: cells({
+				A: [],
+				J: ["dates", "delivery"],
+				E: ["delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "E", 1], ["A", "B", 2]),
+			hubs: [],
+			live: (address) => address !== "J" && address !== "E",
+		});
+
+		expect(found, "E held no more of it than B").toMatchObject({
+			fit: null,
+			ended: ["J"],
+			fellShort: "B",
+		});
+	});
+
+	it("goes to the fit found when an ended cell held a word of it but no more of it", () => {
+		// A record the node keeps after its session ended, holding a word
+		// no live cell does, never stops a need a live cell works on as much.
+		const found = routeNeed(asked("A", "niche", "delivery", "slots"), {
+			foragers: cells({
+				A: [],
+				E: ["niche"],
+				B: ["delivery", "slots"],
+				C: ["delivery", "slots"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "E", 1]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found).toMatchObject({ path: ["B"], fit: "B" });
+		expect(found).not.toHaveProperty("fellShort");
+	});
+
+	it("goes by the word fewest cells hold, ended ones counted, when live holders tie", () => {
+		const found = routeNeed(asked("A", "alpha", "zulu"), {
+			foragers: cells({
+				A: [],
+				K: ["zulu"],
+				B: ["alpha"],
+				E1: ["alpha"],
+				E2: ["alpha"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "K", 2]),
+			hubs: [],
+			live: (address) => !address.startsWith("E"),
+		});
+
+		expect(found, "three cells held alpha, one zulu").toMatchObject({
+			path: ["K"],
+			fit: "K",
 		});
 	});
 
