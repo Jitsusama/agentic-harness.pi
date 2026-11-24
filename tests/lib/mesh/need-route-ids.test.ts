@@ -242,7 +242,7 @@ describe("a need for the id a cell holds", () => {
 
 	// Passed over is said only of a cell that works on the word as the
 	// need reads it (#2136's round, F2 and F10).
-	it("names no ended or stopping cell of another leg as passed over for leg", () => {
+	it("names no ended cell of another leg as passed over for leg", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("Leg 27")), fromText: true },
 			{
@@ -263,7 +263,7 @@ describe("a need for the id a cell holds", () => {
 
 	it("names no ended or stopping cell of another leg on a need lost on leg", () => {
 		const found = routeNeed(
-			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{ ...asked("A", ...wordsOf("Leg 27")), fromText: true },
 			{
 				foragers: cells({
 					A: [],
@@ -296,6 +296,88 @@ describe("a need for the id a cell holds", () => {
 		);
 
 		expect(found, "G, on leg").toMatchObject({ fit: "G", words: ["leg"] });
+	});
+
+	// Its follow-up vouches for leg beside another leg it holds (#2136's
+	// round 2, F1).
+	it("takes a cell on leg-27's follow-up at leg though it holds leg-26 too", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27")), fromText: true },
+			{
+				foragers: cells({
+					A: [],
+					G: [...wordsOf("leg-27-follow-up"), "leg-26"],
+				}),
+				ties: ties(["A", "G", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "G, on leg").toMatchObject({ fit: "G", words: ["leg"] });
+	});
+
+	// Only an id holding leg-27 as whole parts is its follow-up (#2136's
+	// round 2, F6).
+	it.each([
+		["a longer number", "leg-270"],
+		["another leg's follow-up", "leg-26-follow-up"],
+	])("takes no cell holding %s at leg for a need for leg 27", (_, id) => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27")), fromText: true },
+			{
+				foragers: cells({ A: [], G: wordsOf(id) }),
+				ties: ties(["A", "G", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "lost").toMatchObject({ fit: null });
+		expect(found.words, "no leg kept").not.toContain("leg");
+	});
+
+	// A said id inside a held one vouches only for its own words: pass-3
+	// is no leave for leg-26's leg (#2136's round 2, F2, F7 and F11).
+	it("takes no leg-26 cell at leg because its id also holds another number said", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("leg 27 pass 3")), fromText: true },
+			{
+				foragers: cells({ A: [], G: wordsOf("leg-26-pass-3") }),
+				ties: ties(["A", "G", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found.words, "pass, which pass-3 works on, and no leg").toEqual([
+			"pass",
+		]);
+	});
+
+	// A word another leg's cells hold is no commoner for them, so it is
+	// tried first when only one cell works on it (#2136's round 2, F4, F8).
+	it("ranks leg by the cells working on leg 27, not by every leg's", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({
+					A: [],
+					F: ["easing"],
+					F2: ["easing"],
+					L: ["leg"],
+					P: wordsOf("leg-26"),
+					P2: wordsOf("leg-26"),
+				}),
+				ties: ties(
+					["A", "F", 1],
+					["A", "F2", 1],
+					["A", "L", 1],
+					["A", "P", 1],
+					["A", "P2", 1],
+				),
+				hubs: [],
+			},
+		);
+
+		expect(found, "L, the one cell on leg").toMatchObject({ fit: "L" });
 	});
 
 	it("says no word of a need for leg 27 unheld that only a live leg-26 cell holds", () => {

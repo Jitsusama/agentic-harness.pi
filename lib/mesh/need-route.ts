@@ -555,20 +555,27 @@ function routeAs(
 	// A need naming one numbered id, leg 27, says nothing of another,
 	// leg-26, whose words it shares: a cell holding leg-26 takes it on
 	// the word leg only when the need says leg-26 as well. A longer id
-	// holding the one said, leg-27-follow-up, is work on leg 27 itself.
+	// holding the one said, leg-27-follow-up, is work on leg 27 itself,
+	// but only for that id's own words: leg-26-pass-3 is no work on the
+	// leg of a need for leg 27 and pass 3. One id the need says, or one
+	// holding it, vouches for the word however many others a cell holds.
 	const numberedSaid = said.words.filter(isNumbered);
 	const numberedParts = new Set(
 		numberedSaid.flatMap((id) => id.split(/[-_]/u)),
 	);
-	const holdsOtherNumber = (address: string, word: string) =>
-		numberedParts.has(word) &&
-		[...(wordsHeld.get(address) ?? [])].some(
-			(held) =>
-				isNumbered(held) &&
-				held.split(/[-_]/u).includes(word) &&
-				!saysWord(held, saying) &&
-				!numberedSaid.some((id) => bounded(held).includes(bounded(id))),
+	const vouches = (held: string, word: string) =>
+		saysWord(held, saying) ||
+		numberedSaid.some(
+			(id) =>
+				id.split(/[-_]/u).includes(word) && bounded(held).includes(bounded(id)),
 		);
+	const holdsOtherNumber = (address: string, word: string) => {
+		if (!numberedParts.has(word)) return false;
+		const carrying = [...(wordsHeld.get(address) ?? [])].filter(
+			(held) => isNumbered(held) && held.split(/[-_]/u).includes(word),
+		);
+		return carrying.length > 0 && !carrying.some((held) => vouches(held, word));
+	};
 	// Whether a cell works on a word as the need reads it: the one test
 	// every finding, naming and ranking below reads a word by, the
 	// asker's own included, so none of them takes a leg-26 cell's leg for
