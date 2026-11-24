@@ -902,58 +902,64 @@ describe("asking the node for a need's fit", () => {
 	it("routes over the node's cells and ties, with no hubs yet, and keeps the line", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:B", title: "Carry a Session", repo: "mycelium" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:BBBBBB", title: "Carry a Session", repo: "mycelium" },
 			],
-			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+			tie: [{ key: "tie:AAAAAA~BBBBBB", strength: 2, heard: AT }],
 		});
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
 		});
 
-		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
-		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
+		expect(found).toMatchObject({
+			path: ["BBBBBB"],
+			fit: "BBBBBB",
+			cells: 2,
+		});
+		expect(readFileSync(needsFile(root, AT), "utf8")).toContain(
+			'"fit":"BBBBBB"',
+		);
 	});
 
 	it("asks the node who sent on each tie today, so an ended owner is found", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:J", title: "Dates Delivery" },
-				{ key: "cell:B", title: "Delivery Lanes" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:JJJJJJ", title: "Dates Delivery" },
+				{ key: "cell:BBBBBB", title: "Delivery Lanes" },
 			],
 			tie: [
-				{ key: "tie:A~B", strength: 3, heard: AT, today: [1, 1] },
-				{ key: "tie:A~J", strength: 1, heard: AT, today: [0, 1] },
+				{ key: "tie:AAAAAA~BBBBBB", strength: 3, heard: AT, today: [1, 1] },
+				{ key: "tie:AAAAAA~JJJJJJ", strength: 1, heard: AT, today: [0, 1] },
 			],
 		});
 
-		const found = await needAt(socket, asked("A", "dates", "delivery"), {
-			live: (address) => address !== "J",
+		const found = await needAt(socket, asked("AAAAAA", "dates", "delivery"), {
+			live: (address) => address !== "JJJJJJ",
 			stopped: () => false,
 			keep: root,
 		});
 
 		expect(found, "J's own sending on its tie").toMatchObject({
 			fit: null,
-			ended: ["J"],
-			fellShort: "B",
+			ended: ["JJJJJJ"],
+			fellShort: "BBBBBB",
 		});
 	});
 
 	it("keeps a lost need as it is routed", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:B", title: "Carry a Session", repo: "mycelium" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:BBBBBB", title: "Carry a Session", repo: "mycelium" },
 			],
-			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+			tie: [{ key: "tie:AAAAAA~BBBBBB", strength: 2, heard: AT }],
 		});
 
-		const found = await needAt(socket, asked("A", "fonts"), {
+		const found = await needAt(socket, asked("AAAAAA", "fonts"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
@@ -966,17 +972,17 @@ describe("asking the node for a need's fit", () => {
 	it("asks the node for each cell's subjects, and routes by them", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
 				{
-					key: "cell:B",
+					key: "cell:BBBBBB",
 					title: "Carry a Session",
 					subjects: ["mycelium:easing"],
 				},
 			],
-			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+			tie: [{ key: "tie:AAAAAA~BBBBBB", strength: 2, heard: AT }],
 		});
 
-		const found = await needAt(socket, asked("A", "easing"), {
+		const found = await needAt(socket, asked("AAAAAA", "easing"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
@@ -985,7 +991,7 @@ describe("asking the node for a need's fit", () => {
 		expect(
 			found,
 			"a need finds the cell that declares its subject",
-		).toMatchObject({ path: ["B"], fit: "B" });
+		).toMatchObject({ path: ["BBBBBB"], fit: "BBBBBB" });
 	});
 
 	it("asks the node for a subject's several hubs, and routes by them", async () => {
@@ -993,49 +999,55 @@ describe("asking the node for a need's fit", () => {
 		// only the list's second hub names it.
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:H", title: "Hub" },
-				{ key: "cell:F", title: "Carry a Session" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:HHHHHH", title: "Hub" },
+				{ key: "cell:FFFFFF", title: "Carry a Session" },
 			],
-			tie: [{ key: "tie:A~H", strength: 2, heard: AT }],
+			tie: [{ key: "tie:AAAAAA~HHHHHH", strength: 2, heard: AT }],
 			hub: [
 				{
 					key: "hub:carry",
 					hubs: [
-						{ hub: "H", fits: ["X"] },
-						{ hub: "H", fits: ["F"] },
+						{ hub: "HHHHHH", fits: ["XXXXXX"] },
+						{ hub: "HHHHHH", fits: ["FFFFFF"] },
 					],
 				},
 			],
 		});
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
 		});
 
-		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
+		expect(found).toMatchObject({
+			path: ["HHHHHH", "FFFFFF"],
+			fit: "FFFFFF",
+		});
 	});
 
 	it("asks the node for a record's single hub, as a node from before the list writes it", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:H", title: "Hub" },
-				{ key: "cell:F", title: "Carry a Session" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:HHHHHH", title: "Hub" },
+				{ key: "cell:FFFFFF", title: "Carry a Session" },
 			],
-			tie: [{ key: "tie:A~H", strength: 2, heard: AT }],
-			hub: [{ key: "hub:carry", hub: "H", fits: ["F"] }],
+			tie: [{ key: "tie:AAAAAA~HHHHHH", strength: 2, heard: AT }],
+			hub: [{ key: "hub:carry", hub: "HHHHHH", fits: ["FFFFFF"] }],
 		});
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
 		});
 
-		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
+		expect(found).toMatchObject({
+			path: ["HHHHHH", "FFFFFF"],
+			fit: "FFFFFF",
+		});
 	});
 
 	it("answers nothing, and keeps nothing, when no node answers", async () => {
@@ -1055,12 +1067,12 @@ describe("asking the node for a need's fit", () => {
 	it("answers nothing, never a lost need, when the node won't list its ties", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:B", title: "Carry a Session" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:BBBBBB", title: "Carry a Session" },
 			],
 		});
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
 			stopped: () => false,
 			keep: root,
@@ -1076,46 +1088,46 @@ describe("asking the node for a need's fit", () => {
 	it("still answers when the needs folder won't take the line", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:B", title: "Carry a Session" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:BBBBBB", title: "Carry a Session" },
 			],
-			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+			tie: [{ key: "tie:AAAAAA~BBBBBB", strength: 2, heard: AT }],
 		});
 		// A file where the folder would go, so its needs/ can't be made.
 		const file = join(root, "a-file");
 		writeFileSync(file, "");
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
 			stopped: () => false,
 			keep: file,
 		});
 
-		expect(found).toMatchObject({ fit: "B" });
+		expect(found).toMatchObject({ fit: "BBBBBB" });
 	});
 
 	it("takes no cell that stopped the asker, and finds through it", async () => {
 		const socket = await serving({
 			cell: [
-				{ key: "cell:A", title: "A Web, Not a Funnel" },
-				{ key: "cell:S", title: "Carry a Session" },
-				{ key: "cell:F", title: "Carry a Tree" },
+				{ key: "cell:AAAAAA", title: "A Web, Not a Funnel" },
+				{ key: "cell:SSSSSS", title: "Carry a Session" },
+				{ key: "cell:FFFFFF", title: "Carry a Tree" },
 			],
 			tie: [
-				{ key: "tie:A~S", strength: 2, heard: AT },
-				{ key: "tie:S~F", strength: 2, heard: AT },
+				{ key: "tie:AAAAAA~SSSSSS", strength: 2, heard: AT },
+				{ key: "tie:SSSSSS~FFFFFF", strength: 2, heard: AT },
 			],
 		});
 
-		const found = await needAt(socket, asked("A", "carry"), {
+		const found = await needAt(socket, asked("AAAAAA", "carry"), {
 			live: () => true,
-			stopped: (address) => address === "S",
+			stopped: (address) => address === "SSSSSS",
 			keep: root,
 		});
 
 		expect(found, "F, one tie past S, never S").toMatchObject({
-			path: ["S", "F"],
-			fit: "F",
+			path: ["SSSSSS", "FFFFFF"],
+			fit: "FFFFFF",
 		});
 	});
 });

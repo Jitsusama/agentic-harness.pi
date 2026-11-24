@@ -185,6 +185,7 @@ describe("the budget host", () => {
 		// drawing's stall test does.
 		await new Promise((next) => setImmediate(next));
 		const naming = host.budgetFor("/work");
+		// Holds the loop itself past the disk read, as a stalled host would.
 		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
 
 		expect(

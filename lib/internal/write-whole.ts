@@ -65,11 +65,15 @@ function stagedFor(file: string): { writing: string; staged: string } {
 }
 
 /**
- * Throws where `writing` is a link or no folder once made, since what
- * is staged there would be written wherever it leads.
+ * Throws where `writing` is a link or no folder, since what is staged
+ * there would be written wherever it leads. It is asked before the
+ * folder is made, where nothing there yet passes, as well as once it
+ * is, so a link to nowhere is refused in these words rather than by
+ * mkdir's ENOENT.
  */
-function refuseLinked(writing: string): void {
-	if (!lstatSync(writing).isDirectory()) {
+function refuseLinked(writing: string, made = true): void {
+	const at = lstatSync(writing, { throwIfNoEntry: made });
+	if (at !== undefined && !at.isDirectory()) {
 		throw new Error(
 			`${writing} is a link or no folder, so nothing is staged there.`,
 		);
@@ -83,6 +87,7 @@ export function writeWhole(
 	options: WriteWholeOptions = {},
 ): void {
 	const { writing, staged } = stagedFor(file);
+	refuseLinked(writing, false);
 	mkdirSync(writing, { recursive: true });
 	refuseLinked(writing);
 	try {
@@ -113,6 +118,7 @@ export function writeWholeBy(
 	options: WriteWholeOptions = {},
 ): void {
 	const { writing, staged } = stagedFor(file);
+	refuseLinked(writing, false);
 	mkdirSync(writing, { recursive: true });
 	refuseLinked(writing);
 	try {
@@ -172,6 +178,7 @@ export async function writeWholeOff(
 	options: WriteWholeOffOptions = {},
 ): Promise<boolean> {
 	const { writing, staged } = stagedFor(file);
+	refuseLinked(writing, false);
 	await mkdirOff(writing, { recursive: true });
 	refuseLinked(writing);
 	try {

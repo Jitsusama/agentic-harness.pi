@@ -22,6 +22,7 @@ import {
 	ZIPPED,
 } from "./carry-away.ts";
 import { doneFileOf, doneNames, readHandover, withinHome } from "./handover.ts";
+import { messageOf } from "./message.ts";
 import type { QuestHere } from "./quest-here.ts";
 
 /** One line carrying the rest says, as `pi-carry` prints it. */
@@ -111,9 +112,7 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 			// Its trees wait for it here, unhandled, so they aren't carried
 			// under the quest without it.
 			for (const tree of trees) handled.add(withinHome(tree, home));
-			refused.push(
-				`session ${session.id}: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			refused.push(`session ${session.id}: ${messageOf(error)}`);
 			continue;
 		}
 		files.push(away.file);
@@ -140,9 +139,7 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 		if (quest.file !== undefined) files.push(quest.file);
 	} catch (error) {
 		// Its earlier carry was put back; mycelium hears why from the failed line.
-		refused.push(
-			`the quest's own trees: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		refused.push(`the quest's own trees: ${messageOf(error)}`);
 	}
 	say({ kind: "done", files });
 	if (refused.length === 0) return true;

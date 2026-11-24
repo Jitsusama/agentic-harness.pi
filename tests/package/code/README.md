@@ -10,7 +10,9 @@ SDKs stay out of it.
 Three lists wait here and only shrink: `long-files-waiting.txt`, the long
 files not yet split, `suppressions-waiting.txt`, each file's suppression
 comments not yet fixed away, and `embedded-programs.txt`, the programs
-still written inside another file. `scripts/merge-gate.sh` runs main's
-copy of the first two rules at every merge, since nothing imports them
-for `pnpm check` to reach, with main's `package-files.ts`, which lists the
-package's files for both as code-health does.
+still written inside another file. Nothing imports the first two rules
+for `pnpm check` to reach, so `scripts/merge-gate.sh` runs main's copy of
+them at every merge, with main's `package-files.ts`, which lists the
+package's files for both as code-health does. They judge the tree the
+merge would make, so a line main took off since a branch was cut stays
+off.

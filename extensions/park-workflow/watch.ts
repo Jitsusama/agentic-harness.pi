@@ -21,12 +21,14 @@ import {
 	holderCommand,
 	holderRecord,
 	isEased,
+	isParkNowAsk,
 	isRestartAsk,
 	noteWake,
 	OLD_PARK_AFTER_MS,
 	OLD_PI_MS,
 	PARK_ASK,
 	PARK_ENV,
+	PARK_NOW_ASK,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -245,6 +247,13 @@ export interface Watch {
 	 * person asked for it, so their being at its window doesn't hold it.
 	 */
 	restartInto(sessionFile: string, asked?: boolean): string | undefined;
+	/**
+	 * Park now, as its person asked from outside its window, however
+	 * briefly it has been idle, if nothing else holds it; answers why not.
+	 * The mesh asks it on the bus ({@link PARK_NOW_ASK}), and the watch
+	 * answers there too.
+	 */
+	parkNow(): string | undefined;
 	/**
 	 * Whether this watch ended pi's process for its holder to start again,
 	 * parked or restarting, rather than a host's conversation.
@@ -496,7 +505,11 @@ export function watch(
 			: Boolean(env[CHILD_KEY_ENV]) && host.drains?.() === true;
 		return held ? undefined : "its host would wake it again here at once";
 	};
-	const decide = (goesOn = false): string | undefined => {
+	// The person's Park counts no idle time, only what holds it, so long
+	// as parking is on at all.
+	const askedAfterMs = (): number | undefined =>
+		dueAfterMs() === undefined ? undefined : 0;
+	const decide = (goesOn = false, asked = false): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
@@ -505,7 +518,7 @@ export function watch(
 			refusals: [],
 			...(goesOn ? { goesOn: true } : {}),
 		};
-		const afterMs = dueAfterMs();
+		const afterMs = asked ? askedAfterMs() : dueAfterMs();
 		// Others are asked only once it is due, since asking reads the board.
 		if (afterMs !== undefined && now() - last >= afterMs) {
 			bus.emit(PARK_ASK, ask);
@@ -530,8 +543,10 @@ export function watch(
 		if (unnamed !== undefined) return unnamed;
 		// Asked last, since it reads the screen: a window Joel is at or can
 		// see keeps its session awake rather than closing.
+		// Its person asking is the moment, as a restart they ask for is,
+		// though leaving the screen still keeps a window they clicked into.
 		const windows = closable();
-		const seen = inSight(windows, desk());
+		const seen = asked ? undefined : inSight(windows, desk());
 		if (seen !== undefined) return seen;
 		// Woken as it parks: a drain or a stale host holds the wake until it
 		// ends, and the next start carries the run on. Written before the
@@ -675,6 +690,17 @@ export function watch(
 		void ctx.shutdown();
 		return undefined;
 	};
+	const parkNow = (): string | undefined => {
+		const why = decide(false, true);
+		note(why);
+		return why;
+	};
+	const unparked = bus.on(PARK_NOW_ASK, (data) => {
+		if (!isParkNowAsk(data) || data.session !== session) return;
+		const why = parkNow();
+		if (why === undefined) data.parked = true;
+		else data.why = why;
+	});
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;
 		const why = restartInto(data.sessionFile, data.asked === true);
@@ -740,9 +766,11 @@ export function watch(
 		look,
 		turnEnded,
 		restartInto,
+		parkNow,
 		endedItsProcess: () => endedProcess,
 		stop() {
 			unasked();
+			unparked();
 			clearInterval(clock);
 			note(undefined);
 		},

@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +16,11 @@ import {
 	joinSpawns,
 	STAGE_VARIABLE,
 } from "../../../../lib/internal/fence/fence-stage.ts";
-import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
@@ -30,6 +41,8 @@ const KEPT_HERE = process.platform === "linux";
 let tmpRoot: string;
 let spawned: string | undefined;
 let spawnedEnv: Readonly<Record<string, string | undefined>> | undefined;
+/** The folder the terminal was asked to open in, and whether it stood then. */
+let spawnedIn: { cwd?: string; stood: boolean } | undefined;
 const kept: Record<string, string | undefined> = {};
 
 function fakeCtx() {
@@ -49,6 +62,7 @@ beforeEach(() => {
 	for (const key of [
 		"HOME",
 		"XDG_STATE_HOME",
+		"XDG_CACHE_HOME",
 		"MYCELIUM_REALM",
 		"PI_SANDBOX",
 	]) {
@@ -56,10 +70,12 @@ beforeEach(() => {
 	}
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+	process.env.XDG_CACHE_HOME = join(tmpRoot, "cache");
 	delete process.env.MYCELIUM_REALM;
 	delete process.env.PI_SANDBOX;
 	spawned = undefined;
 	spawnedEnv = undefined;
+	spawnedIn = undefined;
 	nodeAgents = undefined;
 	clearTerminalDrivers();
 	registerTerminalDriver({
@@ -68,6 +84,10 @@ beforeEach(() => {
 		async spawn(req) {
 			spawned = req.command;
 			spawnedEnv = req.env;
+			spawnedIn = {
+				...(req.cwd ? { cwd: req.cwd } : {}),
+				stood: req.cwd !== undefined && existsSync(req.cwd),
+			};
 		},
 	});
 });
@@ -379,6 +399,119 @@ describe("the fence a quest's spawns declare", () => {
 		).toBe("1");
 	});
 
+	it("opens a strict spawn that knows no better folder in its quest's workspace, never home", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		const folder = join(
+			tmpRoot,
+			"cache/pi/agentic-harness.pi/quest-workspace",
+			id,
+			"work",
+		);
+		expect(details.cwdSource, "strict chose it").toBe("strict");
+		expect(details.cwd, "a folder of its own in the workspace").toBe(folder);
+		expect(spawnedIn, "opened there, made before it starts").toEqual({
+			cwd: folder,
+			stood: true,
+		});
+		expect(result.message, "it names the folder passed over").toContain(
+			`not ${tmpRoot}, where strict reads nothing`,
+		);
+		expect(
+			unfencedFolder(folder, tmpRoot),
+			"strict runs its commands there",
+		).toBeUndefined();
+	});
+
+	it("keeps a strict spawn in its quest's checkout, where strict still reads", async () => {
+		const { id, dir, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+		// A plain checkout holding its git folder: strict runs nothing there,
+		// yet reads its code and its AGENTS.md.
+		const checkout = join(tmpRoot, "src", "alpha");
+		mkdirSync(join(checkout, ".git"), { recursive: true });
+		const readme = join(dir, "README.md");
+		const parsed = parseQuestFrontMatter(readFileSync(readme, "utf8"));
+		if (!parsed) throw new Error("the README doesn't parse");
+		parsed.frontMatter.trees = [{ path: checkout, providerId: "git-worktree" }];
+		writeFileSync(
+			readme,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(
+			unfencedFolder(checkout, tmpRoot),
+			"strict runs nothing there",
+		).toBeDefined();
+		expect(result.details).toMatchObject({ cwd: checkout, cwdSource: "tree" });
+	});
+
+	it("says where a strict dry run would open, making nothing", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(
+			await run({ action: "spawn-tab", id, dryRun: true }),
+		);
+
+		const workspace = join(
+			tmpRoot,
+			"cache/pi/agentic-harness.pi/quest-workspace",
+			id,
+		);
+		expect(result.details).toMatchObject({
+			cwd: join(workspace, "work"),
+			cwdSource: "strict",
+		});
+		expect(existsSync(workspace), "nothing made").toBe(false);
+	});
+
+	it("stays where it was going when something else stands at the strict folder", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+		const workspace = join(
+			tmpRoot,
+			"cache/pi/agentic-harness.pi/quest-workspace",
+			id,
+		);
+		mkdirSync(workspace, { recursive: true });
+		writeFileSync(join(workspace, "work"), "a file an agent left");
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(result.details).toMatchObject({ cwd: tmpRoot });
+		expect(result.details).not.toMatchObject({ cwdSource: "strict" });
+	});
+
+	it("leaves an unfenced spawn in the home folder it would open in", async () => {
+		const { id, run } = await quest("Alpha");
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		expect(details.cwd).toBe(tmpRoot);
+		expect(details.cwdSource).not.toBe("strict");
+	});
+
+	it("keeps a strict spawn in the folder the call names", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(
+			await run({ action: "spawn-tab", id, cwd: tmpRoot }),
+		);
+
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		expect(details.cwd).toBe(tmpRoot);
+		expect(details.cwdSource).toBe("given");
+	});
+
 	it("claims none for a command that isn't pi, whatever its parent runs", async () => {
 		const { id, run } = await quest("Alpha");
 		process.env.PI_SANDBOX = "strict";
@@ -393,6 +526,10 @@ describe("the fence a quest's spawns declare", () => {
 		expect(result.message, "it says the sandbox it still hands on").toContain(
 			"It is handed the strict sandbox, but claimed as unfenced",
 		);
+		expect(
+			result.details,
+			"a shell isn't moved for pi's refusal",
+		).not.toMatchObject({ cwdSource: "strict" });
 		expect(
 			result.message,
 			"strict, which no pi lifts, gives only a program's reason",

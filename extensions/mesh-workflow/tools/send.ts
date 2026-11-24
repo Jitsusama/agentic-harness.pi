@@ -41,7 +41,7 @@ import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { untestedCauseReason } from "../../../lib/prose/claims.ts";
 import { handsRefusal } from "../joels-hands.ts";
-import { type Found, findAbove } from "./above.ts";
+import { type Found, findAbove, orKept } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -210,40 +210,6 @@ async function toHubByAddress(
 		"address" in found.above &&
 		toOrchestrator(named, found.above.address, present)
 	);
-}
-
-/**
- * A fresh find the node left unfinished with nobody above, read instead
- * as the hub this peer keeps, when it keeps one. That hub was found by a
- * finished find within a keeping's wait, and is checked again as it is
- * read against the presences now, by the rules the find used, with the
- * fresh find's own census judging who is live, so what is for the hub
- * still reaches it while the node has only just slowed. A find that
- * ended before it asked the node, finding this peer absent from the
- * census, says nothing of the node, so it falls back to nothing; the kept
- * hub's read would refuse it for want of this peer among the live too,
- * so this spares only the read. The keeping keeps that hub through a
- * node that stays quiet, for up to its trust (tools/above.ts), so past
- * that this refuses as before. A send to it gets the checks a send to the hub gets, since
- * `orchestrator` then names its address; it stays unsettled only so it
- * is never taken for a find the node answered. The kept hub is read
- * only when it is needed, since reading it reads every presence.
- */
-function orKept(
-	found: Found,
-	keptHub: ((gone: readonly string[]) => string | undefined) | undefined,
-): Found & { readonly kept?: true } {
-	if (
-		found.settled ||
-		found.unasked === true ||
-		!("none" in found.above) ||
-		keptHub === undefined
-	) {
-		return found;
-	}
-	const kept = keptHub(found.gone);
-	if (kept === undefined) return found;
-	return { ...found, above: { address: kept, by: "use" }, kept: true };
 }
 
 /** Whether the mesh's own routing, not the sender, picked the groups. */

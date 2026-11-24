@@ -6,18 +6,22 @@
  * step leaves it held for the next start rather than lost.
  */
 import { resolve } from "node:path";
+import { getHeapStatistics } from "node:v8";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { settledWithin } from "../../lib/internal/settled.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import { pssBytesOf } from "../engine/quiet-collection.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import { CHILD_SAID_UNSETTLED, leftRunning } from "./child-requests.ts";
+import { oneReadAtOnce, PSS_WAIT_MS } from "./children.ts";
 import { endedLine } from "./conversation-events.ts";
 import {
 	type ControlBackend,
 	type ControlReply,
 	hostRefusal,
 } from "./dispatch.ts";
-import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type { ControlRequest, Measured, SessionIdentity } from "./protocol.ts";
 import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -296,6 +300,13 @@ export interface HostBackend extends ControlBackend {
 }
 
 /**
+ * The host's reads of its own Pss, off its thread as its children's are,
+ * since its own mappings are walked under the same lock, and one read in
+ * progress shared by every memory request meanwhile.
+ */
+const hostPss = oneReadAtOnce(pssBytesOf);
+
+/**
  * Answer every control operation in the order that keeps holds durable.
  * With `admitAnother`, an open, adopt or wake while the host already
  * holds a conversation, or is starting one, must pass it first (the
@@ -326,9 +337,29 @@ export function hostBackend(options: {
 	attachSlowMs?: number;
 	/** Children to run conversations in; without, the host runs every one. */
 	children?: BackendChildren;
+	/** What memory the host itself takes now; its heap and Pss unless given. */
+	own?: () => Measured | Promise<Measured>;
+	/** How the host reads its own Pss, unless given as hostPss reads it. */
+	ownPss?: () => Promise<number | undefined>;
 }): HostBackend {
 	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
+	const ownPss = options.ownPss ?? (() => hostPss(process.pid));
+	const own =
+		options.own ??
+		(async (): Promise<Measured> => {
+			const stats = getHeapStatistics();
+			const at = now().toISOString();
+			const pss = await settledWithin(ownPss(), PSS_WAIT_MS);
+			return {
+				heap: {
+					used: stats.used_heap_size,
+					limit: stats.heap_size_limit,
+					at,
+				},
+				...(pss === undefined ? {} : { pss }),
+			};
+		});
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
 	let beginning = 0;
@@ -857,6 +888,18 @@ export function hostBackend(options: {
 							...stranded(),
 						],
 						host: options.identity,
+					};
+				case "memory":
+					// A conversation on this thread has no memory of its own to
+					// read apart from the host's, so it is named with none; one in
+					// a child gets its child's beside it (children.ts).
+					return {
+						host: options.identity,
+						own: await own(),
+						sessions: [
+							...host.list().map((held) => live(held.id)),
+							...stranded(),
+						].map(({ sessionId, state }) => ({ sessionId, state })),
 					};
 				case "close":
 				case "release":

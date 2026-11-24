@@ -11,6 +11,7 @@
 
 import { basename, dirname, join, resolve } from "node:path";
 import type { HeldTree } from "./broker.ts";
+import { resolvedPath } from "./in-use.ts";
 import { dropSettledMergedBranches } from "./merged-branch.ts";
 import { readPlain } from "./plain-file.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
@@ -23,7 +24,9 @@ import { mainCheckoutOf } from "./sweep-idle.ts";
  * checkouts gather branches from trees released before their pull
  * request merged. `heldWorktrees` holds git worktrees only: another
  * provider's tree, such as a World dev tree, keeps its branches by its
- * own rules, so the caller leaves it out.
+ * own rules, so the caller leaves it out. `kept` names, by checkout, the
+ * branches whose worktrees went from sessions still live, which stay
+ * however settled (`sweep-kept-branches.ts`).
  */
 export async function dropSettledBranches(
 	deps: Pick<SweepDeps, "exec">,
@@ -31,6 +34,7 @@ export async function dropSettledBranches(
 	heldWorktrees: readonly HeldTree[],
 	settledBefore: number,
 	outcome: Pick<SweepOutcome, "branches">,
+	kept: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
 ): Promise<void> {
 	const mains = new Set(judged);
 	const asked = new Set<string>();
@@ -47,6 +51,7 @@ export async function dropSettledBranches(
 			deps.exec,
 			main,
 			settledBefore,
+			kept.get(resolvedPath(main)),
 		);
 		if (went.length > 0) outcome.branches.push({ checkout: main, went });
 	}

@@ -45,6 +45,15 @@ function installed(close: () => Promise<void> = async () => {}): string[] {
 	return asked;
 }
 
+/**
+ * Each thing written through `wrote`, a spy on standard error's write,
+ * read by what it says rather than by when, so another line written
+ * before it fails no test.
+ */
+function written(wrote: { mock: { calls: unknown[][] } }): string[] {
+	return wrote.mock.calls.map((call) => String(call[0]));
+}
+
 function context() {
 	const shutdown = vi.fn<() => void>();
 	return {
@@ -109,7 +118,7 @@ it("says on the host's standard error when telling a failed close throws, rather
 		});
 
 		await vi.waitFor(() =>
-			expect(String(wrote.mock.calls.at(1)?.at(0))).toBe(
+			expect(written(wrote)).toContain(
 				`pi-host: ${SESSION}'s failed close couldn't be told: its screen is gone\n`,
 			),
 		);
@@ -141,8 +150,53 @@ it("says on the host's standard error when its close failed", async () => {
 	endConversation(ctx, "a carry to penelope");
 
 	await vi.waitFor(() =>
-		expect(String(wrote.mock.calls.at(0)?.at(0)), "the failure is said").toBe(
+		expect(written(wrote), "the failure is said").toContain(
 			`pi-host: ${SESSION} didn't close, asked by a carry to penelope: the engine is gone\n`,
 		),
 	);
+});
+
+it("tells a host's close that landed to whoever asked, and never as failed", async () => {
+	installed();
+	const { ctx } = context();
+	const failed = vi.fn<(error: unknown) => void>();
+	const closed = vi.fn<() => void>();
+
+	endConversation(ctx, "a carry to penelope", failed, closed);
+
+	await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1));
+	expect(failed, "a close that works is no failure").not.toHaveBeenCalled();
+});
+
+it("leaves no rejection unhandled where what a failed close threw can't be put in words", async () => {
+	installed(async () => {
+		// No prototype, so no toString: String() of it throws.
+		throw Object.create(null);
+	});
+	const wrote = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	const unhandled = vi.fn();
+	process.on("unhandledRejection", unhandled);
+	const { ctx } = context();
+	const failed = vi.fn<(error: unknown) => void>();
+
+	try {
+		endConversation(ctx, "a carry to penelope", failed);
+
+		await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+		expect(
+			wrote.mock.calls.map((call) => String(call[0])),
+			"the failure is still said",
+		).toContainEqual(
+			expect.stringMatching(
+				new RegExp(
+					`^pi-host: ${SESSION} didn't close, asked by a carry to penelope: \\S`,
+				),
+			),
+		);
+		// A rejection is reported on a later turn of the loop.
+		await new Promise((done) => setTimeout(done, 20));
+		expect(unhandled).not.toHaveBeenCalled();
+	} finally {
+		process.off("unhandledRejection", unhandled);
+	}
 });

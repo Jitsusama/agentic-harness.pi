@@ -86,6 +86,11 @@ import {
 	nodeMachine,
 	type OrderedCarry,
 } from "../../lib/mesh/steer-who.ts";
+import {
+	type CarriedClose,
+	closeCarried,
+	stoppedRun,
+} from "./carried-close.ts";
 import { holdsOf } from "./moving.ts";
 
 export type { OrderedCarry } from "../../lib/mesh/steer-who.ts";
@@ -178,6 +183,11 @@ export interface OrderedCarryHost {
 	/** Say on screen what happened. */
 	readonly tell: (text: string) => void;
 	/**
+	 * Keep a line in the host's journal, for a conversation nobody
+	 * watches; plain pi keeps none.
+	 */
+	readonly journal?: (text: string) => void;
+	/**
 	 * Whether a carry of this session is under way besides this
 	 * ordering's, as a person's Carry is once a refusal has let go.
 	 */
@@ -185,9 +195,15 @@ export interface OrderedCarryHost {
 	/**
 	 * End the session, as /exit does, saying `by` asked; a close that
 	 * fails throws, or is told to `failed` once it has, as a host's close
-	 * does after this returns.
+	 * does after this returns, and one that lands is told to `closed`.
 	 */
-	readonly close: (by: string, failed: (error: unknown) => void) => void;
+	readonly close: (
+		by: string,
+		failed: (error: unknown) => void,
+		closed: () => void,
+	) => void;
+	/** How long its close may take before it counts as failed (carried-close.ts). */
+	readonly closeMs?: number;
 	/** Start a turn with these words, to take up a run it ended. */
 	readonly carryOn: (text: string) => void;
 	/**
@@ -271,9 +287,10 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	// refusal as its own. One stamped from its steer's name is older than
 	// any carry begun since, so carries come through while it is written.
 	let refusing = false;
-	// Where this session's work went though it couldn't close here, which
-	// each run it then stops says, so none is stopped unexplained.
-	let goneTo: string | undefined;
+	// The close asked once carried, which says where this session's work
+	// went though it couldn't close here, as each run it then stops says,
+	// so none is stopped unexplained.
+	let closing: CarriedClose | undefined;
 
 	// Said on screen, never stopping what it goes with: a stale screen
 	// throws, and a refusal or a carry must still be written.
@@ -282,6 +299,16 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			host.tell(text);
 		} catch {
 			// The screen is gone; what it said is written where it matters.
+		}
+	};
+	// Said on screen and kept in the host's journal, for a conversation
+	// nobody watches; neither stops what it goes with.
+	const sayAndKeep = (text: string) => {
+		say(text);
+		try {
+			host.journal?.(text);
+		} catch {
+			// A journal that can't be written leaves the screen to say it.
 		}
 	};
 
@@ -456,33 +483,33 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		say(
 			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
 		);
-		const unclosed = (error: unknown) => {
-			if (goneTo !== undefined) return;
-			goneTo = ordered.to;
-			// Only the close stops them, so those its note named still run.
-			const running =
-				noted.length === 0
-					? ""
-					: ` The background commands its note named as stopped still run here, so stop them too: ${noted.join("; ")}.`;
-			say(
-				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${error instanceof Error ? error.message : String(error)}. Each run here is stopped, so the two never both work; end it here once it starts there.${running}`,
-			);
-		};
-		try {
-			host.close(`${carryOf(ordered).a}, for ${ordered.why}`, unclosed);
-		} catch (error) {
-			unclosed(error);
-		}
+		closing = closeCarried({
+			to: ordered.to,
+			close: (failed, closed) =>
+				host.close(`${carryOf(ordered).a}, for ${ordered.why}`, failed, closed),
+			unclosed: (why) => {
+				// Only the close stops them, so those its note named still run.
+				const running =
+					noted.length === 0
+						? ""
+						: ` The background commands its note named as stopped still run here, so stop them too: ${noted.join("; ")}.`;
+				sayAndKeep(
+					`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${why}. Each run here is stopped, so the two never both work.${running}`,
+				);
+			},
+			closedLate: () =>
+				sayAndKeep(
+					`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, and it closed here after all.`,
+				),
+			...(host.closeMs === undefined ? {} : { closeMs: host.closeMs }),
+		});
 	};
 
 	// Ends a run this carried session mustn't do, saying why where its
 	// close failed, so none is stopped unexplained.
 	const stopRun = () => {
-		if (goneTo !== undefined) {
-			say(
-				`This run is stopped: the session was carried to ${goneTo} and runs there, so end it here.`,
-			);
-		}
+		const goneTo = closing?.goneTo();
+		if (goneTo !== undefined) say(stoppedRun(goneTo));
 		end();
 	};
 

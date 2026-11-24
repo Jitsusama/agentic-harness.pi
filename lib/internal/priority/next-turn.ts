@@ -369,9 +369,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * Mac's queue tells a job's boot by its token, keeps no run time for a
  * job a boot cut off, and dates its end within its run and now. 20:
  * while the person is on a call here, only the work that starts while
- * memory is short starts, each job held waiting on `call`.
+ * memory is short starts, each job held waiting on `call`. 21: a `find`,
+ * `rg`, recursive `grep` or `fd` of the whole home folder or the disk
+ * reads as a build, as a search of a whole World checkout does.
  */
-export const RULES_VERSION = 20;
+export const RULES_VERSION = 21;
 
 /**
  * The job to start now, if any: the first waiting in order that its

@@ -20,7 +20,7 @@
  * presence says, is read in its own file (presence-shares.ts).
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile as readFileOff } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -67,12 +67,14 @@ import {
 	type QuestRecords,
 	questAddress,
 } from "./address.ts";
+import { groupNamed } from "./group.ts";
 import {
 	type MoveOff,
 	type Moving,
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
+import { oneLine } from "./one-line.ts";
 import { questShared, type Share, sharesSaid } from "./presence-shares.ts";
 import {
 	checkoutOf,
@@ -84,7 +86,7 @@ import {
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { declaredSubjects, subjectsOf } from "./subjects.ts";
-import { removeStaged } from "./transport.ts";
+import { removeQuietly, removeStaged, touchedAt } from "./transport.ts";
 import { isUsage, type SessionUsage } from "./usage.ts";
 import { type Want, wantFrom } from "./want.ts";
 
@@ -664,8 +666,21 @@ export function createPresences(
 			folder().drop(path);
 		},
 		// A presence is current while its peer is, so only what a publish
-		// staged and never renamed is old here; ended peers are forgotten.
-		expire: (before) => removeStaged(dir, before),
+		// staged and never renamed is old here, and a file no reader can
+		// read, which the census never lists and so never forgets; ended
+		// peers are forgotten.
+		expire(before) {
+			removeStaged(dir, before);
+			for (const { path, stamp } of unreadable(dir, before)) {
+				// A publish renamed over it before this re-stat is a live
+				// writer's, so it is kept. One landing between the re-stat
+				// and the unlink is still lost: the race is narrowed, not
+				// closed, since nothing unlinks a path only at one inode.
+				if (stampOf(path) !== stamp) continue;
+				removeQuietly(path);
+				folder().drop(path);
+			}
+		},
 		settle: () => writes.settle(),
 	};
 }
@@ -679,6 +694,69 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 
 /** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
+
+/** A presence file the sweep judged unreadable, and its stat as judged. */
+interface Judged {
+	readonly path: string;
+	readonly stamp: string;
+}
+
+/**
+ * What a file's stat says of which file it is and when it last changed,
+ * or nothing once it is gone: a publish renames a new file over the
+ * path, which changes it.
+ */
+function stampOf(path: string): string | undefined {
+	try {
+		const { ino, mtimeMs, size } = statSync(path);
+		return `${ino}:${mtimeMs}:${size}`;
+	} catch {
+		// Gone, or not ours to stat: nothing to judge or remove.
+		return undefined;
+	}
+}
+
+/**
+ * The presence files in a folder untouched since `before` whose text was
+ * read and holds no presence: torn, or refused at the read boundary.
+ * Only what was read is judged, so a read that failed (too many open
+ * files, a permission, a disk error) keeps the file: an idle or parked
+ * peer's presence can go untouched for longer than `before` while its
+ * peer is still on the mesh, and it publishes only what changed. Each is
+ * stamped as judged, so a publish landing after keeps it.
+ */
+function unreadable(dir: string, before: number): Judged[] {
+	let files: string[] = [];
+	try {
+		files = readdirSync(dir).filter((file) => file.endsWith(".json"));
+	} catch {
+		// No folder yet: nothing in it to read.
+		return [];
+	}
+	return files.flatMap((file) => {
+		const path = join(dir, file);
+		const stamp = stampOf(path);
+		if (stamp === undefined || touchedAt(path) >= before) return [];
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			// A read that failed says nothing of what the file holds.
+			return [];
+		}
+		return holdsNoPresence(text) ? [{ path, stamp }] : [];
+	});
+}
+
+/** Whether a presence file's text, as read, holds no presence. */
+function holdsNoPresence(text: string): boolean {
+	try {
+		return parsed(text) === undefined;
+	} catch {
+		// Torn: no reader can parse it.
+		return true;
+	}
+}
 
 /** A presence as its file's text says it, or nothing. */
 const parsed = (text: string) => presenceFrom(JSON.parse(text));
@@ -713,6 +791,18 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
 	);
 }
 
+/**
+ * Whether a group a presence names is one a group is named as, read
+ * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,
+ * `@5GV2AH`), so none starts a line or forges a field: the shape held
+ * to rather than a list of breaks, which can't hold, as mesh_groups
+ * already lists them. All 555 groups and joined groups on equilibrius's
+ * presences on 24 November read back so.
+ */
+function isGroupShaped(group: string): boolean {
+	return groupNamed(group) === group;
+}
+
 /** Presence read from outside, or nothing when it is not one. */
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -726,26 +816,39 @@ function presenceFrom(value: unknown): Presence | undefined {
 	) {
 		return undefined;
 	}
-	// The one boundary every reader of a peer's addresses comes through:
-	// each prints a peer by its first as it stands, so one that isn't an
-	// address's shape goes here. One that named addresses and kept none
-	// is no peer; one that named none, as a paused presence may, prints
-	// nothing forged and stays as it was written.
+	// The one boundary every reader of a peer comes through: each prints
+	// what a presence says as it stands, so what would start a line of its
+	// own goes here. Every address (its own, and the orchestration it is
+	// in or heads) is held to an address's shape; one that named
+	// addresses and kept none is no peer, and one that named none, as a
+	// paused presence may, prints nothing forged and stays. A group is one
+	// token, and the free text a listing prints is said on one line. The
+	// shape guards printing, not identity: a well-shaped address another
+	// process wrote still reads as whoever it names.
 	const addresses = one.addresses.filter(isAddressShaped);
 	if (one.addresses.length > 0 && addresses.length === 0) return undefined;
+	const shaped = (value: unknown): value is string =>
+		typeof value === "string" && isAddressShaped(value);
+	const said = (value: unknown): string | undefined =>
+		typeof value === "string" ? oneLine(value) : undefined;
+	const title = said(one.title);
+	const quest = said(one.quest);
+	const step = said(one.step);
 	return {
 		session: one.session,
 		addresses,
-		groups: one.groups,
-		...(strings(one.joined) ? { joined: one.joined } : {}),
+		groups: one.groups.filter(isGroupShaped),
+		...(strings(one.joined)
+			? { joined: one.joined.filter(isGroupShaped) }
+			: {}),
 		...(stopsFrom(one.stops).length > 0 ? { stops: stopsFrom(one.stops) } : {}),
-		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
+		worksOn: said(one.worksOn) ?? "",
 		owns: strings(one.owns) ? one.owns : [],
-		...(typeof one.quest === "string" ? { quest: one.quest } : {}),
+		...(quest !== undefined ? { quest } : {}),
 		busy: one.busy === true,
 		...(isPeerState(one.state) ? { state: one.state } : {}),
 		...(typeof one.since === "string" ? { since: one.since } : {}),
-		...(typeof one.step === "string" ? { step: one.step } : {}),
+		...(step !== undefined ? { step } : {}),
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(eventsFrom(one.events).length > 0
 			? { events: eventsFrom(one.events) }
@@ -756,17 +859,13 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
 		...(isHostedPresence(one.hosted) ? { hosted: one.hosted } : {}),
-		...(typeof one.title === "string" ? { title: one.title } : {}),
+		...(title !== undefined ? { title } : {}),
 		...(isTerminalHandle(one.terminal) ? { terminal: one.terminal } : {}),
-		...(typeof one.orchestratedBy === "string"
+		...(shaped(one.orchestratedBy)
 			? { orchestratedBy: one.orchestratedBy }
 			: {}),
-		...(typeof one.orchestrates === "string"
-			? { orchestrates: one.orchestrates }
-			: {}),
-		...(typeof one.stewardedBy === "string"
-			? { stewardedBy: one.stewardedBy }
-			: {}),
+		...(shaped(one.orchestrates) ? { orchestrates: one.orchestrates } : {}),
+		...(shaped(one.stewardedBy) ? { stewardedBy: one.stewardedBy } : {}),
 		...(typeof one.workspace === "string" && one.workspace !== ""
 			? { workspace: one.workspace }
 			: {}),

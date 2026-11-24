@@ -402,6 +402,24 @@ export function piSessions(modules: HostPiModules): PiSessions {
 	return modules.codingAgent as unknown as PiSessions;
 }
 
+/**
+ * Build pi's session services once for `cwd`, and drop them: pi keeps
+ * the extension factories it loaded for the whole process, for a
+ * package that declares `pi.sessionStateKeyed`, so a conversation built
+ * after, in any folder, finds them loaded. A warm spare child does this
+ * before any conversation wants it (host/service/spare.ts).
+ */
+export async function warmSessions(
+	modules: HostPiModules,
+	cwd: string,
+): Promise<void> {
+	const sessions = piSessions(modules);
+	await sessions.createAgentSessionServices({
+		cwd,
+		agentDir: sessions.getAgentDir(),
+	});
+}
+
 /** True only when a session `file` is missing from a folder that is there. */
 export function sessionFileGone(file: string): boolean {
 	if (lookAt(file) !== "missing") return false;

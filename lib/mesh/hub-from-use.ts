@@ -23,11 +23,10 @@
  * nothing.
  */
 
-import { questAddress } from "./address.ts";
+import { isAddress, questAddress } from "./address.ts";
 import { groupNamed } from "./group.ts";
 import { TIE_HALF_LIFE_MS, type Tie } from "./node.ts";
 import type { Presence } from "./presence.ts";
-import { isAddress } from "./steer-who.ts";
 import { stoppedBy } from "./stop.ts";
 
 /** Where a cell's `orchestrator` points, and why it points there. */

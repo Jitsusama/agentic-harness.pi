@@ -446,6 +446,8 @@ describe("reaching the person", () => {
 
 describe("saying what it wants of the person", () => {
 	const saidOf = (wants: WantEvent[]) => wants.map((w) => [w.kind, w.said]);
+	const askedOf = (wants: WantEvent[]) =>
+		wants.map((w) => ("asked" in w ? w.asked : undefined));
 
 	it("says the calls held, latest last, until the person is back", async () => {
 		const pi = activate();
@@ -461,6 +463,11 @@ describe("saying what it wants of the person", () => {
 			["approval", "Holds 2 calls for you, the latest: Open PR #2"],
 			["approval", null],
 		]);
+		expect(askedOf(pi.wants), "every call held, beside the latest").toEqual([
+			undefined,
+			"Holds 2 calls for you:\n- Open PR #1\n- Open PR #2",
+			undefined,
+		]);
 		const since = pi.wants.map((w) => ("since" in w ? w.since : null));
 		expect(since[0]).toBe(since[1]);
 	});
@@ -475,6 +482,9 @@ describe("saying what it wants of the person", () => {
 		expect(saidOf(pi.wants)).toEqual([
 			["blocked", "needs your npm one-time password."],
 		]);
+		expect(askedOf(pi.wants)).toEqual([
+			"Built it.\n\nBlocked: needs your npm one-time password.",
+		]);
 
 		await pi.fire("input", { text: "123456", source: "interactive" });
 		expect(saidOf(pi.wants).at(-1)).toEqual(["blocked", null]);
@@ -487,6 +497,9 @@ describe("saying what it wants of the person", () => {
 		await pi.runEnds("Two ways on.\n\nShall I take the first?");
 		await pi.runEnds("Here's what I found.");
 		expect(saidOf(pi.wants)).toEqual([["question", "Shall I take the first?"]]);
+		expect(askedOf(pi.wants)).toEqual([
+			"Two ways on.\n\nShall I take the first?",
+		]);
 
 		await pi.fire("input", { text: "yes", source: "interactive" });
 		expect(saidOf(pi.wants).at(-1)).toEqual(["question", null]);

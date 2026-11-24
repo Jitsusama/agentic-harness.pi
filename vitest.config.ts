@@ -104,6 +104,7 @@ const PROCESS_TESTS = [
 	"tests/scripts/spawn-decide.test.ts",
 	"tests/host/service/killed-host.test.ts",
 	"tests/host/service/stop-backstop.test.ts",
+	"tests/host/threads-as-source.test.ts",
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/call-signal.test.ts",
 	"tests/host/engine/carried-runs.test.ts",

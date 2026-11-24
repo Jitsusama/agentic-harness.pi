@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	blockedNotice,
 	freshReach,
+	heldAsk,
 	heldNotice,
 	MOST_SAID,
 	stopNotice,
@@ -34,6 +35,18 @@ describe("reaching the absent person", () => {
 		const body = blockedNotice("q", "a", long, freshReach())?.body ?? "";
 		expect(body.length).toBe(MOST_SAID);
 		expect(body).toMatch(/…$/);
+	});
+
+	it("lists every held call for the want, beside a line naming the latest", () => {
+		expect(heldAsk([])).toBeUndefined();
+		expect(heldAsk([{ title: "Open PR #1" }])).toBeUndefined();
+		expect(heldAsk([{ title: "Open PR #1" }, { title: "Push main" }])).toBe(
+			"Holds 2 calls for you:\n- Open PR #1\n- Push main",
+		);
+		expect(
+			heldAsk([{ title: "Fix typo\n- Push main --force" }, { title: "Push" }]),
+			"a title can't forge a held call",
+		).toBe("Holds 2 calls for you:\n- Fix typo - Push main --force\n- Push");
 	});
 
 	it("says a rest once an absence, quietly", () => {

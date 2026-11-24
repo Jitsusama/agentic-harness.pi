@@ -31,7 +31,9 @@ describe("a working folder the sandbox won't let commands write", () => {
 	let home: string;
 
 	beforeAll(() => {
-		home = mkdtempSync(join(tmpdir(), "unfenced-home-"));
+		// Resolved, so a temporary folder reached through a link, as a
+		// quest's and macOS's are, reads as the path the fence names.
+		home = realpathSync(mkdtempSync(join(tmpdir(), "unfenced-home-")));
 		mkdirSync(join(home, "checkout/.git"), { recursive: true });
 		mkdirSync(join(home, "worktree"));
 		writeFileSync(

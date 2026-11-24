@@ -60,6 +60,7 @@ import {
 	withinHome,
 	writeHandover,
 } from "./handover.ts";
+import { messageOf } from "./message.ts";
 import type { CarriedNote } from "./notes.ts";
 import { sparseOf } from "./sparse.ts";
 import { handoverMade, type Stage, staged } from "./stage.ts";
@@ -403,7 +404,7 @@ function standing(
 	} catch (error) {
 		return {
 			kind: "unread",
-			why: error instanceof Error ? error.message : String(error),
+			why: messageOf(error),
 		};
 	}
 }

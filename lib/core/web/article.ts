@@ -56,11 +56,13 @@ interface Job {
  * as JavaScript once built, and a sibling file would have to be found
  * under either name. The modules it needs are resolved here and handed
  * over as absolute URLs, so it finds the same ones whichever way this
- * module was loaded. A virtual console with no listeners keeps jsdom's
+ * module was loaded, and node's own come through
+ * `process.getBuiltinModule`, which a thread has under either module type
+ * its process was started with. A virtual console with no listeners keeps jsdom's
  * complaints about the page off the terminal pi draws on.
  */
 const PROGRAM = `
-const { parentPort, workerData } = require("node:worker_threads");
+const { parentPort, workerData } = process.getBuiltinModule("node:worker_threads");
 (async () => {
 	const { JSDOM, VirtualConsole } = await import(workerData.jsdom);
 	const { Defuddle } = await import(workerData.defuddle);

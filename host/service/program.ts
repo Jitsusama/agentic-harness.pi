@@ -12,20 +12,29 @@
  * systemd stops restarting a host that would only be refused again.
  */
 
+import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { packageConfigPath, stateDir } from "../../lib/internal/paths.ts";
 import { sayLoaded } from "../../lib/internal/reload/said.ts";
 import {
+	collectedPss,
 	createEngine,
 	HOST_READS,
 	type HostEngine,
 	type HostPiModules,
 	lackingSeams,
 	loadHostPi,
+	warmSessions,
 } from "../engine/index.ts";
 import { CHILD_FLAG, hostRealm } from "./address.ts";
-import { type ChildHost, childHost, type Ending } from "./child.ts";
+import {
+	type ChildHost,
+	childHost,
+	childSlotPlaces,
+	type Ending,
+	scrubSystemd,
+} from "./child.ts";
 import { childPolicyFile, watchedChildPolicy } from "./child-policy.ts";
 import { systemdUnits } from "./child-units.ts";
 import { gatewayKey } from "./gateway-key.ts";
@@ -34,6 +43,7 @@ import { followWhatStarts } from "./restart.ts";
 import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 import { hostSettings } from "./settings.ts";
+import { isSpareSlot, type SpareEnd, spareUntilTaken } from "./spare.ts";
 import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
 import { installMovesFrom } from "./what-starts.ts";
@@ -400,6 +410,46 @@ async function configuration(options: HostProgramOptions): Promise<{
 	} catch (error) {
 		throw new HostMisconfigured(error);
 	}
+}
+
+/**
+ * For a child started as a warm spare, its warm and its wait until a
+ * take names what it starts as, or until it leaves; none for any other
+ * start, which goes straight on. A slot or environment refused here is
+ * refused as the host's configuration is, before anything is loaded.
+ */
+export async function spareFirst(options: {
+	readonly argv: readonly string[];
+	readonly env: NodeJS.ProcessEnv;
+	readonly say: (line: string) => void;
+}): Promise<SpareEnd | undefined> {
+	let places: ReturnType<typeof childSlotPlaces>;
+	let packageDir: string;
+	try {
+		if (!childArgv(options.argv)) return undefined;
+		scrubSystemd(options.env);
+		places = childSlotPlaces(options.env);
+		if (!isSpareSlot(places.slotFile)) return undefined;
+		packageDir = hostPackageDir(options.env);
+		hostProof(options.env, packageDir);
+	} catch (error) {
+		throw new HostMisconfigured(error);
+	}
+	const { slotFile, folder } = places;
+	return await spareUntilTaken({
+		slotFile,
+		// A folder of its own with nothing in it, so no project's settings or trust are read.
+		warm: async () => {
+			const cwd = join(folder, "warm");
+			await mkdir(cwd, { recursive: true });
+			const pi = await loadHostPi(packageDir);
+			await warmSessions(pi.modules, cwd);
+		},
+		moved: installMovesFrom(hostRoot()),
+		version: hostRoot(),
+		size: collectedPss,
+		report: options.say,
+	});
 }
 
 /** Whether the command line starts a child, refusing anything after its flag. */

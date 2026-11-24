@@ -4,6 +4,7 @@
  */
 
 import { isId, prefixOf } from "../../../lib/internal/quest/creation/id.ts";
+import { isAddress } from "../../../lib/mesh/address.ts";
 import {
 	groupNamed,
 	groupsNamed,
@@ -17,7 +18,6 @@ import type { Tie } from "../../../lib/mesh/node.ts";
 import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach } from "./reach.ts";
@@ -283,6 +283,15 @@ function isGroup(group: string): boolean {
 	return groupNamed(group) === group;
 }
 
+/**
+ * A want as mesh_groups may list it: its one line, without the whole of
+ * what it asks, another session's paragraphs, which no listing prints.
+ */
+function listedWant(want: NonNullable<Presence["wants"]>): typeof want {
+	const { asked: _whole, ...line } = want;
+	return { ...line, said: oneLine(want.said) };
+}
+
 /** One presence as mesh_groups may list it, or none. */
 function listed(one: Presence): Presence[] {
 	const [signature, ...others] = one.addresses;
@@ -302,9 +311,7 @@ function listed(one: Presence): Presence[] {
 			(stepDetail.kind !== "tool" || isName(stepDetail.name))
 				? { stepDetail: { ...stepDetail, detail: oneLine(stepDetail.detail) } }
 				: {}),
-			...(wants !== undefined
-				? { wants: { ...wants, said: oneLine(wants.said) } }
-				: {}),
+			...(wants !== undefined ? { wants: listedWant(wants) } : {}),
 		},
 	];
 }

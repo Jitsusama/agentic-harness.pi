@@ -15,31 +15,18 @@ import {
 	thisMachineOff,
 	thisMachineRead,
 } from "../internal/machine/machine.ts";
-import { isAddressShaped } from "./address.ts";
+import { FROM_MACHINE, FROM_PERSON, isAddress } from "./address.ts";
 
-/**
- * The `from` a machine's mycelium node writes, for what the machine itself
- * must say to a session it holds, as that it leaves at a set time. It is
- * never the person's word, so it carries no act.
- */
-export const FROM_MACHINE = "machine";
+// Kept where steers are read, as readers of a steer's writer look for
+// them here; address.ts holds them since no address may be either, and
+// the rule itself, so a reader needing only that pulls in no carry.
+export { FROM_MACHINE, FROM_PERSON, isAddress };
 
 /**
  * The act a carry an orchestrator ordered or this machine's node chose
  * is written with, apart from STEER_ACTS.
  */
 export const ORDERED_CARRY = "ordered-carry";
-
-/**
- * Whether `by` can be a peer's address, in any letters: the one rule
- * for an orchestrator's name, here and where a carried session arrives.
- * The person's and the machine's own names fit an address's shape, so
- * each is refused by name, in any letters.
- */
-export function isAddress(by: string): boolean {
-	const lower = by.toLowerCase();
-	return isAddressShaped(by) && lower !== FROM_PERSON && lower !== FROM_MACHINE;
-}
 
 /** A node's own name as `by`, its machine's after the `@`. */
 const NODE = /^node@(.*)$/;
@@ -121,12 +108,6 @@ export function machineRecordUnread(error: unknown): string {
 			: `can't be read (${code})`;
 	return `this machine's record of its name, ${record}, ${said}`;
 }
-
-/**
- * The `from` mycelium's node writes for what the person asked through it,
- * as `mycelium carry` steers each session with.
- */
-export const FROM_PERSON = "person";
 
 /**
  * Whether a steer's writer is the person: one who names nobody, Joel, or

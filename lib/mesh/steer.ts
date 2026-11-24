@@ -12,8 +12,8 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts), with `re` naming the earlier talk it answers in place. An `act` of `pause`, `resume`, `stop`, `close`, `carry` or
- * `move` needs no text, a `carry` names the machine it goes to as `to`,
+ * talk.ts), with `re` naming the earlier talk it answers in place. An `act` of `pause`, `resume`, `stop`, `park`, `close`,
+ * `carry` or `move` needs no text, a `carry` names the machine it goes to as `to`,
  * a `move` names where it goes as `to` (`attended`, `background` or
  * `pi`), and a `fill` puts its `text` in the prompt without sending it.
  * An `answer` answers the open ask the session's want `want` names, with
@@ -73,8 +73,9 @@ import { isTalkId } from "./talk.ts";
 
 /**
  * What the person may do to a session besides talk: pause it after its
- * current step, resume it, stop the run in progress, close the session
- * for good, as /exit does, carry its work to another machine and then
+ * current step, resume it, stop the run in progress, park it so its
+ * process ends until a message, a key or a window wakes it (24 November,
+ * for the launcher's Park), close the session for good, as /exit does, carry its work to another machine and then
  * close it, move it into a host or back out of one once nothing of its
  * own is out (lib/internal/session/move.ts), or fill its prompt with
  * words left for the person to send.
@@ -87,6 +88,7 @@ export const STEER_ACTS = [
 	"resume",
 	"fill",
 	"stop",
+	"park",
 	"close",
 	"carry",
 	"move",
@@ -261,7 +263,8 @@ export function steerFrom(
 			file,
 		};
 	}
-	// Only the person may pause, resume, stop, close, carry or move a session.
+	// Only the person may pause, resume, stop, park, close, carry or move a
+	// session.
 	const asked =
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
 			? parsed.act

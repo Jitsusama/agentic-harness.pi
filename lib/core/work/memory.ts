@@ -38,6 +38,7 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
@@ -1005,7 +1006,20 @@ export function createTreeMemory(
 						owners.some((owner) => sameOwner(owner, us)) &&
 						kept.length === owners.length - 1;
 					if (already) return;
+					// A sweep reads the record's last write as the last ask (see
+					// askedAt), and a restart asks for nothing: written with a new
+					// stamp, every tree a resumed session holds read as used that
+					// moment, and a host roll kept them all from going for a day.
+					const lastAsked = this.askedAt(tree.path, tree.identity.key);
 					this.remember({ ...tree, owners: [...kept, us] });
+					if (lastAsked !== undefined) {
+						const at = new Date(lastAsked);
+						try {
+							utimesSync(fileFor(tree.identity.key), at, at);
+						} catch {
+							// The tree then reads as just used, which only keeps it.
+						}
+					}
 					changed += 1;
 				});
 				try {

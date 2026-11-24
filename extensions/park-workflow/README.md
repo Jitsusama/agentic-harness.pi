@@ -100,6 +100,14 @@ It is off until one of these turns it on:
   minute ahead is taken back. The node writes it as the session's
   own user, so the folder is no boundary between accounts.
 
+- **The person's Park,** a steer act `park` from outside the
+  window (mesh-workflow's pausing.ts), which the mesh asks of the
+  watch on the bus (`PARK_NOW_ASK`): it parks at once, idle time
+  aside, once the rest of the rule holds, with its window in sight
+  or not, since its person asked; it answers why not where
+  anything else holds it or the switch is off. Its marker's idle
+  limit is 0, so its wake isn't counted against a rule.
+
 - **A host's drain,** which drops the idle wait for each
   conversation it holds, with the switch empty or its line `off`
   too, since the host itself asked for it. Each still parks only

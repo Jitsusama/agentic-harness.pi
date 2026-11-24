@@ -12,10 +12,10 @@
  */
 
 import type { RefusedWake } from "../../lib/internal/session/refused-wake.ts";
+import { isAddress } from "../../lib/mesh/address.ts";
 import { clock } from "../../lib/mesh/message.ts";
 import { oneLine } from "../../lib/mesh/one-line.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
-import { isAddress } from "../../lib/mesh/steer-who.ts";
 
 /** A parked peer's refused wake, when its host keeps one. */
 export type Refusal = (presence: Presence) => RefusedWake | undefined;
@@ -38,7 +38,8 @@ export function refusedNotes(
 ): string[] {
 	return addressed.flatMap((one) => {
 		const refused = refusal(one);
-		// A presence says its addresses as it likes, and this opens the note.
+		// A presence's addresses are read in an address's shape, which
+		// `person` and `machine` have too, and this opens the note.
 		const address = one.addresses.find(isAddress);
 		if (!refused || address === undefined) return [];
 		return [

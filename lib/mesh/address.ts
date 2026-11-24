@@ -43,15 +43,48 @@ export interface QuestRecords {
 	readonly trees?: string;
 }
 
-/** What every address is minted as: a quest's six, or a session's eight. */
+/**
+ * What every address is minted as, a quest's six or a session's eight,
+ * held loosely to six to eight letters or digits in any case: one line,
+ * and nothing after it, since `$` without the `m` flag ends the input.
+ */
 const SHAPE = /^[A-Za-z0-9]{6,8}$/;
 
 /**
- * Whether a name has an address's shape, in any letters. Nothing else
- * is one, so a presence read from a file keeps only these.
+ * Whether a name has an address's shape, in any letters, which a
+ * presence read from a file keeps its addresses to. The shape guards
+ * printing, not identity: `person` and `machine` have it too, and
+ * `isAddress` turns those away, and a well-shaped name another process
+ * wrote still reads as whoever it names.
  */
 export function isAddressShaped(name: string): boolean {
 	return SHAPE.test(name);
+}
+
+/**
+ * The `from` a machine's mycelium node writes, for what the machine itself
+ * must say to a session it holds, as that it leaves at a set time. It is
+ * never the person's word, so it carries no act.
+ */
+export const FROM_MACHINE = "machine";
+
+/**
+ * The `from` mycelium's node writes for what the person asked through it,
+ * as `mycelium carry` steers each session with.
+ */
+export const FROM_PERSON = "person";
+
+/**
+ * Whether `by` can be a peer's address, in any letters: the one rule
+ * for a name a reply or a carry may act on as a peer's. The person's
+ * and the machine's own names fit an address's shape, so each is
+ * refused by name, in any letters. Here beside the shape, rather than
+ * where steers are read, so a reader needing only this pulls in
+ * nothing of carries or the machine.
+ */
+export function isAddress(by: string): boolean {
+	const lower = by.toLowerCase();
+	return isAddressShaped(by) && lower !== FROM_PERSON && lower !== FROM_MACHINE;
 }
 
 /** The address a quest gives a peer: its id's last six letters. */

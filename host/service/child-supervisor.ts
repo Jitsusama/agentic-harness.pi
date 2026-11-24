@@ -44,6 +44,15 @@
  * start fails as the host's stop, and a child leaving is left to the
  * next host.
  *
+ * Where the policy asks for one, the host keeps a warm spare child
+ * (spare.ts) in a fresh slot, which the next resume or open takes in
+ * place of starting a unit: its slot is written with what it starts as
+ * once the take lands, and it is watched as any child is. Another spare
+ * starts a moment after each take. A spare that leaves untaken is let
+ * go and replaced, unless spares keep leaving soon after they start,
+ * when the host keeps none until it restarts; a host taking up its last
+ * one's slots stops any spare it finds, since its code may be old.
+ *
  * Long because starting, watching, leaving and adopting each read and
  * change the same slots, routes and waits (`inUse`, `ranIn`, `leaving`,
  * `writing`, `takingFor`): a race between any two is closed only by
@@ -75,10 +84,12 @@ import {
 	slotForsaken,
 	slotHolds,
 	slotOf,
+	slotSpare,
 	slotsIn,
 	slotWas,
 	type Units,
 	writeSlot,
+	writeSpareSlot,
 } from "./child-units.ts";
 import {
 	type ChildEnding,
@@ -91,6 +102,7 @@ import type { HeldChildren } from "./children.ts";
 import type { ControlReply } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { HostRoster } from "./roster.ts";
+import { spareMarks, takeSpare, warmVersion } from "./spare.ts";
 import { startGate } from "./start-gate.ts";
 
 /** The shared roster, as far as the supervisor keeps it. */
@@ -173,6 +185,20 @@ const STOP_TRIES = 3;
  * turn, which a stop would end.
  */
 const WATCH_TRIES = 3;
+/**
+ * How long after a take, or the host's adopt, the next spare starts, so
+ * it doesn't build beside the conversation the take resumes.
+ */
+export const SPARE_AFTER_MS = 10_000;
+/** How often the host asks whether its spare still runs, or should. */
+export const SPARE_CHECK_MS = 60_000;
+/**
+ * A spare that leaves untaken within this long of its start left for
+ * a fault, its warm's or its size, rather than for its install moving.
+ */
+const SPARE_SHORT_MS = 300_000;
+/** How many spares in a row may leave soon before the host keeps none. */
+const SPARES_LOST_AT_MOST = 3;
 /** How often a starting child's socket is tried until it listens. */
 const TRIED_EVERY_MS = 100;
 /** How often a starting child's unit is asked whether it still runs. */
@@ -447,6 +473,17 @@ export function childSupervisor(options: {
 	 * says how long it waited, unless said `TURN_WAIT_SAID_MS`.
 	 */
 	turnWaitSaidMs?: number;
+	/** Whether to keep a warm spare child, as the child policy says. */
+	spares?: () => boolean;
+	/**
+	 * Why a spare running `version` no longer fits, once its install has
+	 * moved to other host code; none while it fits. A spare that says no
+	 * version is taken as it stands.
+	 */
+	spareMoved?: (version: string) => Promise<string | undefined>;
+	/** For tests: SPARE_AFTER_MS and SPARE_CHECK_MS. */
+	spareAfterMs?: number;
+	spareCheckMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -575,6 +612,139 @@ export function childSupervisor(options: {
 	// The adopt under way, which a second ask for one is given.
 	let adopting: Promise<number> | undefined;
 	let closing = false;
+	// The warm spare waiting to be taken, once its unit has started.
+	let spare: { slot: Slot; started: number } | undefined;
+	// A spare's start under way, and a take of one, so neither runs twice.
+	let startingSpare = false;
+	let takingSpare = false;
+	// How many spares in a row left soon after starting, and whether the
+	// host has given spares up for it.
+	let sparesLost = 0;
+	let sparesGivenUp = false;
+	const spareAfterMs = options.spareAfterMs ?? SPARE_AFTER_MS;
+	const spareTimers = new Set<ReturnType<typeof setTimeout>>();
+	const spareCheck = setInterval(
+		() => void checkSpare().catch(options.report),
+		options.spareCheckMs ?? SPARE_CHECK_MS,
+	);
+	spareCheck.unref();
+
+	/** Start a spare, unless one runs or starts, or none is wanted. */
+	function keepSpare(): void {
+		if (closing || spare || startingSpare || sparesGivenUp) return;
+		if (!options.spares?.()) return;
+		startingSpare = true;
+		const slot = slotOf(options.folder, options.key, randomUUID());
+		inUse.add(slot.unit);
+		void (async () => {
+			await writeSpareSlot(slot);
+			stillWatching();
+			await units.start(slot.unit);
+			spare = { slot, started: Date.now() };
+		})()
+			.catch((error: unknown) => {
+				if (error instanceof StoppedWatching) return;
+				options.report(error);
+				spareLost(0);
+				void leave(slot, true);
+			})
+			.finally(() => {
+				startingSpare = false;
+			});
+	}
+
+	/** Start a spare in a moment, as after a take or an adopt. */
+	function spareSoon(): void {
+		if (closing) return;
+		const timer = setTimeout(() => {
+			spareTimers.delete(timer);
+			keepSpare();
+		}, spareAfterMs);
+		timer.unref();
+		spareTimers.add(timer);
+	}
+
+	/**
+	 * Count a spare that left untaken after `lived` ms, giving spares up
+	 * once SPARES_LOST_AT_MOST in a row left soon.
+	 */
+	function spareLost(lived: number): void {
+		sparesLost = lived < SPARE_SHORT_MS ? sparesLost + 1 : 0;
+		if (sparesLost < SPARES_LOST_AT_MOST) return;
+		sparesGivenUp = true;
+		options.say?.(
+			`${options.key}: keeps no warm spare until it restarts, since ${sparesLost} in a row left within ${inSeconds(SPARE_SHORT_MS)} s of starting`,
+		);
+	}
+
+	/**
+	 * Let the spare go once its unit has gone, or once the policy wants
+	 * none, and start another where one is wanted.
+	 */
+	async function checkSpare(): Promise<void> {
+		const kept = spare;
+		if (kept && !takingSpare) {
+			const wanted = options.spares?.() ?? false;
+			const gone =
+				wanted && (await units.gone(kept.slot.unit).catch(() => false));
+			// A take that began meanwhile settles it instead.
+			if (spare !== kept || takingSpare) return;
+			if (!wanted || gone) {
+				spare = undefined;
+				if (gone) {
+					const lived = Date.now() - kept.started;
+					options.say?.(
+						`${kept.slot.unit}: a warm spare left untaken after ${inSeconds(lived)} s`,
+					);
+					spareLost(lived);
+				}
+				void leave(kept.slot, !gone);
+			}
+		}
+		keepSpare();
+	}
+
+	/**
+	 * Take the warm spare for a start, or undefined when there is none,
+	 * it still warms, or it has left: the start then starts a unit.
+	 */
+	async function tookSpare(): Promise<Slot | undefined> {
+		const kept = spare;
+		if (!kept || takingSpare) return undefined;
+		takingSpare = true;
+		try {
+			// A spare that crashed leaves its mark, which a take would land on.
+			if (await units.gone(kept.slot.unit).catch(() => true)) return undefined;
+			const marks = spareMarks(kept.slot.file);
+			const version = await warmVersion(marks);
+			if (version === undefined) return undefined;
+			const unfit = version ? await options.spareMoved?.(version) : undefined;
+			if (unfit) {
+				// It leaves on its own at its next look; stopped now, so the next
+				// spare starts on the code a fresh start runs.
+				spare = undefined;
+				options.say?.(
+					`${kept.slot.unit}: passed over a warm spare, since ${unfit}`,
+				);
+				void leave(kept.slot, true);
+				spareSoon();
+				return undefined;
+			}
+			if (!(await takeSpare(marks))) return undefined;
+			spare = undefined;
+			sparesLost = 0;
+			options.say?.(
+				`${kept.slot.unit}: took a warm spare, started ${inSeconds(Date.now() - kept.started)} s before`,
+			);
+			spareSoon();
+			return kept.slot;
+		} catch (error) {
+			options.report(error);
+			return undefined;
+		} finally {
+			takingSpare = false;
+		}
+	}
 
 	/** Throws once the host has stopped watching, ending what it had under way. */
 	function stillWatching(): void {
@@ -1108,9 +1278,9 @@ export function childSupervisor(options: {
 								// Its failure is the watch's, thrown below.
 								kept = first.catch(() => undefined);
 							},
-							state: (conversation) => {
+							state: (conversation, heap) => {
 								if (conversation.sessionId === current)
-									routes.update(conversation);
+									routes.update(conversation, heap);
 							},
 							became(previousId, conversation, entry) {
 								const next = conversation.sessionId;
@@ -1137,12 +1307,13 @@ export function childSupervisor(options: {
 								}
 								// Its route and hold are under the spelling first answered.
 								const left = current ?? previousId;
-								const was = routes.routeOf(left);
+								const was = routes.child(left);
 								dropOwn(left);
 								runsNoLongerIn(left, slot);
 								current = next;
 								runsIn(next, slot);
-								if (was) routes.hold(conversation, was);
+								// The same child, so its last heap still stands.
+								if (was) routes.hold(conversation, was.route, was.heap);
 								keep(async () => {
 									try {
 										// It keeps what the host held of what it was.
@@ -1239,7 +1410,9 @@ export function childSupervisor(options: {
 	 * only once the gate gives it a turn, as `turn` asks, which its work
 	 * holds until it settles, so the work's own windows count from the
 	 * unit's start; a wait the host's stop, a give-up or its caller's `by`
-	 * ends starts nothing.
+	 * ends starts nothing. Given its turn, it takes the warm spare when one
+	 * waits, writing the spare's slot rather than starting `slot`'s unit,
+	 * and its work is given whichever slot its child runs in.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
@@ -1251,10 +1424,11 @@ export function childSupervisor(options: {
 			cut?: AbortSignal;
 			hurry?: AbortSignal;
 		},
-		work: () => Promise<T>,
+		work: (slot: Slot) => Promise<T>,
 	): Promise<T> {
 		// Taken only once free, so a slot another child runs in is left be.
 		let taken = false;
+		let used = slot;
 		let giveBack = (): void => undefined;
 		let lapse: ReturnType<typeof setTimeout> | undefined;
 		const asked = Date.now();
@@ -1304,16 +1478,27 @@ export function childSupervisor(options: {
 			await claimed(slot.unit, async () => {
 				if (!(await free(slot)))
 					throw new Error(`A child runs in ${slot.unit} already`);
+				stillWatching();
+				const warm = await tookSpare();
+				if (warm) {
+					used = warm;
+					taken = true;
+					// Counted as running there first, so a later start of it waits
+					// for the spare's slot to empty, as for any it last ran in.
+					if (session) runsIn(session.sessionId, warm);
+					await writeSlot(warm, session, woken);
+					return;
+				}
 				inUse.add(slot.unit);
 				taken = true;
 				stillWatching();
 				await writeSlot(slot, session, woken);
 				await units.start(slot.unit);
 			});
-			return await work();
+			return await work(used);
 		} catch (error) {
 			if (taken && !closing) {
-				void leave(slot, true);
+				void leave(used, true);
 				if (session) options.gaveUp?.(session.sessionId);
 			}
 			throw error;
@@ -1388,9 +1573,9 @@ export function childSupervisor(options: {
 			entry,
 			woken,
 			{ ahead: woken, by: Number.POSITIVE_INFINITY, cut, hurry },
-			async () =>
+			async (runs) =>
 				(
-					await watch(slot, {
+					await watch(runs, {
 						expected: sessionId,
 						named: sessionId,
 						bounded,
@@ -1517,10 +1702,11 @@ export function childSupervisor(options: {
 			);
 			// Each in use before its file is read, so nothing starts in it.
 			for (const slot of slots) inUse.add(slot.unit);
-			const [names, forsook, becameFrom] = await Promise.all([
+			const [names, forsook, becameFrom, spares] = await Promise.all([
 				Promise.all(slots.map(slotHolds)),
 				Promise.all(slots.map(slotForsaken)),
 				Promise.all(slots.map(slotWas)),
+				Promise.all(slots.map(slotSpare)),
 			]);
 			// What a forsaken child ran holds a start of it back until it
 			// has gone, beside another child's slot that names it, as a
@@ -1532,6 +1718,15 @@ export function childSupervisor(options: {
 						other !== at && name !== undefined && keyed(name) === keyed(runs),
 				);
 			return slots.map((slot, at) => {
+				// A spare left untaken runs no conversation, and may run old
+				// code: it is stopped, and this host starts its own.
+				if (spares[at]) {
+					options.say?.(
+						`${slot.unit}: stopped, since an earlier host left it a spare untaken`,
+					);
+					void leave(slot, true);
+					return Promise.resolve(false);
+				}
 				const forsaken = forsook[at];
 				const named = forsaken ? forsaken.runs : names[at];
 				const was = forsaken ? undefined : becameFrom[at];
@@ -1560,6 +1755,7 @@ export function childSupervisor(options: {
 					options.report(outcome.reason);
 			} else if (outcome.value) count += 1;
 		}
+		spareSoon();
 		return count;
 	}
 
@@ -1612,19 +1808,19 @@ export function childSupervisor(options: {
 			// Ahead, as a wake: its caller waits on it. Its wait for a turn ends
 			// while its least is still left, as its weighing above does.
 			const turn = { ahead: true, by: by - leastToBegin };
-			return inSlot(slot, undefined, false, turn, async () => {
-				const reply = await firstAsked(slot, request, by);
+			return inSlot(slot, undefined, false, turn, async (runs) => {
+				const reply = await firstAsked(runs, request, by);
 				// A stop during the ask ends it, and the begin with it.
 				stillWatching();
 				if (!reply.ok && madeByHost(reply))
-					return unsettled(slot, request, reply, { fresh, asked, by });
+					return unsettled(runs, request, reply, { fresh, asked, by });
 				// A child that couldn't start its conversation is stopped.
 				if (!reply.ok) throw new RefusedBeginning(reply);
 				// The watch must name what the answer named.
 				const { result } = reply;
 				const answered = isRecord(result) ? result.sessionId : undefined;
 				const expected = typeof answered === "string" ? answered : "";
-				await watch(slot, { expected, fresh, asked, by });
+				await watch(runs, { expected, fresh, asked, by });
 				return reply;
 			})
 				.catch((error) => {
@@ -1692,6 +1888,9 @@ export function childSupervisor(options: {
 		},
 		close() {
 			closing = true;
+			clearInterval(spareCheck);
+			for (const timer of spareTimers) clearTimeout(timer);
+			spareTimers.clear();
 			stopping.abort(new StoppedWatching());
 			for (const watching of watches) watching.close();
 			watches.clear();
