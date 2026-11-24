@@ -377,19 +377,20 @@ quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
 one, once something has stirred (a conversation's build settled, a
 turn started or ended, or a conversation was let go) and the host is
-quiet: no tool call or job running, and no viewer's key or resize for
-30 s. A conversation
-mid-turn that only waits on the model doesn't hold it off, since the
-attended host almost always has one, and the pause costs it at most a
-stall in streaming. It runs at most once in 10 minutes, and a park may
-bring one forward inside them. A host that always has a job running
-would never be quiet, so once a collection has been due an hour it
-runs with tool calls and jobs running, still after 30 s with no key
-or resize, and says how many of each were. Where V8 exposes no gc it
-says so once and collects nothing, rather than refusing to start. The
-journal line says the pause in ms,
-the Pss before and after and how many conversations were waiting on
-the model, and names a pause over a second as the loop held, as the
+quiet: no tool call, job or build running, and no viewer's key or
+resize for 30 s. A build still running holds it off, so a host resuming
+many at once doesn't pause the rest for the first one's garbage, nor
+keep the pace such a pause measured. A conversation mid-turn that only
+waits on the model doesn't hold it off, since the attended host almost
+always has one, and the pause costs it at most a stall in streaming.
+It runs at most once in 10 minutes, and a park may bring one forward
+inside them. A host that always has a job running would never be
+quiet, so once a collection has been due an hour it runs with tool
+calls, jobs and builds running, still after 30 s with no key or
+resize, and says how many of each were. Where V8 exposes no gc it says
+so once and collects nothing, rather than refusing to start. The
+journal line says the pause in ms, the Pss before and after and how
+many conversations were waiting on the model, and names a pause over a second as the loop held, as the
 watchdog names a late beat. Its pause grows with the heap, about a
 second a GB on the live hosts, so a collection whose heap, at the
 slowest pace of the last four, would hold the loop past a second is

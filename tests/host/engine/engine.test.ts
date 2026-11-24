@@ -695,6 +695,20 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
+	it.each([
+		["is built", "open-collected"],
+		["fails", "start-fails-collected"],
+	])(
+		"collects what a conversation's load left once its build %s, with nothing else to stir it",
+		async (_settled, scenario) => {
+			const seen = await step(hostFolder(), scenario);
+			expect(seen.reported).toContainEqual(
+				expect.stringMatching(/^Collected while quiet in \d+ ms/),
+			);
+		},
+		HOST_LIFE_MS,
+	);
+
 	it(
 		"counts a carry under way as what a restart waits on, and refuses a reload until it lets go",
 		async () => {

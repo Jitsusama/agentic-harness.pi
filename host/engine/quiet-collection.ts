@@ -28,7 +28,10 @@
  * A build counts as a stir, since a child that only opened its
  * conversation otherwise kept its load's garbage for as long as it sat:
  * over 1100 MB, a heap of about 900 MB, in 7 of 101 runs of the child's
- * own test from 20 to 24 November.
+ * own test from 20 to 24 November. A build still running counts as
+ * work, as a tool call does: a shared host resuming many at once would
+ * otherwise pause the rest for the first one's garbage, and keep the
+ * pace that pause measured beside builds as if it were its own.
  *
  * The pause grows with the heap a collection walks, about a second for
  * each GB the live hosts used, while what it gives back shrinks beside
@@ -101,6 +104,8 @@ export interface QuietReading {
 	readonly jobs: number;
 	/** Conversations mid-turn with no tool call running: waiting on the model. */
 	readonly waiting: number;
+	/** Conversations being built now, loading what they run on. */
+	readonly builds: number;
 }
 
 /** What gives the host's pages back once it has been quiet. */
@@ -196,7 +201,7 @@ export function quietCollection(options: {
 			return;
 		}
 		const reading = options.reading();
-		const working = reading.tools + reading.jobs > 0;
+		const working = reading.tools + reading.jobs + reading.builds > 0;
 		dueSince ??= now;
 		if (working && now - dueSince < CEILING_MS) {
 			arm(Math.min(now + SETTLE_MS, dueSince + CEILING_MS));
@@ -433,7 +438,7 @@ function collectedLine(
 	const coded = code ? `, ${codeSaid(code)}` : "";
 	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}${coded}, with ${reading.waiting} conversations waiting on the model`;
 	const line = working
-		? `${quiet}, and ${reading.tools} tool calls and ${reading.jobs} jobs running, due for ${CEILING_MS / MS_PER_MINUTE} minutes`
+		? `${quiet}, and ${reading.tools} tool calls, ${reading.jobs} jobs and ${reading.builds} builds running, due for ${CEILING_MS / MS_PER_MINUTE} minutes`
 		: quiet;
 	return took > HELD_MS
 		? `${line}; the loop held ${(took / MS_PER_SECOND).toFixed(1)} s for it`
