@@ -356,9 +356,9 @@ export function createState(
 					undefined
 			);
 		},
-		close: (by, failed) => {
+		close: (by, failed, closed) => {
 			if (!m.ctx) throw new Error("the session has no context to close");
-			endConversation(m.ctx, by, failed);
+			endConversation(m.ctx, by, failed, closed);
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 		// Every job still running; the carry names only those that read as

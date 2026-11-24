@@ -4,7 +4,7 @@
  * with the conversation; and a step that throws, which refuses it.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	createOrderedCarrying,
 	type OrderedCarryHost,
@@ -341,5 +341,73 @@ describe("an ordered carry a step of fails", () => {
 		expect(one.did).toEqual([
 			"close: an ordered carry to penelope by WCJQSG, for its camera work needs the Mac",
 		]);
+	});
+});
+
+describe("an ordered carry's close", () => {
+	const UNCLOSED =
+		"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, but it couldn't close here:";
+	const STOPPED =
+		"This run is stopped: the session was carried to penelope and runs there, so end it here.";
+
+	it("counts as failed once it hangs past its deadline, saying so once, and says why each later run is stopped", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			// Asked, it never lands nor fails, as a host's close that hangs.
+			close: (by) => one.did.push(`close: ${by}`),
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+
+		await vi.waitFor(() =>
+			expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+				`${UNCLOSED} it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work; end it here once it starts there.`,
+			]),
+		);
+		one.ordering.started();
+		one.ordering.started();
+
+		expect(one.did.slice(-2)).toEqual(["abort", "abort"]);
+		expect(told.slice(-2)).toEqual([STOPPED, STOPPED]);
+		expect(
+			told.filter((line) => line.startsWith(UNCLOSED)),
+			"said once",
+		).toHaveLength(1);
+	});
+
+	it("says a close that fails after its deadline counted it failed no second time", async () => {
+		const told: string[] = [];
+		let failClose: ((error: unknown) => void) | undefined;
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, failed) => {
+				failClose = failed;
+			},
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+		await vi.waitFor(() =>
+			expect(told.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+		);
+
+		failClose?.(new Error("the engine is gone"));
+
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toHaveLength(1);
+	});
+
+	it("never counts as failed where it lands within its deadline", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, _failed, closed) => closed(),
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+
+		// Past its deadline, as the clock it was given reads it.
+		await new Promise((done) => setTimeout(done, 60));
+
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([]);
 	});
 });
