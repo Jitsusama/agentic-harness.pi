@@ -59,6 +59,7 @@ import {
 	doneFileOf,
 	type HandedTree,
 	type Handover,
+	readHandover,
 	withinHome,
 	writeHandover,
 } from "./handover.ts";
@@ -178,8 +179,9 @@ async function carryAll(
 		throw new CarryNotWhole(trees);
 	}
 	// An earlier done file of this session goes aside first, so the share
-	// never finds it naming a bundle this carry replaced.
-	stage.place(filesOf(trees), [basename(doneFileOf(into, session.id))]);
+	// never finds it naming a bundle this carry replaced, and with it
+	// what it names, so none this carry doesn't name again is left behind.
+	stage.place(filesOf(trees), earlierOf(into, session.id));
 	if (sessionFile !== undefined) {
 		// Each form drops the other an earlier carry left.
 		stage.place(
@@ -204,6 +206,27 @@ async function carryAll(
 			: { notes: carrying.notes }),
 	};
 	return { file: writeHandover(into, handover), handover, trees };
+}
+
+/**
+ * The done file of `session`'s earlier carry into `into`, if any, and
+ * each file it names there: its session file, bundles and patches.
+ */
+function earlierOf(into: string, session: string): string[] {
+	const done = doneFileOf(into, session);
+	const earlier = readHandover(done);
+	const named = [
+		earlier?.sessionFile,
+		...(earlier?.trees ?? []).flatMap((tree) => [tree.bundle, tree.patch]),
+	];
+	return [
+		basename(done),
+		// A name with a folder in it is no file this carry wrote.
+		...named.filter(
+			(name): name is string =>
+				name !== undefined && name !== "" && name === basename(name),
+		),
+	];
 }
 
 /** The bundles and patches of the trees carried. */
@@ -498,7 +521,9 @@ async function carryTreeAway(
  * trees of one name never share one, and nor do two sessions of one
  * quest carrying one tree: the handover is the quest's, and a carry
  * writing over another session's bundle would leave that session's done
- * file naming bytes it never carried.
+ * file naming bytes it never carried. The hash is 64 bits, since a
+ * clash would put one tree's bundle under another's name and nothing
+ * checks for one.
  */
 export function nameFor(path: string, owner: string): string {
 	const readable = basename(path)
@@ -507,7 +532,7 @@ export function nameFor(path: string, owner: string): string {
 	const hash = createHash("sha256")
 		.update(`${owner}\0${path}`)
 		.digest("hex")
-		.slice(0, 8);
+		.slice(0, 16);
 	return `${readable || "tree"}-${hash}`;
 }
 

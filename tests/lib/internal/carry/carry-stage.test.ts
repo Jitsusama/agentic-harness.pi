@@ -191,6 +191,46 @@ describe("a carry staged before the handover", () => {
 		expect(staging(into)).toEqual([]);
 	});
 
+	it("takes out what a session's earlier carry named and its next one doesn't, leaving another session's", async () => {
+		const { origin, home, tree, into } = await homeWithWork();
+		const other = await cloneAt(origin, join(home, "src", "lib"));
+		await git(other, "checkout", "-q", "-b", "side");
+		await commit(other, "side.txt", "unpushed\n");
+		const carry = (session: string, trees: string[]) =>
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: session, cwd: tree },
+				trees,
+				whole: true,
+			});
+		const first = await carry("s-s", [tree, other]);
+		const beside = await carry("s-b", [other]);
+		const named = (carried: typeof first) =>
+			carried.handover.trees.flatMap((one) =>
+				[one.bundle, one.patch].filter((name) => name !== undefined),
+			);
+		const dropped = named(first).filter((name) => name.startsWith("lib-"));
+		expect(dropped, "its first carry bundled the second tree").not.toEqual([]);
+
+		const next = await carry("s-s", [tree]);
+
+		expect(readdirSync(into).sort()).toEqual(
+			[
+				...named(next),
+				...named(beside),
+				"s-s.done.json",
+				"s-b.done.json",
+			].sort(),
+		);
+		for (const name of dropped) {
+			expect(existsSync(join(into, name)), `${name} is gone`).toBe(false);
+		}
+		expect(staging(into)).toEqual([]);
+	});
+
 	it("refuses a quest's tree whose bundle the share would refuse, leaving none of it to send", async () => {
 		const { home, tree, into } = await homeWithWork();
 		await commit(tree, "big.txt", "unpushed\n".repeat(400));
