@@ -15,7 +15,10 @@ const [holdWatch, folder] = process.argv.slice(-2);
 if (holdWatch === undefined || folder === undefined) {
 	throw new Error("usage: hold-as-source.mjs HOLD_WATCH FOLDER");
 }
-/** Whether the watch has said all it will, whichever way it went. */
+/**
+ * Whether the watch has said all it will, whichever way it went.
+ * @param {string} text What it has said so far.
+ */
 const done = (text) =>
 	/the hold watch's thread failed/.test(text) ||
 	(/the loop held /.test(text) &&
