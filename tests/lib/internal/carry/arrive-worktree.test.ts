@@ -94,6 +94,32 @@ function commonOf(path: string): Promise<string> {
 	return git(path, "rev-parse", "--path-format=absolute", "--git-common-dir");
 }
 
+/** Spoils the carried patch in `from`, so the tree is refused once checked out. */
+function breakPatch(from: string): void {
+	const patch = readdirSync(from).find((name) => name.endsWith(".patch"));
+	writeFileSync(join(from, patch ?? "none"), "no patch at all\n");
+}
+
+/**
+ * `exec`, but once the tree's changes fail to apply, git answers
+ * `answer` when asked which branch the tree is on.
+ */
+function headUnread(answer: { code: number; stderr: string }): Exec {
+	let applied = false;
+	return (command, args) => {
+		if (args.includes("apply")) applied = true;
+		return applied && args.includes("symbolic-ref")
+			? Promise.resolve({ ...answer, stdout: "" })
+			: exec(command, args);
+	};
+}
+
+/** Why the first tree said was refused, or nothing. */
+function refusalOf(said: readonly ArrivalLine[]): string {
+	const first = said[0];
+	return first?.kind === "tree" ? (first.why ?? "") : "";
+}
+
 describe("arriving with a tree from where the work tool cuts them", () => {
 	it("cuts it as a worktree of the checkout under ~/src its origin names, so pi's git runs there", async () => {
 		const { origin, from, head } = await carriedFromTrees();
@@ -227,31 +253,63 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 		expect(now.code === 0 ? now.stdout.trim() : undefined).toBe(stood);
 	});
 
-	it("says it left the branch where git couldn't say which the refused tree was on", async () => {
+	it.each([
+		["git fails", { code: 128, stderr: "fatal: broken\n" }, "fatal: broken"],
+		// As spawnExec answers for a git killed from outside (#2119).
+		[
+			"git is killed by a signal",
+			{ code: 137, stderr: "git was killed by SIGKILL" },
+			"git was killed by SIGKILL",
+		],
+	])(
+		"says it left the branch where %s saying which branch the refused tree was on",
+		async (_, answer, words) => {
+			const { origin, from, head } = await carriedFromTrees();
+			const home = folder(made, "arriving");
+			const checkout = await cloneAt(origin, join(home, "src", "origin"));
+			breakPatch(from);
+
+			const { whole, said, tree } = await arriveAt(
+				home,
+				from,
+				headUnread(answer),
+			);
+
+			expect(whole).toBe(false);
+			expect(refusalOf(said)).toMatch(
+				new RegExp(
+					`^Its changes didn't apply.*And its branch topic may be left at ${head}, though there was no such branch before, since git couldn't say which branch the tree was on: ${words}\\.$`,
+					"s",
+				),
+			);
+			expect(existsSync(tree), "the cut tree is taken out").toBe(false);
+			expect(
+				await git(checkout, "rev-parse", "topic"),
+				"left where settling put it, as said",
+			).toBe(head);
+		},
+	);
+
+	it("says where the branch it may have left stood before, where it stood", async () => {
 		const { origin, from, head } = await carriedFromTrees();
 		const home = folder(made, "arriving");
 		const checkout = await cloneAt(origin, join(home, "src", "origin"));
-		const patch = readdirSync(from).find((name) => name.endsWith(".patch"));
-		writeFileSync(join(from, patch ?? "none"), "no patch at all\n");
-		// Once its changes fail to apply, git can't say where its HEAD is.
-		let applied = false;
-		const unreadHead: Exec = (command, args) => {
-			if (args.includes("apply")) applied = true;
-			return applied && args.includes("symbolic-ref")
-				? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: broken\n" })
-				: exec(command, args);
-		};
+		await git(checkout, "branch", "topic");
+		const stood = await git(checkout, "rev-parse", "topic");
+		breakPatch(from);
 
-		const { whole, said, tree } = await arriveAt(home, from, unreadHead);
+		const { whole, said } = await arriveAt(
+			home,
+			from,
+			headUnread({ code: 128, stderr: "fatal: broken\n" }),
+		);
 
 		expect(whole).toBe(false);
-		expect(String(said[0]?.kind === "tree" && said[0].why)).toMatch(
+		expect(refusalOf(said)).toMatch(
 			new RegExp(
-				`^Its changes didn't apply.*And its branch topic may be left at ${head}, since git couldn't say which branch the tree was on: fatal: broken\\.$`,
-				"s",
+				`And its branch topic may be left at ${head}, where it stood at ${stood} before, since git couldn't say which branch the tree was on: fatal: broken\\.$`,
 			),
 		);
-		expect(existsSync(tree), "the cut tree is taken out").toBe(false);
 		expect(
 			await git(checkout, "rev-parse", "topic"),
 			"left where settling put it, as said",
