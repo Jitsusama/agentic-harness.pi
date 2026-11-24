@@ -20,7 +20,7 @@
  * presence says, is read in its own file (presence-shares.ts).
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile as readFileOff } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -67,6 +67,7 @@ import {
 	type QuestRecords,
 	questAddress,
 } from "./address.ts";
+import { groupNamed } from "./group.ts";
 import {
 	type MoveOff,
 	type Moving,
@@ -670,7 +671,10 @@ export function createPresences(
 		// peers are forgotten.
 		expire(before) {
 			removeStaged(dir, before);
-			for (const path of unreadable(dir, before)) {
+			for (const { path, stamp } of unreadable(dir, before)) {
+				// A publish renamed over it since it was judged is a live
+				// writer's, so it is kept.
+				if (stampOf(path) !== stamp) continue;
 				removeQuietly(path);
 				folder().drop(path);
 			}
@@ -689,12 +693,37 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 /** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
 
+/** A presence file the sweep judged unreadable, and its stat as judged. */
+interface Judged {
+	readonly path: string;
+	readonly stamp: string;
+}
+
 /**
- * The presence files in a folder untouched since `before` that read as
- * no presence: torn, or refused at the read boundary. A live writer
- * publishes over its own long before, so what is left is a gone one's.
+ * What a file's stat says of which file it is and when it last changed,
+ * or nothing once it is gone: a publish renames a new file over the
+ * path, which changes it.
  */
-function unreadable(dir: string, before: number): string[] {
+function stampOf(path: string): string | undefined {
+	try {
+		const { ino, mtimeMs, size } = statSync(path);
+		return `${ino}:${mtimeMs}:${size}`;
+	} catch {
+		// Gone, or not ours to stat: nothing to judge or remove.
+		return undefined;
+	}
+}
+
+/**
+ * The presence files in a folder untouched since `before` whose text was
+ * read and holds no presence: torn, or refused at the read boundary.
+ * Only what was read is judged, so a read that failed (too many open
+ * files, a permission, a disk error) keeps the file: an idle or parked
+ * peer's presence can go untouched for longer than `before` while its
+ * peer is still on the mesh, and it publishes only what changed. Each is
+ * stamped as judged, so a publish landing after keeps it.
+ */
+function unreadable(dir: string, before: number): Judged[] {
 	let files: string[] = [];
 	try {
 		files = readdirSync(dir).filter((file) => file.endsWith(".json"));
@@ -702,9 +731,29 @@ function unreadable(dir: string, before: number): string[] {
 		// No folder yet: nothing in it to read.
 		return [];
 	}
-	return files
-		.map((file) => join(dir, file))
-		.filter((path) => touchedAt(path) < before && read(path) === undefined);
+	return files.flatMap((file) => {
+		const path = join(dir, file);
+		const stamp = stampOf(path);
+		if (stamp === undefined || touchedAt(path) >= before) return [];
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			// A read that failed says nothing of what the file holds.
+			return [];
+		}
+		return holdsNoPresence(text) ? [{ path, stamp }] : [];
+	});
+}
+
+/** Whether a presence file's text, as read, holds no presence. */
+function holdsNoPresence(text: string): boolean {
+	try {
+		return parsed(text) === undefined;
+	} catch {
+		// Torn: no reader can parse it.
+		return true;
+	}
 }
 
 /** A presence as its file's text says it, or nothing. */
@@ -741,11 +790,15 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
 }
 
 /**
- * Whether a group a presence names is one token, as every group is
- * named (`#harness`, `#quest/wcjqsg`, `@5GV2AH`), so none starts a line.
+ * Whether a group a presence names is one a group is named as, read
+ * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,
+ * `@5GV2AH`), so none starts a line or forges a field: the shape held
+ * to rather than a list of breaks, which can't hold, as mesh_groups
+ * already lists them. All 555 groups and joined groups on equilibrius's
+ * presences on 24 November read back so.
  */
 function isGroupShaped(group: string): boolean {
-	return group !== "" && !group.includes(" ") && oneLine(group) === group;
+	return groupNamed(group) === group;
 }
 
 /** Presence read from outside, or nothing when it is not one. */
@@ -810,9 +863,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			? { orchestratedBy: one.orchestratedBy }
 			: {}),
 		...(shaped(one.orchestrates) ? { orchestrates: one.orchestrates } : {}),
-		...(typeof one.stewardedBy === "string"
-			? { stewardedBy: one.stewardedBy }
-			: {}),
+		...(shaped(one.stewardedBy) ? { stewardedBy: one.stewardedBy } : {}),
 		...(typeof one.workspace === "string" && one.workspace !== ""
 			? { workspace: one.workspace }
 			: {}),

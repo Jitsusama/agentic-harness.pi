@@ -327,8 +327,9 @@ describe("groups", () => {
 		expect(sent).toContain("WAITER (held at an approval since");
 		expect(sent).toContain("IDLERX is idle, and an fyi starts no turn");
 		expect(sent).not.toContain("OWNERQ");
-		expect(sent).not.toContain("PERSON (held");
-		expect(sent).not.toContain("Person is idle");
+		// Neither unshaped first address is named anywhere in the reply.
+		expect(sent).not.toContain("PERSON");
+		expect(sent).not.toMatch(/\bPerson\b/);
 	});
 
 	it("says an fyi or finding to an idle peer starts no turn, and what would", async () => {
