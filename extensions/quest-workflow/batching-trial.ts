@@ -29,7 +29,7 @@ import {
 	registerStandingContext,
 	type StandingContextWording,
 } from "../../lib/prompt/index.ts";
-import { orchestratorOf, readmeIn } from "./standing-rules.ts";
+import { orchestratorOf, readmeIn } from "./orchestration/standing-rules.ts";
 
 const LABEL = "[Habit]";
 
