@@ -200,7 +200,7 @@ describe("the restore file", () => {
 		);
 		expect(
 			file.sessions.map((entry) => entry.id).sort(),
-			"a plain pi's tab isn't a hosted window, so a mark never hides it",
+			"each marked hosted session, parked or running, is left out, and a plain pi's tab with a mark stays, since it isn't a hosted window",
 		).toEqual(["01a1abab-cdcd", "01a1cccc-dddd", "01a1eded-0000"]);
 		const open = restoreFileOf([...hostedRecords(), parkedHosted], "this");
 		expect(
