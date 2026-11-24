@@ -455,7 +455,10 @@ describe("cutting with a git too old to say a ref is missing", () => {
 
 		const refused = await cutFrom(old, gitDir, at, "fresh");
 
-		expect("why" in refused ? refused.why : "").toMatch(/refs\/heads\/fresh$/);
+		// The listing's own word, not the file's, which ends the same way.
+		expect("why" in refused ? refused.why : "").toMatch(
+			/: warning: ignoring broken ref refs\/heads\/fresh$/,
+		);
 		expect(existsSync(at), "nothing was cut").toBe(false);
 	});
 
