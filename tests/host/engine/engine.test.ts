@@ -50,6 +50,8 @@ interface Seen {
 	readonly state?: string;
 	readonly after?: string;
 	readonly keysSeen: readonly string[];
+	/** Whether the host collected while one build was held in its load and another had settled. */
+	readonly collectedWhileHeld?: boolean;
 	/** The keys a budget's conversation sent for its turn and its warm, then a personal one's. */
 	readonly budgetKeys?: {
 		readonly turn: readonly string[];
@@ -703,6 +705,18 @@ describe("the host's engine", () => {
 		"collects what a conversation's load left once its build %s, with nothing else to stir it",
 		async (_settled, scenario) => {
 			const seen = await step(hostFolder(), scenario);
+			expect(seen.reported).toContainEqual(
+				expect.stringMatching(/^Collected while quiet in \d+ ms/),
+			);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"holds the quiet collection while a build is under way, and collects once it settles",
+		async () => {
+			const seen = await step(hostFolder(), "held-build-collected");
+			expect(seen.collectedWhileHeld).toBe(false);
 			expect(seen.reported).toContainEqual(
 				expect.stringMatching(/^Collected while quiet in \d+ ms/),
 			);
