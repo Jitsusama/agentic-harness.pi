@@ -543,11 +543,32 @@ function routeAs(
 	// A need goes to its fit alone, so a cell it is found through never
 	// hears it: one that stopped the asker may still be walked through.
 	const through = (address: string) => !selves.has(address) && live(address);
+	const wordsHeld = new Map(
+		reach.foragers.map((cell) => [cell.address, new Set(cell.words)]),
+	);
+	const holds = (address: string, word: string) =>
+		wordsHeld.get(address)?.has(word) ?? false;
+	const saying = new Set(said.words);
+	// A need naming one numbered id, leg 27, says nothing of another,
+	// leg-26, whose words it shares: a cell holding leg-26 takes it on
+	// the word leg only when the need says leg-26 as well.
+	const numberedParts = new Set(
+		said.words.filter(isNumbered).flatMap((id) => id.split(/[-_]/u)),
+	);
+	const holdsOtherNumber = (address: string, word: string) =>
+		numberedParts.has(word) &&
+		[...(wordsHeld.get(address) ?? [])].some(
+			(held) =>
+				isNumbered(held) &&
+				held.split(/[-_]/u).includes(word) &&
+				!saysWord(held, saying),
+		);
 	const asked = {
 		...said,
 		words: keptWords(said, reach.foragers, {
 			standing: (address) => takes(address) || ended(address),
 			self: (address) => selves.has(address),
+			otherNumber: holdsOtherNumber,
 		}),
 	};
 	// By the word each was passed over for: every word's finds are looked
@@ -572,11 +593,6 @@ function routeAs(
 		...(named.size > 0 ? { ended: [...named] } : {}),
 		...(refusing.size > 0 ? { stopped: [...refusing] } : {}),
 	});
-	const wordsHeld = new Map(
-		reach.foragers.map((cell) => [cell.address, new Set(cell.words)]),
-	);
-	const holds = (address: string, word: string) =>
-		wordsHeld.get(address)?.has(word) ?? false;
 	const ownWord = (word: string) =>
 		[...selves].some((self) => holds(self, word));
 	if (asked.words.length > 0 && asked.words.every(ownWord)) {
@@ -625,21 +641,6 @@ function routeAs(
 	if (within.length === 0) return lost();
 	const lacking = rarest.map(({ word }) => word);
 
-	const saying = new Set(said.words);
-	// A need naming one numbered id, leg 27, says nothing of another,
-	// leg-26, whose words it shares: a cell holding leg-26 takes it on
-	// the word leg only when the need says leg-26 as well.
-	const numberedParts = new Set(
-		said.words.filter(isNumbered).flatMap((id) => id.split(/[-_]/u)),
-	);
-	const holdsOtherNumber = (address: string, word: string) =>
-		numberedParts.has(word) &&
-		[...(wordsHeld.get(address) ?? [])].some(
-			(held) =>
-				isNumbered(held) &&
-				held.split(/[-_]/u).includes(word) &&
-				!saysWord(held, saying),
-		);
 	const fitsOn = (address: string, word: string) =>
 		takes(address) && holds(address, word) && !holdsOtherNumber(address, word);
 	// How much of the need a cell works on, read as fitsOn reads a word,
@@ -831,7 +832,10 @@ function heardWithin(ties: TieGraph, address: string, at: number): boolean {
 /**
  * The words a need is routed and kept by: only those some cell works
  * on, none past `LONGEST_WORD` and at most `MOST_WORDS`, so a token in
- * what was said, in its text or its `about`, never reaches the file.
+ * what was said, in its text or its `about`, never reaches the file. A
+ * cell holding a word only as part of another numbered id than the need
+ * says, as a leg-26 cell holds leg for a need for leg 27, works on none
+ * of it, so that word is kept only if another cell holds it.
  * Past `MOST_WORDS`, those that route it or name its ended owner are
  * kept rarest first, counted over the cells there to take it or ended;
  * then those only cells that stopped the asker hold, which say why the
@@ -844,6 +848,7 @@ function keptWords(
 	cells: {
 		readonly standing: (address: string) => boolean;
 		readonly self: (address: string) => boolean;
+		readonly otherNumber: (address: string, word: string) => boolean;
 	},
 ): string[] {
 	const takers = new Map<string, number>();
@@ -852,6 +857,7 @@ function keptWords(
 		const taking = cells.standing(address) ? 1 : 0;
 		const own = cells.self(address);
 		for (const word of words) {
+			if (cells.otherNumber(address, word)) continue;
 			takers.set(word, (takers.get(word) ?? 0) + taking);
 			if (own) ownHold.add(word);
 		}
@@ -941,6 +947,22 @@ export function saysWord(word: string, saying: ReadonlySet<string>): boolean {
 		.split(/[-_]/u)
 		.filter((part) => part.length >= SHORTEST_WORD && !COMMON.has(part));
 	return needed.length > 0 && needed.every((part) => saying.has(part));
+}
+
+/**
+ * Whether `word` is a part of a numbered id among `saying`, as leg is of
+ * leg-27: the need tool says that id of the need, not its parts, since
+ * a cell holding leg as another number's works on none of it.
+ */
+export function partOfNumbered(
+	word: string,
+	saying: ReadonlySet<string>,
+): boolean {
+	for (const said of saying) {
+		if (said !== word && isNumbered(said) && said.split(/[-_]/u).includes(word))
+			return true;
+	}
+	return false;
 }
 
 /** Whether joined id `word` is said inside a longer id the need says. */

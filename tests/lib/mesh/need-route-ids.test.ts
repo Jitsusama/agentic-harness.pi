@@ -185,6 +185,45 @@ describe("a need for the id a cell holds", () => {
 		);
 	});
 
+	// Kept, leg would say the need was routed by it, which no cell takes
+	// it on: a leg-26 cell's leg is no work on leg 27 (#2118's round 2).
+	it("keeps no word of a need for leg 27 that only another leg's cell holds", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({ A: [], E: wordsOf("leg-26"), F: ["easing"] }),
+				ties: ties(["A", "F", 1], ["A", "E", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "F, on easing alone").toMatchObject({
+			fit: "F",
+			words: ["easing"],
+		});
+	});
+
+	it("still keeps leg when a cell holds it plainly beside another leg's", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
+			{
+				foragers: cells({
+					A: [],
+					E: wordsOf("leg-26"),
+					L: ["leg"],
+					F: ["easing"],
+				}),
+				ties: ties(["A", "F", 1], ["A", "E", 1], ["A", "L", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found.words, "leg, which L works on as said").toEqual([
+			"leg",
+			"easing",
+		]);
+	});
+
 	it("says no word of a need for leg 27 unheld that only a live leg-26 cell holds", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },

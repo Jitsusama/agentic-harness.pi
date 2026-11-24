@@ -323,6 +323,37 @@ describe("sending to a need", () => {
 		);
 	});
 
+	// A leg-26 cell holds leg, and the reply once said a need for leg 27
+	// was routed by it, though no cell took it on leg (#2118's round 2).
+	it("says a need for leg 27 was routed by no word only another leg's cell holds", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		peer("session-d", ["L26AAA"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:5HJZ8Z", title: "Easing" },
+				{ key: "cell:L26AAA", title: "Leg 26" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:7M6JKG~L26AAA", strength: 3, heard: Date.now() },
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who eases leg 27?",
+			about: "easing leg-27",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "leg-27, its leg said with it").toContain(
+			"No cell works on leg-27, so it found nobody and it was routed by easing alone.",
+		);
+	});
+
 	it("says nothing of the words no cell works on once it kept the most a need keeps", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(
