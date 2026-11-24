@@ -98,6 +98,7 @@ export type LookResolution =
 	| "replaced"
 	| "seen"
 	| "its quest ended"
+	| "cleared by you"
 	| `answered: ${string}`;
 
 /** The most words a look's why may run to: a sentence, read at a glance. */
@@ -793,6 +794,50 @@ export function answerLook(
 		answeredAt,
 		answeredInWords: true,
 	});
+}
+
+/**
+ * Every look still standing on the person's list in `dir`, newest first,
+ * read off the thread as {@link looksListed} reads them.
+ */
+export async function standingLooksListed(dir: string): Promise<Look[]> {
+	return (await looksListed(dir)).filter(stands);
+}
+
+/**
+ * Clear the standing look `id` as the person did, as the launcher
+ * clears one: it leaves his list, saying he cleared it. Answers the look
+ * as cleared, or nothing when it is gone or no longer stands.
+ */
+export function clearLook(
+	dir: string,
+	id: string,
+	now: Date = new Date(),
+): Look | undefined {
+	const look = looksIn(dir).find((one) => one.id === id);
+	if (!look || !stands(look)) return undefined;
+	const cleared: Look = {
+		...look,
+		state: "cleared",
+		how: "cleared by you",
+		resolvedAt: now.toISOString(),
+	};
+	writeLook(dir, cleared);
+	return cleared;
+}
+
+/**
+ * Mark the waiting look `id` opened, as the launcher marks one the person
+ * opens there, so one that asks nothing back can leave. Answers the look
+ * as it stands now, or nothing when it is gone or no longer stands.
+ */
+export function openLook(dir: string, id: string): Look | undefined {
+	const look = looksIn(dir).find((one) => one.id === id);
+	if (!look || !stands(look)) return undefined;
+	if (look.state === "opened") return look;
+	const opened: Look = { ...look, state: "opened" };
+	writeLook(dir, opened);
+	return opened;
 }
 
 /** Write `look` back resolved, `how`, with what else it now says. */

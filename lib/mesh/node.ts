@@ -320,7 +320,7 @@ export async function askAt(
  * What asking a node comes to: its line, silence once it took the ask, or
  * no node reached.
  */
-type Heard =
+export type Heard =
 	| { readonly kind: "answered"; readonly line: string }
 	| { readonly kind: "silent"; readonly hungUp: boolean }
 	| { readonly kind: "unreached" };
@@ -330,7 +330,7 @@ type Heard =
  * telling a node that took the ask and said nothing within `patience`
  * from none there: what it was asked may still be done.
  */
-function hearAt(
+export function hearAt(
 	socket: string | undefined,
 	request: unknown,
 	patience: number,
