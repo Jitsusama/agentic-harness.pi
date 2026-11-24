@@ -372,12 +372,28 @@ describe("the mesh's own word, on a quest with no mark", () => {
 	// with no ending before it is one pi doesn't give; should a host give
 	// one, the last search still has a peer to read, and only the start's
 	// own guard stops it.
+	//
+	// The last search's own ask is held at the node across the start, so
+	// it can't land after it and pass for the next search's: under load
+	// one sent just before the start reached the node after, out beside
+	// the next search's first, with no search left running.
 	it("stops the last search for its hub when a session starts again without ending", async () => {
 		let out = 0;
 		let most = 0;
+		let holdNext = false;
+		let release: (() => void) | undefined;
 		const answerLate = () => {
 			out += 1;
 			most = Math.max(most, out);
+			if (holdNext) {
+				holdNext = false;
+				return new Promise<void>((answered) => {
+					release = () => {
+						out -= 1;
+						answered();
+					};
+				});
+			}
 			// Long enough that a second search's ask lands while one is out.
 			return new Promise<void>((answered) =>
 				setTimeout(() => {
@@ -400,14 +416,26 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			undefined,
 			{ every: 20, retry: 20, spread: () => 0 },
 		);
-		await vi.waitFor(() => expect(tieAsks()).toBeGreaterThanOrEqual(2));
+		// Each wait has a share of the test's 15 seconds, since a loaded
+		// machine may take more than vitest's one second for two finds.
+		const patiently = { timeout: 4_000 };
+		await vi.waitFor(
+			() => expect(tieAsks()).toBeGreaterThanOrEqual(2),
+			patiently,
+		);
+		holdNext = true;
+		// The last search waits on this ask, so asks nothing more until it
+		// is answered, by when the start has run.
+		await vi.waitFor(() => expect(release).toBeDefined(), patiently);
 
 		await restart();
 		const restarted = tieAsks();
+		release?.();
 		// As above: past the next search's second ask, only a search the
 		// start left running can have one out beside it.
-		await vi.waitFor(() =>
-			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
+		await vi.waitFor(
+			() => expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
+			patiently,
 		);
 		most = out;
 		// Several of the next search's finds, each 60 ms out and 20 ms apart.
