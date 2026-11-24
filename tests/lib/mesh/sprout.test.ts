@@ -3,7 +3,7 @@
  * session, and what it answered read.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import {
 	type Ran,
 	type RunProgram,
 	runProgram,
+	runsSystemPrograms,
 	sprout,
 	sproutArguments,
 } from "../../../lib/mesh/sprout.ts";
@@ -295,9 +296,46 @@ describe("sprouting", () => {
 
 describe("running a program", () => {
 	const patience = { cwd: "/", timeoutMs: 5000 };
+	// Found on PATH, so these run where the system's profiles hold no sh.
+	const runOnPath = runsSystemPrograms((program) => program);
+
+	it("never runs a program found only on the environment's PATH", async () => {
+		// pi runs mycelium unfenced, and a session's PATH can hold a folder
+		// a fenced command writes (PV3TE0's claim round 7, F12).
+		const planted = mkdtempSync(join(tmpdir(), "planted-"));
+		const ran = join(planted, "ran");
+		writeFileSync(
+			join(planted, "no-such-mycelium-here"),
+			`#!/bin/sh\ntouch '${ran}'\n`,
+		);
+		chmodSync(join(planted, "no-such-mycelium-here"), 0o755);
+
+		const answer = await runProgram("no-such-mycelium-here", [], {
+			...patience,
+			env: { ...process.env, PATH: `${planted}:${process.env.PATH ?? ""}` },
+		});
+
+		expect(answer, "what the profiles don't hold is missing").toMatchObject({
+			code: null,
+			missing: true,
+		});
+		expect(existsSync(ran), "the planted program ran").toBe(false);
+	});
+
+	it("runs the program where the system's profiles hold it", async () => {
+		const run = runsSystemPrograms((program) =>
+			program === "node-here" ? process.execPath : undefined,
+		);
+		const ran = await run(
+			"node-here",
+			["-e", "process.stdout.write('ran')"],
+			patience,
+		);
+		expect(ran).toEqual({ code: 0, stdout: "ran", stderr: "" });
+	});
 
 	it("answers a real exit's code and what it said on each stream", async () => {
-		const ran = await runProgram(
+		const ran = await runOnPath(
 			"sh",
 			["-c", "echo out; echo err >&2; exit 3"],
 			patience,
@@ -306,7 +344,7 @@ describe("running a program", () => {
 	});
 
 	it("runs it with the environment given, when one is", async () => {
-		const ran = await runProgram("sh", ["-c", 'printf %s "$PI_SESSION_ID"'], {
+		const ran = await runOnPath("sh", ["-c", 'printf %s "$PI_SESSION_ID"'], {
 			...patience,
 			env: { ...process.env, PI_SESSION_ID: "sess-42" },
 		});
@@ -316,13 +354,13 @@ describe("running a program", () => {
 	});
 
 	it("says a program that isn't here is missing", async () => {
-		const ran = await runProgram("no-such-program-here", [], patience);
+		const ran = await runOnPath("no-such-program-here", [], patience);
 		expect(ran).toMatchObject({ code: null, missing: true });
 		expect(ran).not.toHaveProperty("noFolder");
 	});
 
 	it("says a folder that's gone, rather than a program missing", async () => {
-		const ran = await runProgram("sh", ["-c", "exit 0"], {
+		const ran = await runOnPath("sh", ["-c", "exit 0"], {
 			...patience,
 			cwd: "/no/such/folder/here",
 		});
@@ -334,7 +372,7 @@ describe("running a program", () => {
 		// A plain file as the folder fails the spawn itself, on any system.
 		const file = join(mkdtempSync(join(tmpdir(), "sprout-")), "file");
 		writeFileSync(file, "");
-		const ran = await runProgram("sh", ["-c", "exit 0"], {
+		const ran = await runOnPath("sh", ["-c", "exit 0"], {
 			...patience,
 			cwd: file,
 		});
@@ -344,13 +382,13 @@ describe("running a program", () => {
 	it("never says one node cut off for saying too much never ran", async () => {
 		const chatty =
 			"awk 'BEGIN { while (i++ < 40000) print \"0123456789012345678901234567890123456789\" }'";
-		const ran = await runProgram("sh", ["-c", chatty], patience);
+		const ran = await runOnPath("sh", ["-c", chatty], patience);
 		expect(ran.code).toBeNull();
 		expect(ran).not.toHaveProperty("neverRan");
 	});
 
 	it("says one that ran past its patience timed out", async () => {
-		const ran = await runProgram("sleep", ["5"], {
+		const ran = await runOnPath("sleep", ["5"], {
 			...patience,
 			timeoutMs: 50,
 		});
@@ -359,7 +397,7 @@ describe("running a program", () => {
 	});
 
 	it("says one killed from outside ended with no code, and nothing more", async () => {
-		const ran = await runProgram("sh", ["-c", "kill -9 $$"], patience);
+		const ran = await runOnPath("sh", ["-c", "kill -9 $$"], patience);
 		expect(ran.code).toBeNull();
 		for (const flag of [
 			"timedOut",
@@ -374,7 +412,7 @@ describe("running a program", () => {
 
 	it("says one its asker stopped was stopped, not timed out", async () => {
 		const stopping = new AbortController();
-		const running = runProgram("sleep", ["5"], {
+		const running = runOnPath("sleep", ["5"], {
 			...patience,
 			signal: stopping.signal,
 		});

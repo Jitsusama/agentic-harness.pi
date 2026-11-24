@@ -41,6 +41,7 @@ const NESTED = "QEST-20260101-NESTED";
 const WORKER = "QEST-20260101-WORKER";
 const PLAIN = "QEST-20260101-PLAINQ";
 const OTHER = "QEST-20260101-OTHERQ";
+const ENDED = "QEST-20260101-ENDEDQ";
 
 const RECORDED: ClaimTold = { kind: "recorded" };
 const REFUSED: ClaimTold = { kind: "refused", why: "another session heads it" };
@@ -130,6 +131,7 @@ beforeEach(() => {
 	quest(WORKER, { parent: NESTED });
 	quest(PLAIN, {});
 	quest(OTHER, { orchestrator: true });
+	quest(ENDED, { orchestrator: true, status: "concluded" });
 });
 
 afterEach(() => {
@@ -194,6 +196,21 @@ describe("an orchestrator's claim", () => {
 		await keeper.settled();
 
 		expect(claims(), "a claim, then its forget").toEqual([
+			MISSION_CLAIM,
+			"forget",
+		]);
+	});
+
+	it("is forgotten while the loaded orchestrator has ended, so another may head it", async () => {
+		const { state, claims, keeper } = keeping();
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = ENDED;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(claims(), "a concluded orchestrator was claimed").toEqual([
 			MISSION_CLAIM,
 			"forget",
 		]);
@@ -755,10 +772,34 @@ describe("an orchestrator's claim", () => {
 		}
 
 		expect(claims(), "the one forget at the start").toEqual(["forget"]);
+		// Each due look names the realm twice: as it comes due, and as it asks.
 		expect(
 			looked - atStart,
 			"looked again at five minutes and at ten, not each minute",
-		).toBe(2);
+		).toBe(4);
+	});
+
+	it("says the claim within a minute of the node coming back, not a period on", async () => {
+		let served = true;
+		const { state, claimsOnly, keeper, pass } = keeping(RECORDED, {
+			realm: () => (served ? "work" : undefined),
+		});
+		state.questId = MISSION;
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+		served = false;
+		pass(CLAIM_LOOKED_AGAIN_MS);
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+		served = true;
+		pass(CLAIM_TICK_MS);
+		keeper.lookIfDue("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claimsOnly(),
+			"a look due while the node was gone put the claim off a period",
+		).toHaveLength(2);
 	});
 
 	it("says a refusal once, however often it recurs", async () => {
