@@ -232,13 +232,20 @@ describe("writing a holder's file", () => {
 			),
 			"a sentence's full stop goes before the file is named",
 		).toBe("/run/held/.writing is a link or no folder, to /run/held/s.again");
+	});
+
+	it("never ends in a full stop, so its caller ends the sentence once", () => {
 		expect(
 			whyWriting(
 				"/run/held/s.wake",
 				new Error("/run/held/s.wake is a link or no file."),
 			),
-			"a sentence that names the file loses its full stop too, so a caller's own never doubles it",
+			"a sentence that names the file loses its full stop too",
 		).toBe("/run/held/s.wake is a link or no file");
+		expect(
+			whyWriting("/run/held/s.wake", "the disk is full"),
+			"a thrown string ends bare after the file",
+		).toBe("the disk is full, to /run/held/s.wake");
 	});
 });
 
