@@ -16,6 +16,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { packageConfigPath, stateDir } from "../../lib/internal/paths.ts";
+import { keepViewerClosed } from "../../lib/internal/quest/reopening/closed-viewers.ts";
 import { sayLoaded } from "../../lib/internal/reload/said.ts";
 import {
 	collectedPss,
@@ -212,6 +213,20 @@ export async function startHostProgram(
 					viewers: (id: string, count: number) => child.life.viewers(id, count),
 				}
 			: {}),
+		// So the next boot's restore offers no window the person closed. Told
+		// within the conversation, so the mark goes in its realm's folder.
+		closed: (id: string, closed: boolean) => {
+			keepViewerClosed(id, closed).catch((error: unknown) =>
+				report(
+					new Error(
+						`pi-host: couldn't keep whether ${id}'s window was closed`,
+						{
+							cause: error,
+						},
+					),
+				),
+			);
+		},
 		create: hostedModeOf(configured.interactiveMode),
 		ask: hostedAskerOf(
 			configured.startupQuestions.selector,

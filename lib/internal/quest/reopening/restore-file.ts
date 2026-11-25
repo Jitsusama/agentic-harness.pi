@@ -23,7 +23,9 @@
  * and Y2YBTS, 9 November; core.nix #3316, 11 November). Its `view` says
  * the words that viewer runs, so a launcher that reads them opens it at
  * once to wait for a host still coming back; one that doesn't keeps its
- * place until the host serves it. One marked
+ * place until the host serves it. A hosted session whose last window
+ * the person closed isn't offered, since closing it was a choice
+ * (closed-viewers.ts). One marked
  * `released` was let go by its host to
  * be opened in plain pi from the same file, and is offered whatever the
  * boot until a plain pi starts it (KP0L6A, 10 November).
@@ -57,6 +59,7 @@ import { atomicWriteFile } from "../io.ts";
 import {
 	carriedOnElsewhere,
 	closeRecord,
+	hostKeeps,
 	lastBootSessions,
 	type SessionRecord,
 } from "../sessions/session-registry.ts";
@@ -163,6 +166,12 @@ export interface RestorePlacing {
 	 * this writer has none of its own to keep.
 	 */
 	readonly viewsBefore?: ReadonlyMap<string, readonly string[]>;
+	/**
+	 * Whether the person closed a hosted session's last window
+	 * (closed-viewers.ts), which leaves it out: its host keeps it
+	 * running, and nobody wants its window back.
+	 */
+	readonly viewerClosed?: (sessionId: string) => boolean;
 }
 
 /** The whole file. */
@@ -258,7 +267,11 @@ export function restoreFileOf(
 				placing.parentOf,
 			)
 		: new Set<string>();
-	const uncarried = (record: SessionRecord) => !carriedOn.has(record.sessionId);
+	// A session is offered unless another carries its conversation on, or
+	// its host keeps it and the person closed its window.
+	const wanted = (record: SessionRecord) =>
+		!carriedOn.has(record.sessionId) &&
+		!(hostKeeps(record) && placing.viewerClosed?.(record.sessionId));
 	const joins = elsewhere(found.boot);
 	const boot = found.boot ?? joins?.boot;
 	const placed = (entry: RestoreEntry): RestoreEntry => {
@@ -273,13 +286,13 @@ export function restoreFileOf(
 		sessions: [
 			...[
 				...found.offered
-					.filter(uncarried)
+					.filter(wanted)
 					.map((record) =>
 						saved(record.sessionId)
 							? entryOf(record, titleOf, viewOf)
 							: { ...entryOf(record, titleOf, viewOf), fresh: true as const },
 					),
-				...parked.filter(uncarried).map((record) => ({
+				...parked.filter(wanted).map((record) => ({
 					...entryOf(record, titleOf, viewOf),
 					parked: true as const,
 				})),

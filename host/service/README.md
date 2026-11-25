@@ -486,7 +486,8 @@ journal, until the restart is asked or the host stops; a window opening or a vie
 one isn't drained again; and a heavy run (a build, a check, a suite,
 `host/engine/heavy.ts`) holds the restart, carried or not. It answers the
 counts busy, idle and parked and the heavy runs going, and the journal
-says who asked. Attached viewer events are input and resize. Frames
+says who asked. Attached viewer events are input, resize, edited and
+leave, which a viewer sends as its window is closed by hand. Frames
 to a viewer are output, edit, suspend, detached and restarting. The listener
 owns a mode-0600 socket inside a user-owned mode-0700 directory. Viewer
 output is bounded at 4 MiB pending writes; EOF detaches only the viewer.

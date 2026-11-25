@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
+import { forgetClosedViewer } from "../../../lib/internal/quest/reopening/closed-viewers.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import {
 	localProcessDeps,
@@ -115,6 +116,8 @@ export function readRecord(sessionId: string): SessionRecord | undefined {
 export function forgetRecord(sessionId: string): void {
 	const path = recordPath(sessionId);
 	if (!path) return;
+	// Its window's close goes with it, so no mark outlives its record.
+	forgetClosedViewer(sessionId);
 	try {
 		unlinkSync(path);
 	} catch {

@@ -19,7 +19,10 @@ again. A conversation parked while idle (`parked`) stops its screen as
 a close does, but keeps its terminal and viewers, shows them
 `PARKED_LINE`, and holds what they type from before the stop; the
 first key wakes it, and the screen it wakes into (`opened`) takes the
-terminal and every held key. A window closing only detaches its viewer.
+terminal and every held key. A window closing only detaches its viewer;
+when the last viewer to go said its window was closed by hand, the
+terminal tells `closed`, and the host keeps a mark so the next boot's
+restore file leaves that conversation out, until a viewer joins again.
 Each viewer of a conversation that ends is told why: "Conversation
 released" when it was released back to plain pi, which its window can
 then start, and "Conversation closed" for any other end. A rebind after

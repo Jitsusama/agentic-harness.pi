@@ -89,6 +89,11 @@ export interface Attachment {
 	 * to keep it. An answer to no edit it was asked, or a late one, is dropped.
 	 */
 	edited(id: string, text?: string): void;
+	/**
+	 * Its client says it is about to go because the person closed its
+	 * window, so its leaving, if it leaves none behind, is a close.
+	 */
+	leave(why: "closed"): void;
 	detach(): void;
 }
 
@@ -102,6 +107,8 @@ interface JoinedViewer {
 	editing: { readonly id: string; settle(edit: ViewerEdit): void } | undefined;
 	/** Its quit, waiting on its next key to say whether it holds; it is sent nothing until then. */
 	quitting: ((holds: boolean) => void) | undefined;
+	/** Set once its client said its window was closed, before it went. */
+	closing: boolean;
 	/** Which viewer of this terminal it is, counting from one, and when it joined. */
 	readonly number: number;
 	readonly joined: Date;
@@ -179,6 +186,14 @@ export class ViewerTerminal implements Terminal {
 	private faulted: ((error: unknown) => void) | undefined;
 	/** Told how many viewers it has, each time one joins or leaves. */
 	private viewed: ((count: number) => void) | undefined;
+	/** Told when its last viewer's window was closed, and when one joins again. */
+	private closing: ((closed: boolean) => void) | undefined;
+	/**
+	 * Whether the last viewer to leave said its window was closed, unknown
+	 * until a viewer has joined or left, since a terminal begun anew can't
+	 * say what an earlier host was told.
+	 */
+	private closedLast: boolean | undefined;
 	/** While its conversation is parked: who to tell of a key, and the keys held for its next screen. */
 	private sleeping: Sleeping | undefined;
 
@@ -240,6 +255,7 @@ export class ViewerTerminal implements Terminal {
 			pendingBytes: 0,
 			editing: undefined,
 			quitting: undefined,
+			closing: false,
 			number: ++this.joins,
 			joined: new Date(),
 		};
@@ -270,6 +286,7 @@ export class ViewerTerminal implements Terminal {
 		}
 		this.viewers.add(viewer);
 		this.viewed?.(this.viewers.size);
+		this.saidClosed(false);
 		this.redraw();
 		return {
 			input: (data) => {
@@ -292,6 +309,9 @@ export class ViewerTerminal implements Terminal {
 				this.redraw();
 			},
 			edited: (id, text) => this.edited(viewer, id, text),
+			leave: () => {
+				viewer.closing = true;
+			},
 			detach: () => this.remove(viewer),
 		};
 	}
@@ -476,6 +496,17 @@ export class ViewerTerminal implements Terminal {
 	}
 
 	/**
+	 * Call `listener` with true when its last viewer leaves having said the
+	 * person closed its window, and with false when a viewer joins after
+	 * that, or first joins this terminal; undefined stops it. A viewer that
+	 * goes without saying so, as every viewer does when its machine stops,
+	 * says nothing, nor does a close while another viewer stays.
+	 */
+	whenClosed(listener: ((closed: boolean) => void) | undefined): void {
+		this.closing = listener;
+	}
+
+	/**
 	 * Call `listener` with whatever one of pi's frames, keys or resizes
 	 * throws on this terminal, rather than letting it escape to the host's
 	 * process, where it would end every conversation the host holds.
@@ -654,11 +685,21 @@ export class ViewerTerminal implements Terminal {
 	private remove(viewer: JoinedViewer): void {
 		if (!this.viewers.delete(viewer)) return;
 		this.viewed?.(this.viewers.size);
+		if (this.viewers.size === 0 && viewer.closing) this.saidClosed(true);
 		if (this.lastTyped === viewer) this.lastTyped = undefined;
 		viewer.stdin.destroy();
 		this.cancelEdit(viewer);
 		this.cancelQuit(viewer);
 		this.redraw();
+	}
+
+	// Tell the close listener only what changed, so a host that writes it
+	// down writes once a close and once the first join after it.
+	private saidClosed(closed: boolean): void {
+		if (this.closedLast === closed) return;
+		this.closedLast = closed;
+		const listener = this.closing;
+		if (listener) this.inConversation(() => listener(closed));
 	}
 
 	private redraw(): void {

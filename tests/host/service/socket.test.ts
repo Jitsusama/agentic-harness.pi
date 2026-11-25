@@ -393,6 +393,30 @@ describe("viewer connection lifecycle", () => {
 		expect(host.list()).toHaveLength(2);
 		expect(cleanup).not.toHaveBeenCalled();
 	});
+	it("hands a viewer's word that its window was closed to the conversation, before it lets the viewer go", async () => {
+		const seen: unknown[] = [];
+		const leave = vi.fn((why: "closed") => {
+			seen.push(["leave", ambientSession(), why]);
+		});
+		const detach = vi.fn(() => {
+			seen.push(["detach", ambientSession()]);
+		});
+		await start({
+			attach: () => ({ input: vi.fn(), resize: vi.fn(), leave, detach }),
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		expect((await messages.next()).value).toMatchObject({ ok: true });
+		socket.end(`${JSON.stringify({ type: "leave", why: "closed" })}\n`);
+		await vi.waitFor(() => expect(detach).toHaveBeenCalledOnce());
+		expect(seen).toEqual([
+			["leave", a, "closed"],
+			["detach", a],
+		]);
+	});
 	it("tells each attached viewer, and only those, that the host is restarting, then lets it go", async () => {
 		await start({
 			attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),

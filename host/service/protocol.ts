@@ -110,6 +110,13 @@ const viewer = z.discriminatedUnion("type", [
 		id: text.max(128),
 		text: z.string().optional(),
 	}),
+	// Said just before a viewer goes because the person closed its window,
+	// so the conversation isn't offered back in a window after the next
+	// boot. The viewer alone can tell, so it must never say it as its
+	// machine stops: mycelium attach says it on SIGHUP only while
+	// `systemctl --user is-system-running` isn't stopping, since a window
+	// closed by hand and one lost to a reboot both get a SIGHUP.
+	z.strictObject({ type: z.literal("leave"), why: z.literal("closed") }),
 ]);
 
 const reply = z.discriminatedUnion("ok", [
