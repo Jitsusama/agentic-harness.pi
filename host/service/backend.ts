@@ -433,7 +433,7 @@ export function hostBackend(options: {
 			// as a failed close does), and only a close lets it go.
 			if (holds === "parked")
 				throw new Error(
-					`Conversation ${sessionId} is held but not running, since its last start or park failed; close it and open it again`,
+					`Conversation ${sessionId} is held but not running, since its last start failed, or its park's stop failed again as this wake tried it; close it and open it again`,
 				);
 			if (holds !== undefined || children?.running(sessionId)) return;
 			// A child that just failed may still be writing its file, whichever

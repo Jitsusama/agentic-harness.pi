@@ -227,7 +227,7 @@ describe("waking a parked conversation", () => {
 			backend.wake(sessionId),
 			"the wake says why it can't",
 		).rejects.toThrow(
-			/is held but not running, since its last start or park failed; close it and open it again/,
+			/is held but not running, since its last start failed, or its park's stop failed again as this wake tried it; close it and open it again/,
 		);
 		expect(fake.resume, "nothing resumed").not.toHaveBeenCalled();
 	});

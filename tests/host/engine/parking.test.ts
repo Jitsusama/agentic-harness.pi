@@ -13,6 +13,7 @@ import { performance } from "node:perf_hooks";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type FolderWatch,
 	PARKED,
 	type Parking,
 	parking,
@@ -790,6 +791,7 @@ function carrying(
 		wakeAgainMs?: number;
 		holding?: () => boolean;
 		now?: () => number;
+		watch?: FolderWatch;
 	} = {},
 ) {
 	const bus = createEventBus();
@@ -822,6 +824,7 @@ function carrying(
 		report: vi.fn(),
 		...(more.holding ? { holding: more.holding } : {}),
 		...(more.now ? { now: more.now } : {}),
+		...(more.watch ? { watch: more.watch } : {}),
 		carries: () => keeps,
 		callRuns: (work) => runs.has(work.keep),
 		lookEveryMs: CALLS_LOOKED_AT_MS,
@@ -977,6 +980,62 @@ describe("a park that carries bash calls", () => {
 		await parked.park("a");
 
 		expect(parked.watches("a"), "rests as a parked one").toBe(true);
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "no wake while its call runs").not.toHaveBeenCalled();
+		runs.clear();
+		await until(
+			"the ended call to wake it",
+			() => asking.mock.calls.length > 0,
+		);
+		parked.unwatch("a");
+	});
+
+	it("wakes it at once when the calls its park carried can't be watched", async () => {
+		const { parked, asking } = carrying(
+			[call("loop")],
+			new Set([join(dir, "loop")]),
+			true,
+			{
+				watch: () => {
+					throw new Error("no watch to be had");
+				},
+			},
+		);
+		await parked.park("a");
+
+		await until(
+			"a wake for calls nobody watches",
+			() => asking.mock.calls.length > 0,
+		);
+		expect(parked.watches("a")).toBe(false);
+	});
+
+	// A stop tried again carries as the first did, since the conversation
+	// keeps the restart that try told it (#2164 F2, F7, F12, F14).
+	it("records and watches the calls its stop tried again carries, as the first try's would be", async () => {
+		const runs = new Set([join(dir, "loop")]);
+		let fails = 1;
+		const { parked, stop, asking, said } = carrying(
+			[call("loop")],
+			runs,
+			true,
+			{
+				beforeCarry: () => {
+					if (fails-- > 0) throw new Error("the stop failed early");
+				},
+			},
+		);
+		await parked.park("a");
+		expect(said, "nothing carried yet").toEqual([]);
+
+		await parked.settled("a");
+
+		expect(stop, "carrying as the first try").toHaveBeenLastCalledWith(
+			"a",
+			PARKED,
+			true,
+		);
+		expect(said).toContain("a: its park carries 1 bash call(s)");
 		await quietFor(CALLS_LOOKED_AT_MS, 5);
 		expect(asking, "no wake while its call runs").not.toHaveBeenCalled();
 		runs.clear();
@@ -1206,7 +1265,7 @@ function failingStop(fails = 1) {
 // not running, with no watch, so a wake said it was stuck and only a
 // close let it go.
 describe("a park whose stop fails", () => {
-	it("rests owed its stop, tried again as it settles, carrying nothing, and parked once that holds", async () => {
+	it("rests owed its stop, tried again as it settles, carrying as the first try, and parked once that holds", async () => {
 		const { parked, stop, said, report } = failingStop();
 		await parked.park("a");
 
@@ -1215,10 +1274,10 @@ describe("a park whose stop fails", () => {
 		expect(said, "not yet parked").not.toHaveBeenCalled();
 		await parked.settled("a");
 		expect(stop, "tried again").toHaveBeenCalledTimes(2);
-		expect(stop, "carrying nothing").toHaveBeenLastCalledWith(
+		expect(stop, "carrying as the first try").toHaveBeenLastCalledWith(
 			"a",
 			PARKED,
-			false,
+			true,
 		);
 		expect(said, "parked once it holds").toHaveBeenCalledExactlyOnceWith("a");
 		await parked.settled("a");
@@ -1246,7 +1305,7 @@ describe("a park whose stop fails", () => {
 		expect(asking).toHaveBeenCalledExactlyOnceWith("a");
 		expect(order, "stopped, then parked, then woken").toEqual([
 			"stop carrying true",
-			"stop carrying false",
+			"stop carrying true",
 			"parked",
 			"woken",
 		]);
@@ -1284,4 +1343,117 @@ describe("a park whose stop fails", () => {
 		expect(closed.stop, "closed: not tried again").toHaveBeenCalledOnce();
 		expect(closed.parked.watches("a"), "closed: unwatched").toBe(false);
 	});
+
+	it("is owed nothing once it runs or is closed while its stop is tried again", async () => {
+		for (const ends of ["runs", "is closed"] as const) {
+			let finish = () => {};
+			const stop = vi
+				.fn<StopOf>()
+				.mockRejectedValueOnce(new Error("cleanup failed"))
+				.mockImplementationOnce(
+					() =>
+						new Promise<void>((resolve) => {
+							finish = resolve;
+						}),
+				)
+				.mockResolvedValue(undefined);
+			const said = vi.fn();
+			const parked = stoppedBy(stop, said);
+			await parked.park("a");
+
+			const trial = parked.settled("a");
+			if (ends === "runs") parked.running("a");
+			else parked.closed("a", true);
+			finish();
+			await trial;
+
+			expect(said, `${ends}: not parked`).not.toHaveBeenCalled();
+			await parked.settled("a");
+			expect(stop, `${ends}: owed no more`).toHaveBeenCalledTimes(2);
+			parked.unwatch("a");
+		}
+	});
+
+	// #2164 F6: a settle asked as the park ran got the park's own end.
+	it("tries its stop again for a settle asked while its failing park is under way", async () => {
+		let fail: (error: Error) => void = () => {};
+		const stop = vi
+			.fn<StopOf>()
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((_resolve, reject) => {
+						fail = reject;
+					}),
+			)
+			.mockResolvedValue(undefined);
+		const said = vi.fn();
+		const parked = stoppedBy(stop, said);
+		const parking = parked.park("a");
+
+		const settling = parked.settled("a");
+		fail(new Error("cleanup failed"));
+		await settling;
+
+		expect(stop, "tried again").toHaveBeenCalledTimes(2);
+		expect(said, "parked").toHaveBeenCalledExactlyOnceWith("a");
+		await parking;
+		parked.unwatch("a");
+	});
+
+	// #2164 F1, F3, F15: a stop that throws as it is asked began nothing.
+	it("is owed nothing when its stop throws before it begins, since it was never stopped", async () => {
+		const stop = vi.fn<StopOf>(() => {
+			throw new Error("no such conversation");
+		});
+		const said = vi.fn();
+		const parked = stoppedBy(stop, said);
+		await parked.park("a");
+
+		expect(parked.watches("a"), "not watched as parked").toBe(false);
+		await parked.settled("a");
+		expect(stop, "not tried again").toHaveBeenCalledOnce();
+		expect(said).not.toHaveBeenCalled();
+	});
+
+	it("settles, still owed, a stop tried again that throws as it is asked", async () => {
+		const stop = vi
+			.fn<StopOf>()
+			.mockRejectedValueOnce(new Error("cleanup failed"))
+			.mockImplementationOnce(() => {
+				throw new Error("thrown as it was asked");
+			})
+			.mockResolvedValue(undefined);
+		const said = vi.fn();
+		const parked = stoppedBy(stop, said);
+		await parked.park("a");
+
+		await expect(
+			parked.settled("a"),
+			"a throw never rejects",
+		).resolves.toBeUndefined();
+		expect(said, "not parked").not.toHaveBeenCalled();
+		await parked.settled("a");
+		expect(stop, "tried a third time").toHaveBeenCalledTimes(3);
+		expect(said, "parked at last").toHaveBeenCalledOnce();
+		parked.unwatch("a");
+	});
 });
+
+/** What parking's `stop` is. */
+type StopOf = (
+	sessionId: string,
+	why: string,
+	carrying: boolean,
+) => Promise<void>;
+
+/** Parking on `stop`, telling `said` of each park, carrying nothing. */
+function stoppedBy(stop: StopOf, said: (sessionId: string) => void): Parking {
+	return parking({
+		stateDir: dir,
+		stop,
+		asking: () => undefined,
+		report: vi.fn(),
+		parked: said,
+		carries: () => false,
+	});
+}
