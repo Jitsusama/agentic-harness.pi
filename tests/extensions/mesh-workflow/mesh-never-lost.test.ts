@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Delivered } from "../../../extensions/mesh-workflow/delivery.ts";
 import { SWEPT_STAMP } from "../../../lib/mesh/retention.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -22,10 +22,12 @@ import {
 } from "./support/mesh.ts";
 
 // The folder's watcher, as a test can have it: deaf, as one is when the
-// kernel drops its events, and with a message landing as it is armed.
+// kernel drops its events, and with a message landing as it is armed;
+// and how often the mesh armed one through this fake.
 const watching = vi.hoisted(() => ({
 	deaf: false,
 	armed: undefined as (() => void) | undefined,
+	calls: 0,
 }));
 // The folders listed, while a test keeps a list of them.
 const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
@@ -46,6 +48,7 @@ vi.mock("node:fs", async (importOriginal) => {
 			return fs.readFileSync(...args);
 		}) as typeof fs.readFileSync,
 		watch: ((...args: Parameters<typeof fs.watch>) => {
+			watching.calls += 1;
 			watching.armed?.();
 			return watching.deaf ? { close() {} } : fs.watch(...args);
 		}) as typeof fs.watch,
@@ -55,8 +58,21 @@ vi.mock("node:fs", async (importOriginal) => {
 beforeEach(() => {
 	watching.deaf = false;
 	watching.armed = undefined;
+	watching.calls = 0;
 	listing.dirs = undefined;
 	reading.files = undefined;
+});
+
+// A deaf watcher the mesh never armed through this fake proves nothing:
+// the real one heard the message instead. That happens where the mesh's
+// transport loaded before this file's fake, as a setup file loading it
+// makes it (tests/lib/internal/sandbox/loads-no-mesh-transport.test.ts).
+afterEach(() => {
+	if (!watching.deaf) return;
+	expect(
+		watching.calls,
+		"the mesh armed its watcher through this file's fake of node:fs, so the transport loaded after it",
+	).toBeGreaterThan(0);
 });
 
 describe("a session switched out", () => {
