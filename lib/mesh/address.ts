@@ -24,8 +24,21 @@
  * read marker. So the quest's address is one live peer's: a peer that
  * already signs with it keeps it, and one starting while another live
  * peer signs with it signs with its session's address instead, until
- * that peer ends. Two that took it at once settle it by session id,
- * the lower keeping it, so neither flips back and forth.
+ * that peer ends. Two that both sign with it settle it by how long each
+ * has: a presence says since when it signs with its quest's address,
+ * and the one that has longer keeps it. A peer that took the address
+ * while its holder couldn't be heard, as one resuming before the link
+ * to the holder's machine is back, gives it back once the holder is
+ * heard: on 25 November one such kept it for having the lower session
+ * id, and its quest's orchestrator, on another machine, lost its asks.
+ * A holder keeps its time through its own restart, a park, a reboot,
+ * or a restart in place or rollover, which say it ended a moment before
+ * it starts again, so none of them hands the address on; one that ended
+ * longer ago than that starts afresh. Where any signer says no time, as
+ * an older harness's presence doesn't, the lower session id keeps it as
+ * it always did, and where two say the same, the lower id too, so none
+ * flips back and forth. Times are each machine's own clock, so a clock wrong by more
+ * than the gap between two takings picks the wrong one.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -137,24 +150,90 @@ export function loadedAddress(
 /**
  * The live peer this session leaves its quest's address to, if any: one
  * already signing with it, when this session is not; or, when both are,
- * one whose session id is lower.
+ * one that has signed with it longer than `signsSince`, or, where a time
+ * is missing or the same, one whose session id is lower. A session with
+ * a time kept from before its restart contests the address before it
+ * signs again, but only against signers that say one too.
  */
 export function yieldsTo<
 	One extends {
 		readonly session: string;
 		readonly addresses: readonly string[];
+		readonly signsSince?: string;
 	},
 >(
 	session: string,
 	signing: string | undefined,
 	signingNow: boolean,
 	live: readonly One[],
+	signsSince?: string,
 ): One | undefined {
 	if (signing === undefined) return undefined;
-	return live
+	const signers = live
 		.filter((one) => one.session !== session && one.addresses[0] === signing)
-		.sort((one, other) => one.session.localeCompare(other.session))
-		.find((one) => !signingNow || one.session < session);
+		.sort((one, other) => one.session.localeCompare(other.session));
+	// Times settle it only when every signer says one: one timeless signer
+	// puts all of them back on the old rule, so every peer, old harness or
+	// new, ranks the same live set the same way and none of three cycles.
+	const since = signsSince;
+	if (
+		since !== undefined &&
+		signers.every((one) => one.signsSince !== undefined)
+	) {
+		return signers.find(
+			(one) =>
+				(one.signsSince ?? since) < since ||
+				(one.signsSince === since && one.session < session),
+		);
+	}
+	return signers.find((one) => !signingNow || one.session < session);
+}
+
+/**
+ * Since when a peer signs with its quest's address once its addresses
+ * are settled: the time it already held it from, or `now` when it has
+ * just taken it, and none once it signs as itself.
+ */
+export function signingSince(
+	signing: string | undefined,
+	addresses: readonly string[],
+	heldSince: string | undefined,
+	now: number,
+): { address: string; since: string } | undefined {
+	if (signing === undefined || addresses[0] !== signing) return undefined;
+	return { address: signing, since: heldSince ?? new Date(now).toISOString() };
+}
+
+/**
+ * How long before a start its session's last presence may say it ended
+ * and still be a restart: a restart in place and a rollover end the old
+ * process through the same path a quit does, moments before the new one
+ * starts, while a quit reopened later is a new start.
+ */
+const RESTARTED_WITHIN_MS = 10 * 60_000;
+
+/**
+ * The address a session's last presence signed with and since when, when
+ * it said a time and ended no longer than a restart before `now`: what
+ * its peer keeps of its holding through its own restart.
+ */
+export function signedSince(
+	presence:
+		| {
+				readonly addresses: readonly string[];
+				readonly signsSince?: string;
+				readonly ended?: string;
+		  }
+		| undefined,
+	now: number,
+): { address: string; since: string } | undefined {
+	const address = presence?.addresses[0];
+	const since = presence?.signsSince;
+	if (address === undefined || since === undefined) return undefined;
+	const ended = presence?.ended;
+	const restarted =
+		ended === undefined || now - Date.parse(ended) <= RESTARTED_WITHIN_MS;
+	return restarted ? { address, since } : undefined;
 }
 
 /**

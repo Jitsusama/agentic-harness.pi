@@ -46,6 +46,8 @@ import {
 	questAddress,
 	sessionAddress,
 	signaturesOfOthers,
+	signedSince,
+	signingSince,
 	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
@@ -476,6 +478,10 @@ export function localPeer(at: Surroundings): Peer {
 	let wakeFile: string | undefined;
 	let scopes: string[] = [];
 	let addresses: string[] = [];
+	// Since when it signs with its quest's address, which a restart keeps,
+	// so a holder parked, rebooted, restarted in place or rolled over still
+	// holds it longer than one that took it meanwhile (address.ts).
+	let signsSince = signedSince(before, now());
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = [
@@ -618,6 +624,7 @@ export function localPeer(at: Surroundings): Peer {
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
+			...(signsSince ? { signsSince: signsSince.since } : {}),
 			...(workspace ? { workspace } : {}),
 			...(questInfo ? { questInfo } : {}),
 			...doingOf(at.records.doing, at.session),
@@ -662,11 +669,14 @@ export function localPeer(at: Surroundings): Peer {
 			? everyone.filter((one) => counted.has(one.session))
 			: everyone;
 		const signing = loadedAddress(at.session, at.records);
+		const heldSince =
+			signsSince?.address === signing ? signsSince?.since : undefined;
 		yieldedTo = yieldsTo(
 			at.session,
 			signing,
 			signing !== undefined && addresses[0] === signing,
 			live,
+			heldSince,
 		);
 		addresses = addressesOf(
 			at.session,
@@ -675,6 +685,7 @@ export function localPeer(at: Surroundings): Peer {
 			signaturesOfOthers(at.session, everyone),
 			yieldedTo !== undefined,
 		);
+		signsSince = signingSince(signing, addresses, heldSince, now());
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
 		receiver = {

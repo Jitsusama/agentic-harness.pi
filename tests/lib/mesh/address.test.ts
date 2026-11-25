@@ -12,6 +12,8 @@ import {
 	namedAtStart,
 	olderAddresses,
 	questAddress,
+	signedSince,
+	signingSince,
 	yieldsTo,
 } from "../../../lib/mesh/address.ts";
 
@@ -80,6 +82,141 @@ describe("a quest's address, when two sessions have it loaded", () => {
 		expect(yieldsTo("01-me", "7M6JKG", true, [holder])).toBeUndefined();
 		expect(yieldsTo("01-me", "7M6JKG", true, [older, holder])).toBe(older);
 		expect(yieldsTo("02-holder", "7M6JKG", true, [holder])).toBeUndefined();
+	});
+
+	it("is kept by the one that has signed with it longer, whatever its id", () => {
+		// On 25 November a session that resumed as optimus restarted saw
+		// nobody sign with its quest's address, since the holder on another
+		// machine wasn't heard yet, took it, and then kept it over that
+		// holder for having the lower id: its orchestrator's asks went to it.
+		const held = { ...holder, signsSince: "2026-11-21T20:47:00.000Z" };
+		const taken = { ...older, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [held], taken.signsSince),
+			"the one that took it gives it back",
+		).toBe(held);
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [taken], held.signsSince),
+			"the one that held it keeps it",
+		).toBeUndefined();
+	});
+
+	it("is kept by the lower id when either says no time, as an older harness doesn't", () => {
+		const held = { ...holder, signsSince: "2026-11-21T20:47:00.000Z" };
+
+		expect(yieldsTo("00-older", "7M6JKG", true, [held])).toBeUndefined();
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [older], held.signsSince),
+		).toBe(older);
+	});
+
+	it("is kept by the lower id when both took it at the same time", () => {
+		const atOnce = "2026-11-25T13:53:49.000Z";
+
+		expect(
+			yieldsTo(
+				"00-older",
+				"7M6JKG",
+				true,
+				[{ ...holder, signsSince: atOnce }],
+				atOnce,
+			),
+		).toBeUndefined();
+		expect(
+			yieldsTo(
+				"02-holder",
+				"7M6JKG",
+				true,
+				[{ ...older, signsSince: atOnce }],
+				atOnce,
+			),
+		).toEqual({ ...older, signsSince: atOnce });
+	});
+
+	it("is contested by a restarted holder only where the signer says a time too", () => {
+		// Restarted, it signs with nothing yet but kept the time it held from.
+		const before = "2026-11-21T20:47:00.000Z";
+		const taken = { ...holder, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("03-me", "7M6JKG", false, [taken], before),
+			"it keeps it from one that took it since",
+		).toBeUndefined();
+		expect(
+			yieldsTo("00-me", "7M6JKG", false, [holder], before),
+			"and leaves it to an older harness's holder, as it always did",
+		).toBe(holder);
+	});
+
+	it("is kept by exactly one of three signers when one says no time", () => {
+		// Times for some and ids for others ranked a against b, b against c
+		// and c against a in a ring, so each could leave it to another.
+		const a = {
+			session: "03-a",
+			addresses: ["7M6JKG"],
+			signsSince: "2026-11-21T20:47:00.000Z",
+		};
+		const b = {
+			session: "01-b",
+			addresses: ["7M6JKG"],
+			signsSince: "2026-11-25T13:53:49.000Z",
+		};
+		const c = { session: "02-c", addresses: ["7M6JKG"] };
+		const all: { session: string; addresses: string[]; signsSince?: string }[] =
+			[a, b, c];
+
+		const keepers = all.filter(
+			(one) =>
+				yieldsTo(one.session, "7M6JKG", true, all, one.signsSince) ===
+				undefined,
+		);
+
+		expect(keepers).toEqual([b]);
+	});
+});
+
+describe("what a restart keeps of holding its quest's address", () => {
+	const now = Date.parse("2026-11-25T16:00:00.000Z");
+	const last = {
+		addresses: ["7M6JKG", "24B025FE"],
+		signsSince: "2026-11-21T20:47:00.000Z",
+	};
+	const kept = { address: "7M6JKG", since: "2026-11-21T20:47:00.000Z" };
+
+	it("keeps the time across a restart that never said it ended", () => {
+		expect(signedSince(last, now)).toEqual(kept);
+	});
+
+	it("keeps it across one that ended moments before, as a rollover does", () => {
+		expect(
+			signedSince({ ...last, ended: "2026-11-25T15:59:30.000Z" }, now),
+		).toEqual(kept);
+	});
+
+	it("starts afresh after a quit reopened later", () => {
+		expect(
+			signedSince({ ...last, ended: "2026-11-25T15:00:00.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("keeps the time while it signs, starts it on taking, and drops it on yielding", () => {
+		const held = "2026-11-21T20:47:00.000Z";
+
+		expect(signingSince("7M6JKG", ["7M6JKG", "24B025FE"], held, now)).toEqual(
+			kept,
+		);
+		expect(signingSince("7M6JKG", ["7M6JKG"], undefined, now)).toEqual({
+			address: "7M6JKG",
+			since: "2026-11-25T16:00:00.000Z",
+		});
+		expect(signingSince("7M6JKG", ["24B025FE"], held, now)).toBeUndefined();
+		expect(signingSince(undefined, ["24B025FE"], held, now)).toBeUndefined();
+	});
+
+	it("keeps nothing where the last presence said no time", () => {
+		expect(signedSince({ addresses: ["7M6JKG"] }, now)).toBeUndefined();
+		expect(signedSince(undefined, now)).toBeUndefined();
 	});
 });
 

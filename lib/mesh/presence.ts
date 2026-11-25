@@ -150,6 +150,13 @@ export interface Presence {
 	 * presence.
 	 */
 	readonly quest?: string;
+	/**
+	 * Since when, as an ISO time, it has signed with its quest's address,
+	 * so two that both do leave it to the one that has longer (see
+	 * address.ts). Missing while it signs with none, and from an older
+	 * presence.
+	 */
+	readonly signsSince?: string;
 	/** Whether it is in the middle of a run, as of when it last said. */
 	readonly busy: boolean;
 	/**
@@ -903,6 +910,23 @@ function groupsShaped(groups: readonly string[]): string[] {
 	return groups.filter(isGroupShaped).slice(0, MOST_GROUPS);
 }
 
+/**
+ * A presence's `signsSince` when it reads as a time, written the one way
+ * so comparing two as text compares them as times: anything else, which
+ * would otherwise win or lose every tie as text, counts as no time.
+ */
+function signsSinceOf(value: unknown): { signsSince?: string } {
+	// Only a date and time as an ISO string says: Date.parse alone reads
+	// "0" as the year 2000.
+	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value))
+		return {};
+	const at = Date.parse(value);
+	if (!Number.isFinite(at)) return {};
+	// A year past 9999 is written "+275760-01-01T...", which sorts first as text.
+	const since = new Date(at).toISOString();
+	return /^\d{4}-/.test(since) ? { signsSince: since } : {};
+}
+
 /** Presence read from outside, or nothing when it is not one. */
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -945,6 +969,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		worksOn: said(one.worksOn) ?? "",
 		owns: strings(one.owns) ? one.owns : [],
 		...(quest !== undefined ? { quest } : {}),
+		...signsSinceOf(one.signsSince),
 		busy: one.busy === true,
 		...(isPeerState(one.state) ? { state: one.state } : {}),
 		...(typeof one.since === "string" ? { since: one.since } : {}),
