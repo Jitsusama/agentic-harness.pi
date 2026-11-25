@@ -352,6 +352,7 @@ describe("spacing council starts on one machine", () => {
 				pid: process.pid,
 				askedAt: first,
 				seenAt: now,
+				kind: "council",
 			},
 		]);
 		nextTicket.id = "newer";
@@ -359,7 +360,7 @@ describe("spacing council starts on one machine", () => {
 
 		const waiting = awaitCouncilStart(
 			path,
-			claim("ISXEG8", { spacingMs: 60_000 }),
+			claim("ISXEG8", { spacingMs: 60_000, kind: "council" }),
 			giving.signal,
 		);
 		await expect
@@ -380,10 +381,89 @@ describe("spacing council starts on one machine", () => {
 		expect(older.release, "nothing started for it").toBeUndefined();
 	});
 
+	it("leaves a session's council waiting when it asks a critique of the change", async () => {
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(), [
+			{
+				id: "council",
+				by: "ISXEG8",
+				change: "o/r#ISXEG8",
+				pid: process.pid,
+				askedAt: now,
+				seenAt: now,
+				kind: "council",
+			},
+		]);
+		nextTicket.id = "critique";
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000, kind: "critique" }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(2);
+		const kept = line();
+		giving.abort();
+		await waiting;
+
+		expect(kept.waiting.map((each: { id: string }) => each.id)).toEqual([
+			"council",
+			"critique",
+		]);
+		expect(kept.replaced?.council, "the council not replaced").toBeUndefined();
+	});
+
+	it("puts a round its asker says leads ahead of earlier asks", async () => {
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(), [
+			{
+				id: "plain",
+				by: "85PKB2",
+				change: "o/r#plain",
+				pid: process.pid,
+				askedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+				seenAt: now,
+			},
+		]);
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000, leads: true }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(2);
+		const kept = line();
+		giving.abort();
+		await waiting;
+
+		expect(kept.waiting.map((each: { by: string }) => each.by)).toEqual([
+			"ISXEG8",
+			"85PKB2",
+		]);
+		expect(kept.waiting[0].leads, "kept on its ticket").toBe(true);
+	});
+
 	it("forgets a change's first ask once it has started", async () => {
+		const first = new Date(Date.now() - 30 * 60_000).toISOString();
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				waiting: [],
+				firstAsked: { "o/r#ISXEG8": first, "o/r#other": first },
+			}),
+		);
+
 		await awaitCouncilStart(path, claim("ISXEG8"));
 
 		expect(line().firstAsked?.["o/r#ISXEG8"]).toBeUndefined();
+		expect(line().firstAsked?.["o/r#other"], "another's kept").toBe(first);
 	});
 
 	it("says where each round on a change stands, passing over those not looking", async () => {

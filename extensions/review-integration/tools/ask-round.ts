@@ -153,6 +153,9 @@ export function nextSeq(): number {
 	return roundsStarted;
 }
 
+/** The rounds that ask the whole roster at once, each waiting its own turn. */
+export type RosterRound = "council" | "stack" | "critique";
+
 /**
  * Takes the machine's next start for a round that asks the whole
  * roster at once (a council, a stack or a critique) and waits for it,
@@ -166,6 +169,7 @@ export function nextSeq(): number {
 export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
+	kind: RosterRound,
 ): Promise<CouncilStart> {
 	// A round a session on an older install started never joined the
 	// line, but its reviewers' folder says when it began, read again at
@@ -178,6 +182,7 @@ export async function awaitRosterStart(
 		{
 			by: sessionKey(),
 			change,
+			kind,
 			leads: await isWorldWork(change),
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),

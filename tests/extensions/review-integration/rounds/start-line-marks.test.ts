@@ -42,6 +42,40 @@ describe("which rounds lead the start line", () => {
 		expect(await isWorldWork("Jitsusama/core.nix#6544")).toBe(false);
 	});
 
+	it("doesn't lead with a label that only holds World's name", async () => {
+		expect(await isWorldWork("workshop/world-x#1")).toBe(false);
+		expect(
+			await isWorldWork(`a..b in local:${join(home, "shop", "world")}`),
+		).toBe(false);
+	});
+
+	it("reads a relative alternate from the objects folder, as git does", async () => {
+		store(join(home, "world", "git"), "--bare");
+		const borrowing = join(home, "relative");
+		store(borrowing);
+		writeFileSync(
+			join(borrowing, ".git", "objects", "info", "alternates"),
+			"../../../world/git/objects\n",
+		);
+
+		expect(await isWorldWork(`a..b in local:${borrowing}`)).toBe(true);
+	});
+
+	it("asks again about a checkout git couldn't answer for", async () => {
+		store(join(home, "world", "git"), "--bare");
+		const later = join(home, "later");
+		const label = `a..b in local:${later}`;
+
+		expect(await isWorldWork(label), "not there yet").toBe(false);
+		store(later);
+		writeFileSync(
+			join(later, ".git", "objects", "info", "alternates"),
+			`${join(home, "world", "git", "objects")}\n`,
+		);
+
+		expect(await isWorldWork(label), "once git can say").toBe(true);
+	});
+
 	it("leads with a local range whose checkout borrows World's objects", async () => {
 		store(join(home, "world", "git"), "--bare");
 		const borrowing = join(home, "borrowing");
@@ -58,6 +92,9 @@ describe("which rounds lead the start line", () => {
 	});
 
 	it("reads a checkout that is gone as not World's", async () => {
+		// World's store is here, so the answer turns on the checkout alone.
+		store(join(home, "world", "git"), "--bare");
+
 		expect(await isWorldWork(`a..b in local:${join(home, "gone")}`)).toBe(
 			false,
 		);

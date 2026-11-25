@@ -157,6 +157,12 @@ interface Ticket {
 	readonly seenAt: string;
 	/** Whether it stands ahead of asks that don't, as World's changes do. */
 	readonly leads?: boolean;
+	/**
+	 * What kind of round it is, such as a council or a critique, so a
+	 * session's newer ask replaces only its own kind. A ticket an older
+	 * install wrote has none, and replaces and is replaced by nothing.
+	 */
+	readonly kind?: string;
 }
 
 /** A start that happened, as kept on disk. */
@@ -214,6 +220,12 @@ export interface StartClaim {
 	 * never let a round start sooner than its spacing.
 	 */
 	readonly leads?: boolean;
+	/**
+	 * What kind of round asks, such as a council, a stack or a critique.
+	 * A newer ask replaces an older one of the same session, change and
+	 * kind, never another kind's, which still waits for its own start.
+	 */
+	readonly kind?: string;
 	/**
 	 * The tickets and changes marked urgent, which stand first of all,
 	 * read at each look. None unless given.
@@ -284,6 +296,7 @@ export async function awaitCouncilStart(
 		askedAt: asked,
 		seenAt: asked,
 		...(claim.leads === true ? { leads: true } : {}),
+		...(claim.kind === undefined ? {} : { kind: claim.kind }),
 	};
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
@@ -483,9 +496,14 @@ function look(line: Line, at: LookAt): Look {
 	if (kept === undefined) {
 		// Joining, or joining again after a reader that kept the old rule
 		// dropped it: placed by when its change was first asked about, and
-		// in place of an older ask of this session's for the same change.
+		// in place of an older ask of this session's for the same change and
+		// kind. A critique leaves the same session's council waiting.
 		const older = others.filter(
-			(each) => each.by === ticket.by && each.change === ticket.change,
+			(each) =>
+				each.by === ticket.by &&
+				each.change === ticket.change &&
+				each.kind !== undefined &&
+				each.kind === ticket.kind,
 		);
 		for (const each of older) replaced[each.id] = new Date(now).toISOString();
 		still = others.filter((each) => !older.includes(each));
@@ -642,7 +660,16 @@ function inOrder(
  * install that marks nothing, a change World hosts.
  */
 function leads(ticket: Ticket): boolean {
-	return ticket.leads === true || ticket.change.includes("shop/world");
+	return ticket.leads === true || hostedByWorld(ticket.change);
+}
+
+/**
+ * Whether a change's label names a change World hosts, as
+ * `shop/world#2535422` does, and not a label that merely holds the
+ * words, such as a checkout's path.
+ */
+export function hostedByWorld(change: string): boolean {
+	return /^(?:[\w.-]+:)?shop\/world#\d+$/.test(change);
 }
 
 /** Whether two lines would be kept alike. */
@@ -903,7 +930,8 @@ function isTicket(value: unknown): value is Ticket {
 		"seenAt" in value &&
 		typeof value.seenAt === "string" &&
 		Number.isFinite(Date.parse(value.seenAt)) &&
-		(!("leads" in value) || typeof value.leads === "boolean")
+		(!("leads" in value) || typeof value.leads === "boolean") &&
+		(!("kind" in value) || typeof value.kind === "string")
 	);
 }
 

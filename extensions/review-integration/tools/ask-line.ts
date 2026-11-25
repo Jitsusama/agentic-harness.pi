@@ -11,9 +11,12 @@
 import { execFile } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { placesInLine } from "../../../lib/core/review/ask/start-spacing.ts";
+import {
+	hostedByWorld,
+	placesInLine,
+} from "../../../lib/core/review/ask/start-spacing.ts";
 
 const run = promisify(execFile);
 
@@ -25,8 +28,12 @@ function worldStore(): string {
 	return join(homedir(), "world", "git");
 }
 
-/** What each local checkout was found to be, so git is asked once. */
-const worldCheckouts = new Map<string, Promise<boolean>>();
+/**
+ * What each local checkout was found to be, so git is asked once. Only
+ * an answer is kept: a checkout git couldn't answer for is asked again
+ * by its next round.
+ */
+const worldCheckouts = new Map<string, Promise<boolean | undefined>>();
 
 /**
  * Whether a round on `change`, by its label, is World work: a change
@@ -36,7 +43,7 @@ const worldCheckouts = new Map<string, Promise<boolean>>();
  * only leaves its round where its ask puts it.
  */
 export async function isWorldWork(change: string): Promise<boolean> {
-	if (change.includes("shop/world")) return true;
+	if (hostedByWorld(change)) return true;
 	const checkout = / in local:(.+)$/.exec(change)?.[1];
 	if (checkout === undefined) return false;
 	let found = worldCheckouts.get(checkout);
@@ -44,10 +51,18 @@ export async function isWorldWork(change: string): Promise<boolean> {
 		found = keepsWorldObjects(checkout);
 		worldCheckouts.set(checkout, found);
 	}
-	return await found;
+	const answer = await found;
+	if (answer === undefined) worldCheckouts.delete(checkout);
+	return answer === true;
 }
 
-async function keepsWorldObjects(checkout: string): Promise<boolean> {
+/**
+ * Whether `checkout` keeps or borrows World's objects, or undefined when
+ * git or the disk couldn't say.
+ */
+async function keepsWorldObjects(
+	checkout: string,
+): Promise<boolean | undefined> {
 	try {
 		const world = await realpath(worldStore());
 		const { stdout } = await run(
@@ -66,8 +81,9 @@ async function keepsWorldObjects(checkout: string): Promise<boolean> {
 		return await borrowsFrom(common, world);
 	} catch {
 		// No World store here, or a checkout gone or slow to answer: not
-		// World work, so its round stands where its ask puts it.
-		return false;
+		// known to be World work, so its round stands where its ask puts it
+		// and the next round asks again.
+		return undefined;
 	}
 }
 
@@ -86,7 +102,11 @@ async function borrowsFrom(common: string, world: string): Promise<boolean> {
 	for (const each of alternates.split("\n")) {
 		const objects = each.trim();
 		if (objects === "") continue;
-		const owner = await realpath(dirname(objects)).catch(() => undefined);
+		// Git reads a relative alternate from the objects folder, not from
+		// wherever this process happens to run.
+		const owner = await realpath(
+			dirname(resolve(join(common, "objects"), objects)),
+		).catch(() => undefined);
 		if (owner === world) return true;
 	}
 	return false;
@@ -98,7 +118,7 @@ async function borrowsFrom(common: string, world: string): Promise<boolean> {
  * beside the line, which outlives a reboot. `#` starts a comment.
  */
 export async function urgentMarks(line: string): Promise<string[]> {
-	const runtime = process.env.XDG_RUNTIME_DIR;
+	const runtime = runtimeFolder();
 	const files = [
 		join(dirname(line), "urgent"),
 		...(runtime === undefined ? [] : [join(runtime, "council-urgent")]),
@@ -118,6 +138,18 @@ export async function urgentMarks(line: string): Promise<string[]> {
 		}
 	}
 	return marks;
+}
+
+/**
+ * The account's runtime folder, which every session of it shares, so
+ * rounds whose environments differ still read the same marks and keep
+ * the line in one order.
+ */
+function runtimeFolder(): string | undefined {
+	const given = process.env.XDG_RUNTIME_DIR;
+	if (given !== undefined && given !== "") return given;
+	const uid = process.getuid?.();
+	return uid === undefined ? undefined : join("/run/user", String(uid));
 }
 
 /**
