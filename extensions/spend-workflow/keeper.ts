@@ -60,9 +60,9 @@ const LEASE_RENEW_MS = 5 * 60_000;
 
 /**
  * How long a holder keeps renewing its lease. Renewal proves only that
- * the holder's process runs, not that its pass moves, so a pass wedged
- * in a live process stops being renewed after this and goes stale half
- * an hour on: five times the longest pass seen.
+ * the holder's process runs, not that its pass moves, so a pass still
+ * going after this is told it lost the lease and stops, and the lease
+ * goes stale half an hour on: five times the longest pass seen.
  */
 const LEASE_HOLD_MS = 2 * 60 * 60_000;
 
@@ -174,6 +174,10 @@ export function passDue(
  * minutes, for up to `holdMs`, so only a holder that stopped, or held
  * it past any pass's length, goes stale. The release removes the lease
  * only while it is still this holder's.
+ *
+ * A holder that loses the lease, taken over after a suspend or past the
+ * hold bound, is told through `lost` at its next renewal, so its pass
+ * stops rather than writing beside the one that took it over.
  */
 export function claimLease(
 	dir: string,
@@ -181,6 +185,7 @@ export function claimLease(
 	staleMs = LEASE_STALE_MS,
 	renewMs = LEASE_RENEW_MS,
 	holdMs = LEASE_HOLD_MS,
+	lost: () => void = () => undefined,
 ): (() => void) | undefined {
 	const path = join(dir, LEASE_NAME);
 	const mine = String(process.pid);
@@ -198,14 +203,22 @@ export function claimLease(
 			const renewing = setInterval(() => {
 				if (Date.now() - claimed >= holdMs) {
 					clearInterval(renewing);
+					lost();
 					return;
 				}
 				try {
-					if (statSync(path).ino !== ino) return;
+					if (statSync(path).ino !== ino) {
+						clearInterval(renewing);
+						lost();
+						return;
+					}
 					const at = new Date();
 					utimesSync(path, at, at);
 				} catch {
-					// Gone or taken over: there is nothing of ours to renew.
+					// Gone, so taken over and released: nothing of ours to renew,
+					// and the pass no longer holds the ledger.
+					clearInterval(renewing);
+					lost();
 				}
 			}, renewMs);
 			renewing.unref();
@@ -229,8 +242,11 @@ export function claimLease(
 /** Whether the lease at `path` was left by a holder no longer passing. */
 function leaseLeft(path: string, now: number, staleMs: number): boolean {
 	try {
+		// A lease marked further ahead than any renewal could mark it was
+		// planted or written under a clock since set back: either way no
+		// holder is renewing it, and left alone it would hold the ledger.
 		const age = now - statSync(path).mtimeMs;
-		if (age > staleMs) return true;
+		if (Math.abs(age) > staleMs) return true;
 		const pid = Number.parseInt(readFileSync(path, "utf8"), 10);
 		// A lease with no pid yet is one being made, not one left.
 		if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -259,8 +275,8 @@ interface KeeperDeps {
 	readonly dir: () => string;
 	/** Whether the session has been still long enough to read logs in. */
 	readonly still: () => boolean;
-	/** Run one pass, as the spend tool would. */
-	readonly pass: () => Promise<IndexOutcome>;
+	/** Run one pass, as the spend tool would, stopping when `lost` fires. */
+	readonly pass: (lost: AbortSignal) => Promise<IndexOutcome>;
 	readonly now?: () => number;
 }
 
@@ -276,14 +292,22 @@ export async function keepOnce(
 	const now = deps.now?.() ?? Date.now();
 	const dir = deps.dir();
 	if (!passDue(readStamp(dir), now)) return "current";
-	const release = claimLease(dir, now);
+	const lost = new AbortController();
+	const release = claimLease(
+		dir,
+		now,
+		LEASE_STALE_MS,
+		LEASE_RENEW_MS,
+		LEASE_HOLD_MS,
+		() => lost.abort(),
+	);
 	if (!release) return "held";
 	try {
 		// Another keeper may have finished between the look and the lease.
 		if (!passDue(readStamp(dir), deps.now?.() ?? Date.now())) {
 			return "current";
 		}
-		await stampedPass(dir, "keeper", deps.pass);
+		await stampedPass(dir, "keeper", () => deps.pass(lost.signal));
 		return "ran";
 	} catch {
 		// The stamp holds the failure, which is where every reader of the
@@ -303,7 +327,7 @@ export async function keepOnce(
  */
 export function registerKeeper(
 	pi: ExtensionAPI,
-	pass: () => Promise<IndexOutcome>,
+	pass: (lost: AbortSignal) => Promise<IndexOutcome>,
 ): void {
 	// Whether a run is under way, and when one last moved, so a pass
 	// reads logs only in a session nobody is working in.

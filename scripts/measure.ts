@@ -40,6 +40,7 @@ import { formatAudit, type Span } from "../extensions/spend-workflow/audit.ts";
 import { gatherAudit } from "../extensions/spend-workflow/audit-input.ts";
 import {
 	indexSessionLogs,
+	PASS_STOPPED,
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
 import {
@@ -79,6 +80,8 @@ export async function measure(opts: {
 	top?: number;
 	/** How long to wait for a pass holding the lease; ten minutes unless given. */
 	leaseWaitMs?: number;
+	/** How often to look whether the lease is free; fifteen seconds unless given. */
+	leaseLookMs?: number;
 }): Promise<string> {
 	const ledgerDir = stateDir("observability");
 	mkdirSync(ledgerDir, { recursive: true });
@@ -88,17 +91,34 @@ export async function measure(opts: {
 	// met that lock on every try (25 November). Behind a pass under way
 	// it waits a while for that pass, then reads the ledger as it
 	// stands.
+	const lost = new AbortController();
 	const release = await leaseWithin(
 		ledgerDir,
 		opts.leaseWaitMs ?? LEASE_WAIT_MS,
+		opts.leaseLookMs ?? LEASE_LOOK_MS,
+		() => lost.abort(),
 	);
+	let passed = false;
 	if (release !== undefined) {
 		try {
 			const store = await openTurnStore(ledger);
 			try {
 				await stampedPass(ledgerDir, "measure", () =>
-					indexSessionLogs(store, join(ledgerDir, "ledger-watermarks.json")),
+					indexSessionLogs(
+						store,
+						join(ledgerDir, "ledger-watermarks.json"),
+						undefined,
+						lost.signal,
+					),
 				);
+				passed = true;
+			} catch (error) {
+				// A pass that lost the lease stopped so as not to write beside
+				// the one that took it; the figures stand as that one leaves
+				// them, which the report says. Any other failure is the run's.
+				if (!(error instanceof Error && error.message === PASS_STOPPED)) {
+					throw error;
+				}
 			} finally {
 				await store.close();
 			}
@@ -106,8 +126,7 @@ export async function measure(opts: {
 			release();
 		}
 	}
-	const indexed =
-		release === undefined ? unindexedSaid(readStamp(ledgerDir)) : undefined;
+	const indexed = passed ? undefined : unindexedSaid(readStamp(ledgerDir));
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
 	let oneCall: string;
@@ -174,13 +193,22 @@ export async function measure(opts: {
 async function leaseWithin(
 	dir: string,
 	waitMs: number,
+	lookMs: number,
+	lost: () => void,
 ): Promise<(() => void) | undefined> {
 	const until = Date.now() + waitMs;
 	for (;;) {
-		const release = claimLease(dir);
+		const release = claimLease(
+			dir,
+			Date.now(),
+			undefined,
+			undefined,
+			undefined,
+			lost,
+		);
 		if (release !== undefined || Date.now() >= until) return release;
 		await new Promise((looked) =>
-			setTimeout(looked, Math.min(LEASE_LOOK_MS, until - Date.now())),
+			setTimeout(looked, Math.min(lookMs, until - Date.now())),
 		);
 	}
 }

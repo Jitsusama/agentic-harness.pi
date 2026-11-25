@@ -214,20 +214,94 @@ describe("a lease held through a long pass", () => {
 	it("stops being renewed once held past any pass's length", () => {
 		vi.useFakeTimers();
 		try {
-			const release = claimLease(scratch, Date.now(), 30 * 60_000, 10, 50);
+			const lost = vi.fn();
+			const release = claimLease(
+				scratch,
+				Date.now(),
+				30 * 60_000,
+				10,
+				50,
+				lost,
+			);
 			vi.advanceTimersByTime(60);
 			const lease = join(scratch, "ledger-pass.lease");
 			const hourAgo = new Date(Date.now() - 60 * 60_000);
 			utimesSync(lease, hourAgo, hourAgo);
 			vi.advanceTimersByTime(100);
 			expect(
-				statSync(lease).mtimeMs,
-				"the lease's stamp, held past its bound",
-			).toBe(hourAgo.getTime());
+				Date.now() - statSync(lease).mtimeMs,
+				"how old the lease reads, held past its bound",
+			).toBeGreaterThan(59 * 60_000);
 			expect(vi.getTimerCount(), "renewals still set").toBe(0);
+			expect(lost, "times its holder was told to stop").toHaveBeenCalledOnce();
 			release?.();
 		} finally {
 			vi.useRealTimers();
+		}
+	});
+
+	// After a suspend, another pass takes the lease over by age while
+	// this one still runs; writing on would put two writers on the ledger.
+	it("tells its holder once another has taken it over", () => {
+		vi.useFakeTimers();
+		try {
+			const lost = vi.fn();
+			const release = claimLease(
+				scratch,
+				Date.now(),
+				30 * 60_000,
+				10,
+				60 * 60_000,
+				lost,
+			);
+			vi.advanceTimersByTime(15);
+			expect(
+				lost,
+				"told while it still holds the lease",
+			).not.toHaveBeenCalled();
+			const lease = join(scratch, "ledger-pass.lease");
+			rmSync(lease);
+			writeFileSync(lease, String(process.ppid));
+			vi.advanceTimersByTime(15);
+			expect(lost, "times its holder was told to stop").toHaveBeenCalledOnce();
+			expect(readFileSync(lease, "utf8"), "the new holder's lease").toBe(
+				String(process.ppid),
+			);
+			release?.();
+			expect(readFileSync(lease, "utf8"), "left to its new holder").toBe(
+				String(process.ppid),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A live pid on a lease stamped a day ahead held every pass off the
+	// ledger, the tool's, the keepers' and the measure's, with nothing to
+	// override it.
+	it("is taken over when marked further ahead than any renewal marks it", () => {
+		const lease = join(scratch, "ledger-pass.lease");
+		writeFileSync(lease, String(process.ppid));
+		const dayAhead = new Date(Date.now() + 24 * 60 * 60_000);
+		utimesSync(lease, dayAhead, dayAhead);
+		const release = claimLease(scratch);
+		try {
+			expect(release, "the lease was taken over").toBeDefined();
+			expect(readFileSync(lease, "utf8")).toBe(String(process.pid));
+		} finally {
+			release?.();
+		}
+	});
+
+	it("stays with a live holder that marked it a moment ago", () => {
+		const lease = join(scratch, "ledger-pass.lease");
+		writeFileSync(lease, String(process.ppid));
+		const release = claimLease(scratch);
+		try {
+			expect(release, "the lease was taken").toBeUndefined();
+		} finally {
+			release?.();
+			rmSync(lease, { force: true });
 		}
 	});
 });

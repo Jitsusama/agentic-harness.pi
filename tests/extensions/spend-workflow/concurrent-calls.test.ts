@@ -181,6 +181,31 @@ describe("cost calls made at the same moment", () => {
 		}
 	});
 
+	it.each([
+		{ verify: true },
+		{ payback: true },
+		{ repeats: true },
+		{ query: "select 1 as one" },
+	])("say first that another pass held the ledger, asked %o", async (asked) => {
+		const observability = stateDir("observability");
+		mkdirSync(observability, { recursive: true });
+		const release = claimLease(observability);
+		try {
+			const answer = await costTool().execute(
+				"a",
+				asked,
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			expect(answer.content[0]?.text).toContain("holds the ledger");
+			expect(answer.content.length, "what else it said").toBeGreaterThan(1);
+		} finally {
+			release?.();
+		}
+	});
+
 	it("index each log once between them", async () => {
 		const tool = costTool();
 		const [first, second] = await Promise.all([

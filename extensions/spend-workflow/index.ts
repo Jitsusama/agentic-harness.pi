@@ -210,6 +210,16 @@ const MARGINAL_WINDOW = 20;
 const HELD_ELSEWHERE =
 	"Another pass (a session's keeper, or the daily measure) holds the ledger, so this answer reads it as that pass leaves it, without indexing first.";
 
+/** `answer` with the held-lease note before what it says. */
+function heldFirst(
+	answer: AgentToolResult<CostDetails>,
+): AgentToolResult<CostDetails> {
+	return {
+		...answer,
+		content: [{ type: "text", text: HELD_ELSEWHERE }, ...answer.content],
+	};
+}
+
 /** Why a load that has shut down won't open the ledger again. */
 const LEDGER_CLOSED = "The ledger is closed: this session has ended.";
 
@@ -317,12 +327,13 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	let indexing: ReturnType<typeof indexSessionLogs> | null = null;
 	const indexOnce = (
 		opened: TurnStore,
+		lost: AbortSignal,
 	): ReturnType<typeof indexSessionLogs> => {
 		indexing ??= indexSessionLogs(
 			opened,
 			watermarks,
 			undefined,
-			ending.signal,
+			AbortSignal.any([ending.signal, lost]),
 		).finally(() => {
 			indexing = null;
 		});
@@ -336,17 +347,29 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		opened: TurnStore,
 	): Promise<IndexOutcome | undefined> => {
 		const dir = stateDir("observability");
-		if (indexing) return stampedPass(dir, "tool", () => indexOnce(opened));
-		const release = claimLease(dir);
+		const lost = new AbortController();
+		if (indexing) {
+			return stampedPass(dir, "tool", () => indexOnce(opened, lost.signal));
+		}
+		const release = claimLease(
+			dir,
+			Date.now(),
+			undefined,
+			undefined,
+			undefined,
+			() => lost.abort(),
+		);
 		if (release === undefined) return undefined;
 		try {
-			return await stampedPass(dir, "tool", () => indexOnce(opened));
+			return await stampedPass(dir, "tool", () =>
+				indexOnce(opened, lost.signal),
+			);
 		} finally {
 			release();
 		}
 	};
 
-	registerKeeper(pi, async () => indexOnce(await open()));
+	registerKeeper(pi, async (lost) => indexOnce(await open(), lost));
 
 	// A second connection, opened read-only, so no query can write
 	// whatever it says. Opened after the store, which makes the views.
@@ -625,138 +648,148 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			if (params.resources) {
-				const samples = readSamples(resourcesDir());
-				const changes: QuestChange[] = [];
-				if (samples.size > 0) {
-					const answer = await (await openReader()).query(
-						questChangesQuery([...samples.keys()]),
-					);
-					for (const row of answer.rows) {
-						changes.push({
-							session: String(row.session_id),
-							at: String(row.timestamp),
-							quest: typeof row.quest === "string" ? row.quest : null,
-						});
+			// Each report but the total, which says it among its sections. A
+			// report read from a ledger another pass held says so first, so a
+			// stale figure never reads as a current one.
+			const reported = await (async (): Promise<
+				AgentToolResult<CostDetails> | undefined
+			> => {
+				if (params.resources) {
+					const samples = readSamples(resourcesDir());
+					const changes: QuestChange[] = [];
+					if (samples.size > 0) {
+						const answer = await (await openReader()).query(
+							questChangesQuery([...samples.keys()]),
+						);
+						for (const row of answer.rows) {
+							changes.push({
+								session: String(row.session_id),
+								at: String(row.timestamp),
+								quest: typeof row.quest === "string" ? row.quest : null,
+							});
+						}
 					}
-				}
-				const uses = useByQuest(samples, changes);
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatUse(uses, earliest(samples), params.limit ?? 12),
-								records: uses,
-								unit: "quests",
-								narrowing: "Ask for a larger limit to see more.",
-							}),
-						},
-					],
-					details: { ok: true, index },
-				};
-			}
-
-			if (params.audit) {
-				const read = await openReader();
-				const deferred = pi
-					.getAllTools()
-					.filter((tool) => tool.exposure === "deferred")
-					.map((tool) => tool.name);
-				const input = await gatherAudit(
-					async (sql) => (await read.query(sql)).rows,
-					{ now: Date.now(), sessionsDir: sessionsDir(), deferred },
-				);
-				const text = formatAudit(input, params.limit ?? 12);
-				return {
-					content: [{ type: "text", text }],
-					details: { ok: true, index },
-				};
-			}
-
-			if (params.query !== undefined) {
-				let answer: QueryAnswer;
-				try {
-					answer = await (await openReader()).query(params.query);
-				} catch (error) {
-					// A refused or malformed query is the caller's to fix, so it is
-					// answered with what SQLite or the guard said, not thrown.
-					const reason = error instanceof Error ? error.message : String(error);
+					const uses = useByQuest(samples, changes);
 					return {
-						content: [{ type: "text", text: `Query refused: ${reason}` }],
-						details: { ok: false, index },
+						content: [
+							{
+								type: "text",
+								text: citeListing(openSessionStore(ctx), {
+									view: formatUse(uses, earliest(samples), params.limit ?? 12),
+									records: uses,
+									unit: "quests",
+									narrowing: "Ask for a larger limit to see more.",
+								}),
+							},
+						],
+						details: { ok: true, index },
 					};
 				}
-				const limit = params.limit ?? QUERY_ROWS_SHOWN;
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatQueryAnswer(answer, limit),
-								records: answer.rows,
-								unit: "rows",
-								elided: answer.rows.length > limit,
-								narrowing:
-									"Query the stored rows, or aggregate in SQL and ask again.",
-							}),
-						},
-					],
-					details: { ok: true, index },
-				};
-			}
 
-			if (params.repeats) {
-				const repeats = await opened.repeatedCalls(LEDGER_SCOPE);
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatRepeats(repeats, params.limit ?? 12),
-								records: repeats,
-								unit: "repeats",
-								narrowing: "Ask for a larger limit to see more.",
-							}),
-						},
-					],
-					details: { ok: true },
-				};
-			}
+				if (params.audit) {
+					const read = await openReader();
+					const deferred = pi
+						.getAllTools()
+						.filter((tool) => tool.exposure === "deferred")
+						.map((tool) => tool.name);
+					const input = await gatherAudit(
+						async (sql) => (await read.query(sql)).rows,
+						{ now: Date.now(), sessionsDir: sessionsDir(), deferred },
+					);
+					const text = formatAudit(input, params.limit ?? 12);
+					return {
+						content: [{ type: "text", text }],
+						details: { ok: true, index },
+					};
+				}
 
-			if (params.regret) {
-				const regret = await opened.regret(LEDGER_SCOPE);
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatRegret(regret),
-								records: regret.reAsked,
-								unit: "regrets",
-								narrowing: "Query the stored result for the full list.",
-							}),
-						},
-					],
-					details: { ok: true },
-				};
-			}
+				if (params.query !== undefined) {
+					let answer: QueryAnswer;
+					try {
+						answer = await (await openReader()).query(params.query);
+					} catch (error) {
+						// A refused or malformed query is the caller's to fix, so it is
+						// answered with what SQLite or the guard said, not thrown.
+						const reason =
+							error instanceof Error ? error.message : String(error);
+						return {
+							content: [{ type: "text", text: `Query refused: ${reason}` }],
+							details: { ok: false, index },
+						};
+					}
+					const limit = params.limit ?? QUERY_ROWS_SHOWN;
+					return {
+						content: [
+							{
+								type: "text",
+								text: citeListing(openSessionStore(ctx), {
+									view: formatQueryAnswer(answer, limit),
+									records: answer.rows,
+									unit: "rows",
+									elided: answer.rows.length > limit,
+									narrowing:
+										"Query the stored rows, or aggregate in SQL and ask again.",
+								}),
+							},
+						],
+						details: { ok: true, index },
+					};
+				}
 
-			if (params.verify) {
-				const outcomes = await opened.verifierOutcomes();
-				return {
-					content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
-					details: { ok: true },
-				};
-			}
+				if (params.repeats) {
+					const repeats = await opened.repeatedCalls(LEDGER_SCOPE);
+					return {
+						content: [
+							{
+								type: "text",
+								text: citeListing(openSessionStore(ctx), {
+									view: formatRepeats(repeats, params.limit ?? 12),
+									records: repeats,
+									unit: "repeats",
+									narrowing: "Ask for a larger limit to see more.",
+								}),
+							},
+						],
+						details: { ok: true },
+					};
+				}
 
-			if (params.payback) {
-				const replay = await opened.paybackReplay();
-				return {
-					content: [{ type: "text", text: formatPaybackReplay(replay) }],
-					details: { ok: true },
-				};
-			}
+				if (params.regret) {
+					const regret = await opened.regret(LEDGER_SCOPE);
+					return {
+						content: [
+							{
+								type: "text",
+								text: citeListing(openSessionStore(ctx), {
+									view: formatRegret(regret),
+									records: regret.reAsked,
+									unit: "regrets",
+									narrowing: "Query the stored result for the full list.",
+								}),
+							},
+						],
+						details: { ok: true },
+					};
+				}
+
+				if (params.verify) {
+					const outcomes = await opened.verifierOutcomes();
+					return {
+						content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
+						details: { ok: true },
+					};
+				}
+
+				if (params.payback) {
+					const replay = await opened.paybackReplay();
+					return {
+						content: [{ type: "text", text: formatPaybackReplay(replay) }],
+						details: { ok: true },
+					};
+				}
+				return undefined;
+			})();
+			if (reported) return index === undefined ? heldFirst(reported) : reported;
 
 			const total = await opened.total();
 			const sections = [formatTotal(total)];

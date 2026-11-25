@@ -109,6 +109,7 @@ describe("a measure beside a pass holding the ledger", () => {
 					span: "day",
 					out: join(home, "measure.md"),
 					leaseWaitMs: 60_000,
+					leaseLookMs: 50,
 				});
 
 				expect(readFileSync(out, "utf8")).not.toContain("didn't index");
