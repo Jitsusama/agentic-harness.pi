@@ -141,6 +141,15 @@ describe("a peer's addresses", () => {
 		]);
 	});
 
+	it("hold its own address once, though its last presence already ends with it", () => {
+		quest("QEST-20261021-AF7P9P", `- ${session}`);
+
+		expect(addressesOf(session, records(), ["AF7P9P", "24B025FE"])).toEqual([
+			"AF7P9P",
+			"24B025FE",
+		]);
+	});
+
 	it("are the session id's tail alone with no quest store", () => {
 		expect(addressesOf(session, records())).toEqual(["24B025FE"]);
 	});

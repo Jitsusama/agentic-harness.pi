@@ -46,6 +46,10 @@ import {
 	windowWorkspaceOf,
 } from "../internal/quest/fields/orchestration.ts";
 import { type Served, servedFrom } from "../internal/quest/fields/serves.ts";
+import {
+	SPLIT_FROM,
+	splitFromOf,
+} from "../internal/quest/fields/split-from.ts";
 import { type Doing, isDoing } from "../internal/quest/sessions/doing.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
@@ -332,6 +336,15 @@ export interface Presence {
 	 */
 	readonly serves?: readonly Served[];
 	/**
+	 * Where its work came from, named as mycelium's node reads a cell's
+	 * `lineage`: `split_from`, the cell that sprouted its quest, by address
+	 * (see internal/quest/fields/split-from.ts). Kept once its quest is
+	 * sealed or its session has ended, since where work came from stays
+	 * true; missing while its quest split from none, and from an older
+	 * presence.
+	 */
+	readonly lineage?: Lineage;
+	/**
 	 * The folders it works in with others, each named alike on every
 	 * machine: its quest's shared folder, beside its scratch, while its
 	 * quest isn't sealed, the folder is there, at a path a node would draw
@@ -457,8 +470,21 @@ export interface PeerWork {
 	readonly subjects?: readonly string[];
 	/** The needs its quest took from other cells (see Presence). */
 	readonly serves?: readonly Served[];
+	/** Where its quest's work came from (see Presence). */
+	readonly lineage?: Lineage;
 	/** The folders it works in with others (see Presence). */
 	readonly shares?: readonly Share[];
+}
+
+/** Where a cell's work came from, in the node's own field names. */
+export interface Lineage {
+	/** The cell its work split from, by address. */
+	readonly split_from: string;
+}
+
+/** A lineage naming `splitFrom` as a presence says it: left out when none. */
+function lineageSaid(splitFrom: string | undefined): { lineage?: Lineage } {
+	return splitFrom ? { lineage: { split_from: splitFrom } } : {};
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -533,6 +559,7 @@ export function workOf(
 		...(isSealedStatus(parsed.frontMatter.status)
 			? {}
 			: servesSaid(servedFrom(parsed.frontMatter._extra?.serves))),
+		...lineageSaid(splitFromOf(parsed.frontMatter._extra?.[SPLIT_FROM])),
 	};
 }
 
@@ -970,6 +997,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...standingAtTop(one.standsAtTop),
 		...subjectsSaid(subjectsOf([], declaredSubjects(one.subjects))),
 		...servesSaid(servedFrom(one.serves)),
+		...lineageSaid(
+			isRecord(one.lineage) ? splitFromOf(one.lineage.split_from) : undefined,
+		),
 		...sharesSaid(one.shares),
 		at: typeof one.at === "string" ? one.at : "",
 	};
