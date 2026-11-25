@@ -251,23 +251,38 @@ function registeredProviderFolder(): string {
 }
 
 /** A step's environment: none of this session's pi or credentials, and a home inside its folder. */
-function sealedEnv(folder: string): NodeJS.ProcessEnv {
+function sealedEnv(
+	folder: string,
+	extra: Readonly<Record<string, string>> = {},
+): NodeJS.ProcessEnv {
 	return {
 		PATH: process.env.PATH ?? "",
 		HOME: join(folder, "home"),
 		XDG_RUNTIME_DIR: join(folder, "run"),
 		TMPDIR: join(folder, "tmp"),
+		...extra,
 	};
 }
+
+/**
+ * The scripted provider's key, for a step that compares a hosted pi with a
+ * plain one: without it pi 1.6 has no model it can use, which its print
+ * mode warns of and a hosted screen leaves to its own start screen.
+ */
+const PROVIDER_KEY = { SHOPIFY_PROXY_KEY: "faux-key" };
 
 function args(folder: string, scenario: string): string[] {
 	return ["--no-warnings", FIXTURE, packageDir, folder, scenario];
 }
 
 /** One step of a host's life, and what it printed. */
-async function step(folder: string, scenario: string): Promise<Seen> {
+async function step(
+	folder: string,
+	scenario: string,
+	extra: Readonly<Record<string, string>> = {},
+): Promise<Seen> {
 	const { stdout } = await run(process.execPath, args(folder, scenario), {
-		env: sealedEnv(folder),
+		env: sealedEnv(folder, extra),
 	});
 	return JSON.parse(stdout);
 }
@@ -276,11 +291,12 @@ async function step(folder: string, scenario: string): Promise<Seen> {
 async function plainPi(
 	folder: string,
 	words: string,
+	extra: Readonly<Record<string, string>> = {},
 ): Promise<{ type: string; message: string }[]> {
 	const running = run(
 		process.execPath,
 		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
-		{ cwd: join(folder, "work"), env: sealedEnv(folder) },
+		{ cwd: join(folder, "work"), env: sealedEnv(folder, extra) },
 	);
 	// pi reads piped stdin into its prompt, waiting for its end, so it gets
 	// an empty one at once.
@@ -529,8 +545,8 @@ describe("the host's engine", () => {
 		"gives a hosted conversation every tool a plain pi on the same settings has",
 		async () => {
 			const folder = hostFolder();
-			const seen = await step(folder, "tools");
-			const plainSaid = await plainPi(folder, "/tools-probe");
+			const seen = await step(folder, "tools", PROVIDER_KEY);
+			const plainSaid = await plainPi(folder, "/tools-probe", PROVIDER_KEY);
 			const hostedSaid = (seen.diagnostics ?? []).filter(
 				({ type }) => type !== "info",
 			);
