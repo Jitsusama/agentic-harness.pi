@@ -1,5 +1,9 @@
 /**
  * Watching a session for the still moment it may park, and parking it.
+ *
+ * Long because the watch is one closure whose look timer, holds, wakes
+ * and step-off between turns share the same state, and splitting it
+ * would hand that state across files for every change to when it parks.
  */
 
 import { existsSync, rmSync, writeFileSync } from "node:fs";
