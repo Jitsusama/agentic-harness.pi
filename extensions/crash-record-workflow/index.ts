@@ -70,7 +70,6 @@ import { holderFiles } from "../../lib/internal/session/park.ts";
 import {
 	askQuit,
 	KEY_QUITS,
-	keyQuit,
 	quitAsker,
 	quitExit,
 	quitLine,
@@ -78,6 +77,7 @@ import {
 	UNASKED_EXIT,
 	UNASKED_SIGNAL,
 } from "../../lib/internal/session/quit-asker.ts";
+import { keyQuit } from "../../lib/internal/session/quit-keys.ts";
 import { readyLine, watchReady } from "../../lib/internal/session/ready.ts";
 import {
 	childrenOf,

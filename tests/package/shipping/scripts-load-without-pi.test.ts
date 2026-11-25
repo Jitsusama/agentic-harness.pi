@@ -1,5 +1,6 @@
 /**
- * The scripts load no pi package, however far their imports reach.
+ * The scripts, and the modules the library starts as children of their
+ * own, load no pi package, however far their imports reach.
  *
  * A user service, the launcher and mycelium run these under plain node
  * from the harness's production install, which carries none of pi's
@@ -78,6 +79,37 @@ it("reaches no runtime import of pi from any script", () => {
 		.map((name) => join(SCRIPTS, name));
 	expect(scripts.length, "the scripts folder holds scripts").toBeGreaterThan(0);
 	expect(scripts.flatMap(piReached)).toEqual([]);
+});
+
+/** A module the library starts on its own, named beside the one starting it. */
+const STARTED =
+	/\bnew URL\(\s*["'](\.{1,2}\/[^"']+\.(?:mjs|ts))["'],\s*import\.meta\.url/g;
+
+/** The library's sources, every `.ts` and `.mjs` under `lib/`. */
+function librarySources(dir = join(ROOT, "lib")): string[] {
+	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) return librarySources(path);
+		return /\.(?:ts|mjs)$/.test(entry.name) ? [path] : [];
+	});
+}
+
+// 25 November: every council's reviewers failed to start, since their
+// supervisor, which plain node runs, reached pi-tui through the quit
+// asker the session's owner imports.
+it("reaches no runtime import of pi from a module the library starts on its own", () => {
+	const started = new Set(
+		librarySources().flatMap((file) =>
+			[...readFileSync(file, "utf8").matchAll(STARTED)]
+				.map(([, specifier]) => join(dirname(file), specifier ?? ""))
+				.filter((path) => existsSync(path)),
+		),
+	);
+	expect(
+		[...started].map((path) => relative(ROOT, path)),
+		"the council's supervisor is among them",
+	).toContain("lib/subagent/runpi/supervisor.mjs");
+	expect([...started].flatMap(piReached)).toEqual([]);
 });
 
 it("tells what a module loads from what it only names for types", () => {
