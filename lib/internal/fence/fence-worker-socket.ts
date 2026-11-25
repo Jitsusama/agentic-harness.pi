@@ -64,12 +64,12 @@ export interface SocketDisk {
 	/**
 	 * Whether only the folder's owner may write it, and root or this
 	 * process's own account chose that owner, so nobody else can put a
-	 * socket of their own in it ({@link keptFolder}).
+	 * socket of their own in it ({@link ownerKeepsFolder}).
 	 */
 	keptByItsOwner(folder: string): boolean;
 }
 
-/** What {@link keptFolder} reads of a folder. */
+/** What {@link ownerKeepsFolder} reads of a folder. */
 export interface FolderStat {
 	readonly uid: number;
 	readonly mode: number;
@@ -77,15 +77,22 @@ export interface FolderStat {
 }
 
 /**
- * Whether `folder`, read by `stat` (which follows no link), is written
- * by its owner alone, and that owner is root, `uid`, or the account
- * root gave it to: a folder whose own folder only root may write, as
- * `/run` is, was made there by root, so whoever owns it root chose. The
- * node's NixOS module makes `/run/mycelium` at boot owned by the node's
- * account, which on a VM need not be the session's (KP0L6A, 24
- * November).
+ * Whether `folder`, read by `stat` (which follows no link in the path's
+ * last part), is written by its owner alone, and that owner is root,
+ * `uid`, or whichever account root gave it to, deliberately any: a
+ * folder whose own folder only root may write, as `/run` is, was put
+ * there by root. The node's NixOS module makes `/run/mycelium` at boot
+ * owned by the node's account, which on a VM need not be the session's
+ * (KP0L6A, 24 November).
+ *
+ * Only the folder and its parent are read, so the third-account case
+ * holds only for a path the caller has already resolved to itself (no
+ * link anywhere in it) and pinned one level below `/`, as
+ * {@link fencedWorkerSocket} does for `/run/mycelium`. Under a
+ * grandparent another account may write, the parent could be swapped,
+ * and `/run/user/<other>` would pass: never call it on such a path.
  */
-export function keptFolder(
+export function ownerKeepsFolder(
 	folder: string,
 	stat: (path: string) => FolderStat | undefined,
 	uid: number | undefined,
@@ -102,7 +109,7 @@ export function keptFolder(
 	);
 }
 
-/** `path` as {@link keptFolder} reads it, or nothing when it can't be. */
+/** `path` as {@link ownerKeepsFolder} reads it, or nothing when it can't be. */
 function folderStat(path: string): FolderStat | undefined {
 	try {
 		const stat = lstatSync(path);
@@ -141,7 +148,7 @@ export const SOCKET_DISK: SocketDisk = {
 		}
 	},
 	keptByItsOwner: (folder) =>
-		keptFolder(folder, folderStat, process.getuid?.()),
+		ownerKeepsFolder(folder, folderStat, process.getuid?.()),
 };
 
 /**
