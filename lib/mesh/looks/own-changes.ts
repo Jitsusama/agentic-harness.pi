@@ -28,6 +28,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { isRecord } from "../../internal/record.ts";
+import type { Authored } from "../../internal/session/authored.ts";
 import { writeWhole } from "../../internal/write-whole.ts";
 
 /** The tool a session proposes its changes with. */
@@ -246,6 +247,37 @@ export function keptProposed(
 		});
 }
 
+/** What to do instead of pointing the person at a change his sessions put up. */
+const OWN_CHANGE_INSTEAD =
+	"The person reviews no change his sessions put up (Joel, 24 November: review it yourself, take it out of draft and ask for review when you are comfortable with it). Have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer; what only he can decide goes to him as a question, through mesh_send to person, saying what to decide in words rather than asking anyone to put the change on his look list.";
+
 /** What a session is told when it points the person at its own change. */
-export const OWN_CHANGE_REFUSED =
-	"This session or its quest proposed that change, and the person reviews no change his sessions put up (Joel, 24 November: review it yourself, take it out of draft and ask for review when you are comfortable with it). Have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer; what only he can decide goes to him as a question, through mesh_send to person, saying what to decide in words rather than asking anyone to put the change on his look list.";
+export const OWN_CHANGE_REFUSED = `This session or its quest proposed that change. ${OWN_CHANGE_INSTEAD}`;
+
+/**
+ * Why a look said as `kind` is refused for what its target's host said
+ * of who wrote it, or nothing when it may go up. A change the signed-in
+ * account wrote is the person's own account's, which every agent
+ * proposes under, so it is refused whichever session put it up. One a
+ * host claims but can't say the author of is refused too, since it may
+ * be his; so is a pull request look nothing answered for. A page no
+ * host claims, or someone else's change, goes up.
+ */
+export function authoredRefusal(
+	authored: Authored,
+	kind: string,
+): string | undefined {
+	switch (authored.by) {
+		case "signed-in":
+			return `${authored.author} wrote that change, the account every one of the person's sessions proposes under. ${OWN_CHANGE_INSTEAD}`;
+		case "unknown":
+			return `Its host couldn't say who wrote that change (${authored.why}), and a change his own account wrote never goes on his look list. ${OWN_CHANGE_INSTEAD}`;
+		case "unanswered":
+			return kind === "pr"
+				? `Nothing could say in time who wrote that change, and a change his own account wrote never goes on his look list. ${OWN_CHANGE_INSTEAD}`
+				: undefined;
+		case "other":
+		case "no-change":
+			return undefined;
+	}
+}

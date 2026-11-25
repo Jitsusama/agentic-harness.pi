@@ -376,8 +376,15 @@ and can answer a question or a gate left open on screen.
   review_offer says each proposal on the bus, so a rollover, a /tree
   or a codemode proposal is still caught; URLs are compared by case,
   scheme, `www.` and `.diff` or `.patch` alike
-  (`lib/mesh/looks/own-changes.ts`). A change opened with
-  `gh pr create` is not caught. Nothing here removes a look. A look
+  (`lib/mesh/looks/own-changes.ts`). Since a hosted conversation
+  keeps only what came after its last compaction, the change's host
+  is asked too, over the bus (`lib/internal/session/authored.ts`),
+  answered by the review integration: a look at a web address is
+  refused when the account signed in to its host wrote the change,
+  which every session proposes under, so one opened with
+  `gh pr create` is caught as well. It is refused when the host can't
+  say who wrote it, and a pull request look is refused when nothing
+  answers within 20 seconds. Nothing here removes a look. A look
   says whether it `asks` for
   something back: it does when it has choices, wants his own words,
   or has an act other than Just See, and a look kept without the

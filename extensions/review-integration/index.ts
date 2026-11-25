@@ -38,6 +38,7 @@ import {
 import { ORPHAN_LOOK_WINDOW_MS } from "../../lib/subagent/recovery.ts";
 import { type Aside, asideFor } from "../../lib/ui/aside.ts";
 import { count } from "../../lib/ui/count.ts";
+import { answerWhoWrote } from "./authored.ts";
 import { withToolCallSignals } from "./call-signal.ts";
 import {
 	attachmentDir,
@@ -417,6 +418,11 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// holds. Registered unconditionally: either something asks and this
 	// answers, or nothing asks and it costs nothing.
 	guardPublishes(pi);
+
+	// And who wrote a change, which the mesh asks before it puts a look
+	// on the person's list: only this side knows the hosts and who is
+	// signed in to each (authored.ts).
+	answerWhoWrote(pi);
 
 	// A change sent to a merge queue is said landed once it merges, which
 	// is after the call that sent it has answered (queued.ts).

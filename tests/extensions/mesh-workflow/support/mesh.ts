@@ -21,6 +21,10 @@ import {
 import type { HubTiming } from "../../../../extensions/mesh-workflow/tools/above.ts";
 import type { ExecResult } from "../../../../lib/core/exec/exec.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
+import {
+	type Authored,
+	answerAuthored,
+} from "../../../../lib/internal/session/authored.ts";
 import { ALL } from "../../../../lib/mesh/group.ts";
 import { createBoard, type Lease } from "../../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../../lib/mesh/message.ts";
@@ -161,6 +165,10 @@ export async function startSession(
 			},
 		},
 	};
+	// The review integration's side, which says who wrote a change: no
+	// host claims a URL until a test says otherwise.
+	let authorship: (url: string) => Authored = () => ({ by: "no-change" });
+	answerAuthored(pi.events as never, async (url) => authorship(url));
 	meshWorkflow(
 		fixture.paths,
 		env,
@@ -202,6 +210,10 @@ export async function startSession(
 		restart,
 		emit: pi.events.emit,
 		emitted,
+		/** Say from now on what a change's host answers of who wrote it. */
+		whoWrote: (judge: (url: string) => Authored) => {
+			authorship = judge;
+		},
 		commands,
 		renderers,
 	};

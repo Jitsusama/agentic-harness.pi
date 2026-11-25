@@ -474,6 +474,14 @@ const bound = await engine.resolve("Shopify/world#2000970");
 const threads = await bound.conversation?.threads(bound.target.change);
 ```
 
+Two narrower questions are answered on the bus without the
+substrate. Before a branch is published, the working layer asks
+whether its change is queued to merge (`guard-publish.ts`). Before
+a look goes on the person's list, the mesh asks who wrote the
+change a URL names (`authored.ts`): the host that claims it reads
+the change's author and the account signed in there, and a change
+that account wrote is one of the person's own sessions'.
+
 ## Folders
 
 - `personas/`: the persona charters the package ships, one
