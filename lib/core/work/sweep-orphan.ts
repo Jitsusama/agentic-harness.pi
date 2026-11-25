@@ -164,8 +164,17 @@ export const STOPPED_REMOVAL_MS = 24 * 60 * 60 * 1000;
 /** The names the broker gives the trees it cuts. */
 const CUT_NAME = /^(snapshot|worktree)-/;
 
-/** What a sweep names a tree it has moved aside to remove. */
+/**
+ * What a sweep names a tree it has moved aside to remove: its name, then
+ * this and four random bytes. A branch may hold the word, so only the
+ * whole ending counts.
+ */
 const GOING = ".going-";
+
+/** Whether `name` ends as a take's moved-aside tree is named. */
+function setAside(name: string): boolean {
+	return /\.going-[0-9a-f]{8}$/.test(name);
+}
 
 /**
  * How many stopped removals one sweep finishes, so a backlog goes over
@@ -204,6 +213,9 @@ export async function finishStoppedRemovals(
 	for (const path of await candidates(dir)) {
 		if (tried >= STOPPED_REMOVALS_PER_SWEEP) return;
 		if (!(await stillStopped(path, known, before))) continue;
+		// The pause comes first, so the reading is the last thing before
+		// the move.
+		if (tried > 0) await deps.betweenIdleTakes?.();
 		const busy = await deps.busyAmong?.([resolvedPath(path)]);
 		if (busy === undefined) {
 			// Blind for this one is blind for the rest.
@@ -220,7 +232,6 @@ export async function finishStoppedRemovals(
 			});
 			continue;
 		}
-		if (tried > 0) await deps.betweenIdleTakes?.();
 		if (await finish(path, known, before, outcome)) tried += 1;
 	}
 }
@@ -239,8 +250,8 @@ async function candidates(dir: string): Promise<string[]> {
 	}
 	const cut = names.filter((name) => CUT_NAME.test(name)).sort();
 	return [
-		...cut.filter((name) => !name.includes(GOING)),
-		...cut.filter((name) => name.includes(GOING)),
+		...cut.filter((name) => !setAside(name)),
+		...cut.filter(setAside),
 	].map((name) => join(dir, name));
 }
 
@@ -300,7 +311,7 @@ async function finish(
 		});
 		return false;
 	}
-	const aside = basename(path).includes(GOING)
+	const aside = setAside(basename(path))
 		? path
 		: `${path}${GOING}${randomBytes(4).toString("hex")}`;
 	try {

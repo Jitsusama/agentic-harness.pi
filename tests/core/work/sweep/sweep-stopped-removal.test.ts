@@ -129,6 +129,12 @@ describe("removals stopped part way", () => {
 			"snapshot-github-o-r-abc123",
 			STOPPED_REMOVAL_MS + HOUR,
 		);
+		const other = leftover(
+			state,
+			"snapshot-github-o-r-def456",
+			STOPPED_REMOVAL_MS + HOUR,
+		);
+		let readings = 0;
 
 		const outcome = await sweepEndedTrees({
 			exec,
@@ -137,11 +143,16 @@ describe("removals stopped part way", () => {
 			lockPath: join(state, "sweep.lock"),
 			facts: machine,
 			treesDir: state,
-			busyAmong: async () => undefined,
+			busyAmong: async () => {
+				readings += 1;
+				return undefined;
+			},
 		});
 
 		expect(outcome.taken, "taken on a blind reading").toEqual([]);
 		expect(existsSync(stopped), "one went on a blind reading").toBe(true);
+		expect(existsSync(other), "another went on a blind reading").toBe(true);
+		expect(readings, "readings after the first blind one").toBe(1);
 		expect(
 			outcome.kept.find((one) => one.path === stopped)?.why,
 			"why it stayed",
@@ -282,7 +293,7 @@ describe("removals stopped part way", () => {
 		const old = STOPPED_REMOVAL_MS + HOUR;
 		const first = leftover(state, "snapshot-github-o-r-aaaaaa", old);
 		const last = leftover(state, "snapshot-github-o-r-bbbbbb", old);
-		let readings = 0;
+		let started = false;
 
 		const outcome = await sweepEndedTrees({
 			exec,
@@ -291,10 +302,11 @@ describe("removals stopped part way", () => {
 			lockPath: join(state, "sweep.lock"),
 			facts: machine,
 			treesDir: state,
-			busyAmong: async (paths) => {
-				// A shell starts in the last once the first reading is done.
-				readings += 1;
-				return new Set(readings > 1 ? paths.filter((p) => p === last) : []);
+			busyAmong: async (paths) =>
+				new Set(started ? paths.filter((p) => p === last) : []),
+			betweenIdleTakes: async () => {
+				// A shell starts in the last once the first is gone, in the pause.
+				started = !existsSync(first);
 			},
 		});
 
