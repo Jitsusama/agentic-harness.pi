@@ -219,6 +219,19 @@ function isPrivateFolder(path: string): boolean {
 }
 
 /**
+ * Makes `folder`, private, or finds it made: another pi making the same
+ * one at the same moment wins the race, and its folder is checked as any
+ * found there would be.
+ */
+function makeFolder(folder: string): void {
+	try {
+		mkdirSync(folder, { mode: 0o700 });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
+}
+
+/**
  * Makes each folder from pi's own down, one at a time, never the runtime
  * folder itself: node's recursive mkdir spins for good where a parent
  * exists but refuses a child with ENOENT (`fence-copy.ts`). Each must be
@@ -233,7 +246,7 @@ function privateFolders(
 	let folder = runtimeDir;
 	for (const name of names) {
 		folder = join(folder, name);
-		if (!existsSync(folder)) mkdirSync(folder, { mode: 0o700 });
+		if (!existsSync(folder)) makeFolder(folder);
 		if (!isPrivateFolder(folder)) return undefined;
 	}
 	return folder;

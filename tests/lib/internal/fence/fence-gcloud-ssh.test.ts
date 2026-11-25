@@ -5,6 +5,7 @@
  * written through a link or into a folder that isn't the account's own.
  */
 
+import { createHash } from "node:crypto";
 import {
 	chmodSync,
 	existsSync,
@@ -28,6 +29,7 @@ import {
 	holdsStandIn,
 	KEY_STAND_IN,
 } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
+import { readsAsStandIn } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
 
 let root = "";
 let home = "";
@@ -234,6 +236,21 @@ describe("the session's copies for gcloud's ssh", () => {
 		);
 	});
 
+	it("replaces a link put where the copy was after this process copied it, never writing through it", () => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		const elsewhere = join(root, "elsewhere");
+		writeFileSync(elsewhere, "");
+		rmSync(copy);
+		symlinkSync(elsewhere, copy);
+		expect(fenceGcloudSsh(runtime, home, "one")).toBeDefined();
+		expect(lstatSync(copy).isFile(), "a plain file again").toBe(true);
+		expect(readFileSync(copy, "utf8")).toBe("compute.1 ssh-ed25519 AAAA\n");
+		expect(readFileSync(elsewhere, "utf8"), "nothing written through it").toBe(
+			"",
+		);
+	});
+
 	it.each([
 		["pi's folder", "pi-fence"],
 		["the sessions' folder", "pi-fence/gcloud-ssh"],
@@ -264,6 +281,25 @@ describe("the session's copies for gcloud's ssh", () => {
 	it("makes nothing with no runtime folder, or a session name a folder can't take", () => {
 		expect(fenceGcloudSsh(undefined, home, "one")).toBeUndefined();
 		expect(fenceGcloudSsh(runtime, home, "../away")).toBeUndefined();
+	});
+});
+
+describe("whether gcloud's key read inside as the stand-in", () => {
+	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	const real = createHash("sha256").update("PRIVATE\n").digest("hex");
+
+	it.each([
+		["the stand-in's digest", { code: 0, out: `${standIn}  -\n` }, true],
+		[
+			"after what the wrap printed",
+			{ code: 0, out: `pi: note\n${standIn}  -\n` },
+			true,
+		],
+		["not read, or empty", { code: 1, out: "" }, true],
+		["another key's digest", { code: 0, out: `${real}  -\n` }, false],
+		["nothing said, though it ran", { code: 0, out: "" }, false],
+	])("takes %s as %s", (_, ran, standsIn) => {
+		expect(readsAsStandIn(ran)).toBe(standsIn);
 	});
 });
 
