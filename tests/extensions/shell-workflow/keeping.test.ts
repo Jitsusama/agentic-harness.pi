@@ -216,26 +216,18 @@ async function run(
 	return { code: result.exitCode, read };
 }
 
-// What the stub writes it writes through `tee -p`, which a Mac's own tee
-// lacks; pi keeps no call there (agent-bash.ts), so these cases have
-// nothing to drive. The Linux machines this runs on carry coreutils' tee,
-// which has had it since 8.24, so there a slow probe never skips them.
+// What the stub writes goes through `tee -p`, which a Mac's tee lacks, so
+// pi keeps no call there (agent-bash.ts). Linux carries coreutils' tee,
+// which has had -p since 8.24, so there a slow probe never skips these.
 const teeKeeps = process.platform === "linux" || (await teePersists());
 
 /**
- * How long a kept call's files may take to show or go on a loaded machine.
- * The tee cases ran only when a probe of tee answered in time, and so not
- * on a busy one; now that Linux always runs them, optimus short of memory
- * took past until's five seconds and waitFor's one, as a timed-out call's
- * removal did at a load of 190.
+ * How long a kept call's files may take to show or go on a loaded machine:
+ * now that Linux always runs the tee cases, optimus at a load of 190 took
+ * past until's five seconds and waitFor's one. A case waiting on it takes
+ * LOADED_CASE_MS, since vitest's own five seconds would end it first.
  */
 const LOADED_MS = 30_000;
-
-/**
- * How long a case that waits on a loaded machine may take in all: past
- * vitest's own five seconds, which would end it before its waits, as the
- * runs on optimus that passed at load 190 had sixty.
- */
 const LOADED_CASE_MS = 2 * LOADED_MS;
 
 describe("a kept call", () => {
@@ -279,13 +271,13 @@ describe("a kept call", () => {
 		async () => {
 			const kept = keeping();
 			const started = Date.now();
-			const { code, read } = await run(kept.operations, "sleep 5 & echo out");
+			// A child long enough that a loaded machine's start stays well inside it.
+			const { code, read } = await run(kept.operations, "sleep 20 & echo out");
 			expect(code).toBe(0);
 			expect(read).toBe("out\n");
-			expect(Date.now() - started, "ended well before its child").toBeLessThan(
-				3000,
-			);
+			expect(Date.now() - started, "before its child").toBeLessThan(10_000);
 		},
+		LOADED_CASE_MS,
 	);
 
 	it("is not kept where it can't be", async () => {
