@@ -15,6 +15,7 @@ import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { areasOf } from "../../../lib/internal/session/changed-areas.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
+import { settledWithin } from "../../../lib/internal/settled.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
 import {
@@ -94,7 +95,9 @@ async function headGuard(
  * or not at all leaves the landing without the commit it would have
  * offered, and the launcher draws no line for it. `areas` are the
  * areas its diff touched, by which the mesh says what its quest works
- * on; a diff that can't be read leaves the landing without them.
+ * on, read beside the read back and for no longer than
+ * {@link AREAS_READ_MS}: a diff that can't be read in that time leaves
+ * the landing without them rather than holding up the merge's answer.
  */
 async function sayMerged(
 	bus: EventBus,
@@ -109,12 +112,13 @@ async function sayMerged(
 		base?: string;
 		mergeCommit?: string;
 	} | null = null;
+	const areasRead = changedAreas(bound);
 	try {
 		read = await bound.proposal();
 	} catch {
 		// A change that can't be read now still landed; it is named alone.
 	}
-	const areas = await changedAreas(bound);
+	const areas = (await settledWithin(areasRead, AREAS_READ_MS)) ?? [];
 	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
 	// The merge's own answer first; a host that didn't give one may say
 	// it on the change read back.
@@ -134,6 +138,9 @@ async function sayMerged(
 		...(areas.length > 0 ? { areas } : {}),
 	});
 }
+
+/** The longest a merge's answer waits on its diff, to say its areas. */
+export const AREAS_READ_MS = 15_000;
 
 /** The areas a change's diff touched, or none when it can't be read. */
 async function changedAreas(bound: BoundTarget): Promise<string[]> {

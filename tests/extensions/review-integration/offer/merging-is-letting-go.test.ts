@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { queuedHere } from "../../../../extensions/review-integration/queued.ts";
+import { AREAS_READ_MS } from "../../../../extensions/review-integration/tools/offer-merge.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
@@ -76,7 +77,8 @@ const proposal: Change = {
  * A backend whose merge lands, or is taken into a queue. Its merge
  * names the commit it landed as unless `commit` says otherwise, and
  * `readBack` is the change it reads back afterwards. Its diff is
- * `diff` when given, else one it can't read.
+ * `diff` when given, one that never answers when that is "hangs",
+ * else one it can't read.
  */
 function backend(outcome: {
 	kind: "merged" | "enqueued";
@@ -101,7 +103,9 @@ function backend(outcome: {
 				diff:
 					outcome.diff === undefined
 						? unused("diff a change")
-						: async () => outcome.diff ?? "",
+						: outcome.diff === "hangs"
+							? () => new Promise<string>(() => {})
+							: async () => outcome.diff ?? "",
 			},
 			authoring: {
 				propose: unused("propose a change"),
@@ -278,6 +282,32 @@ describe("what merging says it landed", () => {
 
 		expect(landed).toHaveLength(1);
 		expect(landed[0]).not.toHaveProperty("areas");
+	});
+
+	it("says it landed without areas when its diff doesn't answer in time", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			let done = false;
+			const merging = attachThenMerge({
+				kind: "merged",
+				diff: "hangs",
+			}).finally(() => {
+				done = true;
+			});
+			// The bound's timer is set only once the merge's real file work
+			// is done, so each step lets a real turn pass before moving the
+			// clock; the test's own timeout ends a merge that never answers.
+			while (!done) {
+				await new Promise((next) => setImmediate(next));
+				await vi.advanceTimersByTimeAsync(AREAS_READ_MS);
+			}
+			const { landed } = await merging;
+
+			expect(landed).toHaveLength(1);
+			expect(landed[0]).not.toHaveProperty("areas");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("names the branch it landed on, so a stacked parent's is told from trunk", async () => {

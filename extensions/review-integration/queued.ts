@@ -24,6 +24,7 @@ import type { Change, ChangeRef } from "../../lib/core/review/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { areasOf } from "../../lib/internal/session/changed-areas.ts";
 import { sayClosed, sayLanded } from "../../lib/internal/session/landings.ts";
+import { settledWithin } from "../../lib/internal/settled.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { reviewEngine, sessionKey } from "./engine.ts";
 
@@ -32,6 +33,9 @@ export const MERGE_COMMAND = /^\s*\/merge\s*$/;
 
 /** How often the queued changes are looked at. */
 export const QUEUED_LOOK_MS = 5 * 60_000;
+
+/** The longest a look waits on a merged change's diff, to say its areas. */
+const DIFF_READ_MS = 15_000;
 
 /** How long a change may sit queued before it is let go. */
 export const QUEUED_FOR_MS = 7 * 24 * 60 * 60_000;
@@ -168,10 +172,8 @@ export function watchQueued(pi: ExtensionAPI): void {
 			const seen = await bound.proposal();
 			if (seen?.state !== "merged") return seen;
 			try {
-				return {
-					...seen,
-					files: (await bound.diffModel()).files.map(filePath),
-				};
+				const diff = await settledWithin(bound.diffModel(), DIFF_READ_MS);
+				return diff ? { ...seen, files: diff.files.map(filePath) } : seen;
 			} catch {
 				// Said landed without its areas: only what its quest is said
 				// to work on misses this one.
