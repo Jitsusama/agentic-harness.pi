@@ -646,6 +646,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 			"a snapshot asked for while the sweep chose was taken",
 		).toEqual([]);
 		expect(existsSync(tree), "a snapshot asked for again went").toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === tree)?.why,
+			"a snapshot a session asked for again was blamed on the reading",
+		).toBe("a session took it up again");
 	});
 
 	it("keeps one git would refuse to remove, as a locked one, from the takes", async () => {

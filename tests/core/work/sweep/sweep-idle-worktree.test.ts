@@ -327,6 +327,10 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(asked, "times the processes were asked").toBe(2);
 		expect(outcome.taken).toEqual([]);
 		expect(existsSync(tree)).toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === tree)?.why,
+			"a worktree its session switched branch in was blamed on the reading",
+		).toBe("a session took it up again");
 		const notes = join(dirname(setup.lockPath), "kept-branches");
 		expect(
 			existsSync(notes) ? readdirSync(notes) : [],
