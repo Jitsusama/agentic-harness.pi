@@ -46,11 +46,11 @@ import {
 	questAddress,
 	sessionAddress,
 	signaturesOfOthers,
-	signedSince,
 	signingSince,
 	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
+import { heldAtStart } from "./kept-holding.ts";
 import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
@@ -480,8 +480,9 @@ export function localPeer(at: Surroundings): Peer {
 	let addresses: string[] = [];
 	// Since when it signs with its quest's address, which a restart keeps,
 	// so a holder reloaded, parked, restarted in place or rolled over still
-	// holds it longer than one that took it meanwhile (address.ts).
-	let signsSince = signedSince(before, now(), { owner: at.owner });
+	// holds it longer than one that took it meanwhile (address.ts); a
+	// hosted one's presence goes, so its process keeps it (kept-holding.ts).
+	let signsSince = heldAtStart(before, at, now());
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = [

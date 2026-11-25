@@ -77,8 +77,9 @@
  * compared in wall-clock ms, which a clock step moves by seconds; and a
  * host restarting over and over keeps its sessions resuming, as each
  * start brings them back again. A host stopped gently forgets the
- * presences of the conversations it doesn't park, so this reads what a
- * host killed or crashed left behind.
+ * presences of the conversations it doesn't park (its process keeps
+ * only their holding time, kept-holding.ts), so this reads what a host
+ * killed or crashed left behind.
  */
 
 import { readFile } from "node:fs/promises";
