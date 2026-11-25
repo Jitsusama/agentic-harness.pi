@@ -93,6 +93,10 @@ describe("plainQuotes", () => {
 		["heavy low comma quote ornaments", "\u275F\u2760"],
 		["sans-serif heavy quote ornaments", "\u{1F676}\u{1F677}\u{1F678}"],
 		["the Greek varia and oxia, a grave and an acute", "\u1FEF\u1FFD"],
+		["the Greek numeral sign, a prime by another code point", "\u0374"],
+		["corner brackets", "\u300C\u300D\u300E\u300F"],
+		["halfwidth corner brackets", "\uFF62\uFF63"],
+		["vertical corner brackets", "\uFE41\uFE42\uFE43\uFE44"],
 	])("says %s as a straight single quote", (_, quote) => {
 		expect(plainQuotes(`y${quote}z`)).toBe(
 			`y${"'".repeat([...quote].length)}z`,

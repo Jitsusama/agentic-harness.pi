@@ -153,14 +153,18 @@ function ownedByQuest(questId: string): string[] {
  * What the quest's sessions say they work on, as presence publishes
  * it: what they own, then what the README declares, naming any of
  * those the node would pass over or the places would leave out, and
- * how many of those said name no work a need is routed by.
+ * which it declares name no work a need is routed by. What it owns is
+ * the machine's config, which `subjects=` can't change, so it is left
+ * out of those.
  */
 function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	const owned = subjectsOf(ownedByQuest(questId), []);
 	const declared = declaredSubjects(fm._extra?.subjects);
 	const said = subjectsOf(owned, declared);
 	const left = declared.filter((one) => !said.includes(one));
-	const silent = said.filter(namesNoWork);
+	const silent = said.filter(
+		(one) => declared.includes(one) && namesNoWork(one),
+	);
 	const parts = [
 		said.length > 0
 			? `They say they work on ${said.join(", ")}`
@@ -168,7 +172,7 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	];
 	if (silent.length > 0) {
 		parts.push(
-			`${silent.length} of which ${silent.length === 1 ? "names" : "name"} no work a need is routed by`,
+			`of which ${silent.join(", ")} ${silent.length === 1 ? "names" : "name"} no work a need is routed by`,
 		);
 	}
 	if (owned.length > 0) parts.push(`owning ${owned.join(", ")}`);

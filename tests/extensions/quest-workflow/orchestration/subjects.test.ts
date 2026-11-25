@@ -166,8 +166,12 @@ describe("the subjects a quest's sessions declare", () => {
 		expect(said(result)).toMatch(/a \.service ending set aside/);
 	});
 
-	it("say how many the README declares that name no work", async () => {
+	// What the quest owns is the machine's config, which subjects= can't
+	// change, so the report names only what the README declares.
+	it("name those the README declares that name no work, and none it owns", async () => {
 		const id = await made();
+		// An owned prefix as common as after routes nothing either.
+		owners(`after.=${questAddress(id)}`);
 		const file = join(questsRoot(), id, "README.md");
 		const text = readFileSync(file, "utf8");
 		writeFileSync(
@@ -175,7 +179,8 @@ describe("the subjects a quest's sessions declare", () => {
 			text.replace(/\n---\n/, "\nsubjects:\n  - needs\n  - x:can\n---\n"),
 		);
 		const report = await run({ action: "config", id });
-		expect(said(report)).toMatch(/1 of which names no work/);
+		expect(said(report)).toMatch(/, of which x:can names no work a need/);
+		expect(said(report), "the owned prefix").toMatch(/owning after\./);
 	});
 
 	it("refuse what the owner prefixes would crowd out of the twelve places, changing nothing", async () => {

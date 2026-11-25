@@ -422,4 +422,33 @@ describe("a lost need's refusal, by where this peer sits", () => {
 		expect(said).toContain(FIND_WHILE_UNLISTED);
 		expect(nodeAnswered).not.toHaveBeenCalled();
 	});
+
+	// A node that gave the need no answer is not back, so no find runs
+	// and the kept hub isn't told it is.
+	it("tells the kept hub nothing when the node gave the need no answer", async () => {
+		const nodeAnswered = vi.fn();
+
+		const said = await refusedAt(
+			holding({}, () => [ON_NO_QUEST], undefined, nodeAnswered),
+		);
+
+		expect(said).toContain("Not sent: no node answered");
+		expect(nodeAnswered).not.toHaveBeenCalled();
+	});
+
+	// A find that throws settled nothing, so it says nothing of the node.
+	it("tells the kept hub nothing when its find throws", async () => {
+		const nodeAnswered = vi.fn();
+		const all = vi
+			.fn<() => Presence[]>()
+			.mockReturnValueOnce([])
+			.mockImplementation(() => {
+				throw new Error("EMFILE: too many open files");
+			});
+
+		const said = await refusedAt(holding({}, all, LOST_ON_WORDS, nodeAnswered));
+
+		expect(said).toContain(FIND_NONE_FOUND);
+		expect(nodeAnswered).not.toHaveBeenCalled();
+	});
 });
