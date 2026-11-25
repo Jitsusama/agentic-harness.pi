@@ -1,8 +1,8 @@
 # Files
 
 Reading files once and keeping their parse until they change, so a
-reader asked often reads only what moved; and where a file tool's path
-points.
+reader asked often reads only what moved; where a file tool's path
+points; and moving a file whole across volumes.
 
 ## Files
 
@@ -18,6 +18,10 @@ points.
   of its conversations; fed instead by what already follows the folder
   once for every process, where its kind names one, as presence names
   the mycelium node.
+- **`move-file.ts`**: a file or a link moved whole, by rename, or by a
+  copy renamed in beside its new place where a rename can't cross, as
+  from outside a btrfs subvolume into it, so a carry's staging reaches a
+  quest's scratch.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.

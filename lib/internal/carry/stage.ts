@@ -3,9 +3,11 @@
  * staged is placed there.
  *
  * Each carry stages in its own folder beside the quest scratches, where
- * the share never reads, on the handover's volume, so a rename places a
- * file whole. What a placed file replaces waits in the folder's
- * `.before` until the carry stands, and goes back where it fails.
+ * the share never reads, and each file is placed whole: by rename, or,
+ * where the quest's scratch is a btrfs subvolume of its own, which a
+ * rename can't cross, by a copy renamed in beside it (`moveFile`). What
+ * a placed file replaces waits in the folder's `.before` until the carry
+ * stands, and goes back where it fails.
  *
  * A carry killed between placing its files and writing its done file
  * can't put anything back itself: the handover would keep its new files
@@ -39,6 +41,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { moveFile } from "../files/move-file.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf } from "./handover.ts";
@@ -177,7 +180,7 @@ export async function staged<T>(
 			}
 			for (const name of [...gone, ...names]) {
 				if (moved.includes(name) || !besideFolder(join(into, name))) continue;
-				renameSync(join(into, name), join(aside, name));
+				moveFile(join(into, name), join(aside, name));
 				moved.push(name);
 			}
 			// Named only once nothing of its name is left in the handover, so
@@ -185,7 +188,7 @@ export async function staged<T>(
 			placed.push(...names);
 			record();
 			for (const name of names) {
-				renameSync(join(folder, name), join(into, name));
+				moveFile(join(folder, name), join(into, name));
 			}
 		},
 	};
@@ -236,7 +239,7 @@ function putBack(
 		(name) => !undo(() => rmSync(join(into, name), { force: true })),
 	);
 	const left = readdirSync(aside).filter(
-		(name) => !undo(() => renameSync(join(aside, name), join(into, name))),
+		(name) => !undo(() => moveFile(join(aside, name), join(into, name))),
 	);
 	return { stuck, left };
 }
