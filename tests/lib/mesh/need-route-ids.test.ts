@@ -342,36 +342,46 @@ describe("a need for the id a cell holds", () => {
 	// (#2136's round 3, F1.)
 	it("takes no leg-26 cell at leg because its id also holds another number said", () => {
 		const found = routeNeed(
-			{ ...asked("A", ...wordsOf("leg 27 pass 3")), fromText: true },
+			{ ...asked("A", ...wordsOf("leg 27 pass 3 easing")), fromText: true },
 			{
-				foragers: cells({ A: [], G: wordsOf("leg-26-pass-3") }),
+				foragers: cells({
+					A: [],
+					G: [...wordsOf("leg-26-pass-3"), "easing"],
+				}),
 				ties: ties(["A", "G", 1]),
 				hubs: [],
 			},
 		);
 
+		expect(found, "G, on easing").toMatchObject({ fit: "G" });
+		expect(found.words, "easing, which G plainly works on").toContain("easing");
 		expect(found.words, "no leg").not.toContain("leg");
 	});
 
-	// Among words as rare as each other, the one fewer live cells work on
-	// goes first, counting no cell that holds it only as another leg's
-	// (#2136's round 3, F3 and F5).
-	it("breaks a tie on leg by the live cells working on leg 27, not every leg's", () => {
+	// Among words as rare as each other, counting ended holders too, the
+	// one fewer live cells work on goes first, counting no cell that holds
+	// it only as another leg's (#2136's round 3, F3 and F5). Easing and leg
+	// each have two holders, but one of leg's has ended, so leg goes first,
+	// where the word's name alone would put easing first.
+	it("breaks a tie between words as rare by the live cells working on each", () => {
 		const found = routeNeed(
-			{ ...asked("A", ...wordsOf("Leg 27 lines")), fromText: true },
+			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
 			{
 				foragers: cells({
 					A: [],
+					F: ["easing"],
+					F2: ["easing"],
 					L: ["leg"],
-					N: ["lines"],
+					L2: ["leg"],
 					P: wordsOf("leg-26"),
 				}),
-				ties: ties(["A", "L", 1], ["A", "N", 1], ["A", "P", 1]),
+				ties: ties(["A", "F", 1], ["A", "F2", 1], ["A", "L", 1], ["A", "P", 1]),
 				hubs: [],
+				live: (address) => address !== "L2",
 			},
 		);
 
-		expect(found, "L, leg going before lines by name").toMatchObject({
+		expect(found, "L, leg having fewer live holders").toMatchObject({
 			fit: "L",
 		});
 	});
