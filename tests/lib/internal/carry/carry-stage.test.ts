@@ -266,6 +266,62 @@ describe("a carry staged before the handover", () => {
 		expect(staging(into)).toEqual([]);
 	});
 
+	it("takes out a session's refusal of an earlier order once its carry lands, leaving another session's", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const refusal =
+			'{"session":"s-f","why":"it held a lease","at":"2026-11-07T08:00:00.000Z"}\n';
+		writeFileSync(join(into, "s-f.refused.json"), refusal);
+		writeFileSync(join(into, "s-g.refused.json"), refusal);
+
+		await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-f", cwd: tree },
+			trees: [tree],
+			whole: true,
+		});
+
+		expect(existsSync(join(into, "s-f.done.json")), "it carried").toBe(true);
+		expect(
+			existsSync(join(into, "s-f.refused.json")),
+			"its own refusal, which the carry answers, is gone",
+		).toBe(false);
+		expect(
+			readFileSync(join(into, "s-g.refused.json"), "utf8"),
+			"another session's stays as it was",
+		).toBe(refusal);
+		expect(staging(into)).toEqual([]);
+	});
+
+	it("puts back a session's refusal of an earlier order when its carry fails", async () => {
+		const { home, tree, into } = await homeWithWork();
+		const refusal =
+			'{"session":"s-h","why":"it held a lease","at":"2026-11-07T08:00:00.000Z"}\n';
+		writeFileSync(join(into, "s-h.refused.json"), refusal);
+		failing.set("s-h", () => {});
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-h", cwd: tree },
+				trees: [tree],
+				whole: true,
+			}),
+		).rejects.toThrow("the disk is full");
+
+		expect(
+			filesIn(into),
+			"only the refusal is left, as it was before the carry",
+		).toEqual(["s-h.refused.json"]);
+		expect(readFileSync(join(into, "s-h.refused.json"), "utf8")).toBe(refusal);
+		expect(staging(into)).toEqual([]);
+	});
+
 	it("takes out what a session's earlier carry named and its next one doesn't, leaving another session's", async () => {
 		const { origin, home, tree, into } = await homeWithWork();
 		const other = await cloneAt(origin, join(home, "src", "lib"));
