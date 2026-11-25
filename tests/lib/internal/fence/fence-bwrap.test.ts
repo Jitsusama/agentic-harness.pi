@@ -98,7 +98,7 @@ describe.skipIf(bwrap === undefined)(
 			disposeRepo(template);
 		});
 
-		it("makes no repository in src, so pi's git there finds none", () => {
+		it("makes no repository in src, so pi's git there finds none and is pinned to it", () => {
 			const made = join(home, "src", "made");
 			expect(fenced(`git init -q ${made}`), "git init ran").toBe(false);
 			expect(existsSync(made), `${made} was made`).toBe(false);
@@ -108,7 +108,10 @@ describe.skipIf(bwrap === undefined)(
 					fenced: true,
 					trees: join(home, "trees"),
 				}),
-			).toEqual({ args: ["-c", "core.fsmonitor=false", "status"] });
+			).toEqual({
+				args: ["-c", "core.fsmonitor=false", "status"],
+				unrooted: made,
+			});
 		});
 
 		it("adds nothing to a checkout's git folder that sends git elsewhere", () => {
