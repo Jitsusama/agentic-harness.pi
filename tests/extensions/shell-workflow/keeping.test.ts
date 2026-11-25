@@ -338,16 +338,17 @@ describe("a kept call", { timeout: LOADED_CASE_MS }, () => {
 		const signal = new AbortController().signal;
 		const running = run(
 			kept.operations,
-			"echo started; sleep 0.8; exit 5",
+			"echo started; sleep 6; exit 5",
 			signal,
 			{},
-			0.3,
+			5,
 		);
+		// The limit leaves a loaded machine time to put the pid on disk before
+		// it fires, since no wait outlasts it, and the child outlasts the limit.
 		const carry = kept.carryOf(signal);
 		await until(
 			"the call to have its pid on disk",
 			() => carry?.what() !== undefined,
-			LOADED_MS,
 		);
 		const work = carry?.what();
 		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
