@@ -42,7 +42,7 @@ import { basename, dirname } from "node:path";
 import {
 	WORKER_SOCKET_VARIABLE,
 	workerSocket,
-} from "../../mesh/worker-link.ts";
+} from "../../mesh/worker-socket.ts";
 
 /** The folder the node serves its worker sockets in, one a realm. */
 export const WORKER_SOCKET_FOLDER = "/run/mycelium";

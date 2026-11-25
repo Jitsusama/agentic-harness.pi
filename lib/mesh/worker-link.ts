@@ -24,7 +24,6 @@
  */
 
 import { connect, type Socket } from "node:net";
-import { isAbsolute } from "node:path";
 import { type Message, messageFrom } from "./message.ts";
 import { oneLine } from "./one-line.ts";
 import type { Presence, Presences } from "./presence.ts";
@@ -36,8 +35,7 @@ import {
 	writeAtomically,
 } from "./transport.ts";
 
-/** The variable a worker machine names its node's worker socket in. */
-export const WORKER_SOCKET_VARIABLE = "MYCELIUM_WORKER_SOCKET";
+export { WORKER_SOCKET_VARIABLE, workerSocket } from "./worker-socket.ts";
 
 /** How long a dropped connection waits before it is first opened again. */
 export const FIRST_RETRY_MS = 1000;
@@ -97,17 +95,6 @@ const BARE_ID = /^\d{1,16}-[A-Za-z0-9]+-\d+-[A-Za-z0-9]+$/;
 export function isBareId(id: string): boolean {
 	const at = stampedAt(id);
 	return BARE_ID.test(id) && at !== undefined && at <= LATEST_TIME_MS;
-}
-
-/**
- * The worker socket this machine names, or none: none where the variable
- * is unset, empty or not an absolute path, and the folder stands alone.
- */
-export function workerSocket(
-	env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-	const named = env[WORKER_SOCKET_VARIABLE];
-	return named && isAbsolute(named) ? named : undefined;
 }
 
 /** What the node refused, or what never reached it, and why. */
