@@ -85,15 +85,16 @@ export function tellHolder(
 /**
  * Why writing `path` failed, naming the file: an error from opening it
  * names it already, but one from the write itself, as a full disk's
- * ENOSPC, names only the call. A message said as a sentence, as
- * writeWhole's refusal of a staging folder that is a link, loses its
- * full stop before the file is named after it.
+ * ENOSPC, names only the call. It never ends in a full stop, so a
+ * caller ends its own sentence after it: a message said as a sentence,
+ * as writeWhole's refusal of a staging folder that is a link, loses its
+ * full stop, whether the file is named after it or not.
  */
 export function whyWriting(path: string, error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-	return message.includes(path)
-		? message
-		: `${message.replace(/\.$/, "")}, to ${path}`;
+	const message = (
+		error instanceof Error ? error.message : String(error)
+	).replace(/\.$/, "");
+	return message.includes(path) ? message : `${message}, to ${path}`;
 }
 
 /**

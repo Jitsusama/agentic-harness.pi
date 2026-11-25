@@ -369,7 +369,8 @@ export async function serveHost(options: {
 					if (restarting) await control.restarting();
 					await control.close();
 					// Each child runs on through the stop, for the next host to adopt,
-					// and one still starting is let go at once rather than waited on.
+					// and one still starting is let go at once rather than waited on;
+					// an untaken warm spare, running no conversation, is stopped.
 					children?.close();
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.

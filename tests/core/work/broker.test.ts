@@ -6,6 +6,7 @@ import {
 	type TreeProvider,
 } from "../../../lib/core/work/broker.ts";
 import type { TreeMemory } from "../../../lib/core/work/memory.ts";
+import { StuckAside } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 
 const world: RepoLocator = { key: "github:Shopify/world" };
@@ -70,6 +71,11 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		otherHolders: async (path) => (path === held.path ? owners : []),
 		heldByUs: async () => new Set(),
 		forgetUsAsHolder: async () => {},
+		whileHeldAlone: async (path, take) => {
+			if (path === held.path && owners.length > 0) return owners.length;
+			await take();
+			return 0;
+		},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
 		whileUnusedSince: async () => undefined,
@@ -481,6 +487,161 @@ describe("createTreeBroker", () => {
 		expect(released).toEqual(["/trees/one"]);
 		expect(forgotten).toEqual(["/trees/one"]);
 		expect(broker.held()).toEqual([]);
+	});
+
+	it("sets a tree aside by the move it is given, never its provider, keeping it named while the move is refused", async () => {
+		const { provider, released } = fakeProvider("git-worktree");
+		const forgotten: string[] = [];
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (path, take) => {
+					await take();
+					forgotten.push(path);
+					return 0;
+				},
+				recall: () => (forgotten.includes(held.path) ? [] : [held]),
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+		const moved: string[] = [];
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new Error("EXDEV: cross-device link not permitted");
+			}),
+		).rejects.toThrow(/EXDEV/);
+		expect(forgotten).toEqual([]);
+		expect(broker.cutHere(mine.path), "still held here").toBe(true);
+
+		const outcome = await broker.setAside(mine, (path) => {
+			moved.push(path);
+		});
+		expect(outcome).toEqual({ kind: "released" });
+		expect(moved).toEqual([mine.path]);
+		expect(released).toEqual([]);
+		expect(forgotten).toEqual([mine.path]);
+		expect(broker.cutHere(mine.path)).toBe(false);
+		expect(broker.held()).toEqual([]);
+	});
+
+	it("leaves judging who else holds a tree to the memory's lock, dropping only its own share", async () => {
+		const { provider } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, [4242]),
+				// Asked outside the lock, a session joining before the move
+				// would go unseen, so the memory alone may judge it.
+				otherHolders: async () => {
+					throw new Error("judged outside the record's lock");
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+		const moved: string[] = [];
+
+		const outcome = await broker.setAside(mine, (path) => {
+			moved.push(path);
+		});
+
+		expect(outcome).toEqual({ kind: "released", kept: 1 });
+		expect(moved).toEqual([]);
+		expect(broker.cutHere(mine.path), "our share went").toBe(false);
+	});
+
+	it("lets go of a tree stuck aside, forgetting its record, since both would name what stands there now", async () => {
+		// A put-back fails mostly because something new took the name, and
+		// a hold kept there would have a retried release judge that.
+		const { provider } = fakeProvider("git-worktree");
+		const forgotten: string[] = [];
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (path, take) => {
+					await take();
+					forgotten.push(path);
+					return 0;
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new StuckAside("/elsewhere", "it stands at /elsewhere");
+			}),
+		).rejects.toBeInstanceOf(StuckAside);
+		expect(forgotten, "its record went under the lock").toEqual([mine.path]);
+		expect(broker.cutHere(mine.path), "not held here").toBe(false);
+	});
+
+	it("says a tree stuck aside even when its record then can't be forgotten", async () => {
+		// Where the tree stands is what the answer must carry; the forget's
+		// own failure would have the answer say it is still there and held.
+		const { provider } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (_path, take) => {
+					await take();
+					throw new Error("EACCES: permission denied");
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new StuckAside("/elsewhere", "it stands at /elsewhere");
+			}),
+		).rejects.toBeInstanceOf(StuckAside);
+		expect(broker.cutHere(mine.path), "not held here").toBe(false);
+	});
+
+	it("lets go of a tree set aside though its record couldn't be forgotten", async () => {
+		const { provider } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (_path, take) => {
+					await take();
+					throw new Error("EACCES: permission denied");
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(broker.setAside(mine, () => {})).rejects.toThrow(/EACCES/);
+		expect(broker.cutHere(mine.path), "moved, so not held here").toBe(false);
+	});
+
+	it("keeps a tree held when who else holds it can't be read", async () => {
+		const { provider, released } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				otherHolders: async () => {
+					throw new Error("EIO: i/o error");
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(broker.release(mine)).rejects.toThrow(/EIO/);
+		expect(released).toEqual([]);
+		expect(broker.cutHere(mine.path), "still held here").toBe(true);
 	});
 
 	it("reports what it is holding", async () => {

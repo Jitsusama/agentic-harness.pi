@@ -14,7 +14,16 @@
  * The work is the tool's own, run under a signal this module owns. Until
  * the hand-off that signal follows the call's, so Escape stops the work
  * as it always has; after it, it follows the job's, so `/jobs`, the
- * jobs tool and the session ending do.
+ * jobs tool and the session ending do. Where a job host takes the call,
+ * it is also the call signal of every command the work starts
+ * (`withCallSignal`), since a provider built once reads that rather
+ * than an argument. Durable aborts a review call's signal as that call
+ * ends (host/engine/hosted-conversation.ts), which for a handed-off
+ * call is at the minute; under it, a World cut a round began before
+ * then died with SIGTERM about a minute in, four times on 24 November.
+ * A command aborted now names its signal's reason, so a stop from
+ * anywhere else reads apart. With no host, or nested, the call never
+ * moves, and the work runs under the call's signal as it stands.
  *
  * A line the person types during the run moves the call a moment later
  * rather than at the minute (steer.ts), since pi reads the line only
@@ -34,6 +43,7 @@ import type {
 	AgentToolUpdateCallback,
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
+import { withCallSignal } from "../core/exec/index.ts";
 import { sessionEnv } from "../core/session/index.ts";
 import { scrubSavedOutput } from "../internal/secrets/saved-output.ts";
 import {
@@ -197,15 +207,17 @@ export async function runOrHandOff<T>(
 	let handedOff = false;
 	let latest = "";
 	let lastOutputAt = startedAt;
-	const running = call.run(owned.signal, (partial) => {
-		const text = firstText(partial);
-		if (text !== latest) {
-			latest = text;
-			lastOutputAt = now();
-		}
-		// The call has returned once handed off; its row is not ours to draw.
-		if (!handedOff) call.onUpdate?.(partial);
-	});
+	const running = withCallSignal(owned.signal, () =>
+		call.run(owned.signal, (partial) => {
+			const text = firstText(partial);
+			if (text !== latest) {
+				latest = text;
+				lastOutputAt = now();
+			}
+			// The call has returned once handed off; its row is not ours to draw.
+			if (!handedOff) call.onUpdate?.(partial);
+		}),
+	);
 
 	const delay = call.background === true ? 0 : (call.afterMs ?? HAND_OFF_MS);
 	let timer: ReturnType<typeof setTimeout> | undefined;

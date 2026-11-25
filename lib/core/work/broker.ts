@@ -12,6 +12,7 @@
 import type { Owner } from "../process/index.ts";
 import type { TreeMemory } from "./memory.ts";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.ts";
+import { StuckAside } from "./stranded.ts";
 import {
 	satisfies,
 	type TreeIdentity,
@@ -147,6 +148,20 @@ export interface TreeBroker {
 	/** Hand a tree back to the provider that cut it, and say what happened. */
 	release(held: HeldTree, options?: TreeCallOptions): Promise<ReleaseOutcome>;
 	/**
+	 * Give a tree back by `move`, which takes its folder out of the way
+	 * without its provider, as for one git won't run in, so its provider
+	 * can't remove it. Held as a release is, but judged under the tree's
+	 * record lock, so a session joining it as it moves is seen: while
+	 * another session holds it, only our share goes and nothing moves;
+	 * a move that throws keeps the record and our hold, except one that
+	 * throws StuckAside, whose tree has left its path: both go, and the
+	 * StuckAside is thrown, whatever fails after it.
+	 */
+	setAside(
+		held: HeldTree,
+		move: (path: string) => void,
+	): Promise<ReleaseOutcome>;
+	/**
 	 * Every tree held, this session's first and then any left behind by an
 	 * earlier one.
 	 *
@@ -265,6 +280,89 @@ export function createTreeBroker(
 		for (const tree of trees.filter((one) => !stands(one.path))) {
 			trees.splice(trees.indexOf(tree), 1);
 			fallen.push(tree);
+		}
+	};
+	/**
+	 * Give `held` back by `take`, which takes the folder away: our share
+	 * only, while another session holds it too, else the folder and then
+	 * its record.
+	 */
+	const giveBack = async (
+		held: HeldTree,
+		take: () => Promise<void>,
+	): Promise<ReleaseOutcome> => {
+		const at = trees.findIndex((tree) => tree.path === held.path);
+		const ours = at >= 0 ? trees.splice(at, 1) : [];
+		try {
+			// Giving up our share of a shared tree is not taking it away.
+			// A snapshot can be held by two sessions, and once this change
+			// started writing that down, releasing had to read it: taking
+			// the directory while somebody else is standing in it is the
+			// failure this whole change is about, arriving through the one
+			// door that always could remove a tree.
+			const others = await memory?.otherHolders(held.path);
+			if (others !== undefined && others.length > 0) {
+				await memory?.forgetUsAsHolder(held.path);
+				return { kind: "released", kept: others.length };
+			}
+
+			// Forgotten only once the provider has taken the tree. A release
+			// refused, failed or cut off leaves the tree on disk and in git,
+			// and the record is all that names it: forgetting first left two
+			// clean World trees no release could reach, after a script's time
+			// limit stopped git part-way (2AF2DH, 10 November). A tree left
+			// half-removed stays named too, so a second release finishes it,
+			// and a cut that finds its record asks the provider whether it
+			// still stands. A record that couldn't be read keeps our hold too.
+			await take();
+		} catch (error) {
+			trees.push(...ours);
+			throw error;
+		}
+		memory?.forget(held.path);
+		return { kind: "released" };
+	};
+
+	/**
+	 * Set `held` aside by `move`, judged under its record's lock, so a
+	 * session joining it while it moves is seen and the tree left to it.
+	 * Our hold stays whenever the record or the move throws before the
+	 * tree has moved, and goes once it has, whatever follows. A move that
+	 * throws {@link StuckAside} has moved the tree, so its record is
+	 * forgotten under the lock as a finished move's is, and the error
+	 * then thrown: kept, the hold and the record would name whatever
+	 * stands at the old path now.
+	 */
+	const moveAside = async (
+		held: HeldTree,
+		move: (path: string) => void,
+	): Promise<ReleaseOutcome> => {
+		const at = trees.findIndex((tree) => tree.path === held.path);
+		const ours = at >= 0 ? trees.splice(at, 1) : [];
+		let moved = false;
+		let stuck: StuckAside | undefined;
+		const take = async (): Promise<void> => {
+			try {
+				move(held.path);
+			} catch (error) {
+				if (!(error instanceof StuckAside)) throw error;
+				stuck = error;
+			}
+			moved = true;
+		};
+		try {
+			const kept =
+				memory === undefined
+					? await take().then(() => 0)
+					: await memory.whileHeldAlone(held.path, take);
+			if (stuck !== undefined) throw stuck;
+			return kept > 0 ? { kind: "released", kept } : { kind: "released" };
+		} catch (error) {
+			// A tree already moved is no longer where our hold says it is.
+			if (!moved) trees.push(...ours);
+			// Where the tree stands is what an answer must carry, so a stuck
+			// move is said even when forgetting its record fails after it.
+			throw stuck ?? error;
 		}
 	};
 	/** The tree of ours that fell and this request asks for again, said once. */
@@ -438,45 +536,10 @@ export function createTreeBroker(
 				};
 			}
 
-			const at = trees.findIndex((tree) => tree.path === held.path);
-			const ours = at >= 0 ? trees.splice(at, 1) : [];
-
-			// Giving up our share of a shared tree is not taking it away.
-			// A snapshot can be held by two sessions, and once this change
-			// started writing that down, releasing had to read it: taking
-			// the directory while somebody else is standing in it is the
-			// failure this whole change is about, arriving through the one
-			// door that always could remove a tree.
-			let others: readonly Owner[] | undefined;
-			try {
-				others = await memory?.otherHolders(held.path);
-			} catch (error) {
-				// Holders unread leave the tree held, as a refused release does.
-				trees.push(...ours);
-				throw error;
-			}
-			if (others !== undefined && others.length > 0) {
-				await memory?.forgetUsAsHolder(held.path);
-				return { kind: "released", kept: others.length };
-			}
-
-			// Forgotten only once the provider has taken the tree. A release
-			// refused, failed or cut off leaves the tree on disk and in git,
-			// and the record is all that names it: forgetting first left two
-			// clean World trees no release could reach, after a script's time
-			// limit stopped git part-way (2AF2DH, 10 November). A tree left
-			// half-removed stays named too, so a second release finishes it,
-			// and a cut that finds its record asks the provider whether it
-			// still stands.
-			try {
-				await owner.release(held, options);
-			} catch (error) {
-				trees.push(...ours);
-				throw error;
-			}
-			memory?.forget(held.path);
-			return { kind: "released" };
+			return await giveBack(held, () => owner.release(held, options));
 		},
+
+		setAside: (held, move) => moveAside(held, move),
 
 		held: () => everything(),
 

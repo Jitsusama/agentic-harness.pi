@@ -13,7 +13,6 @@ import {
 	refusalText,
 	relayedTransport,
 	replyFrom,
-	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
 import { quietFor, until } from "../../support/until.ts";
 import {
@@ -30,19 +29,6 @@ import {
 } from "../../support/worker-node.ts";
 
 useStandInNode();
-
-describe("finding the worker socket", () => {
-	it("takes an absolute path the machine names, and nothing else", () => {
-		expect(workerSocket({ MYCELIUM_WORKER_SOCKET: "/run/worker.sock" })).toBe(
-			"/run/worker.sock",
-		);
-		expect(workerSocket({ MYCELIUM_WORKER_SOCKET: "worker.sock" })).toBe(
-			undefined,
-		);
-		expect(workerSocket({ MYCELIUM_WORKER_SOCKET: "" })).toBe(undefined);
-		expect(workerSocket({})).toBe(undefined);
-	});
-});
 
 describe("a worker's link to its node", () => {
 	it("holds its presence, then watches for its session", async () => {

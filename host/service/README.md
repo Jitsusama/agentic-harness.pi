@@ -393,7 +393,9 @@ input pipeline or screen. No unit or running host is installed yet.
   conversations. Where its policy says, it keeps one warm spare
   started 10 s after its adopt and after each take, and never sooner,
   through the gate behind every start already waiting, holding its
-  turn until warm (or 120 s, said as "a spare held its turn"), which a
+  turn until warm (said as "a spare was seen warm", or at 120 s as "a
+  spare held its turn"), or until its unit ends cold ("a spare ended
+  before it warmed"), which a
   start given its turn takes in place of starting a unit, said as "took a
   warm spare" in the journal; a spare still warming is passed over,
   and one whose version its install has moved on from is passed over
@@ -401,7 +403,8 @@ input pipeline or screen. No unit or running host is installed yet.
   on code a fresh start would no longer run.
   One that leaves untaken is let go and replaced, whether the check or
   a take finds it gone, and one with no warm mark 120 s after its start
-  is stopped, said as "stopped a spare that never warmed". Once three
+  is stopped, said as "stopped a spare that never warmed"; one seen
+  warm once never is, though its mark goes as it leaves. Once three
   in a row leave within 300 s of starting the host keeps none until it
   restarts. A host stopping stops its untaken spare, since it runs no
   conversation, and a host taking up its last one's slots stops every
@@ -414,7 +417,8 @@ input pipeline or screen. No unit or running host is installed yet.
   resume their conversations beside them, stop the host first and
   then their units: a running host starts a child again at its
   conversation's next wake. Before rolling back to a host with children
-  but no spares, set `"spares": false` and wait for the spare to stop,
+  but no spares, set `"spares": false` and wait for the journal to say
+  "stopped the spare, since the policy keeps none" (within a minute),
   or that host takes it up as a child that never listens, and holds
   its resumes back a minute. The host runs a
   conversation itself only once every child that ran it has gone and

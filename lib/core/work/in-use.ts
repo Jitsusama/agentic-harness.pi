@@ -38,7 +38,8 @@ export interface UseSigns {
 	 * are taken, since a census from the start of a sweep is minutes old
 	 * by then; and asked only of those, since reading every process's
 	 * descriptors is a walk of thousands. Nothing when the machine can't
-	 * say, as without `/proc`, and then nothing is taken.
+	 * say, as when a reading fails or can't be shown whole, and then
+	 * nothing is taken.
 	 */
 	busyAmong?(
 		paths: readonly string[],

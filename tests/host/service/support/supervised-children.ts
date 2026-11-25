@@ -169,6 +169,8 @@ export interface FakeUnits extends Units {
 		spareLeaves?: boolean;
 		/** The version a spare says in its warm mark; none said where unset. */
 		spareVersion?: string;
+		/** How long a spare runs on once it leaves, as a real one's process exits. */
+		leavesAfterMs?: number;
 	};
 	/** What each child started does where `next` says nothing, by its unit. */
 	traitsOf?: (unit: string) => FakeUnits["next"];
@@ -402,6 +404,11 @@ function fakeUnits(): FakeUnits {
 						takeWithinMs: 1_000,
 					});
 					if ("left" in end) {
+						if (next.leavesAfterMs !== undefined) {
+							await pause(next.leavesAfterMs);
+							// A later test may start a unit of the same name.
+							if (folder !== itsTest) return;
+						}
 						fake.children.delete(unit);
 						return;
 					}
