@@ -70,7 +70,8 @@ second, so the wait was on something only a real session reaches.
   has no way to exit with a code that skips the threadpool. A quit
   nobody asked ends by USR2 instead, which its holder restarts.
 - Says who asked a pi to quit: `pi: quitting session S, asked by X`
-  in the system's log, and a `quit` entry in the session's log. The
+  in the system's log. The session's log gets nothing, so a hosted
+  conversation's record keeps plain pi's shape. The
   asker is whatever named itself just before (a mesh close, the quest
   ending, a park, a restart onto fresh code, one-writer), the
   person's exit key, second clear key or `/quit` as they bound them,

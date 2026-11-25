@@ -28,8 +28,8 @@
  * and writing the record blocks the loop a few ms, once.
  *
  * A pi that quits says who asked: `pi: quitting session S, asked by
- * X` in the system's log and a `quit` entry in its session's log. The
- * asker is whatever named itself just before (a mesh close, the quest
+ * X` in the system's log, never in its session's log, whose entries a
+ * hosted conversation keeps the same as plain pi's. The asker is whatever named itself just before (a mesh close, the quest
  * ending, a park, one-writer), the person's exit key, second clear key
  * or /quit read from the window as they bound them, or the TERM or HUP
  * that armed the watch. A held pi that quits at nobody's ask exits 79
@@ -95,9 +95,6 @@ export const SLOW_END_MS = 2_000;
 /** The session entry a crash is kept as. */
 export const CRASH_ENTRY = "crash";
 
-/** The session entry a quit is kept as, naming who asked. */
-export const QUIT_ENTRY = "quit";
-
 /**
  * Registers this session's crash writer while the session runs, and
  * says when the process was first ready.
@@ -160,7 +157,7 @@ export default function crashRecord(pi: ExtensionAPI): void {
 		stop = undefined;
 		unlistenKeys?.();
 		unlistenKeys = undefined;
-		if (event.reason === "quit") sayQuit(pi, sessionOf(ctx));
+		if (event.reason === "quit") sayQuit(sessionOf(ctx));
 		// Only a quit ends the process; a reload, new session, resume or
 		// fork starts the next session in it, which watches afresh.
 		if (event.reason === "quit") slowEnd?.arm("quit");
@@ -189,11 +186,10 @@ function listenForQuitKeys(ctx: ExtensionContext): () => void {
 }
 
 /**
- * Says who asked this pi to quit, in its session's log and the system's
- * log; a held pi nobody asked exits with `UNASKED_EXIT`, which its
+ * Says who asked this pi to quit, in the system's log; a held pi nobody asked exits with `UNASKED_EXIT`, which its
  * holder answers by starting it again.
  */
-function sayQuit(pi: ExtensionAPI, session: string): void {
+function sayQuit(session: string): void {
 	const asker = quitAsker();
 	const held = holderFiles(process.env, process.pid) !== undefined;
 	const restarts = quitExit(asker, held, 0) === UNASKED_EXIT;
@@ -208,11 +204,6 @@ function sayQuit(pi: ExtensionAPI, session: string): void {
 				typeof set === "number" ? set : code,
 			);
 		});
-	}
-	try {
-		pi.appendEntry(QUIT_ENTRY, { by: asker ?? null, restarts });
-	} catch {
-		// A session already closing for writes still gets the system's line.
 	}
 	// A plain pi waits for its line, as it may exit at once; a host
 	// serves other screens, so its line waits on nothing.
