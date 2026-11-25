@@ -51,6 +51,9 @@ export {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "./events.ts";
+export { configuredFetchRule } from "./fetch-rule-config.ts";
+export type { FetchRule } from "./fetch-rules.ts";
+export { behindThrough } from "./fetch-rules.ts";
 export type {
 	ChangedPath,
 	TreeHead,

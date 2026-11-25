@@ -14,7 +14,7 @@
  * own first version.
  */
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -27,11 +27,10 @@ import {
 	createTreeBroker,
 	type TreeBroker,
 } from "../../lib/core/work/broker.ts";
+import { configuredFetchRule } from "../../lib/core/work/fetch-rule-config.ts";
 import {
-	type FetchRule,
 	type FetchRules,
 	fetchingBy,
-	parseWorkFetches,
 } from "../../lib/core/work/fetch-rules.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import {
@@ -44,7 +43,6 @@ import {
 	listTreeProviders,
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
-import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	QUEUED_LIMIT_MS,
@@ -156,41 +154,13 @@ const GIT_IN_ENGLISH: Readonly<Record<string, string>> = {
 export function treeExecOver(
 	direct: Exec,
 	queued: Exec,
-	rules: FetchRules = configuredFetchRules,
+	rules: FetchRules = configuredFetchRule,
 ): Exec {
 	const held = heldGit(gitRules);
 	return fetchingBy(queuedExec(direct, queued, held), rules, (rule, args) =>
 		queuedExec(direct, queued, held, rule.through)("git", [...args]),
 	);
 }
-
-/** The `work` section's fetch rule for the checkout at `gitDir`, read afresh. */
-async function configuredFetchRules(
-	gitDir: string,
-): Promise<FetchRule | undefined> {
-	const loaded = await loadPackageConfig();
-	if (!loaded.ok) return undefined;
-	// A section written wrong fetches as it always did; the rest still holds.
-	const { fetches } = parseWorkFetches(loaded.config.sections[WORK_SLUG]);
-	// Keyed as written or as the folder really is, since git names it
-	// by its real path and the person may name it through a link.
-	return Object.entries(fetches).find(
-		([folder]) => folder === gitDir || realPath(folder) === gitDir,
-	)?.[1];
-}
-
-/** `path` with its links followed, or itself when it can't be read. */
-function realPath(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		// A folder that isn't there names no checkout git could be in.
-		return path;
-	}
-}
-
-/** The package config's section for the work tool. */
-const WORK_SLUG = "work";
 
 /**
  * One conversation's broker and the pi sessions each tree it takes up
