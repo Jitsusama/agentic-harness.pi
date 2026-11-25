@@ -135,21 +135,25 @@ describe("the registered bash", () => {
 		expect(result?.content[0]?.text).toBe("yes true session-1");
 	});
 
-	it("keeps the command, its prefix included, off the shell's command line", async () => {
-		await sessionStart?.({ type: "session_start" }, ctx());
-		const result = await tool?.execute(
-			"t2",
-			{ command: "tr '\\0' ' ' < /proc/$$/cmdline" },
-			undefined,
-			undefined,
-			ctx(),
-		);
+	// It reads the shell's command line from /proc, which a Mac lacks.
+	it.skipIf(!existsSync("/proc/self/cmdline"))(
+		"keeps the command, its prefix included, off the shell's command line",
+		async () => {
+			await sessionStart?.({ type: "session_start" }, ctx());
+			const result = await tool?.execute(
+				"t2",
+				{ command: "tr '\\0' ' ' < /proc/$$/cmdline" },
+				undefined,
+				undefined,
+				ctx(),
+			);
 
-		const shown = result?.content[0]?.text ?? "";
-		expect(shown).toContain("eval");
-		expect(shown).not.toContain("WIRED");
-		expect(shown).not.toContain("cmdline");
-	});
+			const shown = result?.content[0]?.text ?? "";
+			expect(shown).toContain("eval");
+			expect(shown).not.toContain("WIRED");
+			expect(shown).not.toContain("cmdline");
+		},
+	);
 });
 
 // 80ECO2's fenced `pi -p` proof on 2026-11-11: a command handed off after

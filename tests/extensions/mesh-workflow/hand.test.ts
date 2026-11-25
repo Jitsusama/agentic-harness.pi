@@ -109,7 +109,14 @@ async function startHand(env: NodeJS.ProcessEnv = fleet) {
 			emit: (channel: string, data: unknown) => emitted.push([channel, data]),
 		},
 	};
-	meshHand(paths, env)(pi as never);
+	// A runtime folder of its own: one left unnamed falls back, on a Mac,
+	// to its cache folder, where the machine's own node would carry what
+	// the hand says to the real mesh.
+	const runtime =
+		env.XDG_RUNTIME_DIR || env.AGENTS_RUNTIME_DIR
+			? {}
+			: { XDG_RUNTIME_DIR: join(root, "no-node") };
+	meshHand(paths, { ...env, ...runtime })(pi as never);
 	await lifecycle.get("session_start")?.({ reason: "startup" }, {});
 	const fire = (event: string, payload: unknown = {}, at: unknown = {}) =>
 		lifecycle.get(event)?.(payload, at);

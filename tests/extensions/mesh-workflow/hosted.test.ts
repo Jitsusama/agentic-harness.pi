@@ -124,8 +124,12 @@ async function peer(id: string) {
 	withSession(id, () =>
 		meshWorkflow(
 			paths,
-			// No machine's owners file: the test reads none.
-			{ PI_OWNERS_FILE: join(root, "no-owners.txt") },
+			// No machine's owners file, and no runtime folder of a node, which
+			// on a Mac would otherwise be the account's own: the test reads none.
+			{
+				PI_OWNERS_FILE: join(root, "no-owners.txt"),
+				XDG_RUNTIME_DIR: join(root, "no-node"),
+			},
 			{ settleMs: 1, spreadMs: 0 },
 		)(pi as unknown as ExtensionAPI),
 	);
@@ -596,7 +600,9 @@ it("ends a conversation another host holds through that host's socket, never a s
 	await stopListening();
 	expect(await end("EEEEEEEE")).toContain("did not confirm");
 	expect([...open]).toEqual([near]);
-	expect(kill).not.toHaveBeenCalled();
+	// Signal 0 sends nothing: it only asks whether a pid is alive, as the
+	// liveness check does on a Mac, where no /proc lists its start.
+	expect(kill.mock.calls.filter(([, signal]) => signal !== 0)).toEqual([]);
 	kill.mockRestore();
 	vi.unstubAllEnvs();
 	self.dispose();

@@ -126,6 +126,11 @@ export async function startSession(
 ) {
 	// No machine's owners file: a test reads only the one it writes.
 	env.PI_OWNERS_FILE ??= join(fixture.root, "no-owners.txt");
+	// No machine's runtime folder either: one left unnamed falls back, on a
+	// Mac, to its cache folder, where the machine's own node answers.
+	if (!env.XDG_RUNTIME_DIR && !env.AGENTS_RUNTIME_DIR) {
+		env.XDG_RUNTIME_DIR = join(fixture.root, "no-node");
+	}
 	const sent: Sent[] = [];
 	const emitted: [string, unknown][] = [];
 	const bus = new Map<string, ((data: unknown) => void)[]>();

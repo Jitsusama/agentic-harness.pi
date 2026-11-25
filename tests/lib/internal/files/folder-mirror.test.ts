@@ -2,6 +2,9 @@
  * A folder's files read as asked, or mirrored for a host: what the first
  * ask gets, how soon another process's write shows, what this process's
  * own writes do, and that the poll keeps up when the watch can't.
+ *
+ * Long because each case drives one mirror through the same mocked disk
+ * and watch, which a split would set up twice.
  */
 import {
 	chmodSync,
@@ -12,12 +15,13 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	type WatchListener,
 	watch,
 	writeFileSync,
 } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type FolderMirror,
@@ -56,6 +60,20 @@ vi.mock("node:fs", async (importOriginal) => {
 const realWatch = (await vi.importActual<typeof import("node:fs")>("node:fs"))
 	.watch;
 
+/**
+ * How long a watch may take to hear a change on a loaded machine. With
+ * the read's two seconds and the case's own setup it stays well under the
+ * 60 s backstop, so a backstop listing never passes a case that waits on it.
+ */
+const HEARD_MS = 30_000;
+
+/**
+ * How long a case may take in all, past vitest's own five seconds, which
+ * optimus at a load of 190 ran past in cases that wait on a watch: a wait
+ * of HEARD_MS, its read and its setup.
+ */
+const HEARING_CASE_MS = HEARD_MS + 10_000;
+
 /** The watches made on this test's folder, newest last. */
 function watchesOfDir(): ReturnType<typeof watch>[] {
 	const made = vi.mocked(watch).mock;
@@ -63,6 +81,11 @@ function watchesOfDir(): ReturnType<typeof watch>[] {
 		const result = made.results[index];
 		return path === dir && result?.type === "return" ? [result.value] : [];
 	});
+}
+
+/** Whether a watch's argument is the listener it calls. */
+function isListener(one: unknown): one is WatchListener<string> {
+	return typeof one === "function";
 }
 
 /** How often this test's folder was listed off the thread. */
@@ -174,7 +197,7 @@ describe("a folder read as asked", () => {
 	});
 });
 
-describe("a host's mirror of a folder", () => {
+describe("a host's mirror of a folder", { timeout: HEARING_CASE_MS }, () => {
 	// A fresh mirror each test, so no test reads another's folder.
 	const mirror = (times = {}) => folderMirrors(WORDS, times)(dir);
 
@@ -434,6 +457,14 @@ describe("a host's mirror of a folder", () => {
 		put("a.txt", "old folder");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		// Only the folder's own event counts: it is the one the mirror acts
+		// on, where a.txt's removal would start the read's clock too soon.
+		let heard = 0;
+		made.on("change", (_kind: string, name: string | Buffer | null) => {
+			if (String(name) === basename(dir)) heard += 1;
+		});
 		const old = statSync(dir);
 		const stats = vi.mocked(stat);
 		const was = stats.getMockImplementation();
@@ -447,6 +478,13 @@ describe("a host's mirror of a folder", () => {
 			rmSync(dir, { recursive: true });
 			mkdirSync(dir);
 			put("b.txt", "new folder");
+			// A Mac's watch hears through FSEvents, which the work Mac under
+			// load delivered past two seconds, so the read is timed from what
+			// the watch heard rather than from the change.
+			await vi.waitFor(
+				() => expect(heard, "the watch heard").toBeGreaterThan(0),
+				{ timeout: HEARD_MS },
+			);
 			await vi.waitFor(
 				() =>
 					expect(
@@ -605,6 +643,118 @@ describe("a host's mirror of a folder", () => {
 		).toBe(false);
 	});
 
+	// On the work Mac a watch made on a folder just made dropped itself and
+	// another was made, since a Mac's watch names the folder itself for its
+	// making, its mode and its removal, where its watch then lives on.
+	it("lists a folder its watch names on a Mac, keeping the watch", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		const closed = vi.spyOn(made, "close");
+		const before = listings();
+		const platform = process.platform;
+		Object.defineProperty(process, "platform", { value: "darwin" });
+		try {
+			made.emit("change", "rename", basename(dir));
+			await vi.waitFor(
+				() => {
+					folder.files();
+					expect(listings() - before, "the folder listed").toBeGreaterThan(0);
+				},
+				{ timeout: 2000 },
+			);
+		} finally {
+			Object.defineProperty(process, "platform", { value: platform });
+		}
+		expect(closed, "the watch kept open").not.toHaveBeenCalled();
+		expect(watchesOfDir(), "the one watch kept").toHaveLength(1);
+	});
+
+	// The council on #2195: a listing under way may have read the folder's
+	// names before a change to the folder its watch heard, its mode as a
+	// Mac names it, so it lists once more, and only once. The new file
+	// stands for what that change let in, which no named read finds here.
+	it("lists again after a listing under way when a Mac's watch names its folder", async () => {
+		put("a.txt", "here");
+		// A watch deaf to the folder, so only a listing can find the new
+		// file, which still hears what the test says it heard.
+		const elsewhere = join(dir, "elsewhere");
+		mkdirSync(elsewhere);
+		vi.mocked(watch).mockImplementationOnce((...args: unknown[]) => {
+			const deaf = realWatch(elsewhere, { persistent: false });
+			const heard = args.find(isListener);
+			if (heard !== undefined) deaf.on("change", heard);
+			return deaf;
+		});
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		const platform = process.platform;
+		Object.defineProperty(process, "platform", { value: "darwin" });
+		try {
+			const stall = stalling();
+			listing.wait = stall.here;
+			const under = folder.refresh();
+			await stall.reached;
+			const listed = listings();
+			put("b.txt", "after the stalled listing read");
+			made.emit("change", "change", basename(dir));
+			stall.release();
+			await under;
+			await vi.waitFor(
+				() => {
+					folder.files();
+					expect(folder.file(join(dir, "b.txt")), "listed again").toBe(
+						"after the stalled listing read",
+					);
+				},
+				{ timeout: 2000 },
+			);
+			// One more listing of its own, and the one this begins: no more.
+			await folder.refresh();
+			expect(listings() - listed, "one listing again").toBeLessThanOrEqual(2);
+		} finally {
+			Object.defineProperty(process, "platform", { value: platform });
+		}
+	});
+
+	// The council on #2195: on a Mac a folder made again is still watched
+	// anew, by the look the event runs or the tick's own, whichever lands
+	// first, so this holds the outcome, not which of them found it.
+	it("watches a folder made again on a Mac when its watch names it", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		const platform = process.platform;
+		Object.defineProperty(process, "platform", { value: "darwin" });
+		const away = `${dir}-away`;
+		try {
+			// Moved away rather than removed, so the new folder's inode differs.
+			renameSync(dir, away);
+			mkdirSync(dir);
+			put("b.txt", "in the new folder");
+			made.emit("change", "change", basename(dir));
+			await vi.waitFor(
+				() => {
+					folder.files();
+					expect(watchesOfDir(), "a watch of the new folder").toHaveLength(2);
+					expect(folder.file(join(dir, "b.txt")), "the new folder read").toBe(
+						"in the new folder",
+					);
+				},
+				{ timeout: 2000 },
+			);
+		} finally {
+			Object.defineProperty(process, "platform", { value: platform });
+			rmSync(away, { recursive: true, force: true });
+		}
+	});
+
 	// The council on #1933: a name the watch gives is a file of the folder's
 	// own, never one in a folder below it, which a listing never keeps.
 	it("passes over a name the watch gives in a folder below its own", async () => {
@@ -678,8 +828,10 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: a stat that failed on a file still there
 	// dropped a live peer until it published again.
-	// Root reads a folder whatever its mode, so it can't lock one.
-	it.skipIf(process.getuid?.() === 0)(
+	// Root reads a folder whatever its mode, so it can't lock one. On the
+	// work Mac a write with the folder locked at once after was heard as a
+	// change to the folder alone, so no named read is made there.
+	it.skipIf(process.getuid?.() === 0 || process.platform === "darwin")(
 		"keeps a named file whose stat fails while the file is still there",
 		async () => {
 			put("a.txt", "here");
@@ -702,7 +854,9 @@ describe("a host's mirror of a folder", () => {
 							asked(),
 							"the named read's stat of the locked file",
 						).toBeGreaterThan(before),
-					{ timeout: 2000 },
+					// It follows the watch's event, which optimus at a load of 190
+					// heard past the test's own five seconds.
+					{ timeout: HEARD_MS },
 				);
 				// Long enough for what the read kept to land.
 				await new Promise((done) => setTimeout(done, 200));

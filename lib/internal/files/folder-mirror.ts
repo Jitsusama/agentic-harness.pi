@@ -286,6 +286,9 @@ function mirrorOf<T>(
 	// A watch being made.
 	let making = false;
 	let flight: Promise<Mirrored<T>> | undefined;
+	// A watch's word heard while a listing was under way, which may have
+	// read the folder before what it heard: the folder is listed once more.
+	let more = false;
 	// The files a watch named since they were last read, and their read.
 	const touched = new Set<string>();
 	let naming: Promise<void> | undefined;
@@ -392,8 +395,18 @@ function mirrorOf<T>(
 		// After the named reads under way, so neither lands over the other.
 		flight ??= (naming ?? Promise.resolve()).then(readAgain).finally(() => {
 			flight = undefined;
+			if (more) {
+				more = false;
+				void refresh().catch(nothing);
+			}
 		});
 		return flight;
+	};
+	// What a watch heard, listed after a listing under way rather than
+	// joining it, so a change it heard after that listing read is kept.
+	const relist = (): void => {
+		if (flight === undefined) void refresh().catch(nothing);
+		else more = true;
 	};
 	// The files the watch named, each read alone off the thread.
 	const readTouched = async (): Promise<void> => {
@@ -487,15 +500,23 @@ function mirrorOf<T>(
 		)
 			return;
 		const made = watch(dir, { persistent: false }, (_kind, name) => {
-			// The folder itself removed or renamed away, as libuv names it: the
-			// watch hears nothing more, so the next tick makes one and lists.
+			// The folder itself named, as libuv names a change to it: on Linux
+			// it may have gone, and the watch would hear nothing more, so it is
+			// dropped and the next tick makes one and lists.
 			if (name === basename(dir)) {
-				if (watcher === made) unwatch();
+				// A probe on the work Mac heard its watch name the folder for the
+				// folder's making just before the watch, its mode and its removal,
+				// and then hear a file in a folder made again at its path. There
+				// the look drops the watch only if the folder went, and it is listed.
+				if (process.platform === "darwin") {
+					look();
+					relist();
+				} else if (watcher === made) unwatch();
 				return;
 			}
 			// A file of its kind is read alone; a staged one is passed over
 			// until it is renamed in; an event naming none lists them all.
-			if (name === null) void refresh().catch(nothing);
+			if (name === null) relist();
 			else if (name.endsWith(kind.suffix) && basename(name) === name)
 				readNamed(join(dir, name));
 		});
@@ -516,8 +537,9 @@ function mirrorOf<T>(
 	};
 	// One stat of the folder a tick, off the thread: one renamed away, or
 	// made again, drops the watch, so the next tick follows the new one.
-	// A folder made again with its inode back looks the same here, so the
-	// watch's own word that its folder went drops it as well. Birth would
+	// A folder made again with its inode back looks the same here, so on
+	// Linux the watch's own word that its folder went drops it as well; a
+	// Mac's watch, which follows the path, is kept. Birth would
 	// tell them apart, but where libuv can't use statx it reports the
 	// folder's ctime, which every publish moves.
 	const look = (): void => {

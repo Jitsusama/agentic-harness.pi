@@ -64,8 +64,12 @@ async function startSession(): Promise<Map<string, Tool>> {
 		registerCommand: () => {},
 		events: { on: () => {}, emit: () => {} },
 	};
-	// No machine's owners file: the test reads none.
-	const env = { PI_OWNERS_FILE: join(root, "no-owners.txt") };
+	// No machine's owners file, and no runtime folder of a node, which on a
+	// Mac would otherwise be the account's own: the test reads none.
+	const env = {
+		PI_OWNERS_FILE: join(root, "no-owners.txt"),
+		XDG_RUNTIME_DIR: join(root, "no-node"),
+	};
 	meshWorkflow(paths, env, { settleMs: 40, spreadMs: 0 })(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
