@@ -480,6 +480,30 @@ describe("sending to a need", () => {
 		);
 	});
 
+	// The asker's own title says funnel, and the reply once said the need
+	// was routed by it too, though a word it holds routes nowhere
+	// (#2118's council F15).
+	it("says it went by no word only its asker works on", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep the funnel's fonts?",
+			about: "fonts carry funnel",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said).toContain(
+			"No cell works on fonts, so it found nobody and it was routed by carry alone.",
+		);
+	});
+
 	it("names an ended cell heard from lately that works on a word no live cell does", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(

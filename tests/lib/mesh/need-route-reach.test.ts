@@ -582,3 +582,57 @@ describe("what a fit and an owner are weighed by", () => {
 		expect(found).not.toHaveProperty("fellShort");
 	});
 });
+
+// A reply says which words a need went by, and each kept word was once
+// said whether or not the cell found works on it (#2118's council F15).
+describe("the words a need is said to have gone by", () => {
+	it("are those the fit works on, never one only the asker, a stopper or a cell not reached holds", () => {
+		const found = routeNeed(asked("A", "carry", "lines", "kerning", "glyphs"), {
+			foragers: cells({
+				A: ["lines"],
+				B: ["carry"],
+				S: ["kerning"],
+				F: ["glyphs"],
+			}),
+			ties: ties(["A", "B", 1], ["A", "S", 1]),
+			hubs: [],
+			live: () => true,
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "each word kept, as some cell holds it").toMatchObject({
+			words: ["carry", "lines", "kerning", "glyphs"],
+			fit: "B",
+			by: ["carry"],
+		});
+	});
+
+	it("are those the live cell found works on when an ended cell owns it", () => {
+		const reach = {
+			foragers: cells({
+				A: [],
+				H: [],
+				Z: [],
+				J: ["dates", "delivery"],
+				B: ["delivery"],
+			}),
+			ties: ties(["A", "B", 1], ["J", "Z", 1]),
+			hubs: [{ subject: "dates", hub: "H", fits: ["J"] }],
+		};
+
+		const owned = routeNeed(asked("A", "dates", "delivery"), {
+			...reach,
+			live: (address) => address !== "J",
+		});
+		const back = routeNeed(asked("A", "dates", "delivery"), reach);
+		const lost = routeNeed(asked("A", "fonts", "dates"), {
+			...reach,
+			live: (address) => address !== "J",
+		});
+
+		expect(owned).toMatchObject({ fellShort: "B", by: ["delivery"] });
+		expect(back).toMatchObject({ fit: "J", by: ["dates", "delivery"] });
+		expect(lost, "no live cell found").toMatchObject({ fit: null });
+		expect(lost).not.toHaveProperty("by");
+	});
+});

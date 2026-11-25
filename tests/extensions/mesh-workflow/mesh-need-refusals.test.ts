@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Local } from "../../../extensions/mesh-workflow/tools/local.ts";
 import {
 	ASK_WHO_OWNS_IT,
+	FIND_NONE_FOUND,
 	FIND_WHILE_QUIET,
 	FIND_WHILE_UNLISTED,
-	FIND_WHILE_UNREAD,
 	FIND_WHO_OWNS_IT,
 	needRead,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
@@ -75,6 +75,8 @@ describe("a lost need's refusal", () => {
 		expect(FIND_WHILE_UNLISTED).toMatch(/while the mesh doesn't list it yet/);
 		expect(FIND_WHILE_UNLISTED).toMatch(/find the owner in mesh_groups/);
 		expect(FIND_WHILE_UNLISTED).not.toMatch(/node is quiet/);
+		expect(FIND_NONE_FOUND).toMatch(/find the owner in mesh_groups/);
+		expect(FIND_NONE_FOUND).not.toMatch(/quiet|can be asked/);
 	});
 
 	it("points at orchestrator when a mark names one above", async () => {
@@ -104,6 +106,24 @@ describe("a lost need's refusal", () => {
 		expect(self?.orchestrates).toBe("7M6JKG");
 	});
 
+	// Another live session signs with the quest's address and so plays its
+	// head, leaving this one on the quest with no role: the head it would
+	// write to is named, never orchestrator or mesh_groups (#2118's
+	// council F19).
+	it("names the head of its quest for a peer on it that doesn't play the head", async () => {
+		questHeadedBy("7M6JKG");
+		peer("session-a", ["7M6JKG"], ["#quest/7m6jkg"]);
+
+		const said = await lostNeed();
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(
+			"Not knowing who, ask 7M6JKG, the head of this peer's quest, who owns it: a question to 7M6JKG.",
+		);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+		expect(said).not.toContain("question to orchestrator");
+	});
+
 	// Under no mark, 5GV2AH's cell above is this peer's hub from use, which
 	// `orchestrator` reaches, so the refusal names it rather than saying
 	// nothing is above.
@@ -128,6 +148,7 @@ describe("a lost need's refusal", () => {
 			return asks === 1 ? Promise.resolve() : new Promise(() => {});
 		});
 		await untilHubKept(started.emit);
+		const before = asks;
 
 		const said = await fontsNeed(started.tools);
 
@@ -135,6 +156,10 @@ describe("a lost need's refusal", () => {
 		expect(said).toContain(HUB_NAMED);
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 		expect(said).not.toContain(FIND_WHILE_QUIET);
+		// The need's own ask alone: a node that gave it no answer isn't asked
+		// again for a fresh hub, whose find would name the same kept one
+		// (#2118's council F20).
+		expect(asks, "no fresh find for a hub").toBe(before + 1);
 	}, 15_000);
 
 	// The node answered the need, then left the refusal's own find for a hub
@@ -155,6 +180,33 @@ describe("a lost need's refusal", () => {
 		expect(said).toContain("Not sent: no word of its about");
 		expect(said).toContain(HUB_NAMED);
 		expect(said).not.toContain(FIND_WHILE_QUIET);
+	}, 15_000);
+
+	// The node answered the need, so a find for a hub that went unfinished,
+	// with none kept, is no quiet node's: the refusal once blamed one
+	// (#2118's council F16 and F27).
+	it("says none was found, not that the node was quiet, when it answers the need but not the find", async () => {
+		let asks = 0;
+		let answering = false;
+		const started = await underHub(() => {
+			asks += 1;
+			if (!answering) return new Promise(() => {});
+			answering = false;
+			return Promise.resolve();
+		});
+		// The session's own find at its start asks first and is held, so no
+		// hub is kept; from here only the need's own ask for ties is answered.
+		await vi.waitFor(() => expect(asks).toBeGreaterThan(0), {
+			timeout: 5_000,
+		});
+		answering = true;
+
+		const said = await fontsNeed(started.tools);
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(FIND_NONE_FOUND);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
+		expect(said).not.toContain(HUB_NAMED);
 	}, 15_000);
 });
 
@@ -300,7 +352,8 @@ describe("a lost need's refusal, by where this peer sits", () => {
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 	});
 
-	it("says none was found when reading the presences fails during the find", async () => {
+	// The find reads more than the presences, so a failure names no cause.
+	it("says none was found, and not why, when reading the presences fails during the find", async () => {
 		const all = vi
 			.fn<() => Presence[]>()
 			.mockReturnValueOnce([])
@@ -312,7 +365,8 @@ describe("a lost need's refusal, by where this peer sits", () => {
 
 		expect(all).toHaveBeenCalledTimes(2);
 		expect(said).toContain("Not sent: no word of its about");
-		expect(said).toContain(FIND_WHILE_UNREAD);
+		expect(said).toContain(FIND_NONE_FOUND);
+		expect(said).not.toContain("presences couldn't be read");
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 	});

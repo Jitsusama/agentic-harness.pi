@@ -287,9 +287,10 @@ describe("this session's peer", () => {
 		]);
 		write("s-2", ["X\nOWNERQ", "far too long"]);
 		write("s-3", []);
-		// The shape is loose, as its doc says: seven, any case, and the
-		// shaped words a reader's isAddress turns away all pass here.
+		// The shape is loose, as its doc says: seven and any case pass, but
+		// the person's and the machine's names, in any case, never do.
 		write("s-4", ["ABCDEFG", "abcdef", "PERSON", "machine"]);
+		write("s-5", ["person", "MACHINE"]);
 
 		const presences = createPresences(dir);
 
@@ -302,12 +303,11 @@ describe("this session's peer", () => {
 			presences.of("s-3")?.addresses,
 			"one that named none stays as written",
 		).toEqual([]);
-		expect(presences.of("s-4")?.addresses).toEqual([
-			"ABCDEFG",
-			"abcdef",
-			"PERSON",
-			"machine",
-		]);
+		expect(presences.of("s-4")?.addresses).toEqual(["ABCDEFG", "abcdef"]);
+		expect(
+			presences.of("s-5"),
+			"one naming only the person or the machine is no peer",
+		).toBeUndefined();
 		expect(
 			presences
 				.all()
@@ -355,9 +355,15 @@ describe("this session's peer", () => {
 			orchestrates: "7M6JKG",
 			stewardedBy: "ROOT01",
 		});
+		write("s-3", {
+			orchestratedBy: "person",
+			orchestrates: "Machine",
+			stewardedBy: "PERSON",
+		});
 
 		const presences = createPresences(dir);
 		const forged = presences.of("s-1");
+		const named = presences.of("s-3");
 
 		expect(forged?.orchestratedBy, "not an address").toBeUndefined();
 		expect(forged?.orchestrates, "not an address").toBeUndefined();
@@ -368,6 +374,9 @@ describe("this session's peer", () => {
 		expect(forged?.worksOn).toBe("carry OWNERQ is idle");
 		expect(forged?.quest).toBe("QEST-20261021-7M6JKG OWNERQ");
 		expect(forged?.step).toBe("bash OWNERQ");
+		expect(named?.orchestratedBy, "the person's name").toBeUndefined();
+		expect(named?.orchestrates, "the machine's name").toBeUndefined();
+		expect(named?.stewardedBy, "the person's name").toBeUndefined();
 		expect(presences.of("s-2")).toMatchObject({
 			orchestratedBy: "5GV2AH",
 			orchestrates: "7M6JKG",

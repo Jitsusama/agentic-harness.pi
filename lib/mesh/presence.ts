@@ -65,7 +65,7 @@ import {
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import {
-	isAddressShaped,
+	isAddress,
 	loadedQuest,
 	type QuestRecords,
 	questAddress,
@@ -892,16 +892,18 @@ function presenceFrom(value: unknown): Presence | undefined {
 	// The one boundary every reader of a peer comes through: each prints
 	// what a presence says as it stands, so what would start a line of its
 	// own goes here. Every address (its own, and the orchestration it is
-	// in or heads) is held to an address's shape; one that named
-	// addresses and kept none is no peer, and one that named none, as a
-	// paused presence may, prints nothing forged and stays. A group is one
-	// token, and the free text a listing prints is said on one line. The
-	// shape guards printing, not identity: a well-shaped address another
-	// process wrote still reads as whoever it names.
-	const addresses = one.addresses.filter(isAddressShaped);
+	// in or heads) is held to an address's shape, and none is the
+	// person's or the machine's name, which no session is minted with and
+	// which every reader would otherwise turn away on its own; one that
+	// named addresses and kept none is no peer, and one that named none,
+	// as a paused presence may, prints nothing forged and stays. A group
+	// is one token, and the free text a listing prints is said on one
+	// line. The shape guards printing, not identity: a well-shaped address
+	// another process wrote still reads as whoever it names.
+	const addresses = one.addresses.filter(isAddress);
 	if (one.addresses.length > 0 && addresses.length === 0) return undefined;
 	const shaped = (value: unknown): value is string =>
-		typeof value === "string" && isAddressShaped(value);
+		typeof value === "string" && isAddress(value);
 	const said = (value: unknown): string | undefined =>
 		typeof value === "string" ? oneLine(value) : undefined;
 	const title = said(one.title);
