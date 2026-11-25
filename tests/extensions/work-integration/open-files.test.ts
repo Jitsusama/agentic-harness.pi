@@ -50,13 +50,16 @@ describe("what lsof lists for the sweep", () => {
 		);
 
 		expect(listed, "a whole listing wasn't given").toBe(WHOLE);
-		expect(asked[0]?.[1], "not this account's processes").toEqual([
-			"-n",
-			"-P",
-			"-F",
-			"n",
-			"-u",
-			"501",
+		// The whole call, so a listing that runs unbounded under the lock,
+		// or a bare name the sweep's PATH can't find, fails here.
+		expect(asked[0], "lsof wasn't asked of this account, bounded").toEqual([
+			"/usr/sbin/lsof",
+			["-n", "-P", "-F", "n", "-u", "501"],
+			expect.objectContaining({
+				timeout: LSOF_LIMIT_MS,
+				killSignal: "SIGKILL",
+				maxBuffer: expect.any(Number),
+			}),
 		]);
 		expect(
 			LSOF_LIMIT_MS,
@@ -94,6 +97,8 @@ describe("what lsof lists for the sweep", () => {
 			warned: { stdout: WHOLE, stderr: "lsof: WARNING: can't stat()\n" },
 			empty: { stdout: "", stderr: "" },
 			short: { stdout: "p501\nfcwd\nn/trees/a\n", stderr: "" },
+			// Only near the asker's line: another process, and a file named so.
+			near: { stdout: "p42420\nfcwd\nn/x/p4242\n", stderr: "" },
 		};
 
 		const read = Object.fromEntries(
@@ -110,6 +115,7 @@ describe("what lsof lists for the sweep", () => {
 				warned: undefined,
 				empty: undefined,
 				short: undefined,
+				near: undefined,
 			},
 		);
 	});

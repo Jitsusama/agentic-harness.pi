@@ -618,6 +618,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 			[],
 		);
 		expect(existsSync(tree), "a tree went on a blind reading").toBe(true);
+		expect(
+			outcome.kept.find((kept) => kept.path === tree)?.why,
+			"a reading that couldn't say was logged as a session taking it up",
+		).toBe("the machine can't say which processes hold it");
 	});
 
 	it("keeps one a session asked for again while the sweep chose", async () => {

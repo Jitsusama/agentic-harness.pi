@@ -334,6 +334,30 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		).toEqual([]);
 	});
 
+	it("keeps one whose reading under its lock can't say, and says so", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "blind", IDLE);
+		let asked = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			// The choosing reads every process; the take's own reading, as
+			// when lsof is cut at its limit, can't say.
+			busyAmong: async () => {
+				asked += 1;
+				return asked === 1 ? new Set() : undefined;
+			},
+		});
+
+		expect(outcome.taken, "a worktree was taken on a blind reading").toEqual(
+			[],
+		);
+		expect(existsSync(tree), "a worktree went on a blind reading").toBe(true);
+		expect(
+			outcome.kept.find((kept) => kept.path === tree)?.why,
+			"a reading that couldn't say was logged as a session taking it up",
+		).toBe("the machine can't say which processes hold it");
+	});
+
 	it("takes worktrees first with half the share, so a backlog of snapshots never starves them", async () => {
 		const setup = await setUp();
 		const { tree } = await pushedAndLeft(setup, "first", IDLE + HOUR);
