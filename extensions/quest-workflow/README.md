@@ -535,7 +535,9 @@ while it waits its turn leaves without running.
   is the account's alone, and to `/tmp/pi-quest-<ID>` elsewhere: a
   link to the loaded quest's scratch folder's `tmp/`, out of a
   `/tmp` anything may empty, and laid alone in the fence's runtime
-  folder, so nothing fenced plants another. `GOCACHE` and
+  folder, so nothing fenced plants another. A Linux host whose
+  runtime folder is unset, a link, another account's or open to
+  others says once on stderr why its links lie in `/tmp`. `GOCACHE` and
   `GOMODCACHE` lie in the scratch folder's `cache/`. Conclude and retire remove the whole scratch
   folder, unless a process still works in it, which leaves it to the
   disk guard; a path named in system temp is refused with that remedy. Bash targets resolve as the shell

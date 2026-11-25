@@ -632,6 +632,50 @@ describe("the interceptor", () => {
 			});
 		});
 
+		// F10 on #2125: the link is read by its name, so a write through it
+		// is safe only as the real place it leads to is judged too.
+		describe("whose TMPDIR link lies in the runtime folder", () => {
+			const workspaceOf = (id: string) =>
+				join(base, "cache/pi/agentic-harness.pi/quest-workspace", id, "tmp");
+			let link: string;
+
+			beforeEach(() => {
+				const runtime = join(base, "run");
+				mkdirSync(runtime, { mode: 0o700 });
+				vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+				link = join(runtime, "pi-quest-QEST-1");
+				symlinkSync(workspaceOf("QEST-1"), link);
+				offerShellEnvironment("quest-workflow", () => ({ TMPDIR: link }));
+			});
+
+			it("writes through it to the quest's own scratch", async () => {
+				const answer = await handler(
+					{
+						toolName: "write",
+						input: { path: join(link, "report.txt"), content: "x" },
+					},
+					seat(),
+				);
+				expect(answer, "the write tool refused its own link").toBeUndefined();
+			});
+
+			it("never writes through it once it leads to another quest's scratch", async () => {
+				rmSync(link);
+				symlinkSync(workspaceOf("QEST-2"), link);
+
+				const answer = await handler(
+					{
+						toolName: "write",
+						input: { path: join(link, "report.txt"), content: "x" },
+					},
+					seat(),
+				);
+				expect(answer, "a link swapped to QEST-2 took a write").toMatchObject({
+					block: true,
+				});
+			});
+		});
+
 		it("never writes in another quest's scratch", async () => {
 			const other = join(
 				base,

@@ -6,6 +6,7 @@
  */
 
 import { basename, join } from "node:path";
+import { WORKSPACE_TEMP_FOLDER } from "../../core/internal/quest/workspace.ts";
 import type { OwnFolders } from "./fence-own.ts";
 
 /**
@@ -14,9 +15,6 @@ import type { OwnFolders } from "./fence-own.ts";
  * test holds it to, since lib reads no extension.
  */
 export const TEMP_LINK_PREFIX = "pi-quest-";
-
-/** The folder in a quest's scratch its `TMPDIR` link leads to. */
-const TEMP_FOLDER = "tmp";
 
 /**
  * Where the session's quest's `TMPDIR` link lies in `runtimeDir`, and
@@ -31,7 +29,7 @@ export function questTempLink(
 	if (!scratch?.own) return undefined;
 	return {
 		link: join(runtimeDir, `${TEMP_LINK_PREFIX}${basename(scratch.own)}`),
-		target: join(scratch.own, TEMP_FOLDER),
+		target: join(scratch.own, WORKSPACE_TEMP_FOLDER),
 	};
 }
 

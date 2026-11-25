@@ -24,6 +24,12 @@ import { join, sep } from "node:path";
 import { isId, prefixOf } from "../../../internal/quest/creation/id.ts";
 import { conversationsIn } from "../../../internal/session/host-holds.ts";
 
+/**
+ * The folder in a quest's workspace that takes its ad-hoc writes, which
+ * its `TMPDIR` link leads to outside the fence and in it.
+ */
+export const WORKSPACE_TEMP_FOLDER = "tmp";
+
 /** A quest's workspace folder and its `tmp/`. */
 export interface QuestWorkspace {
 	readonly dir: string;
@@ -40,7 +46,7 @@ export function questWorkspace(root: string, questId: string): QuestWorkspace {
 		throw new Error(`"${questId}" is not a quest ID.`);
 	}
 	const dir = join(root, questId);
-	return { dir, tmp: join(dir, "tmp") };
+	return { dir, tmp: join(dir, WORKSPACE_TEMP_FOLDER) };
 }
 
 /** A quest's `tmp/`, created on first need. */

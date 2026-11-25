@@ -225,13 +225,44 @@ describe("where a quest's TMPDIR link lies", () => {
 		const shared = join(root, "run-group");
 		mkdirSync(shared);
 		chmodSync(shared, 0o750);
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			expect(shortLinkRoot({ XDG_RUNTIME_DIR: linked }, "linux")).toBe("/tmp");
+			expect(shortLinkRoot({ XDG_RUNTIME_DIR: shared }, "linux")).toBe("/tmp");
+			expect(shortLinkRoot({}, "linux")).toBe("/tmp");
+			expect(
+				shortLinkRoot({ XDG_RUNTIME_DIR: join(root, "gone") }, "linux"),
+			).toBe("/tmp");
+		} finally {
+			said.mockRestore();
+		}
+	});
 
-		expect(shortLinkRoot({ XDG_RUNTIME_DIR: linked }, "linux")).toBe("/tmp");
-		expect(shortLinkRoot({ XDG_RUNTIME_DIR: shared }, "linux")).toBe("/tmp");
-		expect(shortLinkRoot({}, "linux")).toBe("/tmp");
-		expect(
-			shortLinkRoot({ XDG_RUNTIME_DIR: join(root, "gone") }, "linux"),
-		).toBe("/tmp");
+	// F15 on #2125: links back in /tmp are where 22 November's were
+	// emptied, so a host that fell back is seen in its journal.
+	it("says once on Linux why the runtime folder was passed over, and never on a Mac", () => {
+		const shared = join(root, "run-open");
+		mkdirSync(shared);
+		chmodSync(shared, 0o755);
+		const linked = join(root, "run-linked");
+		symlinkSync(shared, linked);
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			shortLinkRoot({ XDG_RUNTIME_DIR: shared }, "linux");
+			shortLinkRoot({ XDG_RUNTIME_DIR: shared }, "linux");
+			shortLinkRoot({ XDG_RUNTIME_DIR: linked }, "linux");
+			shortLinkRoot({ XDG_RUNTIME_DIR: linked }, "darwin");
+
+			const lines = said.mock.calls
+				.map(([line]) => String(line))
+				.filter((line) => line.includes("TMPDIR links lie in"));
+			expect(lines).toEqual([
+				`[quest-workflow] TMPDIR links lie in /tmp, which anything may empty, since the runtime folder ${shared} is open to others, mode 755\n`,
+				`[quest-workflow] TMPDIR links lie in /tmp, which anything may empty, since the runtime folder ${linked} is a link\n`,
+			]);
+		} finally {
+			said.mockRestore();
+		}
 	});
 
 	// F3 and F8 on #2125: conclude calls it with no roots, and an older
