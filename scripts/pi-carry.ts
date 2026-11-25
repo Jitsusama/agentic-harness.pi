@@ -58,11 +58,8 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import {
-	type Exec,
-	spawnExec,
-	stoppedBySignals,
-} from "../lib/core/exec/index.ts";
+import { type Exec, spawnExec } from "../lib/core/exec/index.ts";
+import { stoppedBySignals } from "../lib/core/exec/stopped-by-signals.ts";
 import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
@@ -182,7 +179,9 @@ if (
 // git says why in English whatever this machine's language; nothing else.
 // Each command runs in a group of its own, out of reach of a Ctrl-C or a
 // SIGTERM sent to this script, so its stop is passed on: otherwise a
-// killed arrival's clone runs on into a folder nobody takes out.
+// killed arrival's clone runs on into a folder nobody takes out. Each
+// command then ends aborted, and the carry refuses and cleans up as it
+// does for any failed git, a settle's tree removal stopped part-way too.
 const signal = stoppedBySignals();
 const exec: Exec = gitInEnglish(
 	spawnExec({ env: { LC_ALL: "C" }, signal }),

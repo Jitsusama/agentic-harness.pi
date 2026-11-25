@@ -49,7 +49,7 @@ export const EXIT_SAID_TOO_MUCH = 141;
 const MAX_OUTPUT_CHARS = 128 * 1024 * 1024;
 
 /** How long a stopped command has to exit before it is killed outright. */
-const KILL_GRACE_MS = 2000;
+export const KILL_GRACE_MS = 2000;
 
 /**
  * What git and gh are told so they fail rather than ask. Each is the tool's

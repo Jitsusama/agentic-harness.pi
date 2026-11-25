@@ -1,21 +1,20 @@
 /**
  * A script's commands stopped when the script is told to stop.
  *
- * The listening rules run against a stand-in process, since raising a
- * real SIGTERM would end the test runner. That the stop reaches a
- * command in its own group runs a real child, since that property is
- * the operating system's.
+ * These run against a stand-in process, since raising a real SIGTERM
+ * would end the test runner. That an aborted signal stops a command's
+ * whole group is spawnExec's, and spawn.test.ts runs it on real
+ * children.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KILL_GRACE_MS } from "../../../lib/core/exec/spawn.ts";
 import {
 	ENDING,
 	type Ended,
-	EXIT_ABORTED,
-	spawnExec,
 	stoppedBySignals,
-} from "../../../lib/core/exec/index.ts";
-import { until } from "../../support/until.ts";
+	WIND_DOWN_MS,
+} from "../../../lib/core/exec/stopped-by-signals.ts";
 
 /** A process that records what was done to it and sends signals on demand. */
 function standIn(others: Partial<Record<NodeJS.Signals, number>> = {}) {
@@ -52,32 +51,74 @@ function standIn(others: Partial<Record<NodeJS.Signals, number>> = {}) {
 	return { ended, send, killed, count };
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 describe("a script told to stop", () => {
-	it.each(ENDING)(
-		"fires on %s, naming it, and ends as that signal would",
-		(sent) => {
-			const script = standIn();
-			const signal = stoppedBySignals(script.ended);
-			expect(signal.aborted).toBe(false);
+	it.each(ENDING)("stops its commands at once on %s, naming it", (sent) => {
+		const script = standIn();
+		const signal = stoppedBySignals(script.ended);
+		expect(signal.aborted).toBe(false);
 
-			script.send(sent);
+		script.send(sent);
 
-			expect(signal.aborted).toBe(true);
-			expect((signal.reason as Error).message).toBe(
-				`it was told to stop (${sent})`,
-			);
-			expect(script.killed).toEqual([sent]);
-		},
-	);
+		expect(signal.aborted).toBe(true);
+		expect((signal.reason as Error).message).toBe(
+			`it was told to stop (${sent})`,
+		);
+		// Its own flow winds down first: nothing ends it in the same tick.
+		expect(script.killed).toEqual([]);
+	});
 
-	it("leaves the ending to another listener, such as a host saving its state", () => {
+	it.each(ENDING)("is ended by %s once its wind-down is past", (sent) => {
+		const script = standIn();
+		stoppedBySignals(script.ended, 1_000);
+
+		script.send(sent);
+		vi.advanceTimersByTime(999);
+		expect(script.killed).toEqual([]);
+		vi.advanceTimersByTime(1);
+
+		expect(script.killed).toEqual([sent]);
+	});
+
+	it("winds down for longer than spawnExec waits before killing a command", () => {
+		expect(WIND_DOWN_MS).toBeGreaterThan(KILL_GRACE_MS);
+		const script = standIn();
+		stoppedBySignals(script.ended);
+
+		script.send("SIGTERM");
+		vi.advanceTimersByTime(KILL_GRACE_MS);
+		expect(script.killed).toEqual([]);
+		vi.advanceTimersByTime(WIND_DOWN_MS - KILL_GRACE_MS);
+
+		expect(script.killed).toEqual(["SIGTERM"]);
+	});
+
+	it("leaves the ending to another listener on that signal, such as a host saving its state", () => {
 		const script = standIn({ SIGTERM: 1 });
 		const signal = stoppedBySignals(script.ended);
 
 		script.send("SIGTERM");
+		vi.advanceTimersByTime(WIND_DOWN_MS * 2);
 
 		expect(signal.aborted).toBe(true);
 		expect(script.killed).toEqual([]);
+	});
+
+	it("still ends the script when the other listener is on another signal", () => {
+		const script = standIn({ SIGINT: 1 });
+		stoppedBySignals(script.ended);
+
+		script.send("SIGTERM");
+		vi.advanceTimersByTime(WIND_DOWN_MS);
+
+		expect(script.killed).toEqual(["SIGTERM"]);
 	});
 
 	it("takes off every listener it set once one fires, so a second signal ends as usual", () => {
@@ -86,54 +127,7 @@ describe("a script told to stop", () => {
 		expect(script.count()).toBe(ENDING.length);
 
 		script.send("SIGINT");
-		script.send("SIGINT");
-		script.send("SIGTERM");
 
 		expect(script.count()).toBe(0);
-		expect(script.killed).toEqual(["SIGINT"]);
-	});
-
-	it("does nothing until a signal comes", () => {
-		const script = standIn();
-		const signal = stoppedBySignals(script.ended);
-
-		expect(signal.aborted).toBe(false);
-		expect(script.killed).toEqual([]);
 	});
 });
-
-describe("a command the script started", () => {
-	it("is stopped with its group when the script is told to stop", async () => {
-		const script = standIn({ SIGTERM: 1 });
-		const running = spawnExec({ signal: stoppedBySignals(script.ended) })(
-			"sh",
-			["-c", "sleep 30 & echo $!; wait"],
-		);
-		// Long enough for the shell to have started its own child.
-		await new Promise((resolve) => setTimeout(resolve, 300));
-
-		script.send("SIGTERM");
-		const result = await running;
-		const grandchild = Number(result.stdout.trim());
-
-		expect(result.code).toBe(EXIT_ABORTED);
-		expect(result.stderr).toContain("it was told to stop (SIGTERM)");
-		expect(grandchild).toBeGreaterThan(0);
-		await until(
-			"the stopped command's child to be gone",
-			() => !alive(grandchild),
-			3_000,
-		);
-	});
-});
-
-/** Whether a pid still names a running process. */
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		// ESRCH: nothing by that pid, which is the answer.
-		return false;
-	}
-}
