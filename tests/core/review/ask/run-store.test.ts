@@ -355,13 +355,62 @@ describe("finding a council that read a change's commits", () => {
 				outcomes: [{ participantId: "hawk", findingIds: [], failure: "died" }],
 			}),
 		);
+		// Stopped while it worked, with nothing raised, though it spent
+		// tokens: #2530717's round 000004 on 25 November.
+		await store.record(
+			range,
+			read("a6", {
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [],
+						stopped: { limit: "cancelled", detail: "sent SIGTERM" },
+						usage: { tokens: 100_434 },
+					},
+				],
+			}),
+		);
 
 		expect(
 			await store.witnessed(
 				"github:Shopify/world",
-				new Set(["a1", "a2", "a3", "a4", "a5"]),
+				new Set(["a1", "a2", "a3", "a4", "a5", "a6"]),
 			),
 		).toBeUndefined();
+	});
+
+	it("counts a round whose reviewer was stopped after it raised a finding, or asked for what it had", async () => {
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			read("b1", {
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [3],
+						stopped: { limit: "cancelled", detail: "sent SIGTERM" },
+					},
+				],
+			}),
+		);
+		await store.record(
+			range,
+			read("b2", {
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [],
+						stopped: { limit: "soft-deadline", detail: "asked to answer" },
+					},
+				],
+			}),
+		);
+
+		for (const sha of ["b1", "b2"]) {
+			expect(
+				(await store.witnessed("github:Shopify/world", new Set([sha])))?.id,
+			).toBe(`council-${sha}`);
+		}
 	});
 
 	it("passes over a ledger that won't read", async () => {

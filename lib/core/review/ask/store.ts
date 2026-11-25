@@ -19,6 +19,7 @@ import { fileReads } from "../../../internal/files/file-reads.ts";
 import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
 import { changeKey } from "../keys.ts";
+import { answeredOutcome } from "./answered.ts";
 import type { AskRound, AskRun } from "./run.ts";
 
 /** Rounds held against a change. */
@@ -486,12 +487,7 @@ function readSomething(run: unknown): run is AskRun {
 		typeof run.startedAt === "string" &&
 		"outcomes" in run &&
 		Array.isArray(run.outcomes) &&
-		run.outcomes.some(
-			(outcome: unknown) =>
-				typeof outcome === "object" &&
-				outcome !== null &&
-				!("failure" in outcome && outcome.failure !== undefined),
-		)
+		run.outcomes.some(answeredOutcome)
 	);
 }
 

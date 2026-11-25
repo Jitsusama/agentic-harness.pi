@@ -85,6 +85,33 @@ describe("councilNotEarned", () => {
 		).toContain("council-aaa");
 	});
 
+	it("counts no council whose every reviewer was stopped before it raised anything", () => {
+		// #2530717's round 000004 on 25 November: stopped by its session,
+		// one reviewer 100k tokens in, nothing raised.
+		const stopped = (participantId: string, findingIds: number[] = []) => ({
+			participantId,
+			findingIds,
+			stopped: { limit: "cancelled" as const, detail: "sent SIGTERM" },
+		});
+		const cancelled = council("aaa", {
+			outcomes: [
+				{ ...stopped("one"), usage: { tokens: 100_434 } },
+				stopped("two"),
+			],
+		});
+		expect(
+			councilNotEarned([cancelled], "aaa", undefined),
+			"a stopped round read nothing it kept",
+		).toBeUndefined();
+		const raised = council("aaa", {
+			outcomes: [stopped("one", [7]), stopped("two")],
+		});
+		expect(
+			councilNotEarned([raised], "aaa", undefined),
+			"one raised a finding before it was stopped",
+		).toContain("council-aaa");
+	});
+
 	it("leaves councils whose every reviewer failed unread out of the count of three", () => {
 		const failed = (participantId: string) => ({
 			participantId,
