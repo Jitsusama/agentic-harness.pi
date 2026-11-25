@@ -19,8 +19,10 @@
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { filePath } from "../../lib/core/review/diff.ts";
 import type { Change, ChangeRef } from "../../lib/core/review/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { areasOf } from "../../lib/internal/session/changed-areas.ts";
 import { sayClosed, sayLanded } from "../../lib/internal/session/landings.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { reviewEngine, sessionKey } from "./engine.ts";
@@ -43,10 +45,15 @@ export interface Queued {
 	readonly person?: string;
 }
 
-/** What a look at a queued change finds of it. */
+/**
+ * What a look at a queued change finds of it, with the files its diff
+ * touched once it has merged, when that could be read.
+ */
 export type Seen =
 	| (Pick<Change, "state" | "title" | "url"> &
-			Partial<Pick<Change, "mergeCommit" | "base">>)
+			Partial<Pick<Change, "mergeCommit" | "base">> & {
+				readonly files?: readonly string[];
+			})
 	| null;
 
 /** Where this session keeps what it queued. */
@@ -130,6 +137,7 @@ export async function settleQueued(
 				...(one.person ? { person: one.person } : {}),
 				...(seen.mergeCommit ? { commit: seen.mergeCommit } : {}),
 				...(seen.base ? { onto: seen.base } : {}),
+				areas: areasOf(seen.files ?? []),
 			});
 			done.add(label);
 		} else if (seen?.state === "closed") {
@@ -156,7 +164,19 @@ export function watchQueued(pi: ExtensionAPI): void {
 		looking = true;
 		const read = async (change: ChangeRef): Promise<Seen> => {
 			const { engine } = await reviewEngine(pi);
-			return (await engine.bound(change)).proposal();
+			const bound = await engine.bound(change);
+			const seen = await bound.proposal();
+			if (seen?.state !== "merged") return seen;
+			try {
+				return {
+					...seen,
+					files: (await bound.diffModel()).files.map(filePath),
+				};
+			} catch {
+				// Said landed without its areas: only what its quest is said
+				// to work on misses this one.
+				return seen;
+			}
 		};
 		settleQueued(read, pi.events)
 			.catch(() => {

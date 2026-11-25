@@ -8,7 +8,8 @@
  * history". So each landing is also kept here, with whose it was and
  * where, for 30 days, newest first. The mycelium node serves the file
  * whole, as it does quests.json; nothing here reads it back but the
- * writes.
+ * writes. Each write also works out the areas each quest led in it and
+ * keeps them beside it (led-areas.ts), which a peer reads instead.
  *
  * Many sessions land at once, so each write takes the file's lock,
  * reads what is there, adds or takes away one, prunes past the month
@@ -22,6 +23,7 @@ import { withFileLock } from "../core/internal/file-lock.ts";
 import { thisMachine } from "../internal/machine/machine.ts";
 import type { Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
+import { keepLedAreas } from "./led-areas.ts";
 
 /** The history's file name, in the mesh's state folder. */
 export const LANDING_HISTORY_FILE = "landings.json";
@@ -145,6 +147,8 @@ async function changeHistory(
 			landings: keptAt(change(await readHistory(path)), now),
 		};
 		writeWhole(path, `${JSON.stringify(history, null, 2)}\n`);
+		// Under the same lock, so the areas said are those of the history written.
+		keepLedAreas(dir, history.landings, now);
 	});
 }
 

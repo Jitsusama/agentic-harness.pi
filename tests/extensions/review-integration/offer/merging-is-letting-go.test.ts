@@ -75,12 +75,14 @@ const proposal: Change = {
 /**
  * A backend whose merge lands, or is taken into a queue. Its merge
  * names the commit it landed as unless `commit` says otherwise, and
- * `readBack` is the change it reads back afterwards.
+ * `readBack` is the change it reads back afterwards. Its diff is
+ * `diff` when given, else one it can't read.
  */
 function backend(outcome: {
 	kind: "merged" | "enqueued";
 	commit?: string | null;
 	readBack?: Partial<Change>;
+	diff?: string;
 }) {
 	return stubProvider({
 		id: "meteorite",
@@ -96,7 +98,10 @@ function backend(outcome: {
 		facets: {
 			changes: {
 				fetch: async () => ({ ...proposal, ...outcome.readBack }),
-				diff: unused("diff a change"),
+				diff:
+					outcome.diff === undefined
+						? unused("diff a change")
+						: async () => outcome.diff ?? "",
 			},
 			authoring: {
 				propose: unused("propose a change"),
@@ -250,6 +255,29 @@ describe("what merging says it landed", () => {
 		const { landed } = await attachThenMerge({ kind: "merged", commit: null });
 
 		expect(landed[0]).not.toHaveProperty("commit");
+	});
+
+	it("says the areas its files are in, so the mesh can say what its quest works on", async () => {
+		const file = (path: string) =>
+			`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			diff: [
+				file("extensions/review-integration/queued.ts"),
+				file("tests/extensions/review-integration/queued.test.ts"),
+			].join(""),
+		});
+
+		expect(landed).toEqual([
+			expect.objectContaining({ areas: ["extensions/review-integration"] }),
+		]);
+	});
+
+	it("says no areas when its diff can't be read, and still says it landed", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toHaveLength(1);
+		expect(landed[0]).not.toHaveProperty("areas");
 	});
 
 	it("names the branch it landed on, so a stacked parent's is told from trunk", async () => {

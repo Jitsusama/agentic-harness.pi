@@ -29,8 +29,9 @@ function merge(
 	return kept(
 		{
 			at: new Date(NOW - days * DAY).toISOString(),
-			ref: `x#${n}`,
+			ref: `${repo.slice(repo.indexOf("/") + 1)}#${n}`,
 			what: `change ${n}`,
+			url: `https://github.com/${repo}/pull/${n}`,
 			...(areas ? { areas } : {}),
 		},
 		{ session: `S${n}`, ...(quest ? { quest } : {}), repo },
@@ -47,7 +48,9 @@ describe("the areas each quest led in its landings", () => {
 				],
 				NOW,
 			),
-		).toEqual({ "QEST-A": ["agentic-harness.pi:extensions/review-integration"] });
+		).toEqual({
+			"QEST-A": ["agentic-harness.pi:extensions/review-integration"],
+		});
 	});
 
 	it("says none for an area its quest landed only once", () => {
@@ -84,7 +87,12 @@ describe("the areas each quest led in its landings", () => {
 			merge("QEST-A", undefined),
 			merge("QEST-A", undefined),
 			kept(
-				{ at: new Date(NOW).toISOString(), ref: "PLAN-1#1", what: "item", areas: ["lib/ui"] },
+				{
+					at: new Date(NOW).toISOString(),
+					ref: "PLAN-1#1",
+					what: "item",
+					areas: ["lib/ui"],
+				},
 				{ session: "S", quest: "QEST-A" },
 			),
 		];
@@ -92,7 +100,10 @@ describe("the areas each quest led in its landings", () => {
 	});
 
 	it("puts the areas a quest leads most first, and says at most a cell's subjects", () => {
-		const areas = Array.from({ length: MOST_SUBJECTS + 3 }, (_, i) => `lib/a${i}`);
+		const areas = Array.from(
+			{ length: MOST_SUBJECTS + 3 },
+			(_, i) => `lib/a${i}`,
+		);
 		const landings = [
 			...[0, 1, 2].map((d) => merge("QEST-A", ["lib/most"], d)),
 			...[0, 1].map((d) => merge("QEST-A", areas, d)),
@@ -123,7 +134,10 @@ describe("the led areas kept beside the landings", () => {
 		expect(ledAreasAt(dir, "QEST-A")).toEqual([]);
 		writeFileSync(join(dir, LED_AREAS_FILE), "{ not json");
 		expect(ledAreasAt(dir, "QEST-A")).toEqual([]);
-		writeFileSync(join(dir, LED_AREAS_FILE), JSON.stringify({ v: 1, quests: { "QEST-A": [1, "x:y"] } }));
+		writeFileSync(
+			join(dir, LED_AREAS_FILE),
+			JSON.stringify({ v: 1, quests: { "QEST-A": [1, "x:y"] } }),
+		);
 		expect(ledAreasAt(dir, "QEST-A")).toEqual(["x:y"]);
 	});
 });

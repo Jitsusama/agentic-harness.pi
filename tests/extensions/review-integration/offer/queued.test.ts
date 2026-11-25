@@ -128,6 +128,34 @@ describe("a change sent to a queue", () => {
 		expect(queuedHere()).toEqual([]);
 	});
 
+	it("says the areas its files are in once it merges", async () => {
+		const told = bus();
+		noteQueued(change("5"), undefined, NOW);
+
+		await settleQueued(
+			reading({
+				"5": {
+					state: "merged",
+					title: "Five",
+					url: "https://d/5",
+					files: [
+						"areas/tools/gitstream/src/main.rs",
+						"areas/tools/gitstream/BUILD",
+					],
+				},
+			}),
+			told,
+			NOW,
+		);
+
+		expect(told.said).toEqual([
+			{
+				event: SESSION_LANDED,
+				data: expect.objectContaining({ areas: ["areas/tools/gitstream"] }),
+			},
+		]);
+	});
+
 	it("is said closed once it closes unmerged, and let go", async () => {
 		const told = bus();
 		noteQueued(change("3"), undefined, NOW);
