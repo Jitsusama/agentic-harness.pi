@@ -7,7 +7,8 @@
  * never waited by its taking under half that, which no waiting read
  * can. The writer then writes again for every reader that comes, so a
  * read that waits, however often, gets words and ends rather than
- * hanging the run. It is stopped once the test is done.
+ * hanging the run. It is stopped once the test is done. A late reader
+ * does the same for a write.
  */
 
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
@@ -31,7 +32,9 @@ export function lateWriter(path: string, words: string): LateWriter {
 		"sh",
 		[
 			"-c",
-			`sleep ${LATE_MS / 1000}; while :; do printf '%s' "$1" > "$2"; done`,
+			// A pause between writes leaves the fifo with no writer, so a read
+			// of the whole file meets its end rather than the next write.
+			`sleep ${LATE_MS / 1000}; while :; do printf '%s' "$1" > "$2"; sleep 0.2; done`,
 			"sh",
 			words,
 			path,
@@ -41,6 +44,31 @@ export function lateWriter(path: string, words: string): LateWriter {
 	return {
 		stop: () => {
 			writer.kill("SIGKILL");
+		},
+	};
+}
+
+/**
+ * Make a fifo at `path` and a reader that, once {@link LATE_MS} has
+ * passed, drains it for each writer that opens it, so a write that waits
+ * on its open is held that long and then ends rather than hanging.
+ */
+export function lateReader(path: string): LateWriter {
+	execFileSync("mkfifo", [path]);
+	const reader: ChildProcess = spawn(
+		"sh",
+		[
+			"-c",
+			// The shell's own read, so no child is left waiting once it stops.
+			`sleep ${LATE_MS / 1000}; while :; do while read -r _; do :; done < "$1"; done`,
+			"sh",
+			path,
+		],
+		{ stdio: "ignore" },
+	);
+	return {
+		stop: () => {
+			reader.kill("SIGKILL");
 		},
 	};
 }

@@ -28,7 +28,7 @@
  * side of them instead, and says where the commit landed (see `landed.ts`).
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import {
@@ -40,6 +40,7 @@ import {
 	staleIn,
 } from "./appends.ts";
 import { keptLine, type Landed, landedAs } from "./landed.ts";
+import { readPlain, writePlain } from "./plain-file.ts";
 import { ask, conflictedIn, remoteTrunk } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
@@ -265,11 +266,10 @@ export async function recordOnto(
 	if (said === undefined) return;
 	const directory = isAbsolute(said) ? said : join(treePath, said);
 	if (!existsSync(directory)) return;
-	try {
-		writeFileSync(join(directory, ONTO_NAME), `${onto}\n`);
-	} catch {
-		// Unrecorded is the fallback the halt already has.
-	}
+	// Unrecorded is the fallback the halt already has. The replay's folder
+	// is the tree's git folder, which whatever ran in the tree may write, so
+	// a fifo there is refused rather than waited on.
+	writePlain(join(directory, ONTO_NAME), `${onto}\n`);
 }
 
 /** Git's own directory for the replay in progress, when there is one. */
@@ -294,12 +294,15 @@ async function replayDirectory(
  */
 const MOVES_NOTE = "agentic-harness-moves.json";
 
+/** The most of the moves note read: far past any replay's numbers. */
+const MOVES_LIMIT = 1024 * 1024;
+
 /** The moves noted so far, or none when nothing is noted or it will not read. */
 function notedMoves(directory: string | undefined): Move[] {
 	if (directory === undefined) return [];
 	try {
 		const read: unknown = JSON.parse(
-			readFileSync(join(directory, MOVES_NOTE), "utf8"),
+			readPlain(join(directory, MOVES_NOTE), MOVES_LIMIT) ?? "[]",
 		);
 		return Array.isArray(read) ? read.filter(isMove) : [];
 	} catch {
@@ -358,15 +361,7 @@ export async function carryOn(
 	const onto =
 		first === undefined
 			? undefined
-			: (() => {
-					try {
-						return (
-							readFileSync(join(first, "onto"), "utf8").trim() || undefined
-						);
-					} catch {
-						return undefined;
-					}
-				})();
+			: readPlain(join(first, "onto"))?.trim() || undefined;
 	const settled: SettledFile[] = [];
 	const recited = new Set<string>();
 	const landed: Landed[] = [];
@@ -427,11 +422,8 @@ export async function carryOn(
 		// Kept while git's directory still exists, so a later resume knows them.
 		const directory = await replayDirectory(exec, treePath);
 		if (directory !== undefined && moves.length > 0) {
-			try {
-				writeFileSync(join(directory, MOVES_NOTE), JSON.stringify(moves));
-			} catch {
-				// Unnoted, a later resume only names fewer stale citations.
-			}
+			// Unnoted, a later resume only names fewer stale citations.
+			writePlain(join(directory, MOVES_NOTE), JSON.stringify(moves));
 		}
 		if (left.length > 0) return { kind: "halted", conflicted: left, ...some() };
 
@@ -713,14 +705,10 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 			]);
 			if (said === undefined) return undefined;
 			const where = isAbsolute(said) ? said : join(treePath, said);
-			if (!existsSync(where)) return undefined;
-			try {
-				const text = readFileSync(where, "utf8").trim();
-				return text === "" ? undefined : text;
-			} catch {
-				// Unreadable is the same as unsaid here: the halt is still a halt.
-				return undefined;
-			}
+			// Unreadable, or no plain file, is the same as unsaid here: the
+			// halt is still a halt.
+			const text = readPlain(where)?.trim();
+			return text === undefined || text === "" ? undefined : text;
 		};
 
 		const head = await read("head-name");

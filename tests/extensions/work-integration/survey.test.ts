@@ -231,6 +231,33 @@ describe("reclaim", () => {
 		expect(existsSync(path), "it stays where it was").toBe(true);
 	});
 
+	it.runIf(machineCanSay)(
+		"keeps a tree the checkout's own entry names, asked from it or a tree it holds, and keeps that entry's lock",
+		async () => {
+			// Once the clone has moved, the tree's `.git` names a folder that
+			// is gone, and only the clone's own entry still names it. Git
+			// lists the tree for that entry, locked or not, which is what
+			// keeps it: reclaim leaves every tree git lists to git, and the
+			// lock a later cut must meet is left as it was.
+			const path = strandedTree("snapshot-locked", AN_HOUR);
+			const entry = join(checkout(), ".git", "worktrees", "snapshot-locked");
+			mkdirSync(entry, { recursive: true });
+			writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+			writeFileSync(join(entry, "locked"), "on a drive away\n");
+
+			const fromCheckout = await work({ action: "reclaim", tree: checkout() });
+			await cut("topic");
+			const fromHeld = await work({ action: "reclaim" });
+
+			expect(fromCheckout.details).toMatchObject({ setAside: 0 });
+			expect(fromHeld.details, "from the one tree held").toMatchObject({
+				setAside: 0,
+			});
+			expect(existsSync(path), "it stays where it was").toBe(true);
+			expect(existsSync(join(entry, "locked")), "its lock stays").toBe(true);
+		},
+	);
+
 	it("takes back a tree nothing holds and keeps its branch", async () => {
 		const spare = await spareTree();
 		const named = displayPath(checkout());

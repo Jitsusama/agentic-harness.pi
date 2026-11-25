@@ -200,10 +200,15 @@ export const CANT_SAY =
  * never forgets such a lock, so setting the tree aside would leave its
  * name uncuttable. The lock is read where the tree's own `.git` points,
  * which whatever ran in it could have written, so this says what git's
- * files hold rather than who put it there.
+ * files hold rather than who put it there. A lock in the entry of the
+ * checkout reclaim runs from never gets here: git there lists the tree,
+ * and reclaim leaves every tree it lists to git. A lock kept only in
+ * another clone's entry, where the tree's `.git` doesn't point, can't be
+ * seen from here, so that tree is set aside whole, and the clone's next
+ * cut of its name fails with git's word that it is missing but locked.
  */
 export const HAND_LOCKED =
-	"git won't read it, but the git entry it names is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
+	"git won't read it, but git's entry for it is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves, or a cut killed before git here was told English, or a sandboxed command in it writes, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that is neither a plain file nor a link to one, such as a fifo or a folder, which git never writes, may hold `git worktree unlock` and `git worktree list` waiting or fail them, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or
@@ -212,6 +217,10 @@ export const HAND_LOCKED =
  * there is never taken away here.
  */
 function makingWhy(path: string, now: number): string | undefined {
+	const unseen = lockUnseen(path);
+	if (unseen !== undefined) {
+		return `git won't read it, and git's entry for it, where its .git points, couldn't be looked at (${unseen}), so whether it is locked can't be told and it stays; once that folder can be read, \`work tidy\` judges it again, or move it aside by hand`;
+	}
 	if (handLocked(path)) return HAND_LOCKED;
 	if (cutRunning(path, now)) {
 		return "git won't read it, but git marks it locked, as it does while a cut runs, so it stays";
@@ -248,6 +257,26 @@ export function cutRunning(path: string, now = Date.now()): boolean {
 export function handLocked(path: string): boolean {
 	const gitDir = namedGitDir(path);
 	return gitDir !== undefined && lockedByHand(gitDir);
+}
+
+/**
+ * The error that kept the lock in the git entry the worktree at `path`
+ * names from being looked at, a folder it may not search or a loop of
+ * links, or nothing when it could be. Such a tree counts as locked, so
+ * it is kept, but is told apart from one locked by hand, since
+ * `git worktree unlock` has no lock there to take away.
+ */
+export function lockUnseen(path: string): string | undefined {
+	const gitDir = namedGitDir(path);
+	if (gitDir === undefined) return undefined;
+	try {
+		lstatSync(join(gitDir, "locked"));
+		return undefined;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+		return code ?? "an error with no code";
+	}
 }
 
 /**
@@ -346,6 +375,58 @@ export function forgetGoneEntry(
 	// An empty folder is as gone to git, and is what the cut makes first
 	// where each tree is a subvolume of its own.
 	if (holdsSomething(path)) return false;
+	// Every entry naming the path is for it, and one locked keeps them all,
+	// since forgetting the rest would cut over a tree somebody locked.
+	const entries = entriesNaming(commonDir, path);
+	if (entries.length === 0) return false;
+	if (entries.some((entry) => lockedSince(entry, now) || lockedByHand(entry))) {
+		return false;
+	}
+	try {
+		for (const entry of entries)
+			rmSync(entry, { recursive: true, force: true });
+		return true;
+	} catch {
+		// One going as it is forgotten: git's to finish.
+		return false;
+	}
+}
+
+/**
+ * Whether the repository whose common folder is `commonDir` holds an
+ * entry for a worktree at `path` locked for a reason other than a
+ * cut's English one. This is git's own view of the lock, which still
+ * stands where the tree's `.git` names some other folder, as it does
+ * once the clone has moved, and where {@link handLocked} so sees none.
+ */
+export function handLockedIn(commonDir: string, path: string): boolean {
+	// Any of them, so an unlocked entry naming the same path, which
+	// anything in a tree could point at, hides no lock.
+	return entriesNaming(commonDir, path).some(lockedByHand);
+}
+
+/**
+ * The git folder of a main checkout, whose `.git` is a folder, or
+ * nothing for one whose `.git` is a file or a link, which another could
+ * have written. A clone that is itself a linked worktree is left out:
+ * the broker cuts from main checkouts, and a `.git` file is no surer
+ * than the tree's own.
+ */
+export function checkoutGitFolder(checkout: string): string | undefined {
+	const dotGit = join(checkout, ".git");
+	try {
+		return lstatSync(dotGit).isDirectory() ? dotGit : undefined;
+	} catch {
+		// No checkout there to read.
+		return undefined;
+	}
+}
+
+/**
+ * Git's entries, in the repository whose common folder is `commonDir`,
+ * whose way back names a worktree at `path`.
+ */
+function entriesNaming(commonDir: string, path: string): string[] {
 	const entries = join(commonDir, "worktrees");
 	// git writes the real path, which only the folder's parent still has.
 	const wanted = new Set([
@@ -356,32 +437,59 @@ export function forgetGoneEntry(
 	try {
 		names = readdirSync(entries);
 	} catch {
-		// No worktrees folder: git has no entry to forget.
-		return false;
+		// No worktrees folder: git has no entry for it.
+		return [];
 	}
+	const naming: string[] = [];
 	for (const name of names) {
 		const entry = join(entries, name);
 		try {
 			if (!lstatSync(entry).isDirectory()) continue;
 			const named = readPlain(join(entry, "gitdir"))?.trim();
-			if (named === undefined || !wanted.has(resolve(entry, named))) continue;
-			if (lockedSince(entry, now) || lockedByHand(entry)) return false;
-			rmSync(entry, { recursive: true, force: true });
-			return true;
+			if (named !== undefined && wanted.has(resolve(entry, named))) {
+				naming.push(entry);
+			}
 		} catch {
 			// An entry git can't have written, or one going as it is read.
 		}
 	}
-	return false;
+	return naming;
 }
 
 /**
  * Whether git's entry `entry` is locked for a reason of somebody's own
- * rather than the word `worktree add` writes while it fills a tree.
+ * rather than the word `worktree add` writes while it fills a tree. Git
+ * writes its lock as a plain file, so a lock that is a link or a fifo,
+ * or anything else standing there, is no cut's either, and is never read as one still running,
+ * which would only ask again in a minute for as long as it stands.
  */
 function lockedByHand(entry: string): boolean {
-	const reason = readPlain(join(entry, "locked"));
-	return reason !== undefined && reason.trim() !== "initializing";
+	const lock = join(entry, "locked");
+	// Asked in this order, a cut's lock written between the two reads is
+	// read as the cut's, and one gone between them keeps the tree.
+	if (!standsAt(lock)) return false;
+	// An empty lock is `git worktree lock`'s with no reason given. A read
+	// between git's open of its own lock and its write of `initializing`
+	// reads empty too, and says the hand lock's words for that moment,
+	// keeping the tree either way, which is the side to err on.
+	const reason = readPlain(lock);
+	return reason === undefined || reason.trim() !== "initializing";
+}
+
+/**
+ * Whether anything at all stands at `path`, a link included. Only an
+ * answer that nothing is there says no: one that can't be looked at, a
+ * folder it won't search or a loop of links, may hold a lock, and a lock
+ * read as none would set aside a tree somebody locked.
+ */
+function standsAt(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code !== "ENOENT" && code !== "ENOTDIR";
+	}
 }
 
 /** Whether anything stands at `path` other than an empty folder. */

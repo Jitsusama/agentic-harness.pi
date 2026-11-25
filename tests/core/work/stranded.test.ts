@@ -10,6 +10,7 @@
 
 import { execFile } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -32,9 +33,13 @@ import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
 	CANT_SAY,
 	CUT_GRACE_MS,
+	checkoutGitFolder,
 	cutRunning,
 	HAND_LOCKED,
+	handLocked,
+	handLockedIn,
 	LOCK_STALE_MS,
+	lockUnseen,
 	plainWords,
 	type StrandedRecords,
 	StuckAside,
@@ -310,15 +315,17 @@ describe("splitStranded", () => {
 		);
 	});
 
-	it("reads no hand lock from a fifo where a lock should be", async () => {
+	it("reads a fifo where a lock should be as a hand lock, never waiting", async () => {
 		// What ran in the tree chooses where its `.git` points, and a read
 		// waiting on a fifo's writer would hold reclaim for good. One that
-		// waits takes as long as the writer is late, and reads a hand lock.
+		// waits takes as long as the writer is late, and reads a cut's word.
+		// Git writes no fifo, so it's no cut running, which would only say
+		// to ask again in a minute for as long as it stands.
 		const gitDir = standingGitDir("snapshot-p");
 		const path = treeNaming("snapshot-p", gitDir);
 		const at = (Date.now() - LONG_AGO) / 1000;
 		utimesSync(join(path, ".git"), at, at);
-		writers.push(lateWriter(join(gitDir, "locked"), "on a drive away"));
+		writers.push(lateWriter(join(gitDir, "locked"), "initializing"));
 
 		const started = performance.now();
 		const split = await splitStranded([{ path, why: REFUSED }], {
@@ -328,8 +335,111 @@ describe("splitStranded", () => {
 		expect(performance.now() - started, "no read waited").toBeLessThan(
 			LATE_MS / 2,
 		);
-		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a fifo is no cut's lock").toBe(false);
 	});
+
+	it("reads a link where a lock should be as a hand lock", async () => {
+		// Git writes no link either, though the file it leads to says a
+		// cut's word.
+		const gitDir = standingGitDir("snapshot-k");
+		const path = treeNaming("snapshot-k", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(root, "cut-word"), "initializing\n");
+		symlinkSync(join(root, "cut-word"), join(gitDir, "locked"));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a link is no cut's lock").toBe(false);
+	});
+
+	it("reads a folder where a lock should be as a hand lock", async () => {
+		// Git writes no folder there either, and one can't be read as a word.
+		const gitDir = standingGitDir("snapshot-d");
+		const path = treeNaming("snapshot-d", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		mkdirSync(join(gitDir, "locked"));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a folder is no cut's lock").toBe(false);
+	});
+
+	it("finds a clone's lock whichever of two entries naming the tree holds it", () => {
+		// Anything in a tree could point a second entry at it, and one
+		// unlocked must hide no lock, whichever git lists first.
+		const clone = join(root, "two", ".git");
+		const path = treeNaming("snapshot-two", join(root, "gone", "snapshot-two"));
+		for (const name of ["a", "b"]) {
+			const entry = join(clone, "worktrees", name);
+			mkdirSync(entry, { recursive: true });
+			writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+		}
+		writeFileSync(join(clone, "worktrees", "b", "locked"), "initializing\n");
+
+		expect(handLockedIn(clone, path), "neither, one a cut's").toBe(false);
+
+		rmSync(join(clone, "worktrees", "b", "locked"));
+
+		writeFileSync(join(clone, "worktrees", "a", "locked"), "on a drive\n");
+
+		expect(handLockedIn(clone, path), "the first locked").toBe(true);
+
+		rmSync(join(clone, "worktrees", "a", "locked"));
+		writeFileSync(join(clone, "worktrees", "b", "locked"), "on a drive\n");
+
+		expect(handLockedIn(clone, path), "the second locked").toBe(true);
+	});
+
+	it("reads a link to nothing where a lock should be as a hand lock", async () => {
+		// Asking whether the lock exists through the link would say no,
+		// and set aside a tree somebody locked.
+		const gitDir = standingGitDir("snapshot-n");
+		const path = treeNaming("snapshot-n", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		symlinkSync(join(root, "nothing-here"), join(gitDir, "locked"));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"keeps a tree whose entry it may not look in, saying so rather than that it is locked",
+		async () => {
+			// Read as nothing there, a lock git can't be asked about would let
+			// reclaim set aside a tree somebody locked; read as a hand lock,
+			// it would send Joel to an unlock with nothing to take away.
+			const gitDir = standingGitDir("snapshot-x");
+			const path = treeNaming("snapshot-x", gitDir);
+			chmodSync(gitDir, 0o600);
+			try {
+				expect(handLocked(path), "kept, as a lock may stand").toBe(true);
+				expect(lockUnseen(path)).toBe("EACCES");
+				const split = await splitStranded([{ path, why: REFUSED }], {
+					busyAmong: nobody,
+				});
+				expect(split.kept[0]?.why).toMatch(
+					/couldn't be looked at \(EACCES\), so whether it is locked can't be told/,
+				);
+				expect(split.kept[0]?.why).not.toContain("git worktree unlock");
+			} finally {
+				chmodSync(gitDir, 0o700);
+			}
+		},
+	);
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {
 		// A read that waits takes as long as the writer is late, and gets a
@@ -860,5 +970,27 @@ describe("readPlain", () => {
 		writeFileSync(join(root, "gitdir"), "x".repeat(1 << 20));
 
 		expect(readPlain(join(root, "gitdir"))).toHaveLength(4096);
+	});
+});
+
+describe("checkoutGitFolder", () => {
+	it("names a main checkout's git folder", () => {
+		mkdirSync(join(root, "main", ".git"), { recursive: true });
+
+		expect(checkoutGitFolder(join(root, "main"))).toBe(
+			join(root, "main", ".git"),
+		);
+	});
+
+	it("names none where .git is a link or a file, which another could write", () => {
+		mkdirSync(join(root, "real", ".git"), { recursive: true });
+		mkdirSync(join(root, "linked"));
+		symlinkSync(join(root, "real", ".git"), join(root, "linked", ".git"));
+		mkdirSync(join(root, "filed"));
+		writeFileSync(join(root, "filed", ".git"), "gitdir: ../real/.git\n");
+
+		expect(checkoutGitFolder(join(root, "linked"))).toBeUndefined();
+		expect(checkoutGitFolder(join(root, "filed"))).toBeUndefined();
+		expect(checkoutGitFolder(join(root, "none"))).toBeUndefined();
 	});
 });
