@@ -9,7 +9,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
-import { createPresences, MOST_GROUPS } from "../../../lib/mesh/presence.ts";
+import {
+	createPresences,
+	joinRefused,
+	MOST_GROUPS,
+} from "../../../lib/mesh/presence.ts";
 
 let root: string;
 const session = "01a1be5c-fff0-70a1-9301-f505d5634bf7";
@@ -35,11 +39,19 @@ function aPeer() {
 	return { peer, presences };
 }
 
-/** Joins groups until the peer is in `MOST_GROUPS`. */
+/**
+ * Joins groups until the peer is in `MOST_GROUPS`, giving up after twice
+ * as many tries, so a join that never counts fails here, not by hanging.
+ */
 function fill(peer: ReturnType<typeof aPeer>["peer"]): void {
-	for (let at = 0; peer.groups.length < MOST_GROUPS; at += 1) {
+	for (
+		let at = 0;
+		peer.groups.length < MOST_GROUPS && at < MOST_GROUPS * 2;
+		at += 1
+	) {
 		peer.join(`#group-${String(at).padStart(3, "0")}`);
 	}
+	expect(peer.groups, "the peer filled up").toHaveLength(MOST_GROUPS);
 }
 
 describe("a peer joining past what a presence names", () => {
@@ -54,14 +66,16 @@ describe("a peer joining past what a presence names", () => {
 		);
 	});
 
-	it("still answers a group it is already in as not new when full", () => {
-		const { peer } = aPeer();
-		fill(peer);
-		const [first] = peer.joined;
-		if (first === undefined) throw new Error("the peer joined nothing");
+	// Peer.join answers a group it is in before it asks the rule, so the
+	// rule's own clause for one is pinned here, where nothing hides it.
+	it("refuses no group a full peer is already in", () => {
+		const groups = Array.from(
+			{ length: MOST_GROUPS },
+			(_, at) => `#group-${String(at).padStart(3, "0")}`,
+		);
 
-		expect(peer.join(first)).toBe(false);
-		expect(peer.joined).toContain(first);
+		expect(joinRefused(groups, "#group-000")).toBeUndefined();
+		expect(joinRefused(groups, "#zzz-one-more")).toBe("full");
 	});
 
 	it("joins no group longer than a group runs", () => {

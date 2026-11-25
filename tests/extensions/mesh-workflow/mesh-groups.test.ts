@@ -1087,6 +1087,21 @@ describe("a peer reads what it writes to", () => {
 			`won't hear the answers there (#one-more: this peer is in ${MOST_GROUPS} groups`,
 		);
 	}, 30_000);
+
+	// No peer can join a group that long, so nobody would ever read it.
+	it("refuses a send to a group longer than any peer may join", async () => {
+		const { tools } = await startSession();
+		const long = `#${"a".repeat(MOST_GROUP_CHARS)}`;
+
+		const answer = await send(tools, long, "fyi", "rebooting");
+
+		expect(answer).toContain("Not sent:");
+		expect(answer).toContain(`longer than the ${MOST_GROUP_CHARS} characters`);
+		expect(
+			folderTransport(join(fixture.paths.mesh, "messages")).ids(),
+			"nothing written",
+		).toEqual([]);
+	});
 });
 
 describe("an invitation", () => {
@@ -1125,6 +1140,52 @@ describe("an invitation", () => {
 			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
 		).toEqual(["#jobs"]);
 	});
+
+	it("invites no peer already in the most groups, saying why", async () => {
+		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
+		peer("session-p", ["P9R1KI"], many);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).not.toContain("Invited P9R1KI");
+		expect(text).toContain(
+			`Not invited, since it is in ${MOST_GROUPS} groups, the most a peer may be in: P9R1KI.`,
+		);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(
+			transport.ids().map((id) => transport.read(id)?.invite),
+			"no invite written",
+		).not.toContain("#jobs");
+	});
+
+	// As many real joins as a peer may make, as in the refusals above.
+	it("tells this peer when it is too full to join a group it is brought into", async () => {
+		const { sent, tools } = await startSession();
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@7M6JKG"],
+			text: "P9R1KI brings this peer into #jobs. It is in #jobs from now on.",
+			invite: "#jobs",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain(
+			`It couldn't join #jobs, though: it is in ${MOST_GROUPS} groups`,
+		);
+		expect(
+			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
+		).not.toContain("#jobs");
+	}, 30_000);
 
 	it("is not taken from a message sent to everyone", async () => {
 		const { sent } = await startSession();

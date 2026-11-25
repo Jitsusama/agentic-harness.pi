@@ -13,6 +13,7 @@ import {
 	groupsNamed,
 	hears,
 	homeOf,
+	isJoinable,
 	MACHINE,
 	MOST_GROUP_CHARS,
 	machineTakes,
@@ -33,11 +34,7 @@ import {
 } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import { pivotTargets } from "../../../lib/mesh/pivot.ts";
-import {
-	joinRefused,
-	MOST_GROUPS,
-	type Presence,
-} from "../../../lib/mesh/presence.ts";
+import { MOST_GROUPS, type Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -698,12 +695,30 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		standing,
 		asker ? [homeOf(asker.from)] : [],
 	);
-	const to = unbarred.filter((group) => !unheard.includes(group));
+	// No peer can join a group longer than one may run, nor any part of
+	// it, so what is written there would be read by nobody, ever.
+	const tooLong = unbarred.filter(
+		(group) => group.startsWith("#") && group !== ALL && !isJoinable(group),
+	);
+	const tooLongText = `${tooLong.join(", ")} ${tooLong.length === 1 ? "runs" : "each run"} longer than the ${MOST_GROUP_CHARS} characters a group may, so no peer can join it to read what is said there. Name a shorter group.`;
+	if (tooLong.length > 0 && tooLong.length === unbarred.length) {
+		return answer(`Not sent: ${tooLongText}`, {
+			sent: false,
+			refused: tooLong,
+		} satisfies SendDetails);
+	}
+	if (tooLong.length > 0) {
+		notes.push(`Not written to ${tooLong.join(", ")}: ${tooLongText}`);
+	}
+	const to = unbarred.filter(
+		(group) => !unheard.includes(group) && !tooLong.includes(group),
+	);
 	const flows = unheard.length > 0 ? ((await at.flows?.()) ?? []) : [];
 	if (to.length === 0) {
-		return answer(`Not sent: ${unheardText(unheard, flows)}`, {
+		const also = tooLong.length > 0 ? ` And ${tooLongText}` : "";
+		return answer(`Not sent: ${unheardText(unheard, flows)}${also}`, {
 			sent: false,
-			refused: unheard,
+			refused: [...unheard, ...tooLong],
 		} satisfies SendDetails);
 	}
 	if (unheard.length > 0) {
@@ -802,7 +817,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	if (unread.length > 0) {
-		notes.push(unreadNote(unread, at.peer.groups));
+		notes.push(unreadNote(unread));
 	}
 	if (message.intent === "hold") {
 		notes.push(
@@ -867,24 +882,10 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
 /**
  * Why a sender isn't in the groups it sent to and couldn't join, so it
  * knows it won't hear the answers there: it is in the most groups a peer
- * may be in, or a group runs longer than one may.
+ * may be in. A group too long to join is never written to (see send).
  */
-function unreadNote(unread: readonly string[], groups: readonly string[]) {
-	const full = unread.filter((group) => joinRefused(groups, group) === "full");
-	const long = unread.filter((group) => !full.includes(group));
-	const said = [
-		...(full.length > 0
-			? [
-					`${full.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so leave one it no longer works on with mesh_leave`,
-				]
-			: []),
-		...(long.length > 0
-			? [
-					`${long.join(", ")}: longer than the ${MOST_GROUP_CHARS} characters a group may run`,
-				]
-			: []),
-	];
-	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${said.join("; ")}).`;
+function unreadNote(unread: readonly string[]) {
+	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${unread.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so leave one it no longer works on with mesh_leave).`;
 }
 
 /** Why a send leaves out the addresses no session here goes by. */
