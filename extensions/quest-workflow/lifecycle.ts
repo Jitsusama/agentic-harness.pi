@@ -31,6 +31,10 @@ import {
 } from "../../lib/core/quest/lifecycle.ts";
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
+import {
+	automatedText,
+	isAutomatedText,
+} from "../../lib/internal/automated.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
@@ -595,6 +599,13 @@ export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
  * Either way it leaves word that it took them, for the spawn that
  * looks for its first turn.
  *
+ * Words go under the automated header unless they carry it already, as
+ * a quest spawn's do: a sprout's brief and a host's literal words came
+ * bare, so they read in the log as the person's, and a sprout quoting
+ * the ask it was started for read as him correcting the session (pain
+ * points, 24 November, entry efd94b22). They stay a user message, as
+ * every turn the harness starts is (lib/internal/automated.ts).
+ *
  * The caller sends once every extension's session_start has finished,
  * not merely the next turn of the event loop. pi awaits each handler
  * in turn, so a prompt sent on the next turn went out while later ones
@@ -628,7 +639,10 @@ export function sayFirstWords(
 	if (!words || putOff) return undefined;
 	return () => {
 		const idle = ctx.isIdle?.() ?? true;
-		pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
+		const said = isAutomatedText(words)
+			? words
+			: automatedText("this session's start left it these words", words);
+		pi.sendUserMessage(said, idle ? undefined : { deliverAs: "followUp" });
 	};
 }
 

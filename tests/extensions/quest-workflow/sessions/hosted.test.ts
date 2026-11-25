@@ -37,6 +37,7 @@ import {
 	SESSION_STAMP_EVENT,
 	withSession,
 } from "../../../../lib/core/session/index.ts";
+import { automatedText } from "../../../../lib/internal/automated.ts";
 import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import {
 	journalSession,
@@ -189,7 +190,14 @@ it("takes only its own launch hints and literal first words", async () => {
 	withSession("a", () =>
 		sayFirstWords(pi, contexts("a"), "a", () => false),
 	)?.();
-	expect(send).toHaveBeenCalledWith("only a gets this", undefined);
+	// A host's literal words go under the automated header, as no person's.
+	expect(send).toHaveBeenCalledWith(
+		automatedText(
+			"this session's start left it these words",
+			"only a gets this",
+		),
+		undefined,
+	);
 	expect(
 		withSession("b", () => sayFirstWords(pi, contexts("b"), "b", () => false)),
 	).toBeUndefined();
