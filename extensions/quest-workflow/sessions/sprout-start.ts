@@ -323,11 +323,11 @@ function splitsFrom(
 	}
 	if (locked) return "unwritten";
 	// Read again under the lock, so a split another start recorded since
-	// is kept rather than overwritten.
+	// is kept rather than overwritten, and the file left as it is.
 	return written(() =>
 		mutateQuestFrontMatter(quest.dir, (fm) =>
 			splitFromOf(fm._extra?.[SPLIT_FROM]) !== undefined
-				? fm
+				? undefined
 				: { ...fm, _extra: { ...fm._extra, [SPLIT_FROM]: from } },
 		),
 	);

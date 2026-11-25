@@ -17,7 +17,7 @@ import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/fields/mu
 import { questAddress, sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
-import { session, surroundingsAt } from "./support/presences.ts";
+import { presence, session, surroundingsAt } from "./support/presences.ts";
 
 let root: string;
 
@@ -128,6 +128,28 @@ describe("the cell this session's peer says its work split from", () => {
 
 		expect(kept(), "a presence was written").toBeDefined();
 		expect(kept()?.lineage, "no lineage naming its old quest").toBeUndefined();
+	});
+
+	// A reload, or a log rolled over from the session that asked: no
+	// quest lists this session under the address it asked with, but its
+	// own last presence still says it.
+	it("says none where its quest split from an address its last presence said", () => {
+		const old = questAddress("QEST-20261123-ASKERQ");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({ session, addresses: [old], at: new Date().toISOString() }),
+			),
+		);
+		write(readme(`split-from: ${old}\n`));
+		localPeer(surroundingsAt(root));
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(
+			kept()?.lineage,
+			"no lineage naming its old address",
+		).toBeUndefined();
 	});
 
 	// A session's address is hex, so it can be all digits, which YAML

@@ -474,22 +474,33 @@ export function localPeer(at: Surroundings): Peer {
 		...new Set([
 			...olderAddresses(at.session, at.records),
 			...(carried?.addresses ?? []),
+			// Its own last presence, which a reload or a rolled-over log may
+			// no longer find through the quests or the carried presence.
+			...(before?.addresses ?? []),
 		]),
 	];
 	// A cell never split from itself, as the asking cell's own session
-	// would say once it loaded the quest it sprouted. Read afresh, and
-	// only for a quest that says it split: the quest it asked under may
-	// have listed it after it began, or be signed for by another peer
-	// now, and it was still this cell's. In any letters.
-	const splitFromItself = (from: string): boolean =>
-		new Set(
-			[
-				...addresses,
-				...older,
-				...olderAddresses(at.session, at.records),
-				sessionAddress(at.session),
-			].map((one) => one.toUpperCase()),
-		).has(from.toUpperCase());
+	// would say once it loaded the quest it sprouted. In any letters.
+	const isOwn = (from: string, mine: readonly string[]): boolean =>
+		mine.some((one) => one.toUpperCase() === from.toUpperCase());
+	// The quests are read afresh, since the quest it asked under may have
+	// listed it after it began, or be signed for by another peer now, and
+	// it was still this cell's. Read once per loaded quest and split, not
+	// on each refresh: a quest loaded later is a new pair, so it's read.
+	let splitJudged: { key: string; itself: boolean } | undefined;
+	const splitFromItself = (from: string, loaded?: string): boolean => {
+		if (isOwn(from, [...addresses, ...older, sessionAddress(at.session)])) {
+			return true;
+		}
+		const key = `${loaded ?? ""}\u0000${from.toUpperCase()}`;
+		if (splitJudged?.key !== key) {
+			splitJudged = {
+				key,
+				itself: isOwn(from, olderAddresses(at.session, at.records)),
+			};
+		}
+		return splitJudged.itself;
+	};
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: Roles = {};
 	// Kept beside the roles rather than in them, since the roles are said
@@ -693,7 +704,7 @@ export function localPeer(at: Surroundings): Peer {
 		);
 		serves = work.serves ?? [];
 		lineage =
-			work.lineage && !splitFromItself(work.lineage.split_from)
+			work.lineage && !splitFromItself(work.lineage.split_from, work.quest)
 				? work.lineage
 				: undefined;
 		shares = work.shares ?? [];
