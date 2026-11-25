@@ -63,6 +63,15 @@ asking; `screens.ts` passes it on to the host's program. Beside it sit
 the reads of pi's private parts that a screen's repaint, rest, quit,
 fault and stop go through.
 
+Each screen's start says where its time went, when the host gives the
+screens `said`: one journal line naming pi's init steps (the terminal's
+colours, binding the extensions, drawing the conversation, counting
+providers), what's left (finding fd and rg among it), and the five
+extensions whose handlers took longest. A wake's "screen" phase is this
+start, and a warm spare can't pay it ahead, so the line says what in it
+to cut. `start-parts.ts` wraps pi's methods and the extensions' handlers
+only while the start runs, and puts back only its own wraps after.
+
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host
 gives the screens an asker. `startup-ask.ts` shows it as pi's CLI shows
