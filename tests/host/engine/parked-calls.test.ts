@@ -178,7 +178,13 @@ describe("watching the calls a park carried", () => {
 		try {
 			await until("the first write to fail", () => reported.length > 0);
 			mkdirSync(folder);
-			await until("the wake to be written", () => existsSync(wakeFile));
+			// The file appears before its content does; the host takes either as
+			// a wake, so only this read waits for the whole record.
+			await until(
+				"the wake to be written",
+				() =>
+					existsSync(wakeFile) && readFileSync(wakeFile, "utf8").endsWith("\n"),
+			);
 			expect(JSON.parse(readFileSync(wakeFile, "utf8")).why).toBe(
 				"the bash calls its park carried ended",
 			);
@@ -222,20 +228,25 @@ describe("watching the calls a park carried", () => {
 			now: () => clock,
 			report: () => {},
 		});
-		// Whether a wake is asked by `at`, taking it as the host would.
-		const askedBy = async (at: number): Promise<boolean> => {
+		// A wake asked by `at`, taken as the host would. A look reads files,
+		// so under load it can take many intervals: this waits for the wake.
+		const askedBy = async (at: number, why: string): Promise<void> => {
+			clock = at;
+			await until(why, () => existsSync(wakeFile));
+			rmSync(wakeFile, { force: true });
+		};
+		// No wake by `at`, over a few looks.
+		const notAskedBy = async (at: number, why: string): Promise<void> => {
 			clock = at;
 			await quietFor(LOOK_MS, 3);
-			const asked = existsSync(wakeFile);
-			rmSync(wakeFile, { force: true });
-			return asked;
+			expect(existsSync(wakeFile), why).toBe(false);
 		};
 		try {
-			expect(await askedBy(0), "at once").toBe(true);
-			expect(await askedBy(again - 1), "not before the wait").toBe(false);
-			expect(await askedBy(again), "once it passes").toBe(true);
-			expect(await askedBy(3 * again - 1), "twice as long next").toBe(false);
-			expect(await askedBy(3 * again), "then again").toBe(true);
+			await askedBy(0, "at once");
+			await notAskedBy(again - 1, "not before the wait");
+			await askedBy(again, "once it passes");
+			await notAskedBy(3 * again - 1, "twice as long next");
+			await askedBy(3 * again, "then again");
 			expect(CALLS_WAKE_AGAIN_MOST_MS, "at most an hour").toBe(3_600_000);
 		} finally {
 			stop();
