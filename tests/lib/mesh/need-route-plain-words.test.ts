@@ -33,6 +33,53 @@ describe("the plain words a need is not matched by", () => {
 		);
 	});
 
+	it("reads an id from a short word of work and the number after it", () => {
+		const words = wordsOf("PR 42 fails on v 2 and I 5, due on 24");
+
+		expect(words, "a pull request, a version and a spirit property").toEqual(
+			expect.arrayContaining(["pr-42", "v-2", "i-5"]),
+		);
+		expect(words, "a number after a short plain word").not.toContain("on-24");
+	});
+
+	it("takes no word from a contraction's stubs", () => {
+		expect(
+			wordsOf("don't, isn't, won't, can't, shouldn't, didn't, wasn't"),
+			"nothing of the work",
+		).toEqual([]);
+	});
+
+	it("keeps a word and the particle after it as one id", () => {
+		expect(wordsOf("Hand over the notes"), "the phrase whole").toEqual([
+			"hand",
+			"notes",
+			"hand-over",
+		]);
+		expect(wordsOf("over the notes"), "a particle alone").toEqual(["notes"]);
+	});
+
+	it("sends a need saying hand over to hand-over's hub, not hand-off's", () => {
+		// over and off name no work alone, so without the phrase both hubs
+		// say all the need does. No ties, so only a hub carries it.
+		const reach = {
+			foragers: cells({ A: [], O: ["hand"], F: ["hand"] }),
+			ties: ties(),
+			hubs: [
+				{ subject: "x:hand-off", hub: "F", fits: ["F"] },
+				{ subject: "x:hand-over", hub: "O", fits: ["O"] },
+			],
+		};
+
+		expect(
+			routeNeed(asked("A", ...wordsOf("hand over the notes")), reach),
+			"hand-over's hub takes it",
+		).toMatchObject({ fit: "O", path: ["O"] });
+		expect(
+			routeNeed(asked("A", ...wordsOf("hand off the notes")), reach),
+			"hand-off's hub takes the other",
+		).toMatchObject({ fit: "F", path: ["F"] });
+	});
+
 	it("keeps a plain word inside an id, which names the work whole", () => {
 		expect(wordsOf("hand-over"), "the id kept").toContain("hand-over");
 	});
@@ -86,15 +133,19 @@ describe("the plain words a need is not matched by", () => {
 
 		// The need's words as given, under among them, so only the title's
 		// leaving it out keeps the need from 1DZYLJ.
-		const found = routeNeed(
-			{ ...asked("AAAAAA", "under", "carry"), fromText: true },
-			{
-				foragers: foragersFrom(line),
-				ties: ties(["AAAAAA", "1DZYLJ", 3]),
-				hubs: [],
-			},
-		);
+		const reach = {
+			foragers: foragersFrom(line),
+			ties: ties(["AAAAAA", "1DZYLJ", 3]),
+			hubs: [],
+		};
 
-		expect(found.fit, "lost, rather than sent to a cell by under").toBeNull();
+		expect(
+			routeNeed(asked("AAAAAA", "under", "carry"), reach).fit,
+			"lost, rather than sent to a cell by under",
+		).toBeNull();
+		expect(
+			routeNeed(asked("AAAAAA", "dates", "carry"), reach).fit,
+			"found by a word of its work",
+		).toBe("1DZYLJ");
 	});
 });

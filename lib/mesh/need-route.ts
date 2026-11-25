@@ -263,6 +263,10 @@ const COMMON = new Set(
 		"again already also always even ever here instead just maybe never not",
 		"now often only perhaps please quite rather really soon still then",
 		"there too very",
+		// Those of two letters, which only a number after them is read
+		// beside: "on 24" names no work, where "PR 42" and "v 2" do. Not i,
+		// which names a spirit property (I-5), nor go, the language.
+		"am as at be by do he if in is it me my no of on or so to up us we",
 	]
 		.join(" ")
 		.split(" "),
@@ -291,30 +295,48 @@ const NUMBER_IN_PROSE =
 	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
 
 /**
+ * A word and the particle after it in prose, "hand over" or "roll
+ * back", which is the id hand-over or roll-back: over and off are
+ * common words, left out alone, so without the phrase "hand over" says
+ * only hand, and a hub of hand-off takes it as surely as one of
+ * hand-over (#2204's judge, F37). An id no cell holds costs nothing,
+ * since a need keeps only the words some cell works on.
+ */
+const PARTICLE_IN_PROSE =
+	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(over|off|out|up|down|back|away)(?![\p{L}\p{N}_-])/gu;
+
+/** Whether a word in prose may name work: long enough, and not common. */
+function isWorkWord(word: string | undefined): word is string {
+	return (
+		word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word)
+	);
+}
+
+/**
  * The words a need or a cell's work is matched by: lowercased, once
  * each, leaving out the short and the common, then each joined id whole
  * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
- * past, and each word kept by the same rule with a number after it as
- * their id (`NUMBER_IN_PROSE`).
+ * past, then each word with a number after it as their id
+ * (`NUMBER_IN_PROSE`), a common word's left out, and each word kept
+ * with a particle after it as theirs (`PARTICLE_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
 	const lower = text.toLowerCase();
-	const words = lower
-		.split(/[^\p{L}\p{N}]+/u)
-		.filter((word) => word.length >= SHORTEST_WORD && !COMMON.has(word));
+	const words = lower.split(/[^\p{L}\p{N}]+/u).filter(isWorkWord);
 	const ids = [...lower.matchAll(JOINED_ID)]
 		.map(([id]) => id)
 		.filter((id) => id.length <= LONGEST_WORD);
 	// A plain word's number is no id: "under 15" or "on 24" names no
-	// work, by the rule a word alone is left out by.
+	// work. A short word's is, so PR 42 and v 2 keep their ids.
 	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
-		.filter(
-			([, word]) =>
-				word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word),
-		)
+		.filter(([, word]) => word !== undefined && !COMMON.has(word))
 		.map(([, word, n]) => `${word}-${n}`)
 		.filter((id) => id.length <= LONGEST_WORD);
-	return [...new Set([...words, ...ids, ...numbered])];
+	const phrases = [...lower.matchAll(PARTICLE_IN_PROSE)]
+		.filter(([, word]) => isWorkWord(word))
+		.map(([, word, particle]) => `${word}-${particle}`)
+		.filter((id) => id.length <= LONGEST_WORD);
+	return [...new Set([...words, ...ids, ...numbered, ...phrases])];
 }
 
 /** What a cell says it works on, as the node lists each one. */
