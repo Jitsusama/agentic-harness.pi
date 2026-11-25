@@ -132,6 +132,47 @@ describe("the sweep's memory of trees' statuses", () => {
 		expect(ran.length, "statuses git ran").toBe(2);
 	});
 
+	it("never serves a clean answer an earlier build left in the file", async () => {
+		const { ran, exec } = counting();
+		await sweep(exec);
+		const file = join(state, "sweep-status.json");
+		const saved: Record<string, { stdout: string }> = JSON.parse(
+			readFileSync(file, "utf8"),
+		);
+		for (const one of Object.values(saved)) one.stdout = "";
+		writeFileSync(file, JSON.stringify(saved));
+
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git when HEAD's ref climbs out of refs/ through ..", async () => {
+		const { ran, exec } = counting();
+		const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
+		writeFileSync(join(gitDir, "HEAD"), "ref: refs/../../../../elsewhere\n");
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git when the branch's ref is a link", async () => {
+		const { ran, exec } = counting();
+		const common = (await git(main, "rev-parse", "--absolute-git-dir")).trim();
+		const ref = join(common, "refs", "heads", "topic");
+		const moved = join(state, "ref-elsewhere");
+		writeFileSync(moved, readFileSync(ref));
+		rmSync(ref);
+		symlinkSync(moved, ref);
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
 	it("asks git when HEAD names a ref outside refs/", async () => {
 		const { ran, exec } = counting();
 		const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
@@ -229,7 +270,13 @@ describe("the sweep's memory of trees' statuses", () => {
 	});
 
 	it("never remembers a status that failed", async () => {
-		const { ran, exec } = counting({ code: 128, stdout: "", stderr: "lock" });
+		// It printed part of an answer before failing, so only the failure
+		// keeps it out of memory.
+		const { ran, exec } = counting({
+			code: 128,
+			stdout: " M notes.txt\n",
+			stderr: "lock",
+		});
 
 		await sweep(exec);
 		await sweep(exec);

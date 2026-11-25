@@ -77,9 +77,12 @@ export function rememberStatuses(
 			const seen =
 				look === undefined ? undefined : JSON.stringify([args, look]);
 			const old = before[path];
+			// Clean is checked here too, not only when saving: a file an
+			// earlier build wrote may hold clean answers.
 			if (
 				seen !== undefined &&
 				old !== undefined &&
+				old.stdout.trim() !== "" &&
 				old.seen === seen &&
 				now() - old.at < STATUS_REMEMBERED_MS
 			) {
@@ -178,13 +181,14 @@ function samePath(path: string): string {
  * names, packed-refs, its index and its own folder. Nothing when any
  * can't be read, which asks git.
  *
- * Every file git keeps for a tree is read through {@link readPlain}, and
- * looked at without following a link: whatever ran in the tree can write
- * its git folder, and could make a file there a fifo, whose read never
- * returns, or a link to a mount that never answers, either of which would
- * hold the host's thread. For the same reason only a ref under `refs/` is
- * looked at, and only a common folder two above the git folder, where git
- * puts it: both are read from files the session can write.
+ * Whatever ran in the tree can write its git folder, so each file there
+ * is read through {@link readPlain} and looked at without following a
+ * link as its last part: a fifo, whose read never returns, or a link to
+ * a mount that never answers, would hold the host's thread. Only a ref
+ * under `refs/` with no `..` is looked at, and only a common folder two
+ * above the git folder, where git puts it. A link earlier in a path is
+ * still followed, and the `gitdir:` line may name any folder, as it may
+ * for the git status this stands in for and for the rest of the sweep.
  */
 function lookOf(path: string): string | undefined {
 	try {
