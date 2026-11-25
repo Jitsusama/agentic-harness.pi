@@ -1,3 +1,11 @@
+/**
+ * The restore verb and the restore file, as a quest's sessions are
+ * reopened through pi, the desktop's launcher or a new session's start.
+ *
+ * Long because every way back to a lost session shares one set of
+ * fixtures (a quest made for the case, its state and a stand-in
+ * context), and splitting them would copy those into each part.
+ */
 import {
 	mkdirSync,
 	mkdtempSync,
