@@ -262,7 +262,12 @@ input pipeline or screen. No unit or running host is installed yet.
   before the host's code loads, binding every `@earendil-works/` import
   made from outside the host's pi to that pi. The harness's install
   carries no pi of its own, so without it the viewer's terminal would
-  find no pi-tui, or in a tree the dev copy rather than the host's.
+  find no pi-tui, or in a tree the dev copy rather than the host's. A
+  pi whose bundle has the host entry binds each import to the bundle's
+  host module for it, the copy its extensions get, and refuses a pi
+  library the bundle has none for: the install's own file would be a
+  second copy, and pi-tui's kitty flag, set by the viewer's terminal on
+  one, would go unread by pi's key reader on the other.
 - compile-cache.ts: node's compile cache, which `scripts/pi-host.ts`
   enables before anything else loads, so a start reads back what an
   earlier start of the same install compiled rather than compiling
