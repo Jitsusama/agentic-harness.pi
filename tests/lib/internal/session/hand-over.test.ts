@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	goQuiet,
 	handingOf,
+	nameRestart,
 	tellHolder,
 	untellHolder,
 	whyWriting,
@@ -207,6 +208,38 @@ describe("telling the holder what starts next", () => {
 
 		expect(() => untellHolder(files), "a folder it can't remove").not.toThrow();
 		expect(existsSync(files.wake), "the wake still goes").toBe(false);
+	});
+});
+
+describe("naming the restart of a pi that quit unasked", () => {
+	it("names the command alone: no wake, and no park", () => {
+		const { files } = holderFor(4242);
+		const parked = join(dirname(files.wake), "s.parked");
+
+		expect(
+			nameRestart({ ...files, parked }, ["pi", "--session", log]),
+			"the holder is told",
+		).toEqual({ told: true });
+
+		expect(
+			JSON.parse(readFileSync(files.again, "utf8")),
+			"the session's own command",
+		).toEqual(["pi", "--session", log]);
+		expect(existsSync(files.wake), "no wake").toBe(false);
+		expect(existsSync(parked), "no park").toBe(false);
+	});
+
+	it("says why when the command can't be written, leaving no part of it", () => {
+		const { files } = holderFor(4242);
+		mkdirSync(files.again);
+
+		expect(
+			nameRestart(files, ["pi"]),
+			"a command it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.again/),
+		});
 	});
 });
 

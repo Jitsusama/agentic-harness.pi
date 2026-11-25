@@ -60,13 +60,18 @@ import {
 	crashText,
 	recordCrashes,
 } from "../../lib/internal/session/crash-record.ts";
+import { nameRestart } from "../../lib/internal/session/hand-over.ts";
 import {
 	type JournalCommand,
 	journalCommand,
 	sayInJournal,
 	writeJournal,
 } from "../../lib/internal/session/journal.ts";
-import { holderFiles } from "../../lib/internal/session/park.ts";
+import {
+	type HolderFiles,
+	holderCommand,
+	holderFiles,
+} from "../../lib/internal/session/park.ts";
 import {
 	askQuit,
 	KEY_QUITS,
@@ -157,7 +162,7 @@ export default function crashRecord(pi: ExtensionAPI): void {
 		stop = undefined;
 		unlistenKeys?.();
 		unlistenKeys = undefined;
-		if (event.reason === "quit") sayQuit(sessionOf(ctx));
+		if (event.reason === "quit") sayQuit(sessionOf(ctx), logOf(ctx));
 		// Only a quit ends the process; a reload, new session, resume or
 		// fork starts the next session in it, which watches afresh.
 		if (event.reason === "quit") slowEnd?.arm("quit");
@@ -187,12 +192,15 @@ function listenForQuitKeys(ctx: ExtensionContext): () => void {
 
 /**
  * Says who asked this pi to quit, in the system's log; a held pi nobody asked exits with `UNASKED_EXIT`, which its
- * holder answers by starting it again.
+ * holder answers by starting it again, on the session's own log where it has one.
  */
-function sayQuit(session: string): void {
+function sayQuit(session: string, log: string | undefined): void {
 	const asker = quitAsker();
-	const held = holderFiles(process.env, process.pid) !== undefined;
+	const files = holderFiles(process.env, process.pid);
+	const held = files !== undefined;
 	const restarts = quitExit(asker, held, 0) === UNASKED_EXIT;
+	const untold =
+		restarts && files !== undefined ? restartUntold(files, log) : undefined;
 	if (restarts) {
 		// pi ends a quit with process.exit(0); an exit listener's code wins,
 		// and one an earlier listener set, as one-writer's, stands.
@@ -209,9 +217,27 @@ function sayQuit(session: string): void {
 	// serves other screens, so its line waits on nothing.
 	const say = hosted() === undefined ? writeJournal : sayInJournal;
 	say(
-		quitLine(session, asker, restarts),
+		quitLine(session, asker, restarts, untold),
 		journalCommand(asker === undefined ? "err" : "info"),
 	);
+}
+
+/**
+ * Names to the holder the command that starts this session again, so a
+ * pi it started bare comes back to this conversation, not a new one;
+ * written before the exit code or the signal it restarts on. Answers
+ * why it couldn't, or nothing once it has.
+ */
+function restartUntold(
+	files: HolderFiles,
+	log: string | undefined,
+): string | undefined {
+	if (log === undefined) return "it has no log to open";
+	const told = nameRestart(
+		files,
+		holderCommand(log, process.argv.slice(2), process.env),
+	);
+	return told.told ? undefined : `its holder couldn't be told: ${told.why}`;
 }
 
 /** What a pi ended past a pending lookup says held it. */

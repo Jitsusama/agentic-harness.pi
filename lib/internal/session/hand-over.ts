@@ -83,6 +83,27 @@ export function tellHolder(
 }
 
 /**
+ * Names the command a holder starts a pi that quit unasked again with,
+ * as its session's own, so it comes back to the same conversation
+ * rather than a new one. Only the command is written: the holder
+ * restarts on the exit code, so no wake is needed, and parking after
+ * quick quits is the holder's to say, so no park is. Untold, the file
+ * is taken away, even one cut short, so the holder reads no half.
+ */
+export function nameRestart(
+	files: HolderFiles,
+	command: readonly string[],
+): Told {
+	try {
+		writeFileSync(files.again, JSON.stringify(command));
+		return { told: true };
+	} catch (error) {
+		forget(files.again);
+		return { told: false, why: whyWriting(files.again, error) };
+	}
+}
+
+/**
  * Why writing `path` failed, naming the file: an error from opening it
  * names it already, but one from the write itself, as a full disk's
  * ENOSPC, names only the call. It never ends in a full stop, so a
