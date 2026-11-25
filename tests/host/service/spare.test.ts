@@ -12,6 +12,7 @@ import {
 	takeSpare,
 	warmVersion,
 } from "../../../host/service/spare.ts";
+import { until } from "../../support/until.ts";
 
 const MB = 1024 * 1024;
 let folder: string;
@@ -45,11 +46,8 @@ function waitOf(overrides: Partial<SpareWait> = {}): SpareWait {
 }
 
 /** Resolve once `file` is there, as a supervisor sees the spare warm. */
-async function until(file: string): Promise<void> {
-	for (let tries = 0; tries < 400 && !existsSync(file); tries += 1)
-		// A short look again, the test's only wait on the spare's own loop.
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	if (!existsSync(file)) throw new Error(`${file} never came`);
+async function written(file: string): Promise<void> {
+	await until(`${file} to be written`, () => existsSync(file));
 }
 
 /** Write the slot as the supervisor does: aside, then renamed into place. */
@@ -83,7 +81,7 @@ describe("a warm spare", () => {
 				},
 			}),
 		);
-		await until(marks.warm);
+		await written(marks.warm);
 		expect(warmed).toBe(true);
 		expect(said).toEqual([
 			expect.stringMatching(
@@ -98,7 +96,7 @@ describe("a warm spare", () => {
 	it("starts as what its slot names once taken", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf());
-		await until(marks.warm);
+		await written(marks.warm);
 		expect(await takeSpare(marks)).toBe(true);
 		expect(existsSync(marks.warm)).toBe(false);
 		expect(existsSync(marks.taken)).toBe(true);
@@ -118,15 +116,32 @@ describe("a warm spare", () => {
 		expect(await takeSpare(marks)).toBe(false);
 	});
 
+	it("leaves once it has waited its time untaken, and can no longer be taken", async () => {
+		const marks = spareMarks(slotFile);
+		const waiting = spareUntilTaken(waitOf({ untakenWithinMs: 60 }));
+		await expect(waiting).resolves.toEqual({
+			left: expect.stringMatching(
+				/^it waited \d+ s untaken, so a fresh one replaces it$/,
+			),
+		});
+		expect(existsSync(marks.warm), "its warm mark outlived its leave").toBe(
+			false,
+		);
+		expect(await takeSpare(marks), "a take landed on a spare gone").toBe(false);
+	});
+
 	it("stays for a take that landed before its leave", async () => {
 		const marks = spareMarks(slotFile);
 		let moved = false;
 		const waiting = spareUntilTaken(
 			waitOf({
 				moved: async () => (moved ? "its install moved" : undefined),
+				// Well past the wait below, so a loaded machine's slow name
+				// isn't taken for a take that named nothing.
+				takeWithinMs: 5_000,
 			}),
 		);
-		await until(marks.warm);
+		await written(marks.warm);
 		expect(await takeSpare(marks)).toBe(true);
 		moved = true;
 		// Past several of its looks, so a leave would have landed by now.
@@ -179,7 +194,7 @@ describe("a warm spare", () => {
 		const waiting = spareUntilTaken(
 			waitOf({ version: "/install/versions/one" }),
 		);
-		await until(marks.warm);
+		await written(marks.warm);
 		expect(await warmVersion(marks)).toBe("/install/versions/one");
 		expect(await takeSpare(marks)).toBe(true);
 		expect(await warmVersion(marks), "once taken").toBeUndefined();
@@ -190,7 +205,7 @@ describe("a warm spare", () => {
 	it("leaves a take that names nothing within its time", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf({ takeWithinMs: 30 }));
-		await until(marks.warm);
+		await written(marks.warm);
 		expect(await takeSpare(marks)).toBe(true);
 		await expect(waiting).resolves.toEqual({
 			left: "it was taken, but its slot named nothing within 0.03 s",
@@ -205,7 +220,7 @@ describe("a warm spare", () => {
 		expect(existsSync(spareMarks(slotFile).warm)).toBe(false);
 		let held = 100 * MB;
 		const growing = spareUntilTaken(waitOf({ size: () => held }));
-		await until(spareMarks(slotFile).warm);
+		await written(spareMarks(slotFile).warm);
 		held = 201 * MB;
 		await expect(growing).resolves.toEqual({
 			left: "it holds 201 MB, past the 200 MB a spare may",
@@ -215,7 +230,7 @@ describe("a warm spare", () => {
 	it("leaves once its slot is cleared, as a host does once its unit has gone", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf());
-		await until(marks.warm);
+		await written(marks.warm);
 		await rm(folder, { recursive: true, force: true });
 		await expect(waiting).resolves.toEqual({ left: "its slot was cleared" });
 	});

@@ -410,7 +410,11 @@ function fakeUnits(): FakeUnits {
 				if (next.neverListens) return;
 				runChild(slot, next, its, fake).then(
 					(child) => fake.children.set(unit, child),
-					(error) => reported.push(error),
+					(error) => {
+						// A child still reading its slot as its test's folder went is
+						// that test's, not the one that has begun since.
+						if (folder === itsTest) reported.push(error);
+					},
 				);
 			}, LISTENS_AFTER_MS);
 		},

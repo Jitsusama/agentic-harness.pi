@@ -68,6 +68,17 @@ describe("a host's child policy", () => {
 		expect(report).not.toHaveBeenCalled();
 	});
 
+	it("keeps no spare while it moves nothing, as no start could take one", async () => {
+		policy = await watchedChildPolicy(file, report);
+		await written({ v: 1, all: false, sessions: [a], spares: true });
+		await until("it keeps a spare for the one it names", () =>
+			Boolean(policy?.spares?.()),
+		);
+
+		await written({ v: 1, spares: true });
+		await until("it keeps none once nothing moves", () => !policy?.spares?.());
+	});
+
 	it("follows its file as it changes, with no restart", async () => {
 		policy = await watchedChildPolicy(file, report);
 		await written({ v: 1, all: false, sessions: [a] });
