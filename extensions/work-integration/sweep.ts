@@ -17,11 +17,9 @@
  * thread never carries a sweep's work.
  */
 
-import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readdir, readlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
 import {
@@ -51,9 +49,7 @@ import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
-
-/** A program run off the event loop, its output read whole. */
-const runCommand = promisify(execFile);
+import { listedOpenFiles } from "./open-files.ts";
 
 /** How long after a session starts its first sweep runs. */
 const FIRST_SWEEP_MS = 3 * 60 * 1000;
@@ -532,44 +528,10 @@ function busyAmong(
 		readdir: (path) => readdir(path),
 		readlink,
 		sessionFolders: () => sessionFolders(presentNow),
-		...(process.platform === "darwin" ? { openFiles: listedOpenFiles } : {}),
+		...(process.platform === "darwin"
+			? { openFiles: () => listedOpenFiles() }
+			: {}),
 	});
-}
-
-/** Where macOS keeps lsof, which a sweep's fixed PATH may not name. */
-const LSOF = "/usr/sbin/lsof";
-
-/**
- * How long lsof may list for. A Mac's thousand processes list in seconds;
- * one still going after a minute is stuck, and its trees stay unjudged.
- */
-const LSOF_LIMIT_MS = 60 * 1000;
-
-/** The most lsof may write, far past a busy Mac's few tens of megabytes. */
-const LSOF_OUTPUT_MOST = 256 * 1024 * 1024;
-
-/**
- * What lsof lists of this account's processes, as fields a line: each
- * process's working folder, program and open files by name. Another
- * account's processes are left out, as `/proc` refuses their links to
- * this one. Nothing when lsof fails, runs past its time or writes past
- * its bound.
- */
-async function listedOpenFiles(): Promise<string | undefined> {
-	const uid = process.getuid?.();
-	if (uid === undefined) return undefined;
-	try {
-		const { stdout } = await runCommand(
-			LSOF,
-			["-n", "-P", "-w", "-F", "n", "-u", String(uid)],
-			{ encoding: "utf8", maxBuffer: LSOF_OUTPUT_MOST, timeout: LSOF_LIMIT_MS },
-		);
-		return stdout;
-	} catch {
-		// Failed, stuck or too long: a reading that can't say, never one
-		// that calls every tree free.
-		return undefined;
-	}
 }
 
 /** Where {@link busyAmongBy} reads the kernel's links and the sessions. */
@@ -579,7 +541,8 @@ export interface ProcessReads {
 	sessionFolders(): Promise<readonly string[]>;
 	/**
 	 * On a machine with no `/proc`, what lsof lists of the processes'
-	 * files, one field a line, or nothing when it can't list them.
+	 * files, one field a line, whole, or nothing when it can't say it
+	 * listed them all.
 	 */
 	openFiles?(): Promise<string | undefined>;
 }

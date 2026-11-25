@@ -794,7 +794,8 @@ async function takeIdle(
 		// Who works in it, then its git and folder, are read again under the
 		// lock just before the move, since the takes before it may have
 		// taken minutes. A reading that can't say keeps it. The walk of
-		// every process holds the lock for under a second, where an ask
+		// every process holds the lock for under a second, and lsof on a
+		// Mac for about two and a half and never past five, where an ask
 		// waits ten.
 		(take) =>
 			deps.memory.whileUnusedSince(

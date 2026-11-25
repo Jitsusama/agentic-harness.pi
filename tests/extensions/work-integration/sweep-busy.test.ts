@@ -193,19 +193,25 @@ describe("the sweep's reading of what is in use without /proc", () => {
 			"f3",
 			"n/trees/b/Cargo.lock",
 			"f4",
-			"n->0x1234",
-			"",
+			"n->/trees/c",
+			"p503",
+			"fcwd",
+			"n/trees/my tree (2)/src",
+			"f5",
+			"n/trees/dd/x",
 		].join("\n");
 
 		const busy = await busyAmongBy(
-			["/trees/a", "/trees/b", "/trees/c"],
+			["/trees/a", "/trees/b", "/trees/c", "/trees/my tree (2)", "/trees/d"],
 			mac(listed),
 		);
 
+		// A socket's name is no path, a name runs to the line's end, and a
+		// sibling sharing a prefix is another tree.
 		expect(
 			[...(busy ?? [])].sort(),
 			"not the trees lsof lists files in",
-		).toEqual(["/trees/a", "/trees/b"]);
+		).toEqual(["/trees/a", "/trees/b", "/trees/my tree (2)"]);
 	});
 
 	it("finds a tree a live session's folder lies in", async () => {
