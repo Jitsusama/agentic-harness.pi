@@ -30,17 +30,20 @@
  * A pi that quits says who asked: `pi: quitting session S, asked by
  * X` in the system's log and a `quit` entry in its session's log. The
  * asker is whatever named itself just before (a mesh close, the quest
- * ending, a park, one-writer), the person's ctrl+d, ctrl+c or /quit
- * read from the window, or the TERM or HUP that armed the watch. A held
- * pi that quits at nobody's ask exits 79 rather than 0, so its holder
- * starts it again. See `lib/internal/session/quit-asker.ts`.
+ * ending, a park, one-writer), the person's exit key, second clear key
+ * or /quit read from the window as they bound them, or the TERM or HUP
+ * that armed the watch. A held pi that quits at nobody's ask exits 79
+ * rather than 0, or ends by USR2 where a name lookup would hold its
+ * exit, so its holder starts it again; a code another set, as a park's,
+ * stands. See `lib/internal/session/quit-asker.ts`.
  *
  * Once the watch arms, a last exit listener looks for a name lookup
  * still pending, which node's exit would wait on until the resolver
  * gives up: 10 seconds with no network. Finding one, it writes the
  * record and the `pi: still ending` line, naming the hold, and waits
  * for both, since nothing runs once exit has begun; then the pi ends
- * by its own TERM, so it leaves with status 143 rather than 0.
+ * by its own TERM, so it leaves with status 143 rather than 0, or by
+ * USR2 where it quit at nobody's ask, which its holder restarts.
  * See `lib/internal/session/slow-end.ts`.
  */
 
@@ -66,11 +69,14 @@ import {
 import { holderFiles } from "../../lib/internal/session/park.ts";
 import {
 	askQuit,
-	KEY_LASTS_MS,
+	KEY_QUITS,
 	keyQuit,
 	quitAsker,
+	quitExit,
 	quitLine,
+	takeBackQuit,
 	UNASKED_EXIT,
+	UNASKED_SIGNAL,
 } from "../../lib/internal/session/quit-asker.ts";
 import { readyLine, watchReady } from "../../lib/internal/session/ready.ts";
 import {
@@ -117,7 +123,8 @@ export default function crashRecord(pi: ExtensionAPI): void {
 			raise: (signal) => process.kill(process.pid, signal),
 			onSlow: (cause, afterMs) => saySlowEnd(session, cause, afterMs),
 			onArm: (cause) => {
-				// A signal arms before pi's own handler shuts the session down.
+				// The watch hears a signal first, so this names it before pi's
+				// own handler starts the shutdown that reads it.
 				if (cause !== "quit") askQuit(`a ${cause}`);
 				endPastLookupAtExit(session, cause);
 			},
@@ -166,9 +173,17 @@ export default function crashRecord(pi: ExtensionAPI): void {
  * so the quit it starts says the person asked.
  */
 function listenForQuitKeys(ctx: ExtensionContext): () => void {
+	const read = keyQuit();
 	return ctx.ui.onTerminalInput((data) => {
-		const by = keyQuit(data, ctx.ui.getEditorText());
-		if (by !== undefined) askQuit(by, KEY_LASTS_MS);
+		const by = read({
+			data,
+			editorText: ctx.ui.getEditorText(),
+			atMs: performance.now(),
+		});
+		if (by === undefined) return undefined;
+		// A key that isn't a quit takes back the key before it, which wasn't.
+		for (const key of Object.values(KEY_QUITS)) takeBackQuit(key);
+		if (by !== "") askQuit(by);
 		return undefined;
 	});
 }
@@ -180,12 +195,18 @@ function listenForQuitKeys(ctx: ExtensionContext): () => void {
  */
 function sayQuit(pi: ExtensionAPI, session: string): void {
 	const asker = quitAsker();
-	const restarts =
-		asker === undefined && holderFiles(process.env, process.pid) !== undefined;
+	const held = holderFiles(process.env, process.pid) !== undefined;
+	const restarts = quitExit(asker, held, 0) === UNASKED_EXIT;
 	if (restarts) {
-		// pi ends a quit with process.exit(0); an exit listener's code wins.
-		process.once("exit", () => {
-			process.exitCode = UNASKED_EXIT;
+		// pi ends a quit with process.exit(0); an exit listener's code wins,
+		// and one an earlier listener set, as one-writer's, stands.
+		process.once("exit", (code) => {
+			const set = process.exitCode;
+			process.exitCode = quitExit(
+				asker,
+				held,
+				typeof set === "number" ? set : code,
+			);
 		});
 	}
 	try {
@@ -193,7 +214,10 @@ function sayQuit(pi: ExtensionAPI, session: string): void {
 	} catch {
 		// A session already closing for writes still gets the system's line.
 	}
-	sayInJournal(
+	// A plain pi waits for its line, as it may exit at once; a host
+	// serves other screens, so its line waits on nothing.
+	const say = hosted() === undefined ? writeJournal : sayInJournal;
+	say(
 		quitLine(session, asker, restarts),
 		journalCommand(asker === undefined ? "err" : "info"),
 	);
@@ -201,7 +225,7 @@ function sayQuit(pi: ExtensionAPI, session: string): void {
 
 /** What a pi ended past a pending lookup says held it. */
 const HELD_BY_LOOKUP =
-	"exit waits on a name lookup, so it ends by its own SIGTERM";
+	"exit waits on a name lookup, so it ends by a signal of its own";
 
 /**
  * Says what holds a pi still ending: a record in the state folder, and
@@ -251,7 +275,12 @@ function endPastLookupAtExit(session: string, cause: string): void {
 					journalCommand("err"),
 				);
 			},
-			end: () => endNow(process),
+			// A quit nobody asked ends by the signal its holder restarts on.
+			end: () =>
+				endNow(
+					process,
+					process.exitCode === UNASKED_EXIT ? UNASKED_SIGNAL : "SIGTERM",
+				),
 		}),
 	);
 }

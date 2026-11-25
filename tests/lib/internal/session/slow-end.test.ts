@@ -24,6 +24,12 @@ function signals() {
 		on: (signal: string, listener: () => void) => {
 			listeners.set(signal, (listeners.get(signal) ?? new Set()).add(listener));
 		},
+		prependListener: (signal: string, listener: () => void) => {
+			listeners.set(
+				signal,
+				new Set([listener, ...(listeners.get(signal) ?? [])]),
+			);
+		},
 		off: (signal: string, listener: () => void) => {
 			listeners.get(signal)?.delete(listener);
 		},
@@ -335,7 +341,41 @@ describe("endPastPendingLookup", () => {
 	});
 });
 
+describe("watchSlowEnd's order", () => {
+	it("is told a signal before a handler already listening, as pi's shutdown is", () => {
+		const source = signals();
+		const heard: string[] = [];
+		source.on("SIGTERM", () => heard.push("pi's handler"));
+		const watch = watchSlowEnd({
+			afterMs: 2_000,
+			signals: source,
+			onSlow: () => {},
+			onArm: (cause) => heard.push(`armed by ${cause}`),
+		});
+		source.send("SIGTERM");
+		watch.stop();
+		expect(heard).toEqual(["armed by SIGTERM", "pi's handler"]);
+	});
+});
+
 describe("endNow", () => {
+	it("ends by the signal it is given, with nothing else hearing it", () => {
+		const done: string[] = [];
+		endNow(
+			{
+				pid: 42,
+				removeAllListeners: (signal) => done.push(`unlisten ${signal}`),
+				kill: (pid, signal) => done.push(`kill ${pid} ${signal}`),
+			},
+			"SIGUSR2",
+		);
+		expect(done).toEqual([
+			"unlisten SIGUSR2",
+			"kill 42 SIGUSR2",
+			"kill 42 SIGKILL",
+		]);
+	});
+
 	it("ends by its own TERM once nothing else hears one, and by KILL should that return", () => {
 		const done: string[] = [];
 		endNow({

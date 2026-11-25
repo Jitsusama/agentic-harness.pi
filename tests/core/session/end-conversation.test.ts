@@ -102,6 +102,19 @@ it("names who asked as plain pi's quit's asker before its shutdown", () => {
 	);
 });
 
+it("takes back plain pi's ask when its shutdown throws, so it names no later quit", () => {
+	const { ctx, shutdown } = context();
+	shutdown.mockImplementation(() => {
+		throw new Error("not now");
+	});
+	const failed = vi.fn();
+
+	endConversation(ctx, "the quest, ended", failed);
+
+	expect(failed).toHaveBeenCalledTimes(1);
+	expect(quitAsker()).toBeUndefined();
+});
+
 it("tells a host's failed close to whoever asked, once it has failed", async () => {
 	installed(async () => {
 		throw new Error("the engine is gone");

@@ -58,7 +58,7 @@ export interface WatchTimer {
 
 /** Where signals are heard: the process, or a stand-in under test. */
 export interface SignalSource {
-	on(signal: string, listener: () => void): unknown;
+	prependListener(signal: string, listener: () => void): unknown;
 	off(signal: string, listener: () => void): unknown;
 	listenerCount(signal: string): number;
 }
@@ -119,7 +119,9 @@ export function watchSlowEnd(options: {
 			arm(signal);
 			if (signals.listenerCount(signal) === 0) options.raise?.(signal);
 		};
-		signals.on(signal, listener);
+		// Ahead of pi's own handler, which starts the shutdown, so `onArm`
+		// is told the signal before any shutdown handler runs.
+		signals.prependListener(signal, listener);
 		return { signal, listener };
 	});
 	return {
@@ -149,7 +151,7 @@ export function endPastPendingLookup(options: {
 	};
 }
 
-/** The process as `endNow` needs it: its pid, its TERM listeners, kill. */
+/** The process as `endNow` needs it: its pid, its signal listeners, kill. */
 export interface EndingProcess {
 	pid: number;
 	removeAllListeners(signal: string): unknown;
@@ -160,15 +162,16 @@ export interface EndingProcess {
  * Ends the process at once, past an exit that would wait on a pending
  * name lookup: no exit path, `process.reallyExit` included, ends before
  * the threadpool's lookup returns, so only a signal's default action
- * does. It drops every TERM listener, pi's own handler among them, then
- * sends itself TERM, which ends it with status 143. The KILL after it
- * runs only when that TERM returns, which it does when TERM is blocked
+ * does. It drops every listener for `signal`, TERM by default and pi's
+ * own handler among them, then sends itself that signal, whose default
+ * action ends it (TERM's status is 143). The KILL after it runs only
+ * when that signal returns, which it does when it is blocked
  * or ignored, as a `SIG_IGN` inherited from `nohup` leaves it; without
  * the KILL the exit would go on waiting on the lookup.
  */
-export function endNow(proc: EndingProcess): void {
-	proc.removeAllListeners("SIGTERM");
-	proc.kill(proc.pid, "SIGTERM");
+export function endNow(proc: EndingProcess, signal = "SIGTERM"): void {
+	proc.removeAllListeners(signal);
+	proc.kill(proc.pid, signal);
 	proc.kill(proc.pid, "SIGKILL");
 }
 
