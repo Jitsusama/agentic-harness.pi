@@ -3,6 +3,8 @@
  * `a-call-is-on` does: 0 while a call is on, 1 while none is, anything
  * else when it can't tell, and 64 for arguments it doesn't take.
  */
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -56,13 +58,22 @@ describe("asking whether a call is on", () => {
 		const undo = placeChildren("/jobs", (_path, pid) => {
 			placed.push(pid);
 		});
+		let on: boolean | undefined;
+		let plain: number | undefined;
 		try {
-			await askCall({ program: standIn("exit 1"), timeoutMs: 5_000 });
+			on = await askCall({ program: standIn("exit 1"), timeoutMs: 5_000 });
+			// A plain spawn beside it shows the placing was live all along.
+			const child = spawn("/bin/sh", ["-c", "exit 0"], { stdio: "ignore" });
+			plain = child.pid;
+			await once(child, "exit");
 		} finally {
 			undo();
 		}
 
-		expect(placed, "pids written to jobs").toEqual([]);
+		expect(on, "the probe ran and answered no call").toBe(false);
+		expect(placed, "only the plain spawn's pid written to jobs").toEqual([
+			plain,
+		]);
 	});
 
 	it("reads the exit: 0 on, 1 off, anything else unknown", async () => {

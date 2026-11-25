@@ -8,7 +8,8 @@
  * what it was asked.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -256,17 +257,24 @@ describe("the engine, kept running", () => {
 		const undo = placeChildren("/jobs", (_path, pid) => {
 			placed.push(pid);
 		});
+		let plain: number | undefined;
 		try {
 			const { all, answered } = listen(1);
 			const engine = new Engine(program, answered, none);
 			engine.ask(dir);
 			await all;
 			engine.stop();
+			// A plain spawn beside it shows the placing was live all along.
+			const child = spawn("/bin/sh", ["-c", "exit 0"], { stdio: "ignore" });
+			plain = child.pid;
+			await once(child, "exit");
 		} finally {
 			undo();
 		}
 
-		expect(placed, "pids written to jobs").toEqual([]);
+		expect(placed, "only the plain spawn's pid written to jobs").toEqual([
+			plain,
+		]);
 	});
 
 	it("holds questions asked while one is out and asks only the latest", async () => {
