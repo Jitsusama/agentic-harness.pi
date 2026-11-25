@@ -345,8 +345,10 @@ input pipeline or screen. No unit or running host is installed yet.
   writes SLOT.warm holding the version it runs and waits for its slot
   to name what it starts as. A take renames SLOT.warm to SLOT.taken
   and a leave unlinks it, so only one lands. It leaves, exiting 0,
-  when its install's host code moves, past 200 MB once collected, or
-  when a take names nothing within 60 s.
+  when its install's host code moves, past 200 MB once collected,
+  when a take names nothing within 60 s, or once it has waited an
+  hour untaken, so one whose host is gone for good holds nothing past
+  then.
 - stale-child.ts: a child rolling onto new code. A child never
   restarts itself, so it keeps the host code it started with; on 22
   November 15 children ran host code 34 hours old. Every five
@@ -389,16 +391,21 @@ input pipeline or screen. No unit or running host is installed yet.
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. Where its policy says, it keeps one warm spare
-  started 10 s after its adopt and after each take, which a start
-  given its turn takes in place of starting a unit, said as "took a
+  started 10 s after its adopt and after each take, and never sooner,
+  through the gate behind every start already waiting, holding its
+  turn until warm (or 120 s, said as "a spare held its turn"), which a
+  start given its turn takes in place of starting a unit, said as "took a
   warm spare" in the journal; a spare still warming is passed over,
   and one whose version its install has moved on from is passed over
   and stopped, said as "passed over a warm spare", so no wake lands
   on code a fresh start would no longer run.
-  One that leaves untaken is let go and replaced, and once three in a
-  row leave within 300 s of starting the host keeps none until it
-  restarts. A host taking up its last one's slots stops every spare
-  left untaken, since it may run old code. To halt the children's
+  One that leaves untaken is let go and replaced, whether the check or
+  a take finds it gone, and one with no warm mark 120 s after its start
+  is stopped, said as "stopped a spare that never warmed". Once three
+  in a row leave within 300 s of starting the host keeps none until it
+  restarts. A host stopping stops its untaken spare, since it runs no
+  conversation, and a host taking up its last one's slots stops every
+  spare still left untaken, since it may run old code. To halt the children's
   conversations too, stop their units:
   `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, so
   a host starting resumes it, and a running one starts it again at a
@@ -406,7 +413,10 @@ input pipeline or screen. No unit or running host is installed yet.
   children, which neither takes them up nor knows they run, so would
   resume their conversations beside them, stop the host first and
   then their units: a running host starts a child again at its
-  conversation's next wake. The host runs a
+  conversation's next wake. Before rolling back to a host with children
+  but no spares, set `"spares": false` and wait for the spare to stop,
+  or that host takes it up as a child that never listens, and holds
+  its resumes back a minute. The host runs a
   conversation itself only once every child that ran it has gone and
   its own slot is free, unless a child there became another
   conversation, as the host heard it or as a child taken up says, and
@@ -432,7 +442,8 @@ input pipeline or screen. No unit or running host is installed yet.
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,
   and `"all":true` moves every one and every open. `"spares":true`
   keeps one warm spare child (spare.ts) for the next resume or open
-  to take, off unless said. A missing file
+  to take, off unless said, and only while the file moves something.
+  A missing file
   moves nothing, so deleting it or emptying its list moves them back;
   one it can't read keeps the last it read, so write it beside and
   rename it into place. A folder it can't watch moves nothing, and
