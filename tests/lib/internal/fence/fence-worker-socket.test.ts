@@ -23,7 +23,9 @@ import { fenceArgs, fenceRules } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import { fenceRunText } from "../../../../lib/internal/fence/fence-run.ts";
 import {
+	type FolderStat,
 	fencedWorkerSocket,
+	keptFolder,
 	SOCKET_DISK,
 	type SocketDisk,
 	WORKER_SOCKET_FOLDER,
@@ -378,6 +380,53 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			served,
 			"a language server's fence was handed the socket",
 		).not.toContain(`MYCELIUM_WORKER_SOCKET='`);
+	});
+});
+
+describe("whose folder the worker socket may sit in", () => {
+	const SESSION = 1000;
+	const NODE = 990;
+	const folders =
+		(listed: Record<string, FolderStat>) =>
+		(path: string): FolderStat | undefined =>
+			listed[path];
+	const run: FolderStat = { uid: 0, mode: 0o40755, isFolder: true };
+
+	it("takes the node's own account's folder where only root could have made it", () => {
+		const stat = folders({
+			"/run": run,
+			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(keptFolder("/run/mycelium", stat, SESSION)).toBe(true);
+	});
+
+	it("refuses another account's folder where anyone could have made it", () => {
+		const stat = folders({
+			"/tmp": { uid: 0, mode: 0o41777, isFolder: true },
+			"/tmp/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(keptFolder("/tmp/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("refuses a folder others may write, whoever made it", () => {
+		const stat = folders({
+			"/run": run,
+			"/run/mycelium": { uid: 0, mode: 0o40775, isFolder: true },
+		});
+
+		expect(keptFolder("/run/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("takes root's or the session's own folder wherever it is", () => {
+		const stat = folders({
+			"/home/s/mine": { uid: SESSION, mode: 0o40700, isFolder: true },
+			"/opt/roots": { uid: 0, mode: 0o40755, isFolder: true },
+		});
+
+		expect(keptFolder("/home/s/mine", stat, SESSION)).toBe(true);
+		expect(keptFolder("/opt/roots", stat, SESSION)).toBe(true);
 	});
 });
 
