@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sessionAddress } from "../../../../lib/mesh/address.ts";
+import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/fields/mutate.ts";
+import { questAddress, sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { session, surroundingsAt } from "./support/presences.ts";
@@ -87,6 +88,43 @@ describe("the cell this session's peer says its work split from", () => {
 
 	it("says none where its quest split from this very cell, which never split from itself", () => {
 		write(readme(`split-from: ${sessionAddress(session)}\n`));
+		localPeer(surroundingsAt(root));
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(kept()?.lineage, "no lineage naming itself").toBeUndefined();
+	});
+
+	// The asking cell asked under its old quest's address, then loaded the
+	// quest it sprouted; it still answers to the old one.
+	it("says none where its quest split from an older quest's address it answers to", () => {
+		const old = "QEST-20261123-ASKERQ";
+		mkdirSync(join(root, "quests", old), { recursive: true });
+		writeFileSync(
+			join(root, "quests", old, "README.md"),
+			`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${session}\n`,
+		);
+		write(readme(`split-from: ${questAddress(old)}\n`));
+		localPeer(surroundingsAt(root));
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(kept()?.lineage, "no lineage naming its old quest").toBeUndefined();
+	});
+
+	// A session's address is hex, so it can be all digits, which YAML
+	// would read back as a number were it written bare.
+	it("says a split from an all-digit address, written and read as the start does", () => {
+		write(readme());
+		mutateQuestFrontMatter(join(root, "quests", LOOP), (fm) => ({
+			...fm,
+			_extra: { ...fm._extra, "split-from": "01928374" },
+		}));
+		localPeer(surroundingsAt(root));
+
+		expect(kept()?.lineage).toEqual({ split_from: "01928374" });
+	});
+
+	it("says none where its quest names this cell in other letters", () => {
+		write(readme(`split-from: ${sessionAddress(session).toLowerCase()}\n`));
 		localPeer(surroundingsAt(root));
 
 		expect(kept(), "a presence was written").toBeDefined();

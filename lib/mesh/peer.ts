@@ -679,9 +679,15 @@ export function localPeer(at: Surroundings): Peer {
 		);
 		serves = work.serves ?? [];
 		// A cell never split from itself, as the asking cell's own session
-		// would say once it loaded the quest it sprouted.
+		// would say once it loaded the quest it sprouted: by any address it
+		// answers to, its old quest's among them, in any letters.
+		const itself = new Set(
+			[...addresses, sessionAddress(at.session)].map((one) =>
+				one.toUpperCase(),
+			),
+		);
 		lineage =
-			work.lineage && !working.includes(work.lineage.split_from)
+			work.lineage && !itself.has(work.lineage.split_from.toUpperCase())
 				? work.lineage
 				: undefined;
 		shares = work.shares ?? [];
