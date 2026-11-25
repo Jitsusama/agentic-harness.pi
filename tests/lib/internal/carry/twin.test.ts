@@ -38,6 +38,17 @@ describe("a carried tree's twin", () => {
 		).toBe(join(sibling, ".git"));
 	});
 
+	it("is a repository whose name holds .cloning- without being an arrival's clone", async () => {
+		const origin = await bareOrigin(made);
+		const home = folder(made, "home");
+		const own = await cloneAt(origin, join(home, "src", "notes.cloning-old"));
+		await cloneAt(origin, join(home, "src", "app.cloning-1-2"));
+
+		expect(await twinOf(exec, join(home, "src", "app"), origin)).toBe(
+			join(own, ".git"),
+		);
+	});
+
 	it("is none where every repository beside it has another origin", async () => {
 		const origin = await bareOrigin(made);
 		const other = await bareOrigin(made);

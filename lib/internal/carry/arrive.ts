@@ -23,18 +23,13 @@
  * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { real, within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
+import { andLeft, claimed, letGoOf } from "./clone-aside.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
@@ -58,7 +53,7 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
-import { CLONING, guardedCheckoutOf, twinOf } from "./twin.ts";
+import { cloningAt, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -402,16 +397,19 @@ async function arriveTree(
 			(one) => one !== undefined,
 		);
 		if (left.length > 0) {
-			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
-			return {
-				...line,
-				did: "refused",
-				why: `${stopped} And ${left.join(", and ")}.`,
-			};
+			return { ...line, did: "refused", why: andLeft(why, ...left) };
 		}
 	}
-	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
-	return { ...line, did: "refused", why };
+	// A clone left at the tree's own place is what the next arrival finds
+	// there, whether it refuses it or takes it up: say to take it out first.
+	const atPlace =
+		readied.kind === "cloned"
+			? letGoOf(
+					path,
+					"take it out before arriving again, since the next arrival finds it there",
+				)
+			: undefined;
+	return { ...line, did: "refused", why: andLeft(why, atPlace) };
 }
 
 /**
@@ -473,37 +471,47 @@ async function readyTree(
 			}
 		}
 		const twin = await twinOf(exec, path, tree.origin);
-		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
-		if (here.left() <= 0) return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
+		if (twin === undefined && here.left() <= 0) {
+			return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
+		}
 		// Into a name of its own beside the tree's, renamed into place once
-		// whole, so a failed clone takes out only what it made itself.
-		const cloning = `${path}${CLONING}${process.pid}-${Date.now()}`;
-		const cloned = await timed(here.left(), () =>
-			exec("git", [
-				...BOUNDED,
-				"clone",
-				"-q",
-				"--no-checkout",
-				"--",
-				tree.origin,
-				cloning,
-			]),
-		);
-		if (cloned.code !== 0) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
+		// whole and, from a twin, held to origin, so a failed or killed clone
+		// is only ever what it made itself, beside the tree, never a
+		// half-made tree at its place. The name is taken first, so what is
+		// taken out after is a folder this arrival made, never one that
+		// stood at that name already.
+		const cloning = cloningAt(path, Date.now());
+		const unclaimed = claimed(cloning);
+		if (unclaimed !== undefined) return no(unclaimed);
+		const cloned =
+			twin === undefined
+				? await cloneOrigin(exec, tree, cloning, here.left())
+				: await cloneTwin(exec, twin, tree, cloning);
+		if (cloned.kind === "refused") {
+			return no(andLeft(cloned.why, letGoOf(cloning)));
 		}
 		if (existsSync(path)) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no("Something arrived there while it was cloned.");
+			return no(
+				andLeft(
+					"Something arrived there while it was cloned.",
+					letGoOf(cloning),
+				),
+			);
 		}
 		try {
 			renameSync(cloning, path);
 		} catch (error) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no(`Its clone couldn't be put in place: ${messageOf(error)}`);
+			return no(
+				andLeft(
+					`Its clone couldn't be put in place: ${messageOf(error)}`,
+					letGoOf(cloning),
+				),
+			);
 		}
-		return { kind: "cloned" };
+		// git's own words may name the clone's folder, now at the tree's place.
+		return cloned.kind !== "cloned" || cloned.unsure === undefined
+			? cloned
+			: { ...cloned, unsure: cloned.unsure.replaceAll(cloning, () => path) };
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {
@@ -533,8 +541,34 @@ async function readyTree(
 		: no(`git couldn't fetch its origin: ${saidOf(fetched)}`);
 }
 
+/** The tree's origin cloned at `cloning`, within the `left` seconds it has. */
+async function cloneOrigin(
+	exec: Exec,
+	tree: HandedTree,
+	cloning: string,
+	left: number,
+): Promise<Readied> {
+	const cloned = await timed(left, () =>
+		exec("git", [
+			...BOUNDED,
+			"clone",
+			"-q",
+			"--no-checkout",
+			"--",
+			tree.origin,
+			cloning,
+		]),
+	);
+	return cloned.code === 0
+		? { kind: "cloned" }
+		: {
+				kind: "refused",
+				why: `git couldn't clone ${tree.origin}: ${saidOf(cloned)}`,
+			};
+}
+
 /**
- * The tree cloned from its twin here, never writing to it, then pointed
+ * The tree cloned from its twin here at `cloning`, never writing to it, then pointed
  * at its own origin, so the commits it needs come from there one branch
  * at a time.
  *
@@ -554,7 +588,7 @@ async function cloneTwin(
 	exec: Exec,
 	twin: string,
 	tree: HandedTree,
-	path: string,
+	cloning: string,
 ): Promise<Readied> {
 	const cloned = await exec("git", [
 		"clone",
@@ -562,7 +596,7 @@ async function cloneTwin(
 		"--no-checkout",
 		"--",
 		twin,
-		path,
+		cloning,
 	]);
 	if (cloned.code !== 0) {
 		return {
@@ -570,13 +604,12 @@ async function cloneTwin(
 			why: `git couldn't clone ${twin}: ${cloned.stderr.trim()}`,
 		};
 	}
-	const held = await asOrigin(gitIn(exec, path), twin, tree.origin);
+	const held = await asOrigin(gitIn(exec, cloning), twin, tree.origin);
 	if (held.why === undefined) {
 		return held.unsure === undefined
 			? { kind: "cloned" }
 			: { kind: "cloned", unsure: held.unsure };
 	}
-	rmSync(path, { recursive: true, force: true });
 	return { kind: "refused", why: held.why };
 }
 

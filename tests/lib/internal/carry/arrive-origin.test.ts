@@ -169,6 +169,27 @@ describe("arriving with a tree to clone from origin", () => {
 		).toEqual([origin]);
 	});
 
+	// A folder named as a clone may be anyone's, a fenced command's too,
+	// and a walk deleting one can be led out by a link swapped in mid-walk.
+	it("takes out no clone beside it that it didn't make itself", async () => {
+		const { from, head } = await carried();
+		const home = folder(made, "arriving");
+		const src = join(home, "src");
+		// No process runs past the largest pid Linux or macOS gives out.
+		const planted = "app.cloning-999999999-1";
+		mkdirSync(join(src, planted, ".git"), { recursive: true });
+		writeFileSync(join(src, planted, ".git", "HEAD"), "half made\n");
+
+		const { whole } = await arriveThrough(home, from, exec);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
+		expect(leftIn(src).sort()).toEqual(["app", planted].sort());
+		expect(readFileSync(join(src, planted, ".git", "HEAD"), "utf8")).toBe(
+			"half made\n",
+		);
+	});
+
 	it("clones nothing once its tree's hour has run out", async () => {
 		const { from } = await carried();
 		const home = folder(made, "arriving");

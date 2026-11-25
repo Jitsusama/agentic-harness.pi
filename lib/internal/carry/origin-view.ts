@@ -447,7 +447,12 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 			return { code: 1, stdout: "", stderr: messageOf(error) };
 		} finally {
 			if (folder !== undefined) {
-				rmSync(folder, { recursive: true, force: true });
+				try {
+					rmSync(folder, { recursive: true, force: true });
+				} catch {
+					// Left in the tree's .git, where nothing reads it; a throw here
+					// would replace git's own answer.
+				}
 			}
 		}
 	};
