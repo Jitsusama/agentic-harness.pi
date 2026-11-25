@@ -33,7 +33,10 @@ export interface HostedChildren {
 	readonly routes: HeldChildren;
 	/** Take up every child an earlier host left running. */
 	adopt(): Promise<number>;
-	/** Stop watching children and the policy, leaving each child running. */
+	/**
+	 * Stop watching children and the policy, leaving each child running
+	 * but an untaken warm spare, which runs no conversation and is stopped.
+	 */
 	close(): void;
 }
 

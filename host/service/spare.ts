@@ -17,7 +17,10 @@
  * a spare never leaves a take unanswered, nor is one taken once it has
  * gone. It leaves, exiting 0, when its install moves, when it holds more
  * than SPARE_MOST_BYTES, when a take names nothing within TAKE_WITHIN_MS,
- * and when its warm fails; its supervisor starts another.
+ * when it has waited UNTAKEN_WITHIN_MS untaken, and when its warm fails;
+ * its supervisor starts another. The last bounds a spare whose host has
+ * gone for good, which nothing else would ever stop, and keeps a spare's
+ * environment, its unit's from its start, within an hour of a wake's.
  *
  * SLOT.warm holds the version the spare runs, so its supervisor can pass
  * over a spare whose install moved since it last looked, rather than
@@ -34,6 +37,9 @@ export const SPARE_MOST_BYTES = 200 * 1024 * 1024;
 
 /** How long, in ms, a taken spare waits for its slot to name what it starts as. */
 export const TAKE_WITHIN_MS = 60_000;
+
+/** How long, in ms, a warm spare waits untaken before a fresh one replaces it. */
+export const UNTAKEN_WITHIN_MS = 60 * 60_000;
 
 /** How often, in ms, a spare looks again at its install and its size. */
 export const SPARE_LOOK_MS = 60_000;
@@ -115,6 +121,7 @@ export interface SpareWait {
 	readonly lookMs?: number;
 	readonly slotLookMs?: number;
 	readonly takeWithinMs?: number;
+	readonly untakenWithinMs?: number;
 	readonly mostBytes?: number;
 }
 
@@ -126,6 +133,7 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 	const lookMs = wait.lookMs ?? SPARE_LOOK_MS;
 	const slotLookMs = wait.slotLookMs ?? SLOT_LOOK_MS;
 	const takeWithinMs = wait.takeWithinMs ?? TAKE_WITHIN_MS;
+	const untakenWithinMs = wait.untakenWithinMs ?? UNTAKEN_WITHIN_MS;
 	const mostBytes = wait.mostBytes ?? SPARE_MOST_BYTES;
 	const marks = spareMarks(wait.slotFile);
 	const began = Date.now();
@@ -151,6 +159,11 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 	const unfit = (await wait.moved()) ?? overSize();
 	if (unfit) return { left: unfit };
 	await writeFile(marks.warm, wait.version ?? "");
+	const warmAt = Date.now();
+	const tooLong = () =>
+		Date.now() - warmAt >= untakenWithinMs
+			? `it waited ${Math.round(untakenWithinMs / MS_PER_SECOND)} s untaken, so a fresh one replaces it`
+			: undefined;
 	let lookedAt = Date.now();
 	let takenAt: number | undefined;
 	for (;;) {
@@ -168,7 +181,7 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 			// slot was cleared, and nothing will ever take this spare.
 			if (!((await exists(marks.warm)) || (await exists(marks.taken))))
 				return { left: "its slot was cleared" };
-			const why = (await wait.moved()) ?? overSize();
+			const why = (await wait.moved()) ?? overSize() ?? tooLong();
 			if (why && (await leave(marks))) return { left: why };
 		}
 		await pause(slotLookMs);

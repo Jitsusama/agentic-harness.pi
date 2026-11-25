@@ -4,7 +4,8 @@
  * every one, an open or adopt among them, and `"sessions": [ids]` moves
  * only those, as each next wakes or the host next starts. `"spares": true`
  * keeps one warm spare child (spare.ts) waiting for the next resume to
- * take, off by default. With no file,
+ * take, off by default, and only while the file moves something: beside
+ * `"sessions": []` no start could ever take it. With no file,
  * nothing moves, so a host whose machine has no child unit runs every
  * conversation itself, as before. One it can't read keeps what it last
  * read, since an editor's write is empty for a moment; a folder it can't
@@ -134,7 +135,7 @@ export async function watchedChildPolicy(
 	return {
 		moves: (sessionId) => read.all || named.has(sessionId),
 		opens: () => read.all,
-		spares: () => read.spares,
+		spares: () => read.spares && (read.all || named.size > 0),
 		close: () => watcher.close(),
 	};
 }

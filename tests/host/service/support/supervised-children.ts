@@ -169,6 +169,8 @@ export interface FakeUnits extends Units {
 		spareLeaves?: boolean;
 		/** The version a spare says in its warm mark; none said where unset. */
 		spareVersion?: string;
+		/** How long a spare runs on once it leaves, as a real one's process exits. */
+		leavesAfterMs?: number;
 	};
 	/** What each child started does where `next` says nothing, by its unit. */
 	traitsOf?: (unit: string) => FakeUnits["next"];
@@ -402,6 +404,11 @@ function fakeUnits(): FakeUnits {
 						takeWithinMs: 1_000,
 					});
 					if ("left" in end) {
+						if (next.leavesAfterMs !== undefined) {
+							await pause(next.leavesAfterMs);
+							// A later test may start a unit of the same name.
+							if (folder !== itsTest) return;
+						}
 						fake.children.delete(unit);
 						return;
 					}
@@ -410,7 +417,11 @@ function fakeUnits(): FakeUnits {
 				if (next.neverListens) return;
 				runChild(slot, next, its, fake).then(
 					(child) => fake.children.set(unit, child),
-					(error) => reported.push(error),
+					(error) => {
+						// A child still reading its slot as its test's folder went is
+						// that test's, not the one that has begun since.
+						if (folder === itsTest) reported.push(error);
+					},
 				);
 			}, LISTENS_AFTER_MS);
 		},
@@ -480,6 +491,7 @@ interface Clocks {
 	turnWaitSaidMs?: number;
 	spareAfterMs?: number;
 	spareCheckMs?: number;
+	spareWarmWithinMs?: number;
 	/** Whether the supervisor keeps a warm spare, as its policy would say. */
 	spares?: () => boolean;
 	/** Why a spare's version no longer fits, as its install would say. */
