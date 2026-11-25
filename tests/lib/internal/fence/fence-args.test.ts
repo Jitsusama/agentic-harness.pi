@@ -1235,6 +1235,59 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(fenceHidesBeneath(tree, place, linked)).toBeUndefined();
 	});
 
+	it("binds the session's copies for gcloud's ssh, its known hosts writable", () => {
+		const ssh = `${home}/.ssh`;
+		const copies = {
+			knownHosts:
+				"/run/user/1000/pi-fence/gcloud-ssh/one/google_compute_known_hosts",
+			key: "/run/user/1000/pi-fence/gcloud-ssh/one/google_compute_engine",
+		};
+		const gcloudArgs = fenceArgs(
+			{
+				home,
+				runtimeDir: "/run/user/1000",
+				cwd: tree,
+				ownGitFolder: own,
+				gcloudSsh: copies,
+			},
+			diskOf([
+				...paths,
+				`${ssh}/google_compute_known_hosts`,
+				`${ssh}/google_compute_engine`,
+				`${ssh}/google_compute_engine.pub`,
+			]),
+		);
+		const text = gcloudArgs.join(" ");
+		expect(text).toContain(
+			`--bind ${copies.knownHosts} ${ssh}/google_compute_known_hosts`,
+		);
+		expect(text).not.toContain(`--ro-bind ${ssh}/google_compute_known_hosts`);
+		expect(text).toContain(
+			`--ro-bind ${copies.key} ${ssh}/google_compute_engine `,
+		);
+		expect(text, "the person's own key is never bound").not.toContain(
+			`--ro-bind ${ssh}/google_compute_engine ${ssh}/google_compute_engine `,
+		);
+		const remount = gcloudArgs.lastIndexOf("--remount-ro");
+		expect(gcloudArgs[remount + 1]).toBe(ssh);
+		expect(
+			gcloudArgs.indexOf(copies.knownHosts),
+			"bound inside the emptied folder, before it is made read-only",
+		).toBeLessThan(gcloudArgs.indexOf(ssh, gcloudArgs.indexOf("--remount-ro")));
+	});
+
+	it("stands in no key for gcloud where its public half isn't kept", () => {
+		const copies = { knownHosts: "/run/k", key: "/run/e" };
+		const text = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000", cwd: tree, gcloudSsh: copies },
+			diskOf(paths),
+		).join(" ");
+		expect(text).toContain(
+			`--bind /run/k ${home}/.ssh/google_compute_known_hosts`,
+		);
+		expect(text).not.toContain("/run/e");
+	});
+
 	it("empties the private keys kept outside ~/.ssh, for commands and pi's file tools alike", () => {
 		const key = `${home}/.local/state/nix-offload/store_ed25519`;
 		expect(HIDDEN.map((path) => `${home}/${path}`)).toContain(key);

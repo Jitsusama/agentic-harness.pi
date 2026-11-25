@@ -85,6 +85,7 @@ import {
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
+import { fenceGcloudSsh } from "../fence/fence-gcloud-ssh.ts";
 import {
 	guardedFolders,
 	guardedIn,
@@ -812,6 +813,13 @@ export function wrapFor(
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
 			const served = sandbox.served === true;
+			// gcloud's ssh writes its known hosts and wants its key's two
+			// halves in ~/.ssh, which the fence keeps read-only and empties of
+			// private keys, so the session has copies (fence-gcloud-ssh.ts).
+			const gcloudFolder = sessionFolderName(place.env);
+			const gcloudSsh = served
+				? undefined
+				: fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder);
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
 				? undefined
@@ -830,6 +838,7 @@ export function wrapFor(
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
 				docker: dockerHoldsCredentials(home),
 				...(devCopies ? { devCopies } : {}),
+				...(gcloudSsh ? { gcloudSsh } : {}),
 			};
 			makeFoldersFirst(home);
 			setAsidePlanted();
@@ -891,6 +900,12 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
+				// Brought up to date before each command, in place, so the bind
+				// laid once still names them and each command finds the person's
+				// latest hosts.
+				if (gcloudSsh) {
+					fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder);
+				}
 				// The person's cloud login stays hidden (fence-hidden.ts), and
 				// gcloud gets an empty settings folder of its own and no token
 				// (`NO_CLOUD_IN_THE_FENCE`).
