@@ -394,13 +394,14 @@ function mirrorOf<T>(
 		// Put down meanwhile, or watched already: nothing to make.
 		if (clock === undefined || watcher !== undefined) return;
 		const made = watch(dir, { persistent: false }, (_kind, name) => {
-			// The folder itself removed or renamed away, as libuv names it: the
-			// watch hears nothing more, so the next tick makes one and lists.
+			// The folder itself named, as libuv names a change to it: on Linux
+			// it may have gone, and the watch would hear nothing more, so it is
+			// dropped and the next tick makes one and lists.
 			if (name === basename(dir)) {
-				// A Mac's watch names the folder itself for a change to the folder
-				// that leaves it there, as its mode, and for its making just before
-				// the watch; it follows the path to a folder made again. There the
-				// look drops the watch only if the folder went, and it is listed.
+				// A probe on the work Mac heard its watch name the folder for the
+				// folder's making just before the watch, its mode and its removal,
+				// and then hear a file in a folder made again at its path. There
+				// the look drops the watch only if the folder went, and it is listed.
 				if (process.platform === "darwin") {
 					look();
 					relist();
@@ -430,8 +431,9 @@ function mirrorOf<T>(
 	};
 	// One stat of the folder a tick, off the thread: one renamed away, or
 	// made again, drops the watch, so the next tick follows the new one.
-	// A folder made again with its inode back looks the same here, so the
-	// watch's own word that its folder went drops it as well. Birth would
+	// A folder made again with its inode back looks the same here, so on
+	// Linux the watch's own word that its folder went drops it as well; a
+	// Mac's watch, which follows the path, is kept. Birth would
 	// tell them apart, but where libuv can't use statx it reports the
 	// folder's ctime, which every publish moves.
 	const look = (): void => {

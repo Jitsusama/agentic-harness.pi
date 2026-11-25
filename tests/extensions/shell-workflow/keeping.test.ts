@@ -218,9 +218,17 @@ async function run(
 
 // What the stub writes it writes through `tee -p`, which a Mac's own tee
 // lacks; pi keeps no call there (agent-bash.ts), so these cases have
-// nothing to drive. Linux's tee always has it, so there a slow probe
-// never skips them.
+// nothing to drive. The Linux machines this runs on carry coreutils' tee,
+// which has had it since 8.24, so there a slow probe never skips them.
 const teeKeeps = process.platform === "linux" || (await teePersists());
+
+/**
+ * How long a kept call's files may take to show or go on a loaded machine.
+ * These cases ran only when a probe of tee answered in time, and so not
+ * on a busy one; now that Linux always runs them, optimus short of memory
+ * took past until's five seconds and waitFor's one.
+ */
+const LOADED_MS = 30_000;
 
 describe("a kept call", () => {
 	it.skipIf(!teeKeeps)(
@@ -233,8 +241,12 @@ describe("a kept call", () => {
 			);
 			expect(code).toBe(3);
 			expect(read.split("\n").sort()).toEqual(["", "err", "out"]);
-			await vi.waitFor(() =>
-				expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+			await vi.waitFor(
+				() =>
+					expect(readdirSync(kept.folder), "its files go just after").toEqual(
+						[],
+					),
+				{ timeout: LOADED_MS },
 			);
 		},
 	);
@@ -294,6 +306,7 @@ describe("a kept call", () => {
 			await until(
 				"the call to have its pid on disk",
 				() => carry?.what() !== undefined,
+				LOADED_MS,
 			);
 			const work = carry?.what();
 			if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
@@ -380,19 +393,26 @@ describe("a kept call", () => {
 			await until(
 				"the call to have its pid on disk",
 				() => carry?.what() !== undefined,
+				LOADED_MS,
 			);
 			const work = carry?.what();
 			if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
 			carry?.handed();
-			await until("its first line on disk", () =>
-				outputOf(work.keep).startsWith("tick-1\n"),
+			await until(
+				"its first line on disk",
+				() => outputOf(work.keep).startsWith("tick-1\n"),
+				LOADED_MS,
 			);
 			reader.leave();
 			expect(
 				(await running).code,
 				"its reader went before it ended",
 			).toBeNull();
-			await until("its end on disk", () => endOf(work.keep) !== undefined);
+			await until(
+				"its end on disk",
+				() => endOf(work.keep) !== undefined,
+				LOADED_MS,
+			);
 			expect(endOf(work.keep), "its own status, not a broken pipe's").toBe(7);
 			expect(
 				outputOf(work.keep),

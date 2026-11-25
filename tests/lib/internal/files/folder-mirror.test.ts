@@ -616,8 +616,7 @@ describe("a host's mirror of a folder", () => {
 
 	// On the work Mac a watch made on a folder just made dropped itself and
 	// another was made, since a Mac's watch names the folder itself for its
-	// making, its mode and its removal, as it does no folder on Linux left
-	// where it was.
+	// making, its mode and its removal, where its watch then lives on.
 	it("lists a folder its watch names on a Mac, keeping the watch", async () => {
 		put("a.txt", "here");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
@@ -645,7 +644,9 @@ describe("a host's mirror of a folder", () => {
 	});
 
 	// The council on #2195: a listing under way may have read the folder's
-	// names before the change its watch heard, so it lists once more.
+	// names before a change to the folder its watch heard, its mode as a
+	// Mac names it, so it lists once more, and only once. The new file
+	// stands for what that change let in, which no named read finds here.
 	it("lists again after a listing under way when a Mac's watch names its folder", async () => {
 		put("a.txt", "here");
 		// A watch deaf to the folder, so only a listing can find the new
@@ -669,6 +670,7 @@ describe("a host's mirror of a folder", () => {
 			listing.wait = stall.here;
 			const under = folder.refresh();
 			await stall.reached;
+			const listed = listings();
 			put("b.txt", "after the stalled listing read");
 			made.emit("change", "change", basename(dir));
 			stall.release();
@@ -682,13 +684,17 @@ describe("a host's mirror of a folder", () => {
 				},
 				{ timeout: 2000 },
 			);
+			// One more listing of its own, and the one this begins: no more.
+			await folder.refresh();
+			expect(listings() - listed, "one listing again").toBeLessThanOrEqual(2);
 		} finally {
 			Object.defineProperty(process, "platform", { value: platform });
 		}
 	});
 
-	// The council on #2195: on a Mac the look still drops the watch of a
-	// folder made again, so the next tick watches the new one.
+	// The council on #2195: on a Mac a folder made again is still watched
+	// anew, by the look the event runs or the tick's own, whichever lands
+	// first, so this holds the outcome, not which of them found it.
 	it("watches a folder made again on a Mac when its watch names it", async () => {
 		put("a.txt", "here");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
