@@ -33,7 +33,7 @@ export function answerParkNow(
 	} catch (error) {
 		ask.why =
 			error instanceof ParkLeftHalfDone
-				? `its park failed part-way, so it may read as parked until it is restarted: ${error.message}`
+				? `its park failed part-way, so it may read as parked until it is restarted: ${error.message}. And ${error.left.join(", and ")}`
 				: `its park failed: ${messageOf(error)}`;
 	}
 }

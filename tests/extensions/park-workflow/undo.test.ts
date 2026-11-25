@@ -3,11 +3,21 @@
  * Park by how much of it was taken back.
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { answerParkNow } from "../../../extensions/park-workflow/park-now.ts";
+import {
+	exitWith,
+	takeBackExit,
+} from "../../../extensions/park-workflow/restart.ts";
 import {
 	type HalfPark,
 	ParkLeftHalfDone,
@@ -15,7 +25,9 @@ import {
 } from "../../../extensions/park-workflow/undo.ts";
 import {
 	PARK_UNDONE,
+	PARKED_EXIT,
 	type ParkNowAsk,
+	parkedPath,
 	readParked,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
@@ -45,6 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	takeBackExit();
 	rmSync(folder, { recursive: true, force: true });
 });
 
@@ -100,11 +113,44 @@ describe("taking back a half-done park", () => {
 		expect(existsSync(join(folder, "held.parked"))).toBe(true);
 	});
 
-	it("tries every part, saying it left the park half done where one fails", () => {
+	it("tries every part, saying which it left where its first fails", () => {
+		// A folder where its marker stands can't be taken out as a file can,
+		// even by root.
+		const marker = parkedPath(SESSION, folder);
+		rmSync(marker);
+		mkdirSync(join(marker, "in-the-way"), { recursive: true });
+		writeFileSync(join(folder, "held.wake"), "{}");
+		writeFileSync(join(folder, "held.parked"), "");
+
+		const error = thrown(() =>
+			undoPark(
+				new Error("its holder is gone"),
+				half({ wakeWritten: join(folder, "held.wake"), saidToHolder: true }),
+			),
+		);
+
+		expect(error).toBeInstanceOf(ParkLeftHalfDone);
+		expect((error as ParkLeftHalfDone).message).toBe("its holder is gone");
+		const left = (error as ParkLeftHalfDone).left;
+		expect(left).toHaveLength(1);
+		expect(left[0]).toMatch(/^its parked marker is left: \S/);
+		expect(existsSync(join(folder, "held.wake")), "its wake still").toBe(false);
+		expect(existsSync(join(folder, "held.parked")), "its word still").toBe(
+			false,
+		);
+		expect(said, "the mesh still told").toEqual([
+			[PARK_UNDONE, { session: SESSION }],
+		]);
+	});
+
+	it("names each part it left, in the order it tried them", () => {
+		mkdirSync(join(folder, "held.parked", "in-the-way"), { recursive: true });
+
 		const error = thrown(() =>
 			undoPark(
 				new Error("its holder is gone"),
 				half({
+					saidToHolder: true,
 					bus: {
 						emit: () => {
 							throw new Error("the mesh is gone too");
@@ -114,12 +160,32 @@ describe("taking back a half-done park", () => {
 			),
 		);
 
-		expect(error).toBeInstanceOf(ParkLeftHalfDone);
-		expect((error as ParkLeftHalfDone).message).toBe("its holder is gone");
-		expect((error as ParkLeftHalfDone).left).toEqual(["the mesh is gone too"]);
+		const left = (error as ParkLeftHalfDone).left;
+		expect(left).toHaveLength(2);
+		expect(left[0]).toMatch(/^its word to its holder is left: \S/);
+		expect(left[1]).toBe("its word to the mesh is left: the mesh is gone too");
 		expect(readParked(SESSION, folder), "its marker still taken back").toBe(
 			undefined,
 		);
+	});
+
+	it("takes back the code its process was to exit with", () => {
+		const before = process.listenerCount("exit");
+		exitWith(PARKED_EXIT);
+		expect(process.listenerCount("exit"), "armed").toBe(before + 1);
+
+		thrown(() => undoPark(new Error("no"), half({ saidToHolder: true })));
+
+		expect(process.listenerCount("exit"), "disarmed").toBe(before);
+	});
+
+	it("arms one exit however often it is said", () => {
+		const before = process.listenerCount("exit");
+		exitWith(PARKED_EXIT);
+		exitWith(PARKED_EXIT);
+		expect(process.listenerCount("exit")).toBe(before + 1);
+		takeBackExit();
+		expect(process.listenerCount("exit")).toBe(before);
 	});
 });
 
@@ -142,11 +208,16 @@ describe("answering a park that failed", () => {
 		);
 	});
 
-	it("warns it may read as parked where taking it back failed too", () => {
+	it("warns it may read as parked where taking it back failed too, naming what is left", () => {
 		expect(
-			answer(new ParkLeftHalfDone(new Error("its holder is gone"), ["x"])).why,
+			answer(
+				new ParkLeftHalfDone(new Error("its holder is gone"), [
+					"its parked marker is left: busy",
+					"its wake is left: gone",
+				]),
+			).why,
 		).toBe(
-			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone",
+			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone. And its parked marker is left: busy, and its wake is left: gone",
 		);
 	});
 

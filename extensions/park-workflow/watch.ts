@@ -18,7 +18,6 @@ import { whyWriting } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
 	BACKGROUND_PARK_AFTER_MS,
-	clearAwake,
 	clearEase,
 	clearOutlivedParks,
 	clearParked,
@@ -76,6 +75,7 @@ import {
 } from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
+import { awakeNote } from "./awake.ts";
 import { answerParkNow } from "./park-now.ts";
 import {
 	exitWith,
@@ -86,7 +86,7 @@ import {
 	restartWith,
 	shownIn,
 } from "./restart.ts";
-import { undoPark } from "./undo.ts";
+import { type FailedPark, heldByFailure, undoPark } from "./undo.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -452,6 +452,7 @@ export function watch(
 	let parked = false;
 	// Ended pi's own process, as a host's conversation never does.
 	let endedProcess = false;
+	let failed: FailedPark | undefined;
 	// Its person was last at its window, as far as this process saw.
 	let presentAt = Number.NEGATIVE_INFINITY;
 	const holding = (): Holding => ({
@@ -566,6 +567,8 @@ export function watch(
 		check = false,
 	): string | undefined => {
 		if (parked) return "parking already";
+		const stuck = asked ? undefined : heldByFailure(failed, now());
+		if (stuck !== undefined) return stuck;
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
 		const ask: ParkAsk = {
@@ -634,6 +637,7 @@ export function watch(
 			const saidToHolder = endedProcess;
 			parked = false;
 			endedProcess = false;
+			failed = { at: now(), error };
 			const pid = options.pid ?? process.pid;
 			const wakeWritten = goesOn ? { wakeWritten: wake } : {};
 			const half = { session, folder, saidToHolder, env, pid, bus };
@@ -773,25 +777,7 @@ export function watch(
 		if (why === undefined) data.restarting = true;
 		else data.why = why;
 	});
-	// Why it stays awake, kept where Agents and a count can read it, and
-	// written only when the reason changes, not every minute.
-	let said: string | undefined;
-	const note = (why: string | undefined) => {
-		if (why === said) return;
-		said = why;
-		try {
-			if (why === undefined || why === "parking already") {
-				clearAwake(session, folder);
-			} else {
-				writeAwake(
-					{ session, why, since: new Date(now()).toISOString() },
-					folder,
-				);
-			}
-		} catch {
-			// A park folder that can't be written costs the note, never the park.
-		}
-	};
+	const note = awakeNote(session, folder, now);
 	const look = (): string | undefined => {
 		const why = decide();
 		note(why);

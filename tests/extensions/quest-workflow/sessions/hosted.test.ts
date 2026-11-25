@@ -276,6 +276,22 @@ it("records a host's stop after a park that was taken back as the stop it is", (
 	off();
 });
 
+it("keeps a park as it was when another session's park is taken back", () => {
+	const pi = fakePi();
+	const release = vi.fn();
+	withSession("a", () =>
+		trackSession({ sessionId: "a", cwd: root, ...captureSessionIdentity() }),
+	);
+	const off = followHostStamps(pi.events, "a", release);
+	pi.events.emit(PARKING, { session: "a", addresses: [] });
+	pi.events.emit(PARK_UNDONE, { session: "b" });
+
+	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+
+	expect(readRecord("a")?.endReason).toBe("parked");
+	off();
+});
+
 it("checks the host list from another reader without treating a missing list as death", () => {
 	const identity = withSession("a", () => captureSessionIdentity().process);
 	if (!identity?.hosted) throw new Error("no hosted identity");

@@ -12,6 +12,7 @@ import {
 	type ParkUndone,
 	unsayParked,
 } from "../../lib/internal/session/park.ts";
+import { takeBackExit } from "./restart.ts";
 
 /** What a park had said by the time it failed, to be taken back. */
 export interface HalfPark {
@@ -20,7 +21,10 @@ export interface HalfPark {
 	readonly folder: string | undefined;
 	/** The wake it wrote ahead of a park its run goes on from. */
 	readonly wakeWritten?: string;
-	/** Told its holder it parked (sayParked), as ending its process does. */
+	/**
+	 * Ended its process, as plain pi parks: told its holder it parked
+	 * (sayParked) and said the code it exits with (exitWith).
+	 */
 	readonly saidToHolder: boolean;
 	readonly env: NodeJS.ProcessEnv;
 	readonly pid: number;
@@ -32,7 +36,7 @@ export interface HalfPark {
  * left may still read as parked until the session is restarted.
  */
 export class ParkLeftHalfDone extends Error {
-	/** Why each part it couldn't take back stands. */
+	/** Each part it couldn't take back, and why it stands. */
 	readonly left: readonly string[];
 
 	constructor(failed: unknown, left: readonly string[]) {
@@ -50,22 +54,55 @@ export class ParkLeftHalfDone extends Error {
  */
 export function undoPark(failed: unknown, half: HalfPark): never {
 	const left: string[] = [];
-	const tryTo = (step: () => void): void => {
+	const tryTo = (part: string, step: () => void): void => {
 		try {
 			step();
 		} catch (error) {
-			left.push(messageOf(error));
+			left.push(`${part} is left: ${messageOf(error)}`);
 		}
 	};
+	// Its marker first, so no sender finds it parked and writes a wake
+	// once its own is gone.
+	tryTo("its parked marker", () => clearParked(half.session, half.folder));
 	// Its next park would be woken at once by a wake left behind.
 	if (half.wakeWritten !== undefined) {
 		const wake = half.wakeWritten;
-		tryTo(() => rmSync(wake, { force: true }));
+		tryTo("its wake", () => rmSync(wake, { force: true }));
 	}
-	tryTo(() => clearParked(half.session, half.folder));
-	if (half.saidToHolder) tryTo(() => unsayParked(half.env, half.pid));
+	if (half.saidToHolder) {
+		tryTo("its word to its holder", () => unsayParked(half.env, half.pid));
+		takeBackExit();
+	}
 	const undone: ParkUndone = { session: half.session };
-	tryTo(() => half.bus.emit(PARK_UNDONE, undone));
+	tryTo("its word to the mesh", () => half.bus.emit(PARK_UNDONE, undone));
 	if (left.length > 0) throw new ParkLeftHalfDone(failed, left);
 	throw failed;
+}
+
+/**
+ * How long a park that failed holds the clock's next try: one whose end
+ * fails every time would otherwise say it parks, move its windows off
+ * the screen and take it all back each minute, and nothing would say so.
+ */
+export const FAILED_PARK_HOLDS_MS = 30 * 60_000;
+
+/** A park that failed, when, and with what. */
+export interface FailedPark {
+	readonly at: number;
+	readonly error: unknown;
+}
+
+/**
+ * Why the clock doesn't park again yet, after the park that `failed`;
+ * nothing once it is long enough past, or where none failed. The
+ * person's Park still tries, since they asked.
+ */
+export function heldByFailure(
+	failed: FailedPark | undefined,
+	now: number,
+): string | undefined {
+	if (failed === undefined || now - failed.at >= FAILED_PARK_HOLDS_MS) {
+		return undefined;
+	}
+	return `its last park failed, so it tries again half an hour on: ${messageOf(failed.error)}`;
 }

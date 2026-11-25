@@ -27,7 +27,7 @@ import {
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { installHost } from "../../../../lib/core/session/host.ts";
 import { clearDiscoveryCache } from "../../../../lib/internal/quest/discovery/discovery.ts";
-import { PARKING } from "../../../../lib/internal/session/park.ts";
+import { PARK_UNDONE, PARKING } from "../../../../lib/internal/session/park.ts";
 import type {
 	ClaimPlace,
 	ClaimTold,
@@ -1113,6 +1113,24 @@ describe("the claim's wiring", () => {
 			false,
 		);
 		expect(await ends("quit", true), "a parked session stays reachable").toBe(
+			false,
+		);
+	});
+
+	it("forgets on a quit after its park was taken back, and only its own", async () => {
+		const ends = async (undone: string) => {
+			const { asks, fire, settle, say } = wired();
+			fire("session_start", {}, "sess-1");
+			await settle();
+			say(PARKING, { session: "sess-1", addresses: [] });
+			say(PARK_UNDONE, { session: undone });
+			fire("session_shutdown", { reason: "quit" }, "sess-1");
+			await settle();
+			return asks.map(({ claim }) => claim).at(-1) === "forget";
+		};
+
+		expect(await ends("sess-1"), "taken back, a quit is a quit").toBe(true);
+		expect(await ends("sess-2"), "another's take-back keeps its park").toBe(
 			false,
 		);
 	});

@@ -397,7 +397,7 @@ describe("saying a run parked", () => {
 		).not.toThrow();
 	});
 
-	it("takes it back for a run that stays up, and never throws", () => {
+	it("takes it back for a run that stays up, quiet where nothing is there", () => {
 		const env = { ...held(), MYCELIUM_PARKED: parked() };
 		sayParked(env, 4242);
 
@@ -406,6 +406,19 @@ describe("saying a run parked", () => {
 		expect(existsSync(parked()), "up, it hasn't parked").toBe(false);
 		expect(() => unsayParked(env, 4242), "already gone").not.toThrow();
 		expect(() => unsayParked({}, 4242), "none named").not.toThrow();
+	});
+
+	// A park that fails part-way says what it left; a restart's take-back
+	// has nobody to say it to.
+	it("says where its word can't be taken back, while a restart's take-back stays quiet", () => {
+		const env = { ...held(), MYCELIUM_PARKED: parked() };
+		mkdirSync(join(parked(), "in-the-way"), { recursive: true });
+
+		expect(() => unsayParked(env, 4242)).toThrow();
+
+		const restarted: NodeJS.ProcessEnv = { ...env, [PARK_SAID_ENV]: "4242" };
+		expect(() => takeBackRestartPark(restarted, 4242)).not.toThrow();
+		expect(restarted[PARK_SAID_ENV], "forgotten all the same").toBe(undefined);
 	});
 
 	// A subagent inherits its parent's variables: taking back the parent's
