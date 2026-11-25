@@ -198,10 +198,16 @@ export const KIND_DEFINITIONS: Readonly<Record<SelectionKind, KindDefinition>> =
 		},
 	};
 
+/**
+ * Who gives the work its ask, and so may say a user-only kind: named, so
+ * a speaker added later gets none until somebody decides it should.
+ */
+const ASKERS: ReadonlySet<Speaker> = new Set<Speaker>(["user", "start"]);
+
 /** The kinds a paragraph from this speaker can be tagged with. */
 export function kindsFor(speaker: Speaker): SelectionKind[] {
 	return SELECTION_KINDS.filter(
-		(kind) => speaker !== "assistant" || !KIND_DEFINITIONS[kind].userOnly,
+		(kind) => ASKERS.has(speaker) || !KIND_DEFINITIONS[kind].userOnly,
 	);
 }
 

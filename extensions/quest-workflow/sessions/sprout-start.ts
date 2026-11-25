@@ -31,8 +31,8 @@ import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
 import {
 	automatedText,
-	isAutomatedText,
 	START_WORDS_REASON,
+	startWordsOf,
 } from "../../../lib/internal/automated.ts";
 import {
 	buildAliasIndex,
@@ -111,13 +111,16 @@ export async function startSprouted(
 	},
 ): Promise<void> {
 	const hints = pendingWords(ctx).hints;
-	const seed = sproutSeedFrom(hints?.sprout);
-	if (!hints || !seed) return;
-	// The node's prose is marked before anything here can fail, so a quest
-	// never made or loaded, or a throw, still leaves it the start's.
-	if (hints.firstWords && !isAutomatedText(hints.firstWords)) {
+	if (!hints?.sprout?.trim()) return;
+	// The node's prose is marked before anything here can fail, so a seed
+	// that won't read, a quest never made or loaded, or a throw still
+	// leaves it the start's. Words under another header are marked too,
+	// or no reader would take them as the start's ask.
+	if (hints.firstWords && startWordsOf(hints.firstWords) === undefined) {
 		hints.firstWords = started(hints.firstWords);
 	}
+	const seed = sproutSeedFrom(hints.sprout);
+	if (!seed) return;
 	if (state.questId) {
 		// This start restored its quest: the prose would only ask for a
 		// second one.

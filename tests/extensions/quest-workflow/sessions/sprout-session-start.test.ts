@@ -12,6 +12,7 @@ import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { followSessionLife } from "../../../../extensions/quest-workflow/wiring/session.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
+import { startWordsOf } from "../../../../lib/internal/automated.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -107,7 +108,9 @@ it("says the sprout's words once, never the node's prose, and leaves the session
 	await new Promise((settle) => setTimeout(settle, 50));
 	expect(pi.recorded.sentAsUser, "said once").toHaveLength(1);
 	const said = String(pi.recorded.sentAsUser[0]);
-	expect(said).toMatch(/is made and loaded for it/u);
+	expect(startWordsOf(said), "sent as its start's words").toMatch(
+		/is made and loaded for it/u,
+	);
 	expect(said).not.toContain("the node's prose");
 	const made = state.questId;
 	if (!made) throw new Error("the sprout loaded no quest");

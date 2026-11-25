@@ -43,7 +43,9 @@ export function automatedText(reason: string, body: string): string {
 
 /**
  * Why a session's first words are marked when its start, not a person,
- * left them: a sprout's ask, which the session works from.
+ * left them: a sprout's ask, which the session works from. Logs on disk
+ * are matched by these exact words, so a change leaves every older
+ * sprout's words unread as its start's.
  */
 export const START_WORDS_REASON = "this session's start left it these words";
 
