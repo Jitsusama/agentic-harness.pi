@@ -16,6 +16,7 @@ describe("a bridge noticing input", () => {
 			input: (data) => order.push(`input ${data}`),
 			resize: (rows, columns) => order.push(`resize ${rows}x${columns}`),
 			edited: (id, text) => order.push(`edited ${id} ${text}`),
+			leave: (why) => order.push(`leave ${why}`),
 			detach: () => order.push("detach"),
 		};
 		const inner: ViewerBridge = { attach: () => connection };
@@ -44,11 +45,12 @@ describe("a bridge noticing input", () => {
 		expect(order).toEqual(["noticed", "resize 30x100"]);
 	});
 
-	it("passes an edit and a detach on without noticing them", () => {
+	it("passes an edit, a leave and a detach on without noticing them", () => {
 		const { attached, noticed, order } = bridged();
 		attached.edited?.("e", "text");
+		attached.leave?.("closed");
 		attached.detach();
 		expect(noticed).not.toHaveBeenCalled();
-		expect(order).toEqual(["edited e text", "detach"]);
+		expect(order).toEqual(["edited e text", "leave closed", "detach"]);
 	});
 });

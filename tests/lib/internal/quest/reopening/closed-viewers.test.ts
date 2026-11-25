@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetRecord } from "../../../../../extensions/quest-workflow/sessions/records.ts";
 import {
 	closedViewersDir,
 	forgetClosedViewer,
@@ -49,19 +50,35 @@ describe("a closed viewer's mark", () => {
 		await keepViewerClosed("../escape", true);
 		expect(viewerWasClosed("../escape")).toBe(false);
 		expect(viewerWasClosed("escape")).toBe(false);
+		for (const folder of [".", ".."]) {
+			await keepViewerClosed(folder, true);
+			expect(viewerWasClosed(folder), `${folder} names a folder`).toBe(false);
+		}
+		expect(viewerWasClosed("01a1.eeee"), "a dot inside is a name").toBe(false);
+		await keepViewerClosed("01a1.eeee", true);
+		expect(viewerWasClosed("01a1.eeee")).toBe(true);
 	});
 
 	it("says why it couldn't be kept, and the next is still kept", async () => {
 		const dir = closedViewersDir();
 		mkdirSync(dirname(dir), { recursive: true });
 		writeFileSync(dir, "a file where a folder goes");
-		await expect(keepViewerClosed("01a1eeee-ffff", true)).rejects.toThrow();
+		// Both are said before the first fails, so the second waits on a write that rejects.
+		const failing = keepViewerClosed("01a1eeee-ffff", true);
+		const next = keepViewerClosed("01a1eeee-ffff", false);
+		await expect(failing).rejects.toThrow();
+		await expect(next, "a clear needs no folder").resolves.toBeUndefined();
 		rmSync(dir);
 		await keepViewerClosed("01a1eeee-ffff", true);
 		expect(viewerWasClosed("01a1eeee-ffff")).toBe(true);
 	});
 
 	it("goes with its record", async () => {
+		await keepViewerClosed("01a1eeee-ffff", true);
+		forgetRecord("01a1eeee-ffff");
+		expect(viewerWasClosed("01a1eeee-ffff"), "forgetting the record").toBe(
+			false,
+		);
 		await keepViewerClosed("01a1eeee-ffff", true);
 		forgetClosedViewer("01a1eeee-ffff");
 		expect(viewerWasClosed("01a1eeee-ffff")).toBe(false);

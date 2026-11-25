@@ -24,8 +24,11 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stateDir } from "../../paths.ts";
 
-/** Ids that are a file name and nothing more, as the records take them. */
-const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
+/**
+ * Ids that are a file name and nothing more, as the records take them,
+ * but for `.` and `..`, which with no suffix name a folder.
+ */
+const SAFE_SESSION_ID = /^(?!\.\.?$)[A-Za-z0-9._-]+$/;
 
 /** Each conversation's marks still being written, in the order said. */
 const writing = new Map<string, Promise<void>>();
@@ -55,7 +58,7 @@ export function keepViewerClosed(
 	if (!mark) return Promise.resolve();
 	const before = writing.get(sessionId) ?? Promise.resolve();
 	const write = async () => {
-		if (!closed) return rm(mark, { force: true });
+		if (!closed) return rm(mark, { force: true }).catch(notInAFile);
 		await mkdir(dir, { recursive: true });
 		await writeFile(mark, "");
 	};
@@ -67,6 +70,16 @@ export function keepViewerClosed(
 	};
 	next.then(settled, settled);
 	return next;
+}
+
+/**
+ * Let a clear pass where the marks' folder is a file: no mark can be
+ * under it, so there's none to take away.
+ */
+function notInAFile(error: unknown): void {
+	const code =
+		error instanceof Error && "code" in error ? error.code : undefined;
+	if (code !== "ENOTDIR") throw error;
 }
 
 /** Whether the person closed `sessionId`'s last window, by its mark. */

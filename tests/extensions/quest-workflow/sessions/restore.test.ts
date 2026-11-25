@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,9 +13,12 @@ import {
 	saveRecord,
 } from "../../../../extensions/quest-workflow/sessions/records.ts";
 import { reopenLostSessions } from "../../../../extensions/quest-workflow/sessions/reopen.ts";
+import { refreshRestoreFile } from "../../../../extensions/quest-workflow/sessions/restore.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { restore } from "../../../../extensions/quest-workflow/verbs/queries.ts";
+import { keepViewerClosed } from "../../../../lib/internal/quest/reopening/closed-viewers.ts";
+import { restoreFilePath } from "../../../../lib/internal/quest/reopening/restore-file.ts";
 import {
 	closeRecord,
 	openRecord,
@@ -793,5 +802,47 @@ describe("a reopen that replaces windows", () => {
 		expect(outcome.notes).toContain(
 			"closed 1 window a dead session had left with no pi in it",
 		);
+	});
+});
+
+/** A hosted session's record, its host's to keep running, from the boot before. */
+function hostedSession(sessionId: string) {
+	return openRecord({
+		sessionId,
+		instanceId: "inst-host",
+		cwd: tmpRoot,
+		process: {
+			hostId: hostname(),
+			pid: 4242,
+			startToken: "Tue Oct 28 20:40:00 2026",
+			bootToken: "the-boot-before",
+			hosted: {
+				host: "home-background",
+				session: sessionId,
+				owner: { pid: 1, startedAt: 1, startTicks: 1 },
+			},
+		},
+		now: new Date(Date.now() - 30 * 60_000),
+	});
+}
+
+describe("the restore file as a session starts", () => {
+	it("leaves out a hosted session whose last window the person closed", async () => {
+		saveRecord(hostedSession("01a1eeee-ffff"));
+		saveRecord(hostedSession("01a1abab-cdcd"));
+		const stateHome = join(tmpRoot, "state");
+		const offered = () => {
+			refreshRestoreFile(join(tmpRoot, "quests"), stateHome);
+			const file: { sessions: { id: string }[] } = JSON.parse(
+				readFileSync(restoreFilePath(stateHome), "utf8"),
+			);
+			return file.sessions.map((entry) => entry.id).sort();
+		};
+		expect(offered(), "with no window closed, both").toEqual([
+			"01a1abab-cdcd",
+			"01a1eeee-ffff",
+		]);
+		await keepViewerClosed("01a1eeee-ffff", true);
+		expect(offered(), "the closed one goes").toEqual(["01a1abab-cdcd"]);
 	});
 });

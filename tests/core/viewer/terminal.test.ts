@@ -403,11 +403,13 @@ describe("persistent viewer terminal", () => {
 			[[false], [true]],
 		);
 		const four = terminal.attach(viewer());
-		terminal.attach(viewer());
+		const five = terminal.attach(viewer());
 		expect(
 			closed.mock.calls,
 			"a window viewing it again clears the close, once",
 		).toEqual([[false], [true], [false]]);
+		five.detach();
+		// The viewer that said its window closed is the only one left as the conversation closes.
 		four.leave("closed");
 		terminal.dispose();
 		expect(

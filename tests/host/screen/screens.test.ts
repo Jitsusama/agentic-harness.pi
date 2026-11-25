@@ -92,10 +92,14 @@ function asker() {
 	return { ask, asked };
 }
 
-function host(ask?: StartupAsker) {
+function host(
+	ask?: StartupAsker,
+	closed?: (sessionId: string, closed: boolean) => void,
+) {
 	const modes = new Map<unknown, FakeMode>();
 	const report = vi.fn();
 	const screens = hostScreens({
+		...(closed ? { closed } : {}),
 		create: (runtime, options) => {
 			const mode = new FakeMode(runtime, options);
 			modes.set(runtime, mode);
@@ -392,6 +396,26 @@ describe("hosted screens", () => {
 		expect(watching.disconnect).not.toHaveBeenCalled();
 		await screens.mode(runtime).shutdown();
 		expect(screens.closes).toEqual([["c", "quit"]]);
+	});
+
+	it("says a conversation's last window was closed by its id, through the viewers' own bridge", async () => {
+		const closed = vi.fn();
+		const screens = host(undefined, closed);
+		const runtime = { shared: true };
+		await screens.screens.opened(screens.view("a", runtime));
+		const one = screens.viewer.attach(attach("a"), sink());
+		one.leave?.("closed");
+		one.detach();
+		expect(closed.mock.calls).toEqual([
+			["a", false],
+			["a", true],
+		]);
+		await screens.screens.rebound(screens.view("c", runtime), "a");
+		screens.viewer.attach(attach("c"), sink());
+		expect(closed.mock.calls.at(-1), "under the id it now has").toEqual([
+			"c",
+			false,
+		]);
 	});
 
 	it("asks whether to trust a folder on the conversation's terminal, which viewers join and its screen keeps", async () => {
