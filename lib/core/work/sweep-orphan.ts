@@ -19,6 +19,7 @@ import {
 	type Stats,
 	writeFileSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
@@ -169,25 +170,39 @@ const CUT_NAME = /^(snapshot|worktree)-/;
 const GOING = ".going-";
 
 /**
+ * How many stopped removals one sweep finishes, so a backlog goes over
+ * several hours rather than holding a host's sweep for one long stretch.
+ */
+export const STOPPED_REMOVALS_PER_SWEEP = 10;
+
+/**
  * Finish the removals in `dir` that stopped part way, under the sweep's
- * lock, so no take of this machine's runs beside them: each folder a
- * take moved aside, and each named as a cut tree that has no `.git`, no
- * record among `known` and nothing touched in it for
- * {@link STOPPED_REMOVAL_MS}, as a release stopped in `git worktree
- * remove` leaves. Neither is a tree git or the broker can judge, and
- * what each held was clean when its removal began. One a process works
- * in stays, as does every one when the machine can't say.
+ * lock, so no take of this machine's runs beside them. A candidate is
+ * named as a cut tree, a take's moved-aside one included, and has no
+ * `.git`, no record or claim among `known` naming it or a folder in it,
+ * and nothing added, removed or written at its top or in its first two
+ * levels for {@link STOPPED_REMOVAL_MS}, as a release stopped in `git
+ * worktree remove` leaves. A tree a take left aside because git said it
+ * holds work keeps its `.git`, and so stays. One a process works in
+ * stays, as does every one when the machine can't say. Each is checked
+ * again just before it is moved, and removed without holding the
+ * thread, with the idle takes' pause between them.
  */
 export async function finishStoppedRemovals(
 	deps: SweepDeps,
 	dir: string,
-	known: ReadonlySet<string>,
+	known: readonly string[],
 	now: number,
 	outcome: SweepOutcome,
 ): Promise<void> {
-	const stopped = stoppedRemovals(dir, known, now - STOPPED_REMOVAL_MS);
+	const before = now - STOPPED_REMOVAL_MS;
+	const stopped = stoppedRemovals(dir, known, before).slice(
+		0,
+		STOPPED_REMOVALS_PER_SWEEP,
+	);
 	if (stopped.length === 0) return;
 	const busy = await deps.busyAmong?.(stopped.map(resolvedPath));
+	let finished = 0;
 	for (const path of stopped) {
 		if (busy === undefined) {
 			outcome.kept.push({
@@ -200,7 +215,9 @@ export async function finishStoppedRemovals(
 				why: "a removal stopped part way, but something works in it",
 			});
 		} else {
-			finish(path, outcome);
+			if (finished > 0) await deps.betweenIdleTakes?.();
+			finished += 1;
+			await finish(path, known, before, outcome);
 		}
 	}
 }
@@ -211,7 +228,7 @@ export async function finishStoppedRemovals(
  */
 function stoppedRemovals(
 	dir: string,
-	known: ReadonlySet<string>,
+	known: readonly string[],
 	before: number,
 ): string[] {
 	let names: string[];
@@ -224,20 +241,46 @@ function stoppedRemovals(
 	return names
 		.sort()
 		.map((name) => join(dir, name))
-		.filter((path) => {
-			if (!isPlainFolder(path)) return false;
-			if (basename(path).includes(GOING)) return true;
-			return (
-				CUT_NAME.test(basename(path)) &&
-				!lstatSafe(join(path, ".git")) &&
-				!known.has(resolvedPath(path)) &&
-				untouchedSince(path, before)
-			);
-		});
+		.filter((path) => stillStopped(path, known, before));
 }
 
-/** Move `path` aside, unless a take already did, and remove it. */
-function finish(path: string, outcome: SweepOutcome): void {
+/**
+ * Whether `path` reads as a removal that stopped part way: a plain
+ * folder named as a cut tree with no `.git`, which nothing in `known`
+ * names or reaches into, untouched since `before`.
+ */
+function stillStopped(
+	path: string,
+	known: readonly string[],
+	before: number,
+): boolean {
+	const resolved = resolvedPath(path);
+	return (
+		isPlainFolder(path) &&
+		CUT_NAME.test(basename(path)) &&
+		!lstatSafe(join(path, ".git")) &&
+		!known.some((one) => one === resolved || one.startsWith(`${resolved}/`)) &&
+		untouchedSince(path, before)
+	);
+}
+
+/**
+ * Move `path` aside, unless a take already did, and remove it, once it
+ * still reads as stopped: a cut may have begun in it since the listing.
+ */
+async function finish(
+	path: string,
+	known: readonly string[],
+	before: number,
+	outcome: SweepOutcome,
+): Promise<void> {
+	if (!stillStopped(path, known, before)) {
+		outcome.kept.push({
+			path,
+			why: "a removal seemed stopped, but the folder changed as the sweep came to it",
+		});
+		return;
+	}
 	const aside = basename(path).includes(GOING)
 		? path
 		: `${path}${GOING}${randomBytes(4).toString("hex")}`;
@@ -248,7 +291,7 @@ function finish(path: string, outcome: SweepOutcome): void {
 		return;
 	}
 	try {
-		rmSync(aside, { recursive: true, force: true });
+		await rm(aside, { recursive: true, force: true });
 		outcome.taken.push({ path, why: "its removal stopped part way" });
 	} catch (error) {
 		// Read-only module caches refuse a plain removal; what is left
@@ -260,12 +303,19 @@ function finish(path: string, outcome: SweepOutcome): void {
 	}
 }
 
-/** Whether neither the folder at `path` nor anything in it changed since `before`. */
-function untouchedSince(path: string, before: number): boolean {
+/**
+ * Whether nothing at `path` or in its first `depth` levels changed since
+ * `before`. A write deeper down moves no folder's time this reads, but a
+ * removal that stopped part way has nothing writing in it at all, and
+ * whatever works in a folder is read apart by the busy reading.
+ */
+function untouchedSince(path: string, before: number, depth = 2): boolean {
 	try {
-		if (lstatSync(path).mtimeMs >= before) return false;
-		return readdirSync(path).every(
-			(name) => lstatSync(join(path, name)).mtimeMs < before,
+		const stat = lstatSync(path);
+		if (stat.mtimeMs >= before) return false;
+		if (depth === 0 || !stat.isDirectory()) return true;
+		return readdirSync(path).every((name) =>
+			untouchedSince(join(path, name), before, depth - 1),
 		);
 	} catch {
 		// Changing as it is read: touched.

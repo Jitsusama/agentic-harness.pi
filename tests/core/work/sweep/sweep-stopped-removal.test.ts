@@ -15,8 +15,16 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type {
+	SweepClaims,
+	SweepDeps,
+} from "../../../../lib/core/work/sweep.ts";
 import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
-import { STOPPED_REMOVAL_MS } from "../../../../lib/core/work/sweep-orphan.ts";
+import {
+	STOPPED_REMOVAL_MS,
+	STOPPED_REMOVALS_PER_SWEEP,
+} from "../../../../lib/core/work/sweep-orphan.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	ENDED,
@@ -27,7 +35,13 @@ import {
 
 afterEach(disposeAll);
 
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+
+/** Sets `paths` to `ms` ago. */
+function age(ms: number, ...paths: string[]): void {
+	const then = (Date.now() - ms) / 1000;
+	for (const one of paths) utimesSync(one, then, then);
+}
 
 /** A folder named `name` in `dir` holding a file, left alone for `ms`. */
 function leftover(dir: string, name: string, ms: number): string {
@@ -36,26 +50,41 @@ function leftover(dir: string, name: string, ms: number): string {
 	const file = join(modules, "left.lua");
 	mkdirSync(modules, { recursive: true });
 	writeFileSync(file, "-- left\n");
-	const then = (Date.now() - ms) / 1000;
-	for (const one of [file, modules, path]) utimesSync(one, then, then);
+	age(ms, file, modules, path);
 	return path;
+}
+
+/** A busy reading that answers only for what it is asked, and notes it. */
+function reading(busy: readonly string[]) {
+	const asked: string[][] = [];
+	const busyAmong: SweepDeps["busyAmong"] = async (paths) => {
+		asked.push([...paths]);
+		return new Set(paths.filter((path) => busy.includes(path)));
+	};
+	return { asked, busyAmong };
 }
 
 describe("removals stopped part way", () => {
 	it("finishes one no record names and nothing has touched for a day, and a take's moved-aside folder", async () => {
 		const { memory, state } = await setUp();
-		const stopped = leftover(state, "snapshot-github-o-r-abc123", 2 * DAY);
-		const going = leftover(state, "worktree-github-o-r.going-1a2b", 2 * DAY);
-		const fresh = leftover(state, "snapshot-github-o-r-def456", DAY / 2);
-		const recorded = leftover(state, "snapshot-github-o-r-0a0b0c", 2 * DAY);
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const stopped = leftover(state, "snapshot-github-o-r-abc123", old);
+		const going = leftover(state, "worktree-github-o-r.going-1a2b3c4d", old);
+		const fresh = leftover(
+			state,
+			"snapshot-github-o-r-def456",
+			STOPPED_REMOVAL_MS - HOUR,
+		);
+		const recorded = leftover(state, "snapshot-github-o-r-0a0b0c", old);
 		memory.remember({
 			identity: { key: "snapshot-github-o-r-0a0b0c", shareable: false },
 			path: recorded,
 			providerId: "git-worktree",
 			owners: [ENDED],
 		});
-		const worked = leftover(state, "snapshot-github-o-r-111111", 2 * DAY);
-		const strange = leftover(state, "raw", 2 * DAY);
+		const worked = leftover(state, "snapshot-github-o-r-111111", old);
+		const strange = leftover(state, "raw", old);
+		const { asked, busyAmong } = reading([worked]);
 
 		const outcome = await sweepEndedTrees({
 			exec,
@@ -64,12 +93,15 @@ describe("removals stopped part way", () => {
 			lockPath: join(state, "sweep.lock"),
 			facts: machine,
 			treesDir: state,
-			busyAmong: async () => new Set([worked]),
+			busyAmong,
 		});
 
 		const taken = outcome.taken.map((tree) => tree.path).sort();
 		const finished = [stopped, going].sort();
 		expect(taken, "what the sweep finished removing").toEqual(finished);
+		expect(asked, "what the busy reading was asked").toEqual([
+			[stopped, worked, going].sort(),
+		]);
 		expect(existsSync(stopped), "a stopped removal stayed").toBe(false);
 		expect(existsSync(going), "a take's moved-aside folder stayed").toBe(false);
 		expect(existsSync(fresh), "one touched within the day went").toBe(true);
@@ -84,12 +116,15 @@ describe("removals stopped part way", () => {
 			readdirSync(state).filter((name) => name.includes(".going-")),
 			"what a finished removal left",
 		).toEqual([]);
-		expect(STOPPED_REMOVAL_MS, "a day untouched before finishing").toBe(DAY);
 	});
 
 	it("keeps every one when the machine can't say what works in them", async () => {
 		const { memory, state } = await setUp();
-		const stopped = leftover(state, "snapshot-github-o-r-abc123", 2 * DAY);
+		const stopped = leftover(
+			state,
+			"snapshot-github-o-r-abc123",
+			STOPPED_REMOVAL_MS + HOUR,
+		);
 
 		const outcome = await sweepEndedTrees({
 			exec,
@@ -107,5 +142,109 @@ describe("removals stopped part way", () => {
 			outcome.kept.find((one) => one.path === stopped)?.why,
 			"why it stayed",
 		).toMatch(/can't say/);
+	});
+
+	it("keeps a dirty tree a take left aside, and a tree whose branch is named going, since git still reads both", async () => {
+		const { main, memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const aside = join(state, "worktree-github-o-r-dirty.going-1a2b3c4d");
+		await git(main, "worktree", "add", "-q", "--detach", aside, "main");
+		writeFileSync(join(aside, "notes.txt"), "unsaved\n");
+		const named = join(state, "worktree-github-o-r-fix-v2.going-away");
+		await git(main, "worktree", "add", "-q", "-b", "fix/v2.going-away", named);
+		for (const tree of [aside, named]) {
+			age(old, ...readdirSync(tree).map((name) => join(tree, name)), tree);
+		}
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: reading([]).busyAmong,
+		});
+
+		expect(outcome.taken, "a tree git reads was finished").toEqual([]);
+		expect(existsSync(join(aside, "notes.txt")), "the unsaved work went").toBe(
+			true,
+		);
+		expect(existsSync(named), "the tree named going went").toBe(true);
+	});
+
+	it("keeps one a claim names, or reaches into, and one with something fresh two levels down", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const held = leftover(state, "snapshot-github-o-r-c1c1c1", old);
+		const reached = leftover(state, "snapshot-github-o-r-d2d2d2", old);
+		const deep = leftover(state, "snapshot-github-o-r-e3e3e3", old);
+		const file = join(deep, "modules", "left.lua");
+		writeFileSync(file, "-- written now\n");
+		age(old, join(deep, "modules"), deep);
+		const claims: SweepClaims = {
+			held: [held],
+			untilSpent: [join(reached, "modules")],
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims,
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: reading([]).busyAmong,
+		});
+
+		expect(outcome.taken, "a claimed or fresh folder was finished").toEqual([]);
+		for (const path of [held, reached, deep]) {
+			expect(existsSync(path), `${path} went`).toBe(true);
+		}
+	});
+
+	it("finishes a few each sweep, pausing between them, and keeps one a cut began in meanwhile", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const names = Array.from(
+			{ length: STOPPED_REMOVALS_PER_SWEEP + 2 },
+			(_, at) => `snapshot-github-o-r-${String(at).padStart(6, "0")}`,
+		);
+		const leftovers = names.map((name) => leftover(state, name, old));
+		const [cutInto] = leftovers;
+		let pauses = 0;
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: async () => {
+				// A cut begins in the first while the reading runs.
+				writeFileSync(join(cutInto ?? "", ".git"), "gitdir: elsewhere\n");
+				return new Set();
+			},
+			betweenIdleTakes: async () => {
+				pauses += 1;
+			},
+		});
+
+		expect(outcome.taken, "how many one sweep finished").toHaveLength(
+			STOPPED_REMOVALS_PER_SWEEP - 1,
+		);
+		expect(pauses, "the pauses between them").toBe(
+			STOPPED_REMOVALS_PER_SWEEP - 1,
+		);
+		expect(existsSync(cutInto ?? ""), "the one cut into went").toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === cutInto)?.why,
+			"why the one cut into stayed",
+		).toMatch(/changed as the sweep came to it/);
+		expect(
+			leftovers.filter((path) => existsSync(path)),
+			"what waits for the next sweep",
+		).toHaveLength(3);
 	});
 });

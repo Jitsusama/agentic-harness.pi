@@ -348,12 +348,12 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		if (deps.treesDir !== undefined) {
 			// Every recorded tree and every claim is somebody's, whatever
-			// git makes of it.
-			const known = new Set([
+			// git makes of it, and so is the folder holding one.
+			const known = [
 				...deps.memory.recall().map((tree) => resolved(tree.path)),
 				...remembered,
 				...spendable,
-			]);
+			];
 			await finishStoppedRemovals(deps, deps.treesDir, known, now, outcome);
 		}
 		for (const [main, trees] of repositories.byMain) {
