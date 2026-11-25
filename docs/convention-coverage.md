@@ -465,6 +465,13 @@ is followed by judgment, not by a regex.
 - **Style standards**: `code-style-standard`,
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.
+  One code rule is held outright: 🟢 a recursive delete outside
+  `tests/` goes through `lib/internal/files/remove-tree.ts`, never
+  Node's own walk, which follows a link swapped in mid-walk. Biome's
+  plugin `lib/internal/files/recursive-delete.grit` refuses it in
+  `pnpm lint`, and
+  `tests/package/recursive-deletes-are-refused.test.ts` shows each
+  form it refuses and lets pass.
 
   `repo-quality-standard` sits with them, and six of its rules
   are held by the gate: 🟢 rule 1's code files past 800 lines and

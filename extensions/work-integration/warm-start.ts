@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Exec } from "../../lib/core/exec/index.ts";
-import { removeTree } from "../../lib/internal/files/remove-tree.ts";
+import { removeTree, tidyTree } from "../../lib/internal/files/remove-tree.ts";
 
 /** What warming a tree needs from the machine. */
 export interface WarmStartSeams {
@@ -149,7 +149,7 @@ export async function cloneTarget(
 		if (dropOwnFingerprints(staging, profiles, ours) === 0) return false;
 		return landInPlace(staging, to);
 	} finally {
-		if (staging) removeTree(staging);
+		if (staging) tidyTree(staging);
 	}
 }
 

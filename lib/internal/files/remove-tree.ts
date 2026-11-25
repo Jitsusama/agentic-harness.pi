@@ -199,6 +199,26 @@ export function removeTree(
 	if (said !== undefined) throw new Error(`rm couldn't remove ${at}: ${said}`);
 }
 
+/**
+ * `removeTree` for a tidy after the work: a `finally`, a child's handler,
+ * a `catch` that throws its own error. Where the work's answer is already
+ * reached, a folder left in temp isn't worth losing it, so this never
+ * throws; it says why the tree was left, or nothing once it's gone.
+ * Unlike `rmSync` with `force`, `removeTree` can fail for want of a
+ * process (EAGAIN, ENOMEM) or a trusted `rm`, which is why it exists.
+ */
+export function tidyTree(
+	path: string,
+	folders: readonly string[] = removerFolders(),
+): string | undefined {
+	try {
+		removeTree(path, folders);
+		return undefined;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
 /** `removeTree`, off the thread, for a caller that shares it. */
 export async function removeTreeOff(
 	path: string,

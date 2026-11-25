@@ -49,7 +49,7 @@ import {
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { moveFile } from "../files/move-file.ts";
-import { removeTree } from "../files/remove-tree.ts";
+import { removeTree, tidyTree } from "../files/remove-tree.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf, SHARE_LARGEST_FILE } from "./handover.ts";
@@ -165,7 +165,7 @@ export async function staged<T>(
 	} catch (error) {
 		// Nothing is placed yet, so the folder holds nothing to keep.
 		live.delete(folder);
-		removeTree(folder);
+		tidyTree(folder);
 		throw error;
 	}
 	let keep = false;
@@ -245,7 +245,7 @@ export async function staged<T>(
 		);
 	} finally {
 		live.delete(folder);
-		if (!keep) removeTree(folder);
+		if (!keep) tidyTree(folder);
 	}
 }
 

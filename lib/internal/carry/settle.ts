@@ -29,7 +29,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { count, verb } from "../../ui/count.ts";
-import { removeTree } from "../files/remove-tree.ts";
+import { tidyTree } from "../files/remove-tree.ts";
 import { patchChanges } from "./changes.ts";
 import {
 	doneFileOf,
@@ -251,7 +251,7 @@ async function sameChanges(
 			? true
 			: "Its uncommitted changes differ from the ones carried.";
 	} finally {
-		removeTree(scratch);
+		tidyTree(scratch);
 	}
 }
 

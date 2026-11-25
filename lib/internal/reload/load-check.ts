@@ -24,7 +24,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SESSION_ONLY_VARIABLES } from "../../core/internal/terminal/drivers/shared.ts";
-import { removeTree } from "../files/remove-tree.ts";
+import { tidyTree } from "../files/remove-tree.ts";
 
 /**
  * What ties a process to this session, its holder, its terminal or the
@@ -194,11 +194,7 @@ export function checkLoad(
 		const settle = (report: LoadReport) => {
 			// The report is the answer; a sandbox left in temp is not worth
 			// losing it, and a throw here, in a child's handler, would.
-			try {
-				removeTree(sandbox);
-			} catch {
-				// Left for the system's temp sweep.
-			}
+			tidyTree(sandbox);
 			resolve(report);
 		};
 		// A directory with no project settings or context files of its own,

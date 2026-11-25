@@ -28,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { removeTree } from "../lib/internal/files/remove-tree.ts";
+import { tidyTree } from "../lib/internal/files/remove-tree.ts";
 import { unbuiltDependencies } from "../lib/internal/install/builds.ts";
 import { checkLoad, describeLoad } from "../lib/internal/reload/load-check.ts";
 
@@ -108,7 +108,7 @@ async function main(): Promise<number> {
 		console.log(describeLoad(report, "The production install"));
 		return builtAll(scratch) && report.ok ? 0 : 1;
 	} finally {
-		removeTree(scratch);
+		tidyTree(scratch);
 	}
 }
 

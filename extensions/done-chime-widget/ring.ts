@@ -21,7 +21,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
-import { removeTree } from "../../lib/internal/files/remove-tree.ts";
+import { tidyTree } from "../../lib/internal/files/remove-tree.ts";
 import { isQuiet, quietFile } from "./quiet.ts";
 import { readSound, type Sound } from "./sound.ts";
 
@@ -151,7 +151,7 @@ export async function ring(
 		const spoke = prepared && plan.speak ? await ran(exec, plan.speak) : false;
 		return dinged || spoke;
 	} finally {
-		removeTree(scratch);
+		tidyTree(scratch);
 	}
 }
 

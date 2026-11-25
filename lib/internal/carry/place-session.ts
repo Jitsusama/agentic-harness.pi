@@ -14,7 +14,7 @@ import {
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { removeTree } from "../files/remove-tree.ts";
+import { tidyTree } from "../files/remove-tree.ts";
 import { placeTakenOver } from "../quest/reopening/carried.ts";
 import { ZIPPED } from "./carry-away.ts";
 
@@ -67,7 +67,7 @@ export async function placeSession(
 		);
 		return placeTakenOver(id, plain, cwd, placing.sessions);
 	} finally {
-		removeTree(unzipping);
+		tidyTree(unzipping);
 	}
 }
 

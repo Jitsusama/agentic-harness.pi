@@ -31,6 +31,7 @@ import {
 	removeTree,
 	removeTreeOff,
 	systemRmCommand,
+	tidyTree,
 } from "../../../../lib/internal/files/remove-tree.ts";
 
 /** Root writes where its folders' modes say nobody may, so refusals don't hold. */
@@ -227,6 +228,16 @@ describe("removing a tree", () => {
 			/no rm found/,
 		);
 		expect(readdirSync(tree)).toHaveLength(2);
+	});
+
+	it("says why a tidy left a tree, and throws nothing", () => {
+		const tree = filled(join(folder, "tree", "deep"), 2);
+		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+		expect(tidyTree(join(folder, "tree"), [folder])).toMatch(/no rm found/);
+		expect(readdirSync(tree)).toHaveLength(2);
+		expect(tidyTree(join(folder, "tree"))).toBeUndefined();
+		expect(existsSync(join(folder, "tree"))).toBe(false);
 	});
 
 	it.runIf(notRoot)(
