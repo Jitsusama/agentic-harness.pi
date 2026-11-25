@@ -46,7 +46,7 @@ import {
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
-import { treeRecordDir } from "../../lib/internal/work-records.ts";
+import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { listedOpenFiles } from "./open-files.ts";
@@ -257,6 +257,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 				: { betweenIdleTakes: asks.betweenIdleTakes }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
+			treesDir: cutTreeDir(),
 			...useSigns(),
 		});
 		// A sweep that rested did nothing, and the one before it said what

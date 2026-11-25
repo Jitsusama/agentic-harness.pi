@@ -1,5 +1,6 @@
 /**
- * Taking the trees whose repository went with finished work.
+ * Taking the trees whose repository went with finished work, and
+ * finishing removals that stopped part way.
  *
  * A worktree of a clone that was deleted keeps only its folder: its
  * commits went with the clone, and git can no longer read it, so there
@@ -9,11 +10,20 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	type Stats,
+	writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
+import { resolvedPath } from "./in-use.ts";
 import { readPlain } from "./plain-file.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
 
@@ -141,6 +151,141 @@ function restoreDotGit(
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") return why;
 		return `${why}; its .git file couldn't be written back: ${messageOf(error)}`;
+	}
+}
+
+/**
+ * How long a folder where the broker cuts trees, named as one but with
+ * no `.git` and no record, stands untouched before a sweep finishes its
+ * removal. A cut writes `.git` within seconds of making the folder, and
+ * a release that stopped part way never comes back to it.
+ */
+export const STOPPED_REMOVAL_MS = 24 * 60 * 60 * 1000;
+
+/** The names the broker gives the trees it cuts. */
+const CUT_NAME = /^(snapshot|worktree)-/;
+
+/** What a sweep names a tree it has moved aside to remove. */
+const GOING = ".going-";
+
+/**
+ * Finish the removals in `dir` that stopped part way, under the sweep's
+ * lock, so no take of this machine's runs beside them: each folder a
+ * take moved aside, and each named as a cut tree that has no `.git`, no
+ * record among `known` and nothing touched in it for
+ * {@link STOPPED_REMOVAL_MS}, as a release stopped in `git worktree
+ * remove` leaves. Neither is a tree git or the broker can judge, and
+ * what each held was clean when its removal began. One a process works
+ * in stays, as does every one when the machine can't say.
+ */
+export async function finishStoppedRemovals(
+	deps: SweepDeps,
+	dir: string,
+	known: ReadonlySet<string>,
+	now: number,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const stopped = stoppedRemovals(dir, known, now - STOPPED_REMOVAL_MS);
+	if (stopped.length === 0) return;
+	const busy = await deps.busyAmong?.(stopped.map(resolvedPath));
+	for (const path of stopped) {
+		if (busy === undefined) {
+			outcome.kept.push({
+				path,
+				why: "a removal stopped part way, but the machine can't say whether something works in it",
+			});
+		} else if (busy.has(resolvedPath(path))) {
+			outcome.kept.push({
+				path,
+				why: "a removal stopped part way, but something works in it",
+			});
+		} else {
+			finish(path, outcome);
+		}
+	}
+}
+
+/**
+ * The folders in `dir` whose removal stopped part way, as
+ * {@link finishStoppedRemovals} tells them, untouched since `before`.
+ */
+function stoppedRemovals(
+	dir: string,
+	known: ReadonlySet<string>,
+	before: number,
+): string[] {
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		// No folder yet means nothing was ever cut, or removed.
+		return [];
+	}
+	return names
+		.sort()
+		.map((name) => join(dir, name))
+		.filter((path) => {
+			if (!isPlainFolder(path)) return false;
+			if (basename(path).includes(GOING)) return true;
+			return (
+				CUT_NAME.test(basename(path)) &&
+				!lstatSafe(join(path, ".git")) &&
+				!known.has(resolvedPath(path)) &&
+				untouchedSince(path, before)
+			);
+		});
+}
+
+/** Move `path` aside, unless a take already did, and remove it. */
+function finish(path: string, outcome: SweepOutcome): void {
+	const aside = basename(path).includes(GOING)
+		? path
+		: `${path}${GOING}${randomBytes(4).toString("hex")}`;
+	try {
+		if (aside !== path) renameSync(path, aside);
+	} catch (error) {
+		outcome.refused.push({ path, why: messageOf(error) });
+		return;
+	}
+	try {
+		rmSync(aside, { recursive: true, force: true });
+		outcome.taken.push({ path, why: "its removal stopped part way" });
+	} catch (error) {
+		// Read-only module caches refuse a plain removal; what is left
+		// stays aside for the next sweep to try again.
+		outcome.refused.push({
+			path,
+			why: `${messageOf(error)}; what is left is at ${aside}`,
+		});
+	}
+}
+
+/** Whether neither the folder at `path` nor anything in it changed since `before`. */
+function untouchedSince(path: string, before: number): boolean {
+	try {
+		if (lstatSync(path).mtimeMs >= before) return false;
+		return readdirSync(path).every(
+			(name) => lstatSync(join(path, name)).mtimeMs < before,
+		);
+	} catch {
+		// Changing as it is read: touched.
+		return false;
+	}
+}
+
+/** Whether `path` is a folder, not a link to one. */
+function isPlainFolder(path: string): boolean {
+	const stat = lstatSafe(path);
+	return stat?.isDirectory() === true && !stat.isSymbolicLink();
+}
+
+/** What stands at `path`, without following a link, or nothing. */
+function lstatSafe(path: string): Stats | undefined {
+	try {
+		return lstatSync(path);
+	} catch {
+		// Nothing there.
+		return undefined;
 	}
 }
 
