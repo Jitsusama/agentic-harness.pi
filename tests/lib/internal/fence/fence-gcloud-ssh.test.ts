@@ -1,26 +1,29 @@
 /**
  * The session's copies of what gcloud's ssh writes in `~/.ssh`, made on
  * a real disk: the known-hosts copy follows the person's file, is
- * written in place, and nothing is made where a link stands in its way.
+ * renamed into place, starts afresh in each process, and nothing is
+ * written through a link or into a folder that isn't the account's own.
  */
 
 import {
+	chmodSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
 	statSync,
 	symlinkSync,
-	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	fenceGcloudSsh,
 	GCLOUD_KEY,
 	GCLOUD_KNOWN_HOSTS,
+	holdsStandIn,
 	KEY_STAND_IN,
 } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 
@@ -33,60 +36,116 @@ beforeEach(() => {
 	home = join(root, "home");
 	runtime = join(root, "run");
 	mkdirSync(join(home, ".ssh"), { recursive: true });
-	mkdirSync(runtime);
+	mkdirSync(runtime, { mode: 0o700 });
 });
 
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-/** Writes the person's known hosts, dated `at` seconds from the epoch. */
-function personHosts(text: string, at: number): string {
+/** The session `one`'s folder of copies. */
+function sessionFolder(): string {
+	return join(runtime, "pi-fence/gcloud-ssh/one");
+}
+
+/** Writes the person's known hosts. */
+function personHosts(text: string): string {
 	const path = join(home, ".ssh", GCLOUD_KNOWN_HOSTS);
 	writeFileSync(path, text);
-	utimesSync(path, at, at);
 	return path;
+}
+
+/** Writes `text` at `path`, rewriting it whole so its version changes. */
+function rewrite(path: string, text: string): void {
+	rmSync(path, { force: true });
+	writeFileSync(path, text);
 }
 
 describe("the session's copies for gcloud's ssh", () => {
 	it("copies the person's known hosts and writes a stand-in for the key", () => {
-		personHosts("compute.1 ssh-ed25519 AAAA\n", 1000);
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
 		const copies = fenceGcloudSsh(runtime, home, "one");
 		expect(copies).toEqual({
-			knownHosts: join(runtime, "pi-fence/gcloud-ssh/one", GCLOUD_KNOWN_HOSTS),
-			key: join(runtime, "pi-fence/gcloud-ssh/one", GCLOUD_KEY),
+			knownHosts: join(sessionFolder(), GCLOUD_KNOWN_HOSTS),
+			key: join(sessionFolder(), GCLOUD_KEY),
 		});
 		expect(readFileSync(copies?.knownHosts ?? "", "utf8")).toBe(
 			"compute.1 ssh-ed25519 AAAA\n",
 		);
 		expect(readFileSync(copies?.key ?? "", "utf8")).toBe(KEY_STAND_IN);
 		expect(statSync(copies?.key ?? "").mode & 0o777).toBe(0o600);
+		for (const folder of [
+			"pi-fence",
+			"pi-fence/gcloud-ssh",
+			"pi-fence/gcloud-ssh/one",
+		]) {
+			expect(statSync(join(runtime, folder)).mode & 0o777, folder).toBe(0o700);
+		}
 	});
 
-	it("keeps what gcloud wrote in its copy until the person's file is newer", () => {
-		personHosts("compute.1 ssh-ed25519 AAAA\n", 1000);
-		const copies = fenceGcloudSsh(runtime, home, "one");
-		const copy = copies?.knownHosts ?? "";
+	it("keeps what gcloud wrote in its copy until the person's file changes", () => {
+		const person = personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
 		writeFileSync(
 			copy,
 			"compute.1 ssh-ed25519 AAAA\ncompute.2 ssh-ed25519 BBBB\n",
 		);
-		utimesSync(copy, 2000, 2000);
 		fenceGcloudSsh(runtime, home, "one");
-		expect(
-			readFileSync(copy, "utf8"),
-			"an older file of the person's",
-		).toContain("compute.2");
-		const inode = statSync(copy).ino;
-		personHosts("compute.3 ssh-ed25519 CCCC\n", 3000);
+		expect(readFileSync(copy, "utf8"), "the person's unchanged").toContain(
+			"compute.2",
+		);
+		rewrite(person, "compute.3 ssh-ed25519 CCCC\n");
 		fenceGcloudSsh(runtime, home, "one");
-		expect(readFileSync(copy, "utf8"), "a newer one").toBe(
+		expect(readFileSync(copy, "utf8"), "the person's changed").toBe(
 			"compute.3 ssh-ed25519 CCCC\n",
 		);
-		expect(
-			statSync(copy).ino,
-			"written in place, so a bind still names it",
-		).toBe(inode);
+	});
+
+	it("renews the copy when the person's file changes, whatever dates either carries", () => {
+		const person = personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		// A copy dated after the person's file, as gcloud writing it makes
+		// it, once kept a newer file of theirs from being copied in.
+		writeFileSync(copy, "planted ssh-ed25519 ZZZZ\n");
+		rewrite(person, "compute.4 ssh-ed25519 DDDD\n");
+		fenceGcloudSsh(runtime, home, "one");
+		expect(readFileSync(copy, "utf8")).toBe("compute.4 ssh-ed25519 DDDD\n");
+	});
+
+	it("renames a renewed copy into place, so a command reading the old one keeps it whole", () => {
+		const person = personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		const before = statSync(copy).ino;
+		rewrite(person, "compute.5 ssh-ed25519 EEEE\n");
+		fenceGcloudSsh(runtime, home, "one");
+		expect(statSync(copy).ino).not.toBe(before);
+	});
+
+	it("copies afresh in a new process, so a session resumed keeps no hosts it didn't copy", async () => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		writeFileSync(copy, "planted ssh-ed25519 ZZZZ\n");
+		vi.resetModules();
+		const fresh = await import(
+			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
+		);
+		fresh.fenceGcloudSsh(runtime, home, "one");
+		expect(readFileSync(copy, "utf8")).toBe("compute.1 ssh-ed25519 AAAA\n");
+	});
+
+	it("rewrites the stand-in whenever it reads other than it should", () => {
+		const key = fenceGcloudSsh(runtime, home, "one")?.key ?? "";
+		for (const text of [
+			"",
+			`${KEY_STAND_IN}more\n`,
+			"-----BEGIN OPENSSH PRIVATE KEY-----\n",
+		]) {
+			writeFileSync(key, text);
+			fenceGcloudSsh(runtime, home, "one");
+			expect(readFileSync(key, "utf8"), JSON.stringify(text)).toBe(
+				KEY_STAND_IN,
+			);
+		}
 	});
 
 	it("makes an empty copy where the person has no known hosts", () => {
@@ -94,21 +153,77 @@ describe("the session's copies for gcloud's ssh", () => {
 		expect(readFileSync(copies?.knownHosts ?? "", "utf8")).toBe("");
 	});
 
-	it("makes nothing where a link stands where a copy goes", () => {
-		personHosts("compute.1 ssh-ed25519 AAAA\n", 1000);
-		const folder = join(runtime, "pi-fence/gcloud-ssh/one");
-		mkdirSync(folder, { recursive: true });
+	it("reads the person's known hosts only as a plain file, never through a link", () => {
+		const secret = join(root, "secret");
+		writeFileSync(secret, "PRIVATE\n");
+		symlinkSync(secret, join(home, ".ssh", GCLOUD_KNOWN_HOSTS));
+		const copies = fenceGcloudSsh(runtime, home, "one");
+		expect(readFileSync(copies?.knownHosts ?? "", "utf8")).toBe("");
+	});
+
+	it.each([
+		["the known-hosts copy", GCLOUD_KNOWN_HOSTS],
+		["the key's stand-in", GCLOUD_KEY],
+	])("replaces a link where %s goes, never writing through it", (_, name) => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		mkdirSync(sessionFolder(), { recursive: true, mode: 0o700 });
+		chmodSync(join(runtime, "pi-fence"), 0o700);
+		chmodSync(join(runtime, "pi-fence/gcloud-ssh"), 0o700);
 		const elsewhere = join(root, "elsewhere");
 		writeFileSync(elsewhere, "");
-		symlinkSync(elsewhere, join(folder, GCLOUD_KNOWN_HOSTS));
-		expect(fenceGcloudSsh(runtime, home, "one")).toBeUndefined();
+		symlinkSync(elsewhere, join(sessionFolder(), name));
+		const copies = fenceGcloudSsh(runtime, home, "one");
+		expect(copies).toBeDefined();
+		expect(lstatSync(join(sessionFolder(), name)).isFile()).toBe(true);
 		expect(readFileSync(elsewhere, "utf8"), "nothing written through it").toBe(
 			"",
 		);
 	});
 
+	it.each([
+		["pi's folder", "pi-fence"],
+		["the sessions' folder", "pi-fence/gcloud-ssh"],
+		["the session's folder", "pi-fence/gcloud-ssh/one"],
+	])("makes nothing where a link stands for %s", (_, folder) => {
+		const elsewhere = join(root, "elsewhere");
+		mkdirSync(elsewhere, { mode: 0o700 });
+		const parent = join(runtime, folder, "..");
+		mkdirSync(parent, { recursive: true, mode: 0o700 });
+		symlinkSync(elsewhere, join(runtime, folder));
+		expect(fenceGcloudSsh(runtime, home, "one")).toBeUndefined();
+	});
+
+	it("makes nothing in a folder others can reach", () => {
+		mkdirSync(sessionFolder(), { recursive: true, mode: 0o700 });
+		chmodSync(join(runtime, "pi-fence"), 0o700);
+		chmodSync(join(runtime, "pi-fence/gcloud-ssh"), 0o700);
+		chmodSync(sessionFolder(), 0o755);
+		expect(fenceGcloudSsh(runtime, home, "one")).toBeUndefined();
+		chmodSync(sessionFolder(), 0o700);
+		chmodSync(runtime, 0o755);
+		expect(
+			fenceGcloudSsh(runtime, home, "one"),
+			"the runtime folder",
+		).toBeUndefined();
+	});
+
 	it("makes nothing with no runtime folder, or a session name a folder can't take", () => {
 		expect(fenceGcloudSsh(undefined, home, "one")).toBeUndefined();
 		expect(fenceGcloudSsh(runtime, home, "../away")).toBeUndefined();
+	});
+});
+
+describe("whether a file is the key's stand-in", () => {
+	it("holds only for the stand-in itself, read as it stands", () => {
+		const path = join(root, "key");
+		writeFileSync(path, KEY_STAND_IN);
+		expect(holdsStandIn(path)).toBe(true);
+		writeFileSync(path, `${KEY_STAND_IN}PRIVATE\n`);
+		expect(holdsStandIn(path), "with more after it").toBe(false);
+		const link = join(root, "link");
+		writeFileSync(path, KEY_STAND_IN);
+		symlinkSync(path, link);
+		expect(holdsStandIn(link), "through a link").toBe(false);
+		expect(holdsStandIn(join(root, "none")), "not there").toBe(false);
 	});
 });

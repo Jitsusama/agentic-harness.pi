@@ -1268,12 +1268,26 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(text, "the person's own key is never bound").not.toContain(
 			`--ro-bind ${ssh}/google_compute_engine ${ssh}/google_compute_engine `,
 		);
-		const remount = gcloudArgs.lastIndexOf("--remount-ro");
-		expect(gcloudArgs[remount + 1]).toBe(ssh);
-		expect(
-			gcloudArgs.indexOf(copies.knownHosts),
-			"bound inside the emptied folder, before it is made read-only",
-		).toBeLessThan(gcloudArgs.indexOf(ssh, gcloudArgs.indexOf("--remount-ro")));
+		// Where `flag` is given `path`, as the pair of words bubblewrap reads.
+		const pair = (flag: string, path: string): number =>
+			gcloudArgs.findIndex(
+				(word, at) => word === flag && gcloudArgs[at + 1] === path,
+			);
+		const emptied = pair("--tmpfs", ssh);
+		const bound = pair("--bind", copies.knownHosts);
+		const standIn = pair("--ro-bind", copies.key);
+		const sealed = pair("--remount-ro", ssh);
+		expect(emptied, "the folder is emptied").toBeGreaterThanOrEqual(0);
+		expect(sealed, "and made read-only").toBeGreaterThan(emptied);
+		for (const [name, at] of [
+			["the known hosts", bound],
+			["the key's stand-in", standIn],
+		] as const) {
+			expect(at, `${name}, after the folder is emptied`).toBeGreaterThan(
+				emptied,
+			);
+			expect(at, `${name}, before it is made read-only`).toBeLessThan(sealed);
+		}
 	});
 
 	it("stands in no key for gcloud where its public half isn't kept", () => {

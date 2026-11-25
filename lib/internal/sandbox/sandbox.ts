@@ -875,6 +875,18 @@ export function wrapFor(
 				],
 				...(github ? { github } : {}),
 			};
+			// The fence's words without gcloud's copies, made only the first time
+			// a command finds they can't be brought up to date: its ssh then
+			// fails inside as it did before they existed, rather than binding a
+			// copy left as it was, or the command being refused.
+			let withoutGcloud: typeof made.args | undefined;
+			const argsWithoutGcloud = (): typeof made.args => {
+				if (withoutGcloud === undefined) {
+					const plain = fenceArgs({ ...fence, gcloudSsh: undefined });
+					withoutGcloud = bwrapArgsFile(fence.runtimeDir, plain) ?? plain;
+				}
+				return withoutGcloud;
+			};
 			// Said only for a command the fence would run, never one sent
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
@@ -900,12 +912,12 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
-				// Brought up to date before each command, in place, so the bind
-				// laid once still names them and each command finds the person's
-				// latest hosts.
-				if (gcloudSsh) {
-					fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder);
-				}
+				// Brought up to date before each command, at the paths the bind
+				// laid once names, so each command finds the person's latest hosts.
+				const gcloudFresh =
+					gcloudSsh === undefined ||
+					fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder) !==
+						undefined;
 				// The person's cloud login stays hidden (fence-hidden.ts), and
 				// gcloud gets an empty settings folder of its own and no token
 				// (`NO_CLOUD_IN_THE_FENCE`).
@@ -915,6 +927,7 @@ export function wrapFor(
 				const delta = deltaVariables(sandbox.delta?.());
 				const cloud = {
 					...made,
+					...(gcloudFresh ? {} : { args: argsWithoutGcloud() }),
 					passed: { ...passed, ...delta, ...workerSocketPassed(workerSocket) },
 				};
 				const guarded = guardedIn(watched);
@@ -933,7 +946,7 @@ export function wrapFor(
 				const long = tooLong(
 					text,
 					command,
-					made.args,
+					cloud.args,
 					() =>
 						guarded.length > 0 &&
 						guardedListFile(fence.runtimeDir, guarded) === undefined,

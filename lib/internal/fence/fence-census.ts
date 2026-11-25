@@ -42,7 +42,7 @@ import { count, verb } from "../../ui/count.ts";
 import { ticksOfStat } from "../process-ticks.ts";
 import { SANDBOX_NAMES, STRICT } from "../sandbox/sandbox.ts";
 import { KEEP_VARIABLE, KEEPING_STUB } from "../shell/kept.ts";
-import { GCLOUD_KEY, KEY_STAND_IN } from "./fence-gcloud-ssh.ts";
+import { GCLOUD_KEY, holdsStandIn } from "./fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import { liftFence } from "./fence-lifted.ts";
 import { askedSandbox, inFirstStage } from "./fence-stage.ts";
@@ -419,7 +419,7 @@ function notProven(
 function hiddenSeen(root: string, place: CensusPlace): string | undefined {
 	const ssh = join(place.home, ".ssh");
 	const standIn = (entry: string): boolean =>
-		entry === GCLOUD_KEY && readText(join(root, ssh, entry)) === KEY_STAND_IN;
+		entry === GCLOUD_KEY && holdsStandIn(join(root, ssh, entry));
 	const sshSeen = (entriesOf(join(root, ssh)) ?? []).find(
 		(entry) => !(FENCE_HIDDEN.sshKept.test(entry) || standIn(entry)),
 	);

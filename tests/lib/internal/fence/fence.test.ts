@@ -300,6 +300,63 @@ describe("what a session asking for the fence is given", () => {
 		}
 	});
 
+	it("binds the session's copies for gcloud's ssh, and none once they can't be kept up to date", () => {
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			all,
+			undefined,
+			noCloud,
+			undefined,
+			undefined,
+			undefined,
+			noDelta,
+		);
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-gcloud-")));
+		const home = join(base, "home");
+		const runtimeDir = join(base, "run");
+		const ssh = join(home, ".ssh");
+		mkdirSync(ssh, { recursive: true, mode: 0o700 });
+		writeFileSync(join(ssh, "google_compute_engine.pub"), "ssh-rsa AAAA\n");
+		writeFileSync(join(ssh, "google_compute_known_hosts"), "compute.1 AAAA\n");
+		mkdirSync(runtimeDir, { mode: 0o700 });
+		const session = basename(base);
+		const copies = join(runtimeDir, "pi-fence", "gcloud-ssh", session);
+		const knownHosts = `'--bind' '${join(copies, "google_compute_known_hosts")}' '${join(ssh, "google_compute_known_hosts")}'`;
+		const standIn = `'--ro-bind' '${join(copies, "google_compute_engine")}' '${join(ssh, "google_compute_engine")}'`;
+		try {
+			const wrap = wrapFor(
+				fence,
+				{
+					cwd: home,
+					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
+				},
+				home,
+			);
+			const first = argsReadIn(wrap?.("true") ?? "");
+			expect(first, "the known-hosts copy isn't bound").toContain(knownHosts);
+			expect(first, "the key's stand-in isn't bound").toContain(standIn);
+			// A folder others can reach can't be trusted to hold the copies, so
+			// the next command runs as it did before they existed.
+			chmodSync(copies, 0o755);
+			const after = argsReadIn(wrap?.("true") ?? "");
+			expect(after, "a copy not kept up to date was bound").not.toContain(
+				join(copies, "google_compute_known_hosts"),
+			);
+			expect(after, "the stand-in was bound without it").not.toContain(
+				join(copies, "google_compute_engine"),
+			);
+			expect(after, "the command itself was refused").toContain("'--tmpfs'");
+			chmodSync(copies, 0o700);
+			expect(
+				argsReadIn(wrap?.("true") ?? ""),
+				"the copies once they can be kept again",
+			).toContain(knownHosts);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
 	it("fences one asking for a sandbox that isn't there, naming it", () => {
 		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", all);
 		expect(loose.kind, "an unknown name wasn't fenced").toBe("fence");
