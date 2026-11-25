@@ -118,6 +118,7 @@ export async function createEngine(
 	// the program loads, a missing install would fail the import before
 	// the program's configuration check refuses it with exit 78.
 	const { holdKeptHistory } = await import("./kept-history.ts");
+	const { openKept } = await import("./light-open.ts");
 	const { countLeftOut } = await import("./kept-history-session.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
@@ -285,12 +286,26 @@ export async function createEngine(
 	 * stands nearest the one it names when that one is gone, as a tree
 	 * released once its change merged is, rather than have pi refuse it.
 	 */
+	/** pi's session layer as the light open builds on it. */
+	const lightPi = {
+		SessionManager: sessions.SessionManager,
+		version: pi.modules.codingAgent.CURRENT_SESSION_VERSION,
+	};
+
+	/** `file` opened holding its kept view: light, or else by pi's own open. */
 	function openLog(file: string): StandingOpen {
-		const { manager, left } = openStanding(sessions.SessionManager, file);
+		const { manager, left } =
+			openKept(lightPi, file, report) ?? openWhole(file);
 		if (left)
 			report(
 				`Conversation ${manager.getSessionId()}'s folder ${left} is gone, so it opens in ${manager.getCwd()}`,
 			);
+		return { manager, ...(left ? { left } : {}) };
+	}
+
+	/** `file` opened by pi's own open, then holding its kept view. */
+	function openWhole(file: string): StandingOpen {
+		const { manager, left } = openStanding(sessions.SessionManager, file);
 		return {
 			manager: holdKeptHistory(manager, report),
 			...(left ? { left } : {}),

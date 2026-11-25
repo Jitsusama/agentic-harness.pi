@@ -28,11 +28,21 @@ export function openStanding(
 	file: string,
 	home: string = homedir(),
 ): StandingOpen {
-	const manager = sessions.open(file);
+	return standingOpen((cwd) => sessions.open(file, undefined, cwd), home);
+}
+
+/**
+ * A log opened by `open` in the folder it names, and again in the folder
+ * that stands nearest it when that one is gone.
+ */
+export function standingOpen(
+	open: (cwd?: string) => SessionManager,
+	home: string = homedir(),
+): StandingOpen {
+	const manager = open();
 	const left = manager.getCwd();
 	if (!left || !isGone(left)) return { manager };
-	const now = standingFolder(left, home);
-	return { manager: sessions.open(file, undefined, now), left };
+	return { manager: open(standingFolder(left, home)), left };
 }
 
 /**
