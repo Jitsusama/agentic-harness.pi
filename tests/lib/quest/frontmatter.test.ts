@@ -14,8 +14,10 @@ import type {
  * A shape with every field made required, nested ones included, so a
  * fixture typed with it must set each field at every depth.
  */
+// An array must hold at least one entry, so an empty one can't stand in
+// for the fields its entries carry.
 type EveryField<T> = T extends readonly (infer U)[]
-	? EveryField<U>[]
+	? [EveryField<U>, ...EveryField<U>[]]
 	: T extends object
 		? { [K in keyof T]-?: EveryField<T[K]> }
 		: T;
@@ -376,6 +378,7 @@ describe("every front-matter field", () => {
 	it("round-trips every field a quest can hold", () => {
 		const fm: EveryField<QuestFrontMatter> = {
 			...SAMPLE_QUEST_FM,
+			aliases: [{ type: "github-issue", value: "shop/world#47281" }],
 			sessions: [
 				{
 					id: "live-session",
@@ -492,6 +495,51 @@ describe("every front-matter field", () => {
 			).toStrictEqual(extra);
 		},
 	);
+
+	// A field of the person's own named like `__proto__` may hold a map,
+	// which must come back as that map rather than become the prototype.
+	it("keeps an extra __proto__ field that holds a map", () => {
+		const extra = Object.defineProperty({}, "__proto__", {
+			value: { nested: "kept" },
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
+		const doc: DocumentFrontMatter = {
+			id: "PLAN-20260603-BBB222",
+			kind: "plan",
+			quest: "QEST-20260603-AAA111",
+			stage: "build",
+			updated: "2026-06-03",
+			_extra: extra,
+		};
+		const text = `${serializeDocumentFrontMatter(doc)}\n# Plan\n`;
+		const read = parseDocumentFrontMatter(text)?.frontMatter._extra;
+
+		expect(read, "the extra as written").toStrictEqual(extra);
+		expect(read && Object.getPrototypeOf(read), "its prototype").toBe(
+			Object.prototype,
+		);
+	});
+
+	// An extra can't write over a field the shape knows, so a hand-added
+	// `stage` among the extras never changes the document's stage.
+	it("writes a known field over an extra of the same name", () => {
+		const doc: DocumentFrontMatter = {
+			id: "PLAN-20260603-BBB222",
+			kind: "plan",
+			quest: "QEST-20260603-AAA111",
+			stage: "build",
+			updated: "2026-06-03",
+			_extra: { stage: "think" },
+		};
+		const text = serializeDocumentFrontMatter(doc);
+
+		expect(
+			parseDocumentFrontMatter(`${text}\n# Plan\n`)?.frontMatter.stage,
+		).toBe("build");
+		expect(text, "the extra's value").not.toContain("think");
+	});
 });
 
 describe("frontmatter parser failure branches", () => {
