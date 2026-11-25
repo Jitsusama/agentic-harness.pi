@@ -144,7 +144,7 @@ export async function askStack(
 		"Ask about fewer of its changes: a council on each change, or on the lower part of the stack first.",
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
-	const start = await awaitRosterStart(tip.change.label, seat.signal);
+	const start = await awaitRosterStart(tip.change.label, seat.signal, "stack");
 	if (start.cancelled !== undefined) return refuse(start.cancelled);
 	const asking = deps(tip.change, tree.path, watch, charters);
 	const { run, warnings } = await runStackCouncil(

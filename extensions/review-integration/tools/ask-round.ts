@@ -44,6 +44,7 @@ import { rangeProposal } from "../range.ts";
 import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
+import { isWorldWork, urgentMarks } from "./ask-line.ts";
 import type { RoundAsks } from "./ask-roster.ts";
 import {
 	type Answer,
@@ -152,6 +153,9 @@ export function nextSeq(): number {
 	return roundsStarted;
 }
 
+/** The rounds that ask the whole roster at once, each waiting its own turn. */
+export type RosterRound = "council" | "stack" | "critique";
+
 /**
  * Takes the machine's next start for a round that asks the whole
  * roster at once (a council, a stack or a critique) and waits for it,
@@ -165,17 +169,22 @@ export function nextSeq(): number {
 export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
+	kind: RosterRound,
 ): Promise<CouncilStart> {
 	// A round a session on an older install started never joined the
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const spacingMs = await configuredSpacing();
+	const line = councilStartsPath();
 	return await awaitCouncilStart(
-		councilStartsPath(),
+		line,
 		{
 			by: sessionKey(),
 			change,
+			kind,
+			leads: await isWorldWork(change),
+			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => memoryShort(),
 			...(spacingMs === undefined ? {} : { spacingMs }),

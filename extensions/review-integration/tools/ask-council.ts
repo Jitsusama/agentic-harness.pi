@@ -153,7 +153,7 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	const start = await awaitRosterStart(change.label, seat.signal);
+	const start = await awaitRosterStart(change.label, seat.signal, "council");
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
 	// Asked again after the wait: a council on this head queued ahead of
