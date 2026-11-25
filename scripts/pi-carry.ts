@@ -72,6 +72,7 @@ import {
 	arrivedIn,
 } from "../lib/internal/carry/arrive.ts";
 import { sandboxAsking } from "../lib/internal/carry/fence.ts";
+import { gitInEnglish } from "../lib/internal/carry/git-english.ts";
 import {
 	doneFileOf,
 	handoverOf,
@@ -174,14 +175,11 @@ if (
 	);
 }
 
-// git says why in English whatever this machine's language, since what
-// it says is matched, as an arrival reads a branch origin lacks. Only
-// git: what else runs, such as lsof naming files, keeps its own locale,
-// and the git an arrival feeds lines through sh sets it there itself.
-const inEnglish = spawnExec({ env: { LC_ALL: "C" } });
-const asItIs = spawnExec();
-const exec: Exec = (command, args) =>
-	(command === "git" ? inEnglish : asItIs)(command, args);
+// git says why in English whatever this machine's language; nothing else.
+const exec: Exec = gitInEnglish(
+	spawnExec({ env: { LC_ALL: "C" } }),
+	spawnExec(),
+);
 const home = homedir();
 const workspaces = questWorkspacesRoot();
 
