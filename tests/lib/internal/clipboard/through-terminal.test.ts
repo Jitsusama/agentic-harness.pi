@@ -47,40 +47,57 @@ describe("copyThroughHeldTerminal", () => {
 	it.skipIf(process.platform !== "linux")(
 		"makes pi's own copy send OSC 52 in a held pi with no SSH markers",
 		async () => {
-			for (const key of [
-				"SSH_CONNECTION",
-				"SSH_CLIENT",
-				"MOSH_CONNECTION",
-				"PI_CLIPBOARD_OSC52",
-				"DISPLAY",
-				"TERMUX_VERSION",
-			]) {
-				delete process.env[key];
-			}
-			// A local clipboard that takes the copy, as the machine pi runs on
-			// has, so only the held switch can make pi send OSC 52 as well.
-			const bin = mkdtempSync(join(tmpdir(), "through-terminal-"));
-			const wlCopy = join(bin, "wl-copy");
-			writeFileSync(wlCopy, "#!/bin/sh\ncat > /dev/null\n");
-			chmodSync(wlCopy, 0o755);
-			process.env.PATH = `${bin}:/usr/bin:/bin:${SAVED.PATH ?? ""}`;
-			process.env.WAYLAND_DISPLAY = "wayland-test";
-			process.env.MYCELIUM_HELD = "h1";
-			const written: string[] = [];
-			vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-				written.push(String(chunk));
-				return true;
-			});
+			expect(await copiedAsOsc52("h1")).toBe(true);
+		},
+	);
 
-			copyThroughHeldTerminal(process.env);
-			try {
-				await copyToClipboard("copied line");
-			} finally {
-				rmSync(bin, { recursive: true, force: true });
-			}
-
-			const sequence = `\x1b]52;c;${Buffer.from("copied line").toString("base64")}\x07`;
-			expect(written).toContain(sequence);
+	it.skipIf(process.platform !== "linux")(
+		"leaves pi's own copy local in the same pi when it is not held",
+		async () => {
+			expect(await copiedAsOsc52(undefined)).toBe(false);
 		},
 	);
 });
+
+/**
+ * Copies a line through pi's own copy, on a machine with a local
+ * clipboard and no SSH markers, held or not, and says whether pi also
+ * wrote it to the terminal as OSC 52.
+ */
+async function copiedAsOsc52(held: string | undefined): Promise<boolean> {
+	for (const key of [
+		"SSH_CONNECTION",
+		"SSH_CLIENT",
+		"MOSH_CONNECTION",
+		"PI_CLIPBOARD_OSC52",
+		"MYCELIUM_HELD",
+		"DISPLAY",
+		"TERMUX_VERSION",
+	]) {
+		delete process.env[key];
+	}
+	// A local clipboard that takes the copy, as the machine pi runs on
+	// has, so only the held switch can make pi send OSC 52 as well.
+	const bin = mkdtempSync(join(tmpdir(), "through-terminal-"));
+	const wlCopy = join(bin, "wl-copy");
+	writeFileSync(wlCopy, "#!/bin/sh\ncat > /dev/null\n");
+	chmodSync(wlCopy, 0o755);
+	process.env.PATH = `${bin}:/usr/bin:/bin:${SAVED.PATH ?? ""}`;
+	process.env.WAYLAND_DISPLAY = "wayland-test";
+	if (held !== undefined) process.env.MYCELIUM_HELD = held;
+	const written: string[] = [];
+	vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+		written.push(String(chunk));
+		return true;
+	});
+
+	copyThroughHeldTerminal(process.env);
+	try {
+		await copyToClipboard("copied line");
+	} finally {
+		rmSync(bin, { recursive: true, force: true });
+	}
+
+	const sequence = `\x1b]52;c;${Buffer.from("copied line").toString("base64")}\x07`;
+	return written.includes(sequence);
+}
