@@ -80,7 +80,12 @@ import {
 	type Reading,
 	readRoom,
 } from "../../lib/internal/priority/room.ts";
-import { darwinRoom } from "../../lib/internal/priority/room-darwin.ts";
+import {
+	darwinFactsNow,
+	darwinRoom,
+	historyIn,
+	historyInMemory,
+} from "../../lib/internal/priority/room-darwin.ts";
 import {
 	placesNow,
 	sendsWholeRun,
@@ -389,7 +394,14 @@ async function queueIn(dir: string): Promise<unknown> {
 }
 
 function macMachine(cannotAsk: CallWarning["heard"]): Machine {
-	const room = darwinRoom();
+	// Every session keeps one history of swap-outs in the queue's folder,
+	// since only the session that claims a reading reads the machine.
+	const dir = machineQueueDir();
+	const room = darwinRoom(
+		darwinFactsNow,
+		Date.now,
+		dir ? historyIn(dir) : historyInMemory(),
+	);
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.
 	currentBootToken();
