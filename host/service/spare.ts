@@ -144,8 +144,9 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 		return { left: `its warm failed: ${why}` };
 	}
 	const warmed = Date.now() - began;
-	const overSize = () => {
-		const held = wait.size();
+	// Each read of the size collects first, so the one after the warm
+	// serves both its report and the cap rather than collecting twice.
+	const overSize = (held = wait.size()) => {
 		return held !== undefined && held > mostBytes
 			? `it holds ${Math.round(held / MB)} MB, past the ${Math.round(mostBytes / MB)} MB a spare may`
 			: undefined;
@@ -156,7 +157,7 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 	);
 	// Its install may have moved during a warm on a loaded machine: a spare
 	// marked warm on old code could be taken before its next look.
-	const unfit = (await wait.moved()) ?? overSize();
+	const unfit = (await wait.moved()) ?? overSize(held);
 	if (unfit) return { left: unfit };
 	await writeFile(marks.warm, wait.version ?? "");
 	const warmAt = Date.now();

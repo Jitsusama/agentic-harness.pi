@@ -227,6 +227,23 @@ describe("a warm spare", () => {
 		});
 	});
 
+	it("reads what it holds once after its warm, for its report and its cap alike", async () => {
+		let reads = 0;
+		const spare = spareUntilTaken(
+			waitOf({
+				size: () => {
+					reads += 1;
+					return 100 * MB;
+				},
+				lookMs: 60_000,
+			}),
+		);
+		await written(spareMarks(slotFile).warm);
+		expect(reads).toBe(1);
+		await name({ sessionId: "s1" });
+		await expect(spare).resolves.toEqual({ taken: true });
+	});
+
 	it("leaves once its slot is cleared, as a host does once its unit has gone", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf());
