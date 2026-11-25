@@ -29,16 +29,25 @@
  * reads a subject's narrowest part after its last colon, dot or slash:
  * that one is held as review, integration and review-integration.
  *
+ * A subject whose narrowest part gives routing no word, as
+ * `core.nix:modules/pi` does, is left out, since it would take a place
+ * among a cell's subjects and route nothing.
+ *
  * The led areas are worked out each time the history is written, under
  * its lock, and kept beside it in {@link LED_AREAS_FILE}, so a peer
  * reading its quest's at every refresh reads a few kilobytes rather
- * than a month of landings.
+ * than a month of landings. Each lead is kept with when it lapses if
+ * nothing more lands, its second-newest landing's time and
+ * {@link LED_WITHIN_MS} on, so a quiet day's file stops saying a lead
+ * the window has let go rather than saying it until the next landing.
  */
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { isRecord } from "../internal/record.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { KeptLanding } from "./landing-history.ts";
+import { subjectWords } from "./need-route.ts";
 import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** The led areas' file name, beside the landing history. */
@@ -62,7 +71,15 @@ const LARGEST_FILE = 1024 * 1024;
 /** A quest's weight and landings in one area. */
 interface Share {
 	weight: number;
-	landings: number;
+	/** When each landing counted landed, newest first once all are in. */
+	at: number[];
+}
+
+/** An area a quest led, as a subject, and when it lapses if nothing more lands. */
+export interface Lead {
+	readonly subject: string;
+	/** Epoch milliseconds. */
+	readonly until: number;
 }
 
 /** The subject an area of `repo` is said as: the repository's name, then the area. */
@@ -70,53 +87,68 @@ function subjectOf(repo: string, area: string): string {
 	return `${repo.slice(repo.lastIndexOf("/") + 1)}:${area}`;
 }
 
+/** The areas a kept landing names, read as the strings among whatever it holds. */
+function areasNamed(areas: unknown): string[] {
+	return Array.isArray(areas)
+		? areas.filter((area): area is string => typeof area === "string")
+		: [];
+}
+
 /**
- * The areas each quest led in `landings` at `now`, as subjects, those it
- * leads by most weight first, at most a cell's {@link MOST_SUBJECTS}.
- * A quest leading none is left out.
+ * The areas each quest led in `landings` at `now`, as subjects with when
+ * each lapses, those it leads by most weight first, at most a cell's
+ * {@link MOST_SUBJECTS}. A quest leading none is left out.
  */
 export function ledAreas(
 	landings: readonly KeptLanding[],
 	now: number,
-): Record<string, string[]> {
+): Record<string, Lead[]> {
 	const shares = new Map<string, Map<string, Share>>();
 	for (const landing of landings) {
-		const { repo, areas } = landing;
+		const { repo } = landing;
 		const quest =
 			typeof landing.proposedBy === "string"
 				? landing.proposedBy
 				: landing.quest;
-		if (!(quest && repo && areas)) continue;
-		const age = now - Date.parse(landing.at);
+		if (!(typeof quest === "string" && quest && typeof repo === "string")) {
+			continue;
+		}
+		const at = Date.parse(landing.at);
+		const age = now - at;
 		if (!(age >= 0 && age < LED_WITHIN_MS)) continue;
 		const weight = 2 ** (-age / HALF_LIFE_MS);
-		for (const area of new Set(areas)) {
+		for (const area of new Set(areasNamed(landing.areas))) {
 			const subject = subjectOf(repo, area);
+			if (subjectWords(subject).length === 0) continue;
 			const byQuest = shares.get(subject) ?? new Map<string, Share>();
-			const share = byQuest.get(quest) ?? { weight: 0, landings: 0 };
+			const share = byQuest.get(quest) ?? { weight: 0, at: [] };
 			share.weight += weight;
-			share.landings += 1;
+			share.at.push(at);
 			byQuest.set(quest, share);
 			shares.set(subject, byQuest);
 		}
 	}
-	const led = new Map<string, { subject: string; weight: number }[]>();
+	const led = new Map<string, (Lead & { weight: number })[]>();
 	for (const [subject, byQuest] of shares) {
 		const most = Math.max(...[...byQuest.values()].map((one) => one.weight));
-		for (const [quest, { weight, landings: count }] of byQuest) {
-			if (count < FEWEST_LANDINGS || weight < LEADS_AT * most) continue;
-			led.set(quest, [...(led.get(quest) ?? []), { subject, weight }]);
+		for (const [quest, { weight, at }] of byQuest) {
+			if (at.length < FEWEST_LANDINGS || weight < LEADS_AT * most) continue;
+			const lapsing = at.sort((a, b) => b - a)[FEWEST_LANDINGS - 1] ?? now;
+			led.set(quest, [
+				...(led.get(quest) ?? []),
+				{ subject, weight, until: lapsing + LED_WITHIN_MS },
+			]);
 		}
 	}
 	return Object.fromEntries(
-		[...led].map(([quest, areas]) => [
+		[...led].map(([quest, leads]) => [
 			quest,
-			areas
+			leads
 				.sort(
 					(a, b) => b.weight - a.weight || a.subject.localeCompare(b.subject),
 				)
 				.slice(0, MOST_SUBJECTS)
-				.map((one) => one.subject),
+				.map(({ subject, until }) => ({ subject, until })),
 		]),
 	);
 }
@@ -128,7 +160,7 @@ export function keepLedAreas(
 	now: number,
 ): void {
 	const file = {
-		v: 1,
+		v: 2,
 		at: new Date(now).toISOString(),
 		quests: ledAreas(landings, now),
 	};
@@ -147,8 +179,9 @@ let lastRead:
 /** What the led areas file at `path` holds by quest, or nothing when it is missing or isn't one. */
 function questsAt(path: string): Record<string, unknown> {
 	try {
-		const { ino, mtimeMs, size } = statSync(path);
-		if (size > LARGEST_FILE) return {};
+		const seen = statSync(path);
+		const { ino, mtimeMs, size } = seen;
+		if (!seen.isFile() || size > LARGEST_FILE) return {};
 		const stamp = `${ino}:${mtimeMs}:${size}`;
 		if (lastRead?.path === path && lastRead.stamp === stamp) {
 			return lastRead.quests;
@@ -171,10 +204,26 @@ function questsAt(path: string): Record<string, unknown> {
 	}
 }
 
-/** The areas `quest` led, as the file beside the landing history in `dir` says. */
-export function ledAreasAt(dir: string, quest: string): string[] {
-	const areas = questsAt(join(dir, LED_AREAS_FILE))[quest];
-	return Array.isArray(areas)
-		? areas.filter((area): area is string => typeof area === "string")
-		: [];
+/**
+ * The areas `quest` leads at `now`, as the file beside the landing
+ * history in `dir` says, leaving out a lead that has lapsed since it was
+ * written. A bare subject, as a file from before leads lapsed holds, is
+ * read as one still led.
+ */
+export function ledAreasAt(
+	dir: string,
+	quest: string,
+	now = Date.now(),
+): string[] {
+	const leads = questsAt(join(dir, LED_AREAS_FILE))[quest];
+	if (!Array.isArray(leads)) return [];
+	return leads.flatMap((lead: unknown) => {
+		if (typeof lead === "string") return [lead];
+		return isRecord(lead) &&
+			typeof lead.subject === "string" &&
+			typeof lead.until === "number" &&
+			lead.until > now
+			? [lead.subject]
+			: [];
+	});
 }

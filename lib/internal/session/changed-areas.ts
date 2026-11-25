@@ -17,8 +17,12 @@
  * than what it is about is climbed past to its parent, so
  * `modules/quickshell/checks` is `modules/quickshell`: replayed over a
  * week of needs, leaving it drew every need saying checks to the
- * launcher's cell. Tests, docs, a repository's own config and its root
- * files name no area, since everyone touches them. Nor do World's zones
+ * launcher's cell. Where climbing leaves only the top folder, the area
+ * reaches down past the layout folders to the first one that isn't, so
+ * `lib/internal/session` is an area of its own rather than none. Tests,
+ * specs, docs, a repository's own config (any top folder starting with
+ * a dot) and its root files name no area, since everyone touches them,
+ * and nor does a path git had to quote, whose name it can't say plainly. Nor do World's zones
  * under `areas/` yet: said by their names they would hold words such as
  * shopify and dev, which many needs carry, and no World landing was in
  * the replay that measured these rules.
@@ -32,7 +36,7 @@ const DEPTH: Readonly<Record<string, number>> = { modules: 3 };
 const DEFAULT_DEPTH = 2;
 
 /** Top folders whose files name no area. */
-const NO_AREA = new Set(["tests", "test", "docs", ".github", ".pi", "areas"]);
+const NO_AREA = new Set(["tests", "test", "spec", "docs", "areas"]);
 
 /**
  * Folders that say how code is laid out, not what it is about: an area
@@ -58,12 +62,19 @@ const LAYOUT = new Set([
 
 /** The area one file is in, or none. */
 function areaOf(path: string): string | undefined {
+	if (path.startsWith('"')) return undefined;
 	const folders = path.split("/").slice(0, -1);
 	const top = folders[0];
-	if (top === undefined || NO_AREA.has(top)) return undefined;
+	if (top === undefined || top.startsWith(".") || NO_AREA.has(top)) {
+		return undefined;
+	}
 	const kept = folders.slice(0, DEPTH[top] ?? DEFAULT_DEPTH);
 	while (kept.length > 1 && LAYOUT.has(kept.at(-1) ?? "")) kept.pop();
-	return kept.length > 1 ? kept.join("/") : undefined;
+	if (kept.length > 1) return kept.join("/");
+	const named = folders.findIndex(
+		(folder, at) => at > 0 && !LAYOUT.has(folder),
+	);
+	return named > 0 ? folders.slice(0, named + 1).join("/") : undefined;
 }
 
 /**

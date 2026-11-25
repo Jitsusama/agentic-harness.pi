@@ -42,6 +42,18 @@ describe("the areas a change touched", () => {
 		).toEqual(["modules/quickshell", "modules/wifid", "src/node"]);
 	});
 
+	// The council, 25 November: `lib/internal/session` climbed to `lib`
+	// and named nothing, so a whole tree of the harness said no area.
+	it("reaches down past layout folders when climbing would leave only the top", () => {
+		expect(
+			areasOf([
+				"lib/internal/session/landings.ts",
+				"src/lib/routing/mod.rs",
+				"lib/internal/state.ts",
+			]),
+		).toEqual(["lib/internal/session", "src/lib/routing"]);
+	});
+
 	it("names none for tests, docs, the repository's own config or its root", () => {
 		expect(
 			areasOf([
@@ -49,6 +61,9 @@ describe("the areas a change touched", () => {
 				"docs/architecture.md",
 				".github/dependabot.yml",
 				".pi/skills/x/SKILL.md",
+				".config/tool/settings.json",
+				"spec/models/shop_spec.rb",
+				'"lib/mesh/odd\\tname.ts"',
 				"AGENTS.md",
 				"lib/README.md",
 				"src/main.rs",
@@ -66,5 +81,18 @@ describe("the areas a change touched", () => {
 			(_, i) => `extensions/e${i}/index.ts`,
 		);
 		expect(areasOf(sweep)).toHaveLength(MOST_AREAS);
+	});
+
+	it("keeps the area most files changed in when a sweep names it last", () => {
+		const sweep = [
+			...Array.from(
+				{ length: MOST_AREAS + 5 },
+				(_, i) => `extensions/e${i}/index.ts`,
+			),
+			"lib/mesh/a.ts",
+			"lib/mesh/b.ts",
+		];
+
+		expect(areasOf(sweep)[0]).toBe("lib/mesh");
 	});
 });
