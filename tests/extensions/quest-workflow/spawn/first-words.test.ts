@@ -32,13 +32,6 @@ const sayAtStartsEnd = (
 	send?.();
 	return send;
 };
-/**
- * How the words a start left read once said: under the automated header,
- * spelled out here on purpose, since the cost ledger reads it back from
- * old logs and the wording on the wire must not drift unseen.
- */
-const marked = (words: string): string =>
-	`[Automated message, no human input: this session's start left it these words.] ${words}`;
 /** The record a session leaves of taking the words under `key`. */
 const takenRecord = (key: string): unknown =>
 	JSON.parse(readFileSync(join(dir, `${key}.taken`), "utf8"));
@@ -64,7 +57,7 @@ describe("a session a spawn started", () => {
 		leaveFirstWords("019a-spawned", "carry on with QEST-1", dir);
 		sayAtStartsEnd("019a-spawned");
 		expect(said).toEqual([
-			{ text: marked("carry on with QEST-1"), options: undefined },
+			{ text: "carry on with QEST-1", options: undefined },
 		]);
 		// Only the record that it took them, for its spawner to look at.
 		expect(readdirSync(dir)).toEqual(["019a-spawned.taken"]);
@@ -79,7 +72,7 @@ describe("a session a spawn started", () => {
 		process.env[FIRST_WORDS_VARIABLE] = "token-1";
 		sayAtStartsEnd("019a-other");
 		expect(sayAtStartsEnd("019a-other")).toBeUndefined();
-		expect(said.map((one) => one.text)).toEqual([marked("carry on")]);
+		expect(said.map((one) => one.text)).toEqual(["carry on"]);
 		expect(process.env[FIRST_WORDS_VARIABLE]).toBeUndefined();
 	});
 
@@ -96,7 +89,7 @@ describe("a session a spawn started", () => {
 		leaveFirstWords("019a-busy", "carry on", dir);
 		sayAtStartsEnd("019a-busy");
 		expect(said).toEqual([
-			{ text: marked("carry on"), options: { deliverAs: "followUp" } },
+			{ text: "carry on", options: { deliverAs: "followUp" } },
 		]);
 	});
 
@@ -104,9 +97,7 @@ describe("a session a spawn started", () => {
 		leaveFirstWords("019a-sprout", "the node's prose", dir);
 		pendingWords(ctx).hints = { firstWords: "quest QEST-1 is made" };
 		sayAtStartsEnd("019a-sprout");
-		expect(said.map((one) => one.text)).toEqual([
-			marked("quest QEST-1 is made"),
-		]);
+		expect(said.map((one) => one.text)).toEqual(["quest QEST-1 is made"]);
 		expect(readdirSync(dir)).toEqual(["019a-sprout.taken"]);
 		expect(takenRecord("019a-sprout")).toMatchObject({ said: true });
 	});
@@ -120,27 +111,24 @@ describe("a session a spawn started", () => {
 		expect(takenRecord("019a-hushed")).toMatchObject({ said: false });
 	});
 
-	// A sprout's brief quotes the ask it was started for; said bare, a log
-	// reader took that quote for the person correcting the session (pain
-	// points, 24 November, entry efd94b22).
-	it("says a sprout's words as no person's, so its quoted ask is never his", async () => {
-		const brief =
-			'This session was sprouted for quest QEST-1. Joel said: "no, not that".';
-		pendingWords(ctx).hints = { firstWords: brief };
-		sayAtStartsEnd("019a-sprouted");
-		expect(said.map((one) => one.text)).toEqual([marked(brief)]);
-		const entry = {
-			type: "message",
-			message: { role: "user", content: said[0]?.text },
-		};
-		expect(isPersonWords(entry)).toBe(false);
-	});
-
-	it("says words already under the header as they are, never marked twice", async () => {
+	// Whoever left the words marked them: this send can't tell a host's
+	// words, which the person may have typed, from a start's, so it marks
+	// none and never says his are no one's.
+	it("says words as they were left, marked by whoever wrote them or not", async () => {
 		const words = spawnedWords("QEST-1");
 		leaveFirstWords("019a-spawned-quest", words, dir);
 		sayAtStartsEnd("019a-spawned-quest");
-		expect(said.map((one) => one.text)).toEqual([words]);
+		pendingWords(ctx).hints = { firstWords: "fix the rows, as I typed" };
+		sayAtStartsEnd("019a-typed");
+		expect(said.map((one) => one.text)).toEqual([
+			words,
+			"fix the rows, as I typed",
+		]);
+		const entry = {
+			type: "message",
+			message: { role: "user", content: said[1]?.text },
+		};
+		expect(isPersonWords(entry), "typed words stay his").toBe(true);
 	});
 
 	it("says nothing when no spawn left it words", async () => {
@@ -160,6 +148,6 @@ describe("a session a spawn started", () => {
 		await new Promise((done) => setTimeout(done, 5));
 		expect(said).toEqual([]);
 		send?.();
-		expect(said.map((one) => one.text)).toEqual([marked("carry on")]);
+		expect(said.map((one) => one.text)).toEqual(["carry on"]);
 	});
 });

@@ -11,6 +11,14 @@
  * known page never makes a second. Only a seed with its own id can be
  * marked. Whatever goes wrong before the quest exists leaves the node's
  * prose words to be said, as before; once it exists, the words say it.
+ *
+ * The words this start sets go under the automated header (`started`),
+ * so a sprout quoting the ask it was started for never reads in the log
+ * as the person correcting it (pain points, 24 November, entry
+ * efd94b22). Marked words can't be quoted past a compaction
+ * (lib/compaction/selection/units.ts), so only words whose quest exists,
+ * and so keeps the ask, are marked: the node's prose, said when no quest
+ * was made, stays bare and quotable, as it always was.
  */
 
 import type {
@@ -20,6 +28,7 @@ import type {
 import { removeAliasesFromQuest } from "../../../lib/core/quest/front-matter.ts";
 import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
+import { automatedText } from "../../../lib/internal/automated.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -47,9 +56,13 @@ import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { drawsAsNothing } from "../../../lib/internal/unseen.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
-import { pendingWords } from "../lifecycle.ts";
+import { pendingWords, START_WORDS_REASON } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import { create, load } from "../verbs/lifecycle.ts";
+
+/** A start's own words, as no person's: its quest exists and keeps the ask. */
+const started = (words: string): string =>
+	automatedText(START_WORDS_REASON, words);
 
 /** How long a tie to the map may take before the start goes on without it. */
 const TIE_PATIENCE_MS = 15_000;
@@ -112,7 +125,9 @@ export async function startSprouted(
 	if (replayed?.sealed) {
 		// Its quest was made and has since ended: the work is done, and
 		// the prose would only ask for another.
-		hints.firstWords = `This session was sprouted for quest ${replayed.id}, which has since ended, so its work is done. Take on nothing new; say so in a line.`;
+		hints.firstWords = started(
+			`This session was sprouted for quest ${replayed.id}, which has since ended, so its work is done. Take on nothing new; say so in a line.`,
+		);
 		return;
 	}
 	// A sealed quest holding the link is finished work, never carried on:
@@ -150,7 +165,9 @@ export async function startSprouted(
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
-	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined, linkIs);
+	hints.firstWords = started(
+		sproutedWords(id, seed, { kind: "none" }, joined, linkIs),
+	);
 	// A write whose quest's lock didn't come spins the thread for seconds,
 	// and every write left would ask for it again, so once one throws this
 	// start writes that quest no more: its tie and first words still go.
@@ -224,7 +241,9 @@ export async function startSprouted(
 			`[quest-workflow] the sprout of ${id} could log none of what it missed: ${unrecorded.join("; ")}\n`,
 		);
 	}
-	hints.firstWords = `${sproutedWords(id, seed, tied, joined, linkIs)}${unrecordedSaid(unrecorded)}`;
+	hints.firstWords = started(
+		`${sproutedWords(id, seed, tied, joined, linkIs)}${unrecordedSaid(unrecorded)}`,
+	);
 }
 
 /**

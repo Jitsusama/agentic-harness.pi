@@ -31,10 +31,6 @@ import {
 } from "../../lib/core/quest/lifecycle.ts";
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
-import {
-	automatedText,
-	isAutomatedText,
-} from "../../lib/internal/automated.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
@@ -602,17 +598,13 @@ export const START_WORDS_REASON = "this session's start left it these words";
  * Either way it leaves word that it took them, for the spawn that
  * looks for its first turn.
  *
- * Words go under the automated header unless they carry it already, as
- * a quest spawn's do: a sprout's brief came bare, so it read in the log
- * as the person's, and a sprout quoting the ask it was started for read
- * as him correcting the session (pain points, 24 November, entry
- * efd94b22). They stay a user message, as every turn the harness starts
- * is (lib/internal/automated.ts). A host's own first prompt is not said
- * here: it holds the first prompt pending, and sends it itself.
- *
- * Once marked, the words are no longer quotable past a compaction
- * (lib/compaction/selection/units.ts), as a spawn's never were; the
- * quest a sprout makes keeps its ask.
+ * Words are said as they were left, a user message as every turn the
+ * harness starts is (lib/internal/automated.ts). Whoever wrote them
+ * marked them, never this send, which can't tell whose they are: a quest
+ * spawn's and a sprout's come under the automated header
+ * (sessions/sprout-start.ts), and a host's may be words the person
+ * typed in the launcher, which a send past its first-prompt window must
+ * not say are no one's.
  *
  * The caller sends once every extension's session_start has finished,
  * not merely the next turn of the event loop. pi awaits each handler
@@ -647,10 +639,7 @@ export function sayFirstWords(
 	if (!words || putOff) return undefined;
 	return () => {
 		const idle = ctx.isIdle?.() ?? true;
-		const said = isAutomatedText(words)
-			? words
-			: automatedText(START_WORDS_REASON, words);
-		pi.sendUserMessage(said, idle ? undefined : { deliverAs: "followUp" });
+		pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
 	};
 }
 

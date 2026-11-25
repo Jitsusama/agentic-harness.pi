@@ -37,6 +37,7 @@ import {
 	load,
 } from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import { aliasAdd } from "../../../../lib/core/quest/verbs/alias.ts";
+import { isAutomatedText } from "../../../../lib/internal/automated.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -47,6 +48,7 @@ import {
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import { harnessLogPath } from "../../../../lib/internal/quest/documents/harness-log.ts";
 import { wroteSaid } from "../../../../lib/internal/quest/sessions/sprout-seed.ts";
+import { isPersonWords } from "../../../../lib/internal/session/driven.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
 import {
 	clearRefTypes,
@@ -339,6 +341,23 @@ describe("a sprouted session's start", () => {
 			/is made and loaded for it from the words it was asked with/u,
 		);
 		expect(words).not.toMatch(/quest create/u);
+	});
+
+	// A sprout's words quote the ask it was started for; said bare, a log
+	// reader took that quote for the person correcting the session (pain
+	// points, 24 November, entry efd94b22). Its quest keeps the ask, so
+	// only words whose quest exists are marked; the prose path's stay bare.
+	it("says its words as no person's once its quest is made", async () => {
+		const { words } = await start({
+			words: 'Joel said: "no, not that"',
+			id: "S1m",
+		});
+		expect(isAutomatedText(words ?? ""), String(words)).toBe(true);
+		const entry = {
+			type: "message",
+			message: { role: "user", content: words },
+		};
+		expect(isPersonWords(entry), "the log reads them as no one's").toBe(false);
 	});
 
 	it("makes it from a link, with the words as its note", async () => {

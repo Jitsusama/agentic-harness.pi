@@ -13,7 +13,6 @@ import {
 	captureSessionIdentity,
 	releaseSessionOnShutdown,
 	resolveStartup,
-	START_WORDS_REASON,
 	sayFirstWords,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { livePeers } from "../../../../extensions/quest-workflow/peers.ts";
@@ -38,7 +37,6 @@ import {
 	SESSION_STAMP_EVENT,
 	withSession,
 } from "../../../../lib/core/session/index.ts";
-import { automatedText } from "../../../../lib/internal/automated.ts";
 import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import {
 	journalSession,
@@ -191,13 +189,11 @@ it("takes only its own launch hints and literal first words", async () => {
 	withSession("a", () =>
 		sayFirstWords(pi, contexts("a"), "a", () => false),
 	)?.();
-	// Only a's hints are said, under the automated header as every start's
-	// words are. A real host holds its first prompt pending and sends it
-	// itself; `pending` is forced false here to read whose hints are said.
-	expect(send).toHaveBeenCalledWith(
-		automatedText(START_WORDS_REASON, "only a gets this"),
-		undefined,
-	);
+	// Only a's hints are said, as they were given: a host's may be words
+	// the person typed, so nothing marks them no one's. A real host holds
+	// its first prompt pending and sends it itself; `pending` is forced
+	// false here to read whose hints are said.
+	expect(send).toHaveBeenCalledWith("only a gets this", undefined);
 	expect(
 		withSession("b", () => sayFirstWords(pi, contexts("b"), "b", () => false)),
 	).toBeUndefined();
