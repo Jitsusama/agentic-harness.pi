@@ -297,17 +297,19 @@ export function createState(
 			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
 		},
-		// Its park watch answers (park-workflow watch.ts); with none, the
-		// session has nothing that would wake it.
-		park: () => {
-			const session = sessionOf();
-			if (session === undefined) return "the session isn't there to park";
-			const ask: ParkNowAsk = { session };
-			pi.events.emit(PARK_NOW_ASK, ask);
-			if (ask.parked === true) return undefined;
-			return ask.why ?? NOTHING_WAKES;
-		},
+		park: () => askToPark(false),
+		parkable: () => askToPark(true),
 	});
+	// Its park watch answers (park-workflow watch.ts), a check without
+	// parking; with none, the session has nothing that would wake it.
+	function askToPark(check: boolean): string | undefined {
+		const session = sessionOf();
+		if (session === undefined) return "the session isn't there to park";
+		const ask: ParkNowAsk = { session, ...(check ? { check } : {}) };
+		pi.events.emit(PARK_NOW_ASK, ask);
+		if (ask.parked === true || ask.ready === true) return undefined;
+		return ask.why ?? NOTHING_WAKES;
+	}
 	// A host's conversation has no window of its own to hand over.
 	const handOver = () =>
 		m.ctx?.hasUI && m.peer && m.hostKey === undefined

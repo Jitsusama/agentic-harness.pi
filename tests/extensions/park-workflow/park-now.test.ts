@@ -4,7 +4,7 @@
  * everything else that holds a park still does.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -86,8 +86,8 @@ const watching = (env: NodeJS.ProcessEnv = holder(), desk?: Desk) =>
 	});
 
 /** Ask on the bus, as the mesh's pausing does, answering what came back. */
-const ask = (session = SESSION): ParkNowAsk => {
-	const asked: ParkNowAsk = { session };
+const ask = (session = SESSION, check = false): ParkNowAsk => {
+	const asked: ParkNowAsk = { session, ...(check ? { check } : {}) };
 	events.emit(PARK_NOW_ASK, asked);
 	return asked;
 };
@@ -147,6 +147,94 @@ describe("parking now, as the person asked", () => {
 			session: "01a1af3c-0000-7b80-990f-000000000000",
 		});
 		expect(exits).toEqual([]);
+	});
+
+	// Asked mid-run, before the run is stopped for the park.
+	it("checks mid-run without parking, counting the run as settled", () => {
+		watching();
+		idle = false;
+
+		expect(ask(SESSION, true)).toEqual({
+			session: SESSION,
+			check: true,
+			ready: true,
+		});
+		expect(exits).toEqual([]);
+		expect(readParked(SESSION, folder)).toBeUndefined();
+		expect(
+			existsSync(join(folder, "held.again")),
+			"its holder told nothing",
+		).toBe(false);
+		expect(existsSync(join(folder, "held.wake")), "nothing woken").toBe(false);
+	});
+
+	it("checks mid-run what would still hold it once its run settles", () => {
+		watching();
+		idle = false;
+		typed = "half a thought";
+
+		expect(ask(SESSION, true).why).toBe("text is typed and unsent");
+		expect(exits).toEqual([]);
+	});
+
+	// Fixed by how it was started, so the park at the run's end would
+	// refuse it for certain: a check that said ready stopped the run for
+	// nothing.
+	it("checks mid-run that starting again would keep its flags", () => {
+		watch(session(), events, {
+			env: holder(),
+			args: ["-e", "./x.ts"],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => 1_000,
+			exitWith: (code) => exits.push(code),
+			clock: false,
+		});
+		idle = false;
+
+		expect(ask(SESSION, true).why).toMatch(/^starting again would drop -e/);
+		expect(existsSync(join(folder, "held.again"))).toBe(false);
+	});
+
+	it("checks mid-run that its holder would start it as itself", () => {
+		watching({ ...holder(), MYCELIUM_AGAIN: "" });
+		idle = false;
+
+		expect(ask(SESSION, true).why).toBe(
+			"its holder would start it as a new session",
+		);
+	});
+
+	// Its run's first answer writes the log the park then starts from.
+	it("checks mid-run without asking for a log its run has yet to write", () => {
+		rmSync(join(folder, "session.jsonl"));
+		watching();
+		idle = false;
+
+		expect(ask(SESSION, true).ready).toBe(true);
+	});
+
+	it("answers a park that failed part-way as one that may read as parked", () => {
+		watch(session(), events, {
+			env: holder(),
+			args: [],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => 1_000,
+			exitWith: () => {
+				throw new Error("its holder is gone");
+			},
+			clock: false,
+		});
+
+		expect(ask().why).toBe(
+			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone",
+		);
+		// What it said of its park stands, as its answer warns.
+		expect(readParked(SESSION, folder)).toBeDefined();
+		expect(ask().why).toBe("parking already");
 	});
 
 	it("answers nothing once its watch has stopped", () => {

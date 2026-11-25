@@ -34,8 +34,12 @@ function session(
 		) => void;
 		/** Why its park watch won't park it, or nothing where it parks. */
 		readonly park?: () => string | undefined;
+		/** Why its park watch would refuse once the run settles, asked mid-run. */
+		readonly parkable?: () => string | undefined;
 		/** When it started here, by its clock; 0 unless given. */
 		readonly startsAt?: number;
+		/** Run as each line is told, to throw as a stale screen does. */
+		readonly telling?: () => void;
 	} = {},
 ): Session {
 	const did: string[] = [];
@@ -69,7 +73,10 @@ function session(
 				paused = now;
 			},
 			carryOn: () => did.push("carry on"),
-			tell: (text) => told.push(text),
+			tell: (text) => {
+				closing.telling?.();
+				told.push(text);
+			},
 			journal: (text) => journal.push(text),
 			close: (by, failed, closed) => {
 				did.push("close");
@@ -93,6 +100,7 @@ function session(
 				did.push("park");
 				return closing.park?.();
 			},
+			parkable: () => closing.parkable?.(),
 		}),
 		did,
 		told,
@@ -308,7 +316,7 @@ describe("parking a session from outside its window", () => {
 	it("parks an idle one at once, saying who steered it in its host's journal", () => {
 		const idle = session(true);
 
-		idle.pausing.act("park", "joel");
+		idle.pausing.act("park", "joel", written(0));
 
 		expect(idle.did).toEqual(["park"]);
 		expect(idle.journal).toEqual([
@@ -319,7 +327,7 @@ describe("parking a session from outside its window", () => {
 	it("lets the turn under way finish, ends the run there, and parks once it settles", () => {
 		const busy = session(false);
 
-		busy.pausing.act("park", "joel");
+		busy.pausing.act("park", "joel", written(0));
 		expect(busy.did, "nothing parks mid-turn").toEqual([]);
 		expect(busy.told.at(-1)).toContain("after the current turn");
 
@@ -336,7 +344,7 @@ describe("parking a session from outside its window", () => {
 	it("stays awake and says why where its park watch refuses, on screen and in the journal", () => {
 		const held = session(true, undefined, { park: () => "a prompt is open" });
 
-		held.pausing.act("park", "joel");
+		held.pausing.act("park", "joel", written(0));
 
 		const line =
 			"A Park from outside its window, steered by joel, was refused: a prompt is open.";
@@ -347,9 +355,65 @@ describe("parking a session from outside its window", () => {
 	it("says why where nothing would wake it, in the words the host gives", () => {
 		const unheld = session(true, undefined, { park: () => NOTHING_WAKES });
 
-		unheld.pausing.act("park", "joel");
+		unheld.pausing.act("park", "joel", written(0));
 
 		expect(unheld.told.at(-1)).toContain("parking it would only end it");
+	});
+
+	// A Park its watch would refuse once the run settles would otherwise
+	// stop the person's run for nothing.
+	it("leaves a run going where its park watch would refuse once it settles, saying why", () => {
+		const busy = session(false, undefined, {
+			parkable: () => "a hold it sent stands",
+		});
+
+		busy.pausing.act("park", "joel", written(0));
+		busy.pausing.turnEnded();
+		busy.idle = true;
+		busy.pausing.settled();
+
+		expect(busy.did, "neither stopped nor parked").toEqual([]);
+		const line =
+			"A Park from outside its window, steered by joel, was refused: a hold it sent stands.";
+		expect(busy.told).toEqual([line]);
+		expect(busy.journal).toEqual([line]);
+	});
+
+	// The run itself may come to hold it: a hold it sent, work it led.
+	it("leaves a run going where what would refuse its park came during the turn, saying why", () => {
+		let asked = 0;
+		const busy = session(false, undefined, {
+			parkable: () => {
+				asked += 1;
+				return asked === 1 ? undefined : "peers wait on a hold it sent";
+			},
+		});
+
+		busy.pausing.act("park", "joel", written(0));
+		busy.pausing.turnEnded();
+		busy.idle = true;
+		busy.pausing.settled();
+
+		expect(asked, "as it came and as its turn ended").toBe(2);
+		expect(busy.did, "neither stopped nor parked").toEqual([]);
+		expect(busy.journal).toEqual([
+			"A Park from outside its window, steered by joel, was refused: peers wait on a hold it sent.",
+		]);
+	});
+
+	it("says a refused Park in its journal though its screen throws", () => {
+		const busy = session(false, undefined, {
+			parkable: () => "a hold it sent stands",
+			telling: () => {
+				throw new Error("the context is stale");
+			},
+		});
+
+		busy.pausing.act("park", "joel", written(0));
+
+		expect(busy.journal).toEqual([
+			"A Park from outside its window, steered by joel, was refused: a hold it sent stands.",
+		]);
 	});
 
 	it("is called off by a talk, Resume, Stop, Pause or Close before it lands", () => {
@@ -362,7 +426,7 @@ describe("parking a session from outside its window", () => {
 		};
 		for (const [what, then] of Object.entries(after)) {
 			const busy = session(false);
-			busy.pausing.act("park", "joel");
+			busy.pausing.act("park", "joel", written(0));
 			then(busy);
 			busy.idle = true;
 			busy.pausing.settled();
@@ -374,7 +438,7 @@ describe("parking a session from outside its window", () => {
 
 	it("is called off by a Carry before it lands", async () => {
 		const busy = session(false);
-		busy.pausing.act("park", "joel");
+		busy.pausing.act("park", "joel", written(0));
 
 		await busy.pausing.carry("osprey", "joel");
 		busy.idle = true;
@@ -397,13 +461,25 @@ describe("parking a session from outside its window", () => {
 		expect(woken.journal).toEqual(woken.told);
 	});
 
-	it("parks for one written as it started, within what clocks differ by, or saying no time", () => {
-		for (const at of [written(20_000 - CLOCKS_DIFFER_MS), undefined]) {
-			const one = session(true, undefined, { startsAt: 20_000 });
+	it("parks for one written as it started, within what clocks differ by", () => {
+		const one = session(true, undefined, { startsAt: 20_000 });
 
-			one.pausing.act("park", "joel", at);
+		one.pausing.act("park", "joel", written(20_000 - CLOCKS_DIFFER_MS));
 
-			expect(one.did, String(at)).toEqual(["park"]);
+		expect(one.did).toEqual(["park"]);
+	});
+
+	it("drops a Park that can't say when it was written, since it may be one left for it", () => {
+		for (const at of [undefined, "not a time"]) {
+			const woken = session(true, undefined, { startsAt: 20_000 });
+
+			woken.pausing.act("park", "joel", at);
+
+			expect(woken.did, String(at)).toEqual([]);
+			expect(woken.told.at(-1), String(at)).toContain(
+				"can't say when it was written",
+			);
+			expect(woken.journal).toEqual(woken.told);
 		}
 	});
 
