@@ -26,6 +26,7 @@ import {
 	budgetOfFolder,
 	CAPPED_HOLD_MS,
 	keepQuestBudget,
+	LOOSE_PROMPT_WAIT_MS,
 	undrawable,
 } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -44,6 +45,7 @@ import { automatedText } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
+import { until } from "../../../support/until.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
 
 let tmpRoot: string;
@@ -1622,6 +1624,10 @@ describe("the budget of a session on no quest", () => {
 		choice: string,
 		confidence = 0.9,
 		options: Parameters<typeof keepQuestBudget>[2] = {},
+		/** Held until it settles, as a judgement on a busy host. */
+		judging: Promise<unknown> = Promise.resolve(),
+		/** Held until it settles, as a folder's provider on a busy host. */
+		answering: Promise<unknown> = Promise.resolve(),
 	) {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
@@ -1638,10 +1644,14 @@ describe("the budget of a session on no quest", () => {
 				name === "delta" || name === "aquifer"
 					? { kind: "drawn", env: { [KEY]: name }, label: name }
 					: { kind: "unknown" },
-			budgetFor: async (asked) => (asked === folder ? "aquifer" : undefined),
+			budgetFor: async (asked) => {
+				await answering;
+				return asked === folder ? "aquifer" : undefined;
+			},
 			budgetForWork: async (work, classify) => {
 				judged.push(work);
 				await classify({ state: {}, questions: {} });
+				await judging;
 				return { name: choice, why: "its prompt", sure: confidence >= 0.8 };
 			},
 		});
@@ -1697,6 +1707,354 @@ describe("the budget of a session on no quest", () => {
 		expect(notices).toEqual([
 			'This session is on no quest, so it draws on budget delta, which "judge" judged from its folder and first prompt: its prompt.',
 		]);
+	});
+
+	it("lets its first prompt go on unjudged past the wait, and draws on the judgement as it lands", async () => {
+		let land = () => {};
+		const judging = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged, notices } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		expect(process.env[KEY], "the prompt went on, unjudged").toBe("personal");
+		await keeper.keep(ctx, { prompt: "and another thing" });
+		expect(judged, "judged once, the wait asked nothing again").toHaveLength(1);
+
+		land();
+		await until(
+			"the judgement to be drawn on",
+			() => process.env[KEY] === "delta",
+		);
+		expect(notices, "said as it was drawn on").toEqual([
+			'This session is on no quest, so it draws on budget delta, which "judge" judged from its folder and first prompt: its prompt.',
+		]);
+		await keeper.keep(ctx, { prompt: "and a third" });
+		expect(process.env[KEY], "kept on after").toBe("delta");
+		expect(judged, "still judged once").toHaveLength(1);
+	});
+
+	it("lets its first prompt go on past the wait on a slow folder, and draws on the folder's budget as it lands", async () => {
+		let land = () => {};
+		const answering = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged } = loose(
+			tmpRoot,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			Promise.resolve(),
+			answering,
+		);
+
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		expect(process.env[KEY], "the prompt went on").toBe("personal");
+
+		land();
+		await until(
+			"the folder's budget to be drawn on",
+			() => process.env[KEY] === "aquifer",
+		);
+		expect(judged, "a folder's answer needs no judgement").toEqual([]);
+	});
+
+	it("judges its first prompt once a slow folder it went on past answers none", async () => {
+		let land = () => {};
+		const answering = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			Promise.resolve(),
+			answering,
+		);
+
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		expect(process.env[KEY], "the prompt went on").toBe("personal");
+		expect(judged, "nothing judged before the folder answers").toEqual([]);
+
+		land();
+		await until(
+			"the judgement to be drawn on",
+			() => process.env[KEY] === "delta",
+		);
+		expect(judged, "judged once, of the first prompt").toEqual([
+			{
+				title: tmpRoot,
+				folder: tmpRoot,
+				prompt: "Speed up walgit's pack writes",
+			},
+		]);
+	});
+
+	it("judges its first prompt when a slow folder the session's start went on past answers none", async () => {
+		// The host keeps at a session's start with no prompt, then again
+		// with it, so the start's keep is the one that first watches the
+		// folder; the prompt still reaches the judgement as it lands.
+		let land = () => {};
+		const answering = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			Promise.resolve(),
+			answering,
+		);
+
+		await keeper.keep(ctx);
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		expect(process.env[KEY], "the prompt went on").toBe("personal");
+
+		land();
+		await until(
+			"the judgement to be drawn on",
+			() => process.env[KEY] === "delta",
+		);
+		expect(judged, "judged once, of the first prompt").toEqual([
+			{
+				title: tmpRoot,
+				folder: tmpRoot,
+				prompt: "Speed up walgit's pack writes",
+			},
+		]);
+	});
+
+	describe("how long a prompt waits", () => {
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		/** Whether `promise` has settled, read without waiting on it. */
+		function settledness(promise: Promise<unknown>): () => boolean {
+			let settled = false;
+			promise.then(
+				() => {
+					settled = true;
+				},
+				() => {
+					settled = true;
+				},
+			);
+			return () => settled;
+		}
+
+		it("waits on its folder and its judgement together, no more than the default wait", async () => {
+			// The folder answers none three quarters of the way in, and the
+			// judgement it leaves never does: the prompt goes on at the one
+			// wait's end, not a wait for each.
+			const answering = new Promise<void>((settle) => {
+				setTimeout(settle, (LOOSE_PROMPT_WAIT_MS * 3) / 4);
+			});
+			const { keeper, ctx, judged } = loose(
+				undefined,
+				"delta",
+				0.9,
+				{},
+				new Promise(() => {}),
+				answering,
+			);
+
+			const done = settledness(
+				keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" }),
+			);
+			await vi.advanceTimersByTimeAsync(LOOSE_PROMPT_WAIT_MS - 1);
+			expect(
+				judged,
+				"the judgement was asked once the folder said none",
+			).toHaveLength(1);
+			expect(done(), "still waiting inside the one wait").toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(done(), "gone on at the wait's end").toBe(true);
+			expect(LOOSE_PROMPT_WAIT_MS, "a wait under 5 s").toBeLessThan(5_000);
+		});
+
+		it("doesn't wait again on a judgement a prompt went on past", async () => {
+			const { keeper, ctx, judged } = loose(
+				undefined,
+				"delta",
+				0.9,
+				{},
+				new Promise(() => {}),
+			);
+
+			const first = settledness(
+				keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" }),
+			);
+			await vi.advanceTimersByTimeAsync(LOOSE_PROMPT_WAIT_MS);
+			expect(first(), "the first prompt went on").toBe(true);
+			const second = settledness(
+				keeper.keep(ctx, { prompt: "and another thing" }),
+			);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(second(), "the second went on with no wait").toBe(true);
+			expect(judged, "judged once").toHaveLength(1);
+		});
+
+		it("holds no turn on a judgement only a late folder's answer started", async () => {
+			// Nobody waits on the judgement the late answer starts, so a keep
+			// between turns takes it only if it has landed.
+			const late = LOOSE_PROMPT_WAIT_MS + 100;
+			const answering = new Promise<void>((settle) => {
+				setTimeout(settle, late);
+			});
+			const { keeper, ctx, judged } = loose(
+				undefined,
+				"delta",
+				0.9,
+				{},
+				new Promise(() => {}),
+				answering,
+			);
+
+			const first = settledness(
+				keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" }),
+			);
+			await vi.advanceTimersByTimeAsync(late);
+			expect(first(), "the prompt went on").toBe(true);
+			expect(judged, "the late none started the judgement").toHaveLength(1);
+			const between = settledness(keeper.keep(ctx));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(between(), "the keep between turns didn't wait on it").toBe(true);
+		});
+	});
+
+	it("keeps the folder's budget while the folder is asked again of a provider registering late", async () => {
+		const { keeper, ctx, events } = loose(tmpRoot, "delta", 0.9, {
+			looseWaitMs: 20,
+		});
+		await keeper.keep(ctx, { prompt: "Speed up walgit" });
+		expect(process.env[KEY], "on the folder's budget").toBe("aquifer");
+
+		let land = () => {};
+		const held = new Promise<void>((settle) => {
+			land = settle;
+		});
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 1,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async () => {
+				await held;
+				return undefined;
+			},
+		});
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY], "not dropped while the folder is asked").toBe(
+			"aquifer",
+		);
+		land();
+	});
+
+	it("lays nothing from a judgement still on its way once the session is forgotten", async () => {
+		let land = () => {};
+		const judging = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, notices } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+
+		keeper.forget();
+		land();
+		await new Promise((settle) => setTimeout(settle, 50));
+
+		expect(process.env[KEY], "the next session isn't put on it").not.toBe(
+			"delta",
+		);
+		expect(notices, "and nothing is said of it").toEqual([]);
+	});
+
+	it("lays nothing from a judgement still on its way once a quest has loaded", async () => {
+		let land = () => {};
+		const judging = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, notices, state } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+
+		state.questId = "QEST-20260101-AAAAAA";
+		land();
+		await new Promise((settle) => setTimeout(settle, 50));
+
+		expect(process.env[KEY], "the quest's own budget stands").not.toBe("delta");
+		expect(notices, "and nothing is said of it").toEqual([]);
+	});
+
+	it("carries on after a judgement it went on past fails", async () => {
+		let fail = (_why: Error) => {};
+		const judging = new Promise<void>((_settle, reject) => {
+			fail = reject;
+		});
+		const { keeper, ctx } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+
+		fail(new Error("the classifier went away"));
+		await new Promise((settle) => setTimeout(settle, 50));
+
+		// A rejection reaching here, or left unwatched, fails the test.
+		await keeper.keep(ctx, { prompt: "and another thing" });
+		expect(process.env[KEY], "on what it drew on unjudged").toBe("personal");
+	});
+
+	it("lets a judgement it went on past outlive the run it was asked in", async () => {
+		// Escape on the reply stops the run, not a paid judgement nobody
+		// waits on any longer.
+		let land = () => {};
+		const judging = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+		const run = new AbortController();
+		const running = { ...ctx, signal: run.signal } as typeof ctx;
+		await keeper.keep(running, { prompt: "Speed up walgit's pack writes" });
+
+		run.abort();
+		land();
+		await until(
+			"the judgement to be drawn on",
+			() => process.env[KEY] === "delta",
+		);
+		expect(judged, "asked once, not again").toHaveLength(1);
 	});
 
 	it("stays on the default when the judgement is unsure or personal", async () => {
