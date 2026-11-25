@@ -19,8 +19,10 @@ loads the install and the install is `main`.
   `installed`. Left out, the session reloads whatever it runs now, so
   a tree being edited stays a tree.
   - A tree is loaded first in a pi of its own (see
-    [Load Check](#load-check)), and a tree that does not load is
-    refused with what failed, before anything is touched.
+    [Load Check](#load-check)), then put through its typecheck and
+    the tests its changes reach (see [Tree Check](#tree-check)). A
+    tree that fails either is refused with what failed, before
+    anything is touched.
   - In a session whose commands run in the fence, the tool reloads
     only onto `installed`: a reload runs the code it loads outside
     the fence, and a tree is a folder the fenced commands may have
@@ -250,6 +252,19 @@ nothing but the package (`--no-extensions`, then `-e <root>`), asks
 for its commands, which needs no model, and closes stdin. pi exits 1
 naming every extension that failed to load. The whole package takes
 about 13 seconds.
+
+## Tree Check
+
+Code that loads can still be wrong, and a session reloaded onto it
+runs it outside any test. So once a tree loads,
+`lib/internal/reload/tree-check.ts` runs what `pnpm check` runs for a
+change, from the tree's own node_modules: `tsc --noEmit`, then
+`vitest run --changed origin/main --passWithNoTests` with vitest's
+JSON report. The first that fails refuses the reload, naming its
+first ten type errors or failing tests, each with its cause. A tree
+with no node_modules is refused, saying to install or link them.
+Both run with folders of their own for state, data, cache and
+runtime, as the load check's pi does, and each may take 15 minutes.
 
 `pnpm load-check` runs the same check the way a person who installs
 the package would: it copies the files git would hand pi, installs

@@ -43,6 +43,11 @@ import {
 	type ReloadRequest,
 	reloadSlot,
 } from "../../lib/internal/reload/slot.ts";
+import {
+	checkTree,
+	describeTree,
+	type TreeCheckOptions,
+} from "../../lib/internal/reload/tree-check.ts";
 import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	RESTART_ASK,
@@ -203,14 +208,16 @@ export function fencedReloadRefusal(
 
 /**
  * Ask for a reload onto `tree` (or the install), once the run ends.
- * A tree is loaded in a pi of its own first, and a tree that does not
- * load is refused here, before anything touches the settings.
+ * A tree is loaded in a pi of its own first, then put through its
+ * typecheck and the tests its changes reach, and a tree that fails
+ * either is refused here, before anything touches the settings.
  */
 export async function requestReload(
 	reason: string,
 	tree: string | undefined,
 	settings: PackageSettings,
 	onProgress: (text: string) => void,
+	treeCheck: TreeCheckOptions = {},
 ): Promise<string> {
 	if (hosted()) throw new Error(HOSTED_RELOAD);
 	const slot = reloadSlot();
@@ -228,7 +235,21 @@ export async function requestReload(
 				`${describeLoad(report, homely(tree))}\nNothing was reloaded. Fix what failed and ask again, or reload onto "${INSTALLED}".`,
 			);
 		}
-		checked = ` It loads in a pi of its own: ${report.commands} commands, no extension failed.`;
+		const checks = await checkTree(tree, {
+			onStep: (step) =>
+				onProgress(
+					step === "typecheck"
+						? `Typechecking ${homely(tree)}`
+						: `Running the tests ${homely(tree)}'s changes reach`,
+				),
+			...treeCheck,
+		});
+		if (!checks.ok) {
+			throw new Error(
+				`${describeTree(checks, homely(tree))}\nNothing was reloaded. Fix what failed and ask again, or reload onto "${INSTALLED}".`,
+			);
+		}
+		checked = ` It loads in a pi of its own: ${report.commands} commands, no extension failed. ${describeTree(checks, "It")}`;
 	}
 	slot.request = { reason, by: "agent", ...(tree ? { tree } : {}) };
 	slot.dispatched = false;
