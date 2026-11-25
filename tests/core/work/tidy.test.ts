@@ -320,7 +320,9 @@ describe("trees left behind", () => {
 				at("/repo/.worktrees/landed", "c0ffee"),
 				at("/repo/.worktrees/past", "decade"),
 				{ ...at("/repo/.worktrees/dirty", "c0ffee"), dirty: true },
+				at("/repo/.worktrees/nobodys", "c0ffee"),
 			]),
+			unattributed: ["/repo/.worktrees/nobodys"],
 			landed: (commit) => merged.get(commit),
 		});
 
@@ -336,5 +338,9 @@ describe("trees left behind", () => {
 			(kept) => kept.path === "/repo/.worktrees/past",
 		);
 		expect(past?.why, "a commit past the merged head").toContain("squash");
+		expect(
+			plan.retained.find((kept) => kept.path === "/repo/.worktrees/nobodys"),
+			"a tree nobody's name is on, though merged, is a person's to judge",
+		).toMatchObject({ decide: true });
 	});
 });

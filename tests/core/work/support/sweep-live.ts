@@ -163,6 +163,7 @@ export async function setUp() {
 			| "mergedHeads"
 			| "lockWaitMs"
 			| "lockWaitEveryMs"
+			| "betweenIdleTakes"
 		> = {},
 	) =>
 		sweepEndedTrees({

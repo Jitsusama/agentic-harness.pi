@@ -209,29 +209,96 @@ describe("sweeping the trees whose sessions have ended", () => {
 		]);
 	});
 
-	it("takes a tree at a merged pull request's head at once, though its branch left the remote", async () => {
+	it("takes trees at merged pull requests' heads at once, though their branches left the remote", async () => {
 		const { main, cut, sweep } = await setUp();
 		const tree = await landed(cut, "squashed");
 		const head = (await git(tree, "rev-parse", "HEAD")).trim();
+		const other = await landed(cut, "squashed-too");
+		const otherHead = (await git(other, "rev-parse", "HEAD")).trim();
 		// As a forge does once it squash-merges a pull request.
-		await git(main, "push", "-q", "origin", "--delete", "squashed");
+		for (const branch of ["squashed", "squashed-too"]) {
+			await git(main, "push", "-q", "origin", "--delete", branch);
+		}
 		await git(main, "fetch", "-q", "--prune", "origin");
-		const asked: string[] = [];
+		const asked: string[][] = [];
+		let pauses = 0;
 
 		const outcome = await sweep([], undefined, {
-			mergedHeads: async (checkout) => {
-				asked.push(checkout);
-				return new Map([[head, 42]]);
+			mergedHeads: async (checkout, base) => {
+				asked.push([checkout, base]);
+				return new Map([
+					[head, 42],
+					[otherHead, 43],
+				]);
+			},
+			betweenIdleTakes: async () => {
+				pauses++;
 			},
 		});
 
-		expect(outcome.taken).toEqual([
-			{ path: tree, branch: "squashed", landed: 42 },
-		]);
+		expect(
+			[...outcome.taken].sort((a, b) => a.path.localeCompare(b.path)),
+		).toEqual(
+			[
+				{ path: tree, branch: "squashed", landed: 42 },
+				{ path: other, branch: "squashed-too", landed: 43 },
+			].sort((a, b) => a.path.localeCompare(b.path)),
+		);
 		expect(existsSync(tree), `${tree} is taken`).toBe(false);
-		expect(asked, "one listing for the repository").toHaveLength(1);
+		expect(asked, "one listing for the repository, of its trunk").toEqual([
+			[main, "main"],
+		]);
+		expect(pauses, "the runner's pause between the two takes").toBe(1);
 		// Kept, to cut the tree again at what was merged.
 		expect(await git(main, "rev-parse", "squashed")).toContain(head);
+	});
+
+	it("keeps a tree at a merged head that moves just before it would go", async () => {
+		const { cut, sweep } = await setUp();
+		const tree = await landed(cut, "moving");
+		const head = (await git(tree, "rev-parse", "HEAD")).trim();
+		let moved = false;
+
+		const outcome = await sweep([], undefined, {
+			mergedHeads: async () => new Map([[head, 9]]),
+			// Asked under the tree's record lock just before the move, as a
+			// session committing there then would be.
+			busyAmong: async (paths) => {
+				if (!moved && paths.includes(tree)) {
+					moved = true;
+					await git(tree, "commit", "-q", "--allow-empty", "-m", "after");
+				}
+				return new Set();
+			},
+		});
+
+		expect(moved, "asked who works there just before the move").toBe(true);
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toEqual([
+			{
+				path: tree,
+				why: "it left the merged pull request's head since it was judged",
+			},
+		]);
+		expect(existsSync(tree), `${tree} stands`).toBe(true);
+	});
+
+	it("says why a repository's merged pull requests couldn't be listed", async () => {
+		const { main, cut, sweep } = await setUp();
+		await landed(cut, "unlisted");
+
+		const outcome = await sweep([], undefined, {
+			mergedHeads: async () =>
+				"gh couldn't list its merged pull requests (exit 4)",
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.unlisted).toEqual([
+			{
+				checkout: main,
+				why: "gh couldn't list its merged pull requests (exit 4)",
+			},
+		]);
 	});
 
 	it("keeps a tree with a commit past a merged pull request's head, or dirty", async () => {

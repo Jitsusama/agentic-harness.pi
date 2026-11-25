@@ -246,18 +246,21 @@ function isMergedPull(value: unknown): value is MergedPull {
 }
 
 /**
- * The head commit of each pull request GitHub merged into the repository
- * `checkout`'s origin names, with its number, newest first up to
- * {@link MERGED_LISTED}, in one listing. A tree whose HEAD is one of them
- * holds what was reviewed and merged, though a squash merge left trunk
- * without its commits and the forge then deleted its branch. Nothing for
- * an origin elsewhere than GitHub, or when gh can't say, as without a
- * login or a network.
+ * The head commit of each pull request GitHub merged into `base`, the
+ * trunk of the repository `checkout`'s origin names, with its number,
+ * newest first up to {@link MERGED_LISTED}, in one listing. A tree whose
+ * HEAD is one of them holds what was reviewed and merged, though a squash
+ * merge left trunk without its commits and the forge then deleted its
+ * branch. A pull request merged into another base counts for nothing,
+ * since that base may never land. Where there is no listing, why: an
+ * origin elsewhere than GitHub, or gh unable to say, as without a login
+ * or a network.
  */
 export async function mergedPullHeads(
 	exec: Exec,
 	checkout: string,
-): Promise<ReadonlyMap<string, number> | undefined> {
+	base: string,
+): Promise<ReadonlyMap<string, number> | string> {
 	const origin = await exec("git", [
 		"-C",
 		checkout,
@@ -266,28 +269,37 @@ export async function mergedPullHeads(
 		"origin",
 	]);
 	const repository = GITHUB_REMOTE.exec(origin.stdout.trim())?.[1];
-	if (origin.code !== 0 || repository === undefined) return undefined;
+	if (origin.code !== 0 || repository === undefined) {
+		return "its origin isn't on GitHub";
+	}
 	const listed = await exec("gh", [
 		"pr",
 		"list",
+		// Named with its host, so a GH_HOST set to another forge can't send
+		// the listing to a same-named repository there.
 		"--repo",
-		repository,
+		`github.com/${repository}`,
 		"--state",
 		"merged",
+		"--base",
+		base,
 		"--limit",
 		String(MERGED_LISTED),
 		"--json",
 		"number,headRefOid",
 	]);
-	if (listed.code !== 0) return undefined;
+	if (listed.code !== 0) {
+		const first = listed.stderr.trim().split("\n")[0] ?? "";
+		return `gh couldn't list its merged pull requests (exit ${listed.code}${first === "" ? "" : `: ${first}`})`;
+	}
 	let pulls: unknown;
 	try {
 		pulls = JSON.parse(listed.stdout);
 	} catch {
 		// Not gh's listing, so nothing it says can be trusted to name a head.
-		return undefined;
+		return "gh's listing wasn't JSON";
 	}
-	if (!Array.isArray(pulls)) return undefined;
+	if (!Array.isArray(pulls)) return "gh's listing wasn't a list";
 	return new Map(
 		pulls
 			.filter(isMergedPull)

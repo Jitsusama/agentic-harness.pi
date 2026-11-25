@@ -67,11 +67,7 @@ import {
 	type UseSigns,
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
-import {
-	dropMergedBranch,
-	mergedPullHeads,
-	type WentBranch,
-} from "./merged-branch.ts";
+import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	checkoutOf,
@@ -214,13 +210,15 @@ export interface SweepDeps extends UseSigns {
 	treesDir?: string;
 	/**
 	 * The head commits of the pull requests merged into a checkout's
-	 * origin, each with its number, or nothing when its forge can't say;
-	 * GitHub's, through gh, by default. A clean ended tree at one of them
-	 * goes, as one trunk holds does.
+	 * trunk, `base`, each with its number, or why its forge can't say. A
+	 * clean ended tree at one of them goes, as one trunk holds does.
+	 * Without it none is asked, as in a host, whose every sweep would
+	 * otherwise list each repository over the network with the lock held.
 	 */
 	mergedHeads?: (
 		checkout: string,
-	) => Promise<ReadonlyMap<string, number> | undefined>;
+		base: string,
+	) => Promise<ReadonlyMap<string, number> | string>;
 	/**
 	 * How long, in milliseconds of awake time, a sweep that finds another
 	 * running waits its turn for the lock, looking again every
@@ -315,6 +313,17 @@ export interface SweepOutcome {
 	 * wall-clock span to time the rest.
 	 */
 	idleMs?: number;
+	/**
+	 * The checkouts whose merged pull requests couldn't be listed, and why,
+	 * so a runner without gh's login says so rather than keeping every
+	 * squash-merged tree in silence.
+	 */
+	unlisted?: { checkout: string; why: string }[];
+	/**
+	 * How long, in milliseconds of awake time, it waited its turn for the
+	 * lock, when it waited, which its own time then leaves out.
+	 */
+	waitedMs?: number;
 }
 
 /**
@@ -350,19 +359,35 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		dropped: [],
 		branches: [],
 	};
-	const now = deps.now?.() ?? Date.now();
+	let now = deps.now?.() ?? Date.now();
 	const awake = deps.awake ?? (() => performance.now());
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
 	let release = sweepLock(deps.lockPath, deps.lockFresh);
-	const waitUntil = awake() + (deps.lockWaitMs ?? 0);
+	const waitFrom = awake();
+	const waitUntil = waitFrom + (deps.lockWaitMs ?? 0);
 	while (typeof release === "string" && awake() < waitUntil) {
 		await new Promise((done) =>
 			setTimeout(done, deps.lockWaitEveryMs ?? LOCK_WAIT_EVERY_MS),
 		);
 		release = sweepLock(deps.lockPath, deps.lockFresh);
 	}
-	if (typeof release === "string") return { ...outcome, skipped: release };
+	const waitedMs = awake() - waitFrom;
+	if (typeof release === "string") {
+		return {
+			...outcome,
+			skipped: release,
+			...(waitedMs > 0 && deps.lockWaitMs ? { waitedMs } : {}),
+		};
+	}
+	if (
+		deps.lockWaitMs &&
+		waitedMs >= (deps.lockWaitEveryMs ?? LOCK_WAIT_EVERY_MS)
+	) {
+		outcome.waitedMs = waitedMs;
+		// The clock its cut-offs and ages read from, as of its turn.
+		now = deps.now?.() ?? Date.now();
+	}
 	try {
 		// Asked at once, before any wait, so a conversation that closes
 		// while the sweep runs has already said what its quests hold.
@@ -724,10 +749,17 @@ async function sweepRepository(
 		const trunk = await trunkOf(deps.exec, main);
 		// One listing for the repository, not one ask a tree: core.nix's
 		// trees alone numbered 397 on 25 November.
-		const merged = await (
-			deps.mergedHeads ??
-			((checkout: string) => mergedPullHeads(deps.exec, checkout))
-		)(main);
+		const listing = await deps.mergedHeads?.(
+			main,
+			trunk.replace(/^origin\//, ""),
+		);
+		const merged = typeof listing === "string" ? undefined : listing;
+		if (typeof listing === "string") {
+			outcome.unlisted = [
+				...(outcome.unlisted ?? []),
+				{ checkout: main, why: listing },
+			];
+		}
 		const spendable = new Set(held.spendable);
 		// Only the trees this sweep judges are asked anything: every other
 		// worktree beside them, live sessions' and the person's own, is one
@@ -769,6 +801,7 @@ async function sweepRepository(
 	const offered = (tree: HeldTree) =>
 		plan.reclaimable.find((one) => one.path === resolved(tree.path));
 	const claimedPaths = new Set(held.spendable);
+	let landedTakes = 0;
 	for (const tree of trees) {
 		const path = resolved(tree.path);
 		const offer = offered(tree);
@@ -786,13 +819,21 @@ async function sweepRepository(
 		// Set under the lock, so a keep can say a reading that couldn't tell
 		// kept the tree rather than blame a session.
 		let unread = false;
+		// Set under the lock when a landed tree left its merged head.
+		let left = false;
+		const landed = offer.landed !== undefined;
 		// Merged at its HEAD when chosen, and taken only while it still sits
 		// there on the same branch, read again under its record's lock.
 		const stillLanded = async () =>
-			offer.landed === undefined ||
+			!landed ||
 			(offer.branch !== undefined &&
 				offer.commit !== undefined &&
 				(await stillAt(deps.exec, tree.path, offer.branch, offer.commit)));
+		// A landed tree goes the hour its pull request merged, with no day's
+		// settle, and the first run takes the backlog of hundreds: each but
+		// the first waits the runner's pause between removals, which hold
+		// the directory locks Joel's windows stalled on.
+		if (landed && landedTakes++ > 0) await deps.betweenIdleTakes?.();
 		await takeBack(
 			deps,
 			facts,
@@ -806,28 +847,25 @@ async function sweepRepository(
 				...(tree.sessions?.length ? { sessions: [...tree.sessions] } : {}),
 			},
 			outcome,
-			// A claimed tree is one a session comes back to, and the takes
-			// before it may have taken minutes, so who works in it is asked
-			// again under its record's lock, just before the move, as an idle
-			// snapshot's is.
-			claimedPaths.has(path)
-				? (take) =>
-						deps.memory.whileUnheld(
-							tree.path,
-							async () => {
-								const again = await takenUpAgain(deps, tree);
-								unread = again === "can't say";
-								return again === "left" && (await stillLanded()) && take();
-							},
-							facts,
-						)
-				: (take) =>
-						deps.memory.whileUnheld(
-							tree.path,
-							async () => (await stillLanded()) && take(),
-							facts,
-						),
-			{ unread: () => unread },
+			// A claimed tree is one a session comes back to, as a landed one
+			// is just after its merge, and the takes before it may have taken
+			// minutes, so who works in it is asked again under its record's
+			// lock, just before the move, as an idle snapshot's is.
+			(take) =>
+				deps.memory.whileUnheld(
+					tree.path,
+					async () => {
+						if (claimedPaths.has(path) || landed) {
+							const again = await takenUpAgain(deps, tree);
+							unread = again === "can't say";
+							if (again !== "left") return false;
+						}
+						left = !(await stillLanded());
+						return !left && take();
+					},
+					facts,
+				),
+			{ unread: () => unread, left: () => left },
 		);
 	}
 }
@@ -1073,7 +1111,11 @@ async function takeBack(
 	guard: (take: () => Promise<boolean>) => Promise<HeldTree | undefined> = (
 		take,
 	) => deps.memory.whileUnheld(tree.path, take, facts),
-	how: { keepBranch?: boolean; unread?: () => boolean } = {},
+	how: {
+		keepBranch?: boolean;
+		unread?: () => boolean;
+		left?: () => boolean;
+	} = {},
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	let moveRefused: string | undefined;
@@ -1101,7 +1143,9 @@ async function takeBack(
 				path: tree.path,
 				why: how.unread?.()
 					? "the machine can't say which processes hold it"
-					: "a session took it up again",
+					: how.left?.()
+						? "it left the merged pull request's head since it was judged"
+						: "a session took it up again",
 			});
 		}
 		return;

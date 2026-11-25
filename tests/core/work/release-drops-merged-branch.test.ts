@@ -329,7 +329,7 @@ describe("the heads a forge merged", () => {
 	const answering =
 		(
 			origin: string,
-			listed: { code: number; stdout: string },
+			listed: { code: number; stdout: string; stderr?: string },
 			asked: string[][] = [],
 		): Exec =>
 		async (command, args) => {
@@ -337,7 +337,7 @@ describe("the heads a forge merged", () => {
 			if (command === "git") {
 				return { code: 0, stdout: `${origin}\n`, stderr: "" };
 			}
-			return { ...listed, stderr: "" };
+			return { stderr: "", ...listed };
 		};
 	const two = {
 		code: 0,
@@ -347,16 +347,17 @@ describe("the heads a forge merged", () => {
 		]),
 	};
 
-	it("lists a GitHub origin's merged pull requests once, by head", async () => {
-		for (const origin of [
-			"https://github.com/owner/repo.git",
-			"git@github.com:owner/repo.git",
-			"ssh://git@github.com/owner/repo",
+	it("lists a GitHub origin's pull requests merged into its trunk once, by head", async () => {
+		for (const [origin, repository] of [
+			["https://github.com/owner/repo.git", "owner/repo"],
+			["git@github.com:owner/some.repo.git", "owner/some.repo"],
+			["ssh://git@github.com/owner/repo", "owner/repo"],
 		]) {
 			const asked: string[][] = [];
 			const heads = await mergedPullHeads(
-				answering(origin, two, asked),
+				answering(origin ?? "", two, asked),
 				"/checkout",
+				"main",
 			);
 			expect(heads, origin).toEqual(
 				new Map([
@@ -366,20 +367,35 @@ describe("the heads a forge merged", () => {
 			);
 			const listings = asked.filter(([command]) => command === "gh");
 			expect(listings, origin).toHaveLength(1);
-			expect(listings[0], origin).toEqual(
-				expect.arrayContaining(["--repo", "owner/repo", "merged"]),
-			);
+			// Its host named, merged into trunk alone, and a thousand deep, as
+			// gh's own thirty would miss most of what landed.
+			expect(listings[0], origin).toEqual([
+				"gh",
+				"pr",
+				"list",
+				"--repo",
+				`github.com/${repository}`,
+				"--state",
+				"merged",
+				"--base",
+				"main",
+				"--limit",
+				"1000",
+				"--json",
+				"number,headRefOid",
+			]);
 		}
 	});
 
-	it("says nothing for another forge, a failed listing or one it can't read", async () => {
+	it("says why there is no listing for another forge, a failed gh or one it can't read", async () => {
 		const asked: string[][] = [];
 		expect(
 			await mergedPullHeads(
 				answering("/srv/git/repo", two, asked),
 				"/checkout",
+				"main",
 			),
-		).toBeUndefined();
+		).toBe("its origin isn't on GitHub");
 		expect(
 			asked.some(([command]) => command === "gh"),
 			"another forge is never asked of GitHub",
@@ -387,16 +403,26 @@ describe("the heads a forge merged", () => {
 		const origin = "https://github.com/owner/repo";
 		expect(
 			await mergedPullHeads(
-				answering(origin, { code: 1, stdout: "" }),
+				answering(origin, {
+					code: 4,
+					stdout: "",
+					stderr:
+						"To get started with GitHub CLI, please run:  gh auth login\nmore\n",
+				}),
 				"/checkout",
+				"main",
 			),
-		).toBeUndefined();
+			"a gh with no login says so in the sweep's log",
+		).toBe(
+			"gh couldn't list its merged pull requests (exit 4: To get started with GitHub CLI, please run:  gh auth login)",
+		);
 		expect(
 			await mergedPullHeads(
 				answering(origin, { code: 0, stdout: "not json" }),
 				"/checkout",
+				"main",
 			),
-		).toBeUndefined();
+		).toBe("gh's listing wasn't JSON");
 		expect(
 			await mergedPullHeads(
 				answering(origin, {
@@ -404,6 +430,7 @@ describe("the heads a forge merged", () => {
 					stdout: JSON.stringify([{ number: "12", headRefOid: 4 }]),
 				}),
 				"/checkout",
+				"main",
 			),
 			"an entry without a number and a head names nothing",
 		).toEqual(new Map());

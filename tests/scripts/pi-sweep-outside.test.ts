@@ -56,6 +56,8 @@ const seen = vi.hoisted(() => ({
 	betweenIdleTakes: [] as (undefined | (() => Promise<void>))[],
 	treesDirs: [] as (string | undefined)[],
 	execs: [] as Exec[],
+	lockWaits: [] as (number | undefined)[],
+	listsMerged: [] as boolean[],
 }));
 
 vi.mock("../../extensions/quest-workflow/config.ts", () => ({
@@ -81,7 +83,11 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		treesDir?: string;
 		exec: Exec;
 		providers: () => readonly TreeProvider[];
+		lockWaitMs?: number;
+		mergedHeads?: unknown;
 	}) => {
+		seen.lockWaits.push(deps.lockWaitMs);
+		seen.listsMerged.push(deps.mergedHeads !== undefined);
 		seen.claims.push(deps.claims());
 		seen.rests.push(deps.restMs);
 		seen.idleTakes.push(deps.idleTakes);
@@ -140,6 +146,8 @@ beforeEach(() => {
 	seen.betweenIdleTakes.length = 0;
 	seen.treesDirs.length = 0;
 	seen.execs.length = 0;
+	seen.lockWaits.length = 0;
+	seen.listsMerged.length = 0;
 });
 afterEach(() => {
 	clearTreeProviders();
@@ -261,6 +269,16 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 		"how long it may judge them for, so a loaded machine gets fewer",
 	).toBeGreaterThanOrEqual(60 * 1000);
 	expect(seen.idleWithin[0]).toBeLessThan(60 * 60 * 1000);
+	// Minutes behind a host's sweep, yet well inside the unit's two hours.
+	expect(
+		seen.lockWaits[0],
+		"how long it waits its turn for the lock",
+	).toBeGreaterThanOrEqual(5 * 60 * 1000);
+	expect(seen.lockWaits[0]).toBeLessThan(2 * 60 * 60 * 1000);
+	expect(
+		seen.listsMerged,
+		"it alone lists the pull requests merged into trunk",
+	).toEqual([true]);
 	expect(
 		seen.treesDirs[0],
 		"where it finishes removals stopped part way, as it paces them: the broker's own trees",

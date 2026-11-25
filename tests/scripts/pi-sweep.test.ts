@@ -58,7 +58,7 @@ function freshHome(): { home: string; work: string } {
  * Run the script once, as its timer would, in `home` alone, and give the
  * code it exited with.
  */
-async function sweepIn(home: string): Promise<number> {
+async function sweepIn(home: string, timeout = 20_000): Promise<number> {
 	try {
 		await run(
 			process.execPath,
@@ -72,7 +72,7 @@ async function sweepIn(home: string): Promise<number> {
 					XDG_DATA_HOME: join(home, "data"),
 					XDG_CONFIG_HOME: join(home, "config"),
 				},
-				timeout: 20_000,
+				timeout,
 			},
 		);
 		return 0;
@@ -150,22 +150,26 @@ it(
 	CASE_MS,
 );
 
-it(
-	"leaves the hosts sweeping when another sweep is starting",
-	async () => {
-		const { home, work } = freshHome();
-		// A lock it can't take or read, as one another sweep is making.
-		mkdirSync(join(work, "sweep.lock"), { recursive: true });
+it("waits its turn behind another sweep rather than standing down", async () => {
+	const { home, work } = freshHome();
+	// A lock it can't take or read, as one another sweep is making, let
+	// go a second in: the run looks again ten seconds after its first
+	// try, as it would behind a host's sweep.
+	const lock = join(work, "sweep.lock");
+	mkdirSync(lock, { recursive: true });
+	const letGo = setTimeout(
+		() => rmSync(lock, { recursive: true, force: true }),
+		1000,
+	);
 
-		expect(await sweepIn(home), "the code it exited with").toBe(0);
+	try {
+		expect(await sweepIn(home, 45_000), "the code it exited with").toBe(0);
+	} finally {
+		clearTimeout(letGo);
+	}
 
-		expect(logLines(work)[0]?.skipped, "the line it logged").toBe(
-			"another sweep is starting",
-		);
-		expect(
-			existsSync(join(work, "sweep.lock.outside")),
-			"a stamp standing the hosts down after a sweep that never ran",
-		).toBe(false);
-	},
-	CASE_MS,
-);
+	expect(
+		logLines(work).map((line) => line.skipped),
+		"what it logged as skipped",
+	).not.toContain("another sweep is starting");
+}, 60_000);

@@ -245,6 +245,7 @@ export async function sweepOutside({
 		betweenIdleTakes: () =>
 			new Promise((done) => setTimeout(done, OUTSIDE_IDLE_PAUSE_MS)),
 		lockWaitMs: OUTSIDE_LOCK_WAIT_MS,
+		listsMerged: true,
 		told: (why) => tell(`sweep ${why}`),
 	});
 	// Any call that failed shows in the unit's state. A tree whose call

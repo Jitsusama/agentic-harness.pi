@@ -297,14 +297,19 @@ Three minutes after a session starts, and every hour after, it
 takes back the git worktrees whose recorded sessions have all
 ended, by `reclaim`'s rules: clean, and merged into trunk or,
 detached, at a commit some ref holds. On 26 October, 185 such trees
-sat on one machine, 48 of them reclaimable. A clean tree on a branch
-also goes when its HEAD is the head of a pull request GitHub merged,
-read once a repository from its newest thousand merged, since a
-squash merge leaves trunk without the branch's commits and GitHub
-then deletes the branch: on 25 November one machine kept 169 trees
-as squash merges or only copies, and 448 worktrees sat at such a
-head. HEAD and branch are read again under the tree's record lock
-before the move, and the branch stays. A snapshot also goes
+sat on one machine, 48 of them reclaimable. In the outside runner, a
+clean tree on a branch also goes when its HEAD is the head of a pull
+request GitHub merged into trunk, read once a repository from the
+newest thousand, since a squash merge leaves trunk without the
+branch's commits and GitHub then deletes the branch: on 25 November
+one machine kept 169 trees as squash merges or only copies, and 448
+worktrees sat at such a head. Under the tree's record lock, just
+before the move, who works there is asked again and HEAD and branch
+are read again; each such take but the first waits the runner's
+pause, and the branch stays. A repository gh can't list is named in
+the log line's `unlisted`, and its trees kept as before. Hosts list
+nothing, as the listing goes over the network with the lock held. A
+snapshot also goes
 when it is clean and its HEAD never left the commit its record says
 it was cut at, whatever holds that commit: on 18 November one
 machine kept 746 ended snapshots, 25 GiB, most at a pull request's
@@ -350,7 +355,8 @@ of them kept one sweep or another running without a break. The
 outside runner alone waits up to half an hour, looking every ten
 seconds, for another sweep to end, where a host's sweep stands down
 at once: on 25 November its 09:00 and 10:00 runs stood down in about
-20 s, so the removals only it finishes waited. Each
+20 s, so the removals only it finishes waited. Its line says how long
+it waited in `waitedMs`. Each
 sweep writes a JSON line to `sweep.log` in the work state folder,
 but for one that rested. One that found another running says so,
 as the sign of a sweep that holds the lock and never ends.
