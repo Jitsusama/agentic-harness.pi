@@ -115,7 +115,7 @@ export function stopKeeping(options: {
 		const reaped = await reapToolChildren(
 			sessionId,
 			table,
-			left.spared(await carriedCalls()),
+			left.spared(await carriedCalls(), sessionId),
 			among,
 		);
 		// A close for good reaps its conversation's tools only this once.
@@ -186,7 +186,7 @@ export function stopKeeping(options: {
 			const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
 				report,
 			});
-			const reaped = await reapLeftBehind(hostKey, undefined, spared);
+			const reaped = await reapLeftBehind(hostKey, table, spared);
 			if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(

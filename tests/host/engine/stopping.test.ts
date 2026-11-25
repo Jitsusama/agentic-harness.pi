@@ -2,9 +2,10 @@
  * What a start's reaps read: between resuming and resumed, the table is
  * read once for the first reap of every conversation the start holds,
  * and every other reap (a held one's second, one the start doesn't hold,
- * one after a failed reading, or any outside a start) reads it whole.
+ * one after a failed reading, or any outside a start) reads it whole;
+ * and the start's reap of the whole key spares what a child parked.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -199,6 +200,25 @@ describe("a start's reaps", () => {
 		expect(table.listed).toBe(1);
 		await stopping.reap("a");
 		expect(table.listed, "its own reading").toBe(2);
+	});
+
+	it("spare at the start's reap of the key what a child parked in its conversation's folder", async () => {
+		// An earlier host under the key, gone: nothing runs as pid 99.
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({
+			1: {},
+			10: { ...conversationMarker("a", gone), [CALL_VARIABLE]: "k1" },
+			20: conversationMarker("b", gone),
+		});
+		const stopping = keeping(table);
+		const stateDir = dirs.at(-1) ?? "";
+		mkdirSync(join(stateDir, "a"));
+		writeFileSync(
+			join(stateDir, "a", LEFT_FILE),
+			JSON.stringify([{ session: "a", mark: "k1", at: Date.now() }]),
+		);
+		await stopping.reapEarlier(HOST.key);
+		expect(table.killed, "only what no park kept").toEqual([20]);
 	});
 
 	it("read it for themselves outside a start", async () => {

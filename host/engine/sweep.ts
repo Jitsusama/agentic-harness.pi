@@ -37,7 +37,7 @@ import {
 	carriedShells,
 	KEPT_FILE,
 } from "./carried-shells.ts";
-import { LEFT_FILE, leftRunning } from "./left-running.ts";
+import { LEFT_FILE, sparedUnder } from "./left-running.ts";
 import {
 	linuxProcessTable,
 	type ProcessTable,
@@ -89,9 +89,13 @@ export async function sweepUnheld(
 		options.shells?.ownCgroup ??
 			(() => readFileSync("/proc/self/cgroup", "utf8")),
 	);
-	let spared = await (options.carried ?? carriedCalls)();
-	for (const folder of folders)
-		spared = leftRunning({ stateDir: folder, report, ...now }).spared(spared);
+	// Read as a host's start reads them, so the two never disagree on
+	// whom to spare, waiting alike while the folder fails to list.
+	const spared = await sparedUnder(
+		root,
+		await (options.carried ?? carriedCalls)(),
+		{ report, ...now },
+	);
 	const reaped = await reapLeftBehind(
 		key,
 		options.table ?? linuxProcessTable(),

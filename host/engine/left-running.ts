@@ -32,15 +32,16 @@
  * A child host notes in its conversation's own folder under the key's
  * engine folder, where a host running conversations in its own process
  * notes in the engine folder itself, and a conversation moves between
- * them. So a child's reaps also spare what the engine folder's notes
- * name, and its close drops its conversation's notes from both; and a
- * host's start, which reaps the whole key, spares every folder's notes
+ * them, either way. So every reap of a conversation also spares what
+ * the other's notes name, the engine folder's and the conversation's
+ * own folder's, and its close drops its notes from both; and a host's
+ * start, which reaps the whole key, spares every folder's notes
  * (`sparedUnder`), as the supervisor's sweep does (sweep.ts).
  */
 
 import { type Dirent, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { isPassingFault } from "../../lib/internal/files/errno.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { CarriedCalls } from "../../lib/internal/shell/kept.ts";
@@ -69,8 +70,11 @@ function unknownNotes(what: string): Error {
 export interface LeftRunning {
 	/** Note that a stopping conversation's ended calls, by these marks, left processes running. */
 	note(session: string, marks: Iterable<string>): void;
-	/** What a reap spares: what is carried, and what parks noted within a day. */
-	spared(carried: CarriedCalls): CarriedCalls;
+	/**
+	 * What a reap spares: what is carried, and what parks noted within a
+	 * day, in the conversation `session`'s own folder too when one is named.
+	 */
+	spared(carried: CarriedCalls, session?: string): CarriedCalls;
 	/** A conversation closed for good: spare no longer what its parks kept, answering how many calls' notes went. */
 	closed(session: string): number;
 }
@@ -176,6 +180,13 @@ export async function sparedUnder(
 	return sparedFrom(carried, texts, (options.now ?? Date.now)() - STRAY_FOR_MS);
 }
 
+/** Whether `name` is one folder's name, as a conversation's id is, never a path out of the engine folder. */
+function isFolderName(name: string): boolean {
+	return (
+		name !== "." && name !== ".." && name !== "" && basename(name) === name
+	);
+}
+
 /** Keep what parks noted in the host engine's state folder, or a child's own folder under it. */
 export function leftRunning(options: {
 	readonly stateDir: string;
@@ -187,11 +198,16 @@ export function leftRunning(options: {
 	const keptIn = options.keptIn ?? (() => options.stateDir);
 	const leftFile = () => join(keptIn(), LEFT_FILE);
 	const now = options.now ?? Date.now;
-	// Its own file first, then the engine folder's, when a child keeps its own.
-	function files(): string[] {
+	// Its own file first, then the engine folder's, then the conversation's
+	// own folder's, which a child running it kept, each once.
+	function files(session?: string): string[] {
 		const own = leftFile();
 		const root = join(options.stateDir, LEFT_FILE);
-		return own === root ? [own] : [own, root];
+		const child =
+			session !== undefined && isFolderName(session)
+				? [join(options.stateDir, session, LEFT_FILE)]
+				: [];
+		return [...new Set([own, root, ...child])];
 	}
 
 	// A file's notes still within their day, oldest first, or nothing while
@@ -221,19 +237,26 @@ export function leftRunning(options: {
 				options.report(error);
 			}
 		},
-		spared(carried) {
-			return sparedFrom(carried, files().map(readNow), now() - STRAY_FOR_MS);
+		spared(carried, session) {
+			return sparedFrom(
+				carried,
+				files(session).map(readNow),
+				now() - STRAY_FOR_MS,
+			);
 		},
 		closed(session) {
 			let ended = 0;
-			// The engine folder's file is another host's too: a note it writes
-			// between this read and write is lost, and its call then ends at
-			// the next reap, as it did before notes were kept at all.
-			for (const file of files()) {
+			let unread = false;
+			// The engine folder's file is another host's too, so a note it
+			// writes between this read and write is lost, and its call then
+			// ends at the next reap, as it did before notes were kept at all;
+			// or a note its close dropped comes back, sparing that call to the
+			// end of its day, as a crash's notes are.
+			for (const file of files(session)) {
 				const left = readOf(file);
 				// Its notes there stay to their day's end, sparing more, never less.
 				if (left === undefined) {
-					options.report(unknownNotes(`end ${session}'s notes`));
+					unread = true;
 					continue;
 				}
 				const kept = left.filter((call) => call.session !== session);
@@ -245,6 +268,8 @@ export function leftRunning(options: {
 					options.report(error);
 				}
 			}
+			// Said once, however many of its folders failed to read.
+			if (unread) options.report(unknownNotes(`end ${session}'s notes`));
 			return ended;
 		},
 	};

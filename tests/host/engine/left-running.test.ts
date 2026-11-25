@@ -4,9 +4,9 @@
  * the same folder spares it too; a close ends what its conversation's
  * parks kept; an unreadable file keeps nothing; and one that fails to
  * read for the moment loses no note and spares no less. A child's own
- * folder and the engine folder's are read together, and a start reaping
- * the whole key spares every folder's notes, or waits while one of them
- * fails to read.
+ * folder and the engine folder's are read together, whichever host runs
+ * the conversation, and a start reaping the whole key spares every
+ * folder's notes, or waits while one of them fails to read.
  */
 import {
 	mkdirSync,
@@ -27,15 +27,29 @@ import {
 
 const NONE = { marks: new Set<string>(), groups: new Set<number>() };
 
-/** A read of the notes to fail with this code, as the machine might. */
-const readFault = vi.hoisted(() => ({ code: undefined as string | undefined }));
+/** A read of the notes to fail with this code, as the machine might, only in the folder named when one is. */
+const readFault = vi.hoisted(() => ({
+	code: undefined as string | undefined,
+	only: undefined as string | undefined,
+}));
+
+/** Whether a read of `file` is to fail as the test asked. */
+const faulted = vi.hoisted(
+	() => (file: unknown) =>
+		readFault.code !== undefined &&
+		// LEFT_FILE's value: an import is not yet bound where a mock is made.
+		String(file).endsWith(
+			readFault.only === undefined
+				? "left-running.json"
+				: `${readFault.only}/left-running.json`,
+		),
+);
 
 vi.mock("node:fs", async (original) => {
 	const fs = await original<typeof import("node:fs")>();
 	const readFileSync = ((...args: Parameters<typeof fs.readFileSync>) => {
 		const code = readFault.code;
-		// LEFT_FILE's value: an import is not yet bound where a mock is made.
-		if (code !== undefined && String(args[0]).endsWith("left-running.json"))
+		if (faulted(args[0]))
 			throw Object.assign(new Error(`${code}: as the test asked`), { code });
 		return fs.readFileSync(...args);
 	}) as typeof fs.readFileSync;
@@ -46,8 +60,7 @@ vi.mock("node:fs/promises", async (original) => {
 	const fs = await original<typeof import("node:fs/promises")>();
 	const readFile = ((...args: Parameters<typeof fs.readFile>) => {
 		const code = readFault.code;
-		// LEFT_FILE's value, as in the mock above.
-		if (code !== undefined && String(args[0]).endsWith("left-running.json"))
+		if (faulted(args[0]))
 			return Promise.reject(
 				Object.assign(new Error(`${code}: as the test asked`), { code }),
 			);
@@ -88,6 +101,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	readFault.code = undefined;
+	readFault.only = undefined;
 	rmSync(stateDir, { recursive: true, force: true });
 });
 
@@ -161,8 +175,42 @@ describe("what parks kept running", () => {
 		]);
 		expect(
 			[...kept().spared(NONE).marks],
-			"the engine folder's host reads only its own",
+			"naming no conversation, the engine folder's host reads only its own",
 		).toEqual(["realm-call"]);
+	});
+
+	it("spares, in the engine folder's host, what a child parked before the conversation moved back in", () => {
+		childKept("a").note("a", ["child-call"]);
+		childKept("b").note("b", ["other-child-call"]);
+		kept().note("a", ["realm-call"]);
+		expect(
+			[...kept().spared(NONE, "a").marks].sort(),
+			"its own folder's beside the engine folder's, and no other's",
+		).toEqual(["child-call", "realm-call"]);
+		expect(reported).toEqual([]);
+	});
+
+	it("drops, at the engine folder's host's close, what a child parked of that conversation", () => {
+		childKept("a").note("a", ["child-call"]);
+		kept().note("a", ["realm-call"]);
+		kept().note("b", ["other-call"]);
+		expect(kept().closed("a"), "its notes in both folders").toBe(2);
+		expect([...kept().spared(NONE, "a").marks]).toEqual(["other-call"]);
+		expect(reported).toEqual([]);
+	});
+
+	it("reads no folder outside the engine folder for a conversation named as a path", () => {
+		mkdirSync(join(stateDir, "outside"));
+		childKept("outside").note("x", ["outside-call"]);
+		const inner = join(stateDir, "inner");
+		mkdirSync(inner);
+		const left = leftRunning({
+			stateDir: inner,
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect(left.spared(NONE, "../outside")).toBe(NONE);
+		expect(left.closed("../outside")).toBe(0);
 	});
 
 	it("drops, at a child's close, its conversation's notes from the engine folder too, keeping another's", () => {
@@ -233,6 +281,35 @@ describe("what parks kept running", () => {
 			now: () => at,
 		});
 		expect(spared.unread, "whom to spare is not known").toBe(true);
+	});
+
+	it("waits at a start while one conversation folder's notes alone fail to read for the moment", async () => {
+		kept().note("a", ["realm-call"]);
+		childKept("b").note("b", ["child-call"]);
+		childKept("c").note("c", ["other-child-call"]);
+		readFault.code = "EMFILE";
+		readFault.only = "b";
+		const spared = await sparedUnder(stateDir, NONE, {
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect(spared.unread, "whom to spare is not known").toBe(true);
+	});
+
+	it("drops at a close the notes it can read while another folder's fail for the moment", () => {
+		kept().note("a", ["realm-call"]);
+		childKept("a").note("a", ["child-call"]);
+		readFault.code = "EMFILE";
+		readFault.only = stateDir.split("/").at(-1);
+		expect(childKept("a").closed("a"), "the child folder's one").toBe(1);
+		readFault.code = undefined;
+		expect(
+			[...childKept("a").spared(NONE).marks],
+			"the engine folder's note stays to its day's end",
+		).toEqual(["realm-call"]);
+		expect(reported, "the close left undone there is said").toEqual([
+			expect.objectContaining({ message: expect.stringMatching(/end a's/) }),
+		]);
 	});
 
 	it("loses no earlier note to a read that fails for the moment", () => {
