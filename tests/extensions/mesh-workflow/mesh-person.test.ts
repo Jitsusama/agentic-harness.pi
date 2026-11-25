@@ -251,6 +251,97 @@ describe("the person's look list, from show_person", () => {
 		expect(looksIn(join(fixture.root, "looks"))).toHaveLength(1);
 	});
 
+	// Joel, 24 November: a hosted conversation keeps only what came after
+	// its last compaction, so a session's own record of #2188 was gone
+	// when it put #2188 on his list. The host still knows who wrote it.
+	it("refuses a change his own account wrote, though nothing kept its proposal", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools, whoWrote } = await startSession();
+		const asked: string[] = [];
+		whoWrote((url) => {
+			asked.push(url);
+			return url.includes("/pull/1378")
+				? { by: "signed-in", author: "Jitsusama" }
+				: { by: "other", author: "someone" };
+		});
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+
+		const own = await show({ ...pr, kind: "page", act: "Just See" });
+		await show({ ...pr, target: "https://github.com/o/r/pull/9" });
+
+		expect(own?.content[0]?.text).toMatch(
+			/^⊘ Jitsusama wrote that change, the account every one of the person's sessions proposes under\. .* Nothing was added\.$/,
+		);
+		expect(asked, "the host was asked of each, as compared").toEqual([
+			pr.target.toLowerCase(),
+			"https://github.com/o/r/pull/9",
+		]);
+		expect(
+			looksIn(join(fixture.root, "looks")).map((look) => look.target),
+			"someone else's change goes up",
+		).toEqual(["https://github.com/o/r/pull/9"]);
+	});
+
+	it("asks the host of another spelling of the change as the change itself", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools, whoWrote } = await startSession();
+		const asked: string[] = [];
+		whoWrote((url) => {
+			asked.push(url);
+			return url.startsWith("https://github.com/o/r/pull/1378/")
+				? { by: "signed-in", author: "Jitsusama" }
+				: { by: "no-change" };
+		});
+
+		const refused = await tools.get("show_person")?.execute("call-s", {
+			...pr,
+			kind: "diff",
+			target: "  https://WWW.GitHub.com/O/R/pull/1378/files",
+		});
+
+		expect(asked).toEqual(["https://github.com/o/r/pull/1378/files"]);
+		expect(refused?.content[0]?.text).toMatch(/^⊘ Jitsusama wrote that change/);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
+	});
+
+	it("refuses a change whose host can't say who wrote it", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools, whoWrote } = await startSession();
+		whoWrote(() => ({ by: "unknown", why: "the host is down" }));
+
+		const refused = await tools.get("show_person")?.execute("call-s", pr);
+
+		expect(refused?.content[0]?.text).toContain("(the host is down)");
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
+	});
+
+	it("asks no host of a file", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools, whoWrote } = await startSession();
+		const asked: string[] = [];
+		whoWrote((url) => {
+			asked.push(url);
+			return { by: "no-change" };
+		});
+
+		await tools.get("show_person")?.execute("call-s", {
+			...pr,
+			kind: "file",
+			target: join(fixture.root, "notes.md"),
+			act: "Just See",
+			choices: [],
+			follows: [],
+		});
+
+		expect(asked).toEqual([]);
+		expect(looksIn(join(fixture.root, "looks"))).toHaveLength(1);
+	});
+
 	// A rollover starts a log without the review_offer answers, and a
 	// codemode proposal never puts one there: what the bus said is kept.
 	it("refuses a change its quest proposed, though the log no longer names it", async () => {

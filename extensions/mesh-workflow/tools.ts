@@ -18,6 +18,7 @@ import type {
 import { Type } from "@sinclair/typebox";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
+import { askAuthored } from "../../lib/internal/session/authored.ts";
 import {
 	LOOK_KINDS,
 	type Pointing,
@@ -26,11 +27,13 @@ import {
 	withdrawLook,
 } from "../../lib/mesh/looks/looks.ts";
 import {
+	authoredRefusal,
 	keptProposed,
 	OWN_CHANGE_REFUSED,
 	opensOneOf,
 	ownChangesBeside,
 	proposedIn,
+	proposedKey,
 } from "../../lib/mesh/looks/own-changes.ts";
 import { INTENTS } from "../../lib/mesh/message.ts";
 import { leasesText } from "./leases.ts";
@@ -61,6 +64,9 @@ import { stop } from "./tools/stop.ts";
 import { waitOnPerson } from "./wait.ts";
 
 export type { Local } from "./tools/local.ts";
+
+/** A target a change's host could claim: a web address, not a file or a session. */
+const WEB_ADDRESS = /^https?:\/\//i;
 
 export function registerTools(
 	pi: ExtensionAPI,
@@ -415,7 +421,7 @@ export function registerTools(
 				}),
 			),
 		}),
-		execute: using((at, params: ShowPersonParams, ctx) => {
+		execute: using(async (at, params: ShowPersonParams, ctx) => {
 			if (!at.looks) {
 				return answer(
 					"Nothing was kept: this pi keeps no folder for the person's look list.",
@@ -462,6 +468,19 @@ export function registerTools(
 			];
 			if (opensOneOf(pointing.target, proposed)) {
 				return answer(`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`);
+			}
+			// No record of a proposal survives every compaction and rollover,
+			// so the change's host is asked too: one the person's own account
+			// wrote is his sessions', whichever put it up.
+			// Asked as compared, so a spelling GitHub opens the same (a case,
+			// `www.`, Graphite's view, a leading space) is asked as the change.
+			const asked = proposedKey(pointing.target);
+			if (WEB_ADDRESS.test(asked)) {
+				const authored = authoredRefusal(
+					await askAuthored(pi.events, asked),
+					asked,
+				);
+				if (authored) return answer(`⊘ ${authored} Nothing was added.`);
 			}
 			const look = pointAt(at.looks, pointing, {
 				session: at.peer.session,
