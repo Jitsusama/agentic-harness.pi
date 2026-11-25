@@ -283,8 +283,8 @@ const NUMBER_IN_PROSE =
  * The words a need or a cell's work is matched by: lowercased, once
  * each, leaving out the short and the common, then each joined id whole
  * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
- * past, and each word with a number after it as their id
- * (`NUMBER_IN_PROSE`).
+ * past, and each word kept by the same rule with a number after it as
+ * their id (`NUMBER_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
 	const lower = text.toLowerCase();
@@ -294,9 +294,13 @@ export function wordsOf(text: string): string[] {
 	const ids = [...lower.matchAll(JOINED_ID)]
 		.map(([id]) => id)
 		.filter((id) => id.length <= LONGEST_WORD);
-	// A plain word's number is no id: "under 15" names no work.
+	// A plain word's number is no id: "under 15" or "on 24" names no
+	// work, by the rule a word alone is left out by.
 	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
-		.filter(([, word]) => word !== undefined && !COMMON.has(word))
+		.filter(
+			([, word]) =>
+				word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word),
+		)
 		.map(([, word, n]) => `${word}-${n}`)
 		.filter((id) => id.length <= LONGEST_WORD);
 	return [...new Set([...words, ...ids, ...numbered])];

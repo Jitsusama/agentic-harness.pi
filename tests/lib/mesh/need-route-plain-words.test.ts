@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { foragersFrom, wordsOf } from "../../../lib/mesh/need-route.ts";
-import { asked, routeNeed, ties } from "./support/needs.ts";
+import { asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 describe("the plain words a need is not matched by", () => {
 	it("leaves out prepositions, pronouns and helping verbs", () => {
@@ -24,6 +24,10 @@ describe("the plain words a need is not matched by", () => {
 
 		expect(words, "a number after a plain word").not.toContain("under-15");
 		expect(words, "a number after a common word").not.toContain("all-3");
+		expect(
+			wordsOf("due on 24, in 15 or at 3"),
+			"a number after a word too short to be one",
+		).toEqual(["due"]);
 		expect(words, "the work's own words").toEqual(
 			expect.arrayContaining(["busiest", "five"]),
 		);
@@ -31,6 +35,29 @@ describe("the plain words a need is not matched by", () => {
 
 	it("keeps a plain word inside an id, which names the work whole", () => {
 		expect(wordsOf("hand-over"), "the id kept").toContain("hand-over");
+	});
+
+	it("takes a hub whose subject's other part is a plain word by its work part alone", () => {
+		// over names no work, so a need saying hand says all hand-over
+		// does; a need saying lines still isn't pallet-lines's. No ties, so
+		// only a hub carries a need anywhere.
+		const reach = {
+			foragers: cells({ A: [], H: ["hand"], P: ["pallet", "lines"] }),
+			ties: ties(),
+			hubs: [
+				{ subject: "x:hand-over", hub: "H", fits: ["H"] },
+				{ subject: "x:pallet-lines", hub: "P", fits: ["P"] },
+			],
+		};
+
+		expect(
+			routeNeed(asked("A", "hand"), reach),
+			"hand-over's hub takes it",
+		).toMatchObject({ fit: "H", path: ["H"] });
+		expect(
+			routeNeed(asked("A", "lines"), reach).fit,
+			"pallet-lines's hub doesn't",
+		).toBeNull();
 	});
 
 	it("takes no plain word from a cell's title", () => {
@@ -48,7 +75,7 @@ describe("the plain words a need is not matched by", () => {
 		]);
 	});
 
-	it("finds no cell for a need whose only shared word is a plain one", () => {
+	it("finds no cell by a plain word only its title holds", () => {
 		const line = JSON.stringify({
 			id: 2,
 			records: [
@@ -57,8 +84,10 @@ describe("the plain words a need is not matched by", () => {
 			],
 		});
 
+		// The need's words as given, under among them, so only the title's
+		// leaving it out keeps the need from 1DZYLJ.
 		const found = routeNeed(
-			{ ...asked("AAAAAA", ...wordsOf("still under it")), fromText: true },
+			{ ...asked("AAAAAA", "under", "carry"), fromText: true },
 			{
 				foragers: foragersFrom(line),
 				ties: ties(["AAAAAA", "1DZYLJ", 3]),
