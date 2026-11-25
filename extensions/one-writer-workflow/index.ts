@@ -31,6 +31,7 @@ import {
 } from "../../lib/internal/session/host-holds.ts";
 import { HELD_ELSEWHERE_EXIT } from "../../lib/internal/session/one-writer.ts";
 import { holderCommand, promptIn } from "../../lib/internal/session/park.ts";
+import { askQuit } from "../../lib/internal/session/quit-asker.ts";
 import {
 	type WriterLooking,
 	writerHold,
@@ -125,6 +126,7 @@ function handedOver(
 	// refusal, which still says how to reach the conversation, and why.
 	if (!told.told) return { handed: false, why: told.why };
 	(own.quiet ?? goQuiet)();
+	askQuit("one-writer, handing its window to the view");
 	ctx.shutdown();
 	return { handed: true };
 }
@@ -151,6 +153,7 @@ function refuse(ctx: ExtensionContext, line: string): void {
 			process.exitCode = HELD_ELSEWHERE_EXIT;
 			process.stderr.write(`\r\n${line}\r\n`);
 		});
+		askQuit(`one-writer, refusing: ${line}`);
 		ctx.shutdown();
 		return;
 	}

@@ -6,6 +6,7 @@ import {
 	type SessionEnvironment,
 } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
+import { quitAsker } from "../../../lib/internal/session/quit-asker.ts";
 
 const SESSION = "a0000000-0000-4000-8000-000000000001";
 
@@ -85,6 +86,20 @@ it("shuts plain pi down as it always has", () => {
 		shutdown,
 		"plain pi ends through its own shutdown",
 	).toHaveBeenCalledTimes(1);
+});
+
+it("names who asked as plain pi's quit's asker before its shutdown", () => {
+	const { ctx, shutdown } = context();
+	let askedAtShutdown: string | undefined;
+	shutdown.mockImplementation(() => {
+		askedAtShutdown = quitAsker();
+	});
+
+	endConversation(ctx, "Close steered by the launcher");
+
+	expect(askedAtShutdown, "the crash record reads who asked").toBe(
+		"Close steered by the launcher",
+	);
 });
 
 it("tells a host's failed close to whoever asked, once it has failed", async () => {

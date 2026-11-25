@@ -27,6 +27,14 @@
  * The watch never keeps the process up; the log line waits on nothing,
  * and writing the record blocks the loop a few ms, once.
  *
+ * A pi that quits says who asked: `pi: quitting session S, asked by
+ * X` in the system's log and a `quit` entry in its session's log. The
+ * asker is whatever named itself just before (a mesh close, the quest
+ * ending, a park, one-writer), the person's ctrl+d, ctrl+c or /quit
+ * read from the window, or the TERM or HUP that armed the watch. A held
+ * pi that quits at nobody's ask exits 79 rather than 0, so its holder
+ * starts it again. See `lib/internal/session/quit-asker.ts`.
+ *
  * Once the watch arms, a last exit listener looks for a name lookup
  * still pending, which node's exit would wait on until the resolver
  * gives up: 10 seconds with no network. Finding one, it writes the
@@ -55,6 +63,15 @@ import {
 	sayInJournal,
 	writeJournal,
 } from "../../lib/internal/session/journal.ts";
+import { holderFiles } from "../../lib/internal/session/park.ts";
+import {
+	askQuit,
+	KEY_LASTS_MS,
+	keyQuit,
+	quitAsker,
+	quitLine,
+	UNASKED_EXIT,
+} from "../../lib/internal/session/quit-asker.ts";
 import { readyLine, watchReady } from "../../lib/internal/session/ready.ts";
 import {
 	childrenOf,
@@ -72,6 +89,9 @@ export const SLOW_END_MS = 2_000;
 /** The session entry a crash is kept as. */
 export const CRASH_ENTRY = "crash";
 
+/** The session entry a quit is kept as, naming who asked. */
+export const QUIT_ENTRY = "quit";
+
 /**
  * Registers this session's crash writer while the session runs, and
  * says when the process was first ready.
@@ -83,8 +103,11 @@ export default function crashRecord(pi: ExtensionAPI): void {
 	const ready = watchReady();
 	let stop: (() => void) | undefined;
 	let slowEnd: ReturnType<typeof watchSlowEnd> | undefined;
+	let unlistenKeys: (() => void) | undefined;
 	pi.on("session_start", (event, ctx) => {
 		if (ctx.hasUI) ready.started(event.reason, performance.now());
+		unlistenKeys?.();
+		unlistenKeys = ctx.mode === "tui" ? listenForQuitKeys(ctx) : undefined;
 		stop?.();
 		const session = sessionOf(ctx);
 		slowEnd?.stop();
@@ -93,7 +116,11 @@ export default function crashRecord(pi: ExtensionAPI): void {
 			signals: process,
 			raise: (signal) => process.kill(process.pid, signal),
 			onSlow: (cause, afterMs) => saySlowEnd(session, cause, afterMs),
-			onArm: (cause) => endPastLookupAtExit(session, cause),
+			onArm: (cause) => {
+				// A signal arms before pi's own handler shuts the session down.
+				if (cause !== "quit") askQuit(`a ${cause}`);
+				endPastLookupAtExit(session, cause);
+			},
 		});
 		stop = recordCrashes(
 			session,
@@ -121,14 +148,55 @@ export default function crashRecord(pi: ExtensionAPI): void {
 			);
 		});
 	});
-	pi.on("session_shutdown", (event) => {
+	pi.on("session_shutdown", (event, ctx) => {
 		stop?.();
 		stop = undefined;
+		unlistenKeys?.();
+		unlistenKeys = undefined;
+		if (event.reason === "quit") sayQuit(pi, sessionOf(ctx));
 		// Only a quit ends the process; a reload, new session, resume or
 		// fork starts the next session in it, which watches afresh.
 		if (event.reason === "quit") slowEnd?.arm("quit");
 		else slowEnd?.stop();
 	});
+}
+
+/**
+ * Names, as the person presses it, a key in the window that quits pi,
+ * so the quit it starts says the person asked.
+ */
+function listenForQuitKeys(ctx: ExtensionContext): () => void {
+	return ctx.ui.onTerminalInput((data) => {
+		const by = keyQuit(data, ctx.ui.getEditorText());
+		if (by !== undefined) askQuit(by, KEY_LASTS_MS);
+		return undefined;
+	});
+}
+
+/**
+ * Says who asked this pi to quit, in its session's log and the system's
+ * log; a held pi nobody asked exits with `UNASKED_EXIT`, which its
+ * holder answers by starting it again.
+ */
+function sayQuit(pi: ExtensionAPI, session: string): void {
+	const asker = quitAsker();
+	const restarts =
+		asker === undefined && holderFiles(process.env, process.pid) !== undefined;
+	if (restarts) {
+		// pi ends a quit with process.exit(0); an exit listener's code wins.
+		process.once("exit", () => {
+			process.exitCode = UNASKED_EXIT;
+		});
+	}
+	try {
+		pi.appendEntry(QUIT_ENTRY, { by: asker ?? null, restarts });
+	} catch {
+		// A session already closing for writes still gets the system's line.
+	}
+	sayInJournal(
+		quitLine(session, asker, restarts),
+		journalCommand(asker === undefined ? "err" : "info"),
+	);
 }
 
 /** What a pi ended past a pending lookup says held it. */
