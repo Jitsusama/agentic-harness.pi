@@ -572,20 +572,64 @@ describe("a copy of a folder's .pi", () => {
 		expect(projectCopy(folder).code?.digest).toBe(projectCode(folder)?.digest);
 	});
 
-	it("holds words and settings alone when the .pi holds no code", () => {
+	it("holds the whole .pi when it holds no code, settings and words named anywhere in it", () => {
 		write(".pi/prompts/dream.md", "words");
-		write(".pi/settings.json", JSON.stringify({ theme: "dark" }));
+		write(".pi/team-skills/x/SKILL.md", "team words");
+		write(
+			".pi/settings.json",
+			JSON.stringify({ theme: "dark", skills: ["./team-skills"] }),
+		);
 		const copy = projectCopy(folder);
 		expect(copy.code).toBeUndefined();
 		expect(texts(folder)).toEqual({
 			"prompts/dream.md": "words",
-			"settings.json": JSON.stringify({ theme: "dark" }),
+			"team-skills/x/SKILL.md": "team words",
+			"settings.json": JSON.stringify({
+				theme: "dark",
+				skills: ["./team-skills"],
+			}),
 		});
 		expect(copy.uncopyable).toBeUndefined();
+		expect(copy.wordsLeftOut).toBeUndefined();
 	});
 
-	it("can't stand in for settings naming code by a home path, a file URL or a path out of the .pi", () => {
-		for (const named of ["~/ext.ts", "file:///ext.ts", "../../ext.ts"]) {
+	it("holds a folder linked twice at both its places", () => {
+		write("shared/ext.ts", "shared");
+		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
+		symlinkSync(join(folder, "shared"), join(folder, ".pi/extensions/a"));
+		symlinkSync(join(folder, "shared"), join(folder, ".pi/extensions/b"));
+		expect(texts(folder)).toEqual({
+			"extensions/a/ext.ts": "shared",
+			"extensions/b/ext.ts": "shared",
+		});
+	});
+
+	it.skipIf(asRoot)(
+		"leaves out words it can't read, saying so, and keeps the rest",
+		() => {
+			write(".pi/skills/a/SKILL.md", "words");
+			write(".pi/skills/b/SKILL.md", "hidden");
+			chmodSync(join(folder, ".pi/skills/b/SKILL.md"), 0o000);
+			write(".pi/skills/c/SKILL.md", "more words");
+			const copy = projectCopy(folder);
+			expect(copy.uncopyable, "words left out never stop a copy").toBe(
+				undefined,
+			);
+			expect(copy.wordsLeftOut).toContain("skills/b/SKILL.md");
+			expect(texts(folder)).toEqual({
+				"skills/a/SKILL.md": "words",
+				"skills/c/SKILL.md": "more words",
+			});
+		},
+	);
+
+	it("can't stand in for settings naming code by a home path, a file URL or a path with a step up", () => {
+		for (const named of [
+			"~/ext.ts",
+			"file:///ext.ts",
+			"../../ext.ts",
+			"./x/*/../../../tools/ext.ts",
+		]) {
 			write(".pi/settings.json", JSON.stringify({ packages: [named] }));
 			expect(projectCopy(folder).uncopyable, named).toContain(
 				"rather than from the copy",
@@ -594,7 +638,12 @@ describe("a copy of a folder's .pi", () => {
 		write(
 			".pi/settings.json",
 			JSON.stringify({
-				packages: ["npm:p", "./npm/p", { source: "./x/*.ts" }],
+				packages: [
+					"npm:p",
+					"./npm/p",
+					{ source: "./x/*.ts" },
+					"./..tools/ext.ts",
+				],
 			}),
 		);
 		expect(

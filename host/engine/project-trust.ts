@@ -17,10 +17,13 @@
  *
  * A trusted folder loads from a copy of its .pi (project-copies.ts),
  * the bytes the check read, never from the .pi itself, which a session
- * could change between the check and the load. A .pi a copy can't stand
- * in for loads untrusted, said once for each reason; so does one holding
- * code under a pi that can't load a copy, while one holding none still
- * loads from the tree there, as it did before copies.
+ * could change between the check and the load. Whether the folder needs
+ * trust is decided from that one read too, so a .pi that comes and goes
+ * between two looks can't load code nobody checked. A .pi holding code
+ * a copy can't stand in for loads untrusted, said once for each reason.
+ * Under a pi that can't load a copy, a trusted folder loads from the
+ * tree as it did before copies, checked against its pins, so its code
+ * keeps working until the host runs a pi that can.
  */
 import { join } from "node:path";
 import type { HostPiModules } from "./host-pi.ts";
@@ -87,6 +90,8 @@ interface SettingsManager {
 }
 
 interface SettingsManagerStatics {
+	/** What every manager has: one with setProjectConfigDir can load a copy. */
+	readonly prototype?: object;
 	create(
 		cwd: string,
 		agentDir: string,
@@ -123,10 +128,12 @@ export function projectTrust(
 	return {
 		services(cwd, agentDir, asking) {
 			const store = new pi.ProjectTrustStore(agentDir);
-			const requiring = pi.hasTrustRequiringProjectResources(cwd);
 			const untrusted = store.get(cwd) === false;
 			startPins(agentDir);
 			const read = untrusted ? undefined : projectCopy(cwd);
+			// Code the read found needs trust, whatever a second look at the folder says.
+			const requiring =
+				pi.hasTrustRequiringProjectResources(cwd) || read?.code !== undefined;
 			const standing: CodeStanding =
 				requiring && read
 					? standingOf(cwd, agentDir, read.code)
@@ -156,18 +163,28 @@ export function projectTrust(
 				!refused &&
 				!untrusted &&
 				(resolving ? false : (known ?? store.get(cwd) ?? !requiring));
-			// Settings read as the manager is made come from the copy too; a pi without copies ignores it.
+			// Settings read as the manager is made come from the copy too.
+			const copies = canLoadCopies(pi.SettingsManager);
 			const copy =
-				projectTrusted && read && !read.uncopyable
+				copies && projectTrusted && read && !read.uncopyable
 					? copyProject(agentDir, cwd, read.files)
 					: undefined;
+			// Code with no copy to stand in starts out, so nothing reads the tree's .pi as trusted;
+			// the guard's first load gives the trust back once a copy can be made.
+			const copyless =
+				copies &&
+				projectTrusted &&
+				read?.code !== undefined &&
+				(read.uncopyable !== undefined ||
+					(copy !== undefined && "failed" in copy));
 			const settingsManager = pi.SettingsManager.create(cwd, agentDir, {
-				projectTrusted,
+				projectTrusted: projectTrusted && !copyless,
 				...(copy && "dir" in copy ? { projectConfigDir: copy.dir } : {}),
 			});
 			guardLoads(settingsManager, cwd, agentDir, asking, {
 				requiring: () => pi.hasTrustRequiringProjectResources(cwd),
 				untrusted: () => store.get(cwd) === false,
+				dropped: copyless,
 			});
 			if (!resolving) return { settingsManager };
 			const defaultProjectTrust = pi.SettingsManager.create(
@@ -189,9 +206,10 @@ export function projectTrust(
 							const unwritten = pin(cwd, agentDir, standing.code);
 							if (unwritten)
 								asking.warn(
-									`${printable(cwd)}'s code is allowed until the host restarts, since ${unwritten}; after that you are asked again.`,
+									`${printable(cwd)}'s code is allowed, but the host can't keep the yes past its restart, since ${unwritten}; after that you are asked again.`,
 								);
 						}
+						// pi reloads the settings as soon as this answers, which the guard checks again and points at a copy.
 						const context = asking.context ?? questionContext(cwd, asking);
 						const trusted = await pi.resolveProjectTrusted({
 							cwd,
@@ -277,19 +295,31 @@ async function allowCode(
  * since the no doesn't take its trust away. A load the check lets
  * through reads the copy of what it read, and one it can't give a copy
  * drops as changed code does; an untrusted load reads the .pi itself,
- * as pi would.
+ * as pi would. Whether the folder needs trust is the one read's to say
+ * when it found code, so a .pi gone by a second look loads none of it.
  */
 function guardLoads(
 	settingsManager: SettingsManager,
 	cwd: string,
 	agentDir: string,
 	asking: TrustAsking,
-	folder: { requiring: () => boolean; untrusted: () => boolean },
+	folder: {
+		requiring: () => boolean;
+		untrusted: () => boolean;
+		/** Whether the guard starts having taken the folder's trust. */
+		dropped: boolean;
+	},
 ): void {
 	const reload = settingsManager.reload.bind(settingsManager);
 	const setTrusted = settingsManager.setProjectTrusted.bind(settingsManager);
-	let dropped = false;
+	let dropped = folder.dropped;
 	let said: string | undefined;
+	const noted = new Set<string>();
+	const note = (saying: string): void => {
+		if (noted.has(saying)) return;
+		noted.add(saying);
+		asking.warn(saying);
+	};
 	// Trust set by anyone else, pi's /trust among them, is theirs: the guard gives back none it didn't take.
 	settingsManager.setProjectTrusted = (...args) => {
 		dropped = false;
@@ -301,16 +331,17 @@ function guardLoads(
 		if (!(settingsManager.isProjectTrusted() || dropped)) ownFolder();
 		else {
 			const read = projectCopy(cwd);
-			const standing: CodeStanding = folder.requiring()
-				? standingOf(cwd, agentDir, read.code)
-				: { kind: "none" };
+			const standing: CodeStanding =
+				read.code !== undefined || folder.requiring()
+					? standingOf(cwd, agentDir, read.code)
+					: { kind: "none" };
 			const refused =
 				standing.kind === "unpinned"
 					? {
 							key: standing.code.digest,
 							saying: `${unpinnedSaying(cwd, standing)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there at a screen to be asked; this one picks it up at its next reload.`,
 						}
-					: loadFromCopy(settingsManager, cwd, agentDir, read);
+					: loadFromCopy(settingsManager, cwd, agentDir, read, note);
 			if (refused) {
 				setTrusted(false);
 				ownFolder();
@@ -331,24 +362,20 @@ function guardLoads(
 /**
  * Point the next load of `cwd` at a copy of what `read` found, or say
  * why it can't load from one: what is said, and what it is said once
- * for. Under a pi that can't load a copy, a .pi holding no code still
- * loads from the tree.
+ * for. Words left out of the copy are noted, and load without them.
+ * Under a pi that can't load a copy, the .pi loads from the tree, as it
+ * did before copies.
  */
 function loadFromCopy(
 	settingsManager: SettingsManager,
 	cwd: string,
 	agentDir: string,
 	read: ProjectCopy,
+	note: (saying: string) => void,
 ): { key: string; saying: string } | undefined {
 	const point = settingsManager.setProjectConfigDir?.bind(settingsManager);
 	const leftOut = "so loads leave out its own .pi settings and extensions";
-	if (!point)
-		return read.code
-			? {
-					key: "no copies",
-					saying: `${printable(cwd)}'s .pi holds code pi would run outside the sandbox, and this host's pi can't load it from a copy the host checked, ${leftOut} until the host runs a pi that can.`,
-				}
-			: undefined;
+	if (!point) return undefined;
 	const copy = read.uncopyable
 		? { failed: read.uncopyable }
 		: copyProject(agentDir, cwd, read.files);
@@ -358,7 +385,22 @@ function loadFromCopy(
 			saying: `${printable(cwd)}'s .pi can't be loaded from a copy the host checked, since ${copy.failed}, ${leftOut}.`,
 		};
 	point(copy.dir);
+	if (read.wordsLeftOut)
+		note(
+			`${printable(cwd)}'s .pi loads without some of its skills, prompts or other words, since ${read.wordsLeftOut}.`,
+		);
 	return undefined;
+}
+
+/** Whether pi's settings can be pointed at a copy, as a pi built with the host's patches can. */
+function canLoadCopies(SettingsManager: SettingsManagerStatics): boolean {
+	const { prototype } = SettingsManager;
+	return (
+		typeof prototype === "object" &&
+		prototype !== null &&
+		"setProjectConfigDir" in prototype &&
+		typeof prototype.setProjectConfigDir === "function"
+	);
 }
 
 /**

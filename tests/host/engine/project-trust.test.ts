@@ -6,6 +6,7 @@
  */
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -20,6 +21,7 @@ import type { HostPiModules } from "../../../host/engine/host-pi.ts";
 import {
 	PINS_FILE,
 	pin,
+	printable,
 	projectCode,
 	startPins,
 } from "../../../host/engine/project-code.ts";
@@ -105,6 +107,8 @@ let asked: number;
 let warned: string[];
 /** What happens to the tree as pi reads it in a load, after the host's check. */
 let duringLoad: (() => void) | undefined;
+/** What pi's own look at whether the folder needs trust answers, and what happens to the tree as it looks. */
+let requires: () => boolean;
 
 function modules(
 	SettingsManager: typeof Settings | typeof UnpatchedSettings = Settings,
@@ -115,7 +119,7 @@ function modules(
 				return stored;
 			}
 		},
-		hasTrustRequiringProjectResources: () => true,
+		hasTrustRequiringProjectResources: () => requires(),
 		SettingsManager,
 	};
 	const trust = { resolveProjectTrusted: () => piAnswers() };
@@ -184,6 +188,7 @@ beforeEach(() => {
 	asked = 0;
 	warned = [];
 	duringLoad = undefined;
+	requires = () => true;
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -250,7 +255,9 @@ it.skipIf(process.getuid?.() === 0)(
 			expect(trusted, "a yes holds though its pins can't be written").toBe(
 				true,
 			);
-			expect(warned.join("\n")).toContain("until the host restarts");
+			expect(warned.join("\n")).toContain(
+				"can't keep the yes past its restart",
+			);
 			await settings.reload();
 			expect(
 				settings.trusted,
@@ -438,30 +445,125 @@ it("leaves out a folder whose settings name code a copy can't hold, and says why
 		said,
 		"a path out of the .pi, and an absolute one into it, but not one within it",
 	).toContain(
-		"its settings name ../tools/ext.ts, extensions/lint.ts, which pi would load from where it is rather than from the copy",
+		`its settings name ../tools/ext.ts, ${printable(join(folder, ".pi/extensions/lint.ts"))}, which pi would load from where it is rather than from the copy`,
 	);
+	expect(
+		projectTrust(modules()).services(folder, agentDir, answering("Yes"))
+			.settingsManager,
+		"settings made with no copy to stand in read nothing of the tree as trusted",
+	).toMatchObject({ trusted: false, dir: undefined });
 });
 
-it("under a pi that can't load a copy, leaves out a folder's code but not its words", async () => {
+it("starts code with no copy to stand in untrusted, and gives the trust back at the first load once a copy can be made", async () => {
 	write(".pi/extensions/lint.ts", "one");
-	const coded = await opened(
-		projectTrust(modules(UnpatchedSettings)),
-		answering("Yes"),
-	);
-	await coded.settings.reload();
-	expect(coded.settings.trusted).toBe(false);
-	expect(warned.join("\n")).toContain("can't load it from a copy");
+	const trust = projectTrust(modules());
+	await opened(trust, answering("Yes"));
+	writeFileSync(join(agentDir, "project-copies"), "");
+	const settings = trust.services(folder, agentDir, answering("Yes"))
+		.settingsManager as Settings;
+	expect(settings.trusted, "no copy, so made untrusted").toBe(false);
+	rmSync(join(agentDir, "project-copies"));
+	await settings.reload();
+	expect(settings.trusted, "the copy now made gives the trust back").toBe(true);
+	expect(
+		readFileSync(join(lastCopy(settings), "extensions/lint.ts"), "utf8"),
+	).toBe("one");
+});
 
-	rmSync(join(folder, ".pi"), { recursive: true });
-	write(".pi/skills/a/SKILL.md", "words");
-	warned = [];
-	const words = await opened(
+it("loads, in pi's own order, the code a person just allowed from a copy", async () => {
+	startPins(agentDir, () => 0);
+	write(".pi/extensions/lint.ts", "one");
+	const { services, settings } = await opened(
+		projectTrust(modules()),
+		answering("Yes"),
+	);
+	expect(
+		services.resourceLoaderReloadOptions,
+		"the person was asked",
+	).toBeDefined();
+	// pi's resource loader sets the answer, then reloads the settings, before it loads anything.
+	settings.setProjectTrusted(settings.trusted);
+	duringLoad = () => write(".pi/extensions/lint.ts", "planted");
+	await settings.reload();
+	expect(settings.trusted).toBe(true);
+	expect(
+		readFileSync(join(lastCopy(settings), "extensions/lint.ts"), "utf8"),
+	).toBe("one");
+});
+
+it("copies what it checked, whatever is written between the check and the copy", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const { settings } = await opened(projectTrust(modules()), answering("Yes"));
+	firstLookDone();
+	// pi's look at what needs trust comes between the host's read and its copy.
+	requires = () => {
+		write(".pi/extensions/lint.ts", "planted");
+		return true;
+	};
+	await settings.reload();
+	expect(
+		readFileSync(join(lastCopy(settings), "extensions/lint.ts"), "utf8"),
+	).toBe("one");
+});
+
+it("checks the code one read found, though pi's own look then finds nothing needing trust", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const trust = projectTrust(modules());
+	const { settings } = await opened(trust, answering("Yes"));
+	firstLookDone();
+	write(".pi/extensions/planted.ts", "planted");
+	// As a .pi removed between the host's read and pi's look would answer.
+	requires = () => false;
+	await settings.reload();
+	expect(settings.trusted, "the code read is checked, and isn't pinned").toBe(
+		false,
+	);
+	stored = null;
+	expect(
+		trust.services(folder, agentDir, {
+			warn: (message) => warned.push(message),
+		}).settingsManager,
+		"nor does a new conversation trust it unasked",
+	).toMatchObject({ trusted: false });
+});
+
+it.skipIf(process.getuid?.() === 0)(
+	"loads a folder without the words it can't read, and says so once",
+	async () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/skills/b/SKILL.md", "hidden");
+		chmodSync(join(folder, ".pi/skills/b/SKILL.md"), 0o000);
+		const { settings } = await opened(
+			projectTrust(modules()),
+			answering("Yes"),
+		);
+		await settings.reload();
+		await settings.reload();
+		expect(settings.trusted).toBe(true);
+		expect(
+			readFileSync(join(lastCopy(settings), "skills/a/SKILL.md"), "utf8"),
+		).toBe("words");
+		expect(
+			warned.filter((message) => message.includes("loads without some")),
+		).toHaveLength(1);
+	},
+);
+
+it("under a pi that can't load a copy, loads a folder from the tree checked against its pins, as before copies", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const { settings } = await opened(
 		projectTrust(modules(UnpatchedSettings)),
 		answering("Yes"),
 	);
-	await words.settings.reload();
-	expect(words.settings.trusted, "words load from the tree as before").toBe(
-		true,
-	);
+	await settings.reload();
+	expect(settings.trusted, "pinned code loads as it did").toBe(true);
 	expect(warned).toEqual([]);
+	expect(
+		existsSync(join(agentDir, "project-copies")),
+		"no copy is made that nothing would read",
+	).toBe(false);
+	firstLookDone();
+	write(".pi/extensions/planted.ts", "planted");
+	await settings.reload();
+	expect(settings.trusted, "new code still waits for a yes").toBe(false);
 });

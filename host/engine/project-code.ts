@@ -42,7 +42,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The folder pi reads a project's own settings and resources from, as pi names it. */
@@ -197,15 +197,20 @@ export interface ProjectCopy {
 	readonly files: readonly CopiedFile[];
 	/** Why a copy can't stand in for the .pi, when it can't. */
 	readonly uncopyable?: string;
+	/** Why some of its words were left out of the copy, when some were. */
+	readonly wordsLeftOut?: string;
 }
 
 /**
  * Read `cwd`'s .pi once for a copy: its code as projectCode finds it,
- * keeping each file's bytes as hashed, then its words. A copy can't
- * stand in for a .pi whose settings name code by an absolute path, or a
- * relative one leading out of it, since pi would still read that code
- * where it is; nor for words too large to read whole. A folder linked
- * twice is copied once, so a copy holds no more than was checked.
+ * keeping each file's bytes as hashed, then the rest of it as words: all
+ * of it when it holds no code, else what the code walk leaves to words.
+ * The words walk never reads the settings or the entries pi runs as
+ * code, so nothing it reads loads as code unhashed. A copy can't stand
+ * in for a .pi whose settings name code by an absolute path, or one
+ * leading out of it, since pi would still read that code where it is.
+ * Words that can't be read are left out, said, since leaving out words
+ * loads less and never anything unchecked.
  */
 export function projectCopy(cwd: string): ProjectCopy {
 	const kept = new Map<string, CopiedFile>();
@@ -213,26 +218,28 @@ export function projectCopy(cwd: string): ProjectCopy {
 		(over: boolean) =>
 		(place: string, text: Buffer, mode: number): void => {
 			const inside = relative(OWN_FOLDER, place);
-			if (inside.startsWith("..") || isAbsolute(inside)) return;
+			if (leavesFolder(inside)) return;
 			// What the code was hashed from wins over a second read of the same file as words.
 			if (over || !kept.has(inside))
 				kept.set(inside, { place: inside, text, mode });
 		};
 	const base = join(cwd, OWN_FOLDER);
-	const words = walker(cwd, keep(false));
-	for (const name of WORDS_ENTRIES) words.take(join(base, name), 1);
 	const read = readProject(cwd, keep(true));
-	const unread = words.code().unchecked;
+	const words = walker(cwd, keep(false), { lenient: true });
+	if (read.code)
+		for (const name of WORDS_ENTRIES) words.take(join(base, name), 1);
+	else words.take(base, 0, (name) => name === SETTINGS || isCode(name));
+	const leftOut = words.leftOut();
 	const uncopyable =
 		read.outside.length > 0
 			? `its settings name ${read.outside.map(printable).join(", ")}, which pi would load from where it is rather than from the copy`
-			: unread
-				? `its words can't be copied whole, since ${unread}`
-				: undefined;
-	const files = [...kept.values()];
-	return uncopyable
-		? { code: read.code, files, uncopyable }
-		: { code: read.code, files };
+			: undefined;
+	return {
+		code: read.code,
+		files: [...kept.values()],
+		...(uncopyable ? { uncopyable } : {}),
+		...(leftOut ? { wordsLeftOut: leftOut } : {}),
+	};
 }
 
 /** A file's bytes as one read found them, for whoever keeps them. */
@@ -272,9 +279,21 @@ interface Walker {
 	/** Leave the code unchecked, saying why, unless something already has. */
 	unchecked(why: string): void;
 	code(): ProjectCode;
+	/** Why a lenient walk left something out, or stopped, when it did. */
+	leftOut(): string | undefined;
 }
 
-function walker(cwd: string, keep?: Keep): Walker {
+/**
+ * Walk what `cwd`'s .pi holds, counting it for a digest and handing
+ * each file read to `keep`. A strict walk, for code, stops at the first
+ * thing it can't read whole; a lenient one, for words, skips it, saying
+ * so, and stops only at its limits.
+ */
+function walker(
+	cwd: string,
+	keep?: Keep,
+	options: { readonly lenient?: boolean } = {},
+): Walker {
 	const lines: string[] = [];
 	const files: { readonly place: string; time: number }[] = [];
 	const folders = new Set<string>();
@@ -284,11 +303,32 @@ function walker(cwd: string, keep?: Keep): Walker {
 	let entries = 0;
 	let bytes = 0;
 	let unchecked: string | undefined;
+	let skipped: string | undefined;
+	// Each file kept, and where each folder was first walked, so a folder reached again is kept there too.
+	const keptFiles: { readonly place: string; text: Buffer; mode: number }[] =
+		[];
+	const firstAt = new Map<string, string>();
 	const line = (kind: string, place: string, value: string): void => {
 		lines.push(JSON.stringify([kind, place, value]));
 	};
 	const stop = (why: string): void => {
 		unchecked ??= why;
+	};
+	const fault = (why: string): void => {
+		if (options.lenient) skipped ??= why;
+		else stop(why);
+	};
+	const kept = (place: string, text: Buffer, mode: number): void => {
+		if (!keep) return;
+		keep(place, text, mode);
+		keptFiles.push({ place, text, mode });
+	};
+	// Write the files kept under `first` again under `place`, as pi reads them there too.
+	const keepAgain = (first: string | undefined, place: string): void => {
+		if (!keep || first === undefined) return;
+		const under = `${first}${sep}`;
+		for (const file of keptFiles.filter((each) => each.place.startsWith(under)))
+			keep(join(place, file.place.slice(under.length)), file.text, file.mode);
 	};
 	const full = (): boolean => {
 		if (entries > MOST_ENTRIES) stop(`it holds over ${MOST_ENTRIES} entries`);
@@ -315,19 +355,22 @@ function walker(cwd: string, keep?: Keep): Walker {
 				const key = `${seen.dev}:${seen.ino}`;
 				if (folders.has(key)) {
 					line("again", place, "");
-					const skipped = partly.get(key);
-					if (!skipped) return;
+					// The digest counts it once; the copy holds it at each place pi may read it.
+					keepAgain(firstAt.get(key), place);
+					const leftBefore = partly.get(key);
+					if (!leftBefore) return;
 					partly.delete(key);
-					const left = readdirSync(path).filter(skipped).sort();
+					const left = readdirSync(path).filter(leftBefore).sort();
 					for (const name of left) take(join(path, name), depth + 1);
 					return;
 				}
 				folders.add(key);
+				firstAt.set(key, place);
 				if (skip) partly.set(key, skip);
 				if (depth >= MOST_FOLDERS_DEEP) {
 					// What lies below goes unread, so a change there would go unseen.
 					line("too-deep", place, "");
-					stop(`its folders go over ${MOST_FOLDERS_DEEP} deep`);
+					fault(`its folders go over ${MOST_FOLDERS_DEEP} deep`);
 					return;
 				}
 				const names = readdirSync(path)
@@ -340,20 +383,20 @@ function walker(cwd: string, keep?: Keep): Walker {
 			if (sum === undefined) {
 				// A pipe or a device has no contents to pin, yet pi reads whatever comes through it.
 				line("other", place, "");
-				stop(
+				fault(
 					`it holds ${printable(place)}, which is neither a file nor a folder`,
 				);
 				return;
 			}
 			bytes += sum.size;
 			if (sum.digest === undefined || sum.text === undefined) return;
-			keep?.(place, sum.text, sum.mode);
+			kept(place, sum.text, sum.mode);
 			line("file", place, sum.digest);
 			files.push({ place, time: Math.max(own.ctimeMs, seen.ctimeMs) });
 		} catch (error) {
 			// pi may still load what lies behind it, by name, so it can't count as known.
 			line("unreadable", place, errorCode(error));
-			stop(`the host can't read ${printable(place)} (${errorCode(error)})`);
+			fault(`the host can't read ${printable(place)} (${errorCode(error)})`);
 		}
 	};
 	return {
@@ -378,6 +421,10 @@ function walker(cwd: string, keep?: Keep): Walker {
 			}
 		},
 		unchecked: stop,
+		leftOut() {
+			full();
+			return unchecked ?? skipped;
+		},
 		code() {
 			full();
 			const digest = createHash("sha256")
@@ -460,6 +507,10 @@ function exists(path: string): boolean {
 
 function isWords(name: string): boolean {
 	return (WORDS_ENTRIES as readonly string[]).includes(name);
+}
+
+function isCode(name: string): boolean {
+	return (CODE_ENTRIES as readonly string[]).includes(name);
 }
 
 function errorCode(error: unknown): string {
@@ -576,26 +627,40 @@ function namedPaths(
 		if (typeof place !== "string")
 			return { paths, outside, unchecked: place.unchecked };
 		paths.push(place);
-		if (!namedWithin(entry, base, place)) outside.push(relative(base, place));
+		// Said as written, so the person can tell which entry to change.
+		if (!namedWithin(entry, base, place)) outside.push(trimmedSource(entry));
 	}
 	return { paths, outside };
 }
 
 /**
  * Whether `entry` names `place` relative to its settings' folder `base`
- * and within it, so a copy of that folder holds what it names.
+ * and within it, so a copy of that folder holds what it names. A step
+ * up anywhere in it counts as leading out, since one after a wildcard
+ * may climb past the folder its start is in.
  */
 function namedWithin(entry: unknown, base: string, place: string): boolean {
-	const source =
-		sourceOf(entry)
-			?.trim()
-			.replace(/^[+!-]+/, "") ?? "";
+	const source = trimmedSource(entry);
 	const relativeSource =
 		!(isAbsolute(source) || source.startsWith("file:")) &&
 		source !== "~" &&
-		!source.startsWith("~/");
-	const within = relative(base, place);
-	return relativeSource && !within.startsWith("..") && !isAbsolute(within);
+		!source.startsWith("~/") &&
+		!source.split(/[\\/]/).includes("..");
+	return relativeSource && !leavesFolder(relative(base, place));
+}
+
+/** The source one settings entry names, without the marks pi reads before it. */
+function trimmedSource(entry: unknown): string {
+	return (
+		sourceOf(entry)
+			?.trim()
+			.replace(/^[+!-]+/, "") ?? ""
+	);
+}
+
+/** Whether a place `relative` gave leads out of the folder it was taken from: by a whole step up, not a name starting with dots. */
+function leavesFolder(place: string): boolean {
+	return place === ".." || place.startsWith(`..${sep}`) || isAbsolute(place);
 }
 
 /** The source one settings entry names, a string or an object's source. */
