@@ -234,11 +234,14 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 		if (stopped || running.length > 0) return;
 		if (!said) watch.ended?.(calls.length);
 		said = true;
-		if (now() < nextAt) return;
+		// One reading for the look, so the next wake is timed from when this
+		// one was asked, however long the write takes.
+		const at = now();
+		if (at < nextAt) return;
 		try {
 			await writeFile(
 				watch.wakeFile,
-				`${JSON.stringify({ why: "the bash calls its park carried ended", at: new Date(now()).toISOString() })}\n`,
+				`${JSON.stringify({ why: "the bash calls its park carried ended", at: new Date(at).toISOString() })}\n`,
 			);
 		} catch (error) {
 			// Stopped as it wrote: the conversation runs, or is gone, and
@@ -252,7 +255,7 @@ export function watchCarriedCalls(watch: CallsWatch): () => void {
 			return;
 		}
 		failing = false;
-		nextAt = now() + wait;
+		nextAt = at + wait;
 		wait = Math.min(wait * 2, CALLS_WAKE_AGAIN_MOST_MS);
 	};
 	const lookOnce = () => {

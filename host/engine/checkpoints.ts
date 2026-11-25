@@ -46,7 +46,7 @@
  * a store opened through another SQLite build in this process would not be.
  */
 
-import { fstatSync, openSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, statSync } from "node:fs";
 import { endianness } from "node:os";
 import { Worker } from "node:worker_threads";
 
@@ -219,7 +219,8 @@ export interface Checkpoints {
 /** What the worker did, for a test to watch. */
 export type CheckpointEvent =
 	| { readonly op: "looked" }
-	| { readonly op: "checkpointed"; readonly path: string };
+	| { readonly op: "checkpointed"; readonly path: string }
+	| { readonly op: "ended" };
 
 /** What a checkpointer is told. */
 export interface CheckpointOptions {
@@ -231,7 +232,7 @@ export interface CheckpointOptions {
 	readonly pages?: number;
 	/** How long a close waits for its checkpoint, in ms. */
 	readonly settleWithin?: number;
-	/** Told each time the worker looks and each checkpoint it makes; a host passes none. */
+	/** Told each time the worker looks, each checkpoint it makes and each time a worker ends; a host passes none. */
 	readonly observe?: (event: CheckpointEvent) => void;
 }
 
@@ -268,7 +269,20 @@ function indexFor(path: string): number | undefined {
 	try {
 		if (held !== undefined && statSync(at).ino === fstatSync(held).ino)
 			return held;
-		const fd = openSync(at, "r");
+		// Never blocks on a FIFO put where the index belongs, which would hold
+		// the thread, and never follows a link to a file or takes a terminal.
+		const fd = openSync(
+			at,
+			constants.O_RDONLY |
+				constants.O_NONBLOCK |
+				constants.O_NOFOLLOW |
+				constants.O_NOCTTY,
+		);
+		if (!fstatSync(fd).isFile()) {
+			// Not SQLite's index, so no lock of SQLite's sits on it to drop.
+			closeSync(fd);
+			return held;
+		}
 		INDEXES.set(path, fd);
 		return fd;
 	} catch {
@@ -356,6 +370,7 @@ export function checkpointing(options: CheckpointOptions = {}): Checkpoints {
 			report(new Error(`The stores' checkpoint thread failed: ${said}`));
 		});
 		thread.on("exit", () => {
+			options.observe?.({ op: "ended" });
 			// Whatever it was doing, a close waiting on it closes and checkpoints by itself.
 			settleAllOf(thread);
 			if (worker !== thread) return;

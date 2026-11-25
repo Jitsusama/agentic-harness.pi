@@ -1,4 +1,5 @@
 /** The host's checkpointer: a store's log is copied back from another thread, never the one writing it. */
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,14 +48,19 @@ function checkpointer(options: CheckpointOptions = {}): Checkpoints {
 	});
 }
 
+/** The store opened as chord opens one, but with no checkpoint of its own. */
+function opened(): DatabaseSync {
+	const writer = new DatabaseSync(store);
+	writer.exec("PRAGMA journal_mode = WAL");
+	writer.exec("PRAGMA synchronous = NORMAL");
+	writer.exec("PRAGMA wal_autocheckpoint = 0");
+	return writer;
+}
+
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "checkpoints-"));
 	store = join(dir, "durable.sqlite");
-	// Opened as chord opens a store, but with no checkpoint of its own.
-	db = new DatabaseSync(store);
-	db.exec("PRAGMA journal_mode = WAL");
-	db.exec("PRAGMA synchronous = NORMAL");
-	db.exec("PRAGMA wal_autocheckpoint = 0");
+	db = opened();
 	db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY, record TEXT)");
 	reported = [];
 	events = [];
@@ -151,15 +157,61 @@ describe("the host's checkpointer", () => {
 			await looksGoBy(LOOKS);
 			expect(locksOnIndex(), "while it looks").toBeGreaterThanOrEqual(held);
 
-			// Released and kept again while the writer stays open, as a conversation
-			// opening the store before the worker has read the release would.
+			// Released while the writer stays open, as a conversation opening the
+			// store before the worker has read the release would be; a worker
+			// that exits closes what it opened, so this waits for that too.
 			kept.release();
+			await until("the worker ended with its last store", () =>
+				events.some(({ op }) => op === "ended"),
+			);
+			expect(
+				locksOnIndex(),
+				"once its worker has ended",
+			).toBeGreaterThanOrEqual(held);
 			const again = checkpoints.keep(store);
 			await looksGoBy(LOOKS);
-			expect(locksOnIndex(), "after a release").toBeGreaterThanOrEqual(held);
+			expect(locksOnIndex(), "kept again").toBeGreaterThanOrEqual(held);
 			again.release();
 		},
 	);
+
+	it("follows a store's WAL index that SQLite made afresh, kept again before the writer is back", async () => {
+		const kept = checkpoints.keep(store);
+		await looksGoBy(1);
+		const first = statSync(`${store}-shm`).ino;
+		db.close();
+		kept.release();
+		await until(
+			"the index gone with the last connection",
+			() => !existsSync(`${store}-shm`),
+		);
+
+		// Kept while it has no index, so the worker asks for one once it has.
+		const again = checkpoints.keep(store);
+		db = opened();
+		commitPages();
+		expect(statSync(`${store}-shm`).ino, "a new index").not.toBe(first);
+		await until("the store checkpointed through its new index", () =>
+			events.some(({ op }) => op === "checkpointed"),
+		);
+		again.release();
+		expect(reported).toEqual([]);
+	});
+
+	it("keeps a store all the same when a FIFO sits where its index belongs, never waiting on it", async () => {
+		db.close();
+		await until(
+			"the index gone with the last connection",
+			() => !existsSync(`${store}-shm`),
+		);
+		execFileSync("mkfifo", [`${store}-shm`]);
+
+		// A blocking open here would hold this thread, and the case, for good.
+		const kept = checkpoints.keep(store);
+		await looksGoBy(LOOKS);
+		expect(checkpointsMade()).toBe(0);
+		kept.release();
+	});
 
 	it("leaves a log short of its pages alone", async () => {
 		db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");
