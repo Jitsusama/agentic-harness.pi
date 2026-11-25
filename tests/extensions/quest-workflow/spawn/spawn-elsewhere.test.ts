@@ -115,7 +115,7 @@ describe("the machine a spawn starts on by default", () => {
 
 		it("is held here by a live session, which reopens with the claim a reopen gets", () => {
 			const live = whatReopens({ id: "live" }, sessions, claims(strict));
-			expect(live.holds).toBe(true);
+			expect(live).toMatchObject({ holds: true });
 			expect(live.claim, "a reopen runs with no sandbox").toEqual(UNFENCED);
 			expect(live.reopens(true)).toEqual({ id: "live" });
 			expect(live.leaves(true)).toBeUndefined();
@@ -150,7 +150,7 @@ describe("the machine a spawn starts on by default", () => {
 		// different fences; the node is told the reopen's, as before this.
 		it("keeps a strict quest's idle session here, reopening it as before", () => {
 			const idle = whatReopens({ id: "idle" }, sessions, claims(strict));
-			expect(idle.holds).toBe(true);
+			expect(idle).toMatchObject({ holds: true });
 			expect(idle.claim).toEqual(UNFENCED);
 			expect(idle.reopens(true)).toEqual({ id: "idle" });
 		});
@@ -159,7 +159,7 @@ describe("the machine a spawn starts on by default", () => {
 			const ambiguous = { ambiguous: ["live", "idle"] };
 			for (const resumable of [undefined, ambiguous]) {
 				const chosen = whatReopens(resumable, sessions, claims(strict));
-				expect(chosen.holds).toBe(false);
+				expect(chosen).toMatchObject({ holds: false });
 				expect(chosen.claim, "a fresh start keeps its fence").toEqual(strict);
 				expect(chosen.reopens(true)).toBe(resumable);
 				expect(chosen.leaves(false)).toBeUndefined();

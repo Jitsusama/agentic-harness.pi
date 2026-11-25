@@ -257,9 +257,10 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(join(tree, ".worktrees", "spike", "notes.md"))).toBe(
-			true,
-		);
+		expect(
+			existsSync(join(tree, ".worktrees", "spike", "notes.md")),
+			`${join(tree, ".worktrees", "spike", "notes.md")} is there`,
+		).toBe(true);
 	});
 
 	it("keeps one with a file marked skip-worktree, whose edits the status hides", async () => {

@@ -320,7 +320,7 @@ describe("this session's peer", () => {
 				said: "Shall I merge it?",
 			});
 
-			expect(parsed.frontMatter.steward).toBe(true);
+			expect(parsed.frontMatter).toMatchObject({ steward: true });
 			expect([peer.stewardedBy, peer.orchestratedBy]).toEqual([
 				"WCJQSG",
 				undefined,

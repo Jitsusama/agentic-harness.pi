@@ -54,7 +54,10 @@ function warmMark(unit: string): string {
 async function warmSpare(): Promise<string> {
 	await vi.waitFor(() => {
 		expect(units.started).toHaveLength(1);
-		expect(existsSync(warmMark(units.started[0] ?? ""))).toBe(true);
+		expect(
+			existsSync(warmMark(units.started[0] ?? "")),
+			`${warmMark(units.started[0] ?? "")} is there`,
+		).toBe(true);
 	});
 	return units.started[0] ?? "";
 }
@@ -99,7 +102,7 @@ describe("a warm spare", () => {
 		expect(JSON.parse(await readFile(slotNamed(spare).file, "utf8"))).toEqual({
 			session: entry(a),
 		});
-		expect(said.some((line) => line.includes("took a warm spare"))).toBe(true);
+		expect(said).toContainEqual(expect.stringContaining("took a warm spare"));
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		expect(reported).toEqual([]);
 	});
@@ -111,7 +114,7 @@ describe("a warm spare", () => {
 
 		const reply = await supervisor.begin(opening("o1"));
 
-		expect(reply.ok).toBe(true);
+		expect(reply).toMatchObject({ ok: true });
 		expect(units.started[0]).toBe(spare);
 		const opened = routes.listed()[0]?.sessionId ?? "";
 		expect(routes.routeOf(opened)?.socket).toBe(slotNamed(spare).socket);
@@ -136,7 +139,11 @@ describe("a warm spare", () => {
 		expect(units.started).toEqual([spare, own.unit]);
 		expect(routes.routeOf(a)?.socket).toBe(own.socket);
 		warms.settle();
-		await vi.waitFor(() => expect(existsSync(warmMark(spare))).toBe(true));
+		await vi.waitFor(() =>
+			expect(existsSync(warmMark(spare)), `${warmMark(spare)} is there`).toBe(
+				true,
+			),
+		);
 	});
 
 	it("is passed over once its install moved since it warmed, and replaced", async () => {
@@ -161,13 +168,11 @@ describe("a warm spare", () => {
 		const own = slotOf(folder, key, a);
 		expect(units.started.slice(0, 2)).toEqual([spare, own.unit]);
 		expect(routes.routeOf(a)?.socket).toBe(own.socket);
-		expect(
-			said.some((line) =>
-				line.includes(
-					`${spare}: passed over a warm spare, since the install's two changes`,
-				),
+		expect(said).toContainEqual(
+			expect.stringContaining(
+				`${spare}: passed over a warm spare, since the install's two changes`,
 			),
-		).toBe(true);
+		);
 		await vi.waitFor(() => expect(units.started).toHaveLength(3));
 		await vi.waitFor(() => expect(units.stopped).toContain(spare));
 		expect(reported).toEqual([]);
@@ -219,7 +224,12 @@ describe("a warm spare", () => {
 		await supervisor.adopt();
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 		const left = units.started[0] ?? "";
-		await vi.waitFor(() => expect(units.children.has(left)).toBe(false));
+		await vi.waitFor(() =>
+			expect(
+				units.children.has(left),
+				`${left} is let go from the host's children`,
+			).toBe(false),
+		);
 
 		const resumed = await supervisor.resume(entry(a));
 
@@ -228,12 +238,15 @@ describe("a warm spare", () => {
 		// Its replacement may start before or after the resume's own unit.
 		expect(units.started[0]).toBe(left);
 		expect(units.started).toContain(own.unit);
-		expect(
-			said.some((line) => line.includes(`${left}: a warm spare left untaken`)),
-		).toBe(true);
+		expect(said).toContainEqual(
+			expect.stringContaining(`${left}: a warm spare left untaken`),
+		);
 		await vi.waitFor(() => expect(units.started).toHaveLength(3));
 		await vi.waitFor(() =>
-			expect(existsSync(slotNamed(left).file)).toBe(false),
+			expect(
+				existsSync(slotNamed(left).file),
+				`${slotNamed(left).file} isn't there`,
+			).toBe(false),
 		);
 		expect(reported).toEqual([]);
 	});
@@ -288,14 +301,15 @@ describe("a warm spare", () => {
 
 		await vi.waitFor(() => expect(units.stopped).toContain(stuck));
 
-		expect(
-			said.some((line) =>
-				line.includes(`${stuck}: stopped a spare that never warmed`),
-			),
-		).toBe(true);
+		expect(said).toContainEqual(
+			expect.stringContaining(`${stuck}: stopped a spare that never warmed`),
+		);
 		await vi.waitFor(() => {
 			expect(units.started).toHaveLength(2);
-			expect(existsSync(warmMark(units.started[1] ?? ""))).toBe(true);
+			expect(
+				existsSync(warmMark(units.started[1] ?? "")),
+				`${warmMark(units.started[1] ?? "")} is there`,
+			).toBe(true);
 		});
 		expect(reported).toEqual([]);
 	});
@@ -313,10 +327,18 @@ describe("a warm spare", () => {
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const [left, next] = units.started;
 		await vi.waitFor(() =>
-			expect(existsSync(slotNamed(left ?? "").file)).toBe(false),
+			expect(
+				existsSync(slotNamed(left ?? "").file),
+				`${slotNamed(left ?? "").file} isn't there`,
+			).toBe(false),
 		);
-		expect(said.some((line) => line.includes("left untaken"))).toBe(true);
-		await vi.waitFor(() => expect(existsSync(warmMark(next ?? ""))).toBe(true));
+		expect(said).toContainEqual(expect.stringContaining("left untaken"));
+		await vi.waitFor(() =>
+			expect(
+				existsSync(warmMark(next ?? "")),
+				`${warmMark(next ?? "")} is there`,
+			).toBe(true),
+		);
 		expect(reported).toEqual([]);
 	});
 
@@ -326,8 +348,8 @@ describe("a warm spare", () => {
 		await supervisor.adopt();
 
 		await vi.waitFor(() =>
-			expect(said.some((line) => line.includes("keeps no warm spare"))).toBe(
-				true,
+			expect(said).toContainEqual(
+				expect.stringContaining("keeps no warm spare"),
 			),
 		);
 		// A fixed wait: no fourth start is the claim, so no event marks its
@@ -346,7 +368,10 @@ describe("a warm spare", () => {
 
 		await vi.waitFor(() => expect(units.stopped).toEqual([spare]));
 		await vi.waitFor(() =>
-			expect(existsSync(slotNamed(spare).file)).toBe(false),
+			expect(
+				existsSync(slotNamed(spare).file),
+				`${slotNamed(spare).file} isn't there`,
+			).toBe(false),
 		);
 		expect(units.started).toEqual([spare]);
 	});
@@ -387,9 +412,12 @@ describe("a warm spare", () => {
 				"the untaken spare's slot is still there",
 			).toBe(false),
 		);
-		expect(units.children.has(spare)).toBe(false);
+		expect(
+			units.children.has(spare),
+			`${spare} is let go from the host's children`,
+		).toBe(false);
 		expect(units.stopped).toEqual([spare, spare]);
-		expect(said.some((line) => line.includes("a spare untaken"))).toBe(true);
+		expect(said).toContainEqual(expect.stringContaining("a spare untaken"));
 	});
 
 	it("starts behind the starts already waiting their turn, once one gives it back", async () => {
@@ -571,7 +599,7 @@ describe("a warm spare", () => {
 		await pause(SETTLED_MS);
 
 		expect(units.stopped).not.toContain(spare);
-		expect(said.some((line) => line.includes("never warmed"))).toBe(false);
+		expect(said.filter((line) => line.includes("never warmed"))).toEqual([]);
 	});
 
 	it("once taken, is taken up by the next host as the conversation it runs", async () => {
@@ -595,7 +623,10 @@ describe("a warm spare", () => {
 		await supervisor.resume(entry(a));
 		await vi.waitFor(() => {
 			expect(units.started).toHaveLength(2);
-			expect(existsSync(warmMark(units.started[1] ?? ""))).toBe(true);
+			expect(
+				existsSync(warmMark(units.started[1] ?? "")),
+				`${warmMark(units.started[1] ?? "")} is there`,
+			).toBe(true);
 		});
 		const second = units.started[1] ?? "";
 
@@ -603,7 +634,10 @@ describe("a warm spare", () => {
 		await supervisor.left(a);
 		await supervisor.resume(entry(a), true);
 
-		expect(existsSync(slotNamed(first).file)).toBe(false);
+		expect(
+			existsSync(slotNamed(first).file),
+			`${slotNamed(first).file} isn't there`,
+		).toBe(false);
 		expect(routes.routeOf(a)?.socket).toBe(slotNamed(second).socket);
 		expect(units.started.slice(0, 2)).toEqual([first, second]);
 		expect(reported).toEqual([]);

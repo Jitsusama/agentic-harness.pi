@@ -50,13 +50,25 @@ describe("a session's own changes", () => {
 	});
 
 	it("finds a change by its tabs, diffs and comments, not by a longer number", () => {
-		expect(opensOneOf(PR, [PR])).toBe(true);
-		expect(opensOneOf(`${PR}/files`, [PR])).toBe(true);
-		expect(opensOneOf(`${PR}#discussion_r1`, [`${PR}/`])).toBe(true);
-		expect(opensOneOf(`${PR}?w=1`, [PR])).toBe(true);
-		expect(opensOneOf(`${PR}3`, [PR])).toBe(false);
-		expect(opensOneOf(PR, [])).toBe(false);
-		expect(opensOneOf(PR, [""])).toBe(false);
+		expect(opensOneOf(PR, [PR]), "a change opens itself").toBe(true);
+		expect(
+			opensOneOf(`${PR}/files`, [PR]),
+			"a change's files tab opens it",
+		).toBe(true);
+		expect(
+			opensOneOf(`${PR}#discussion_r1`, [`${PR}/`]),
+			"a comment opens a change named with a trailing slash",
+		).toBe(true);
+		expect(
+			opensOneOf(`${PR}?w=1`, [PR]),
+			"a change with a query opens it",
+		).toBe(true);
+		expect(
+			opensOneOf(`${PR}3`, [PR]),
+			"a longer number is another change",
+		).toBe(false);
+		expect(opensOneOf(PR, []), "no changes open nothing").toBe(false);
+		expect(opensOneOf(PR, [""]), "an empty change opens nothing").toBe(false);
 	});
 
 	it("finds a change however its URL is spelled", () => {
@@ -68,9 +80,16 @@ describe("a session's own changes", () => {
 			"https://www.github.com/Jitsusama/agentic-harness.pi/pull/12/files",
 			` ${PR}/ `,
 		];
-		for (const target of spelled) expect(opensOneOf(target, [PR])).toBe(true);
-		expect(opensOneOf(`${PR}3.diff`, [PR])).toBe(false);
-		expect(opensOneOf(PR, [`${PR}.diff`])).toBe(true);
+		for (const target of spelled)
+			expect(opensOneOf(target, [PR]), `${target} opens the change`).toBe(true);
+		expect(
+			opensOneOf(`${PR}3.diff`, [PR]),
+			"a longer number's diff is another change",
+		).toBe(false);
+		expect(
+			opensOneOf(PR, [`${PR}.diff`]),
+			"a change named by its diff opens it",
+		).toBe(true);
 	});
 
 	it("reads Graphite's view and GitHub's issue path of a pull request as the pull request", () => {
@@ -79,17 +98,20 @@ describe("a session's own changes", () => {
 			"https://app.graphite.dev/github/pr/jitsusama/agentic-harness.pi/12/files",
 			"https://github.com/Jitsusama/agentic-harness.pi/issues/12",
 		];
-		for (const target of views) expect(opensOneOf(target, [PR])).toBe(true);
+		for (const target of views)
+			expect(opensOneOf(target, [PR]), `${target} opens the change`).toBe(true);
 		expect(
 			opensOneOf(
 				"https://app.graphite.com/github/pr/Jitsusama/agentic-harness.pi/123",
 				[PR],
 			),
+			"Graphite's view of a longer number is another change",
 		).toBe(false);
 		expect(
 			opensOneOf(PR, [
 				"https://app.graphite.com/github/pr/Jitsusama/agentic-harness.pi/12",
 			]),
+			"a change named by its Graphite view opens it",
 		).toBe(true);
 	});
 });
@@ -189,11 +211,19 @@ describe("the record of what a quest proposed", () => {
 		keepProposed(dir, "QEST-1", wide);
 
 		expect(keptProposed(dir, ["QEST-1"])).toEqual([]);
-		for (const url of wide) expect(namesChange(proposedKey(url))).toBe(false);
+		for (const url of wide)
+			expect(
+				namesChange(proposedKey(url)),
+				`${url} names no single change`,
+			).toBe(false);
 		expect(
 			opensOneOf("https://github.com/Jitsusama/core.nix/pull/1", wide),
+			"what names no single change opens none",
 		).toBe(false);
-		expect(namesChange(proposedKey("https://gerrit.example/c/123"))).toBe(true);
+		expect(
+			namesChange(proposedKey("https://gerrit.example/c/123")),
+			"a Gerrit change names one change",
+		).toBe(true);
 	});
 
 	it("keeps the rest of the changes when one can't be written, then says so", () => {

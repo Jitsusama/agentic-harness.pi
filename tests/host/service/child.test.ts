@@ -402,7 +402,10 @@ describe("a child's life", () => {
 		await Promise.resolve();
 		expect(ended, "a window views it").toBe(false);
 		child.life.viewers(A, 0);
-		expect(child.timers.has(2)).toBe(false);
+		expect(
+			child.timers.has(2),
+			"the stale timer is cleared once no window views it",
+		).toBe(false);
 		expect(await child.life.ending).toBe("parked");
 	});
 

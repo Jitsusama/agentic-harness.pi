@@ -105,6 +105,6 @@ describe("the sweep of unreadable presences", () => {
 
 		createPresences(dir).expire(Date.now() - 30_000);
 
-		expect(existsSync(torn)).toBe(false);
+		expect(existsSync(torn), `${torn} isn't there`).toBe(false);
 	});
 });

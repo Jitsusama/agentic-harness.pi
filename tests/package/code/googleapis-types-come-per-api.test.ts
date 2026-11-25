@@ -226,7 +226,7 @@ describe("googleapis", () => {
 			const files = includedFiles().map((file) => relative(ROOT, file));
 			expect(files).toContain("vitest.config.ts");
 			expect(files).toContain(LOADER.file);
-			expect(files.some((file) => file.endsWith(".mjs"))).toBe(true);
+			expect(files).toContainEqual(expect.stringMatching(/\.mjs$/));
 			expect(files).toContain(
 				join("lib", "subagent", "runpi", "journal.d.mts"),
 			);

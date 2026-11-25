@@ -395,7 +395,7 @@ describe("reading what waits", () => {
 			killed: true,
 		}));
 
-		expect(read.ok).toBe(false);
+		expect(read).toMatchObject({ ok: false });
 		expect(read.ok ? "" : read.reason).toContain(
 			"was stopped before it answered",
 		);

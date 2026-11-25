@@ -60,7 +60,10 @@ describe("the waits an ordered carry's close stops", () => {
 
 		expect(one.did.slice(0, 2)).toEqual(["note", "carry to penelope"]);
 		const [note] = one.noted;
-		expect(note !== undefined && isAutomatedText(note)).toBe(true);
+		expect(
+			note !== undefined && isAutomatedText(note),
+			`the note carried is said as automated: ${note}`,
+		).toBe(true);
 		expect(note).toContain(
 			"stopped 2 background commands that only waited, as the session closed here:\n- while ! grep -q rc= log; do sleep 10; done\n- sleep 600\nThe session now runs on penelope: start again there any you still need, minding that one watching this machine's files or units finds them only here.",
 		);
@@ -128,7 +131,10 @@ describe("the waits an ordered carry's close stops", () => {
 		await one.ordering.order(ORDER);
 
 		expect(one.noted).toHaveLength(2);
-		expect(isAutomatedText(one.noted[1] ?? "")).toBe(true);
+		expect(
+			isAutomatedText(one.noted[1] ?? ""),
+			`the second note is said as automated: ${one.noted[1]}`,
+		).toBe(true);
 		expect(one.noted[1]).toContain(
 			"didn't go, so the background commands named as stopped still run here: sleep 600.",
 		);
@@ -388,7 +394,10 @@ describe("an ordered carry's close", () => {
 		});
 		await one.ordering.order(ORDER);
 		await vi.waitFor(() =>
-			expect(told.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+			expect(
+				told.some((line) => line.startsWith(UNCLOSED)),
+				`a line starts ${UNCLOSED}: ${JSON.stringify(told)}`,
+			).toBe(true),
 		);
 
 		failClose?.(new Error("the engine is gone"));
@@ -414,7 +423,10 @@ describe("an ordered carry's close", () => {
 		});
 		await one.ordering.order(ORDER);
 		await vi.waitFor(() =>
-			expect(told.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+			expect(
+				told.some((line) => line.startsWith(UNCLOSED)),
+				`a line starts ${UNCLOSED}: ${JSON.stringify(told)}`,
+			).toBe(true),
 		);
 
 		land?.();
@@ -534,7 +546,10 @@ describe("an ordered carry's close", () => {
 		});
 		await one.ordering.order(ORDER);
 		await vi.waitFor(() =>
-			expect(kept.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+			expect(
+				kept.some((line) => line.startsWith(UNCLOSED)),
+				`a line starts ${UNCLOSED}: ${JSON.stringify(kept)}`,
+			).toBe(true),
 		);
 
 		land?.();

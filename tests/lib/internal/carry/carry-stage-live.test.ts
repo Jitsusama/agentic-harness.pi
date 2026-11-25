@@ -124,7 +124,7 @@ describe("staging a carry", () => {
 		);
 
 		expect(file).toBe(join(into, "s-e.done.json"));
-		expect(existsSync(file)).toBe(true);
+		expect(existsSync(file), `${file} is there`).toBe(true);
 		expect(readdirSync(elsewhere), "nothing was written where it led").toEqual(
 			[],
 		);

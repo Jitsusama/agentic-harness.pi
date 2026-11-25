@@ -64,7 +64,7 @@ describe("mesh_sprout", () => {
 	it("ties nothing from a session off the mesh", async () => {
 		const { run, args } = answering({ code: 0, stdout: STARTED, stderr: "" });
 		const answer = await sproutFrom({ words: "tea" }, "/", undefined, run);
-		expect(args[0]?.some((arg) => arg.startsWith("--from"))).toBe(false);
+		expect(args[0]?.filter((arg) => arg.startsWith("--from"))).toEqual([]);
 		expect(said(answer)).not.toMatch(/tie|this cell/u);
 	});
 

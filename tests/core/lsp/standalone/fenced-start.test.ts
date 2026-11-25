@@ -259,8 +259,7 @@ describe("a language server started in a fence", () => {
 		server = undefined;
 
 		await vi.waitFor(
-			() =>
-				expect(alive(beside), "it ended with the server").toBe(false),
+			() => expect(alive(beside), "it ended with the server").toBe(false),
 			{ timeout: 5000 },
 		);
 	}, 15_000);
@@ -321,10 +320,9 @@ describe("a language server started in a fence", () => {
 
 		await vi.waitFor(
 			() =>
-				expect(
-					alive(beside),
-					"it ended when the server went on its own",
-				).toBe(false),
+				expect(alive(beside), "it ended when the server went on its own").toBe(
+					false,
+				),
 			{ timeout: 5000 },
 		);
 	}, 15_000);

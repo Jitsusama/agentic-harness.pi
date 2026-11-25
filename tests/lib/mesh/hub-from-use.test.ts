@@ -551,8 +551,14 @@ describe("a hub found earlier, read again", () => {
 	};
 
 	it("still stands while nothing the find read has changed, as the find still comes to it", () => {
-		expect(found(self, [self, root, parent])).toBe(true);
-		expect(stillAbove(self, [self, root, parent], "ROOT01")).toBe(true);
+		expect(
+			found(self, [self, root, parent]),
+			"the find still comes to the hub",
+		).toBe(true);
+		expect(
+			stillAbove(self, [self, root, parent], "ROOT01"),
+			"the hub still stands",
+		).toBe(true);
 	});
 
 	// A cell is never its own hub, even read from a presence of its own
@@ -560,7 +566,10 @@ describe("a hub found earlier, read again", () => {
 	it("never stands at an address this cell's own session holds", () => {
 		const moved = { ...root, session: self.session };
 
-		expect(stillAbove(self, [moved, parent], "ROOT01")).toBe(false);
+		expect(
+			stillAbove(self, [moved, parent], "ROOT01"),
+			"a hub at an address this cell left does not stand",
+		).toBe(false);
 	});
 
 	for (const [who, me, hub] of [
@@ -588,8 +597,13 @@ describe("a hub found earlier, read again", () => {
 		it(`no longer stands once ${who}, as the find refuses it`, () => {
 			const live = [me, hub, parent];
 
-			expect(stillAbove(me, live, "ROOT01")).toBe(false);
-			expect(found(me, live)).toBe(false);
+			expect(
+				stillAbove(me, live, "ROOT01"),
+				`the hub no longer stands once ${who}`,
+			).toBe(false);
+			expect(found(me, live), `the find refuses the hub once ${who}`).toBe(
+				false,
+			);
 		});
 	}
 
@@ -600,8 +614,14 @@ describe("a hub found earlier, read again", () => {
 		const hub = { ...root, stops: [{ address: "7m6jkg", at }] };
 		const live = [self, hub, parent];
 
-		expect(found(self, live)).toBe(true);
-		expect(stillAbove(self, live, "ROOT01")).toBe(true);
+		expect(
+			found(self, live),
+			"the find comes to an address differing only in case",
+		).toBe(true);
+		expect(
+			stillAbove(self, live, "ROOT01"),
+			"the hub stands at an address differing only in case",
+		).toBe(true);
 	});
 
 	// A send to an ended peer's address still reaches it once restored,
@@ -610,25 +630,40 @@ describe("a hub found earlier, read again", () => {
 		const forged = cell("f", ["ROOT01"], ["root01", "mid002"]);
 		const ended = cell("r", ["ROOT01"], ["root01"]);
 
-		expect(stillAbove(self, [self, forged], "ROOT01", [ended])).toBe(false);
-		expect(found(self, [self, forged], [ended])).toBe(false);
+		expect(
+			stillAbove(self, [self, forged], "ROOT01", [ended]),
+			"an ended presence on another quest listing the address ends the hub",
+		).toBe(false);
+		expect(
+			found(self, [self, forged], [ended]),
+			"the find refuses an address an ended presence lists",
+		).toBe(false);
 	});
 
 	it("still stands at its quest's address after an earlier session on that quest ended", () => {
 		const earlier = cell("r0", ["ROOT01"], ["root01"]);
 
-		expect(stillAbove(self, [self, root], "ROOT01", [earlier])).toBe(true);
+		expect(
+			stillAbove(self, [self, root], "ROOT01", [earlier]),
+			"the hub still stands at its quest",
+		).toBe(true);
 	});
 
 	it("no longer stands once a second live presence lists its address", () => {
 		const second = cell("x", ["ROOT01"], ["root01"]);
 
-		expect(stillAbove(self, [self, root, second], "ROOT01")).toBe(false);
+		expect(
+			stillAbove(self, [self, root, second], "ROOT01"),
+			"a second live presence listing the address ends the hub",
+		).toBe(false);
 	});
 
 	it("no longer stands once its cell is on no quest above this one's", () => {
 		const moved = cell("r", ["ROOT01"], ["other1"]);
 
-		expect(stillAbove(self, [self, moved], "ROOT01")).toBe(false);
+		expect(
+			stillAbove(self, [self, moved], "ROOT01"),
+			"a cell on no quest above this one is no hub",
+		).toBe(false);
 	});
 });

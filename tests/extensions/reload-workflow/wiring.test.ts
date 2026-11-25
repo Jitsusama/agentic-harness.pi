@@ -433,7 +433,7 @@ describe("the agent asking for a reload", LANDS, () => {
 				reloadSlot().request,
 				"taken back for the follower to ask again",
 			).toBeUndefined();
-			expect(reloadSlot().dispatched).toBe(false);
+			expect(reloadSlot()).toMatchObject({ dispatched: false });
 			expect(
 				reloadSlot().dispatchedAt,
 				"its dispatch forgotten, so no stuck dispatch is read",

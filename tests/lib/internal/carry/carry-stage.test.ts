@@ -183,8 +183,14 @@ describe("a carry staged before the handover", () => {
 		const tree0 = carried.handover.trees[0];
 		expect(tree0?.bundle).toBeDefined();
 		expect(tree0?.patch).toBeDefined();
-		expect(existsSync(join(into, tree0?.bundle ?? "none"))).toBe(true);
-		expect(existsSync(join(into, tree0?.patch ?? "none"))).toBe(true);
+		expect(
+			existsSync(join(into, tree0?.bundle ?? "none")),
+			`${join(into, tree0?.bundle ?? "none")} is there`,
+		).toBe(true);
+		expect(
+			existsSync(join(into, tree0?.patch ?? "none")),
+			`${join(into, tree0?.patch ?? "none")} is there`,
+		).toBe(true);
 		expect(staging(into), "its staging folder is gone").toEqual([]);
 	});
 
@@ -577,7 +583,10 @@ describe("a carry staged before the handover", () => {
 				chmodSync(into, 0o755);
 			}
 			failing.clear();
-			expect(existsSync(join(into, "s-k.done.json"))).toBe(false);
+			expect(
+				existsSync(join(into, "s-k.done.json")),
+				`${join(into, "s-k.done.json")} isn't there`,
+			).toBe(false);
 			const [kept] = staging(into);
 			expect(kept, "its staging folder waits").toMatch(/^carrying-/);
 			const tmp = stagingOf(into);

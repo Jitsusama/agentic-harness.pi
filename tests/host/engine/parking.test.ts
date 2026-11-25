@@ -1007,7 +1007,10 @@ describe("a park that carries bash calls", () => {
 			"a wake for calls nobody watches",
 			() => asking.mock.calls.length > 0,
 		);
-		expect(parked.watches("a")).toBe(false);
+		expect(
+			parked.watches("a"),
+			"a park whose calls nobody watches is not watched",
+		).toBe(false);
 	});
 
 	// A stop tried again carries as the first did, since the conversation

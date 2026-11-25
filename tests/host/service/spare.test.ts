@@ -59,13 +59,23 @@ async function name(held: object): Promise<void> {
 
 describe("a spare's slot", () => {
 	it("is a spare's only while it holds the spare's mark", async () => {
-		expect(isSpareSlot(slotFile)).toBe(true);
+		expect(
+			isSpareSlot(slotFile),
+			"a slot with the spare's mark is a spare's",
+		).toBe(true);
 		await name({});
-		expect(isSpareSlot(slotFile)).toBe(false);
+		expect(isSpareSlot(slotFile), "a slot without the mark is no spare's").toBe(
+			false,
+		);
 		await name({ spare: false });
-		expect(isSpareSlot(slotFile)).toBe(false);
+		expect(
+			isSpareSlot(slotFile),
+			"a slot marked spare: false is no spare's",
+		).toBe(false);
 		await rm(slotFile);
-		expect(isSpareSlot(slotFile)).toBe(false);
+		expect(isSpareSlot(slotFile), "a slot that is gone is no spare's").toBe(
+			false,
+		);
 	});
 });
 
@@ -76,19 +86,23 @@ describe("a warm spare", () => {
 		const waiting = spareUntilTaken(
 			waitOf({
 				warm: async () => {
-					expect(existsSync(marks.warm)).toBe(false);
+					expect(existsSync(marks.warm), `${marks.warm} isn't there`).toBe(
+						false,
+					);
 					warmed = true;
 				},
 			}),
 		);
 		await written(marks.warm);
-		expect(warmed).toBe(true);
+		expect(warmed, "the spare warmed before its warm mark was written").toBe(
+			true,
+		);
 		expect(said).toEqual([
 			expect.stringMatching(
 				/^A warm spare: warmed in \d+\.\d s, holding 100 MB$/,
 			),
 		]);
-		expect(await takeSpare(marks)).toBe(true);
+		expect(await takeSpare(marks), "a warm spare is taken").toBe(true);
 		await name({});
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});
@@ -97,9 +111,9 @@ describe("a warm spare", () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf());
 		await written(marks.warm);
-		expect(await takeSpare(marks)).toBe(true);
-		expect(existsSync(marks.warm)).toBe(false);
-		expect(existsSync(marks.taken)).toBe(true);
+		expect(await takeSpare(marks), "a warm spare is taken").toBe(true);
+		expect(existsSync(marks.warm), `${marks.warm} isn't there`).toBe(false);
+		expect(existsSync(marks.taken), `${marks.taken} is there`).toBe(true);
 		await name({ session: { sessionId: "x" } });
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});
@@ -112,8 +126,10 @@ describe("a warm spare", () => {
 		await expect(waiting).resolves.toEqual({
 			left: "the install changes the host's own code",
 		});
-		expect(existsSync(marks.warm)).toBe(false);
-		expect(await takeSpare(marks)).toBe(false);
+		expect(existsSync(marks.warm), `${marks.warm} isn't there`).toBe(false);
+		expect(await takeSpare(marks), "a spare that left is not taken").toBe(
+			false,
+		);
 	});
 
 	it("leaves once it has waited its time untaken, and can no longer be taken", async () => {
@@ -142,7 +158,10 @@ describe("a warm spare", () => {
 			}),
 		);
 		await written(marks.warm);
-		expect(await takeSpare(marks)).toBe(true);
+		expect(
+			await takeSpare(marks),
+			"a take that landed before the leave is kept",
+		).toBe(true);
 		moved = true;
 		// Past several of its looks, so a leave would have landed by now.
 		await new Promise((resolve) => setTimeout(resolve, 80));
@@ -167,8 +186,13 @@ describe("a warm spare", () => {
 		);
 		// The taken mark is there once the rename lands, a moment before the
 		// take that made it hears so.
-		await vi.waitFor(() => expect(took).toBe(true));
-		expect(existsSync(marks.taken)).toBe(true);
+		await vi.waitFor(() =>
+			expect(
+				took,
+				"the take that landed while it decided to leave is kept",
+			).toBe(true),
+		);
+		expect(existsSync(marks.taken), `${marks.taken} is there`).toBe(true);
 		await name({});
 		await expect(waiting).resolves.toEqual({ taken: true });
 	});
@@ -185,7 +209,10 @@ describe("a warm spare", () => {
 			}),
 		);
 		await expect(waiting).resolves.toEqual({ left: "its install moved" });
-		expect(existsSync(spareMarks(slotFile).warm)).toBe(false);
+		expect(
+			existsSync(spareMarks(slotFile).warm),
+			`${spareMarks(slotFile).warm} isn't there`,
+		).toBe(false);
 	});
 
 	it("says in its warm mark the version it runs, for a take to judge", async () => {
@@ -196,7 +223,10 @@ describe("a warm spare", () => {
 		);
 		await written(marks.warm);
 		expect(await warmVersion(marks)).toBe("/install/versions/one");
-		expect(await takeSpare(marks)).toBe(true);
+		expect(
+			await takeSpare(marks),
+			"a spare running its install's version is taken",
+		).toBe(true);
 		expect(await warmVersion(marks), "once taken").toBeUndefined();
 		await name({});
 		await expect(waiting).resolves.toEqual({ taken: true });
@@ -206,7 +236,7 @@ describe("a warm spare", () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf({ takeWithinMs: 30 }));
 		await written(marks.warm);
-		expect(await takeSpare(marks)).toBe(true);
+		expect(await takeSpare(marks), "a warm spare is taken").toBe(true);
 		await expect(waiting).resolves.toEqual({
 			left: "it was taken, but its slot named nothing within 0.03 s",
 		});
@@ -217,7 +247,10 @@ describe("a warm spare", () => {
 		await expect(tooBig).resolves.toEqual({
 			left: "it holds 250 MB, past the 200 MB a spare may",
 		});
-		expect(existsSync(spareMarks(slotFile).warm)).toBe(false);
+		expect(
+			existsSync(spareMarks(slotFile).warm),
+			`${spareMarks(slotFile).warm} isn't there`,
+		).toBe(false);
 		let held = 100 * MB;
 		const growing = spareUntilTaken(waitOf({ size: () => held }));
 		await written(spareMarks(slotFile).warm);
@@ -296,7 +329,10 @@ describe("a warm spare", () => {
 		await expect(waiting).resolves.toEqual({
 			left: "its warm failed: no pi at the install",
 		});
-		expect(existsSync(spareMarks(slotFile).warm)).toBe(false);
+		expect(
+			existsSync(spareMarks(slotFile).warm),
+			`${spareMarks(slotFile).warm} isn't there`,
+		).toBe(false);
 		expect(said).toEqual([]);
 	});
 });

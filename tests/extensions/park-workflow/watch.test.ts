@@ -831,7 +831,7 @@ describe("starting again on a fresh log", () => {
 		const parked = join(folder, "held.parked");
 		restarting({ ...holder(), MYCELIUM_AGAIN: "", MYCELIUM_PARKED: parked });
 		expect(asked().why).toBe("its holder would start it on the log it left");
-		expect(existsSync(parked)).toBe(false);
+		expect(existsSync(parked), `${parked} isn't there`).toBe(false);
 	});
 
 	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {

@@ -49,7 +49,7 @@ describe("isName", () => {
 		["a tool", "mcp__tool_gateway"],
 		["a name 64 long", "a".repeat(64)],
 	])("takes %s", (_, text) => {
-		expect(isName(text)).toBe(true);
+		expect(isName(text), `${JSON.stringify(text)} is a name`).toBe(true);
 	});
 
 	it.each([
@@ -69,7 +69,7 @@ describe("isName", () => {
 		["a quest id joined by mixed joiners", "quest_QEST-_20261021-OWNERQ"],
 		["a quest id with its digits split", "x-QEST-2026-1021-OWNERQ"],
 	])("refuses %s", (_, text) => {
-		expect(isName(text)).toBe(false);
+		expect(isName(text), `${JSON.stringify(text)} is no name`).toBe(false);
 	});
 });
 

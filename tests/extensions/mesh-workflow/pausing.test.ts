@@ -660,8 +660,8 @@ describe("the person's Carry from outside the window, once carried", () => {
 		});
 		await one.pausing.carry("penelope");
 		await vi.waitFor(() =>
-			expect(one.journal.some((line) => line.includes("hadn't closed"))).toBe(
-				true,
+			expect(one.journal).toContainEqual(
+				expect.stringContaining("hadn't closed"),
 			),
 		);
 

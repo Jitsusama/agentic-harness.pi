@@ -518,7 +518,10 @@ describe("carrying a session's work away", () => {
 			aBundle,
 		);
 		expect(readFileSync(join(into, aBundle))).toEqual(was);
-		expect(existsSync(join(into, bBundle))).toBe(true);
+		expect(
+			existsSync(join(into, bBundle)),
+			`${join(into, bBundle)} is there`,
+		).toBe(true);
 	});
 
 	it("writes the done file for a whole carry where every tree goes", async () => {
@@ -537,9 +540,13 @@ describe("carrying a session's work away", () => {
 		});
 
 		expect(carried.handover.trees).toHaveLength(1);
-		expect(existsSync(join(into, "s-c.done.json"))).toBe(true);
+		expect(
+			existsSync(join(into, "s-c.done.json")),
+			`${join(into, "s-c.done.json")} is there`,
+		).toBe(true);
 		expect(
 			existsSync(join(into, carried.handover.trees[0]?.bundle ?? "none")),
+			`${join(into, carried.handover.trees[0]?.bundle ?? "none")} is there`,
 		).toBe(true);
 	});
 });

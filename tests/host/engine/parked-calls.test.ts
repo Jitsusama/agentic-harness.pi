@@ -79,7 +79,10 @@ describe("whether a carried call still runs", () => {
 	});
 
 	it.runIf(linux)("runs while its shell is there with its mark", async () => {
-		expect(await callRuns(live.work)).toBe(true);
+		expect(
+			await callRuns(live.work),
+			"a call with its shell and its mark runs",
+		).toBe(true);
 	});
 
 	it.runIf(linux)(
@@ -87,7 +90,10 @@ describe("whether a carried call still runs", () => {
 		async () => {
 			expect(await callRuns(live.work), "before its end").toBe(true);
 			writeFileSync(`${live.work.keep}.end`, "0\n");
-			expect(await callRuns(live.work)).toBe(false);
+			expect(
+				await callRuns(live.work),
+				"a call whose end is written has ended",
+			).toBe(false);
 		},
 	);
 

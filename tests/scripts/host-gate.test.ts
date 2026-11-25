@@ -493,7 +493,7 @@ describe("host-gate.sh", () => {
 		"lib/core/internal/keyring/secret-service-call.mjs",
 		"scripts/spawn-decide.ts",
 	])("counts %s, which the host or its tests load, as hosted", (file) => {
-		expect(hostedPattern().test(file)).toBe(true);
+		expect(hostedPattern().test(file), `${file} is hosted`).toBe(true);
 	});
 
 	it.each([
@@ -507,7 +507,7 @@ describe("host-gate.sh", () => {
 	])(
 		"counts %s, which test:host loads only as any test does, as no host's",
 		(file) => {
-			expect(hostedPattern().test(file)).toBe(false);
+			expect(hostedPattern().test(file), `${file} is no host's`).toBe(false);
 		},
 	);
 

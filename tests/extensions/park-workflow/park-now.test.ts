@@ -194,7 +194,10 @@ describe("parking now, as the person asked", () => {
 		idle = false;
 
 		expect(ask(SESSION, true).why).toMatch(/^starting again would drop -e/);
-		expect(existsSync(join(folder, "held.again"))).toBe(false);
+		expect(
+			existsSync(join(folder, "held.again")),
+			`${join(folder, "held.again")} isn't there`,
+		).toBe(false);
 	});
 
 	it("checks mid-run that its holder would start it as itself", () => {
@@ -212,7 +215,7 @@ describe("parking now, as the person asked", () => {
 		watching();
 		idle = false;
 
-		expect(ask(SESSION, true).ready).toBe(true);
+		expect(ask(SESSION, true)).toMatchObject({ ready: true });
 	});
 
 	it("answers a park that failed part-way as one that may read as parked", () => {

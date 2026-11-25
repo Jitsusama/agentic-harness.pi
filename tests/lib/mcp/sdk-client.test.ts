@@ -50,6 +50,9 @@ describe("buildSdkClient", () => {
 			jsonrpc: "2.0",
 			method: "notifications/initialized",
 		});
-		expect(sent.headers?.has("authorization")).toBe(false);
+		expect(
+			sent.headers?.has("authorization"),
+			"no authorization header is sent without a token",
+		).toBe(false);
 	});
 });
