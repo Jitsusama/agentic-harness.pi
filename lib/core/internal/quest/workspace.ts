@@ -20,7 +20,10 @@ import {
 	realpathSync,
 } from "node:fs";
 import { join, sep } from "node:path";
-import { removeTreeOff } from "../../../internal/files/remove-tree.ts";
+import {
+	removerFolders,
+	removeTreeOff,
+} from "../../../internal/files/remove-tree.ts";
 import { isId, prefixOf } from "../../../internal/quest/creation/id.ts";
 import { conversationsIn } from "../../../internal/session/host-holds.ts";
 
@@ -80,9 +83,10 @@ export async function removeQuestWorkspace(
 	if (users(dir).length > 0) return { removed: false, why: "in use" };
 	// The system's `rm`, off the thread: a walk on pi's own thread held a
 	// host for 7 s on 19 Nov, and one by path follows a link a fenced
-	// command swaps in mid-walk (remove-tree.ts).
+	// command swaps in mid-walk (remove-tree.ts). A workspace is scratch,
+	// so read-only folders in it, as Go's module cache makes, go too.
 	try {
-		await removeTreeOff(dir);
+		await removeTreeOff(dir, removerFolders(), { evenReadOnly: true });
 	} catch (error) {
 		return { removed: false, why: "stuck", error };
 	}

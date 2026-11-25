@@ -29,9 +29,12 @@
  * folder itself, or removes only what lies directly in one pi made.
  *
  * A tree with read-only folders, as Go's module cache makes, refuses
- * `rm`; the system's `chmod` then makes its folders writable by their
- * owner, walking by descriptor and passing links by as `rm` does, and
- * `rm` goes again.
+ * `rm`, and what won't go stays and is said, as it did for Node's walk:
+ * a sweep keeps such a tree aside and reports it. A caller that wants
+ * one gone all the same, as a quest's workspace does, asks `evenReadOnly`;
+ * the system's `chmod` then makes its folders writable by their owner,
+ * walking by descriptor and passing links by as `rm` does, and `rm` goes
+ * again.
  *
  * What needs no walk needs no `rm`: a file, a link or an empty folder is
  * removed straight away, by a call that never follows its last name, so
@@ -71,6 +74,12 @@ const RM_TIMEOUT_MS = 10 * 60_000;
 
 /** How many of `rm`'s lines an error keeps; the rest are counted. */
 const LINES_KEPT = 3;
+
+/** How a removal treats what it can't remove at first. */
+export interface RemovalWay {
+	/** Make read-only folders writable and try again, rather than fail. */
+	readonly evenReadOnly?: boolean;
+}
 
 /** One program a removal runs: its path and the name it runs under. */
 interface Program {
@@ -189,13 +198,16 @@ function runOff(program: Program, args: string[]): Promise<string | undefined> {
 export function removeTree(
 	path: string,
 	folders: readonly string[] = removerFolders(),
+	way: RemovalWay = {},
 ): void {
 	const at = untrailed(path);
 	if (removedWithoutWalk(at)) return;
 	const rm = systemTool("rm", folders);
-	if (runSync(rm, rmArgs(at)) === undefined) return;
-	runSync(systemTool("chmod", folders), writableArgs(at));
-	const said = runSync(rm, rmArgs(at));
+	let said = runSync(rm, rmArgs(at));
+	if (said !== undefined && way.evenReadOnly === true) {
+		runSync(systemTool("chmod", folders), writableArgs(at));
+		said = runSync(rm, rmArgs(at));
+	}
 	if (said !== undefined) throw new Error(`rm couldn't remove ${at}: ${said}`);
 }
 
@@ -223,13 +235,16 @@ export function tidyTree(
 export async function removeTreeOff(
 	path: string,
 	folders: readonly string[] = removerFolders(),
+	way: RemovalWay = {},
 ): Promise<void> {
 	const at = untrailed(path);
 	if (await removedWithoutWalkOff(at)) return;
 	const rm = systemTool("rm", folders);
-	if ((await runOff(rm, rmArgs(at))) === undefined) return;
-	await runOff(systemTool("chmod", folders), writableArgs(at));
-	const said = await runOff(rm, rmArgs(at));
+	let said = await runOff(rm, rmArgs(at));
+	if (said !== undefined && way.evenReadOnly === true) {
+		await runOff(systemTool("chmod", folders), writableArgs(at));
+		said = await runOff(rm, rmArgs(at));
+	}
 	if (said !== undefined) throw new Error(`rm couldn't remove ${at}: ${said}`);
 }
 

@@ -264,22 +264,47 @@ describe("removing a tree", () => {
 		},
 	);
 
-	it("removes a tree of read-only folders, as Go's module cache makes", async () => {
+	it("removes a tree of read-only folders, as Go's module cache makes, when asked to", async () => {
+		const evenReadOnly = { evenReadOnly: true };
 		for (const remove of [
-			async (path: string) => removeTree(path),
-			removeTreeOff,
+			async (path: string) => removeTree(path, removerFolders(), evenReadOnly),
+			(path: string) => removeTreeOff(path, removerFolders(), evenReadOnly),
 		]) {
-			const cache = join(folder, "cache");
-			const module = join(cache, "mod@v1", "pkg");
-			filled(module, 3);
-			chmodSync(module, 0o555);
-			chmodSync(join(cache, "mod@v1"), 0o555);
+			const cache = readOnlyCache();
 
 			await remove(cache);
 
 			expect(existsSync(cache), `${cache} is removed`).toBe(false);
 		}
 	});
+
+	// Root removes what a folder's mode refuses, so the tree would go.
+	it.skipIf(process.getuid?.() === 0)(
+		"leaves a tree of read-only folders, and says so, unless asked",
+		async () => {
+			const cache = readOnlyCache();
+			try {
+				expect(() => removeTree(cache)).toThrow(/Permission denied/);
+				await expect(removeTreeOff(cache)).rejects.toThrow(/Permission denied/);
+				expect(existsSync(join(cache, "mod@v1", "pkg")), "what won't go").toBe(
+					true,
+				);
+			} finally {
+				chmodSync(join(cache, "mod@v1", "pkg"), 0o755);
+				chmodSync(join(cache, "mod@v1"), 0o755);
+			}
+		},
+	);
+
+	/** A cache whose module folders are read-only, as Go's are. */
+	function readOnlyCache(): string {
+		const cache = join(folder, "cache");
+		const module = join(cache, "mod@v1", "pkg");
+		filled(module, 3);
+		chmodSync(module, 0o555);
+		chmodSync(join(cache, "mod@v1"), 0o555);
+		return cache;
+	}
 
 	it("removes a link named with a trailing slash, never what it names", async () => {
 		const outside = filled(join(folder, "outside"), 3);
