@@ -327,13 +327,16 @@ describe("moving in place", () => {
 		expect(at.offs, "the why an asker outside reads").toEqual([
 			"the disk is full",
 		]);
-		expect(at.told.at(-1)).toBe(
-			"This session couldn't move to the attended host, so it stays open: the disk is full",
+		expect(
+			at.told.at(-1),
+			"whyWriting ends bare, so the sentence ends here",
+		).toBe(
+			"This session couldn't move to the attended host, so it stays open: the disk is full.",
 		);
 	});
 
 	it("takes back its holder's telling when its note can't be written", () => {
-		const { at, move } = window({ noteFails: "the disk is full" });
+		const { at, move } = window({ noteFails: "the disk is full." });
 		move.move("attended");
 		expect(at.did, "told, then taken back, and not closed").toEqual([
 			"tell",
@@ -342,8 +345,8 @@ describe("moving in place", () => {
 		expect(at.offs, "the why an asker outside reads").toEqual([
 			"its note couldn't be written: the disk is full",
 		]);
-		expect(at.told.at(-1)).toBe(
-			"This session couldn't move to the attended host, so it stays open: the disk is full",
+		expect(at.told.at(-1), "an error said as a sentence ends it once").toBe(
+			"This session couldn't move to the attended host, so it stays open: the disk is full.",
 		);
 	});
 

@@ -332,7 +332,7 @@ export function createMoving(host: MovingHost): MovingSession {
 			callOff(
 				moving,
 				untold,
-				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${untold}`,
+				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${untold}.`,
 			);
 			return;
 		}
@@ -340,11 +340,14 @@ export function createMoving(host: MovingHost): MovingSession {
 			host.note(moving.to);
 		} catch (error) {
 			over?.untell();
-			const why = error instanceof Error ? error.message : String(error);
+			// Its own stop goes, as whyWriting's does, so the sentence ends once.
+			const why = (
+				error instanceof Error ? error.message : String(error)
+			).replace(/\.$/, "");
 			callOff(
 				moving,
 				`its note couldn't be written: ${why}`,
-				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${why}`,
+				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${why}.`,
 			);
 			return;
 		}
