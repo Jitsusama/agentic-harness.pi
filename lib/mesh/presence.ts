@@ -916,7 +916,10 @@ function groupsShaped(groups: readonly string[]): string[] {
  * would otherwise win or lose every tie as text, counts as no time.
  */
 function signsSinceOf(value: unknown): { signsSince?: string } {
-	if (typeof value !== "string") return {};
+	// Only a date and time as an ISO string says: Date.parse alone reads
+	// "0" as the year 2000.
+	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value))
+		return {};
 	const at = Date.parse(value);
 	if (!Number.isFinite(at)) return {};
 	// A year past 9999 is written "+275760-01-01T...", which sorts first as text.
