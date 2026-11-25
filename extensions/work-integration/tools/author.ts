@@ -155,7 +155,7 @@ export async function makeBranch(
 	// a start a fetch moved lately as it stands (fresh-start.ts).
 	const fresh = from
 		? await refreshStart(
-				fetchExec(signal, FETCH_MS),
+				fetchExec(signal, FETCH_MS, FETCH_MS),
 				found.path,
 				from,
 				signal,

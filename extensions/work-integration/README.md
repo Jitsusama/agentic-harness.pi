@@ -212,15 +212,28 @@ by the checkout's git folder (`lib/core/work/fetch-rules.ts`):
 ```
 
 With `prefetched`, a fetch of a remote's branch moves its tracking ref
-to what `refs/prefetch/remotes/` holds, never back, and a fetch naming
-no ref is answered by the prefetch, so none reaches the remote. A fetch
-the prefetch can't answer, as of a commit by its id, runs behind
+forward to what `refs/prefetch/remotes/` holds, and a fetch naming no
+ref is answered by the prefetch, so none reaches the remote. A ref
+already ahead stays. A fetch the prefetch can't answer runs behind
 `through`, given git and its words as `"$@"`, inside the guard and the
-queue. A tree, a branch, a rebase and a sync fetch through this git
-too, not only a snapshot. On 24 November two snapshots of World each
-fetched 5.4 GB at once outside every turn. A checkout the section
-doesn't name fetches as it always did, since git's maintenance writes
-`refs/prefetch` in repositories nobody promises to keep fetched.
+queue: one of a commit by its id, of a branch the prefetch lacks or
+that a force push moved off the ref's line, of a remote nothing was
+prefetched of, with an option other than `--quiet`, `--no-tags` or
+`--no-write-fetch-head`, or one whose move git refused. A tree, a
+branch, a rebase and a sync fetch through this git too, not only a
+snapshot. On 24 November two snapshots of World each fetched 5.4 GB at
+once outside every turn. A checkout the section doesn't name fetches as
+it always did, since git's maintenance writes `refs/prefetch` in
+repositories nobody promises to keep fetched. The folder is matched as
+written or through its links.
+
+The prefetch doesn't run during a call, so an answered start can be
+that far behind origin; the move isn't logged as a fetch, so a start
+that trusts a recent fetch asks again rather than trust a prefetch of
+unknown age. A short id merged since the last prefetch isn't found, and
+the refusal says to give its full id. A branch's or a replay's fetch
+runs on its three-minute clock in the queue too, waits for a turn
+included, and past it starts from what it has.
 
 ## Trees It Did Not Cut
 

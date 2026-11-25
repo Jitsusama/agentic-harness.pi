@@ -53,6 +53,21 @@ async function landedOnOrigin(name: string): Promise<string> {
 	return git(seed, "rev-parse", "HEAD");
 }
 
+/**
+ * What the prefetch writes: `commit` under refs/prefetch, brought by
+ * its id so that no tracking ref moves with it, as a fetch of origin's
+ * main into any ref would move origin/main beside it.
+ */
+async function prefetched(commit: string, branch = "main"): Promise<void> {
+	await git(clone, "fetch", "-q", "origin", commit);
+	await git(
+		clone,
+		"update-ref",
+		`refs/prefetch/remotes/origin/${branch}`,
+		commit,
+	);
+}
+
 /** What the clone's ref `ref` holds, or "" when it holds nothing. */
 async function held(ref: string): Promise<string> {
 	try {
@@ -84,30 +99,32 @@ const naming =
 	async (gitDir: string): Promise<FetchRule | undefined> =>
 		gitDir === realpathSync(join(clone, ".git")) ? rule : undefined;
 
+/**
+ * `exec`'s fetches of the clone by `rule`, a turn run as the queue's
+ * exec runs it once no queue takes the fetch.
+ */
+const fetchingOf = (exec: Exec, rule: FetchRule): Exec =>
+	fetchingBy(exec, naming(rule), (named, args) =>
+		queuedExec(exec, exec, undefined, named.through)("git", [...args]),
+	);
+
+const TRACKING = "+refs/heads/main:refs/remotes/origin/main";
+
 describe("a fetch of a checkout kept prefetched", () => {
-	it("moves the tracking ref to the prefetched commit and asks origin for nothing", async () => {
+	it("moves the tracking ref forward to the prefetched commit and asks origin for nothing", async () => {
 		const landed = await landedOnOrigin("a");
-		// What the prefetch writes: origin's branch under refs/prefetch.
-		await git(
+		await prefetched(landed);
+		expect(await held("refs/remotes/origin/main")).not.toBe(landed);
+		const run = counting();
+
+		const result = await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
 			clone,
 			"fetch",
 			"-q",
 			"origin",
-			"main:refs/prefetch/remotes/origin/main",
-		);
-		const run = counting();
-
-		const result = await fetchingBy(run.exec, naming({ prefetched: true }))(
-			"git",
-			[
-				"-C",
-				clone,
-				"fetch",
-				"-q",
-				"origin",
-				"+refs/heads/main:refs/remotes/origin/main",
-			],
-		);
+			TRACKING,
+		]);
 
 		expect(result.code, result.stderr).toBe(0);
 		expect(
@@ -122,16 +139,10 @@ describe("a fetch of a checkout kept prefetched", () => {
 
 	it("answers `origin main`, as a sync asks, the same way", async () => {
 		const landed = await landedOnOrigin("a");
-		await git(
-			clone,
-			"fetch",
-			"-q",
-			"origin",
-			"main:refs/prefetch/remotes/origin/main",
-		);
+		await prefetched(landed);
 		const run = counting();
 
-		await fetchingBy(run.exec, naming({ prefetched: true }))("git", [
+		await fetchingOf(run.exec, { prefetched: true })("git", [
 			"-C",
 			clone,
 			"fetch",
@@ -148,8 +159,9 @@ describe("a fetch of a checkout kept prefetched", () => {
 		await git(clone, "update-ref", "refs/prefetch/remotes/origin/main", older);
 		const newer = await landedOnOrigin("b");
 		await git(clone, "fetch", "-q", "origin");
+		const run = counting();
 
-		await fetchingBy(spawnExec(), naming({ prefetched: true }))("git", [
+		await fetchingOf(run.exec, { prefetched: true })("git", [
 			"-C",
 			clone,
 			"fetch",
@@ -161,28 +173,104 @@ describe("a fetch of a checkout kept prefetched", () => {
 			await held("refs/remotes/origin/main"),
 			"the newer fetch was lost",
 		).toBe(newer);
+		expect(run.fetches).toEqual([]);
 	});
 
-	it("says the move was a fetch, so a start that trusts a recent fetch trusts it", async () => {
-		await landedOnOrigin("a");
-		await git(
+	it("fetches a branch the prefetch holds off the line its tracking ref is on, as a force push leaves it", async () => {
+		// The clone fetched a commit that origin then lost to a force push,
+		// and the prefetch holds the commit that took its place.
+		const before = await git(clone, "rev-parse", "origin/main");
+		await landedOnOrigin("gone");
+		await git(clone, "fetch", "-q", "origin");
+		await git(seed, "reset", "-q", "--hard", before);
+		writeFileSync(join(seed, "instead"), "instead\n");
+		await git(seed, "add", "instead");
+		await git(seed, "commit", "-qm", "instead");
+		await git(seed, "push", "-q", "--force", origin, "main");
+		const rewritten = await git(seed, "rev-parse", "HEAD");
+		await prefetched(rewritten);
+		const run = counting();
+
+		const result = await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
 			clone,
 			"fetch",
 			"-q",
 			"origin",
-			"main:refs/prefetch/remotes/origin/main",
+			TRACKING,
+		]);
+
+		expect(result.code, result.stderr).toBe(0);
+		expect(run.fetches, "the prefetch was trusted off its line").toHaveLength(
+			1,
 		);
+		expect(
+			await held("refs/remotes/origin/main"),
+			"the ref doesn't hold what origin holds",
+		).toBe(rewritten);
+	});
+
+	it("fetches when git won't move the tracking ref, rather than say it moved", async () => {
+		const landed = await landedOnOrigin("a");
+		await prefetched(landed);
+		const locked = join(
+			clone,
+			".git",
+			"refs",
+			"remotes",
+			"origin",
+			"main.lock",
+		);
+		writeFileSync(locked, "");
 		const run = counting();
 
+		const result = await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
+			clone,
+			"fetch",
+			"-q",
+			"origin",
+			TRACKING,
+		]);
+
+		expect(run.fetches, "a move that failed was answered").toHaveLength(1);
+		expect(result.code, "git's own fetch met the same lock").not.toBe(0);
+	});
+
+	it("fetches when asked for what an answer doesn't do", async () => {
+		const landed = await landedOnOrigin("a");
+		await prefetched(landed);
+		const run = counting();
+		const fetching = fetchingOf(run.exec, { prefetched: true });
+
+		await fetching("git", ["-C", clone, "fetch", "--prune", "origin", "main"]);
+		await fetching("git", [
+			"-C",
+			clone,
+			"fetch",
+			"origin",
+			"main:refs/heads/copy",
+		]);
+
+		expect(run.fetches).toHaveLength(2);
+		expect(await held("refs/heads/copy")).toBe(landed);
+	});
+
+	it("leaves a later start to be answered again, since the prefetch's age isn't known", async () => {
+		const landed = await landedOnOrigin("a");
+		await prefetched(landed);
+		const run = counting();
+		const fetching = fetchingOf(run.exec, { prefetched: true });
+
 		const fresh = await refreshStart(
-			fetchingBy(run.exec, naming({ prefetched: true })),
+			fetching,
 			clone,
 			"origin/main",
 			undefined,
 			{ fetchedWithin: FETCHED_LATELY_MS },
 		);
 		const again = await refreshStart(
-			fetchingBy(run.exec, naming({ prefetched: true })),
+			fetching,
 			clone,
 			"origin/main",
 			undefined,
@@ -190,31 +278,71 @@ describe("a fetch of a checkout kept prefetched", () => {
 		);
 
 		expect(fresh.stale, "the first start read as stale").toBeUndefined();
-		expect(again.lately, "the second start didn't trust the move").toContain(
-			"fetched",
-		);
+		expect(
+			again.lately,
+			"the move was taken for a fetch made now",
+		).toBeUndefined();
+		expect(await held("refs/remotes/origin/main")).toBe(landed);
 		expect(run.fetches).toEqual([]);
 	});
 
 	it("answers a fetch naming no ref, as a snapshot of a short id asks, with nothing fetched", async () => {
+		await prefetched(await git(clone, "rev-parse", "origin/main"));
 		const run = counting();
 
-		const result = await fetchingBy(run.exec, naming({ prefetched: true }))(
-			"git",
-			["-C", clone, "fetch", "--quiet", "--no-tags", "origin"],
-		);
+		const result = await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
+			clone,
+			"fetch",
+			"--quiet",
+			"--no-tags",
+			"origin",
+		]);
 
 		expect(result.code).toBe(0);
 		expect(run.fetches, "every branch of origin was fetched").toEqual([]);
 	});
 
-	it("fetches a branch nothing prefetched, and a commit by its id", async () => {
+	it("fetches a remote nothing was prefetched of, though the rule says it is", async () => {
 		const landed = await landedOnOrigin("a");
 		const run = counting();
-		const fetching = fetchingBy(run.exec, naming({ prefetched: true }));
 
-		await fetching("git", ["-C", clone, "fetch", "origin", "main"]);
-		await fetching("git", [
+		await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
+			clone,
+			"fetch",
+			"--quiet",
+			"--no-tags",
+			"origin",
+		]);
+
+		expect(run.fetches).toHaveLength(1);
+		expect(await held(`${landed}^{commit}`)).toBe(landed);
+	});
+
+	it("fetches a branch the prefetch doesn't hold", async () => {
+		await prefetched(await git(clone, "rev-parse", "origin/main"));
+		await git(seed, "push", "-q", origin, "HEAD:refs/heads/other");
+		const run = counting();
+
+		await fetchingOf(run.exec, { prefetched: true })("git", [
+			"-C",
+			clone,
+			"fetch",
+			"origin",
+			"other",
+		]);
+
+		expect(run.fetches).toHaveLength(1);
+		expect(await held("refs/remotes/origin/other")).not.toBe("");
+	});
+
+	it("fetches a commit by its id", async () => {
+		await prefetched(await git(clone, "rev-parse", "origin/main"));
+		const landed = await landedOnOrigin("a");
+		const run = counting();
+
+		await fetchingOf(run.exec, { prefetched: true })("git", [
 			"-C",
 			clone,
 			"fetch",
@@ -224,10 +352,7 @@ describe("a fetch of a checkout kept prefetched", () => {
 			landed,
 		]);
 
-		expect(
-			run.fetches,
-			"a fetch the prefetch can't answer was dropped",
-		).toHaveLength(2);
+		expect(run.fetches).toHaveLength(1);
 		expect(await held(`${landed}^{commit}`)).toBe(landed);
 	});
 });
@@ -238,7 +363,7 @@ describe("a fetch of a checkout whose fetches wait their turn", () => {
 		const said = join(place, "turn.log");
 		const through = `echo "turn for $*" >> '${said}';`;
 
-		const result = await fetchingBy(spawnExec(), naming({ through }))("git", [
+		const result = await fetchingOf(spawnExec(), { through })("git", [
 			"-C",
 			clone,
 			"fetch",
@@ -296,10 +421,12 @@ describe("a fetch of a checkout whose fetches wait their turn", () => {
 		const run = counting();
 		const said = join(place, "turn.log");
 
-		await fetchingBy(run.exec, naming({ through: `echo x >> '${said}';` }))(
-			"git",
-			["-C", clone, "status", "--short"],
-		);
+		await fetchingOf(run.exec, { through: `echo x >> '${said}';` })("git", [
+			"-C",
+			clone,
+			"status",
+			"--short",
+		]);
 
 		expect(
 			() => readFileSync(said),
@@ -315,14 +442,11 @@ describe("a fetch of a checkout nobody names", () => {
 		await git(clone, "update-ref", "refs/prefetch/remotes/origin/main", stale);
 		const run = counting();
 
-		await fetchingBy(run.exec, async () => undefined)("git", [
-			"-C",
-			clone,
-			"fetch",
-			"-q",
-			"origin",
-			"+refs/heads/main:refs/remotes/origin/main",
-		]);
+		await fetchingBy(
+			run.exec,
+			async () => undefined,
+			() => Promise.reject(new Error("no turn is named")),
+		)("git", ["-C", clone, "fetch", "-q", "origin", TRACKING]);
 
 		expect(
 			run.fetches,
@@ -333,13 +457,14 @@ describe("a fetch of a checkout nobody names", () => {
 });
 
 describe("reading what a fetch asks and what the section says", () => {
-	it("reads the folder, remote and refs of a fetch, and nothing of another command", () => {
+	it("reads the folder, remote, refs and options of a fetch, and nothing of another command", () => {
 		expect(
 			gitFetchOf(["-c", "a=b", "-C", "/r", "fetch", "-q", "origin", "main"]),
 		).toEqual({
 			folder: "/r",
 			remote: "origin",
 			refspecs: ["main"],
+			options: ["-q"],
 		});
 		expect(gitFetchOf(["-C", "/r", "push", "origin", "main"])).toBeUndefined();
 		expect(

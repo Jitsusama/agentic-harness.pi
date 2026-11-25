@@ -13,22 +13,29 @@
  * up another session's push (1OGSE7 [89ac6ac4]).
  *
  * So a checkout the `work` section names as prefetched has a fetch of
- * one of a remote's branches answered by moving its tracking ref to
- * the prefetched commit, never back past where it stands, and a fetch
- * of no named ref answered by the prefetch having brought every
- * branch already. A fetch it can't answer, as of a commit by its id,
- * runs behind the section's `through`, for World a check that no call
- * is on and the push turn that takes one World fetch at a time. A
- * checkout the section doesn't name fetches as it always did: git's
- * own maintenance writes `refs/prefetch` in other repositories too,
- * where the prefetch is no promise of anything, so it is never
- * assumed.
+ * one of a remote's branches answered by moving its tracking ref
+ * forward to the prefetched commit, and a fetch of no named ref
+ * answered by the prefetch having brought every branch already. A
+ * fetch it can't answer runs behind the section's `through`, for World
+ * a check that no call is on and the push turn that takes one World
+ * fetch at a time: one of a commit by its id, of a remote nothing
+ * prefetched, with an option the answer can't honour, writing a ref
+ * outside the remote's own, or of a branch the prefetch doesn't hold
+ * or that moved off the line its tracking ref is on, as a force push
+ * moves it. A move git refuses runs the fetch too, so an answer never
+ * claims a ref moved that didn't. A checkout the section doesn't name
+ * fetches as it always did: git's own maintenance writes
+ * `refs/prefetch` in other repositories too, where the prefetch is no
+ * promise of anything, so it is never assumed.
  *
- * The tracking ref is moved with a reflog line saying it was a fetch,
- * so a start that trusts a recent fetch (`fresh-start.ts`) trusts this
- * one too: the prefetch runs every few minutes, so a rebase onto main
- * starts from a main at most that old, and lands through a gate that
- * reads main as it is then.
+ * A tracking ref already ahead of the prefetch stays where it is,
+ * since a fetch made since is newer. The move's reflog line doesn't
+ * say it was a fetch, so a start that trusts a recent fetch
+ * (`fresh-start.ts`) asks again, and is answered from the prefetch
+ * again: the prefetch's age is not known here, and a fetch's would
+ * claim it was made now. The prefetch runs every few minutes but not
+ * during a call, so a start can be that far behind origin; it lands
+ * through a gate that reads main as it is then.
  */
 
 import type { Exec, ExecResult } from "../exec/index.ts";
@@ -123,7 +130,22 @@ export interface GitFetch {
 	readonly remote: string | undefined;
 	/** The refs it names, as git's refspecs. */
 	readonly refspecs: readonly string[];
+	/** The options it was given after `fetch`, as written. */
+	readonly options: readonly string[];
 }
+
+/**
+ * The options a fetch answered from the prefetch can honour, since
+ * they change only what git says or writes beside the refs: any other,
+ * as `--prune`, `--depth` or `--dry-run`, asks for what an answer
+ * doesn't do, so that fetch is made.
+ */
+const ANSWERABLE_OPTIONS = new Set([
+	"-q",
+	"--quiet",
+	"--no-tags",
+	"--no-write-fetch-head",
+]);
 
 /** git's options before its command that take the next word. */
 const VALUED_GLOBALS = new Set(["-C", "-c", "--git-dir", "--work-tree"]);
@@ -148,9 +170,11 @@ export function gitFetchOf(args: readonly string[]): GitFetch | undefined {
 		}
 	}
 	if (args[at] !== "fetch" || folder === undefined) return undefined;
-	const named = args.slice(at + 1).filter((word) => !word.startsWith("-"));
+	const words = args.slice(at + 1);
+	const named = words.filter((word) => !word.startsWith("-"));
+	const options = words.filter((word) => word.startsWith("-"));
 	const [remote, ...refspecs] = named;
-	return { folder, remote, refspecs };
+	return { folder, remote, refspecs, options };
 }
 
 /** The branch a refspec fetches and the ref it writes, when it names a branch. */
@@ -164,24 +188,24 @@ function branchOf(
 	}
 	const branch = source.replace(/^refs\/heads\//, "");
 	if (branch.startsWith("refs/")) return undefined;
-	return { branch, tracking: written || `refs/remotes/${remote}/${branch}` };
+	const tracking = written || `refs/remotes/${remote}/${branch}`;
+	// Only the remote's own refs: a fetch writing a branch of ours, or
+	// any other ref, is git's to refuse or allow, so it is made.
+	if (!tracking.startsWith(`refs/remotes/${remote}/`)) return undefined;
+	return { branch, tracking };
 }
 
 /**
  * An exec whose fetches follow `rules`: one a checkout's prefetch can
  * answer is answered from it, one behind a `through` runs behind it,
- * and every other command runs through `exec` as it was. `through`
- * runs a fetch behind shell text; left out, it runs it as
- * `bash -c '<through> "$@"' work-fetch git …` through `exec`.
+ * and every other command runs through `exec` as it was. `behind`
+ * runs a fetch behind its rule's `through`, as the queue's exec does
+ * after the guard (`queued-exec.ts`).
  */
 export function fetchingBy(
 	exec: Exec,
 	rules: FetchRules,
-	behind: (rule: FetchRule, args: readonly string[]) => Promise<ExecResult> = (
-		rule,
-		args,
-	) =>
-		exec("bash", ["-c", `${rule.through} "$@"`, "work-fetch", "git", ...args]),
+	behind: (rule: FetchRule, args: readonly string[]) => Promise<ExecResult>,
 ): Exec {
 	return async (command, args) => {
 		const fetch = command === "git" ? gitFetchOf(args) : undefined;
@@ -215,61 +239,102 @@ async function ruleFor(
 /** What a fetch answered from the prefetch says, for git's quiet. */
 const ANSWERED: ExecResult = { code: 0, stdout: "", stderr: "" };
 
+type Git = (...args: string[]) => Promise<ExecResult>;
+
+/** A tracking ref's move to the prefetched commit. */
+interface Move {
+	readonly tracking: string;
+	readonly to: string;
+	/** What it holds now, or "" when it holds nothing. */
+	readonly was: string;
+}
+
 /**
- * The fetch answered from the prefetch, or nothing when it can't be:
- * it names a commit by its id, or a branch nothing prefetched.
+ * The fetch answered from the prefetch, or nothing when it can't be
+ * (the module's header says when).
  */
 async function fromPrefetch(
 	exec: Exec,
 	fetch: GitFetch,
 ): Promise<ExecResult | undefined> {
-	const git = (...args: string[]) => exec("git", ["-C", fetch.folder, ...args]);
+	const git: Git = (...args) => exec("git", ["-C", fetch.folder, ...args]);
 	const remote = fetch.remote;
 	if (remote === undefined) return undefined;
+	if (!fetch.options.every((option) => ANSWERABLE_OPTIONS.has(option))) {
+		return undefined;
+	}
+	if (!(await prefetchKept(git, remote))) return undefined;
 	// Every branch is prefetched, so a fetch naming none has nothing to bring.
 	if (fetch.refspecs.length === 0) return ANSWERED;
-	const moves: { tracking: string; to: string }[] = [];
+	const moves: Move[] = [];
 	for (const refspec of fetch.refspecs) {
 		const named = branchOf(refspec, remote);
 		if (named === undefined) return undefined;
-		const prefetched = await git(
-			"rev-parse",
-			"--verify",
-			"--quiet",
-			`refs/prefetch/remotes/${remote}/${named.branch}^{commit}`,
-		);
-		if (prefetched.code !== 0) return undefined;
-		moves.push({ tracking: named.tracking, to: prefetched.stdout.trim() });
+		const move = await moveOf(git, remote, named.branch, named.tracking);
+		if (move === undefined) return undefined;
+		if (move !== "held") moves.push(move);
 	}
-	for (const { tracking, to } of moves) {
-		await moveForward(git, tracking, to);
+	for (const move of moves) {
+		if (!(await moved(git, move))) return undefined;
 	}
 	return ANSWERED;
 }
 
+/** Whether anything is prefetched of `remote`'s branches at all. */
+async function prefetchKept(git: Git, remote: string): Promise<boolean> {
+	const found = await git(
+		"for-each-ref",
+		"--count=1",
+		"--format=%(refname)",
+		`refs/prefetch/remotes/${remote}/`,
+	);
+	return found.code === 0 && found.stdout.trim() !== "";
+}
+
 /**
- * `tracking` moved to `to`, unless it already holds it: a fetch made
- * since the prefetch is newer, and moving back would lose it.
+ * How `tracking` comes to hold `branch` as prefetched: a move forward,
+ * `held` when it is there already or ahead (a fetch made since is
+ * newer, and moving back would lose it), or nothing when the prefetch
+ * lacks the branch or it left the line the ref is on, which only a
+ * fetch can settle.
  */
-async function moveForward(
-	git: (...args: string[]) => Promise<ExecResult>,
+async function moveOf(
+	git: Git,
+	remote: string,
+	branch: string,
 	tracking: string,
-	to: string,
-): Promise<void> {
+): Promise<Move | "held" | undefined> {
+	const prefetched = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`refs/prefetch/remotes/${remote}/${branch}^{commit}`,
+	);
+	if (prefetched.code !== 0) return undefined;
+	const to = prefetched.stdout.trim();
 	const now = await git("rev-parse", "--verify", "--quiet", tracking);
 	const was = now.code === 0 ? now.stdout.trim() : "";
-	if (was === to) return;
-	if (was !== "") {
-		const holds = await git("merge-base", "--is-ancestor", to, was);
-		if (holds.code === 0) return;
+	if (was === "") return { tracking, to, was };
+	if (was === to) return "held";
+	if ((await git("merge-base", "--is-ancestor", was, to)).code === 0) {
+		return { tracking, to, was };
 	}
-	// Said as a fetch, so a start that trusts a recent fetch trusts this.
-	await git(
+	if ((await git("merge-base", "--is-ancestor", to, was)).code === 0) {
+		return "held";
+	}
+	return undefined;
+}
+
+/** Whether git made `move`, only from what the ref held when it was read. */
+async function moved(git: Git, move: Move): Promise<boolean> {
+	const made = await git(
 		"update-ref",
 		"-m",
-		"fetch: from the prefetch",
-		tracking,
-		to,
-		...(was === "" ? [] : [was]),
+		"prefetch: moved to the prefetched commit",
+		move.tracking,
+		move.to,
+		// An empty old value makes git refuse a ref that has come to exist.
+		move.was,
 	);
+	return made.code === 0;
 }

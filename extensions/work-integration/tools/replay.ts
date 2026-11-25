@@ -87,7 +87,7 @@ export async function replay(
 	// A remote's branch is replayed onto as the remote holds it: replayed
 	// onto the last fetch's origin/main, a branch went up a merge behind and
 	// its checks ran against a main that was no longer there.
-	const fetching = fetchExec(signal, FETCH_MS);
+	const fetching = fetchExec(signal, FETCH_MS, FETCH_MS);
 	const fresh = await refreshStart(fetching, found.path, onto, signal);
 	const stale = fresh.stale === undefined ? [] : [fresh.stale];
 	// Which commits are trunk's is judged by the remote's trunk, so it is

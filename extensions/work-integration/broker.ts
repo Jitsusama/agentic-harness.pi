@@ -14,7 +14,7 @@
  * own first version.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -98,17 +98,23 @@ export function treeExec(signal?: AbortSignal): Exec {
 
 /**
  * The tree provider's git on a clock of `timeoutMs` for what the queue
- * doesn't take, as a fetch that can fall back on the start it has runs
- * on a shorter one than the call's (`fresh-start.ts`).
+ * doesn't take and `queuedMs` for what it does, its wait included. A
+ * fetch that can fall back on the start it has runs on a short clock
+ * either way (`fresh-start.ts`): a branch or a replay whose fetch
+ * waited five hours for a walk's turn held the call that long, where
+ * the start it had would do. A fetch behind World's turn waits on the
+ * clock too, since the turn says no line that holds it, so past it the
+ * start stands as it was and the answer says the fetch ran out of time.
  */
 export function fetchExec(
 	signal: AbortSignal | undefined,
 	timeoutMs: number,
+	queuedMs = QUEUED_LIMIT_MS,
 ): Exec {
 	const stoppedBy = signal ? { signal } : {};
 	return treeExecOver(
 		gitInEnglish({ ...stoppedBy, timeoutMs, turn: WORLD_PUSH_TURN }),
-		gitInEnglish({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
+		gitInEnglish({ ...stoppedBy, timeoutMs: queuedMs }),
 	);
 }
 
@@ -165,7 +171,22 @@ async function configuredFetchRules(
 	const loaded = await loadPackageConfig();
 	if (!loaded.ok) return undefined;
 	// A section written wrong fetches as it always did; the rest still holds.
-	return parseWorkFetches(loaded.config.sections[WORK_SLUG]).fetches[gitDir];
+	const { fetches } = parseWorkFetches(loaded.config.sections[WORK_SLUG]);
+	// Keyed as written or as the folder really is, since git names it
+	// by its real path and the person may name it through a link.
+	return Object.entries(fetches).find(
+		([folder]) => folder === gitDir || realPath(folder) === gitDir,
+	)?.[1];
+}
+
+/** `path` with its links followed, or itself when it can't be read. */
+function realPath(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// A folder that isn't there names no checkout git could be in.
+		return path;
+	}
 }
 
 /** The package config's section for the work tool. */
