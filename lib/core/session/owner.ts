@@ -4,6 +4,7 @@ import {
 	tickedOwnerNow,
 	tickedStanding,
 } from "../../internal/process-ticks.ts";
+import { askQuit, takeBackQuit } from "../../internal/session/quit-asker.ts";
 import { isOwner } from "../process/index.ts";
 import { hosted } from "./host.ts";
 import { requireSession, type SessionRef } from "./identity.ts";
@@ -26,10 +27,12 @@ export interface Ending {
 /**
  * End the conversation `ctx` runs, as pi's shutdown does, saying who
  * asked. pi's shutdown carries no reason, so in a host it goes through
- * the host's close, whose journal line names `by`; plain pi shuts down
- * as it always has. A close that fails is told to `failed`, which a
- * host's close does after this returns, as it isn't awaited; plain pi's
- * shutdown throws to the caller where no `failed` is given. One that
+ * the host's close, whose journal line names `by`; plain pi names `by`
+ * as its quit's asker, which the crash record writes, and takes it
+ * back where the shutdown throws. A close that fails is told to
+ * `failed`, which a host's close does after this returns, as it isn't
+ * awaited; plain pi's shutdown throws to the caller where no `failed`
+ * is given. One that
  * lands is told to `closed`, plain pi's once its shutdown is asked, so
  * a caller waiting on the close can tell one that hangs.
  */
@@ -41,14 +44,13 @@ export function endConversation(
 ): void {
 	const host = hosted();
 	if (!host) {
-		if (!failed) {
-			ctx.shutdown();
-			closed?.();
-			return;
-		}
+		askQuit(by);
 		try {
 			ctx.shutdown();
 		} catch (error) {
+			// A shutdown that failed quit nothing, so it names no later quit.
+			takeBackQuit(by);
+			if (!failed) throw error;
 			failed(error);
 			return;
 		}

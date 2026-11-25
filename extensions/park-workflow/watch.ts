@@ -65,6 +65,7 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import { askQuit } from "../../lib/internal/session/quit-asker.ts";
 import {
 	onTurnEnd,
 	type TurnOver,
@@ -531,6 +532,7 @@ export function watch(
 		endedProcess = true;
 		sayParked(env, options.pid ?? process.pid);
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
+		askQuit("park-workflow, parking");
 		void ctx.shutdown();
 	};
 	// Whether a run under way may step off at a turn's end: its host drains
@@ -765,6 +767,7 @@ export function watch(
 		// saw no exit and never clears it.
 		sayParked(env, options.pid ?? process.pid);
 		(options.restartWith ?? restartWith)(fresh, throughHolder);
+		askQuit("park-workflow, restarting onto fresh code");
 		void ctx.shutdown();
 		return undefined;
 	};

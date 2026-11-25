@@ -67,7 +67,20 @@ second, so the wait was on something only a real session reaches.
   finds one writes the record and a `pi: still ending` line with
   `held: exit waits on a name lookup`, waiting for both, and ends the
   pi by its own TERM. Such a pi leaves with status 143, not 0: Node
-  has no way to exit with a code that skips the threadpool.
+  has no way to exit with a code that skips the threadpool. A quit
+  nobody asked ends by USR2 instead, which its holder restarts.
+- Says who asked a pi to quit: `pi: quitting session S, asked by X`
+  in the system's log. The session's log gets nothing, so a hosted
+  conversation's record keeps plain pi's shape. The
+  asker is whatever named itself just before (a mesh close, the quest
+  ending, a park, a restart onto fresh code, one-writer), the
+  person's exit key, second clear key or `/quit` as they bound them,
+  or the TERM or HUP the watch heard first. An ask lasts 30 seconds,
+  and a key that is no quit takes a key's ask back.
+- Restarts a held pi that quits at nobody's ask: it exits 79 rather
+  than 0, which its holder answers by starting it again. A code
+  something else set, as a park's 75 or one-writer's 78, stands, and a
+  pi no holder runs ends as it would have.
 - Arms only in plain pi. A host runs many conversations in one
   process and installs what that process listens for itself.
 
@@ -78,5 +91,6 @@ the newer one's state. The work is in
 
 Find a crash with `journalctl --user -t pi -p err`, or the entry in
 the session's log, and the starts with
-`journalctl --user -t pi -g 'ready in'`, and the slow ends with
-`journalctl --user -t pi -g 'still ending'`.
+`journalctl --user -t pi -g 'ready in'`, the slow ends with
+`journalctl --user -t pi -g 'still ending'`, and who asked each quit
+with `journalctl --user -t pi -g 'quitting session'`.
