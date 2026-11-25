@@ -245,13 +245,27 @@ folder pi doesn't ask trust for, or that the person said not to trust,
 is never asked about, though a conversation still trusted from before
 the no is checked at each load.
 
+A trusted folder loads from a copy of its .pi, never the .pi itself
+(project-copies.ts): the check keeps the bytes it hashed, words and
+settings too, writes them under project-copies in pi's agent folder,
+named by their digest and renamed into place whole, and points pi's
+settings at the copy before the load, so a file swapped in after the
+check never loads. The same bytes reuse their copy, and one unused for
+a week is removed. That needs a pi built with core's
+pi-host-reads-a-checked-copy patch; under one without, a .pi holding
+code loads untrusted and says why, while one holding only words loads
+from the tree as before. A .pi whose settings name code by an absolute
+path, a home path, a file URL or a path out of it loads untrusted,
+since pi would read that code where it is, as does one whose copy
+can't be written. Packages pi installs for a project go into its copy,
+so a copy made after a change installs them again.
+
 What the pins don't cover: code outside .pi that pinned code imports
 or runs, such as a linter an extension starts from the repository; a
-file in .pi an extension already loaded reads again before the next
-load, which the check sees only then; a change between the check and
-pi's reading of the file, which a fenced command swapping a file to
-and fro can try at every reload the model asks for, since the guard
-gives trust back each time it reads the pinned contents again; two
+file an extension reads from the tree's .pi by name, rather than
+beside itself in the copy, which the check sees only at the next load;
+under a pi without copies, a change between the check and pi's
+reading of a .pi that held no code; two
 hosts writing the pins at once, where the last write wins; the
 hand-kept lists of pi's code entries and code settings, which a new
 pi may outgrow; a plain pi outside the host, which doesn't check the

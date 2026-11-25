@@ -45,6 +45,12 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** The folder pi reads a project's own settings and resources from, as pi names it. */
+export const OWN_FOLDER = ".pi";
+
+/** The bits of a file's mode a copy keeps: its permissions alone. */
+const FILE_MODE = 0o777;
+
 /** The entries of a folder's .pi that pi runs as code, as pi names them. */
 const CODE_ENTRIES = ["extensions", "mcp.json", "npm", "git"] as const;
 
@@ -171,14 +177,81 @@ interface ReadPins {
  * be one pi loads, and could change unseen.
  */
 export function projectCode(cwd: string): ProjectCode | undefined {
-	const base = join(cwd, ".pi");
+	return readProject(cwd).code;
+}
+
+/** One file of a copy: its place within the .pi, its bytes and its mode. */
+export interface CopiedFile {
+	readonly place: string;
+	readonly text: Buffer;
+	readonly mode: number;
+}
+
+/**
+ * A folder's .pi as one read found it: its code, and every file pi may
+ * read there, code and words, as the same bytes the code's digest was
+ * taken over, so a copy of them loads exactly what was checked.
+ */
+export interface ProjectCopy {
+	readonly code: ProjectCode | undefined;
+	readonly files: readonly CopiedFile[];
+	/** Why a copy can't stand in for the .pi, when it can't. */
+	readonly uncopyable?: string;
+}
+
+/**
+ * Read `cwd`'s .pi once for a copy: its code as projectCode finds it,
+ * keeping each file's bytes as hashed, then its words. A copy can't
+ * stand in for a .pi whose settings name code by an absolute path, or a
+ * relative one leading out of it, since pi would still read that code
+ * where it is; nor for words too large to read whole. A folder linked
+ * twice is copied once, so a copy holds no more than was checked.
+ */
+export function projectCopy(cwd: string): ProjectCopy {
+	const kept = new Map<string, CopiedFile>();
+	const keep =
+		(over: boolean) =>
+		(place: string, text: Buffer, mode: number): void => {
+			const inside = relative(OWN_FOLDER, place);
+			if (inside.startsWith("..") || isAbsolute(inside)) return;
+			// What the code was hashed from wins over a second read of the same file as words.
+			if (over || !kept.has(inside))
+				kept.set(inside, { place: inside, text, mode });
+		};
+	const base = join(cwd, OWN_FOLDER);
+	const words = walker(cwd, keep(false));
+	for (const name of WORDS_ENTRIES) words.take(join(base, name), 1);
+	const read = readProject(cwd, keep(true));
+	const unread = words.code().unchecked;
+	const uncopyable =
+		read.outside.length > 0
+			? `its settings name ${read.outside.map(printable).join(", ")}, which pi would load from where it is rather than from the copy`
+			: unread
+				? `its words can't be copied whole, since ${unread}`
+				: undefined;
+	const files = [...kept.values()];
+	return uncopyable
+		? { code: read.code, files, uncopyable }
+		: { code: read.code, files };
+}
+
+/** A file's bytes as one read found them, for whoever keeps them. */
+type Keep = (place: string, text: Buffer, mode: number) => void;
+
+function readProject(
+	cwd: string,
+	keep?: Keep,
+): { code: ProjectCode | undefined; outside: readonly string[] } {
+	const base = join(cwd, OWN_FOLDER);
 	const settings = join(base, SETTINGS);
-	const said = codeSettings(settings);
+	const { said, text, mode } = settingsRead(settings);
+	if (keep && text) keep(relative(cwd, settings), text, mode);
+	const outside = said?.outside ?? [];
 	const holdsCode =
 		said !== undefined ||
 		CODE_ENTRIES.some((entry) => exists(join(base, entry)));
-	if (!holdsCode) return undefined;
-	const walk = walker(cwd);
+	if (!holdsCode) return { code: undefined, outside };
+	const walk = walker(cwd, keep);
 	walk.take(base, 0, (name) => name === SETTINGS || isWords(name));
 	if (said !== undefined) {
 		walk.counted("settings", relative(cwd, settings), said.digest);
@@ -186,7 +259,7 @@ export function projectCode(cwd: string): ProjectCode | undefined {
 		if (said.unchecked) walk.unchecked(said.unchecked);
 		for (const named of said.paths) walk.take(named, 0);
 	}
-	return walk.code();
+	return { code: walk.code(), outside };
 }
 
 interface Walker {
@@ -201,7 +274,7 @@ interface Walker {
 	code(): ProjectCode;
 }
 
-function walker(cwd: string): Walker {
+function walker(cwd: string, keep?: Keep): Walker {
 	const lines: string[] = [];
 	const files: { readonly place: string; time: number }[] = [];
 	const folders = new Set<string>();
@@ -273,7 +346,8 @@ function walker(cwd: string): Walker {
 				return;
 			}
 			bytes += sum.size;
-			if (sum.digest === undefined) return;
+			if (sum.digest === undefined || sum.text === undefined) return;
+			keep?.(place, sum.text, sum.mode);
 			line("file", place, sum.digest);
 			files.push({ place, time: Math.max(own.ctimeMs, seen.ctimeMs) });
 		} catch (error) {
@@ -324,33 +398,39 @@ function walker(cwd: string): Walker {
 }
 
 /**
- * A regular file's size, and its digest when it is no larger than
- * `room`, or undefined for anything else. Opened without waiting, then
- * checked through the open file, so a pipe swapped in after the walk
- * looked can't hold the host up, and a file past the room left is never
- * read, so a planted sparse file costs the host nothing.
+ * A regular file's size, and its digest, bytes and mode when it is no
+ * larger than `room`, or undefined for anything else. Opened without
+ * waiting, then checked through the open file, so a pipe swapped in
+ * after the walk looked can't hold the host up, and a file past the room
+ * left is never read, so a planted sparse file costs the host nothing.
  */
 function fileDigest(
 	path: string,
 	room: number,
-): { digest?: string; size: number } | undefined {
-	const text = regularFile(path, room);
-	if (text === undefined) return undefined;
-	if (typeof text === "number") return { size: text };
-	return { digest: sha256(text), size: text.length };
+): { digest?: string; text?: Buffer; mode: number; size: number } | undefined {
+	const read = regularFile(path, room);
+	if (read === undefined) return undefined;
+	if (typeof read === "number") return { size: read, mode: 0 };
+	const { text, mode } = read;
+	return { digest: sha256(text), text, mode, size: text.length };
 }
 
 /**
- * A regular file's contents, its size alone when it is past `room`, or
- * undefined when it isn't a regular file. Read no further than `room`,
- * so a file that grows after its size was seen can't hold the host up.
+ * A regular file's contents and mode, its size alone when it is past
+ * `room`, or undefined when it isn't a regular file. Read no further
+ * than `room`, so a file that grows after its size was seen can't hold
+ * the host up.
  */
-function regularFile(path: string, room: number): Buffer | number | undefined {
+function regularFile(
+	path: string,
+	room: number,
+): { text: Buffer; mode: number } | number | undefined {
 	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
 	try {
 		const seen = fstatSync(fd);
 		if (!seen.isFile()) return undefined;
 		if (seen.size > room) return seen.size;
+		const mode = seen.mode & FILE_MODE;
 		const chunks: Buffer[] = [];
 		let total = 0;
 		for (;;) {
@@ -360,7 +440,7 @@ function regularFile(path: string, room: number): Buffer | number | undefined {
 			// Past the room: what was read says how far.
 			if (chunk.length === 0) return total;
 			const got = readSync(fd, chunk, 0, chunk.length, null);
-			if (got === 0) return Buffer.concat(chunks, total);
+			if (got === 0) return { text: Buffer.concat(chunks, total), mode };
 			chunks.push(chunk.subarray(0, got));
 			total += got;
 		}
@@ -394,43 +474,59 @@ interface CodeSettings {
 	readonly digest: string;
 	/** What the settings name on the disk as extensions or packages. */
 	readonly paths: readonly string[];
+	/** What they name by an absolute path, or a relative one leading out of their folder. */
+	readonly outside: readonly string[];
 	/** What kept the settings, or what they name, from being read whole. */
 	readonly unchecked?: string;
 }
 
+/** The settings as read: what code they hold, and the bytes and mode read, when read whole. */
+interface SettingsRead {
+	readonly said: CodeSettings | undefined;
+	readonly text?: Buffer;
+	readonly mode: number;
+}
+
 /**
  * The digest of the code settings `file` holds, and the places on the
- * disk they name, or undefined when it holds none. A file pi can't read
- * as settings counts whole, since what it would make of it can't be
- * said.
+ * disk they name, or undefined when it holds none, with the bytes they
+ * were read from. A file pi can't read as settings counts whole, since
+ * what it would make of it can't be said.
  */
-function codeSettings(file: string): CodeSettings | undefined {
+function settingsRead(file: string): SettingsRead {
+	const problem = (digest: string, unchecked: string): SettingsRead => ({
+		said: { digest, paths: [], outside: [], unchecked },
+		mode: 0,
+	});
 	let text: Buffer;
+	let mode: number;
 	try {
-		if (!statSync(file, { throwIfNoEntry: false })) return undefined;
+		if (!statSync(file, { throwIfNoEntry: false }))
+			return { said: undefined, mode: 0 };
 		const read = regularFile(file, MOST_BYTES);
 		if (read === undefined)
-			return {
-				digest: "not a file",
-				paths: [],
-				unchecked:
-					"its settings aren't a file, so what pi reads there can't be pinned",
-			};
+			return problem(
+				"not a file",
+				"its settings aren't a file, so what pi reads there can't be pinned",
+			);
 		if (typeof read === "number")
-			return {
-				digest: "too large",
-				paths: [],
-				unchecked: `its settings are over ${MOST_BYTES / MIB} MiB`,
-			};
-		text = read;
+			return problem(
+				"too large",
+				`its settings are over ${MOST_BYTES / MIB} MiB`,
+			);
+		({ text, mode } = read);
 	} catch (error) {
-		return {
-			digest: `unreadable ${errorCode(error)}`,
-			paths: [],
-			unchecked: `the host can't read its settings (${errorCode(error)})`,
-		};
+		return problem(
+			`unreadable ${errorCode(error)}`,
+			`the host can't read its settings (${errorCode(error)})`,
+		);
 	}
-	const whole = { digest: sha256(text), paths: [] };
+	return { said: codeSettings(text, file), text, mode };
+}
+
+/** The code settings `text`, read from `file`, holds, or undefined when it holds none. */
+function codeSettings(text: Buffer, file: string): CodeSettings | undefined {
+	const whole = { digest: sha256(text), paths: [], outside: [] };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text.toString("utf8"));
@@ -453,6 +549,7 @@ function codeSettings(file: string): CodeSettings | undefined {
 	return {
 		digest: sha256(JSON.stringify(picked)),
 		paths: named.flatMap((found) => found.paths),
+		outside: named.flatMap((found) => found.outside),
 		...(unchecked ? { unchecked } : {}),
 	};
 }
@@ -467,18 +564,49 @@ function codeSettings(file: string): CodeSettings | undefined {
 function namedPaths(
 	value: unknown,
 	base: string,
-): { paths: string[]; unchecked?: string } {
+): { paths: string[]; outside: string[]; unchecked?: string } {
 	// pi spreads the setting into a list, so a string names each of its characters.
 	const entries: unknown[] =
 		typeof value === "string" ? [...value] : Array.isArray(value) ? value : [];
 	const paths: string[] = [];
+	const outside: string[] = [];
 	for (const entry of entries) {
 		const place = namedPath(entry, base);
 		if (place === undefined) continue;
-		if (typeof place !== "string") return { paths, unchecked: place.unchecked };
+		if (typeof place !== "string")
+			return { paths, outside, unchecked: place.unchecked };
 		paths.push(place);
+		if (!namedWithin(entry, base, place)) outside.push(relative(base, place));
 	}
-	return { paths };
+	return { paths, outside };
+}
+
+/**
+ * Whether `entry` names `place` relative to its settings' folder `base`
+ * and within it, so a copy of that folder holds what it names.
+ */
+function namedWithin(entry: unknown, base: string, place: string): boolean {
+	const source =
+		sourceOf(entry)
+			?.trim()
+			.replace(/^[+!-]+/, "") ?? "";
+	const relativeSource =
+		!(isAbsolute(source) || source.startsWith("file:")) &&
+		source !== "~" &&
+		!source.startsWith("~/");
+	const within = relative(base, place);
+	return relativeSource && !within.startsWith("..") && !isAbsolute(within);
+}
+
+/** The source one settings entry names, a string or an object's source. */
+function sourceOf(entry: unknown): string | undefined {
+	const source =
+		typeof entry === "string"
+			? entry
+			: typeof entry === "object" && entry !== null && "source" in entry
+				? entry.source
+				: undefined;
+	return typeof source === "string" ? source : undefined;
 }
 
 /** The place one entry names, nothing for one pi fetches, or why it can't be told. */
@@ -486,13 +614,8 @@ function namedPath(
 	entry: unknown,
 	base: string,
 ): string | { unchecked: string } | undefined {
-	const source =
-		typeof entry === "string"
-			? entry
-			: typeof entry === "object" && entry !== null && "source" in entry
-				? entry.source
-				: undefined;
-	if (typeof source !== "string") return undefined;
+	const source = sourceOf(entry);
+	if (source === undefined) return undefined;
 	const trimmed = source.trim().replace(/^[+!-]+/, "");
 	if (trimmed === "" || FETCHED.test(trimmed)) return undefined;
 	const said = printable(trimmed);
@@ -548,9 +671,19 @@ export function codeStanding(
 	now: () => number = Date.now,
 ): CodeStanding {
 	startPins(agentDir, now);
+	return standingOf(cwd, agentDir, projectCode(cwd), now);
+}
+
+/** Whether `code`, as read from `cwd`, may load, by the pins in `agentDir`. */
+export function standingOf(
+	cwd: string,
+	agentDir: string,
+	code: ProjectCode | undefined,
+	now: () => number = Date.now,
+): CodeStanding {
+	startPins(agentDir, now);
 	const file = join(agentDir, PINS_FILE);
 	const { pins, damaged } = readPins(file);
-	const code = projectCode(cwd);
 	if (!code) return { kind: "none" };
 	if (!code.complete) return { kind: "unpinned", code };
 	const pinned =

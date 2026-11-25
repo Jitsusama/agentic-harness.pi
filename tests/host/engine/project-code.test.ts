@@ -21,6 +21,7 @@ import {
 	PINS_FILE,
 	pin,
 	projectCode,
+	projectCopy,
 	unpinnedSaying,
 } from "../../../host/engine/project-code.ts";
 
@@ -543,5 +544,62 @@ describe("what is said of code that may not load", () => {
 		expect(unpinnedSaying(folder, { code: both })).toContain(
 			".pi/extensions/a?[2Jb.ts",
 		);
+	});
+});
+
+describe("a copy of a folder's .pi", () => {
+	/** The copy's files by their place within the .pi, as text. */
+	const texts = (cwd: string): Record<string, string> =>
+		Object.fromEntries(
+			projectCopy(cwd).files.map((file) => [file.place, file.text.toString()]),
+		);
+
+	it("holds its code, words, settings and what its links lead to, by place within the .pi", () => {
+		write(".pi/extensions/lint.ts", "code");
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/settings.json", "{}");
+		writeFileSync(join(root, "shared.ts"), "linked");
+		symlinkSync(
+			join(root, "shared.ts"),
+			join(folder, ".pi/extensions/shared.ts"),
+		);
+		expect(texts(folder)).toEqual({
+			"extensions/lint.ts": "code",
+			"extensions/shared.ts": "linked",
+			"skills/a/SKILL.md": "words",
+			"settings.json": "{}",
+		});
+		expect(projectCopy(folder).code?.digest).toBe(projectCode(folder)?.digest);
+	});
+
+	it("holds words and settings alone when the .pi holds no code", () => {
+		write(".pi/prompts/dream.md", "words");
+		write(".pi/settings.json", JSON.stringify({ theme: "dark" }));
+		const copy = projectCopy(folder);
+		expect(copy.code).toBeUndefined();
+		expect(texts(folder)).toEqual({
+			"prompts/dream.md": "words",
+			"settings.json": JSON.stringify({ theme: "dark" }),
+		});
+		expect(copy.uncopyable).toBeUndefined();
+	});
+
+	it("can't stand in for settings naming code by a home path, a file URL or a path out of the .pi", () => {
+		for (const named of ["~/ext.ts", "file:///ext.ts", "../../ext.ts"]) {
+			write(".pi/settings.json", JSON.stringify({ packages: [named] }));
+			expect(projectCopy(folder).uncopyable, named).toContain(
+				"rather than from the copy",
+			);
+		}
+		write(
+			".pi/settings.json",
+			JSON.stringify({
+				packages: ["npm:p", "./npm/p", { source: "./x/*.ts" }],
+			}),
+		);
+		expect(
+			projectCopy(folder).uncopyable,
+			"a fetched package, or a path within the .pi, is in the copy",
+		).toBeUndefined();
 	});
 });

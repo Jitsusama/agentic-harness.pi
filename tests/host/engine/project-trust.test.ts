@@ -10,6 +10,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +29,48 @@ import {
 	type TrustedServices,
 } from "../../../host/engine/project-trust.ts";
 
+/** pi's settings as a pi built with the host's patches has them: they read the .pi the host names. */
 class Settings {
+	trusted: boolean;
+	/** Where the next reload reads the project's .pi; none is the tree's own. */
+	dir: string | undefined;
+	/** Where each reload read the project's .pi from, the tree's own as undefined. */
+	readonly reads: (string | undefined)[] = [];
+	constructor(trusted: boolean, dir?: string) {
+		this.trusted = trusted;
+		this.dir = dir;
+	}
+	setProjectConfigDir(dir: string): void {
+		this.dir = dir === join(folder, ".pi") ? undefined : dir;
+	}
+	getDefaultProjectTrust(): string {
+		return "ask";
+	}
+	isProjectTrusted(): boolean {
+		return this.trusted;
+	}
+	setProjectTrusted(trusted: boolean): void {
+		this.trusted = trusted;
+	}
+	async reload(): Promise<void> {
+		duringLoad?.();
+		this.reads.push(this.dir);
+	}
+	/** pi's own way in, a static on its class. */
+	static create(
+		_cwd: string,
+		_agent: string,
+		options?: { projectTrusted?: boolean; projectConfigDir?: string },
+	): Settings {
+		return new Settings(
+			options?.projectTrusted ?? false,
+			options?.projectConfigDir,
+		);
+	}
+}
+
+/** pi's settings as a pi without the host's patches has them: they read only the tree's .pi. */
+class UnpatchedSettings {
 	trusted: boolean;
 	constructor(trusted: boolean) {
 		this.trusted = trusted;
@@ -43,13 +85,12 @@ class Settings {
 		this.trusted = trusted;
 	}
 	async reload(): Promise<void> {}
-	/** pi's own way in, a static on its class. */
 	static create(
 		_cwd: string,
 		_agent: string,
 		options?: { projectTrusted?: boolean },
-	): Settings {
-		return new Settings(options?.projectTrusted ?? false);
+	): UnpatchedSettings {
+		return new UnpatchedSettings(options?.projectTrusted ?? false);
 	}
 }
 
@@ -62,8 +103,12 @@ let stored: boolean | null;
 let piAnswers: () => Promise<boolean>;
 let asked: number;
 let warned: string[];
+/** What happens to the tree as pi reads it in a load, after the host's check. */
+let duringLoad: (() => void) | undefined;
 
-function modules(): Pick<HostPiModules, "codingAgent" | "projectTrust"> {
+function modules(
+	SettingsManager: typeof Settings | typeof UnpatchedSettings = Settings,
+): Pick<HostPiModules, "codingAgent" | "projectTrust"> {
 	const codingAgent = {
 		ProjectTrustStore: class {
 			get(): boolean | null {
@@ -71,7 +116,7 @@ function modules(): Pick<HostPiModules, "codingAgent" | "projectTrust"> {
 			}
 		},
 		hasTrustRequiringProjectResources: () => true,
-		SettingsManager: Settings,
+		SettingsManager,
 	};
 	const trust = { resolveProjectTrusted: () => piAnswers() };
 	// The stand-ins carry only what projectTrust reads of pi's modules.
@@ -138,6 +183,7 @@ beforeEach(() => {
 	piAnswers = async () => true;
 	asked = 0;
 	warned = [];
+	duringLoad = undefined;
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -206,7 +252,16 @@ it.skipIf(process.getuid?.() === 0)(
 			);
 			expect(warned.join("\n")).toContain("until the host restarts");
 			await settings.reload();
-			expect(settings.trusted, "the next load keeps the yes").toBe(true);
+			expect(
+				settings.trusted,
+				"a load with no copy to read leaves the folder out",
+			).toBe(false);
+			expect(warned.join("\n")).toContain("couldn't write its copy");
+			chmodSync(agentDir, 0o700);
+			await settings.reload();
+			expect(settings.trusted, "the next load with a copy keeps the yes").toBe(
+				true,
+			);
 		} finally {
 			chmodSync(agentDir, 0o700);
 		}
@@ -292,4 +347,121 @@ it("keeps a folder untrusted when its code is pinned again after the person's no
 		settings.trusted,
 		"the person's no outranks the guard's give-back",
 	).toBe(false);
+});
+
+/** Where the last load read the folder's .pi, which must be a copy. */
+function lastCopy(settings: Settings): string {
+	const dir = settings.reads.at(-1);
+	if (dir === undefined) throw new Error("the load read the tree's own .pi");
+	return dir;
+}
+
+it("loads a trusted folder's .pi from a copy of what it checked, which code written as pi reads never reaches", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	write(".pi/extensions/run.sh", "#!/bin/sh\n");
+	chmodSync(join(folder, ".pi/extensions/run.sh"), 0o755);
+	write(".pi/skills/a/SKILL.md", "words");
+	write(".pi/settings.json", JSON.stringify({ theme: "dark" }));
+	const { settings } = await opened(projectTrust(modules()), answering("Yes"));
+	firstLookDone();
+	duringLoad = () => write(".pi/extensions/lint.ts", "planted");
+	await settings.reload();
+	const dir = lastCopy(settings);
+	expect(dir.startsWith(join(agentDir, "project-copies"))).toBe(true);
+	expect(
+		readFileSync(join(dir, "extensions/lint.ts"), "utf8"),
+		"code written after the check isn't what loads",
+	).toBe("one");
+	expect(statSync(join(dir, "extensions/run.sh")).mode & 0o777).toBe(0o755);
+	expect(readFileSync(join(dir, "skills/a/SKILL.md"), "utf8")).toBe("words");
+	expect(readFileSync(join(dir, "settings.json"), "utf8")).toContain("dark");
+
+	duringLoad = undefined;
+	await settings.reload();
+	expect(settings.trusted, "the planted code is caught at the next load").toBe(
+		false,
+	);
+	expect(settings.reads.at(-1), "an untrusted load reads the tree").toBe(
+		undefined,
+	);
+});
+
+it("makes a copy as the settings are made, reuses it for the same bytes and makes another when they change", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const trust = projectTrust(modules());
+	await opened(trust, answering("Yes"));
+	const { settingsManager } = trust.services(
+		folder,
+		agentDir,
+		answering("Yes"),
+	);
+	const settings = settingsManager as Settings;
+	const made = settings.dir;
+	expect(made, "settings made trusted read a copy").toBeDefined();
+	await settings.reload();
+	const first = lastCopy(settings);
+	expect(first, "the load reuses the copy the settings were made with").toBe(
+		made,
+	);
+	await settings.reload();
+	expect(lastCopy(settings), "the same bytes reuse the copy").toBe(first);
+	write(".pi/skills/a/SKILL.md", "new words");
+	await settings.reload();
+	expect(lastCopy(settings), "changed words make a new copy").not.toBe(first);
+	expect(settings.trusted, "words are not code, so nothing asks").toBe(true);
+});
+
+it("leaves out a folder whose settings name code a copy can't hold, and says why", async () => {
+	write("tools/ext.ts", "outside");
+	write(".pi/extensions/lint.ts", "one");
+	write(
+		".pi/settings.json",
+		JSON.stringify({
+			extensions: [
+				"../tools/ext.ts",
+				join(folder, ".pi/extensions/lint.ts"),
+				"./extensions/lint.ts",
+			],
+		}),
+	);
+	const { settings, trusted } = await opened(
+		projectTrust(modules()),
+		answering("Yes"),
+	);
+	expect(trusted, "the folder's code was pinned and trusted").toBe(true);
+	await settings.reload();
+	expect(settings.trusted, "code pi would read from the tree stays out").toBe(
+		false,
+	);
+	const said = warned.join("\n");
+	expect(
+		said,
+		"a path out of the .pi, and an absolute one into it, but not one within it",
+	).toContain(
+		"its settings name ../tools/ext.ts, extensions/lint.ts, which pi would load from where it is rather than from the copy",
+	);
+});
+
+it("under a pi that can't load a copy, leaves out a folder's code but not its words", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const coded = await opened(
+		projectTrust(modules(UnpatchedSettings)),
+		answering("Yes"),
+	);
+	await coded.settings.reload();
+	expect(coded.settings.trusted).toBe(false);
+	expect(warned.join("\n")).toContain("can't load it from a copy");
+
+	rmSync(join(folder, ".pi"), { recursive: true });
+	write(".pi/skills/a/SKILL.md", "words");
+	warned = [];
+	const words = await opened(
+		projectTrust(modules(UnpatchedSettings)),
+		answering("Yes"),
+	);
+	await words.settings.reload();
+	expect(words.settings.trusted, "words load from the tree as before").toBe(
+		true,
+	);
+	expect(warned).toEqual([]);
 });
