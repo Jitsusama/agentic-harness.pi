@@ -122,6 +122,11 @@ export async function startSession(
 ) {
 	// No machine's owners file: a test reads only the one it writes.
 	env.PI_OWNERS_FILE ??= join(fixture.root, "no-owners.txt");
+	// The run's sandboxed state folder where a test names none: the
+	// extension reads its own env, not the process's, and an empty one
+	// falls back to ~/.local/state, where a Mac in a realm keeps its realm
+	// file, so the session asked the machine's live node.
+	env.XDG_STATE_HOME ??= process.env.XDG_STATE_HOME;
 	const sent: Sent[] = [];
 	const emitted: [string, unknown][] = [];
 	const bus = new Map<string, ((data: unknown) => void)[]>();
