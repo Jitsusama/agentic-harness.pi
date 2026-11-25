@@ -127,6 +127,32 @@ describe("the subjects a quest's sessions declare", () => {
 		expect(said(tooMany)).toMatch(/12/);
 	});
 
+	it("refuse a subject whose narrowest part names no work, changing nothing", async () => {
+		const id = await made();
+		const result = await run({
+			action: "config",
+			id,
+			ref: "subjects=needs,x:can,hooks:after",
+		});
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result), "each named").toMatch(/x:can, hooks:after/);
+	});
+
+	it("say how many the README declares that name no work", async () => {
+		const id = await made();
+		const file = join(questsRoot(), id, "README.md");
+		const text = readFileSync(file, "utf8");
+		writeFileSync(
+			file,
+			text.replace(/\n---\n/, "\nsubjects:\n  - needs\n  - x:can\n---\n"),
+		);
+		const report = await run({ action: "config", id });
+		expect(said(report)).toMatch(/1 of which names no work/);
+	});
+
 	it("refuse what the owner prefixes would crowd out of the twelve places, changing nothing", async () => {
 		const id = await made();
 		const address = questAddress(id);
@@ -135,7 +161,7 @@ describe("the subjects a quest's sessions declare", () => {
 			"else.=80ECO2",
 		);
 		const list = (count: number) =>
-			Array.from({ length: count }, (_, at) => `s${at}`).join(",");
+			Array.from({ length: count }, (_, at) => `area${at}`).join(",");
 		const crowded = await run({
 			action: "config",
 			id,
@@ -160,7 +186,7 @@ describe("the subjects a quest's sessions declare", () => {
 
 	it("are reported as left out once owner prefixes given later crowd them out", async () => {
 		const id = await made();
-		const declared = Array.from({ length: 10 }, (_, at) => `s${at}`);
+		const declared = Array.from({ length: 10 }, (_, at) => `area${at}`);
 		await run({ action: "config", id, ref: `subjects=${declared.join(",")}` });
 		const address = questAddress(id);
 		owners(...[0, 1, 2, 3].map((at) => `owned${at}.=${address}`));
@@ -170,7 +196,15 @@ describe("the subjects a quest's sessions declare", () => {
 
 	it("come back from the README exactly as said, however YAML would read them bare", async () => {
 		const id = await made();
-		const awkward = ["a: b", "#c", "[d]", "2026", "true", "---", "'q'"];
+		const awkward = [
+			"a: hubs",
+			"#carry",
+			"[deep]",
+			"2026",
+			"true",
+			"--- lines",
+			"'quoted'",
+		];
 		const result = await run({
 			action: "config",
 			id,

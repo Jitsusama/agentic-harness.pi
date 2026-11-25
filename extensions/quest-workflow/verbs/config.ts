@@ -23,6 +23,7 @@ import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/fro
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { stewards } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
+import { subjectWords } from "../../../lib/mesh/need-route.ts";
 import {
 	declaredSubjects,
 	LONGEST_SUBJECT,
@@ -151,18 +152,25 @@ function ownedByQuest(questId: string): string[] {
 /**
  * What the quest's sessions say they work on, as presence publishes
  * it: what they own, then what the README declares, naming any of
- * those the node would pass over or the places would leave out.
+ * those the node would pass over or the places would leave out, and
+ * how many of those said name no work a need is routed by.
  */
 function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	const owned = subjectsOf(ownedByQuest(questId), []);
 	const declared = declaredSubjects(fm._extra?.subjects);
 	const said = subjectsOf(owned, declared);
 	const left = declared.filter((one) => !said.includes(one));
+	const silent = said.filter(namesNoWork);
 	const parts = [
 		said.length > 0
 			? `They say they work on ${said.join(", ")}`
 			: "They say they work on nothing",
 	];
+	if (silent.length > 0) {
+		parts.push(
+			`${silent.length} of which ${silent.length === 1 ? "names" : "name"} no work a need is routed by`,
+		);
+	}
 	if (owned.length > 0) parts.push(`owning ${owned.join(", ")}`);
 	if (left.length > 0) {
 		parts.push(`leaving out ${left.length} its README declares`);
@@ -171,10 +179,20 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 }
 
 /**
+ * Whether a subject names no work a need is routed by: its narrowest
+ * part, after its last colon, dot or slash, holds no word routing
+ * reads, as x:can or hooks:after, so no need ever finds a cell by it.
+ */
+function namesNoWork(subject: string): boolean {
+	return subjectWords(subject).length === 0;
+}
+
+/**
  * Set the subjects the quest `id` names (else the loaded one) says its
  * sessions work on, on its front matter, so every session on it declares
  * the same; an empty list clears them. Refused, changing nothing, when
- * the node would read fewer than were said.
+ * the node would read fewer than were said, or when one names no work a
+ * need is routed by.
  */
 function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 	const target = questNamed(state, params);
@@ -186,6 +204,12 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 		const dropped = said.filter((one) => !subjects.includes(one));
 		return refuse(
 			`Nothing changed: mycelium's node reads at most ${MOST_SUBJECTS} subjects, each plain text of at most ${LONGEST_SUBJECT} characters, and would pass over ${dropped.length} of these. ${SUBJECTS_USAGE}`,
+		);
+	}
+	const silent = subjects.filter(namesNoWork);
+	if (silent.length > 0) {
+		return refuse(
+			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
 		);
 	}
 	const owned = subjectsOf(ownedByQuest(target.questId), []);
