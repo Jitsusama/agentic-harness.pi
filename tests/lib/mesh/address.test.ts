@@ -81,6 +81,38 @@ describe("a quest's address, when two sessions have it loaded", () => {
 		expect(yieldsTo("01-me", "7M6JKG", true, [older, holder])).toBe(older);
 		expect(yieldsTo("02-holder", "7M6JKG", true, [holder])).toBeUndefined();
 	});
+
+	it("is kept by the one that has signed with it longer, whatever its id", () => {
+		// On 25 November a session that resumed as optimus restarted saw
+		// nobody sign with its quest's address, since the holder on another
+		// machine wasn't heard yet, took it, and then kept it over that
+		// holder for having the lower id: its orchestrator's asks went to it.
+		const held = { ...holder, signsSince: "2026-11-21T20:47:00.000Z" };
+		const taken = { ...older, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [held], taken.signsSince),
+			"the one that took it gives it back",
+		).toBe(held);
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [taken], held.signsSince),
+			"the one that held it keeps it",
+		).toBeUndefined();
+	});
+
+	it("is kept by the lower id when either says no time, as an older harness doesn't", () => {
+		const held = { ...holder, signsSince: "2026-11-21T20:47:00.000Z" };
+		const atOnce = { ...holder, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(yieldsTo("00-older", "7M6JKG", true, [held])).toBeUndefined();
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [older], held.signsSince),
+		).toBe(older);
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [atOnce], atOnce.signsSince),
+			"and when both took it at once",
+		).toBeUndefined();
+	});
 });
 
 describe("a peer's addresses", () => {

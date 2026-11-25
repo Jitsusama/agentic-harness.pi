@@ -26,6 +26,20 @@ import {
 	startSession,
 } from "./support/mesh.ts";
 
+/** A peer signing with the fixture's quest, as it has since `since`. */
+function holding(holder: string, since: string) {
+	createPresences(join(fixture.paths.mesh, "presence")).publish({
+		session: holder,
+		addresses: ["7M6JKG"],
+		signsSince: since,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: new Date().toISOString(),
+	});
+}
+
 describe("sending", () => {
 	it("signs with the quest the session has loaded, and the mesh stamps it", async () => {
 		peer("session-p", ["P9R1KI"], []);
@@ -109,6 +123,34 @@ describe("sending", () => {
 		expect(transport.ids()).toHaveLength(0);
 		expect(sent.map(({ message }) => message.content)).not.toContainEqual(
 			expect.stringMatching(/^Another live session/),
+		);
+	});
+
+	it("gives its quest's address back to a peer heard later that has held it longer", async () => {
+		// On 25 November a session resumed before the holder on another
+		// machine was heard, took the quest's address, and kept it once
+		// the holder was heard, for having the lower session id.
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+		expect(await send(tools, "p9r1ki", "fyi", "first")).toContain(
+			"Sent as 7M6JKG",
+		);
+
+		holding("session-x", "2026-11-21T20:47:00.000Z");
+
+		expect(await send(tools, "p9r1ki", "fyi", "second")).toContain(
+			"Sent as 24B025FE",
+		);
+	});
+
+	it("keeps its quest's address through its own restart, over a peer that took it since", async () => {
+		holding(session, "2026-11-21T20:47:00.000Z");
+		holding("session-x", "2026-11-25T13:53:49.000Z");
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 7M6JKG",
 		);
 	});
 
