@@ -224,13 +224,13 @@ const teeKeeps = process.platform === "linux" || (await teePersists());
 /**
  * How long a kept call's files may take to show or go on a loaded machine:
  * now that Linux always runs the tee cases, optimus at a load of 190 took
- * past until's five seconds and waitFor's one. A case waiting on it takes
- * LOADED_CASE_MS, since vitest's own five seconds would end it first.
+ * past until's five seconds and waitFor's one. Each case may take up to
+ * three such waits, past vitest's own five seconds, which would end it first.
  */
 const LOADED_MS = 30_000;
-const LOADED_CASE_MS = 2 * LOADED_MS;
+const LOADED_CASE_MS = 4 * LOADED_MS;
 
-describe("a kept call", () => {
+describe("a kept call", { timeout: LOADED_CASE_MS }, () => {
 	it.skipIf(!teeKeeps)(
 		"reads as it did and leaves nothing once it ends in its pi",
 		async () => {
@@ -249,7 +249,6 @@ describe("a kept call", () => {
 				{ timeout: LOADED_MS },
 			);
 		},
-		LOADED_CASE_MS,
 	);
 
 	it.skipIf(!teeKeeps)(
@@ -277,7 +276,6 @@ describe("a kept call", () => {
 			expect(read).toBe("out\n");
 			expect(Date.now() - started, "before its child").toBeLessThan(10_000);
 		},
-		LOADED_CASE_MS,
 	);
 
 	it("is not kept where it can't be", async () => {
@@ -333,7 +331,6 @@ describe("a kept call", () => {
 				"once handed, it isn't carried twice",
 			).toBeUndefined();
 		},
-		LOADED_CASE_MS,
 	);
 
 	it("outlives its time limit here once handed on, the pi that took it up holding it", async () => {
@@ -350,6 +347,7 @@ describe("a kept call", () => {
 		await until(
 			"the call to have its pid on disk",
 			() => carry?.what() !== undefined,
+			LOADED_MS,
 		);
 		const work = carry?.what();
 		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
@@ -362,25 +360,20 @@ describe("a kept call", () => {
 		expect(endOf(work.keep), "its own end is on disk").toBe(5);
 	});
 
-	it(
-		"times out as pi says while it is still this pi's",
-		async () => {
-			const kept = keeping();
-			const started = Date.now();
-			await expect(
-				run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
-			).rejects.toThrow("timeout:0.3");
-			expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
-			await vi.waitFor(
-				() =>
-					expect(readdirSync(kept.folder), "its files go just after").toEqual(
-						[],
-					),
-				{ timeout: LOADED_MS },
-			);
-		},
-		LOADED_CASE_MS,
-	);
+	it("times out as pi says while it is still this pi's", async () => {
+		const kept = keeping();
+		const started = Date.now();
+		// A child long enough that a loaded machine's start stays well inside it.
+		await expect(
+			run(kept.operations, "sleep 20", new AbortController().signal, {}, 0.3),
+		).rejects.toThrow("timeout:0.3");
+		expect(Date.now() - started, "stopped at its limit").toBeLessThan(10_000);
+		await vi.waitFor(
+			() =>
+				expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+			{ timeout: LOADED_MS },
+		);
+	});
 
 	it.skipIf(!teeKeeps)(
 		"writes all it says once what read it has gone, as a spawner leaving it does",
@@ -429,7 +422,6 @@ describe("a kept call", () => {
 				"every line, those after its reader went too",
 			).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
 		},
-		LOADED_CASE_MS,
 	);
 
 	// A job is said ended only once its call settles, and a move or a
