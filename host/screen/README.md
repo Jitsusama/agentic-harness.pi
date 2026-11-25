@@ -75,6 +75,13 @@ start, and a warm spare can't pay it ahead, so the line says what in it
 to cut. `start-parts.ts` wraps pi's methods and the extensions' handlers
 only while the start runs, and puts back only its own wraps after.
 
+A handler's time runs until its promise settles, so it counts waiting
+on the disk, a child, or the other conversations on the host's thread.
+The line tells the two apart. It says how busy the thread was over the
+start, so a starved start reads as starved. And beside each extension
+it says what its handlers held the thread: their synchronous runs, a
+floor, since a handler's work after its first await isn't seen.
+
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host
 gives the screens an asker. `startup-ask.ts` shows it as pi's CLI shows
