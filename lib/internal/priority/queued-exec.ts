@@ -15,6 +15,7 @@
  */
 
 import type { Exec, Turn } from "../../core/exec/index.ts";
+import { behindThrough } from "../../core/work/fetch-rules.ts";
 import type { Held } from "../sandbox/tree-git.ts";
 import { queuedCommand } from "./turn.ts";
 
@@ -95,7 +96,7 @@ export function queuedExec(
 		const words =
 			through === undefined
 				? [...hold.args]
-				: ["-c", `${through} "$@"`, BEHIND_NAME, command, ...hold.args];
+				: behindThrough(through, command, hold.args);
 		const run = shellLine(program, words);
 		const shell = queuedCommand(line, undefined, () => run);
 		return shell === run
@@ -103,9 +104,6 @@ export function queuedExec(
 			: queued("bash", ["-c", shell]);
 	};
 }
-
-/** What the shell a command runs behind calls itself, as `$0`. */
-const BEHIND_NAME = "work-fetch";
 
 /** `command` and `args` as one shell line. */
 function shellLine(command: string, args: readonly string[]): string {

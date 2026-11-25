@@ -57,6 +57,23 @@ export interface FetchRule {
 /** The rule for the checkout whose git folder is `gitDir`, if any. */
 export type FetchRules = (gitDir: string) => Promise<FetchRule | undefined>;
 
+/** What the shell a command runs behind calls itself, as `$0`. */
+const BEHIND_NAME = "work-fetch";
+
+/**
+ * The words bash takes to run `command` with `args` behind `through`:
+ * the rule's shell text with the command as `"$@"`, so a rule ending
+ * in `exec turn --` runs the command inside its turn, and a rule that
+ * exits first, as one does during a call, runs nothing.
+ */
+export function behindThrough(
+	through: string,
+	command: string,
+	args: readonly string[],
+): string[] {
+	return ["-c", `${through} "$@"`, BEHIND_NAME, command, ...args];
+}
+
 /** The `work` section's fetch rules, keyed by git folder, and what was wrong. */
 export interface ParsedFetchRules {
 	readonly fetches: Readonly<Record<string, FetchRule>>;
