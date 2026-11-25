@@ -285,6 +285,8 @@ type GitShape =
 	| "entry"
 	/** A repository of its own, or a link to one: its commits are in it. */
 	| "repository"
+	/** Nothing at all, so nothing was renamed. */
+	| "none"
 	/** Anything else, whose commits may be wherever it led. */
 	| "unknown";
 
@@ -295,6 +297,7 @@ type GitShape =
 function gitShape(path: string): GitShape {
 	const dotGit = join(path, ".git");
 	if (isFolder(dotGit)) return "repository";
+	if (!standsAt(dotGit)) return "none";
 	try {
 		if (lstatSync(dotGit).isSymbolicLink()) {
 			// Only a repository inside the tree goes aside with it; one a
@@ -357,7 +360,20 @@ const PARTED: Record<GitShape | "snapshot", string> = {
 		"Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it.",
 	unknown:
 		"Its .git was renamed. Where it led wasn't read, so whatever was committed in it may be there alone, on no branch of the checkout that cut it.",
+	none: "It held no .git, so nothing was renamed. Git's entry for it, with its branch or a snapshot's commit, stays in the checkout that cut it until `git worktree prune` there: give such a commit a branch from that checkout before then.",
 };
+
+/** Whether anything stands at `path`, a link to nothing included. */
+function standsAt(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch (error) {
+		// Only a name that isn't there holds nothing; one that can't be
+		// looked at is read as something whose commits can't be placed.
+		return (error as NodeJS.ErrnoException).code !== "ENOENT";
+	}
+}
 
 /**
  * Whether a folder stands at `path`, a link to one included, as the

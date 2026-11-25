@@ -22,8 +22,10 @@ import {
 	type GitRules,
 	gitRun,
 	guardedExec,
+	heldGit,
 	refusedIn,
 	treeGit,
+	withoutFolders,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 import {
@@ -263,6 +265,62 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(gitRun(join(home, "alias", "below"), ["status"], rules())).toEqual({
 			args: [...NO_MONITOR, "status"],
 			unrooted: join(plain, "below"),
+		});
+	});
+
+	// The queue runs it there, so a link in the path it was given can't
+	// be repointed to a repository while it waits.
+	it("hands the queue the folder that held no git, and git's words without its folders", () => {
+		const plain = join(home, "plain");
+		mkdirSync(join(plain, "below"), { recursive: true });
+		symlinkSync(plain, join(home, "alias"));
+		const asked = ["-C", join(home, "alias"), "-C", "below", "push", "origin"];
+
+		expect(heldGit(() => rules())("git", asked)).toEqual({
+			args: [...NO_MONITOR, ...asked],
+			unrooted: {
+				folder: join(plain, "below"),
+				args: [...NO_MONITOR, "push", "origin"],
+			},
+		});
+		expect(withoutFolders(["-c", "a=-C", "-C", "x", "log", "-C"])).toEqual([
+			"-c",
+			"a=-C",
+			"log",
+			"-C",
+		]);
+	});
+
+	// git reads a bare repository's objects from the folder its commondir
+	// names, so HEAD and a commondir are a repository with settings of a
+	// command's own choosing.
+	it("finds a bare repository that names its objects through a commondir", () => {
+		const bare = join(home, "bare");
+		mkdirSync(join(bare, "below"), { recursive: true });
+		writeFileSync(join(bare, "HEAD"), "ref: refs/heads/x\n");
+		writeFileSync(join(bare, "commondir"), "/elsewhere\n");
+
+		expect(gitRun(join(bare, "below"), ["status"], rules())).toMatchObject({
+			top: bare,
+			refused: expect.stringContaining("holds a commondir"),
+		});
+	});
+
+	it("won't run where trees are cut when the repository it finds lies above them", () => {
+		// A home kept as a repository of its own has a tree whose .git was
+		// taken away answer to it.
+		const above = repository("dots");
+		const cutHere = join(above, "trees");
+		mkdirSync(join(cutHere, "t"), { recursive: true });
+
+		expect(
+			gitRun(join(cutHere, "t"), ["status"], rules({ trees: cutHere })),
+		).toMatchObject({
+			top: join(cutHere, "t"),
+			refused: expect.stringContaining("holds no .git"),
+		});
+		expect(gitRun(above, ["status"], rules({ trees: cutHere }))).toEqual({
+			args: [...NO_MONITOR, "status"],
 		});
 	});
 

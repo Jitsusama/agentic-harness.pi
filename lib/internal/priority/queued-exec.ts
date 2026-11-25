@@ -95,9 +95,10 @@ function shellWord(word: string): string {
  * the shell, and inside the queue's shell, so the queue weighs what
  * was asked.
  *
- * A git `held` found no git for runs, once the queue takes it, behind
- * a look at its folder again as its turn comes (`UNROOTED_GIT`); one
- * that runs at once runs as it was, since it starts as it was read.
+ * A git `held` found no git for runs, once the queue takes it, in the
+ * folder the guard read, behind a look at it again as its turn comes
+ * (`UNROOTED_GIT`); one that runs at once runs as it was, since it
+ * starts as it was read.
  */
 export function queuedExec(
 	direct: Exec,
@@ -120,9 +121,9 @@ export function queuedExec(
 							"-c",
 							UNROOTED_GIT,
 							UNROOTED_NAME,
-							hold.unrooted,
+							hold.unrooted.folder,
 							command,
-							...hold.args,
+							...hold.unrooted.args,
 						]),
 					);
 		const shell = queuedCommand(line, undefined, () => run);

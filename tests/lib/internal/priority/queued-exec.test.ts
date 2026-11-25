@@ -5,12 +5,13 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	EXIT_TIMED_OUT,
@@ -24,6 +25,7 @@ import {
 } from "../../../../lib/internal/priority/queued-exec.ts";
 import { queueHeavyWork } from "../../../../lib/internal/priority/turn.ts";
 import "../../../../lib/internal/priority/unrooted-git.sh";
+import { heldGit } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { at } from "../../../support/at.ts";
 
 let root: string;
@@ -161,12 +163,13 @@ const UNROOTED = readFileSync(
 	"utf8",
 );
 
-/** A guard that found no git in `folder` for any git it was asked. */
-const unrootedIn =
-	(folder: string) => (_command: string, args: readonly string[]) => ({
-		args,
-		unrooted: folder,
-	});
+/** The work tool's own guard over git, with `home` as the home folder. */
+const guardIn = (home: string) =>
+	heldGit(() => ({ home, fenced: false, trees: join(home, "trees") }));
+
+/** A git run as the queue's shell runs it, outside any user bus. */
+const spawned = () =>
+	spawnExec({ timeoutMs: 60_000, env: { XDG_RUNTIME_DIR: "" } });
 
 /** What `UNROOTED` says and exits with, guarding `folder`, of `command`. */
 function guarded(
@@ -194,52 +197,97 @@ function guarded(
 // runs there waits for its turn, naming a git folder whose hooks git
 // would run outside the sandbox.
 describe("a queued git in a folder with no git at or above it", () => {
-	const missing = join(homedir(), "world", "trees", "w-none-such", "src");
+	// The queue takes a push of World's trees, which it reads from home,
+	// so home is here, holding a World tree with no git in it.
+	let savedHome: string | undefined;
+	let home: string;
+	let trees: string;
+	let folder: string;
+	beforeEach(() => {
+		savedHome = process.env.HOME;
+		home = realpathSync(mkdtempSync(join(root, "home-")));
+		process.env.HOME = home;
+		trees = join(home, "world", "trees");
+		folder = join(trees, "w-plain", "src");
+		mkdirSync(folder, { recursive: true });
+	});
+	afterEach(() => {
+		if (savedHome === undefined) delete process.env.HOME;
+		else process.env.HOME = savedHome;
+	});
+
+	/** A push of `path` through the guard, and the job the queue holds it as. */
+	function queuedPush(path: string) {
+		keepQueue();
+		const exec = queuedExec(recording().exec, spawned(), guardIn(home));
+		const answer = exec("git", ["-C", path, "push", "origin", "x"]);
+		const [job] = jobs();
+		return {
+			answer,
+			turn: () => writeFileSync(join(dir, `${job.id}.turn`), ""),
+		};
+	}
 
 	it("runs at once as it was when the queue doesn't take it", async () => {
 		const direct = recording();
-		const exec = queuedExec(direct.exec, recording().exec, unrootedIn(root));
+		const exec = queuedExec(direct.exec, recording().exec, guardIn(home));
 
-		await exec("git", ["status"]);
+		await exec("git", ["-C", folder, "status"]);
 
-		expect(direct.asked).toEqual([["git", ["status"]]]);
+		expect(direct.asked).toEqual([
+			["git", ["-c", "core.fsmonitor=false", "-C", folder, "status"]],
+		]);
 	});
 
 	it("won't run once a .git was put in its folder while it waited", async () => {
-		keepQueue();
-		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
-		const exec = queuedExec(
-			recording().exec,
-			spawnExec({ timeoutMs: 60_000, env: { XDG_RUNTIME_DIR: "" } }),
-			unrootedIn(folder),
-		);
-
-		const answer = exec("git", ["-C", missing, "push", "origin", "x"]);
-		const [job] = jobs();
+		const push = queuedPush(folder);
 		writeFileSync(join(folder, ".git"), "gitdir: /elsewhere\n");
-		writeFileSync(join(dir, `${job.id}.turn`), "");
+		push.turn();
 
-		const result = await answer;
+		const result = await push.answer;
 		expect(result.code, result.stderr).toBe(126);
 		expect(result.stderr).toContain("holds a git now");
+		expect(result.stderr).toContain("Nothing ran.");
 	});
 
 	it("runs once its turn comes while its folder still holds none", async () => {
-		keepQueue();
-		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
-		const exec = queuedExec(
-			recording().exec,
-			spawnExec({ timeoutMs: 60_000, env: { XDG_RUNTIME_DIR: "" } }),
-			unrootedIn(folder),
-		);
+		const push = queuedPush(folder);
+		push.turn();
 
-		const answer = exec("git", ["-C", missing, "push", "origin", "x"]);
-		const [job] = jobs();
-		writeFileSync(join(dir, `${job.id}.turn`), "");
-
-		const result = await answer;
+		const result = await push.answer;
 		expect(result.code, result.stderr).toBe(128);
-		expect(result.stderr).toContain("w-none-such");
+		expect(result.stderr).toContain("fatal: not a git repository");
+	});
+
+	// git once went back through the path it was given, so a link in it
+	// repointed while it waited led it to a repository of a command's own.
+	it("runs in the folder it looked at, though a link in its path was repointed", async () => {
+		const evil = join(home, "evil");
+		mkdirSync(join(evil, "src"), { recursive: true });
+		execFileSync("git", ["init", "-q", join(evil, "src")]);
+		const link = join(trees, "w-link");
+		symlinkSync(join(trees, "w-plain"), link);
+		const push = queuedPush(join(link, "src"));
+		rmSync(link);
+		symlinkSync(evil, link);
+		push.turn();
+
+		const result = await push.answer;
+		expect(result.code, result.stderr).toBe(128);
+		expect(result.stderr).toContain("fatal: not a git repository");
+	});
+
+	it("won't run once its folder was swapped for a link while it waited", async () => {
+		const evil = join(home, "evil");
+		mkdirSync(evil);
+		const push = queuedPush(folder);
+		renameSync(folder, join(trees, "w-plain", "aside"));
+		symlinkSync(evil, folder);
+		push.turn();
+
+		const result = await push.answer;
+		expect(result.code, result.stderr).toBe(126);
+		expect(result.stderr).toContain("isn't where it was");
 	});
 
 	it.each([
@@ -260,16 +308,68 @@ describe("a queued git in a folder with no git at or above it", () => {
 		expect(said.stderr).toContain(`${above} holds a git now`);
 	});
 
-	it("keeps git from finding a repository above its folder", () => {
-		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
+	it.each([
+		[
+			"a .git link to nothing yet",
+			(above: string) => symlinkSync(join(above, "none"), join(above, ".git")),
+		],
+		[
+			"a bare repository whose objects come from elsewhere",
+			(above: string) => {
+				writeFileSync(join(above, "HEAD"), "ref: refs/heads/x\n");
+				writeFileSync(join(above, "commondir"), "/elsewhere\n");
+			},
+		],
+	])("won't run where %s stands above its folder", (_, plant) => {
+		const above = realpathSync(mkdtempSync(join(root, "above-")));
+		const below = join(above, "below");
+		mkdirSync(below);
+		plant(above);
 
-		const said = guarded(folder, [
+		const said = guarded(below, ["true"]);
+
+		expect(said.code, said.stderr).toBe(126);
+		expect(said.stderr).toContain(`${above} holds a git now`);
+	});
+
+	it("runs where a folder above holds only half of a bare repository", () => {
+		const above = realpathSync(mkdtempSync(join(root, "above-")));
+		const below = join(above, "below");
+		mkdirSync(below);
+		writeFileSync(join(above, "HEAD"), "");
+		writeFileSync(join(above, "objects"), "");
+
+		expect(guarded(below, ["true"])).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: "",
+		});
+	});
+
+	it("won't run below a folder whose name holds a colon, which git splits its ceiling at", () => {
+		const above = join(realpathSync(mkdtempSync(join(root, "above-"))), "a:b");
+		const below = join(above, "below");
+		mkdirSync(below, { recursive: true });
+
+		const said = guarded(below, ["true"]);
+
+		expect(said.code, said.stderr).toBe(126);
+		expect(said.stderr).toContain("holds a colon");
+	});
+
+	it("keeps git from finding a repository put above its folder after the look", () => {
+		const above = realpathSync(mkdtempSync(join(root, "above-")));
+		const below = join(above, "below");
+		mkdirSync(below);
+
+		const said = guarded(below, [
 			"sh",
 			"-c",
-			'printf %s "$GIT_CEILING_DIRECTORIES"',
+			"git init -q .. && git rev-parse --git-dir",
 		]);
 
-		expect(said).toEqual({ code: 0, stdout: dirname(folder), stderr: "" });
+		expect(said.code, said.stderr).toBe(128);
+		expect(said.stderr).toContain("not a git repository");
 	});
 });
 
