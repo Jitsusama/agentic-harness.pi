@@ -131,13 +131,26 @@ describe("sending", () => {
 		// machine was heard, took the quest's address, and kept it once
 		// the holder was heard, for having the lower session id.
 		peer("session-p", ["P9R1KI"], []);
-		const { tools } = await startSession();
+		const { tools } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
 		expect(await send(tools, "p9r1ki", "fyi", "first")).toContain(
 			"Sent as 7M6JKG",
 		);
 
 		holding("session-x", "2026-11-21T20:47:00.000Z");
 
+		// Given back once the holder is counted live, at the next count.
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		await vi.waitFor(() =>
+			expect(presences.of(session)?.addresses[0]).toBe("24B025FE"),
+		);
 		expect(await send(tools, "p9r1ki", "fyi", "second")).toContain(
 			"Sent as 24B025FE",
 		);
