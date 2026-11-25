@@ -215,36 +215,47 @@ const LIST_PATIENCE_MS = 2000;
 /** Words too short to tell one cell's work from another's. */
 const SHORTEST_WORD = 3;
 
-/** Words every title has, which tell nothing about the work. */
-const COMMON = new Set([
-	"a",
-	"all",
-	"and",
-	"any",
-	"are",
-	"but",
-	"for",
-	"from",
-	"has",
-	"have",
-	"how",
-	"its",
-	"not",
-	"now",
-	"one",
-	"our",
-	"out",
-	"the",
-	"them",
-	"then",
-	"this",
-	"that",
-	"what",
-	"when",
-	"with",
-	"without",
-	"your",
-]);
+/**
+ * Words that say nothing about any work: English's prepositions,
+ * pronouns, determiners, conjunctions, helping verbs and the adverbs
+ * any sentence has, with the stubs a contraction splits into (don, isn).
+ * Routing takes the rarest word a need shares with a cell, so a plain
+ * word one title happens to hold routes a need as surely as a word of
+ * work: on 24 November one went to a cell by "under" alone and another
+ * by "across", and each cell answered that the work wasn't its own.
+ * Left out of a need's words and a title's alike; kept inside an id,
+ * hand-over, which names its work whole.
+ */
+const COMMON = new Set(
+	[
+		// Determiners and pronouns.
+		"a all an another any anyone anything both each either every everyone",
+		"everything few her hers herself him himself his its itself many mine",
+		"more most much myself neither nobody none nothing one other others our",
+		"ours ourselves own same several she some someone something such that",
+		"the their theirs them themselves these they this those what whatever",
+		"which who whom whose you your yours yourself",
+		// Prepositions.
+		"about above across after against along among around before behind",
+		"below beneath beside besides between beyond during except for from",
+		"inside into near off onto out outside over past per since than",
+		"through throughout till toward towards under underneath until unto",
+		"upon via with within without",
+		// Conjunctions.
+		"although and because but how however nor once though unless when",
+		"whenever where whereas wherever whether while why yet",
+		// Helping verbs, and a contraction's stubs.
+		"are aren been being can cannot could couldn did didn does doesn doing",
+		"don had hadn has hasn have haven having isn may might must mustn",
+		"shall should shouldn was wasn were weren will won would wouldn",
+		// Adverbs any sentence has.
+		"again already also always even ever here instead just maybe never not",
+		"now often only perhaps please quite rather really soon still then",
+		"there too very",
+	]
+		.join(" ")
+		.split(" "),
+);
 
 /**
  * An id written as letters or digits joined by hyphens or underscores,
@@ -272,8 +283,8 @@ const NUMBER_IN_PROSE =
  * The words a need or a cell's work is matched by: lowercased, once
  * each, leaving out the short and the common, then each joined id whole
  * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
- * past, and each word with a number after it as their id
- * (`NUMBER_IN_PROSE`).
+ * past, and each word kept by the same rule with a number after it as
+ * their id (`NUMBER_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
 	const lower = text.toLowerCase();
@@ -283,7 +294,13 @@ export function wordsOf(text: string): string[] {
 	const ids = [...lower.matchAll(JOINED_ID)]
 		.map(([id]) => id)
 		.filter((id) => id.length <= LONGEST_WORD);
+	// A plain word's number is no id: "under 15" or "on 24" names no
+	// work, by the rule a word alone is left out by.
 	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
+		.filter(
+			([, word]) =>
+				word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word),
+		)
 		.map(([, word, n]) => `${word}-${n}`)
 		.filter((id) => id.length <= LONGEST_WORD);
 	return [...new Set([...words, ...ids, ...numbered])];

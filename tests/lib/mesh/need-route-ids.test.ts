@@ -45,7 +45,7 @@ describe("the ids a need or a cell's work is matched by", () => {
 		expect(wordsOf("leg-26"), "the id as written").toContain("leg-26");
 	});
 
-	it("reads any word with a number after it as their id, whatever the number's length", () => {
+	it("reads a work word with a number after it as their id, whatever the number's length", () => {
 		expect(wordsOf("postgres 15 is slow"), "a short number").toContain(
 			"postgres-15",
 		);
