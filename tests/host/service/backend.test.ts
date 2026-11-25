@@ -244,6 +244,14 @@ describe("hostBackend", () => {
 		expect(own.heap?.at, "dated by the host's clock").toBe(
 			"2026-11-09T16:00:00.000Z",
 		);
+		const old = own.heap?.spaces?.find(({ name }) => name === "old_space");
+		expect(old?.used, "V8's old space, among its spaces").toBeGreaterThan(0);
+		expect(old?.size).toBeGreaterThanOrEqual(old?.used ?? 0);
+		expect(
+			own.heap?.external,
+			"what it holds outside the heap",
+		).toBeGreaterThan(0);
+		expect(own.heap?.arrayBuffers).toBeGreaterThanOrEqual(0);
 		if (process.platform === "linux")
 			expect(own.pss, "its Pss").toBeGreaterThan(1024 * 1024);
 		else expect(own, "no Pss off Linux").not.toHaveProperty("pss");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemoryAnswer } from "../../host/service/protocol.ts";
-import { describeMemory } from "../../scripts/host-memory.ts";
+import { askedOf, describeMemory } from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
 const AT = "2026-11-24T08:00:00.000Z";
@@ -72,6 +72,44 @@ describe("a host's memory, described", () => {
 		expect(lines[1]).toMatch(
 			new RegExp(`^ {2}Pss unread +heap unread +parked +${ONE}$`),
 		);
+	});
+
+	it("gives each of a process's own spaces, largest first, under its line", () => {
+		const lines = describeMemory(`background child ${ONE}`, {
+			host,
+			own: {
+				pss: 270 * MIB,
+				heap: {
+					used: 168 * MIB,
+					limit: 4096 * MIB,
+					at: AT,
+					spaces: [
+						{ name: "code_space", used: 9 * MIB, size: 10 * MIB },
+						{ name: "old_space", used: 150 * MIB, size: 160 * MIB },
+						{ name: "large_object_space", used: 7 * MIB, size: 7 * MIB },
+					],
+					external: 12 * MIB,
+					arrayBuffers: 3 * MIB,
+				},
+			},
+			sessions: [{ sessionId: ONE, state: "busy" }],
+		});
+
+		expect(lines[1]).toBe(
+			"  spaces: old_space 150 of 160 MiB, code_space 9 of 10 MiB, large_object_space 7 of 7 MiB; external 12 MiB, array buffers 3 MiB",
+		);
+		expect(lines).toHaveLength(3);
+	});
+
+	it("reads a host's kind, or a kind and a conversation's id, and nothing else", () => {
+		expect(askedOf("background")).toEqual({ kind: "background" });
+		expect(askedOf(`attended:${ONE}`)).toEqual({
+			kind: "attended",
+			session: ONE,
+		});
+		expect(askedOf("elsewhere"), "no such kind").toBeUndefined();
+		expect(askedOf("background:../x"), "no path for an id").toBeUndefined();
+		expect(askedOf(`background:${ONE}:x`)).toBeUndefined();
 	});
 
 	it("says no child's Pss was read when none was", () => {

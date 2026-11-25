@@ -156,10 +156,19 @@ const drained = z.strictObject({
 // more doesn't break an older reader: every reading is already one a reader
 // must do without. The host's identity, which a later request names, and a
 // conversation's state still refuse what they don't know.
+// A process's answer for itself also says each V8 space, and the bytes held
+// outside the heap, so where a heap goes can be read from a live process
+// without the pause and the second heap a snapshot costs; a child's heap as
+// its state line said it carries none of them.
 const heapReading = z.object({
 	used: count,
 	limit: count,
 	at: z.iso.datetime({ offset: true }),
+	spaces: z
+		.array(z.object({ name: z.string(), used: count, size: count }))
+		.optional(),
+	external: count.optional(),
+	arrayBuffers: count.optional(),
 });
 // Each is absent where it can't be read, never zero: a conversation on the
 // host's own thread or parked, or a child gone before its Pss was read.
