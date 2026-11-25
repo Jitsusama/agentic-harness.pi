@@ -1,6 +1,6 @@
 /** The host keeping a warm spare child, which its next resume or open takes in place of starting a unit. */
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { slotOf } from "../../../host/service/child-units.ts";
 import { spareMarks } from "../../../host/service/spare.ts";
@@ -331,7 +331,14 @@ describe("a warm spare", () => {
 		await supervisor.adopt();
 		const spare = await warmSpare();
 
+		// Its stop as its host closes doesn't land, as when that host was
+		// killed first, so the spare still runs as the next host starts.
+		units.lingers = true;
 		superviseAgain({ nextHost: true });
+		units.lingers = false;
+		expect(units.children.has(spare), "the spare stopped with its host").toBe(
+			true,
+		);
 		const taken = await supervisor.adopt();
 
 		expect(taken).toBe(0);
@@ -341,7 +348,8 @@ describe("a warm spare", () => {
 				"the untaken spare's slot is still there",
 			).toBe(false),
 		);
-		expect(new Set(units.stopped)).toEqual(new Set([spare]));
+		expect(units.children.has(spare)).toBe(false);
+		expect(units.stopped).toEqual([spare, spare]);
 		expect(said.some((line) => line.includes("a spare untaken"))).toBe(true);
 	});
 
@@ -419,16 +427,112 @@ describe("a warm spare", () => {
 				turnHeldWithinMs: 200,
 			},
 		});
+		roster.held = [entry(a), entry(b)];
 		units.next = { warmsWhen: new Promise<void>(() => undefined) };
 		await supervisor.adopt();
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 		const spare = units.started[0] ?? "";
+		const listen = deferred();
+		units.traitsOf = () => ({ listensWhen: listen.promise });
+		const first = supervisor.resume(entry(a));
+		const second = supervisor.resume(entry(b));
 
+		// The first holds the other turn until it listens, so the second
+		// starts only on the turn the spare gave back.
+		await vi.waitFor(() =>
+			expect(units.started).toContain(slotOf(folder, key, b).unit),
+		);
+		expect(said).toContainEqual(
+			expect.stringContaining(`${spare}: a spare held its turn to start`),
+		);
+		listen.settle();
+		await Promise.all([first, second]);
+	});
+
+	it("still warming as its host closes during a take, is stopped once the take passes it over", async () => {
+		keepingSpares();
+		roster.held = [entry(a)];
+		units.next = { warmsWhen: new Promise<void>(() => undefined) };
+		await supervisor.adopt();
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+		const spare = units.started[0] ?? "";
+		const answer = deferred();
+		units.goneAnswers = answer.promise;
+		const resume = supervisor.resume(entry(a)).catch(() => undefined);
+		// The take has asked whether the spare is gone once its answer is taken.
+		await vi.waitFor(() => expect(units.goneAnswers).toBeUndefined());
+
+		supervisor.close();
+		expect(units.stopped, "close stopped a spare being taken").toEqual([]);
+		answer.settle();
+
+		await vi.waitFor(() => expect(units.stopped).toEqual([spare]));
+		await resume;
+	});
+
+	it("gives its turn back once its unit ends before it warms, and says so", async () => {
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: 60_000,
+				turnHeldWithinMs: 60_000,
+			},
+		});
+		roster.held = [entry(a), entry(b)];
+		units.next = { warmsWhen: new Promise<void>(() => undefined) };
+		await supervisor.adopt();
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+		const spare = units.started[0] ?? "";
+		const listen = deferred();
+		units.traitsOf = () => ({ listensWhen: listen.promise });
+		const first = supervisor.resume(entry(a));
+		const second = supervisor.resume(entry(b));
+		await vi.waitFor(() =>
+			expect(units.started).toContain(slotOf(folder, key, a).unit),
+		);
+
+		// Its unit ends cold, as a spare whose warm crashed does.
+		units.children.delete(spare);
+
+		await vi.waitFor(
+			() => expect(units.started).toContain(slotOf(folder, key, b).unit),
+			{ timeout: 10_000 },
+		);
+		expect(said).toContainEqual(
+			expect.stringContaining(`${spare}: a spare ended before it warmed`),
+		);
+		listen.settle();
+		await Promise.all([first, second]);
+	});
+
+	it("once warm, is never stopped as cold when it takes its mark away to leave", async () => {
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: SPARE_CHECK_MS,
+				spareWarmWithinMs: 200,
+			},
+		});
+		// Leaving untaken, it unlinks its mark and runs on a moment, past the
+		// checks that would stop a cold one.
+		units.traitsOf = () => ({ leavesAfterMs: SETTLED_MS * 2 });
+		await supervisor.adopt();
+		const spare = await warmSpare();
 		await vi.waitFor(() =>
 			expect(said).toContainEqual(
-				expect.stringContaining(`${spare}: a spare held its turn to start`),
+				expect.stringContaining(`${spare}: a spare was seen warm`),
 			),
 		);
+
+		await rm(warmMark(spare));
+		// A fixed wait: no stop is the claim, so no event marks its end; past
+		// its warm's limit and several checks, a cold one would be stopped.
+		await pause(SETTLED_MS);
+
+		expect(units.stopped).not.toContain(spare);
+		expect(said.some((line) => line.includes("never warmed"))).toBe(false);
 	});
 
 	it("once taken, is taken up by the next host as the conversation it runs", async () => {

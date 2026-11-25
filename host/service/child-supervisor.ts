@@ -202,6 +202,22 @@ export const SPARE_WARM_WITHIN_MS = 120_000;
 /** How often a spare holding its turn to start looks for its warm mark. */
 const SPARE_WARM_LOOK_MS = 250;
 /**
+ * How often a spare holding its turn while it warms asks whether its unit
+ * has ended, rarer than its warm look since each asks systemd.
+ */
+const SPARE_GONE_LOOK_MS = 2000;
+
+/**
+ * The spare a supervisor keeps: its slot, when its unit started, and
+ * whether its warm mark has been seen, so a spare leaving later, which
+ * takes its mark away, is never taken for one that never warmed.
+ */
+interface KeptSpare {
+	readonly slot: Slot;
+	readonly started: number;
+	warmed: boolean;
+}
+/**
  * A spare that leaves untaken within this long of its start left for
  * a fault, its warm's or its size, rather than for its install moving.
  */
@@ -624,7 +640,7 @@ export function childSupervisor(options: {
 	let adopting: Promise<number> | undefined;
 	let closing = false;
 	// The warm spare waiting to be taken, once its unit has started.
-	let spare: { slot: Slot; started: number } | undefined;
+	let spare: KeptSpare | undefined;
 	// A spare's start under way, and a take of one, so neither runs twice.
 	let startingSpare = false;
 	let takingSpare = false;
@@ -691,7 +707,7 @@ export function childSupervisor(options: {
 				}
 				return;
 			}
-			const kept = { slot, started: Date.now() };
+			const kept: KeptSpare = { slot, started: Date.now(), warmed: false };
 			spare = kept;
 			startOver();
 			await heldWhileWarming(kept);
@@ -710,15 +726,30 @@ export function childSupervisor(options: {
 
 	/**
 	 * Hold a spare's turn to start until it is warm, taken or let go, or
-	 * until it has held it as long as any start may, said then.
+	 * until it has held it as long as any start may, said then. One whose
+	 * unit ends first is let go then, so a spare that dies cold holds no
+	 * turn until the minute check finds it gone.
 	 */
-	async function heldWhileWarming(kept: {
-		slot: Slot;
-		started: number;
-	}): Promise<void> {
+	async function heldWhileWarming(kept: KeptSpare): Promise<void> {
 		const marks = spareMarks(kept.slot.file);
+		let goneAskedAt = Date.now();
 		while (!closing && spare === kept) {
-			if ((await warmVersion(marks).catch(() => "")) !== undefined) return;
+			// An unread mark ends the hold as a warm one does, though only a
+			// mark read counts it warmed.
+			const version = await warmVersion(marks).catch(() => null);
+			if (version !== undefined) {
+				if (version !== null) sawWarm(kept);
+				return;
+			}
+			if (Date.now() - goneAskedAt >= SPARE_GONE_LOOK_MS) {
+				goneAskedAt = Date.now();
+				const gone = await units.gone(kept.slot.unit).catch(() => false);
+				if (gone && spare === kept && !takingSpare) {
+					spareLeft(kept, "ended cold", false);
+					spareSoon();
+					return;
+				}
+			}
 			if (Date.now() - kept.started >= turnHeldWithinMs) {
 				options.say?.(
 					`${kept.slot.unit}: a spare held its turn to start ${inSeconds(turnHeldWithinMs)} s without warming, so the next start goes ahead beside it`,
@@ -727,6 +758,15 @@ export function childSupervisor(options: {
 			}
 			await pause(SPARE_WARM_LOOK_MS);
 		}
+	}
+
+	/** Count `kept` warmed, saying so the first time its mark is read. */
+	function sawWarm(kept: KeptSpare): void {
+		if (kept.warmed) return;
+		kept.warmed = true;
+		options.say?.(
+			`${kept.slot.unit}: a spare was seen warm ${inSeconds(Date.now() - kept.started)} s after its start`,
+		);
 	}
 
 	/**
@@ -766,17 +806,18 @@ export function childSupervisor(options: {
 	 * slot, stopping it first where it still runs and is let go `stopNow`.
 	 */
 	function spareLeft(
-		kept: { slot: Slot; started: number },
-		why: "left untaken" | "never warmed",
+		kept: KeptSpare,
+		why: "left untaken" | "never warmed" | "ended cold",
 		stopNow: boolean,
 	): void {
 		spare = undefined;
 		const lived = Date.now() - kept.started;
-		options.say?.(
-			why === "left untaken"
-				? `${kept.slot.unit}: a warm spare left untaken after ${inSeconds(lived)} s`
-				: `${kept.slot.unit}: stopped a spare that never warmed within ${inSeconds(spareWarmWithinMs)} s`,
-		);
+		const said = {
+			"left untaken": `a warm spare left untaken after ${inSeconds(lived)} s`,
+			"never warmed": `stopped a spare that never warmed within ${inSeconds(spareWarmWithinMs)} s`,
+			"ended cold": `a spare ended before it warmed, after ${inSeconds(lived)} s`,
+		}[why];
+		options.say?.(`${kept.slot.unit}: ${said}`);
 		spareLost(lived);
 		void leave(kept.slot, stopNow);
 	}
@@ -792,16 +833,25 @@ export function childSupervisor(options: {
 			const wanted = options.spares?.() ?? false;
 			const gone =
 				wanted && (await units.gone(kept.slot.unit).catch(() => false));
-			const cold =
-				wanted &&
-				!gone &&
-				Date.now() - kept.started > spareWarmWithinMs &&
-				(await warmVersion(spareMarks(kept.slot.file)).catch(() => "")) ===
-					undefined;
+			// One seen warm once is never cold: with its mark gone it is
+			// leaving on its own, as an untaken spare does each hour.
+			let cold = false;
+			if (wanted && !gone && !kept.warmed) {
+				// An unread mark is not cold, and not yet warmed either.
+				const version = await warmVersion(spareMarks(kept.slot.file)).catch(
+					() => null,
+				);
+				if (version === undefined)
+					cold = Date.now() - kept.started > spareWarmWithinMs;
+				else if (version !== null) sawWarm(kept);
+			}
 			// A take that began meanwhile settles it instead.
 			if (spare !== kept || takingSpare) return;
 			if (!wanted) {
 				spare = undefined;
+				options.say?.(
+					`${kept.slot.unit}: stopped the spare, since the policy keeps none`,
+				);
 				void leave(kept.slot, true);
 			} else if (gone) spareLeft(kept, "left untaken", false);
 			else if (cold) spareLeft(kept, "never warmed", true);
@@ -862,6 +912,12 @@ export function childSupervisor(options: {
 			return undefined;
 		} finally {
 			takingSpare = false;
+			// close() leaves a spare being taken; one the take passed over is
+			// stopped here, so it never outlives its host.
+			if (closing && spare === kept) {
+				spare = undefined;
+				void units.stop(kept.slot.unit).catch(options.report);
+			}
 		}
 	}
 
