@@ -36,6 +36,37 @@ export function findJson(text: string): Record<string, unknown> | undefined {
 	return parseObject(text.slice(first, last + 1));
 }
 
+/**
+ * Every brace-balanced span at the top level of `text`, widest first,
+ * braces inside strings not counted. A stray closing brace in prose
+ * closes nothing.
+ */
+function balancedObjects(text: string): string[] {
+	const spans: string[] = [];
+	let depth = 0;
+	let start = -1;
+	let inString = false;
+	let escaped = false;
+	for (let at = 0; at < text.length; at++) {
+		const char = text.charAt(at);
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') inString = false;
+		} else if (char === '"') {
+			// Prose has quotes too; only a quote inside an object opens a string.
+			if (depth > 0) inString = true;
+		} else if (char === "{") {
+			if (depth === 0) start = at;
+			depth++;
+		} else if (char === "}" && depth > 0) {
+			depth--;
+			if (depth === 0) spans.push(text.slice(start, at + 1));
+		}
+	}
+	return spans.sort((one, other) => other.length - one.length);
+}
+
 /** An answer, and whether it is all of one. */
 export interface AnswerRead {
 	/** The object the answer carried, whole or salvaged. */
@@ -58,9 +89,34 @@ export function readAnswer(text: string, key: string): AnswerRead {
 	const whole = findJson(text);
 	if (whole !== undefined) return { parsed: whole, truncated: false };
 	const salvaged = salvageEntries(text, key);
+	// A whole object followed by prose with a brace in it, as
+	// `{"findings": []}` and then a closing remark, has no span that
+	// parses, yet is a whole answer. It wins unless a cut-off one after
+	// it, the real answer behind a sketch, salvages more.
+	const complete = wholeHolding(text, key);
+	const held = complete?.[key];
+	if (
+		complete !== undefined &&
+		Array.isArray(held) &&
+		held.length >= salvaged.length
+	) {
+		return { parsed: complete, truncated: false };
+	}
 	return salvaged.length === 0
 		? { parsed: undefined, truncated: false }
 		: { parsed: { [key]: salvaged }, truncated: true };
+}
+
+/** The widest whole object in `text` that holds an array at `key`. */
+function wholeHolding(
+	text: string,
+	key: string,
+): Record<string, unknown> | undefined {
+	for (const span of balancedObjects(text)) {
+		const object = parseObject(span);
+		if (object !== undefined && Array.isArray(object[key])) return object;
+	}
+	return undefined;
 }
 
 /**

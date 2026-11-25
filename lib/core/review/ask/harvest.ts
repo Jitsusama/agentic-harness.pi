@@ -313,21 +313,138 @@ function readFinding(
 		return undefined;
 	}
 
-	const { label, given } = readLabel(entry.label, at, warnings);
-	const anchor = readAnchor(entry.location, at, witness, warnings);
+	// A judge records findings in the shape it was shown them, and it is
+	// shown "who · label · where". Measured: one judge recorded all twenty
+	// of its findings with the label under `severity`, the reviewer under
+	// `category`, and `file` and `line` beside the subject rather than in
+	// a location, and every one came through as a note about the whole
+	// change with no severity. Another's twelve findings were reported
+	// labelled "nothing" with the label under `severity`, whether it wrote
+	// that word or no label at all. A label word under `severity`, where
+	// the label given is none or no label word, is the label; the same
+	// bargain as `title` and `body`, said in a warning, and the word it
+	// gave as its label kept in the discussion.
+	const labelAsSeverity = !isLabel(entry.label) && isLabel(entry.severity);
+	const gaveAsLabel = labelAsSeverity ? wireText(entry.label) : undefined;
+	if (labelAsSeverity) {
+		const stood =
+			gaveAsLabel === undefined
+				? ","
+				: `, and its label "${gaveAsLabel}" is no label,`;
+		warnings.push(
+			`${at} gave its label "${wireText(entry.severity)}" as its severity${stood} so it was read as the label.`,
+		);
+	}
+	const { label, given } = readLabel(
+		labelAsSeverity ? entry.severity : entry.label,
+		at,
+		warnings,
+	);
+	const anchor = readAnchor(
+		locationOf(entry, at, warnings),
+		at,
+		witness,
+		warnings,
+	);
+	const discussion = discussionWith(
+		wireText(entry.discussion) ?? wireText(entry.body) ?? "",
+		given,
+	);
 
 	return {
 		anchor,
 		label,
 		subject,
-		discussion: discussionWith(
-			wireText(entry.discussion) ?? wireText(entry.body) ?? "",
-			given,
-		),
+		discussion:
+			gaveAsLabel === undefined
+				? discussion
+				: withSaid(
+						discussion,
+						`The reviewer labelled this "${gaveAsLabel}" and gave "${label}" as its severity, so it is kept as ${label === "issue" ? "an" : "a"} ${label}.`,
+					),
 		origin,
-		...readSeverity(entry.severity, at, warnings),
+		...(labelAsSeverity ? {} : readSeverity(entry.severity, at, warnings)),
 		...readConfidence(entry.confidence, at, warnings),
 		...readRaisedBy(entry.raisedBy, at, warnings),
+	};
+}
+
+/** Whether `value` is one of the labels, in any case. */
+function isLabel(value: unknown): boolean {
+	const word = wireText(value)?.toLowerCase();
+	return word !== undefined && LABELS.includes(word);
+}
+
+/**
+ * The location a finding gave, wherever it gave it: its `location`, a
+ * `path:line` written as a string there, or a file and line beside its
+ * subject. A place said under a shape we did not expect is still the
+ * place, and each such reading is said in a warning, so a judge that
+ * keeps writing it can be seen doing so.
+ */
+function locationOf(
+	entry: Record<string, unknown>,
+	at: string,
+	warnings: string[],
+): unknown {
+	if (isRecord(entry.location)) return entry.location;
+	const written = wireText(entry.location);
+	const place = written === undefined ? undefined : placeWritten(written);
+	if (place !== undefined) {
+		warnings.push(
+			`${at} wrote its location as the text "${written}", so it was read as that place.`,
+		);
+		return place;
+	}
+	const beside = placeBeside(entry);
+	if (beside !== undefined) {
+		warnings.push(
+			`${at} gave its file beside its subject rather than in a location, so it was read from there.`,
+		);
+		return beside;
+	}
+	return entry.location;
+}
+
+/**
+ * A place written as text: `path:line`, `path:start-end` or a path
+ * alone, or `global` (or `change`) for the whole change. Text with a
+ * space in it is a sentence, not a path, so it names no place.
+ */
+function placeWritten(text: string): Record<string, unknown> | undefined {
+	if (/\s/.test(text)) return undefined;
+	if (text === "global" || text === "change") return { kind: "global" };
+	const lined = /^(.+):(\d+)(?:-(\d+))?$/.exec(text);
+	if (lined?.[1] !== undefined) {
+		return {
+			kind: "line",
+			file: lined[1],
+			start: Number(lined[2]),
+			end: Number(lined[3] ?? lined[2]),
+		};
+	}
+	return { kind: "file", file: text };
+}
+
+/**
+ * The location a finding gave beside its subject rather than inside a
+ * `location`: a `file` (or `path`), and a line where it named one.
+ */
+function placeBeside(
+	entry: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+	const file = wireText(entry.file) ?? wireText(entry.path);
+	if (file === undefined) return undefined;
+	// A line it named but we can't read still makes a line finding, so
+	// the anchor's own "no line" warning says it was lost.
+	const named = entry.start !== undefined || entry.line !== undefined;
+	return {
+		kind: named ? "line" : "file",
+		file,
+		start: entry.start,
+		line: entry.line,
+		end: entry.end,
+		side: entry.side,
 	};
 }
 
@@ -357,6 +474,15 @@ function readAnchor(
 
 	const kind = wireText(value.kind);
 	if (kind === "global") return { subject: "change", ...stamp };
+	// "change" is the anchor's own word for global (its subject), so a
+	// judge that wrote it means the same; said, since it isn't the
+	// contract's word.
+	if (kind === "change") {
+		warnings.push(
+			`${at} has location kind "change", so it was read as global.`,
+		);
+		return { subject: "change", ...stamp };
+	}
 
 	// `path` alongside `file`, for the same reason `line` is read
 	// alongside `start` two branches down: it is the word a reviewer
@@ -434,6 +560,13 @@ function readRaisedBy(
 	warnings: string[],
 ): { raisedBy?: string[] } {
 	if (value === undefined) return {};
+	const one = wireText(value);
+	if (one !== undefined) {
+		warnings.push(
+			`${at} gave raisedBy as the one name "${one}" rather than a list, so it was read as that one.`,
+		);
+		return { raisedBy: [one] };
+	}
 	if (!Array.isArray(value)) {
 		warnings.push(
 			`${at} has raisedBy that is not a list of participant ids, so the finding was kept without its agreement.`,
@@ -495,7 +628,14 @@ function readLabel(
  */
 function discussionWith(discussion: string, given?: string): string {
 	if (given === undefined) return discussion;
-	const said = `The reviewer labelled this "${given}", which is not one of the conventional labels, so it is kept as a note.`;
+	return withSaid(
+		discussion,
+		`The reviewer labelled this "${given}", which is not one of the conventional labels, so it is kept as a note.`,
+	);
+}
+
+/** The discussion with a sentence of the harvest's own after it. */
+function withSaid(discussion: string, said: string): string {
 	return discussion === "" ? said : `${discussion}\n\n${said}`;
 }
 
