@@ -11,8 +11,17 @@
  * as its seed's words are, and grants nothing.
  */
 
-/** A mesh address as the node's forage::is_address takes one. */
+/**
+ * A mesh address as the node's forage::is_address takes one: 1 to 32
+ * ASCII letters or digits. A sprout's seed is checked by this too, so
+ * a cell it names is always one its split can say.
+ */
 const ADDRESS = /^[A-Za-z0-9]{1,32}$/u;
+
+/** Whether `said` is a mesh address as the node takes one. */
+export function isCellAddress(said: string): boolean {
+	return ADDRESS.test(said);
+}
 
 /** The front matter key a quest's README holds it under. */
 export const SPLIT_FROM = "split-from";
@@ -24,5 +33,5 @@ export const SPLIT_FROM = "split-from";
 export function splitFromOf(said: unknown): string | undefined {
 	if (typeof said !== "string") return undefined;
 	const address = said.trim();
-	return ADDRESS.test(address) ? address : undefined;
+	return isCellAddress(address) ? address : undefined;
 }

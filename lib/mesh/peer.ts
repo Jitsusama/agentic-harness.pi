@@ -678,7 +678,12 @@ export function localPeer(at: Surroundings): Peer {
 			work.subjects ?? [],
 		);
 		serves = work.serves ?? [];
-		lineage = work.lineage;
+		// A cell never split from itself, as the asking cell's own session
+		// would say once it loaded the quest it sprouted.
+		lineage =
+			work.lineage && !working.includes(work.lineage.split_from)
+				? work.lineage
+				: undefined;
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();

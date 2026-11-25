@@ -62,7 +62,8 @@ import { createEnvGuard } from "../_helpers.ts";
  * them fails, as a lock that never comes does; every
  * other write goes through. `tried` keeps each alias a write would add.
  * `servesRefused` has a need's write answer that it wasn't made, as a
- * README it can't read back does, rather than throw.
+ * README it can't read back does, rather than throw. `splitTries`
+ * counts the writes that would record a split, landed or not.
  */
 const failing = vi.hoisted(() => ({
 	serves: false,
@@ -74,6 +75,7 @@ const failing = vi.hoisted(() => ({
 	linkedLog: false,
 	unwrittenLog: false,
 	tried: [] as string[],
+	splitTries: 0,
 }));
 /** The alias verb's own log of a mark it added fails, as its lock not coming does. */
 vi.mock(
@@ -122,6 +124,7 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 					const splits =
 						next !== undefined &&
 						next._extra?.["split-from"] !== fm._extra?.["split-from"];
+					if (splits) failing.splitTries += 1;
 					if (failing.splits && splits)
 						throw new Error("the quest's lock didn't come");
 					if (failing.servesRefused && serves) {
@@ -315,6 +318,7 @@ beforeEach(() => {
 		.spyOn(process.stderr, "write")
 		.mockImplementation(() => true);
 	failing.tried.length = 0;
+	failing.splitTries = 0;
 	// The extension registers them as it loads; a link reads by them.
 	registerBuiltinRefTypes();
 	envGuard.enter();
@@ -1019,6 +1023,26 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("asks no more for a lock its need's write didn't get, so the split waits on it no longer", async () => {
+		failing.serves = true;
+		try {
+			const { words } = await start({
+				words: "tea",
+				id: "S13",
+				from: "TERN02",
+				need: "TERN02/mi1x.0123456789ab",
+			});
+			expect(failing.splitTries, "no split write after the lock failed").toBe(
+				0,
+			);
+			expect(words, "and its words say the split went unrecorded").toContain(
+				"the cell it split from isn't recorded on the quest",
+			);
+		} finally {
+			failing.serves = false;
+		}
+	});
+
 	it("says a need went unrecorded when its write answers that it wasn't made", async () => {
 		failing.servesRefused = true;
 		try {
@@ -1196,6 +1220,25 @@ describe("a sprouted session's start", () => {
 		const again = await start(
 			{ words: "tea", id: "S44", from: "TERN02" },
 			{ sessionId: "sess-split-2" },
+		);
+		expect(again.state.questId).toBe(first.state.questId);
+		clearDiscoveryCache();
+
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			again.state.questId ?? "",
+		);
+		expect(entry?.doc.frontMatter._extra?.["split-from"]).toBe("TERN02");
+		expect(again.words).not.toContain("split from isn't recorded");
+	});
+
+	it("keeps the split its quest already holds when a replay names another cell", async () => {
+		const first = await start(
+			{ words: "tea", id: "S45", from: "TERN02" },
+			{ sessionId: "sess-split-kept-1" },
+		);
+		const again = await start(
+			{ words: "tea", id: "S45", from: "OSPREY" },
+			{ sessionId: "sess-split-kept-2" },
 		);
 		expect(again.state.questId).toBe(first.state.questId);
 		clearDiscoveryCache();

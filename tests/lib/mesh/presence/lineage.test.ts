@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { session, surroundingsAt } from "./support/presences.ts";
@@ -82,6 +83,31 @@ describe("the cell this session's peer says its work split from", () => {
 
 		expect(kept(), "a presence was written").toBeDefined();
 		expect(kept()?.lineage, "no lineage at all").toBeUndefined();
+	});
+
+	it("says none where its quest split from this very cell, which never split from itself", () => {
+		write(readme(`split-from: ${sessionAddress(session)}\n`));
+		localPeer(surroundingsAt(root));
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(kept()?.lineage, "no lineage naming itself").toBeUndefined();
+	});
+
+	it("says a split written after it began at its next refresh, and none once it's gone", () => {
+		write(readme());
+		const peer = localPeer(surroundingsAt(root));
+		expect(kept()?.lineage, "none before the sprout wrote it").toBeUndefined();
+
+		write(readme("split-from: TERN02\n"));
+		peer.refresh();
+		expect(kept()?.lineage).toEqual({ split_from: "TERN02" });
+
+		write(readme());
+		peer.refresh();
+		expect(
+			kept()?.lineage,
+			"cleared once the README says none",
+		).toBeUndefined();
 	});
 
 	it("says none for a split naming no cell by address", () => {

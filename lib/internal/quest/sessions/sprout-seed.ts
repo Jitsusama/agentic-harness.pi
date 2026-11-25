@@ -14,12 +14,10 @@
 import { isRecord } from "../../record.ts";
 import { isId } from "../creation/id.ts";
 import { needAsker } from "../fields/serves.ts";
+import { isCellAddress } from "../fields/split-from.ts";
 
 /** The one shape of it this reads. */
 const SPROUT_VERSION = 1;
-
-/** A mesh address as the node's forage::is_address takes one. */
-const ADDRESS = /^[A-Za-z0-9]{1,32}$/u;
 
 /** A sprout's id, as an alias value carries it. */
 const SPROUT_ID = /^[A-Za-z0-9._-]{1,64}$/u;
@@ -101,7 +99,7 @@ export function sproutSeedFrom(
 	if (w && w.length > MOST_WORDS) return undefined;
 	const href = l ? webLink(l) : undefined;
 	if (l && (!href || href.length > MOST_LINK)) return undefined;
-	if (f && !ADDRESS.test(f)) return undefined;
+	if (f && !isCellAddress(f)) return undefined;
 	if (i && !SPROUT_ID.test(i)) return undefined;
 	return {
 		...(w ? { words: w } : {}),
