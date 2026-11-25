@@ -31,7 +31,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { automatedText } from "../../automated.ts";
+import { automatedText, spawnReason } from "../../automated.ts";
 import { sessionsDir, stateDir } from "../../paths.ts";
 import { indexSessionFiles } from "./session-liveness.ts";
 
@@ -67,7 +67,7 @@ export function spawnedWords(questId: string, spec?: string): string {
 	const body = `Carry on with ${questId}: read its README and its focused plan, then take the plan's next open item and work it through as the plan says.`;
 	const told = spec?.trim();
 	return automatedText(
-		`quest spawn started this session on ${questId}`,
+		spawnReason(questId),
 		told ? `${body}\n\nWhat it was started for:\n\n${told}` : body,
 	);
 }

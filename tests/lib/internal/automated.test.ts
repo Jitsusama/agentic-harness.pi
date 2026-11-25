@@ -13,6 +13,7 @@ import {
 	START_WORDS_REASON,
 	startWordsOf,
 } from "../../../lib/internal/automated.ts";
+import { spawnedWords } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { isOutboxMessage, OUTBOX_HEADER } from "../../../lib/jobs/report.ts";
 
 describe("the turns the harness starts itself", () => {
@@ -95,6 +96,23 @@ describe("the turns the harness starts itself", () => {
 			undefined,
 		);
 		expect(startWordsOf("Quest QEST-1 is made.")).toBe(undefined);
+	});
+
+	// A spawn's words hold what the session was started for, as a
+	// sprout's do, so the readers keep them as the start's.
+	it("reads a quest spawn's words as its start's, as a spawn writes them", () => {
+		const words = spawnedWords("QEST-1", "Fix the drawer.");
+		const body = startWordsOf(words);
+		expect(body, "a spawn's words read as the start's").toMatch(
+			/^Carry on with QEST-1: /u,
+		);
+		expect(body).toMatch(/What it was started for:\n\nFix the drawer\.$/u);
+		expect(
+			startWordsOf(
+				automatedText("quest spawn started this session on two words", "x"),
+			),
+			"a header naming no quest id isn't a spawn's",
+		).toBe(undefined);
 	});
 
 	it("reads a run for messages that waited as automated, not as a resume", () => {
