@@ -24,8 +24,19 @@
  * read marker. So the quest's address is one live peer's: a peer that
  * already signs with it keeps it, and one starting while another live
  * peer signs with it signs with its session's address instead, until
- * that peer ends. Two that took it at once settle it by session id,
- * the lower keeping it, so neither flips back and forth.
+ * that peer ends. Two that both sign with it settle it by how long each
+ * has: a presence says since when it signs with its quest's address,
+ * and the one that has longer keeps it. A peer that took the address
+ * while its holder couldn't be heard, as one resuming before the link
+ * to the holder's machine is back, gives it back once the holder is
+ * heard: on 25 November one such kept it for having the lower session
+ * id, and its quest's orchestrator, on another machine, lost its asks.
+ * A holder keeps its time through its own restart, unless it ended for
+ * good, so a park or a reboot doesn't hand the address on. Where either
+ * says no time, as an older harness's presence doesn't, or both say
+ * the same, the lower session id keeps it, so neither flips back and
+ * forth. Times are each machine's own clock, so a clock wrong by more
+ * than the gap between two takings picks the wrong one.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -137,24 +148,33 @@ export function loadedAddress(
 /**
  * The live peer this session leaves its quest's address to, if any: one
  * already signing with it, when this session is not; or, when both are,
- * one whose session id is lower.
+ * one that has signed with it longer than `signsSince`, or, where a time
+ * is missing or the same, one whose session id is lower.
  */
 export function yieldsTo<
 	One extends {
 		readonly session: string;
 		readonly addresses: readonly string[];
+		readonly signsSince?: string;
 	},
 >(
 	session: string,
 	signing: string | undefined,
 	signingNow: boolean,
 	live: readonly One[],
+	signsSince?: string,
 ): One | undefined {
 	if (signing === undefined) return undefined;
+	const heldLonger = (one: One) =>
+		one.signsSince === undefined ||
+		signsSince === undefined ||
+		one.signsSince === signsSince
+			? one.session < session
+			: one.signsSince < signsSince;
 	return live
 		.filter((one) => one.session !== session && one.addresses[0] === signing)
 		.sort((one, other) => one.session.localeCompare(other.session))
-		.find((one) => !signingNow || one.session < session);
+		.find((one) => !signingNow || heldLonger(one));
 }
 
 /**

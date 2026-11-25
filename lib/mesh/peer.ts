@@ -352,6 +352,20 @@ function doingOf(
 	return doing ? { doing } : {};
 }
 
+/**
+ * The address a presence signed with and since when, when it said a
+ * time: what a peer keeps of its holding through a restart.
+ */
+function signedSince(
+	presence: Presence | undefined,
+): { address: string; since: string } | undefined {
+	const address = presence?.addresses[0];
+	const since = presence?.signsSince;
+	return address !== undefined && since !== undefined
+		? { address, since }
+		: undefined;
+}
+
 /** A presence's title field, when there is a title to say. */
 function titled(title: string | undefined): { title?: string } {
 	return title ? { title } : {};
@@ -476,6 +490,11 @@ export function localPeer(at: Surroundings): Peer {
 	let wakeFile: string | undefined;
 	let scopes: string[] = [];
 	let addresses: string[] = [];
+	// Since when it signs with its quest's address, which a restart keeps
+	// unless the session ended for good, so a holder parked or rebooted
+	// still holds it longer than one that took it meanwhile (address.ts).
+	let signsSince: { address: string; since: string } | undefined =
+		before?.ended === undefined ? signedSince(before) : undefined;
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = [
@@ -618,6 +637,7 @@ export function localPeer(at: Surroundings): Peer {
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
+			...(signsSince ? { signsSince: signsSince.since } : {}),
 			...(workspace ? { workspace } : {}),
 			...(questInfo ? { questInfo } : {}),
 			...doingOf(at.records.doing, at.session),
@@ -662,11 +682,14 @@ export function localPeer(at: Surroundings): Peer {
 			? everyone.filter((one) => counted.has(one.session))
 			: everyone;
 		const signing = loadedAddress(at.session, at.records);
+		const held =
+			signsSince?.address === signing ? signsSince?.since : undefined;
 		yieldedTo = yieldsTo(
 			at.session,
 			signing,
-			signing !== undefined && addresses[0] === signing,
+			signing !== undefined && (addresses[0] === signing || held !== undefined),
 			live,
+			held,
 		);
 		addresses = addressesOf(
 			at.session,
@@ -675,6 +698,10 @@ export function localPeer(at: Surroundings): Peer {
 			signaturesOfOthers(at.session, everyone),
 			yieldedTo !== undefined,
 		);
+		signsSince =
+			signing !== undefined && addresses[0] === signing
+				? { address: signing, since: held ?? new Date(now()).toISOString() }
+				: undefined;
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
 		receiver = {

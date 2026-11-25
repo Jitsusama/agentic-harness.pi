@@ -150,6 +150,13 @@ export interface Presence {
 	 * presence.
 	 */
 	readonly quest?: string;
+	/**
+	 * Since when, as an ISO time, it has signed with its quest's address,
+	 * so two that both do leave it to the one that has longer (see
+	 * address.ts). Missing while it signs with none, and from an older
+	 * presence.
+	 */
+	readonly signsSince?: string;
 	/** Whether it is in the middle of a run, as of when it last said. */
 	readonly busy: boolean;
 	/**
@@ -945,6 +952,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		worksOn: said(one.worksOn) ?? "",
 		owns: strings(one.owns) ? one.owns : [],
 		...(quest !== undefined ? { quest } : {}),
+		...(typeof one.signsSince === "string" && one.signsSince !== ""
+			? { signsSince: one.signsSince }
+			: {}),
 		busy: one.busy === true,
 		...(isPeerState(one.state) ? { state: one.state } : {}),
 		...(typeof one.since === "string" ? { since: one.since } : {}),
