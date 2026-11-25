@@ -44,6 +44,31 @@ function told(one: Presence): string | undefined {
 	return one.addresses.find(isAddress);
 }
 
+/**
+ * Peers said by the addresses they are told by, then how many named
+ * none, as "WCJQSG, P9R1KI and a peer naming no address" (or "and 2
+ * peers naming no address"), so a peer
+ * left unnamed is still counted and never reads as nobody. Said where
+ * it `opens` a sentence, it opens on a capital either way.
+ */
+export function peersNamed(
+	addresses: readonly (string | undefined)[],
+	opens = true,
+): string {
+	const named = addresses.filter(
+		(address): address is string => address !== undefined,
+	);
+	const unnamed = addresses.length - named.length;
+	const nameless =
+		unnamed === 0
+			? ""
+			: `${unnamed === 1 ? "a peer" : `${unnamed} peers`} naming no address`;
+	if (named.length === 0 && opens) {
+		return `${nameless.charAt(0).toUpperCase()}${nameless.slice(1)}`;
+	}
+	return [named.join(", "), nameless].filter(Boolean).join(" and ");
+}
+
 /** Who a message just sent goes to, and which addressed peers it misses. */
 export function reach(
 	message: Message,
@@ -53,10 +78,10 @@ export function reach(
 	refusal: Refusal,
 ): { notes: string[]; reached: string[]; gone: string[] } {
 	const everyone = standing.present;
-	const reached = everyone
+	const reaching = everyone
 		.filter((one) => one.session !== peer.session)
-		.filter((one) => reaches(message, one, -1))
-		.flatMap((one) => told(one) ?? []);
+		.filter((one) => reaches(message, one, -1));
+	const reached = reaching.flatMap((one) => told(one) ?? []);
 	const homes = (list: readonly Presence[]) =>
 		new Set(list.flatMap((one) => one.addresses.map(homeOf)));
 	const there = homes(everyone);
@@ -88,8 +113,8 @@ export function reach(
 		refusal,
 	);
 	const notes = [
-		reached.length > 0
-			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
+		reaching.length > 0
+			? `It goes to ${peersNamed(reaching.map(told), false)}; mesh_read says when each has it.`
 			: "No peer on the mesh is reached by it yet.",
 		gone.length > 0
 			? `${gone.join(", ")} ${gone.length === 1 ? "has" : "have"} ended, so ${gone.length === 1 ? "it hears" : "they hear"} this only if restored.`

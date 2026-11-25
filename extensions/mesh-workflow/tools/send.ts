@@ -44,7 +44,7 @@ import { handsRefusal } from "../joels-hands.ts";
 import { type Found, findAbove, orKept } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
-import { reach, unheardOf } from "./reach.ts";
+import { peersNamed, reach, unheardOf } from "./reach.ts";
 import { capitalized } from "./said.ts";
 import { stopsText } from "./stop.ts";
 
@@ -56,7 +56,10 @@ export interface SendDetails {
 	/** Where the mesh sent it, and why, when the sender named no group. */
 	readonly routed?: Route;
 	readonly message?: Message;
-	/** The peers it goes to, by the address each signs with. */
+	/**
+	 * The peers it goes to that name an address, by the first each names;
+	 * one naming none is counted in the note, not here.
+	 */
 	readonly reached?: readonly string[];
 	/** The peers it was addressed to whose sessions have ended. */
 	readonly gone?: readonly string[];
@@ -779,13 +782,14 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		at.presences.refusal,
 	);
 	notes.unshift(...reachNotes);
-	const glancing = stops
-		.filter(({ stopper }) => reaches(message, stopper, -1))
-		// A stopper says its addresses as it likes, and this opens a line.
-		.map(({ stopper }) => stopper.addresses.find(isAddress) ?? "A peer");
+	const glancing = stops.filter(({ stopper }) => reaches(message, stopper, -1));
 	if (glancing.length > 0) {
+		// A stopper says its addresses as it likes, and this opens a line.
+		const who = peersNamed(
+			glancing.map(({ stopper }) => stopper.addresses.find(isAddress)),
+		);
 		notes.push(
-			`${glancing.join(", ")} stopped this peer, so it sees this as one line and no more.`,
+			`${who} stopped this peer, so it sees this as one line and no more.`,
 		);
 	}
 	if (reading.length > 0) {

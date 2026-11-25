@@ -246,13 +246,26 @@ describe("orchestrator, on a quest with no mark", () => {
 	// A presence lists what addresses it likes, so one listing the
 	// orchestrator's beside its own hides none of the real one's, in
 	// whichever order the census reads them; and it fails closed, so the
-	// impostor's own address is checked as the orchestrator's too.
+	// impostor's own address is checked as the orchestrator's too. A
+	// folder lists its files by name on one file system and as they were
+	// written on another, so the impostor comes first by both or last by
+	// both.
 	it.each([
-		{ order: "the impostor first", impostor: "session-a", real: "session-q" },
-		{ order: "the impostor last", impostor: "session-z", real: "session-b" },
+		{
+			order: "the impostor first",
+			impostor: "session-a",
+			real: "session-q",
+			impostorFirst: true,
+		},
+		{
+			order: "the impostor last",
+			impostor: "session-z",
+			real: "session-b",
+			impostorFirst: false,
+		},
 	])(
 		"counts the person's acts in a question to any address listed beside the marked orchestrator's, $order",
-		async ({ impostor, real }) => {
+		async ({ impostor, real, impostorFirst }) => {
 			onQuest();
 			markedParent();
 			const presences = createPresences(join(fixture.paths.mesh, "presence"));
@@ -267,8 +280,15 @@ describe("orchestrator, on a quest with no mark", () => {
 					busy: false,
 					at: new Date().toISOString(),
 				});
-			cell(impostor, ["EVIL01", "5gv2ah"]);
-			cell(real, ["5GV2AH", "OLD001"]);
+			const publishing = [
+				() => cell(impostor, ["EVIL01", "5gv2ah"]),
+				() => cell(real, ["5GV2AH", "OLD001"]),
+			];
+			for (const publish of impostorFirst
+				? publishing
+				: [...publishing].reverse()) {
+				publish();
+			}
 			const { tools } = await startSession(noNode());
 
 			for (const to of ["OLD001", "EVIL01"]) {

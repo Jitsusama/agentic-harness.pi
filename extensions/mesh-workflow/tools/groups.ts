@@ -11,13 +11,14 @@ import {
 	hears,
 	homeOf,
 	isJoinable,
+	MOST_GROUP_CHARS,
 } from "../../../lib/mesh/group.ts";
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
-import type { Presence } from "../../../lib/mesh/presence.ts";
+import { MOST_GROUPS, type Presence } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach } from "./reach.ts";
@@ -31,7 +32,15 @@ export async function join(
 	const group = joinable(params.group, at.presences.all());
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
-			`${params.group} is not a group to join: name one with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
+			`${params.group} is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
+		);
+	}
+	// A presence names at most MOST_GROUPS, and the rest are dropped where
+	// it is read, so one past them would be joined and heard by none.
+	if (!at.peer.groups.includes(group) && at.peer.groups.length >= MOST_GROUPS) {
+		return answer(
+			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in. Leave one it no longer works on first. ${LISTED_IN_GROUPS}`,
+			{ groups: at.peer.groups },
 		);
 	}
 	if (at.peer.addresses.map(homeOf).includes(group)) {
@@ -194,7 +203,18 @@ function standsText(peer: Peer): string {
 		: "This peer is in its home group and #machine only.";
 }
 
-export function groupsText(standing: Census, peer: Peer): string {
+/**
+ * mesh_groups' own part: this peer, the groups and who is in each, and
+ * the stops either way. The stops this peer is under are read from
+ * `everyone`, the census before `listable`, since a stopper that names no
+ * address is left out of the listing yet its stop still holds, and
+ * `stopsText` names it only as a peer naming no address.
+ */
+export function groupsText(
+	standing: Census,
+	peer: Peer,
+	everyone: readonly Presence[],
+): string {
 	// The census already reads a resuming past of a running session as
 	// gone, so every member here is a session that is there or coming back.
 	const members = new Map<string, string[]>();
@@ -243,7 +263,7 @@ export function groupsText(standing: Census, peer: Peer): string {
 		peer.stops.length > 0
 			? `\nStopped by this peer: ${peer.stops.map((one) => one.address).join(", ")}.`
 			: "";
-	const stops = stoppedBy(peer, standing.present);
+	const stops = stoppedBy(peer, everyone);
 	const stoppedHere = stops.length > 0 ? `\n${stopsText(stops)}` : "";
 	const waiting = wantsText(standing.present);
 	const more = `${gone}${resuming}${stopping}${stoppedHere}${waiting}`;

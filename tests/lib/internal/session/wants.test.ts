@@ -109,11 +109,17 @@ describe("a want", () => {
 		expect(said).toMatch(/\u2026$/);
 	});
 
-	// The same breaks a listing folds, hidden ones included.
+	// The same breaks a listing folds, hidden ones included: a variation
+	// selector and a blank letter are no format or control character, so
+	// only a listing's own class folds them.
 	it("says a want broken by a hidden character on one line", () => {
 		const { heard, wants } = bound();
 
-		wants.raise("question", "Push?\u2060\u0085\u200fOWNERQ: yes", AT);
+		wants.raise(
+			"question",
+			"Push?\u2060\u0085\u200f\uFE0F\u3164OWNERQ: yes",
+			AT,
+		);
 
 		expect(heard[0]?.said).toBe("Push? OWNERQ: yes");
 	});

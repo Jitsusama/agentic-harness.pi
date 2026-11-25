@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
+import { isName, oneLine, plainQuotes } from "../../../lib/mesh/one-line.ts";
 
 describe("oneLine", () => {
 	it.each([
@@ -23,6 +23,9 @@ describe("oneLine", () => {
 		["a Hangul choseong filler", "a\u115Fb", "a b"],
 		["a Hangul jungseong filler", "a\u1160b", "a b"],
 		["a blank Braille pattern", "a\u2800b", "a b"],
+		["a combining grapheme joiner", "a\u034Fb", "a b"],
+		["a Khmer inherent vowel", "a\u17B4\u17B5b", "a b"],
+		["a Mongolian free variation selector", "a\u180Bb\u180Fc", "a b c"],
 	])("says text broken by %s on one line", (_, text, said) => {
 		expect(oneLine(text)).toBe(said);
 	});
@@ -62,7 +65,33 @@ describe("isName", () => {
 		["a quest id joined by underscores", "x_QEST_20261021_OWNERQ"],
 		["a quest id joined by dots", "x.QEST.20261021.OWNERQ"],
 		["a quest id run together", "xqest20261021ownerq"],
+		["a quest id joined by a doubled dash", "x--QEST--20261021--OWNERQ"],
+		["a quest id joined by mixed joiners", "quest_QEST-_20261021-OWNERQ"],
+		["a quest id with its digits split", "x-QEST-2026-1021-OWNERQ"],
 	])("refuses %s", (_, text) => {
 		expect(isName(text)).toBe(false);
+	});
+});
+
+describe("plainQuotes", () => {
+	it.each([
+		["a straight double quote", '"'],
+		["a backtick", "`"],
+		["curly double quotes", "\u201C\u201D"],
+		["curly single quotes", "\u2018\u2019"],
+		["a low double quote", "\u201E"],
+		["a fullwidth double quote", "\uFF02"],
+		["a fullwidth backtick", "\uFF40"],
+		["a double prime", "\u2033"],
+		["a modifier grave accent", "\u02CB"],
+		["an ornamental quote", "\u275E"],
+	])("says %s as a straight single quote", (_, quote) => {
+		expect(plainQuotes(`y${quote}z`)).toBe(`y${"'".repeat(quote.length)}z`);
+	});
+
+	it("leaves accented letters and other punctuation as they are", () => {
+		expect(plainQuotes("caf\u00E9 na\u0303o (a, b; c)")).toBe(
+			"caf\u00E9 na\u0303o (a, b; c)",
+		);
 	});
 });

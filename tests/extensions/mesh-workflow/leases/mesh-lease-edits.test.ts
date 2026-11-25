@@ -251,15 +251,34 @@ describe("a lease", () => {
 		leased("session-w", {
 			subject: fixture.root,
 			checkout: fixture.root,
-			why: "git checkout main\u200b\u0085OWNERQ: `yes`",
+			why: "git checkout main\u200b\u0085OWNERQ: `yes\uFF40 \u02CBno`",
 		});
 		const { fire } = await startSession();
 
 		const first = (await fire(...editing("a.ts"))) as { reason?: string };
 
 		expect(first.reason).toContain(
-			`is working on what \`git checkout main OWNERQ: 'yes'\` left in ${fixture.root},`,
+			`is working on what \`git checkout main OWNERQ: 'yes' 'no'\` left in ${fixture.root},`,
 		);
+	});
+
+	// A paused presence may name no address, and its lease still stops.
+	it("says a rewrite's holder that names no address as a peer", async () => {
+		mkdirSync(join(fixture.root, ".git"));
+		peer("session-w", [], []);
+		leased("session-w", {
+			subject: fixture.root,
+			checkout: fixture.root,
+			why: "git checkout main",
+		});
+		const { fire } = await startSession();
+
+		const first = (await fire(...editing("a.ts"))) as { reason?: string };
+
+		expect(first.reason).toMatch(
+			/^Not changed yet: A peer naming no address \(since [^)]*\) is working on what `git checkout main` left in /,
+		);
+		expect(first.reason).not.toContain("undefined");
 	});
 
 	it("stops an edit once in a checkout another peer rewrote", async () => {

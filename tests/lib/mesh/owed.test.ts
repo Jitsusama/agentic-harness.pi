@@ -72,6 +72,15 @@ describe("answers owed", () => {
 		expect(late.due(asked + OWED_FOR_MS + ASK_AGAIN_MS)).toEqual([]);
 	});
 
+	it("owes nothing for a question its asker withdrew, even handed over again", () => {
+		const owing = createOwing();
+		owing.owe(question(), asked);
+		owing.withdrawn(question().id, asked + 1000);
+		owing.owe(question(), asked + 2000);
+
+		expect(owing.due(asked + 2000 + ASK_AGAIN_MS)).toEqual([]);
+	});
+
 	it("counts from when it was last handed over", () => {
 		const owing = createOwing();
 		owing.owe(question(), asked);
@@ -108,6 +117,31 @@ describe("answers awaited", () => {
 			asked,
 		);
 		expect(awaiting.stuck(asked + ASK_AGAIN_MS)).toEqual([]);
+	});
+
+	// On 24 November a withdrawn need was still said to be stuck, and put
+	// to the cell it had been sent to in error.
+	it("awaits nothing for a question this peer withdrew", () => {
+		const awaiting = createAwaiting();
+		const one = question({ from: "FZ9MFJ", to: ["@ZYT5ZL"] });
+		const other = question({ id: "2", from: "FZ9MFJ", to: ["@SS241B"] });
+		awaiting.asked(one, ["FZ9MFJ"], asked);
+		awaiting.asked(other, ["FZ9MFJ"], asked);
+		awaiting.asked(
+			question({
+				id: "3",
+				from: "FZ9MFJ",
+				to: ["@ZYT5ZL"],
+				intent: "fyi",
+				supersedes: one.id,
+			}),
+			["FZ9MFJ"],
+			asked + 1000,
+		);
+
+		expect(awaiting.stuck(asked + ASK_AGAIN_MS)).toEqual([
+			{ message: other, waitingOn: ["SS241B"] },
+		]);
 	});
 
 	it("looks up who answered only for a question it awaits", () => {

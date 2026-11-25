@@ -521,7 +521,7 @@ export function registerTools(
 			// its own line.
 			const standing = listable(census);
 			return answer(
-				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now(), standing.resuming)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
+				`${groupsText(standing, at.peer, census.present)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now(), standing.resuming)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
 				{ groups: at.peer.groups },
 			);
 		}),

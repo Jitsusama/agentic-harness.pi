@@ -375,6 +375,29 @@ describe("this session's peer", () => {
 		});
 	});
 
+	// Each group opens a line of mesh_groups, so a presence naming a flood
+	// of them, or one as long as a page, would bury the listing.
+	it("reads at most 64 groups and joined groups, each at most 96 long", () => {
+		const dir = join(root, "presence");
+		mkdirSync(dir, { recursive: true });
+		const longest = `#${"a".repeat(95)}`;
+		const tooLong = `#${"a".repeat(96)}`;
+		const many = Array.from({ length: 70 }, (_, at) => `#g${at}`);
+		writeFileSync(
+			join(dir, "s-1.json"),
+			JSON.stringify({
+				...presence({ session: "s-1" }),
+				groups: [tooLong, longest, ...many],
+				joined: [tooLong, ...many],
+			}),
+		);
+
+		const read = createPresences(dir).of("s-1");
+
+		expect(read?.groups).toEqual([longest, ...many.slice(0, 63)]);
+		expect(read?.joined).toEqual(many.slice(0, 64));
+	});
+
 	// A file the read boundary refuses is never in all(), so the census
 	// never sees its writer end and never forgets it; the sweep does, once
 	// it is as old as anything the mesh keeps.

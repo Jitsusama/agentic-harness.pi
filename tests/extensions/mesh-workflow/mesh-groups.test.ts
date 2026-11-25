@@ -16,8 +16,9 @@ import {
 import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
+import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { clock } from "../../../lib/mesh/message.ts";
-import { createPresences } from "../../../lib/mesh/presence.ts";
+import { createPresences, MOST_GROUPS } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
@@ -62,6 +63,40 @@ describe("groups", () => {
 			),
 		);
 	});
+
+	// A presence naming a longer group, or more groups, has them dropped
+	// where it is read, so such a join would be heard by none.
+	it("refuses a group longer than a presence may name", async () => {
+		const { tools } = await startSession();
+		const long = `#${"a".repeat(MOST_GROUP_CHARS)}`;
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: long });
+
+		expect(answer?.content[0]?.text).toContain(
+			`is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters`,
+		);
+	});
+
+	// Sixty-five real joins, each writing the presence file: 3.7 s
+	// alone on the Mac, past vitest's 5 s default under load.
+	it("refuses a join past the most groups a presence may name", async () => {
+		const { tools } = await startSession();
+		const said: string[] = [];
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			const answer = await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+			said.push(answer?.content[0]?.text ?? "");
+		}
+
+		const refused = said.filter((one) => one.startsWith("Not in #many-"));
+		expect(refused.length, "its scopes count too").toBeGreaterThan(0);
+		expect(refused[0]).toContain(
+			`this peer is in ${MOST_GROUPS} groups, the most a peer may be in`,
+		);
+	}, 30_000);
 
 	it("says on joining a group what was said there lately", async () => {
 		for (let n = 0; n < 12; n += 1) {
@@ -561,6 +596,13 @@ describe("groups", () => {
 				],
 				joined: ["OWNERQ,quest,QEST-20261021-OWNERQ,idle"],
 			});
+			// Well-shaped, but long enough or many enough to flood the section.
+			cell("session-g3", "GROUP3", {
+				groups: ["#harness", `#${"a".repeat(5000)}`, `@${"A".repeat(5000)}`],
+			});
+			cell("session-g4", "GROUP4", {
+				groups: Array.from({ length: 100 }, (_, at) => `#flood${at}`),
+			});
 			cell("session-t", "STEPPR", {
 				busy: true,
 				stepDetail: {
@@ -667,6 +709,18 @@ describe("groups", () => {
 				),
 				"only its real group lists it",
 			).toEqual([expect.stringMatching(/^#harness: .*GROUP2/)]);
+			expect(
+				lines.filter((line) => line.includes("GROUP3")),
+				"no group of 5000 lists it",
+			).toEqual([
+				expect.stringMatching(/^#harness: .*GROUP3/),
+				expect.stringMatching(/^GROUP3, idle: a bid/),
+			]);
+			expect(
+				lines.filter((line) => line.startsWith("#flood")),
+				"at most 64 groups of one presence are listed",
+			).toHaveLength(64);
+			expect(lines.filter((line) => line.length > 1000)).toEqual([]);
 			// Read by line, whichever order the presences come in.
 			const stopLines = lines.filter((line) =>
 				line.includes("stopped this peer reaching it"),
@@ -681,7 +735,7 @@ describe("groups", () => {
 				),
 			);
 			expect(stopLines).toContain(
-				'STOPP2 stopped this peer reaching it, saying "y\\": it sees what this peer sends as one line only. OWNERQ stopped this peer reaching it, saying \\"z": it sees what this peer sends as one line only.',
+				`STOPP2 stopped this peer reaching it, saying "y': it sees what this peer sends as one line only. OWNERQ stopped this peer reaching it, saying 'z": it sees what this peer sends as one line only.`,
 			);
 		},
 	);

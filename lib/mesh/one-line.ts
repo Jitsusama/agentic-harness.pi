@@ -12,21 +12,44 @@
  * boundary; and the tag characters, which a person never sees and a
  * model reads as text. The variation selectors carry text the same
  * unseen way, a byte each hung off any letter, though Unicode files them
- * as marks (Mn), so both of their blocks are named here; so are the
- * letters and symbol that draw as nothing, the Hangul fillers and the
- * blank Braille pattern. Folding them costs a joined emoji, an emoji's
- * chosen style or a soft hyphen in what a peer says it works on, which a
- * listing can spare.
+ * as marks (Mn), so both of their blocks are named here, as are the
+ * Mongolian free variation selectors; so are the marks, letters and
+ * symbol that draw as nothing, the combining grapheme joiner, the Khmer
+ * inherent vowels, the Hangul fillers and the blank Braille pattern.
+ * These are the cases known, not every one: a code point that draws as
+ * nothing and is none of these still passes, though it can't break a
+ * line, since every break is `\s`, Cc or Cf. Folding them costs a joined
+ * emoji, an emoji's chosen style or a soft hyphen in what a peer says it
+ * works on, which a listing can spare.
  */
 
 /** A run of what may break, rearrange or hide inside a line, as one class. */
 const BREAK =
-	"[\\s\\p{Cc}\\p{Cf}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
+	"[\\s\\p{Cc}\\p{Cf}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}\\u180B-\\u180F\\u034F\\u17B4\\u17B5\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
 const BREAKS = new RegExp(`${BREAK}+`, "gu");
 
 /** Text said on one line, however many it came on. */
 export function oneLine(text: string): string {
 	return text.replace(BREAKS, " ").trim();
+}
+
+/**
+ * The quotes and backticks a reader may take for those that close a
+ * quoted string or a code span: the curly, low, reversed, angle and
+ * fullwidth quotes, primes and modifier letters that draw as one, and
+ * the backtick and its lookalikes. Others may draw as one in some
+ * font; these are the ones Unicode names as quotes or draws so.
+ * A peer's words said inside quotes or a
+ * code span have each of these as `'`, which closes neither, since
+ * JSON escapes only the straight double quote and a model reads the
+ * rest as closing it too.
+ */
+const QUOTE_LIKE =
+	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u2035\uFF02\uFF07\uFF40\u275B-\u275E\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C]/gu;
+
+/** Text with every quote or backtick a reader may take as closing one as `'`. */
+export function plainQuotes(text: string): string {
+	return text.replace(QUOTE_LIKE, "'");
 }
 
 /**
@@ -37,10 +60,12 @@ export function oneLine(text: string): string {
 const NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
 
 /**
- * A quest id, wherever it stands in a name and however it is joined,
- * since a reader taking a near spelling for the id is a model.
+ * A quest id's opening, wherever it stands in a name, however its
+ * digits follow: joined by any run of `-`, `_` or `.`, or split
+ * themselves, since a reader taking a near spelling for the id is a
+ * model. No machine or tool is named with it otherwise.
  */
-const QUEST_IN = /QEST[-_.]?\d{8}/i;
+const QUEST_IN = /QEST/i;
 
 /**
  * Whether text is a name a listing may print inside a peer's own line,

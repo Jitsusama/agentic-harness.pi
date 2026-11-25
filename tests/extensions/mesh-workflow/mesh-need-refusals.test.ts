@@ -7,13 +7,18 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Local } from "../../../extensions/mesh-workflow/tools/local.ts";
 import {
 	ASK_WHO_OWNS_IT,
 	FIND_WHILE_QUIET,
+	FIND_WHILE_UNLISTED,
+	FIND_WHILE_UNREAD,
 	FIND_WHO_OWNS_IT,
+	needRead,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
-import { createPresences } from "../../../lib/mesh/presence.ts";
+import type { NeedRecord } from "../../../lib/mesh/need-route.ts";
+import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, onQuest, peer, startSession } from "./support/mesh.ts";
 import { asker, expectNoBarAbove, sending } from "./support/need.ts";
@@ -67,6 +72,9 @@ describe("a lost need's refusal", () => {
 		expect(FIND_WHILE_QUIET).toMatch(/could be found while the node is quiet/);
 		expect(FIND_WHILE_QUIET).toMatch(/find the owner in mesh_groups/);
 		expect(FIND_WHILE_QUIET).not.toMatch(/can be asked/);
+		expect(FIND_WHILE_UNLISTED).toMatch(/while the mesh doesn't list it yet/);
+		expect(FIND_WHILE_UNLISTED).toMatch(/find the owner in mesh_groups/);
+		expect(FIND_WHILE_UNLISTED).not.toMatch(/node is quiet/);
 	});
 
 	it("points at orchestrator when a mark names one above", async () => {
@@ -223,3 +231,100 @@ async function untilHubKept(
 		{ timeout: 5_000 },
 	);
 }
+
+/** A need the node answered as lost, no word of it held by any cell. */
+const LOST_ON_WORDS: NeedRecord = {
+	need: "8XK2PQ-lost",
+	asker: "8XK2PQ",
+	words: [],
+	path: [],
+	fit: null,
+	at: 0,
+	cells: 1,
+};
+
+/**
+ * What needRead reads of a peer holding these roles, the presences as
+ * `all` lists them, and the node answering the need with `found`. Only
+ * the fields a lost need's refusal reads; the rest of a Local is never
+ * touched.
+ */
+function holding(
+	roles: { orchestrates?: string; questHeads?: string },
+	all: () => Presence[],
+	found: NeedRecord | undefined,
+): Local {
+	const peer = { session: "session-s", addresses: ["8XK2PQ"], ...roles };
+	return {
+		peer,
+		presences: { all },
+		need: vi.fn().mockResolvedValue(found),
+	} as unknown as Local;
+}
+
+/** What a need about the launcher's fonts was refused with, from `at`. */
+async function refusedAt(at: Local): Promise<string> {
+	const read = await needRead(at, {
+		to: "need",
+		intent: "question",
+		text: "Who keeps the launcher's fonts?",
+		about: "fonts",
+	});
+	return "refused" in read ? (read.refused.content[0]?.text ?? "") : "";
+}
+
+describe("a lost need's refusal, by where this peer sits", () => {
+	// Another session signs as the quest's head, so this one is on a quest
+	// heading an orchestration with neither role, and is told its head.
+	it("names the head of this peer's quest when another session leads it", async () => {
+		const said = await refusedAt(
+			holding({ questHeads: "7M6JKG" }, () => [], LOST_ON_WORDS),
+		);
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(
+			"Not knowing who, ask 7M6JKG, the head of this peer's quest, who owns it: a question to 7M6JKG.",
+		);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+	});
+
+	// A head keeps no hub, so with the node quiet nothing but its role says
+	// nothing is above it; that it was quiet isn't the reason.
+	it("tells a head nothing is above it while the node is quiet", async () => {
+		const said = await refusedAt(
+			holding({ orchestrates: "8XK2PQ" }, () => [], undefined),
+		);
+
+		expect(said).toContain("Not sent: no node answered");
+		expect(said).toContain(FIND_WHO_OWNS_IT);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
+	});
+
+	it("says none was found when reading the presences fails during the find", async () => {
+		const all = vi
+			.fn<() => Presence[]>()
+			.mockReturnValueOnce([])
+			.mockImplementation(() => {
+				throw new Error("EMFILE: too many open files");
+			});
+
+		const said = await refusedAt(holding({}, all, LOST_ON_WORDS));
+
+		expect(all).toHaveBeenCalledTimes(2);
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(FIND_WHILE_UNREAD);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+	});
+
+	// The node answered the need, so a find left unfinished because the
+	// mesh lists no presence for this peer says so, not that it was quiet.
+	it("says the mesh doesn't list this peer yet when that leaves the find unfinished", async () => {
+		const said = await refusedAt(holding({}, () => [], LOST_ON_WORDS));
+
+		expect(said).toContain("Not sent: no word of its about");
+		expect(said).toContain(FIND_WHILE_UNLISTED);
+		expect(said).not.toContain(FIND_WHILE_QUIET);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+	});
+});

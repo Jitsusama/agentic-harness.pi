@@ -2,19 +2,21 @@
 
 import { isAddress } from "../../../lib/mesh/address.ts";
 import { groupNamed } from "../../../lib/mesh/group.ts";
-import { oneLine } from "../../../lib/mesh/one-line.ts";
+import { oneLine, plainQuotes } from "../../../lib/mesh/one-line.ts";
 import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
+import { peersNamed } from "./reach.ts";
 
 /**
  * The stops on this peer, said to it a line each, with `after` closing
  * every line. A stopper gives its addresses and its reason as it likes,
  * and a reader takes each line as one stopper's and each sentence as
  * the tool's own. So each stop has a line of its own, opening on the
- * first of its stopper's addresses that is one, or on "A peer" when
- * none is, since a stop that bars a send is said either way; and its
- * reason is folded to that line and quoted as a string, which it can't
- * close to say a stop of another peer's after it.
+ * first of its stopper's addresses that is one, or on "A peer naming
+ * no address" when none is, since a stop that bars a send is said
+ * either way; and its reason is folded to that line, its quotes said as
+ * `'`, and quoted as a string, which it can't close, straight or curly,
+ * to say a stop of another peer's after it.
  */
 export function stopsText(
 	stops: ReturnType<typeof stoppedBy>,
@@ -22,10 +24,10 @@ export function stopsText(
 ): string {
 	return stops
 		.map(({ stopper, stop }) => {
-			const who = stopper.addresses.find(isAddress) ?? "A peer";
+			const who = peersNamed([stopper.addresses.find(isAddress)]);
 			const why =
 				stop.why !== undefined && oneLine(stop.why) !== ""
-					? `, saying ${JSON.stringify(oneLine(stop.why))}`
+					? `, saying ${JSON.stringify(plainQuotes(oneLine(stop.why)))}`
 					: "";
 			return `${who} stopped this peer reaching it${why}: it sees what this peer sends as one line only.${after}`;
 		})
