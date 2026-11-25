@@ -258,7 +258,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			// A host refuses every tree itself, so the fence's refusal is for a
 			// session of its own.
 			if (hosted()) {
@@ -282,6 +282,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 						content: [{ type: "text", text: progress }],
 						details: {},
 					}),
+				signal ? { signal } : {},
 			);
 			return {
 				content: [{ type: "text", text }],

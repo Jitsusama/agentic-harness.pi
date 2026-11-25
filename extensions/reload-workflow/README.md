@@ -257,14 +257,30 @@ about 13 seconds.
 
 Code that loads can still be wrong, and a session reloaded onto it
 runs it outside any test. So once a tree loads,
-`lib/internal/reload/tree-check.ts` runs what `pnpm check` runs for a
-change, from the tree's own node_modules: `tsc --noEmit`, then
+`lib/internal/reload/tree-check.ts` runs the typecheck and tests of
+`pnpm check` (not its lint, knip or browser lane), from the tree's
+own node_modules: `tsc --noEmit`, then
 `vitest run --changed origin/main --passWithNoTests` with vitest's
 JSON report. The first that fails refuses the reload, naming its
-first ten type errors or failing tests, each with its cause. A tree
-with no node_modules is refused, saying to install or link them.
-Both run with folders of their own for state, data, cache and
-runtime, as the load check's pi does, and each may take 15 minutes.
+first ten type errors or failing tests, each with its cause.
+
+- **What it measures against:** the tree's own `origin/main`, as
+  fresh as its last fetch. A tree with no `origin/main` is refused,
+  saying to fetch origin in it, and one with no node_modules, saying
+  to install or link them.
+- **How long each may take:** the typecheck 5 minutes and the tests
+  15, so a hung typecheck shows sooner. Past its budget a check is
+  killed with every process it started, since each runs in a process
+  group of its own, and the refusal says it was still running. A
+  typecheck cut off says so even when it named errors first, since
+  those may be only some of them.
+- **A stop ends it:** stopping the run kills whichever check runs,
+  starts no other, and queues no reload.
+- **One at a time:** a second request while a tree is being checked
+  is refused, rather than running a second full set beside the first.
+- **What passing means:** the tree as it stood when checked. Both
+  run with folders of their own for state, data, cache and runtime,
+  as the load check's pi does.
 
 `pnpm load-check` runs the same check the way a person who installs
 the package would: it copies the files git would hand pi, installs
