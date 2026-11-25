@@ -12,14 +12,12 @@
 import { randomBytes } from "node:crypto";
 import {
 	existsSync,
-	lstatSync,
-	readdirSync,
 	renameSync,
 	rmSync,
 	type Stats,
 	writeFileSync,
 } from "node:fs";
-import { rm } from "node:fs/promises";
+import { lstat, readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
@@ -183,10 +181,16 @@ export const STOPPED_REMOVALS_PER_SWEEP = 10;
  * and nothing added, removed or written at its top or in its first two
  * levels for {@link STOPPED_REMOVAL_MS}, as a release stopped in `git
  * worktree remove` leaves. A tree a take left aside because git said it
- * holds work keeps its `.git`, and so stays. One a process works in
- * stays, as does every one when the machine can't say. Each is checked
- * again just before it is moved, and removed without holding the
- * thread, with the idle takes' pause between them.
+ * holds work keeps its `.git`, and so stays, as does one with a checkout
+ * in a folder below its top, as World's trees keep theirs in `src`.
+ *
+ * Fresh leftovers come before ones set aside earlier, which a removal
+ * may already have failed on. Who works in each is read just before it
+ * is moved, since the removals before it may take minutes; one a process
+ * works in stays and counts nothing against the sweep's number, and a
+ * machine that can't say ends the pass. Each is read again on the disk
+ * just before it is moved, read and removed without holding the thread,
+ * with the idle takes' pause between them.
  */
 export async function finishStoppedRemovals(
 	deps: SweepDeps,
@@ -196,90 +200,105 @@ export async function finishStoppedRemovals(
 	outcome: SweepOutcome,
 ): Promise<void> {
 	const before = now - STOPPED_REMOVAL_MS;
-	const stopped = stoppedRemovals(dir, known, before).slice(
-		0,
-		STOPPED_REMOVALS_PER_SWEEP,
-	);
-	if (stopped.length === 0) return;
-	const busy = await deps.busyAmong?.(stopped.map(resolvedPath));
-	let finished = 0;
-	for (const path of stopped) {
+	let tried = 0;
+	for (const path of await candidates(dir)) {
+		if (tried >= STOPPED_REMOVALS_PER_SWEEP) return;
+		if (!(await stillStopped(path, known, before))) continue;
+		const busy = await deps.busyAmong?.([resolvedPath(path)]);
 		if (busy === undefined) {
+			// Blind for this one is blind for the rest.
 			outcome.kept.push({
 				path,
 				why: "a removal stopped part way, but the machine can't say whether something works in it",
 			});
-		} else if (busy.has(resolvedPath(path))) {
+			return;
+		}
+		if (busy.has(resolvedPath(path))) {
 			outcome.kept.push({
 				path,
 				why: "a removal stopped part way, but something works in it",
 			});
-		} else {
-			if (finished > 0) await deps.betweenIdleTakes?.();
-			finished += 1;
-			await finish(path, known, before, outcome);
+			continue;
 		}
+		if (tried > 0) await deps.betweenIdleTakes?.();
+		if (await finish(path, known, before, outcome)) tried += 1;
 	}
 }
 
 /**
- * The folders in `dir` whose removal stopped part way, as
- * {@link finishStoppedRemovals} tells them, untouched since `before`.
+ * The folders in `dir` named as cut trees, those a take set aside last,
+ * so one a removal keeps failing on never stands before the rest.
  */
-function stoppedRemovals(
-	dir: string,
-	known: readonly string[],
-	before: number,
-): string[] {
+async function candidates(dir: string): Promise<string[]> {
 	let names: string[];
 	try {
-		names = readdirSync(dir);
+		names = await readdir(dir);
 	} catch {
 		// No folder yet means nothing was ever cut, or removed.
 		return [];
 	}
-	return names
-		.sort()
-		.map((name) => join(dir, name))
-		.filter((path) => stillStopped(path, known, before));
+	const cut = names.filter((name) => CUT_NAME.test(name)).sort();
+	return [
+		...cut.filter((name) => !name.includes(GOING)),
+		...cut.filter((name) => name.includes(GOING)),
+	].map((name) => join(dir, name));
 }
 
 /**
  * Whether `path` reads as a removal that stopped part way: a plain
- * folder named as a cut tree with no `.git`, which nothing in `known`
- * names or reaches into, untouched since `before`.
+ * folder named as a cut tree with no `.git` at its top or in a folder
+ * just below, which nothing in `known` names or reaches into, untouched
+ * since `before`.
  */
-function stillStopped(
+async function stillStopped(
 	path: string,
 	known: readonly string[],
 	before: number,
-): boolean {
+): Promise<boolean> {
 	const resolved = resolvedPath(path);
 	return (
-		isPlainFolder(path) &&
 		CUT_NAME.test(basename(path)) &&
-		!lstatSafe(join(path, ".git")) &&
+		(await isPlainFolder(path)) &&
+		!(await lstatSafe(join(path, ".git"))) &&
 		!known.some((one) => one === resolved || one.startsWith(`${resolved}/`)) &&
-		untouchedSince(path, before)
+		!(await checkoutBelow(path)) &&
+		(await untouchedSince(path, before))
 	);
+}
+
+/**
+ * Whether a folder just below `path` holds a `.git`, as a tree whose
+ * checkout sits in `src` does, or can't be read to tell.
+ */
+async function checkoutBelow(path: string): Promise<boolean> {
+	try {
+		for (const name of await readdir(path)) {
+			if (await lstatSafe(join(path, name, ".git"))) return true;
+		}
+		return false;
+	} catch {
+		// Unreadable: kept as if it held one.
+		return true;
+	}
 }
 
 /**
  * Move `path` aside, unless a take already did, and remove it, once it
  * still reads as stopped: a cut may have begun in it since the listing.
+ * Whether it tried, rather than finding the folder changed.
  */
 async function finish(
 	path: string,
 	known: readonly string[],
 	before: number,
 	outcome: SweepOutcome,
-): Promise<void> {
-	if (!stillStopped(path, known, before)) {
+): Promise<boolean> {
+	if (!(await stillStopped(path, known, before))) {
 		outcome.kept.push({
 			path,
 			why: "a removal seemed stopped, but the folder changed as the sweep came to it",
 		});
-		return;
+		return false;
 	}
 	const aside = basename(path).includes(GOING)
 		? path
@@ -288,7 +307,7 @@ async function finish(
 		if (aside !== path) renameSync(path, aside);
 	} catch (error) {
 		outcome.refused.push({ path, why: messageOf(error) });
-		return;
+		return true;
 	}
 	try {
 		await rm(aside, { recursive: true, force: true });
@@ -301,6 +320,7 @@ async function finish(
 			why: `${messageOf(error)}; what is left is at ${aside}`,
 		});
 	}
+	return true;
 }
 
 /**
@@ -309,14 +329,21 @@ async function finish(
  * removal that stopped part way has nothing writing in it at all, and
  * whatever works in a folder is read apart by the busy reading.
  */
-function untouchedSince(path: string, before: number, depth = 2): boolean {
+async function untouchedSince(
+	path: string,
+	before: number,
+	depth = 2,
+): Promise<boolean> {
 	try {
-		const stat = lstatSync(path);
+		const stat = await lstat(path);
 		if (stat.mtimeMs >= before) return false;
 		if (depth === 0 || !stat.isDirectory()) return true;
-		return readdirSync(path).every((name) =>
-			untouchedSince(join(path, name), before, depth - 1),
-		);
+		for (const name of await readdir(path)) {
+			if (!(await untouchedSince(join(path, name), before, depth - 1))) {
+				return false;
+			}
+		}
+		return true;
 	} catch {
 		// Changing as it is read: touched.
 		return false;
@@ -324,15 +351,15 @@ function untouchedSince(path: string, before: number, depth = 2): boolean {
 }
 
 /** Whether `path` is a folder, not a link to one. */
-function isPlainFolder(path: string): boolean {
-	const stat = lstatSafe(path);
+async function isPlainFolder(path: string): Promise<boolean> {
+	const stat = await lstatSafe(path);
 	return stat?.isDirectory() === true && !stat.isSymbolicLink();
 }
 
 /** What stands at `path`, without following a link, or nothing. */
-function lstatSafe(path: string): Stats | undefined {
+async function lstatSafe(path: string): Promise<Stats | undefined> {
 	try {
-		return lstatSync(path);
+		return await lstat(path);
 	} catch {
 		// Nothing there.
 		return undefined;

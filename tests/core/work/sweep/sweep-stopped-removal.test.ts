@@ -99,9 +99,13 @@ describe("removals stopped part way", () => {
 		const taken = outcome.taken.map((tree) => tree.path).sort();
 		const finished = [stopped, going].sort();
 		expect(taken, "what the sweep finished removing").toEqual(finished);
-		expect(asked, "what the busy reading was asked").toEqual([
+		expect(
+			asked.every((paths) => paths.length === 1),
+			"whether each was asked about on its own",
+		).toBe(true);
+		expect(asked.flat().sort(), "what the busy reading was asked").toEqual(
 			[stopped, worked, going].sort(),
-		]);
+		);
 		expect(existsSync(stopped), "a stopped removal stayed").toBe(false);
 		expect(existsSync(going), "a take's moved-aside folder stayed").toBe(false);
 		expect(existsSync(fresh), "one touched within the day went").toBe(true);
@@ -232,7 +236,7 @@ describe("removals stopped part way", () => {
 		});
 
 		expect(outcome.taken, "how many one sweep finished").toHaveLength(
-			STOPPED_REMOVALS_PER_SWEEP - 1,
+			STOPPED_REMOVALS_PER_SWEEP,
 		);
 		expect(pauses, "the pauses between them").toBe(
 			STOPPED_REMOVALS_PER_SWEEP - 1,
@@ -245,6 +249,114 @@ describe("removals stopped part way", () => {
 		expect(
 			leftovers.filter((path) => existsSync(path)),
 			"what waits for the next sweep",
-		).toHaveLength(3);
+		).toHaveLength(2);
+	});
+
+	it("keeps one whose checkout sits in a folder below its top, as World's does", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const tree = leftover(state, "worktree-github-o-r-world01", old);
+		const src = join(tree, "src");
+		mkdirSync(src);
+		writeFileSync(join(src, ".git"), "gitdir: elsewhere\n");
+		age(old, join(src, ".git"), src, tree);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: reading([]).busyAmong,
+		});
+
+		expect(outcome.taken, "a tree with a checkout below was finished").toEqual(
+			[],
+		);
+		expect(existsSync(join(src, ".git")), "its checkout went").toBe(true);
+	});
+
+	it("asks what works in each just before moving it, since the removals before it take minutes", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const first = leftover(state, "snapshot-github-o-r-aaaaaa", old);
+		const last = leftover(state, "snapshot-github-o-r-bbbbbb", old);
+		let readings = 0;
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: async (paths) => {
+				// A shell starts in the last once the first reading is done.
+				readings += 1;
+				return new Set(readings > 1 ? paths.filter((p) => p === last) : []);
+			},
+		});
+
+		expect(existsSync(first), "the idle one stayed").toBe(false);
+		expect(existsSync(last), "the one a shell began in went").toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === last)?.why,
+			"why the last stayed",
+		).toMatch(/something works in it/);
+	});
+
+	it("lets no busy ones fill a sweep's count, so the rest are reached", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		const busy = Array.from({ length: STOPPED_REMOVALS_PER_SWEEP }, (_, at) =>
+			leftover(
+				state,
+				`snapshot-github-o-r-a${String(at).padStart(5, "0")}`,
+				old,
+			),
+		);
+		const idle = leftover(state, "snapshot-github-o-r-zzzzzz", old);
+
+		await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: reading(busy).busyAmong,
+		});
+
+		expect(existsSync(idle), "the idle one behind the busy ones stayed").toBe(
+			false,
+		);
+		expect(
+			busy.filter((path) => existsSync(path)),
+			"the busy ones kept",
+		).toHaveLength(STOPPED_REMOVALS_PER_SWEEP);
+	});
+
+	it("comes to fresh leftovers before ones set aside earlier, which a removal may have failed on", async () => {
+		const { memory, state } = await setUp();
+		const old = STOPPED_REMOVAL_MS + HOUR;
+		for (let at = 0; at < STOPPED_REMOVALS_PER_SWEEP; at += 1) {
+			leftover(state, `snapshot-github-o-r-a0000${at}.going-1a2b3c4d`, old);
+		}
+		const fresh = leftover(state, "snapshot-github-o-r-zzzzzz", old);
+
+		await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: state,
+			busyAmong: reading([]).busyAmong,
+		});
+
+		expect(existsSync(fresh), "the fresh leftover waited behind asides").toBe(
+			false,
+		);
 	});
 });
