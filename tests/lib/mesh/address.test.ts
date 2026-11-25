@@ -181,11 +181,27 @@ describe("what a restart keeps of holding its quest's address", () => {
 	const last = {
 		addresses: ["7M6JKG", "24B025FE"],
 		signsSince: "2026-11-21T20:47:00.000Z",
+		at: "2026-11-25T15:59:30.000Z",
 	};
 	const kept = { address: "7M6JKG", since: "2026-11-21T20:47:00.000Z" };
 
-	it("keeps the time across a restart that never said it ended", () => {
+	it("keeps the time across a kill that said nothing moments before", () => {
 		expect(signedSince(last, now)).toEqual(kept);
+	});
+
+	it("starts afresh after a kill that last said anything an hour ago", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:00:00.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("keeps the time across a park however long it slept", () => {
+		expect(
+			signedSince(
+				{ ...last, at: "2026-11-24T16:00:00.000Z", state: "parked" },
+				now,
+			),
+		).toEqual(kept);
 	});
 
 	it("keeps it across one that ended moments before, as a rollover does", () => {
@@ -215,7 +231,9 @@ describe("what a restart keeps of holding its quest's address", () => {
 	});
 
 	it("keeps nothing where the last presence said no time", () => {
-		expect(signedSince({ addresses: ["7M6JKG"] }, now)).toBeUndefined();
+		expect(
+			signedSince({ addresses: ["7M6JKG"], at: last.at }, now),
+		).toBeUndefined();
 		expect(signedSince(undefined, now)).toBeUndefined();
 	});
 });
