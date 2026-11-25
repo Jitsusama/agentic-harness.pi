@@ -491,6 +491,35 @@ describe("an ordered carry's close", () => {
 		]);
 	});
 
+	it("still says a close that failed on screen where the journal can't be written", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			journal: () => {
+				throw new Error("the journal is gone");
+			},
+			close: () => {
+				throw new Error("the engine is gone");
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+			`${UNCLOSED} the engine is gone. Each run here is stopped, so the two never both work.`,
+		]);
+		expect(one.refused, "a journal that throws refuses nothing").toEqual([]);
+
+		one.ordering.started();
+
+		expect(
+			told.at(-1),
+			"nor keeps a later run from being stopped and told why",
+		).toBe(
+			"This run is stopped: the session was carried to penelope and runs there.",
+		);
+	});
+
 	it("says a close that lands past its deadline closed after all, on screen and in the journal", async () => {
 		const told: string[] = [];
 		const kept: string[] = [];
@@ -518,6 +547,30 @@ describe("an ordered carry's close", () => {
 			"once",
 		).toHaveLength(1);
 		expect(kept.at(-1)).toBe(after);
+	});
+
+	it("says a close told failed before its deadline, then landing, closed after all, once", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, failed, closed) => {
+				failed(new Error("the engine stalled"));
+				closed();
+				closed();
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		const after =
+			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, and it closed here after all.";
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+			`${UNCLOSED} the engine stalled. Each run here is stopped, so the two never both work.`,
+		]);
+		expect(
+			told.filter((line) => line === after),
+			"once",
+		).toHaveLength(1);
 	});
 
 	it("says nothing more where it lands in time, however late it is told again", async () => {
