@@ -10,11 +10,14 @@
  * first, a failure told, a throw or the deadline, and from then each
  * run the session stops says why: its work runs elsewhere. A close that
  * lands past its deadline says so, so what was said of it isn't left
- * standing.
+ * standing, and one that fails past it says its own reason once, which
+ * the deadline's couldn't.
  *
  * Nothing here asks a person to end the session: a host's later close
  * joins the one that hangs (SessionHost.finish), so it couldn't.
  */
+
+import { messageOf } from "../../lib/internal/carry/message.ts";
 
 /** How long a carried session's close may take before it counts as failed. */
 export const CLOSE_WAIT_MS = 2 * 60_000;
@@ -50,6 +53,8 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 	const closeMs = closing.closeMs ?? CLOSE_WAIT_MS;
 	let settled = false;
 	let saidLate = false;
+	let timedOut = false;
+	let saidWhyLate = false;
 	let goneTo: string | undefined;
 	const settle = (): boolean => {
 		if (settled) return false;
@@ -58,14 +63,21 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 		return true;
 	};
 	const failed = (error: unknown): void => {
-		if (!settle()) return;
+		if (!settle()) {
+			// Only the deadline's failure lacks a reason, and a close that
+			// landed since has nothing left to fail.
+			if (!timedOut || saidLate || saidWhyLate) return;
+			saidWhyLate = true;
+			closing.unclosed(`it failed after its deadline: ${messageOf(error)}`);
+			return;
+		}
 		goneTo = closing.to;
 		closing.unclosed(messageOf(error));
 	};
-	const deadline = setTimeout(
-		() => failed(new Error(`it hadn't closed after ${closeMs / 1000} s`)),
-		closeMs,
-	);
+	const deadline = setTimeout(() => {
+		failed(new Error(`it hadn't closed after ${closeMs / 1000} s`));
+		timedOut = true;
+	}, closeMs);
 	// A close that lands ends the process; the deadline mustn't hold it.
 	deadline.unref?.();
 	try {
@@ -83,15 +95,4 @@ export function closeCarried(closing: ClosingCarried): CarriedClose {
 /** What a run stopped once its session's close failed says. */
 export function stoppedRun(goneTo: string): string {
 	return `This run is stopped: the session was carried to ${goneTo} and runs there.`;
-}
-
-/** What was thrown, in words; never throws, as it is said from a catch. */
-function messageOf(error: unknown): string {
-	try {
-		const said = error instanceof Error ? String(error.message) : String(error);
-		return said === "" ? "something was thrown that said nothing of why" : said;
-	} catch {
-		// What was thrown can't say itself; that the close failed still is.
-		return "something was thrown that can't be put in words";
-	}
 }

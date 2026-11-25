@@ -12,8 +12,8 @@ const SILENT = "something was thrown that said nothing of why";
 
 /**
  * An error's message, or anything else thrown as a string, saying so
- * where it is empty; never throws, though `String` would for a value with no prototype, or one
- * whose `toString` or `message` throws.
+ * where it is empty; never throws, though `String` would for a value
+ * with no prototype, or one whose `toString` or `message` throws.
  */
 export function messageOf(error: unknown): string {
 	try {

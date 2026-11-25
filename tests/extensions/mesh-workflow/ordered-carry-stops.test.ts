@@ -376,7 +376,7 @@ describe("an ordered carry's close", () => {
 		).toHaveLength(1);
 	});
 
-	it("says a close that fails after its deadline counted it failed no second time", async () => {
+	it("says once why a close that fails after its deadline failed, which the deadline couldn't", async () => {
 		const told: string[] = [];
 		let failClose: ((error: unknown) => void) | undefined;
 		const one = session({
@@ -392,8 +392,72 @@ describe("an ordered carry's close", () => {
 		);
 
 		failClose?.(new Error("the engine is gone"));
+		failClose?.(new Error("the engine is still gone"));
+
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+			`${UNCLOSED} it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work.`,
+			`${UNCLOSED} it failed after its deadline: the engine is gone. Each run here is stopped, so the two never both work.`,
+		]);
+	});
+
+	it("says no late failure once a close that hung has landed", async () => {
+		const told: string[] = [];
+		let failClose: ((error: unknown) => void) | undefined;
+		let land: (() => void) | undefined;
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, failed, closed) => {
+				failClose = failed;
+				land = closed;
+			},
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+		await vi.waitFor(() =>
+			expect(told.some((line) => line.startsWith(UNCLOSED))).toBe(true),
+		);
+
+		land?.();
+		failClose?.(new Error("the engine is gone"));
 
 		expect(told.filter((line) => line.startsWith(UNCLOSED))).toHaveLength(1);
+	});
+
+	it("says a close that fails before its deadline failed once, however often it is told", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, failed) => {
+				failed(new Error("the engine is gone"));
+				failed(new Error("the engine is still gone"));
+			},
+			closeMs: 20,
+		});
+		await one.ordering.order(ORDER);
+
+		// Past its deadline, as the clock it was given reads it.
+		await new Promise((done) => setTimeout(done, 60));
+
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+			`${UNCLOSED} the engine is gone. Each run here is stopped, so the two never both work.`,
+		]);
+	});
+
+	it("says a close that throws nothing of why in words", async () => {
+		const kept: string[] = [];
+		const one = session({
+			journal: (text) => kept.push(text),
+			close: () => {
+				// As `new Error()` makes it, which the linter won't let be written.
+				throw Object.assign(new Error("said"), { message: "" });
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(kept).toEqual([
+			`${UNCLOSED} something was thrown that said nothing of why. Each run here is stopped, so the two never both work.`,
+		]);
 	});
 
 	it("never counts as failed where it lands within its deadline", async () => {

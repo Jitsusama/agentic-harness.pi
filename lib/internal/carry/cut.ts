@@ -17,6 +17,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	statSync,
 } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
@@ -135,7 +136,7 @@ async function whereStands(
 		.split("\n")
 		.map((one) => one.trim())
 		.filter((one) => one.endsWith(` ${ref}`));
-	if (missing.code === UNKNOWN_OPTION) {
+	if (missing.code === UNKNOWN_OPTION && !killed(missing.stderr)) {
 		if (named.length > 0) return { why: named.join("; ") };
 		const file = await exec("git", [
 			`--git-dir=${checkout}`,
@@ -163,27 +164,49 @@ const MISSING = 2;
 const UNKNOWN_OPTION = 129;
 
 /**
+ * Whether git was killed rather than answering, as exec says of one a
+ * signal ended: 129 is also SIGHUP's 128 and 1, and a git hung up on
+ * mustn't be taken for one too old to know `--exists`.
+ */
+function killed(stderr: string): boolean {
+	return / was killed by SIG[A-Z0-9]+$/.test(stderr.trim());
+}
+
+/**
  * Why a ref the listing left out may still stand, for a git too old to
  * say so itself, looking at its loose file `file` as git names it: that
  * file is there, or a folder of refs on its way can't be read, which
  * the listing skips without a word. Undefined where neither, so it is
  * missing: a packed ref the listing would have read and listed.
+ *
+ * git prints the path as it was given the git dir, so it is resolved
+ * first, against the folder git ran in, which is this process's: one
+ * through `..`, `//` or a relative git dir is still the ref's own file.
+ * Folders on the way are followed through links, as git follows them;
+ * the ref's own file is not, since anything there, a link to nothing
+ * included, may be a ref git reads.
  */
-function unlistedStands(file: string, ref: string): string | undefined {
-	if (!isAbsolute(file) || !file.endsWith(`/${ref}`)) {
-		return `git named ${file} for ${ref}, which isn't its file`;
+function unlistedStands(said: string, ref: string): string | undefined {
+	const file = resolve(said);
+	if (!file.endsWith(`/${ref}`)) {
+		return `git named ${said} for ${ref}, which isn't its file`;
 	}
 	let at = `${file.slice(0, -ref.length)}refs`;
 	for (const part of ["", ...ref.split("/").slice(1)]) {
 		at = part === "" ? at : join(at, part);
+		const own = at === file;
 		let kind: ReturnType<typeof lstatSync>;
 		try {
-			kind = lstatSync(at);
+			kind = own ? lstatSync(at) : statSync(at);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 			return `${at} can't be looked at: ${messageOf(error)}`;
 		}
-		if (at === file) return `git has ${ref} at ${file} but didn't list it`;
+		if (own) {
+			return kind.isDirectory()
+				? `a folder of refs stands at ${file}, so git can't make ${ref} there`
+				: `git has ${ref} at ${file} but didn't list it`;
+		}
 		if (!kind.isDirectory()) return undefined;
 		try {
 			accessSync(at, constants.R_OK | constants.X_OK);
