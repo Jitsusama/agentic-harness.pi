@@ -179,6 +179,27 @@ describe("giving a tree back", () => {
 		expect((await work({})).details).toEqual({ ok: true, held: 0 });
 	});
 
+	it("sets a tree whose .git was taken away aside, saying nothing was renamed", async () => {
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+
+		const released = await work({ action: "release", tree: key });
+
+		const aside = released.details.aside;
+		if (typeof aside !== "string") throw new Error(released.text);
+		expect(released.text).toContain(
+			"It held no .git, so nothing was renamed. Git's entry for it, with its branch or a snapshot's commit, stays in the checkout that cut it until `git worktree prune` there",
+		);
+		expect(released.text).toContain(
+			"Git's refusal: it lies where the work tool cuts trees but holds no .git, as when a command removed it",
+		);
+		expect(released.text, "its path is never said").not.toContain(path);
+		expect(existsSync(join(aside, ".git-was")), "nothing was parted").toBe(
+			false,
+		);
+	});
+
 	it("keeps a .git-was the tree holds, parting its .git under a free name", async () => {
 		cutWhereTheToolCuts();
 		const { key, path } = await unread();

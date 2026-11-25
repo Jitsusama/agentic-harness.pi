@@ -22,8 +22,10 @@ import {
 	type GitRules,
 	gitRun,
 	guardedExec,
+	heldGit,
 	refusedIn,
 	treeGit,
+	withoutFolders,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 import {
@@ -248,11 +250,127 @@ describe("git that pi runs outside the sandbox", () => {
 
 		expect(gitRun(plain, ["ls-remote", "x"], rules())).toEqual({
 			args: [...NO_MONITOR, "ls-remote", "x"],
+			unrooted: plain,
 		});
 		expect(
 			gitRun(plain, ["--git-dir=/x", "status"], rules({ fenced: true })),
 		).toEqual({ args: [...NO_MONITOR, "--git-dir=/x", "status"] });
 	});
+
+	it("carries the folder that held no git, as it really is, from any path to it", () => {
+		const plain = join(home, "plain");
+		mkdirSync(join(plain, "below"), { recursive: true });
+		symlinkSync(plain, join(home, "alias"));
+
+		expect(gitRun(join(home, "alias", "below"), ["status"], rules())).toEqual({
+			args: [...NO_MONITOR, "status"],
+			unrooted: join(plain, "below"),
+		});
+	});
+
+	// The queue runs it there, so a link in the path it was given can't
+	// be repointed to a repository while it waits.
+	it("hands the queue the folder that held no git, and git's words without its folders", () => {
+		const plain = join(home, "plain");
+		mkdirSync(join(plain, "below"), { recursive: true });
+		symlinkSync(plain, join(home, "alias"));
+		const asked = ["-C", join(home, "alias"), "-C", "below", "push", "origin"];
+
+		expect(heldGit(() => rules())("git", asked)).toEqual({
+			args: [...NO_MONITOR, ...asked],
+			unrooted: {
+				folder: join(plain, "below"),
+				args: [...NO_MONITOR, "push", "origin"],
+			},
+		});
+		expect(withoutFolders(["-c", "a=-C", "-C", "x", "log", "-C"])).toEqual([
+			"-c",
+			"a=-C",
+			"log",
+			"-C",
+		]);
+	});
+
+	// git reads a bare repository's objects from the folder its commondir
+	// names, so HEAD and a commondir are a repository with settings of a
+	// command's own choosing.
+	it("finds a bare repository that names its objects through a commondir", () => {
+		const bare = join(home, "bare");
+		mkdirSync(join(bare, "below"), { recursive: true });
+		writeFileSync(join(bare, "HEAD"), "ref: refs/heads/x\n");
+		writeFileSync(join(bare, "commondir"), "/elsewhere\n");
+
+		expect(gitRun(join(bare, "below"), ["status"], rules())).toMatchObject({
+			top: bare,
+			refused: expect.stringContaining("holds a commondir"),
+		});
+	});
+
+	it("won't run where trees are cut when the repository it finds lies above them", () => {
+		// A home kept as a repository of its own has a tree whose .git was
+		// taken away answer to it.
+		const above = repository("dots");
+		const cutHere = join(above, "trees");
+		mkdirSync(join(cutHere, "t"), { recursive: true });
+
+		expect(
+			gitRun(join(cutHere, "t"), ["status"], rules({ trees: cutHere })),
+		).toMatchObject({
+			top: join(cutHere, "t"),
+			refused: expect.stringContaining("holds no .git"),
+		});
+		expect(gitRun(above, ["status"], rules({ trees: cutHere }))).toEqual({
+			args: [...NO_MONITOR, "status"],
+		});
+	});
+
+	// Any session's sandboxed commands can write a cut tree's folder, so
+	// one can take its `.git` away while a push waits for the queue and
+	// put back one naming a git folder of its own before the push runs.
+	it("won't run where trees are cut in a folder holding no .git", async () => {
+		const cut = await tree(repository("src/r"), "t");
+		rmSync(join(cut, ".git"));
+		const ran = await guardedExec(spawnExec(), () => rules())("git", [
+			"-C",
+			cut,
+			"status",
+		]);
+
+		expect(gitRun(cut, ["status"], rules())).toMatchObject({
+			top: cut,
+			refused: expect.stringContaining("holds no .git"),
+		});
+		expect(ran.code, ran.stderr).toBe(126);
+		expect(refusedIn(cut, rules()), "the tree refused").toBe(cut);
+		expect(
+			refusedIn(join(trees, "never-cut"), rules()),
+			"a tree's folder not there yet",
+		).toBe(join(trees, "never-cut"));
+	});
+
+	// Git takes a bare repository whose HEAD or objects is a link, so a
+	// folder shaped so is found, and held to the guard, rather than read
+	// as holding no git while pi's git runs its settings.
+	it.each(["objects", "HEAD"])(
+		"finds a bare repository whose %s is a link",
+		(linked) => {
+			const bare = join(home, ".cache/bare");
+			cpSync(join(template, ".git"), bare, { recursive: true });
+			cpSync(join(bare, linked), join(home, ".cache", `real-${linked}`), {
+				recursive: true,
+			});
+			rmSync(join(bare, linked), { recursive: true });
+			symlinkSync(join(home, ".cache", `real-${linked}`), join(bare, linked));
+
+			expect(gitRun(bare, ["status"], rules({ fenced: true }))).toMatchObject({
+				top: bare,
+				refused: expect.stringContaining("doesn't keep read-only"),
+			});
+			expect(gitRun(bare, ["status"], rules())).toEqual({
+				args: [...NO_MONITOR, "status"],
+			});
+		},
+	);
 });
 
 // A fenced command chooses what stands at a tree's `.git`, and the guard

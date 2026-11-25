@@ -21,6 +21,13 @@
  * settings from wherever that names, and every git that runs has
  * `core.fsmonitor` off.
  *
+ * A folder with no git at or above it gets git as asked, since git
+ * finds nothing there to run, but only as it stands now: a command can
+ * put a `.git` there while the git waits for the machine's queue. So
+ * where the work tool cuts trees, which each must be a worktree, such
+ * a folder is refused, and elsewhere the git carries the folder, so
+ * the queue looks again when its turn comes (`queued-exec.ts`).
+ *
  * Each of git's files is read only when plain and without waiting,
  * since a fenced command chooses what stands at a tree's `.git`, and a
  * fifo there would hold every git pi runs and reclaim's survey.
@@ -145,33 +152,52 @@ export interface GitRules {
  * the top of the repository it found, which a refusal still knows.
  */
 export type GitRun =
-	| { readonly args: readonly string[] }
+	| {
+			readonly args: readonly string[];
+			/**
+			 * The folder, as it really is, where no git stood at or above
+			 * when this was answered, which must still hold none when git
+			 * starts.
+			 */
+			readonly unrooted?: string;
+	  }
 	| { readonly refused: string; readonly top: string };
 
 /** The git `folder` answers to, as git would find it walking up. */
 type FoundGit =
-	| { readonly kind: "none" }
+	| { readonly kind: "none"; readonly at: string }
 	| { readonly kind: "tree"; readonly top: string }
 	| { readonly kind: "repository"; readonly top: string; readonly git: string }
 	| { readonly kind: "link"; readonly top: string };
 
-/** The first git above or at `folder`: a tree's `.git` file, a repository or a bare one. */
+/**
+ * The first git above or at `folder`: a tree's `.git` file, a repository or a bare one.
+ * A bare one is taken whatever its `HEAD` is, with `objects` a link
+ * too, since git follows a link to either, or with a `commondir` in
+ * place of `objects`, since git then reads those from the folder it
+ * names: a folder shaped so that git would take it is never read as
+ * holding none.
+ */
 function foundGit(folder: string): FoundGit {
-	let at = real(resolve(folder));
+	const start = real(resolve(folder));
+	let at = start;
 	for (;;) {
 		const dotGit = join(at, ".git");
 		const kind = kindOf(dotGit);
 		if (kind === "link") return { kind: "link", top: at };
 		if (kind === "file") return { kind: "tree", top: at };
 		if (kind === "folder") return { kind: "repository", top: at, git: dotGit };
+		const objects = kindOf(join(at, "objects"));
 		if (
-			kindOf(join(at, "HEAD")) === "file" &&
-			kindOf(join(at, "objects")) === "folder"
+			kindOf(join(at, "HEAD")) !== undefined &&
+			(objects === "folder" ||
+				objects === "link" ||
+				kindOf(join(at, "commondir")) !== undefined)
 		) {
 			return { kind: "repository", top: at, git: at };
 		}
 		const up = dirname(at);
-		if (up === at) return { kind: "none" };
+		if (up === at) return { kind: "none", at: start };
 		at = up;
 	}
 }
@@ -234,7 +260,18 @@ export function gitRun(
 		return outside(args);
 	}
 	const found = foundGit(folder);
-	if (found.kind === "none") return outside(args);
+	// Every folder where the work tool cuts trees is a worktree, so one
+	// whose git is none, or a repository above the trees, had its own
+	// taken away.
+	const start = real(resolve(folder));
+	const above = found.kind === "repository" && !within(found.top, rules.trees);
+	if ((found.kind === "none" || above) && within(start, rules.trees)) {
+		return {
+			top: start,
+			refused: `${start} lies where the work tool cuts trees but holds no .git, as when a command removed it, so git won't run there: a .git put back later could name a git folder of a command's own. Release the tree and cut it again.`,
+		};
+	}
+	if (found.kind === "none") return { ...outside(args), unrooted: found.at };
 	if (found.kind === "link") {
 		return {
 			top: found.top,
@@ -341,7 +378,18 @@ export function guardedExec(
 }
 
 /** A command's arguments as they may run, or the answer it gets instead. */
-export type Held = { args: readonly string[] } | { refused: ExecResult };
+export type Held =
+	| {
+			args: readonly string[];
+			/**
+			 * Where no git stood at or above when it was asked, as it really
+			 * is, and git's arguments to run inside it: a queued git runs
+			 * there rather than through the path it was given, whose links a
+			 * command could repoint while it waits.
+			 */
+			unrooted?: { folder: string; args: readonly string[] };
+	  }
+	| { refused: ExecResult };
 
 /**
  * What `guardedExec` does to each command before it runs, apart from
@@ -361,6 +409,32 @@ export function heldGit(
 				refused: { code: GIT_REFUSED, stdout: "", stderr: run.refused },
 			};
 		}
-		return { args: run.args };
+		return run.unrooted === undefined
+			? { args: run.args }
+			: {
+					args: run.args,
+					unrooted: { folder: run.unrooted, args: withoutFolders(run.args) },
+				};
 	};
+}
+
+/**
+ * `args` with each folder `-C` names left out, read as `gitFolder`
+ * reads them, for a git run in the folder they lead to.
+ */
+export function withoutFolders(args: readonly string[]): string[] {
+	const kept: string[] = [];
+	let at = 0;
+	for (; at < args.length && args[at]?.startsWith("-"); at++) {
+		const arg = args[at] ?? "";
+		if (arg === "-C") {
+			at++;
+		} else if (arg === "-c") {
+			kept.push(arg, args[at + 1] ?? "");
+			at++;
+		} else {
+			kept.push(arg);
+		}
+	}
+	return [...kept, ...args.slice(at)];
 }

@@ -14,6 +14,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -106,8 +107,10 @@ describe("the work tool's git, when the queue takes it", () => {
 		expect(direct.asked).toEqual([]);
 		const [command, args] = queued.asked[0] ?? ["", []];
 		expect(command).toBe("bash");
+		// The tree holds no git, so the queue runs it in the folder the
+		// guard read, behind a look at it again.
 		expect(args[1], "the guard's settings reach the queued line").toContain(
-			`git -c core.fsmonitor=false -C ${tree} push origin x`,
+			`pi-unrooted-git ${realpathSync(tree)} git -c core.fsmonitor=false push origin x`,
 		);
 		expect(asked(), "the queue names the push as it was asked").toMatchObject([
 			{ what: `git -C ${tree} push origin x`, walk: "push" },
@@ -126,7 +129,10 @@ describe("the work tool's git, when the queue takes it", () => {
 		const [command, args] = queued.asked[0] ?? ["", []];
 		expect(command, "the queue didn't take the fetch").toBe("bash");
 		expect(args[1], "the turn didn't wrap the guarded git").toContain(
-			`'turn "$@"' work-fetch git -c core.fsmonitor=false -C ${tree} fetch --quiet origin ${commit}`,
+			`'turn "$@"' work-fetch bash -c `,
+		);
+		expect(args[1], "the guard's look runs inside the turn").toContain(
+			`pi-unrooted-git ${realpathSync(tree)} git -c core.fsmonitor=false fetch --quiet origin ${commit}`,
 		);
 		// The queue cuts the long line it names a job by, so its start.
 		expect(
