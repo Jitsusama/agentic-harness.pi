@@ -21,6 +21,7 @@
  */
 
 import { basename, dirname } from "node:path";
+import { performance } from "node:perf_hooks";
 import { isRecord } from "../../lib/internal/record.ts";
 
 /** How many of the slowest extensions the line names. */
