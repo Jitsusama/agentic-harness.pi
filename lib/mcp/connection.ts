@@ -23,6 +23,10 @@ export interface SdkClientLike {
 /** An instance-scoped connection to one MCP server. */
 export interface McpConnection {
 	connect(): Promise<void>;
+	/**
+	 * Close for good, without loading the SDK: every later use is refused, as
+	 * is a use under way that hasn't yet used its client.
+	 */
 	close(): Promise<void>;
 	listTools(): Promise<McpTool[]>;
 	callTool(
@@ -84,21 +88,12 @@ export function createMcpConnection(
 	}
 	const subscribers = new Set<() => void>();
 	let built: Omit<Opened, "sdk"> | undefined;
-	let opening: Promise<Opened> | undefined;
 	let closed = false;
 	const refusal = () => new Error(`MCP connection to ${config.id} is closed.`);
 	// The client is built once, after the SDK's first load. `loadOnce`
 	// forgets a failed load, so the next use tries again.
-	const open = (): Promise<Opened> => {
-		if (closed) return Promise.reject(refusal());
-		opening = build();
-		return opening;
-	};
-	const build = async (): Promise<Opened> => {
+	const open = async (): Promise<Opened> => {
 		const sdk = await sdkModule();
-		// Closed while the SDK loaded: the use is refused, so no client is
-		// built or handed out once close has begun.
-		if (closed) throw refusal();
 		if (built === undefined && deps.client) {
 			built = { client: deps.client, transport: deps.transport };
 		} else if (built === undefined) {
@@ -110,63 +105,71 @@ export function createMcpConnection(
 		}
 		return { sdk, ...built };
 	};
+	// Every use reaches the client through `act`. Once close has begun, a use
+	// is refused before the SDK loads, or else once it holds the client, in
+	// the same step that starts `act`: so no use reaches a client after close.
+	const using = async <T>(act: (ready: Opened) => Promise<T>): Promise<T> => {
+		if (closed) throw refusal();
+		const ready = await open();
+		if (closed) throw refusal();
+		return act(ready);
+	};
 
 	return {
-		async connect() {
-			const { sdk, client, transport } = await open();
-			client.setNotificationHandler(
-				sdk.ToolListChangedNotificationSchema,
-				() => {
-					for (const handler of subscribers) handler();
-				},
-			);
-			await client.connect(transport);
+		connect() {
+			return using(({ sdk, client, transport }) => {
+				client.setNotificationHandler(
+					sdk.ToolListChangedNotificationSchema,
+					() => {
+						for (const handler of subscribers) handler();
+					},
+				);
+				return client.connect(transport);
+			});
 		},
 		async close() {
-			// Close waits for an SDK load under way, not for what the use does
-			// next, and never loads the SDK itself: a connection with no client
-			// built has nothing to close.
+			// Uses check for a close themselves, so close waits for none and never
+			// loads the SDK: a connection with no client built has nothing to close.
 			closed = true;
-			await opening?.catch(() => {
-				// A use whose load failed built no client; its caller has the error.
-			});
 			await built?.client.close();
 		},
-		async listTools() {
-			const { sdk, client } = await open();
-			const { LooseToolsResult } = sdk;
-			const parsed = LooseToolsResult.parse(
-				await client.request(
-					{ method: "tools/list", params: {} },
-					LooseToolsResult,
-				),
-			);
-			return parsed.tools.map((raw) => toTool(config.id, raw));
+		listTools() {
+			return using(async ({ sdk, client }) => {
+				const { LooseToolsResult } = sdk;
+				const parsed = LooseToolsResult.parse(
+					await client.request(
+						{ method: "tools/list", params: {} },
+						LooseToolsResult,
+					),
+				);
+				return parsed.tools.map((raw) => toTool(config.id, raw));
+			});
 		},
 		async callTool(name, args, opts) {
 			try {
-				const { sdk, client } = await open();
-				const { LooseCallResult } = sdk;
-				const raw = await client.request(
-					{ method: "tools/call", params: { name, arguments: args } },
-					LooseCallResult,
-					{
-						signal: opts?.signal,
-						timeout: opts?.timeoutMs,
-					},
-				);
-				const parsed = LooseCallResult.parse(raw) as {
-					content: unknown[];
-					isError?: boolean;
-					structuredContent?: unknown;
-					_meta?: unknown;
-				};
-				return {
-					content: mapContent(parsed.content),
-					isError: parsed.isError === true,
-					structuredContent: parsed.structuredContent,
-					_meta: parsed._meta,
-				};
+				return await using(async ({ sdk, client }) => {
+					const { LooseCallResult } = sdk;
+					const raw = await client.request(
+						{ method: "tools/call", params: { name, arguments: args } },
+						LooseCallResult,
+						{
+							signal: opts?.signal,
+							timeout: opts?.timeoutMs,
+						},
+					);
+					const parsed = LooseCallResult.parse(raw) as {
+						content: unknown[];
+						isError?: boolean;
+						structuredContent?: unknown;
+						_meta?: unknown;
+					};
+					return {
+						content: mapContent(parsed.content),
+						isError: parsed.isError === true,
+						structuredContent: parsed.structuredContent,
+						_meta: parsed._meta,
+					};
+				});
 			} catch (err) {
 				const error = mcpErrorFrom(err);
 				return {

@@ -22,6 +22,7 @@ function fakeClient(responses: {
 	toolsList?: unknown;
 	call?: unknown;
 	callThrows?: unknown;
+	onRequest?: () => void;
 }): SdkClientLike & {
 	notify(): void;
 } {
@@ -33,6 +34,7 @@ function fakeClient(responses: {
 			notifyHandler = handler;
 		},
 		async request(request: { method: string }) {
+			responses.onRequest?.();
 			if (request.method === "tools/list") return responses.toolsList;
 			if (request.method === "tools/call") {
 				if (responses.callThrows) throw responses.callThrows;
@@ -127,7 +129,7 @@ describe("createMcpConnection", () => {
 		expect(client.close).toHaveBeenCalledOnce();
 	});
 
-	it("refuses a use whose SDK load a close overtakes, building no client", async () => {
+	it("refuses a use whose SDK load a close overtakes, connecting no client", async () => {
 		const client = fakeClient({});
 		const conn = createMcpConnection(config, { client, transport: {} });
 		const connecting = conn.connect();
@@ -135,6 +137,26 @@ describe("createMcpConnection", () => {
 		await expect(connecting).rejects.toThrow("MCP connection to gw is closed.");
 		expect(client.connect).not.toHaveBeenCalled();
 		expect(client.close).not.toHaveBeenCalled();
+	});
+
+	it("refuses a use a close reaches after it holds the client", async () => {
+		let closing: Promise<void> | undefined;
+		const client = fakeClient({
+			toolsList: { tools: [] },
+			onRequest: () => {
+				closing ??= conn.close();
+			},
+		});
+		const conn = createMcpConnection(config, { client, transport: {} });
+		// Both take the client; the listing's request closes the connection
+		// before the connect's next step, where it would connect.
+		const listing = conn.listTools();
+		const connecting = conn.connect();
+		await expect(listing).resolves.toEqual([]);
+		await expect(connecting).rejects.toThrow("MCP connection to gw is closed.");
+		await closing;
+		expect(client.close).toHaveBeenCalledOnce();
+		expect(client.connect).not.toHaveBeenCalled();
 	});
 
 	it("refuses every use once closed", async () => {
@@ -237,7 +259,8 @@ describe("createMcpConnection", () => {
 	});
 });
 
-// Last in the file: until it unmocks, every connection's first load fails.
+// Its failing load is registered after a reset and unmocked in `finally`,
+// so it reaches no other case.
 describe("a connection whose SDK fails to load", () => {
 	it("answers a call with the failure, tries again on the next use and closes without loading", async () => {
 		vi.resetModules();
@@ -279,7 +302,10 @@ describe("a connection whose SDK fails to load", () => {
 });
 
 describe("a connection given no client", () => {
-	it("builds the SDK's client once and connects it over the SDK's transport", async () => {
+	// It imports the real SDK, so run alone it pays the SDK's first import.
+	it("builds the SDK's client once and connects it over the SDK's transport", {
+		timeout: 30_000,
+	}, async () => {
 		vi.resetModules();
 		const client = fakeClient({ toolsList: { tools: [] } });
 		const transport = { made: "by the SDK" };
