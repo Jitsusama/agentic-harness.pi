@@ -22,11 +22,31 @@
  * holds less those already copied back. The log file's own length says
  * nothing once a checkpoint has copied it, since PASSIVE never shrinks it.
  *
+ * The index is read through one descriptor per store that the process
+ * keeps for its life and never closes. SQLite locks the index with POSIX
+ * locks, and closing any descriptor on a file drops every lock its process
+ * holds there. Opened and closed every 2 s, it left each conversation
+ * unlocked, so another process opening the store took itself for the
+ * first, rebuilt the index smaller under the live writer, and the writer's
+ * next frame faulted past its end: a conversation of 3 days died so on 25
+ * November, with SIGBUS in SQLite's walIndexAppend.
+ *
+ * Closing it even at a store's release would race: a conversation can open
+ * the store again before the worker reads the release, and a worker that
+ * ends can overlap the next. So none is ever closed. The main thread opens
+ * each one, not the worker, since node closes what a worker opened when
+ * the worker exits, and the worker ends with the last store released. An
+ * index replaced, as SQLite does once the store's last connection has
+ * closed and the next opens it, is read through a new descriptor the
+ * worker asks for; the old one stays open, holding a file of a block or
+ * two, one per reopening.
+ *
  * Two connections to one store in one process are safe because both are
  * node's one built-in SQLite, which shares its locks within the process;
  * a store opened through another SQLite build in this process would not be.
  */
 
+import { fstatSync, openSync, statSync } from "node:fs";
 import { endianness } from "node:os";
 import { Worker } from "node:worker_threads";
 
@@ -62,9 +82,13 @@ const RESTARTS = 3;
 const PROGRAM = `
 const { parentPort, workerData } = process.getBuiltinModule("node:worker_threads");
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
-const { closeSync, existsSync, openSync, readSync } = process.getBuiltinModule("node:fs");
+const { existsSync, fstatSync, readSync, statSync } = process.getBuiltinModule("node:fs");
 const { every, pages, observing, little } = workerData;
 const kept = new Map();
+// Each store's WAL index descriptor, which the main thread opened and holds.
+const indexes = new Map(Object.entries(workerData.indexes));
+// The stores whose index this has asked the main thread for, not yet answered.
+const asked = new Set();
 const said = (error) => String((error && error.message) || error);
 // Both copies of the WAL index's 48-byte header and the checkpoint's count after them.
 const index = Buffer.alloc(100);
@@ -89,19 +113,33 @@ function checkpoint(path, store) {
 	store.failing = false;
 	if (observing) parentPort.postMessage({ op: "checkpointed", path });
 }
+// The descriptor a store's WAL index is read through. None is opened or
+// closed here: closing one drops SQLite's locks on it, and node closes one
+// a worker opened when the worker exits. For an index missing or since
+// replaced this asks the main thread, and reads what it holds meanwhile.
+function indexOf(path) {
+	const held = indexes.get(path);
+	try {
+		if (held !== undefined && statSync(path + "-shm").ino === fstatSync(held).ino) return held;
+	} catch {
+		// Gone for now, or not yet made: the main thread looks again.
+	}
+	if (!asked.has(path)) {
+		asked.add(path);
+		parentPort.postMessage({ op: "index", path });
+	}
+	return held;
+}
 // The frames the log holds not yet copied back, read from its WAL index:
 // the header's mxFrame at byte 16 and the checkpoint's nBackfill at byte
 // 96, in the machine's own byte order. An index that can't be read counts
 // as nothing to copy, leaving the store to its close.
 function stillToCopy(path) {
-	let fd;
 	try {
-		fd = openSync(path + "-shm", "r");
-		if (readSync(fd, index, 0, index.length, 0) < index.length) return 0;
+		const fd = indexOf(path);
+		if (fd === undefined || readSync(fd, index, 0, index.length, 0) < index.length) return 0;
 	} catch {
 		return 0;
-	} finally {
-		if (fd !== undefined) closeSync(fd);
 	}
 	const frames = little ? index.readUInt32LE(16) : index.readUInt32BE(16);
 	const copied = little ? index.readUInt32LE(96) : index.readUInt32BE(96);
@@ -109,7 +147,10 @@ function stillToCopy(path) {
 }
 parentPort.on("message", (message) => {
 	const { op, path } = message;
-	if (op === "keep") {
+	if (op === "keep" || op === "index") {
+		if (op === "index") asked.delete(path);
+		if (typeof message.fd === "number") indexes.set(path, message.fd);
+		if (op === "index") return;
 		try {
 			open(path).closing = false;
 		} catch (error) {
@@ -196,13 +237,45 @@ export interface CheckpointOptions {
 
 /** A worker's answer, as it posts one. */
 interface Answer {
-	readonly op: "settled" | "failed" | "looked" | "checkpointed";
+	readonly op: "settled" | "failed" | "looked" | "checkpointed" | "index";
 	readonly id?: number;
 	readonly path: string;
 	readonly error?: string;
 }
 
-const ANSWERS = new Set(["settled", "failed", "looked", "checkpointed"]);
+const ANSWERS = new Set([
+	"settled",
+	"failed",
+	"looked",
+	"checkpointed",
+	"index",
+]);
+
+/**
+ * Each store's WAL index descriptor, by the store's path, opened on the
+ * main thread and held for the process's life: every worker, restarted or
+ * started again, reads through the same one, and none is closed.
+ */
+const INDEXES = new Map<string, number>();
+
+/**
+ * The descriptor on the WAL index of the store at `path`, opened once and
+ * again only for an index since replaced; none while it has no index.
+ */
+function indexFor(path: string): number | undefined {
+	const at = `${path}-shm`;
+	const held = INDEXES.get(path);
+	try {
+		if (held !== undefined && statSync(at).ino === fstatSync(held).ino)
+			return held;
+		const fd = openSync(at, "r");
+		INDEXES.set(path, fd);
+		return fd;
+	} catch {
+		// No index yet, or gone: the worker asks again at its next look.
+		return held;
+	}
+}
 
 /** Whether something the worker posted is an answer. */
 function isAnswer(value: unknown): value is Answer {
@@ -237,8 +310,13 @@ export function checkpointing(options: CheckpointOptions = {}): Checkpoints {
 		}
 	}
 
-	function heard(message: unknown): void {
+	function heard(thread: Worker, message: unknown): void {
 		if (!isAnswer(message)) return;
+		if (message.op === "index") {
+			const path = message.path;
+			thread.postMessage({ op: "index", path, fd: indexFor(path) });
+			return;
+		}
 		if (message.op === "looked" || message.op === "checkpointed") {
 			options.observe?.(
 				message.op === "looked"
@@ -268,10 +346,11 @@ export function checkpointing(options: CheckpointOptions = {}): Checkpoints {
 				pages: options.pages ?? PAGES,
 				observing: options.observe !== undefined,
 				little: endianness() === "LE",
+				indexes: Object.fromEntries(INDEXES),
 			},
 		});
 		thread.unref();
-		thread.on("message", heard);
+		thread.on("message", (message: unknown) => heard(thread, message));
 		thread.on("error", (error: unknown) => {
 			const said = error instanceof Error ? error.message : String(error);
 			report(new Error(`The stores' checkpoint thread failed: ${said}`));
@@ -293,7 +372,8 @@ export function checkpointing(options: CheckpointOptions = {}): Checkpoints {
 			}
 			restarts++;
 			const again = started();
-			for (const path of kept.keys()) again.postMessage({ op: "keep", path });
+			for (const path of kept.keys())
+				again.postMessage({ op: "keep", path, fd: indexFor(path) });
 		});
 		worker = thread;
 		return thread;
@@ -347,7 +427,7 @@ export function checkpointing(options: CheckpointOptions = {}): Checkpoints {
 		keep(path) {
 			kept.set(path, (kept.get(path) ?? 0) + 1);
 			if (worker || restarts < RESTARTS)
-				started().postMessage({ op: "keep", path });
+				started().postMessage({ op: "keep", path, fd: indexFor(path) });
 			let released = false;
 			return {
 				settle: () => settle(path),

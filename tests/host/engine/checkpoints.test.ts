@@ -1,5 +1,5 @@
 /** The host's checkpointer: a store's log is copied back from another thread, never the one writing it. */
-import { copyFileSync, existsSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -95,6 +95,25 @@ function checkpointsMade(): number {
 	return events.filter(({ op }) => op === "checkpointed").length;
 }
 
+/** Where the kernel lists every POSIX lock, on Linux. */
+const LOCKS = "/proc/locks";
+
+/** How many POSIX locks this process holds on the store's WAL index. */
+function locksOnIndex(): number {
+	const inode = statSync(`${store}-shm`).ino;
+	return readFileSync(LOCKS, "utf8")
+		.split("\n")
+		.filter((line) => {
+			const fields = line.trim().split(/\s+/);
+			// "1: POSIX ADVISORY READ <pid> <major>:<minor>:<inode> <start> <end>"
+			return (
+				fields[1] === "POSIX" &&
+				fields[4] === String(process.pid) &&
+				fields[5]?.endsWith(`:${inode}`)
+			);
+		}).length;
+}
+
 /** Wait until the worker has looked `looks` more times. */
 async function looksGoBy(looks: number): Promise<void> {
 	const looked = () => events.filter(({ op }) => op === "looked").length;
@@ -120,6 +139,27 @@ describe("the host's checkpointer", () => {
 		kept.release();
 		expect(reported).toEqual([]);
 	});
+
+	it.skipIf(!existsSync(LOCKS))(
+		"keeps SQLite's locks on a store's WAL index while it looks, so another process can't take the store for unopened",
+		async () => {
+			db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");
+			const held = locksOnIndex();
+			expect(held, "the writer's own lock").toBeGreaterThan(0);
+
+			const kept = checkpoints.keep(store);
+			await looksGoBy(LOOKS);
+			expect(locksOnIndex(), "while it looks").toBeGreaterThanOrEqual(held);
+
+			// Released and kept again while the writer stays open, as a conversation
+			// opening the store before the worker has read the release would.
+			kept.release();
+			const again = checkpoints.keep(store);
+			await looksGoBy(LOOKS);
+			expect(locksOnIndex(), "after a release").toBeGreaterThanOrEqual(held);
+			again.release();
+		},
+	);
 
 	it("leaves a log short of its pages alone", async () => {
 		db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");
