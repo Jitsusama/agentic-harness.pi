@@ -1,13 +1,20 @@
 /**
- * The sweep's memory of what git's status said of each tree: a tree
- * whose HEAD, branch, index and top folder are unchanged since the last
- * sweep is answered from it, and a change to any of those asks git
- * again. A change below the top folder goes unseen, which the take's own
- * status catches.
+ * The sweep's memory of what git's status said of each tree: a dirty
+ * tree whose HEAD, branch, index and top folder are unchanged since the
+ * last sweep is answered from it, and a change to any of those asks git
+ * again. A change below the top folder goes unseen, so a clean answer is
+ * never served.
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -112,6 +119,52 @@ describe("the sweep's memory of trees' statuses", () => {
 
 		await git(snapshot, "commit", "-q", "--allow-empty", "-m", "more");
 		await sweep(exec, snapshot);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("never answers from memory that a tree is clean", async () => {
+		const { ran, exec } = counting({ code: 0, stdout: "", stderr: "" });
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git when HEAD names a ref outside refs/", async () => {
+		const { ran, exec } = counting();
+		const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
+		writeFileSync(join(gitDir, "HEAD"), "ref: ../../../../elsewhere\n");
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git when the tree's index is a link", async () => {
+		const { ran, exec } = counting();
+		const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
+		const index = join(gitDir, "index");
+		const moved = join(state, "index-elsewhere");
+		writeFileSync(moved, readFileSync(index));
+		rmSync(index);
+		symlinkSync(moved, index);
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git when commondir names a folder git wouldn't", async () => {
+		const { ran, exec } = counting();
+		const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
+		writeFileSync(join(gitDir, "commondir"), `${state}\n`);
+
+		await sweep(exec);
+		await sweep(exec);
 
 		expect(ran.length, "statuses git ran").toBe(2);
 	});

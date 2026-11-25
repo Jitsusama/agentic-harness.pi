@@ -4,27 +4,28 @@
  * than asked again. Most trees a sweep keeps are kept hour after hour
  * for the same reason, and asking each walks its files.
  *
- * Only a status that ran is kept, only for a day, and only for the same
- * question asked again. A tree counts as changed when its HEAD's text,
- * its branch's ref, packed-refs, its index or the entries of its own top
- * folder moved, and only then. An edit to a tracked file, or a file
- * added or removed in a folder below the top, moves none of those, so an
- * answer of clean can be out of date. A take reads the status again
- * before it removes anything, and a tree whose take was refused is
- * forgotten, so a stale clean answer costs one take that is refused: the
- * tree is moved aside, read and put back once. An answer of dirty out of
- * date keeps a tree a day longer.
+ * Only an answer of dirty is kept: a status that ran and said a tree has
+ * changes, kept for a day, for the same question asked again. A tree
+ * counts as changed when its HEAD's text, its branch's ref, packed-refs,
+ * its index or the entries of its own top folder moved, and only then.
+ * An edit to a tracked file, or a file added or removed below the top
+ * folder, moves none of those, so a remembered answer can be out of
+ * date, and only a dirty one is ever served: it can keep a tree a day
+ * longer, never offer one to a take. A tree that reads clean is asked
+ * each sweep, so a take is never begun on a stale answer, whose put-back
+ * could find its path cut afresh and leave the work aside.
  */
 
 import {
 	lstatSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
-	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { Exec, ExecResult } from "../../lib/core/exec/index.ts";
 import { readPlain } from "../../lib/core/work/plain-file.ts";
 
@@ -89,7 +90,8 @@ export function rememberStatuses(
 			if (
 				seen !== undefined &&
 				result.code === 0 &&
-				result.stdout.length <= STATUS_KEPT_BYTES
+				result.stdout.trim() !== "" &&
+				Buffer.byteLength(result.stdout) <= STATUS_KEPT_BYTES
 			) {
 				after[path] = { seen, at: now(), stdout: result.stdout };
 			}
@@ -107,7 +109,9 @@ export function rememberStatuses(
 				renameSync(aside, file);
 			} catch {
 				// Unwritten, the next sweep asks every tree again, as before.
+				removeQuietly(aside);
 			}
+			removeLeftWritings(file, now());
 		},
 	};
 }
@@ -121,6 +125,42 @@ function statusOf(
 	const at = args.indexOf("-C");
 	const path = at === -1 ? undefined : args[at + 1];
 	return path === undefined || !isAbsolute(path) ? undefined : path;
+}
+
+/** How old another save's half-written file is before it counts as left. */
+const WRITING_LEFT_MS = 60 * 60 * 1000;
+
+/**
+ * Remove what saves killed part way left beside `file`: each names its
+ * own, so none is ever written over, and one an hour old is no save's.
+ */
+function removeLeftWritings(file: string, at: number): void {
+	const prefix = `${basename(file)}.`;
+	let names: string[];
+	try {
+		names = readdirSync(dirname(file));
+	} catch {
+		// Nowhere to look: nothing is left there to remove.
+		return;
+	}
+	for (const name of names) {
+		if (!(name.startsWith(prefix) && name.endsWith(".writing"))) continue;
+		const left = join(dirname(file), name);
+		try {
+			if (at - lstatSync(left).mtimeMs > WRITING_LEFT_MS) removeQuietly(left);
+		} catch {
+			// Gone already, which is what was wanted.
+		}
+	}
+}
+
+/** Remove `path`, which may already be gone. */
+function removeQuietly(path: string): void {
+	try {
+		unlinkSync(path);
+	} catch {
+		// Gone already, or never written.
+	}
 }
 
 /** `path` as the file system names it, so two spellings of one tree match. */
@@ -138,9 +178,13 @@ function samePath(path: string): string {
  * names, packed-refs, its index and its own folder. Nothing when any
  * can't be read, which asks git.
  *
- * Every file git keeps for a tree is read through {@link readPlain}: the
- * tree's `.git` names them, and whatever ran in the tree could make one
- * a fifo, whose read would never return and would hold the host's thread.
+ * Every file git keeps for a tree is read through {@link readPlain}, and
+ * looked at without following a link: whatever ran in the tree can write
+ * its git folder, and could make a file there a fifo, whose read never
+ * returns, or a link to a mount that never answers, either of which would
+ * hold the host's thread. For the same reason only a ref under `refs/` is
+ * looked at, and only a common folder two above the git folder, where git
+ * puts it: both are read from files the session can write.
  */
 function lookOf(path: string): string | undefined {
 	try {
@@ -149,16 +193,18 @@ function lookOf(path: string): string | undefined {
 		const head = readPlain(join(gitDir, "HEAD"))?.trim();
 		if (head === undefined) return undefined;
 		const ref = /^ref: (.+)$/.exec(head)?.[1];
+		if (ref !== undefined && !plainRef(ref)) return undefined;
 		const common = commonDirOf(gitDir);
 		if (common === undefined) return undefined;
-		const index = statSync(join(gitDir, "index"));
+		const index = lstatSync(join(gitDir, "index"));
+		if (!index.isFile()) return undefined;
 		return JSON.stringify([
 			head,
 			ref === undefined ? undefined : changed(join(common, ref)),
 			changed(join(common, "packed-refs")),
 			index.mtimeMs,
 			index.size,
-			statSync(path).mtimeMs,
+			lstatSync(path).mtimeMs,
 		]);
 	} catch {
 		// A tree mid-change, or not a worktree: git says.
@@ -166,14 +212,25 @@ function lookOf(path: string): string | undefined {
 	}
 }
 
-/** When `path` last changed, or nothing when there is none. */
+/** Whether `ref` names a ref git keeps under `refs/`, and climbs out of none. */
+function plainRef(ref: string): boolean {
+	return ref.startsWith("refs/") && !ref.split("/").includes("..");
+}
+
+/**
+ * When the plain file at `path` last changed, or nothing when none is
+ * there. Anything else standing there throws, so git is asked.
+ */
 function changed(path: string): number | undefined {
+	let found: ReturnType<typeof lstatSync>;
 	try {
-		return statSync(path).mtimeMs;
+		found = lstatSync(path);
 	} catch {
 		// A ref only in packed-refs, which counts on its own.
 		return undefined;
 	}
+	if (!found.isFile()) throw new Error(`${path} isn't a plain file`);
+	return found.mtimeMs;
 }
 
 /**
@@ -197,7 +254,13 @@ function gitDirOf(path: string): string | undefined {
 function commonDirOf(gitDir: string): string | undefined {
 	const at = join(gitDir, "commondir");
 	const said = readPlain(at)?.trim();
-	if (said !== undefined) return resolve(gitDir, said);
+	if (said !== undefined) {
+		const common = resolve(gitDir, said);
+		return common === resolve(gitDir, "..", "..") &&
+			gitDir.startsWith(`${common}${sep}`)
+			? common
+			: undefined;
+	}
 	try {
 		lstatSync(at);
 	} catch {
