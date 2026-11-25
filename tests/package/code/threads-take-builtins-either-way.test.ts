@@ -27,15 +27,22 @@ const EVAL = /\beval:\s*true\b/;
 
 /**
  * What only a CommonJS program has: `require` by any name, builtin or
- * package, and the folder and file names node gives it. A module has
- * none of them, so a thread's source that says one dies there. The
- * whole file is read, since a program held as a string is no smaller
- * than its file, and a module's own code has no use for them either.
+ * package, called or reached into (`require.resolve`), the `module` and
+ * `exports` it writes to, and the folder and file names node gives it.
+ * A module has none of them, so a thread's source that says one dies
+ * there. The whole file is read, since a program held as a string is no
+ * smaller than its file, and a module's own code has no use for them
+ * either; a sentence ending on the word, as "require.", is prose.
  */
-const COMMONJS_ONLY = /\brequire\s*\(|\b__dirname\b|\b__filename\b/g;
+const COMMONJS_ONLY =
+	/\brequire\s*(?:\(|\.\w)|\bmodule\.exports\b|\bexports\.\w|\b__dirname\b|\b__filename\b/g;
+
+/** A file of code a thread may be started from. */
+const CODE = /\.(?:ts|mjs)$/;
 
 /** The programs known to run as a thread's source, so the rule reads some. */
 const KNOWN_THREADS = [
+	"host/service/stop-backstop.ts",
 	"host/engine/checkpoints.ts",
 	"host/service/hold-watch.ts",
 	"lib/core/web/article.ts",
@@ -44,7 +51,7 @@ const KNOWN_THREADS = [
 describe("threads started from source", () => {
 	it("take node's modules through process.getBuiltinModule, never require", () => {
 		const threads = packageFiles(ROOT)
-			.filter((file) => file.endsWith(".ts") && !file.startsWith("tests/"))
+			.filter((file) => CODE.test(file) && !file.startsWith("tests/"))
 			.map((file) => ({
 				file,
 				source: readFileSync(join(ROOT, file), "utf8"),
@@ -62,6 +69,31 @@ describe("threads started from source", () => {
 		expect(
 			requiring,
 			"a program a thread runs from source reaches node's modules through process.getBuiltinModule",
+		).toEqual([]);
+	});
+
+	it("reads every CommonJS form, in every file a thread may start from", () => {
+		const forms = [
+			'require("node:fs")',
+			"require.resolve",
+			"module.exports",
+			"exports.watch",
+			"__dirname",
+			"__filename",
+		];
+		expect(
+			forms.filter((form) => !form.match(COMMONJS_ONLY)),
+			"each form a module lacks is refused",
+		).toEqual([]);
+		expect(
+			"// a thread may not require.\n// it requires nothing".match(
+				COMMONJS_ONLY,
+			),
+			"a sentence ending on the word is prose",
+		).toBeNull();
+		expect(
+			["a.ts", "a.mjs"].filter((file) => !CODE.test(file)),
+			"both kinds of file a thread starts from are read",
 		).toEqual([]);
 	});
 });

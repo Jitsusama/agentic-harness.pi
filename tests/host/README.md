@@ -8,8 +8,9 @@ host/.
 - `screen/`: mirrors host/screen/.
 - `service/`: socket contract tests.
 - `fixtures/`: the programs threads-as-source.test.ts runs as module
-  source, as a host's end-to-end runs start one, each in its own file so a
-  linter reads it.
+  source, as a host's end-to-end runs start one, and the preload that
+  kills every thread a child starts, each in its own file so a linter
+  reads it.
 - `end-to-end/`: runs a whole host as its own process under a sealed HOME.
 - `fenced/`: whole-host cases that need the agent fence's programs in the
   system's own profile. The lent builder `pnpm test:host` runs on has none,

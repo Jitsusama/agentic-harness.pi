@@ -706,13 +706,14 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
 	thread.unref();
 	// A thread that fails leaves the host as it was, unwatched, but says so
-	// once: on 24 November it died at its first line in every end-to-end
-	// host, and nothing said it, so a host went unwatched unseen.
+	// once, with where it failed: on 24 November it died at its first line
+	// in every end-to-end host that started one, and nothing said it, so a
+	// host went unwatched unseen.
 	thread.on("error", (error: unknown) => {
 		try {
 			writeSync(
 				watched.fd,
-				`pi-host: the hold watch's thread failed, so this host's holds go unwatched: ${String(error)}\n`,
+				`pi-host: the hold watch's thread failed, so this host's holds go unwatched: ${whereItFailed(error)}\n`,
 			);
 		} catch {
 			// A closed journal leaves nowhere to say it; the host runs on unwatched.
@@ -724,4 +725,14 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 		clearInterval(tick);
 		void thread.terminate();
 	};
+}
+
+/**
+ * A thread's failure with its stack, since a program held as a string is
+ * found only by the `[worker eval]` line its stack names.
+ */
+function whereItFailed(error: unknown): string {
+	return error instanceof Error
+		? (error.stack ?? error.message)
+		: String(error);
 }
