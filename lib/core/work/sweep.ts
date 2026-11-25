@@ -112,6 +112,14 @@ const GIT_WORKTREE = "git-worktree";
  */
 export const PUSHED_SETTLE_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How many trees a sweep asks git's status of at once. On 25 November
+ * eight at once, in core.nix's worktrees, stood seven deep waiting on
+ * the disk while Joel's browser waited up to 11 s on the file system's
+ * commits, and a sweep is never in a hurry.
+ */
+const SWEEP_STATUS_AT_ONCE = 1;
+
 /** What a sweep needs. */
 export interface SweepDeps extends UseSigns {
 	exec: Exec;
@@ -182,6 +190,12 @@ export interface SweepDeps extends UseSigns {
 	 * removals; nothing by default. Its time counts against `idleWithinMs`.
 	 */
 	betweenIdleTakes?: () => Promise<void>;
+	/**
+	 * What each tree's status runs through, so a runner can answer a tree
+	 * unchanged since the last sweep from what it said then; `exec` when
+	 * absent.
+	 */
+	statusExec?: Exec;
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
 }
@@ -656,10 +670,20 @@ async function sweepRepository(
 	try {
 		const trunk = await trunkOf(deps.exec, main);
 		const spendable = new Set(held.spendable);
+		// Only the trees this sweep judges are asked anything: every other
+		// worktree beside them, live sessions' and the person's own, is one
+		// it takes nothing from, and asking each its status every hour was
+		// about 2,000 statuses across three repositories.
+		const ours = new Set(trees.map((tree) => resolved(tree.path)));
 		const worktrees = await createGitHistory({ exec: deps.exec }).worktrees(
 			main,
 			trunk,
-			{ claimed: (path) => spendable.has(resolved(path)) },
+			{
+				claimed: (path) => spendable.has(resolved(path)),
+				kept: (path) => !ours.has(resolved(path)),
+				atOnce: SWEEP_STATUS_AT_ONCE,
+				...(deps.statusExec ? { statusExec: deps.statusExec } : {}),
+			},
 		);
 		plan = orphanedTrees({
 			mainPath: resolved(main),

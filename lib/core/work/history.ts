@@ -82,6 +82,12 @@ interface WorktreeAsk {
 	 */
 	readonly statusExec?: Exec;
 	/**
+	 * How many trees are asked their status at once, so a caller running
+	 * beside the person's work can ask one at a time.
+	 * {@link STATUS_AT_ONCE} when absent.
+	 */
+	readonly atOnce?: number;
+	/**
 	 * Whether a quest claims the tree until spent, given the path as git
 	 * names it. Only such a tree is asked whether a stash was made on it
 	 * and, detached, whether a remote holds its commit: a second walk over
@@ -423,7 +429,15 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				}
 			};
 			await Promise.all(
-				Array.from({ length: Math.min(STATUS_AT_ONCE, asking.length) }, ask),
+				Array.from(
+					{
+						length: Math.min(
+							Math.max(1, options.atOnce ?? STATUS_AT_ONCE),
+							asking.length,
+						),
+					},
+					ask,
+				),
 			);
 			const kept = await held(treePath, [
 				...new Set(

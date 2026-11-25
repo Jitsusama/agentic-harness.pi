@@ -8,4 +8,5 @@ open sessions left clean and pushed a day, whose branches stay for them
 (`sweep-idle-worktree.test.ts`), and the branches origin's trunk already
 has. How the sweep chooses which idle snapshots to
 judge, and when it stops, is tested against git's answers made up, in
-`sweep-idle-choosing.test.ts`. What they stand on is in `../support/`.
+`sweep-idle-choosing.test.ts`. Which trees it asks git's status of, and
+how many at once, is in `sweep-status.test.ts`. What they stand on is in `../support/`.

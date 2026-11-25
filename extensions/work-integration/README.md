@@ -339,6 +339,16 @@ sweep writes a JSON line to `sweep.log` in the work state folder,
 but for one that rested. One that found another running says so,
 as the sign of a sweep that holds the lock and never ends.
 
+A sweep asks git's status only of the trees it could take, one at a
+time, never of the other worktrees beside them: on 25 November it
+asked about 2,000 an hour, eight at once, while Joel's browser
+waited on the disk. A tree whose HEAD, branch, index and folder are
+as they were at the last sweep is answered from what git said then,
+kept in `sweep-status.json` beside the log, for at most a day. A
+take reads the status again before it removes anything, so an
+answer gone stale only costs a refused take, or keeps a tree a day
+longer.
+
 A session that joins a snapshot as a sweep takes it finds it gone
 once its own claim is written, and cuts it afresh.
 
