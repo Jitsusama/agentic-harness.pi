@@ -138,6 +138,12 @@ describe("the cell this session's peer says its work split from", () => {
 		expect(read.get(session), "its own, read back").toEqual({
 			split_from: "TERN02",
 		});
+		expect(
+			["from-a-cell", "from-no-address", "from-no-record"].filter(
+				(one) => !read.has(one),
+			),
+			"each peer is read, only its lineage passed over",
+		).toEqual([]);
 		expect(read.get("from-a-cell")).toEqual({ split_from: "OSPREY" });
 		expect(read.get("from-no-address")).toBeUndefined();
 		expect(read.get("from-no-record")).toBeUndefined();

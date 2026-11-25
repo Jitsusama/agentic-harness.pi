@@ -218,22 +218,19 @@ export async function startSprouted(
 		locked ||= served === "locked";
 		if (served !== "held") unrecorded.push(UNSERVED);
 	}
-	// Only a quest it made, or its own replayed, split from the cell that
-	// asked, as only those are tied to it below; a sprout the person
-	// started names no cell.
+	// Only a quest it made, or its own replayed, splits from and is
+	// sprouted from the cell that asked: a live one it joined predates it,
+	// and may be that very cell's own, so the map is left saying where it
+	// really came from. A sprout the person started names no cell.
 	const ownQuest = held === undefined || made !== undefined;
 	if (ownQuest && seed.from) {
 		const split = splitsFrom(state, id, seed.from, locked);
 		locked ||= split === "locked";
 		if (split !== "held") unrecorded.push(UNSPLIT);
 	}
-	// Only a quest it made, or its own replayed, is sprouted from the cell
-	// that asked: a live one it joined predates it, and may be that very
-	// cell's own, so the map is left saying where it really came from.
-	const tied =
-		held !== undefined && !made
-			? ({ kind: "none" } as const)
-			: await tie(id, seed.from, ctx.cwd, deps.run);
+	const tied = ownQuest
+		? await tie(id, seed.from, ctx.cwd, deps.run)
+		: ({ kind: "none" } as const);
 	// The first words reach only the model, so the host's own log keeps
 	// what no quest log could, for whoever reads the machine later.
 	if (unrecorded.length > 0) {

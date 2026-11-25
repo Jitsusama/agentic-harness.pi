@@ -62,13 +62,15 @@ import { createEnvGuard } from "../_helpers.ts";
  * them fails, as a lock that never comes does; every
  * other write goes through. `tried` keeps each alias a write would add.
  * `servesRefused` has a need's write answer that it wasn't made, as a
- * README it can't read back does, rather than throw. `splitTries`
+ * README it can't read back does, rather than throw, and `splitsRefused`
+ * has a split's write answer so. `splitTries`
  * counts the writes that would record a split, landed or not.
  */
 const failing = vi.hoisted(() => ({
 	serves: false,
 	splits: false,
 	servesRefused: false,
+	splitsRefused: false,
 	aliases: false,
 	removals: false,
 	linkMarks: false,
@@ -127,7 +129,10 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 					if (splits) failing.splitTries += 1;
 					if (failing.splits && splits)
 						throw new Error("the quest's lock didn't come");
-					if (failing.servesRefused && serves) {
+					if (
+						(failing.servesRefused && serves) ||
+						(failing.splitsRefused && splits)
+					) {
 						refused = true;
 						return undefined;
 					}
@@ -1229,6 +1234,28 @@ describe("a sprouted session's start", () => {
 		);
 		expect(entry?.doc.frontMatter._extra?.["split-from"]).toBe("TERN02");
 		expect(again.words).not.toContain("split from isn't recorded");
+	});
+
+	it("says the split went unrecorded when its write answers that it wasn't made", async () => {
+		failing.splitsRefused = true;
+		try {
+			const { state, words } = await start(
+				{ words: "tea", id: "S46", from: "TERN02" },
+				{ sessionId: "sess-split-refused" },
+			);
+			clearDiscoveryCache();
+			expect(
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+					state.questId ?? "",
+				)?.doc.frontMatter._extra?.["split-from"],
+				"the split wasn't written",
+			).toBeUndefined();
+			expect(words, "so its words say so").toContain(
+				"the cell it split from isn't recorded on the quest",
+			);
+		} finally {
+			failing.splitsRefused = false;
+		}
 	});
 
 	it("keeps the split its quest already holds when a replay names another cell", async () => {
