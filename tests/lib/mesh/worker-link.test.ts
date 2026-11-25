@@ -13,8 +13,8 @@ import {
 	refusalText,
 	relayedTransport,
 	replyFrom,
-	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
+import { workerSocket } from "../../../lib/mesh/worker-socket.ts";
 import { quietFor, until } from "../../support/until.ts";
 import {
 	agreed,

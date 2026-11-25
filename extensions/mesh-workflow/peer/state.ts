@@ -70,8 +70,8 @@ import {
 	refusalText,
 	relayedTransport,
 	type WorkerLink,
-	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
+import { workerSocket } from "../../../lib/mesh/worker-socket.ts";
 import type { Settling } from "../acts.ts";
 import { CARRY_NOTE, carryThisSession } from "../carrying.ts";
 import { WORKER_REFUSED } from "../delivery.ts";
