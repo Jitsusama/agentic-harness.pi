@@ -224,7 +224,10 @@ describe("one listener for the end of a turn", () => {
 		]);
 	});
 
-	it("says the run ended with a turn whose tools ran, as a tool that ends the run makes it", async () => {
+	// The run above ends on a turn with no tools; this one's last turn ran
+	// one, which a tool that ends the run leaves, so tools alone never say
+	// the run goes on.
+	it("says the run ended with its last turn, though that turn's tools ran", async () => {
 		const bus = createEventBus();
 		const { runner } = await session([extension("a")], bus);
 

@@ -61,8 +61,13 @@ export type TurnEndHandler = (
 	ctx: ExtensionContext,
 ) => void | Promise<void>;
 
-/** Where a later handler offers itself to the session's listener. */
-const OFFERS = "agentic-harness.pi/turn-end/offer/v2";
+/**
+ * Where a later handler offers itself to the session's listener. Its
+ * version moves with what a turn carries: v3 added `endsRun`, so a
+ * listener from a copy before it, which hands turns without it, never
+ * takes a handler that reads it.
+ */
+const OFFERS = "agentic-harness.pi/turn-end/offer/v3";
 
 interface Hearer {
 	readonly handler: TurnEndHandler;

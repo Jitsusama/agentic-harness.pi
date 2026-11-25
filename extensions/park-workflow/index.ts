@@ -13,11 +13,10 @@ import {
 	clearAwake,
 	takeBackRestartPark,
 } from "../../lib/internal/session/park.ts";
-import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
 import { hideResumeHint } from "./restart.ts";
 import {
-	asksAgain,
+	heedTurnEnds,
 	mayPark,
 	noteNeverParks,
 	type Watch,
@@ -61,9 +60,7 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 	});
 	// Between turns, a run its draining or stale host holds may step off.
 	// Only a turn whose tools ran, short of the run's end, asks again.
-	onTurnEnd(pi, (turn) => {
-		watching?.turnEnded(asksAgain(turn));
-	});
+	heedTurnEnds(pi, () => watching);
 	pi.on("agent_start", async () => stirred());
 	pi.on("agent_end", async () => stirred());
 	pi.on("ui_prompt_start", async () => watching?.prompting(true));
