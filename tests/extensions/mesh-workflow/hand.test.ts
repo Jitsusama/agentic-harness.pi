@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meshHand } from "../../../extensions/mesh-workflow/hand.ts";
 import {
 	HAND_EXTENSION,
@@ -171,6 +171,18 @@ describe("a peer's hand", () => {
 		await fire("tool_result", { toolCallId: "1", content: [] });
 		await settle();
 		expect(handLeases()).toBeUndefined();
+	});
+
+	it("gives heavy work back when another handler refuses the call, which then never answers", async () => {
+		const { bash, fire } = await startHand();
+
+		expect(await bash("1", "nix build .#x")).toBeUndefined();
+		await vi.waitFor(() =>
+			expect(handLeases()?.leases).toMatchObject([{ subject: "build" }]),
+		);
+
+		await fire("tool_execution_end", { toolCallId: "1", isError: true });
+		await vi.waitFor(() => expect(handLeases()).toBeUndefined());
 	});
 
 	it("holds back a heavy command once while a hold reaching its peer stands", async () => {

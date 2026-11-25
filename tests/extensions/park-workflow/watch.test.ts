@@ -885,7 +885,9 @@ describe("starting again on a fresh log", () => {
 		expect(
 			ask.why,
 			"the error names only the staging folder, so the why adds the file",
-		).toMatch(/^its holder couldn't be told how to start it again: E/);
+		).toBe(
+			`its holder couldn't be told how to start it again: ${join(folder, WRITING)} is a link or no folder, so nothing is staged there, to ${join(folder, "held.again")}`,
+		);
 		expect(
 			ask.why?.endsWith(`, to ${join(folder, "held.again")}`),
 			`it ends naming the command's own file: ${ask.why}`,
@@ -908,7 +910,7 @@ describe("starting again on a fresh log", () => {
 			"a write that fails empties nothing",
 		).toEqual(["pi", "--session", "before.jsonl"]);
 		expect(ask.why).toMatch(
-			/^its holder couldn't be told how to start it again: E(EXIST|NOTDIR).*held\.again/,
+			/^its holder couldn't be told how to start it again: .*\.writing is a link or no folder, so nothing is staged there, to .*held\.again$/,
 		);
 		expect(shutdowns).toBe(0);
 	});

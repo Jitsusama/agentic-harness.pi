@@ -420,6 +420,26 @@ describe("a lease", () => {
 		expect(ownBoard()).toEqual([]);
 	});
 
+	it("gives a heavy call's work back when another handler refuses it, with no answer", async () => {
+		const { fire } = await startSession();
+		await fire("tool_call", {
+			type: "tool_call",
+			toolName: "bash",
+			toolCallId: "r1",
+			input: { command: "nix flake check" },
+		});
+		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "build" }]);
+
+		// pi ends a blocked call with no tool_result.
+		await fire("tool_execution_end", {
+			type: "tool_execution_end",
+			toolCallId: "r1",
+			toolName: "bash",
+			isError: true,
+		});
+		expect(ownBoard()).toEqual([]);
+	});
+
 	describe("a handed-off call's heavy work, through a reload", () => {
 		const handedOff = async (run: Awaited<ReturnType<typeof startSession>>) => {
 			await run.fire("tool_call", {
@@ -461,6 +481,22 @@ describe("a lease", () => {
 			await startSession({}, {}, [], undefined, undefined, (emit) =>
 				emit(JOBS_FINISHED, ended),
 			);
+			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		});
+
+		it("stays claimed past the call's end, which pi says after its answer", async () => {
+			const run = await startSession();
+			await handedOff(run);
+
+			await run.fire("tool_execution_end", {
+				type: "tool_execution_end",
+				toolCallId: "b3",
+				toolName: "bash",
+				isError: false,
+			});
+
+			expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "vm-test" }]);
+			run.emit(JOBS_FINISHED, ended);
 			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
 		});
 

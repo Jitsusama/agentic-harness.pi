@@ -67,6 +67,7 @@ import { spawnExec } from "../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../lib/core/work/rebase.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
+import { messageOf } from "../../lib/internal/carry/message.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import type { CarryHold } from "../../lib/internal/carry/under-way.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
@@ -357,7 +358,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			}
 		} catch (error) {
 			say(
-				`Its refusal couldn't be written where mycelium reads it, so the carry waits out its time there: ${error instanceof Error ? error.message : String(error)}`,
+				`Its refusal couldn't be written where mycelium reads it, so the carry waits out its time there: ${messageOf(error)}`,
 			);
 		} finally {
 			clearTimeout(timer);
@@ -388,9 +389,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				),
 			);
 		} catch (error) {
-			say(
-				`The run it ended couldn't be taken up: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			say(`The run it ended couldn't be taken up: ${messageOf(error)}`);
 		}
 	};
 
@@ -470,7 +469,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			return refuse(
 				taken,
 				ordered,
-				`its work couldn't be carried: ${error instanceof Error ? error.message : String(error)}`,
+				`its work couldn't be carried: ${messageOf(error)}`,
 			);
 		}
 		// Carried, its done file written: nothing after this refuses it, and
@@ -551,7 +550,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			try {
 				await carryOrdered(taken, ordered);
 			} catch (error) {
-				const said = error instanceof Error ? error.message : String(error);
+				const said = messageOf(error);
 				// A hold or a look that threw, as a stale context's does, is
 				// refused like any hold, so its node isn't left waiting out its
 				// time. One that has said how it went, refused or carried, says
@@ -627,7 +626,7 @@ async function rebaseHalted(session: string): Promise<string | undefined> {
 	try {
 		trees = await treesHeldByNow(session);
 	} catch (error) {
-		return `the trees it holds can't be told: ${error instanceof Error ? error.message : String(error)}`;
+		return `the trees it holds can't be told: ${messageOf(error)}`;
 	}
 	for (const tree of trees) {
 		if (await rebaser.halted(tree).catch(() => false)) {

@@ -9,6 +9,11 @@ hands out trees and takes them back, choosing the provider that
 cuts one, and the commits, rebases and stacks worked on in them.
 `index.ts` is the whole surface.
 
+Many entries because each is one verb or one sweep over the single
+tree record the broker keeps, and each changes for its own reason;
+the eight sweep files, which share the most, are the first to go to
+a folder of their own.
+
 ## Hosted Holders
 
 Tree memory records the calling conversation's session owner in a host,
