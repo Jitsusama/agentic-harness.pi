@@ -77,9 +77,10 @@ const LEFT_AFTER = 24 * 60 * 60 * 1000;
  * has stood a day, is taken: one still running may be another arrival's,
  * under way. And only a folder holding nothing but the `.git` a clone
  * with no checkout writes, so a folder of someone's own, however it is
- * named, is never taken. The git a killed arrival started may still be
- * writing the clone it is taken from; that clone was for nobody once
- * its arrival was gone, and git stops where its folder went.
+ * named, is never taken. The git a killed arrival started runs in a
+ * group of its own and may still be writing the clone it is taken from,
+ * holding what it has open until it ends on its own; that
+ * clone was for nobody once its arrival was gone.
  */
 export function sweepClonesOf(path: string, now: number = Date.now()): void {
 	const above = dirname(path);

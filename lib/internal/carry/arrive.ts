@@ -405,8 +405,14 @@ async function arriveTree(
 			return { ...line, did: "refused", why: andLeft(why, ...left) };
 		}
 	}
+	// A clone left at the tree's own place is never swept, so an arrival
+	// again would find it there and refuse: say to take it out first.
 	const left = readied.kind === "cloned" ? letGoOf(path) : undefined;
-	return { ...line, did: "refused", why: andLeft(why, left) };
+	const atPlace =
+		left === undefined
+			? undefined
+			: `${left}; take it out before arriving again, since an arrival refuses a tree already there`;
+	return { ...line, did: "refused", why: andLeft(why, atPlace) };
 }
 
 /**
@@ -524,7 +530,10 @@ async function readyTree(
 				),
 			);
 		}
-		return cloned;
+		// git's own words may name the clone's folder, now at the tree's place.
+		return cloned.kind !== "cloned" || cloned.unsure === undefined
+			? cloned
+			: { ...cloned, unsure: cloned.unsure.replaceAll(cloning, path) };
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {

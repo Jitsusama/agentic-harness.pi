@@ -181,7 +181,8 @@ describe("arriving with a tree to clone from origin", () => {
 		const day = 24 * 60 * 60 * 1000;
 		// No process runs past the largest pid Linux or macOS gives out.
 		const left = {
-			killed: "app.cloning-999999999-1",
+			killed: `app.cloning-999999999-${now}`,
+			ancient: "app.cloning-999999999-1",
 			running: `app.cloning-${under.pid}-${now}`,
 			stale: `app.cloning-${under.pid}-${now - day - 60_000}`,
 			another: "other.cloning-999999999-1",
@@ -200,7 +201,7 @@ describe("arriving with a tree to clone from origin", () => {
 			expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
 			expect(
 				leftIn(src).sort(),
-				"only the killed arrival's clone and the day-old one go",
+				"only the killed arrivals' clones and the day-old one go",
 			).toEqual(["app", left.running, left.another, left.theirs].sort());
 			expect(readFileSync(join(src, left.theirs, "notes"), "utf8")).toBe(
 				"kept\n",

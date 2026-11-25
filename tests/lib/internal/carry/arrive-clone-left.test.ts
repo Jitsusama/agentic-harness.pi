@@ -208,7 +208,31 @@ describe("an arriving clone the disk won't put in place", () => {
 		expect(whole).toBe(false);
 		expect(said[0]).toMatchObject({
 			did: "refused",
-			why: `git couldn't check out topic: fatal: refused. And its clone is left at ${path}, since it couldn't be taken out: EBUSY: refused, rm '${path}'.`,
+			why: `git couldn't check out topic: fatal: refused. And its clone is left at ${path}, since it couldn't be taken out: EBUSY: refused, rm '${path}'; take it out before arriving again, since an arrival refuses a tree already there.`,
 		});
+	});
+
+	it("arrives whole beside a killed arrival's clone it can't take out, leaving it there", async () => {
+		const { from, head } = await carried();
+		const home = folder(made, "arriving");
+		const src = join(home, "src");
+		// No process runs past the largest pid Linux or macOS gives out.
+		const killed = `app${CLONING}999999999-${Date.now()}`;
+		mkdirSync(join(src, killed, ".git"), { recursive: true });
+		refusing.remove = "EBUSY";
+		refusing.removing = (at) => at === join(src, killed);
+
+		const { whole, said } = await arriveAt(home, from);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(said[0]).toMatchObject({ did: "cloned" });
+		expect(
+			(
+				await exec("git", ["-C", join(src, "app"), "rev-parse", "HEAD"])
+			).stdout.trim(),
+		).toBe(head);
+		expect(leftIn(src).sort(), "the killed clone stays").toEqual(
+			["app", killed].sort(),
+		);
 	});
 });
