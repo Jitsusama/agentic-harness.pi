@@ -10,6 +10,11 @@
  * leaves it to pi everywhere else, on every other platform and without
  * a Wayland display. When the shell can't answer, the paste reads the
  * way pi does, from the session, and the shell is started again after.
+ *
+ * A pi a holder keeps also sends each copy to the terminal showing it,
+ * as OSC 52, so a session held on one machine and attached from another
+ * copies into the clipboard the person is at
+ * (lib/internal/clipboard/through-terminal.ts).
  */
 
 import type {
@@ -35,6 +40,7 @@ import {
 	pastesThroughWayland,
 	readPaste,
 } from "../../lib/internal/clipboard/paste.ts";
+import { copyThroughHeldTerminal } from "../../lib/internal/clipboard/through-terminal.ts";
 import { focusedIn, isEditor } from "../../lib/ui/pi-layout.ts";
 
 const WIDGET = "clipboard-widget";
@@ -43,6 +49,7 @@ const WIDGET = "clipboard-widget";
 const UNSEEN: Component = { render: () => [], invalidate: () => {} };
 
 export default function clipboardWidget(pi: ExtensionAPI): void {
+	copyThroughHeldTerminal(process.env);
 	if (!pastesThroughWayland(process.platform, process.env)) return;
 	let helper: Helper | undefined;
 	let tui: TUI | undefined;

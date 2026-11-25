@@ -154,4 +154,19 @@ describe("the clipboard widget", () => {
 		clipboardWidget(pi);
 		expect([...pi.recorded.handlers.keys()]).toEqual([]);
 	});
+
+	it("sends a held pi's copies to its terminal, with or without a display", () => {
+		vi.stubEnv("WAYLAND_DISPLAY", undefined);
+		vi.stubEnv("MYCELIUM_HELD", "hold-1");
+		vi.stubEnv("PI_CLIPBOARD_OSC52", undefined);
+		clipboardWidget(fakePi());
+		expect(process.env.PI_CLIPBOARD_OSC52).toBe("1");
+	});
+
+	it("leaves an unheld pi's copies as pi makes them", () => {
+		vi.stubEnv("MYCELIUM_HELD", undefined);
+		vi.stubEnv("PI_CLIPBOARD_OSC52", undefined);
+		clipboardWidget(fakePi());
+		expect(process.env.PI_CLIPBOARD_OSC52).toBeUndefined();
+	});
 });

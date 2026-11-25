@@ -2,6 +2,7 @@
 
 Ctrl+V in pi's editor under Wayland, read through a small shell the
 session forks once, so a paste doesn't wait on the session forking.
+And a held pi's copies reach the terminal showing it.
 
 ## Why It Exists
 
@@ -34,3 +35,19 @@ shell can't answer, that paste runs `wl-paste` from the session as pi
 does, and the shell is started again after it. It draws nothing: its
 widget is there only to be handed pi's screen, to see what holds the
 keys.
+
+## Copies From a Held Session
+
+A session a holder keeps may run on one machine while the person sees
+it through an attach from another, as a session held on the Mac and
+shown on optimus. pi sends a copy to the terminal as OSC 52 only when
+it sees SSH markers, or `PI_CLIPBOARD_OSC52=1`, and an attach leaves
+none, so a copy went only to the clipboard of the machine pi ran on.
+Joel, 25 November: he couldn't copy text out of such a session.
+
+So for a held pi (`MYCELIUM_HELD` set) the widget sets
+`PI_CLIPBOARD_OSC52=1` as it loads, on every platform, unless it is
+set already. pi reads it on each copy, so every copy after that sends
+OSC 52 as well as writing the local clipboard. An unheld pi copies as
+pi does. The attach must pass OSC 52 through to the terminal, which is
+mycelium's part.
