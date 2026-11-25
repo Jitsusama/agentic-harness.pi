@@ -13,6 +13,7 @@
  */
 
 import { join } from "node:path";
+import { hosted } from "../core/session/host.ts";
 import { sessionRealm } from "../internal/machine/realm.ts";
 import { stateDir } from "../internal/paths.ts";
 import type { Message } from "./message.ts";
@@ -45,15 +46,19 @@ function spread(ms: number): number {
 
 /**
  * The transport of the mesh kept at `mesh`: its messages folder, heard
- * through the node of the session's realm where `mesh` is that realm's
- * own, and read from the folder alone anywhere else, as a test's mesh
- * is. `PI_MESH_NODE=off` hears by the folder, should the node's word
- * ever be doubted, without stopping the node.
+ * through the node of the session's realm by a pi on a host, where
+ * `mesh` is that realm's own, and read from the folder alone anywhere
+ * else. A pi outside a host is one process reading once, as presence's
+ * mirror leaves it, and a test's mesh, though it sits where its state
+ * dir says, is no folder the machine's node follows. `PI_MESH_NODE=off`
+ * hears by the folder, should the node's word ever be doubted, without
+ * stopping the node.
  */
 export function meshTransport(mesh: string): Transport {
 	const folder = folderTransport(join(mesh, "messages"));
 	return nodeTransport(folder, () => {
 		if (process.env.PI_MESH_NODE === "off") return undefined;
+		if (hosted() === undefined) return undefined;
 		if (mesh !== stateDir("mesh-workflow")) return undefined;
 		return sessionRealm().kind === "other" ? nodeSocket() : homeNodeSocket();
 	});

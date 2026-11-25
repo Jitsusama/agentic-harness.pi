@@ -174,7 +174,10 @@ describe("presence on a host, where the node follows its folder", () => {
 			join(dir, "on-disk.json"),
 			JSON.stringify(presence({ session: "on-disk" })),
 		);
-		vi.stubEnv("PI_HOME_REALM", "No Realm");
+		// No realm named, and no node has run to keep one: the home realm's
+		// own folder, whose node can't yet be named.
+		vi.stubEnv("MYCELIUM_REALM", "");
+		vi.stubEnv("PI_HOME_REALM", "");
 		const presences = createPresences(dir);
 		presences.all();
 		await vi.waitFor(
@@ -187,8 +190,15 @@ describe("presence on a host, where the node follows its folder", () => {
 		);
 		// Polls, the first of which would have asked and been refused.
 		await new Promise((done) => setTimeout(done, 1500));
+		vi.stubEnv("MYCELIUM_REALM", "home");
 		vi.stubEnv("PI_HOME_REALM", "home");
-		await node([{ id: "fed", address: "FED001", presence: presence() }]);
+		await node([
+			{
+				id: "fed",
+				address: "FED001",
+				presence: presence({ session: "fed" }),
+			},
+		]);
 		// Past the wait before asking again, the clock alone moved on.
 		vi.useFakeTimers({ toFake: ["Date"] });
 		try {
