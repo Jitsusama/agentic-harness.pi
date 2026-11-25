@@ -156,8 +156,14 @@ async function carrying(
 		// A pid never written is said just below, with what the host wrote.
 		.catch(() => undefined);
 	const shell = keptShell();
-	if (shell === undefined || !alive(shell.pid))
-		throw new Error(`the carried command isn't running; ${said()}`);
+	if (shell === undefined)
+		throw new Error(
+			`the carried command's shell never wrote its pid; ${said()}`,
+		);
+	if (!alive(shell.pid))
+		throw new Error(
+			`the carried command's shell ${shell.pid} wrote its pid but isn't alive; ${said()}`,
+		);
 	return {
 		file,
 		held: await readFile(file, "utf8"),
