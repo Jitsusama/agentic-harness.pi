@@ -14,6 +14,7 @@ import {
 	hears,
 	homeOf,
 	MACHINE,
+	MOST_GROUP_CHARS,
 	machineTakes,
 	namesOrchestrator,
 	needNamed,
@@ -32,7 +33,11 @@ import {
 } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import { pivotTargets } from "../../../lib/mesh/pivot.ts";
-import type { Presence } from "../../../lib/mesh/presence.ts";
+import {
+	joinRefused,
+	MOST_GROUPS,
+	type Presence,
+} from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -763,13 +768,12 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	at.sent(message);
 	// A peer reads what it writes to: overnight Skynet listened to one
 	// channel while it spoke in others, so an objection there went unheard.
-	const reading = to.filter(
+	const notHeard = to.filter(
 		(group) =>
-			group.startsWith("#") &&
-			group !== ALL &&
-			!hears(at.peer.groups, group) &&
-			at.peer.join(group),
+			group.startsWith("#") && group !== ALL && !hears(at.peer.groups, group),
 	);
+	const reading = notHeard.filter((group) => at.peer.join(group));
+	const unread = notHeard.filter((group) => !reading.includes(group));
 	const {
 		notes: reachNotes,
 		reached,
@@ -796,6 +800,9 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes.push(
 			`This peer is in ${reading.join(", ")} now, so it hears the answers.`,
 		);
+	}
+	if (unread.length > 0) {
+		notes.push(unreadNote(unread, at.peer.groups));
 	}
 	if (message.intent === "hold") {
 		notes.push(
@@ -857,6 +864,29 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
 	return meant.length === 1 ? meant[0] : undefined;
 }
 
+/**
+ * Why a sender isn't in the groups it sent to and couldn't join, so it
+ * knows it won't hear the answers there: it is in the most groups a peer
+ * may be in, or a group runs longer than one may.
+ */
+function unreadNote(unread: readonly string[], groups: readonly string[]) {
+	const full = unread.filter((group) => joinRefused(groups, group) === "full");
+	const long = unread.filter((group) => !full.includes(group));
+	const said = [
+		...(full.length > 0
+			? [
+					`${full.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so leave one it no longer works on with mesh_leave`,
+				]
+			: []),
+		...(long.length > 0
+			? [
+					`${long.join(", ")}: longer than the ${MOST_GROUP_CHARS} characters a group may run`,
+				]
+			: []),
+	];
+	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${said.join("; ")}).`;
+}
+
 /** Why a send leaves out the addresses no session here goes by. */
 function unheardText(
 	unheard: readonly string[],
@@ -880,10 +910,7 @@ function anyoneElseIn(
 	);
 }
 
-/**
- * Every joined group with who is in it among the peers still there,
- * where this peer stands, and who joined groups but has since ended.
- */
+/** Whether two lists name the same groups, in any order. */
 function sameGroups(one: readonly string[], other: readonly string[]): boolean {
 	return (
 		one.length === other.length && one.every((group) => other.includes(group))

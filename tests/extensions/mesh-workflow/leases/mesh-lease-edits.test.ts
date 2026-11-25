@@ -348,6 +348,31 @@ describe("a lease", () => {
 		});
 	});
 
+	it("leaves a question let go be once its asker withdrew it", async () => {
+		const { sent, asked } = await answeredByP9R1KI();
+
+		const withdrawal = fromElsewhere({
+			text: "asked the wrong way",
+			supersedes: asked.id,
+		});
+		await vi.waitFor(() =>
+			expect(
+				sent.some((one) =>
+					String(one.message.content).includes(withdrawal.text),
+				),
+			).toBe(true),
+		);
+		const heard = sent.length;
+		createBoard(join(fixture.paths.mesh, "leases")).hold({
+			session: "session-p",
+			leases: [],
+		});
+
+		// A real pause: the test is that the question isn't taken up in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(sent).toHaveLength(heard);
+	});
+
 	it("leaves a question let go be once another peer answered it", async () => {
 		const { sent, asked } = await answeredByP9R1KI();
 

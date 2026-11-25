@@ -1069,6 +1069,24 @@ describe("a peer reads what it writes to", () => {
 
 		expect(answer).not.toContain("now, so it hears");
 	});
+
+	// As many real joins as a peer may make, as in the refusal above.
+	it("says it won't hear the answers in a group it is too full to join", async () => {
+		peer("session-p", ["P9R1KI"], ["#one-more"]);
+		const { tools } = await startSession();
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+
+		const answer = await send(tools, "#one-more", "fyi", "rebooting");
+
+		expect(answer).not.toContain("This peer is in #one-more now");
+		expect(answer).toContain(
+			`won't hear the answers there (#one-more: this peer is in ${MOST_GROUPS} groups`,
+		);
+	}, 30_000);
 });
 
 describe("an invitation", () => {
