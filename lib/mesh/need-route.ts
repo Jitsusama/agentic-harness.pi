@@ -289,10 +289,11 @@ const JOINED_ID = /(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
  * which is the id leg-26 or postgres-15: split into words the number is
  * lost, being short, or said apart from anything it may belong to. Not
  * a word already inside a joined id, whose number would join the id's
- * last part alone.
+ * last part alone, nor a contraction's stub, whose "it's 5" names no
+ * s-5, though a word after an opening quote, as 'PR 42', is read.
  */
 const NUMBER_IN_PROSE =
-	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+	/(?<![\p{L}\p{N}_-]|\p{L}['\u2019])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
 
 /**
  * A word and the particle after it in prose, "hand over" or "roll
@@ -391,10 +392,13 @@ function subjectParts(subject: string): string[] {
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
  * `asks`, and `unstamped:agents.service` gives `agents`, since a
  * service unit's type is left out. A narrowest part with no word long
- * enough gives none, rather than a broader part's.
+ * enough gives none, rather than a broader part's, and none past
+ * `LONGEST_WORD`, which no need is routed by.
  */
 export function subjectWords(subject: string): string[] {
-	return wordsOf(subjectParts(subject).at(-1) ?? "");
+	return wordsOf(subjectParts(subject).at(-1) ?? "").filter(
+		(word) => word.length <= LONGEST_WORD,
+	);
 }
 
 /**

@@ -42,6 +42,14 @@ describe("the plain words a need is not matched by", () => {
 		expect(words, "a number after a short plain word").not.toContain("on-24");
 	});
 
+	it("reads no id from a contraction's stub and the number after it", () => {
+		const words = wordsOf("it's 5 now, and it\u2019s 6, though 'PR 42' holds");
+
+		expect(words, "no stub's id").not.toContain("s-5");
+		expect(words, "none past a curly apostrophe").not.toContain("s-6");
+		expect(words, "an id after an opening quote").toContain("pr-42");
+	});
+
 	it("takes no word from a contraction's stubs", () => {
 		expect(
 			wordsOf("don't, isn't, won't, can't, shouldn't, didn't, wasn't"),

@@ -92,6 +92,7 @@ describe("plainQuotes", () => {
 		["an ornamental quote", "\u275E"],
 		["heavy low comma quote ornaments", "\u275F\u2760"],
 		["sans-serif heavy quote ornaments", "\u{1F676}\u{1F677}\u{1F678}"],
+		["the Greek varia and oxia, a grave and an acute", "\u1FEF\u1FFD"],
 	])("says %s as a straight single quote", (_, quote) => {
 		expect(plainQuotes(`y${quote}z`)).toBe(
 			`y${"'".repeat([...quote].length)}z`,

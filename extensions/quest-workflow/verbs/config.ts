@@ -180,8 +180,9 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 
 /**
  * Whether a subject names no work a need is routed by: its narrowest
- * part, after its last colon, dot or slash, holds no word routing
- * reads, as x:can or hooks:after, so no need ever finds a cell by it.
+ * part, after its last colon, dot or slash with a `.service` ending
+ * set aside, holds no word routing reads, as x:can or hooks:after, so
+ * no need ever finds a cell by it.
  */
 function namesNoWork(subject: string): boolean {
 	return subjectWords(subject).length === 0;
@@ -209,7 +210,7 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 	const silent = subjects.filter(namesNoWork);
 	if (silent.length > 0) {
 		return refuse(
-			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
+			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash with a .service ending set aside, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short, too long or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
 		);
 	}
 	const owned = subjectsOf(ownedByQuest(target.questId), []);

@@ -11,6 +11,7 @@ import { createQuestState } from "../../../../extensions/quest-workflow/state.ts
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { questAddress } from "../../../../lib/mesh/address.ts";
+import { LONGEST_WORD } from "../../../../lib/mesh/need-route.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
@@ -109,7 +110,8 @@ describe("the subjects a quest's sessions declare", () => {
 
 	it("refuse more than the node reads, or one it would pass over, changing nothing", async () => {
 		const id = await made();
-		const many = Array.from({ length: 13 }, (_, at) => `s${at}`).join(",");
+		// Each routes, so only the cap can refuse them.
+		const many = Array.from({ length: 13 }, (_, at) => `area${at}`).join(",");
 		const tooMany = await run({
 			action: "config",
 			id,
@@ -124,7 +126,7 @@ describe("the subjects a quest's sessions declare", () => {
 			[tooMany.ok, tooLong.ok, subjectsOf(id)],
 			"both refused, nothing set",
 		).toEqual([false, false, undefined]);
-		expect(said(tooMany)).toMatch(/12/);
+		expect(said(tooMany)).toMatch(/reads at most 12 subjects/);
 	});
 
 	it("refuse a subject whose narrowest part names no work, changing nothing", async () => {
@@ -139,6 +141,29 @@ describe("the subjects a quest's sessions declare", () => {
 			undefined,
 		]);
 		expect(said(result), "each named").toMatch(/x:can, hooks:after/);
+	});
+
+	// Routing keeps no word past LONGEST_WORD, so one such names no work.
+	it("refuse a subject whose one word runs past the longest kept", async () => {
+		const id = await made();
+		const long = `x:${"a".repeat(LONGEST_WORD + 1)}`;
+		const result = await run({ action: "config", id, ref: `subjects=${long}` });
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result)).toContain(long);
+	});
+
+	it("refuse a service unit by its name, saying its type is set aside", async () => {
+		const id = await made();
+		const result = await run({
+			action: "config",
+			id,
+			ref: "subjects=x:ab.service",
+		});
+		expect(result.ok).toBe(false);
+		expect(said(result)).toMatch(/a \.service ending set aside/);
 	});
 
 	it("say how many the README declares that name no work", async () => {

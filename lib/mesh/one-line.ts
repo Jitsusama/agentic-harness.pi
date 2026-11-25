@@ -46,7 +46,7 @@ export function oneLine(text: string): string {
  * rest as closing it too.
  */
 const QUOTE_LIKE =
-	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u2035\uFF02\uFF07\uFF40\u275B-\u2760\u{1F676}-\u{1F678}\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C]/gu;
+	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u1FEF\u1FFD\u2035\uFF02\uFF07\uFF40\u275B-\u2760\u{1F676}-\u{1F678}\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C]/gu;
 
 /** Text with every quote or backtick a reader may take as closing one as `'`. */
 export function plainQuotes(text: string): string {
