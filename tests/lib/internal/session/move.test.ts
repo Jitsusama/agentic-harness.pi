@@ -220,7 +220,7 @@ describe("what holds a session from ending", () => {
 		).toBe(false);
 		expect(
 			heldByRun("a run is under way somewhere"),
-			"a run named mid-line is no run under way",
+			"a run with more after it, but no clause break, is no run under way",
 		).toBe(false);
 	});
 

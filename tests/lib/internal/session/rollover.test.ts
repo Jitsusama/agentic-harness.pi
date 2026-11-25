@@ -652,7 +652,7 @@ describe("messages asked of the parent logs", () => {
 		expect(read).toEqual([]);
 		expect(
 			finds.located.has(ids.early),
-			"the early session is not marked found once the scan is aborted",
+			"the early message is not marked found once the scan is aborted",
 		).toBe(false);
 		expect([...finds.absent]).toEqual([]);
 		const after = messagesOnDisk(

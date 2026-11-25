@@ -412,7 +412,7 @@ describe("whose folder the worker socket may sit in", () => {
 
 		expect(
 			ownerKeepsFolder("/run/mycelium", stat, SESSION),
-			"the folder root gave this account is kept",
+			"the folder root gave another account is kept",
 		).toBe(true);
 	});
 
@@ -450,11 +450,11 @@ describe("whose folder the worker socket may sit in", () => {
 
 		expect(
 			ownerKeepsFolder("/run/mycelium", unread, SESSION),
-			"a folder whose owner can't be read is refused",
+			"a folder whose parent can't be read is refused",
 		).toBe(false);
 		expect(
 			ownerKeepsFolder("/run/mycelium", linked, SESSION),
-			"a linked folder is refused",
+			"a folder whose parent is a link is refused",
 		).toBe(false);
 	});
 
@@ -517,7 +517,7 @@ describe("whose folder the worker socket may sit in", () => {
 
 		expect(
 			ownerKeepsFolder("/home/s/mine", stat, SESSION),
-			"root's folder in the home is kept",
+			"the session's own folder in its home is kept",
 		).toBe(true);
 		expect(
 			ownerKeepsFolder("/opt/roots", stat, SESSION),

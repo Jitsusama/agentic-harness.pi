@@ -568,7 +568,7 @@ describe("a hub found earlier, read again", () => {
 
 		expect(
 			stillAbove(self, [moved, parent], "ROOT01"),
-			"a hub at an address this cell left does not stand",
+			"a hub at an address this cell's own session holds does not stand",
 		).toBe(false);
 	});
 
@@ -616,11 +616,11 @@ describe("a hub found earlier, read again", () => {
 
 		expect(
 			found(self, live),
-			"the find comes to an address differing only in case",
+			"the find still comes to a hub whose stop names this cell in another case",
 		).toBe(true);
 		expect(
 			stillAbove(self, live, "ROOT01"),
-			"the hub stands at an address differing only in case",
+			"a stop naming this cell in another case doesn't end the hub",
 		).toBe(true);
 	});
 
@@ -632,11 +632,11 @@ describe("a hub found earlier, read again", () => {
 
 		expect(
 			stillAbove(self, [self, forged], "ROOT01", [ended]),
-			"an ended presence on another quest listing the address ends the hub",
+			"the hub no longer stands once its address is listed on another quest",
 		).toBe(false);
 		expect(
 			found(self, [self, forged], [ended]),
-			"the find refuses an address an ended presence lists",
+			"the find refuses an address listed on another quest",
 		).toBe(false);
 	});
 
