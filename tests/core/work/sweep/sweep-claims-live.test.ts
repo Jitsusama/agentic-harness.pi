@@ -62,6 +62,22 @@ describe("trees a live quest claims until spent", () => {
 		expect(existsSync(hosted), `${hosted}, worked in, is kept`).toBe(true);
 	});
 
+	it("keeps a claimed tree a process works in under its lock, saying a session took it up", async () => {
+		const { cut, sweep } = await setUp();
+		const busy = await cut("busy", ["-b", "busy", "@", "main"]);
+
+		const outcome = await sweep(untilSpent(busy), undefined, {
+			busyAmong: async (paths) => new Set(paths),
+		});
+
+		expect(outcome.taken, "a claimed tree in use was taken").toEqual([]);
+		expect(existsSync(busy), "a claimed tree in use went").toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === busy)?.why,
+			"a tree a process works in was blamed on the reading",
+		).toBe("a session took it up again");
+	});
+
 	it("keeps a claimed tree a session takes up while the sweep takes another", async () => {
 		const { cut, sweep } = await setUp();
 		const first = await cut("first", ["-b", "first", "@", "main"]);

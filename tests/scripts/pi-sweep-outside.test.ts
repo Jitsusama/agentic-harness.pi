@@ -32,6 +32,7 @@ import type { TreeProvider } from "../../lib/core/work/broker.ts";
 import { clearTreeProviders } from "../../lib/core/work/register.ts";
 import type { SweepClaims } from "../../lib/core/work/sweep.ts";
 import { IDLE_TAKES_PER_SWEEP } from "../../lib/core/work/sweep-idle.ts";
+import { cutTreeDir } from "../../lib/internal/work-records.ts";
 import { exitCodeOf, sweepOutside } from "../../scripts/pi-sweep.ts";
 
 const SPENT = "/src/repo/.worktrees/spent";
@@ -53,6 +54,7 @@ const seen = vi.hoisted(() => ({
 	idleTakes: [] as (number | undefined)[],
 	idleWithin: [] as (number | undefined)[],
 	betweenIdleTakes: [] as (undefined | (() => Promise<void>))[],
+	treesDirs: [] as (string | undefined)[],
 	execs: [] as Exec[],
 }));
 
@@ -76,6 +78,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		idleTakes?: number;
 		idleWithinMs?: number;
 		betweenIdleTakes?: () => Promise<void>;
+		treesDir?: string;
 		exec: Exec;
 		providers: () => readonly TreeProvider[];
 	}) => {
@@ -84,6 +87,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		seen.idleTakes.push(deps.idleTakes);
 		seen.idleWithin.push(deps.idleWithinMs);
 		seen.betweenIdleTakes.push(deps.betweenIdleTakes);
+		seen.treesDirs.push(deps.treesDir);
 		seen.execs.push(deps.exec);
 		if (seen.fails !== undefined) throw new Error(seen.fails);
 		// As the library does: each provider that can is asked about a tree
@@ -134,6 +138,7 @@ beforeEach(() => {
 	seen.idleTakes.length = 0;
 	seen.idleWithin.length = 0;
 	seen.betweenIdleTakes.length = 0;
+	seen.treesDirs.length = 0;
 	seen.execs.length = 0;
 });
 afterEach(() => {
@@ -256,6 +261,10 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 		"how long it may judge them for, so a loaded machine gets fewer",
 	).toBeGreaterThanOrEqual(60 * 1000);
 	expect(seen.idleWithin[0]).toBeLessThan(60 * 60 * 1000);
+	expect(
+		seen.treesDirs[0],
+		"where it finishes removals stopped part way, as it paces them: the broker's own trees",
+	).toBe(cutTreeDir());
 	// A gap of a second or more between removals, yet short enough that a
 	// run's ten minutes still hold many takes.
 	vi.useFakeTimers();

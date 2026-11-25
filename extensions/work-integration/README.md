@@ -327,7 +327,12 @@ but that cost 0.27 s with 1,130, and detached snapshots, most of
 what a sweep takes, have no branch to drop.
 A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
-the broker never cut are left alone. A taken tree's branch stays,
+the broker never cut are left alone. The outside runner alone also
+finishes up to ten removals a run that stopped part way: folders named
+as cut trees with no `.git` at their top or just below, which no record
+or claim names, reaches into or holds from above, untouched for a day
+in their top two levels, and in which nothing works just before each
+is moved. A taken tree's branch stays,
 unless origin's trunk holds every commit on it, as on release; a
 branch kept for a live session's taken worktree stays regardless,
 as below.
@@ -402,8 +407,9 @@ asking for the branch checks out the same branch and head.
 `idleMs` is awake time, which stops while the machine sleeps, and the
 line's `ms` is wall time. Without a suspend, `ms` less `idleMs` is the
 rest of the run: before the idle snapshots, the claims, the census of
-trees in use, the ended trees and the settled-branch search, and after
-them, the other providers' trees and the dev shells' roots; across a
+trees in use, the ended trees, the stopped removals and the
+settled-branch search, and after them, the other providers' trees and
+the dev shells' roots; across a
 suspend, it isn't even that. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 

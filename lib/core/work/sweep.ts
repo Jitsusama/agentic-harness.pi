@@ -87,7 +87,12 @@ import {
 	keepBranch,
 } from "./sweep-kept-branches.ts";
 import { type LockFresh, sweepLock } from "./sweep-lock.ts";
-import { goneGitDir, standingRepository, takeOrphan } from "./sweep-orphan.ts";
+import {
+	finishStoppedRemovals,
+	goneGitDir,
+	standingRepository,
+	takeOrphan,
+} from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
 import {
 	type MovedAside,
@@ -198,6 +203,11 @@ export interface SweepDeps extends UseSigns {
 	statusExec?: Exec;
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
+	/**
+	 * Where the broker cuts its trees, so the removals there that stopped
+	 * part way are finished. Without it, they stay.
+	 */
+	treesDir?: string;
 }
 
 /**
@@ -349,6 +359,16 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		const repositories = await byRepository(deps, ended, outcome);
 		for (const tree of repositories.orphans) {
 			await takeOrphan(deps, facts, tree, outcome);
+		}
+		if (deps.treesDir !== undefined) {
+			// Every recorded tree and every claim is somebody's, whatever
+			// git makes of it, and so is the folder holding one.
+			const known = [
+				...deps.memory.recall().map((tree) => resolved(tree.path)),
+				...remembered,
+				...spendable,
+			];
+			await finishStoppedRemovals(deps, deps.treesDir, known, now, outcome);
 		}
 		for (const [main, trees] of repositories.byMain) {
 			await sweepRepository(deps, facts, main, trees, {
