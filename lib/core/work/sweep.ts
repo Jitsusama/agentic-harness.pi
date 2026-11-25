@@ -784,6 +784,7 @@ async function takeIdle(
 		? { sessions: [...tree.sessions] }
 		: {};
 	const why = `unused for ${hours} h while its session stayed open`;
+	let unread = false;
 	await takeBack(
 		deps,
 		facts,
@@ -804,6 +805,7 @@ async function takeIdle(
 				async () => {
 					const path = resolved(tree.path);
 					const busy = await deps.busyAmong?.([path]);
+					unread = busy === undefined;
 					return (
 						busy !== undefined &&
 						!busy.has(path) &&
@@ -816,6 +818,7 @@ async function takeIdle(
 				// hundreds of takes never lists the records folder for one.
 				tree.identity.key,
 			),
+		{ unread: () => unread },
 	);
 }
 
@@ -841,6 +844,7 @@ async function takeIdleWorktree(
 	const sessions = [...(tree.sessions ?? [])];
 	const why = `unused for ${hours} h while its session stayed open, its branch on ${remote}`;
 	const taken = outcome.taken.length;
+	let unread = false;
 	// The note goes in first, so a sweep cut off mid-take leaves the branch
 	// kept, and comes out again when the tree stays.
 	const unkeep = keepBranch(keptDir, {
@@ -873,6 +877,7 @@ async function takeIdleWorktree(
 					async () => {
 						const path = resolved(tree.path);
 						const busy = await deps.busyAmong?.([path]);
+						unread = busy === undefined;
 						return (
 							busy !== undefined &&
 							!busy.has(path) &&
@@ -891,7 +896,7 @@ async function takeIdleWorktree(
 					},
 					tree.identity.key,
 				),
-			{ keepBranch: true },
+			{ keepBranch: true, unread: () => unread },
 		);
 	} finally {
 		// Undone only while the tree stands where it was: one moved aside
@@ -935,7 +940,7 @@ async function takeBack(
 	guard: (take: () => Promise<boolean>) => Promise<HeldTree | undefined> = (
 		take,
 	) => deps.memory.whileUnheld(tree.path, take, facts),
-	how: { keepBranch?: boolean } = {},
+	how: { keepBranch?: boolean; unread?: () => boolean } = {},
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	let moveRefused: string | undefined;
@@ -956,9 +961,14 @@ async function takeBack(
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });
 		} else {
+			// A reading that couldn't say, as when lsof is cut at its limit,
+			// is told apart from a session at work there, so a log that
+			// keeps saying it shows the reader failing, not the sessions.
 			outcome.kept.push({
 				path: tree.path,
-				why: "a session took it up again",
+				why: how.unread?.()
+					? "the machine can't say which processes hold it"
+					: "a session took it up again",
 			});
 		}
 		return;
