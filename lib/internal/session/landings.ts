@@ -19,6 +19,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../record.ts";
 import { oneLine } from "./wants.ts";
 
 /** Said on the bus when something lands. */
@@ -151,6 +152,45 @@ export function onClosed(
 		if (typeof data !== "object" || data === null) return;
 		const { url } = data as Record<string, unknown>;
 		if (typeof url === "string" && url !== "") listener(url);
+	});
+}
+
+/** Said on the bus, with their URLs, when a session proposes changes. */
+export const SESSION_PROPOSED_CHANGES = "session:changes-proposed:v1";
+
+/**
+ * Say on `bus` that this session proposed the changes at `urls`, so the
+ * mesh keeps them off the person's look list past a rollover
+ * (lib/mesh/looks/own-changes.ts). A change its backend gave no URL is
+ * left out; nothing is said when none is named.
+ */
+export function sayProposed(
+	bus: Pick<EventBus, "emit"> | undefined,
+	urls: readonly (string | undefined)[],
+): void {
+	const named = urls
+		.map((url) => url?.trim() ?? "")
+		.filter((url) => url !== "");
+	if (bus === undefined || named.length === 0) return;
+	try {
+		bus.emit(SESSION_PROPOSED_CHANGES, { urls: named });
+	} catch {
+		// A bus nobody can say on, after a reload: the session's log still
+		// holds the answer that named them, which show_person also reads.
+	}
+}
+
+/** Hear every change a session proposes, by their URLs. Returns a disposer. */
+export function onProposed(
+	bus: EventBus,
+	listener: (urls: string[]) => void,
+): () => void {
+	return bus.on(SESSION_PROPOSED_CHANGES, (data) => {
+		if (!isRecord(data) || !Array.isArray(data.urls)) return;
+		const named = data.urls.filter(
+			(url): url is string => typeof url === "string" && url !== "",
+		);
+		if (named.length > 0) listener(named);
 	});
 }
 

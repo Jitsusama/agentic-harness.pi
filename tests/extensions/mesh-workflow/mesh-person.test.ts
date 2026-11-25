@@ -8,8 +8,15 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
+import { SESSION_PROPOSED_CHANGES } from "../../../lib/internal/session/landings.ts";
 import { wantsShown } from "../../../lib/internal/session/wants.ts";
 import { looksIn } from "../../../lib/mesh/looks/looks.ts";
+import {
+	keepProposed,
+	keptProposed,
+	OWN_CHANGE_REFUSED,
+	ownChangesBeside,
+} from "../../../lib/mesh/looks/own-changes.ts";
 import { fixture, onQuest, session, startSession } from "./support/mesh.ts";
 
 describe("what waits on the person", () => {
@@ -203,6 +210,95 @@ describe("the person's look list, from show_person", () => {
 			quest: "QEST-20261021-7M6JKG",
 			state: "waiting",
 		});
+	});
+
+	it("refuses a look at a change the session proposed, and keeps one it didn't", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools } = await startSession();
+		const branch = [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "review_offer",
+					details: { ok: true, url: pr.target },
+				},
+			},
+		];
+		const ctx = { sessionManager: { getBranch: () => branch } };
+		const show = (params: Record<string, unknown>) =>
+			tools
+				.get("show_person")
+				?.execute("call-s", params, undefined, undefined, ctx);
+
+		const own = await show(pr);
+		const itsDiff = await show({
+			...pr,
+			kind: "diff",
+			target: `${pr.target}/files`,
+		});
+
+		const asPage = await show({ ...pr, kind: "page", act: "Just See" });
+
+		for (const refused of [own, itsDiff, asPage]) {
+			expect(refused?.content[0]?.text).toBe(
+				`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+			);
+		}
+		expect(looksIn(join(fixture.root, "looks")), "none was kept").toEqual([]);
+		await show({ ...pr, target: "https://github.com/o/r/pull/9" });
+		expect(looksIn(join(fixture.root, "looks"))).toHaveLength(1);
+	});
+
+	// A rollover starts a log without the review_offer answers, and a
+	// codemode proposal never puts one there: what the bus said is kept.
+	it("refuses a change its quest proposed, though the log no longer names it", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { emit, tools } = await startSession();
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+
+		emit(SESSION_PROPOSED_CHANGES, { urls: [pr.target] });
+		const refused = await show({
+			...pr,
+			target: `${pr.target.replace("Jitsusama", "jitsusama")}.diff`,
+			kind: "diff",
+		});
+
+		expect(refused?.content[0]?.text).toBe(
+			`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+		);
+		expect(
+			keptProposed(ownChangesBeside(join(fixture.root, "looks")), [
+				"QEST-20261021-7M6JKG",
+			]),
+			"kept under its quest, for the sessions after it",
+		).toEqual([pr.target]);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
+	});
+
+	// What another session of the quest proposed is kept under the quest
+	// alone, so this session's own log and record say nothing of it.
+	it("refuses a change another session of its quest proposed", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools } = await startSession();
+		keepProposed(
+			ownChangesBeside(join(fixture.root, "looks")),
+			"QEST-20261021-7M6JKG",
+			[pr.target],
+		);
+
+		const refused = await tools
+			.get("show_person")
+			?.execute("call-s", { ...pr, kind: "page", act: "Just See" });
+
+		expect(refused?.content[0]?.text).toBe(
+			`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+		);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
 	});
 
 	it("takes a look back when its session says it no longer applies", async () => {

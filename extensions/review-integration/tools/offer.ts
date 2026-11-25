@@ -321,7 +321,7 @@ export async function runOffer(
 		}
 
 		if (params.action === "propose-stack") {
-			return proposeStack(ctx, bound, authoring, params);
+			return proposeStack(ctx, bound, authoring, params, pi.events);
 		}
 
 		const change = hostedChange(bound);

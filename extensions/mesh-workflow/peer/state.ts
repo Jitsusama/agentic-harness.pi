@@ -205,6 +205,7 @@ export function createState(
 	const wanting = new Map<WantKind, Want>();
 	const unlanded: Landing[] = [];
 	const undone: SessionEvent[] = [];
+	const unproposed: string[] = [];
 	// Every id already looked at, so a watcher that reports one twice,
 	// as inotify does for a rename, is handed over once.
 	const seen = new Set<string>();
@@ -496,6 +497,7 @@ export function createState(
 		wanting,
 		unlanded,
 		undone,
+		unproposed,
 		seen,
 		unjudgedSaid,
 		holdTurn,

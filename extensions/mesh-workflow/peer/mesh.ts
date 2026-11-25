@@ -290,6 +290,8 @@ export interface MeshState {
 	readonly wanting: Map<WantKind, Want>;
 	readonly unlanded: Landing[];
 	readonly undone: SessionEvent[];
+	/** What this session proposed before its peer was made, kept once it is. */
+	readonly unproposed: string[];
 	readonly seen: Set<string>;
 	// Why the claim check judged nothing, each said once a session.
 	readonly unjudgedSaid: Set<string>;
