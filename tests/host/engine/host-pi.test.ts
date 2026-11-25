@@ -263,6 +263,32 @@ it("names only the patch a pi is missing", async () => {
 	);
 });
 
+it("takes the committed-turn patch's port to pi 1.6.0, one version on", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	writeFileSync(
+		hostPiFiles(dir).durable,
+		"export const GenerationTask = { definition: { version: 4, phases: { committedTurn() {}, turnBoundary() {} } } };\n",
+	);
+	await expect(loadHostPi(dir)).resolves.toMatchObject({ packageDir: dir });
+});
+
+it("refuses pi 1.6.0's own generation, at version 3 without the committed-turn phases", async () => {
+	const dir = fakeInstall({ agent: true, screen: true, auth: true });
+	writeFileSync(
+		hostPiFiles(dir).durable,
+		"export const GenerationTask = { definition: { version: 3, phases: { afterTools() {} } } };\n",
+	);
+	const error = await refusal(dir);
+	expect(error.missing.map((seam) => seam.patch)).toEqual([
+		"pi-host-committed-turn.patch",
+	]);
+});
+
 it("refuses a generation at the committed-turn version without its phases", async () => {
 	const dir = fakeInstall({ agent: true, screen: true, auth: true });
 	writeFileSync(
