@@ -29,7 +29,9 @@ export const fallback: TerminalDriver = {
 	available() {
 		return true;
 	},
-	async spawn(request) {
+	// Printing names no surface. Said as a type, since a consumer
+	// checking this file with an older tsc reads no return as void.
+	async spawn(request): Promise<undefined> {
 		process.stderr.write(`${formatRequest(request)}\n`);
 	},
 };
