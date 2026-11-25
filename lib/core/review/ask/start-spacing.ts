@@ -28,9 +28,11 @@
  * waited about 30 minutes behind ten others on a machine with memory
  * for all of them. So a claim may say what the machine is short of
  * instead (`room`), and with no spacing asked for, the first in line
- * starts as soon as nothing is short, the next a look later. The line
- * then only keeps the order rounds were asked in, and keeps two rounds
- * from both reading room and both starting at one moment.
+ * starts as soon as nothing is short and half a minute has passed since
+ * the last start: two a minute, so a long line drains no faster than a
+ * minute-long average of pressure can show what the rounds before it
+ * took. The line keeps the order rounds were asked in, and its lock
+ * makes each start whole.
  *
  * Every start is spaced only once every session on the machine runs
  * this, and only among sessions sharing one state directory. A session
@@ -154,7 +156,8 @@ export interface StartClaim {
 	readonly change: string;
 	/**
 	 * How long after one start another may: {@link COUNCIL_START_SPACING_MS}
-	 * unless given, or none when `room` is given instead.
+	 * unless given, or {@link FEWEST_SPACING_MS} when `room` is given
+	 * instead.
 	 */
 	readonly spacingMs?: number;
 	/**
@@ -212,10 +215,15 @@ export async function awaitCouncilStart(
 	// Never under two looks, whoever asks: the line's own guard against a
 	// failed look losing its start, and against a tight loop, holds here
 	// rather than only in whichever reader of a config remembered it.
-	const spacing =
-		claim.room !== undefined && claim.spacingMs === undefined
-			? 0
-			: Math.max(claim.spacingMs ?? COUNCIL_START_SPACING_MS, 2 * lookAgain);
+	// Started on room, that floor is the spacing: two starts a minute, so
+	// a long line drains no faster than a minute-long average of memory
+	// pressure can show what the rounds before took, and a machine with
+	// no reading of pressure still starts no burst.
+	const spacing = Math.max(
+		claim.spacingMs ??
+			(claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
+		2 * lookAgain,
+	);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -264,7 +272,7 @@ export async function awaitCouncilStart(
 				// Given up during the look that took the start: nothing is
 				// started in its name, so the start goes back.
 				await release();
-				return { cancelled: stoppedSaid(firstSeen, spacing) };
+				return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
 			return firstSeen === undefined || firstSeen.waitMs <= 0
@@ -275,12 +283,13 @@ export async function awaitCouncilStart(
 					};
 		}
 		try {
-			// Room and the rounds ahead have no time to wait for, so a round
-			// started on room alone looks again at the usual pace.
+			// Room has no time to wait for, so a round held for it looks
+			// again at the usual pace rather than at the moment its spacing
+			// passed, which it already has.
 			await sleep(
-				spacing === 0
-					? lookAgain
-					: Math.max(1, Math.min(turn?.waitMs ?? lookAgain, lookAgain)),
+				turn?.short === undefined
+					? Math.max(1, Math.min(turn?.waitMs ?? lookAgain, lookAgain))
+					: lookAgain,
 				undefined,
 				signal === undefined ? {} : { signal },
 			);
@@ -290,7 +299,7 @@ export async function awaitCouncilStart(
 			await leave(at, ticket).catch(() => {
 				// The ticket stops being looked at, so the next reader drops it.
 			});
-			return { cancelled: stoppedSaid(firstSeen, spacing) };
+			return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
 		}
 	}
 }
@@ -379,7 +388,7 @@ async function takeTurn(
 			),
 			Number.NEGATIVE_INFINITY,
 		);
-		const free = spacing === 0 ? now : last + spacing;
+		const free = last + spacing;
 		if (ahead === 0 && now >= free && short === undefined) {
 			const replaced = withoutFollows(line.started);
 			const started: Started = {
@@ -734,17 +743,18 @@ function minutesSaid(ms: number): string {
 	return `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
-function stoppedSaid(turn: Turn | undefined, spacing: number): string {
+function stoppedSaid(
+	turn: Turn | undefined,
+	spacing: number,
+	short: string | undefined,
+): string {
 	const where = turn === undefined ? "" : `, ${placeSaid(turn)},`;
-	return `It was stopped while it waited for its start${where}, so nothing was started, since ${startRuleSaid(spacing, undefined)}.`;
+	return `It was stopped while it waited for its start${where}, so nothing was started, since ${startRuleSaid(spacing, short)}.`;
 }
 
 /** When a round starts here, and what held it, as its answer says. */
 function startRuleSaid(spacing: number, short: string | undefined): string {
-	const rule =
-		spacing === 0
-			? "a roster round starts on this machine once those asked before it have and it has room"
-			: `one roster round starts on this machine each ${spacingSaid(spacing)}`;
+	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}, while memory has room`;
 	return short === undefined ? rule : `${rule}, and while it waited ${short}`;
 }
 

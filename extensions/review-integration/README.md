@@ -335,14 +335,16 @@ default, is refused with the count and how to raise it.
 Rounds on one machine start in the order they were asked, each as
 soon as the machine has memory for it: while the kernel's memory
 `full avg60` is under 10, read from `/proc/pressure/memory`
-(`lib/core/review/ask/memory-room.ts`). A machine that keeps no
-such reading, as a Mac, always has room. A round that waited says
-how long, behind whom, and what the machine was short of. On 24
-November a round waited half an hour behind ten others under the
-fixed three-minute gap this replaced, on a machine with room for
-all of them. `startSpacingMinutes` under `ask` adds a gap between
-starts again, for a machine that wants one, held between half a
-minute and thirty minutes. Below half
+(`lib/core/review/ask/memory-room.ts`), and at most two a minute,
+so a long line drains no faster than that minute-long average can
+show what the rounds before took. A machine that keeps no such
+reading, as a Mac, always has room, and keeps the two a minute. A
+round that waited says how long, behind whom, and what the machine
+was short of. On 24 November a round waited half an hour behind ten
+others under the fixed three-minute gap this replaced, on a machine
+with room for all of them. `startSpacingMinutes` under `ask` sets a
+wider gap between starts, for a machine that wants one, held between
+half a minute and thirty minutes. Below half
 a minute a round could lose a start it took to the next one before
 it looked again, and a round reads its spacing once, so a mistyped
 hour would hold it that long even after the config was put right.

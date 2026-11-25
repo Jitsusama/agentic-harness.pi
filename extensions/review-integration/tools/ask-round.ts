@@ -186,9 +186,9 @@ export async function awaitRosterStart(
 
 /**
  * The spacing this machine's config sets between round starts, or
- * undefined for none, so rounds start on room alone. A config that can't be read keeps
- * the default rather than stopping a round over a setting it may not
- * even hold.
+ * undefined for none, so rounds start on room, two a minute at most. A
+ * config that can't be read is read as setting none, rather than
+ * stopping a round over a setting it may not even hold.
  */
 async function configuredSpacing(): Promise<number | undefined> {
 	const loaded = await loadPackageConfig();

@@ -77,6 +77,14 @@ afterEach(() => {
 });
 
 const linePath = () => join(folder, "starts", "line.json");
+/**
+ * The line's file and when it was last changed, to the nanosecond: a
+ * write lands by a rename, which a reused inode number alone could hide.
+ */
+const written = () => {
+	const seen = statSync(linePath(), { bigint: true });
+	return `${seen.ino}@${seen.mtimeNs}`;
+};
 const line = () => JSON.parse(readFileSync(linePath(), "utf8"));
 const claim = (by: string, extra: object = {}) => ({
 	by,
@@ -641,14 +649,17 @@ const roomy = async (): Promise<string | undefined> => undefined;
 // 24 November: a round waited about 30 minutes behind ten others, three
 // minutes apart, on a machine with memory for all of them.
 describe("starting council rounds on room alone", () => {
-	it("starts at once after another round's start when the machine has room", async () => {
-		startedAt("A2VLJN", new Date());
-		const asked = Date.now();
+	it("starts two looks after another round's start when the machine has room, not a spacing", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
 
-		const start = await awaitCouncilStart(path, onRoom("ISXEG8", roomy));
+		await awaitCouncilStart(path, onRoom("ISXEG8", roomy));
 
-		expect(start.waited, "it started at once").toBeUndefined();
-		expect(Date.now() - asked, "no spacing held it").toBeLessThan(SPACING);
+		const gap = Date.now() - before.getTime();
+		expect(gap, "the floor held it").toBeGreaterThanOrEqual(
+			2 * LOOK - TIMER_EARLY_MS,
+		);
+		expect(gap, "no spacing held it").toBeLessThan(SPACING);
 		expect(line().started.by).toBe("ISXEG8");
 	});
 
@@ -662,9 +673,7 @@ describe("starting council rounds on room alone", () => {
 		const start = await awaitCouncilStart(path, onRoom("ISXEG8", room));
 
 		expect(looks, "it looked until there was room").toBe(4);
-		expect(start.waited).toContain(
-			"once those asked before it have and it has room",
-		);
+		expect(start.waited).toContain("while memory has room");
 		expect(start.waited).toContain("memory full avg60 was 14");
 		expect(line().started.by).toBe("ISXEG8");
 	});
@@ -691,23 +700,58 @@ describe("starting council rounds on room alone", () => {
 		expect(order, "in the order they were asked").toEqual(["A2VLJN", "ISXEG8"]);
 	});
 
-	it("starts rounds in the order asked, a look apart rather than a spacing", async () => {
+	it("starts rounds in the order asked, two looks apart rather than a spacing", async () => {
 		const joined = ["A2VLJN", "ISXEG8", "85PKB2"];
-		const starts: number[] = [];
+		const order: string[] = [];
+		const rounds: Promise<void>[] = [];
 		const asked = Date.now();
-
-		await Promise.all(
-			joined.map((by) =>
+		for (const [place, by] of joined.entries()) {
+			rounds.push(
 				awaitCouncilStart(path, onRoom(by, roomy)).then(() => {
-					starts.push(Date.now());
+					order.push(by);
 				}),
-			),
-		);
+			);
+			// Each joins once the one before it holds its place or has started.
+			await expect
+				.poll(() => order.length + line().waiting.length, {
+					timeout: 4_000,
+					interval: 1,
+				})
+				.toBeGreaterThanOrEqual(place + 1);
+		}
+		await Promise.all(rounds);
 
-		expect(starts).toHaveLength(3);
-		expect(Date.now() - asked, "all three inside one spacing").toBeLessThan(
-			SPACING,
+		expect(order, "in the order they were asked").toEqual(joined);
+		const took = Date.now() - asked;
+		expect(took, "two floors between three starts").toBeGreaterThanOrEqual(
+			2 * 2 * LOOK - TIMER_EARLY_MS,
 		);
+		expect(took, "all three inside one spacing").toBeLessThan(SPACING);
+	});
+
+	// The council of 25 November: with a spacing set, a round short of
+	// memory whose spacing had passed looked again every millisecond.
+	it("looks again at the usual pace while short, whatever its spacing", async () => {
+		let looks = 0;
+		const stop = new AbortController();
+		const start = awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				room: async () => {
+					looks += 1;
+					return "memory full avg60 was 12";
+				},
+			}),
+			stop.signal,
+		);
+		const watched = 20 * LOOK;
+		// Long enough for twenty looks at the usual pace, against hundreds
+		// at one a millisecond.
+		await new Promise((done) => setTimeout(done, watched));
+		stop.abort();
+		await start;
+
+		expect(looks, "about one a look").toBeLessThanOrEqual(watched / LOOK + 5);
 	});
 
 	it("says the rule it waited under when stopped", async () => {
@@ -723,7 +767,10 @@ describe("starting council rounds on room alone", () => {
 		stop.abort();
 
 		const stopped = await start;
-		expect(stopped.cancelled).toContain("it has room");
+		expect(stopped.cancelled).toContain("while memory has room");
+		expect(stopped.cancelled, "and what it was short of").toContain(
+			"memory full avg60 was 20",
+		);
 		expect(line().waiting, "its place given up").toEqual([]);
 	});
 });
@@ -785,12 +832,12 @@ describe("a busy line's lock", () => {
 			.toBe(2);
 		// Every write lands by a rename, so a new file is a write, even of
 		// the same words.
-		const joined = statSync(linePath()).ino;
+		const joined = written();
 		const joinedAt = looks;
 		await expect
 			.poll(() => looks, { timeout: 4_000, interval: 5 })
 			.toBeGreaterThanOrEqual(joinedAt + 3);
-		const later = statSync(linePath()).ino;
+		const later = written();
 		giving.abort();
 		await waiting;
 
