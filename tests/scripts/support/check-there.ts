@@ -1562,7 +1562,21 @@ function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
 interface Seat {
 	readonly terminal: boolean;
 	readonly forebears?: readonly string[];
+	/** What `ps` says pid 1 runs, the machine's init unless said. */
+	readonly init?: string;
+	/** How the first forebear's parent reads, where it reads amiss. */
+	readonly parent?: "unreadable" | "empty";
 }
+
+/**
+ * Whether a terminal can be given here: `script` and `env` are on PATH.
+ * Where they aren't, the cases that need one skip rather than throw.
+ */
+const TERMINALS_HERE =
+	onPath("script") !== undefined && onPath("env") !== undefined;
+
+/** A case that runs the script at a terminal, skipped where none can be. */
+const atATerminalIt = it.runIf(TERMINALS_HERE);
 
 /** Joel at his own terminal, in a login shell under his session. */
 const AT_A_TERMINAL: Seat = {
@@ -1571,21 +1585,39 @@ const AT_A_TERMINAL: Seat = {
 };
 
 /**
- * A stand-in `ps` answering `-o args= -p PID` and `-o ppid= -p PID` from
- * `forebears`: the first answers for any pid it never gave out, as the
- * script's own parent is, and each leads to the next, the last to 1.
+ * The first pid the stand-in `ps` gives out: past the most pids Linux
+ * (2^22) or macOS (99,999) hands out, so no real parent's pid is one.
  */
-function psReading(bash: string, forebears: readonly string[]): string {
+const FIRST_STAND_IN_PID = 5_000_000;
+
+/**
+ * A stand-in `ps` answering `-o args= -p PID` and `-o ppid= -p PID` from
+ * `seat`'s forebears: the first answers for any pid it never gave out, as
+ * the script's own parent is, and each leads to the next, the last to 1,
+ * which runs `seat.init`.
+ */
+function psReading(bash: string, seat: Seat): string {
+	const forebears = seat.forebears ?? [];
 	const lines = forebears.map(
 		(one, place) => `  ${place}) printf '%s\\n' ${quoted(one)} ;;`,
 	);
+	const first = FIRST_STAND_IN_PID;
+	const parent = {
+		unreadable: '[ "$i" = 0 ] && exit 1',
+		empty: '[ "$i" = 0 ] && { echo; exit 0; }',
+	};
 	return [
 		`#!${bash}`,
 		`field=$2 pid=$4 count=${forebears.length}`,
+		'if [ "$pid" = 1 ]; then',
+		`  [ "$field" = args= ] && printf '%s\\n' ${quoted(seat.init ?? "/sbin/init")}`,
+		"  exit 0",
+		"fi",
 		"i=0",
-		'[ "$pid" -ge 1000 ] && [ "$pid" -lt $((1000 + count)) ] && i=$((pid - 1000))',
+		`[ "$pid" -ge ${first} ] && [ "$pid" -lt $((${first} + count)) ] && i=$((pid - ${first}))`,
 		'if [ "$field" = ppid= ]; then',
-		'  if [ $((i + 1)) -lt "$count" ]; then echo " $((1001 + i))"; else echo " 1"; fi',
+		...(seat.parent === undefined ? [] : [`  ${parent[seat.parent]}`]),
+		`  if [ $((i + 1)) -lt "$count" ]; then echo " $((${first + 1} + i))"; else echo " 1"; fi`,
 		"  exit 0",
 		"fi",
 		'case "$i" in',
@@ -1652,7 +1684,7 @@ function sendFrom(
 		{ mode: 0o755 },
 	);
 	if (seat.forebears !== undefined)
-		writeFileSync(join(bin, "ps"), psReading(bash, seat.forebears), {
+		writeFileSync(join(bin, "ps"), psReading(bash, seat), {
 			mode: 0o755,
 		});
 	const environment = {
@@ -1681,7 +1713,7 @@ function localHalf(): void {
 		clearsAfterEach();
 		// Penelope logs in to bash and the Mac to zsh, and each reads the line.
 		for (const shell of ["bash", "zsh"] as const) {
-			it.runIf(onPath(shell) !== undefined)(
+			it.runIf(TERMINALS_HERE && onPath(shell) !== undefined)(
 				`sends a branch that ${shell}, as the host's shell, reads back as one word, with the wait last`,
 				() => {
 					const branch = "jitsusama/fix-1.2_b+c@d";
@@ -1742,22 +1774,25 @@ function localHalf(): void {
 
 		// Past 160 characters its holder's line would read to every waiter
 		// as not in its shape, so the branch is refused before any host.
-		it("refuses a branch past 160 characters, reaching no host", () => {
-			const fits = sendFrom(
-				["b".repeat(160), "there"],
-				undefined,
-				undefined,
-				AT_A_TERMINAL,
-			);
-			expect(fits.code, fits.err).toBe(0);
-			const sent = sendFrom(["b".repeat(161), "there"]);
-			expect(sent.code).toBe(2);
-			expect(sent.err).toMatch(/^check-there: .* is past 160 characters/m);
-			expect(sent.sent, "no ssh").toBeNull();
-		});
+		atATerminalIt(
+			"refuses a branch past 160 characters, reaching no host",
+			() => {
+				const fits = sendFrom(
+					["b".repeat(160), "there"],
+					undefined,
+					undefined,
+					AT_A_TERMINAL,
+				);
+				expect(fits.code, fits.err).toBe(0);
+				const sent = sendFrom(["b".repeat(161), "there"]);
+				expect(sent.code).toBe(2);
+				expect(sent.err).toMatch(/^check-there: .* is past 160 characters/m);
+				expect(sent.sent, "no ssh").toBeNull();
+			},
+		);
 
 		// An empty setting reads as none, as `:-` reads it.
-		it("waits its default when the wait is set empty", () => {
+		atATerminalIt("waits its default when the wait is set empty", () => {
 			const sent = sendFrom(["feature", "there"], "", undefined, AT_A_TERMINAL);
 			expect(sent.code, sent.err).toBe(0);
 			expect(sent.sent?.at(-1), "ninety minutes").toMatch(/ 5400$/);
@@ -1818,21 +1853,25 @@ function localHalf(): void {
 			expect(penelope.code, penelope.err).toBe(0);
 		});
 
-		it("sends a check Joel types at his own terminal to the host he names", () => {
-			const sent = sendFrom(
-				["feature", "equilibrius"],
-				undefined,
-				undefined,
-				AT_A_TERMINAL,
-			);
-			expect(sent.code, sent.err).toBe(0);
-			expect(sent.sent?.at(-2), "to equilibrius").toBe("equilibrius");
-		});
+		atATerminalIt(
+			"sends a check Joel types at his own terminal to the host he names",
+			() => {
+				const sent = sendFrom(
+					["feature", "equilibrius"],
+					undefined,
+					undefined,
+					AT_A_TERMINAL,
+				);
+				expect(sent.code, sent.err).toBe(0);
+				expect(sent.sent?.at(-2), "to equilibrius").toBe("equilibrius");
+			},
+		);
 
 		// A terminal is no proof: pi's bash tool, a hosted conversation or a
 		// mycelium node may hold one, so a check run under any goes to
-		// penelope, as one is whose forebears can't be read.
-		it.each([
+		// penelope, as one is whose forebears can't be read. Each line is as
+		// ps read it on optimus on 25 November: pi sets its title to pi.
+		atATerminalIt.each([
 			["pi", ["bash -c pnpm check:there", "pi"]],
 			[
 				"pi's spawner",
@@ -1868,31 +1907,105 @@ function localHalf(): void {
 				expect(sent.err).toMatch(
 					/a check run under pi, its spawner, a host or a mycelium node/,
 				);
+				expect(sent.err, "names the forebear it stopped at").toMatch(
+					/it stopped at process \d+, (pi|pi-spawner|node|mycelium);/,
+				);
 				expect(sent.sent, "no ssh").toBeNull();
 			},
 		);
 
-		it("sends a check whose forebears can't be read to no host but penelope", () => {
+		atATerminalIt(
+			"sends a check whose forebears can't be read to no host but penelope",
+			() => {
+				const sent = sendFrom(
+					["feature", "equilibrius"],
+					undefined,
+					undefined,
+					{
+						terminal: true,
+					},
+				);
+				expect(sent.code, "refused").toBe(2);
+				expect(sent.err).toMatch(/or under a process it can't read/);
+				expect(sent.err).toMatch(/whose command can't be read/);
+				expect(sent.sent, "no ssh").toBeNull();
+			},
+		);
+
+		// Every way the walk can lose its way refuses, saying where it stopped:
+		// a parent unread or unnamed, a chain no shell makes, and a first
+		// process that is a namespace's, as a sandbox's is, above which pi may
+		// run unseen.
+		atATerminalIt.each([
+			[
+				"a parent it can't read",
+				{ parent: "unreadable" },
+				/whose parent can't be read/,
+			],
+			["a parent named by nothing", { parent: "empty" }, /names no parent/],
+			[
+				"a chain past 64 processes",
+				{ forebears: Array.from({ length: 70 }, () => "-zsh") },
+				/a chain past 64 processes/,
+			],
+			[
+				"a sandbox's first process",
+				{ init: "bwrap --unshare-pid --die-with-parent bash" },
+				/process 1, bwrap, not the machine's init/,
+			],
+		] as const)(
+			"sends a check at a terminal whose walk meets %s to no host but penelope",
+			(_, amiss, said) => {
+				const sent = sendFrom(
+					["feature", "equilibrius"],
+					undefined,
+					undefined,
+					{
+						...AT_A_TERMINAL,
+						...amiss,
+					},
+				);
+				expect(sent.code, "refused").toBe(2);
+				expect(sent.err).toMatch(said);
+				expect(sent.sent, "no ssh").toBeNull();
+			},
+		);
+
+		// Linux's and macOS's own inits end a walk that met no pi.
+		atATerminalIt.each([
+			"/run/current-system/systemd/lib/systemd/systemd",
+			"/sbin/launchd",
+			"/sbin/init splash",
+		])("sends a check at a terminal whose walk ends at %s", (init) => {
 			const sent = sendFrom(["feature", "equilibrius"], undefined, undefined, {
-				terminal: true,
+				...AT_A_TERMINAL,
+				init,
 			});
-			expect(sent.code, "refused").toBe(2);
-			expect(sent.err).toMatch(/or under a process it can't read/);
-			expect(sent.sent, "no ssh").toBeNull();
+			expect(sent.code, sent.err).toBe(0);
+			expect(sent.sent?.at(-2), "to equilibrius").toBe("equilibrius");
 		});
 
 		// Only the program a forebear runs counts, never a word it's given.
-		it("sends a check at a terminal whose forebears only name pi in their words", () => {
-			const sent = sendFrom(["feature", "equilibrius"], undefined, undefined, {
-				terminal: true,
-				forebears: [
-					"vim pi.md mycelium",
-					"/usr/bin/pip install pi-spawner",
-					"-zsh",
-				],
-			});
-			expect(sent.code, sent.err).toBe(0);
-		});
+		atATerminalIt(
+			"sends a check at a terminal whose forebears only name pi in their words",
+			() => {
+				const sent = sendFrom(
+					["feature", "equilibrius"],
+					undefined,
+					undefined,
+					{
+						terminal: true,
+						forebears: [
+							"vim pi.md mycelium",
+							"/usr/bin/pip install pi-spawner",
+							"-zsh",
+						],
+					},
+				);
+				expect(sent.code, sent.err).toBe(0);
+				expect(sent.sent?.at(-2), "to equilibrius").toBe("equilibrius");
+			},
+		);
 
 		// A wait is at most seven digits, over a hundred days, so no wait is
 		// mistyped into one that never ends.
@@ -1925,24 +2038,26 @@ function localHalf(): void {
 			},
 		);
 
-		it.each(["joel@there", "there.local", "192.168.4.49", "my-host"])(
-			"sends to a host named in plain words, %s",
-			(host) => {
-				const sent = sendFrom(
-					["feature", host],
-					"9999999",
-					undefined,
-					AT_A_TERMINAL,
-				);
-				expect(sent.code, sent.err).toBe(0);
-				expect(sent.sent?.at(-2), "the host, as named").toBe(host);
-				expect(sent.sent?.at(-1), "with the longest wait there is").toMatch(
-					/ 9999999$/,
-				);
-			},
-		);
+		atATerminalIt.each([
+			"joel@there",
+			"there.local",
+			"192.168.4.49",
+			"my-host",
+		])("sends to a host named in plain words, %s", (host) => {
+			const sent = sendFrom(
+				["feature", host],
+				"9999999",
+				undefined,
+				AT_A_TERMINAL,
+			);
+			expect(sent.code, sent.err).toBe(0);
+			expect(sent.sent?.at(-2), "the host, as named").toBe(host);
+			expect(sent.sent?.at(-1), "with the longest wait there is").toMatch(
+				/ 9999999$/,
+			);
+		});
 
-		it("sends a wait of none, a zero alone", () => {
+		atATerminalIt("sends a wait of none, a zero alone", () => {
 			const sent = sendFrom(
 				["feature", "there"],
 				"0",

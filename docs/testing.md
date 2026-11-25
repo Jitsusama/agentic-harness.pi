@@ -73,9 +73,12 @@ among those: with none to take it, it runs on optimus and says why.
 The work Mac is the machine it is meant for, once it declares one.
 
 `pnpm check:there` stays the way to send the whole gate, for a pushed
-branch. Run under pi it goes only to penelope, the host agreed for
-agents' checks; Joel, running it from a shell outside pi, may name
-another, such as the work Mac.
+branch. It goes only to penelope, the host agreed for agents' checks,
+unless it is typed at a terminal with no pi, pi spawner, host or
+mycelium node among the processes it runs under and no PI_SESSION_ID:
+Joel, typing it at his own terminal, may name another, such as the
+work Mac. A process it can't read, or a sandbox's own first process,
+counts as pi's. It guards against a slip, not an agent set on the Mac.
 
 ## Tests
 

@@ -71,27 +71,52 @@ set -euo pipefail
 
 # Whether a process this runs under is pi's: pi itself, its spawner, a
 # host's runtime or a mycelium node, read from each forebear's command
-# up to the first process. A forebear that can't be read counts as
-# pi's, so a check never goes further than it can tell it may.
+# up to the first process, which must be the machine's own init. A
+# forebear that can't be read counts as pi's, so a check never goes
+# further than it can tell it may, and so does a first process that is
+# a namespace's, as a sandbox's is: pi may run above it unseen. Says in
+# `forebear` which process, or which read, it stopped at.
+forebear=""
 under_pi() {
   local pid=$PPID ppid args program hops=0
   while [ "$pid" -gt 1 ]; do
-    # A chain past 256 processes is no shell's: refused, not walked on.
-    [ "$hops" -lt 256 ] || return 0
-    args=$(ps -o args= -p "$pid" 2> /dev/null) || return 0
+    # A chain past 64 processes is no shell's (a terminal's, nested
+    # through tmux and ssh, runs to a dozen): refused, not walked on,
+    # since each step costs two runs of ps.
+    if [ "$hops" -ge 64 ]; then
+      forebear="a chain past 64 processes"
+      return 0
+    fi
+    if ! args=$(ps -o args= -p "$pid" 2> /dev/null); then
+      forebear="process $pid, whose command can't be read"
+      return 0
+    fi
     program=${args%% *}
+    forebear="process $pid, ${program##*/}"
     case "${program##*/}" in
       pi | pi-spawner | mycelium) return 0 ;;
     esac
     case "$program" in
       *pi-host-runtime*) return 0 ;;
     esac
-    ppid=$(ps -o ppid= -p "$pid" 2> /dev/null) || return 0
+    if ! ppid=$(ps -o ppid= -p "$pid" 2> /dev/null); then
+      forebear="process $pid, whose parent can't be read"
+      return 0
+    fi
     pid=${ppid//[!0-9]/}
-    [ -n "$pid" ] || return 0
+    if [ -z "$pid" ]; then
+      forebear="$forebear, which names no parent"
+      return 0
+    fi
     hops=$((hops + 1))
   done
-  return 1
+  args=$(ps -o args= -p 1 2> /dev/null) || args=""
+  program=${args%% *}
+  case "${program##*/}" in
+    systemd | init | launchd) return 1 ;;
+  esac
+  forebear="process 1, ${program##*/}, not the machine's init"
+  return 0
 }
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -139,7 +164,7 @@ if [ "$host" != penelope ]; then
     exit 2
   fi
   if under_pi; then
-    echo "check-there: a check run under pi, its spawner, a host or a mycelium node (or under a process it can't read) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    echo "check-there: a check run under pi, its spawner, a host or a mycelium node (or under a process it can't read) goes only to the host named penelope, the one agreed for agents' checks; it stopped at $forebear; run pnpm check:there $branch penelope" >&2
     exit 2
   fi
 fi
