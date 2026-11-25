@@ -17,7 +17,12 @@
  * `lib/core` too, which holds 22 domains (review, work, quest, session
  * and more): read two deep, a cell leading the review tools' library
  * said only core, and needs about them went to whichever cell's title
- * said a word of theirs. A folder that says how code is laid out rather
+ * said a word of theirs. Under `lib/core/internal` it is four, since
+ * that holds 14 domains of its own (quest, notes, guardian, lsp and
+ * more), so `lib/core/internal/quest` is an area, while a file directly
+ * in it climbs to `lib/core`. These apply to any repository's files,
+ * though on 25 November only this harness had a `lib/core` among the
+ * repositories checked out here. A folder that says how code is laid out rather
  * than what it is about is climbed past to its parent, so
  * `modules/quickshell/checks` is `modules/quickshell`: replayed over a
  * week of needs, leaving it drew every need saying checks to the
@@ -42,6 +47,7 @@ export const MOST_AREAS = 24;
 const DEPTH: ReadonlyMap<string, number> = new Map([
 	["modules", 3],
 	["lib/core", 3],
+	["lib/core/internal", 4],
 ]);
 const DEFAULT_DEPTH = 2;
 
