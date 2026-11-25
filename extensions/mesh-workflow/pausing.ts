@@ -16,8 +16,8 @@
  *   does (park-workflow). It is refused, saying why, where anything else
  *   holds it, where parking is off, or where neither a holder nor a host
  *   keeps it to wake it, since parking that one would only end it;
- *   mid-run, that is asked before the turn is ended, so a refused Park
- *   leaves the run going. A talk, Resume, Stop, Pause, Close or Carry
+ *   mid-run, that is asked as it arrives and again before the turn is
+ *   ended, so a refused Park leaves the run going. A talk, Resume, Stop, Pause, Close or Carry
  *   before it lands calls it off.
  * - Close ends the session for good, as /exit does: any run in progress
  *   is ended, then pi shuts down, so its record reads closed rather
@@ -120,7 +120,8 @@ export interface PausingHost {
 	readonly park: () => string | undefined;
 	/**
 	 * What would refuse a park once its run settles, parking nothing, so a
-	 * Park asked mid-run stops the run only where it will park.
+	 * Park asked mid-run stops the run only where, as far as can be told
+	 * before it settles, it will park.
 	 */
 	readonly parkable: () => string | undefined;
 }
@@ -201,8 +202,10 @@ export function createPausing(host: PausingHost): Pausing {
 	};
 	const refused = (from: string | undefined, why: string) => {
 		const line = `A Park ${steeredBy(from)}, was refused: ${why}.`;
-		host.tell(line);
-		host.journal(line);
+		// Each said whatever the other meets: the journal keeps it for a
+		// window nobody watches.
+		sayAnyway(() => host.tell(line));
+		sayAnyway(() => host.journal(line));
 	};
 	const park = (from: string | undefined) => {
 		const why = host.park();
@@ -363,6 +366,15 @@ export function createPausing(host: PausingHost): Pausing {
 			host.abort();
 		},
 		turnEnded() {
+			// Asked again as the run would be stopped, since the run itself
+			// may have come to hold it: a hold it sent, work it led, text typed.
+			const why =
+				parking !== undefined && !host.idle() ? host.parkable() : undefined;
+			if (parking !== undefined && why !== undefined) {
+				const { from } = parking;
+				parking = undefined;
+				refused(from, why);
+			}
 			if ((host.paused() || parking) && !host.idle()) host.abort();
 		},
 		settled() {

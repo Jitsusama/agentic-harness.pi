@@ -65,11 +65,13 @@ import {
 } from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
+import { answerParkNow } from "./park-now.ts";
 import {
 	exitWith,
 	logWritten,
 	niriFocused,
 	restartNamed,
+	restartRefused,
 	restartWith,
 	shownIn,
 } from "./restart.ts";
@@ -542,7 +544,13 @@ export function watch(
 		const away = unheld();
 		if (away !== undefined) return away;
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
-		if (check) return undefined; // Naming its next start tells its holder.
+		// Naming its next start tells its holder, so a check asks only what
+		// refuses it for certain; its first answer has yet to write its log.
+		if (check) {
+			return parkingHost()
+				? undefined
+				: restartRefused(again, args, session, sessionFile);
+		}
 		// A host wakes it from its log as it resumes it; plain pi's holder
 		// has to be told how to start it again.
 		const unnamed = parkingHost()
@@ -705,21 +713,7 @@ export function watch(
 	};
 	const unparked = bus.on(PARK_NOW_ASK, (data) => {
 		if (!isParkNowAsk(data) || data.session !== session) return;
-		// Answered whatever it meets, since unanswered reads as nothing wakes it.
-		try {
-			if (data.check === true) {
-				const why = decide(false, true, true);
-				if (why === undefined) data.ready = true;
-				else data.why = why;
-				return;
-			}
-			const why = parkNow();
-			if (why === undefined) data.parked = true;
-			else data.why = why;
-		} catch (error) {
-			const said = error instanceof Error ? error.message : String(error);
-			data.why = `its park failed: ${said || "with no reason given"}`;
-		}
+		answerParkNow(data, () => decide(false, true, true), parkNow);
 	});
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;

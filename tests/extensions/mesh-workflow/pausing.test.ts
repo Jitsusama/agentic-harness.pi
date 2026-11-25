@@ -38,6 +38,8 @@ function session(
 		readonly parkable?: () => string | undefined;
 		/** When it started here, by its clock; 0 unless given. */
 		readonly startsAt?: number;
+		/** Run as each line is told, to throw as a stale screen does. */
+		readonly telling?: () => void;
 	} = {},
 ): Session {
 	const did: string[] = [];
@@ -71,7 +73,10 @@ function session(
 				paused = now;
 			},
 			carryOn: () => did.push("carry on"),
-			tell: (text) => told.push(text),
+			tell: (text) => {
+				closing.telling?.();
+				told.push(text);
+			},
 			journal: (text) => journal.push(text),
 			close: (by, failed, closed) => {
 				did.push("close");
@@ -372,6 +377,43 @@ describe("parking a session from outside its window", () => {
 			"A Park from outside its window, steered by joel, was refused: a hold it sent stands.";
 		expect(busy.told).toEqual([line]);
 		expect(busy.journal).toEqual([line]);
+	});
+
+	// The run itself may come to hold it: a hold it sent, work it led.
+	it("leaves a run going where what would refuse its park came during the turn, saying why", () => {
+		let asked = 0;
+		const busy = session(false, undefined, {
+			parkable: () => {
+				asked += 1;
+				return asked === 1 ? undefined : "peers wait on a hold it sent";
+			},
+		});
+
+		busy.pausing.act("park", "joel", written(0));
+		busy.pausing.turnEnded();
+		busy.idle = true;
+		busy.pausing.settled();
+
+		expect(asked, "as it came and as its turn ended").toBe(2);
+		expect(busy.did, "neither stopped nor parked").toEqual([]);
+		expect(busy.journal).toEqual([
+			"A Park from outside its window, steered by joel, was refused: peers wait on a hold it sent.",
+		]);
+	});
+
+	it("says a refused Park in its journal though its screen throws", () => {
+		const busy = session(false, undefined, {
+			parkable: () => "a hold it sent stands",
+			telling: () => {
+				throw new Error("the context is stale");
+			},
+		});
+
+		busy.pausing.act("park", "joel", written(0));
+
+		expect(busy.journal).toEqual([
+			"A Park from outside its window, steered by joel, was refused: a hold it sent stands.",
+		]);
 	});
 
 	it("is called off by a talk, Resume, Stop, Pause or Close before it lands", () => {

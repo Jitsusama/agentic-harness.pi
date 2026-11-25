@@ -171,8 +171,10 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 			try {
 				m.pausing.settled();
 			} catch {
-				// A session replaced since its run settled is no longer this
-				// one's to park, and nothing is left here to say it to.
+				// Out of a bare setImmediate it would end the process. A
+				// session replaced since its run settled is no longer this one's
+				// to park; a refusal says itself in its journal whatever its
+				// screen meets.
 			}
 		});
 	});

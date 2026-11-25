@@ -1121,7 +1121,7 @@ A steer may instead carry an `act`, with no text needed
   it.
 - `resume` clears the pause and has the session carry on
   where it left off; with text, the text is the turn instead.
-- `park` (`{"act": "park"}`) ends the session's process now
+- `park` (`{"act": "park", "at": "<ISO time>"}`) ends the session's process now
   if it is idle, or else once the turn it is on ends, as
   `pause` waits, so it holds no memory; it stays held, and a
   message, a key or a window wakes it, as after an idle hour
@@ -1130,11 +1130,14 @@ A steer may instead carry an `act`, with no text needed
   does, and a refusal says why in the window and in a host's
   journal: where parking is off, and where neither a holder nor
   a host that parks one conversation alone keeps it, since
-  parking that one would only end it. A talk, `resume`, `stop`,
+  parking that one would only end it. Mid-run, it is asked as
+  the Park arrives and again as the turn ends, so one that would
+  be refused leaves the run going. A talk, `resume`, `stop`,
   `pause`, `close` or `carry` before it lands calls it off. A
   `park` doesn't wake a session already parked, so one written
   before the session last started, or before the person last
-  talked to it, is dropped.
+  talked to it, is dropped, and so is one with no `at` to say
+  when it was written.
 - `close` ends the session for good, as /exit does: any run in
   progress is ended, then pi shuts down, so its record reads
   closed rather than lost (in a host, the host closes it, and its

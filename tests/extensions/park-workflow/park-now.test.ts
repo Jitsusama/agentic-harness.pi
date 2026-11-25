@@ -177,7 +177,45 @@ describe("parking now, as the person asked", () => {
 		expect(exits).toEqual([]);
 	});
 
-	it("answers why its park failed, rather than leaving the ask unanswered", () => {
+	// Fixed by how it was started, so the park at the run's end would
+	// refuse it for certain: a check that said ready stopped the run for
+	// nothing.
+	it("checks mid-run that starting again would keep its flags", () => {
+		watch(session(), events, {
+			env: holder(),
+			args: ["-e", "./x.ts"],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => 1_000,
+			exitWith: (code) => exits.push(code),
+			clock: false,
+		});
+		idle = false;
+
+		expect(ask(SESSION, true).why).toMatch(/^starting again would drop -e/);
+		expect(existsSync(join(folder, "held.again"))).toBe(false);
+	});
+
+	it("checks mid-run that its holder would start it as itself", () => {
+		watching({ ...holder(), MYCELIUM_AGAIN: "" });
+		idle = false;
+
+		expect(ask(SESSION, true).why).toBe(
+			"its holder would start it as a new session",
+		);
+	});
+
+	// Its run's first answer writes the log the park then starts from.
+	it("checks mid-run without asking for a log its run has yet to write", () => {
+		rmSync(join(folder, "session.jsonl"));
+		watching();
+		idle = false;
+
+		expect(ask(SESSION, true).ready).toBe(true);
+	});
+
+	it("answers a park that failed part-way as one that may read as parked", () => {
 		watch(session(), events, {
 			env: holder(),
 			args: [],
@@ -191,7 +229,12 @@ describe("parking now, as the person asked", () => {
 			clock: false,
 		});
 
-		expect(ask().why).toBe("its park failed: its holder is gone");
+		expect(ask().why).toBe(
+			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone",
+		);
+		// What it said of its park stands, as its answer warns.
+		expect(readParked(SESSION, folder)).toBeDefined();
+		expect(ask().why).toBe("parking already");
 	});
 
 	it("answers nothing once its watch has stopped", () => {
