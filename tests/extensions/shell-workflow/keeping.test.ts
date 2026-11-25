@@ -224,9 +224,10 @@ const teeKeeps = process.platform === "linux" || (await teePersists());
 
 /**
  * How long a kept call's files may take to show or go on a loaded machine.
- * These cases ran only when a probe of tee answered in time, and so not
+ * The tee cases ran only when a probe of tee answered in time, and so not
  * on a busy one; now that Linux always runs them, optimus short of memory
- * took past until's five seconds and waitFor's one.
+ * took past until's five seconds and waitFor's one, as a timed-out call's
+ * removal did at a load of 190.
  */
 const LOADED_MS = 30_000;
 
@@ -367,8 +368,10 @@ describe("a kept call", () => {
 			run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
 		).rejects.toThrow("timeout:0.3");
 		expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
-		await vi.waitFor(() =>
-			expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+		await vi.waitFor(
+			() =>
+				expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+			{ timeout: LOADED_MS },
 		);
 	});
 

@@ -60,6 +60,9 @@ vi.mock("node:fs", async (importOriginal) => {
 const realWatch = (await vi.importActual<typeof import("node:fs")>("node:fs"))
 	.watch;
 
+/** How long a watch may take to hear a change on a loaded machine. */
+const HEARD_MS = 30_000;
+
 /** The watches made on this test's folder, newest last. */
 function watchesOfDir(): ReturnType<typeof watch>[] {
 	const made = vi.mocked(watch).mock;
@@ -443,6 +446,12 @@ describe("a host's mirror of a folder", () => {
 		put("a.txt", "old folder");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		let heard = 0;
+		made.on("change", () => {
+			heard += 1;
+		});
 		const old = statSync(dir);
 		const stats = vi.mocked(stat);
 		const was = stats.getMockImplementation();
@@ -456,6 +465,13 @@ describe("a host's mirror of a folder", () => {
 			rmSync(dir, { recursive: true });
 			mkdirSync(dir);
 			put("b.txt", "new folder");
+			// A Mac's watch hears through FSEvents, which the work Mac under
+			// load delivered past two seconds, so the read is timed from what
+			// the watch heard rather than from the change.
+			await vi.waitFor(
+				() => expect(heard, "the watch heard").toBeGreaterThan(0),
+				{ timeout: HEARD_MS },
+			);
 			await vi.waitFor(
 				() =>
 					expect(
