@@ -20,6 +20,7 @@ import {
 	onQuest,
 	peer,
 	send,
+	sentOut,
 	session,
 	startSession,
 } from "./support/mesh.ts";
@@ -277,6 +278,44 @@ describe("an orchestrator", () => {
 		emit(SESSION_ON_NO_MODEL, { when: "before a turn" });
 
 		expect(transport.ids()).toEqual([]);
+	});
+
+	// A paused session may name no address, and is still counted as one
+	// the pivot hasn't yet turned, so two such never read as nobody.
+	it("says who a pivot hasn't turned yet, counting the sessions naming no address", async () => {
+		leading();
+		for (const one of ["session-m", "session-n"]) {
+			createPresences(join(fixture.paths.mesh, "presence")).publish({
+				session: one,
+				addresses: [],
+				groups: ["#orchestration/7m6jkg"],
+				orchestratedBy: "7M6JKG",
+				worksOn: "",
+				owns: [],
+				busy: false,
+				at: new Date().toISOString(),
+			});
+		}
+		const { tools } = await startSession();
+		const readBack = async () =>
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+
+		expect(await readBack()).toContain(
+			"\n  not yet: 85PKB2 and 2 peers naming no address",
+		);
+		fromElsewhere({
+			from: "85PKB2",
+			to: ["@7M6JKG"],
+			re: pivot?.id,
+			text: "Taken up.",
+		});
+		expect(await readBack()).toContain(
+			"\n  changed course: 85PKB2; not yet: 2 peers naming no address",
+		);
 	});
 
 	// The miss of 16 November at 22:26: the person said "I want it
