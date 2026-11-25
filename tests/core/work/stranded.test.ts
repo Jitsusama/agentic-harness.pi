@@ -1,6 +1,11 @@
 /**
  * The trees standing where the broker cuts them that nothing can use,
  * against real folders and, where a cut is the claim, real git.
+ *
+ * Long because finding, splitting, setting aside and cutting again are
+ * one sweep's four steps, each case building its trees through the
+ * fixtures at the top, which a split would copy into every file
+ * without making a case easier to find.
  */
 
 import { execFile } from "node:child_process";
