@@ -25,10 +25,12 @@ describe("carrying's commands", () => {
 
 		await exec("git", ["status"]);
 		await exec("env", ["GIT_INDEX_FILE=/tmp/index", "git", "-C", "t", "add"]);
+		await exec("env", ["-u", "GIT_DIR", "-i", "A=1", "--", "git", "log"]);
 
 		expect(ran).toEqual([
 			"english: git status",
 			"english: env GIT_INDEX_FILE=/tmp/index git -C t add",
+			"english: env -u GIT_DIR -i A=1 -- git log",
 		]);
 	});
 
@@ -38,11 +40,13 @@ describe("carrying's commands", () => {
 		await exec("lsof", ["-F", "n"]);
 		await exec("env", ["A=1", "sh", "-c", "git status"]);
 		await exec("env", []);
+		await exec("env", ["-u", "git", "sh"]);
 
 		expect(ran).toEqual([
 			"as it is: lsof -F n",
 			"as it is: env A=1 sh -c git status",
 			"as it is: env",
+			"as it is: env -u git sh",
 		]);
 	});
 });

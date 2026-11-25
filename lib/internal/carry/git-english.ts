@@ -16,8 +16,23 @@ export function gitInEnglish(english: Exec, asItIs: Exec): Exec {
 		(runsGit(command, args) ? english : asItIs)(command, args);
 }
 
-/** Whether `command` runs git, itself or through `env`'s settings. */
+/** The options of `env` that take the word after them as their own. */
+const TAKES_A_WORD = new Set(["-u", "--unset", "-C", "--chdir"]);
+
+/**
+ * Whether `command` runs git, itself or through `env`: the first word
+ * past env's options, their own words and its settings.
+ */
 function runsGit(command: string, args: readonly string[]): boolean {
 	if (command === "git") return true;
-	return command === "env" && args.find((arg) => !arg.includes("=")) === "git";
+	if (command !== "env") return false;
+	for (let at = 0; at < args.length; at++) {
+		const arg = args[at] ?? "";
+		if (TAKES_A_WORD.has(arg)) {
+			at++;
+		} else if (!arg.startsWith("-") && !arg.includes("=")) {
+			return arg === "git";
+		}
+	}
+	return false;
 }
