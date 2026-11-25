@@ -5,6 +5,7 @@
  */
 
 import {
+	appendFileSync,
 	chmodSync,
 	lstatSync,
 	mkdirSync,
@@ -32,6 +33,9 @@ const renames = vi.hoisted((): [string, string][] => []);
 /** What happens at each read of a copy, in order, one each. */
 const duringCopy = vi.hoisted((): (() => void)[] => []);
 
+/** The bytes free on every volume, or the disk's own answer when unset. */
+const room = vi.hoisted((): { bytes?: bigint } => ({}));
+
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
 	const volumeOf = (path: string) =>
@@ -53,6 +57,12 @@ vi.mock("node:fs", async (importOriginal) => {
 			duringCopy.shift()?.();
 			return (real.readSync as (...all: unknown[]) => number)(...args);
 		},
+		statfsSync: (...args: Parameters<typeof real.statfsSync>) => {
+			const found = real.statfsSync(args[0], { bigint: true });
+			return room.bytes === undefined
+				? found
+				: { ...found, bsize: 1n, bavail: room.bytes };
+		},
 	};
 });
 
@@ -61,6 +71,7 @@ afterEach(() => {
 	volumes.length = 0;
 	renames.length = 0;
 	duringCopy.length = 0;
+	room.bytes = undefined;
 	for (const path of made.splice(0)) {
 		rmSync(path, { recursive: true, force: true });
 	}
@@ -168,6 +179,45 @@ describe("moving a file whole", () => {
 
 		expect(readFileSync(join(outside, "log.jsonl"), "utf8")).toBe("outside\n");
 		expect(readFileSync(join(there, "log.jsonl"), "utf8")).toBe("planted\n");
+	});
+
+	it("refuses a file that grows during the copy, leaving it whole and nothing beside its place", () => {
+		const { here, there } = twoFolders();
+		const bytes = Buffer.alloc(3 * 1024 * 1024, "carried\n");
+		writeFileSync(join(here, "log.jsonl"), bytes);
+		duringCopy.push(() => appendFileSync(join(here, "log.jsonl"), "more\n"));
+
+		expect(() =>
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow("changed while it was copied");
+
+		expect(readFileSync(join(here, "log.jsonl")).length).toBe(
+			bytes.length + 5,
+		);
+		expect(readdirSync(there)).toEqual([]);
+	});
+
+	it("refuses a file over half the room left on its new volume, as a planted sparse one would be", () => {
+		const { here, there } = twoFolders();
+		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(1024, "x"));
+		room.bytes = 2047n;
+
+		expect(() =>
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow("more than half the room");
+
+		expect(readFileSync(join(here, "log.jsonl")).length).toBe(1024);
+		expect(readdirSync(there)).toEqual([]);
+	});
+
+	it("copies a file of just half the room left on its new volume", () => {
+		const { here, there } = twoFolders();
+		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(1024, "x"));
+		room.bytes = 2048n;
+
+		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
+
+		expect(readFileSync(join(there, "log.jsonl")).length).toBe(1024);
 	});
 
 	it("refuses a folder across volumes, leaving it and nothing beside its place", () => {
