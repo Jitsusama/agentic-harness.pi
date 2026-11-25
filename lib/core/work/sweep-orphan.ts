@@ -213,8 +213,8 @@ export async function finishStoppedRemovals(
 	for (const path of await candidates(dir)) {
 		if (tried >= STOPPED_REMOVALS_PER_SWEEP) return;
 		if (!(await stillStopped(path, known, before))) continue;
-		// The pause comes first, so the reading is the last thing before
-		// the move.
+		// The pause comes first, so only the disk's own recheck stands
+		// between the reading and the move.
 		if (tried > 0) await deps.betweenIdleTakes?.();
 		const busy = await deps.busyAmong?.([resolvedPath(path)]);
 		if (busy === undefined) {
@@ -271,7 +271,12 @@ async function stillStopped(
 		CUT_NAME.test(basename(path)) &&
 		(await isPlainFolder(path)) &&
 		!(await lstatSafe(join(path, ".git"))) &&
-		!known.some((one) => one === resolved || one.startsWith(`${resolved}/`)) &&
+		!known.some(
+			(one) =>
+				one === resolved ||
+				one.startsWith(`${resolved}/`) ||
+				resolved.startsWith(`${one}/`),
+		) &&
 		!(await checkoutBelow(path)) &&
 		(await untouchedSince(path, before))
 	);

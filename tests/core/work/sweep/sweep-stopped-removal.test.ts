@@ -115,7 +115,7 @@ describe("removals stopped part way", () => {
 		expect(
 			outcome.kept.find((one) => one.path === worked)?.why,
 			"why the worked-in folder stayed",
-		).toMatch(/something works in it/);
+		).toBe("a removal stopped part way, but something works in it");
 		expect(
 			readdirSync(state).filter((name) => name.includes(".going-")),
 			"what a finished removal left",
@@ -188,10 +188,13 @@ describe("removals stopped part way", () => {
 		expect(existsSync(named), "the tree named going went").toBe(true);
 	});
 
-	it("keeps one a claim names, or reaches into, and one with something fresh two levels down", async () => {
+	it("keeps one a claim names, reaches into or holds from above, and one with something fresh two levels down", async () => {
 		const { memory, state } = await setUp();
 		const old = STOPPED_REMOVAL_MS + HOUR;
 		const held = leftover(state, "snapshot-github-o-r-c1c1c1", old);
+		const nested = join(state, "nested");
+		mkdirSync(nested);
+		const below = leftover(nested, "snapshot-github-o-r-f4f4f4", old);
 		const reached = leftover(state, "snapshot-github-o-r-d2d2d2", old);
 		const deep = leftover(state, "snapshot-github-o-r-e3e3e3", old);
 		const file = join(deep, "modules", "left.lua");
@@ -211,9 +214,21 @@ describe("removals stopped part way", () => {
 			treesDir: state,
 			busyAmong: reading([]).busyAmong,
 		});
+		const inNested = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [nested],
+			lockPath: join(state, "sweep.lock"),
+			facts: machine,
+			treesDir: nested,
+			busyAmong: reading([]).busyAmong,
+		});
 
 		expect(outcome.taken, "a claimed or fresh folder was finished").toEqual([]);
-		for (const path of [held, reached, deep]) {
+		expect(inNested.taken, "one a claim held from above was finished").toEqual(
+			[],
+		);
+		for (const path of [held, reached, deep, below]) {
 			expect(existsSync(path), `${path} went`).toBe(true);
 		}
 	});
@@ -315,7 +330,7 @@ describe("removals stopped part way", () => {
 		expect(
 			outcome.kept.find((one) => one.path === last)?.why,
 			"why the last stayed",
-		).toMatch(/something works in it/);
+		).toBe("a removal stopped part way, but something works in it");
 	});
 
 	it("lets no busy ones fill a sweep's count, so the rest are reached", async () => {
@@ -356,6 +371,8 @@ describe("removals stopped part way", () => {
 			leftover(state, `snapshot-github-o-r-a0000${at}.going-1a2b3c4d`, old);
 		}
 		const fresh = leftover(state, "snapshot-github-o-r-zzzzzz", old);
+		// Named going by its branch, not set aside by a take.
+		const named = leftover(state, "snapshot-github-o-r-zzzzzy.going-away", old);
 
 		await sweepEndedTrees({
 			exec,
@@ -368,6 +385,9 @@ describe("removals stopped part way", () => {
 		});
 
 		expect(existsSync(fresh), "the fresh leftover waited behind asides").toBe(
+			false,
+		);
+		expect(existsSync(named), "one named going waited behind asides").toBe(
 			false,
 		);
 	});
