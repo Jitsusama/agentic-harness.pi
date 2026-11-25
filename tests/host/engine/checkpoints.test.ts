@@ -149,9 +149,15 @@ describe("the host's checkpointer", () => {
 
 			const kept = checkpoints.keep(store);
 			await looksGoBy(LOOKS);
+			expect(locksOnIndex(), "while it looks").toBeGreaterThanOrEqual(held);
 
-			expect(locksOnIndex()).toBeGreaterThanOrEqual(held);
+			// Released and kept again while the writer stays open, as a conversation
+			// opening the store before the worker has read the release would.
 			kept.release();
+			const again = checkpoints.keep(store);
+			await looksGoBy(LOOKS);
+			expect(locksOnIndex(), "after a release").toBeGreaterThanOrEqual(held);
+			again.release();
 		},
 	);
 
