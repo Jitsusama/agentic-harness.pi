@@ -2,8 +2,8 @@
  * An arriving tree's clone the disk won't move into place or take out:
  * the tree is refused saying so, and where its clone is left, never
  * thrown out of the arrival. The disk is faked for the clone's own
- * folder alone, so it gets a file of its own: a mock of `node:fs`
- * covers every test in its file.
+ * folder, or one folder a test names, so it gets a file of its own: a
+ * mock of `node:fs` covers every test in its file.
  */
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -12,12 +12,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
 import { CLONING } from "../../../../lib/internal/carry/twin.ts";
 import { arrivals, fakeClock } from "./support/arriving.ts";
-import { exec, folder, removeAll } from "./support/machines.ts";
+import { cloneAt, exec, folder, removeAll } from "./support/machines.ts";
 
-/** What the disk refuses of an arriving clone's own folder, and with what. */
+/**
+ * What the disk refuses of an arriving clone's own folder, and with what;
+ * or, for its removal, of the folder at `removing` where one is named.
+ */
 const refusing = vi.hoisted(() => ({
 	rename: undefined as string | undefined,
 	remove: undefined as string | undefined,
+	removing: undefined as string | undefined,
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -36,7 +40,11 @@ vi.mock("node:fs", async (importOriginal) => {
 		},
 		rmSync: (...args: Parameters<typeof real.rmSync>) => {
 			const path = String(args[0]);
-			if (refusing.remove !== undefined && path.includes(".cloning-")) {
+			const named =
+				refusing.removing === undefined
+					? path.includes(".cloning-")
+					: path === refusing.removing;
+			if (refusing.remove !== undefined && named) {
 				throw refused(refusing.remove, "rm", path);
 			}
 			real.rmSync(...args);
@@ -48,6 +56,7 @@ const made: string[] = [];
 afterEach(() => {
 	refusing.rename = undefined;
 	refusing.remove = undefined;
+	refusing.removing = undefined;
 	removeAll(made);
 });
 
@@ -115,6 +124,65 @@ describe("an arriving clone the disk won't put in place", () => {
 		expect(said[0]).toMatchObject({
 			did: "refused",
 			why: `Something arrived there while it was cloned. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'.`,
+		});
+	});
+
+	it("says where a clone of its twin is left when it can't be held to origin, never at the tree's own place", async () => {
+		const { from, origin } = await carried();
+		const home = folder(made, "arriving");
+		await cloneAt(origin, join(home, "src", "twin"));
+		refusing.remove = "EBUSY";
+		const unpointed: Exec = async (command, args) =>
+			args.includes("set-url")
+				? { code: 128, stdout: "", stderr: "fatal: refused" }
+				: await exec(command, args);
+
+		const { whole, said } = await arriveAt(
+			home,
+			from,
+			fakeClock(),
+			[],
+			{},
+			unpointed,
+		);
+
+		expect(whole).toBe(false);
+		const [clone, ...others] = leftIn(join(home, "src")).filter(
+			(one) => one !== "twin",
+		);
+		expect(others, "nothing at the tree's own place").toEqual([]);
+		expect(clone).toContain(CLONING);
+		const at = join(home, "src", clone ?? "");
+		expect(said[0]).toMatchObject({
+			did: "refused",
+			why: `git couldn't point it at ${origin}: fatal: refused. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'.`,
+		});
+	});
+
+	it("says where a cloned tree is left when settling it fails and it can't be taken out", async () => {
+		const { from } = await carried();
+		const home = folder(made, "arriving");
+		const path = join(home, "src", "app");
+		refusing.remove = "EBUSY";
+		refusing.removing = path;
+		const unsettled: Exec = async (command, args) =>
+			args.includes("checkout") && args.includes("-B")
+				? { code: 128, stdout: "", stderr: "fatal: refused" }
+				: await exec(command, args);
+
+		const { whole, said } = await arriveAt(
+			home,
+			from,
+			fakeClock(),
+			[],
+			{},
+			unsettled,
+		);
+
+		expect(whole).toBe(false);
+		expect(said[0]).toMatchObject({
+			did: "refused",
+			why: `git couldn't check out topic: fatal: refused. And its clone is left at ${path}, since it couldn't be taken out: EBUSY: refused, rm '${path}'.`,
 		});
 	});
 });

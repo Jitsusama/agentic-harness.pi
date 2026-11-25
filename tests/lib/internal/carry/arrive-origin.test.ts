@@ -6,6 +6,7 @@
  * reason said where one fails.
  */
 
+import { spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -173,26 +174,40 @@ describe("arriving with a tree to clone from origin", () => {
 		const { from, head } = await carried();
 		const home = folder(made, "arriving");
 		const src = join(home, "src");
+		// A process of the test's own, so the sweep asks the machine whether
+		// it runs rather than knowing its own pid.
+		const under = spawn(process.execPath, ["-e", "process.stdin.resume()"]);
+		const now = Date.now();
+		const day = 24 * 60 * 60 * 1000;
 		// No process runs past the largest pid Linux or macOS gives out.
-		const killed = join(src, "app.cloning-999999999-1");
-		const running = join(src, `app.cloning-${process.pid}-1`);
-		const another = join(src, "other.cloning-999999999-1");
-		for (const left of [killed, running, another]) {
-			mkdirSync(left, { recursive: true });
-			writeFileSync(join(left, "half"), "made\n");
+		const left = {
+			killed: "app.cloning-999999999-1",
+			running: `app.cloning-${under.pid}-${now}`,
+			stale: `app.cloning-${under.pid}-${now - day - 60_000}`,
+			another: "other.cloning-999999999-1",
+			theirs: "app.cloning-999999999-2",
+		};
+		try {
+			for (const name of Object.values(left)) {
+				mkdirSync(join(src, name, ".git"), { recursive: true });
+				writeFileSync(join(src, name, ".git", "HEAD"), "half made\n");
+			}
+			writeFileSync(join(src, left.theirs, "notes"), "kept\n");
+
+			const { whole } = await arriveThrough(home, from, exec);
+
+			expect(whole, "every tree arrived whole").toBe(true);
+			expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
+			expect(
+				leftIn(src).sort(),
+				"only the killed arrival's clone and the day-old one go",
+			).toEqual(["app", left.running, left.another, left.theirs].sort());
+			expect(readFileSync(join(src, left.theirs, "notes"), "utf8")).toBe(
+				"kept\n",
+			);
+		} finally {
+			under.kill();
 		}
-
-		const { whole } = await arriveThrough(home, from, exec);
-
-		expect(whole, "every tree arrived whole").toBe(true);
-		expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
-		expect(leftIn(src).sort(), "only the killed arrival's clone goes").toEqual(
-			[
-				"app",
-				`app.cloning-${process.pid}-1`,
-				"other.cloning-999999999-1",
-			].sort(),
-		);
 	});
 
 	it("clones nothing once its tree's hour has run out", async () => {

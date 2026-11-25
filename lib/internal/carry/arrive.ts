@@ -490,31 +490,21 @@ async function readyTree(
 			}
 		}
 		const twin = await twinOf(exec, path, tree.origin);
-		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
-		if (here.left() <= 0) return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
+		if (twin === undefined && here.left() <= 0) {
+			return no(`It wasn't cloned, since ${OUT_OF_TIME}.`);
+		}
 		// Into a name of its own beside the tree's, renamed into place once
-		// whole, so a failed clone takes out only what it made itself; first
-		// taking out what killed arrivals left there.
+		// whole and, from a twin, held to origin, so a failed or killed clone
+		// is only ever what it made itself, where the next arrival sweeps it;
+		// first taking out what killed arrivals left there.
 		sweepClonesOf(path);
 		const cloning = cloningAt(path, Date.now());
-		const cloned = await timed(here.left(), () =>
-			exec("git", [
-				...BOUNDED,
-				"clone",
-				"-q",
-				"--no-checkout",
-				"--",
-				tree.origin,
-				cloning,
-			]),
-		);
-		if (cloned.code !== 0) {
-			return no(
-				andLeft(
-					`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`,
-					letGoOf(cloning),
-				),
-			);
+		const cloned =
+			twin === undefined
+				? await cloneOrigin(exec, tree, cloning, here.left())
+				: await cloneTwin(exec, twin, tree, cloning);
+		if (cloned.kind === "refused") {
+			return no(andLeft(cloned.why, letGoOf(cloning)));
 		}
 		if (existsSync(path)) {
 			return no(
@@ -534,7 +524,7 @@ async function readyTree(
 				),
 			);
 		}
-		return { kind: "cloned" };
+		return cloned;
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {
@@ -564,8 +554,34 @@ async function readyTree(
 		: no(`git couldn't fetch its origin: ${saidOf(fetched)}`);
 }
 
+/** The tree's origin cloned at `cloning`, within the `left` seconds it has. */
+async function cloneOrigin(
+	exec: Exec,
+	tree: HandedTree,
+	cloning: string,
+	left: number,
+): Promise<Readied> {
+	const cloned = await timed(left, () =>
+		exec("git", [
+			...BOUNDED,
+			"clone",
+			"-q",
+			"--no-checkout",
+			"--",
+			tree.origin,
+			cloning,
+		]),
+	);
+	return cloned.code === 0
+		? { kind: "cloned" }
+		: {
+				kind: "refused",
+				why: `git couldn't clone ${tree.origin}: ${saidOf(cloned)}`,
+			};
+}
+
 /**
- * The tree cloned from its twin here, never writing to it, then pointed
+ * The tree cloned from its twin here at `cloning`, never writing to it, then pointed
  * at its own origin, so the commits it needs come from there one branch
  * at a time.
  *
@@ -585,7 +601,7 @@ async function cloneTwin(
 	exec: Exec,
 	twin: string,
 	tree: HandedTree,
-	path: string,
+	cloning: string,
 ): Promise<Readied> {
 	const cloned = await exec("git", [
 		"clone",
@@ -593,7 +609,7 @@ async function cloneTwin(
 		"--no-checkout",
 		"--",
 		twin,
-		path,
+		cloning,
 	]);
 	if (cloned.code !== 0) {
 		return {
@@ -601,13 +617,13 @@ async function cloneTwin(
 			why: `git couldn't clone ${twin}: ${cloned.stderr.trim()}`,
 		};
 	}
-	const held = await asOrigin(gitIn(exec, path), twin, tree.origin);
+	const held = await asOrigin(gitIn(exec, cloning), twin, tree.origin);
 	if (held.why === undefined) {
 		return held.unsure === undefined
 			? { kind: "cloned" }
 			: { kind: "cloned", unsure: held.unsure };
 	}
-	return { kind: "refused", why: andLeft(held.why, letGoOf(path)) };
+	return { kind: "refused", why: held.why };
 }
 
 /**

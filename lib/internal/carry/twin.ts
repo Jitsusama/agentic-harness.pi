@@ -14,7 +14,7 @@
  * what it left out.
  */
 
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
@@ -55,12 +55,33 @@ export function clonerOf(name: string, tree?: string): number | undefined {
 }
 
 /**
+ * The time a clone's name gives, which only `sweepClonesOf` reads back,
+ * or nothing where `name` isn't one.
+ */
+function clonedAt(name: string): number | undefined {
+	const clone = CLONE.exec(name);
+	return clone === null ? undefined : Number(clone[3]);
+}
+
+/**
+ * How long a clone may stand before it is taken as left, whatever its
+ * pid says: no arrival clones for a day, and a pid outlives its process
+ * once the machine gives it out again.
+ */
+const LEFT_AFTER = 24 * 60 * 60 * 1000;
+
+/**
  * Takes out the clones beside `path` that arrivals killed before they
  * could take them out themselves, so each retry doesn't leave another
- * whole repository behind. Only a clone whose process is gone is taken:
- * one still running may be another arrival's, under way.
+ * whole repository behind. Only a clone whose process is gone, or that
+ * has stood a day, is taken: one still running may be another arrival's,
+ * under way. And only a folder holding nothing but the `.git` a clone
+ * with no checkout writes, so a folder of someone's own, however it is
+ * named, is never taken. The git a killed arrival started may still be
+ * writing the clone it is taken from; that clone was for nobody once
+ * its arrival was gone, and git stops where its folder went.
  */
-export function sweepClonesOf(path: string): void {
+export function sweepClonesOf(path: string, now: number = Date.now()): void {
 	const above = dirname(path);
 	let names: string[];
 	try {
@@ -71,16 +92,37 @@ export function sweepClonesOf(path: string): void {
 	}
 	for (const name of names) {
 		const cloner = clonerOf(name, basename(path));
-		if (cloner === undefined || runs(cloner)) continue;
+		if (cloner === undefined) continue;
+		const stood = now - (clonedAt(name) ?? now);
+		if (runs(cloner) && stood < LEFT_AFTER) continue;
+		const clone = join(above, name);
+		if (!onlyAClone(clone)) continue;
 		try {
-			rmSync(join(above, name), { recursive: true, force: true });
+			rmSync(clone, { recursive: true, force: true });
 		} catch {
 			// Left for the next arrival to take out; this one clones beside it.
 		}
 	}
 }
 
-/** Whether a process `pid` runs here, as far as this one can tell. */
+/**
+ * Whether `folder` is a folder of its own, never a link, holding at
+ * most the `.git` an unfinished clone with no checkout holds.
+ */
+function onlyAClone(folder: string): boolean {
+	try {
+		if (!lstatSync(folder).isDirectory()) return false;
+		return readdirSync(folder).every((entry) => entry === ".git");
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whether a process `pid` runs here, as far as this one can tell. A
+ * clone's pid is of this machine, since arriving makes it beside the
+ * tree it puts here.
+ */
 function runs(pid: number): boolean {
 	if (pid === process.pid) return true;
 	try {
@@ -88,7 +130,11 @@ function runs(pid: number): boolean {
 		return true;
 	} catch (error) {
 		// Another account's process is refused the signal, yet runs.
-		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+		return !(
+			error instanceof Error &&
+			"code" in error &&
+			error.code === "ESRCH"
+		);
 	}
 }
 
