@@ -102,6 +102,21 @@ import { questLockArgs } from "./fence-quest-locks.ts";
 import { pastQuestTempLink, questTempArgs } from "./fence-quest-temp.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
 import { workerSocketRule } from "./fence-worker-socket.ts";
+
+/**
+ * The worker socket's folder bound read-only over itself, where there is
+ * one: bound writable, as `/` is, a command could take the node's socket
+ * away and listen in its place (`fence-worker-socket.ts`).
+ */
+function workerFolderArgs(
+	socket: string | undefined,
+	exists: (path: string) => boolean,
+): string[] {
+	if (socket === undefined) return [];
+	const folder = workerSocketRule(socket);
+	return exists(folder) ? ["--ro-bind", folder, folder] : [];
+}
+
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -414,6 +429,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...renderNodeArgs(disk),
 		// First, so the fence's own mounts inside go over it, writable.
 		...frozenRuntimeArgs(unfencedCompileRoots(place), disk),
+		...workerFolderArgs(place.workerSocket, exists),
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);

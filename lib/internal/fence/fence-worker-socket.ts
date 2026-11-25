@@ -16,11 +16,21 @@
  * Landlock is told of the folder rather than the socket, since a rule
  * holds an inode and a node that restarts binds a new one: told of the
  * socket, a fenced agent lost the node at its first restart (tried on
- * optimus, 24 November). Landlock judges the socket a connect reaches
- * where it really is, so a link put in the folder later reaches nothing
- * outside it. The fence empties no folder holding it, so nothing is
- * bound back, and a node that is down leaves a fenced command to start
- * as ever rather than refusing a bind of a missing file.
+ * optimus, 24 November). So the rule reaches every socket in the folder,
+ * not only the one the variable names: another realm's worker socket the
+ * same node serves there among them. The node keeps nothing else there,
+ * and the folder must be made once, at boot, as a tmpfiles folder is: one
+ * remade at each start of the node is a new inode the rule never reaches.
+ * Landlock judges the socket a connect reaches where it really is, so a
+ * link put in the folder later reaches nothing outside it.
+ *
+ * The bubblewrap fence binds the folder read-only over itself, so a
+ * command running as the account that owns it can't take the socket away
+ * and listen in the node's place for every other session, as the agent
+ * proxy's is (JMJ7J4); a folder bound, not the socket, still shows the
+ * one a restarted node binds. A node between restarts, its socket not yet
+ * bound again, still has its folder let through and its path handed on,
+ * so a command started then reaches the node once it is back.
  *
  * The command learns the path from the variable, handed on only when the
  * socket is let through and never to a language server's sandbox, which
@@ -47,6 +57,8 @@ const WRITTEN_BY_OTHERS = 0o022;
 export interface SocketDisk {
 	/** Where a path ends once every link in it is followed, if anywhere. */
 	real(path: string): string | undefined;
+	/** Whether anything is at a path, not following a link it ends in. */
+	present(path: string): boolean;
 	/** Whether a path is a socket, not following a link it ends in. */
 	isSocket(path: string): boolean;
 	/**
@@ -64,6 +76,15 @@ export const SOCKET_DISK: SocketDisk = {
 		} catch {
 			// Nothing there, so nothing to let through.
 			return undefined;
+		}
+	},
+	present(path) {
+		try {
+			lstatSync(path);
+			return true;
+		} catch {
+			// Nothing there to read.
+			return false;
 		}
 	},
 	isSocket(path) {
@@ -91,7 +112,8 @@ export const SOCKET_DISK: SocketDisk = {
 /**
  * The worker socket a fenced command in `env` may reach, or none: none
  * where the machine names none, or names a path that isn't the node's
- * worker socket as it really stands on disk.
+ * worker socket as it really stands on disk. Nothing there yet is a node
+ * between restarts, and passes, since the folder is what is let through.
  */
 export function fencedWorkerSocket(
 	env: NodeJS.ProcessEnv,
@@ -101,8 +123,11 @@ export function fencedWorkerSocket(
 	if (named === undefined) return undefined;
 	if (dirname(named) !== WORKER_SOCKET_FOLDER) return undefined;
 	if (!WORKER_SOCKET_NAME.test(basename(named))) return undefined;
-	if (disk.real(named) !== named) return undefined;
+	if (disk.real(WORKER_SOCKET_FOLDER) !== WORKER_SOCKET_FOLDER)
+		return undefined;
 	if (!disk.keptByItsOwner(WORKER_SOCKET_FOLDER)) return undefined;
+	if (!disk.present(named)) return named;
+	if (disk.real(named) !== named) return undefined;
 	return disk.isSocket(named) ? named : undefined;
 }
 

@@ -5,7 +5,17 @@
  * strict start found no node at all.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -14,12 +24,12 @@ import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import { fenceRunText } from "../../../../lib/internal/fence/fence-run.ts";
 import {
 	fencedWorkerSocket,
+	SOCKET_DISK,
 	type SocketDisk,
 	WORKER_SOCKET_FOLDER,
 } from "../../../../lib/internal/fence/fence-worker-socket.ts";
 import {
 	type Sandbox,
-	sandboxedCommand,
 	wrapFor,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { strictRules } from "../../../../lib/internal/sandbox/strict-rules.ts";
@@ -43,9 +53,10 @@ function diskWith({
 	links?: Readonly<Record<string, string>>;
 	open?: boolean;
 }): SocketDisk {
-	const held = [...sockets, ...files];
+	const held = [...sockets, ...files, WORKER_SOCKET_FOLDER];
 	return {
 		real: (path) => links[path] ?? (held.includes(path) ? path : undefined),
+		present: (path) => held.includes(path) || path in links,
 		isSocket: (path) => sockets.includes(path),
 		keptByItsOwner: (folder) => folder === WORKER_SOCKET_FOLDER && !open,
 	};
@@ -80,14 +91,30 @@ describe("the worker socket a fenced command may reach", () => {
 		).toBe(WORKER);
 	});
 
-	it("is none where the machine names none, or one that isn't there", () => {
+	it("is none where the machine names none", () => {
 		expect(
 			fencedWorkerSocket(naming(undefined), diskWith({ sockets: [WORKER] })),
 			"a socket was let through with none named",
 		).toBeUndefined();
+	});
+
+	it("is still the worker socket while the node is between restarts, so a command started then reaches it once it is back", () => {
 		expect(
 			fencedWorkerSocket(naming(WORKER), diskWith({})),
-			"a socket that isn't there was let through",
+			"a worker socket not yet bound again was refused",
+		).toBe(WORKER);
+	});
+
+	it("is never one in a folder that is itself a link elsewhere", () => {
+		expect(
+			fencedWorkerSocket(
+				naming(WORKER),
+				diskWith({
+					sockets: [WORKER],
+					links: { [WORKER_SOCKET_FOLDER]: "/home/someone/folder" },
+				}),
+			),
+			"a socket in a linked folder was let through",
 		).toBeUndefined();
 	});
 
@@ -146,7 +173,12 @@ describe("the worker socket a fenced command may reach", () => {
 describe("the fence around a command on a machine whose node serves a worker socket", () => {
 	const place = { home: "/home/someone", runtimeDir: RUNTIME };
 	const folders: Disk = {
-		kind: (path) => (path === WORKER ? "file" : undefined),
+		kind: (path) =>
+			path === WORKER
+				? "file"
+				: path === WORKER_SOCKET_FOLDER
+					? "folder"
+					: undefined,
 		entries: () => [],
 	};
 
@@ -167,11 +199,21 @@ describe("the fence around a command on a machine whose node serves a worker soc
 		).toContain(WORKER_SOCKET_FOLDER);
 	});
 
-	it("binds nothing for it and empties no folder holding it, so a node that is down stops no command", () => {
+	it("binds its folder read-only, so a command can't take the node's place, and empties no folder holding it", () => {
 		const args = fenceArgs({ ...place, workerSocket: WORKER }, folders);
 		expect(
 			args.filter((arg) => arg.startsWith(WORKER_SOCKET_FOLDER)),
-			`the fence laid something over the worker folder: ${args.join(" ")}`,
+			`the fence laid something else over the worker folder: ${args.join(" ")}`,
+		).toEqual([WORKER_SOCKET_FOLDER, WORKER_SOCKET_FOLDER]);
+		const at = args.indexOf(WORKER_SOCKET_FOLDER);
+		expect(args[at - 1], "the worker folder was bound writable").toBe(
+			"--ro-bind",
+		);
+		expect(
+			fenceArgs(place, folders).filter((arg) =>
+				arg.startsWith(WORKER_SOCKET_FOLDER),
+			),
+			"the worker folder was bound with no socket let through",
 		).toEqual([]);
 		const emptied = args.flatMap((arg, at) =>
 			arg === "--tmpfs" ? [args[at + 1] ?? ""] : [],
@@ -213,7 +255,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 	});
 
 	/** The text a strict command runs as, its environment naming `socket`. */
-	const text = (socket: string, sandbox = strict()) => {
+	const text = (socket: string, sandbox: Sandbox = strict()) => {
 		const wrap = wrapFor(
 			sandbox,
 			{ cwd: join(base, "work"), env: { ...naming(socket), PATH: "/bin" } },
@@ -255,15 +297,6 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 		);
 	});
 
-	it("never keeps the variable from the session's own environment", () => {
-		// What the session exports goes through the shell's own filter, which
-		// no socket's variable passes: only one handed in reaches the command.
-		const made = sandboxedCommand("true", [], "/bin/landrun");
-		expect(made, "the session's variable could be kept").not.toContain(
-			"MYCELIUM_WORKER_SOCKET",
-		);
-	});
-
 	it("is handed it by pi-fence's strict run too, and nothing of a refused one", () => {
 		const run = (socket: string) => {
 			const made = fenceRunText(
@@ -293,5 +326,120 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			run(`${RUNTIME}/bus`),
 			"pi-fence's strict run was handed a refused socket",
 		).not.toContain("MYCELIUM_WORKER_SOCKET");
+	});
+
+	it("is handed it in the bubblewrap fence too, the session's own value never, and nothing in a language server's", () => {
+		const fence = (served = false): Sandbox => ({
+			kind: "fence",
+			bwrap: "/bin/bwrap",
+			landrun: "/bin/landrun",
+			workerSockets: diskWith({ sockets: [WORKER] }),
+			...(served ? { served } : {}),
+		});
+		/** The variables the fence's own filter keeps of a session exporting the socket's. */
+		const kept = (made: string) => {
+			const filter = made
+				.split("\n")
+				.find((line) => line.startsWith("__pi_env=()"));
+			expect(filter, `the fence has no filter: ${made}`).toBeDefined();
+			const ran = spawnSync(
+				"bash",
+				["-c", `${filter}; printf '%s\\n' "\${__pi_env[@]}"`],
+				{
+					env: {
+						PATH: process.env.PATH,
+						MYCELIUM_WORKER_SOCKET: "/tmp/listening.sock",
+						KEPT_BESIDE: "1",
+					},
+					encoding: "utf8",
+				},
+			);
+			return ran.stdout;
+		};
+		const made = text(WORKER, fence());
+		expect(made, "the fenced command wasn't handed the socket").toContain(
+			`MYCELIUM_WORKER_SOCKET='${WORKER}'`,
+		);
+		const refused = text(`${RUNTIME}/bus`, fence());
+		expect(
+			refused,
+			"a refused socket was named to the fenced command",
+		).not.toContain("MYCELIUM_WORKER_SOCKET='");
+		for (const shell of [made, refused]) {
+			const passed = kept(shell);
+			expect(passed, "the filter kept nothing at all").toContain("KEPT_BESIDE");
+			expect(
+				passed,
+				"the session's own value of the variable went into the fence",
+			).not.toContain("MYCELIUM_WORKER_SOCKET");
+		}
+		const served = text(WORKER, fence(true));
+		expect(
+			served,
+			"a language server's fence was handed the socket",
+		).not.toContain(`MYCELIUM_WORKER_SOCKET='`);
+	});
+});
+
+describe("the disk a worker socket is judged on, as it is", () => {
+	let base: string;
+	let server: Server;
+	const socket = () => join(base, "open", "w.sock");
+	beforeAll(async () => {
+		base = realpathSync(mkdtempSync(join(tmpdir(), "wd-")));
+		mkdirSync(join(base, "kept"), { mode: 0o755 });
+		mkdirSync(join(base, "open"), { mode: 0o755 });
+		chmodSync(join(base, "open"), 0o777);
+		writeFileSync(join(base, "kept", "file"), "");
+		server = createServer();
+		await new Promise<void>((done) => server.listen(socket(), done));
+		symlinkSync(socket(), join(base, "kept", "link.sock"));
+	});
+	afterAll(async () => {
+		await new Promise<void>((done) => server.close(() => done()));
+		rmSync(base, { recursive: true, force: true });
+	});
+
+	it("keeps a folder only its own account may write, never one others may", () => {
+		expect(
+			SOCKET_DISK.keptByItsOwner(join(base, "kept")),
+			"the account's own 0755 folder wasn't kept",
+		).toBe(true);
+		expect(
+			SOCKET_DISK.keptByItsOwner(join(base, "open")),
+			"a folder anyone may write was kept",
+		).toBe(false);
+		expect(
+			SOCKET_DISK.keptByItsOwner(join(base, "kept", "link.sock")),
+			"a link was read as a folder",
+		).toBe(false);
+	});
+
+	it("reads a socket as one, never a link to one or a file", () => {
+		expect(SOCKET_DISK.isSocket(socket()), "a socket wasn't read").toBe(true);
+		expect(
+			SOCKET_DISK.isSocket(join(base, "kept", "link.sock")),
+			"a link to a socket was read as one",
+		).toBe(false);
+		expect(
+			SOCKET_DISK.isSocket(join(base, "kept", "file")),
+			"a file was read as a socket",
+		).toBe(false);
+	});
+
+	it("follows a link to where it ends, and finds nothing where nothing is", () => {
+		expect(
+			SOCKET_DISK.real(join(base, "kept", "link.sock")),
+			"a link wasn't followed",
+		).toBe(socket());
+		expect(
+			SOCKET_DISK.present(join(base, "kept", "link.sock")),
+			"a link wasn't read as there",
+		).toBe(true);
+		expect(
+			SOCKET_DISK.present(join(base, "kept", "gone")),
+			"nothing was read as something",
+		).toBe(false);
+		expect(SOCKET_DISK.real(join(base, "kept", "gone"))).toBeUndefined();
 	});
 });
