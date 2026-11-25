@@ -17,8 +17,9 @@
  *
  * It indexes the session logs into the ledger first, as the tool
  * does before it answers, under the keepers' lease, then reads the
- * ledger read-only. When a keeper's pass holds the lease, it skips the
- * indexing and reads what that pass has written so far. The one
+ * ledger read-only. When a pass in a session holds the lease, it waits
+ * up to ten minutes for it, then skips the indexing and reads what that
+ * pass has written so far. The one
  * thing a session would add, which tools load on demand, is left
  * out, since only a running pi knows.
  *
@@ -60,12 +61,24 @@ import { formatVoidCost, voidCost } from "./void-cost.ts";
 const SENSED_DAYS = 7;
 const DAY_MS = 86_400_000;
 
+/**
+ * How long a measure waits for a pass in a session to finish before it
+ * reads the ledger as that pass leaves it: most passes take seconds,
+ * and a backlog's took 24 minutes on 25 November.
+ */
+const LEASE_WAIT_MS = 10 * 60_000;
+
+/** How often a waiting measure looks whether the lease is free. */
+const LEASE_LOOK_MS = 15_000;
+
 /** Write the span's report and answer where it went. */
 export async function measure(opts: {
 	now: number;
 	span: Span;
 	out?: string;
 	top?: number;
+	/** How long to wait for a pass holding the lease; ten minutes unless given. */
+	leaseWaitMs?: number;
 }): Promise<string> {
 	const ledgerDir = stateDir("observability");
 	mkdirSync(ledgerDir, { recursive: true });
@@ -73,8 +86,12 @@ export async function measure(opts: {
 	// Under the keepers' lease, or not at all: a keeper's pass holds the
 	// ledger's write lock for minutes, and a measure indexing beside it
 	// met that lock on every try (25 November). Behind a pass under way
-	// it reads the ledger as the last pass left it.
-	const release = claimLease(ledgerDir);
+	// it waits a while for that pass, then reads the ledger as it
+	// stands.
+	const release = await leaseWithin(
+		ledgerDir,
+		opts.leaseWaitMs ?? LEASE_WAIT_MS,
+	);
 	if (release !== undefined) {
 		try {
 			const store = await openTurnStore(ledger);
@@ -153,6 +170,21 @@ export async function measure(opts: {
 	return out;
 }
 
+/** The keepers' lease, once it frees within `waitMs`, or undefined. */
+async function leaseWithin(
+	dir: string,
+	waitMs: number,
+): Promise<(() => void) | undefined> {
+	const until = Date.now() + waitMs;
+	for (;;) {
+		const release = claimLease(dir);
+		if (release !== undefined || Date.now() >= until) return release;
+		await new Promise((looked) =>
+			setTimeout(looked, Math.min(LEASE_LOOK_MS, until - Date.now())),
+		);
+	}
+}
+
 /**
  * What a measure that couldn't index says of the figures it read: a
  * pass in a session held the ledger, so they stand as the last pass
@@ -162,7 +194,7 @@ export function unindexedSaid(stamp: ReturnType<typeof readStamp>): string {
 	const last =
 		stamp === undefined
 			? "no pass has stamped the ledger yet"
-			: `the last pass ended at ${stamp.at}${stamp.ok ? "" : `, failed: ${stamp.error ?? "no reason given"}`}`;
+			: `the last pass ended at ${stamp.at}${stamp.ok ? "" : `, failed: ${JSON.stringify(stamp.error ?? "no reason given")}`}`;
 	return `A pass in a session held the ledger, so this measure didn't index the logs; its figures stand as that pass leaves them (${last}).`;
 }
 

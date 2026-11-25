@@ -208,7 +208,7 @@ const MARGINAL_WINDOW = 20;
 
 /** What the tool says when another session's pass holds the ledger. */
 const HELD_ELSEWHERE =
-	"A pass in another session holds the ledger, so this answer reads it as that pass leaves it, without indexing first.";
+	"Another pass (a session's keeper, or the daily measure) holds the ledger, so this answer reads it as that pass leaves it, without indexing first.";
 
 /** Why a load that has shut down won't open the ledger again. */
 const LEDGER_CLOSED = "The ledger is closed: this session has ended.";

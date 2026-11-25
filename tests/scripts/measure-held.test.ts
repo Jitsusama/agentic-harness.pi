@@ -78,6 +78,7 @@ describe("a measure beside a pass holding the ledger", () => {
 							now: Date.now(),
 							span: "day",
 							out: join(home, "measure.md"),
+							leaseWaitMs: 0,
 						}),
 					async () => undefined,
 				);
@@ -88,6 +89,32 @@ describe("a measure beside a pass holding the ledger", () => {
 			} finally {
 				await holder.exec("ROLLBACK");
 				await holder.close();
+				release?.();
+			}
+		},
+		PAST_EVERY_RETRY_MS,
+	);
+
+	it(
+		"waits for a pass that frees the lease, then indexes",
+		async () => {
+			const dir = stateDir("observability");
+			mkdirSync(dir, { recursive: true });
+			const release = claimLease(dir);
+			expect(release, "the case's own pass took the lease").toBeDefined();
+			const freed = setTimeout(() => release?.(), 200);
+			try {
+				const out = await measure({
+					now: Date.now(),
+					span: "day",
+					out: join(home, "measure.md"),
+					leaseWaitMs: 60_000,
+				});
+
+				expect(readFileSync(out, "utf8")).not.toContain("didn't index");
+				expect(readStamp(dir)).toMatchObject({ ok: true, by: "measure" });
+			} finally {
+				clearTimeout(freed);
 				release?.();
 			}
 		},

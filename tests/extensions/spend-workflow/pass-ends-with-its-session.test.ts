@@ -20,12 +20,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	indexSessionLogs,
 	PASS_STOPPED,
 } from "../../../extensions/spend-workflow/indexer.ts";
-import { claimLease } from "../../../extensions/spend-workflow/keeper.ts";
+import {
+	claimLease,
+	readStamp,
+	stampedPass,
+} from "../../../extensions/spend-workflow/keeper.ts";
 import {
 	openTurnStore,
 	type TurnStore,
@@ -41,11 +45,11 @@ afterEach(() => {
 	rmSync(scratch, { recursive: true, force: true });
 });
 
-/** A session log under `sessions` with a few billed turns in it. */
-function aSessionLog(sessions: string, name: string): string {
+/** A session log under `sessions` with `turns` billed turns in it. */
+function aSessionLog(sessions: string, name: string, turns = 5): string {
 	const session = join(sessions, "--work--");
 	mkdirSync(session, { recursive: true });
-	const lines = Array.from({ length: 5 }, (_, i) =>
+	const lines = Array.from({ length: turns }, (_, i) =>
 		JSON.stringify({
 			id: `${name}-e${i}`,
 			type: "message",
@@ -54,13 +58,29 @@ function aSessionLog(sessions: string, name: string): string {
 				role: "assistant",
 				model: "claude-opus-5",
 				usage: { input: 1, output: 1, cost: { total: 0.01 } },
-				content: [{ type: "text", text: `turn ${i} of ${name}` }],
+				content: [{ type: "text", text: `turn ${i} of ${name} ${PADDING}` }],
 			},
 		}),
 	);
 	const path = join(session, `2026-10-01T21-46-00-000Z_${name}.jsonl`);
 	writeFileSync(path, `${lines.join("\n")}\n`);
 	return path;
+}
+
+/** Enough words that a few hundred turns span several read chunks. */
+const PADDING = "words ".repeat(40);
+
+/** A signal that reads as fired from its `firesAt`th look on. */
+function firingOnLook(firesAt: number): AbortSignal {
+	const signal = new AbortController().signal;
+	let looks = 0;
+	Object.defineProperty(signal, "aborted", {
+		get: () => {
+			looks += 1;
+			return looks >= firesAt;
+		},
+	});
+	return signal;
 }
 
 /** `store`, firing `stop` once it has recorded its first session. */
@@ -109,6 +129,35 @@ describe("a pass whose session ends", () => {
 		).toHaveLength(1);
 	});
 
+	it("stops within a long log and writes none of it", async () => {
+		const sessions = join(scratch, "sessions");
+		// Some 200 KB: more than one 64 KB chunk, so the third look, the
+		// one at the log's second chunk, falls within it.
+		aSessionLog(sessions, "long", 600);
+		const marks = join(scratch, "ledger-watermarks.json");
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		try {
+			await expect(
+				indexSessionLogs(store, marks, sessions, firingOnLook(3)),
+			).rejects.toThrow(PASS_STOPPED);
+			expect(await store.total(), "turns the stopped pass wrote").toMatchObject(
+				{ turns: 0 },
+			);
+		} finally {
+			await store.close();
+		}
+	});
+
+	it("leaves the stamp as the last pass that ended wrote it", async () => {
+		await expect(
+			stampedPass(scratch, "keeper", () =>
+				Promise.reject(new Error(PASS_STOPPED)),
+			),
+		).rejects.toThrow(PASS_STOPPED);
+
+		expect(readStamp(scratch), "a stamp a stopped pass wrote").toBeUndefined();
+	});
+
 	it("reads nothing when its session has already ended", async () => {
 		const sessions = join(scratch, "sessions");
 		aSessionLog(sessions, "only");
@@ -150,14 +199,35 @@ describe("a lease held through a long pass", () => {
 		}
 	});
 
-	it("stops being renewed once released", async () => {
-		const release = claimLease(scratch, Date.now(), 30 * 60_000, 10);
-		release?.();
-		// Several renewals' worth at 10 ms each, so a leftover one would show.
-		await new Promise((waited) => setTimeout(waited, 60));
-		expect(
-			() => statSync(join(scratch, "ledger-pass.lease")),
-			"a released lease left on disk",
-		).toThrow();
+	it("stops being renewed once released", () => {
+		vi.useFakeTimers();
+		try {
+			const release = claimLease(scratch, Date.now(), 30 * 60_000, 10);
+			expect(vi.getTimerCount(), "renewals while held").toBe(1);
+			release?.();
+			expect(vi.getTimerCount(), "renewals once released").toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stops being renewed once held past any pass's length", () => {
+		vi.useFakeTimers();
+		try {
+			const release = claimLease(scratch, Date.now(), 30 * 60_000, 10, 50);
+			vi.advanceTimersByTime(60);
+			const lease = join(scratch, "ledger-pass.lease");
+			const hourAgo = new Date(Date.now() - 60 * 60_000);
+			utimesSync(lease, hourAgo, hourAgo);
+			vi.advanceTimersByTime(100);
+			expect(
+				statSync(lease).mtimeMs,
+				"the lease's stamp, held past its bound",
+			).toBe(hourAgo.getTime());
+			expect(vi.getTimerCount(), "renewals still set").toBe(0);
+			release?.();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

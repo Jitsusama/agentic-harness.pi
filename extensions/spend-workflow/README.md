@@ -188,15 +188,22 @@ eight hours old as if they were current. So a pi also keeps it:
   whether the last pass is over half an hour old or failed. It runs
   one only when its session has had no run for two minutes, since a
   pass reads logs on its event loop. Subagents never do.
-- A lease, `ledger-pass.lease` beside the ledger, lets one pi on the
-  machine pass at a time. A lease whose pid has gone, or one older
-  than half an hour, is taken over.
-- Every pass, the tool's or the keeper's, writes `ledger-indexed.json`
-  beside the ledger: `at`, `ok`, `by`, `pid`, `seconds`, `scanned`,
-  `inserted` and `resumed`, with `refused` when a log was read whole
-  against what it carried, or `error` when it failed. A reader should
-  treat an `at` over an hour old, or `ok: false`, as figures it can't
-  trust, and say so.
+- A lease, `ledger-pass.lease` beside the ledger, lets one pass on the
+  machine write at a time: the keeper's, the tool's or the daily
+  measure's. Its holder marks it fresh every five minutes for up to two
+  hours. A lease whose pid has gone, or one unmarked for half an hour,
+  is taken over. A tool call that finds it held answers from the ledger
+  as it stands and says so; the measure waits up to ten minutes first.
+- A pass stops before its next log, or within the one it reads before
+  writing any of it, when its session ends, keeping the watermarks of
+  the logs it finished, so the next pass resumes there.
+- Every pass that ends, the tool's, the keeper's or the measure's,
+  writes `ledger-indexed.json` beside the ledger: `at`, `ok`, `by`,
+  `pid`, `seconds`, `scanned`, `inserted` and `resumed`, with `refused`
+  when a log was read whole against what it carried, or `error` when it
+  failed. A pass stopped by its session's end writes none. A reader
+  should treat an `at` over an hour old, or `ok: false`, as figures it
+  can't trust, and say so.
 - A grown log is read from where the last pass stopped. Beside the
   ledger, `ledger-resume/` keeps, for each log a pass read, the byte
   it stopped after and what its scan knew there. A pass trusts that

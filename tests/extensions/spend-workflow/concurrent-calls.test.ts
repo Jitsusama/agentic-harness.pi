@@ -14,7 +14,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import spendWorkflow from "../../../extensions/spend-workflow/index.ts";
 import { PASS_STOPPED } from "../../../extensions/spend-workflow/indexer.ts";
+import { claimLease } from "../../../extensions/spend-workflow/keeper.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import { resultSession } from "../../support/result-session.ts";
 
 const ctx = resultSession();
@@ -142,17 +144,42 @@ describe("cost calls made at the same moment", () => {
 				(answer) => answer.content[0]?.text ?? "",
 				(error: unknown) => (error instanceof Error ? error.message : ""),
 			);
+		let ended = false;
+		void passing.finally(() => {
+			ended = true;
+		});
 		await new Promise((started) => setImmediate(started));
 		for (const handler of handlers.get("session_shutdown") ?? []) {
 			await handler({}, {});
 		}
+		await Promise.resolve();
 
+		expect(ended, "the pass had ended once shutdown was done").toBe(true);
 		expect(await passing, "how the pass ended").toBe(PASS_STOPPED);
 		await expect(
 			tool.execute("after", {}, undefined, undefined, ctx),
 			"a call once the session has ended",
 		).rejects.toThrow("The ledger is closed");
 	}, 30_000);
+
+	it("read the ledger as it stands while another pass holds it", async () => {
+		const observability = stateDir("observability");
+		mkdirSync(observability, { recursive: true });
+		const release = claimLease(observability);
+		try {
+			const answer = await costTool().execute(
+				"a",
+				{ reindex: true },
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			expect(answer.content[0]?.text).toContain("holds the ledger");
+		} finally {
+			release?.();
+		}
+	});
 
 	it("index each log once between them", async () => {
 		const tool = costTool();

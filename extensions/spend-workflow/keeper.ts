@@ -25,6 +25,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
+import { PASS_STOPPED } from "./indexer.ts";
 import type { IndexOutcome } from "./report.ts";
 
 /** The stamp every pass writes, beside the ledger. */
@@ -56,6 +57,14 @@ const LEASE_STALE_MS = 30 * 60_000;
  * writers on the ledger.
  */
 const LEASE_RENEW_MS = 5 * 60_000;
+
+/**
+ * How long a holder keeps renewing its lease. Renewal proves only that
+ * the holder's process runs, not that its pass moves, so a pass wedged
+ * in a live process stops being renewed after this and goes stale half
+ * an hour on: five times the longest pass seen.
+ */
+const LEASE_HOLD_MS = 2 * 60 * 60_000;
 
 /** What the last pass did, as written beside the ledger. */
 interface PassStamp {
@@ -107,7 +116,8 @@ export function readStamp(dir: string): PassStamp | undefined {
 /**
  * Run one pass and stamp what it did, whether it finished or failed.
  * A failure is stamped and then thrown again, so the caller still
- * hears it.
+ * hears it. A pass stopped by its session's end is neither, so it
+ * leaves the stamp as the last pass that ended wrote it.
  */
 export async function stampedPass(
 	dir: string,
@@ -130,7 +140,9 @@ export async function stampedPass(
 	try {
 		outcome = await pass();
 	} catch (error) {
-		stamp({ ok: false, error: describe(error) });
+		if (describe(error) !== PASS_STOPPED) {
+			stamp({ ok: false, error: describe(error) });
+		}
 		throw error;
 	}
 	stamp({
@@ -159,14 +171,16 @@ export function passDue(
  * The lease names its holder's pid, so one left by a process that has
  * gone is taken over at once, and one older than any pass takes is
  * taken over whoever it names. While held it is marked fresh every few
- * minutes, so only a holder that stopped goes stale. The release removes
- * the lease only while it is still this holder's.
+ * minutes, for up to `holdMs`, so only a holder that stopped, or held
+ * it past any pass's length, goes stale. The release removes the lease
+ * only while it is still this holder's.
  */
 export function claimLease(
 	dir: string,
 	now = Date.now(),
 	staleMs = LEASE_STALE_MS,
 	renewMs = LEASE_RENEW_MS,
+	holdMs = LEASE_HOLD_MS,
 ): (() => void) | undefined {
 	const path = join(dir, LEASE_NAME);
 	const mine = String(process.pid);
@@ -180,7 +194,12 @@ export function claimLease(
 			} finally {
 				closeSync(fd);
 			}
+			const claimed = Date.now();
 			const renewing = setInterval(() => {
+				if (Date.now() - claimed >= holdMs) {
+					clearInterval(renewing);
+					return;
+				}
 				try {
 					if (statSync(path).ino !== ino) return;
 					const at = new Date();
