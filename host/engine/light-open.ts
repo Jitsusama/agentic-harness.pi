@@ -6,11 +6,12 @@
  * (kept-history.ts) lets go of what it leaves out only after: the heap
  * peaks at the whole parse first, and the process's resident memory
  * keeps that peak. Opening a 68 MB log and holding its view peaked at
- * 297 MB resident, against 207 MB opened this way. This reads the
+ * 298 MB resident, against 172 MB opened this way. This reads the
  * log line by line as pi does, but drops each entry's heavy values as it
  * parses it: an answer's content, keeping each part's type, which pi's
  * /session counts tool calls by; a tool result's content and details; a
- * summary's text; and an extension message's content and details.
+ * summary's text and the system message a compaction keeps; and an
+ * extension message's content and details.
  * Nothing the view reads of an entry it leaves out is among those: ids,
  * parents, types, usage and models, user messages and state. Every
  * entry the view holds is read again whole from its own line.
@@ -120,6 +121,7 @@ export function readLight(
 function lighten(entry: Record<string, unknown>): boolean {
 	if (entry.type === "compaction" || entry.type === "branch_summary") {
 		entry.summary = "";
+		delete entry.systemMessage;
 		return true;
 	}
 	if (entry.type === "custom_message") {

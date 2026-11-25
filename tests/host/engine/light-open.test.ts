@@ -119,13 +119,20 @@ function userId(sessions: SessionManager, text: string): string {
 
 /**
  * A log written by pi with every kind of entry the light read drops
- * values from, two compactions, an abandoned branch and state, the last
- * compaction keeping from "kept one"; answers with its file.
+ * values from, two compactions keeping the system message, an abandoned
+ * branch and state, the last compaction keeping from "kept one"; answers
+ * with its file.
  */
 function compactedLog(cwd: string = dir): string {
 	const sessions = SessionManager.create(cwd, dir);
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendThinkingLevelChange("high");
+	sessions.appendMessage({
+		role: "system",
+		content: "the base prompt é".repeat(20),
+		toolsAdded: [{ name: "bash", description: "runs ✓", parameters: {} }],
+		timestamp: Date.now(),
+	} as never);
 	toolTurn(sessions, "early one", 1);
 	const note = "a long note é".repeat(30);
 	sessions.appendCustomMessageEntry("peers", note, false, { by: "a peer ✓" });
@@ -297,6 +304,17 @@ describe("a light read", () => {
 		expect(users).toContain("early one é✓🙂");
 		const summaries = [...typed("compaction"), ...typed("branch_summary")];
 		expect(summaries.map(({ summary }) => summary)).toEqual(["", "", ""]);
+		const written = lines(file).filter(
+			(entry) => isRecord(entry) && entry.type === "compaction",
+		);
+		expect(written).toEqual([
+			expect.objectContaining({ systemMessage: expect.anything() }),
+			expect.objectContaining({ systemMessage: expect.anything() }),
+		]);
+		expect(typed("compaction")).toEqual([
+			expect.not.objectContaining({ systemMessage: expect.anything() }),
+			expect.not.objectContaining({ systemMessage: expect.anything() }),
+		]);
 		expect(typed("custom_message")).toEqual([
 			expect.not.objectContaining({ details: expect.anything() }),
 		]);
