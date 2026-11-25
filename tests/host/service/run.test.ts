@@ -588,7 +588,11 @@ describe("runHost's watchdog", () => {
 			await run.stopped;
 			return { running, stopped: watches, beats, profiles };
 		};
-		const socket = { ...WATCHED, NOTIFY_SOCKET: "/run/systemd/notify" };
+		const socket = {
+			...WATCHED,
+			NOTIFY_SOCKET: "/run/systemd/notify",
+			PATH: "/run/current-system/sw/bin",
+		};
 		const watched = await serve(socket);
 		const folder = watched.profiles[0]?.folder ?? "";
 		expect(
@@ -597,6 +601,19 @@ describe("runHost's watchdog", () => {
 			),
 			`a spin profiled into the host's own state: ${folder}`,
 		).toBe(true);
+		const launcher = watched.profiles[0]?.outside?.launcher ?? [];
+		expect(
+			launcher.slice(0, 2),
+			"perf recorded in a unit of the user's manager, apart from the host",
+		).toEqual(["systemd-run", "--user"]);
+		expect(launcher, "its report journalled under its own name").toContain(
+			"SyslogIdentifier=pi-host-spin",
+		);
+		expect(
+			launcher.filter((word) => word.startsWith("--setenv=")),
+			"given the host's PATH and nothing else of its environment",
+		).toEqual([`--setenv=PATH=${socket.PATH}`]);
+		expect(launcher.at(-1), "perf's shell put after it").toBe("--");
 		expect(
 			watched.beats.map((beat) => beat?.every),
 			"beats for a loop in the disk as often as the loop beats",

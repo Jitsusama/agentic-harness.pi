@@ -74,8 +74,20 @@ const PROC = "/proc/self";
  */
 const BEAT_CAP_MS = 10 * 60_000;
 
-/** How long into a spinning hold its main thread is profiled, in ms. */
-const PROFILE_AFTER_MS = 30_000;
+/**
+ * How long into a spinning hold its main thread is profiled, in ms. Ten
+ * seconds inside the watchdog's two minutes at its slowest, so a spin
+ * that the watchdog ends has been recorded first; on 19 November at
+ * 11:30 one held 88 s of 95 on a CPU before the kill.
+ */
+const PROFILE_AFTER_MS = 20_000;
+
+/**
+ * How long perf records from outside the host, in ms: long enough for
+ * a few thousand samples at its rate, short enough to end inside a
+ * watchdog's kill.
+ */
+const OUTSIDE_FOR_MS = 5000;
 
 /** How long a profile samples, in ms. */
 const PROFILE_FOR_MS = 3000;
@@ -235,6 +247,22 @@ export interface ProfileOptions {
 	readonly most?: number;
 	/** How long the main thread has to answer each message, in ms; PROFILE_ANSWER_MS by default. */
 	readonly answer?: number;
+	/** Record it with perf from outside the host as well, as this says; not by default. */
+	readonly outside?: OutsideOptions;
+}
+
+/**
+ * How perf records a spin from outside the host. A spinning thread
+ * never answers the inspector, as on 19 November at 11:31, when it
+ * "didn't answer Profiler.enable in 10.0 s"; perf samples it from the
+ * kernel instead. It runs through `launcher`, which starts it apart
+ * from the host, so a watchdog's kill of the host can't take it.
+ */
+export interface OutsideOptions {
+	/** The command perf's shell is put after, which starts it apart and returns. */
+	readonly launcher: readonly string[];
+	/** How long perf records, in ms; OUTSIDE_FOR_MS by default. */
+	readonly for?: number;
 }
 
 /** How the thread beats systemd's watchdog for a loop asleep in the disk. */
@@ -269,7 +297,13 @@ interface Watched {
 				readonly env: NodeJS.ProcessEnv;
 		  }
 		| undefined;
-	readonly profile: Required<ProfileOptions> | undefined;
+	readonly profile:
+		| (Required<Omit<ProfileOptions, "outside">> & {
+				readonly outside:
+					| { readonly launcher: readonly string[]; readonly for: number }
+					| undefined;
+		  })
+		| undefined;
 }
 
 /**
@@ -582,9 +616,39 @@ const kept = async (taken) => {
 	}
 	return said;
 };
+// perf's own shell: it records the main thread, then journals its
+// report as its unit's output, the busiest symbols first.
+const PERF_SCRIPT = 'perf record -m 16 --no-buildid-cache -e cpu-clock:u -g -F 999 -t "$1" -o "$2" -- sleep "$3" 2>&1; perf report -i "$2" --stdio --no-children --sort sym -g none --percent-limit 1 2>&1 | grep -v "^#" | grep -v "^$" | head -n 30';
+// Start perf apart from the host on the main thread, into a file beside
+// the profiles, keeping the newest few. It is said once its launcher
+// has returned, which a launcher that starts a unit does at once.
+const recordOutside = async (into) => {
+	const outside = profile.outside;
+	await mkdir(profile.folder, { recursive: true, mode: 0o700 });
+	const others = (await readdir(profile.folder)).filter((other) => /^held-.*\\.perf$/.test(other)).sort();
+	for (const old of others.slice(0, Math.max(0, others.length - (profile.keep - 1)))) await rm(join(profile.folder, old), { force: true });
+	const file = join(profile.folder, "held-" + new Date().toISOString().replace(/[:.]/g, "-") + ".perf");
+	const [program, ...rest] = outside.launcher;
+	const child = spawn(program, [...rest, "/bin/sh", "-c", PERF_SCRIPT, "pi-host-spin", String(pid), file, seconds(outside.for)], { stdio: ["ignore", "ignore", "pipe"] });
+	let errors = "";
+	child.stderr.on("data", (chunk) => {
+		if (errors.length < LONGEST) errors += chunk;
+	});
+	const [code, signal] = await new Promise((done, fail) => {
+		child.on("error", fail);
+		child.on("close", (code, signal) => done([code, signal]));
+	});
+	if (code !== 0) {
+		const why = errors.split("\\n")[0].trim();
+		throw new Error("it ended with " + (code ?? signal) + (why ? ": " + why : ""));
+	}
+	return "recording the held loop's main thread with perf outside the host for " + seconds(outside.for) + " s, " + seconds(into) + " s into the hold, into " + shortened(file) + "; its report is journalled as pi-host-spin";
+};
 const profileFor = (held, into) => {
 	if (!profile || held.profiled || !held.running || into < profile.after) return;
 	held.profiled = true;
+	if (profile.outside)
+		recordOutside(into).then(say, (error) => say("couldn't start perf outside the host: " + failure(error)));
 	let session;
 	const post = (method, params) =>
 		new Promise((ok, fail) => {
@@ -701,6 +765,10 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 			keep: options.profile.keep ?? PROFILES_KEPT,
 			most: options.profile.most ?? PROFILE_MOST_BYTES,
 			answer: options.profile.answer ?? PROFILE_ANSWER_MS,
+			outside: options.profile.outside && {
+				launcher: options.profile.outside.launcher,
+				for: options.profile.outside.for ?? OUTSIDE_FOR_MS,
+			},
 		},
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
