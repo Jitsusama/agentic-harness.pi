@@ -601,7 +601,8 @@ const SSH_KEPT = FENCE_HIDDEN.sshKept;
  * (`fence-gcloud-ssh.ts`), its known-hosts file is the session's own,
  * writable, and where its public key is kept, a stand-in takes the
  * private key's place. `--remount-ro` makes only the folder's own mount
- * read-only, never one bound in it, so the copy stays writable.
+ * read-only, never one bound in it, so the copy stays writable, as a real
+ * bubblewrap shows (`fence-gcloud-ssh-bwrap.test.ts`).
  */
 function sshArgs(home: string, disk: Disk, gcloud?: GcloudSsh): string[] {
 	const ssh = sshFolder(home, disk);

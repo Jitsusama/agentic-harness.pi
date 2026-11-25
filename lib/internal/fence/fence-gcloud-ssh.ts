@@ -8,7 +8,9 @@
  *   (`WriteHostKeysToKnownHosts` in gcloud's `ssh_utils.py`). A session
  *   gets a copy of its own, bound writable over it, copied afresh from
  *   the person's file the first time this process asks and whenever
- *   theirs changes after.
+ *   what theirs says changes after. It is writable only through that
+ *   bind: pi's own file tools still refuse all of `~/.ssh`
+ *   (`fenceRefusesWrite`), where this name is the person's real file.
  * - `google_compute_engine`, its own private key, which the fence
  *   empties. With the public half kept and no private one, gcloud calls
  *   the pair broken and runs ssh-keygen into the read-only folder. A
@@ -19,32 +21,47 @@
  *
  * Both lie in pi's folder in the runtime folder, which the fence empties
  * (`fence-copy.ts`), so a fenced command can change what the known-hosts
- * copy says but can't put a link where it lies. Each is written beside
+ * copy says but can't put a link where it lies. bubblewrap follows a
+ * link when it binds, later than the checks here; that gap is reached
+ * by nothing a fenced or strict command, or pi's file tools, can write,
+ * only by the account's unfenced programs, which reach the files anyway. Each is written beside
  * its place and renamed over it, so a command still running keeps the
  * file it bound whole, and a link found where one lies is replaced, never
  * followed. The person's file is read only as a plain file, never
  * through a link.
  *
- * Neither widens what a fenced login reaches. The proxy reads the
- * person's own known-hosts file, outside the fence, and signs only for an
- * instance whose host key is in it, so a host key a fenced command writes
- * into its copy changes what its own ssh trusts and nothing the proxy
- * signs for (ISXEG8, 25 November, F32).
+ * Neither widens what a fenced login reaches. The agent proxy, core.nix's
+ * `modules/pi/agent-proxy`, is a user service outside the fence that
+ * reads `%h/.ssh/google_compute_known_hosts`, the person's own file, by
+ * its path (`--os-login-hosts`, pinned by its
+ * `pi-agent-proxy-reaches-os-login-machines-wired` check). It signs only
+ * a login to a session bound by `session-bind@openssh.com` and signed by
+ * a host key in that file (`src/bind.rs`); a sign asked with no session
+ * bound is refused (its `refuses_to_sign_with_no_session_bound` test).
+ * So a host key a fenced command writes into its copy changes what its
+ * own ssh trusts and nothing the proxy signs for. An instance the person
+ * never reached is refused until gcloud outside learns its host key, and
+ * the proxy's journal says so ("a session with a host it isn't told
+ * of"), where the fenced ssh says only that its key was denied.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	closeSync,
 	constants,
 	existsSync,
 	fstatSync,
 	lstatSync,
+	lutimesSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	readSync,
 	renameSync,
+	rmdirSync,
 	rmSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -64,7 +81,13 @@ const SESSIONS = "gcloud-ssh";
 /** A session's name as a folder may take it, as the sandbox makes them. */
 const SESSION_NAME = /^[A-Za-z0-9-]{1,64}$/;
 
-/** What stands in for gcloud's private key inside, one line gcloud reads. */
+/**
+ * What stands in for gcloud's private key inside, one line gcloud reads.
+ * Never reword it: the census takes only this exact text for the stand-in
+ * (`holdsStandIn`), and a command still running keeps the text it was
+ * bound with, so a census by a newer pi would call those commands
+ * unfenced.
+ */
 export const KEY_STAND_IN =
 	"# gcloud's key stays outside the agent fence; ssh signs through pi's agent proxy\n";
 
@@ -81,8 +104,8 @@ const AS_IT_STANDS =
 	constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 
 /**
- * Each session's known-hosts copy, by its path, with the person's file as
- * it stood when last copied in, so a copy is renewed when theirs changes
+ * Each session's known-hosts copy, by its path, with what the person's
+ * file said when last copied in, so a copy is renewed when theirs changes
  * and kept while it doesn't, whatever gcloud inside wrote to it. A copy
  * this process hasn't made yet is made afresh, so neither a session
  * resumed nor one whose folder name comes round again keeps hosts it
@@ -91,8 +114,20 @@ const AS_IT_STANDS =
 const copiedFrom = new Map<string, string>();
 
 /**
- * The person's known-hosts file, read as a plain file, with what tells
- * one version of it from another; or nothing where it isn't there or
+ * How long a session's copies stand unrenewed before a later pi takes
+ * them for an ended session's and removes them. A live session idle that
+ * long only has them made afresh at its next command; one still running
+ * keeps the files it bound.
+ */
+const UNUSED_FOR_MS = 24 * 60 * 60 * 1000;
+
+/** Whether this process has swept ended sessions' copies yet. */
+let swept = false;
+
+/**
+ * The person's known-hosts file, read as a plain file, with a digest of
+ * what it says, which tells one version from another where its dates,
+ * size and inode may all repeat; or nothing where it isn't there or
  * isn't a plain file, which counts as no hosts.
  */
 function personsHosts(
@@ -106,14 +141,9 @@ function personsHosts(
 		return undefined;
 	}
 	try {
-		const stat = fstatSync(fd);
-		if (!stat.isFile()) return undefined;
-		return {
-			text: readFileSync(fd),
-			version: [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(
-				":",
-			),
-		};
+		if (!fstatSync(fd).isFile()) return undefined;
+		const text = readFileSync(fd);
+		return { text, version: createHash("sha256").update(text).digest("hex") };
 	} finally {
 		closeSync(fd);
 	}
@@ -210,6 +240,44 @@ function privateFolders(
 }
 
 /**
+ * Removes the copies of sessions not used for `UNUSED_FOR_MS` from
+ * `sessions`, pi's folder of them, as each session's folder dates its
+ * last use, half-written copies a killed pi left among them; never `session`'s
+ * own folder, nor anything but this account's own plain files and the
+ * folders holding them. Nothing is followed: each name is unlinked, never
+ * walked. A session idle that long whose command starts in the instant
+ * another pi sweeps can fail that one command's bind; its next makes the
+ * copies anew.
+ */
+function sweepEnded(sessions: string, session: string, now: number): void {
+	let names: string[];
+	try {
+		names = readdirSync(sessions);
+	} catch {
+		// Nothing to sweep.
+		return;
+	}
+	for (const name of names) {
+		if (name === session || !SESSION_NAME.test(name)) continue;
+		const folder = join(sessions, name);
+		try {
+			const stat = lstatSync(folder);
+			if (!isPrivateFolder(folder) || now - stat.mtimeMs < UNUSED_FOR_MS) {
+				continue;
+			}
+			for (const file of readdirSync(folder)) {
+				if (lstatSync(join(folder, file)).isFile()) {
+					unlinkSync(join(folder, file));
+				}
+			}
+			rmdirSync(folder);
+		} catch {
+			// In use again, or not this account's to remove: left as it is.
+		}
+	}
+}
+
+/**
  * The session `session`'s copies of gcloud's files in `~/.ssh`, made in
  * pi's folder in `runtimeDir` and brought up to date: the known-hosts
  * file copied afresh the first time this process asks, whenever the
@@ -229,6 +297,13 @@ export function fenceGcloudSsh(
 	try {
 		const folder = privateFolders(runtimeDir, [FOLDER, SESSIONS, session]);
 		if (folder === undefined) return undefined;
+		// Dated as used now, so no other pi sweeps it as an ended session's.
+		const now = new Date();
+		lutimesSync(folder, now, now);
+		if (!swept) {
+			swept = true;
+			sweepEnded(join(runtimeDir, FOLDER, SESSIONS), session, now.getTime());
+		}
 		const knownHosts = join(folder, GCLOUD_KNOWN_HOSTS);
 		const key = join(folder, GCLOUD_KEY);
 		const person = personsHosts(join(home, ".ssh", GCLOUD_KNOWN_HOSTS));

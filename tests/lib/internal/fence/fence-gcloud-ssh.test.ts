@@ -7,6 +7,7 @@
 
 import {
 	chmodSync,
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -14,6 +15,7 @@ import {
 	rmSync,
 	statSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,10 +57,23 @@ function personHosts(text: string): string {
 	return path;
 }
 
-/** Writes `text` at `path`, rewriting it whole so its version changes. */
-function rewrite(path: string, text: string): void {
-	rmSync(path, { force: true });
+/**
+ * Writes `text` at `path` in place, then dates it `when`, so only what it
+ * says tells it from what it was: the same inode, and the same size
+ * wherever the texts are.
+ */
+function rewrite(
+	path: string,
+	text: string,
+	when = statSync(path).mtime,
+): void {
 	writeFileSync(path, text);
+	utimesSync(path, when, when);
+}
+
+/** A time `days` from now, before it where negative. */
+function daysOn(days: number): Date {
+	return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
 describe("the session's copies for gcloud's ssh", () => {
@@ -107,9 +122,48 @@ describe("the session's copies for gcloud's ssh", () => {
 		// A copy dated after the person's file, as gcloud writing it makes
 		// it, once kept a newer file of theirs from being copied in.
 		writeFileSync(copy, "planted ssh-ed25519 ZZZZ\n");
-		rewrite(person, "compute.4 ssh-ed25519 DDDD\n");
+		utimesSync(copy, daysOn(1), daysOn(1));
+		rewrite(person, "compute.4 ssh-ed25519 DDDD\n", daysOn(-1));
 		fenceGcloudSsh(runtime, home, "one");
 		expect(readFileSync(copy, "utf8")).toBe("compute.4 ssh-ed25519 DDDD\n");
+	});
+
+	it("renews the copy when the person's file says something else at the same size, inode and date", () => {
+		const person = personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		const { ino, size } = statSync(person);
+		rewrite(person, "compute.6 ssh-ed25519 FFFF\n");
+		expect(statSync(person).ino).toBe(ino);
+		expect(statSync(person).size).toBe(size);
+		fenceGcloudSsh(runtime, home, "one");
+		expect(readFileSync(copy, "utf8")).toBe("compute.6 ssh-ed25519 FFFF\n");
+	});
+
+	it("removes the copies of sessions unused for a day, and no other", async () => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		for (const name of ["ended", "recent"]) {
+			fenceGcloudSsh(runtime, home, name);
+		}
+		// A killed pi's half-written copy, among an ended session's.
+		writeFileSync(join(sessions, "ended", `${GCLOUD_KNOWN_HOSTS}.left`), "");
+		utimesSync(join(sessions, "ended"), daysOn(-2), daysOn(-2));
+		// A folder elsewhere, reached by a link, is never walked.
+		const elsewhere = join(root, "elsewhere");
+		mkdirSync(elsewhere, { mode: 0o700 });
+		writeFileSync(join(elsewhere, "kept"), "kept\n");
+		symlinkSync(elsewhere, join(sessions, "linked"));
+		utimesSync(elsewhere, daysOn(-2), daysOn(-2));
+		// A new pi sweeps once, at its first ask.
+		vi.resetModules();
+		const fresh = await import(
+			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
+		);
+		fresh.fenceGcloudSsh(runtime, home, "one");
+		expect(existsSync(join(sessions, "ended")), "ended").toBe(false);
+		expect(existsSync(join(sessions, "recent")), "recent").toBe(true);
+		expect(existsSync(join(sessions, "one")), "its own").toBe(true);
+		expect(readFileSync(join(elsewhere, "kept"), "utf8")).toBe("kept\n");
 	});
 
 	it("renames a renewed copy into place, so a command reading the old one keeps it whole", () => {

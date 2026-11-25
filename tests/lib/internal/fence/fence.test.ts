@@ -300,7 +300,7 @@ describe("what a session asking for the fence is given", () => {
 		}
 	});
 
-	it("binds the session's copies for gcloud's ssh, and none once they can't be kept up to date", () => {
+	it("binds the session's copies for gcloud's ssh, none where they can't be kept, and none for a server", () => {
 		const fence = sandboxFor(
 			{ PI_SANDBOX: FENCE },
 			"linux",
@@ -324,34 +324,66 @@ describe("what a session asking for the fence is given", () => {
 		const copies = join(runtimeDir, "pi-fence", "gcloud-ssh", session);
 		const knownHosts = `'--bind' '${join(copies, "google_compute_known_hosts")}' '${join(ssh, "google_compute_known_hosts")}'`;
 		const standIn = `'--ro-bind' '${join(copies, "google_compute_engine")}' '${join(ssh, "google_compute_engine")}'`;
-		try {
-			const wrap = wrapFor(
-				fence,
+		// The note's words past its apostrophes, which the shell quotes apart.
+		const UNMADE = "be copied for this session (fence-gcloud-ssh.ts)";
+		// Wrapped afresh for each command, as every caller wraps.
+		const wrapped = (sandbox: Sandbox, command: string): string =>
+			wrapFor(
+				sandbox,
 				{
 					cwd: home,
 					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
 				},
 				home,
+			)?.(command) ?? "";
+		try {
+			const first = wrapped(fence, "gcloud compute ssh one");
+			expect(argsReadIn(first), "the known-hosts copy isn't bound").toContain(
+				knownHosts,
 			);
-			const first = argsReadIn(wrap?.("true") ?? "");
-			expect(first, "the known-hosts copy isn't bound").toContain(knownHosts);
-			expect(first, "the key's stand-in isn't bound").toContain(standIn);
+			expect(argsReadIn(first), "the key's stand-in isn't bound").toContain(
+				standIn,
+			);
+			expect(first, "a note though the copies were made").not.toContain(UNMADE);
 			// A folder others can reach can't be trusted to hold the copies, so
-			// the next command runs as it did before they existed.
+			// the next command runs as it did before they existed, and a
+			// gcloud command is told why its ssh fails.
 			chmodSync(copies, 0o755);
-			const after = argsReadIn(wrap?.("true") ?? "");
-			expect(after, "a copy not kept up to date was bound").not.toContain(
-				join(copies, "google_compute_known_hosts"),
+			const after = wrapped(fence, "gcloud compute ssh one");
+			expect(
+				argsReadIn(after),
+				"a copy in an untrusted folder was bound",
+			).not.toContain(join(copies, "google_compute_known_hosts"));
+			expect(
+				argsReadIn(after),
+				"the stand-in was bound without it",
+			).not.toContain(join(copies, "google_compute_engine"));
+			expect(argsReadIn(after), "the command itself was refused").toContain(
+				"'--tmpfs'",
 			);
-			expect(after, "the stand-in was bound without it").not.toContain(
-				join(copies, "google_compute_engine"),
-			);
-			expect(after, "the command itself was refused").toContain("'--tmpfs'");
+			expect(after, "the gcloud command wasn't told why").toContain(UNMADE);
+			expect(
+				wrapped(fence, "true"),
+				"a command not naming the cloud was told",
+			).not.toContain(UNMADE);
 			chmodSync(copies, 0o700);
 			expect(
-				argsReadIn(wrap?.("true") ?? ""),
+				argsReadIn(wrapped(fence, "true")),
 				"the copies once they can be kept again",
 			).toContain(knownHosts);
+			// A language server runs no one's ask, so it gets no copies, and
+			// makes no session's folder for them.
+			rmSync(join(runtimeDir, "pi-fence", "gcloud-ssh"), {
+				recursive: true,
+				force: true,
+			});
+			if (fence.kind !== "fence") throw new Error("no fence to serve in");
+			const served = argsReadIn(wrapped({ ...fence, served: true }, "true"));
+			expect(served, "a server was given the copies").not.toContain(copies);
+			expect(
+				existsSync(join(runtimeDir, "pi-fence", "gcloud-ssh")),
+				"a server made the copies' folder",
+			).toBe(false);
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}

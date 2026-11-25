@@ -1268,6 +1268,15 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(text, "the person's own key is never bound").not.toContain(
 			`--ro-bind ${ssh}/google_compute_engine ${ssh}/google_compute_engine `,
 		);
+		expect(
+			fenceRefusesWrite(`${ssh}/google_compute_known_hosts`, {
+				home,
+				runtimeDir: "/run/user/1000",
+				cwd: tree,
+				gcloudSsh: copies,
+			}),
+			"pi's own tools write the person's real known hosts, which the proxy trusts",
+		).toBe(true);
 		// Where `flag` is given `path`, as the pair of words bubblewrap reads.
 		const pair = (flag: string, path: string): number =>
 			gcloudArgs.findIndex(
@@ -1300,6 +1309,13 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			`--bind /run/k ${home}/.ssh/google_compute_known_hosts`,
 		);
 		expect(text).not.toContain("/run/e");
+		// Nor where the public half is a folder, which the fence doesn't bind
+		// back either.
+		const folder = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000", cwd: tree, gcloudSsh: copies },
+			diskOf([...paths, `${home}/.ssh/google_compute_engine.pub/`]),
+		).join(" ");
+		expect(folder, "a stand-in beside a folder").not.toContain("/run/e");
 	});
 
 	it("empties the private keys kept outside ~/.ssh, for commands and pi's file tools alike", () => {

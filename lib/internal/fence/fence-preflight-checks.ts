@@ -23,6 +23,7 @@ import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
 import { FENCE, LET_THROUGH, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";
+import { GCLOUD_KEY, KEY_STAND_IN } from "./fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	type Check,
@@ -149,6 +150,20 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 			context.session,
 		);
 		if (ran.code === 0) read.push(path);
+	}
+	// gcloud's private key is bound over by a stand-in on purpose
+	// (fence-gcloud-ssh.ts), so inside it must read as that and nothing else,
+	// or not at all.
+	const gcloudKey = join(home, ".ssh", GCLOUD_KEY);
+	if (existsSync(gcloudKey)) {
+		const ran = await fenced(
+			`cat '${gcloudKey}'`,
+			context.scratch,
+			context.session,
+		);
+		if (ran.code === 0 && ran.out !== "" && ran.out !== KEY_STAND_IN) {
+			read.push(gcloudKey);
+		}
 	}
 	return read.length === 0
 		? passed(`${paths.length} hidden files, none readable inside`)

@@ -534,6 +534,22 @@ export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
 });
 
 /**
+ * `command`, preceded by a note on stderr when it names the cloud's
+ * programs and the session's copies of gcloud's ssh files couldn't be
+ * made, so the agent reads why `gcloud compute ssh` fails on `~/.ssh`
+ * beside gcloud's own complaint, rather than taking the fence for one
+ * that never made them.
+ */
+export function withGcloudSshNote(command: string, made: boolean): string {
+	if (made || !namesTheCloud(command)) return command;
+	return `printf 'pi: %s\\n' ${quoted(GCLOUD_SSH_UNMADE)} >&2\n${command}`;
+}
+
+/** What the note says when gcloud's ssh copies couldn't be made. */
+export const GCLOUD_SSH_UNMADE =
+	"gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts), so gcloud compute ssh fails on the read-only ~/.ssh here";
+
+/**
  * `command`, preceded by a note on stderr saying why gcloud has no token
  * when it names the cloud's programs and `grant` gives none, so the agent
  * reads the reason beside gcloud's own complaint.
@@ -816,10 +832,15 @@ export function wrapFor(
 			// gcloud's ssh writes its known hosts and wants its key's two
 			// halves in ~/.ssh, which the fence keeps read-only and empties of
 			// private keys, so the session has copies (fence-gcloud-ssh.ts).
-			const gcloudFolder = sessionFolderName(place.env);
+			// Every caller wraps afresh for each command, so this brings them
+			// up to date just before the one command it wraps.
 			const gcloudSsh = served
 				? undefined
-				: fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder);
+				: fenceGcloudSsh(
+						place.env.XDG_RUNTIME_DIR,
+						home,
+						sessionFolderName(place.env),
+					);
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
 				? undefined
@@ -875,18 +896,6 @@ export function wrapFor(
 				],
 				...(github ? { github } : {}),
 			};
-			// The fence's words without gcloud's copies, made only the first time
-			// a command finds they can't be brought up to date: its ssh then
-			// fails inside as it did before they existed, rather than binding a
-			// copy left as it was, or the command being refused.
-			let withoutGcloud: typeof made.args | undefined;
-			const argsWithoutGcloud = (): typeof made.args => {
-				if (withoutGcloud === undefined) {
-					const plain = fenceArgs({ ...fence, gcloudSsh: undefined });
-					withoutGcloud = bwrapArgsFile(fence.runtimeDir, plain) ?? plain;
-				}
-				return withoutGcloud;
-			};
 			// Said only for a command the fence would run, never one sent
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
@@ -912,12 +921,6 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
-				// Brought up to date before each command, at the paths the bind
-				// laid once names, so each command finds the person's latest hosts.
-				const gcloudFresh =
-					gcloudSsh === undefined ||
-					fenceGcloudSsh(place.env.XDG_RUNTIME_DIR, home, gcloudFolder) !==
-						undefined;
 				// The person's cloud login stays hidden (fence-hidden.ts), and
 				// gcloud gets an empty settings folder of its own and no token
 				// (`NO_CLOUD_IN_THE_FENCE`).
@@ -927,7 +930,6 @@ export function wrapFor(
 				const delta = deltaVariables(sandbox.delta?.());
 				const cloud = {
 					...made,
-					...(gcloudFresh ? {} : { args: argsWithoutGcloud() }),
 					passed: { ...passed, ...delta, ...workerSocketPassed(workerSocket) },
 				};
 				const guarded = guardedIn(watched);
@@ -937,7 +939,13 @@ export function wrapFor(
 				);
 				const text = withAfterCheckIn(
 					fence.runtimeDir,
-					fencedCommand(withCloudNote(withSecretNote(command), grant), cloud),
+					fencedCommand(
+						withGcloudSshNote(
+							withCloudNote(withSecretNote(command), grant),
+							served || gcloudSsh !== undefined,
+						),
+						cloud,
+					),
 					guarded,
 					planted,
 				);
