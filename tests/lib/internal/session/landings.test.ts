@@ -57,6 +57,29 @@ describe("a landing said on the bus", () => {
 		]);
 	});
 
+	it("carries the areas a merge touched, and none when it said none", () => {
+		const events = bus();
+		const heard: Landing[] = [];
+		onLanded(events, (one) => heard.push(one));
+
+		sayLanded(events, { ref: "a#1", what: "one", areas: ["lib/mesh"] }, noon);
+		sayLanded(events, { ref: "a#2", what: "two", areas: [] }, noon);
+
+		expect(heard.map((one) => one.areas)).toEqual([["lib/mesh"], undefined]);
+		expect(
+			isLanding({ ...landing("x"), areas: ["lib/mesh"] }),
+			"a landing whose areas are text is one",
+		).toBe(true);
+		expect(
+			isLanding({ ...landing("x"), areas: ["lib/mesh", 1] }),
+			"a landing with an area that is no text is none",
+		).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), areas: "lib/mesh" }),
+			"a landing whose areas are no list is none",
+		).toBe(false);
+	});
+
 	it("is not heard when it isn't one", () => {
 		const events = bus();
 		const heard: Landing[] = [];
