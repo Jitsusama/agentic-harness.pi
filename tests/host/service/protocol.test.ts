@@ -95,6 +95,29 @@ describe("result validation", () => {
 			"the host's identity, which a later request names, stays strict",
 		).toThrow("Invalid host control result");
 	});
+	it("reads a process's heap spaces and what it holds outside the heap, checked", () => {
+		const heap = {
+			used: 3,
+			limit: 9,
+			at: "2026-11-24T08:00:00.000Z",
+			spaces: [{ name: "old_space", used: 2, size: 4 }],
+			external: 5,
+			arrayBuffers: 1,
+		};
+		const answer = { host: identity, own: { heap }, sessions: [] };
+		expect(parseMemoryResult(answer).own.heap).toStrictEqual(heap);
+		for (const bad of [
+			{ ...heap, external: -1 },
+			{ ...heap, arrayBuffers: 0.5 },
+			{ ...heap, spaces: [{ name: "old_space", used: -2, size: 4 }] },
+			{ ...heap, spaces: [{ name: 7, used: 2, size: 4 }] },
+			{ ...heap, spaces: "old_space" },
+		])
+			expect(
+				() => parseMemoryResult({ ...answer, own: { heap: bad } }),
+				JSON.stringify(bad),
+			).toThrow("Invalid host control result");
+	});
 });
 
 describe("wire validation", () => {
