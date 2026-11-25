@@ -10,11 +10,14 @@
  * broker, and the provider.
  */
 
-import { cpSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach } from "vitest";
-import { forgetTreeBroker } from "../../../extensions/work-integration/broker.ts";
+import {
+	forgetTreeBroker,
+	treeDir,
+} from "../../../extensions/work-integration/broker.ts";
 import workIntegration from "../../../extensions/work-integration/index.ts";
 import {
 	registerTreeProvider,
@@ -46,6 +49,7 @@ let savedState: string | undefined;
 let tool: RegisteredTool | undefined;
 let said: { event: string; data: unknown }[] = [];
 let claimed: string[] = [];
+let whereTheToolCuts = false;
 
 /** Cuts each tree as a copy of the test's repository, at what was asked. */
 const COPYING: TreeProvider = {
@@ -53,7 +57,9 @@ const COPYING: TreeProvider = {
 	specificity: 1_000,
 	appliesTo: (asked) => asked.key === REPO,
 	ensure: async (request) => {
-		const path = join(scratch, "trees", request.purpose);
+		const into = whereTheToolCuts ? treeDir() : join(scratch, "trees");
+		const path = join(into, request.purpose);
+		mkdirSync(into, { recursive: true });
 		cpSync(repo, path, { recursive: true });
 		if (request.intent === "snapshot") {
 			await git(path, "checkout", "-q", "--detach", request.commit);
@@ -72,6 +78,7 @@ beforeEach(async () => {
 	savedState = process.env.XDG_STATE_HOME;
 	process.env.XDG_STATE_HOME = join(scratch, "state");
 	forgetTreeBroker();
+	whereTheToolCuts = false;
 	repo = await freshRepo("worked");
 	const stub = activateWith(workIntegration);
 	claimed = [];
@@ -105,6 +112,14 @@ export function emitted(): readonly { event: string; data: unknown }[] {
 /** Have a quest claim the tree at `path`, as one holding it would. */
 export function claim(path: string): void {
 	claimed.push(path);
+}
+
+/**
+ * Cut the next trees where the work tool cuts its own, under this
+ * test's state folder, where git won't run in a copy of a repository.
+ */
+export function cutWhereTheToolCuts(): void {
+	whereTheToolCuts = true;
 }
 
 /** A folder of this test's own, removed after it. */
