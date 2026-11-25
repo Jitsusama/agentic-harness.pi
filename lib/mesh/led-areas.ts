@@ -15,14 +15,17 @@
  * {@link LED_WITHIN_MS}, with at least {@link LEADS_AT} of the weight of
  * the quest that landed it most, each landing weighing half as much
  * every {@link HALF_LIFE_MS}, so one sweeping refactor doesn't claim an
- * area for a fortnight. A landing is credited to the quest that
- * proposed the change where the history knows it was another, since a
- * gate merging other cells' changes would otherwise lead what they
- * wrote, and else to the quest its session had loaded; never to that
- * quest's parent, since rolled up an orchestrator would lead everything. Replayed over the week's 417 kept
- * needs, these rules took the review tools' needs from none of 30 to
- * their owner to 16, and 49 of 75 hand-labelled needs to their owner
- * against 33, with no cell taking more than 9% of all needs.
+ * area for a fortnight.
+ *
+ * A landing is credited to the quest that proposed the change, as the
+ * record of proposals on the machine it landed on knows it, and a
+ * landing whose proposer it doesn't know leads nothing. The harness's
+ * gate merges on optimus what other cells proposed on the Mac, whose
+ * record optimus never reads, and crediting the merger made the gate
+ * lead what they wrote (FZ9MFJ, 25 November): a missing lead routes a
+ * need by title words as before, a wrong one routes it to the gate.
+ * Never the quest's parent either, since rolled up an orchestrator
+ * would lead everything.
  *
  * A subject is said as the repository's name and the area,
  * `agentic-harness.pi:extensions/review-integration`, since routing
@@ -106,10 +109,7 @@ export function ledAreas(
 	const shares = new Map<string, Map<string, Share>>();
 	for (const landing of landings) {
 		const { repo } = landing;
-		const quest =
-			typeof landing.proposedBy === "string"
-				? landing.proposedBy
-				: landing.quest;
+		const quest = landing.proposedBy;
 		if (!(typeof quest === "string" && quest && typeof repo === "string")) {
 			continue;
 		}

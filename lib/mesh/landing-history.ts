@@ -41,8 +41,10 @@ export interface KeptLanding extends Landing {
 	/** The quest it had loaded. */
 	readonly quest?: string;
 	/**
-	 * The quest that proposed the change, where that was another, as a
-	 * gate merging other cells' changes does: its areas are that quest's.
+	 * The quest that proposed the change, where this machine's record of
+	 * proposals knows it, whether its own quest or another, as a gate
+	 * merging other cells' changes has: its areas are that quest's, and a
+	 * landing without one leads no area (led-areas.ts).
 	 */
 	readonly proposedBy?: string;
 	/** The repository the change is in, as `owner/name` or its name. */
@@ -91,7 +93,7 @@ export function repoOf(landing: Landing): string | undefined {
 
 /**
  * A landing as kept, with whose it is and where, and which quest
- * proposed it where `proposerOf` knows it was another.
+ * proposed it where `proposerOf` knows.
  */
 export function kept(
 	landing: Landing,
@@ -99,8 +101,7 @@ export function kept(
 	proposerOf?: ProposerOf,
 ): KeptLanding {
 	const repo = repoOf(landing) ?? whose.repo;
-	const proposer = landing.url ? proposerOf?.(landing.url) : undefined;
-	const proposedBy = proposer !== whose.quest ? proposer : undefined;
+	const proposedBy = landing.url ? proposerOf?.(landing.url) : undefined;
 	return {
 		key: keyOf(whose.session, landing.ref),
 		...landing,

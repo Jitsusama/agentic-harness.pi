@@ -20,7 +20,10 @@ const NOW = Date.parse("2026-11-25T06:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
 
 let n = 0;
-/** A merge `days` ago by `quest`, touching `areas` of the harness. */
+/**
+ * A merge `days` ago by `quest`, touching `areas` of the harness, which
+ * the record of proposals says `quest` proposed.
+ */
 function merge(
 	quest: string | undefined,
 	areas: readonly string[] | undefined,
@@ -37,6 +40,7 @@ function merge(
 			...(areas ? { areas } : {}),
 		},
 		{ session: `S${n}`, ...(quest ? { quest } : {}), repo },
+		() => quest,
 	);
 }
 
@@ -93,6 +97,22 @@ describe("the areas each quest led in its landings", () => {
 		expect(led([byGate(0), byGate(1)])).toEqual({
 			"QEST-ROUTING": ["agentic-harness.pi:lib/mesh"],
 		});
+	});
+
+	// FZ9MFJ, 25 November, on #2216: the record of proposals is each
+	// machine's own, so a change proposed on the Mac and merged by the gate
+	// here has no proposer known, and crediting its merger led the gate.
+	it("credits nobody with a merge whose proposer no record knows", () => {
+		const unknown = (days: number) => {
+			const { proposedBy: _, ...landing } = merge(
+				"QEST-GATE",
+				["lib/mesh"],
+				days,
+			);
+			return landing;
+		};
+
+		expect(led([unknown(0), unknown(1)])).toEqual({});
 	});
 
 	it("says none for an area its quest landed only once", () => {

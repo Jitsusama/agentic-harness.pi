@@ -161,12 +161,18 @@ describe("whose a merged change is", () => {
 		});
 	});
 
-	it("names none where its own quest proposed it, or nobody is known to", () => {
+	// FZ9MFJ, 25 November, on #2216: a proposer the record knows is what
+	// a lead is credited by, so the merger's own quest is named too.
+	it("names its own quest where that proposed it", () => {
 		proposers.set(`${PAGE}1`, "QEST-GATE");
 
-		expect(kept(merged(`${PAGE}1`), gate, proposerOf)).not.toHaveProperty(
-			"proposedBy",
-		);
+		expect(kept(merged(`${PAGE}1`), gate, proposerOf)).toMatchObject({
+			quest: "QEST-GATE",
+			proposedBy: "QEST-GATE",
+		});
+	});
+
+	it("names none where nobody is known to have proposed it", () => {
 		expect(kept(merged(`${PAGE}2`), gate, proposerOf)).not.toHaveProperty(
 			"proposedBy",
 		);
