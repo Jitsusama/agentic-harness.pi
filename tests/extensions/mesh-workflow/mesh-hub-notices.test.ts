@@ -373,10 +373,11 @@ describe("the mesh's own word, on a quest with no mark", () => {
 	// one, the last search still has a peer to read, and only the start's
 	// own guard stops it.
 	//
-	// The last search's asks are held at the node across the start, so
-	// none can land after it and pass for the next search's: under load
-	// one sent just before the start reached the node after, out beside
-	// the next search's first, with no search left running.
+	// The last search's asks for ties are held at the node across the
+	// start, so none it sent before the stop is answered after it and
+	// passes for the next search's: under load one sent just before the
+	// start reached the node after, out beside the next search's first,
+	// with no search left running. One gap is left, said below.
 	it("stops the last search for its hub when a session starts again without ending", async () => {
 		let out = 0;
 		let most = 0;
@@ -427,14 +428,16 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			patiently,
 		);
 		holding = true;
-		// From here the node answers nothing until the start has run, so the
-		// last search waits on a held ask through the start and has sent
-		// none that lands after it unheld. One it gives up on past
-		// TIES_PATIENCE_MS it asks again, and that one is held too. Not
-		// covered: an ask it began but had not yet written when the stop
-		// ran, which nothing in the ask checks for, could reach the node
-		// after release(). That needs the patience to run out within a few
-		// turns of the stop.
+		// From here the node holds every ask for ties until release(), so
+		// the last search waits on a held one through the start. Its hello
+		// and other asks are still answered at once, as is a tie ask already
+		// on its 60 ms timer. A find that gives up on a held ask asks again
+		// one retry wait later, and that ask is held too. Not covered: when
+		// the give-up falls one retry wait before the stop, the search can
+		// begin an ask it has not yet written as the stop runs; nothing in
+		// the ask checks for the stop, so it can reach the node after
+		// release(). Hitting that gap fails the test as the regression it
+		// guards does: two tie asks out at once, `most` above 1.
 		await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
 
 		await restart();
