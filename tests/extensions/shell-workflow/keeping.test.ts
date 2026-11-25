@@ -343,8 +343,9 @@ describe("a kept call", { timeout: LOADED_CASE_MS }, () => {
 			{},
 			5,
 		);
-		// The limit leaves a loaded machine time to put the pid on disk before
-		// it fires, since no wait outlasts it, and the child outlasts the limit.
+		// The pid wait starts before the limit and is as long, so a late pid fails
+		// on the wait; the limit's late rejection is caught, not the next case's.
+		void running.catch(() => undefined);
 		const carry = kept.carryOf(signal);
 		await until(
 			"the call to have its pid on disk",
