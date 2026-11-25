@@ -54,6 +54,19 @@ import {
 /** pi's built-in tool that finds and declares undeclared tools. */
 const TOOL_SEARCH = "tool_search";
 
+/** The message that says which tools a compaction put down. */
+export const PUT_DOWN_MESSAGE = "loadout-put-down";
+
+/**
+ * What a session is told when tools it loaded are put down. pi says
+ * only that they are "no longer available" and not to call them, and
+ * on 25 November a session read that as being unable to reload or ask
+ * rounds, and stalled while others waited on it (IKQ63G [0a296eda]).
+ */
+function putDownNote(names: readonly string[]): string {
+	return `[Put down at this compaction, unused since the one before: ${names.join(", ")}. They are not gone: tool_search loads any of them again, and the Tools That Load on Demand section names every one.]`;
+}
+
 /** The prompt section the index is rendered into. */
 export const INDEX_SECTION = "loadable_tools";
 
@@ -148,10 +161,18 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	// costs no cache of its own; put down mid-run, a tool's declaration
 	// would stay in the cached head with a notice beside it.
 	pi.on("session_compact", async () => {
-		const going = new Set(idle.since(loadable(pi.getAllTools(), new Set())));
-		if (going.size > 0) {
-			pi.setActiveTools(pi.getActiveTools().filter((name) => !going.has(name)));
-		}
+		const going = idle.since(loadable(pi.getAllTools(), new Set()));
+		if (going.length === 0) return;
+		const gone = new Set(going);
+		pi.setActiveTools(pi.getActiveTools().filter((name) => !gone.has(name)));
+		pi.sendMessage(
+			{
+				customType: PUT_DOWN_MESSAGE,
+				content: putDownNote(going),
+				display: false,
+			},
+			{ deliverAs: "nextTurn" },
+		);
 	});
 
 	pi.on("session_start", async () => {
