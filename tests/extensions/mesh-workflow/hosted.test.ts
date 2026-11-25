@@ -596,7 +596,9 @@ it("ends a conversation another host holds through that host's socket, never a s
 	await stopListening();
 	expect(await end("EEEEEEEE")).toContain("did not confirm");
 	expect([...open]).toEqual([near]);
-	expect(kill).not.toHaveBeenCalled();
+	// Signal 0 sends nothing: it only asks whether a pid is alive, as the
+	// liveness check does on a Mac, where no /proc lists its start.
+	expect(kill.mock.calls.filter(([, signal]) => signal !== 0)).toEqual([]);
 	kill.mockRestore();
 	vi.unstubAllEnvs();
 	self.dispose();

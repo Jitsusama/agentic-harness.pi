@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type FolderMirror,
@@ -607,6 +607,37 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: a name the watch gives is a file of the folder's
 	// own, never one in a folder below it, which a listing never keeps.
+	// On the work Mac every write to a file in the folder dropped its watch
+	// and made another, since a Mac's watch names the folder itself.
+	it("lists a folder its watch names on a Mac, keeping the watch", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		const before = listings();
+		const platform = process.platform;
+		Object.defineProperty(process, "platform", { value: "darwin" });
+		try {
+			made.emit("change", "rename", basename(dir));
+			await vi.waitFor(
+				() => {
+					folder.files();
+					expect(listings() - before, "the folder listed").toBeGreaterThan(0);
+				},
+				{ timeout: 2000 },
+			);
+			// Polls enough to remake a watch the event had dropped.
+			for (let poll = 0; poll < 5; poll += 1) {
+				await new Promise((done) => setTimeout(done, 25));
+				folder.files();
+			}
+		} finally {
+			Object.defineProperty(process, "platform", { value: platform });
+		}
+		expect(watchesOfDir(), "the one watch kept").toHaveLength(1);
+	});
+
 	it("passes over a name the watch gives in a folder below its own", async () => {
 		put("a.txt", "here");
 		mkdirSync(join(dir, "below"));
@@ -678,8 +709,9 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: a stat that failed on a file still there
 	// dropped a live peer until it published again.
-	// Root reads a folder whatever its mode, so it can't lock one.
-	it.skipIf(process.getuid?.() === 0)(
+	// Root reads a folder whatever its mode, so it can't lock one. A Mac's
+	// watch names the folder, never the file, so no named read is made there.
+	it.skipIf(process.getuid?.() === 0 || process.platform === "darwin")(
 		"keeps a named file whose stat fails while the file is still there",
 		async () => {
 			put("a.txt", "here");

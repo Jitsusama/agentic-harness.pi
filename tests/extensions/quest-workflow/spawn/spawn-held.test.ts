@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	agentCommand,
 	folderFor,
@@ -15,6 +15,13 @@ import {
 import type { NodeStart } from "../../../../lib/mesh/node.ts";
 import type { Need } from "../../../../lib/mesh/placement.ts";
 import { fakeDriver } from "../../../lib/terminal/fakes.ts";
+
+// This machine is never equilibrius, the machine each spawn is sent to,
+// even on the work Mac, whose name it is.
+vi.mock("node:os", async (actual) => ({
+	...(await actual<typeof import("node:os")>()),
+	hostname: () => "optimus",
+}));
 
 // The configured path points at a binary that exists on any POSIX
 // machine, and the test process's own ancestry would contradict the

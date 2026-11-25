@@ -240,7 +240,9 @@ rules, and where it doesn't yet.
   `PI_RACE_TESTS`, a bubblewrap that can make a namespace, a kernel
   that hides a non-dumpable process's exe from its own account (not
   root, `fs.suid_dumpable` not 1), a `/proc` that shows every
-  process's folders (`seesEveryProcess`), or a platform. The browser lane fails without
+  process's folders (`seesEveryProcess`), a `/proc` at all (a
+  process's command line), a `tee` that takes `-p`
+  (`teePersists`), or a platform. The browser lane fails without
   a Chrome rather than skipping.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The
   129 that didn't on 8 November are listed in

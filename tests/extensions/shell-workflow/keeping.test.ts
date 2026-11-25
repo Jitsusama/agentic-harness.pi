@@ -31,7 +31,11 @@ import {
 } from "../../../extensions/shell-workflow/command-line.ts";
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
-import { endOf, outputOf } from "../../../lib/internal/shell/kept.ts";
+import {
+	endOf,
+	outputOf,
+	teePersists,
+} from "../../../lib/internal/shell/kept.ts";
 import {
 	forgetKeptJob,
 	recordKeptJob,
@@ -212,41 +216,55 @@ async function run(
 	return { code: result.exitCode, read };
 }
 
+// What the stub writes it writes through `tee -p`, which a Mac's own tee
+// lacks; pi keeps no call there (agent-bash.ts), so these cases have
+// nothing to drive.
+const teeKeeps = await teePersists();
+
 describe("a kept call", () => {
-	it("reads as it did and leaves nothing once it ends in its pi", async () => {
-		const kept = keeping();
-		const { code, read } = await run(
-			kept.operations,
-			"echo out; echo err >&2; exit 3",
-		);
-		expect(code).toBe(3);
-		expect(read.split("\n").sort()).toEqual(["", "err", "out"]);
-		await vi.waitFor(() =>
-			expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
-		);
-	});
+	it.skipIf(!teeKeeps)(
+		"reads as it did and leaves nothing once it ends in its pi",
+		async () => {
+			const kept = keeping();
+			const { code, read } = await run(
+				kept.operations,
+				"echo out; echo err >&2; exit 3",
+			);
+			expect(code).toBe(3);
+			expect(read.split("\n").sort()).toEqual(["", "err", "out"]);
+			await vi.waitFor(() =>
+				expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+			);
+		},
+	);
 
-	it("ends only once its tee has written what it said", async () => {
-		const kept = keeping();
-		const { read } = await run(
-			kept.operations,
-			"echo out",
-			new AbortController().signal,
-			{ PATH: `${slowTee(0.3)}:${process.env.PATH ?? ""}` },
-		);
-		expect(read, "pi read it before the shell had gone").toBe("out\n");
-	});
+	it.skipIf(!teeKeeps)(
+		"ends only once its tee has written what it said",
+		async () => {
+			const kept = keeping();
+			const { read } = await run(
+				kept.operations,
+				"echo out",
+				new AbortController().signal,
+				{ PATH: `${slowTee(0.3)}:${process.env.PATH ?? ""}` },
+			);
+			expect(read, "pi read it before the shell had gone").toBe("out\n");
+		},
+	);
 
-	it("isn't held by what it left writing to its output", async () => {
-		const kept = keeping();
-		const started = Date.now();
-		const { code, read } = await run(kept.operations, "sleep 5 & echo out");
-		expect(code).toBe(0);
-		expect(read).toBe("out\n");
-		expect(Date.now() - started, "ended well before its child").toBeLessThan(
-			3000,
-		);
-	});
+	it.skipIf(!teeKeeps)(
+		"isn't held by what it left writing to its output",
+		async () => {
+			const kept = keeping();
+			const started = Date.now();
+			const { code, read } = await run(kept.operations, "sleep 5 & echo out");
+			expect(code).toBe(0);
+			expect(read).toBe("out\n");
+			expect(Date.now() - started, "ended well before its child").toBeLessThan(
+				3000,
+			);
+		},
+	);
 
 	it("is not kept where it can't be", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
@@ -261,43 +279,46 @@ describe("a kept call", () => {
 		expect(off.carryOf(signal), "nothing to carry it by").toBeUndefined();
 	});
 
-	it("leaves its files when handed on, its status written past its own exit trap", async () => {
-		const kept = keeping();
-		const signal = new AbortController().signal;
-		const running = run(
-			kept.operations,
-			"trap 'echo bye' EXIT; echo started; sleep 0.3; exit 4",
-			signal,
-		);
-		const carry = kept.carryOf(signal);
-		await until(
-			"the call to have its pid on disk",
-			() => carry?.what() !== undefined,
-		);
-		const work = carry?.what();
-		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
-		expect(work.mark).toBe("mark-1");
-		carry?.handed();
-		expect(
-			existsSync(`${work.keep}.carried`),
-			"marked carried, so a host's reaper spares it",
-		).toBe(true);
-		expect(
-			readFileSync(`${work.keep}.carried`, "utf8"),
-			"by the call's mark, which all it starts inherits",
-		).toBe("mark-1");
-		expect((await running).code).toBe(4);
-		expect(endOf(work.keep), "its status is on disk").toBe(4);
-		expect(outputOf(work.keep)).toBe("started\nbye\n");
-		expect(
-			Number(readFileSync(`${work.keep}.pid`, "utf8")),
-			"its shell's pid is on disk",
-		).toBe(work.pid);
-		expect(
-			carry?.what(),
-			"once handed, it isn't carried twice",
-		).toBeUndefined();
-	});
+	it.skipIf(!teeKeeps)(
+		"leaves its files when handed on, its status written past its own exit trap",
+		async () => {
+			const kept = keeping();
+			const signal = new AbortController().signal;
+			const running = run(
+				kept.operations,
+				"trap 'echo bye' EXIT; echo started; sleep 0.3; exit 4",
+				signal,
+			);
+			const carry = kept.carryOf(signal);
+			await until(
+				"the call to have its pid on disk",
+				() => carry?.what() !== undefined,
+			);
+			const work = carry?.what();
+			if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
+			expect(work.mark).toBe("mark-1");
+			carry?.handed();
+			expect(
+				existsSync(`${work.keep}.carried`),
+				"marked carried, so a host's reaper spares it",
+			).toBe(true);
+			expect(
+				readFileSync(`${work.keep}.carried`, "utf8"),
+				"by the call's mark, which all it starts inherits",
+			).toBe("mark-1");
+			expect((await running).code).toBe(4);
+			expect(endOf(work.keep), "its status is on disk").toBe(4);
+			expect(outputOf(work.keep)).toBe("started\nbye\n");
+			expect(
+				Number(readFileSync(`${work.keep}.pid`, "utf8")),
+				"its shell's pid is on disk",
+			).toBe(work.pid);
+			expect(
+				carry?.what(),
+				"once handed, it isn't carried twice",
+			).toBeUndefined();
+		},
+	);
 
 	it("outlives its time limit here once handed on, the pi that took it up holding it", async () => {
 		const kept = keeping();
@@ -337,41 +358,47 @@ describe("a kept call", () => {
 		);
 	});
 
-	it("writes all it says once what read it has gone, as a spawner leaving it does", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
-		made.push(dir);
-		const folder = join(dir, "kept");
-		const reader = readsUntilItLeaves();
-		const kept = keepsOnDisk(reader.operations, {
-			can: () => true,
-			folder: () => folder,
-		});
-		const signal = new AbortController().signal;
-		const running = run(
-			kept.operations,
-			"echo tick-1; sleep 0.3; for i in 2 3 4 5 6; do echo tick-$i; done; exit 7",
-			signal,
-		);
-		const carry = kept.carryOf(signal);
-		await until(
-			"the call to have its pid on disk",
-			() => carry?.what() !== undefined,
-		);
-		const work = carry?.what();
-		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
-		carry?.handed();
-		await until("its first line on disk", () =>
-			outputOf(work.keep).startsWith("tick-1\n"),
-		);
-		reader.leave();
-		expect((await running).code, "its reader went before it ended").toBeNull();
-		await until("its end on disk", () => endOf(work.keep) !== undefined);
-		expect(endOf(work.keep), "its own status, not a broken pipe's").toBe(7);
-		expect(
-			outputOf(work.keep),
-			"every line, those after its reader went too",
-		).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
-	});
+	it.skipIf(!teeKeeps)(
+		"writes all it says once what read it has gone, as a spawner leaving it does",
+		async () => {
+			const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+			made.push(dir);
+			const folder = join(dir, "kept");
+			const reader = readsUntilItLeaves();
+			const kept = keepsOnDisk(reader.operations, {
+				can: () => true,
+				folder: () => folder,
+			});
+			const signal = new AbortController().signal;
+			const running = run(
+				kept.operations,
+				"echo tick-1; sleep 0.3; for i in 2 3 4 5 6; do echo tick-$i; done; exit 7",
+				signal,
+			);
+			const carry = kept.carryOf(signal);
+			await until(
+				"the call to have its pid on disk",
+				() => carry?.what() !== undefined,
+			);
+			const work = carry?.what();
+			if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
+			carry?.handed();
+			await until("its first line on disk", () =>
+				outputOf(work.keep).startsWith("tick-1\n"),
+			);
+			reader.leave();
+			expect(
+				(await running).code,
+				"its reader went before it ended",
+			).toBeNull();
+			await until("its end on disk", () => endOf(work.keep) !== undefined);
+			expect(endOf(work.keep), "its own status, not a broken pipe's").toBe(7);
+			expect(
+				outputOf(work.keep),
+				"every line, those after its reader went too",
+			).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
+		},
+	);
 
 	// A job is said ended only once its call settles, and a move or a
 	// shutdown meeting one neither carriable nor ended would drop it.

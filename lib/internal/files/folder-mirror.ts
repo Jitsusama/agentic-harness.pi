@@ -384,7 +384,13 @@ function mirrorOf<T>(
 			// The folder itself removed or renamed away, as libuv names it: the
 			// watch hears nothing more, so the next tick makes one and lists.
 			if (name === basename(dir)) {
-				if (watcher === made) unwatch();
+				// A Mac's watch names the folder itself for a change to any file
+				// in it, so there it is listed, and the look drops the watch only
+				// if the folder went, rather than remaking it at every write.
+				if (process.platform === "darwin") {
+					look();
+					void refresh().catch(nothing);
+				} else if (watcher === made) unwatch();
 				return;
 			}
 			// A file of its kind is read alone; a staged one is passed over

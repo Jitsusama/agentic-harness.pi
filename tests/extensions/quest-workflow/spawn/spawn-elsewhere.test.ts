@@ -31,6 +31,13 @@ import { FIRST_TEXT_VARIABLE } from "../../../../lib/internal/quest/sessions/fir
 import type { Need } from "../../../../lib/mesh/placement.ts";
 import { fakeDriver } from "../../../lib/terminal/fakes.ts";
 
+// This machine is never equilibrius, the machine each spawn is sent to,
+// even on the work Mac, whose name it is.
+vi.mock("node:os", async (actual) => ({
+	...(await actual<typeof import("node:os")>()),
+	hostname: () => "optimus",
+}));
+
 // The configured path points at a binary that exists on any POSIX
 // machine, and the test process's own ancestry would contradict the
 // fake's variables.
