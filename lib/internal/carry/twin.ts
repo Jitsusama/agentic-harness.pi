@@ -31,27 +31,22 @@ const LEVELS = 3;
 export const CLONING = ".cloning-";
 
 /** A clone's whole name: the tree's, then the arrival's process and time. */
-const CLONE = /^(.+)\.cloning-(\d+)-(\d+)$/;
+const CLONE = /^.+\.cloning-\d+-\d+$/;
 
 /**
  * The name an arrival in this process gives the clone it makes beside
- * `path` at `at`, which only `clonerOf` reads back.
+ * `path` at `at`, which only `isClone` reads back.
  */
 export function cloningAt(path: string, at: number): string {
 	return `${path}${CLONING}${process.pid}-${at}`;
 }
 
 /**
- * The process that made the clone named `name`, of a tree named `tree`
- * where it is given; or nothing where `name` isn't one. A folder that
- * only holds `.cloning-` somewhere in its name is someone's own.
+ * Whether `name` is the whole name an arrival gives a clone. A folder
+ * that only holds `.cloning-` somewhere in its name is someone's own.
  */
-export function clonerOf(name: string, tree?: string): number | undefined {
-	const clone = CLONE.exec(name);
-	if (clone === null || (tree !== undefined && clone[1] !== tree)) {
-		return undefined;
-	}
-	return Number(clone[2]);
+function isClone(name: string): boolean {
+	return CLONE.test(name);
 }
 
 /** How many folders in any one place are looked at, at most. */
@@ -145,9 +140,7 @@ function beside(folder: string, name: string): string[] {
 	let entries: string[];
 	try {
 		entries = readdirSync(folder, { withFileTypes: true })
-			.filter(
-				(entry) => entry.isDirectory() && clonerOf(entry.name) === undefined,
-			)
+			.filter((entry) => entry.isDirectory() && !isClone(entry.name))
 			.map((entry) => entry.name)
 			.sort()
 			.slice(0, MOST_BESIDE);

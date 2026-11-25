@@ -34,6 +34,26 @@ describe("carrying's commands", () => {
 		]);
 	});
 
+	it("run git in English through env's split string, macOS's options, or by its path", async () => {
+		const { ran, exec } = routed();
+
+		await exec("env", ["-S", "A=1 git", "status"]);
+		await exec("env", ["-S", "A=1", "git", "log"]);
+		await exec("env", ["-P", "/usr/bin", "git", "log"]);
+		await exec("/usr/bin/env", ["/usr/bin/git", "log"]);
+		await exec("env", ["-S", "sh -c", "git"]);
+		await exec("env", ["-P", "git", "sh"]);
+
+		expect(ran).toEqual([
+			"english: env -S A=1 git status",
+			"english: env -S A=1 git log",
+			"english: env -P /usr/bin git log",
+			"english: /usr/bin/env /usr/bin/git log",
+			"as it is: env -S sh -c git",
+			"as it is: env -P git sh",
+		]);
+	});
+
 	it("run anything else as it is, env running something else included", async () => {
 		const { ran, exec } = routed();
 

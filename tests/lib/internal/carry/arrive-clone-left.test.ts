@@ -64,6 +64,10 @@ afterEach(() => {
 
 const { carried, arriveAt } = arrivals(made);
 
+/** What a clone left beside the tree's place asks. */
+const BY_HAND =
+	"take it out by hand, since no arrival takes out a clone it didn't make";
+
 /** What is in `folder`, or nothing where it was never made. */
 const leftIn = (at: string) => (existsSync(at) ? readdirSync(at) : []);
 
@@ -99,7 +103,7 @@ describe("an arriving clone the disk won't put in place", () => {
 		const at = join(home, "src", clone ?? "");
 		expect(said[0]).toMatchObject({
 			did: "refused",
-			why: `Its clone couldn't be put in place: EACCES: refused, rename '${at}'. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'.`,
+			why: `Its clone couldn't be put in place: EACCES: refused, rename '${at}'. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'; ${BY_HAND}.`,
 		});
 	});
 
@@ -125,7 +129,7 @@ describe("an arriving clone the disk won't put in place", () => {
 		const at = join(home, "src", clone ?? "");
 		expect(said[0]).toMatchObject({
 			did: "refused",
-			why: `Something arrived there while it was cloned. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'.`,
+			why: `Something arrived there while it was cloned. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'; ${BY_HAND}.`,
 		});
 	});
 
@@ -157,7 +161,7 @@ describe("an arriving clone the disk won't put in place", () => {
 		const at = join(home, "src", clone ?? "");
 		expect(said[0]).toMatchObject({
 			did: "refused",
-			why: `git couldn't point it at ${origin}: fatal: refused. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'.`,
+			why: `git couldn't point it at ${origin}: fatal: refused. And its clone is left at ${at}, since it couldn't be taken out: EBUSY: refused, rm '${at}'; ${BY_HAND}.`,
 		});
 	});
 
@@ -210,6 +214,32 @@ describe("an arriving clone the disk won't put in place", () => {
 			did: "refused",
 			why: `git couldn't check out topic: fatal: refused. And its clone is left at ${path}, since it couldn't be taken out: EBUSY: refused, rm '${path}'; take it out before arriving again, since the next arrival finds it there.`,
 		});
+	});
+
+	it("refuses a clone's name something already stands at, leaving what is there", async () => {
+		const { from } = await carried();
+		const home = folder(made, "arriving");
+		const at = 1_700_000_000_000;
+		const planted = join(home, "src", `app${CLONING}${process.pid}-${at}`);
+		mkdirSync(planted, { recursive: true });
+		writeFileSync(join(planted, "theirs"), "kept\n");
+		const now = vi.spyOn(Date, "now").mockReturnValue(at);
+
+		try {
+			const { whole, said } = await arriveAt(home, from);
+
+			expect(whole).toBe(false);
+			expect(said[0]).toMatchObject({
+				did: "refused",
+				why: expect.stringMatching(
+					/^Its clone couldn't be made at .*: EEXIST: file already exists/,
+				),
+			});
+		} finally {
+			now.mockRestore();
+		}
+		expect(leftIn(planted), "what stood there stays").toEqual(["theirs"]);
+		expect(existsSync(join(home, "src", "app"))).toBe(false);
 	});
 
 	it("names the tree's own place where git's words about a twin's clone named its clone", async () => {

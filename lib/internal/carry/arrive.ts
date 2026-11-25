@@ -23,18 +23,13 @@
  * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { real, within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
+import { andLeft, claimed, letGoOf } from "./clone-aside.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
 	doneFileOf,
@@ -407,34 +402,14 @@ async function arriveTree(
 	}
 	// A clone left at the tree's own place is what the next arrival finds
 	// there, whether it refuses it or takes it up: say to take it out first.
-	const left = readied.kind === "cloned" ? letGoOf(path) : undefined;
 	const atPlace =
-		left === undefined
-			? undefined
-			: `${left}; take it out before arriving again, since the next arrival finds it there`;
+		readied.kind === "cloned"
+			? letGoOf(
+					path,
+					"take it out before arriving again, since the next arrival finds it there",
+				)
+			: undefined;
 	return { ...line, did: "refused", why: andLeft(why, atPlace) };
-}
-
-/**
- * Takes out a clone this arrival made itself, answering where it is
- * left and why where the disk refuses, as a busy or unwritable folder
- * does, so a refused tree is said rather than thrown out of the arrival.
- */
-function letGoOf(clone: string): string | undefined {
-	try {
-		rmSync(clone, { recursive: true, force: true });
-		return undefined;
-	} catch (error) {
-		return `its clone is left at ${clone}, since it couldn't be taken out: ${messageOf(error)}`;
-	}
-}
-
-/** `why`, then what was `left` behind, where anything was. */
-function andLeft(why: string, ...left: (string | undefined)[]): string {
-	const said = left.filter((one) => one !== undefined);
-	if (said.length === 0) return why;
-	const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
-	return `${stopped} And ${said.join(", and ")}.`;
 }
 
 /**
@@ -502,8 +477,12 @@ async function readyTree(
 		// Into a name of its own beside the tree's, renamed into place once
 		// whole and, from a twin, held to origin, so a failed or killed clone
 		// is only ever what it made itself, beside the tree, never a
-		// half-made tree at its place.
+		// half-made tree at its place. The name is taken first, so what is
+		// taken out after is a folder this arrival made, never one that
+		// stood at that name already.
 		const cloning = cloningAt(path, Date.now());
+		const unclaimed = claimed(cloning);
+		if (unclaimed !== undefined) return no(unclaimed);
 		const cloned =
 			twin === undefined
 				? await cloneOrigin(exec, tree, cloning, here.left())
