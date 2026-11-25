@@ -131,8 +131,8 @@ export function refuseSkippedPushHooks(pi: Pick<ExtensionAPI, "on">): void {
 }
 
 /**
- * Refuse a search of the whole home folder or the disk, on any
- * platform, naming a narrower folder; made again unchanged it goes
+ * Refuse a search of the whole home folder, the disk, or pi's
+ * installed packages or session logs, on any platform, naming a narrower folder; made again unchanged it goes
  * ahead, queued as a build.
  */
 export function refuseHomeSearches(pi: Pick<ExtensionAPI, "on">): void {
@@ -147,7 +147,7 @@ export function refuseHomeSearches(pi: Pick<ExtensionAPI, "on">): void {
 		return refusalUnder(
 			GUARDS.homeSearch.name,
 			reason ? { block: true, reason } : undefined,
-			"A search of the whole home folder",
+			"A search of the whole home folder or pi's trees",
 			command,
 		);
 	});
