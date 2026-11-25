@@ -698,6 +698,9 @@ async function sweepRepository(
 		const remote = offer.pushed
 			? await remoteHolding(deps.exec, tree.path)
 			: undefined;
+		// Set under the lock, so a keep can say a reading that couldn't tell
+		// kept the tree rather than blame a session.
+		let unread = false;
 		await takeBack(
 			deps,
 			facts,
@@ -718,10 +721,15 @@ async function sweepRepository(
 				? (take) =>
 						deps.memory.whileUnheld(
 							tree.path,
-							async () => !(await takenUpAgain(deps, tree)) && take(),
+							async () => {
+								const again = await takenUpAgain(deps, tree);
+								unread = again === "can't say";
+								return again === "left" && take();
+							},
 							facts,
 						)
 				: undefined,
+			{ unread: () => unread },
 		);
 	}
 }
@@ -730,15 +738,20 @@ async function sweepRepository(
  * Whether a live session works in a tree a quest claims, asked again
  * just before it goes: the sessions' records and hosts' rosters are read
  * afresh, and so are the processes when the machine has a reader for
- * them. A reader that can't say keeps the tree; with no reader at all,
- * the records and rosters alone decide.
+ * them. A reader that can't say keeps the tree, and says so apart from a
+ * session's taking it up; with no reader at all, the records and rosters
+ * alone decide.
  */
-async function takenUpAgain(deps: SweepDeps, tree: HeldTree): Promise<boolean> {
-	if ((await treesInUse(deps, [tree])).length > 0) return true;
-	if (deps.busyAmong === undefined) return false;
+async function takenUpAgain(
+	deps: SweepDeps,
+	tree: HeldTree,
+): Promise<"taken up" | "left" | "can't say"> {
+	if ((await treesInUse(deps, [tree])).length > 0) return "taken up";
+	if (deps.busyAmong === undefined) return "left";
 	const path = resolved(tree.path);
 	const busy = await deps.busyAmong([path]);
-	return busy === undefined || busy.has(path);
+	if (busy === undefined) return "can't say";
+	return busy.has(path) ? "taken up" : "left";
 }
 
 /**

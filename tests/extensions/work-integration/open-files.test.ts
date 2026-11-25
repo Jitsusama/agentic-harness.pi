@@ -58,13 +58,20 @@ describe("what lsof lists for the sweep", () => {
 			expect.objectContaining({
 				timeout: LSOF_LIMIT_MS,
 				killSignal: "SIGKILL",
-				maxBuffer: expect.any(Number),
+				// A busy Mac's listing ran to 66,418 lines, megabytes with
+				// their paths, and one cut short can never say.
+				maxBuffer: expect.toSatisfy(
+					(most: unknown) =>
+						typeof most === "number" && most >= 64 * 1024 * 1024,
+				),
 			}),
 		]);
 		expect(
 			LSOF_LIMIT_MS,
 			"lsof may outlast an ask's wait on the lock",
 		).toBeLessThan(10_000);
+		// execFile reads a limit of none as no limit at all.
+		expect(LSOF_LIMIT_MS, "lsof runs with no limit").toBeGreaterThan(0);
 	});
 
 	it("can't say when lsof fails, runs past its time or is missing, whatever it wrote", async () => {

@@ -88,18 +88,21 @@ describe("trees a live quest claims until spent", () => {
 		const blind = await cut("blind", ["-b", "blind", "@", "main"]);
 		let asked = 0;
 
-		// Whole while the sweep chooses, and blind under the tree's lock, as
-		// when lsof is cut at its limit.
+		// Blind under the tree's lock, the one place a claimed tree's
+		// processes are read, as when lsof is cut at its limit.
 		const outcome = await sweep(untilSpent(blind), undefined, {
 			busyAmong: async () => {
 				asked += 1;
-				return asked === 1 ? new Set() : undefined;
+				return undefined;
 			},
 		});
 
-		expect(outcome.taken, "a claimed tree was taken on a blind reading").toEqual(
-			[],
-		);
+		expect(asked, "the processes weren't read under the lock").toBe(1);
+
+		expect(
+			outcome.taken,
+			"a claimed tree was taken on a blind reading",
+		).toEqual([]);
 		expect(existsSync(blind), "a claimed tree went on a blind reading").toBe(
 			true,
 		);
