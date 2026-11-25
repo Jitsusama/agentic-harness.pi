@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
 	liveBus,
 	rememberBus,
+	rememberSession,
 } from "../../../../extensions/review-integration/engine.ts";
 import { watchStartedRound } from "../../../../extensions/review-integration/round-job.ts";
 import {
@@ -107,6 +108,28 @@ describe("the bus a round holds through a reload", () => {
 			expect(started).toEqual(["council council-1 on o/r#1"]);
 		} finally {
 			dispose();
+		}
+	});
+
+	it("puts nothing on another session's bus after a switch", () => {
+		const shared = createEventBus();
+		const first = load(shared);
+		rememberSession("session-a");
+		rememberBus(first.bus);
+		const held = liveBus(first.bus);
+
+		first.replace();
+		const other = load(createEventBus());
+		rememberSession("session-b");
+		rememberBus(other.bus);
+		const started: string[] = [];
+		const dispose = announceJobHost(other.bus, jobHost(started));
+		try {
+			expect(() => held.emit("anything", undefined)).toThrow(STALE);
+			expect(started).toEqual([]);
+		} finally {
+			dispose();
+			rememberSession(undefined);
 		}
 	});
 });

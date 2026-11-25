@@ -138,13 +138,23 @@ export function rememberBus(bus: EventBus): void {
  * shares, so it is read at each use rather than once. Until any load
  * has said its bus, it is `fallback`.
  *
+ * Only while the conversation is still the session that asked. On
+ * plain pi the standing is the process's, and a switch to another
+ * session moves it there, so a round from the first would put its
+ * watch and its prompt on a stranger's conversation; it keeps
+ * `fallback` instead, as before this existed. Hosted, a rollover or
+ * fork starts a new session's standing, which this doesn't follow:
+ * the round keeps the old session's bus.
+ *
  * A listener added through it stays on the bus it was added to, which
  * that bus's load takes off as it is replaced; it is for saying and for
  * asking, which hear their answer before `emit` returns.
  */
 export function liveBus(fallback: EventBus): EventBus {
 	const held = standing();
-	const current = (): EventBus => held.bus ?? fallback;
+	const asker = held.inSession;
+	const current = (): EventBus =>
+		held.inSession === asker ? (held.bus ?? fallback) : fallback;
 	return {
 		emit: (channel, data) => current().emit(channel, data),
 		on: (channel, handler) => current().on(channel, handler),
