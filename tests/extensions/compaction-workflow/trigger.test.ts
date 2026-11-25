@@ -536,6 +536,37 @@ describe("the compaction trigger", () => {
 			}
 		});
 
+		// A reason is a provider's own words, and a break or an escape in it
+		// would start a journal line of its own (5BACCAC3's F10 on #2133).
+		it("journals a wait on one line, whatever the reason carries", async () => {
+			completeSimple.mockRejectedValue(
+				new Error("overloaded\npi-host: forged line\u001b[2J"),
+			);
+			const at = await toTheEdge(true);
+			for (let tried = 1; tried <= 2; tried++) {
+				await endTurn(at.fire, ranTools, at.ctx);
+				await vi.waitFor(() =>
+					expect(completeSimple).toHaveBeenCalledTimes(tried),
+				);
+				await new Promise((r) => setTimeout(r, 0));
+			}
+			const written = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			try {
+				await endTurn(at.fire, ranTools, at.ctx);
+				const said = written.mock.calls.map(([line]) => String(line));
+				const wait = said.find((line) => line.includes("forged line"));
+				expect(wait, "the wait journalled").toMatch(
+					/^compaction-workflow: At \d+k tokens, .*overloaded pi-host: forged line/,
+				);
+				expect(wait?.indexOf("\n")).toBe((wait?.length ?? 0) - 1);
+				expect(wait).not.toContain("\u001b");
+			} finally {
+				written.mockRestore();
+			}
+		});
+
 		// Past the ceiling, which fires whatever rent was paid, a summary that
 		// keeps failing ahead still waits out its turns, as the README says
 		// (5BACCAC3's F86 on #2082).
