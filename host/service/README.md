@@ -143,7 +143,9 @@ input pipeline or screen. No unit or running host is installed yet.
   stop comes is left to systemd as before; a unit that never kills,
   under systemd's infinity, arms none; and a thread that can't start
   says so.
-- program.ts: that program, which `scripts/pi-host.ts` runs. It loads
+- program.ts: that program, which `scripts/pi-host.ts` runs, as
+  `scripts/pi-host.mjs` starts it once the stripped-source cache is
+  in place (lib/internal/stripped-source.mjs). It loads
   the host's pi from PI_PACKAGE_DIR, refused unless every host patch is
   there, starts pi's theme from the person's settings, and gives each
   conversation pi's InteractiveMode as its screen, H1's engine and the
@@ -166,7 +168,7 @@ input pipeline or screen. No unit or running host is installed yet.
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
   the install's current version changes the code the host process
-  loads itself (every module `scripts/pi-host.ts` reaches through
+  loads itself (every module `scripts/pi-host.mjs` reaches through
   runtime imports, with package.json and pnpm-lock.yaml), or systemd
   has read a new unit file, as a switch naming a new pi writes, or
   its heap holds more than half of what V8 allows, so a stop still

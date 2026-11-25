@@ -66,6 +66,11 @@ describe("relativeImports", () => {
 
 describe("hostCodeOf", () => {
 	beforeEach(async () => {
+		await put(
+			"scripts/pi-host.mjs",
+			'import "../lib/start.mjs";\nawait import("./pi-host.ts");\n',
+		);
+		await put("lib/start.mjs", "export {};\n");
 		await put("scripts/pi-host.ts", 'import { run } from "../host/run.ts";\n');
 		await put(
 			"host/run.ts",
@@ -82,8 +87,26 @@ describe("hostCodeOf", () => {
 		expect(await hostModules(root)).toEqual([
 			join(root, "host/late.ts"),
 			join(root, "host/run.ts"),
+			join(root, "lib/start.mjs"),
+			join(root, "scripts/pi-host.mjs"),
 			join(root, "scripts/pi-host.ts"),
 		]);
+	});
+
+	it("walks the program from a version with no entry before it", async () => {
+		await rm(join(root, "scripts/pi-host.mjs"));
+		expect(await hostModules(root)).toEqual([
+			join(root, "host/late.ts"),
+			join(root, "host/run.ts"),
+			join(root, "scripts/pi-host.mjs"),
+			join(root, "scripts/pi-host.ts"),
+		]);
+	});
+
+	it("changes with what the entry starts before the program", async () => {
+		const before = await hostCodeOf(root);
+		await put("lib/start.mjs", "export const started = 1;\n");
+		expect(await hostCodeOf(root)).not.toBe(before);
 	});
 
 	it("changes with a module the host loads or its packages", async () => {

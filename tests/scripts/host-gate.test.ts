@@ -514,6 +514,9 @@ describe("host-gate.sh", () => {
 		"lib/core/internal/keyring/store.ts",
 		"lib/core/internal/keyring/secret-service-call.mjs",
 		"scripts/spawn-decide.ts",
+		"scripts/pi-host.mjs",
+		"lib/internal/stripped-source.mjs",
+		"lib/internal/stripped-source-start.mjs",
 	])("counts %s, which the host or its tests load, as hosted", (file) => {
 		expect(hostedPattern().test(file), `${file} is hosted`).toBe(true);
 	});

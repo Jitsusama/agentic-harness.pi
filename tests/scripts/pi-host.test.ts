@@ -1,6 +1,7 @@
 /**
- * pi-host as a unit runs it: node running the script as it stands, in a
- * sealed environment of its own, exiting 78 when what it was given is
+ * pi-host as a unit runs it: node running its entry as it stands, which
+ * starts the stripped-source cache and then the program, in a sealed
+ * environment of its own, exiting 78 when what it was given is
  * refused, so a unit naming that status stops restarting it.
  *
  * It is the check for a load the walk in
@@ -36,10 +37,28 @@ import { EXIT_MISCONFIGURED } from "../../host/service/program.ts";
 import "../../host/service/run.ts";
 import "../../lib/internal/fence/compile-cache-place.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import "../../lib/internal/stripped-source.mjs";
 
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, "..", "..");
-const SCRIPT = join(ROOT, "scripts", "pi-host.ts");
+const SCRIPT = join(ROOT, "scripts", "pi-host.mjs");
+
+/** Where the stripped-source cache keeps what node stripped, under a home. */
+const CACHE = join("state", "pi", "agentic-harness.pi", "stripped-source");
+
+/**
+ * What a run made under `home` but the stripped-source cache, which a
+ * start keeps where node 22 strips types, and the folders holding it.
+ */
+function madeBesidesCache(home: string): string[] {
+	return readdirSync(home, { recursive: true })
+		.map(String)
+		.filter(
+			(path) =>
+				!(path === CACHE || path.startsWith(`${CACHE}/`)) &&
+				!CACHE.startsWith(`${path}/`),
+		);
+}
 
 /** How long one pi-host run may take, under a busy machine. */
 const ONE_RUN = 20_000;
@@ -96,6 +115,29 @@ function refusing(lacking: readonly string[], root: string): string {
 		"\t\tthrow error;",
 		"\t}",
 		"\treturn next(specifier, context);",
+		"} });",
+	].join("\n");
+	return `--import=data:text/javascript,${encodeURIComponent(code)}`;
+}
+
+/** What the start module says once it has run, under {@link recordingStart}. */
+const STARTED = "stripped-source cache started";
+
+/**
+ * node's `--import` of a load hook that has the stripped-source cache's
+ * start module say {@link STARTED} once it has run, and that names each
+ * TypeScript file node loads past it, so a run's standard error orders
+ * the cache's start against the TypeScript it must come before.
+ */
+function recordingStart(): string {
+	const code = [
+		'import { registerHooks } from "node:module";',
+		"registerHooks({ load(url, context, next) {",
+		"\tconst loaded = next(url, context);",
+		'\tif (url.endsWith("/lib/internal/stripped-source-start.mjs"))',
+		`\t\treturn { ...loaded, source: String(loaded.source) + ${JSON.stringify(`\nprocess.stderr.write(${JSON.stringify(`${STARTED}\n`)});\n`)} };`,
+		'\tif (/\\.m?ts$/.test(url)) process.stderr.write("loaded " + url + "\\n");',
+		"\treturn loaded;",
 		"} });",
 	].join("\n");
 	return `--import=data:text/javascript,${encodeURIComponent(code)}`;
@@ -169,11 +211,48 @@ describe("pi-host", () => {
 				/^pi-host: The pi at .*no-pi is incomplete/,
 			);
 			expect(refused.stderr, "no stack for a refusal").not.toContain("    at ");
-			expect(readdirSync(home), "nothing was made").toEqual([]);
+			expect(madeBesidesCache(home), "nothing was made").toEqual([]);
 
 			expect((await piHost(env, "sideways")).code).toBe(EXIT_MISCONFIGURED);
 		},
 		THREE_RUNS,
+	);
+
+	it(
+		"starts the stripped-source cache before node loads any of its TypeScript",
+		async () => {
+			const home = mkdtempSync(join(tmpdir(), "h2-pi-host-start-"));
+			made.push(home);
+			const { stderr } = await run(
+				process.execPath,
+				[
+					"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+					recordingStart(),
+					SCRIPT,
+					"attended",
+				],
+				{
+					env: {
+						PATH: process.env.PATH,
+						HOME: home,
+						TMPDIR: home,
+						XDG_STATE_HOME: join(home, "state"),
+					},
+					timeout: ONE_RUN,
+				},
+			).then(
+				() => ({ stderr: "pi-host ran on, unrefused" }),
+				(failed: { stderr?: string }) => ({ stderr: failed.stderr ?? "" }),
+			);
+			const lines = stderr.split("\n");
+			const started = lines.indexOf(STARTED);
+			expect(started, stderr).toBeGreaterThanOrEqual(0);
+			expect(
+				lines.slice(0, started).filter((line) => line.startsWith("loaded ")),
+				"TypeScript loaded before the cache started",
+			).toEqual([]);
+		},
+		ONE_RUN,
 	);
 
 	it(

@@ -162,6 +162,25 @@ export async function supervisorEnvironment(
 	};
 }
 
+/**
+ * The module node imports before a supervisor's own: the supervisor
+ * imports TypeScript, which node 22 strips with a transpiler it then
+ * keeps loaded, and this keeps what it stripped so a later supervisor
+ * needs none (lib/internal/stripped-source.mjs).
+ */
+const STRIPPED_SOURCE_START = new URL(
+	"../../internal/stripped-source-start.mjs",
+	import.meta.url,
+).href;
+
+/** What node is given to run the supervisor `script` on `requestPath`. */
+export function supervisorArguments(
+	script: string,
+	requestPath: string,
+): string[] {
+	return ["--import", STRIPPED_SOURCE_START, script, requestPath];
+}
+
 /** Where the supervisor script is and what runs it. */
 export function supervisorPlaces(config: SupervisorRunPiConfig): {
 	script: string;

@@ -61,6 +61,8 @@ describe("createSupervisorRunPi: the parent over its supervisor", () => {
 			{
 				command: "node",
 				args: [
+					"--import",
+					expect.stringMatching(/^file:.*\/stripped-source-start\.mjs$/),
 					"/pkg/reviewer-supervisor.mjs",
 					expect.stringContaining("request.json"),
 				],

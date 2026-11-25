@@ -194,7 +194,7 @@ export function fakeSupervisor(
 	return (_command, args) => {
 		queueMicrotask(async () => {
 			const request: FakeRequest = JSON.parse(
-				await readFile(String(args[1]), "utf-8"),
+				await readFile(String(args.at(-1)), "utf-8"),
 			);
 			await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
 				request.paths.resultPath,

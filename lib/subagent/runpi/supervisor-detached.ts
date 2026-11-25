@@ -9,6 +9,7 @@ import type { RunPi } from "../subagent.ts";
 import {
 	type SupervisorRunPiConfig,
 	type SupervisorSpawnFn,
+	supervisorArguments,
 	supervisorEnvironment,
 	supervisorPlaces,
 	told,
@@ -41,7 +42,7 @@ export function createSupervisorStartPi(
 
 		const supervisor = spawnFn(
 			where.nodeBinary,
-			[where.script, paths.requestPath],
+			supervisorArguments(where.script, paths.requestPath),
 			{
 				cwd: options.cwd,
 				env,

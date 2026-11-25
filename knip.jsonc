@@ -10,6 +10,7 @@
 		"host/*/index.ts",
 		// Programs run by hand, by pnpm or by node directly.
 		"scripts/*.ts",
+		"scripts/*.mjs",
 		"lib/**/*.mjs",
 		// The tests and their configs.
 		"tests/**/*.test.ts",
@@ -34,7 +35,7 @@
 		"host/**/*.ts",
 		"lib/**/*.{ts,mjs}",
 		"packs/**/*.ts",
-		"scripts/**/*.ts",
+		"scripts/**/*.{ts,mjs}",
 		"tests/**/*.ts",
 		"tests/**/*.mts"
 	],
