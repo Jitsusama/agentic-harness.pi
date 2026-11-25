@@ -10,7 +10,17 @@ import type {
 	QuestFrontMatter,
 } from "../../../lib/quest/types.ts";
 
-const SAMPLE_QUEST_FM: QuestFrontMatter = {
+/**
+ * A shape with every field made required, nested ones included, so a
+ * fixture typed with it must set each field at every depth.
+ */
+type EveryField<T> = T extends readonly (infer U)[]
+	? EveryField<U>[]
+	: T extends object
+		? { [K in keyof T]-?: EveryField<T[K]> }
+		: T;
+
+const SAMPLE_QUEST_FM = {
 	id: "QEST-20260603-AAA111",
 	kind: "sidequest",
 	parent: "QEST-20260601-PPP000",
@@ -35,7 +45,7 @@ const SAMPLE_QUEST_FM: QuestFrontMatter = {
 		},
 		{ id: "jkl-mno-pqr", status: "detached" },
 	],
-};
+} satisfies QuestFrontMatter;
 
 const SESSION_WITH_IDENTITY: QuestFrontMatter = {
 	...SAMPLE_QUEST_FM,
@@ -356,28 +366,51 @@ describe("document front-matter", () => {
 		const text = ["---", "id: PLAN-x", "kind: plan", "---"].join("\n");
 		expect(parseDocumentFrontMatter(text)).toBeUndefined();
 	});
-
-	it("round-trips the rounds and subject markers", () => {
-		const fm: DocumentFrontMatter = {
-			...SAMPLE,
-			rounds: 3,
-			subject: "pr-review",
-		};
-		const text = `${serializeDocumentFrontMatter(fm)}\n# Plan title\n`;
-		const parsed = parseDocumentFrontMatter(text);
-		expect(parsed?.frontMatter).toEqual(fm);
-	});
 });
 
-// Each shape's fixture is `Required`, so a field added to the type has to
-// be set here, and the round-trip fails if one side drops it: the check the
-// file's "Long because" leans on.
+// Each shape's fixture is typed `EveryField`, so the typecheck fails until a
+// field added to the type, at any depth, is set here; the round-trip then
+// fails if one side drops it. Together they are the check the file's "Long
+// because" leans on.
 describe("every front-matter field", () => {
 	it("round-trips every field a quest can hold", () => {
-		const fm: Required<QuestFrontMatter> = {
+		const fm: EveryField<QuestFrontMatter> = {
 			...SAMPLE_QUEST_FM,
-			due: "2026-08-01",
-			eta: "2026-07-15",
+			sessions: [
+				{
+					id: "live-session",
+					name: "investigation",
+					cwd: "/Users/joel/world",
+					started: "2026-06-03T18:14:00Z",
+					status: "active",
+					instanceId: "inst-42",
+					process: {
+						hostId: "host-a",
+						pid: 4321,
+						startToken: "Sat Jul 12",
+						bootToken: "3152D2B4-B508-4118-BDE5-7804CA87C255",
+						startTicks: 123_456,
+						hosted: {
+							host: "host-a",
+							session: "conversation-7",
+							owner: {
+								pid: 4000,
+								startedAt: 1_780_000_000_000,
+								bootId: "3152D2B4-B508-4118-BDE5-7804CA87C255",
+								session: "conversation-7",
+								host: "host-a",
+								startTicks: 120_000,
+							},
+						},
+					},
+					terminal: {
+						driverId: "wezterm",
+						value: "7",
+						scope: "/sock/gui-1",
+						hostId: "host-a",
+					},
+				},
+			],
 			short: "a-short-name",
 			orchestrator: true,
 			orchestratedBy: "QEST-20260601-PPP000",
@@ -389,7 +422,10 @@ describe("every front-matter field", () => {
 					path: "/Users/joel/src/world/.worktrees/feature-x",
 					branch: "feature-x",
 					repoRoot: "/Users/joel/src/world",
-					providerId: "git-worktree",
+					providerId: "world-dev-tree",
+					zones: ["areas/tools/pi"],
+					origin: "scaffolded",
+					host: "optimus",
 				},
 			],
 			pendingPrune: [
@@ -409,7 +445,7 @@ describe("every front-matter field", () => {
 	});
 
 	it("round-trips every field a document can hold", () => {
-		const fm: Required<DocumentFrontMatter> = {
+		const fm: EveryField<DocumentFrontMatter> = {
 			id: "PLAN-20260603-BBB222",
 			kind: "plan",
 			quest: "QEST-20260603-AAA111",
@@ -422,6 +458,40 @@ describe("every front-matter field", () => {
 		const text = `${serializeDocumentFrontMatter(fm)}\n# Plan title\n`;
 		expect(parseDocumentFrontMatter(text)?.frontMatter).toEqual(fm);
 	});
+
+	// A key an object already answers to, by its prototype, is still the
+	// person's own field and comes back as it was written.
+	it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+		"keeps an extra field named %s on a quest and a document",
+		(key) => {
+			const extra = Object.defineProperty({}, key, {
+				value: "kept",
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			});
+			const quest: QuestFrontMatter = { ...SAMPLE_QUEST_FM, _extra: extra };
+			const questText = `${serializeQuestFrontMatter(quest)}\n# Title\n`;
+			const doc: DocumentFrontMatter = {
+				id: "PLAN-20260603-BBB222",
+				kind: "plan",
+				quest: "QEST-20260603-AAA111",
+				stage: "build",
+				updated: "2026-06-03",
+				_extra: extra,
+			};
+			const docText = `${serializeDocumentFrontMatter(doc)}\n# Plan\n`;
+
+			expect(
+				parseQuestFrontMatter(questText)?.frontMatter._extra,
+				"the quest's",
+			).toStrictEqual(extra);
+			expect(
+				parseDocumentFrontMatter(docText)?.frontMatter._extra,
+				"the document's",
+			).toStrictEqual(extra);
+		},
+	);
 });
 
 describe("frontmatter parser failure branches", () => {
