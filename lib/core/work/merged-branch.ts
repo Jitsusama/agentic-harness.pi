@@ -7,6 +7,10 @@
  * of config, which every git command there read, the host's presence
  * publish among them. A branch whose commits are all on the remote's
  * trunk holds nothing anyone can lose, so it goes when its tree does.
+ *
+ * A squash merge lands a branch's work under a commit of trunk's own, so
+ * trunk never holds the branch's commits; the forge says which heads it
+ * merged instead ({@link mergedPullHeads}).
  */
 
 import { statSync } from "node:fs";
@@ -209,4 +213,84 @@ function settled(log: string, before: number): boolean {
 		// branch last moved, so it is kept.
 		return false;
 	}
+}
+
+/**
+ * How many merged pull requests one listing reads, newest first: on 25
+ * November one machine's worktrees of its three busiest repositories sat
+ * at the heads of 448 among their newest thousand merged. A tree landed
+ * earlier is kept, as before.
+ */
+const MERGED_LISTED = 1000;
+
+/** A GitHub repository's owner and name, from its remote's URL. */
+const GITHUB_REMOTE =
+	/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/;
+
+/** One merged pull request as gh lists it. */
+interface MergedPull {
+	number: number;
+	headRefOid: string;
+}
+
+/** Whether gh's listing holds a merged pull request's number and head. */
+function isMergedPull(value: unknown): value is MergedPull {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"number" in value &&
+		typeof value.number === "number" &&
+		"headRefOid" in value &&
+		typeof value.headRefOid === "string"
+	);
+}
+
+/**
+ * The head commit of each pull request GitHub merged into the repository
+ * `checkout`'s origin names, with its number, newest first up to
+ * {@link MERGED_LISTED}, in one listing. A tree whose HEAD is one of them
+ * holds what was reviewed and merged, though a squash merge left trunk
+ * without its commits and the forge then deleted its branch. Nothing for
+ * an origin elsewhere than GitHub, or when gh can't say, as without a
+ * login or a network.
+ */
+export async function mergedPullHeads(
+	exec: Exec,
+	checkout: string,
+): Promise<ReadonlyMap<string, number> | undefined> {
+	const origin = await exec("git", [
+		"-C",
+		checkout,
+		"remote",
+		"get-url",
+		"origin",
+	]);
+	const repository = GITHUB_REMOTE.exec(origin.stdout.trim())?.[1];
+	if (origin.code !== 0 || repository === undefined) return undefined;
+	const listed = await exec("gh", [
+		"pr",
+		"list",
+		"--repo",
+		repository,
+		"--state",
+		"merged",
+		"--limit",
+		String(MERGED_LISTED),
+		"--json",
+		"number,headRefOid",
+	]);
+	if (listed.code !== 0) return undefined;
+	let pulls: unknown;
+	try {
+		pulls = JSON.parse(listed.stdout);
+	} catch {
+		// Not gh's listing, so nothing it says can be trusted to name a head.
+		return undefined;
+	}
+	if (!Array.isArray(pulls)) return undefined;
+	return new Map(
+		pulls
+			.filter(isMergedPull)
+			.map((pull) => [pull.headRefOid, pull.number] as const),
+	);
 }

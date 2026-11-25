@@ -67,7 +67,11 @@ import {
 	type UseSigns,
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
-import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
+import {
+	dropMergedBranch,
+	mergedPullHeads,
+	type WentBranch,
+} from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	checkoutOf,
@@ -208,7 +212,27 @@ export interface SweepDeps extends UseSigns {
 	 * part way are finished. Without it, they stay.
 	 */
 	treesDir?: string;
+	/**
+	 * The head commits of the pull requests merged into a checkout's
+	 * origin, each with its number, or nothing when its forge can't say;
+	 * GitHub's, through gh, by default. A clean ended tree at one of them
+	 * goes, as one trunk holds does.
+	 */
+	mergedHeads?: (
+		checkout: string,
+	) => Promise<ReadonlyMap<string, number> | undefined>;
+	/**
+	 * How long, in milliseconds of awake time, a sweep that finds another
+	 * running waits its turn for the lock, looking again every
+	 * `lockWaitEveryMs`; none by default, as a host's sweep stands down.
+	 */
+	lockWaitMs?: number;
+	/** How often a sweep waiting its turn looks at the lock again. */
+	lockWaitEveryMs?: number;
 }
+
+/** How often a sweep waiting its turn looks at the lock again, by default. */
+const LOCK_WAIT_EVERY_MS = 10 * 1000;
 
 /**
  * What holders claim: paths held for good, or those and the paths held
@@ -227,6 +251,8 @@ export interface SweptTree {
 	branchGone?: true;
 	/** The remote-tracking branch that holds its commit, when trunk didn't. */
 	remote?: string;
+	/** The pull request merged at its HEAD, when trunk didn't hold it. */
+	landed?: number;
 	/** The sessions its record named, so one reopened can recut it. */
 	sessions?: string[];
 	/** The commit a snapshot taken from a live session was pinned at. */
@@ -328,7 +354,14 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	const awake = deps.awake ?? (() => performance.now());
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
-	const release = sweepLock(deps.lockPath, deps.lockFresh);
+	let release = sweepLock(deps.lockPath, deps.lockFresh);
+	const waitUntil = awake() + (deps.lockWaitMs ?? 0);
+	while (typeof release === "string" && awake() < waitUntil) {
+		await new Promise((done) =>
+			setTimeout(done, deps.lockWaitEveryMs ?? LOCK_WAIT_EVERY_MS),
+		);
+		release = sweepLock(deps.lockPath, deps.lockFresh);
+	}
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
 		// Asked at once, before any wait, so a conversation that closes
@@ -689,6 +722,12 @@ async function sweepRepository(
 	let plan: ReturnType<typeof orphanedTrees>;
 	try {
 		const trunk = await trunkOf(deps.exec, main);
+		// One listing for the repository, not one ask a tree: core.nix's
+		// trees alone numbered 397 on 25 November.
+		const merged = await (
+			deps.mergedHeads ??
+			((checkout: string) => mergedPullHeads(deps.exec, checkout))
+		)(main);
 		const spendable = new Set(held.spendable);
 		// Only the trees this sweep judges are asked anything: every other
 		// worktree beside them, live sessions' and the person's own, is one
@@ -719,6 +758,7 @@ async function sweepRepository(
 				headStillSince(path, (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS),
 			stillPinned: (path, commit) =>
 				commit !== undefined && pins.get(path) === commit,
+			...(merged ? { landed: (commit: string) => merged.get(commit) } : {}),
 		});
 	} catch (error) {
 		for (const tree of trees) {
@@ -746,6 +786,13 @@ async function sweepRepository(
 		// Set under the lock, so a keep can say a reading that couldn't tell
 		// kept the tree rather than blame a session.
 		let unread = false;
+		// Merged at its HEAD when chosen, and taken only while it still sits
+		// there on the same branch, read again under its record's lock.
+		const stillLanded = async () =>
+			offer.landed === undefined ||
+			(offer.branch !== undefined &&
+				offer.commit !== undefined &&
+				(await stillAt(deps.exec, tree.path, offer.branch, offer.commit)));
 		await takeBack(
 			deps,
 			facts,
@@ -755,6 +802,7 @@ async function sweepRepository(
 				path: tree.path,
 				...(offer.branch ? { branch: offer.branch } : {}),
 				...(remote ? { remote } : {}),
+				...(offer.landed === undefined ? {} : { landed: offer.landed }),
 				...(tree.sessions?.length ? { sessions: [...tree.sessions] } : {}),
 			},
 			outcome,
@@ -769,14 +817,41 @@ async function sweepRepository(
 							async () => {
 								const again = await takenUpAgain(deps, tree);
 								unread = again === "can't say";
-								return again === "left" && take();
+								return again === "left" && (await stillLanded()) && take();
 							},
 							facts,
 						)
-				: undefined,
+				: (take) =>
+						deps.memory.whileUnheld(
+							tree.path,
+							async () => (await stillLanded()) && take(),
+							facts,
+						),
 			{ unread: () => unread },
 		);
 	}
+}
+
+/**
+ * Whether a worktree's HEAD is still `branch`, at `commit`. A tree that
+ * can't say is not.
+ */
+async function stillAt(
+	exec: Exec,
+	path: string,
+	branch: string,
+	commit: string,
+): Promise<boolean> {
+	const git = (...args: string[]) =>
+		exec("git", ["-C", path, "--no-optional-locks", ...args]);
+	const ref = await git("symbolic-ref", "--quiet", "HEAD");
+	const head = await git("rev-parse", "HEAD");
+	return (
+		ref.code === 0 &&
+		head.code === 0 &&
+		ref.stdout.trim() === `refs/heads/${branch}` &&
+		head.stdout.trim() === commit
+	);
 }
 
 /**

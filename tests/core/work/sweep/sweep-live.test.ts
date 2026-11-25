@@ -209,6 +209,54 @@ describe("sweeping the trees whose sessions have ended", () => {
 		]);
 	});
 
+	it("takes a tree at a merged pull request's head at once, though its branch left the remote", async () => {
+		const { main, cut, sweep } = await setUp();
+		const tree = await landed(cut, "squashed");
+		const head = (await git(tree, "rev-parse", "HEAD")).trim();
+		// As a forge does once it squash-merges a pull request.
+		await git(main, "push", "-q", "origin", "--delete", "squashed");
+		await git(main, "fetch", "-q", "--prune", "origin");
+		const asked: string[] = [];
+
+		const outcome = await sweep([], undefined, {
+			mergedHeads: async (checkout) => {
+				asked.push(checkout);
+				return new Map([[head, 42]]);
+			},
+		});
+
+		expect(outcome.taken).toEqual([
+			{ path: tree, branch: "squashed", landed: 42 },
+		]);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+		expect(asked, "one listing for the repository").toHaveLength(1);
+		// Kept, to cut the tree again at what was merged.
+		expect(await git(main, "rev-parse", "squashed")).toContain(head);
+	});
+
+	it("keeps a tree with a commit past a merged pull request's head, or dirty", async () => {
+		const { cut, sweep } = await setUp();
+		const ahead = await landed(cut, "ahead-of-merge");
+		const merged = (await git(ahead, "rev-parse", "HEAD")).trim();
+		await git(ahead, "commit", "-q", "--allow-empty", "-m", "after review");
+		const dirty = await landed(cut, "dirty-at-merge");
+		const at = (await git(dirty, "rev-parse", "HEAD")).trim();
+		writeFileSync(join(dirty, "notes.txt"), "unsaved\n");
+
+		const outcome = await sweep([], undefined, {
+			mergedHeads: async () =>
+				new Map([
+					[merged, 7],
+					[at, 8],
+				]),
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept.map((one) => one.path).sort()).toEqual(
+			[ahead, dirty].sort(),
+		);
+	});
+
 	it("keeps a tree with a commit on no remote, however long it sat", async () => {
 		const { cut, sweep } = await setUp();
 		const tree = await landed(cut, "unpushed");
@@ -282,6 +330,31 @@ describe("sweeping the trees whose sessions have ended", () => {
 			existsSync(lockPath),
 			`${lockPath} is released once the sweep ends`,
 		).toBe(false);
+	});
+
+	it("waits its turn for the lock when told to, and stands down once its wait is spent", async () => {
+		const { lockPath, cut, sweep } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+		writeFileSync(lockPath, String(process.pid));
+
+		const spent = await sweep([], undefined, {
+			lockWaitMs: 100,
+			lockWaitEveryMs: 20,
+		});
+		expect(spent.skipped).toContain(String(process.pid));
+		expect(existsSync(tree), `${tree} is kept while the lock stays held`).toBe(
+			true,
+		);
+
+		// The other sweep ends a moment into this one's wait, as a host's
+		// did at 10:21 on 25 November while the hourly runner stood down.
+		setTimeout(() => rmSync(lockPath, { force: true }), 150);
+		const waited = await sweep([], undefined, {
+			lockWaitMs: 10_000,
+			lockWaitEveryMs: 20,
+		});
+		expect(waited.skipped).toBeUndefined();
+		expect(waited.taken.map((one) => one.path)).toEqual([tree]);
 	});
 
 	it("rests after any sweep ends, until its rest is over", async () => {

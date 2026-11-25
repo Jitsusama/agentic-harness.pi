@@ -226,6 +226,11 @@ export interface SweepAsks {
 	 */
 	betweenIdleTakes?: () => Promise<void>;
 	/**
+	 * How long a sweep that finds another running waits its turn for the
+	 * lock, in milliseconds of awake time; a host's stands down at once.
+	 */
+	lockWaitMs?: number;
+	/**
 	 * Whether its git holds to the fence's guard in every repository, as
 	 * a fenced session's does, whatever this process's own sandbox.
 	 */
@@ -272,6 +277,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			...(asks.betweenIdleTakes === undefined
 				? {}
 				: { betweenIdleTakes: asks.betweenIdleTakes }),
+			...(asks.lockWaitMs === undefined ? {} : { lockWaitMs: asks.lockWaitMs }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			// Stopped removals are finished only by a runner that paces its

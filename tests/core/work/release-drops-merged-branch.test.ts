@@ -12,7 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
-import { dropMergedBranch } from "../../../lib/core/work/merged-branch.ts";
+import {
+	dropMergedBranch,
+	mergedPullHeads,
+} from "../../../lib/core/work/merged-branch.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import { reclaimTrees } from "../../../lib/core/work/reclaim.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
@@ -318,5 +321,91 @@ describe("reclaiming a tree", () => {
 			true,
 		);
 		expect(await sections("jg/unmerged")).not.toBe("");
+	});
+});
+
+describe("the heads a forge merged", () => {
+	/** An exec answering git's origin with `origin` and gh with `listed`. */
+	const answering =
+		(
+			origin: string,
+			listed: { code: number; stdout: string },
+			asked: string[][] = [],
+		): Exec =>
+		async (command, args) => {
+			asked.push([command, ...args]);
+			if (command === "git") {
+				return { code: 0, stdout: `${origin}\n`, stderr: "" };
+			}
+			return { ...listed, stderr: "" };
+		};
+	const two = {
+		code: 0,
+		stdout: JSON.stringify([
+			{ number: 12, headRefOid: "a".repeat(40) },
+			{ number: 11, headRefOid: "b".repeat(40) },
+		]),
+	};
+
+	it("lists a GitHub origin's merged pull requests once, by head", async () => {
+		for (const origin of [
+			"https://github.com/owner/repo.git",
+			"git@github.com:owner/repo.git",
+			"ssh://git@github.com/owner/repo",
+		]) {
+			const asked: string[][] = [];
+			const heads = await mergedPullHeads(
+				answering(origin, two, asked),
+				"/checkout",
+			);
+			expect(heads, origin).toEqual(
+				new Map([
+					["a".repeat(40), 12],
+					["b".repeat(40), 11],
+				]),
+			);
+			const listings = asked.filter(([command]) => command === "gh");
+			expect(listings, origin).toHaveLength(1);
+			expect(listings[0], origin).toEqual(
+				expect.arrayContaining(["--repo", "owner/repo", "merged"]),
+			);
+		}
+	});
+
+	it("says nothing for another forge, a failed listing or one it can't read", async () => {
+		const asked: string[][] = [];
+		expect(
+			await mergedPullHeads(
+				answering("/srv/git/repo", two, asked),
+				"/checkout",
+			),
+		).toBeUndefined();
+		expect(
+			asked.some(([command]) => command === "gh"),
+			"another forge is never asked of GitHub",
+		).toBe(false);
+		const origin = "https://github.com/owner/repo";
+		expect(
+			await mergedPullHeads(
+				answering(origin, { code: 1, stdout: "" }),
+				"/checkout",
+			),
+		).toBeUndefined();
+		expect(
+			await mergedPullHeads(
+				answering(origin, { code: 0, stdout: "not json" }),
+				"/checkout",
+			),
+		).toBeUndefined();
+		expect(
+			await mergedPullHeads(
+				answering(origin, {
+					code: 0,
+					stdout: JSON.stringify([{ number: "12", headRefOid: 4 }]),
+				}),
+				"/checkout",
+			),
+			"an entry without a number and a head names nothing",
+		).toEqual(new Map());
 	});
 });
