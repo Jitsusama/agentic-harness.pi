@@ -274,14 +274,37 @@ describe("the person's look list, from show_person", () => {
 		expect(own?.content[0]?.text).toMatch(
 			/^⊘ Jitsusama wrote that change, the account every one of the person's sessions proposes under\. .* Nothing was added\.$/,
 		);
-		expect(asked, "the host was asked of each").toEqual([
-			pr.target,
+		expect(asked, "the host was asked of each, as compared").toEqual([
+			pr.target.toLowerCase(),
 			"https://github.com/o/r/pull/9",
 		]);
 		expect(
 			looksIn(join(fixture.root, "looks")).map((look) => look.target),
 			"someone else's change goes up",
 		).toEqual(["https://github.com/o/r/pull/9"]);
+	});
+
+	it("asks the host of another spelling of the change as the change itself", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools, whoWrote } = await startSession();
+		const asked: string[] = [];
+		whoWrote((url) => {
+			asked.push(url);
+			return url.startsWith("https://github.com/o/r/pull/1378/")
+				? { by: "signed-in", author: "Jitsusama" }
+				: { by: "no-change" };
+		});
+
+		const refused = await tools.get("show_person")?.execute("call-s", {
+			...pr,
+			kind: "diff",
+			target: "  https://WWW.GitHub.com/O/R/pull/1378/files",
+		});
+
+		expect(asked).toEqual(["https://github.com/o/r/pull/1378/files"]);
+		expect(refused?.content[0]?.text).toMatch(/^⊘ Jitsusama wrote that change/);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
 	});
 
 	it("refuses a change whose host can't say who wrote it", async () => {

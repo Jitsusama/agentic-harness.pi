@@ -33,6 +33,7 @@ import {
 	opensOneOf,
 	ownChangesBeside,
 	proposedIn,
+	proposedKey,
 } from "../../lib/mesh/looks/own-changes.ts";
 import { INTENTS } from "../../lib/mesh/message.ts";
 import { leasesText } from "./leases.ts";
@@ -471,10 +472,13 @@ export function registerTools(
 			// No record of a proposal survives every compaction and rollover,
 			// so the change's host is asked too: one the person's own account
 			// wrote is his sessions', whichever put it up.
-			if (WEB_ADDRESS.test(pointing.target)) {
+			// Asked as compared, so a spelling GitHub opens the same (a case,
+			// `www.`, Graphite's view, a leading space) is asked as the change.
+			const asked = proposedKey(pointing.target);
+			if (WEB_ADDRESS.test(asked)) {
 				const authored = authoredRefusal(
-					await askAuthored(pi.events, pointing.target),
-					pointing.kind,
+					await askAuthored(pi.events, asked),
+					asked,
 				);
 				if (authored) return answer(`⊘ ${authored} Nothing was added.`);
 			}

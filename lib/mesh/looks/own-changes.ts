@@ -255,26 +255,38 @@ const OWN_CHANGE_INSTEAD =
 export const OWN_CHANGE_REFUSED = `This session or its quest proposed that change. ${OWN_CHANGE_INSTEAD}`;
 
 /**
- * Why a look said as `kind` is refused for what its target's host said
- * of who wrote it, or nothing when it may go up. A change the signed-in
- * account wrote is the person's own account's, which every agent
- * proposes under, so it is refused whichever session put it up. One a
- * host claims but can't say the author of is refused too, since it may
- * be his; so is a pull request look nothing answered for. A page no
- * host claims, or someone else's change, goes up.
+ * What to do with a change nobody could say the author of: it may be
+ * his sessions' or a colleague's, so both ways on are named, and the
+ * second still reaches him, in words rather than on the look list.
+ */
+const UNSURE_INSTEAD =
+	"If one of his sessions wrote it, review it yourself: have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer. If someone else wrote it, tell him through mesh_send to person, with its link, what it is and why he should look.";
+
+/** A compared key's path names a pull request, or a tab, file or diff of one. */
+const PULL_REQUEST_PATH = /^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+(?:\/|$)/;
+
+/**
+ * Why a look at `target` is refused for what its host said of who wrote
+ * it, or nothing when it may go up. A change the signed-in account wrote
+ * is the person's own account's, which every agent proposes under, so it
+ * is refused whichever session put it up. One a host claims but can't
+ * say the author of is refused too, since it may be his, and so is a
+ * pull request's address nothing answered for, whatever kind the look
+ * is said as, since a page or a diff of it opens the same change. A
+ * page no host claims, or someone else's change, goes up.
  */
 export function authoredRefusal(
 	authored: Authored,
-	kind: string,
+	target: string,
 ): string | undefined {
 	switch (authored.by) {
 		case "signed-in":
 			return `${authored.author} wrote that change, the account every one of the person's sessions proposes under. ${OWN_CHANGE_INSTEAD}`;
 		case "unknown":
-			return `Its host couldn't say who wrote that change (${authored.why}), and a change his own account wrote never goes on his look list. ${OWN_CHANGE_INSTEAD}`;
+			return `Its host couldn't say who wrote that change (${authored.why}), and a change his own account wrote never goes on his look list. ${UNSURE_INSTEAD}`;
 		case "unanswered":
-			return kind === "pr"
-				? `Nothing could say in time who wrote that change, and a change his own account wrote never goes on his look list. ${OWN_CHANGE_INSTEAD}`
+			return PULL_REQUEST_PATH.test(proposedKey(target))
+				? `Nothing could say in time who wrote that change, and a change his own account wrote never goes on his look list. ${UNSURE_INSTEAD}`
 				: undefined;
 		case "other":
 		case "no-change":
