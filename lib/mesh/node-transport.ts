@@ -17,7 +17,7 @@ import { hosted } from "../core/session/host.ts";
 import { sessionRealm } from "../internal/machine/realm.ts";
 import { stateDir } from "../internal/paths.ts";
 import type { Message } from "./message.ts";
-import { homeNodeSocket, nodeSocket } from "./node.ts";
+import { homeNodeSocket } from "./node.ts";
 import { type MessageWatch, watchMessages } from "./node-messages.ts";
 import { folderTransport, type Transport } from "./transport.ts";
 
@@ -46,21 +46,23 @@ function spread(ms: number): number {
 
 /**
  * The transport of the mesh kept at `mesh`: its messages folder, heard
- * through the node of the session's realm by a pi on a host, where
- * `mesh` is that realm's own, and read from the folder alone anywhere
- * else. A pi outside a host is one process reading once, as presence's
- * mirror leaves it, and a test's mesh, though it sits where its state
- * dir says, is no folder the machine's node follows. `PI_MESH_NODE=off`
- * hears by the folder, should the node's word ever be doubted, without
- * stopping the node.
+ * through the home realm's node by a pi on a host, where `mesh` is the
+ * home realm's own, and read from the folder alone anywhere else. A pi
+ * outside a host is one process reading once, as presence's mirror
+ * leaves it; a test's mesh, though it sits where its state dir says, is
+ * no folder the machine's node follows; and another realm's node may
+ * follow a folder of its own, so its sessions read theirs, as their
+ * presence does. `PI_MESH_NODE=off` hears by the folder, should the
+ * node's word ever be doubted, without stopping the node.
  */
 export function meshTransport(mesh: string): Transport {
 	const folder = folderTransport(join(mesh, "messages"));
 	return nodeTransport(folder, () => {
 		if (process.env.PI_MESH_NODE === "off") return undefined;
 		if (hosted() === undefined) return undefined;
+		if (sessionRealm().kind !== "home") return undefined;
 		if (mesh !== stateDir("mesh-workflow")) return undefined;
-		return sessionRealm().kind === "other" ? nodeSocket() : homeNodeSocket();
+		return homeNodeSocket();
 	});
 }
 

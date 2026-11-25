@@ -241,11 +241,9 @@ describe("presence on a host, where the node follows its folder", () => {
 
 	it("reads the home folder itself for a session of another realm", async () => {
 		vi.stubEnv("MYCELIUM_REALM", "second");
-		// The node this session would ask: its own realm's.
-		await node(
-			[{ id: "fed", address: "FED001", presence: presence() }],
-			"second",
-		);
+		// The node a feed with no realm guard would ask: the home realm's,
+		// the only one presence's feed dials.
+		await node([{ id: "fed", address: "FED001", presence: presence() }]);
 		const dir = homeFolder();
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(

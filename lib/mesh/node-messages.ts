@@ -22,6 +22,7 @@
 
 import { createConnection, type Socket } from "node:net";
 import { isRecord } from "../internal/record.ts";
+import { meshGroupOf } from "./flow.ts";
 import { ENVELOPE, type Message, messageFrom } from "./message.ts";
 import { linesOf } from "./node-watch.ts";
 
@@ -147,18 +148,6 @@ export function messageOfNode(said: unknown): Message | undefined {
 	const { groups, ...rest } = said;
 	const to = groups
 		.filter((group): group is string => typeof group === "string")
-		.map(targetOf);
+		.map(meshGroupOf);
 	return messageFrom({ ...rest, v: ENVELOPE, to });
-}
-
-/**
- * The mesh target a node's group is written as, as mycelium's
- * `target_for` writes it: a peer's own group `peer.osphtp` is
- * `@OSPHTP`, and any other `quest.wcjqsg` is `#quest/wcjqsg`.
- */
-export function targetOf(group: string): string {
-	const address = group.startsWith("peer.") ? group.slice(5) : undefined;
-	return address !== undefined && !address.includes(".")
-		? `@${address.toUpperCase()}`
-		: `#${group.replaceAll(".", "/")}`;
 }

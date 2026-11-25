@@ -101,4 +101,9 @@ describe("naming groups as the node does", () => {
 		expect(meshGroupOf("peer.4uhc5q")).toBe("@4UHC5Q");
 		expect(meshGroupOf("quest.wcjqsg")).toBe("#quest/wcjqsg");
 	});
+
+	it("writes the machine's group as itself, and a dotted peer group as a path", () => {
+		expect(meshGroupOf("all"), "the machine's").toBe("#all");
+		expect(meshGroupOf("peer.a.b"), "not a peer's own").toBe("#peer/a/b");
+	});
 });

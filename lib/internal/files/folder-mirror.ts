@@ -620,8 +620,10 @@ function mirrorOf<T>(
 				if (serving?.id !== id) return;
 				serving = undefined;
 				one.feed?.close();
-				// The one asked to replace it may still come ready.
-				if (asking === undefined) fallBack(true);
+				// The one asked to replace it may still come ready. Till it does,
+				// or should it end too, as it does when the node restarts, the
+				// folder is read at this mirror's own moment, as after any loss.
+				fallBack(true);
 			},
 		});
 		// Nothing follows this folder: it is read here, and never asked again.

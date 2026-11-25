@@ -330,6 +330,44 @@ describe("a mirror its kind's feed follows", () => {
 		}
 	});
 
+	// A node restarting ends the feed serving and the one asked to replace
+	// it together, and every mirror must still read its folder at its own
+	// moment rather than all at once.
+	it("waits its own moment to read the folder when the feed serving ends while another is asked", async () => {
+		const random = vi.spyOn(Math, "random").mockReturnValue(1);
+		try {
+			const folder = fedMirror({
+				feedFallbackMs: 600,
+				feedRefreshMs: 50,
+				feedAgainMs: 5000,
+			});
+			folder.files();
+			const fed = await feedAsked();
+			fed.events.put("a.txt", "as the node said");
+			fed.events.ready();
+			const again = await feedAsked(2);
+			put("b.txt", "on disk");
+			const listed = listings();
+			fed.events.ended();
+			again.events.ended();
+			// Many polls, each of which would list it were it not waiting.
+			await new Promise((done) => setTimeout(done, 300));
+			expect(wordsOf(folder.files()), "the lost feed's word").toEqual([
+				"as the node said",
+			]);
+			expect(listings() - listed, "not listed yet").toBe(0);
+			await vi.waitFor(
+				() =>
+					expect(wordsOf(folder.files()), "read from the disk").toEqual([
+						"on disk",
+					]),
+				{ timeout: 3000 },
+			);
+		} finally {
+			random.mockRestore();
+		}
+	});
+
 	it("passes over a feed's word for a file in another folder", async () => {
 		const folder = fedMirror();
 		folder.files();

@@ -8,7 +8,6 @@ import {
 	type MessageEvents,
 	messageOfNode,
 	messagesHeard,
-	targetOf,
 } from "../../../lib/mesh/node-messages.ts";
 
 /** A message as mycelium's `Message` says it on a watch. */
@@ -35,15 +34,6 @@ function hearing(): MessageEvents & {
 		ended: vi.fn<() => void>(),
 	};
 }
-
-describe("a node's group, as a mesh target", () => {
-	it("writes a peer's group as its address and any other as its path", () => {
-		expect(targetOf("peer.osphtp"), "a peer's own").toBe("@OSPHTP");
-		expect(targetOf("quest.wcjqsg"), "nested").toBe("#quest/wcjqsg");
-		expect(targetOf("all"), "the machine's").toBe("#all");
-		expect(targetOf("peer.a.b"), "not a peer's own").toBe("#peer/a/b");
-	});
-});
 
 describe("a message as the node says it", () => {
 	it("reads as the mesh's file has it, its groups as targets", () => {

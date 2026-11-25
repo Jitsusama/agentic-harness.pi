@@ -176,6 +176,8 @@ describe("a transport the node says arrivals to", () => {
 		stop();
 		say("1793046604647-WCJQSG-7-00000001", "after the stop");
 		folderTransport(dir).send(draft("after the stop"));
+		// Long enough for the node's word or the folder's watch to be heard,
+		// were either still kept.
 		await new Promise((done) => setTimeout(done, 300));
 		expect(arrived, "nothing heard").toEqual([]);
 	});
