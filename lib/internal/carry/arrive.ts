@@ -58,7 +58,7 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
-import { cloningAt, guardedCheckoutOf, sweepClonesOf, twinOf } from "./twin.ts";
+import { cloningAt, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -405,13 +405,13 @@ async function arriveTree(
 			return { ...line, did: "refused", why: andLeft(why, ...left) };
 		}
 	}
-	// A clone left at the tree's own place is never swept, so an arrival
-	// again would find it there and refuse: say to take it out first.
+	// A clone left at the tree's own place is what the next arrival finds
+	// there, whether it refuses it or takes it up: say to take it out first.
 	const left = readied.kind === "cloned" ? letGoOf(path) : undefined;
 	const atPlace =
 		left === undefined
 			? undefined
-			: `${left}; take it out before arriving again, since an arrival refuses a tree already there`;
+			: `${left}; take it out before arriving again, since the next arrival finds it there`;
 	return { ...line, did: "refused", why: andLeft(why, atPlace) };
 }
 
@@ -501,9 +501,8 @@ async function readyTree(
 		}
 		// Into a name of its own beside the tree's, renamed into place once
 		// whole and, from a twin, held to origin, so a failed or killed clone
-		// is only ever what it made itself, where the next arrival sweeps it;
-		// first taking out what killed arrivals left there.
-		sweepClonesOf(path);
+		// is only ever what it made itself, beside the tree, never a
+		// half-made tree at its place.
 		const cloning = cloningAt(path, Date.now());
 		const cloned =
 			twin === undefined
@@ -533,7 +532,7 @@ async function readyTree(
 		// git's own words may name the clone's folder, now at the tree's place.
 		return cloned.kind !== "cloned" || cloned.unsure === undefined
 			? cloned
-			: { ...cloned, unsure: cloned.unsure.replaceAll(cloning, path) };
+			: { ...cloned, unsure: cloned.unsure.replaceAll(cloning, () => path) };
 	}
 	const top = await git.said("rev-parse", "--show-toplevel");
 	if (top === undefined || realpathSync(top) !== realpathSync(path)) {

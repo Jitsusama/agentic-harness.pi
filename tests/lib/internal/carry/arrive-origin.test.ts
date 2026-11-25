@@ -6,7 +6,6 @@
  * reason said where one fails.
  */
 
-import { spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -170,45 +169,25 @@ describe("arriving with a tree to clone from origin", () => {
 		).toEqual([origin]);
 	});
 
-	it("takes out what a killed arrival's clone left beside it, keeping one still under way", async () => {
+	// A folder named as a clone may be anyone's, a fenced command's too,
+	// and a walk deleting one can be led out by a link swapped in mid-walk.
+	it("takes out no clone beside it that it didn't make itself", async () => {
 		const { from, head } = await carried();
 		const home = folder(made, "arriving");
 		const src = join(home, "src");
-		// A process of the test's own, so the sweep asks the machine whether
-		// it runs rather than knowing its own pid.
-		const under = spawn(process.execPath, ["-e", "process.stdin.resume()"]);
-		const now = Date.now();
-		const day = 24 * 60 * 60 * 1000;
 		// No process runs past the largest pid Linux or macOS gives out.
-		const left = {
-			killed: `app.cloning-999999999-${now}`,
-			ancient: "app.cloning-999999999-1",
-			running: `app.cloning-${under.pid}-${now}`,
-			stale: `app.cloning-${under.pid}-${now - day - 60_000}`,
-			another: "other.cloning-999999999-1",
-			theirs: "app.cloning-999999999-2",
-		};
-		try {
-			for (const name of Object.values(left)) {
-				mkdirSync(join(src, name, ".git"), { recursive: true });
-				writeFileSync(join(src, name, ".git", "HEAD"), "half made\n");
-			}
-			writeFileSync(join(src, left.theirs, "notes"), "kept\n");
+		const planted = "app.cloning-999999999-1";
+		mkdirSync(join(src, planted, ".git"), { recursive: true });
+		writeFileSync(join(src, planted, ".git", "HEAD"), "half made\n");
 
-			const { whole } = await arriveThrough(home, from, exec);
+		const { whole } = await arriveThrough(home, from, exec);
 
-			expect(whole, "every tree arrived whole").toBe(true);
-			expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
-			expect(
-				leftIn(src).sort(),
-				"only the killed arrivals' clones and the day-old one go",
-			).toEqual(["app", left.running, left.another, left.theirs].sort());
-			expect(readFileSync(join(src, left.theirs, "notes"), "utf8")).toBe(
-				"kept\n",
-			);
-		} finally {
-			under.kill();
-		}
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
+		expect(leftIn(src).sort()).toEqual(["app", planted].sort());
+		expect(readFileSync(join(src, planted, ".git", "HEAD"), "utf8")).toBe(
+			"half made\n",
+		);
 	});
 
 	it("clones nothing once its tree's hour has run out", async () => {
