@@ -22,6 +22,15 @@
  * holds less those already copied back. The log file's own length says
  * nothing once a checkpoint has copied it, since PASSIVE never shrinks it.
  *
+ * The index is read through one descriptor a store keeps until it is
+ * released, never one opened and closed at each look. SQLite locks the
+ * index with POSIX locks, and closing any descriptor on a file drops every
+ * lock its process holds there. Opened and closed every 2 s, it left each
+ * conversation unlocked, so another process opening the store took itself
+ * for the first, rebuilt the index smaller under the live writer, and the
+ * writer's next frame faulted past its end: a conversation of 3 days died
+ * so on 25 November, with SIGBUS in SQLite's walIndexAppend.
+ *
  * Two connections to one store in one process are safe because both are
  * node's one built-in SQLite, which shares its locks within the process;
  * a store opened through another SQLite build in this process would not be.
@@ -62,7 +71,7 @@ const RESTARTS = 3;
 const PROGRAM = `
 const { parentPort, workerData } = process.getBuiltinModule("node:worker_threads");
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
-const { closeSync, existsSync, openSync, readSync } = process.getBuiltinModule("node:fs");
+const { closeSync, existsSync, fstatSync, openSync, readSync, statSync } = process.getBuiltinModule("node:fs");
 const { every, pages, observing, little } = workerData;
 const kept = new Map();
 const said = (error) => String((error && error.message) || error);
@@ -74,7 +83,7 @@ function open(path) {
 	// Never makes a store: one already gone has nothing to checkpoint.
 	if (!existsSync(path)) throw new Error("the store is gone");
 	const db = new DatabaseSync(path, { timeout: 0 });
-	store = { db, closing: false, failing: false };
+	store = { db, closing: false, failing: false, index: undefined };
 	kept.set(path, store);
 	return store;
 }
@@ -89,19 +98,48 @@ function checkpoint(path, store) {
 	store.failing = false;
 	if (observing) parentPort.postMessage({ op: "checkpointed", path });
 }
+// The descriptor a store reads its WAL index through, opened once and kept
+// until the store is released, since closing one while SQLite holds the
+// index drops SQLite's locks on it. One on an index since replaced is let
+// go for the new one: no lock anyone uses sits on the old file.
+function indexOf(path, store) {
+	const at = path + "-shm";
+	if (store.index !== undefined) {
+		let now;
+		try {
+			now = statSync(at).ino;
+		} catch {
+			// Gone for now: read what the kept one says, harmless if stale.
+			return store.index;
+		}
+		if (now === fstatSync(store.index).ino) return store.index;
+		const replaced = store.index;
+		store.index = undefined;
+		closeSync(replaced);
+	}
+	store.index = openSync(at, "r");
+	return store.index;
+}
+// Lets go of a store's index descriptor, once its connections have closed.
+function forget(store) {
+	if (store.index === undefined) return;
+	const fd = store.index;
+	store.index = undefined;
+	try {
+		closeSync(fd);
+	} catch {
+		// Closed with the file already: nothing is left to let go.
+	}
+}
 // The frames the log holds not yet copied back, read from its WAL index:
 // the header's mxFrame at byte 16 and the checkpoint's nBackfill at byte
 // 96, in the machine's own byte order. An index that can't be read counts
 // as nothing to copy, leaving the store to its close.
-function stillToCopy(path) {
-	let fd;
+function stillToCopy(path, store) {
 	try {
-		fd = openSync(path + "-shm", "r");
-		if (readSync(fd, index, 0, index.length, 0) < index.length) return 0;
+		if (readSync(indexOf(path, store), index, 0, index.length, 0) < index.length) return 0;
 	} catch {
 		return 0;
-	} finally {
-		if (fd !== undefined) closeSync(fd);
 	}
 	const frames = little ? index.readUInt32LE(16) : index.readUInt32BE(16);
 	const copied = little ? index.readUInt32LE(96) : index.readUInt32BE(96);
@@ -133,6 +171,9 @@ parentPort.on("message", (message) => {
 		} catch (error) {
 			failed(path, undefined, error);
 		}
+		// Released once its conversation's own connection has closed, so no
+		// lock of this process's is left on the index for this to drop.
+		if (store) forget(store);
 	} else if (op === "end") {
 		clearInterval(looking);
 		for (const store of kept.values()) {
@@ -141,6 +182,7 @@ parentPort.on("message", (message) => {
 			} catch {
 				// Ending: a connection that won't close goes with the thread.
 			}
+			forget(store);
 		}
 		kept.clear();
 		parentPort.close();
@@ -148,7 +190,7 @@ parentPort.on("message", (message) => {
 });
 const looking = setInterval(() => {
 	for (const [path, store] of kept) {
-		if (store.closing || stillToCopy(path) <= pages) continue;
+		if (store.closing || stillToCopy(path, store) <= pages) continue;
 		try {
 			checkpoint(path, store);
 		} catch (error) {
