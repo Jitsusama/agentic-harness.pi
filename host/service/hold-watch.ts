@@ -47,6 +47,7 @@
  * profiler. It profiles once a hold, since one spin's profile says it.
  */
 
+import { writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { Worker } from "node:worker_threads";
 import { clockTicksPerSecond } from "../../lib/internal/process-ticks.ts";
@@ -274,15 +275,18 @@ interface Watched {
 /**
  * The thread's whole program. It is source rather than a file beside
  * this one, as web/article.ts's is, so it runs the same whether this
- * module was loaded as TypeScript or as JavaScript. Every read is its
- * own thread's to wait on, never the loop's.
+ * module was loaded as TypeScript or as JavaScript. It takes node's
+ * modules through `process.getBuiltinModule`, which either module type
+ * has: a thread takes its process's flags, so under a host started with
+ * `--input-type=module` a `require` here threw and no hold was watched.
+ * Every read is its own thread's to wait on, never the loop's.
  */
 const PROGRAM = `
-const { workerData } = require("node:worker_threads");
-const { spawn } = require("node:child_process");
-const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
-const { mkdir, readdir, rm, writeFile } = require("node:fs/promises");
-const { join } = require("node:path");
+const { workerData } = process.getBuiltinModule("node:worker_threads");
+const { spawn } = process.getBuiltinModule("node:child_process");
+const { openSync, readFileSync, readSync, readlinkSync, writeSync } = process.getBuiltinModule("node:fs");
+const { mkdir, readdir, rm, writeFile } = process.getBuiltinModule("node:fs/promises");
+const { join } = process.getBuiltinModule("node:path");
 const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat, profile } = workerData;
 const count = new Int32Array(ticks);
 const task = proc + "/task/" + pid;
@@ -593,7 +597,7 @@ const profileFor = (held, into) => {
 		});
 	(async () => {
 		try {
-			const { Session } = require("node:inspector");
+			const { Session } = process.getBuiltinModule("node:inspector");
 			session = new Session();
 			session.connectToMainThread();
 			await post("Profiler.enable");
@@ -701,8 +705,19 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
 	thread.unref();
-	// A thread that fails to start leaves the host as it was: unwatched.
-	thread.on("error", () => {});
+	// A thread that fails leaves the host as it was, unwatched, but says so
+	// once: on 24 November it died at its first line in every end-to-end
+	// host, and nothing said it, so a host went unwatched unseen.
+	thread.on("error", (error: unknown) => {
+		try {
+			writeSync(
+				watched.fd,
+				`pi-host: the hold watch's thread failed, so this host's holds go unwatched: ${String(error)}\n`,
+			);
+		} catch {
+			// A closed journal leaves nowhere to say it; the host runs on unwatched.
+		}
+	});
 	const tick = setInterval(() => Atomics.add(count, 0, 1), every);
 	tick.unref();
 	return () => {

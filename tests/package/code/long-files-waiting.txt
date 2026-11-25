@@ -36,7 +36,6 @@ tests/extensions/quest-workflow/sessions/sprout-start.test.ts
 tests/extensions/quest-workflow/spawn/spawn-host.test.ts
 tests/extensions/reload-workflow/wiring.test.ts
 tests/extensions/shell-workflow/sandbox.test.ts
-tests/host/engine/parking.test.ts
 tests/lib/internal
 tests/lib/internal/fence
 tests/lib/internal/fence/fence-run.test.ts

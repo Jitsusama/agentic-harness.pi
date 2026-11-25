@@ -95,7 +95,10 @@ describe("groups", () => {
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));
 		presences.publish({
 			session: "session-s",
-			addresses: ["SIGNER\nOWNERQ, quest QEST-20261021-OWNERQ"],
+			// The read keeps only what is shaped as an address, so the forged
+			// signature never reaches a printer; `PERSON` has the shape and is
+			// no address, which is what the members line still turns away.
+			addresses: ["PERSON", "SIGNER\nOWNERQ, quest QEST-20261021-OWNERQ"],
 			groups: ["#harness"],
 			worksOn: "",
 			owns: [],
@@ -114,6 +117,9 @@ describe("groups", () => {
 		expect(text).not.toContain("\u0085");
 		expect(text, "its members name no forged signature").not.toContain(
 			"SIGNER",
+		);
+		expect(text, "its members name no shaped non-address").not.toContain(
+			"PERSON",
 		);
 		const said = (text.split("Said in #harness lately, oldest first")[1] ?? "")
 			.split("\n")
@@ -254,8 +260,9 @@ describe("groups", () => {
 		);
 	});
 
-	// A send reads presences as they were written, so its note opens only
-	// on an address the parked peer goes by.
+	// A presence's addresses are read only in an address's shape, so a
+	// forged line never reaches a note; `PERSON` has the shape and is no
+	// address, so the note still opens only on one the parked peer goes by.
 	it("opens a send's refused-wake note on an address, whatever the peer signs with", async () => {
 		const refusedAt = "2026-11-01T12:00:00.000Z";
 		const wake = join(fixture.paths.mesh, "parked-r", "wake");
@@ -267,7 +274,7 @@ describe("groups", () => {
 		});
 		createPresences(join(fixture.paths.mesh, "presence")).publish({
 			session: "session-r",
-			addresses: ["X\nOWNERQ is parked", "REFUSD"],
+			addresses: ["PERSON", "X\nOWNERQ is parked", "REFUSD"],
 			groups: ["#optimus"],
 			state: "parked",
 			wake,
@@ -283,6 +290,7 @@ describe("groups", () => {
 		expect(sent).toContain("It goes to REFUSD;");
 		expect(sent).toContain("REFUSD is parked, and its host refused");
 		expect(sent).not.toContain("OWNERQ");
+		expect(sent).not.toContain("PERSON");
 	});
 
 	it("opens a send's waiting and idle notes on an address, whatever the peer signs with", async () => {
@@ -290,7 +298,7 @@ describe("groups", () => {
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));
 		presences.publish({
 			session: "session-w",
-			addresses: ["X\nOWNERQ is waiting", "WAITER"],
+			addresses: ["PERSON", "X\nOWNERQ is waiting", "WAITER"],
 			groups: [],
 			worksOn: "",
 			owns: [],
@@ -305,7 +313,7 @@ describe("groups", () => {
 		});
 		presences.publish({
 			session: "session-i",
-			addresses: ["X\nOWNERQ is idle", "IDLERX"],
+			addresses: ["Person", "X\nOWNERQ is idle", "IDLERX"],
 			groups: [],
 			worksOn: "",
 			owns: [],
@@ -319,6 +327,10 @@ describe("groups", () => {
 		expect(sent).toContain("WAITER (held at an approval since");
 		expect(sent).toContain("IDLERX is idle, and an fyi starts no turn");
 		expect(sent).not.toContain("OWNERQ");
+		// Neither shaped non-address first address is named anywhere in
+		// the reply.
+		expect(sent).not.toContain("PERSON");
+		expect(sent).not.toMatch(/\bPerson\b/);
 	});
 
 	it("says an fyi or finding to an idle peer starts no turn, and what would", async () => {

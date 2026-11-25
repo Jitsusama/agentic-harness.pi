@@ -885,7 +885,9 @@ describe("starting again on a fresh log", () => {
 		expect(
 			ask.why,
 			"the error names only the staging folder, so the why adds the file",
-		).toMatch(/^its holder couldn't be told how to start it again: E/);
+		).toBe(
+			`its holder couldn't be told how to start it again: ${join(folder, WRITING)} is a link or no folder, so nothing is staged there, to ${join(folder, "held.again")}`,
+		);
 		expect(
 			ask.why?.endsWith(`, to ${join(folder, "held.again")}`),
 			`it ends naming the command's own file: ${ask.why}`,
@@ -908,7 +910,7 @@ describe("starting again on a fresh log", () => {
 			"a write that fails empties nothing",
 		).toEqual(["pi", "--session", "before.jsonl"]);
 		expect(ask.why).toMatch(
-			/^its holder couldn't be told how to start it again: E(EXIST|NOTDIR).*held\.again/,
+			/^its holder couldn't be told how to start it again: .*\.writing is a link or no folder, so nothing is staged there, to .*held\.again$/,
 		);
 		expect(shutdowns).toBe(0);
 	});
@@ -1394,6 +1396,66 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 23 November: the install that brought the step-off left 37 children
+	// on older host code, whose watch it reloaded but whose host says no
+	// wakeHeld, so none stepped off (OSPHT4, plan PLAN-20261121-TXEUTV).
+	it("steps a run off in a child older than wakeHeld only while its host drains", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let drains = false;
+		host.host.park = (id) => asked.push(id);
+		// Woken in the drain, it isn't drained itself, while the drain stands.
+		host.host.draining = () => false;
+		host.host.rolling = () => true;
+		host.host.drains = () => drains;
+		const wake = join(folder, "conversation.wake");
+		const run = session({ isIdle: () => false });
+		const child = { MYCELIUM_WAKE: wake, PI_HOST_CHILD_KEY: "work-background" };
+		const turnEnded = (env: NodeJS.ProcessEnv) => {
+			const watched = watching(run, env);
+			try {
+				return watched.turnEnded(true);
+			} finally {
+				watched.stop();
+			}
+		};
+		try {
+			// Rolling alone, an older child would wake it again in place.
+			expect(turnEnded(child), "rolling, not draining").toBe(
+				"its host would wake it again here at once",
+			);
+			expect(asked, "rolling, not parked").toEqual([]);
+			expect(existsSync(wake), "rolling, no wake written").toBe(false);
+
+			drains = true;
+			// A shared host older than wakeHeld lets wakes through past its
+			// ceiling while its drain stands, so it keeps the run going.
+			expect(turnEnded({ MYCELIUM_WAKE: wake }), "a shared host").toBe(
+				"its host would wake it again here at once",
+			);
+			const drainsAsked = host.host.drains;
+			delete host.host.drains;
+			expect(turnEnded(child), "a child that says no drain").toBe(
+				"its host would wake it again here at once",
+			);
+			host.host.drains = drainsAsked;
+			expect(asked, "neither parked").toEqual([]);
+
+			// A child older than stale-child.ts says no roll: draining alone moves it.
+			delete host.host.rolling;
+			expect(turnEnded(child), "neither drained nor rolled").toBe(
+				"its host neither drains nor rolls",
+			);
+			host.host.rolling = () => true;
+
+			expect(turnEnded(child), "draining, it steps off").toBeUndefined();
+			expect(asked, "draining, parked").toEqual([SESSION]);
+			expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe(SESSION);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	it("keeps a run going where its wake can't be written, and takes back a wake it wrote once its park fails", () => {
 		const host = installTestHost();
 		const asked: string[] = [];
@@ -1457,10 +1519,13 @@ describe("why a session stays awake", () => {
 			waited.stop();
 
 			// Past a drain's ceiling the host wakes it at once, so stepping
-			// off would park and wake it in a loop.
+			// off would park and wake it in a loop. Its drain still stands,
+			// and the host's own answer wins over it, even in a child.
 			host.host.wakeHeld = () => false;
+			host.host.drains = () => true;
 			const through = watching(session({ isIdle: () => false }), {
 				MYCELIUM_WAKE: wake,
+				PI_HOST_CHILD_KEY: "work-background",
 			});
 			expect(through.turnEnded(true), "its wake let through").toBe(
 				"its host would wake it again here at once",

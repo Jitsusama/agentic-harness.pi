@@ -42,7 +42,9 @@ export const UNJUDGED = "mesh-unjudged";
 /**
  * The customType of the entry saying the node behind a worker socket
  * refused a message, the presence or the watch (lib/mesh/worker-link.ts),
- * shown without a turn so the next one reads it.
+ * shown without a turn so the next one reads it; it also carries the word
+ * that the node answers again, which supersedes an unreachable refusal, so
+ * a count of refusals must read its text, not this type alone.
  */
 export const WORKER_REFUSED = "mesh-worker-refused";
 

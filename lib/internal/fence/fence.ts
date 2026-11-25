@@ -99,7 +99,24 @@ import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { pinnedAbove } from "./fence-pins.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
+import { pastQuestTempLink, questTempArgs } from "./fence-quest-temp.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
+import { workerSocketRule } from "./fence-worker-socket.ts";
+
+/**
+ * The worker socket's folder bound read-only over itself, where there is
+ * one: bound writable, as `/` is, a command could take the node's socket
+ * away and listen in its place (`fence-worker-socket.ts`).
+ */
+function workerFolderArgs(
+	socket: string | undefined,
+	exists: (path: string) => boolean,
+): string[] {
+	if (socket === undefined) return [];
+	const folder = workerSocketRule(socket);
+	return exists(folder) ? ["--ro-bind", folder, folder] : [];
+}
+
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -280,6 +297,11 @@ export interface FencePlace extends Worktrees {
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
 	readonly githubDoor?: string;
 	/**
+	 * The node's worker socket, whose folder Landlock is told of
+	 * (`fence-worker-socket.ts`).
+	 */
+	readonly workerSocket?: string;
+	/**
 	 * The folders in the temporary folder that pi and node outside keep
 	 * compiled code in (`fence-temp-caches.ts`), `tempCodeCaches()` unless
 	 * a test names its own.
@@ -407,6 +429,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...renderNodeArgs(disk),
 		// First, so the fence's own mounts inside go over it, writable.
 		...frozenRuntimeArgs(unfencedCompileRoots(place), disk),
+		...workerFolderArgs(place.workerSocket, exists),
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);
@@ -418,6 +441,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
 		args.push(...questLockArgs(place.runtimeDir, disk));
+		args.push(...questTempArgs(place.runtimeDir, place.scratch));
 		args.push(...githubDoorArgs(place.githubDoor));
 		// Read-only: written from outside, unfenced, so nothing inside may
 		// put a link in its place for that write to follow.
@@ -732,6 +756,7 @@ export function fenceRules(place: FencePlace): string[] {
 			? letThrough(place).map((name) => join(place.runtimeDir as string, name))
 			: []),
 		...(place.githubDoor ? [place.githubDoor] : []),
+		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
 	return [
 		"--rwx",
@@ -864,13 +889,15 @@ export function nixDoor(runtimeDir: string | undefined): string | undefined {
  * but the trees the session may write (their `.git` files aside), a
  * browsed entry of the home folder but the one the session works in, or
  * the home folder itself, where only an entry already there and bound
- * back writable may be written.
+ * back writable may be written. A path through the session's own quest's
+ * `TMPDIR` link in the runtime folder is judged where it leads.
  */
 export function fenceRefusesWrite(
-	path: string,
+	named: string,
 	place: FencePlace,
 	disk: Disk = DISK,
 ): boolean {
+	const path = pastQuestTempLink(named, place.runtimeDir, place.scratch);
 	const kept = [
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),

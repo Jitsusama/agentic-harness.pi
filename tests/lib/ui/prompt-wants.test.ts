@@ -58,6 +58,7 @@ const ASK = {
 	allowOther: true,
 };
 const content = () => [];
+const WHOLE = "1. Keep the cache?\n2. Which?";
 let heard: WantEvent[] = [];
 
 /** The id of the first want said, as the launcher would name it. */
@@ -223,6 +224,42 @@ describe("a prompt waited on", () => {
 			expect(await answer, "nothing is shown to answer").toBeNull();
 		},
 	);
+
+	it.each([
+		[
+			"a single prompt",
+			() =>
+				promptSingle(ctx, {
+					content,
+					actions: [],
+					want: { kind: "question", said: "Which?", asked: WHOLE },
+				}),
+		],
+		[
+			"a single prompt that asks elsewhere too",
+			() =>
+				promptSingle(ctx, {
+					content,
+					options: CHOICES,
+					want: { kind: "question", said: "Which?", ask: ASK, asked: WHOLE },
+				}),
+		],
+		[
+			"a tabbed prompt",
+			() =>
+				promptTabbed(ctx, {
+					items: [],
+					want: { kind: "question", said: "Which?", asked: WHOLE },
+				}),
+		],
+	])("says the whole of what it asks in %s", async (_, ask) => {
+		const answer = ask();
+		vi.advanceTimersByTime(WANT_AFTER_MS);
+		answers.resolve(null);
+		await answer;
+
+		expect(heard[0]).toMatchObject({ said: "Which?", asked: WHOLE });
+	});
 
 	it("wants nothing when answered before the wait counts", async () => {
 		const answer = promptSingle(ctx, { content, actions: [] });

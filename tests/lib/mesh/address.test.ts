@@ -8,11 +8,30 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addressesOf,
 	answeringTo,
+	isAddress,
 	namedAtStart,
 	olderAddresses,
 	questAddress,
 	yieldsTo,
 } from "../../../lib/mesh/address.ts";
+
+describe("what can be a peer's address", () => {
+	it("takes a quest's six and a session's eight, in any letters", () => {
+		expect(isAddress("5HJZ8Z"), "a quest's").toBe(true);
+		expect(isAddress("2c5c7edb"), "a session's, lower-cased").toBe(true);
+	});
+
+	it("refuses the person's and the machine's names, which have the shape", () => {
+		expect(isAddress("person"), "the person").toBe(false);
+		expect(isAddress("PERSON"), "in capitals").toBe(false);
+		expect(isAddress("Machine"), "the machine").toBe(false);
+	});
+
+	it("refuses what has no address's shape", () => {
+		expect(isAddress("need"), "too short").toBe(false);
+		expect(isAddress("send-it-to-ZZ9ZZZ"), "a phrase").toBe(false);
+	});
+});
 
 let root: string;
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";

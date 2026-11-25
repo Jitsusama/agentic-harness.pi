@@ -21,6 +21,7 @@ import {
 	processLaunchdFacts,
 	relativeImports,
 	unitDefinition,
+	versionsMove,
 } from "../../../host/service/what-starts.ts";
 
 let root: string;
@@ -173,6 +174,20 @@ describe("installMovesFrom", () => {
 		expect(await moved(), "its own as first read").toBeUndefined();
 		await put("install/versions/same/host/a.ts", "export const a = 3;\n");
 		expect(await moved(), "the install's as first read").toBeUndefined();
+	});
+
+	it("answers for any version asked of, each by its own code", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		const same = await version("same", "export const a = 2;\n");
+		await version("two", "export const a = 2;\n");
+		await symlink(one, join(root, "install", "current"));
+		const moved = versionsMove();
+		await moveTo("two");
+
+		expect(await moved(one)).toBe(
+			"the install's two changes the host's own code",
+		);
+		expect(await moved(same), "the install's own code").toBeUndefined();
 	});
 
 	it("never moves for a version outside an install, such as a tree", async () => {

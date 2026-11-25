@@ -1,8 +1,8 @@
 /** mesh_stop: stopping a peer reaching this one, and saying who has. */
 
+import { isAddress } from "../../../lib/mesh/address.ts";
 import { groupNamed } from "../../../lib/mesh/group.ts";
 import { oneLine } from "../../../lib/mesh/one-line.ts";
-import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
 

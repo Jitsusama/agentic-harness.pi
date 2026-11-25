@@ -923,16 +923,15 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		if (fresh !== undefined && wait > 0) {
 			aheadWait = wait - 1;
 			waitedOn = fresh;
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					compactionNotice(tokens, decision, {
-						ahead: "later",
-						afterTurns: wait,
-						reason: fresh,
-					}),
-					"info",
-				);
-			}
+			const notice = compactionNotice(tokens, decision, {
+				ahead: "later",
+				afterTurns: wait,
+				reason: fresh,
+			});
+			// A session with no one watching, a background host's, still leaves
+			// the wait in its journal (5BACCAC3's F91 on #2082).
+			if (ctx.hasUI) ctx.ui.notify(notice, "info");
+			else say(notice);
 			return;
 		}
 		const prepared = host.prepare(ctx, tokens);

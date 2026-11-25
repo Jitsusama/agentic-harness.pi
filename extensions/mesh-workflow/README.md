@@ -399,6 +399,40 @@ and can answer a question or a gate left open on screen.
   launcher answers it with the steer act `answer` below, and the
   session resolves it ("answered: <label>", with `answer` and
   `answeredAt`) and tells its agent what he picked.
+- `person_needs`: read what waits on the person across the machine,
+  so every window he is in shows what the launcher shows (Joel, 24
+  November: "any interface i'm in should be directly engagable to a
+  meaningful level"). It lists every cell needing him, longest
+  waiting first, from `mycelium cells --standing needs-you -o json`
+  (`lib/mesh/needs.ts`), the one way the surfaces table names, then
+  his looks still standing, newest first, then what he said to
+  sessions from outside their windows in the last day, from
+  `mycelium said` (`lib/mesh/said-to.ts`), each answered, being
+  worked on, not taken up yet or put in its prompt, all cited through
+  the result store ([`tools/person.ts`](tools/person.ts)). It only
+  reads. A part it couldn't read (the node refused, its run was
+  stopped, its listing held no line it reads, or the look list was
+  unreadable) is said as unread, never as nothing waiting, and a
+  model sees only the first 80 characters of each thing he said.
+  `/needs`, which only he types, lists the same and takes the act he
+  picks ([`needs-command.ts`](needs-command.ts)): a cell's want, or
+  something he said, goes
+  to that cell by the map's link, `mycelium:cell/<address>@<machine>/go`,
+  where he answers it, since the node takes a person's word from no
+  agent process. It says "Nothing waits on you." only when every
+  part was read, and warns of each part that wasn't. A look opens,
+  shown with its target, only by a web address for a pull request,
+  page or diff and by an absolute path for a file, marked opened as the launcher marks it,
+  or clears as "cleared by you", or goes to the cell that pointed.
+  `/cell ADDRESS [go|hold|wake]`, also typed only by him, goes to
+  another cell by the same link, on the machine the node says runs
+  it, or steers it a `pause` (hold once its turn ends) or a `resume`
+  (wake and carry on) through the node ([`cell-command.ts`](cell-command.ts),
+  `lib/mesh/cell-steer.ts`). Those steers are signed with this
+  session's address, never as the person, which the node refuses from
+  an agent's process; a session obeys a pause or resume whoever signs
+  it, as Steer below says, and a resume wakes a cell parked on this
+  machine.
 
 ## Context, Not a Prompt
 
@@ -1087,6 +1121,20 @@ A steer may instead carry an `act`, with no text needed
   it.
 - `resume` clears the pause and has the session carry on
   where it left off; with text, the text is the turn instead.
+- `park` (`{"act": "park"}`) ends the session's process now
+  if it is idle, or else once the turn it is on ends, as
+  `pause` waits, so it holds no memory; it stays held, and a
+  message, a key or a window wakes it, as after an idle hour
+  ([park-workflow](../park-workflow/README.md)). Idle time
+  counts for nothing, but whatever else holds a park still
+  does, and a refusal says why in the window and in a host's
+  journal: where parking is off, and where neither a holder nor
+  a host that parks one conversation alone keeps it, since
+  parking that one would only end it. A talk, `resume`, `stop`,
+  `pause`, `close` or `carry` before it lands calls it off. A
+  `park` doesn't wake a session already parked, so one written
+  before the session last started, or before the person last
+  talked to it, is dropped.
 - `close` ends the session for good, as /exit does: any run in
   progress is ended, then pi shuts down, so its record reads
   closed rather than lost (in a host, the host closes it, and its
@@ -1375,7 +1423,16 @@ idle. So while it waits, its presence carries `wants`:
 it began waiting; `said` is what it asked or said, on one line
 of at most 120 characters. `id` is its kind and `since`, which
 stay put while `said` changes with a count of calls held, so a
-launcher keys its notice by `id` and posts it once. Each kind stands until it is
+launcher keys its notice by `id` and posts it once. `asked`, where
+there is more to say than the line holds, is the whole of what it
+asked, its paragraphs and indentation kept: the reply a run ended
+asking or blocked on, the ask tool's questions, or the calls held
+while the person was away. It is at most 4000 characters; a longer
+one keeps its start and its end, where the questions are, and says
+how many characters its middle cut. A credential it quotes is put
+out of sight before it is said, since every peer reads a presence.
+A reader shows it in full and falls back to `said`; an older
+harness leaves it out, and a reader ignores one past 4000. Each kind stands until it is
 settled, and while more than one stands, presence holds the
 one that has stood longest. The field is absent when nothing
 waits. The desktop reads it to mark a session that wants Joel, and

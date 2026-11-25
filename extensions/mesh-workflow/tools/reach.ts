@@ -3,12 +3,12 @@
  * the sender is told of each.
  */
 
+import { isAddress } from "../../../lib/mesh/address.ts";
 import { homeOf } from "../../../lib/mesh/group.ts";
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, type Message, reaches } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import type { Reader } from "../../../lib/mesh/thread.ts";
 import { type Refusal, refusedNotes } from "../refusals.ts";
 import { WANTING } from "./said.ts";
@@ -35,9 +35,10 @@ export function unheardOf(
 }
 
 /**
- * The address a sender is told a peer goes by. A presence says its
- * addresses as it likes, and each note opens on this one, so a peer
- * that names nothing shaped as an address is left unnamed.
+ * The address a sender is told a peer goes by. A presence's addresses
+ * are read only in an address's shape (lib/mesh/presence.ts), which
+ * `person` and `machine` have too, and each note opens on this one, so
+ * a peer that names no address is left unnamed.
  */
 function told(one: Presence): string | undefined {
 	return one.addresses.find(isAddress);

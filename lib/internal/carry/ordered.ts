@@ -19,9 +19,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sessionAddress } from "../../mesh/address.ts";
+import { isAddress, sessionAddress } from "../../mesh/address.ts";
 import { giveSteer } from "../../mesh/steer.ts";
-import { FROM_MACHINE, isAddress, nodeMachine } from "../../mesh/steer-who.ts";
+import { FROM_MACHINE, nodeMachine } from "../../mesh/steer-who.ts";
 import { writeWhole } from "../write-whole.ts";
 
 /** Where a session's refusal goes, beside where its done file would. */

@@ -82,6 +82,7 @@ import {
 	asksForHelp,
 	CARRY_HELP,
 } from "../lib/internal/carry/help.ts";
+import { messageOf } from "../lib/internal/carry/message.ts";
 import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { carriedBy, tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
@@ -153,7 +154,7 @@ const { values, positionals } = (() => {
 			},
 		});
 	} catch (error) {
-		return refuse(error instanceof Error ? error.message : String(error));
+		return refuse(messageOf(error));
 	}
 })();
 
@@ -285,7 +286,7 @@ if (arriving) {
 	}).catch((error: unknown) => {
 		sayKept({
 			kind: "failed",
-			why: `Arriving failed: ${error instanceof Error ? error.message : String(error)}`,
+			why: `Arriving failed: ${messageOf(error)}`,
 		});
 		return false;
 	});
@@ -300,7 +301,7 @@ if (arriving) {
 		});
 	} catch (error) {
 		process.stderr.write(
-			`pi-carry: couldn't record this arrival: ${error instanceof Error ? error.message : String(error)}\n`,
+			`pi-carry: couldn't record this arrival: ${messageOf(error)}\n`,
 		);
 	}
 	if (whole && carrier !== undefined && why !== undefined) {

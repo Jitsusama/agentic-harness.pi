@@ -61,6 +61,28 @@ describe("writing a file whole", () => {
 		},
 	);
 
+	it.each([
+		["writeWhole", (file: string) => writeWhole(file, "new")],
+		[
+			"writeWholeBy",
+			(file: string) => writeWholeBy(file, (write) => write("new")),
+		],
+		["writeWholeOff", (file: string) => writeWholeOff(file, "new")],
+	])(
+		"%s says a writing folder that is a link to nowhere is a link",
+		async (_, write) => {
+			const nowhere = join(dir, "nowhere");
+			symlinkSync(nowhere, join(dir, WRITING));
+			const file = join(dir, "queue.json");
+
+			await expect(async () => write(file)).rejects.toThrow(
+				`${join(dir, WRITING)} is a link or no folder, so nothing is staged there.`,
+			);
+			expect(existsSync(nowhere), "nothing is made where it leads").toBe(false);
+			expect(existsSync(file)).toBe(false);
+		},
+	);
+
 	it("replaces it, leaving nothing staged", () => {
 		const file = join(dir, "queue.json");
 		writeFileSync(file, "old");

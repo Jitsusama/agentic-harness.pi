@@ -11,7 +11,9 @@
  * `<runtime folder>/pi-host`, holding the conversation's roster entry
  * for a resume (`{"session": ENTRY}`) or nothing for an open (`{}`),
  * then starts the unit with PI_HOST_CHILD_KEY naming KEY and
- * PI_HOST_CHILD_SOCKET naming `KEY.d/SLOT.sock`. The child reads the
+ * PI_HOST_CHILD_SOCKET naming `KEY.d/SLOT.sock`. A slot holding
+ * `{"spare": true}` is a warm spare's, which warms and waits until the
+ * supervisor writes it one of the two (spare.ts). The child reads the
  * slot once, refusing a file that is neither, and keeps a roster of that
  * one entry in `KEY.d/SLOT.d/`, written once it holds the roster's lock,
  * so a child of the slot still stopping never writes under it. It serves
@@ -162,19 +164,8 @@ export function scrubSystemd(env: NodeJS.ProcessEnv): void {
  * entry isn't one a roster holds.
  */
 export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
-	const key = env.PI_HOST_CHILD_KEY ?? "";
-	const { realm, kind } = hostKeyParts(key);
-	const socket = env.PI_HOST_CHILD_SOCKET ?? "";
-	const children = childFolder(key, runtimeDir(env));
-	const named = SLOT_NAME.exec(basename(socket));
-	const slot = named?.[1];
-	if (dirname(socket) !== children || slot === undefined)
-		throw new Error(
-			`PI_HOST_CHILD_SOCKET must name SLOT.sock in ${children}, not ${socket || "nothing"}`,
-		);
-	if (!socketFits(socket))
-		throw new Error(`${socket} is too long for a Unix socket`);
-	const slotFile = join(children, `${slot}.json`);
+	const { key, realm, kind, socket, slot, slotFile, folder } =
+		childSlotPlaces(env);
 	let given: unknown;
 	try {
 		given = JSON.parse(readFileSync(slotFile, "utf8"));
@@ -189,7 +180,6 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 		);
 	const record = given;
 	const session = Reflect.get(record, "session");
-	const folder = join(children, `${slot}.d`);
 	if (session === undefined) return { key, realm, kind, socket, slot, folder };
 	const roster = parseRoster(
 		JSON.stringify({ v: 1, key, sessions: [session] }),
@@ -208,6 +198,48 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 		folder,
 		held,
 		...(woken ? { woken } : {}),
+	};
+}
+
+/** Where a child's slot is, from its environment, before its file is read. */
+export interface ChildSlotPlaces {
+	readonly key: string;
+	readonly realm: string;
+	readonly kind: HostKind;
+	readonly socket: string;
+	readonly slot: string;
+	/** SLOT.json, what the supervisor wrote for it. */
+	readonly slotFile: string;
+	/** SLOT.d, its own folder. */
+	readonly folder: string;
+}
+
+/**
+ * Where the slot named by PI_HOST_CHILD_KEY and PI_HOST_CHILD_SOCKET is,
+ * refusing as childSlot does, without reading its file: a spare reads
+ * that only once it is warm (spare.ts).
+ */
+export function childSlotPlaces(env: NodeJS.ProcessEnv): ChildSlotPlaces {
+	const key = env.PI_HOST_CHILD_KEY ?? "";
+	const { realm, kind } = hostKeyParts(key);
+	const socket = env.PI_HOST_CHILD_SOCKET ?? "";
+	const children = childFolder(key, runtimeDir(env));
+	const named = SLOT_NAME.exec(basename(socket));
+	const slot = named?.[1];
+	if (dirname(socket) !== children || slot === undefined)
+		throw new Error(
+			`PI_HOST_CHILD_SOCKET must name SLOT.sock in ${children}, not ${socket || "nothing"}`,
+		);
+	if (!socketFits(socket))
+		throw new Error(`${socket} is too long for a Unix socket`);
+	return {
+		key,
+		realm,
+		kind,
+		socket,
+		slot,
+		slotFile: join(children, `${slot}.json`),
+		folder: join(children, `${slot}.d`),
 	};
 }
 

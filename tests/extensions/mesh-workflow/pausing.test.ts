@@ -1,11 +1,13 @@
 /**
- * Pause, Resume, Stop and Close from outside a session's window.
+ * Pause, Resume, Stop, Park and Close from outside a session's window.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CLOCKS_DIFFER_MS,
 	createPausing,
+	NOTHING_WAKES,
 	type Pausing,
+	type PausingHost,
 } from "../../../extensions/mesh-workflow/pausing.ts";
 
 interface Session {
@@ -24,13 +26,24 @@ interface Session {
 function session(
 	idle: boolean,
 	carry: (to: string) => Promise<void> = async () => {},
+	closing: Pick<PausingHost, "closeMs"> & {
+		/** What the host's close then does, given its failed and closed. */
+		readonly afterwards?: (
+			failed: (error: unknown) => void,
+			closed: () => void,
+		) => void;
+		/** Why its park watch won't park it, or nothing where it parks. */
+		readonly park?: () => string | undefined;
+		/** When it started here, by its clock; 0 unless given. */
+		readonly startsAt?: number;
+	} = {},
 ): Session {
 	const did: string[] = [];
 	const told: string[] = [];
 	const journal: string[] = [];
 	const closedBy: string[] = [];
 	let paused = false;
-	const state = { idle, time: 0 };
+	const state = { idle, time: closing.startsAt ?? 0 };
 	// The machine a carry under way takes its work to, as the carry's
 	// hold says it from when it is asked until it settles.
 	let underWay: string | undefined;
@@ -58,10 +71,14 @@ function session(
 			carryOn: () => did.push("carry on"),
 			tell: (text) => told.push(text),
 			journal: (text) => journal.push(text),
-			close: (by) => {
+			close: (by, failed, closed) => {
 				did.push("close");
 				closedBy.push(by);
+				if (closing.afterwards && failed && closed)
+					closing.afterwards(failed, closed);
+				else closed?.();
 			},
+			...(closing.closeMs === undefined ? {} : { closeMs: closing.closeMs }),
 			carry: async (to) => {
 				did.push(`carry to ${to}`);
 				underWay = to;
@@ -72,6 +89,10 @@ function session(
 				}
 			},
 			carryUnderWay: () => underWay,
+			park: () => {
+				did.push("park");
+				return closing.park?.();
+			},
 		}),
 		did,
 		told,
@@ -280,6 +301,132 @@ describe("a stop or pause written before what it would end", () => {
 	});
 });
 
+// Joel, 24 November, by 42P0R4 [f00e0dec]: hold a cell parked from the
+// launcher, so its process ends and frees memory, then wake it on a
+// message, a key or a window.
+describe("parking a session from outside its window", () => {
+	it("parks an idle one at once, saying who steered it in its host's journal", () => {
+		const idle = session(true);
+
+		idle.pausing.act("park", "joel");
+
+		expect(idle.did).toEqual(["park"]);
+		expect(idle.journal).toEqual([
+			"Parked from outside its window, steered by joel.",
+		]);
+	});
+
+	it("lets the turn under way finish, ends the run there, and parks once it settles", () => {
+		const busy = session(false);
+
+		busy.pausing.act("park", "joel");
+		expect(busy.did, "nothing parks mid-turn").toEqual([]);
+		expect(busy.told.at(-1)).toContain("after the current turn");
+
+		busy.pausing.turnEnded();
+		expect(busy.did).toEqual(["abort"]);
+
+		busy.idle = true;
+		busy.pausing.settled();
+		busy.pausing.settled();
+		expect(busy.did, "asked once, as it settles").toEqual(["abort", "park"]);
+		expect(busy.pausing.paused, "a park is no pause").toBe(false);
+	});
+
+	it("stays awake and says why where its park watch refuses, on screen and in the journal", () => {
+		const held = session(true, undefined, { park: () => "a prompt is open" });
+
+		held.pausing.act("park", "joel");
+
+		const line =
+			"A Park from outside its window, steered by joel, was refused: a prompt is open.";
+		expect(held.told).toEqual([line]);
+		expect(held.journal).toEqual([line]);
+	});
+
+	it("says why where nothing would wake it, in the words the host gives", () => {
+		const unheld = session(true, undefined, { park: () => NOTHING_WAKES });
+
+		unheld.pausing.act("park", "joel");
+
+		expect(unheld.told.at(-1)).toContain("parking it would only end it");
+	});
+
+	it("is called off by a talk, Resume, Stop, Pause or Close before it lands", () => {
+		const after: Record<string, (one: Session) => void> = {
+			talk: (one) => one.pausing.talked(),
+			resume: (one) => one.pausing.act("resume"),
+			stop: (one) => one.pausing.act("stop"),
+			pause: (one) => one.pausing.act("pause"),
+			close: (one) => one.pausing.act("close"),
+		};
+		for (const [what, then] of Object.entries(after)) {
+			const busy = session(false);
+			busy.pausing.act("park", "joel");
+			then(busy);
+			busy.idle = true;
+			busy.pausing.settled();
+
+			expect(busy.did, what).not.toContain("park");
+			expect(busy.told.join("\n"), what).toContain("called off");
+		}
+	});
+
+	it("is called off by a Carry before it lands", async () => {
+		const busy = session(false);
+		busy.pausing.act("park", "joel");
+
+		await busy.pausing.carry("osprey", "joel");
+		busy.idle = true;
+		busy.pausing.settled();
+
+		expect(busy.did).not.toContain("park");
+		expect(busy.told.join("\n")).toContain("a Carry came after it");
+	});
+
+	// A Park doesn't wake a session already parked, so one left for it is
+	// read as a message wakes it, and would park it again before it read
+	// the message.
+	it("drops a Park written before it last started here, saying so", () => {
+		const woken = session(true, undefined, { startsAt: 20_000 });
+
+		woken.pausing.act("park", "joel", written(5_000));
+
+		expect(woken.did, "the wake's message is read").toEqual([]);
+		expect(woken.told.at(-1)).toContain("this session last started");
+		expect(woken.journal).toEqual(woken.told);
+	});
+
+	it("parks for one written as it started, within what clocks differ by, or saying no time", () => {
+		for (const at of [written(20_000 - CLOCKS_DIFFER_MS), undefined]) {
+			const one = session(true, undefined, { startsAt: 20_000 });
+
+			one.pausing.act("park", "joel", at);
+
+			expect(one.did, String(at)).toEqual(["park"]);
+		}
+	});
+
+	it("drops a Park written before the person last talked to it", () => {
+		const one = session(true);
+		one.time = 30_000;
+		one.pausing.talked(written(20_000));
+
+		one.pausing.act("park", "joel", written(10_000));
+
+		expect(one.did).toEqual([]);
+		expect(one.told.at(-1)).toContain("the person last talked");
+	});
+
+	it("asks nothing as a run settles where no Park waits", () => {
+		const one = session(true);
+
+		one.pausing.settled();
+
+		expect(one.did).toEqual([]);
+	});
+});
+
 describe("closing a session", () => {
 	it("ends the run in progress, then the session, as /exit does", () => {
 		const busy = session(false);
@@ -383,5 +530,99 @@ describe("carrying a session to another machine", () => {
 		carried();
 		await first;
 		expect(one.did).toEqual(["carry to penelope", "abort", "close"]);
+	});
+});
+
+describe("the person's Carry from outside the window, once carried", () => {
+	const UNCLOSED =
+		"Carried to penelope, but it couldn't close here: the engine is gone. Each run here is stopped, so the two never both work.";
+	const STOPPED =
+		"This run is stopped: the session was carried to penelope and runs there.";
+
+	it("says once, in its journal too, where its close fails late, and why each run after it is stopped", async () => {
+		let failClose: ((error: unknown) => void) | undefined;
+		const one = session(true, async () => {}, {
+			afterwards: (failed) => {
+				failClose = failed;
+			},
+		});
+		await one.pausing.carry("penelope");
+
+		failClose?.(new Error("the engine is gone"));
+		failClose?.(new Error("the engine is gone"));
+		one.pausing.started();
+
+		expect(one.told.filter((line) => line === UNCLOSED)).toHaveLength(1);
+		expect(one.journal, "a window nobody watches is told too").toContain(
+			UNCLOSED,
+		);
+		expect(one.did.at(-1)).toBe("abort");
+		expect(one.told.at(-1)).toBe(STOPPED);
+	});
+
+	it("counts a close that hangs past its deadline as failed", async () => {
+		const one = session(true, async () => {}, {
+			afterwards: () => undefined,
+			closeMs: 20,
+		});
+		await one.pausing.carry("penelope");
+
+		await vi.waitFor(() =>
+			expect(one.told).toContain(
+				"Carried to penelope, but it couldn't close here: it hadn't closed after 0.02 s. Each run here is stopped, so the two never both work.",
+			),
+		);
+	});
+
+	it("says a close that lands past its deadline closed after all, once, in its journal too", async () => {
+		let land: (() => void) | undefined;
+		const one = session(true, async () => {}, {
+			afterwards: (_failed, closed) => {
+				land = closed;
+			},
+			closeMs: 20,
+		});
+		await one.pausing.carry("penelope");
+		await vi.waitFor(() =>
+			expect(one.journal.some((line) => line.includes("hadn't closed"))).toBe(
+				true,
+			),
+		);
+
+		land?.();
+		land?.();
+
+		const after = "Carried to penelope, and it closed here after all.";
+		expect(one.told.filter((line) => line === after)).toHaveLength(1);
+		expect(one.journal.at(-1)).toBe(after);
+	});
+
+	it("never counts a close that landed as failed, once its deadline has passed", async () => {
+		const one = session(true, async () => {}, { closeMs: 20 });
+		await one.pausing.carry("penelope");
+
+		// Past its deadline, as the clock it was given reads it.
+		await new Promise((done) => setTimeout(done, 60));
+		one.pausing.started();
+
+		expect(one.journal).toEqual([]);
+		expect(one.told.filter((line) => line.includes("couldn't close"))).toEqual(
+			[],
+		);
+		expect(one.told.at(-1), "nor says a run stopped for it").toBe(
+			"Carried to penelope; closing.",
+		);
+	});
+
+	it("says nothing more where its close lands", async () => {
+		const one = session(true);
+		await one.pausing.carry("penelope");
+
+		one.pausing.started();
+
+		expect(one.told.at(-1)).toBe("Carried to penelope; closing.");
+		expect(one.did.at(-1), "a run is still ended while it closes").toBe(
+			"abort",
+		);
 	});
 });

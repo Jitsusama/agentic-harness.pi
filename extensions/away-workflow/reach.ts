@@ -19,6 +19,7 @@
 
 import type { Notice } from "../../lib/internal/away/notify.ts";
 import { blockedLine } from "../../lib/internal/session/ending.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** What has already reached the person in this absence. */
@@ -79,6 +80,21 @@ export function heldWant(
 	if (!latest) return undefined;
 	if (held.length === 1) return `Holds a call for you: ${latest.title}`;
 	return `Holds ${count(held.length, "call")} for you, the latest: ${latest.title}`;
+}
+
+/**
+ * Every call held in this absence, a line each, for the want to carry
+ * beside its line, which names only the latest; nothing for one or none.
+ */
+export function heldAsk(
+	held: readonly { readonly title: string }[],
+): string | undefined {
+	if (held.length < 2) return undefined;
+	return [
+		`Holds ${count(held.length, "call")} for you:`,
+		// A title the model wrote could break a line and forge a held call.
+		...held.map((one) => `- ${oneLine(one.title)}`),
+	].join("\n");
 }
 
 /**

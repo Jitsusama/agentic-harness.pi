@@ -98,6 +98,7 @@ import {
 	uplinkSentIn,
 } from "../../lib/internal/priority/uplink.ts";
 import { waitedResults } from "../../lib/internal/priority/waited-results.ts";
+import { homeSearchRefusal } from "../../lib/internal/priority/world-walk.ts";
 import {
 	buildsShouldYield,
 	keepYield,
@@ -129,6 +130,29 @@ export function refuseSkippedPushHooks(pi: Pick<ExtensionAPI, "on">): void {
 	});
 }
 
+/**
+ * Refuse a search of the whole home folder or the disk, on any
+ * platform, naming a narrower folder; made again unchanged it goes
+ * ahead, queued as a build.
+ */
+export function refuseHomeSearches(pi: Pick<ExtensionAPI, "on">): void {
+	declareGuards(GUARDS.homeSearch);
+	pi.on("tool_call", async (event, ctx) => {
+		if (!isToolCallEventType("bash", event)) return;
+		const command = event.input.command;
+		const reason = homeSearchRefusal(command, {
+			cwd: ctx.cwd,
+			home: homedir(),
+		});
+		return refusalUnder(
+			GUARDS.homeSearch.name,
+			reason ? { block: true, reason } : undefined,
+			"A search of the whole home folder",
+			command,
+		);
+	});
+}
+
 /** How often a session keeps the queue. */
 export const KEEP_MS = 2_000;
 
@@ -152,6 +176,7 @@ function ownCgroup(): string | undefined {
 
 export default function priorityWorkflow(pi: ExtensionAPI) {
 	refuseSkippedPushHooks(pi);
+	refuseHomeSearches(pi);
 	if (process.platform === "darwin") {
 		// A Mac takes turns too, with its own room reading and no cgroups:
 		// a session there already runs at Utility QoS from its launchd job,
@@ -297,7 +322,7 @@ export interface Machine {
  * while it can't be: the first ask comes with the first keep, after the
  * session has started.
  */
-function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
+export function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
 	const warning = callWarning();
 	onTurnEnd(pi, (_turn, ctx) => {
 		if (!ctx.hasUI) return;

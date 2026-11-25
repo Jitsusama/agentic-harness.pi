@@ -180,11 +180,13 @@ a fault already on main refuses nothing new. Next it holds the counts
 that only fall: long files and crowded folders that don't say why
 (`tests/package/code/every-long-file-says-why.test.ts`) and linter
 suppressions (`tests/package/code/linters-stay-on.test.ts`), each past a
-shrink-only list beside it. Main's copy of each rule runs over the head's
-whole tree, under a config the gate writes, and a head whose list holds a
-line or a count main's doesn't is refused, so a head can neither loosen a
-rule nor list its own new entry. The tree is each file's blob, as
-code-health reads it: none of the head's attributes apply, a link is a
+shrink-only list beside it. Main's copy of each rule runs over the whole
+tree a merge of the head with main would make, under a config the gate
+writes, and a merged list holding a line or a count main's doesn't is
+refused, so a head can neither loosen a rule nor list its own new entry.
+The merge is made in a repository of the gate's own, so no config or
+attributes of the checkout's or the person's shape it. The tree is each
+file's blob, as code-health reads it: no attributes apply, a link is a
 file holding its target, and a head tracking a `node_modules` folder is
 refused. Nothing imports those rules, so before the
 gate held them only a whole `pnpm test` ran them, and by 23 November

@@ -1209,6 +1209,79 @@ describe("what a child says", () => {
 		);
 	});
 
+	it("keeps the heap it reports, and when it was heard", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: { used: 200, limit: 4000 },
+		});
+
+		await vi.waitFor(() =>
+			expect(routes.held()[0]?.heap, "the heap the child said").toEqual({
+				used: 200,
+				limit: 4000,
+				at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+			}),
+		);
+	});
+
+	it("takes a state line whose heap isn't two whole counts, keeping the last heap", async () => {
+		await supervisor.resume(entry(a));
+		const said = { used: 200, limit: 4000 };
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: said,
+		});
+		await vi.waitFor(() => expect(routes.child(a)?.heap).toBeDefined());
+
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy" },
+			heap: { used: 200.5, limit: 4000 },
+		});
+		await vi.waitFor(() =>
+			expect(routes.child(a)?.conversation.state, "the line taken").toBe(
+				"busy",
+			),
+		);
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: { used: 200, limit: -1 },
+		});
+
+		await vi.waitFor(() =>
+			expect(routes.child(a)?.conversation.state, "the line taken").toBe(
+				"idle",
+			),
+		);
+		expect(routes.child(a)?.heap, "the last heap kept").toMatchObject(said);
+	});
+
+	it("keeps its child's last heap when its conversation becomes another", async () => {
+		await supervisor.resume(entry(a));
+		childOf(a).say({
+			type: "state",
+			conversation: conversation(a),
+			heap: { used: 200, limit: 4000 },
+		});
+		await vi.waitFor(() => expect(routes.child(a)?.heap).toBeDefined());
+		const heap = routes.child(a)?.heap;
+
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+		expect(routes.child(b)?.heap, "the same child's").toStrictEqual(heap);
+	});
+
 	it("moves the route when its conversation becomes another", async () => {
 		await supervisor.resume(entry(a));
 		const route = routes.routeOf(a);

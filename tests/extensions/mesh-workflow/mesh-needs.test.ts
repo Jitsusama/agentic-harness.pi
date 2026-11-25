@@ -9,38 +9,17 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	ASK_WHO_OWNS_IT,
+	FIND_WHILE_QUIET,
+	FIND_WHO_OWNS_IT,
 	NEED_GRANTS_NOTHING,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, peer, startSession } from "./support/mesh.ts";
+import { asker, expectNoBarAbove, sending } from "./support/need.ts";
 import { closeNodes, node } from "./support/node.ts";
 
 afterEach(closeNodes);
-
-/** The fixture's session, 7M6JKG, as the node keeps it. */
-const asker = { key: "cell:7M6JKG", title: "A Web, Not a Funnel" };
-
-/** Send through the session's mesh_send, answering its words. */
-async function sending(
-	tools: Awaited<ReturnType<typeof startSession>>["tools"],
-	params: Record<string, unknown>,
-): Promise<string> {
-	const answer = await tools.get("mesh_send")?.execute("call-1", params);
-	return answer?.content[0]?.text ?? "";
-}
-
-/**
- * A refusal is read at the moment a need fails, and the note's next step
- * is to ask whoever is above who owns it, so no refusal may say a need
- * never goes to an orchestrator. Naming whom to ask there is still free.
- */
-function expectNoBarAbove(said: string): void {
-	expect(said).not.toMatch(
-		/never sent to an orchestrator|(goes|went) to no orchestrator/,
-	);
-}
 
 describe("sending to a need", () => {
 	it("goes to the live cell along the ties that works on it, and is kept", async () => {
@@ -103,7 +82,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its about");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -125,7 +104,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no word of its text");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -175,7 +154,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no live cell within three ties");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -221,10 +200,13 @@ describe("sending to a need", () => {
 			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering as much of it or more, unless J7XHQN has stopped this one.",
 		);
 		expect(said, "only the owner works on dates").toContain(
-			"No live cell works on dates, so it found nobody and it was routed by delivery alone.",
+			"No live cell works on dates, so it found nobody and the live cell was found by delivery alone.",
+		);
+		expect(said, "never said to be routed, being sent nowhere").not.toContain(
+			"routed by",
 		);
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
-		expect(said).toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
@@ -269,8 +251,29 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("J7XHQN worked on more of dates delivery");
 		expect(said).toContain(
-			"No cell works on fonts, and no live cell on dates, so they found nobody and it was routed by delivery alone.",
+			"No cell works on fonts, and no live cell on dates, so they found nobody and the live cell was found by delivery alone.",
 		);
+	});
+
+	it("names the words no cell works on in a refusal for a need found nowhere, never saying it was routed", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Dates Delivery" }],
+			[],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land, fonts and all?",
+			about: "dates delivery fonts",
+		});
+
+		expect(said).toContain(
+			"works on dates delivery. No cell works on fonts. It is counted as lost",
+		);
+		expect(said).not.toContain("routed by");
 	});
 
 	it("says nothing of a joined id whose every part routed it", async () => {
@@ -317,6 +320,37 @@ describe("sending to a need", () => {
 		);
 		expect(said, "its number said apart may be anything's").toMatch(
 			/No cell works on [^.]*leg-27/,
+		);
+	});
+
+	// A leg-26 cell holds leg, and the reply once said a need for leg 27
+	// was routed by it, though no cell took it on leg (#2118's round 2).
+	it("says a need for leg 27 was routed by no word only another leg's cell holds", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		peer("session-d", ["L26AAA"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:5HJZ8Z", title: "Easing" },
+				{ key: "cell:L26AAA", title: "Leg 26" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:7M6JKG~L26AAA", strength: 3, heard: Date.now() },
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who eases leg 27?",
+			about: "easing leg-27",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "leg-27, its leg said with it").toContain(
+			"No cell works on leg-27, so it found nobody and it was routed by easing alone.",
 		);
 	});
 
@@ -511,7 +545,7 @@ describe("sending to a need", () => {
 		expect(said, "it points at another peer, not the one refusing").toContain(
 			"Name another peer it is for by address",
 		);
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		expect(said, "nothing above to ask").toContain(FIND_WHO_OWNS_IT);
 		expect(said, "it is there, so it never reads as ended").not.toContain(
 			"has ended",
 		);
@@ -596,7 +630,9 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no node answered");
-		expect(said, "whom to ask, not knowing who").toContain(ASK_WHO_OWNS_IT);
+		// A quiet node says nothing of what is above, and none is kept.
+		expect(said, "none found while quiet").toContain(FIND_WHILE_QUIET);
+		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 		expect(said).toContain("passed to nobody in its place");
 		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));

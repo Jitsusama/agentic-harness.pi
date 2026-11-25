@@ -71,6 +71,9 @@ const request = z.discriminatedUnion("op", [
 		env: carried,
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
+	// What memory the host and each conversation's child take: an op of its
+	// own, since a client reading list strictly would refuse its new fields.
+	z.strictObject({ ...envelope, op: z.literal("memory") }),
 	// A child host's one conversation, followed for as long as the
 	// connection lasts (child.ts): what the supervisor that started it
 	// hears it by.
@@ -146,8 +149,37 @@ const drained = z.strictObject({
 	heavy: z.array(text),
 });
 
+// A heap as V8 said it, in bytes, and when: a child's as its last state
+// line said it, so `at` is when the host heard that line.
+// Memory's answer drops a field it doesn't know in itself, the host's own
+// readings or a conversation's, rather than refusing, so a host that reports
+// more doesn't break an older reader: every reading is already one a reader
+// must do without. The host's identity, which a later request names, and a
+// conversation's state still refuse what they don't know.
+const heapReading = z.object({
+	used: count,
+	limit: count,
+	at: z.iso.datetime({ offset: true }),
+});
+// Each is absent where it can't be read, never zero: a conversation on the
+// host's own thread or parked, or a child gone before its Pss was read.
+const measured = { heap: heapReading.optional(), pss: count.optional() };
+const memory = z.object({
+	host: expectedHost,
+	own: z.object(measured),
+	sessions: z.array(
+		z.object({ sessionId, state: identity.shape.state, ...measured }),
+	),
+});
+
 /** A hosted conversation as open, adopt and list report it. */
 export type SessionIdentity = z.infer<typeof identity>;
+
+/** Memory's answer: the host's own, and each conversation's child's. */
+export type MemoryAnswer = z.infer<typeof memory>;
+
+/** What memory one process takes, each reading absent where it can't be read. */
+export type Measured = MemoryAnswer["own"];
 
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
@@ -220,6 +252,11 @@ export function parseAdoptResult(value: unknown): SessionIdentity {
 /** List's result, with the full identity to guard a later request with. */
 export function parseListResult(value: unknown): z.infer<typeof listed> {
 	return result(listed, value);
+}
+
+/** Memory's result: the host's heap and Pss, and each child's beside its conversation. */
+export function parseMemoryResult(value: unknown): MemoryAnswer {
+	return result(memory, value);
 }
 
 /** Release, close, abort and attach answer with the session they acted on. */

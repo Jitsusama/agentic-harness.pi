@@ -31,7 +31,9 @@ describe("a working folder the sandbox won't let commands write", () => {
 	let home: string;
 
 	beforeAll(() => {
-		home = mkdtempSync(join(tmpdir(), "unfenced-home-"));
+		// Resolved, so a temporary folder reached through a link, as a
+		// quest's and macOS's are, reads as the path the fence names.
+		home = realpathSync(mkdtempSync(join(tmpdir(), "unfenced-home-")));
 		mkdirSync(join(home, "checkout/.git"), { recursive: true });
 		mkdirSync(join(home, "worktree"));
 		writeFileSync(
@@ -123,6 +125,29 @@ describe("a working folder the sandbox won't let commands write", () => {
 		} finally {
 			vi.unstubAllEnvs();
 			rmSync(runtime, { recursive: true, force: true });
+		}
+	});
+
+	it("is one spelled through a quest's TMPDIR link in the runtime folder, though it leads into the scratch", () => {
+		// strict gives each command a TMPDIR of its own and never bound a
+		// quest's scratch, so a folder named through the link is judged
+		// where it is spelled: in the runtime folder the fence hides.
+		const runtime = mkdtempSync(join(tmpdir(), "unfenced-run-"));
+		const scratch = mkdtempSync(join(tmpdir(), "unfenced-scratch-"));
+		const link = join(runtime, "pi-quest-QEST-20261124-ABCDEF");
+		symlinkSync(scratch, link);
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		try {
+			const refusal = unfencedFolder(join(link, "work"), home);
+			expect(refusal).toContain("a path the fence hides");
+			expect(
+				unfencedFolder(join(scratch, "work"), home),
+				"the scratch spelled as itself is not the runtime folder's",
+			).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(runtime, { recursive: true, force: true });
+			rmSync(scratch, { recursive: true, force: true });
 		}
 	});
 

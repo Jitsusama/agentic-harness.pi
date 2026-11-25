@@ -244,6 +244,11 @@ export function meshHand(
 			const content = editNotes.noted(event.toolCallId, event.content);
 			return content ? { content } : undefined;
 		});
+		// A call another handler refused ends with no tool_result.
+		pi.on("tool_execution_end", async (event) => {
+			heavyCalls.closed(event.toolCallId);
+			editNotes.closed(event.toolCallId);
+		});
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {
 				if (toolCallId !== undefined) heavyCalls.finished(toolCallId);

@@ -10,10 +10,19 @@
  * a tree refused once cut, touches nothing in it the arrival didn't make.
  */
 
-import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+	accessSync,
+	constants,
+	lstatSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { within } from "../sandbox/tree-git.ts";
+import { messageOf } from "./message.ts";
 
 /** A tree cut from the checkout whose git folder is `checkout`. */
 export interface Cut {
@@ -85,11 +94,20 @@ export async function cutFrom(
 
 /**
  * Where `branch` stands in the checkout whose git folder is `checkout`:
- * none only where git listed its branches whole and named no such one,
- * saying nothing on standard error, since a ref it can't read is
- * skipped with a warning, and reading one as absent would have a
- * branch put back by deleting it. `rev-parse` can't tell absent from
- * unreadable, nor from a git that never ran: each answers 1.
+ * where git lists it, or none only where git then says outright that
+ * its ref is missing, since reading one it can't read as absent would
+ * have a branch put back by deleting it. Listing alone can't say so: it
+ * skips a ref it can't read with a warning, as it does a broken one
+ * beside it such as `topic-old`, and skips a folder of refs it can't
+ * open without a word. `show-ref --exists` answers 2 for a missing ref
+ * alone, and 1 for one it couldn't look up; `rev-parse` can't tell
+ * absent from unreadable, nor from a git that never ran: each answers 1.
+ * What else git says on standard error is no reason to refuse.
+ *
+ * A git older than 2.43 doesn't know `--exists`, answering 129, and
+ * lenders and cloud machines run such a git, where refusing every new
+ * branch would refuse every carry. There the ref's own file, where git
+ * names it, is looked at instead: see {@link unlistedStands}.
  */
 async function whereStands(
 	exec: Exec,
@@ -103,12 +121,105 @@ async function whereStands(
 		"--format=%(objectname) %(refname)",
 		ref,
 	]);
-	const said = listed.stderr.trim();
-	if (listed.code !== 0 || said !== "") {
-		return { why: said || `git answered ${listed.code}` };
-	}
+	if (listed.code !== 0) return { why: whyOf(listed) };
 	const line = listed.stdout.split("\n").find((one) => one.endsWith(` ${ref}`));
-	return { at: line?.slice(0, -` ${ref}`.length) };
+	if (line !== undefined) return { at: line.slice(0, -` ${ref}`.length) };
+	const missing = await exec("git", [
+		`--git-dir=${checkout}`,
+		"show-ref",
+		"--exists",
+		ref,
+	]);
+	if (missing.code === MISSING) return { at: undefined };
+	// The listing's own word on the ref, such as that it is broken, first.
+	const named = listed.stderr
+		.split("\n")
+		.map((one) => one.trim())
+		.filter((one) => one.endsWith(` ${ref}`));
+	if (missing.code === UNKNOWN_OPTION && !killed(missing.stderr)) {
+		if (named.length > 0) return { why: named.join("; ") };
+		const file = await exec("git", [
+			`--git-dir=${checkout}`,
+			"rev-parse",
+			"--git-path",
+			ref,
+		]);
+		if (file.code !== 0) return { why: whyOf(file) };
+		const stands = unlistedStands(file.stdout.trim(), ref);
+		return stands === undefined ? { at: undefined } : { why: stands };
+	}
+	const why =
+		missing.code === 0 ? `git has ${ref} but didn't list it` : whyOf(missing);
+	return { why: [...named, why].join("; ") };
+}
+
+/** What `git show-ref --exists` answers for a ref that is missing, and only that. */
+const MISSING = 2;
+
+/**
+ * What git answers for an option it doesn't know, as a git older than
+ * 2.43 does `--exists`, printing its whole usage, which says nothing of
+ * the ref.
+ */
+const UNKNOWN_OPTION = 129;
+
+/**
+ * Whether git was killed rather than answering, as exec says of one a
+ * signal ended: 129 is also SIGHUP's 128 and 1, and a git hung up on
+ * mustn't be taken for one too old to know `--exists`.
+ */
+function killed(stderr: string): boolean {
+	return / was killed by SIG[A-Z0-9]+$/.test(stderr.trim());
+}
+
+/**
+ * Why a ref the listing left out may still stand, for a git too old to
+ * say so itself, looking at its loose file `file` as git names it: that
+ * file is there, or a folder of refs on its way can't be read, which
+ * the listing skips without a word. Undefined where neither, so it is
+ * missing: a packed ref the listing would have read and listed.
+ *
+ * git prints the path as it was given the git dir, so it is resolved
+ * first, against the folder git ran in, which is this process's: one
+ * through `..`, `//` or a relative git dir is still the ref's own file.
+ * Folders on the way are followed through links, as git follows them;
+ * the ref's own file is not, since anything there, a link to nothing
+ * included, may be a ref git reads.
+ */
+function unlistedStands(said: string, ref: string): string | undefined {
+	const file = resolve(said);
+	if (!file.endsWith(`/${ref}`)) {
+		return `git named ${said} for ${ref}, which isn't its file`;
+	}
+	let at = `${file.slice(0, -ref.length)}refs`;
+	for (const part of ["", ...ref.split("/").slice(1)]) {
+		at = part === "" ? at : join(at, part);
+		const own = at === file;
+		let kind: ReturnType<typeof lstatSync>;
+		try {
+			kind = own ? lstatSync(at) : statSync(at);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			return `${at} can't be looked at: ${messageOf(error)}`;
+		}
+		if (own) {
+			return kind.isDirectory()
+				? `a folder of refs stands at ${file}, so git can't make ${ref} there`
+				: `git has ${ref} at ${file} but didn't list it`;
+		}
+		if (!kind.isDirectory()) return undefined;
+		try {
+			accessSync(at, constants.R_OK | constants.X_OK);
+		} catch {
+			return `${at} can't be read, so git can't say whether ${ref} is there`;
+		}
+	}
+	return undefined;
+}
+
+/** What git said on standard error, or the code it answered with. */
+function whyOf(said: { code: number; stderr: string }): string {
+	return said.stderr.trim() || `git answered ${said.code}`;
 }
 
 /**
@@ -182,7 +293,7 @@ async function takenOut(
 		// Pruning would take out other trees' entries too, so it is named.
 		return `git's entry for the tree cut at ${path} may be left in ${checkout}, where git worktree prune takes it out`;
 	} catch (error) {
-		return `the tree cut at ${path} couldn't be taken out: ${error instanceof Error ? error.message : String(error)}`;
+		return `the tree cut at ${path} couldn't be taken out: ${messageOf(error)}`;
 	}
 }
 

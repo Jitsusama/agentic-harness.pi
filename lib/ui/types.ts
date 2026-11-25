@@ -190,6 +190,11 @@ export interface PromptWant {
 	/** One short line. Default: the title. */
 	readonly said?: string;
 	/**
+	 * The whole of what it asks, its paragraphs kept, for a launcher to
+	 * show in full where the line can't hold it. Default: none.
+	 */
+	readonly asked?: string;
+	/**
 	 * The choices the want says, so the person can answer from where they
 	 * are (a single prompt only): one given there is taken as if picked
 	 * here, and words as if typed into the option that opens an editor.

@@ -48,6 +48,10 @@ const RESTARTS = 3;
 
 /**
  * The worker, as source for an eval worker, so it needs nothing resolved.
+ * It takes node's modules through `process.getBuiltinModule`, which either
+ * module type has: a thread takes its process's flags, so under a host
+ * started with `--input-type=module`, as the host's end-to-end runs start
+ * it, a `require` here threw and no store was checkpointed until it closed.
  *
  * A store being closed is checkpointed once and then left alone until it
  * is released or kept again. Should a close's own TRUNCATE still meet this
@@ -56,9 +60,9 @@ const RESTARTS = 3;
  * connection to close, this one as it is released, copies what remains.
  */
 const PROGRAM = `
-const { parentPort, workerData } = require("node:worker_threads");
-const { DatabaseSync } = require("node:sqlite");
-const { closeSync, existsSync, openSync, readSync } = require("node:fs");
+const { parentPort, workerData } = process.getBuiltinModule("node:worker_threads");
+const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+const { closeSync, existsSync, openSync, readSync } = process.getBuiltinModule("node:fs");
 const { every, pages, observing, little } = workerData;
 const kept = new Map();
 const said = (error) => String((error && error.message) || error);

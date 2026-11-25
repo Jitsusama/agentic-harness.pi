@@ -3,7 +3,10 @@
  * told longest first.
  */
 import { describe, expect, it } from "vitest";
-import { SAID_CHARS } from "../../../lib/internal/session/wants.ts";
+import {
+	ASKED_CHARS,
+	SAID_CHARS,
+} from "../../../lib/internal/session/wants.ts";
 import { longestStanding, wantFrom, wantId } from "../../../lib/mesh/want.ts";
 
 describe("a want", () => {
@@ -27,6 +30,25 @@ describe("a want", () => {
 		});
 		expect(long?.said).toHaveLength(SAID_CHARS);
 		expect(long?.said).toMatch(/\u2026$/);
+	});
+
+	it("reads its whole ask from outside, held as the session holds it", () => {
+		const since = "2026-10-22T08:00:00Z";
+		const read = (asked: unknown) =>
+			wantFrom({ kind: "question", since, said: "Go on?", asked });
+
+		// An unseen character reads as a space; the spaces an ask has stay.
+		expect(read("First.\n\n\nGo\u001bon?")?.asked).toBe("First.\n\nGo on?");
+		expect(read(`${"x".repeat(ASKED_CHARS - 4)}\nGo?`)?.asked).toHaveLength(
+			ASKED_CHARS,
+		);
+		expect(
+			read("x".repeat(ASKED_CHARS + 1)),
+			"one longer than any harness writes",
+		).not.toHaveProperty("asked");
+		expect(read("Go on?"), "one that says no more").not.toHaveProperty("asked");
+		expect(read(7), "one that is no text").not.toHaveProperty("asked");
+		expect(read(undefined), "an older harness's").not.toHaveProperty("asked");
 	});
 
 	it("keeps its id as what it says changes", () => {
