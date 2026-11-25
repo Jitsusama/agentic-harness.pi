@@ -83,6 +83,35 @@ describe("trees a live quest claims until spent", () => {
 		expect(why, "why the tree was kept").toMatch(/took it up/);
 	});
 
+	it("keeps a claimed tree whose reading under its lock can't say, and says so", async () => {
+		const { cut, sweep } = await setUp();
+		const blind = await cut("blind", ["-b", "blind", "@", "main"]);
+		let asked = 0;
+
+		// Blind under the tree's lock, the one place a claimed tree's
+		// processes are read, as when lsof is cut at its limit.
+		const outcome = await sweep(untilSpent(blind), undefined, {
+			busyAmong: async () => {
+				asked += 1;
+				return undefined;
+			},
+		});
+
+		expect(asked, "the processes weren't read under the lock").toBe(1);
+
+		expect(
+			outcome.taken,
+			"a claimed tree was taken on a blind reading",
+		).toEqual([]);
+		expect(existsSync(blind), "a claimed tree went on a blind reading").toBe(
+			true,
+		);
+		expect(
+			outcome.kept.find((one) => one.path === blind)?.why,
+			"a reading that couldn't say was logged as a session taking it up",
+		).toBe("the machine can't say which processes hold it");
+	});
+
 	it("keeps an ended session's claimed tree holding one untracked file", async () => {
 		const { cut, sweep } = await setUp();
 		const noted = await cut("noted", ["-b", "noted", "@", "main"]);

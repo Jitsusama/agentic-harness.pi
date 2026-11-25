@@ -14,6 +14,7 @@ import type { BoundTarget, Change } from "../../../lib/core/review/index.ts";
 import { fillProposal } from "../../../lib/core/review/index.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
+import { sayProposed } from "../../../lib/internal/session/landings.ts";
 import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { GLYPH, proposalLine } from "../render.ts";
 import { councilFirst } from "../reviewed-first.ts";
@@ -134,6 +135,7 @@ export async function propose(
 	}
 
 	sayDid(bus, { kind: "pr", where: bound.repo.key, title: made.title });
+	sayProposed(bus, [made.url]);
 	return say(`${GLYPH.lands} ${proposalLine(made)}${asking}`, {
 		ok: true,
 		change: made.ref.label,

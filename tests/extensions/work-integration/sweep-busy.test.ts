@@ -160,6 +160,81 @@ describe("the sweep's reading of what is in use", () => {
 	});
 });
 
+describe("the sweep's reading of what is in use without /proc", () => {
+	/** A machine with no /proc, whose open files `listed` gives as lsof does. */
+	function mac(
+		listed: string | undefined,
+		folders: readonly string[] = [],
+	): ProcessReads {
+		return {
+			readlink: async () => {
+				throw failing("ENOENT");
+			},
+			readdir: async () => {
+				throw failing("ENOENT");
+			},
+			sessionFolders: async () => folders,
+			openFiles: async () => listed,
+		};
+	}
+
+	it("finds a tree a process works in or holds a file open in, as lsof lists them", async () => {
+		// lsof's fields, one a line: p the process, f the descriptor (cwd,
+		// txt, a number) and n its name.
+		const listed = [
+			"p501",
+			"fcwd",
+			"n/trees/a/src",
+			"ftxt",
+			"n/usr/bin/git",
+			"p502",
+			"fcwd",
+			"n/Users/joel",
+			"f3",
+			"n/trees/b/Cargo.lock",
+			"f4",
+			"n->/trees/c",
+			"p503",
+			"fcwd",
+			"n/trees/my tree (2)/src",
+			"f5",
+			"n/trees/dd/x",
+		].join("\n");
+
+		const busy = await busyAmongBy(
+			["/trees/a", "/trees/b", "/trees/c", "/trees/my tree (2)", "/trees/d"],
+			mac(listed),
+		);
+
+		// A socket's name is no path, a name runs to the line's end, and a
+		// sibling sharing a prefix is another tree.
+		expect(
+			[...(busy ?? [])].sort(),
+			"not the trees lsof lists files in",
+		).toEqual(["/trees/a", "/trees/b", "/trees/my tree (2)"]);
+	});
+
+	it("finds a tree a live session's folder lies in", async () => {
+		const busy = await busyAmongBy(
+			["/trees/a", "/trees/b"],
+			mac("p501\nfcwd\nn/Users/joel\n", ["/trees/b/docs"]),
+		);
+
+		expect(
+			[...(busy ?? [])],
+			"a session's folder didn't keep its tree",
+		).toEqual(["/trees/b"]);
+	});
+
+	it("can't say when lsof can't list them", async () => {
+		const reading = await busyAmongBy(["/trees/a"], mac(undefined));
+
+		expect(reading, "a listing that failed called its trees free").toBe(
+			undefined,
+		);
+	});
+});
+
 describe("whether /proc lists everyone's processes", () => {
 	it("says so only where it lists the first, and not where it can't be read", async () => {
 		expect(

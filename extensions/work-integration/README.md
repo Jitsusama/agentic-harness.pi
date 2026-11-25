@@ -252,9 +252,17 @@ is stranded: one cut from a clone the fence doesn't guard, or
 whose git folder is gone. No checkout's git lists one cut from
 such a clone, and every cut at its name died on git's bare
 `already exists`, as a snapshot a host restart left on 20
-November did. Release can't take one either, since it runs git
-there. Cutting at its name now refuses, naming the tree and the
-way out that fits it. `tidy` lists each one no running session
+November did. Release can't run git there either, so a session
+releasing one in the work tool's own trees folder has it set
+aside whole, as reclaim sets one, without reading it. Unlike
+reclaim, release doesn't ask whether a process still works in it:
+the release is the session's own word that it's done. While
+another session holds it too, it stays where it is for that one,
+and only this session's hold goes; one whose git entry is locked
+by hand stays, as reclaim leaves it. A tree outside that folder
+is left to whatever cut it.
+Cutting at its name now refuses, naming the tree and the way out
+that fits it. `tidy` lists each one no running session
 holds, counted apart from the checkout's own trees, and
 `reclaim` moves it aside whole to `work/stranded/`, since git
 can't say whether it holds work. They are asked about again,
@@ -539,7 +547,20 @@ a surprise that spends the time.
 and refuses while anything is uncommitted, using the same sentence
 that guards a repoint. An untracked file counts: overwriting a
 modified file is bad and recoverable, and overwriting an untracked
-one is neither.
+one is neither. A tree git won't run in can't be read, so it is
+set aside whole with everything in it rather than removed. Its
+branch stays, but git's entry for it, with its index and HEAD, goes
+when the clone that cut it next cuts that name, or at `git worktree
+prune` there. A snapshot was on no branch, so whatever was committed
+in it hangs only from that entry's HEAD: give it a branch from the
+clone before then. A tree whose `.git` became a repository of its
+own, or a link to one inside the tree, keeps what was committed
+there only in what was set aside, and the answer says so. Run no git in what was
+set aside: a command in the sandbox may have written the settings and
+hooks git would run. One whose `.git` names a worktree's git folder
+whose repository isn't there, as when its checkout moved, stays and
+is refused, since `git worktree repair`, run from that checkout, can
+mend it where it is.
 
 **It will not keep a branch trunk already has.** Releasing or
 reclaiming a tree deletes its branch, and the `[branch]` section a

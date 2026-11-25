@@ -11,7 +11,10 @@
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
@@ -22,6 +25,13 @@ import {
 	refusalOf,
 	withdrawLook,
 } from "../../lib/mesh/looks/looks.ts";
+import {
+	keptProposed,
+	OWN_CHANGE_REFUSED,
+	opensOneOf,
+	ownChangesBeside,
+	proposedIn,
+} from "../../lib/mesh/looks/own-changes.ts";
 import { INTENTS } from "../../lib/mesh/message.ts";
 import { leasesText } from "./leases.ts";
 import { refusedSection } from "./refusals.ts";
@@ -60,8 +70,20 @@ export function registerTools(
 	looksFolder: () => string | undefined = () => local()?.looks,
 ): void {
 	const using =
-		<P>(act: (at: Local, params: P) => Answer | Promise<Answer>) =>
-		async (_id: string, params: P) => {
+		<P>(
+			act: (
+				at: Local,
+				params: P,
+				ctx?: ExtensionContext,
+			) => Answer | Promise<Answer>,
+		) =>
+		async (
+			_id: string,
+			params: P,
+			_signal?: AbortSignal,
+			_onUpdate?: unknown,
+			ctx?: ExtensionContext,
+		) => {
 			const at = local();
 			if (!at) {
 				return answer(
@@ -69,7 +91,7 @@ export function registerTools(
 				);
 			}
 			at.peer.refresh();
-			return act(at, params);
+			return act(at, params, ctx);
 		};
 
 	pi.registerTool({
@@ -337,7 +359,7 @@ export function registerTools(
 		promptSnippet:
 			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
 		description:
-			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an act of 'Just See', with no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, happened, matters, act and follows for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an act of 'Just See', with no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find, but never for a pull request you or another session put up: review it yourself, take it out of draft and ask for review (Joel, 24 November); one this session or its quest proposed is refused, whatever kind it is said as. Write title, happened, matters, act and follows for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
 		parameters: Type.Object({
 			kind: StringEnum([...LOOK_KINDS], {
 				description:
@@ -393,7 +415,7 @@ export function registerTools(
 				}),
 			),
 		}),
-		execute: using((at, params: ShowPersonParams) => {
+		execute: using((at, params: ShowPersonParams, ctx) => {
 			if (!at.looks) {
 				return answer(
 					"Nothing was kept: this pi keeps no folder for the person's look list.",
@@ -432,6 +454,15 @@ export function registerTools(
 			};
 			const refused = refusalOf(pointing);
 			if (refused) return answer(`⊘ ${refused} Nothing was added.`);
+			// Whatever kind it is said as: a page look at the change opens it
+			// all the same.
+			const proposed = [
+				...proposedIn(ctx?.sessionManager.getBranch() ?? []),
+				...keptProposed(ownChangesBeside(at.looks), [quest, at.peer.session]),
+			];
+			if (opensOneOf(pointing.target, proposed)) {
+				return answer(`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`);
+			}
 			const look = pointAt(at.looks, pointing, {
 				session: at.peer.session,
 				address: at.peer.signature,

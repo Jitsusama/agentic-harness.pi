@@ -45,6 +45,7 @@ import { hostedPresence } from "../in-place.ts";
 import { keptOffIn, quietIn } from "../quiet.ts";
 import { keepHub } from "../tools/above.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
+import { carryOwnChanges, keepOwnChanges } from "./bus.ts";
 import type { Handing } from "./handing.ts";
 import type { Hearing } from "./hearing.ts";
 import type { HeavyWork } from "./heavy.ts";
@@ -145,7 +146,10 @@ export function onSessionStart(
 		const session = sessionKeyOf(started);
 		// A log rolled over into a fresh one carries on as the same peer.
 		const previous = previousSession(carriedBy(branch, CARRY_NAME));
-		if (previous) carryLeases(m.board, previous, session);
+		if (previous) {
+			carryLeases(m.board, previous, session);
+			carryOwnChanges(m, previous, session);
+		}
 		await f.countLive();
 		m.untellAwaited?.();
 		m.untellAwaited = tellAwaited(f.awaited);
@@ -207,6 +211,8 @@ export function onSessionStart(
 		m.hideWants = showWants();
 		for (const landing of m.unlanded.splice(0)) m.peer.landed(landing);
 		for (const event of m.undone.splice(0)) m.peer.did(event);
+		const proposed = m.unproposed.splice(0);
+		if (proposed.length > 0) keepOwnChanges(m, proposed);
 		if (m.onNoModelUntold) f.tellNoModel(m.onNoModelUntold);
 		if (m.waiting) {
 			settleFromVerdicts(m.waiting);

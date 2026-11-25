@@ -698,6 +698,9 @@ async function sweepRepository(
 		const remote = offer.pushed
 			? await remoteHolding(deps.exec, tree.path)
 			: undefined;
+		// Set under the lock, so a keep can say a reading that couldn't tell
+		// kept the tree rather than blame a session.
+		let unread = false;
 		await takeBack(
 			deps,
 			facts,
@@ -718,10 +721,15 @@ async function sweepRepository(
 				? (take) =>
 						deps.memory.whileUnheld(
 							tree.path,
-							async () => !(await takenUpAgain(deps, tree)) && take(),
+							async () => {
+								const again = await takenUpAgain(deps, tree);
+								unread = again === "can't say";
+								return again === "left" && take();
+							},
 							facts,
 						)
 				: undefined,
+			{ unread: () => unread },
 		);
 	}
 }
@@ -730,15 +738,20 @@ async function sweepRepository(
  * Whether a live session works in a tree a quest claims, asked again
  * just before it goes: the sessions' records and hosts' rosters are read
  * afresh, and so are the processes when the machine has a reader for
- * them. A reader that can't say keeps the tree; with no reader at all,
- * the records and rosters alone decide.
+ * them. A reader that can't say keeps the tree, and says so apart from a
+ * session's taking it up; with no reader at all, the records and rosters
+ * alone decide.
  */
-async function takenUpAgain(deps: SweepDeps, tree: HeldTree): Promise<boolean> {
-	if ((await treesInUse(deps, [tree])).length > 0) return true;
-	if (deps.busyAmong === undefined) return false;
+async function takenUpAgain(
+	deps: SweepDeps,
+	tree: HeldTree,
+): Promise<"taken up" | "left" | "can't say"> {
+	if ((await treesInUse(deps, [tree])).length > 0) return "taken up";
+	if (deps.busyAmong === undefined) return "left";
 	const path = resolved(tree.path);
 	const busy = await deps.busyAmong([path]);
-	return busy === undefined || busy.has(path);
+	if (busy === undefined) return "can't say";
+	return busy.has(path) ? "taken up" : "left";
 }
 
 /**
@@ -784,6 +797,7 @@ async function takeIdle(
 		? { sessions: [...tree.sessions] }
 		: {};
 	const why = `unused for ${hours} h while its session stayed open`;
+	let unread = false;
 	await takeBack(
 		deps,
 		facts,
@@ -794,7 +808,8 @@ async function takeIdle(
 		// Who works in it, then its git and folder, are read again under the
 		// lock just before the move, since the takes before it may have
 		// taken minutes. A reading that can't say keeps it. The walk of
-		// every process holds the lock for under a second, where an ask
+		// every process holds the lock for under a second, and lsof on a
+		// Mac for about two and a half and never past five, where an ask
 		// waits ten.
 		(take) =>
 			deps.memory.whileUnusedSince(
@@ -803,6 +818,7 @@ async function takeIdle(
 				async () => {
 					const path = resolved(tree.path);
 					const busy = await deps.busyAmong?.([path]);
+					unread = busy === undefined;
 					return (
 						busy !== undefined &&
 						!busy.has(path) &&
@@ -815,6 +831,7 @@ async function takeIdle(
 				// hundreds of takes never lists the records folder for one.
 				tree.identity.key,
 			),
+		{ unread: () => unread },
 	);
 }
 
@@ -840,6 +857,7 @@ async function takeIdleWorktree(
 	const sessions = [...(tree.sessions ?? [])];
 	const why = `unused for ${hours} h while its session stayed open, its branch on ${remote}`;
 	const taken = outcome.taken.length;
+	let unread = false;
 	// The note goes in first, so a sweep cut off mid-take leaves the branch
 	// kept, and comes out again when the tree stays.
 	const unkeep = keepBranch(keptDir, {
@@ -872,6 +890,7 @@ async function takeIdleWorktree(
 					async () => {
 						const path = resolved(tree.path);
 						const busy = await deps.busyAmong?.([path]);
+						unread = busy === undefined;
 						return (
 							busy !== undefined &&
 							!busy.has(path) &&
@@ -890,7 +909,7 @@ async function takeIdleWorktree(
 					},
 					tree.identity.key,
 				),
-			{ keepBranch: true },
+			{ keepBranch: true, unread: () => unread },
 		);
 	} finally {
 		// Undone only while the tree stands where it was: one moved aside
@@ -934,7 +953,7 @@ async function takeBack(
 	guard: (take: () => Promise<boolean>) => Promise<HeldTree | undefined> = (
 		take,
 	) => deps.memory.whileUnheld(tree.path, take, facts),
-	how: { keepBranch?: boolean } = {},
+	how: { keepBranch?: boolean; unread?: () => boolean } = {},
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	let moveRefused: string | undefined;
@@ -955,9 +974,14 @@ async function takeBack(
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });
 		} else {
+			// A reading that couldn't say, as when lsof is cut at its limit,
+			// is told apart from a session at work there, so a log that
+			// keeps saying it shows the reader failing, not the sessions.
 			outcome.kept.push({
 				path: tree.path,
-				why: "a session took it up again",
+				why: how.unread?.()
+					? "the machine can't say which processes hold it"
+					: "a session took it up again",
 			});
 		}
 		return;

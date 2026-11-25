@@ -10,7 +10,7 @@ import { getHeapStatistics } from "node:v8";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { settledWithin } from "../../lib/internal/settled.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
-import { pssBytesOf } from "../engine/quiet-collection.ts";
+import { processHeap, pssBytesOf } from "../engine/quiet-collection.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import { CHILD_SAID_UNSETTLED, leftRunning } from "./child-requests.ts";
@@ -349,6 +349,7 @@ export function hostBackend(options: {
 		options.own ??
 		(async (): Promise<Measured> => {
 			const stats = getHeapStatistics();
+			const { spaces, external, arrayBuffers } = processHeap();
 			const at = now().toISOString();
 			const pss = await settledWithin(ownPss(), PSS_WAIT_MS);
 			return {
@@ -356,6 +357,9 @@ export function hostBackend(options: {
 					used: stats.used_heap_size,
 					limit: stats.heap_size_limit,
 					at,
+					spaces: [...spaces],
+					external,
+					arrayBuffers,
 				},
 				...(pss === undefined ? {} : { pss }),
 			};

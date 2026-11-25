@@ -515,14 +515,18 @@ export function isRestartAsk(data: unknown): data is RestartAsk {
  * and frees memory, then wake it on a message, a key or a window. The
  * park watch answers before `emit` returns: `parked` once it parks, else
  * `why` not. An ask nobody answers has no watch, since nothing here
- * would wake it.
+ * would wake it. A `check` parks nothing: asked mid-run, before the run
+ * is stopped for a park, it answers `ready` where only the run holds it,
+ * or a log its run has yet to write.
  */
 export const PARK_NOW_ASK = "session:park-now-ask:v1";
 
 /** What {@link PARK_NOW_ASK} carries. */
 export interface ParkNowAsk {
 	readonly session: string;
+	readonly check?: boolean;
 	parked?: boolean;
+	ready?: boolean;
 	why?: string;
 }
 

@@ -65,11 +65,13 @@ import {
 } from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
+import { answerParkNow } from "./park-now.ts";
 import {
 	exitWith,
 	logWritten,
 	niriFocused,
 	restartNamed,
+	restartRefused,
 	restartWith,
 	shownIn,
 } from "./restart.ts";
@@ -509,7 +511,13 @@ export function watch(
 	// as parking is on at all.
 	const askedAfterMs = (): number | undefined =>
 		dueAfterMs() === undefined ? undefined : 0;
-	const decide = (goesOn = false, asked = false): string | undefined => {
+	// A check answers what would refuse a park once the run settles, and
+	// parks nothing, writing nothing its holder would read.
+	const decide = (
+		goesOn = false,
+		asked = false,
+		check = false,
+	): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
@@ -525,8 +533,9 @@ export function watch(
 		}
 		const why = whyNotPark({
 			...holding(),
-			// Between turns, the run holds nothing the next start loses.
-			...(goesOn ? { agentIdle: true } : {}),
+			// Between turns, the run holds nothing the next start loses; a
+			// check is asked of a run about to be stopped.
+			...(goesOn || check ? { agentIdle: true } : {}),
 			idleMs: now() - last,
 			afterMs,
 			refusals: ask.refusals,
@@ -535,6 +544,13 @@ export function watch(
 		const away = unheld();
 		if (away !== undefined) return away;
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
+		// Naming its next start tells its holder, so a check asks only what
+		// refuses it for certain; its first answer has yet to write its log.
+		if (check) {
+			return parkingHost()
+				? undefined
+				: restartRefused(again, args, session, sessionFile);
+		}
 		// A host wakes it from its log as it resumes it; plain pi's holder
 		// has to be told how to start it again.
 		const unnamed = parkingHost()
@@ -697,9 +713,7 @@ export function watch(
 	};
 	const unparked = bus.on(PARK_NOW_ASK, (data) => {
 		if (!isParkNowAsk(data) || data.session !== session) return;
-		const why = parkNow();
-		if (why === undefined) data.parked = true;
-		else data.why = why;
+		answerParkNow(data, () => decide(false, true, true), parkNow);
 	});
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;

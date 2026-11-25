@@ -49,6 +49,7 @@ import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
+import { listedOpenFiles } from "./open-files.ts";
 
 /** How long after a session starts its first sweep runs. */
 const FIRST_SWEEP_MS = 3 * 60 * 1000;
@@ -513,19 +514,23 @@ function untrusted(error: unknown): unknown {
  * Which of `paths` a process running now works in or holds a file open
  * in, or a live session's folder lies in, read afresh from the kernel's
  * links (its folder, its program and its open files; not its mapped
- * files) and the sessions' records. Nothing when there is no `/proc`, as
- * on macOS, when this process sees only a namespace's share of it, as in
- * a container, or when a read fails for any reason but its process having
- * nothing to read, so a tree a session still open holds is never taken
- * on a reading that may have missed what holds it.
+ * files) and the sessions' records, or on macOS, which has no `/proc`,
+ * from what lsof lists of this account's processes. Nothing when this
+ * process sees only a namespace's share of `/proc`, as in a container,
+ * when lsof fails, or when a read fails for any reason but its process
+ * having nothing to read, so a tree a session still open holds is never
+ * taken on a reading that may have missed what holds it.
  */
 function busyAmong(
 	paths: readonly string[],
 ): Promise<ReadonlySet<string> | undefined> {
 	return busyAmongBy(paths, {
-		readlink,
 		readdir: (path) => readdir(path),
+		readlink,
 		sessionFolders: () => sessionFolders(presentNow),
+		...(process.platform === "darwin"
+			? { openFiles: () => listedOpenFiles() }
+			: {}),
 	});
 }
 
@@ -534,6 +539,12 @@ export interface ProcessReads {
 	readlink(path: string): Promise<string>;
 	readdir(path: string): Promise<string[]>;
 	sessionFolders(): Promise<readonly string[]>;
+	/**
+	 * On a machine with no `/proc`, what lsof lists of the processes'
+	 * files, one field a line, whole, or nothing when it can't say it
+	 * listed them all.
+	 */
+	openFiles?(): Promise<string | undefined>;
 }
 
 /**
@@ -544,21 +555,6 @@ export async function busyAmongBy(
 	paths: readonly string[],
 	reads: ProcessReads,
 ): Promise<ReadonlySet<string> | undefined> {
-	const { readlink, readdir } = reads;
-	let pids: string[];
-	try {
-		if (!(await seesEveryProcess(readlink))) return undefined;
-		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
-	} catch {
-		return undefined;
-	}
-	// A /proc mounted to hide other users' processes leaves them out of
-	// the listing without an error, so the reading would count as whole
-	// when it isn't. The machine's first process is listed to a reader
-	// who sees everyone, and hidden from one who doesn't. This says only
-	// that the listing is whole: another user's links still refuse to be
-	// read on any /proc, and are passed over, as the sweep's notes say.
-	if (!pids.includes("1")) return undefined;
 	const asked = new Set(paths);
 	const busy = new Set<string>();
 	// Up a link's folders rather than across every path, since a sweep
@@ -569,6 +565,59 @@ export async function busyAmongBy(
 			if (at === "/") break;
 		}
 	};
+	const whole =
+		reads.openFiles === undefined
+			? await readProcesses(reads, mark, () => busy.size >= asked.size)
+			: markListed(await reads.openFiles(), mark);
+	if (!whole) return undefined;
+	// A session's folder may name a link; the kernel's are real paths.
+	for (const folder of await reads.sessionFolders()) {
+		mark(resolvedPath(folder));
+	}
+	return busy;
+}
+
+/**
+ * Marks each file lsof `listed` names, its name fields alone (`n` and a
+ * path; a socket or pipe names none), and says whether there was a
+ * listing at all.
+ */
+function markListed(
+	listed: string | undefined,
+	mark: (path: string) => void,
+): boolean {
+	if (listed === undefined) return false;
+	for (const line of listed.split("\n")) {
+		if (line.startsWith("n/")) mark(line.slice(1));
+	}
+	return true;
+}
+
+/**
+ * Marks the folder, program and open files of each process `/proc` lists,
+ * until `done` says every tree asked of is marked, and says whether the
+ * reading was whole.
+ */
+async function readProcesses(
+	reads: ProcessReads,
+	mark: (link: string) => void,
+	done: () => boolean,
+): Promise<boolean> {
+	const { readlink, readdir } = reads;
+	let pids: string[];
+	try {
+		if (!(await seesEveryProcess(readlink))) return false;
+		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
+	} catch {
+		return false;
+	}
+	// A /proc mounted to hide other users' processes leaves them out of
+	// the listing without an error, so the reading would count as whole
+	// when it isn't. The machine's first process is listed to a reader
+	// who sees everyone, and hidden from one who doesn't. This says only
+	// that the listing is whole: another user's links still refuse to be
+	// read on any /proc, and are passed over, as the sweep's notes say.
+	if (!pids.includes("1")) return false;
 	// A read failing for any other reason than the process having nothing
 	// to read makes the whole reading unknown, so a tree is never taken
 	// on a walk that missed what held it.
@@ -583,11 +632,7 @@ export async function busyAmongBy(
 	};
 	let next = 0;
 	const reader = async () => {
-		while (
-			next < pids.length &&
-			busy.size < asked.size &&
-			failed === undefined
-		) {
+		while (next < pids.length && !done() && failed === undefined) {
 			const proc = join("/proc", pids[next++] ?? "");
 			mark(await read(readlink(join(proc, "cwd")), ""));
 			mark(await read(readlink(join(proc, "exe")), ""));
@@ -600,12 +645,7 @@ export async function busyAmongBy(
 	await Promise.all(
 		Array.from({ length: Math.min(PROCESSES_AT_ONCE, pids.length) }, reader),
 	);
-	if (failed !== undefined) return undefined;
-	// A session's folder may name a link; the kernel's are real paths.
-	for (const folder of await reads.sessionFolders()) {
-		mark(resolvedPath(folder));
-	}
-	return busy;
+	return failed === undefined;
 }
 
 /** When this boot began, where the machine will say. */

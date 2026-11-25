@@ -257,10 +257,73 @@ export function handLocked(path: string): boolean {
  * new tree's index and HEAD.
  */
 function unlink(aside: string): void {
+	// A `.git-was` the tree already holds is its own, which a rename
+	// onto it would quietly replace, so the `.git` takes a free name.
+	// The tries are few and each name wide, so a tree whose names were
+	// filled in advance, as a command in the sandbox may fill them, is
+	// refused rather than searched for good on pi's one thread.
+	let was = join(aside, ".git-was");
+	for (let tried = 0; existsLink(was); tried++) {
+		if (tried === PART_TRIES) {
+			throw new Error(`no free name was left in ${aside} to keep its .git as`);
+		}
+		was = join(aside, `.git-was-${randomBytes(4).toString("hex")}`);
+	}
 	try {
-		renameSync(join(aside, ".git"), join(aside, ".git-was"));
+		renameSync(join(aside, ".git"), was);
+	} catch (error) {
+		// No `.git` left to part it from: nothing names an entry. Any
+		// other refusal leaves it naming one, which the caller must hear.
+		if (codeOf(error) !== "ENOENT") throw error;
+	}
+}
+
+/** How many names past `.git-was` a parting tries before it is refused. */
+const PART_TRIES = 16;
+
+/** The code a failed file call left, where it left one. */
+function codeOf(error: unknown): string | undefined {
+	return error instanceof Error &&
+		"code" in error &&
+		typeof error.code === "string"
+		? error.code
+		: undefined;
+}
+
+/** What a thrown thing says, as words. */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A tree moved aside whose `.git` couldn't be parted from git's entry
+ * and that couldn't go back either: it stands at `aside`, every file in
+ * it, still naming the entry, so a caller says where rather than gone.
+ * Its reasons are kept apart from where it is, so a caller shortening
+ * them never shortens the path.
+ */
+export class StuckAside extends Error {
+	/** Where the tree stands now. */
+	readonly aside: string;
+	/** Why it is neither parted nor back, without where it is. */
+	readonly reasons: string;
+
+	constructor(aside: string, reasons: string) {
+		super(`It is at ${aside}, every file in it, ${reasons}`);
+		this.name = "StuckAside";
+		this.aside = aside;
+		this.reasons = reasons;
+	}
+}
+
+/** Whether anything at all stands at `path`, a dangling link included. */
+function existsLink(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
 	} catch {
-		// No `.git` file left to part it from: nothing names an entry.
+		// Nothing there to stat.
+		return false;
 	}
 }
 
@@ -350,6 +413,8 @@ function namedGitDir(path: string): string | undefined {
 /** What became of one stranded tree. */
 export type SetAsideTree =
 	| { kind: "set-aside"; path: string; aside: string }
+	/** Moved to `aside`, but neither parted from git's entry nor back. */
+	| { kind: "stuck"; path: string; aside: string; why: string }
 	| { kind: "kept"; path: string; why: string }
 	| { kind: "gone"; path: string }
 	| { kind: "refused"; path: string; why: string };
@@ -372,6 +437,8 @@ export interface SetAsideDeps {
 	into: string;
 	/** The broker's records, or nothing where there are none. */
 	records?: StrandedRecords;
+	/** How a moved tree's `.git` is parted from git's entry, as {@link setAsideWhole} takes it. */
+	part?: (aside: string) => void;
 }
 
 /** Where stranded trees are set aside: beside the trees' folder, never in it. */
@@ -397,7 +464,9 @@ export function setAsideEarlier(into: string): number {
  * sweep takes a tree, and its record goes with it. One gone by its turn,
  * as another reclaim or the sweep took it, is said to be. A move
  * refused leaves the tree where it was and says why, without holding
- * up the rest.
+ * up the rest. One that moved but could neither be parted nor go back
+ * has left its path, so its record goes as a moved one's does, and it
+ * is said as stuck where it stands.
  */
 export async function setAside(
 	trees: readonly StrandedTree[],
@@ -409,25 +478,37 @@ export async function setAside(
 			done.push({ kind: "gone", path: tree.path });
 			continue;
 		}
-		const aside = join(
-			deps.into,
-			`${basename(tree.path)}-${randomBytes(4).toString("hex")}`,
-		);
+		let aside = "";
 		let refused: string | undefined;
 		let gone = false;
+		let stuck: StuckAside | undefined;
+		const moved = (): SetAsideTree =>
+			stuck === undefined
+				? { kind: "set-aside", path: tree.path, aside }
+				: {
+						kind: "stuck",
+						path: tree.path,
+						aside: stuck.aside,
+						why: plainWords(stuck.reasons),
+					};
 		const move = async () => {
 			try {
-				mkdirSync(deps.into, { recursive: true });
-				renameSync(tree.path, aside);
+				aside = setAsideWhole(tree.path, deps.into, deps.part);
 			} catch (error) {
-				// Another reclaim, or the sweep, may have taken it first.
+				// It has left its path, so a record kept would name
+				// whatever stands there next.
+				if (error instanceof StuckAside) {
+					stuck = error;
+					return true;
+				}
+				// Another reclaim, or the sweep, may have taken it first,
+				// unless it was this move that left it elsewhere.
 				gone = !existsSync(tree.path);
 				refused = plainWords(
 					error instanceof Error ? error.message : String(error),
 				);
 				return false;
 			}
-			unlink(aside);
 			return true;
 		};
 		const real = resolvedPath(tree.path);
@@ -437,7 +518,7 @@ export async function setAside(
 		if (recorded !== undefined && deps.records !== undefined) {
 			const took = await deps.records.whileUnheld(recorded.path, move);
 			if (took !== undefined) {
-				done.push({ kind: "set-aside", path: tree.path, aside });
+				done.push(moved());
 			} else if (gone) {
 				done.push({ kind: "gone", path: tree.path });
 			} else if (refused !== undefined) {
@@ -461,11 +542,56 @@ export async function setAside(
 			}
 			continue;
 		}
-		if (await move()) done.push({ kind: "set-aside", path: tree.path, aside });
+		if (await move()) done.push(moved());
 		else if (gone) done.push({ kind: "gone", path: tree.path });
 		else done.push({ kind: "refused", path: tree.path, why: refused ?? "" });
 	}
 	return done;
+}
+
+/**
+ * Move the tree at `path` aside whole, under a name of its own in
+ * `into`, parted from git's entry for it, and answer where it went.
+ * Running no git, so it serves a tree git won't run in as well as one
+ * git can't read. Throws, leaving the tree where it was, when the move
+ * or the parting is refused, or when `path` is a link rather than a
+ * folder; throws {@link StuckAside}, naming where it is, when the
+ * parting is refused and the tree can't go back. `part` stands in for
+ * the parting, so a test can refuse it.
+ */
+export function setAsideWhole(
+	path: string,
+	into: string,
+	part: (aside: string) => void = unlink,
+): string {
+	// A link moves as itself, but parting its `.git` would rename the
+	// `.git` of whatever it points at, somewhere nothing chose.
+	if (!lstatSync(path).isDirectory()) {
+		throw new Error(`${path} isn't a folder of its own`);
+	}
+	const aside = join(
+		into,
+		`${basename(path)}-${randomBytes(4).toString("hex")}`,
+	);
+	mkdirSync(into, { recursive: true });
+	renameSync(path, aside);
+	try {
+		part(aside);
+	} catch (error) {
+		// Still naming git's entry, it isn't set aside: it goes back.
+		try {
+			renameSync(aside, path);
+		} catch (back) {
+			// Neither parted nor back: where it is is kept apart from why,
+			// so no shortening of the words loses it.
+			throw new StuckAside(
+				aside,
+				`still naming git's entry: its .git couldn't be renamed (${messageOf(error)}) and it couldn't go back to ${path} (${messageOf(back)})`,
+			);
+		}
+		throw error;
+	}
+	return aside;
 }
 
 /** The longest stretch of git's words said back. */

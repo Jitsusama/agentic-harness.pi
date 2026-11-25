@@ -70,8 +70,8 @@ import {
 	refusalText,
 	relayedTransport,
 	type WorkerLink,
-	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
+import { workerSocket } from "../../../lib/mesh/worker-socket.ts";
 import type { Settling } from "../acts.ts";
 import { CARRY_NOTE, carryThisSession } from "../carrying.ts";
 import { WORKER_REFUSED } from "../delivery.ts";
@@ -205,6 +205,7 @@ export function createState(
 	const wanting = new Map<WantKind, Want>();
 	const unlanded: Landing[] = [];
 	const undone: SessionEvent[] = [];
+	const unproposed: string[] = [];
 	// Every id already looked at, so a watcher that reports one twice,
 	// as inotify does for a rename, is handed over once.
 	const seen = new Set<string>();
@@ -297,17 +298,19 @@ export function createState(
 			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
 		},
-		// Its park watch answers (park-workflow watch.ts); with none, the
-		// session has nothing that would wake it.
-		park: () => {
-			const session = sessionOf();
-			if (session === undefined) return "the session isn't there to park";
-			const ask: ParkNowAsk = { session };
-			pi.events.emit(PARK_NOW_ASK, ask);
-			if (ask.parked === true) return undefined;
-			return ask.why ?? NOTHING_WAKES;
-		},
+		park: () => askToPark(false),
+		parkable: () => askToPark(true),
 	});
+	// Its park watch answers (park-workflow watch.ts), a check without
+	// parking; with none, the session has nothing that would wake it.
+	function askToPark(check: boolean): string | undefined {
+		const session = sessionOf();
+		if (session === undefined) return "the session isn't there to park";
+		const ask: ParkNowAsk = { session, ...(check ? { check } : {}) };
+		pi.events.emit(PARK_NOW_ASK, ask);
+		if (ask.parked === true || ask.ready === true) return undefined;
+		return ask.why ?? NOTHING_WAKES;
+	}
 	// A host's conversation has no window of its own to hand over.
 	const handOver = () =>
 		m.ctx?.hasUI && m.peer && m.hostKey === undefined
@@ -494,6 +497,7 @@ export function createState(
 		wanting,
 		unlanded,
 		undone,
+		unproposed,
 		seen,
 		unjudgedSaid,
 		holdTurn,

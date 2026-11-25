@@ -618,6 +618,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 			[],
 		);
 		expect(existsSync(tree), "a tree went on a blind reading").toBe(true);
+		expect(
+			outcome.kept.find((kept) => kept.path === tree)?.why,
+			"a reading that couldn't say was logged as a session taking it up",
+		).toBe("the machine can't say which processes hold it");
 	});
 
 	it("keeps one a session asked for again while the sweep chose", async () => {
@@ -642,6 +646,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 			"a snapshot asked for while the sweep chose was taken",
 		).toEqual([]);
 		expect(existsSync(tree), "a snapshot asked for again went").toBe(true);
+		expect(
+			outcome.kept.find((one) => one.path === tree)?.why,
+			"a snapshot a session asked for again was blamed on the reading",
+		).toBe("a session took it up again");
 	});
 
 	it("keeps one git would refuse to remove, as a locked one, from the takes", async () => {

@@ -9,6 +9,7 @@ import { onDid } from "../../../lib/internal/session/events.ts";
 import {
 	onClosed,
 	onLanded,
+	onProposed,
 	onUnlanded,
 	withoutLanding,
 } from "../../../lib/internal/session/landings.ts";
@@ -28,6 +29,11 @@ import {
 } from "../../../lib/internal/session/wakers.ts";
 import { onWants } from "../../../lib/internal/session/wants.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
+import {
+	carryProposed,
+	keepProposed,
+	ownChangesBeside,
+} from "../../../lib/mesh/looks/own-changes.ts";
 import { type Message, senderIdentity } from "../../../lib/mesh/message.ts";
 import { holderSteers } from "../../../lib/mesh/parked.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
@@ -41,6 +47,66 @@ import { meshWakers, type Own } from "../wakers.ts";
 import type { Handing } from "./handing.ts";
 import { endLooksOfQuests, resolveLooksAt } from "./looks.ts";
 import { ledBy, type MeshState } from "./mesh.ts";
+
+/** The message a session is told its own changes went unkept with. */
+const OWN_CHANGES_UNKEPT = "mesh-own-changes-unkept";
+
+/**
+ * Keep `urls` as proposed under this session's quest, and under the
+ * session itself, so a quest's other sessions are refused them and the
+ * session still is when its quest's README can't be read; held until
+ * the peer is made, as its landings are. A record that can't be written
+ * is said once in the session's own words, naming which, since the
+ * guard is then only as good as what was kept: a codemode proposal or a
+ * rollover slips past it. Each record is tried on its own, so a quest's
+ * that fails still leaves the session's, the one a rollover carries.
+ * The peer is refreshed first, so a quest loaded since it last looked
+ * is the one the change is filed under.
+ */
+export function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
+	if (!m.paths.looks) return;
+	if (!m.peer) {
+		m.unproposed.push(...urls);
+		return;
+	}
+	const dir = ownChangesBeside(m.paths.looks);
+	m.peer.refresh();
+	const quest = m.presences.of(m.peer.session)?.quest;
+	const owners = [
+		...(quest ? [{ owner: quest, what: `quest ${quest}'s record` }] : []),
+		{ owner: m.peer.session, what: "this session's own record" },
+	];
+	for (const { owner, what } of owners) {
+		try {
+			keepProposed(dir, owner, urls);
+		} catch (error) {
+			m.pi.sendMessage({
+				customType: OWN_CHANGES_UNKEPT,
+				content: `The ${what} of what it proposed could not be written (${error instanceof Error ? error.message : String(error)}), so show_person may not refuse it everywhere: never point the person at ${urls.join(", ")}.`,
+				display: true,
+			});
+		}
+	}
+}
+
+/**
+ * Carry what a session kept as proposed under its own id to the fresh
+ * log a rollover made of it, under its new id. A record that can't be
+ * carried is left: its quest's record still holds it for a quest's
+ * session, and the guard falls back to the log for the rest.
+ */
+export function carryOwnChanges(
+	m: MeshState,
+	previous: string,
+	session: string,
+): void {
+	if (!m.paths.looks) return;
+	try {
+		carryProposed(ownChangesBeside(m.paths.looks), previous, session);
+	} catch {
+		// Said in the doc comment: the quest's record and the log remain.
+	}
+}
 
 /** Hear what this session's other extensions say over the bus. */
 export function onBus(m: MeshState, f: Handing) {
@@ -66,6 +132,9 @@ export function onBus(m: MeshState, f: Handing) {
 			} else m.unlanded.push(landing);
 			if (landing.url) resolveLooksAt(m.paths.looks, landing.url, "merged");
 		});
+		// What it proposes is kept per quest, so show_person keeps it off
+		// the person's look list past a rollover (lib/mesh/looks/own-changes.ts).
+		onProposed(m.pi.events, (urls) => keepOwnChanges(m, urls));
 		// A change closed unmerged no longer needs the person either.
 		onClosed(m.pi.events, (url) =>
 			resolveLooksAt(m.paths.looks, url, "closed"),
