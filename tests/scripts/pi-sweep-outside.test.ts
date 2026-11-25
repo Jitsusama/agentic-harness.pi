@@ -32,6 +32,7 @@ import type { TreeProvider } from "../../lib/core/work/broker.ts";
 import { clearTreeProviders } from "../../lib/core/work/register.ts";
 import type { SweepClaims } from "../../lib/core/work/sweep.ts";
 import { IDLE_TAKES_PER_SWEEP } from "../../lib/core/work/sweep-idle.ts";
+import { cutTreeDir } from "../../lib/internal/work-records.ts";
 import { exitCodeOf, sweepOutside } from "../../scripts/pi-sweep.ts";
 
 const SPENT = "/src/repo/.worktrees/spent";
@@ -262,8 +263,8 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 	expect(seen.idleWithin[0]).toBeLessThan(60 * 60 * 1000);
 	expect(
 		seen.treesDirs[0],
-		"where it finishes removals stopped part way, as it paces them",
-	).toBeDefined();
+		"where it finishes removals stopped part way, as it paces them: the broker's own trees",
+	).toBe(cutTreeDir());
 	// A gap of a second or more between removals, yet short enough that a
 	// run's ten minutes still hold many takes.
 	vi.useFakeTimers();
