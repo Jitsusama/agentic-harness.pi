@@ -1,7 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+import { loadOnce } from "../internal/process/single-flight.ts";
 import { isRecord } from "../internal/record.ts";
 import {
 	type McpContent,
@@ -26,6 +23,10 @@ export interface SdkClientLike {
 /** An instance-scoped connection to one MCP server. */
 export interface McpConnection {
 	connect(): Promise<void>;
+	/**
+	 * Close for good, without loading the SDK: every later use is refused, as
+	 * is a use under way that hasn't yet used its client.
+	 */
 	close(): Promise<void>;
 	listTools(): Promise<McpTool[]>;
 	callTool(
@@ -36,17 +37,17 @@ export interface McpConnection {
 	onToolsListChanged(handler: () => void): () => void;
 }
 
-// Passthrough schemas: the SDK strips unknown per-tool keys under its own zod
-// schema, so we parse loosely to keep non-standard fields (for example a
-// `surface` block) reaching `raw`.
-const LooseTool = z.looseObject({ name: z.string() });
-const LooseToolsResult = z.looseObject({
-	tools: z.array(LooseTool).default([]),
-});
-const LooseCallResult = z.looseObject({
-	content: z.array(z.unknown()).default([]),
-	isError: z.boolean().optional(),
-});
+// The SDK and zod hold about 12 MB of heap once imported, and a session
+// whose cached tool list stands in may never connect, so they load on a
+// connection's first use rather than with this module.
+const sdkModule = loadOnce(() => import("./sdk-client.ts"));
+
+/** A connection's SDK, with the client and transport it opened with. */
+interface Opened {
+	sdk: Awaited<ReturnType<typeof sdkModule>>;
+	client: SdkClientLike;
+	transport: unknown;
+}
 
 const HTTP_STATUS_FLOOR = 100;
 const HTTP_STATUS_CEIL = 600;
@@ -72,58 +73,103 @@ export function mcpErrorFrom(err: unknown): McpError {
 	});
 }
 
-/** Create a connection to `config`. Injected `client`/`transport` are for tests; production builds the SDK client. */
+/**
+ * Create a connection to `config`. Injected `client`/`transport` are for
+ * tests; production builds the SDK client, and a `config.url` that isn't a
+ * URL throws here, before anything loads. Closing is final: a later use is
+ * refused without loading the SDK.
+ */
 export function createMcpConnection(
 	config: McpServerConfig,
 	deps: { client?: SdkClientLike; transport?: unknown } = {},
 ): McpConnection {
-	const built = deps.client ? undefined : buildSdkClient(config);
-	const client = deps.client ?? (built as { client: SdkClientLike }).client;
-	const transport =
-		deps.transport ?? (built as { transport: unknown }).transport;
+	if (!deps.client && !URL.canParse(config.url)) {
+		throw new TypeError(`MCP server ${config.id} has no valid url.`);
+	}
 	const subscribers = new Set<() => void>();
+	let built: Omit<Opened, "sdk"> | undefined;
+	let closed = false;
+	const refusal = () => new Error(`MCP connection to ${config.id} is closed.`);
+	// The client is built once, after the SDK's first load. `loadOnce`
+	// forgets a failed load, so the next use tries again.
+	const open = async (): Promise<Opened> => {
+		const sdk = await sdkModule();
+		if (built === undefined && deps.client) {
+			built = { client: deps.client, transport: deps.transport };
+		} else if (built === undefined) {
+			const made = sdk.buildSdkClient(config);
+			built = {
+				client: made.client as unknown as SdkClientLike,
+				transport: deps.transport ?? made.transport,
+			};
+		}
+		return { sdk, ...built };
+	};
+	// Every use reaches the client through `act`. Once close has begun, a use
+	// is refused before the SDK loads, or else once it holds the client, in
+	// the same step that starts `act`: so no use reaches a client after close.
+	const using = async <T>(act: (ready: Opened) => Promise<T>): Promise<T> => {
+		if (closed) throw refusal();
+		const ready = await open();
+		if (closed) throw refusal();
+		return act(ready);
+	};
 
 	return {
-		async connect() {
-			client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-				for (const handler of subscribers) handler();
+		connect() {
+			return using(({ sdk, client, transport }) => {
+				client.setNotificationHandler(
+					sdk.ToolListChangedNotificationSchema,
+					() => {
+						for (const handler of subscribers) handler();
+					},
+				);
+				return client.connect(transport);
 			});
-			await client.connect(transport);
 		},
 		async close() {
-			await client.close();
+			// Uses check for a close themselves, so close waits for none and never
+			// loads the SDK: a connection with no client built has nothing to close.
+			closed = true;
+			await built?.client.close();
 		},
-		async listTools() {
-			const parsed = LooseToolsResult.parse(
-				await client.request(
-					{ method: "tools/list", params: {} },
-					LooseToolsResult,
-				),
-			);
-			return parsed.tools.map((raw) => toTool(config.id, raw));
+		listTools() {
+			return using(async ({ sdk, client }) => {
+				const { LooseToolsResult } = sdk;
+				const parsed = LooseToolsResult.parse(
+					await client.request(
+						{ method: "tools/list", params: {} },
+						LooseToolsResult,
+					),
+				);
+				return parsed.tools.map((raw) => toTool(config.id, raw));
+			});
 		},
 		async callTool(name, args, opts) {
 			try {
-				const raw = await client.request(
-					{ method: "tools/call", params: { name, arguments: args } },
-					LooseCallResult,
-					{
-						signal: opts?.signal,
-						timeout: opts?.timeoutMs,
-					},
-				);
-				const parsed = LooseCallResult.parse(raw) as {
-					content: unknown[];
-					isError?: boolean;
-					structuredContent?: unknown;
-					_meta?: unknown;
-				};
-				return {
-					content: mapContent(parsed.content),
-					isError: parsed.isError === true,
-					structuredContent: parsed.structuredContent,
-					_meta: parsed._meta,
-				};
+				return await using(async ({ sdk, client }) => {
+					const { LooseCallResult } = sdk;
+					const raw = await client.request(
+						{ method: "tools/call", params: { name, arguments: args } },
+						LooseCallResult,
+						{
+							signal: opts?.signal,
+							timeout: opts?.timeoutMs,
+						},
+					);
+					const parsed = LooseCallResult.parse(raw) as {
+						content: unknown[];
+						isError?: boolean;
+						structuredContent?: unknown;
+						_meta?: unknown;
+					};
+					return {
+						content: mapContent(parsed.content),
+						isError: parsed.isError === true,
+						structuredContent: parsed.structuredContent,
+						_meta: parsed._meta,
+					};
+				});
 			} catch (err) {
 				const error = mcpErrorFrom(err);
 				return {
@@ -140,22 +186,6 @@ export function createMcpConnection(
 			return () => subscribers.delete(handler);
 		},
 	};
-}
-
-function buildSdkClient(config: McpServerConfig): {
-	client: SdkClientLike;
-	transport: unknown;
-} {
-	const headers: Record<string, string> = { ...config.headers };
-	if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
-	const transport = new StreamableHTTPClientTransport(new URL(config.url), {
-		requestInit: { headers },
-	});
-	const client = new Client(
-		{ name: `mcp-${config.id}`, version: "0.1.0" },
-		{ capabilities: {} },
-	);
-	return { client: client as unknown as SdkClientLike, transport };
 }
 
 function toTool(serverId: string, raw: Record<string, unknown>): McpTool {
