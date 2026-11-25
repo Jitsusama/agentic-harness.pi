@@ -1,3 +1,4 @@
+import { ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
 	stayingWithPi,
@@ -27,6 +28,23 @@ describe("staying with pi", () => {
 		).toThrow("no such program");
 
 		expect(stayingWithPi(), "after the throw").toBe(false);
+	});
+
+	it("marks the prototype under the name an earlier load's wrapper reads", () => {
+		// placeChildren wraps spawn once a process, so after a reload the
+		// wrapper still running is an older load's, reading this name as
+		// written there. Renamed, it would place what stays with pi.
+		const prototype = ChildProcess.prototype as unknown as Record<
+			symbol,
+			number | undefined
+		>;
+		const name = Symbol.for("agentic-harness.priority.staying");
+
+		expect(
+			withPi(() => prototype[name]),
+			"inside withPi",
+		).toBe(1);
+		expect(prototype[name] ?? 0, "after withPi").toBe(0);
 	});
 
 	it("answers what its spawning returns", () => {

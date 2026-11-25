@@ -14,7 +14,11 @@
 
 import { ChildProcess } from "node:child_process";
 
-/** How many {@link withPi} calls are under way, on the prototype every copy shares. */
+/**
+ * How many {@link withPi} calls are under way, on the prototype every
+ * copy shares. Keep the name as it is, `priority` and all: a wrapper an
+ * older load left reads it as written there.
+ */
 const STAYING = Symbol.for("agentic-harness.priority.staying");
 
 interface Marked {

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askCall } from "../../../../lib/internal/calls/probe.ts";
+import { placeChildren } from "../../../../lib/internal/priority/place.ts";
 
 let dir: string;
 
@@ -48,6 +49,22 @@ function alive(pid: number): boolean {
 }
 
 describe("asking whether a call is on", () => {
+	it("runs its probe where pi is, not with the children placed in jobs", async () => {
+		// Among the jobs a call holds back, the probe would starve behind
+		// them and never say the call is on.
+		const placed: number[] = [];
+		const undo = placeChildren("/jobs", (_path, pid) => {
+			placed.push(pid);
+		});
+		try {
+			await askCall({ program: standIn("exit 1"), timeoutMs: 5_000 });
+		} finally {
+			undo();
+		}
+
+		expect(placed, "pids written to jobs").toEqual([]);
+	});
+
 	it("reads the exit: 0 on, 1 off, anything else unknown", async () => {
 		const exits = (code: number) =>
 			askCall({ program: standIn(`exit ${code}`), timeoutMs: 5_000 });

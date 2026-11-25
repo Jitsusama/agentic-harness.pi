@@ -46,9 +46,9 @@ it("counts no call from a program that won't stop when asked, at its time", asyn
 	expect(on, "a program past its time says no call").toBe(false);
 	expect(
 		performance.now() - started,
-		"answered at its time, not the program's end",
-	).toBeLessThan(5_000);
-}, 12_000);
+		"answered at its 200 ms, not the default 3 s or the program's end",
+	).toBeLessThan(2_000);
+}, 6_000);
 
 it("counts no call on a machine without the program, saying so once", async () => {
 	const cannotAsk = vi.fn();
