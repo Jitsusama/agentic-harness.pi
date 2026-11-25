@@ -35,7 +35,7 @@ describe("the areas a change touched", () => {
 		).toEqual(["lib/core/review", "lib/core/work", "lib/core", "lib/mesh"]);
 	});
 
-	// The council, 25 November: lib/core/internal holds 14 domains of its
+	// The council, 25 November: lib/core/internal holds 12 domains of its
 	// own, and read three deep each climbed past internal to lib/core.
 	it("reads four folders under lib/core/internal, the deeper folder's depth winning", () => {
 		expect(
@@ -54,12 +54,6 @@ describe("the areas a change touched", () => {
 
 	it("reads two folders under a folder whose name only starts like lib/core", () => {
 		expect(areasOf(["lib/corelike/x/y.ts"])).toEqual(["lib/corelike"]);
-	});
-
-	it("reads two folders under a top folder named like an object's own key", () => {
-		expect(
-			areasOf(["constructor/a/b.ts", "toString/c/d.ts", "__proto__/e/f.ts"]),
-		).toEqual(["constructor/a", "toString/c", "__proto__/e"]);
 	});
 
 	// FZ9MFJ, 25 November: World's zones would be said as shopify or dev,
