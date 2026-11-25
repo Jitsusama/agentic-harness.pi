@@ -26,7 +26,15 @@ import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import { HAND_LOCKED, strandedDir } from "../../../lib/core/work/stranded.ts";
 import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
-import { cut, cutWhereTheToolCuts, scratchDir, work } from "./worked.ts";
+import { git } from "../../support/git-fixture.ts";
+import {
+	checkout,
+	cut,
+	cutWhereTheToolCuts,
+	REPO,
+	scratchDir,
+	work,
+} from "./worked.ts";
 
 describe("listing what is held", () => {
 	it("says how to get a tree when none is held", async () => {
@@ -223,9 +231,11 @@ describe("giving a tree back", () => {
 		expect(released.details.aside, released.text).toBeUndefined();
 		expect(released.text).toMatch(
 			new RegExp(
-				`^${GLYPH.refused} Git won't run in .+: its \\.git names .+moved/\\.git/worktrees/x, a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted\\. It is still there and still held\\. `,
+				`^${GLYPH.refused} Git won't run in .+: its \\.git names a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted\\. It is still there and still held\\. `,
 			),
 		);
+		// The folder its .git names is a command's to choose.
+		expect(released.text).not.toContain(join("moved", ".git"));
 		expect(released.text).toContain(
 			`Mount its volume, or run \`git worktree repair ${path}\` from the checkout you cut it from where that stands now, never from a folder its .git names, which a sandboxed command could have written; then release it again. If that checkout is gone for good, move the tree aside by hand.`,
 		);
@@ -300,6 +310,87 @@ describe("giving a tree back", () => {
 		expect(released.text).toMatch(
 			/Git's refusal: it is a worktree of a repository the sandbox doesn't keep read-only/,
 		);
+	});
+
+	it("says a tree cut from a checkout the fence doesn't guard keeps its branch there", async () => {
+		// The case this answer exists for: an entry, in a repository
+		// outside the tree, that names the tree back.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		pointAtEntry(path, outsideEntry(path));
+
+		const released = await work({ action: "release", tree: key });
+
+		const aside = released.details.aside;
+		if (typeof aside !== "string") throw new Error(released.text);
+		expect(released.text).toBe(
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the clone that cut it next cuts the name, or at \`git worktree prune\` there. Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run. Git's refusal: it is a worktree of a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox.`,
+		);
+	});
+
+	it("says a snapshot's commits hang only from the entry's HEAD, as it kept no branch", async () => {
+		cutWhereTheToolCuts();
+		const commit = await git(checkout(), "rev-parse", "HEAD");
+		const { details } = await work({
+			action: "snapshot",
+			repo: REPO,
+			purpose: "read-it",
+			commit,
+		});
+		const { key, path } = details;
+		if (typeof key !== "string" || typeof path !== "string") {
+			throw new Error(JSON.stringify(details));
+		}
+		pointAtEntry(path, outsideEntry(path));
+
+		const released = await work({ action: "release", tree: key });
+
+		if (typeof released.details.aside !== "string") {
+			throw new Error(released.text);
+		}
+		expect(released.text).not.toContain("Its branch stays");
+		expect(released.text).toContain(
+			"It was a snapshot, on no branch, so anything committed in it is reachable only from that entry's HEAD, which goes when the clone that cut it next cuts the name, or at `git worktree prune` there: give such a commit a branch from that clone before then.",
+		);
+	});
+
+	it("never says the branch stays for an entry whose commondir names a repository inside the tree", async () => {
+		// Git takes the repository from commondir, so the commits went
+		// where it names, which goes aside with the tree.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const inner = join(path, "inner", ".git");
+		mkdirSync(join(inner, "objects"), { recursive: true });
+		const entry = outsideEntry(path);
+		writeFileSync(join(entry, "commondir"), `${inner}\n`);
+		pointAtEntry(path, entry);
+
+		const released = await work({ action: "release", tree: key });
+
+		if (typeof released.details.aside !== "string") {
+			throw new Error(released.text);
+		}
+		expect(released.text).not.toContain("Its branch stays");
+		expect(released.text).toContain("Where it led wasn't read");
+	});
+
+	it("sets aside, rather than calling away, a tree whose repository's objects are a link to a folder", async () => {
+		// As git-new-workdir lays one out: the guard reads its objects as
+		// standing, so no repair waits on a checkout that never moved.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const entry = outsideEntry(path);
+		const repository = dirname(dirname(entry));
+		const store = join(scratchDir(), "store");
+		mkdirSync(store, { recursive: true });
+		rmSync(join(repository, "objects"), { recursive: true, force: true });
+		symlinkSync(store, join(repository, "objects"));
+		pointAtEntry(path, entry);
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(typeof released.details.aside, released.text).toBe("string");
+		expect(released.text).not.toContain("git worktree repair");
 	});
 
 	it("says a tree holding a repository of its own keeps its commits only in what was set aside", async () => {
@@ -435,6 +526,23 @@ function handLockable(): string {
 	const entry = join(repository, "worktrees", "entry");
 	mkdirSync(entry, { recursive: true });
 	return entry;
+}
+
+/**
+ * A worktree entry, in a repository outside the tree that stands, naming
+ * the tree at `path` back, as `git worktree add` leaves one.
+ */
+function outsideEntry(path: string): string {
+	const entry = handLockable();
+	writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+	writeFileSync(join(entry, "commondir"), "../..\n");
+	return entry;
+}
+
+/** Make the tree at `path` a worktree whose `.git` names `entry`. */
+function pointAtEntry(path: string, entry: string): void {
+	rmSync(join(path, ".git"), { recursive: true, force: true });
+	writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
 }
 
 /** Whether anything stands at `path`, a link included. */

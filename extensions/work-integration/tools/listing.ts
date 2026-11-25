@@ -31,6 +31,7 @@ import {
 	KEPT_BRANCHES,
 	type KeptBranch,
 } from "../../../lib/core/work/sweep-kept-branches.ts";
+import { pinnedCommit } from "../../../lib/core/work/tree.ts";
 import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
 import {
 	gitRun,
@@ -154,8 +155,11 @@ export async function releaseTree(
 	const unread = unreadHere(found.path);
 	if (unread?.kind === "away") {
 		const where = displayPath(found.path);
+		// The folder its .git names is a command's to choose, so it is
+		// never said back; the checkout to repair from is wherever it
+		// stands now, not where that .git says.
 		return refuse(
-			`${GLYPH.refused} Git won't run in ${where}: its .git names ${plainWords(displayPath(unread.own))}, a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted. It is still there and still held. Mount its volume, or run \`git worktree repair ${found.path}\` from the checkout you cut it from where that stands now, never from a folder its .git names, which a sandboxed command could have written; then release it again. If that checkout is gone for good, move the tree aside by hand.`,
+			`${GLYPH.refused} Git won't run in ${where}: its .git names a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted. It is still there and still held. Mount its volume, or run \`git worktree repair ${found.path}\` from the checkout you cut it from where that stands now, never from a folder its .git names, which a sandboxed command could have written; then release it again. If that checkout is gone for good, move the tree aside by hand.`,
 		);
 	}
 	if (unread !== undefined) {
@@ -194,7 +198,7 @@ type Unread =
 	/** Git's reason, to say beside the set-aside. */
 	| { kind: "unread"; refused: string }
 	/** Its `.git` names a worktree's git folder, `own`, that is away. */
-	| { kind: "away"; own: string };
+	| { kind: "away" };
 
 /**
  * Why git won't run in `path`, when it is a tree this tool cut that git
@@ -212,8 +216,7 @@ function unreadHere(path: string): Unread | undefined {
 	if (real(run.top) !== real(path) || !within(path, treeDir())) {
 		return undefined;
 	}
-	const own = awayFolder(path);
-	if (own !== undefined) return { kind: "away", own };
+	if (isAway(path)) return { kind: "away" };
 	return { kind: "unread", refused: refusalWords(run.refused) };
 }
 
@@ -256,20 +259,21 @@ function refusalWords(refused: string): string {
 }
 
 /**
- * The worktree's git folder the `.git` file at `path` names, when it is
- * shaped as one, `<repository>/worktrees/<name>`, and its repository's
- * objects aren't there, as when the checkout moved or its volume isn't
- * mounted; nothing otherwise. An entry gone from a repository that
- * stands was pruned or removed, which a repair can't bring back, and a
- * `.git` naming any other folder is no tree a repair could mend: both
- * are set aside.
+ * Whether the `.git` file at `path` names a worktree's git folder, shaped
+ * as `<repository>/worktrees/<name>`, whose repository's objects aren't
+ * there, as when the checkout moved or its volume isn't mounted. An
+ * entry gone from a repository that stands was pruned or removed, which
+ * a repair can't bring back, and a `.git` naming any other folder is no
+ * tree a repair could mend: both are set aside. Objects that are a link
+ * to a folder stand, as the guard reads them, as `git-new-workdir` or an
+ * objects folder moved to another disk leaves them.
  */
-function awayFolder(path: string): string | undefined {
+function isAway(path: string): boolean {
 	const own = namedGitFolder(path);
 	if (own === undefined || basename(dirname(own)) !== "worktrees") {
-		return undefined;
+		return false;
 	}
-	return isFolder(join(dirname(dirname(own)), "objects")) ? undefined : own;
+	return !standsAsFolder(join(dirname(dirname(own)), "objects"));
 }
 
 /** What a tree's `.git` was, as far as saying where its commits are. */
@@ -304,10 +308,20 @@ function gitShape(path: string): GitShape {
 	// the clone keeps; a `.git` may name anybody's, and a repository laid
 	// out inside the tree goes aside with it, keeping no branch anywhere.
 	const own = namedGitFolder(path);
+	if (own === undefined || basename(dirname(own)) !== "worktrees") {
+		return "unknown";
+	}
+	// Git takes the repository from the entry's commondir, so only one
+	// naming the repository it lies in, outside the tree and standing,
+	// keeps the branch there: a commondir naming a repository inside the
+	// tree would have its commits go aside with it.
+	const repository = dirname(dirname(own));
+	const common = readPlain(join(own, "commondir"))?.trim();
 	if (
-		own === undefined ||
-		basename(dirname(own)) !== "worktrees" ||
-		within(dirname(dirname(own)), path)
+		common === undefined ||
+		real(resolve(own, common)) !== real(repository) ||
+		within(repository, path) ||
+		!standsAsFolder(join(repository, "objects"))
 	) {
 		return "unknown";
 	}
@@ -322,15 +336,33 @@ function gitShape(path: string): GitShape {
 const RUN_NO_GIT =
 	"Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run";
 
-/** Where a set-aside tree's commits are, by what its `.git` was. */
-const PARTED: Record<GitShape, string> = {
+/**
+ * Where a set-aside tree's commits are, by what its `.git` was, with a
+ * snapshot's entry apart, since it kept no branch.
+ */
+const PARTED: Record<GitShape | "snapshot", string> = {
 	entry:
 		"Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the clone that cut it next cuts the name, or at `git worktree prune` there.",
+	snapshot:
+		"Its .git was renamed so it no longer names git's entry for it. It was a snapshot, on no branch, so anything committed in it is reachable only from that entry's HEAD, which goes when the clone that cut it next cuts the name, or at `git worktree prune` there: give such a commit a branch from that clone before then.",
 	repository:
 		"Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it.",
 	unknown:
 		"Its .git was renamed. Where it led wasn't read, so whatever was committed in it may be there alone, on no branch of the checkout that cut it.",
 };
+
+/**
+ * Whether a folder stands at `path`, a link to one included, as the
+ * guard reads a repository's objects.
+ */
+function standsAsFolder(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		// Nothing there, or nothing that may be looked at.
+		return false;
+	}
+}
 
 /** Whether a folder stands at `path`, without following a link there. */
 function isFolder(path: string): boolean {
@@ -360,7 +392,11 @@ async function setUnreadAside(
 	const because = `Git's refusal: ${refused}`;
 	// Read before the move, so the answer says where its commits are: a
 	// repository of its own keeps them alone, not on the clone's branch.
-	const shape = gitShape(found.path);
+	const read = gitShape(found.path);
+	const shape =
+		read === "entry" && pinnedCommit(found.identity) !== undefined
+			? "snapshot"
+			: read;
 	let aside: string | undefined;
 	const into = strandedDir(treeDir());
 	let others = 0;
