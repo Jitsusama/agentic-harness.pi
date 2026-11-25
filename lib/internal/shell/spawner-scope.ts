@@ -40,7 +40,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { withPi } from "../priority/place.ts";
+import { withPi } from "../process/stays-with-pi.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 

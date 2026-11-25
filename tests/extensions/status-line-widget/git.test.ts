@@ -8,7 +8,8 @@
  * what it was asked.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -28,6 +29,7 @@ import {
 	operation,
 	parseAnswer,
 } from "../../../extensions/status-line-widget/git.ts";
+import { placeChildren } from "../../../lib/internal/priority/place.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 /** An answer in gitstatusd's fields, from the index's size on. */
@@ -245,6 +247,33 @@ describe("the engine, kept running", () => {
 					op: null,
 				},
 			],
+		]);
+	});
+
+	it("starts its engine where pi is, not with the children placed in jobs", async () => {
+		// It answers for pi's own screen: in jobs it starved behind the
+		// builds there, and the footer lagged whenever the machine was busy.
+		const placed: number[] = [];
+		const undo = placeChildren("/jobs", (_path, pid) => {
+			placed.push(pid);
+		});
+		let plain: number | undefined;
+		try {
+			const { all, answered } = listen(1);
+			const engine = new Engine(program, answered, none);
+			engine.ask(dir);
+			await all;
+			engine.stop();
+			// A plain spawn beside it shows the placing was live all along.
+			const child = spawn("/bin/sh", ["-c", "exit 0"], { stdio: "ignore" });
+			plain = child.pid;
+			await once(child, "exit");
+		} finally {
+			undo();
+		}
+
+		expect(placed, "only the plain spawn's pid written to jobs").toEqual([
+			plain,
 		]);
 	});
 

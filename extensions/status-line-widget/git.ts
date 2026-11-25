@@ -12,7 +12,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
-import { withPi } from "../../lib/internal/priority/place.ts";
+import { withPi } from "../../lib/internal/process/stays-with-pi.ts";
 
 /** What git is in the middle of, with its steps when it keeps count. */
 export interface Operation {

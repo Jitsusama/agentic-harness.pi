@@ -14,8 +14,8 @@ import {
 	placeChildren,
 	placedCommand,
 	shellMovesItself,
-	withPi,
 } from "../../../../lib/internal/priority/place.ts";
+import { withPi } from "../../../../lib/internal/process/stays-with-pi.ts";
 import { until } from "../../../support/until.ts";
 
 const OWN =

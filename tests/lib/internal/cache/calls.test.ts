@@ -41,14 +41,18 @@ it("counts no call from a program that won't stop when asked, at its time", asyn
 	chmodSync(program, 0o755);
 	const started = performance.now();
 
-	const on = await callIsOn({ program });
+	const on = await callIsOn({ program, timeoutMs: 200 });
 
 	expect(on, "a program past its time says no call").toBe(false);
+	const took = performance.now() - started;
+	expect(took, "answered no sooner than its 200 ms").toBeGreaterThanOrEqual(
+		150,
+	);
 	expect(
-		performance.now() - started,
-		"answered at its time, not the program's end",
-	).toBeLessThan(6_000);
-}, 12_000);
+		took,
+		"answered at its 200 ms, not the default 3 s or the program's end",
+	).toBeLessThan(2_000);
+}, 6_000);
 
 it("counts no call on a machine without the program, saying so once", async () => {
 	const cannotAsk = vi.fn();

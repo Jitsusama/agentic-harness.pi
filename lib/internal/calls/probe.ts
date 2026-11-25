@@ -22,7 +22,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { withPi } from "../priority/place.ts";
+import { withPi } from "../process/stays-with-pi.ts";
 import { isRecord } from "../record.ts";
 
 /** The program that says whether a call is on. */
