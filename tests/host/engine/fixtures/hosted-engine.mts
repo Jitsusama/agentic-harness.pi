@@ -31,6 +31,7 @@ import type {
 	HostEngine,
 	HostedView,
 } from "../../../../host/engine/contract.ts";
+import { SETTLE_MS } from "../../../../host/engine/quiet-collection.ts";
 import type { SessionHost } from "../../../../host/engine/session-host.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
@@ -149,6 +150,8 @@ const openedIn: string[] = [];
 /** An extension the engine is given as pi's `-e` gives one, and the file it notes each load in. */
 const flaggedExtension = join(folder, "flagged.mjs");
 const flaggedLoads = join(folder, "flagged.jsonl");
+/** What the flagged extension's load awaits, where a scenario sets it, so a build stays under way. */
+const BUILD_HOLD = Symbol.for("test-host.build-hold");
 /** Which copy of the linked extension each of its loads ran, as its helper module named it. */
 const linkedLoads = join(folder, "linked.jsonl");
 const agentDir = join(folder, "home", ".pi", "agent");
@@ -1271,6 +1274,44 @@ const scenarios: Record<string, Scenario> = {
 			return {};
 		},
 	},
+	/**
+	 * Hold one build in its load, build another beside it and sit past the
+	 * settle: no collection while the first is under way, one once it is let go.
+	 */
+	"held-build-collected": {
+		responses: () => [],
+		run: async (engine, host) => {
+			let release = (): void => {
+				// Set once the held build reaches its load.
+			};
+			const reached = new Promise<void>((started) => {
+				Reflect.set(globalThis, BUILD_HOLD, () => {
+					// Only the first build is held; the one beside it loads straight through.
+					Reflect.deleteProperty(globalThis, BUILD_HOLD);
+					started();
+					return new Promise<void>((letGo) => {
+						release = letGo;
+					});
+				});
+			});
+			const holding = open(engine, {});
+			await reached;
+			const built = await open(engine, {});
+			// Twice the settle after the second build settled, which alone would bring a collection.
+			await new Promise((later) => setTimeout(later, 2 * SETTLE_MS));
+			const collectedWhileHeld = collectedQuietly();
+			release();
+			const held = await holding;
+			await until(
+				"the host to collect once the held build settled",
+				collectedQuietly,
+				COLLECTED_WITHIN_MS,
+			);
+			await host.stop(held);
+			await host.stop(built);
+			return { collectedWhileHeld };
+		},
+	},
 	/** A conversation's launch names a gateway key of its own, and the host has another. */
 	"own-key": {
 		responses: () => [say("hello there")],
@@ -1713,8 +1754,10 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		flaggedExtension,
 		[
 			'import { appendFileSync } from "node:fs";',
-			"export default function () {",
+			"export default async function () {",
 			`\tappendFileSync(${JSON.stringify(flaggedLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded: true })}\n`)});`,
+			`\tconst hold = globalThis[Symbol.for(${JSON.stringify(BUILD_HOLD.description)})];`,
+			'\tif (typeof hold === "function") await hold();',
 			"}",
 			"",
 		].join("\n"),
