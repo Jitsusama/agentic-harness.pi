@@ -112,7 +112,9 @@ describe("the round's answer", () => {
 		// failed, so it is the last place that should withhold the one
 		// diagnosis saying a retry cannot work. It used to print the
 		// summary line alone.
-		expect(source).toContain("answerFor(updated, warnings, tree.caveat, {");
+		expect(source).toContain(
+			"answerFor(updated, warnings, saidOfTree(tree), {",
+		);
 	});
 });
 

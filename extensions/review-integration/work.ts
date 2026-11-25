@@ -26,7 +26,11 @@
 
 import { realpath } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
+import type {
+	DiffModel,
+	RepoLocator,
+	TreeRead,
+} from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
 import { sessionSlot } from "../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../lib/core/work/ask.ts";
@@ -292,6 +296,45 @@ export interface ReadableTree {
 	path: string;
 	/** Said out loud when the tree is not the commit under review. */
 	caveat?: string;
+	/**
+	 * Said out loud when the tree is the commit but some of the change's
+	 * files couldn't be put in it, kept apart from the caveat since the
+	 * round still read the commit it records.
+	 */
+	lacking?: string;
+}
+
+/**
+ * What the session is told about the tree a round read: the caveat
+ * and what it lacked, or nothing when it read the commit whole.
+ */
+export function saidOfTree(tree: ReadableTree): string | undefined {
+	const said = [tree.caveat, tree.lacking].filter(
+		(line): line is string => line !== undefined,
+	);
+	return said.length > 0 ? said.join(" ") : undefined;
+}
+
+/**
+ * The files a round's tree must hold: each a change writes, as it
+ * stands at the head, once each.
+ *
+ * A provider may cut a tree sparse, as World's does, holding only the
+ * top-level files and the zones it is asked for. Asked for no files, it
+ * handed reviewers a tree without the change in it, so they read
+ * nothing of what they were asked about (2MWIBZ, 25 Nov, two World
+ * councils). A file the change deletes has no head side to read, and
+ * its old path can name a zone the head no longer has, which a provider
+ * would refuse, so only the head's paths are asked for.
+ */
+export function filesToRead(diff: DiffModel): string[] {
+	return [
+		...new Set(
+			diff.files.flatMap((file) =>
+				file.newPath === undefined ? [] : [file.newPath],
+			),
+		),
+	];
 }
 
 /** Where a round will run, and whether that is what was wanted. */
@@ -612,6 +655,7 @@ export async function treeForRound(
 	repo: RepoLocator,
 	commit: string | undefined,
 	fallback: string,
+	files: readonly string[] = [],
 ): Promise<RoundTree> {
 	// Where a degraded round may honestly read, decided before
 	// anything is cut, because this is the one failure a caveat cannot
@@ -660,17 +704,36 @@ export async function treeForRound(
 		},
 		purpose: "review",
 		commit,
+		...(files.length > 0 ? { paths: files } : {}),
 	});
 	if ("refusal" in asked) return fallbackAt(choice, commit, asked.refusal);
 
+	const broker = work.broker();
 	try {
-		const held = await work.broker().ensure(asked.request);
+		const held = await broker.ensure(asked.request);
 		return { path: held.path };
 	} catch (error) {
-		return fallbackAt(
-			choice,
-			commit,
-			error instanceof Error ? error.message : String(error),
-		);
+		const why = error instanceof Error ? error.message : String(error);
+		if (asked.request.intent !== "snapshot" || files.length === 0) {
+			return fallbackAt(choice, commit, why);
+		}
+		// Asked once more for the commit alone. A provider refusing the
+		// files (World's, for a file in no zone) still has the commit to
+		// give, and a round at the commit without some files reads more
+		// than one refused, or one sent to a checkout at another commit.
+		const { paths: _files, ...whole } = asked.request;
+		try {
+			const held = await broker.ensure(whole);
+			return {
+				path: held.path,
+				lacking: `The tree is at the commit, but the change's files couldn't all be put in it, so reviewers may not find them: ${why}`,
+			};
+		} catch (again) {
+			return fallbackAt(
+				choice,
+				commit,
+				again instanceof Error ? again.message : String(again),
+			);
+		}
 	}
 }

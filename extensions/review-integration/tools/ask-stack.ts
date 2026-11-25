@@ -19,7 +19,7 @@ import {
 } from "../../../lib/core/review/index.ts";
 import { findingDir, reviewEngine, runDir } from "../engine.ts";
 import type { RoundWatch } from "../progress.ts";
-import { treeForRound } from "../work.ts";
+import { filesToRead, saidOfTree, treeForRound } from "../work.ts";
 import { answerFor } from "./ask-answer.ts";
 import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
@@ -96,6 +96,8 @@ export async function askStack(
 		bound.repo,
 		tip.proposal.headCommit,
 		params.repo ?? seat.cwd,
+		// Every change's files, since the tip holds the whole stack's work.
+		filesToRead({ files: changes.flatMap((one) => one.diff.files) }),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// Every change in the stack, since a lens the stack edits anywhere
@@ -184,7 +186,7 @@ export async function askStack(
 		[
 			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
 			...(start.waited === undefined ? [] : [start.waited]),
-			answerFor(run, warnings, tree.caveat),
+			answerFor(run, warnings, saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },
 	);

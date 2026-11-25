@@ -42,7 +42,7 @@ import { reviewerStarter } from "../reviewer.ts";
 import { watchStartedRound } from "../round-job.ts";
 import { roundReading } from "../round-reading.ts";
 import { roundDispatched, roundOpened } from "../run-records.ts";
-import { readFrom, treeForRound } from "../work.ts";
+import { filesToRead, readFrom, saidOfTree, treeForRound } from "../work.ts";
 import { answerFor, keptOnLedger } from "./ask-answer.ts";
 import {
 	boundsForRound,
@@ -106,7 +106,7 @@ export async function askCouncil(
 		[
 			`Asked ${chosen}.`,
 			...(waited === undefined ? [] : [waited]),
-			answerFor(run, [...warnings, ...kept], tree.caveat),
+			answerFor(run, [...warnings, ...kept], saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings },
 	);
@@ -137,6 +137,7 @@ async function councilRound(
 		bound.repo,
 		proposal.headCommit,
 		params.repo ?? seat.cwd,
+		filesToRead(diff),
 	);
 	if ("refusal" in tree) return { refused: refuse(tree.refusal) };
 	// After the tree, because a lens can come from the repo under review
@@ -339,7 +340,7 @@ export async function startRound(
 					: [
 							`Held in the background as ${watched.id}: you will be told when no reviewer is left running, so do not poll. Collect it then. /jobs stops it.`,
 						]),
-			answerFor(run, [...warnings, ...kept], tree.caveat),
+			answerFor(run, [...warnings, ...kept], saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings },
 	);
@@ -434,6 +435,7 @@ export async function retryOne(
 		bound.repo,
 		proposal.headCommit,
 		params.repo ?? seat.cwd,
+		filesToRead(diff),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// The one participant this retry re-asks, not the whole roster. It
@@ -529,7 +531,7 @@ export async function retryOne(
 			// the last place that should withhold the one diagnosis
 			// saying a retry cannot work, and the first place to stop
 			// saying it once the retry has disproved it.
-			answerFor(updated, warnings, tree.caveat, {
+			answerFor(updated, warnings, saidOfTree(tree), {
 				sessionAnswered: outcome.failure === undefined,
 			}),
 		].join("\n"),
