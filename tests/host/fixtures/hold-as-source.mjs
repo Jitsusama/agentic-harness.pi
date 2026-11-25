@@ -4,11 +4,11 @@
 // it sees into a file there, the loop spun past its hold and the
 // profile's start, then let go until the watch has said its last lines:
 // how long the loop held and that it kept the profile, or that its thread
-// failed. What it said is
-// then printed, so a slow machine waits for the lines rather than
-// failing on a timetable. Its arguments are the hold watch's module and
-// the folder.
-import { openSync, readFileSync } from "node:fs";
+// failed. What it said is then printed, so a slow machine waits for the
+// lines rather than failing on a timetable; the file stays in the folder,
+// for the test to read where this is killed first. Its arguments are the
+// hold watch's module and the folder.
+import { openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 const [holdWatch, folder] = process.argv.slice(-2);
@@ -41,7 +41,9 @@ const look = () => {
 	const text = readFileSync(said, "utf8");
 	if (done(text) || Date.now() > until) {
 		stop();
-		process.stdout.write(text);
+		// Written at once: a piped stdout is asynchronous on macOS, and the
+		// exit after it would cut a write still queued.
+		writeSync(1, text);
 		process.exit(0);
 	}
 	// Not said yet: the thread profiles and keeps off this loop, so look again.

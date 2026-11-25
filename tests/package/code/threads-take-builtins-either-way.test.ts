@@ -32,10 +32,10 @@ const EVAL = /\beval:\s*true\b/;
  * A module has none of them, so a thread's source that says one dies
  * there. The whole file is read, since a program held as a string is no
  * smaller than its file, and a module's own code has no use for them
- * either.
+ * either; a sentence ending on the word, as "require.", is prose.
  */
 const COMMONJS_ONLY =
-	/\brequire\s*[(.]|\bmodule\.exports\b|\bexports\.\w|\b__dirname\b|\b__filename\b/g;
+	/\brequire\s*(?:\(|\.\w)|\bmodule\.exports\b|\bexports\.\w|\b__dirname\b|\b__filename\b/g;
 
 /** A file of code a thread may be started from. */
 const CODE = /\.(?:ts|mjs)$/;
@@ -69,6 +69,31 @@ describe("threads started from source", () => {
 		expect(
 			requiring,
 			"a program a thread runs from source reaches node's modules through process.getBuiltinModule",
+		).toEqual([]);
+	});
+
+	it("reads every CommonJS form, in every file a thread may start from", () => {
+		const forms = [
+			'require("node:fs")',
+			"require.resolve",
+			"module.exports",
+			"exports.watch",
+			"__dirname",
+			"__filename",
+		];
+		expect(
+			forms.filter((form) => !form.match(COMMONJS_ONLY)),
+			"each form a module lacks is refused",
+		).toEqual([]);
+		expect(
+			"// a thread may not require.\n// it requires nothing".match(
+				COMMONJS_ONLY,
+			),
+			"a sentence ending on the word is prose",
+		).toBeNull();
+		expect(
+			["a.ts", "a.mjs"].filter((file) => !CODE.test(file)),
+			"both kinds of file a thread starts from are read",
 		).toEqual([]);
 	});
 });
