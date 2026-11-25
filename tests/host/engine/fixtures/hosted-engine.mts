@@ -1294,7 +1294,20 @@ const scenarios: Record<string, Scenario> = {
 				});
 			});
 			const holding = open(engine, {});
-			await until("the held build to reach its load", () => reached, UNTIL_MS);
+			// A build that settles without reaching its hold is named at once, not after the whole wait.
+			let settled = false;
+			const settle = (): void => {
+				settled = true;
+			};
+			holding.then(settle, settle);
+			await until(
+				"the held build to reach its load",
+				() => reached || settled,
+				UNTIL_MS,
+			);
+			if (!reached) {
+				throw new Error("the held build settled without reaching its load");
+			}
 			const built = await open(engine, {});
 			// Twice the settle after the second build settled, which alone would bring a collection.
 			await quietFor(SETTLE_MS, 2);

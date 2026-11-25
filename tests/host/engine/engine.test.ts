@@ -42,6 +42,13 @@ function piBin(root: string): string {
 /** A few host starts in a row, each loading pi's whole package. */
 const HOST_LIFE_MS = 90_000;
 
+/**
+ * A host's life plus the fixture's 60 s wait for a held build, so a build
+ * that never reaches its hold fails by that wait's name, not the case's
+ * timeout, however long the host took to start.
+ */
+const HELD_BUILD_LIFE_MS = HOST_LIFE_MS + 60_000;
+
 interface Seen {
 	readonly sessionId?: string;
 	readonly sameId?: boolean;
@@ -723,7 +730,7 @@ describe("the host's engine", () => {
 				"a collection came while a build was under way",
 			).toBe(false);
 		},
-		HOST_LIFE_MS,
+		HELD_BUILD_LIFE_MS,
 	);
 
 	it(
