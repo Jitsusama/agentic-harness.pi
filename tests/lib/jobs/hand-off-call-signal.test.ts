@@ -67,18 +67,42 @@ const done: AgentToolResult<undefined> = {
 	details: undefined,
 };
 
+/** A command's run ended at once, or "still running" when no stop reached it. */
+function stopped(
+	command: Promise<ExecResult>,
+): Promise<number | "still running"> {
+	return within(command).then((result) =>
+		result === "still running" ? result : result.code,
+	);
+}
+
 /**
  * A tool call, run as the review tools run theirs, whose work starts a
  * command through an exec made before the call, and moves to a job
- * almost at once. Answers with the command's run and its stops.
+ * after `afterMs`, or starts a second one once it has, as `after` says.
+ * Answers once the command has started, with its run, the call's, and
+ * its stops; every stop is pulled once the test ends, so a red run
+ * leaves no `sleep` behind.
  */
-async function handedOffCommand() {
+async function handedOffCommand(afterMs = 10, after = false) {
 	const { bus, jobs } = stoppableHost();
 	// Built outside any call, as a provider's exec is.
 	const exec = spawnExec();
 	const call = new AbortController();
-	let command: Promise<ExecResult> | undefined;
-	await withCallSignal(call.signal, () =>
+	disposers.push(() => {
+		call.abort();
+		for (const job of jobs) job.abort(jobStopReason("agent"));
+	});
+	// Held in a box, since a promise resolved with a promise waits for it.
+	let started: (command: { run: Promise<ExecResult> }) => void = () => {};
+	const command = new Promise<{ run: Promise<ExecResult> }>((resolve) => {
+		started = resolve;
+	});
+	let movedOn: () => void = () => {};
+	const moved = new Promise<void>((resolve) => {
+		movedOn = resolve;
+	});
+	const answered = withCallSignal(call.signal, () =>
 		runOrHandOff({
 			kind: "review",
 			label: "council on a change",
@@ -91,34 +115,73 @@ async function handedOffCommand() {
 			onUpdate: undefined,
 			bus,
 			run: async () => {
-				command = exec("sleep", ["30"]);
-				await command;
+				if (after) await moved;
+				const running = exec("sleep", ["30"]);
+				started({ run: running });
+				await running;
 				return done;
 			},
-			afterMs: 10,
+			afterMs,
 		}),
 	);
-	if (!command) throw new Error("the work never started its command");
-	return { command, call, job: () => jobs[0] };
+	if (after) {
+		await answered;
+		movedOn();
+	}
+	const running = (await command).run;
+	const job = () => {
+		expect(jobs, "the call moved to one job").toHaveLength(1);
+		const [only] = jobs;
+		if (!only) throw new Error("no job was started");
+		return only;
+	};
+	return { command: running, call, job, answered };
 }
 
 describe("a command a handed-off call started", () => {
 	it("outlives the call's signal firing", async () => {
-		const { command, call, job } = await handedOffCommand();
+		const { command, call, job, answered } = await handedOffCommand();
+		await answered;
 		call.abort();
 
 		expect(await within(command)).toBe("still running");
-		job()?.abort(jobStopReason("agent"));
-		await command;
+		job().abort(jobStopReason("agent"));
+		expect(await stopped(command)).toBe(EXIT_ABORTED);
 	}, 10_000);
 
 	it("stops with its job", async () => {
-		const { command, job } = await handedOffCommand();
-		job()?.abort(jobStopReason("person"));
+		const { command, job, answered } = await handedOffCommand();
+		await answered;
+		job().abort(jobStopReason("person"));
+
+		expect(await stopped(command)).toBe(EXIT_ABORTED);
+	}, 10_000);
+
+	it("stops with Escape before the call moves", async () => {
+		const { command, call } = await handedOffCommand(60_000);
+		call.abort();
 
 		const result = await within(command);
 		expect(result === "still running" ? result : result.code).toBe(
 			EXIT_ABORTED,
 		);
+		expect(
+			result === "still running" ? result : result.stderr,
+			"the abort names no reason",
+		).toContain("aborted: ");
+	}, 10_000);
+
+	it("stops with its job when begun after the call moved", async () => {
+		const { command, job } = await handedOffCommand(10, true);
+		job().abort(jobStopReason("person"));
+
+		const result = await within(command);
+		expect(result === "still running" ? result : result.code).toBe(
+			EXIT_ABORTED,
+		);
+		expect(
+			result === "still running" ? result : result.stderr,
+			"the abort doesn't say the job stopped it",
+		).toContain('"jobStop":"person"');
 	}, 10_000);
 });

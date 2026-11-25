@@ -166,7 +166,8 @@ function runUnattended(
 				options.killGraceMs ?? KILL_GRACE_MS,
 			);
 		};
-		const onAbort = (): void => stop(EXIT_ABORTED, `${command} aborted`);
+		const onAbort = (): void =>
+			stop(EXIT_ABORTED, `${command} aborted: ${reasonWords(signal?.reason)}`);
 		signal?.addEventListener("abort", onAbort, { once: true });
 		const clock =
 			options.timeoutMs === undefined
@@ -220,6 +221,23 @@ function runUnattended(
 /** A signal's exit code as a shell reports it: 128 and its number. */
 function exitOfSignal(signal: NodeJS.Signals): number {
 	return 128 + (constants.signals[signal] ?? 0);
+}
+
+/**
+ * Why a signal fired, in words: an error's message, a string as it is,
+ * and anything else as JSON, so a stop that names its source (a job's
+ * `{"jobStop":"person"}`) reads apart from a call ending, whose default
+ * reason says only that it was aborted.
+ */
+function reasonWords(reason: unknown): string {
+	if (reason instanceof Error) return reason.message;
+	if (typeof reason === "string") return reason;
+	try {
+		return JSON.stringify(reason) ?? "no reason given";
+	} catch {
+		// A reason that can't be written as JSON still stops the command.
+		return "a reason that can't be written";
+	}
 }
 
 /** Signals a whole process group, which may already have gone. */
