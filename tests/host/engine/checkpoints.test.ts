@@ -198,23 +198,20 @@ describe("the host's checkpointer", () => {
 		expect(reported).toEqual([]);
 	});
 
-	it.skipIf(!existsSync(LOCKS))(
-		"keeps a store all the same when a FIFO sits where its index belongs, never waiting on it",
-		async () => {
-			db.close();
-			await until(
-				"the index gone with the last connection",
-				() => !existsSync(`${store}-shm`),
-			);
-			execFileSync("mkfifo", [`${store}-shm`]);
+	it("keeps a store all the same when a FIFO sits where its index belongs, never waiting on it", async () => {
+		db.close();
+		await until(
+			"the index gone with the last connection",
+			() => !existsSync(`${store}-shm`),
+		);
+		execFileSync("mkfifo", [`${store}-shm`]);
 
-			// A blocking open here would hold this thread, and the case, for good.
-			const kept = checkpoints.keep(store);
-			await looksGoBy(LOOKS);
-			expect(checkpointsMade()).toBe(0);
-			kept.release();
-		},
-	);
+		// A blocking open here would hold this thread, and the case, for good.
+		const kept = checkpoints.keep(store);
+		await looksGoBy(LOOKS);
+		expect(checkpointsMade()).toBe(0);
+		kept.release();
+	});
 
 	it("leaves a log short of its pages alone", async () => {
 		db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");

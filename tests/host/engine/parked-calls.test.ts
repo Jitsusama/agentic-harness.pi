@@ -219,13 +219,18 @@ describe("watching the calls a park carried", () => {
 		const wakeFile = join(dir, "wake");
 		const again = 1000;
 		let clock = 0;
+		// How many looks have read the clock, each once.
+		let reads = 0;
 		const stop = watchCarriedCalls({
 			folder: dir,
 			wakeFile,
 			runs: () => false,
 			lookEveryMs: LOOK_MS,
 			wakeAgainMs: again,
-			now: () => clock,
+			now: () => {
+				reads++;
+				return clock;
+			},
 			report: () => {},
 		});
 		// A wake asked by `at`, taken as the host would. A look reads files,
@@ -235,10 +240,12 @@ describe("watching the calls a park carried", () => {
 			await until(why, () => existsSync(wakeFile));
 			rmSync(wakeFile, { force: true });
 		};
-		// No wake by `at`, over a few looks.
+		// No wake by `at`, once two looks have read it: looks never overlap,
+		// so the first has finished any write by the time the second reads.
 		const notAskedBy = async (at: number, why: string): Promise<void> => {
 			clock = at;
-			await quietFor(LOOK_MS, 3);
+			const from = reads;
+			await until(`${why}: two looks at the clock`, () => reads >= from + 2);
 			expect(existsSync(wakeFile), why).toBe(false);
 		};
 		try {

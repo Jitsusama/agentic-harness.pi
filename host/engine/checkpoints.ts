@@ -269,8 +269,15 @@ function indexFor(path: string): number | undefined {
 	try {
 		if (held !== undefined && statSync(at).ino === fstatSync(held).ino)
 			return held;
-		// Never blocks: a FIFO put where the index belongs would hold the thread.
-		const fd = openSync(at, constants.O_RDONLY | constants.O_NONBLOCK);
+		// Never blocks on a FIFO put where the index belongs, which would hold
+		// the thread, and never follows a link to a file or takes a terminal.
+		const fd = openSync(
+			at,
+			constants.O_RDONLY |
+				constants.O_NONBLOCK |
+				constants.O_NOFOLLOW |
+				constants.O_NOCTTY,
+		);
 		if (!fstatSync(fd).isFile()) {
 			// Not SQLite's index, so no lock of SQLite's sits on it to drop.
 			closeSync(fd);
