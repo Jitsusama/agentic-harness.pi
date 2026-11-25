@@ -28,7 +28,10 @@ import {
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
-import { lockHeldMessage } from "../../../lib/core/internal/file-lock.ts";
+import {
+	lockBusyMessage,
+	lockHeldMessage,
+} from "../../../lib/core/internal/file-lock.ts";
 import type { TreeProvider } from "../../../lib/core/work/broker.ts";
 import {
 	type SweptTrees,
@@ -418,6 +421,31 @@ it("names at most ten trees a lock kept, the first ten it met", async () => {
 		],
 		"every tree a lock kept, counted",
 	).toBe(12);
+});
+
+it("counts the trees a busy lock kept as one reason, and names them with the held", async () => {
+	const busy = [3, 17, 40].map((hands) => ({
+		path: `/t/busy-${hands}`,
+		why: lockBusyMessage(`/state dir/trees/busy-${hands}.lock`, hands),
+	}));
+	keeps.push(...busy);
+
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept() {},
+	});
+
+	const line = JSON.parse(readFileSync(sweepLog(), "utf8").trim()) as {
+		keptFor: Record<string, number>;
+		held: { path: string; why: string }[];
+	};
+	expect(line.held, "the trees a busy lock kept").toEqual(busy);
+	expect(
+		line.keptFor[
+			"its record's lock changed hands for 60s without the sweep getting a turn"
+		],
+		"every tree a busy lock kept, as one reason",
+	).toBe(3);
 });
 
 it("still says a sweep ran when forgetting what it took throws", async () => {

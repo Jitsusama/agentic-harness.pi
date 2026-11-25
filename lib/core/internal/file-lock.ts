@@ -20,14 +20,29 @@
  * writer may have taken over first and made a fresh one, and deleting
  * by name would delete theirs. Release checks the same way, so a
  * holder that was taken over from does not delete its successor's.
+ *
+ * The wait for a live holder is timed per holder, told by the lock
+ * file's inode and time, since a lock that changes hands is a line that moves
+ * rather than one writer that stopped. On 24 November about 70 rounds
+ * waiting on the council line each took it every 15 seconds, and one
+ * that lost to them for 10 seconds was told one process held it.
  */
 
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { processGlobal } from "../../internal/process/process-global.ts";
 
-/** How long a writer waits for a live holder before saying so. */
+/** How long a writer waits for one live holder before saying so. */
 const WAIT_MS = 10_000;
+/**
+ * How long a writer waits on a lock that keeps changing hands before
+ * saying the line is too busy to let it in, counted from its call, so
+ * writers queued in one process share the bound rather than each taking
+ * it in turn. Under 105 s, since the council line drops a ticket unseen
+ * for 2 minutes and a round looks again 15 s after its last look: a
+ * round kept out longer would lose the place this wait keeps for it.
+ */
+const BUSY_MS = 60_000;
 /** Pause between attempts at the lock. */
 const RETRY_MS = 20;
 /**
@@ -37,13 +52,17 @@ const RETRY_MS = 20;
  */
 const STALE_MS = 30_000;
 
-/** The code a live holder keeping the lock past {@link WAIT_MS} throws with. */
+/**
+ * The code a writer kept out throws with: one live holder kept the lock
+ * past {@link WAIT_MS}, or holders in turn kept it past {@link BUSY_MS}.
+ */
 const LOCK_HELD = "ELOCKHELD";
 
 /**
- * A live holder kept the lock past {@link WAIT_MS}, so nothing was
- * written and nothing else went wrong: a caller may give up on what it
- * was writing for and go on with the rest.
+ * A live holder kept the lock past {@link WAIT_MS}, or holders in turn
+ * past {@link BUSY_MS}, so nothing was written and nothing else went
+ * wrong: a caller may give up on what it was writing for and go on with
+ * the rest.
  */
 class LockHeld extends Error {
 	/** Read by {@link isLockHeld}, since another copy of this module has another class. */
@@ -60,6 +79,14 @@ export function lockHeldMessage(
 	holder: number | undefined,
 ): string {
 	return `${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`;
+}
+
+/**
+ * What a lock too busy to let this writer in is said as: no holder kept
+ * it long, but `hands` others took it in turn for {@link BUSY_MS}.
+ */
+export function lockBusyMessage(lockPath: string, hands: number): string {
+	return `${lockPath} changed hands ${hands} times in the ${BUSY_MS / 1000}s since this writer asked, without it getting a turn, so many processes are writing it at once. Nothing was written; try again once fewer are.`;
 }
 
 /**
@@ -94,10 +121,11 @@ export async function withFileLock<T>(
 	path: string,
 	fn: () => Promise<T>,
 ): Promise<T> {
+	const busyUntil = Date.now() + BUSY_MS;
 	const before = queues.get(path) ?? Promise.resolve();
 	const turn = before.then(
-		() => locked(path, fn),
-		() => locked(path, fn),
+		() => locked(path, fn, busyUntil),
+		() => locked(path, fn, busyUntil),
 	);
 	// The queue only orders writers; it never carries a failure from one
 	// to the next, so the entry it holds settles either way.
@@ -113,9 +141,13 @@ export async function withFileLock<T>(
 	}
 }
 
-async function locked<T>(path: string, fn: () => Promise<T>): Promise<T> {
+async function locked<T>(
+	path: string,
+	fn: () => Promise<T>,
+	busyUntil: number,
+): Promise<T> {
 	const lockPath = `${path}.lock`;
-	const held = await acquire(lockPath);
+	const held = await acquire(lockPath, busyUntil);
 	try {
 		return await fn();
 	} finally {
@@ -123,8 +155,9 @@ async function locked<T>(path: string, fn: () => Promise<T>): Promise<T> {
 	}
 }
 
-async function acquire(lockPath: string): Promise<number> {
-	const deadline = Date.now() + WAIT_MS;
+async function acquire(lockPath: string, busyUntil: number): Promise<number> {
+	let holder: { readonly is: string; readonly until: number } | undefined;
+	let hands = 0;
 	while (true) {
 		try {
 			const handle = await open(lockPath, "wx");
@@ -137,21 +170,34 @@ async function acquire(lockPath: string): Promise<number> {
 		} catch (error) {
 			if (!hasCode(error, "EEXIST")) throw error;
 		}
-		if (await takeOverIfStale(lockPath)) continue;
-		if (Date.now() >= deadline) {
+		const live = await takeOverIfStale(lockPath);
+		if (live === undefined) continue;
+		const now = Date.now();
+		if (holder?.is !== live) {
+			if (holder !== undefined) hands += 1;
+			holder = { is: live, until: now + WAIT_MS };
+		}
+		if (now >= holder.until) {
 			throw new LockHeld(lockHeldMessage(lockPath, await holderOf(lockPath)));
 		}
+		if (now >= busyUntil) throw new LockHeld(lockBusyMessage(lockPath, hands));
 		await new Promise((done) => setTimeout(done, RETRY_MS));
 	}
 }
 
-async function takeOverIfStale(lockPath: string): Promise<boolean> {
+/**
+ * Takes over the lock if its holder has gone or it is stale, answering
+ * nothing when the writer should try again at once, or which live lock
+ * it must wait for: its inode and when it was made, since a holder's
+ * successor may be given the inode it freed.
+ */
+async function takeOverIfStale(lockPath: string): Promise<string | undefined> {
 	let judged: Awaited<ReturnType<typeof stat>>;
 	try {
 		judged = await stat(lockPath);
 	} catch (error) {
 		// Released between the failed create and here: try again.
-		if (hasCode(error, "ENOENT")) return true;
+		if (hasCode(error, "ENOENT")) return undefined;
 		throw error;
 	}
 	const holder = await holderOf(lockPath);
@@ -159,14 +205,14 @@ async function takeOverIfStale(lockPath: string): Promise<boolean> {
 	// A holder that has not written its pid yet is one mid-create, not
 	// one that has gone, so only age can make its lock stale.
 	const gone = holder !== undefined && !isAlive(holder);
-	if (!old && !gone) return false;
+	if (!old && !gone) return `${judged.ino}@${judged.mtimeMs}`;
 
 	const aside = `${lockPath}.stale-${process.pid}-${randomUUID()}`;
 	try {
 		await rename(lockPath, aside);
 	} catch (error) {
 		// Somebody else took it over first.
-		if (hasCode(error, "ENOENT")) return true;
+		if (hasCode(error, "ENOENT")) return undefined;
 		throw error;
 	}
 	const moved = await stat(aside);
@@ -182,7 +228,7 @@ async function takeOverIfStale(lockPath: string): Promise<boolean> {
 		}
 	}
 	await unlink(aside);
-	return true;
+	return undefined;
 }
 
 async function release(lockPath: string, ino: number): Promise<void> {
