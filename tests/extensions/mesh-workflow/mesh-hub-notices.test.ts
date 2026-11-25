@@ -373,10 +373,11 @@ describe("the mesh's own word, on a quest with no mark", () => {
 	// one, the last search still has a peer to read, and only the start's
 	// own guard stops it.
 	//
-	// The last search's own ask is held at the node across the start, so
-	// it can't land after it and pass for the next search's: under load
-	// one sent just before the start reached the node after, out beside
-	// the next search's first, with no search left running.
+	// The last search's asks for ties are held at the node across the
+	// start, so none it sent before the stop is answered until the next
+	// search has begun, and none passes for the next search's: under load one sent just before the
+	// start reached the node after, out beside the next search's first,
+	// with no search left running. One gap is left, said below.
 	it("stops the last search for its hub when a session starts again without ending", async () => {
 		let out = 0;
 		let most = 0;
@@ -427,10 +428,18 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			patiently,
 		);
 		holding = true;
-		// Every ask is held until the start has run, so none the last search
-		// sends before it is answered after it. The search gives up on one
-		// past TIES_PATIENCE_MS and asks again, and that one is held too, so
-		// a start however slow leaves no ask of its loose across it.
+		// From here the node holds every ask for ties until release(), so
+		// the last search waits on a held one through the start. Its hello
+		// and other asks are still answered at once, as is a tie ask already
+		// on its 60 ms timer. A find that gives up on a held ask, after
+		// TIES_PATIENCE_MS (2 s), asks again one retry wait later, and that
+		// ask is held too. Not covered: when the give-up falls one retry
+		// wait before the stop, the search can begin an ask it has not yet
+		// written as the stop runs; nothing in the ask checks for the stop,
+		// so it can reach the node after release(). Hitting that gap can
+		// fail the test as the regression it guards does, with two tie asks
+		// out at once, or pass, when the stray ask ends before `most` is
+		// reset below.
 		await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
 
 		await restart();
