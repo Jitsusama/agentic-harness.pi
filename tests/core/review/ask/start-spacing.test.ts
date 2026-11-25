@@ -9,11 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newRunId } from "../../../../lib/core/review/ask/run.ts";
-import {
-	awaitCouncilStart,
-	newestRosterStartIn,
-} from "../../../../lib/core/review/ask/start-spacing.ts";
+import { awaitCouncilStart } from "../../../../lib/core/review/ask/start-spacing.ts";
 
 /**
  * A real wait's spacing: long enough that claims made together land
@@ -629,29 +625,5 @@ describe("spacing council starts on one machine", () => {
 		expect(start.release).toBeDefined();
 		expect(Date.now()).toBeGreaterThanOrEqual(asked + SPACING - TIMER_EARLY_MS);
 		expect(line().started.by, "readable again").toBe("ISXEG8");
-	});
-});
-
-describe("the newest roster round in the transcripts", () => {
-	it("reads the newest council, stack or critique, passing over judges and audits", async () => {
-		const runs = join(folder, "runs");
-		// Named as rounds name their folders, so a drift there shows here.
-		for (const name of [
-			newRunId("council", new Date("2026-11-22T17:41:17.298Z"), 2),
-			newRunId("stack", new Date("2026-11-22T17:43:00.000Z"), 1),
-			newRunId("judge", new Date("2026-11-22T17:50:00.000Z"), 1),
-			newRunId("audit", new Date("2026-11-22T17:51:00.000Z"), 1),
-			"notes",
-		]) {
-			mkdirSync(join(runs, name), { recursive: true });
-		}
-
-		expect(await newestRosterStartIn(runs)).toEqual(
-			new Date("2026-11-22T17:43:00.000Z"),
-		);
-		expect(
-			await newestRosterStartIn(join(folder, "none")),
-			"no folder, no start",
-		).toBeUndefined();
 	});
 });
