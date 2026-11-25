@@ -185,6 +185,8 @@ export interface Peer {
 	 * session on the machine.
 	 */
 	park(wake?: string): void;
+	/** Say a park that failed part-way is taken back: it is up after all. */
+	unpark(): void;
 	/**
 	 * Say its session has ended for good, as its last word, so the
 	 * presence it leaves reads apart from a crashed session's. A parked
@@ -830,6 +832,12 @@ export function localPeer(at: Surroundings): Peer {
 			publish();
 			// A sender finds it parked by this, so it lands before the park.
 			at.presences.settle();
+		},
+		unpark() {
+			if (!parked) return;
+			parked = false;
+			wakeFile = undefined;
+			publish();
 		},
 		end() {
 			// A parked session is still there to wake, so it hasn't ended.

@@ -29,7 +29,9 @@ import {
 import { formatRelativeAge } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	isParking,
+	isParkUndone,
 	PARK_ASK,
+	PARK_UNDONE,
 	PARKING,
 } from "../../../lib/internal/session/park.ts";
 import { count } from "../../../lib/ui/count.ts";
@@ -264,6 +266,10 @@ export function followSessionLife(
 
 	pi.events?.on(PARKING, (data: unknown) => {
 		if (isParking(data)) parking = data.session;
+	});
+	// Taken back, its park never ends it: a later shutdown is what it says.
+	pi.events?.on(PARK_UNDONE, (data: unknown) => {
+		if (isParkUndone(data) && data.session === parking) parking = undefined;
 	});
 	// One whose quest has ended ends instead, even woken to (ends-with-quest.ts).
 	pi.events?.on(PARK_ASK, (data: unknown) =>

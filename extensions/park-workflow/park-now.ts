@@ -5,12 +5,15 @@
  * reads as one with nothing here to wake it.
  */
 
+import { messageOf } from "../../lib/internal/carry/message.ts";
 import type { ParkNowAsk } from "../../lib/internal/session/park.ts";
+import { ParkLeftHalfDone } from "./undo.ts";
 
 /**
  * Answers `ask` from `check`, which parks nothing, or `park`, each
  * saying why not where it doesn't. One that throws is answered as a
- * park that failed part-way, which may already have said it parked.
+ * park that failed, its watch having taken back what it said, or, where
+ * it couldn't, as one that failed part-way and may still read as parked.
  */
 export function answerParkNow(
 	ask: ParkNowAsk,
@@ -28,7 +31,9 @@ export function answerParkNow(
 		if (why === undefined) ask.parked = true;
 		else ask.why = why;
 	} catch (error) {
-		const said = error instanceof Error ? error.message : String(error);
-		ask.why = `its park failed part-way, so it may read as parked until it is restarted: ${said || "with no reason given"}`;
+		ask.why =
+			error instanceof ParkLeftHalfDone
+				? `its park failed part-way, so it may read as parked until it is restarted: ${error.message}`
+				: `its park failed: ${messageOf(error)}`;
 	}
 }

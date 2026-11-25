@@ -46,7 +46,7 @@ import {
 	localProcessDeps,
 	probeProcess,
 } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
-import { PARKING } from "../../../../lib/internal/session/park.ts";
+import { PARK_UNDONE, PARKING } from "../../../../lib/internal/session/park.ts";
 import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { succeeded } from "../_helpers.ts";
@@ -257,6 +257,23 @@ it("records a host's stop of a conversation parking as a park, not as lost", () 
 	).toBe("signalled");
 	expect(release, "each released").toHaveBeenCalledTimes(3);
 	for (const off of follows) off();
+});
+
+it("records a host's stop after a park that was taken back as the stop it is", () => {
+	const pi = fakePi();
+	const release = vi.fn();
+	withSession("a", () =>
+		trackSession({ sessionId: "a", cwd: root, ...captureSessionIdentity() }),
+	);
+	const off = followHostStamps(pi.events, "a", release);
+	pi.events.emit(PARKING, { session: "a", addresses: [] });
+	pi.events.emit(PARK_UNDONE, { session: "b" });
+	pi.events.emit(PARK_UNDONE, { session: "a" });
+
+	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+
+	expect(readRecord("a")?.endReason).toBe("signalled");
+	off();
 });
 
 it("checks the host list from another reader without treating a missing list as death", () => {

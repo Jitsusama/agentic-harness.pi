@@ -6,7 +6,7 @@
  * would hand that state across files for every change to when it parks.
  */
 
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -86,6 +86,7 @@ import {
 	restartWith,
 	shownIn,
 } from "./restart.ts";
+import { undoPark } from "./undo.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -627,12 +628,17 @@ export function watch(
 		}
 		try {
 			mark(goesOn, afterMs, sessionFile, windows);
+			end();
 		} catch (error) {
-			// Unparked, the wake it wrote would wake its next park at once.
-			if (goesOn) rmSync(wake, { force: true });
-			throw error;
+			// Still up, it reads as awake again, and a later park may go.
+			const saidToHolder = endedProcess;
+			parked = false;
+			endedProcess = false;
+			const pid = options.pid ?? process.pid;
+			const wakeWritten = goesOn ? { wakeWritten: wake } : {};
+			const half = { session, folder, saidToHolder, env, pid, bus };
+			undoPark(error, { ...half, ...wakeWritten });
 		}
-		end();
 		return undefined;
 	};
 	// Say it parks, to the mesh and in its marker, before its holder ends it.

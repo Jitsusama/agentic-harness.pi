@@ -468,6 +468,24 @@ export const PARK_ASK = "session:park-ask:v1";
 export const PARKING = "session:parking:v1";
 
 /**
+ * Said on the bus as a park that failed part-way is taken back, naming
+ * the session, so what {@link PARKING} set (the mesh's `parked`, a
+ * shutdown read as a park) reads as awake again: the process goes on.
+ */
+export const PARK_UNDONE = "session:park-undone:v1";
+
+/** What {@link PARK_UNDONE} carries. */
+export interface ParkUndone {
+	readonly session: string;
+}
+
+/** Whether a payload is a {@link ParkUndone}. */
+export function isParkUndone(data: unknown): data is ParkUndone {
+	if (typeof data !== "object" || data === null) return false;
+	return typeof (data as Record<string, unknown>).session === "string";
+}
+
+/**
  * Said on the bus as a session starts again from a park, naming it, so
  * the mesh runs a turn over what waited for it once it has caught up:
  * a key that wakes it brings no message of its own.

@@ -17,8 +17,10 @@ import { onNoModel } from "../../../lib/internal/session/no-model.ts";
 import {
 	isParkAsk,
 	isParking,
+	isParkUndone,
 	isRestartAsk,
 	PARK_ASK,
+	PARK_UNDONE,
 	PARKING,
 	RESTART_ASK,
 	SESSION_WOKEN,
@@ -205,6 +207,12 @@ export function onBus(m: MeshState, f: Handing) {
 		}
 		const quest = m.presences.of(m.peer.session)?.quest;
 		if (quest) data.quest = quest;
+	});
+	// A park that failed part-way, taken back, leaves it awake again.
+	m.pi.events?.on(PARK_UNDONE, (data: unknown) => {
+		if (!isParkUndone(data) || !m.peer || data.session !== m.peer.session)
+			return;
+		m.peer.unpark();
 	});
 	// Parking says so as it starts a session it woke, which may be before
 	// or after this extension's own start: read what waited once both

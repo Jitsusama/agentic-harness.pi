@@ -60,7 +60,12 @@ import {
 	journalCommand,
 	sayInJournal,
 } from "../../../lib/internal/session/journal.ts";
-import { isParking, PARKING } from "../../../lib/internal/session/park.ts";
+import {
+	isParking,
+	isParkUndone,
+	PARK_UNDONE,
+	PARKING,
+} from "../../../lib/internal/session/park.ts";
 import { nodeSocket, realmOf } from "../../../lib/mesh/node.ts";
 import {
 	type ClaimPlace,
@@ -157,6 +162,10 @@ export function keepOrchestrationClaimed(
 	}, CLAIM_TICK_MS);
 	pi.events?.on(PARKING, (data: unknown) => {
 		if (isParking(data)) parking = data.session;
+	});
+	// Taken back, its park never ends it: a later shutdown is what it says.
+	pi.events?.on(PARK_UNDONE, (data: unknown) => {
+		if (isParkUndone(data) && data.session === parking) parking = undefined;
 	});
 	pi.on("session_shutdown", async (event, ctx) => {
 		stopTimer();

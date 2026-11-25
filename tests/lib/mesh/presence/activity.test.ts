@@ -67,6 +67,22 @@ describe("this session's peer", () => {
 		});
 	});
 
+	it("reads as up again once a park that failed part-way is taken back", () => {
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.park("/run/user/1000/mycelium/work.held/54960192.wake");
+
+		peer.unpark();
+
+		const presence = at.presences.of(session);
+		expect(presence?.state).not.toBe("parked");
+		expect(presence).not.toHaveProperty("wake");
+		peer.end();
+		expect(at.presences.of(session), "it ends as a session up").toHaveProperty(
+			"ended",
+		);
+	});
+
 	it("says when it ended for good, so a session put down reads apart from one that crashed", () => {
 		// 15 November: health counted 24 sessions put down on purpose as
 		// agents that died, since their presence read as a crash's (80ECO2).

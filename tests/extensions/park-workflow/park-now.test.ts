@@ -18,6 +18,7 @@ import {
 	isParkAsk,
 	PARK_ASK,
 	PARK_NOW_ASK,
+	PARK_UNDONE,
 	PARKED_EXIT,
 	type ParkNowAsk,
 	parkSwitch,
@@ -215,26 +216,37 @@ describe("parking now, as the person asked", () => {
 		expect(ask(SESSION, true).ready).toBe(true);
 	});
 
-	it("answers a park that failed part-way as one that may read as parked", () => {
+	it("takes back a park that failed part-way, so a later ask parks it", () => {
+		const parked = join(folder, "held.parked");
+		const undone: unknown[] = [];
+		events.on(PARK_UNDONE, (data) => undone.push(data));
+		let fails = true;
 		watch(session(), events, {
-			env: holder(),
+			env: { ...holder(), MYCELIUM_PARKED: parked },
 			args: [],
 			pid: HELD_PID,
 			switchPath: parkSwitch(folder),
 			folder,
 			now: () => 1_000,
-			exitWith: () => {
-				throw new Error("its holder is gone");
+			exitWith: (code) => {
+				if (fails) throw new Error("its holder is gone");
+				exits.push(code);
 			},
 			clock: false,
 		});
 
-		expect(ask().why).toBe(
-			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone",
-		);
-		// What it said of its park stands, as its answer warns.
-		expect(readParked(SESSION, folder)).toBeDefined();
-		expect(ask().why).toBe("parking already");
+		expect(ask().why).toBe("its park failed: its holder is gone");
+		expect(
+			readParked(SESSION, folder),
+			"its marker taken back",
+		).toBeUndefined();
+		expect(existsSync(parked), "its holder untold").toBe(false);
+		expect(undone).toEqual([{ session: SESSION }]);
+
+		fails = false;
+		expect(ask().parked).toBe(true);
+		expect(exits).toEqual([PARKED_EXIT]);
+		expect(existsSync(parked)).toBe(true);
 	});
 
 	it("answers nothing once its watch has stopped", () => {
