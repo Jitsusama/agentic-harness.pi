@@ -457,7 +457,10 @@ describe("setAside", () => {
 		expect(readFileSync(join(thrown.aside, "notes.md"), "utf8")).toBe(
 			"written by a reader\n",
 		);
-		expect(thrown.message.startsWith(`It is at ${thrown.aside}`)).toBe(true);
+		expect(
+			thrown.message.startsWith(`It is at ${thrown.aside}`),
+			`it says where it was set aside: ${thrown.message}`,
+		).toBe(true);
 		expect(thrown.reasons).toContain("EBUSY");
 	});
 
@@ -587,7 +590,10 @@ describe("setAside", () => {
 
 		if (moved?.kind !== "stuck") throw new Error(`got ${moved?.kind}`);
 		expect(dirname(moved.aside)).toBe(strandedDir(trees));
-		expect(basename(moved.aside).startsWith(key)).toBe(true);
+		expect(
+			basename(moved.aside).startsWith(key),
+			`its name keeps the tree's key: ${moved.aside}`,
+		).toBe(true);
 		expect(moved.why).toContain("EBUSY");
 		expect(
 			memory.recall().map((one) => one.path),
