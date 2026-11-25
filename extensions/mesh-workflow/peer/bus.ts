@@ -56,8 +56,12 @@ const OWN_CHANGES_UNKEPT = "mesh-own-changes-unkept";
  * session itself, so a quest's other sessions are refused them and the
  * session still is when its quest's README can't be read; held until
  * the peer is made, as its landings are. A record that can't be written
- * is said once in the session's own words, since the guard is then only
- * as good as the log: a codemode proposal or a rollover slips past it.
+ * is said once in the session's own words, naming which, since the
+ * guard is then only as good as what was kept: a codemode proposal or a
+ * rollover slips past it. Each record is tried on its own, so a quest's
+ * that fails still leaves the session's, the one a rollover carries.
+ * The peer is refreshed first, so a quest loaded since it last looked
+ * is the one the change is filed under.
  */
 export function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
 	if (!m.paths.looks) return;
@@ -66,16 +70,22 @@ export function keepOwnChanges(m: MeshState, urls: readonly string[]): void {
 		return;
 	}
 	const dir = ownChangesBeside(m.paths.looks);
+	m.peer.refresh();
 	const quest = m.presences.of(m.peer.session)?.quest;
-	try {
-		if (quest) keepProposed(dir, quest, urls);
-		keepProposed(dir, m.peer.session, urls);
-	} catch (error) {
-		m.pi.sendMessage({
-			customType: OWN_CHANGES_UNKEPT,
-			content: `The record of what this session proposed could not be written (${error instanceof Error ? error.message : String(error)}), so show_person refuses only what this session's log names: never point the person at ${urls.join(", ")}.`,
-			display: true,
-		});
+	const owners = [
+		...(quest ? [{ owner: quest, what: `quest ${quest}'s record` }] : []),
+		{ owner: m.peer.session, what: "this session's own record" },
+	];
+	for (const { owner, what } of owners) {
+		try {
+			keepProposed(dir, owner, urls);
+		} catch (error) {
+			m.pi.sendMessage({
+				customType: OWN_CHANGES_UNKEPT,
+				content: `The ${what} of what it proposed could not be written (${error instanceof Error ? error.message : String(error)}), so show_person may not refuse it everywhere: never point the person at ${urls.join(", ")}.`,
+				display: true,
+			});
+		}
 	}
 }
 

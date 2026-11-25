@@ -19,7 +19,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import {
+	constants,
+	copyFileSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { isRecord } from "../../internal/record.ts";
 import { writeWhole } from "../../internal/write-whole.ts";
@@ -29,6 +35,13 @@ const PROPOSING_TOOL = "review_offer";
 
 /** The version of a kept change's shape. */
 const RECORD_VERSION = 1;
+
+/**
+ * The fewest path segments a change's URL names past its host, as
+ * `/c/123` does at least and `/owner/name/pull/12` more: a bare host,
+ * or one segment, would refuse every look under it for good.
+ */
+const CHANGE_SEGMENTS = 2;
 
 /**
  * The URLs of the changes a session proposed, read from its log's
@@ -84,6 +97,25 @@ export function proposedKey(url: string): string {
 }
 
 /**
+ * Whether a compared key names one change rather than a host or a
+ * folder of them: an https URL with a host and at least two path
+ * segments past it. Anything less is never kept or compared, since a
+ * kept prefix that wide would refuse every look beneath it.
+ */
+export function namesChange(key: string): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(key);
+	} catch {
+		// Not a URL at all, so it names no change.
+		return false;
+	}
+	if (parsed.protocol !== "https:" || parsed.hostname === "") return false;
+	const segments = parsed.pathname.split("/").filter((part) => part !== "");
+	return segments.length >= CHANGE_SEGMENTS;
+}
+
+/**
  * Whether `target` opens one of `proposed`, or a tab, diff or comment
  * of one, as `…/pull/12/files`, `…/pull/12.diff` or
  * `…/pull/12#discussion` is of `…/pull/12`, but `…/pull/123` is not.
@@ -95,7 +127,7 @@ export function opensOneOf(
 	const opened = proposedKey(target);
 	return proposed.some((url) => {
 		const change = proposedKey(url);
-		if (change === "") return false;
+		if (!namesChange(change)) return false;
 		return opened === change || opened.startsWith(`${change}/`);
 	});
 }
@@ -144,7 +176,10 @@ function changeFiles(folder: string): string[] {
 /**
  * Keep `urls` as proposed under `owner`, a file a change, beside what
  * it already holds, each as first spelled: one kept whole already is
- * left as it is. Nothing when `owner` is empty.
+ * left as it is, and one that names no change (`namesChange`) never
+ * kept. Nothing when `owner` is empty. A change that can't be written
+ * doesn't stop the rest; the first such error is thrown once they are
+ * all tried.
  */
 export function keepProposed(
 	dir: string,
@@ -153,16 +188,22 @@ export function keepProposed(
 ): void {
 	if (owner.trim() === "" || urls.length === 0) return;
 	const folder = ownerFolder(dir, owner);
+	let failed: unknown;
 	for (const url of urls) {
 		const key = proposedKey(url);
-		if (key === "") continue;
+		if (!namesChange(key)) continue;
 		const file = join(folder, changeFile(key));
 		if (readChange(file) !== undefined) continue;
-		writeWhole(
-			file,
-			`${JSON.stringify({ v: RECORD_VERSION, url: url.trim() })}\n`,
-		);
+		try {
+			writeWhole(
+				file,
+				`${JSON.stringify({ v: RECORD_VERSION, url: url.trim() })}\n`,
+			);
+		} catch (error) {
+			failed ??= error;
+		}
 	}
+	if (failed !== undefined) throw failed;
 }
 
 /**
@@ -170,6 +211,7 @@ export function keepProposed(
  * fresh log under a new id carries on as the same peer: a session with
  * no quest keeps its record under its own id, which the rollover
  * replaces. Each rollover carries it on, so a chain of them keeps it.
+ * A change `to` already keeps is left as it is, never rewritten.
  */
 export function carryProposed(dir: string, from: string, to: string): void {
 	if (from.trim() === "" || to.trim() === "" || from === to) return;
@@ -178,8 +220,15 @@ export function carryProposed(dir: string, from: string, to: string): void {
 	if (names.length === 0) return;
 	const target = ownerFolder(dir, to);
 	mkdirSync(target, { recursive: true });
-	for (const name of names)
-		copyFileSync(join(source, name), join(target, name));
+	const kept = new Set(changeFiles(target));
+	for (const name of names) {
+		if (kept.has(name)) continue;
+		copyFileSync(
+			join(source, name),
+			join(target, name),
+			constants.COPYFILE_EXCL,
+		);
+	}
 }
 
 /** The URLs kept as proposed under any of `owners`. */

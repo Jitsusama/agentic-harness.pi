@@ -12,6 +12,7 @@ import { SESSION_PROPOSED_CHANGES } from "../../../lib/internal/session/landings
 import { wantsShown } from "../../../lib/internal/session/wants.ts";
 import { looksIn } from "../../../lib/mesh/looks/looks.ts";
 import {
+	keepProposed,
 	keptProposed,
 	OWN_CHANGE_REFUSED,
 	ownChangesBeside,
@@ -275,6 +276,28 @@ describe("the person's look list, from show_person", () => {
 			]),
 			"kept under its quest, for the sessions after it",
 		).toEqual([pr.target]);
+		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
+	});
+
+	// What another session of the quest proposed is kept under the quest
+	// alone, so this session's own log and record say nothing of it.
+	it("refuses a change another session of its quest proposed", async () => {
+		onQuest();
+		fixture.paths = { ...fixture.paths, looks: join(fixture.root, "looks") };
+		const { tools } = await startSession();
+		keepProposed(
+			ownChangesBeside(join(fixture.root, "looks")),
+			"QEST-20261021-7M6JKG",
+			[pr.target],
+		);
+
+		const refused = await tools
+			.get("show_person")
+			?.execute("call-s", { ...pr, kind: "page", act: "Just See" });
+
+		expect(refused?.content[0]?.text).toBe(
+			`⊘ ${OWN_CHANGE_REFUSED} Nothing was added.`,
+		);
 		expect(looksIn(join(fixture.root, "looks"))).toEqual([]);
 	});
 

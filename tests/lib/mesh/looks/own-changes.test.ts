@@ -1,4 +1,12 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,9 +14,11 @@ import {
 	carryProposed,
 	keepProposed,
 	keptProposed,
+	namesChange,
 	opensOneOf,
 	ownChangesBeside,
 	proposedIn,
+	proposedKey,
 } from "../../../../lib/mesh/looks/own-changes.ts";
 
 const PR = "https://github.com/Jitsusama/agentic-harness.pi/pull/12";
@@ -123,8 +133,9 @@ describe("the record of what a quest proposed", () => {
 	});
 
 	// Two sessions of one quest proposing at once each write files of
-	// their own, so neither rewrites what the other kept.
-	it("keeps what two writers kept at once, and a torn file loses only its own change", () => {
+	// their own, so neither rewrites what the other kept; this shows the
+	// files are apart, not that two processes race.
+	it("keeps each change in a file of its own, and a torn file loses only its own change", () => {
 		const dir = records();
 		keepProposed(dir, "QEST-1", [PR]);
 		keepProposed(dir, "QEST-1", [`${PR}3`]);
@@ -148,5 +159,55 @@ describe("the record of what a quest proposed", () => {
 
 		expect(keptProposed(dir, ["0193-third"])).toEqual([PR]);
 		expect(keptProposed(dir, ["0193-fourth"])).toEqual([]);
+	});
+
+	it("carries on to a session that keeps the change already, leaving its file as it is", () => {
+		const dir = records();
+		keepProposed(dir, "0193-first", [PR, `${PR}3`]);
+		keepProposed(dir, "0193-second", [PR.toUpperCase()]);
+		const before = keptProposed(dir, ["0193-second"]);
+
+		carryProposed(dir, "0193-first", "0193-second");
+		carryProposed(dir, "0193-first", "0193-second");
+
+		const after = keptProposed(dir, ["0193-second"]).sort();
+		expect(after).toEqual([...before, `${PR}3`].sort());
+	});
+
+	// A kept prefix as wide as a host would refuse every look under it
+	// for good, and nothing sweeps the record.
+	it("keeps nothing that names no single change", () => {
+		const dir = records();
+		const wide = [
+			"https://",
+			"http://",
+			"https://example.invalid/",
+			"https://host/#/c/123",
+			"https://github.com/Jitsusama",
+			"not a url",
+		];
+		keepProposed(dir, "QEST-1", wide);
+
+		expect(keptProposed(dir, ["QEST-1"])).toEqual([]);
+		for (const url of wide) expect(namesChange(proposedKey(url))).toBe(false);
+		expect(
+			opensOneOf("https://github.com/Jitsusama/core.nix/pull/1", wide),
+		).toBe(false);
+		expect(namesChange(proposedKey("https://gerrit.example/c/123"))).toBe(true);
+	});
+
+	it("keeps the rest of the changes when one can't be written, then says so", () => {
+		const dir = records();
+		const stuck = `${PR}3`;
+		const name = `${createHash("sha256").update(proposedKey(stuck)).digest("hex").slice(0, 32)}.json`;
+		// A folder where the change's file goes makes its write fail.
+		mkdirSync(join(dir, "QEST-1", name, "held"), { recursive: true });
+
+		expect(() => keepProposed(dir, "QEST-1", [stuck, PR])).toThrow();
+		expect(keptProposed(dir, ["QEST-1"])).toEqual([PR]);
+		const kept = readdirSync(join(dir, "QEST-1")).find(
+			(file) => file !== name && file.endsWith(".json"),
+		);
+		expect(readFileSync(join(dir, "QEST-1", kept ?? ""), "utf8")).toContain(PR);
 	});
 });
