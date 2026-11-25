@@ -685,12 +685,13 @@ async function sweepRepository(
 				...(deps.statusExec ? { statusExec: deps.statusExec } : {}),
 			},
 		);
+		// The others were asked nothing, so they would read as clean: the
+		// plan sees only this sweep's own, and can offer nothing else.
 		plan = orphanedTrees({
 			mainPath: resolved(main),
-			worktrees: worktrees.map((tree) => ({
-				...tree,
-				path: resolved(tree.path),
-			})),
+			worktrees: worktrees
+				.map((tree) => ({ ...tree, path: resolved(tree.path) }))
+				.filter((tree) => ours.has(tree.path)),
 			remembered: held.remembered,
 			spendable: held.spendable,
 			unattributed: held.unattributed,

@@ -5,6 +5,7 @@
  * browser waited up to 11 s on the file system's commits.
  */
 
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
@@ -33,6 +34,8 @@ function watching() {
 		running += 1;
 		most = Math.max(most, running);
 		try {
+			// Held a moment, so statuses allowed to run at once overlap and
+			// `most` sees it; without it three quick ones might never meet.
 			await new Promise((done) => setTimeout(done, 20));
 			return await exec(command, args);
 		} finally {
@@ -71,5 +74,31 @@ describe("what a sweep asks git's status of", () => {
 			"the trees asked their status",
 		).toEqual([...ended].sort());
 		expect(most(), "how many statuses ran at once").toBe(1);
+	});
+
+	it("keeps a dirty tree whose survey answered clean, as its take asks git again", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const dirty = await cut("dirty", ["-b", "dirty", "@", "main"]);
+		writeFileSync(join(dirty, "notes.txt"), "unsaved\n");
+		// A remembered answer gone stale: every tree reads clean.
+		const stale: Exec = async (command, args) =>
+			command === "git" && args.includes("status")
+				? { code: 0, stdout: "", stderr: "" }
+				: await exec(command, args);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			statusExec: stale,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(
+			outcome.refused.map((tree) => tree.path),
+			"the trees whose take git refused",
+		).toEqual([dirty]);
+		expect(existsSync(join(dirty, "notes.txt")), "the unsaved file").toBe(true);
 	});
 });

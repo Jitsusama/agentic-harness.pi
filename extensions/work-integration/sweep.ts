@@ -266,7 +266,11 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			providers: listTreeProviders,
 			...useSigns(),
 		});
-		if (outcome.rested === undefined) statuses.save();
+		// Only a sweep that asked saves: one that rested or found another
+		// running asked nothing, and its save would empty the memory.
+		if (outcome.rested === undefined && outcome.skipped === undefined) {
+			statuses.save(outcome.refused.map((tree) => tree.path));
+		}
 		// A sweep that rested did nothing, and the one before it said what
 		// it did: a line for each filled the log at one every 3 seconds on
 		// 18 November. One that found another running still says so, as

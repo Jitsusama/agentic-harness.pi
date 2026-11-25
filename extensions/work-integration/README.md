@@ -342,12 +342,16 @@ as the sign of a sweep that holds the lock and never ends.
 A sweep asks git's status only of the trees it could take, one at a
 time, never of the other worktrees beside them: on 25 November it
 asked about 2,000 an hour, eight at once, while Joel's browser
-waited on the disk. A tree whose HEAD, branch, index and folder are
-as they were at the last sweep is answered from what git said then,
-kept in `sweep-status.json` beside the log, for at most a day. A
-take reads the status again before it removes anything, so an
-answer gone stale only costs a refused take, or keeps a tree a day
-longer.
+waited on the disk. A tree whose HEAD, branch, index and top folder
+are as they were at the last sweep is answered from what git said
+then, kept in `sweep-status.json` beside the log, for at most a day.
+An edit, or a file added or removed below the top folder, changes
+none of those, so an answer of clean can be stale. A take reads the
+status again before it removes anything, and a tree whose take was
+refused is forgotten, so a stale clean answer costs one refused take:
+the tree is moved aside, read and put back once. A stale dirty answer
+keeps a tree a day longer. Only a sweep that ran saves, never one that
+rested or found another running.
 
 A session that joins a snapshot as a sweep takes it finds it gone
 once its own claim is written, and cuts it afresh.

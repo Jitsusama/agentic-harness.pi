@@ -1,10 +1,13 @@
 /**
  * The sweep's memory of what git's status said of each tree: a tree
- * unchanged since the last sweep is answered from it, and any change a
- * status could show asks git again.
+ * whose HEAD, branch, index and top folder are unchanged since the last
+ * sweep is answered from it, and a change to any of those asks git
+ * again. A change below the top folder goes unseen, which the take's own
+ * status catches.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,17 +46,25 @@ function counting(said = { code: 0, stdout: " M notes.txt\n", stderr: "" }) {
 
 const STATUS = ["-C", "", "--no-optional-locks", "status", "--porcelain=v1"];
 
-/** One sweep: ask `path`'s status through a fresh memory, and save it. */
-async function sweep(exec: Exec, path = tree, now = 1_000_000) {
+/**
+ * One sweep: ask `path`'s status through a fresh memory, and save it,
+ * forgetting the `refused`.
+ */
+async function sweep(
+	exec: Exec,
+	path = tree,
+	now = 1_000_000,
+	{ flags = [] as string[], refused = [] as string[] } = {},
+) {
 	const memory = rememberStatuses(
 		exec,
 		join(state, "sweep-status.json"),
 		() => now,
 	);
-	const args = [...STATUS];
+	const args = [...STATUS, ...flags];
 	args[1] = path;
 	const answer = await memory.exec("git", args);
-	memory.save();
+	memory.save(refused);
 	return answer;
 }
 
@@ -91,6 +102,58 @@ describe("the sweep's memory of trees' statuses", () => {
 		await sweep(exec);
 
 		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks again once a detached tree's HEAD has moved", async () => {
+		const { ran, exec } = counting();
+		const snapshot = join(state, "snapshot");
+		await git(main, "worktree", "add", "-q", "--detach", snapshot);
+		await sweep(exec, snapshot);
+
+		await git(snapshot, "commit", "-q", "--allow-empty", "-m", "more");
+		await sweep(exec, snapshot);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks again of a tree whose take was refused", async () => {
+		const { ran, exec } = counting();
+		await sweep(exec, tree, 1_000_000, { refused: [tree] });
+
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks again when the status asked is another", async () => {
+		const { ran, exec } = counting();
+		await sweep(exec);
+
+		await sweep(exec, tree, 1_000_000, { flags: ["--ignored=matching"] });
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("asks git, never reading through it, when the tree's .git is a pipe", async () => {
+		const { ran, exec } = counting();
+		rmSync(join(tree, ".git"));
+		execFileSync("mkfifo", [join(tree, ".git")]);
+
+		await sweep(exec);
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(2);
+	});
+
+	it("doesn't see a file added below the top folder, which the take asks git of", async () => {
+		const { ran, exec } = counting();
+		mkdirSync(join(tree, "sub"));
+		await sweep(exec);
+
+		writeFileSync(join(tree, "sub", "new.txt"), "fresh\n");
+		await sweep(exec);
+
+		expect(ran.length, "statuses git ran").toBe(1);
 	});
 
 	it("asks again once a file appears in the tree's own folder", async () => {
