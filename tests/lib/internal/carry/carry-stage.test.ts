@@ -270,6 +270,7 @@ describe("a carry staged before the handover", () => {
 		const { home, tree, into } = await homeWithWork();
 		const refusal =
 			'{"session":"s-f","why":"it held a lease","at":"2026-11-07T08:00:00.000Z"}\n';
+		mkdirSync(into, { recursive: true });
 		writeFileSync(join(into, "s-f.refused.json"), refusal);
 		writeFileSync(join(into, "s-g.refused.json"), refusal);
 
@@ -299,6 +300,7 @@ describe("a carry staged before the handover", () => {
 		const { home, tree, into } = await homeWithWork();
 		const refusal =
 			'{"session":"s-h","why":"it held a lease","at":"2026-11-07T08:00:00.000Z"}\n';
+		mkdirSync(into, { recursive: true });
 		writeFileSync(join(into, "s-h.refused.json"), refusal);
 		failing.set("s-h", () => {});
 
@@ -315,7 +317,7 @@ describe("a carry staged before the handover", () => {
 		).rejects.toThrow("the disk is full");
 
 		expect(
-			filesIn(into),
+			Object.keys(filesIn(into)),
 			"only the refusal is left, as it was before the carry",
 		).toEqual(["s-h.refused.json"]);
 		expect(readFileSync(join(into, "s-h.refused.json"), "utf8")).toBe(refusal);
