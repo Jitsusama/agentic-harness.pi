@@ -225,6 +225,13 @@ describe("writing a holder's file", () => {
 			),
 			"one that names it already is left as it is",
 		).toBe("EISDIR: open '/run/held/s.again'");
+		expect(
+			whyWriting(
+				"/run/held/s.again",
+				new Error("/run/held/.writing is a link or no folder."),
+			),
+			"a sentence's full stop goes before the file is named",
+		).toBe("/run/held/.writing is a link or no folder, to /run/held/s.again");
 	});
 });
 
