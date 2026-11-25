@@ -472,6 +472,7 @@ describe("what a round records about the tree it read", () => {
 			},
 			"d7205e3c",
 			"/the/callers/checkout",
+			[],
 		);
 
 		expect(tree).toEqual({

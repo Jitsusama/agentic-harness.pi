@@ -64,7 +64,7 @@ export const PUT_DOWN_MESSAGE = "loadout-put-down";
  * rounds, and stalled while others waited on it (IKQ63G [0a296eda]).
  */
 function putDownNote(names: readonly string[]): string {
-	return `[Put down at this compaction, unused since the one before: ${names.join(", ")}. They are not gone: tool_search loads any of them again, and the Tools That Load on Demand section names every one.]`;
+	return `[Put down at this compaction, unused since the one before: ${names.join(", ")}. They are not gone: tool_search loads any of them again.]`;
 }
 
 /** The prompt section the index is rendered into. */
