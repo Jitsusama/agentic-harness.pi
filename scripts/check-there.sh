@@ -50,19 +50,49 @@
 # whose untracked files and node_modules outlast it, so a check trusts
 # the branches checked before it there as much as its own.
 #
-# A check run under pi, PI_SESSION_ID set, goes to penelope alone, the
-# host agreed for agents' checks (ISXEG8, 22 November): another, as the
-# Mac does, would run a pushed branch's install scripts and tests as an
-# account holding Joel's credentials, outside any agent fence, on an
-# agent's say alone. Nothing here shows penelope's account is any less
-# Joel's: the agreement is the reason, not a fence this script knows
-# of. That lifts once a host runs it inside its agent fence or under an
-# account of its own. It guards against a slip,
-# not an agent set on reaching the Mac: only a fence holds that. Joel
-# running it by hand, from a shell outside pi, may send it anywhere, and
-# runs the branch's code as himself there, whoever wrote it, so the
-# refusal points an agent at penelope and nowhere else.
+# A check an agent runs goes to penelope alone, the host agreed for
+# agents' checks (ISXEG8, 22 November): another, as the Mac does, would
+# run a pushed branch's install scripts and tests as an account holding
+# Joel's credentials, outside any agent fence, on an agent's say alone.
+# Nothing here shows penelope's account is any less Joel's: the
+# agreement is the reason, not a fence this script knows of. That lifts
+# once a host runs it inside its agent fence or under an account of its
+# own. Another host is refused by default: it takes a check only typed
+# at a terminal, stdin one, with no pi, pi-spawner, mycelium or
+# pi-host-runtime among the processes it runs under, and never with
+# PI_SESSION_ID set. Trusting PI_SESSION_ID alone let a systemd unit an
+# agent started, which carries none, send two checks to the Mac on 24
+# November (ISXEG8's incident). This guards against such a slip, not
+# against an agent set on reaching the Mac, which can ssh there by hand:
+# only a fence holds that. Joel typing it in his own terminal may send
+# it anywhere, and runs the branch's code as himself there, whoever
+# wrote it, so the refusal points an agent at penelope and nowhere else.
 set -euo pipefail
+
+# Whether a process this runs under is pi's: pi itself, its spawner, a
+# host's runtime or a mycelium node, read from each forebear's command
+# up to the first process. A forebear that can't be read counts as
+# pi's, so a check never goes further than it can tell it may.
+under_pi() {
+  local pid=$PPID ppid args program hops=0
+  while [ "$pid" -gt 1 ]; do
+    # A chain past 256 processes is no shell's: refused, not walked on.
+    [ "$hops" -lt 256 ] || return 0
+    args=$(ps -o args= -p "$pid" 2> /dev/null) || return 0
+    program=${args%% *}
+    case "${program##*/}" in
+      pi | pi-spawner | mycelium) return 0 ;;
+    esac
+    case "$program" in
+      *pi-host-runtime*) return 0 ;;
+    esac
+    ppid=$(ps -o ppid= -p "$pid" 2> /dev/null) || return 0
+    pid=${ppid//[!0-9]/}
+    [ -n "$pid" ] || return 0
+    hops=$((hops + 1))
+  done
+  return 1
+}
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
@@ -99,9 +129,19 @@ case "$host" in
     exit 2
     ;;
 esac
-if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
-  exit 2
+if [ "$host" != penelope ]; then
+  if [ -n "${PI_SESSION_ID:-}" ]; then
+    echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
+  if ! [ -t 0 ]; then
+    echo "check-there: a check with no terminal, as a unit or a pipe runs it, goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
+  if under_pi; then
+    echo "check-there: a check run under pi, its spawner, a host or a mycelium node (or under a process it can't read) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
 fi
 
 if [ "$#" -lt 1 ]; then

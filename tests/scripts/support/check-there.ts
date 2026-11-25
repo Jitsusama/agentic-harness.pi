@@ -1555,6 +1555,76 @@ function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
 }
 
 /**
+ * Where a check is run from: whether stdin is a terminal, and the
+ * commands of the processes it runs under, nearest first, as a stand-in
+ * `ps` reads them out. With no forebears there is no `ps` at all.
+ */
+interface Seat {
+	readonly terminal: boolean;
+	readonly forebears?: readonly string[];
+}
+
+/** Joel at his own terminal, in a login shell under his session. */
+const AT_A_TERMINAL: Seat = {
+	terminal: true,
+	forebears: ["-zsh", "/usr/bin/login -pfl joel"],
+};
+
+/**
+ * A stand-in `ps` answering `-o args= -p PID` and `-o ppid= -p PID` from
+ * `forebears`: the first answers for any pid it never gave out, as the
+ * script's own parent is, and each leads to the next, the last to 1.
+ */
+function psReading(bash: string, forebears: readonly string[]): string {
+	const lines = forebears.map(
+		(one, place) => `  ${place}) printf '%s\\n' ${quoted(one)} ;;`,
+	);
+	return [
+		`#!${bash}`,
+		`field=$2 pid=$4 count=${forebears.length}`,
+		"i=0",
+		'[ "$pid" -ge 1000 ] && [ "$pid" -lt $((1000 + count)) ] && i=$((pid - 1000))',
+		'if [ "$field" = ppid= ]; then',
+		'  if [ $((i + 1)) -lt "$count" ]; then echo " $((1001 + i))"; else echo " 1"; fi',
+		"  exit 0",
+		"fi",
+		'case "$i" in',
+		...lines,
+		"esac",
+		"",
+	].join("\n");
+}
+
+/**
+ * A command run with a terminal for its stdin, through `script`, which
+ * writes what it says, stderr as well, to its own stdout: util-linux's
+ * takes the command as one line, BSD's as its words. util-linux's runs
+ * the line through a shell that may set PATH afresh, so `env` sets the
+ * command's environment itself, and nothing but it.
+ */
+function atATerminal(
+	words: readonly string[],
+	environment: Readonly<Record<string, string>>,
+): readonly string[] {
+	const script = onPath("script");
+	const env = onPath("env");
+	if (script === undefined || env === undefined)
+		throw new Error("no script or env here");
+	const set = Object.entries(environment).map(
+		([name, value]) => `${name}=${value}`,
+	);
+	words = [env, "-i", ...set, ...words];
+	if (process.platform === "darwin")
+		return [script, "-q", "/dev/null", ...words];
+	return [script, "-qec", words.map(quoted).join(" "), "/dev/null"];
+}
+
+/** `word` as a POSIX shell reads it back as one word. */
+function quoted(word: string): string {
+	return `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/**
  * The local half as it runs, through an ssh that only writes down what
  * it was given: one word a line, in `ssh.args` beside the stand-in.
  */
@@ -1562,6 +1632,7 @@ function sendFrom(
 	args: readonly string[],
 	wait?: string,
 	session?: string,
+	seat: Seat = { terminal: false },
 ): {
 	readonly code: number | null;
 	readonly err: string;
@@ -1580,21 +1651,29 @@ function sendFrom(
 		`#!${bash}\nprintf '%s\\n' "$@" > "${record}"\n`,
 		{ mode: 0o755 },
 	);
-	const ran = spawnSync(bash, [SCRIPT, ...args], {
+	if (seat.forebears !== undefined)
+		writeFileSync(join(bin, "ps"), psReading(bash, seat.forebears), {
+			mode: 0o755,
+		});
+	const environment = {
+		PATH: bin,
+		HOME: root,
+		...(wait === undefined ? {} : { CHECK_THERE_WAIT_S: wait }),
+		...(session === undefined ? {} : { PI_SESSION_ID: session }),
+	};
+	const [program = bash, ...words] = seat.terminal
+		? atATerminal([bash, SCRIPT, ...args], environment)
+		: [bash, SCRIPT, ...args];
+	const ran = spawnSync(program, words, {
 		cwd: root,
-		env: {
-			PATH: bin,
-			HOME: root,
-			...(wait === undefined ? {} : { CHECK_THERE_WAIT_S: wait }),
-			...(session === undefined ? {} : { PI_SESSION_ID: session }),
-		},
+		env: environment,
 		encoding: "utf8",
 		timeout: SETTLES_IN_MS,
 	});
 	const sent = existsSync(record)
 		? readFileSync(record, "utf8").replace(/\n$/, "").split("\n")
 		: null;
-	return { code: ran.status, err: ran.stderr, sent, root };
+	return { code: ran.status, err: ran.stderr + ran.stdout, sent, root };
 }
 
 function localHalf(): void {
@@ -1606,7 +1685,12 @@ function localHalf(): void {
 				`sends a branch that ${shell}, as the host's shell, reads back as one word, with the wait last`,
 				() => {
 					const branch = "jitsusama/fix-1.2_b+c@d";
-					const sent = sendFrom([branch, "there"], "60");
+					const sent = sendFrom(
+						[branch, "there"],
+						"60",
+						undefined,
+						AT_A_TERMINAL,
+					);
 					expect(sent.code, sent.err).toBe(0);
 					// A connection of its own: a shared master's sshd would outlive
 					// its ssh, and the check would never see its caller go.
@@ -1659,7 +1743,12 @@ function localHalf(): void {
 		// Past 160 characters its holder's line would read to every waiter
 		// as not in its shape, so the branch is refused before any host.
 		it("refuses a branch past 160 characters, reaching no host", () => {
-			const fits = sendFrom(["b".repeat(160), "there"]);
+			const fits = sendFrom(
+				["b".repeat(160), "there"],
+				undefined,
+				undefined,
+				AT_A_TERMINAL,
+			);
 			expect(fits.code, fits.err).toBe(0);
 			const sent = sendFrom(["b".repeat(161), "there"]);
 			expect(sent.code).toBe(2);
@@ -1669,7 +1758,7 @@ function localHalf(): void {
 
 		// An empty setting reads as none, as `:-` reads it.
 		it("waits its default when the wait is set empty", () => {
-			const sent = sendFrom(["feature", "there"], "");
+			const sent = sendFrom(["feature", "there"], "", undefined, AT_A_TERMINAL);
 			expect(sent.code, sent.err).toBe(0);
 			expect(sent.sent?.at(-1), "ninety minutes").toMatch(/ 5400$/);
 		});
@@ -1708,6 +1797,103 @@ function localHalf(): void {
 			},
 		);
 
+		// A systemd unit an agent starts carries no PI_SESSION_ID and has no
+		// terminal, and on 24 November two such checks reached the Mac
+		// (ISXEG8): another host now takes only a check typed at a terminal.
+		it("sends a check with no terminal and no PI_SESSION_ID, as a unit runs it, to no host but penelope", () => {
+			const sent = sendFrom(["feature", "equilibrius"], undefined, undefined, {
+				terminal: false,
+				forebears: [
+					"/run/current-system/sw/bin/bash -c pnpm check:there",
+					"/run/current-system/systemd/lib/systemd/systemd --user",
+				],
+			});
+			expect(sent.code, "refused").toBe(2);
+			expect(sent.err).toMatch(
+				/a check with no terminal, as a unit or a pipe runs it, goes only to the host named penelope/,
+			);
+			expect(sent.err).toContain("pnpm check:there feature penelope");
+			expect(sent.sent, "no ssh").toBeNull();
+			const penelope = sendFrom(["feature", "penelope"]);
+			expect(penelope.code, penelope.err).toBe(0);
+		});
+
+		it("sends a check Joel types at his own terminal to the host he names", () => {
+			const sent = sendFrom(
+				["feature", "equilibrius"],
+				undefined,
+				undefined,
+				AT_A_TERMINAL,
+			);
+			expect(sent.code, sent.err).toBe(0);
+			expect(sent.sent?.at(-2), "to equilibrius").toBe("equilibrius");
+		});
+
+		// A terminal is no proof: pi's bash tool, a hosted conversation or a
+		// mycelium node may hold one, so a check run under any goes to
+		// penelope, as one is whose forebears can't be read.
+		it.each([
+			["pi", ["bash -c pnpm check:there", "pi"]],
+			[
+				"pi's spawner",
+				["/bin/bash -c x", "/nix/store/a-pi-spawner-0.1.0/bin/pi-spawner"],
+			],
+			[
+				"a host",
+				[
+					"/bin/bash",
+					"/nix/store/a-pi-host-runtime-1.5.0/libexec/pi-host/node --disable-sigusr1",
+				],
+			],
+			[
+				"a mycelium node",
+				[
+					"/bin/bash",
+					"/nix/store/a-mycelium-0.1.0/bin/mycelium --realm work holder",
+				],
+			],
+		])(
+			"sends a check at a terminal under %s to no host but penelope",
+			(_, forebears) => {
+				const sent = sendFrom(
+					["feature", "equilibrius"],
+					undefined,
+					undefined,
+					{
+						terminal: true,
+						forebears: [...forebears, "-zsh"],
+					},
+				);
+				expect(sent.code, "refused").toBe(2);
+				expect(sent.err).toMatch(
+					/a check run under pi, its spawner, a host or a mycelium node/,
+				);
+				expect(sent.sent, "no ssh").toBeNull();
+			},
+		);
+
+		it("sends a check whose forebears can't be read to no host but penelope", () => {
+			const sent = sendFrom(["feature", "equilibrius"], undefined, undefined, {
+				terminal: true,
+			});
+			expect(sent.code, "refused").toBe(2);
+			expect(sent.err).toMatch(/or under a process it can't read/);
+			expect(sent.sent, "no ssh").toBeNull();
+		});
+
+		// Only the program a forebear runs counts, never a word it's given.
+		it("sends a check at a terminal whose forebears only name pi in their words", () => {
+			const sent = sendFrom(["feature", "equilibrius"], undefined, undefined, {
+				terminal: true,
+				forebears: [
+					"vim pi.md mycelium",
+					"/usr/bin/pip install pi-spawner",
+					"-zsh",
+				],
+			});
+			expect(sent.code, sent.err).toBe(0);
+		});
+
 		// A wait is at most seven digits, over a hundred days, so no wait is
 		// mistyped into one that never ends.
 		// A leading zero would be read there as octal: 0100 as 64 s, 0900 as
@@ -1742,7 +1928,12 @@ function localHalf(): void {
 		it.each(["joel@there", "there.local", "192.168.4.49", "my-host"])(
 			"sends to a host named in plain words, %s",
 			(host) => {
-				const sent = sendFrom(["feature", host], "9999999");
+				const sent = sendFrom(
+					["feature", host],
+					"9999999",
+					undefined,
+					AT_A_TERMINAL,
+				);
 				expect(sent.code, sent.err).toBe(0);
 				expect(sent.sent?.at(-2), "the host, as named").toBe(host);
 				expect(sent.sent?.at(-1), "with the longest wait there is").toMatch(
@@ -1752,7 +1943,12 @@ function localHalf(): void {
 		);
 
 		it("sends a wait of none, a zero alone", () => {
-			const sent = sendFrom(["feature", "there"], "0");
+			const sent = sendFrom(
+				["feature", "there"],
+				"0",
+				undefined,
+				AT_A_TERMINAL,
+			);
 			expect(sent.code, sent.err).toBe(0);
 			expect(sent.sent?.at(-1), "with no wait").toMatch(/ 0$/);
 		});
