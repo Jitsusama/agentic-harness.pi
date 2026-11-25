@@ -62,6 +62,7 @@ import {
 } from "./handover.ts";
 import { messageOf } from "./message.ts";
 import type { CarriedNote } from "./notes.ts";
+import { refusedFileOf } from "./ordered.ts";
 import { sparseOf } from "./sparse.ts";
 import { handoverMade, type Stage, staged } from "./stage.ts";
 
@@ -216,9 +217,10 @@ async function carryAll(
 /**
  * The done file of `owner`'s earlier carry into `into`, if any, and
  * each file it names there that such a carry writes: its session file,
- * and each tree's bundle and patch under that tree's name for `owner`.
- * Any other name it holds is left alone, since the files it would move
- * aside, and so delete, could be another carry's.
+ * and each tree's bundle and patch under that tree's name for `owner`,
+ * with `owner`'s refusal of an earlier order, which a carry that lands
+ * answers. Any other name it holds is left alone, since the files it
+ * would move aside, and so delete, could be another carry's.
  */
 function earlierOf(into: string, home: string, owner: string): string[] {
 	const done = doneFileOf(into, owner);
@@ -226,6 +228,7 @@ function earlierOf(into: string, home: string, owner: string): string[] {
 	const file = earlier?.sessionFile;
 	return [
 		basename(done),
+		basename(refusedFileOf(into, owner)),
 		...(file !== undefined && plain(file) && /\.jsonl(\.gz)?$/.test(file)
 			? [file]
 			: []),
