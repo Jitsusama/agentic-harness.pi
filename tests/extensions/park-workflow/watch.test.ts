@@ -18,6 +18,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+	AssistantMessage,
+	ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -26,6 +30,7 @@ import {
 } from "../../../extensions/park-workflow/restart.ts";
 import {
 	HOST_PARKS,
+	heedTurnEnds,
 	mayPark,
 	noteNeverParks,
 	type Parkable,
@@ -64,9 +69,39 @@ import {
 import { CALLS_WATCHED_MS } from "../../../lib/internal/shell/carried.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 const SESSION = "01a1af3c-26bc-7b80-990f-37848859ff67";
+
+/** A model's answer, as pi ends its message. */
+const ANSWER: AssistantMessage = {
+	role: "assistant",
+	content: [{ type: "text", text: "done" }],
+	api: "anthropic-messages",
+	provider: "test",
+	model: "test",
+	usage: {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	},
+	stopReason: "stop",
+	timestamp: 0,
+};
+
+/** A tool's answer, as pi ends its message. */
+const TOOL_RESULT: ToolResultMessage = {
+	role: "toolResult",
+	toolCallId: "call",
+	toolName: "bash",
+	content: [{ type: "text", text: "ok" }],
+	isError: false,
+	timestamp: 0,
+};
 /** The process the holder's record says it runs. */
 const HELD_PID = 4242;
 
@@ -1335,6 +1370,47 @@ describe("why a session stays awake", () => {
 		} finally {
 			host.dispose();
 		}
+	});
+
+	// A turn handed on at agent_end ended its run even with tools run, and
+	// pi still reads as streaming there, so it stepped off and was woken at
+	// the drain's end with nothing to carry on (#2073's council, F3).
+	it("steps off between turns only after one whose tools ran, short of the run's end", async () => {
+		const pi = fakePi();
+		const said: boolean[] = [];
+		heedTurnEnds(pi, () => ({
+			turnEnded: (asksAgain) => {
+				said.push(asksAgain);
+				return undefined;
+			},
+		}));
+		const fire = async (event: string, data: unknown = {}) => {
+			for (const handler of pi.recorded.handlers.get(event) ?? []) {
+				await handler(data, {});
+			}
+		};
+		const answer = (stopReason: AssistantMessage["stopReason"]) =>
+			fire("message_end", { message: { ...ANSWER, stopReason } });
+		const toolRan = () => fire("message_end", { message: TOOL_RESULT });
+
+		await fire("agent_start");
+		await answer("toolUse");
+		await toolRan();
+		await fire("turn_start");
+		await answer("stop");
+		await fire("turn_start");
+		await answer("toolUse");
+		await toolRan();
+		await fire("agent_end");
+		await fire("agent_start");
+		await answer("aborted");
+		await toolRan();
+		await fire("turn_start");
+
+		expect(
+			said,
+			"mid-run with tools, a queued message, the run's end, cut short",
+		).toEqual([true, false, false, false]);
 	});
 
 	// 23 November: about 40 children ran host code 1b79c5ee from 22 November,

@@ -89,7 +89,7 @@ function extension(
 	const file = join(base, `${name}.ts`);
 	const body = how.fails
 		? `throw new Error("${name} failed");`
-		: `pi.events.emit("${HEARD}", { name: "${name}", turn: event.turnIndex, results: event.toolResults.length, outcome: event.outcome });`;
+		: `pi.events.emit("${HEARD}", { name: "${name}", turn: event.turnIndex, results: event.toolResults.length, outcome: event.outcome, endsRun: event.endsRun });`;
 	const register = how.boundary
 		? [
 				"\tlet wants = false;",
@@ -139,6 +139,7 @@ interface Heard {
 	readonly turn: number;
 	readonly results: number;
 	readonly outcome: string;
+	readonly endsRun?: boolean;
 }
 
 /**
@@ -217,10 +218,25 @@ describe("one listener for the end of a turn", () => {
 		const { heard } = await run(runner, bus, [2, 1, 0]);
 
 		expect(heard, "each turn once, as it ended").toEqual([
-			{ name: "a", turn: 0, results: 2, outcome: "completed" },
-			{ name: "a", turn: 1, results: 1, outcome: "completed" },
-			{ name: "a", turn: 2, results: 0, outcome: "completed" },
+			{ name: "a", turn: 0, results: 2, outcome: "completed", endsRun: false },
+			{ name: "a", turn: 1, results: 1, outcome: "completed", endsRun: false },
+			{ name: "a", turn: 2, results: 0, outcome: "completed", endsRun: true },
 		]);
+	});
+
+	// The run above ends on a turn with no tools; this one's last turn ran
+	// one, which a tool that ends the run leaves, so tools alone never say
+	// the run goes on.
+	it("says the run ended with its last turn, though that turn's tools ran", async () => {
+		const bus = createEventBus();
+		const { runner } = await session([extension("a")], bus);
+
+		const { heard } = await run(runner, bus, [1, 1]);
+
+		expect(
+			heard.map((one) => one.endsRun),
+			"only the last turn is the run's end, tools or none",
+		).toEqual([false, true]);
 	});
 
 	it("says a turn that stopped short ended so", async () => {

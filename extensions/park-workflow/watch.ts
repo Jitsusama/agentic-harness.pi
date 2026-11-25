@@ -1,9 +1,16 @@
 /**
  * Watching a session for the still moment it may park, and parking it.
+ *
+ * Long because the watch is one closure whose look timer, holds, wakes
+ * and step-off between turns share the same state, and splitting it
+ * would hand that state across files for every change to when it parks.
  */
 
 import { existsSync, rmSync, writeFileSync } from "node:fs";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
@@ -60,6 +67,10 @@ import {
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
 import {
+	onTurnEnd,
+	type TurnOver,
+} from "../../lib/internal/session/turn-end.ts";
+import {
 	isCarriedShell,
 	withinWatch,
 } from "../../lib/internal/shell/carried.ts";
@@ -89,6 +100,37 @@ export const HOST_PARKS = "its host parks it";
  * slot (host/service/child.ts, `childSlot`); a shared host has none.
  */
 const CHILD_KEY_ENV = "PI_HOST_CHILD_KEY";
+
+/**
+ * Tell the watch `current` answers of each turn's end, through the
+ * session's one turn-end listener, saying whether pi asks the model
+ * again for what the turn's tools answered.
+ */
+export function heedTurnEnds(
+	pi: ExtensionAPI,
+	current: () => Pick<Watch, "turnEnded"> | undefined,
+): void {
+	onTurnEnd(pi, (turn) => {
+		current()?.turnEnded(asksAgain(turn));
+	});
+}
+
+/**
+ * Whether pi asks the model again after `turn` for what its tools
+ * answered: they ran, it went as asked, and the listener said the run
+ * goes on. A run stepped off after its last turn, as a tool that ends
+ * the run makes it, would be woken at the drain's end with nothing to
+ * carry on. A turn with no tools that pi follows with another carries a
+ * queued message, so it's only looked at, as is a turn that can't say
+ * whether the run goes on: neither steps off between turns.
+ */
+function asksAgain(turn: TurnOver): boolean {
+	return (
+		turn.toolResults.length > 0 &&
+		turn.outcome === "completed" &&
+		turn.endsRun === false
+	);
+}
 
 /** The host this conversation runs in, when that host can park it alone. */
 function parkingHost(): { park(sessionId: string): void } | undefined {
@@ -237,9 +279,13 @@ export interface Watch {
 	 * its host drains or its code is stale and no window views it, a run
 	 * under way holds it no longer: it parks here, its wake written at once,
 	 * and durable carries the run on in the next start, on current code.
-	 * `asksAgain`, its tools ran and pi asks the model again; a turn that
-	 * ended the run is only looked at, since pi may not yet read as idle
-	 * as it ends, and the next look parks it once it does. Answers why not.
+	 * `asksAgain` ({@link heedTurnEnds}), pi asks the model again; a turn
+	 * that ended the run is only looked at, since pi may not yet read as
+	 * idle as it ends, and the next look parks it once it does. The host
+	 * parks it just after this returns, so the next request may already
+	 * have gone out. That relies on durable keeping an answer only once
+	 * it's whole, so the cut-off request is asked again in the next start;
+	 * no test here drives that race. Answers why not.
 	 */
 	turnEnded(asksAgain: boolean): string | undefined;
 	/**
