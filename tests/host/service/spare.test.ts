@@ -244,6 +244,41 @@ describe("a warm spare", () => {
 		await expect(spare).resolves.toEqual({ taken: true });
 	});
 
+	// A default parameter fills an undefined argument, so a size that came
+	// back unread used to be read, and collected, a second time.
+	it("reads an unread size once after its warm too", async () => {
+		let reads = 0;
+		const spare = spareUntilTaken(
+			waitOf({
+				size: () => {
+					reads += 1;
+					return undefined;
+				},
+				lookMs: 60_000,
+			}),
+		);
+		await written(spareMarks(slotFile).warm);
+		expect(reads).toBe(1);
+		await name({ sessionId: "s1" });
+		await expect(spare).resolves.toEqual({ taken: true });
+	});
+
+	it("judges its cap by the figure its report gave", async () => {
+		const sizes = [250 * MB, 100 * MB];
+		const reports: string[] = [];
+		const spare = spareUntilTaken(
+			waitOf({
+				size: () => sizes.shift(),
+				report: (line: string) => reports.push(line),
+			}),
+		);
+
+		await expect(spare).resolves.toEqual({
+			left: "it holds 250 MB, past the 200 MB a spare may",
+		});
+		expect(reports.join("\n")).toContain("holding 250 MB");
+	});
+
 	it("leaves once its slot is cleared, as a host does once its unit has gone", async () => {
 		const marks = spareMarks(slotFile);
 		const waiting = spareUntilTaken(waitOf());

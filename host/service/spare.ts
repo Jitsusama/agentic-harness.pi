@@ -146,11 +146,12 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 	const warmed = Date.now() - began;
 	// Each read of the size collects first, so the one after the warm
 	// serves both its report and the cap rather than collecting twice.
-	const overSize = (held = wait.size()) => {
-		return held !== undefined && held > mostBytes
+	// The figure is always passed: a default would read again whenever
+	// the first read came back unread.
+	const overSize = (held: number | undefined) =>
+		held !== undefined && held > mostBytes
 			? `it holds ${Math.round(held / MB)} MB, past the ${Math.round(mostBytes / MB)} MB a spare may`
 			: undefined;
-	};
 	const held = wait.size();
 	wait.report(
 		`A warm spare: warmed in ${(warmed / MS_PER_SECOND).toFixed(1)} s, holding ${held === undefined ? "an unread size" : `${Math.round(held / MB)} MB`}`,
@@ -182,7 +183,7 @@ export async function spareUntilTaken(wait: SpareWait): Promise<SpareEnd> {
 			// slot was cleared, and nothing will ever take this spare.
 			if (!((await exists(marks.warm)) || (await exists(marks.taken))))
 				return { left: "its slot was cleared" };
-			const why = (await wait.moved()) ?? overSize() ?? tooLong();
+			const why = (await wait.moved()) ?? overSize(wait.size()) ?? tooLong();
 			if (why && (await leave(marks))) return { left: why };
 		}
 		await pause(slotLookMs);
