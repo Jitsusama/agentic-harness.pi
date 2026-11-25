@@ -5,12 +5,14 @@
  */
 
 import {
+	chmodSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	readlinkSync,
+	renameSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -26,6 +28,9 @@ const volumes = vi.hoisted((): string[] => []);
 
 /** Every rename made, as from and to, in order. */
 const renames = vi.hoisted((): [string, string][] => []);
+
+/** What happens at each read of a copy, in order, one each. */
+const duringCopy = vi.hoisted((): (() => void)[] => []);
 
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
@@ -44,6 +49,10 @@ vi.mock("node:fs", async (importOriginal) => {
 			}
 			real.renameSync(...args);
 		},
+		readSync: (...args: unknown[]) => {
+			duringCopy.shift()?.();
+			return (real.readSync as (...all: unknown[]) => number)(...args);
+		},
 	};
 });
 
@@ -51,6 +60,7 @@ const made: string[] = [];
 afterEach(() => {
 	volumes.length = 0;
 	renames.length = 0;
+	duringCopy.length = 0;
 	for (const path of made.splice(0)) {
 		rmSync(path, { recursive: true, force: true });
 	}
@@ -85,12 +95,14 @@ describe("moving a file whole", () => {
 	it("copies it beside its place and renames it in across volumes, keeping its bytes and mode", () => {
 		const { here, there } = twoFolders();
 		const bytes = Buffer.alloc(3 * 1024 * 1024 + 7, "carried\n");
-		writeFileSync(join(here, "log.jsonl"), bytes, { mode: 0o640 });
+		writeFileSync(join(here, "log.jsonl"), bytes);
+		// Bits a umask would clip at the open, and setuid, which never goes.
+		chmodSync(join(here, "log.jsonl"), 0o4766);
 
 		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
 
 		expect(readFileSync(join(there, "log.jsonl")).equals(bytes)).toBe(true);
-		expect(statSync(join(there, "log.jsonl")).mode & 0o777).toBe(0o640);
+		expect(statSync(join(there, "log.jsonl")).mode & 0o7777).toBe(0o766);
 		expect(readdirSync(here), "the original is gone").toEqual([]);
 		expect(readdirSync(there), "nothing is left beside it").toEqual([
 			"log.jsonl",
@@ -131,6 +143,27 @@ describe("moving a file whole", () => {
 		);
 	});
 
+	it("leaves the original where its folder is swapped for a link during the copy", () => {
+		const { here, there } = twoFolders();
+		const hand = join(here, "hand");
+		mkdirSync(hand);
+		writeFileSync(join(hand, "log.jsonl"), "planted\n");
+		const outside = join(made[0] ?? "", "outside");
+		mkdirSync(outside);
+		writeFileSync(join(outside, "log.jsonl"), "outside\n");
+		duringCopy.push(() => {
+			renameSync(hand, `${hand}-was`);
+			symlinkSync(outside, hand);
+		});
+
+		expect(() =>
+			moveFile(join(hand, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow("names another file");
+
+		expect(readFileSync(join(outside, "log.jsonl"), "utf8")).toBe("outside\n");
+		expect(readFileSync(join(there, "log.jsonl"), "utf8")).toBe("planted\n");
+	});
+
 	it("refuses a folder across volumes, leaving it and nothing beside its place", () => {
 		const { here, there } = twoFolders();
 		mkdirSync(join(here, "trees"));
@@ -146,11 +179,15 @@ describe("moving a file whole", () => {
 
 	it("throws any other failure of the rename as it was, copying nothing", () => {
 		const { here, there } = twoFolders(true);
+		writeFileSync(join(here, "log.jsonl"), "kept\n");
+		mkdirSync(join(there, "log.jsonl"));
 
 		expect(() =>
-			moveFile(join(here, "missing"), join(there, "missing")),
-		).toThrow(/ENOENT/);
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow(/EISDIR/);
 
-		expect(readdirSync(there)).toEqual([]);
+		expect(renames, "no copy is renamed in").toHaveLength(1);
+		expect(readdirSync(there)).toEqual(["log.jsonl"]);
+		expect(readFileSync(join(here, "log.jsonl"), "utf8")).toBe("kept\n");
 	});
 });

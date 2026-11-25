@@ -4,11 +4,19 @@
  * the staging folder beside it with EXDEV though the disk is the same.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
-import { stagingOf } from "../../../../lib/internal/carry/stage.ts";
+import { staged, stagingOf } from "../../../../lib/internal/carry/stage.ts";
 import { CARRY_STAGING } from "../../../../lib/internal/sandbox/quest-folders.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -22,6 +30,9 @@ import {
 
 /** The sessions whose done file can't be written. */
 const failing = vi.hoisted(() => new Set<string>());
+
+/** What happens once the file at a path is removed, by its path. */
+const afterUnlink = vi.hoisted(() => new Map<string, () => void>());
 
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
@@ -37,6 +48,12 @@ vi.mock("node:fs", async (importOriginal) => {
 				);
 			}
 			real.renameSync(...args);
+		},
+		unlinkSync: (...args: Parameters<typeof real.unlinkSync>) => {
+			real.unlinkSync(...args);
+			const then = afterUnlink.get(String(args[0]));
+			afterUnlink.delete(String(args[0]));
+			then?.();
 		},
 	};
 });
@@ -63,6 +80,7 @@ vi.mock(
 const made: string[] = [];
 afterEach(() => {
 	failing.clear();
+	afterUnlink.clear();
 	removeAll(made);
 });
 
@@ -149,5 +167,34 @@ describe("a carry staged on another volume than its handover", () => {
 
 		expect(filesIn(into), "its first carry is as it was").toEqual(before);
 		expect(readdirSync(stagingOf(into))).toEqual([]);
+	});
+
+	it("moves nothing more through a handover swapped for a link between two moves", async () => {
+		const into = join(folder(made, "scratch"), QUEST, "handover", "kestrel");
+		mkdirSync(into, { recursive: true });
+		writeFileSync(join(into, "a.bundle"), "earlier a\n");
+		writeFileSync(join(into, "b.bundle"), "earlier b\n");
+		const outside = folder(made, "outside");
+		writeFileSync(join(outside, "b.bundle"), "not the carry's\n");
+		// A fenced command swaps the handover once the first has moved aside.
+		afterUnlink.set(join(into, "a.bundle"), () => {
+			renameSync(into, `${into}-was`);
+			symlinkSync(outside, into);
+		});
+
+		await expect(
+			staged(into, "s-v", async (stage) => {
+				writeFileSync(join(stage.folder, "a.bundle"), "new a\n");
+				writeFileSync(join(stage.folder, "b.bundle"), "new b\n");
+				stage.place(["a.bundle", "b.bundle"]);
+			}),
+		).rejects.toThrow("is a link");
+
+		expect(readdirSync(outside), "nothing outside is placed").toEqual([
+			"b.bundle",
+		]);
+		expect(readFileSync(join(outside, "b.bundle"), "utf8")).toBe(
+			"not the carry's\n",
+		);
 	});
 });
