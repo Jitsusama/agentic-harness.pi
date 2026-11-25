@@ -309,16 +309,27 @@ export async function startRound(
 	// Held as a job where a host is loaded, so the model is told when
 	// the round is ready rather than polling for it. Only once something
 	// was started, since a round that started nobody is already settled.
-	const watched =
-		started === 0
-			? undefined
-			: watchStartedRound({
-					bus,
-					runId: run.id,
-					label: `council ${run.id} on ${change.label}`,
-					participants: run.participants.map((participant) => participant.id),
-					...roundReading(artifacts, run),
-				});
+	// A watch that can't be set up, as on a bus a switch left behind,
+	// leaves the round unwatched rather than answering as a refusal: its
+	// reviewers are running, and a refusal with no run id invites a
+	// second round beside them.
+	let unwatched: string | undefined;
+	let watched: ReturnType<typeof watchStartedRound>;
+	try {
+		watched =
+			started === 0
+				? undefined
+				: watchStartedRound({
+						bus,
+						runId: run.id,
+						label: `council ${run.id} on ${change.label}`,
+						participants: run.participants.map((participant) => participant.id),
+						...roundReading(artifacts, run),
+					});
+	} catch (error) {
+		watched = undefined;
+		unwatched = `It couldn't be held as a job: ${error instanceof Error ? error.message : String(error)}`;
+	}
 
 	// Through the same composition as every other answer. This built
 	// its own for as long as it existed, which is how it came to print
@@ -335,6 +346,7 @@ export async function startRound(
 				? []
 				: watched === undefined
 					? [
+							...(unwatched === undefined ? [] : [unwatched]),
 							"Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.",
 						]
 					: [

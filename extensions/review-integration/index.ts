@@ -44,6 +44,7 @@ import {
 	attachmentDir,
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
+	rememberBus,
 	rememberSession,
 	reviewEngine,
 	runArtifactDir,
@@ -375,6 +376,9 @@ async function reapOrphanedReviewers(
 export default function reviewIntegration(pi: ExtensionAPI) {
 	declareGuards(GUARDS.reviewOffer, GUARDS.reviewSay, GUARDS.reviewPublish);
 	registerBuiltinReviewProviders(pi);
+	// Said as this load starts, so a round an older load started says
+	// what it says on this one's bus from now (engine.ts, liveBus).
+	rememberBus(pi.events);
 
 	const stoppable = withToolCallSignals(pi);
 	registerReviewTool(stoppable);
@@ -436,6 +440,8 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		// session has attached is scoped by it, and a session that cannot
 		// say who it is shares a directory with every other one.
 		rememberSession(ctx.sessionManager.getSessionId());
+		// Again for the session it now is: a switch or fork moves the slot.
+		rememberBus(pi.events);
 		// Awaited, and before the sweep. Awaited because a fork whose
 		// first review call lands before the copy finishes sees the
 		// refusal this exists to prevent, and before the sweep because

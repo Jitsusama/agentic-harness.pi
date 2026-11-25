@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type AttachmentStore,
 	createAttachmentStore,
@@ -75,6 +75,8 @@ export function sessionKey(): string {
 interface Standing {
 	inSession: string;
 	session?: Session;
+	/** The bus of the newest load of this extension in the conversation. */
+	bus?: EventBus;
 }
 
 const STANDING = "agentic-harness.review.engine.v1";
@@ -113,6 +115,50 @@ export function rememberSession(sessionId: string | undefined): void {
 		sessionId === undefined || sessionId.trim() === ""
 			? anonymous()
 			: sessionId;
+}
+
+/**
+ * Remember `bus` as this conversation's newest, from a load of this
+ * extension: as it loads, and again at every session start.
+ */
+export function rememberBus(bus: EventBus): void {
+	standing().bus = bus;
+}
+
+/**
+ * A bus that says and hears on the newest load's bus, whichever load
+ * asked for it, for work that outlives the call that started it.
+ *
+ * Pi refuses every `emit` and `on` on a bus whose load a reload or a
+ * session switch replaced, with its stale-context error. A round waits
+ * in the machine's line for up to two hours, and an install moves every
+ * session's load in that time, so a round started with the bus its call
+ * was given threw as it went to say it was running (1HE06W's rounds on
+ * 25 November). The standing is the conversation's own, which every load
+ * shares, so it is read at each use rather than once. Until any load
+ * has said its bus, it is `fallback`.
+ *
+ * Only while the conversation is still the session that asked. On
+ * plain pi the standing is the process's, and a switch to another
+ * session moves it there, so a round from the first would put its
+ * watch and its prompt on a stranger's conversation; it keeps
+ * `fallback` instead, as before this existed. Hosted, a rollover or
+ * fork starts a new session's standing, which this doesn't follow:
+ * the round keeps the old session's bus.
+ *
+ * A listener added through it stays on the bus it was added to, which
+ * that bus's load takes off as it is replaced; it is for saying and for
+ * asking, which hear their answer before `emit` returns.
+ */
+export function liveBus(fallback: EventBus): EventBus {
+	const held = standing();
+	const asker = held.inSession;
+	const current = (): EventBus =>
+		held.inSession === asker ? (held.bus ?? fallback) : fallback;
+	return {
+		emit: (channel, data) => current().emit(channel, data),
+		on: (channel, handler) => current().on(channel, handler),
+	};
 }
 
 /**

@@ -39,7 +39,7 @@ import {
 	runOrHandOff,
 } from "../../../lib/jobs/hand-off.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { councilStartsPath, runDir } from "../engine.ts";
+import { councilStartsPath, liveBus, runDir } from "../engine.ts";
 import { answerWatching } from "../progress.ts";
 import { askCouncil, retryOne, startRound } from "./ask-council.ts";
 import { lineSaid } from "./ask-line.ts";
@@ -93,6 +93,9 @@ export async function runAsk(
 	ctx: ExtensionContext,
 ): Promise<Answer> {
 	const action = params.action ?? "runs";
+	// A round waits for its start for up to two hours, through reloads
+	// that leave this call's own bus refusing everything said on it.
+	const bus = liveBus(pi.events);
 	// A round runs for minutes, deaf to the person and the mesh while
 	// it holds the turn, so one still going after a minute moves to a
 	// job, as a long command does.
@@ -109,7 +112,7 @@ export async function runAsk(
 		nested: endsWithItsPrompts(ctx.mode),
 		signal: callSignal,
 		onUpdate: undefined,
-		bus: pi.events,
+		bus,
 		run: (signal) => answerAsk(signal),
 	});
 
@@ -152,7 +155,7 @@ export async function runAsk(
 							watch("council"),
 						);
 					case "start":
-						return await startRound(pi.events, bound, change, params, seat);
+						return await startRound(bus, bound, change, params, seat);
 					case "stop":
 						return await stopRound(change, params);
 					case "judge":
