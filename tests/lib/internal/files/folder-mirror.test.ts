@@ -118,7 +118,6 @@ function put(name: string, words: string): void {
 	renameSync(join(dir, `${name}.tmp`), join(dir, name));
 }
 
-/** The words of a folder's files, in the order it gives them. */
 /**
  * A read held until released: `reached` settles once one is held, so a
  * test knows the refresh listed the folder and stalled.
@@ -142,6 +141,7 @@ function stalling() {
 	};
 }
 
+/** The words of a folder's files, in the order it gives them. */
 function wordsOf(files: ReadonlyMap<string, string | undefined>): string[] {
 	return [...files.values()].filter((one) => one !== undefined);
 }

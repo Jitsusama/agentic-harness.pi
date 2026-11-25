@@ -88,8 +88,8 @@ export interface Said {
 /**
  * Whether `message` has the one shape a receptor's signal takes: an fyi
  * to its own source's network, or to the one cell it feeds, and nobody
- * else, answering, replacing, ending and inviting nothing. The node's record holds no `pid`,
- * `invite` or `hosted`, so what it can't vouch for has to be what a
+ * else, answering, replacing, ending and inviting nothing. The node vouches for
+ * no `pid`, `invite` or `hosted` a file carries, so what it can't vouch for has to be what a
  * signal never has, or a planted file could reuse a real signal's words
  * to ask a question, withdraw a message or reach every session. Where
  * it went, the record does hold, as groups, and {@link heldAsSaid}

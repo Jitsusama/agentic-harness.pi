@@ -15,7 +15,9 @@ points.
 - **`folder-mirror.ts`**: a folder's files and their parses, kept for a
   host's synchronous readers and read again off the thread while asked,
   a file at a time as its watch names one, so a stalled disk holds none
-  of its conversations.
+  of its conversations; fed instead by what already follows the folder
+  once for every process, where its kind names one, as presence names
+  the mycelium node.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.

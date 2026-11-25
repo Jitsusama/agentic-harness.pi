@@ -27,6 +27,8 @@ import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
 import { hosted } from "../core/session/host.ts";
 import {
+	type Feed,
+	type FeedEvents,
 	type FolderMirror,
 	folderMirrors,
 	folderRead,
@@ -34,6 +36,7 @@ import {
 	type MirroredFiles,
 } from "../internal/files/folder-mirror.ts";
 import { readStamped, type Stamped } from "../internal/files/stamped-read.ts";
+import { everyRealmsDir, stateDir } from "../internal/paths.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { parsedFiles } from "../internal/quest/documents/parsed-file.ts";
 import { shownReadme } from "../internal/quest/documents/quest-doc.ts";
@@ -74,6 +77,8 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
+import { homeNodeSocket } from "./node.ts";
+import { watchSessions } from "./node-watch.ts";
 import { oneLine } from "./one-line.ts";
 import { questShared, type Share, sharesSaid } from "./presence-shares.ts";
 import {
@@ -603,8 +608,7 @@ export function createPresences(
 	dir: string,
 	options: Pick<WholeWritesOptions, "failed" | "write"> = {},
 ): Presences {
-	const file = (session: string) =>
-		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
+	const file = (session: string) => join(dir, presenceFileName(session));
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
@@ -690,7 +694,61 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 	suffix: ".json",
 	read,
 	readOff,
+	feed(dir, events) {
+		// `PI_PRESENCE_FEED=off` reads the folder, should the node's word
+		// ever be doubted, without stopping the node.
+		if (process.env.PI_PRESENCE_FEED === "off") return undefined;
+		if (dir !== nodesPresenceFolder()) return undefined;
+		const socket = homeNodeSocket();
+		// No node named yet, as before one first runs: lost, so asked again.
+		if (socket === undefined) return endedAtOnce(events);
+		return watchSessions(
+			socket,
+			{
+				nameOf: presenceFileName,
+				parse(presence) {
+					try {
+						return presenceFrom(presence);
+					} catch {
+						// Not a presence this reader knows: none, as a torn file gives.
+						return undefined;
+					}
+				},
+			},
+			events,
+		);
+	},
 };
+
+/** A feed that ends as soon as it is asked, for a node not yet named. */
+function endedAtOnce(events: FeedEvents<Presence>): Feed {
+	let closed = false;
+	queueMicrotask(() => {
+		if (!closed) events.ended();
+	});
+	return {
+		close() {
+			closed = true;
+		},
+	};
+}
+
+/** A session's presence file's name, by its id. */
+function presenceFileName(session: string): string {
+	return `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`;
+}
+
+/**
+ * The presence folder the machine's node follows, which is the home
+ * realm's: none for a session of another realm, whose node may follow
+ * a folder of its own, so its mirror reads its folder itself.
+ */
+function nodesPresenceFolder(): string | undefined {
+	const home = everyRealmsDir("state", "mesh-workflow")[0];
+	return home !== undefined && stateDir("mesh-workflow") === home
+		? join(home, "presence")
+		: undefined;
+}
 
 /** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
