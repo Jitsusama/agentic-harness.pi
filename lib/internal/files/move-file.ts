@@ -13,6 +13,10 @@
  * The original is removed only while its path still names the file
  * copied, since a copy lasts as long as the file is long, and a folder on
  * its way swapped for a link meanwhile would have it remove another.
+ * A copy takes no more room than the file had when opened, and no more
+ * than half what its new volume has left, since a fenced command can
+ * plant a file that grows as it is read, or a sparse one far larger than
+ * the bytes it holds.
  */
 
 import { randomUUID } from "node:crypto";
@@ -29,6 +33,7 @@ import {
 	readSync,
 	renameSync,
 	rmSync,
+	statfsSync,
 	symlinkSync,
 	unlinkSync,
 	writeSync,
@@ -109,12 +114,22 @@ function copied(from: string, to: string): BigIntStats {
 		if (!opened.isFile()) {
 			throw new Error(`${from} isn't a file or a link, so it isn't moved.`);
 		}
+		const left = statfsSync(dirname(to), { bigint: true });
+		if (opened.size * 2n > left.bavail * left.bsize) {
+			throw new Error(
+				`${from} is ${opened.size} bytes, more than half the room left beside ${to}, so it isn't moved.`,
+			);
+		}
 		const mode = Number(opened.mode) & MODE_BITS;
 		const target = openSync(to, MAKE, mode);
 		try {
 			// Set again, past the umask that clipped it at the open.
 			fchmodSync(target, mode);
-			copyAll(source, target);
+			if (!copyAll(source, target, Number(opened.size))) {
+				throw new Error(
+					`${from} changed while it was copied, so it isn't moved.`,
+				);
+			}
 			fsyncSync(target);
 		} finally {
 			closeSync(target);
@@ -125,15 +140,28 @@ function copied(from: string, to: string): BigIntStats {
 	}
 }
 
-/** Copies every byte from the descriptor `source` to `target`. */
-function copyAll(source: number, target: number): void {
+/**
+ * Copies the `size` bytes of the descriptor `source` to `target`,
+ * answering whether that was all of it: a source that ends sooner or
+ * still has more stops there, copying nothing past `size`.
+ */
+function copyAll(source: number, target: number, size: number): boolean {
 	const buffer = Buffer.allocUnsafe(CHUNK);
-	for (;;) {
-		const read = readSync(source, buffer, 0, CHUNK, null);
-		if (read === 0) return;
+	let copied = 0;
+	while (copied < size) {
+		const read = readSync(
+			source,
+			buffer,
+			0,
+			Math.min(CHUNK, size - copied),
+			null,
+		);
+		if (read === 0) return false;
 		let written = 0;
 		while (written < read) {
 			written += writeSync(target, buffer, written, read - written);
 		}
+		copied += read;
 	}
+	return readSync(source, buffer, 0, 1, null) === 0;
 }

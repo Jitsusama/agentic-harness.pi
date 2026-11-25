@@ -191,9 +191,7 @@ describe("moving a file whole", () => {
 			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
 		).toThrow("changed while it was copied");
 
-		expect(readFileSync(join(here, "log.jsonl")).length).toBe(
-			bytes.length + 5,
-		);
+		expect(readFileSync(join(here, "log.jsonl")).length).toBe(bytes.length + 5);
 		expect(readdirSync(there)).toEqual([]);
 	});
 
