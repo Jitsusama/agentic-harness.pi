@@ -131,9 +131,23 @@ const LAST_WORD_MS = 2_000;
  * answers whether it did.
  */
 async function swapped(swapper: Swapper): Promise<boolean> {
-	const until = Date.now() + LAST_WORD_MS;
-	while (!/swapped|missed/.test(swapper.said()) && Date.now() < until) {
-		await new Promise((resolve) => setTimeout(resolve, 10));
+	const spoke = () => /swapped|missed/.test(swapper.said());
+	if (!spoke()) {
+		const stdout = swapper.process.stdout;
+		await new Promise<void>((resolve) => {
+			const heard = () => {
+				if (spoke()) done();
+			};
+			const done = () => {
+				clearTimeout(deadline);
+				stdout?.off("data", heard);
+				resolve();
+			};
+			// A deadline, not a pause: it ends the wait only for a swapper
+			// that never says what it did, which the caller then reads as missed.
+			const deadline = setTimeout(done, LAST_WORD_MS);
+			stdout?.on("data", heard);
+		});
 	}
 	const exited = new Promise((resolve) =>
 		swapper.process.once("exit", resolve),
