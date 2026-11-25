@@ -40,11 +40,19 @@ export interface KeptLanding extends Landing {
 	readonly address?: string;
 	/** The quest it had loaded. */
 	readonly quest?: string;
+	/**
+	 * The quest that proposed the change, where that was another, as a
+	 * gate merging other cells' changes does: its areas are that quest's.
+	 */
+	readonly proposedBy?: string;
 	/** The repository the change is in, as `owner/name` or its name. */
 	readonly repo?: string;
 	/** The machine it landed on, by its short name. */
 	readonly machine?: string;
 }
+
+/** The quest that proposed the change at a web page, where one is known. */
+export type ProposerOf = (url: string) => string | undefined;
 
 /** The file as it is written. */
 interface History {
@@ -81,15 +89,25 @@ export function repoOf(landing: Landing): string | undefined {
 	return /^[A-Z]+-\d{8}-[A-Z0-9]+$/.test(before) ? undefined : before;
 }
 
-/** A landing as kept, with whose it is and where. */
-export function kept(landing: Landing, whose: Whose): KeptLanding {
+/**
+ * A landing as kept, with whose it is and where, and which quest
+ * proposed it where `proposerOf` knows it was another.
+ */
+export function kept(
+	landing: Landing,
+	whose: Whose,
+	proposerOf?: ProposerOf,
+): KeptLanding {
 	const repo = repoOf(landing) ?? whose.repo;
+	const proposer = landing.url ? proposerOf?.(landing.url) : undefined;
+	const proposedBy = proposer !== whose.quest ? proposer : undefined;
 	return {
 		key: keyOf(whose.session, landing.ref),
 		...landing,
 		session: whose.session,
 		...(whose.address ? { address: whose.address } : {}),
 		...(whose.quest ? { quest: whose.quest } : {}),
+		...(proposedBy ? { proposedBy } : {}),
 		...(repo ? { repo } : {}),
 		...(whose.machine ? { machine: whose.machine } : {}),
 	};
@@ -174,15 +192,22 @@ export interface LandingKeeper {
 	unlanded(session: string, ref: string): void;
 }
 
+/** How a keeper names its machine, tells the time and finds a proposer. */
+export interface KeeperOptions {
+	readonly machine?: string;
+	readonly now?: () => number;
+	readonly proposerOf?: ProposerOf;
+}
+
 /**
- * A keeper writing to the history at `dir`, naming this machine. A write
- * that fails is let go: the landing still stands in the presence, the
- * plan and the pull request, and the next one writes the file again.
+ * A keeper writing to the history at `dir`, naming this machine and,
+ * where `proposerOf` knows one, the quest that proposed a change. A
+ * write that fails is let go: the landing still stands in the presence,
+ * the plan and the pull request, and the next one writes the file again.
  */
 export function landingKeeper(
 	dir: string,
-	machine: string = thisMachine(),
-	now: () => number = Date.now,
+	{ machine = thisMachine(), now = Date.now, proposerOf }: KeeperOptions = {},
 ): LandingKeeper {
 	const quietly = (write: Promise<void>) => {
 		write.catch(() => {
@@ -191,7 +216,13 @@ export function landingKeeper(
 	};
 	return {
 		landed(landing, whose) {
-			quietly(keepLanding(dir, kept(landing, { machine, ...whose }), now()));
+			quietly(
+				keepLanding(
+					dir,
+					kept(landing, { machine, ...whose }, proposerOf),
+					now(),
+				),
+			);
 		},
 		unlanded(session, ref) {
 			quietly(forgetLanding(dir, keyOf(session, ref), now()));

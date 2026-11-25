@@ -116,7 +116,10 @@ describe("the landings kept a month", () => {
 	});
 
 	it("is written by the keeper a peer is handed, with this machine's name", async () => {
-		const keeper = landingKeeper(dir, "optimus", () => NOW);
+		const keeper = landingKeeper(dir, {
+			machine: "optimus",
+			now: () => NOW,
+		});
 		const landing: Landing = {
 			at: ago(1000),
 			ref: "PLAN-20261030-QMUYBH#46",
@@ -135,6 +138,41 @@ describe("the landings kept a month", () => {
 			machine: "optimus",
 			repo: "agentic-harness.pi",
 		});
+	});
+});
+
+describe("whose a merged change is", () => {
+	const PAGE = "https://github.com/Jitsusama/agentic-harness.pi/pull/2088";
+	/** A change merged by the gate's session, `url` its page. */
+	const merged = (url: string | undefined): Landing => ({
+		at: new Date(NOW).toISOString(),
+		ref: "agentic-harness.pi#2088",
+		what: "a change",
+		...(url ? { url } : {}),
+	});
+	const gate = { session: "S1", quest: "QEST-GATE" };
+	const proposers = new Map([[PAGE, "QEST-ROUTING"]]);
+	const proposerOf = (url: string) => proposers.get(url);
+
+	it("names the quest that proposed it, where that was another", () => {
+		expect(kept(merged(PAGE), gate, proposerOf)).toMatchObject({
+			quest: "QEST-GATE",
+			proposedBy: "QEST-ROUTING",
+		});
+	});
+
+	it("names none where its own quest proposed it, or nobody is known to", () => {
+		proposers.set(`${PAGE}1`, "QEST-GATE");
+
+		expect(kept(merged(`${PAGE}1`), gate, proposerOf)).not.toHaveProperty(
+			"proposedBy",
+		);
+		expect(kept(merged(`${PAGE}2`), gate, proposerOf)).not.toHaveProperty(
+			"proposedBy",
+		);
+		expect(kept(merged(undefined), gate, proposerOf)).not.toHaveProperty(
+			"proposedBy",
+		);
 	});
 });
 

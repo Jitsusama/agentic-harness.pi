@@ -13,24 +13,26 @@
  * An area is a file's first two folders, as `lib/mesh` or
  * `extensions/review-integration`, since routing reads a subject's
  * narrowest part as its words, and those name a module. Under
- * `modules/` and `areas/` it is three, where core.nix keeps a module
- * and World a zone. A folder that says how code is laid out rather
+ * `modules/` it is three, where core.nix keeps a module. A folder that says how code is laid out rather
  * than what it is about is climbed past to its parent, so
  * `modules/quickshell/checks` is `modules/quickshell`: replayed over a
  * week of needs, leaving it drew every need saying checks to the
  * launcher's cell. Tests, docs, a repository's own config and its root
- * files name no area, since everyone touches them.
+ * files name no area, since everyone touches them. Nor do World's zones
+ * under `areas/` yet: said by their names they would hold words such as
+ * shopify and dev, which many needs carry, and no World landing was in
+ * the replay that measured these rules.
  */
 
 /** The most areas one landing says: past this a change is a sweep. */
 export const MOST_AREAS = 24;
 
 /** How deep an area reads under each top folder, two elsewhere. */
-const DEPTH: Readonly<Record<string, number>> = { modules: 3, areas: 3 };
+const DEPTH: Readonly<Record<string, number>> = { modules: 3 };
 const DEFAULT_DEPTH = 2;
 
 /** Top folders whose files name no area. */
-const NO_AREA = new Set(["tests", "test", "docs", ".github", ".pi"]);
+const NO_AREA = new Set(["tests", "test", "docs", ".github", ".pi", "areas"]);
 
 /**
  * Folders that say how code is laid out, not what it is about: an area

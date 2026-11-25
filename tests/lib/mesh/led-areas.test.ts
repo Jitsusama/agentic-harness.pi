@@ -53,6 +53,19 @@ describe("the areas each quest led in its landings", () => {
 		});
 	});
 
+	// FZ9MFJ, 25 November: the harness's gate merges other cells' changes,
+	// and would come to lead what they wrote.
+	it("credits a merge to the quest that proposed it, not the one that merged it", () => {
+		const byGate = (days: number) => ({
+			...merge("QEST-GATE", ["lib/mesh"], days),
+			proposedBy: "QEST-ROUTING",
+		});
+
+		expect(ledAreas([byGate(0), byGate(1)], NOW)).toEqual({
+			"QEST-ROUTING": ["agentic-harness.pi:lib/mesh"],
+		});
+	});
+
 	it("says none for an area its quest landed only once", () => {
 		expect(ledAreas([merge("QEST-A", ["lib/mesh"])], NOW)).toEqual({});
 	});

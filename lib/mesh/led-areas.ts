@@ -15,9 +15,11 @@
  * {@link LED_WITHIN_MS}, with at least {@link LEADS_AT} of the weight of
  * the quest that landed it most, each landing weighing half as much
  * every {@link HALF_LIFE_MS}, so one sweeping refactor doesn't claim an
- * area for a fortnight. A landing is credited to the quest its session
- * had loaded and never to that quest's parent, since rolled up an
- * orchestrator would lead everything. Replayed over the week's 417 kept
+ * area for a fortnight. A landing is credited to the quest that
+ * proposed the change where the history knows it was another, since a
+ * gate merging other cells' changes would otherwise lead what they
+ * wrote, and else to the quest its session had loaded; never to that
+ * quest's parent, since rolled up an orchestrator would lead everything. Replayed over the week's 417 kept
  * needs, these rules took the review tools' needs from none of 30 to
  * their owner to 16, and 49 of 75 hand-labelled needs to their owner
  * against 33, with no cell taking more than 9% of all needs.
@@ -79,7 +81,11 @@ export function ledAreas(
 ): Record<string, string[]> {
 	const shares = new Map<string, Map<string, Share>>();
 	for (const landing of landings) {
-		const { quest, repo, areas } = landing;
+		const { repo, areas } = landing;
+		const quest =
+			typeof landing.proposedBy === "string"
+				? landing.proposedBy
+				: landing.quest;
 		if (!(quest && repo && areas)) continue;
 		const age = now - Date.parse(landing.at);
 		if (!(age >= 0 && age < LED_WITHIN_MS)) continue;

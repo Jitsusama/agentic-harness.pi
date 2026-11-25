@@ -15,13 +15,21 @@ describe("the areas a change touched", () => {
 		).toEqual(["extensions/review-integration", "lib/mesh"]);
 	});
 
-	it("reads three folders under modules and areas, where a zone or module sits that deep", () => {
+	it("reads three folders under modules, where a module sits that deep", () => {
+		expect(areasOf(["modules/quickshell/launcher/Launcher.qml"])).toEqual([
+			"modules/quickshell/launcher",
+		]);
+	});
+
+	// FZ9MFJ, 25 November: World's zones would be said as shopify or dev,
+	// words many needs carry, and no World landing has been measured.
+	it("names none for World's zones, until their landings are measured", () => {
 		expect(
 			areasOf([
-				"modules/quickshell/launcher/Launcher.qml",
-				"areas/tools/gitstream/src/main.rs",
+				"areas/core/shopify/app/models/shop.rb",
+				"areas/tools/dev/lib/dev.rb",
 			]),
-		).toEqual(["modules/quickshell/launcher", "areas/tools/gitstream"]);
+		).toEqual([]);
 	});
 
 	it("climbs past a folder that says how code is laid out, not what it is about", () => {
@@ -49,9 +57,10 @@ describe("the areas a change touched", () => {
 	});
 
 	it("puts the areas most files changed in first, and keeps at most a bounded number", () => {
-		expect(
-			areasOf(["lib/ui/a.ts", "lib/mesh/a.ts", "lib/mesh/b.ts"]),
-		).toEqual(["lib/mesh", "lib/ui"]);
+		expect(areasOf(["lib/ui/a.ts", "lib/mesh/a.ts", "lib/mesh/b.ts"])).toEqual([
+			"lib/mesh",
+			"lib/ui",
+		]);
 		const sweep = Array.from(
 			{ length: MOST_AREAS + 5 },
 			(_, i) => `extensions/e${i}/index.ts`,
