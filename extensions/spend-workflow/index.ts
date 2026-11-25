@@ -40,14 +40,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawnExec } from "../../lib/core/exec/index.ts";
-import type {
-	CostSlice,
-	QueryAnswer,
-} from "../../lib/core/observability/index.ts";
+import type { CostSlice } from "../../lib/core/observability/index.ts";
 import {
 	type CostDimension,
 	type LedgerReader,
-	type LedgerTotal,
 	openLedgerReader,
 	openRunStore,
 	openTurnStore,
@@ -79,44 +75,25 @@ import {
 	type BillPeriod,
 	isBillCut,
 } from "../../lib/internal/spend/spend-watch.ts";
-import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
-import { formatAudit } from "./audit.ts";
-import { gatherAudit } from "./audit-input.ts";
 import { budgetAsks, registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
-import { indexSessionLogs, sessionsDir } from "./indexer.ts";
+import { indexSessionLogs } from "./indexer.ts";
 import { claimLease, registerKeeper, stampedPass } from "./keeper.ts";
 import {
 	formatBill,
 	formatFanOut,
 	formatIndexOutcome,
-	formatPaybackReplay,
-	formatQueryAnswer,
-	formatRegret,
-	formatRepeats,
 	formatSlices,
 	formatTotal,
-	formatVerifierOutcomes,
 	type IndexOutcome,
 } from "./report.ts";
-import {
-	earliest,
-	formatUse,
-	noteLoad,
-	type QuestChange,
-	questChangesQuery,
-	readSamples,
-	recordTurn,
-	useByQuest,
-} from "./resources.ts";
+import { askedReport, type CostDetails, HELD_ELSEWHERE } from "./reports.ts";
+import { noteLoad, recordTurn } from "./resources.ts";
 import { recordWhoServed } from "./served.ts";
 
 /** Where each session's per-turn resource figures are kept. */
 const resourcesDir = () => join(stateDir("observability"), "resources");
-
-/** Rows of a query answer shown before the rest is left to the store. */
-const QUERY_ROWS_SHOWN = 40;
 
 /** The period the bill is asked for when the caller names none. */
 const BILL_PERIOD: BillPeriod = "30 days";
@@ -185,12 +162,6 @@ const QUERY_GUIDE =
 	"at the prices pi put on each request. A query past 5,000 rows is " +
 	"refused; aggregate it or add a LIMIT.";
 
-interface CostDetails {
-	readonly ok: boolean;
-	readonly total?: LedgerTotal;
-	readonly index?: IndexOutcome;
-}
-
 /**
  * Published whenever the figures move. The status line subscribes and
  * lays them out; this extension never paints, because a brain that
@@ -205,20 +176,6 @@ export const COST_READING = "cost:reading";
  * does.
  */
 const MARGINAL_WINDOW = 20;
-
-/** What the tool says when another session's pass holds the ledger. */
-const HELD_ELSEWHERE =
-	"Another pass (a session's keeper, or the daily measure) holds the ledger, so this answer reads it as that pass leaves it, without indexing first.";
-
-/** `answer` with the held-lease note before what it says. */
-function heldFirst(
-	answer: AgentToolResult<CostDetails>,
-): AgentToolResult<CostDetails> {
-	return {
-		...answer,
-		content: [{ type: "text", text: HELD_ELSEWHERE }, ...answer.content],
-	};
-}
 
 /** Why a load that has shut down won't open the ledger again. */
 const LEDGER_CLOSED = "The ledger is closed: this session has ended.";
@@ -648,148 +605,20 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			// Each report but the total, which says it among its sections. A
-			// report read from a ledger another pass held says so first, so a
-			// stale figure never reads as a current one.
-			const reported = await (async (): Promise<
-				AgentToolResult<CostDetails> | undefined
-			> => {
-				if (params.resources) {
-					const samples = readSamples(resourcesDir());
-					const changes: QuestChange[] = [];
-					if (samples.size > 0) {
-						const answer = await (await openReader()).query(
-							questChangesQuery([...samples.keys()]),
-						);
-						for (const row of answer.rows) {
-							changes.push({
-								session: String(row.session_id),
-								at: String(row.timestamp),
-								quest: typeof row.quest === "string" ? row.quest : null,
-							});
-						}
-					}
-					const uses = useByQuest(samples, changes);
-					return {
-						content: [
-							{
-								type: "text",
-								text: citeListing(openSessionStore(ctx), {
-									view: formatUse(uses, earliest(samples), params.limit ?? 12),
-									records: uses,
-									unit: "quests",
-									narrowing: "Ask for a larger limit to see more.",
-								}),
-							},
-						],
-						details: { ok: true, index },
-					};
-				}
-
-				if (params.audit) {
-					const read = await openReader();
-					const deferred = pi
+			// Each report but the total, which says it among its sections.
+			const reported = await askedReport(params, {
+				opened,
+				reader: openReader,
+				results: () => openSessionStore(ctx),
+				deferred: () =>
+					pi
 						.getAllTools()
 						.filter((tool) => tool.exposure === "deferred")
-						.map((tool) => tool.name);
-					const input = await gatherAudit(
-						async (sql) => (await read.query(sql)).rows,
-						{ now: Date.now(), sessionsDir: sessionsDir(), deferred },
-					);
-					const text = formatAudit(input, params.limit ?? 12);
-					return {
-						content: [{ type: "text", text }],
-						details: { ok: true, index },
-					};
-				}
-
-				if (params.query !== undefined) {
-					let answer: QueryAnswer;
-					try {
-						answer = await (await openReader()).query(params.query);
-					} catch (error) {
-						// A refused or malformed query is the caller's to fix, so it is
-						// answered with what SQLite or the guard said, not thrown.
-						const reason =
-							error instanceof Error ? error.message : String(error);
-						return {
-							content: [{ type: "text", text: `Query refused: ${reason}` }],
-							details: { ok: false, index },
-						};
-					}
-					const limit = params.limit ?? QUERY_ROWS_SHOWN;
-					return {
-						content: [
-							{
-								type: "text",
-								text: citeListing(openSessionStore(ctx), {
-									view: formatQueryAnswer(answer, limit),
-									records: answer.rows,
-									unit: "rows",
-									elided: answer.rows.length > limit,
-									narrowing:
-										"Query the stored rows, or aggregate in SQL and ask again.",
-								}),
-							},
-						],
-						details: { ok: true, index },
-					};
-				}
-
-				if (params.repeats) {
-					const repeats = await opened.repeatedCalls(LEDGER_SCOPE);
-					return {
-						content: [
-							{
-								type: "text",
-								text: citeListing(openSessionStore(ctx), {
-									view: formatRepeats(repeats, params.limit ?? 12),
-									records: repeats,
-									unit: "repeats",
-									narrowing: "Ask for a larger limit to see more.",
-								}),
-							},
-						],
-						details: { ok: true },
-					};
-				}
-
-				if (params.regret) {
-					const regret = await opened.regret(LEDGER_SCOPE);
-					return {
-						content: [
-							{
-								type: "text",
-								text: citeListing(openSessionStore(ctx), {
-									view: formatRegret(regret),
-									records: regret.reAsked,
-									unit: "regrets",
-									narrowing: "Query the stored result for the full list.",
-								}),
-							},
-						],
-						details: { ok: true },
-					};
-				}
-
-				if (params.verify) {
-					const outcomes = await opened.verifierOutcomes();
-					return {
-						content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
-						details: { ok: true },
-					};
-				}
-
-				if (params.payback) {
-					const replay = await opened.paybackReplay();
-					return {
-						content: [{ type: "text", text: formatPaybackReplay(replay) }],
-						details: { ok: true },
-					};
-				}
-				return undefined;
-			})();
-			if (reported) return index === undefined ? heldFirst(reported) : reported;
+						.map((tool) => tool.name),
+				resourcesDir: resourcesDir(),
+				index,
+			});
+			if (reported) return reported;
 
 			const total = await opened.total();
 			const sections = [formatTotal(total)];
