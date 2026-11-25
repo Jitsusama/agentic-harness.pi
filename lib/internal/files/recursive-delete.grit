@@ -22,8 +22,5 @@ language js
 	},
 	$opts <: contains `recursive`,
 	$filename <: not includes "tests/",
-	register_diagnostic(
-		span=$fn,
-		message="A recursive delete walks by path and follows a link swapped in mid-walk; use removeTree or removeTreeOff from lib/internal/files/remove-tree.ts."
-	)
+	register_diagnostic(span=$fn, message="A recursive delete walks by path and follows a link swapped in mid-walk; use removeTree or removeTreeOff from lib/internal/files/remove-tree.ts.")
 }
