@@ -4,10 +4,13 @@
  * with no sandbox is let through untouched.
  *
  * Each case lays out a made-up home folder holding a token file, and a
- * working folder beside it, so nothing of the person's is read.
+ * working folder beside it, so nothing of the person's is read. Long
+ * because every case lays out that same made-up home and drives the one
+ * interceptor through it, so split files would each build it again.
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
@@ -182,6 +185,286 @@ describe("a fenced session's reads of a hidden key", () => {
 			keyNamesNpmrc: false,
 			npmrcNamesItsCopy: true,
 		});
+	});
+});
+
+describe("a fenced session's searches", () => {
+	// On 24 November an agent's grep on a Mac opened a file Santa watches:
+	// rg and fd run in pi's own process, so a search of a folder holding
+	// what the fence hides walked into it, though naming it was refused.
+	const fence = { PI_SANDBOX: "fence" };
+	const search = (toolName: string, path: string, mac = false) =>
+		fileToolRefusal(
+			{ toolName, input: { pattern: "x", path } },
+			{ cwd: work, env: fence, home, mac },
+		);
+
+	it("grep no folder holding a token, a private key or other processes", () => {
+		mkdirSync(join(home, ".ssh"));
+		writeFileSync(join(home, ".ssh/id_ed25519"), "private\n");
+		writeFileSync(join(home, ".ssh/known_hosts"), "host\n");
+		const refused = {
+			home: search("grep", "~"),
+			ssh: search("grep", "~/.ssh"),
+			root: search("grep", "/"),
+			// Only where there are processes' folders to walk: a Mac has no
+			// /proc, so its grep walks nothing there. pi's own folder is there
+			// wherever /proc is, however it hides other users' processes.
+			...(existsSync("/proc/self") ? { proc: search("grep", "/proc") } : {}),
+		};
+		for (const [name, said] of Object.entries(refused)) {
+			expect(said, name).toContain("didn't walk it");
+		}
+		expect(refused.home).toContain(join(home, ".npmrc"));
+		expect(refused.ssh).toContain(join(home, ".ssh/id_ed25519"));
+	});
+
+	it("grep no private key in a ~/.ssh that links elsewhere", () => {
+		mkdirSync(join(base, "dotfiles/ssh"), { recursive: true });
+		writeFileSync(join(base, "dotfiles/ssh/id_ed25519"), "private\n");
+		writeFileSync(join(base, "dotfiles/ssh/known_hosts"), "host\n");
+		symlinkSync(join(base, "dotfiles/ssh"), join(home, ".ssh"));
+		for (const path of ["~/.ssh", join(base, "dotfiles/ssh")]) {
+			expect(search("grep", path), path).toContain(
+				join(base, "dotfiles/ssh/id_ed25519"),
+			);
+		}
+		rmSync(join(base, "dotfiles/ssh/id_ed25519"));
+		expect(search("grep", "~/.ssh")).toBeUndefined();
+	});
+
+	it("grep the work, and find names anywhere off a Mac, as before", () => {
+		expect(search("grep", ".")).toBeUndefined();
+		expect(search("grep", work)).toBeUndefined();
+		expect(search("find", "~")).toBeUndefined();
+		expect(search("ls", "~")).toBeUndefined();
+	});
+
+	it("read what ~/.ssh keeps for commands, and no private key", () => {
+		mkdirSync(join(home, ".ssh"));
+		writeFileSync(join(home, ".ssh/id_ed25519"), "private\n");
+		writeFileSync(join(home, ".ssh/known_hosts"), "host\n");
+		const read = (path: string) =>
+			fileToolRefusal(
+				{ toolName: "read", input: { path } },
+				{ cwd: work, env: fence, home, mac: false },
+			);
+		expect(read("~/.ssh/known_hosts")).toBeUndefined();
+		expect(read("~/.ssh/id_ed25519")).toContain("keys");
+	});
+
+	it("walk none of the Mac's own secrets there, by grep or find", () => {
+		const support = join(home, "Library/Application Support");
+		mkdirSync(join(support, "Slack"), { recursive: true });
+		expect(search("find", support, true)).toBeUndefined();
+		mkdirSync(join(support, "Google/Chrome"), { recursive: true });
+		for (const tool of ["find", "grep"]) {
+			expect(search(tool, support, true), tool).toContain(
+				join(support, "Google/Chrome"),
+			);
+		}
+		expect(search("find", join(support, "Slack"), true)).toBeUndefined();
+	});
+
+	it("walk none of the Mac's secrets in a folder named in another case", () => {
+		mkdirSync(join(home, "Library/Application Support/Google/Chrome"), {
+			recursive: true,
+		});
+		expect(
+			search("grep", join(home, "library/application support"), true),
+		).toContain("didn't walk it");
+		expect(search("find", "~/LIBRARY", true)).toContain("didn't walk it");
+	});
+
+	it("walk none of the Mac's secrets where one of them links elsewhere", () => {
+		mkdirSync(join(base, "dotfiles/gh"), { recursive: true });
+		mkdirSync(join(home, ".config"), { recursive: true });
+		symlinkSync(join(base, "dotfiles/gh"), join(home, ".config/gh"));
+		expect(search("grep", join(base, "dotfiles"), true)).toContain(
+			"didn't walk it",
+		);
+	});
+
+	it("walk nothing the fence hides from a home named past a link", () => {
+		const linked = join(base, "linked-home");
+		symlinkSync(home, linked);
+		const refused = fileToolRefusal(
+			{ toolName: "grep", input: { pattern: "x", path: home } },
+			{ cwd: work, env: fence, home: linked, mac: false },
+		);
+		expect(refused).toContain("didn't walk it");
+		expect(
+			fileToolRefusal(
+				{ toolName: "read", input: { path: join(home, ".npmrc") } },
+				{ cwd: work, env: fence, home: linked, mac: false },
+			),
+		).toContain("reads ~/.npmrc without its tokens");
+	});
+});
+
+describe("a fenced session's file tools on a Mac", () => {
+	// Until 24 November they kept only to Linux's lists there, so a read
+	// of the keychains or a write to a launch agent, which the seatbelt
+	// refuses every command, went through pi's own process.
+	const fence = { PI_SANDBOX: "fence" };
+	const onMac = (toolName: string, input: unknown, mac = true) =>
+		fileToolRefusal({ toolName, input }, { cwd: work, env: fence, home, mac });
+
+	it("read none of the Mac's own secrets, however their names are cased", () => {
+		mkdirSync(join(home, "Library/Keychains"), { recursive: true });
+		writeFileSync(join(home, "Library/Keychains/login.keychain-db"), "k\n");
+		for (const path of [
+			"~/Library/Keychains/login.keychain-db",
+			"~/library/KEYCHAINS/login.keychain-db",
+			"~/.config/gh/hosts.yml",
+			"~/.CONFIG/GH/hosts.yml",
+		]) {
+			expect(onMac("read", { path }), path).toContain("the Mac's own secrets");
+		}
+		expect(onMac("ls", { path: "~/Library/Keychains" })).toContain(
+			"secret_run",
+		);
+		symlinkSync(join(home, "library/keychains"), join(work, "keys"));
+		expect(onMac("read", { path: "keys/login.keychain-db" })).toContain(
+			"the Mac's own secrets",
+		);
+	});
+
+	it("read none of a secret that links elsewhere, as the seatbelt closes where it leads", () => {
+		mkdirSync(join(base, "dotfiles/gh"), { recursive: true });
+		writeFileSync(join(base, "dotfiles/gh/hosts.yml"), "token\n");
+		mkdirSync(join(home, ".config"), { recursive: true });
+		symlinkSync(join(base, "dotfiles/gh"), join(home, ".config/gh"));
+		for (const path of [
+			"~/.config/gh/hosts.yml",
+			join(base, "dotfiles/gh/hosts.yml"),
+		]) {
+			expect(onMac("read", { path }), path).toContain("the Mac's own secrets");
+		}
+	});
+
+	it("write none of a secret not made yet where its folder leads", () => {
+		// The seatbelt names a place that isn't there yet where its folder
+		// leads, so gh's settings are closed before gh first writes them.
+		mkdirSync(join(base, "dotfiles/config"), { recursive: true });
+		rmSync(join(home, ".config"), { recursive: true });
+		symlinkSync(join(base, "dotfiles/config"), join(home, ".config"));
+		expect(
+			onMac("write", {
+				path: join(base, "dotfiles/config/gh/hosts.yml"),
+				content: "x",
+			}),
+		).toContain("the Mac's own secrets");
+	});
+
+	it("meet a list's spelling however folding changes a name's length", () => {
+		// ſ folds to s and İ lowers to two code units; these reads are
+		// folded a name at a time against the Mac's lists.
+		expect(
+			onMac("read", { path: "~/Library/Keychainſ/login.keychain-db" }),
+		).toContain("the Mac's own secrets");
+		expect(
+			onMac("read", { path: "~/library/KEYCHAINS/login.keychain-dbİ" }),
+		).toContain("the Mac's own secrets");
+		// Linux's lists compare names as spelled, so only the respelling
+		// holds this one: İ once let it through, since the whole path's
+		// length changed when it was folded.
+		expect(
+			onMac("write", { path: "~/.LOCAL/BIN/toolİ", content: "x" }),
+		).toContain("read-only");
+	});
+
+	it("read what runs later as the person, but never write it", () => {
+		mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+		const agent = "~/Library/LaunchAgents/a.plist";
+		expect(onMac("read", { path: agent })).toBeUndefined();
+		for (const path of [agent, "~/library/launchagents/a.plist"]) {
+			expect(onMac("write", { path, content: "x" }), path).toContain(
+				"read-only, as its commands' seatbelt does",
+			);
+		}
+		expect(
+			onMac("write", { path: "/opt/homebrew/bin/git", content: "x" }),
+		).toContain("Homebrew");
+	});
+
+	it("never write a folder on the commands' PATH outside the work", () => {
+		// Outside the home, where Linux's lists leave it open, so only the
+		// PATH can close it.
+		const tools = join(base, "tools/bin");
+		mkdirSync(tools, { recursive: true });
+		mkdirSync(join(work, "bin"));
+		const write = (path: string, PATH?: string) =>
+			fileToolRefusal(
+				{ toolName: "write", input: { path, content: "x" } },
+				{ cwd: work, env: { ...fence, PATH }, home, mac: true },
+			);
+		const PATH = [tools, join(work, "bin"), "bin"].join(":");
+		for (const path of [join(tools, "git"), join(base, "TOOLS/BIN/git")]) {
+			expect(write(path, PATH), path).toContain(
+				"every folder on the commands' PATH outside the work",
+			);
+		}
+		expect(write(join(tools, "git"))).toBeUndefined();
+		expect(write("bin/tool", PATH)).toBeUndefined();
+	});
+
+	it("never write a link that sits in a kept folder, whatever it leads to", () => {
+		mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+		symlinkSync(
+			join(work, "notes.md"),
+			join(home, "Library/LaunchAgents/a.plist"),
+		);
+		expect(
+			onMac("write", { path: "~/Library/LaunchAgents/a.plist", content: "x" }),
+		).toContain("read-only, as its commands' seatbelt does");
+	});
+
+	it("never write a link in a kept folder reached through a linked one", () => {
+		// Named, the write is in the work, and it leads back there: only
+		// the link's own place, in the launch agents, is kept.
+		mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+		symlinkSync(join(home, "Library/LaunchAgents"), join(work, "agents"));
+		symlinkSync(
+			join(work, "notes.md"),
+			join(home, "Library/LaunchAgents/a.plist"),
+		);
+		expect(onMac("write", { path: "agents/a.plist", content: "x" })).toContain(
+			"read-only, as its commands' seatbelt does",
+		);
+		expect(
+			onMac("write", { path: "agents/a.plist", content: "x" }, false),
+		).toBeUndefined();
+	});
+
+	it("hold Linux's lists however a name is cased, as the volume opens it", () => {
+		expect(onMac("read", { path: "~/.NPMRC" })).toContain(
+			"reads ~/.npmrc without its tokens",
+		);
+		expect(
+			onMac("write", { path: "~/.CONFIG/git/config", content: "x" }),
+		).toContain("startup files");
+		expect(
+			onMac("write", { path: "~/.CONFIG/git/config", content: "x" }, false),
+		).toBeUndefined();
+		// Off a Mac the names are told apart, and ~/.NPMRC is no secret.
+		expect(onMac("read", { path: "~/.NPMRC" }, false)).toBeUndefined();
+	});
+
+	it("read and write the work, and read pi's own state, as on Linux", () => {
+		mkdirSync(join(home, ".local/state/pi/web"), { recursive: true });
+		writeFileSync(join(home, ".local/state/pi/web/page.md"), "page\n");
+		expect(onMac("read", { path: "notes.md" })).toBeUndefined();
+		expect(onMac("write", { path: "notes.md", content: "x" })).toBeUndefined();
+		expect(
+			onMac("read", { path: "~/.local/state/pi/web/page.md" }),
+		).toBeUndefined();
+	});
+
+	it("keep to Linux's lists alone off a Mac", () => {
+		expect(
+			onMac("read", { path: "~/Library/Keychains/login.keychain-db" }, false),
+		).toBeUndefined();
 	});
 });
 

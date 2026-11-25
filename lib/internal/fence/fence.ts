@@ -81,6 +81,7 @@ import {
 	buildersFolderArgs,
 	buildersSecret,
 	inBuildersFolder,
+	lenderFolders,
 } from "./fence-builders.ts";
 import { DEV_SETTINGS, type DevCopies } from "./fence-dev.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
@@ -589,8 +590,8 @@ const SSH_KEPT = FENCE_HIDDEN.sshKept;
  * handle can be read.
  */
 function sshArgs(home: string, disk: Disk): string[] {
-	const ssh = join(home, ".ssh");
-	if (disk.kind(ssh) !== "folder") return [];
+	const ssh = sshFolder(home, disk);
+	if (ssh === undefined) return [];
 	const args = ["--tmpfs", ssh];
 	for (const entry of [...disk.entries(ssh)].sort()) {
 		const path = join(ssh, entry);
@@ -958,9 +959,73 @@ export function fenceRefusesRead(
 		folder ? path === at || path.startsWith(`${at}/`) : path === at,
 	);
 	if (refused) return true;
+	if (sshSecret(path, place.home, disk)) return true;
 	const runtime = place.runtimeDir;
 	return (
 		runtime !== undefined &&
 		(path === runtime || path.startsWith(`${runtime}/`))
+	);
+}
+
+/**
+ * The folder `~/.ssh` is, where it leads when it's a link: a dotfiles
+ * manager or an impermanent home links it elsewhere, and its keys are
+ * there all the same. Undefined where it leads to no folder.
+ */
+function sshFolder(home: string, disk: Disk): string | undefined {
+	const ssh = join(home, ".ssh");
+	const kind = disk.kind(ssh);
+	if (kind === "folder") return ssh;
+	const real = kind === "link" ? disk.real?.(ssh) : undefined;
+	return real !== undefined && disk.kind(real) === "folder" ? real : undefined;
+}
+
+/**
+ * Whether `path` lies in `~/.ssh` (or where it leads) under an entry the
+ * fence empties for commands: a private key, or a TPM key's handle.
+ */
+function sshSecret(path: string, home: string, disk: Disk): boolean {
+	const ssh = join(home, ".ssh");
+	const real = disk.kind(ssh) === "link" ? disk.real?.(ssh) : undefined;
+	return [ssh, ...(real === undefined ? [] : [real])].some((folder) => {
+		if (!path.startsWith(`${folder}/`)) return false;
+		const entry = path.slice(folder.length + 1).split("/")[0] ?? "";
+		return !SSH_KEPT.test(entry);
+	});
+}
+
+/**
+ * What lies inside `path`, already resolved, that `fenceRefusesRead`
+ * refuses and is there: a search that walks `path` would open it, though
+ * naming it is refused. The first found, or undefined when none is, so a
+ * search of a tree or a quiet folder runs as before.
+ */
+export function fenceHidesBeneath(
+	path: string,
+	place: FencePlace,
+	disk: Disk = DISK,
+): string | undefined {
+	const beneath = (at: string) =>
+		at.startsWith(path === "/" ? "/" : `${path}/`);
+	const ssh = sshFolder(place.home, disk);
+	const sshSecrets =
+		ssh === undefined
+			? []
+			: disk
+					.entries(ssh)
+					.filter((entry) => !SSH_KEPT.test(entry))
+					.map((entry) => join(ssh, entry));
+	const candidates = [
+		...refusedIn(place.home, disk).map(({ path: at }) => at),
+		...sshSecrets,
+		...lenderFolders(disk),
+		...(place.runtimeDir === undefined ? [] : [place.runtimeDir]),
+		// Any process's own folder stands for them all, so `/proc` itself
+		// counts as holding what it hides. pi's own stands for them, since
+		// a /proc mounted to hide other users' processes still shows it.
+		"/proc/self",
+	];
+	return candidates.find(
+		(at) => beneath(at) && at !== path && disk.kind(at) !== undefined,
 	);
 }
