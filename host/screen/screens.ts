@@ -37,7 +37,7 @@ import {
 	stopScreen,
 	working,
 } from "./hosted-mode.ts";
-import { startLine, timeStart } from "./start-parts.ts";
+import { type StartParts, startLine, timeStart } from "./start-parts.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
 // The host's program builds its screens from here.
@@ -152,6 +152,19 @@ interface Early {
 /** What a parked conversation's viewers see, as plain pi's parked window says it. */
 export const PARKED_LINE =
 	"Parked while idle, holding no memory. A key or a message wakes it.";
+
+/** Say a started screen's start line; a fault in the saying is reported, never the screen's. */
+function sayStart(
+	parts: StartParts,
+	said: (line: string) => void,
+	report: (error: unknown) => void,
+): void {
+	try {
+		said(startLine(parts));
+	} catch (error) {
+		report(error);
+	}
+}
 
 /** Keep a screen for every conversation the engine opens. */
 export function hostScreens(options: {
@@ -378,7 +391,12 @@ export function hostScreens(options: {
 			withSession(view.sessionId, () => mode.init());
 		try {
 			const { said } = options;
-			if (said) said(startLine(await timeStart(mode, view.runtime, init)));
+			if (said)
+				sayStart(
+					await timeStart(mode, view.runtime, init),
+					said,
+					options.report,
+				);
 			else await init();
 		} catch (error) {
 			// The engine fails the open itself, so the screen goes without closing.

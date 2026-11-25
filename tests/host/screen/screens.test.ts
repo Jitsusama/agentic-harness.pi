@@ -177,6 +177,25 @@ describe("hosted screens", () => {
 		]);
 	});
 
+	it("starts a screen whose start line can't be said, reporting why", async () => {
+		const report = vi.fn();
+		const screens = hostScreens({
+			create: (runtime, options) => new FakeMode(runtime, options),
+			report,
+			said: () => {
+				throw new Error("the journal is gone");
+			},
+		});
+		await screens.screens.opened({
+			sessionId: "a",
+			runtime: {},
+			close: async () => undefined,
+		});
+		expect(report).toHaveBeenCalledWith(new Error("the journal is gone"));
+		expect(screens.viewed("a")).toBe(false);
+		expect(screens.viewer.attach(attach("a"), sink())).toBeDefined();
+	});
+
 	it("says a conversation is viewed only while a viewer is on its screen", async () => {
 		const screens = host();
 		await screens.screens.opened(screens.view("a"));

@@ -1,4 +1,5 @@
 /** A screen's start, timed in parts: pi's init steps and each extension's handlers, said in one line. */
+import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
 	type StartParts,
@@ -95,15 +96,19 @@ describe("a screen's start parts", () => {
 				path: "/pkg/extensions/slow-workflow/index.ts",
 				handlers: new Map([["session_start", [slow, quick]]]),
 			},
-			{ path: "/home/me/.pi/agent/extensions/lone.ts", handlers: new Map() },
+			{
+				path: "/home/me/.pi/agent/extensions/lone.ts",
+				handlers: new Map([["session_start", [() => time.pass(5)]]]),
+			},
 		]);
 		const mode = modeWith(time, runtime);
 		const parts = await timeStart(mode, runtime, () => mode.init(), time.now);
 		expect(parts.extensions).toEqual([
 			{ name: "slow-workflow", ms: 720 },
 			{ name: "quick-widget", ms: 20 },
+			{ name: "lone.ts", ms: 5 },
 		]);
-		expect(partsOf(parts).bind).toBe(980);
+		expect(partsOf(parts).bind).toBe(985);
 	});
 
 	it("puts every method and handler back once the start settles", async () => {
@@ -120,6 +125,103 @@ describe("a screen's start parts", () => {
 		expect(mode.rebindCurrentSession).toBe(rebind);
 		expect(mode.themeController.waitForTerminalColors).toBe(colours);
 		expect(list).toEqual([handler]);
+	});
+
+	it("puts back a step pi keeps on its class, leaving no copy on the instance", async () => {
+		const time = clock();
+		class Mode {
+			readonly themeController = {
+				waitForTerminalColors: async () => time.pass(10),
+			};
+			rebindCurrentSession(): void {
+				time.pass(20);
+			}
+			renderInitialMessages(): void {
+				time.pass(30);
+			}
+			updateAvailableProviderCount(): void {
+				time.pass(40);
+			}
+			async init(): Promise<void> {
+				await this.themeController.waitForTerminalColors();
+				this.rebindCurrentSession();
+				this.renderInitialMessages();
+				this.updateAvailableProviderCount();
+			}
+		}
+		const mode = new Mode();
+		const parts = await timeStart(mode, undefined, () => mode.init(), time.now);
+		expect(partsOf(parts)).toEqual({
+			colours: 10,
+			bind: 20,
+			draw: 30,
+			providers: 40,
+		});
+		expect(Object.hasOwn(mode, "rebindCurrentSession")).toBe(false);
+		expect(mode.rebindCurrentSession).toBe(Mode.prototype.rebindCurrentSession);
+	});
+
+	it("names the steps it times as pi's own InteractiveMode has them", () => {
+		for (const step of [
+			"rebindCurrentSession",
+			"renderInitialMessages",
+			"updateAvailableProviderCount",
+		])
+			expect(typeof Reflect.get(InteractiveMode.prototype, step), step).toBe(
+				"function",
+			);
+	});
+
+	it("starts untimed, all put back, when pi's handlers can't be wrapped", async () => {
+		const time = clock();
+		const list = Object.freeze([() => time.pass(5)]);
+		const runtime = {
+			session: {
+				extensionRunner: {
+					extensions: [
+						{
+							path: "/x/index.ts",
+							handlers: new Map([["session_start", list]]),
+						},
+					],
+				},
+			},
+		};
+		const mode = modeWith(time, runtimeWith([]));
+		const rebind = mode.rebindCurrentSession;
+		const parts = await timeStart(mode, runtime, () => mode.init(), time.now);
+		expect(parts.ms).toBe(1180);
+		expect(partsOf(parts)).toEqual({
+			colours: undefined,
+			bind: undefined,
+			draw: undefined,
+			providers: undefined,
+		});
+		expect(mode.rebindCurrentSession).toBe(rebind);
+	});
+
+	it("lets a handler in two events be taken from the first while the screen started", async () => {
+		const time = clock();
+		const both: Handler = () => undefined;
+		const first: Handler[] = [both];
+		const second: Handler[] = [both];
+		first.push(() => {
+			const at = first.indexOf(both);
+			if (at !== -1) first.splice(at, 1);
+		});
+		const runtime = runtimeWith([
+			{
+				path: "/x/index.ts",
+				handlers: new Map([
+					["session_start", first],
+					["session_end", second],
+				]),
+			},
+		]);
+		const mode = modeWith(time, runtime);
+		await timeStart(mode, runtime, () => mode.init(), time.now);
+		expect(first).not.toContain(both);
+		expect(second).toEqual([both]);
 	});
 
 	it("keeps a handler added while the screen started", async () => {
@@ -179,7 +281,7 @@ describe("a screen's start parts", () => {
 		};
 		const parts = await timeStart(mode, undefined, () => mode.init(), time.now);
 		expect(startLine(parts)).toBe(
-			"Screen started in 0.9 s (colours 0.0 s, bind 0.0 s, draw 0.0 s, providers 0.0 s, rest 0.9 s); no extension's handlers ran",
+			"Screen started in 0.9 s (colours untimed, bind untimed, draw untimed, providers untimed, rest 0.9 s); no extension's handlers ran",
 		);
 	});
 });
