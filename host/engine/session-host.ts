@@ -511,7 +511,11 @@ export class SessionHost implements Host {
 		if (conversation.closing) return conversation.closing;
 		this.changeState(conversation, "parked");
 		conversation.accepting = false;
-		conversation.ending ??= how;
+		// A close after a stop that failed ends it closed, its calls ended and
+		// its park told, never carried as the stop's would be; a stop after a
+		// failed close keeps it closed.
+		if (how === "closed") conversation.ending = how;
+		else conversation.ending ??= how;
 		// Start cleanup in a microtask so a reentrant close sees the same promise.
 		conversation.closing = Promise.resolve()
 			.then(async () => {

@@ -7,6 +7,7 @@ import { setImmediate } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	type ConversationRegistration,
+	type HostChanges,
 	SessionHost,
 } from "../../../host/engine/index.ts";
 import {
@@ -32,10 +33,15 @@ afterEach(async () => {
 		rmSync(dir, { recursive: true, force: true });
 });
 
-function start() {
+function start(changes?: HostChanges) {
 	const dir = mkdtempSync(join(tmpdir(), "session-engine-"));
 	directories.push(dir);
-	const host = new SessionHost({ key: "test-host", owner, registryDir: dir });
+	const host = new SessionHost({
+		key: "test-host",
+		owner,
+		registryDir: dir,
+		...(changes ? { changes } : {}),
+	});
 	hosts.push(host);
 	return host;
 }
@@ -263,6 +269,36 @@ it("retains a parked owner after failed cleanup and lets close retry", async () 
 
 	expect(host.holds("a")).toBeUndefined();
 	expect(host.holds("b")).toBe("idle");
+});
+
+// #2164 F4, F16: a close after a stop whose cleanup failed must end it
+// closed, its calls ended, rather than keep the stop's ending.
+it("stamps closed and leaves closed when a close follows a stop whose cleanup failed", async () => {
+	const left: string[] = [];
+	const host = start({
+		changed: () => {},
+		left: (ending) => {
+			left.push(ending);
+		},
+	});
+	const stamped: string[] = [];
+	const cleanup = vi
+		.fn()
+		.mockRejectedValueOnce(new Error("cleanup failed"))
+		.mockResolvedValue(undefined);
+	host.register({
+		...registration("a", cleanup),
+		stamp: (how) => {
+			stamped.push(how);
+		},
+	});
+	host.register(registration("b"));
+
+	await expect(host.stop("a")).rejects.toThrow("cleanup failed");
+	await host.close("a");
+
+	expect(stamped).toEqual(["signalled", "closed"]);
+	expect(left).toEqual(["closed"]);
 });
 
 it("rolls back opens and state changes when atomic publication fails", () => {
