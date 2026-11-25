@@ -373,9 +373,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * `rg`, recursive `grep` or `fd` of the whole home folder or the disk
  * reads as a build, as a search of a whole World checkout does. 22:
  * so does one of pi's installed packages or session logs, or a folder
- * holding them.
+ * holding them. 23: a Mac is pressed under 35% available or on a
+ * swap-out in the last minute, read from one history the machine's
+ * sessions share.
  */
-export const RULES_VERSION = 22;
+export const RULES_VERSION = 23;
 
 /**
  * The job to start now, if any: the first waiting in order that its

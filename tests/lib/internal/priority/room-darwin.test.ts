@@ -134,6 +134,7 @@ describe("a Mac's room", () => {
 			{ ...calm, availablePercent: 50, swapouts: 60 },
 			{ ...calm, availablePercent: 50, swapouts: 60 },
 			{ ...calm, availablePercent: 50, swapouts: 60 },
+			{ ...calm, availablePercent: 50, swapouts: 60 },
 		);
 		expect(read().memoryPressure).toBe(0);
 		expect(read(2_000).memoryPressure).toBe(MOST_MEMORY_PRESSURE);
@@ -142,12 +143,16 @@ describe("a Mac's room", () => {
 			"50% available with a swap-out 30 s ago still holds",
 		).toBe(MOST_MEMORY_PRESSURE);
 		expect(
-			read(SWAPPING_MS).memoryPressure,
-			"a minute with no swap-out is room again",
+			read(SWAPPING_MS - 31_000).memoryPressure,
+			"a swap-out read 59 s ago still holds",
+		).toBe(MOST_MEMORY_PRESSURE);
+		expect(
+			read(2_000).memoryPressure,
+			"a minute and a second on, with none since, is room again",
 		).toBe(0);
 	});
 
-	it("sees a swap-out another session read first, as the machine's history is one", () => {
+	it("dates a swap-out from another session's reading, as the machine's history is one", () => {
 		const shared = sessionOn(historyInMemory());
 		expect(shared(calm, 0), "the first session read no swap-out").toBe(0);
 		expect(
@@ -167,17 +172,47 @@ describe("a Mac's room", () => {
 	it("keeps the history in the queue's folder, for every session there", () => {
 		const dir = mkdtempSync(join(tmpdir(), "queue-swaps-"));
 		try {
-			sessionOn(historyIn(dir))(calm, 0);
+			sessionOn(historyIn(() => dir))(calm, 0);
 			expect(
-				sessionOn(historyIn(dir))({ ...calm, swapouts: 60 }, 30_000),
+				sessionOn(historyIn(() => dir))({ ...calm, swapouts: 60 }, 30_000),
 				"a session reading the folder later sees the swap-out",
 			).toBe(MOST_MEMORY_PRESSURE);
 
 			writeFileSync(join(dir, SWAP_FILE), "[{half");
 			expect(
-				sessionOn(historyIn(dir))({ ...calm, swapouts: 60 }, 31_000),
+				sessionOn(historyIn(() => dir))({ ...calm, swapouts: 60 }, 31_000),
 				"a history it can't read starts again",
 			).toBe(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("joins the folder once it can be named, and keeps its own readings meanwhile", () => {
+		const dir = mkdtempSync(join(tmpdir(), "queue-swaps-"));
+		try {
+			let named: string | undefined;
+			const late = sessionOn(historyIn(() => named));
+			late(calm, 0);
+			expect(
+				late({ ...calm, swapouts: 60 }, 2_000),
+				"with no folder it still reads its own history",
+			).toBe(MOST_MEMORY_PRESSURE);
+			named = dir;
+			late({ ...calm, swapouts: 60 }, 4_000);
+			expect(
+				sessionOn(historyIn(() => dir))({ ...calm, swapouts: 60 }, 30_000),
+				"once named, another session reads what it saw",
+			).toBe(MOST_MEMORY_PRESSURE);
+
+			const unwritable = join(dir, "a-file");
+			writeFileSync(unwritable, "");
+			const stuck = sessionOn(historyIn(() => unwritable));
+			stuck(calm, 0);
+			expect(
+				stuck({ ...calm, swapouts: 60 }, 2_000),
+				"a folder it can't write leaves its own readings standing",
+			).toBe(MOST_MEMORY_PRESSURE);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -190,6 +225,10 @@ describe("a Mac's room", () => {
 			rebooted({ ...calm, swapouts: 60 }, 30_000),
 			"a count under the last is a new boot's",
 		).toBe(0);
+		expect(
+			rebooted({ ...calm, swapouts: 120 }, 40_000),
+			"the new boot's swap-outs count from its own first reading",
+		).toBe(MOST_MEMORY_PRESSURE);
 
 		const idle = sessionOn(historyInMemory());
 		idle(calm, 0);

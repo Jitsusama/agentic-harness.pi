@@ -54,6 +54,7 @@ import {
 	probeCall,
 } from "../../lib/internal/priority/call.ts";
 import {
+	LOCK_FOLDER,
 	machineQueueDir,
 	type QueueFolder,
 	questsFirstIn,
@@ -84,7 +85,6 @@ import {
 	darwinFactsNow,
 	darwinRoom,
 	historyIn,
-	historyInMemory,
 } from "../../lib/internal/priority/room-darwin.ts";
 import {
 	placesNow,
@@ -394,13 +394,16 @@ async function queueIn(dir: string): Promise<unknown> {
 }
 
 function macMachine(cannotAsk: CallWarning["heard"]): Machine {
-	// Every session keeps one history of swap-outs in the queue's folder,
-	// since only the session that claims a reading reads the machine.
-	const dir = machineQueueDir();
+	// Every session keeps one history of swap-outs in the queue's lock
+	// folder, since a tick reads the machine only in the session that
+	// claims the reading.
 	const room = darwinRoom(
 		darwinFactsNow,
 		Date.now,
-		dir ? historyIn(dir) : historyInMemory(),
+		historyIn(() => {
+			const dir = machineQueueDir();
+			return dir === undefined ? undefined : join(dir, LOCK_FOLDER);
+		}),
 	);
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.
