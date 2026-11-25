@@ -340,7 +340,7 @@ describe("a need for the id a cell holds", () => {
 	// Whether leg-26's pass 3 is work on leg 27's pass is left open: a pass
 	// number may or may not belong to its leg, and no need has said.
 	// (#2136's round 3, F1.)
-	it("takes no leg-26 cell at leg because its id also holds another number said", () => {
+	it("keeps no leg from a leg-26 cell because its id also holds another number said", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("leg 27 pass 3 easing")), fromText: true },
 			{
@@ -362,7 +362,10 @@ describe("a need for the id a cell holds", () => {
 	// one fewer live cells work on goes first, counting no cell that holds
 	// it only as another leg's (#2136's round 3, F3 and F5). Easing and leg
 	// each have two holders, but one of leg's has ended, so leg goes first,
-	// where the word's name alone would put easing first.
+	// where the word's name alone would put easing first. P, holding leg
+	// only as leg-26's, is what this guards: counted for leg, it would give
+	// leg two live holders, tying easing, and the name would then put
+	// easing first.
 	it("breaks a tie between words as rare by the live cells working on each", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("Leg 27 easing")), fromText: true },
