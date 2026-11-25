@@ -13,7 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import spendWorkflow from "../../../extensions/spend-workflow/index.ts";
+import { PASS_STOPPED } from "../../../extensions/spend-workflow/indexer.ts";
+import { claimLease } from "../../../extensions/spend-workflow/keeper.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import { resultSession } from "../../support/result-session.ts";
 
 const ctx = resultSession();
@@ -46,7 +49,7 @@ function restore(
 }
 
 /** One session log with a few billed turns in it. */
-function aSessionLog(sessions: string): void {
+function aSessionLog(sessions: string, name = "01a0aaaa-0000"): void {
 	const session = join(sessions, "--work--");
 	mkdirSync(session, { recursive: true });
 	const lines = Array.from({ length: 40 }, (_, i) =>
@@ -70,7 +73,7 @@ function aSessionLog(sessions: string): void {
 		}),
 	);
 	writeFileSync(
-		join(session, "2026-10-01T21-46-00-000Z_01a0aaaa-0000.jsonl"),
+		join(session, `2026-10-01T21-46-00-000Z_${name}.jsonl`),
 		`${lines.join("\n")}\n`,
 	);
 }
@@ -124,6 +127,83 @@ describe("cost calls made at the same moment", () => {
 			"fulfilled",
 			"fulfilled",
 		]);
+	});
+
+	it("stop a pass under way at shutdown before closing the ledger under it", async () => {
+		// On 25 November a keeper's pass of 24 minutes ended in SQLITE_MISUSE,
+		// its handle closed under it by the session's shutdown.
+		const tool = costTool();
+		await tool.execute("warm", {}, undefined, undefined, ctx);
+		for (let n = 1; n <= 10; n += 1) {
+			aSessionLog(join(dir, "agent", "sessions"), `01a0aaaa-${n}`);
+		}
+
+		const passing = tool
+			.execute("a", { reindex: true }, undefined, undefined, ctx)
+			.then(
+				(answer) => answer.content[0]?.text ?? "",
+				(error: unknown) => (error instanceof Error ? error.message : ""),
+			);
+		let ended = false;
+		void passing.finally(() => {
+			ended = true;
+		});
+		await new Promise((started) => setImmediate(started));
+		for (const handler of handlers.get("session_shutdown") ?? []) {
+			await handler({}, {});
+		}
+		await Promise.resolve();
+
+		expect(ended, "the pass had ended once shutdown was done").toBe(true);
+		expect(await passing, "how the pass ended").toBe(PASS_STOPPED);
+		await expect(
+			tool.execute("after", {}, undefined, undefined, ctx),
+			"a call once the session has ended",
+		).rejects.toThrow("The ledger is closed");
+	}, 30_000);
+
+	it("read the ledger as it stands while another pass holds it", async () => {
+		const observability = stateDir("observability");
+		mkdirSync(observability, { recursive: true });
+		const release = claimLease(observability);
+		try {
+			const answer = await costTool().execute(
+				"a",
+				{ reindex: true },
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			expect(answer.content[0]?.text).toContain("holds the ledger");
+		} finally {
+			release?.();
+		}
+	});
+
+	it.each([
+		{ verify: true },
+		{ payback: true },
+		{ repeats: true },
+		{ query: "select 1 as one" },
+	])("say first that another pass held the ledger, asked %o", async (asked) => {
+		const observability = stateDir("observability");
+		mkdirSync(observability, { recursive: true });
+		const release = claimLease(observability);
+		try {
+			const answer = await costTool().execute(
+				"a",
+				asked,
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			expect(answer.content[0]?.text).toContain("holds the ledger");
+			expect(answer.content.length, "what else it said").toBeGreaterThan(1);
+		} finally {
+			release?.();
+		}
 	});
 
 	it("index each log once between them", async () => {

@@ -94,18 +94,20 @@ function textOf(bytes: Buffer): string {
  * Give `take` each whole line of a log from byte `start`, a line at a
  * time, and answer the byte after the last whole one. A last line not
  * yet ended is left for the pass after it ends, since it may be a write
- * still under way.
+ * still under way. Stops with the pass when `signal` fires.
  */
 async function readLines(
 	path: string,
 	start: number,
 	take: (line: string) => void,
+	signal: AbortSignal | undefined,
 ): Promise<number> {
 	const input = createReadStream(path, { start });
 	let offset = start;
 	let unended: Buffer[] = [];
 	try {
 		for await (const chunk of input) {
+			stopIfAsked(signal);
 			const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 			let from = 0;
 			for (
@@ -130,10 +132,24 @@ async function readLines(
 	return offset;
 }
 
+/** What a pass stopped by its session's end says, as its error. */
+export const PASS_STOPPED =
+	"The pass stopped as its session ended; the next resumes where it stopped.";
+
+function stopIfAsked(signal: AbortSignal | undefined): void {
+	if (signal?.aborted) throw new Error(PASS_STOPPED);
+}
+
 /**
  * Read every session log into the ledger, skipping those that have not
  * grown since the last pass, and reading a grown one from where the
  * last pass stopped when what that pass carried can be trusted.
+ *
+ * When `signal` fires, the pass stops before the next log, or within
+ * the log it reads before writing any of it, keeps the watermarks of
+ * every log it finished and throws {@link PASS_STOPPED}. A session
+ * ending mid-pass (a reload, a rollover) used to close the ledger under
+ * it, and on 25 November every pass after the restart died that way.
  *
  * Logs are streamed a line at a time rather than read whole: the largest
  * here is 1.2 GB, well past the ceiling on a JavaScript string, so
@@ -143,6 +159,7 @@ export async function indexSessionLogs(
 	store: TurnStore,
 	watermarkPath: string,
 	root = sessionsDir(),
+	signal?: AbortSignal,
 ): Promise<IndexOutcome> {
 	const started = Date.now();
 	const marks = loadWatermarks(watermarkPath);
@@ -189,6 +206,10 @@ export async function indexSessionLogs(
 		}
 		for (const name of names) {
 			if (!name.endsWith(".jsonl")) continue;
+			if (signal?.aborted) {
+				saveWatermarks(watermarkPath, marks);
+				stopIfAsked(signal);
+			}
 			files += 1;
 			const path = join(root, dir, name);
 			let file: ReturnType<typeof statSync>;
@@ -208,7 +229,12 @@ export async function indexSessionLogs(
 			const from = carried && "state" in carried ? carried : undefined;
 			if (from) resumed += 1;
 			const reading = startScan(name, from?.state);
-			const offset = await readLines(path, from?.offset ?? 0, reading.feed);
+			const offset = await readLines(
+				path,
+				from?.offset ?? 0,
+				reading.feed,
+				signal,
+			);
 			const scan = reading.take();
 			lines += scan.coverage.lines;
 			unparseable += scan.coverage.unparseable;

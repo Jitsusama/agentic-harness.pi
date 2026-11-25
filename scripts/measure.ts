@@ -16,7 +16,10 @@
  * seven days, by ISO week.
  *
  * It indexes the session logs into the ledger first, as the tool
- * does before it answers, then reads the ledger read-only. The one
+ * does before it answers, under the keepers' lease, then reads the
+ * ledger read-only. When a pass in a session holds the lease, it waits
+ * up to ten minutes for it, then skips the indexing and reads what that
+ * pass has written so far. The one
  * thing a session would add, which tools load on demand, is left
  * out, since only a running pi knows.
  *
@@ -37,8 +40,14 @@ import { formatAudit, type Span } from "../extensions/spend-workflow/audit.ts";
 import { gatherAudit } from "../extensions/spend-workflow/audit-input.ts";
 import {
 	indexSessionLogs,
+	PASS_STOPPED,
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
+import {
+	claimLease,
+	readStamp,
+	stampedPass,
+} from "../extensions/spend-workflow/keeper.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
@@ -53,22 +62,71 @@ import { formatVoidCost, voidCost } from "./void-cost.ts";
 const SENSED_DAYS = 7;
 const DAY_MS = 86_400_000;
 
+/**
+ * How long a measure waits for a pass in a session to finish before it
+ * reads the ledger as that pass leaves it: most passes take seconds,
+ * and a backlog's took 24 minutes on 25 November.
+ */
+const LEASE_WAIT_MS = 10 * 60_000;
+
+/** How often a waiting measure looks whether the lease is free. */
+const LEASE_LOOK_MS = 15_000;
+
 /** Write the span's report and answer where it went. */
 export async function measure(opts: {
 	now: number;
 	span: Span;
 	out?: string;
 	top?: number;
+	/** How long to wait for a pass holding the lease; ten minutes unless given. */
+	leaseWaitMs?: number;
+	/** How often to look whether the lease is free; fifteen seconds unless given. */
+	leaseLookMs?: number;
 }): Promise<string> {
 	const ledgerDir = stateDir("observability");
 	mkdirSync(ledgerDir, { recursive: true });
 	const ledger = join(ledgerDir, "ledger.db");
-	const store = await openTurnStore(ledger);
-	try {
-		await indexSessionLogs(store, join(ledgerDir, "ledger-watermarks.json"));
-	} finally {
-		await store.close();
+	// Under the keepers' lease, or not at all: a keeper's pass holds the
+	// ledger's write lock for minutes, and a measure indexing beside it
+	// met that lock on every try (25 November). Behind a pass under way
+	// it waits a while for that pass, then reads the ledger as it
+	// stands.
+	const lost = new AbortController();
+	const release = await leaseWithin(
+		ledgerDir,
+		opts.leaseWaitMs ?? LEASE_WAIT_MS,
+		opts.leaseLookMs ?? LEASE_LOOK_MS,
+		() => lost.abort(),
+	);
+	let passed = false;
+	if (release !== undefined) {
+		try {
+			const store = await openTurnStore(ledger);
+			try {
+				await stampedPass(ledgerDir, "measure", () =>
+					indexSessionLogs(
+						store,
+						join(ledgerDir, "ledger-watermarks.json"),
+						undefined,
+						lost.signal,
+					),
+				);
+				passed = true;
+			} catch (error) {
+				// A pass that lost the lease stopped so as not to write beside
+				// the one that took it; the figures stand as that one leaves
+				// them, which the report says. Any other failure is the run's.
+				if (!(error instanceof Error && error.message === PASS_STOPPED)) {
+					throw error;
+				}
+			} finally {
+				await store.close();
+			}
+		} finally {
+			release();
+		}
 	}
+	const indexed = passed ? undefined : unindexedSaid(readStamp(ledgerDir));
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
 	let oneCall: string;
@@ -112,6 +170,7 @@ export async function measure(opts: {
 		"",
 		"## Audit",
 		"",
+		...(indexed === undefined ? [] : [indexed, ""]),
 		audit.trimEnd(),
 		"",
 		oneCall.trimEnd(),
@@ -128,6 +187,43 @@ export async function measure(opts: {
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;
+}
+
+/** The keepers' lease, once it frees within `waitMs`, or undefined. */
+async function leaseWithin(
+	dir: string,
+	waitMs: number,
+	lookMs: number,
+	lost: () => void,
+): Promise<(() => void) | undefined> {
+	const until = Date.now() + waitMs;
+	for (;;) {
+		const release = claimLease(
+			dir,
+			Date.now(),
+			undefined,
+			undefined,
+			undefined,
+			lost,
+		);
+		if (release !== undefined || Date.now() >= until) return release;
+		await new Promise((looked) =>
+			setTimeout(looked, Math.min(lookMs, until - Date.now())),
+		);
+	}
+}
+
+/**
+ * What a measure that couldn't index says of the figures it read: a
+ * pass in a session held the ledger, so they stand as the last pass
+ * left them.
+ */
+export function unindexedSaid(stamp: ReturnType<typeof readStamp>): string {
+	const last =
+		stamp === undefined
+			? "no pass has stamped the ledger yet"
+			: `the last pass ended at ${stamp.at}${stamp.ok ? "" : `, failed: ${JSON.stringify(stamp.error ?? "no reason given")}`}`;
+	return `A pass in a session held the ledger, so this measure didn't index the logs; its figures stand as that pass leaves them (${last}).`;
 }
 
 /** The void's day file for `date`, kept in the user's state folder, if it wrote one. */

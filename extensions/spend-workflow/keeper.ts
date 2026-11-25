@@ -17,6 +17,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
+import { PASS_STOPPED } from "./indexer.ts";
 import type { IndexOutcome } from "./report.ts";
 
 /** The stamp every pass writes, beside the ledger. */
@@ -48,6 +50,22 @@ const STILL_FOR_MS = 2 * 60_000;
  */
 const LEASE_STALE_MS = 30 * 60_000;
 
+/**
+ * How often a holder marks its lease as still held. A pass after the
+ * restart of 25 November took 24 minutes, close enough to the half
+ * hour that a slower one would be taken over mid-pass, with two
+ * writers on the ledger.
+ */
+const LEASE_RENEW_MS = 5 * 60_000;
+
+/**
+ * How long a holder keeps renewing its lease. Renewal proves only that
+ * the holder's process runs, not that its pass moves, so a pass still
+ * going after this is told it lost the lease and stops, and the lease
+ * goes stale half an hour on: five times the longest pass seen.
+ */
+const LEASE_HOLD_MS = 2 * 60 * 60_000;
+
 /** What the last pass did, as written beside the ledger. */
 interface PassStamp {
 	/** When the pass ended, as an ISO time. */
@@ -56,8 +74,8 @@ interface PassStamp {
 	readonly ok: boolean;
 	/** The pid that ran it. */
 	readonly pid: number;
-	/** Who asked: the spend tool or the keeper. */
-	readonly by: "tool" | "keeper";
+	/** Who asked: the spend tool, the keeper or the daily measure. */
+	readonly by: "tool" | "keeper" | "measure";
 	/** How long it took, in seconds. */
 	readonly seconds: number;
 	/** Logs read and turns new to the ledger, when it finished. */
@@ -98,7 +116,8 @@ export function readStamp(dir: string): PassStamp | undefined {
 /**
  * Run one pass and stamp what it did, whether it finished or failed.
  * A failure is stamped and then thrown again, so the caller still
- * hears it.
+ * hears it. A pass stopped by its session's end is neither, so it
+ * leaves the stamp as the last pass that ended wrote it.
  */
 export async function stampedPass(
 	dir: string,
@@ -121,7 +140,9 @@ export async function stampedPass(
 	try {
 		outcome = await pass();
 	} catch (error) {
-		stamp({ ok: false, error: describe(error) });
+		if (describe(error) !== PASS_STOPPED) {
+			stamp({ ok: false, error: describe(error) });
+		}
 		throw error;
 	}
 	stamp({
@@ -149,13 +170,22 @@ export function passDue(
  * Take the lease for a pass, or undefined when a live holder has it.
  * The lease names its holder's pid, so one left by a process that has
  * gone is taken over at once, and one older than any pass takes is
- * taken over whoever it names. The release removes the lease only while
- * it is still this holder's.
+ * taken over whoever it names. While held it is marked fresh every few
+ * minutes, for up to `holdMs`, so only a holder that stopped, or held
+ * it past any pass's length, goes stale. The release removes the lease
+ * only while it is still this holder's.
+ *
+ * A holder that loses the lease, taken over after a suspend or past the
+ * hold bound, is told through `lost` at its next renewal, so its pass
+ * stops rather than writing beside the one that took it over.
  */
 export function claimLease(
 	dir: string,
 	now = Date.now(),
 	staleMs = LEASE_STALE_MS,
+	renewMs = LEASE_RENEW_MS,
+	holdMs = LEASE_HOLD_MS,
+	lost: () => void = () => undefined,
 ): (() => void) | undefined {
 	const path = join(dir, LEASE_NAME);
 	const mine = String(process.pid);
@@ -169,7 +199,31 @@ export function claimLease(
 			} finally {
 				closeSync(fd);
 			}
+			const claimed = Date.now();
+			const renewing = setInterval(() => {
+				if (Date.now() - claimed >= holdMs) {
+					clearInterval(renewing);
+					lost();
+					return;
+				}
+				try {
+					if (statSync(path).ino !== ino) {
+						clearInterval(renewing);
+						lost();
+						return;
+					}
+					const at = new Date();
+					utimesSync(path, at, at);
+				} catch {
+					// Gone, so taken over and released: nothing of ours to renew,
+					// and the pass no longer holds the ledger.
+					clearInterval(renewing);
+					lost();
+				}
+			}, renewMs);
+			renewing.unref();
 			return () => {
+				clearInterval(renewing);
 				try {
 					if (statSync(path).ino === ino) rmSync(path);
 				} catch {
@@ -188,8 +242,11 @@ export function claimLease(
 /** Whether the lease at `path` was left by a holder no longer passing. */
 function leaseLeft(path: string, now: number, staleMs: number): boolean {
 	try {
+		// A lease marked further ahead than any renewal could mark it was
+		// planted or written under a clock since set back: either way no
+		// holder is renewing it, and left alone it would hold the ledger.
 		const age = now - statSync(path).mtimeMs;
-		if (age > staleMs) return true;
+		if (Math.abs(age) > staleMs) return true;
 		const pid = Number.parseInt(readFileSync(path, "utf8"), 10);
 		// A lease with no pid yet is one being made, not one left.
 		if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -218,8 +275,8 @@ interface KeeperDeps {
 	readonly dir: () => string;
 	/** Whether the session has been still long enough to read logs in. */
 	readonly still: () => boolean;
-	/** Run one pass, as the spend tool would. */
-	readonly pass: () => Promise<IndexOutcome>;
+	/** Run one pass, as the spend tool would, stopping when `lost` fires. */
+	readonly pass: (lost: AbortSignal) => Promise<IndexOutcome>;
 	readonly now?: () => number;
 }
 
@@ -235,14 +292,22 @@ export async function keepOnce(
 	const now = deps.now?.() ?? Date.now();
 	const dir = deps.dir();
 	if (!passDue(readStamp(dir), now)) return "current";
-	const release = claimLease(dir, now);
+	const lost = new AbortController();
+	const release = claimLease(
+		dir,
+		now,
+		LEASE_STALE_MS,
+		LEASE_RENEW_MS,
+		LEASE_HOLD_MS,
+		() => lost.abort(),
+	);
 	if (!release) return "held";
 	try {
 		// Another keeper may have finished between the look and the lease.
 		if (!passDue(readStamp(dir), deps.now?.() ?? Date.now())) {
 			return "current";
 		}
-		await stampedPass(dir, "keeper", deps.pass);
+		await stampedPass(dir, "keeper", () => deps.pass(lost.signal));
 		return "ran";
 	} catch {
 		// The stamp holds the failure, which is where every reader of the
@@ -262,7 +327,7 @@ export async function keepOnce(
  */
 export function registerKeeper(
 	pi: ExtensionAPI,
-	pass: () => Promise<IndexOutcome>,
+	pass: (lost: AbortSignal) => Promise<IndexOutcome>,
 ): void {
 	// Whether a run is under way, and when one last moved, so a pass
 	// reads logs only in a session nobody is working in.

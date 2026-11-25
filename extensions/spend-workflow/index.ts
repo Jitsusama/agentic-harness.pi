@@ -40,14 +40,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawnExec } from "../../lib/core/exec/index.ts";
-import type {
-	CostSlice,
-	QueryAnswer,
-} from "../../lib/core/observability/index.ts";
+import type { CostSlice } from "../../lib/core/observability/index.ts";
 import {
 	type CostDimension,
 	type LedgerReader,
-	type LedgerTotal,
 	openLedgerReader,
 	openRunStore,
 	openTurnStore,
@@ -79,44 +75,25 @@ import {
 	type BillPeriod,
 	isBillCut,
 } from "../../lib/internal/spend/spend-watch.ts";
-import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
-import { formatAudit } from "./audit.ts";
-import { gatherAudit } from "./audit-input.ts";
 import { budgetAsks, registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
-import { indexSessionLogs, sessionsDir } from "./indexer.ts";
-import { registerKeeper, stampedPass } from "./keeper.ts";
+import { indexSessionLogs } from "./indexer.ts";
+import { claimLease, registerKeeper, stampedPass } from "./keeper.ts";
 import {
 	formatBill,
 	formatFanOut,
 	formatIndexOutcome,
-	formatPaybackReplay,
-	formatQueryAnswer,
-	formatRegret,
-	formatRepeats,
 	formatSlices,
 	formatTotal,
-	formatVerifierOutcomes,
 	type IndexOutcome,
 } from "./report.ts";
-import {
-	earliest,
-	formatUse,
-	noteLoad,
-	type QuestChange,
-	questChangesQuery,
-	readSamples,
-	recordTurn,
-	useByQuest,
-} from "./resources.ts";
+import { askedReport, type CostDetails, HELD_ELSEWHERE } from "./reports.ts";
+import { noteLoad, recordTurn } from "./resources.ts";
 import { recordWhoServed } from "./served.ts";
 
 /** Where each session's per-turn resource figures are kept. */
 const resourcesDir = () => join(stateDir("observability"), "resources");
-
-/** Rows of a query answer shown before the rest is left to the store. */
-const QUERY_ROWS_SHOWN = 40;
 
 /** The period the bill is asked for when the caller names none. */
 const BILL_PERIOD: BillPeriod = "30 days";
@@ -185,12 +162,6 @@ const QUERY_GUIDE =
 	"at the prices pi put on each request. A query past 5,000 rows is " +
 	"refused; aggregate it or add a LIMIT.";
 
-interface CostDetails {
-	readonly ok: boolean;
-	readonly total?: LedgerTotal;
-	readonly index?: IndexOutcome;
-}
-
 /**
  * Published whenever the figures move. The status line subscribes and
  * lays them out; this extension never paints, because a brain that
@@ -205,6 +176,9 @@ export const COST_READING = "cost:reading";
  * does.
  */
 const MARGINAL_WINDOW = 20;
+
+/** Why a load that has shut down won't open the ledger again. */
+const LEDGER_CLOSED = "The ledger is closed: this session has ended.";
 
 /**
  * spend-watch's bill for a period, drawn as its own section, in the
@@ -228,6 +202,16 @@ async function quoteBill(
 	// default; the ledger's section beside it is a total, so this is too.
 	if (!by) return formatBill({ ...bill, rows: [], notes: [] }, limit);
 	return formatBill(bill, limit, cut ? undefined : by);
+}
+
+/** Wait for `work` to end, whichever way it ends, when there is any. */
+async function settled(work: Promise<unknown> | null): Promise<void> {
+	if (work === null) return;
+	try {
+		await work;
+	} catch {
+		// Its caller hears how it failed; here it only has to be over.
+	}
 }
 
 export default function spendWorkflow(pi: ExtensionAPI) {
@@ -273,7 +257,11 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	// calls at once each found no store and opened a connection of their
 	// own, and the one overwritten was never closed.
 	let opening: Promise<TurnStore> | null = null;
+	// Fired at shutdown: a pass under way stops at its next log, and
+	// nothing opens the ledger again in a load that has closed it.
+	const ending = new AbortController();
 	const open = async (): Promise<TurnStore> => {
+		if (ending.signal.aborted) throw new Error(LEDGER_CLOSED);
 		if (store) return store;
 		opening ??= (async () => {
 			const dir = stateDir("observability");
@@ -296,14 +284,49 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	let indexing: ReturnType<typeof indexSessionLogs> | null = null;
 	const indexOnce = (
 		opened: TurnStore,
+		lost: AbortSignal,
 	): ReturnType<typeof indexSessionLogs> => {
-		indexing ??= indexSessionLogs(opened, watermarks).finally(() => {
+		indexing ??= indexSessionLogs(
+			opened,
+			watermarks,
+			undefined,
+			AbortSignal.any([ending.signal, lost]),
+		).finally(() => {
 			indexing = null;
 		});
 		return indexing;
 	};
 
-	registerKeeper(pi, async () => indexOnce(await open()));
+	// The tool's pass: the one under way in this load, shared, or a new
+	// one under the keepers' lease. Undefined when a pass elsewhere holds
+	// the lease, whose writes the tool would only queue behind.
+	const toolPass = async (
+		opened: TurnStore,
+	): Promise<IndexOutcome | undefined> => {
+		const dir = stateDir("observability");
+		const lost = new AbortController();
+		if (indexing) {
+			return stampedPass(dir, "tool", () => indexOnce(opened, lost.signal));
+		}
+		const release = claimLease(
+			dir,
+			Date.now(),
+			undefined,
+			undefined,
+			undefined,
+			() => lost.abort(),
+		);
+		if (release === undefined) return undefined;
+		try {
+			return await stampedPass(dir, "tool", () =>
+				indexOnce(opened, lost.signal),
+			);
+		} finally {
+			release();
+		}
+	};
+
+	registerKeeper(pi, async (lost) => indexOnce(await open(), lost));
 
 	// A second connection, opened read-only, so no query can write
 	// whatever it says. Opened after the store, which makes the views.
@@ -383,6 +406,13 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		unregisterRuns?.();
 		unregisterRuns = null;
+		// A pass, or the opening it waits on, may still be under way: a
+		// keeper's runs for minutes. Closing under it would end it on a
+		// closed handle, so it is told to stop at its next log, keeping
+		// what it read, and the close waits for it.
+		ending.abort();
+		await settled(opening);
+		await settled(indexing);
 		const closingReader = reader;
 		reader = null;
 		if (closingReader) {
@@ -561,149 +591,34 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			const opened = await open();
-			const index = await stampedPass(stateDir("observability"), "tool", () =>
-				indexOnce(opened),
-			);
+			const index = await toolPass(opened);
 
 			if (params.reindex) {
 				return {
-					content: [{ type: "text", text: formatIndexOutcome(index) }],
-					details: { ok: true, index },
-				};
-			}
-
-			if (params.resources) {
-				const samples = readSamples(resourcesDir());
-				const changes: QuestChange[] = [];
-				if (samples.size > 0) {
-					const answer = await (await openReader()).query(
-						questChangesQuery([...samples.keys()]),
-					);
-					for (const row of answer.rows) {
-						changes.push({
-							session: String(row.session_id),
-							at: String(row.timestamp),
-							quest: typeof row.quest === "string" ? row.quest : null,
-						});
-					}
-				}
-				const uses = useByQuest(samples, changes);
-				return {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatUse(uses, earliest(samples), params.limit ?? 12),
-								records: uses,
-								unit: "quests",
-								narrowing: "Ask for a larger limit to see more.",
-							}),
+							text: index ? formatIndexOutcome(index) : HELD_ELSEWHERE,
 						},
 					],
 					details: { ok: true, index },
 				};
 			}
 
-			if (params.audit) {
-				const read = await openReader();
-				const deferred = pi
-					.getAllTools()
-					.filter((tool) => tool.exposure === "deferred")
-					.map((tool) => tool.name);
-				const input = await gatherAudit(
-					async (sql) => (await read.query(sql)).rows,
-					{ now: Date.now(), sessionsDir: sessionsDir(), deferred },
-				);
-				const text = formatAudit(input, params.limit ?? 12);
-				return {
-					content: [{ type: "text", text }],
-					details: { ok: true, index },
-				};
-			}
-
-			if (params.query !== undefined) {
-				let answer: QueryAnswer;
-				try {
-					answer = await (await openReader()).query(params.query);
-				} catch (error) {
-					// A refused or malformed query is the caller's to fix, so it is
-					// answered with what SQLite or the guard said, not thrown.
-					const reason = error instanceof Error ? error.message : String(error);
-					return {
-						content: [{ type: "text", text: `Query refused: ${reason}` }],
-						details: { ok: false, index },
-					};
-				}
-				const limit = params.limit ?? QUERY_ROWS_SHOWN;
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatQueryAnswer(answer, limit),
-								records: answer.rows,
-								unit: "rows",
-								elided: answer.rows.length > limit,
-								narrowing:
-									"Query the stored rows, or aggregate in SQL and ask again.",
-							}),
-						},
-					],
-					details: { ok: true, index },
-				};
-			}
-
-			if (params.repeats) {
-				const repeats = await opened.repeatedCalls(LEDGER_SCOPE);
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatRepeats(repeats, params.limit ?? 12),
-								records: repeats,
-								unit: "repeats",
-								narrowing: "Ask for a larger limit to see more.",
-							}),
-						},
-					],
-					details: { ok: true },
-				};
-			}
-
-			if (params.regret) {
-				const regret = await opened.regret(LEDGER_SCOPE);
-				return {
-					content: [
-						{
-							type: "text",
-							text: citeListing(openSessionStore(ctx), {
-								view: formatRegret(regret),
-								records: regret.reAsked,
-								unit: "regrets",
-								narrowing: "Query the stored result for the full list.",
-							}),
-						},
-					],
-					details: { ok: true },
-				};
-			}
-
-			if (params.verify) {
-				const outcomes = await opened.verifierOutcomes();
-				return {
-					content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
-					details: { ok: true },
-				};
-			}
-
-			if (params.payback) {
-				const replay = await opened.paybackReplay();
-				return {
-					content: [{ type: "text", text: formatPaybackReplay(replay) }],
-					details: { ok: true },
-				};
-			}
+			// Each report but the total, which says it among its sections.
+			const reported = await askedReport(params, {
+				opened,
+				reader: openReader,
+				results: () => openSessionStore(ctx),
+				deferred: () =>
+					pi
+						.getAllTools()
+						.filter((tool) => tool.exposure === "deferred")
+						.map((tool) => tool.name),
+				resourcesDir: resourcesDir(),
+				index,
+			});
+			if (reported) return reported;
 
 			const total = await opened.total();
 			const sections = [formatTotal(total)];
@@ -739,7 +654,8 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					),
 				),
 			);
-			if (index.scanned > 0) sections.push(formatIndexOutcome(index));
+			if (index === undefined) sections.push(HELD_ELSEWHERE);
+			else if (index.scanned > 0) sections.push(formatIndexOutcome(index));
 			const view = sections.join("\n\n");
 
 			// Grouping by session yields a slice per log, which is over a
