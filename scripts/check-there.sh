@@ -50,19 +50,86 @@
 # whose untracked files and node_modules outlast it, so a check trusts
 # the branches checked before it there as much as its own.
 #
-# A check run under pi, PI_SESSION_ID set, goes to penelope alone, the
-# host agreed for agents' checks (ISXEG8, 22 November): another, as the
-# Mac does, would run a pushed branch's install scripts and tests as an
-# account holding Joel's credentials, outside any agent fence, on an
-# agent's say alone. Nothing here shows penelope's account is any less
-# Joel's: the agreement is the reason, not a fence this script knows
-# of. That lifts once a host runs it inside its agent fence or under an
-# account of its own. It guards against a slip,
-# not an agent set on reaching the Mac: only a fence holds that. Joel
-# running it by hand, from a shell outside pi, may send it anywhere, and
-# runs the branch's code as himself there, whoever wrote it, so the
-# refusal points an agent at penelope and nowhere else.
+# A check an agent runs goes to penelope alone, the host agreed for
+# agents' checks (ISXEG8, 22 November): another, as the Mac does, would
+# run a pushed branch's install scripts and tests as an account holding
+# Joel's credentials, outside any agent fence, on an agent's say alone.
+# Nothing here shows penelope's account is any less Joel's: the
+# agreement is the reason, not a fence this script knows of. That lifts
+# once a host runs it inside its agent fence or under an account of its
+# own. Another host is refused by default: it takes a check only typed
+# at a terminal, stdin one, with no pi, pi-spawner, mycelium or
+# pi-host-runtime among the processes it runs under, and never with
+# PI_SESSION_ID set. Trusting PI_SESSION_ID alone let a systemd unit an
+# agent started, which carries none, send two checks to the Mac on 24
+# November (ISXEG8's incident). This guards against such a slip, not
+# against an agent set on reaching the Mac, which can ssh there by hand:
+# only a fence holds that. Joel typing it in his own terminal may send
+# it anywhere, and runs the branch's code as himself there, whoever
+# wrote it, so the refusal points an agent at penelope and nowhere else.
 set -euo pipefail
+
+# Whether a process this runs under is pi's: pi itself, its spawner, a
+# host's runtime or a mycelium node, read from each forebear's command
+# up to the first process, which must be the machine's own init. A
+# forebear that can't be read counts as pi's, so a check never goes
+# further than it can tell it may, and so does a first process that is
+# a namespace's, as a sandbox's is: pi may run above it unseen. Says in
+# `forebear` which process, or which read, it stopped at.
+forebear=""
+under_pi() {
+  local pid=$PPID ppid args program name rest hops=0
+  while [ "$pid" -gt 1 ]; do
+    # A chain past 64 processes is no shell's (a terminal's, nested
+    # through tmux and ssh, runs to a dozen): refused, not walked on,
+    # since each step costs two runs of ps.
+    if [ "$hops" -ge 64 ]; then
+      forebear="a chain past 64 processes"
+      return 0
+    fi
+    if ! args=$(ps -o args= -p "$pid" 2> /dev/null); then
+      forebear="process $pid, whose command can't be read"
+      return 0
+    fi
+    program=${args%% *}
+    name=${program##*/}
+    # One launched through node, as pi from a terminal on the Mac shows
+    # (`node /.../bin/pi ...`), is named by the script node runs, where
+    # its next word is a script rather than an option.
+    if [ "$name" = node ] && [ "$args" != "$program" ]; then
+      rest=${args#* }
+      rest=${rest%% *}
+      case "$rest" in
+        -*) ;;
+        *) name=${rest##*/} ;;
+      esac
+    fi
+    forebear="process $pid, $name"
+    case "$name" in
+      pi | pi-host | pi-spawner | mycelium) return 0 ;;
+    esac
+    case "$program" in
+      *pi-host-runtime*) return 0 ;;
+    esac
+    if ! ppid=$(ps -o ppid= -p "$pid" 2> /dev/null); then
+      forebear="process $pid, whose parent can't be read"
+      return 0
+    fi
+    pid=${ppid//[!0-9]/}
+    if [ -z "$pid" ]; then
+      forebear="$forebear, which names no parent"
+      return 0
+    fi
+    hops=$((hops + 1))
+  done
+  args=$(ps -o args= -p 1 2> /dev/null) || args=""
+  program=${args%% *}
+  case "${program##*/}" in
+    systemd | init | launchd) return 1 ;;
+  esac
+  forebear="process 1, ${program##*/}, not the machine's init"
+  return 0
+}
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
@@ -99,9 +166,19 @@ case "$host" in
     exit 2
     ;;
 esac
-if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
-  exit 2
+if [ "$host" != penelope ]; then
+  if [ -n "${PI_SESSION_ID:-}" ]; then
+    echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
+  if ! [ -t 0 ]; then
+    echo "check-there: a check with no terminal, as a unit or a pipe runs it, goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
+  if under_pi; then
+    echo "check-there: a check run under pi, its spawner, a host or a mycelium node (or under a process it can't read) goes only to the host named penelope, the one agreed for agents' checks; it stopped at $forebear; run pnpm check:there $branch penelope" >&2
+    exit 2
+  fi
 fi
 
 if [ "$#" -lt 1 ]; then

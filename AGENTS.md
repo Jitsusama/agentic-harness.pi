@@ -164,7 +164,7 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 
 ```sh
 pnpm check           # lint, typecheck, knip, the tests a change touches (browser too), load check
-pnpm check:there     # the same, for a pushed branch, on penelope (Joel, outside pi, may name another host)
+pnpm check:there     # the same, for a pushed branch, on penelope (Joel, typing it at his own terminal, may name another host)
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
