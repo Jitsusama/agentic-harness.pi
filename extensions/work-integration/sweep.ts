@@ -50,6 +50,7 @@ import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { listedOpenFiles } from "./open-files.ts";
+import { rememberStatuses } from "./status-memory.ts";
 
 /** How long after a session starts its first sweep runs. */
 const FIRST_SWEEP_MS = 3 * 60 * 1000;
@@ -248,8 +249,14 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		// counted as in use, one sweep so took 154 trees, among them the
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
+		const exec = unattendedExec(undefined, { fenced: asks.fencedGit === true });
+		const statuses = rememberStatuses(
+			exec,
+			join(stateDir("work"), "sweep-status.json"),
+		);
 		const outcome = await sweepEndedTrees({
-			exec: unattendedExec(undefined, { fenced: asks.fencedGit === true }),
+			exec,
+			statusExec: statuses.exec,
 			memory: createTreeMemory(treeRecordDir()),
 			claims: () => asks.claimed(),
 			lockPath: sweepLockPath(),
@@ -265,6 +272,11 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			providers: listTreeProviders,
 			...useSigns(),
 		});
+		// Only a sweep that asked saves: one that rested or found another
+		// running asked nothing, and its save would empty the memory.
+		if (outcome.rested === undefined && outcome.skipped === undefined) {
+			statuses.save(outcome.refused.map((tree) => tree.path));
+		}
 		// A sweep that rested did nothing, and the one before it said what
 		// it did: a line for each filled the log at one every 3 seconds on
 		// 18 November. One that found another running still says so, as
