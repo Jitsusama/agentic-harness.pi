@@ -2,7 +2,8 @@
  * The node's watch of messages: each message as the node says it, read
  * back as the mesh's file has it, and the watch's lines heard in turn.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
+import type { Message } from "../../../lib/mesh/message.ts";
 import {
 	type MessageEvents,
 	messageOfNode,
@@ -23,8 +24,16 @@ const said = (fields: Record<string, unknown> = {}) => ({
 });
 
 /** Events that keep what a watch says. */
-function hearing(): MessageEvents & { heard: ReturnType<typeof vi.fn> } {
-	return { ready: vi.fn(), heard: vi.fn(), ended: vi.fn() };
+function hearing(): MessageEvents & {
+	ready: Mock<() => void>;
+	heard: Mock<(message: Message) => void>;
+	ended: Mock<() => void>;
+} {
+	return {
+		ready: vi.fn<() => void>(),
+		heard: vi.fn<(message: Message) => void>(),
+		ended: vi.fn<() => void>(),
+	};
 }
 
 describe("a node's group, as a mesh target", () => {

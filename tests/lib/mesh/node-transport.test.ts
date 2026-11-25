@@ -42,6 +42,10 @@ const socketPath = (): string => join(dir, "node.sock");
 async function node(): Promise<void> {
 	server = createServer((client) => {
 		clients.push(client);
+		// A transport that stopped closes its end, so the node's next word
+		// to it fails with EPIPE, as a real node's would; the test reads what
+		// the transport heard, not what the node could still write.
+		client.on("error", () => undefined);
 		client.once("data", () => {
 			if (answers) client.write(`${JSON.stringify({ Ok: "Watching" })}\n`);
 		});
@@ -133,9 +137,15 @@ describe("a transport the node says arrivals to", () => {
 			expect(arrived.length, "the node's word heard").toBeGreaterThan(0);
 		});
 		for (const client of clients) client.destroy();
+		// Sent until the folder's watch, started again, hears one: a write
+		// landing before it starts is the minute's look's to hear, not this.
+		const sent: string[] = [];
 		await vi.waitFor(() => {
-			const sent = folderTransport(dir).send(draft("after it went"));
-			expect(arrived, "heard by the folder").toContain(sent.id);
+			sent.push(folderTransport(dir).send(draft("after it went")).id);
+			expect(
+				arrived.some((id) => sent.includes(id)),
+				"heard by the folder",
+			).toBe(true);
 		});
 		await vi.waitFor(() => expect(clients.length, "asked again").toBe(2), {
 			timeout: 3000,
