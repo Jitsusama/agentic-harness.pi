@@ -90,8 +90,12 @@ describe("plainQuotes", () => {
 		["a double prime", "\u2033"],
 		["a modifier grave accent", "\u02CB"],
 		["an ornamental quote", "\u275E"],
+		["heavy low comma quote ornaments", "\u275F\u2760"],
+		["sans-serif heavy quote ornaments", "\u{1F676}\u{1F677}\u{1F678}"],
 	])("says %s as a straight single quote", (_, quote) => {
-		expect(plainQuotes(`y${quote}z`)).toBe(`y${"'".repeat(quote.length)}z`);
+		expect(plainQuotes(`y${quote}z`)).toBe(
+			`y${"'".repeat([...quote].length)}z`,
+		);
 	});
 
 	it("leaves accented letters and other punctuation as they are", () => {
