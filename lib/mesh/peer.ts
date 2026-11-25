@@ -476,6 +476,20 @@ export function localPeer(at: Surroundings): Peer {
 			...(carried?.addresses ?? []),
 		]),
 	];
+	// A cell never split from itself, as the asking cell's own session
+	// would say once it loaded the quest it sprouted. Read afresh, and
+	// only for a quest that says it split: the quest it asked under may
+	// have listed it after it began, or be signed for by another peer
+	// now, and it was still this cell's. In any letters.
+	const splitFromItself = (from: string): boolean =>
+		new Set(
+			[
+				...addresses,
+				...older,
+				...olderAddresses(at.session, at.records),
+				sessionAddress(at.session),
+			].map((one) => one.toUpperCase()),
+		).has(from.toUpperCase());
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: Roles = {};
 	// Kept beside the roles rather than in them, since the roles are said
@@ -678,16 +692,8 @@ export function localPeer(at: Surroundings): Peer {
 			work.subjects ?? [],
 		);
 		serves = work.serves ?? [];
-		// A cell never split from itself, as the asking cell's own session
-		// would say once it loaded the quest it sprouted: by any address it
-		// answers to, its old quest's among them, in any letters.
-		const itself = new Set(
-			[...addresses, sessionAddress(at.session)].map((one) =>
-				one.toUpperCase(),
-			),
-		);
 		lineage =
-			work.lineage && !itself.has(work.lineage.split_from.toUpperCase())
+			work.lineage && !splitFromItself(work.lineage.split_from)
 				? work.lineage
 				: undefined;
 		shares = work.shares ?? [];

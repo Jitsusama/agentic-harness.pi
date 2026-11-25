@@ -110,6 +110,26 @@ describe("the cell this session's peer says its work split from", () => {
 		expect(kept()?.lineage, "no lineage naming its old quest").toBeUndefined();
 	});
 
+	// The usual order: the session began on no quest, loaded one and
+	// asked under it, then loaded the quest it sprouted; that old quest
+	// listed it only after its peer began.
+	it("says none where its quest split from a quest it loaded after it began", () => {
+		write(readme());
+		const peer = localPeer(surroundingsAt(root));
+
+		const old = "QEST-20261123-ASKERQ";
+		mkdirSync(join(root, "quests", old), { recursive: true });
+		writeFileSync(
+			join(root, "quests", old, "README.md"),
+			`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${session}\n`,
+		);
+		write(readme(`split-from: ${questAddress(old)}\n`));
+		peer.refresh();
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(kept()?.lineage, "no lineage naming its old quest").toBeUndefined();
+	});
+
 	// A session's address is hex, so it can be all digits, which YAML
 	// would read back as a number were it written bare.
 	it("says a split from an all-digit address, written and read as the start does", () => {
