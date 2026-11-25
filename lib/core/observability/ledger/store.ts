@@ -114,9 +114,11 @@ export async function openTurnStore(
 	// NORMAL syncs the WAL at checkpoints, not at each commit, where FULL
 	// made a fresh ledger wait on about 50 flushes. The ledger is an index
 	// of the session logs, so a power cut costs it only its last commits,
-	// which the next scan reads again; WAL never leaves it corrupt.
+	// which the next scan reads again; WAL never leaves it corrupt. The
+	// busy timeout comes first, so the pragmas after it wait on a writer
+	// too rather than failing at once.
 	await db.exec(
-		"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
+		"PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
 	);
 	await shapeLedger(db);
 	return new SqliteTurnStore(

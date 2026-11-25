@@ -86,7 +86,7 @@ import { budgetAsks, registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
-import { registerKeeper, stampedPass } from "./keeper.ts";
+import { claimLease, registerKeeper, stampedPass } from "./keeper.ts";
 import {
 	formatBill,
 	formatFanOut,
@@ -206,6 +206,13 @@ export const COST_READING = "cost:reading";
  */
 const MARGINAL_WINDOW = 20;
 
+/** What the tool says when another session's pass holds the ledger. */
+const HELD_ELSEWHERE =
+	"A pass in another session holds the ledger, so this answer reads it as that pass leaves it, without indexing first.";
+
+/** Why a load that has shut down won't open the ledger again. */
+const LEDGER_CLOSED = "The ledger is closed: this session has ended.";
+
 /**
  * spend-watch's bill for a period, drawn as its own section, in the
  * same grouping where it has one; nothing when it isn't installed or
@@ -283,7 +290,11 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	// calls at once each found no store and opened a connection of their
 	// own, and the one overwritten was never closed.
 	let opening: Promise<TurnStore> | null = null;
+	// Fired at shutdown: a pass under way stops at its next log, and
+	// nothing opens the ledger again in a load that has closed it.
+	const ending = new AbortController();
 	const open = async (): Promise<TurnStore> => {
+		if (ending.signal.aborted) throw new Error(LEDGER_CLOSED);
 		if (store) return store;
 		opening ??= (async () => {
 			const dir = stateDir("observability");
@@ -307,10 +318,32 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	const indexOnce = (
 		opened: TurnStore,
 	): ReturnType<typeof indexSessionLogs> => {
-		indexing ??= indexSessionLogs(opened, watermarks).finally(() => {
+		indexing ??= indexSessionLogs(
+			opened,
+			watermarks,
+			undefined,
+			ending.signal,
+		).finally(() => {
 			indexing = null;
 		});
 		return indexing;
+	};
+
+	// The tool's pass: the one under way in this load, shared, or a new
+	// one under the keepers' lease. Undefined when a pass elsewhere holds
+	// the lease, whose writes the tool would only queue behind.
+	const toolPass = async (
+		opened: TurnStore,
+	): Promise<IndexOutcome | undefined> => {
+		const dir = stateDir("observability");
+		if (indexing) return stampedPass(dir, "tool", () => indexOnce(opened));
+		const release = claimLease(dir);
+		if (release === undefined) return undefined;
+		try {
+			return await stampedPass(dir, "tool", () => indexOnce(opened));
+		} finally {
+			release();
+		}
 	};
 
 	registerKeeper(pi, async () => indexOnce(await open()));
@@ -395,7 +428,9 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		unregisterRuns = null;
 		// A pass, or the opening it waits on, may still be under way: a
 		// keeper's runs for minutes. Closing under it would end it on a
-		// closed handle, losing what it read, so the close waits for it.
+		// closed handle, so it is told to stop at its next log, keeping
+		// what it read, and the close waits for it.
+		ending.abort();
 		await settled(opening);
 		await settled(indexing);
 		const closingReader = reader;
@@ -576,13 +611,16 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			const opened = await open();
-			const index = await stampedPass(stateDir("observability"), "tool", () =>
-				indexOnce(opened),
-			);
+			const index = await toolPass(opened);
 
 			if (params.reindex) {
 				return {
-					content: [{ type: "text", text: formatIndexOutcome(index) }],
+					content: [
+						{
+							type: "text",
+							text: index ? formatIndexOutcome(index) : HELD_ELSEWHERE,
+						},
+					],
 					details: { ok: true, index },
 				};
 			}
@@ -754,7 +792,8 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					),
 				),
 			);
-			if (index.scanned > 0) sections.push(formatIndexOutcome(index));
+			if (index === undefined) sections.push(HELD_ELSEWHERE);
+			else if (index.scanned > 0) sections.push(formatIndexOutcome(index));
 			const view = sections.join("\n\n");
 
 			// Grouping by session yields a slice per log, which is over a

@@ -17,6 +17,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +49,14 @@ const STILL_FOR_MS = 2 * 60_000;
  */
 const LEASE_STALE_MS = 30 * 60_000;
 
+/**
+ * How often a holder marks its lease as still held. A pass after the
+ * restart of 25 November took 24 minutes, close enough to the half
+ * hour that a slower one would be taken over mid-pass, with two
+ * writers on the ledger.
+ */
+const LEASE_RENEW_MS = 5 * 60_000;
+
 /** What the last pass did, as written beside the ledger. */
 interface PassStamp {
 	/** When the pass ended, as an ISO time. */
@@ -56,8 +65,8 @@ interface PassStamp {
 	readonly ok: boolean;
 	/** The pid that ran it. */
 	readonly pid: number;
-	/** Who asked: the spend tool or the keeper. */
-	readonly by: "tool" | "keeper";
+	/** Who asked: the spend tool, the keeper or the daily measure. */
+	readonly by: "tool" | "keeper" | "measure";
 	/** How long it took, in seconds. */
 	readonly seconds: number;
 	/** Logs read and turns new to the ledger, when it finished. */
@@ -149,13 +158,15 @@ export function passDue(
  * Take the lease for a pass, or undefined when a live holder has it.
  * The lease names its holder's pid, so one left by a process that has
  * gone is taken over at once, and one older than any pass takes is
- * taken over whoever it names. The release removes the lease only while
- * it is still this holder's.
+ * taken over whoever it names. While held it is marked fresh every few
+ * minutes, so only a holder that stopped goes stale. The release removes
+ * the lease only while it is still this holder's.
  */
 export function claimLease(
 	dir: string,
 	now = Date.now(),
 	staleMs = LEASE_STALE_MS,
+	renewMs = LEASE_RENEW_MS,
 ): (() => void) | undefined {
 	const path = join(dir, LEASE_NAME);
 	const mine = String(process.pid);
@@ -169,7 +180,18 @@ export function claimLease(
 			} finally {
 				closeSync(fd);
 			}
+			const renewing = setInterval(() => {
+				try {
+					if (statSync(path).ino !== ino) return;
+					const at = new Date();
+					utimesSync(path, at, at);
+				} catch {
+					// Gone or taken over: there is nothing of ours to renew.
+				}
+			}, renewMs);
+			renewing.unref();
 			return () => {
+				clearInterval(renewing);
 				try {
 					if (statSync(path).ino === ino) rmSync(path);
 				} catch {

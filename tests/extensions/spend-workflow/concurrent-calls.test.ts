@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import spendWorkflow from "../../../extensions/spend-workflow/index.ts";
+import { PASS_STOPPED } from "../../../extensions/spend-workflow/indexer.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
 import { resultSession } from "../../support/result-session.ts";
 
@@ -126,7 +127,7 @@ describe("cost calls made at the same moment", () => {
 		]);
 	});
 
-	it("close the ledger only once a pass under way has finished", async () => {
+	it("stop a pass under way at shutdown before closing the ledger under it", async () => {
 		// On 25 November a keeper's pass of 24 minutes ended in SQLITE_MISUSE,
 		// its handle closed under it by the session's shutdown.
 		const tool = costTool();
@@ -135,20 +136,22 @@ describe("cost calls made at the same moment", () => {
 			aSessionLog(join(dir, "agent", "sessions"), `01a0aaaa-${n}`);
 		}
 
-		const passing = tool.execute(
-			"a",
-			{ reindex: true },
-			undefined,
-			undefined,
-			ctx,
-		);
+		const passing = tool
+			.execute("a", { reindex: true }, undefined, undefined, ctx)
+			.then(
+				(answer) => answer.content[0]?.text ?? "",
+				(error: unknown) => (error instanceof Error ? error.message : ""),
+			);
 		await new Promise((started) => setImmediate(started));
 		for (const handler of handlers.get("session_shutdown") ?? []) {
 			await handler({}, {});
 		}
 
-		const answer = await passing;
-		expect(answer.content[0]?.text).not.toMatch(/closed|MISUSE/i);
+		expect(await passing, "how the pass ended").toBe(PASS_STOPPED);
+		await expect(
+			tool.execute("after", {}, undefined, undefined, ctx),
+			"a call once the session has ended",
+		).rejects.toThrow("The ledger is closed");
 	}, 30_000);
 
 	it("index each log once between them", async () => {

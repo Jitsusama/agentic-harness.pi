@@ -41,7 +41,11 @@ import {
 	indexSessionLogs,
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
-import { claimLease } from "../extensions/spend-workflow/keeper.ts";
+import {
+	claimLease,
+	readStamp,
+	stampedPass,
+} from "../extensions/spend-workflow/keeper.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
@@ -75,9 +79,8 @@ export async function measure(opts: {
 		try {
 			const store = await openTurnStore(ledger);
 			try {
-				await indexSessionLogs(
-					store,
-					join(ledgerDir, "ledger-watermarks.json"),
+				await stampedPass(ledgerDir, "measure", () =>
+					indexSessionLogs(store, join(ledgerDir, "ledger-watermarks.json")),
 				);
 			} finally {
 				await store.close();
@@ -86,6 +89,8 @@ export async function measure(opts: {
 			release();
 		}
 	}
+	const indexed =
+		release === undefined ? unindexedSaid(readStamp(ledgerDir)) : undefined;
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
 	let oneCall: string;
@@ -129,6 +134,7 @@ export async function measure(opts: {
 		"",
 		"## Audit",
 		"",
+		...(indexed === undefined ? [] : [indexed, ""]),
 		audit.trimEnd(),
 		"",
 		oneCall.trimEnd(),
@@ -145,6 +151,19 @@ export async function measure(opts: {
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;
+}
+
+/**
+ * What a measure that couldn't index says of the figures it read: a
+ * pass in a session held the ledger, so they stand as the last pass
+ * left them.
+ */
+export function unindexedSaid(stamp: ReturnType<typeof readStamp>): string {
+	const last =
+		stamp === undefined
+			? "no pass has stamped the ledger yet"
+			: `the last pass ended at ${stamp.at}${stamp.ok ? "" : `, failed: ${stamp.error ?? "no reason given"}`}`;
+	return `A pass in a session held the ledger, so this measure didn't index the logs; its figures stand as that pass leaves them (${last}).`;
 }
 
 /** The void's day file for `date`, kept in the user's state folder, if it wrote one. */
