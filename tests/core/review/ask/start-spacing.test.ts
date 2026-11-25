@@ -1,3 +1,12 @@
+/**
+ * The council start line: who starts when, who waits and in what order,
+ * and what a waiting round is told.
+ *
+ * Long because every case drives the same real line on disk through
+ * real waits, and its fixtures (a ticket's id drawn ahead, a read of
+ * the line that fails once, a process that is gone) are shared by all
+ * of them.
+ */
 import {
 	chmodSync,
 	mkdirSync,

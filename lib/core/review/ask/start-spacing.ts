@@ -56,6 +56,12 @@
  * the line; its start is read from the transcripts' newest roster
  * round, which the line spaces from too, and a slot it kept that has
  * already come counts as a start.
+ *
+ * Long because the line is one record every session on the machine
+ * rewrites, so who goes next, how a look reads and writes it under its
+ * lock, and how a wait says where it stands all change together when
+ * the line's rule does, as reading the file's shape does whenever a
+ * ticket learns something new to keep.
  */
 
 import { randomUUID } from "node:crypto";
