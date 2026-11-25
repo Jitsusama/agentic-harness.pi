@@ -27,6 +27,7 @@ import {
 } from "../../../extensions/work-integration/broker.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { queueFolder } from "../../../lib/internal/priority/folder.ts";
+import { whatOf } from "../../../lib/internal/priority/queue.ts";
 import { queueHeavyWork } from "../../../lib/internal/priority/turn.ts";
 
 let root: string;
@@ -112,8 +113,10 @@ describe("the work tool's git, when the queue takes it", () => {
 		expect(args[1], "the guard's settings reach the queued line").toContain(
 			`pi-unrooted-git ${realpathSync(tree)} git -c core.fsmonitor=false push origin x`,
 		);
+		// Cut as the queue cuts every name, since a long temporary folder
+		// puts the tree's path past the queue's length.
 		expect(asked(), "the queue names the push as it was asked").toMatchObject([
-			{ what: `git -C ${tree} push origin x`, walk: "push" },
+			{ what: whatOf(`git -C ${tree} push origin x`), walk: "push" },
 		]);
 	});
 
@@ -134,11 +137,10 @@ describe("the work tool's git, when the queue takes it", () => {
 		expect(args[1], "the guard's look runs inside the turn").toContain(
 			`pi-unrooted-git ${realpathSync(tree)} git -c core.fsmonitor=false fetch --quiet origin ${commit}`,
 		);
-		// The queue cuts the long line it names a job by, so its start.
-		expect(
-			asked()[0]?.what,
-			"the queue names the fetch as it was asked",
-		).toMatch(new RegExp(`^git -C ${tree} fetch --quiet origin 0`));
+		// The queue cuts the long line it names a job by, as it cuts each.
+		expect(asked()[0]?.what, "the queue names the fetch as it was asked").toBe(
+			whatOf(`git -C ${tree} fetch --quiet origin ${commit}`),
+		);
 	});
 
 	it("guards the push's own git the same way", async () => {
