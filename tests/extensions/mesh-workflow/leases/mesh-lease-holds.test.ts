@@ -484,6 +484,22 @@ describe("a lease", () => {
 			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
 		});
 
+		it("stays claimed past the call's end, which pi says after its answer", async () => {
+			const run = await startSession();
+			await handedOff(run);
+
+			await run.fire("tool_execution_end", {
+				type: "tool_execution_end",
+				toolCallId: "b3",
+				toolName: "bash",
+				isError: false,
+			});
+
+			expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "vm-test" }]);
+			run.emit(JOBS_FINISHED, ended);
+			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		});
+
 		it("is let go at once when the session ends any other way", async () => {
 			const first = await startSession();
 			await handedOff(first);

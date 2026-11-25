@@ -118,6 +118,7 @@ export function watchHeavyWork(m: MeshState) {
 	// A call another handler refused ends with no tool_result.
 	m.pi.on("tool_execution_end", async (event) => {
 		heavyCalls.closed(event.toolCallId);
+		editNotes.closed(event.toolCallId);
 	});
 	if (m.pi.events) {
 		onJobFinished(m.pi.events, ({ toolCallId }) => {

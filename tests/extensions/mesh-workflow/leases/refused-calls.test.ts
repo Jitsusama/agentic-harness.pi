@@ -5,7 +5,10 @@
  * (0IM95G, 24 November).
  */
 import { describe, expect, it } from "vitest";
-import { createHeavyCalls } from "../../../../extensions/mesh-workflow/leases.ts";
+import {
+	createEditNotes,
+	createHeavyCalls,
+} from "../../../../extensions/mesh-workflow/leases.ts";
 import type { LeaseEvent } from "../../../../lib/mesh/lease.ts";
 
 const text = (words: string) => [{ type: "text", text: words }];
@@ -30,16 +33,9 @@ describe("a heavy call", () => {
 		expect(calls.held()).toEqual([]);
 	});
 
-	it("gives back nothing more when it ends after answering", () => {
-		const { events, calls } = tracked();
-		calls.called("1", "nix build .#x");
-		calls.answered("1", text("built"));
-
-		calls.closed("1");
-
-		expect(releases(events)).toEqual([{ release: "build" }]);
-	});
-
+	// pi answers before it ends a call (agent-loop's finalize, then
+	// tool_execution_end), so an answered call's end must change nothing:
+	// this is the case that pins it, since only a hand-off outlives one.
 	it("keeps a job it handed off past its end, until the job ends", () => {
 		const { events, calls } = tracked();
 		calls.called("1", "./watch.sh");
@@ -65,5 +61,26 @@ describe("a heavy call", () => {
 		calls.closed("2");
 		expect(releases(events)).toEqual([]);
 		expect(calls.held()).toEqual([["1", "build"]]);
+	});
+});
+
+describe("an edit's note", () => {
+	it("goes when another handler refuses the edit, so a later call of that id carries none", () => {
+		const notes = createEditNotes();
+		notes.met("1", { note: "a peer edits this file too" });
+
+		notes.closed("1");
+
+		expect(notes.noted("1", text("edited"))).toBeUndefined();
+	});
+
+	it("stays for the result of an edit that ran", () => {
+		const notes = createEditNotes();
+		notes.met("1", { note: "a peer edits this file too" });
+
+		expect(notes.noted("1", text("edited"))).toEqual([
+			...text("edited"),
+			...text("a peer edits this file too"),
+		]);
 	});
 });
