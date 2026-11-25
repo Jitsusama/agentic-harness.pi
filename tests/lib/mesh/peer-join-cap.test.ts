@@ -78,6 +78,25 @@ describe("a peer joining past what a presence names", () => {
 		expect(joinRefused(groups, "#zzz-one-more")).toBe("full");
 	});
 
+	// A peer in #group-000 hears what is sent to #group, so a full peer
+	// is not told to make room to join a group it hears already.
+	it("says a full peer hears a group it is in a part of, joining it to nothing", () => {
+		const { peer } = aPeer();
+		const groups = Array.from(
+			{ length: MOST_GROUPS },
+			(_, at) => `#group-${String(at).padStart(3, "0")}`,
+		);
+
+		expect(joinRefused([...groups.slice(1), "#group/part"], "#group")).toBe(
+			"heard",
+		);
+		fill(peer);
+		peer.leave("#group-000");
+		peer.join("#group/part");
+		expect(peer.join("#group"), "the join is refused").toBe(false);
+		expect(peer.joined).not.toContain("#group");
+	});
+
 	it("joins no group longer than a group runs", () => {
 		const { peer } = aPeer();
 		const long = `#${"a".repeat(MOST_GROUP_CHARS)}`;

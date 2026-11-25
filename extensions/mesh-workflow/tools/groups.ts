@@ -39,7 +39,8 @@ export async function join(
 			`${params.group} is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
 		);
 	}
-	if (joinRefused(at.peer.groups, group) === "full") {
+	const refused = joinRefused(at.peer.groups, group);
+	if (refused === "full") {
 		return answer(
 			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in. Leave one it no longer works on first. ${LISTED_IN_GROUPS}`,
 			{ groups: at.peer.groups },
@@ -52,11 +53,14 @@ export async function join(
 	}
 	const already =
 		hears(at.peer.scopes, group) && !at.peer.joined.includes(group);
-	const joinedNow = !already && at.peer.join(group);
+	const heard = !already && refused === "heard";
+	const joinedNow = !already && !heard && at.peer.join(group);
 	const standing = listable(await peers(at));
 	const said = already
 		? `Already in ${group} by this peer's work.`
-		: `In ${group}.`;
+		: heard
+			? `Already hears ${group} through a group under it, so it was not joined: this peer is in ${at.peer.groups.length} groups, the most a peer may be in.`
+			: `In ${group}.`;
 	const invited = groupsNamed(params.invite ?? "");
 	const lately = joinedNow ? await saidLately(at, group) : "";
 	if (invited.length === 0) {
@@ -91,9 +95,13 @@ export async function join(
 		full.length > 0
 			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has left one.`
 			: "";
+	const skipped =
+		notHomes.length > 0
+			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
+			: "";
 	const sendable = homes.filter((home) => !full.includes(home));
 	if (homes.length > 0 && sendable.length === 0) {
-		return answer(`${said} Nobody was invited.${fullText}${lately}`, {
+		return answer(`${said} Nobody was invited.${fullText}${skipped}${lately}`, {
 			groups: at.peer.groups,
 		});
 	}
@@ -120,10 +128,6 @@ export async function join(
 		at.transport.read,
 		at.presences.refusal,
 	);
-	const skipped =
-		notHomes.length > 0
-			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
-			: "";
 	return answer(
 		`${said} Invited ${sendable.map((one) => one.slice(1)).join(", ")}. ${notes.join(" ")}${fullText}${skipped}${lately}`,
 		{ groups: at.peer.groups, invited: sendable, message },

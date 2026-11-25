@@ -74,7 +74,7 @@ import {
 	type QuestRecords,
 	questAddress,
 } from "./address.ts";
-import { groupNamed, isJoinable, MOST_GROUP_CHARS } from "./group.ts";
+import { groupNamed, hears, isJoinable, MOST_GROUP_CHARS } from "./group.ts";
 import {
 	type MoveOff,
 	type Moving,
@@ -892,8 +892,12 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
  */
 export const MOST_GROUPS = 64;
 
-/** Why a peer in these groups may not join one more. */
-export type JoinRefusal = "unjoinable" | "full";
+/**
+ * Why a peer in these groups may not join one more: `heard` when it is
+ * full but hears the group already through a part of it it is in, so
+ * it is not told to make room for what it has.
+ */
+export type JoinRefusal = "unjoinable" | "full" | "heard";
 
 /**
  * Why a peer in `groups` may not join `group`, or nothing when it may:
@@ -907,8 +911,8 @@ export function joinRefused(
 	group: string,
 ): JoinRefusal | undefined {
 	if (!isJoinable(group)) return "unjoinable";
-	if (!groups.includes(group) && groups.length >= MOST_GROUPS) return "full";
-	return undefined;
+	if (groups.includes(group) || groups.length < MOST_GROUPS) return undefined;
+	return hears(groups, group) ? "heard" : "full";
 }
 
 /**

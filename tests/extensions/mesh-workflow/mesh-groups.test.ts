@@ -1102,6 +1102,23 @@ describe("a peer reads what it writes to", () => {
 			"nothing written",
 		).toEqual([]);
 	});
+
+	it("writes to the groups beside one too long to join, leaving it out", async () => {
+		peer("session-p", ["P9R1KI"], ["#ops"]);
+		const { tools } = await startSession();
+		const long = `#${"a".repeat(MOST_GROUP_CHARS)}`;
+
+		const answer = await send(tools, `#ops,${long}`, "fyi", "rebooting");
+
+		expect(answer).not.toContain("Not sent:");
+		expect(answer).toContain(
+			`Not written to ${long}: ${long} runs longer than the ${MOST_GROUP_CHARS} characters`,
+		);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids().map((id) => transport.read(id)?.to)).toEqual([
+			["#ops"],
+		]);
+	});
 });
 
 describe("an invitation", () => {
@@ -1162,6 +1179,43 @@ describe("an invitation", () => {
 		).not.toContain("#jobs");
 	});
 
+	it("invites a peer with room beside one already in the most groups", async () => {
+		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
+		peer("session-p", ["P9R1KI"], many);
+		peer("session-k", ["K4T8WN"], []);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki,k4t8wn" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Invited K4T8WN.");
+		expect(text).toContain(
+			`Not invited, since it is in ${MOST_GROUPS} groups, the most a peer may be in: P9R1KI.`,
+		);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		const invites = transport
+			.ids()
+			.map((id) => transport.read(id))
+			.filter((message) => message?.invite === "#jobs");
+		expect(invites.map((message) => message?.to)).toEqual([["@K4T8WN"]]);
+	});
+
+	it("says which names were no peer when every peer named is too full", async () => {
+		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
+		peer("session-p", ["P9R1KI"], many);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki,#ops" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Nobody was invited.");
+		expect(text).toContain("Not invited, since they name no other peer: #ops.");
+	});
+
 	// As many real joins as a peer may make, as in the refusals above.
 	it("tells this peer when it is too full to join a group it is brought into", async () => {
 		const { sent, tools } = await startSession();
@@ -1182,6 +1236,38 @@ describe("an invitation", () => {
 		expect(sent[0]?.message.content).toContain(
 			`It couldn't join #jobs, though: it is in ${MOST_GROUPS} groups`,
 		);
+		expect(
+			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
+		).not.toContain("#jobs");
+	}, 30_000);
+
+	// In #jobs/heavy it hears what is said in #jobs already.
+	it("tells a full peer nothing to make room for a group it hears through a part", async () => {
+		const { sent, tools } = await startSession();
+		await tools
+			.get("mesh_join")
+			?.execute("call-part", { group: "#jobs/heavy" });
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+
+		const joined = await tools
+			.get("mesh_join")
+			?.execute("call-jobs", { group: "#jobs" });
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@7M6JKG"],
+			text: "P9R1KI brings this peer into #jobs. It is in #jobs from now on.",
+			invite: "#jobs",
+		});
+
+		const text = joined?.content[0]?.text ?? "";
+		expect(text).not.toContain("Not in #jobs");
+		expect(text).toContain("Already hears #jobs through a group under it");
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).not.toContain("couldn't join");
 		expect(
 			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
 		).not.toContain("#jobs");

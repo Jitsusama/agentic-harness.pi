@@ -524,7 +524,8 @@ export function createHearing(m: MeshState, f: Handing) {
 			isJoinable(message.invite)
 		) {
 			// Too full to join, it is told so beside an invite that says it
-			// is in the group now, which it then is not.
+			// is in the group now, which it then is not. One that hears the
+			// group already through a part of it is told nothing more.
 			if (joinRefused(m.peer.groups, message.invite) === "full") {
 				return {
 					...message,
