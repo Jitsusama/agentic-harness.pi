@@ -23,7 +23,9 @@ import { fenceArgs, fenceRules } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import { fenceRunText } from "../../../../lib/internal/fence/fence-run.ts";
 import {
+	type FolderStat,
 	fencedWorkerSocket,
+	ownerKeepsFolder,
 	SOCKET_DISK,
 	type SocketDisk,
 	WORKER_SOCKET_FOLDER,
@@ -381,6 +383,119 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 	});
 });
 
+describe("whose folder the worker socket may sit in", () => {
+	const SESSION = 1000;
+	const NODE = 990;
+	const folders =
+		(listed: Record<string, FolderStat>) =>
+		(path: string): FolderStat | undefined =>
+			listed[path];
+	const run: FolderStat = { uid: 0, mode: 0o40755, isFolder: true };
+
+	it("takes the node's own account's folder where only root could have made it", () => {
+		const stat = folders({
+			"/run": run,
+			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(true);
+	});
+
+	it("takes whichever account root gave the folder to, not the node's alone", () => {
+		const stat = folders({
+			"/run": run,
+			"/run/mycelium": { uid: 65_534, mode: 0o40700, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(true);
+	});
+
+	it("refuses another account's folder in a folder that isn't root's", () => {
+		const stat = folders({
+			"/run": { uid: NODE, mode: 0o40755, isFolder: true },
+			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("refuses another account's folder in root's folder its group may write", () => {
+		const stat = folders({
+			"/run": { uid: 0, mode: 0o40775, isFolder: true },
+			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("refuses another account's folder whose parent can't be read as a folder", () => {
+		const mycelium = { uid: NODE, mode: 0o40755, isFolder: true };
+		const unread = folders({ "/run/mycelium": mycelium });
+		const linked = folders({
+			"/run": { uid: 0, mode: 0o120777, isFolder: false },
+			"/run/mycelium": mycelium,
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", unread, SESSION)).toBe(false);
+		expect(ownerKeepsFolder("/run/mycelium", linked, SESSION)).toBe(false);
+	});
+
+	it("lets a strict command through to a worker socket in the node's own folder", () => {
+		const judged = (parent: FolderStat): SocketDisk => ({
+			...diskWith({ sockets: [WORKER] }),
+			keptByItsOwner: (folder) =>
+				ownerKeepsFolder(
+					folder,
+					folders({
+						"/run": parent,
+						[WORKER_SOCKET_FOLDER]: {
+							uid: NODE,
+							mode: 0o40755,
+							isFolder: true,
+						},
+					}),
+					SESSION,
+				),
+		});
+
+		expect(fencedWorkerSocket(naming(WORKER), judged(run))).toBe(WORKER);
+		expect(
+			fencedWorkerSocket(
+				naming(WORKER),
+				judged({ uid: NODE, mode: 0o40755, isFolder: true }),
+			),
+		).toBeUndefined();
+	});
+
+	it("refuses another account's folder where anyone could have made it", () => {
+		const stat = folders({
+			"/tmp": { uid: 0, mode: 0o41777, isFolder: true },
+			"/tmp/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/tmp/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("refuses a folder others may write, whoever made it", () => {
+		const stat = folders({
+			"/run": run,
+			"/run/mycelium": { uid: 0, mode: 0o40775, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+	});
+
+	it("takes root's or the session's own folder wherever it is", () => {
+		const stat = folders({
+			"/home/s/mine": { uid: SESSION, mode: 0o40700, isFolder: true },
+			"/opt/roots": { uid: 0, mode: 0o40755, isFolder: true },
+		});
+
+		expect(ownerKeepsFolder("/home/s/mine", stat, SESSION)).toBe(true);
+		expect(ownerKeepsFolder("/opt/roots", stat, SESSION)).toBe(true);
+	});
+});
+
 describe("the disk a worker socket is judged on, as it is", () => {
 	let base: string;
 	let server: Server;
@@ -394,6 +509,7 @@ describe("the disk a worker socket is judged on, as it is", () => {
 		server = createServer();
 		await new Promise<void>((done) => server.listen(socket(), done));
 		symlinkSync(socket(), join(base, "kept", "link.sock"));
+		symlinkSync(join(base, "kept"), join(base, "kept-link"));
 	});
 	afterAll(async () => {
 		await new Promise<void>((done) => server.close(() => done()));
@@ -410,8 +526,8 @@ describe("the disk a worker socket is judged on, as it is", () => {
 			"a folder anyone may write was kept",
 		).toBe(false);
 		expect(
-			SOCKET_DISK.keptByItsOwner(join(base, "kept", "link.sock")),
-			"a link was read as a folder",
+			SOCKET_DISK.keptByItsOwner(join(base, "kept-link")),
+			"a link to a kept folder was read as the folder",
 		).toBe(false);
 	});
 

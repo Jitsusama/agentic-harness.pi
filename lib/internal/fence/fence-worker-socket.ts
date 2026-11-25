@@ -62,10 +62,62 @@ export interface SocketDisk {
 	/** Whether a path is a socket, not following a link it ends in. */
 	isSocket(path: string): boolean;
 	/**
-	 * Whether only root or this process's own account may write a folder,
-	 * so nobody else can put a socket of their own in it.
+	 * Whether only the folder's owner may write it, and root or this
+	 * process's own account chose that owner, so nobody else can put a
+	 * socket of their own in it ({@link ownerKeepsFolder}).
 	 */
 	keptByItsOwner(folder: string): boolean;
+}
+
+/** What {@link ownerKeepsFolder} reads of a folder. */
+export interface FolderStat {
+	readonly uid: number;
+	readonly mode: number;
+	readonly isFolder: boolean;
+}
+
+/**
+ * Whether `folder`, read by `stat` (which follows no link in the path's
+ * last part), is written by its owner alone, and that owner is root,
+ * `uid`, or whichever account root gave it to, deliberately any: a
+ * folder whose own folder only root may write, as `/run` is, was put
+ * there by root. The node's NixOS module makes `/run/mycelium` at boot
+ * owned by the node's account, which on a VM need not be the session's
+ * (KP0L6A, 24 November).
+ *
+ * Only the folder and its parent are read, so the third-account case
+ * holds only for a path the caller has already resolved to itself (no
+ * link anywhere in it) and pinned one level below `/`, as
+ * {@link fencedWorkerSocket} does for `/run/mycelium`. Under a
+ * grandparent another account may write, the parent could be swapped,
+ * and `/run/user/<other>` would pass: never call it on such a path.
+ */
+export function ownerKeepsFolder(
+	folder: string,
+	stat: (path: string) => FolderStat | undefined,
+	uid: number | undefined,
+): boolean {
+	const own = stat(folder);
+	if (own === undefined || !own.isFolder) return false;
+	if ((own.mode & WRITTEN_BY_OTHERS) !== 0) return false;
+	if (own.uid === 0 || own.uid === uid) return true;
+	const parent = stat(dirname(folder));
+	return (
+		parent?.isFolder === true &&
+		parent.uid === 0 &&
+		(parent.mode & WRITTEN_BY_OTHERS) === 0
+	);
+}
+
+/** `path` as {@link ownerKeepsFolder} reads it, or nothing when it can't be. */
+function folderStat(path: string): FolderStat | undefined {
+	try {
+		const stat = lstatSync(path);
+		return { uid: stat.uid, mode: stat.mode, isFolder: stat.isDirectory() };
+	} catch {
+		// No folder, so no socket in it.
+		return undefined;
+	}
 }
 
 /** The disk as it is. */
@@ -95,18 +147,8 @@ export const SOCKET_DISK: SocketDisk = {
 			return false;
 		}
 	},
-	keptByItsOwner(folder) {
-		try {
-			const stat = lstatSync(folder);
-			const owner = stat.uid === 0 || stat.uid === process.getuid?.();
-			return (
-				stat.isDirectory() && owner && (stat.mode & WRITTEN_BY_OTHERS) === 0
-			);
-		} catch {
-			// No folder, so no socket in it.
-			return false;
-		}
-	},
+	keptByItsOwner: (folder) =>
+		ownerKeepsFolder(folder, folderStat, process.getuid?.()),
 };
 
 /**
