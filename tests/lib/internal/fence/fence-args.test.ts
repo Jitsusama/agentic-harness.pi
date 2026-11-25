@@ -1230,7 +1230,7 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(given.join(" ")).toContain(`--ro-bind ${kept}/known_hosts`);
 		expect(given.join(" ")).not.toContain(`${kept}/id_ed25519`);
 		expect(given.join(" ")).toContain(`--remount-ro ${kept}`);
-		const place = { home, cwd: tree };
+		const place = { home, runtimeDir: "/run/user/1000", cwd: tree };
 		expect(fenceHidesBeneath(kept, place, linked)).toBe(`${kept}/id_ed25519`);
 		expect(fenceHidesBeneath(tree, place, linked)).toBeUndefined();
 	});
