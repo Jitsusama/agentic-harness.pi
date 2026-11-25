@@ -585,9 +585,6 @@ export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
 	);
 }
 
-/** Why a start's first words are said, as their automated header gives it. */
-export const START_WORDS_REASON = "this session's start left it these words";
-
 /**
  * Take what a spawn left a session it started to say first
  * (lib/internal/quest/sessions/first-words.ts), and answer the send that makes

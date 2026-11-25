@@ -86,17 +86,14 @@ import {
 	type SessionContext,
 	sessionEnv,
 } from "../../lib/core/session/index.ts";
+import { startWordsOf } from "../../lib/internal/automated.ts";
 import {
 	budgetFoundInRecord,
 	budgetInRecord,
 	NO_BUDGET,
 } from "../../lib/internal/quest/fields/budget.ts";
 import { isRecord } from "../../lib/internal/record.ts";
-import {
-	isPersonText,
-	isPersonWords,
-	userTextOf,
-} from "../../lib/internal/session/driven.ts";
+import { isPersonText, userTextOf } from "../../lib/internal/session/driven.ts";
 import {
 	journalCommand,
 	sayInJournal,
@@ -462,9 +459,8 @@ export function keepQuestBudget(
 		// and unpaid. A hosted conversation is bound as RPC with no screen,
 		// so pi says it has no UI; its mode is what tells it from a job.
 		if (ctx.mode === "print" || ctx.mode === "json") return UNNAMED;
-		const said = prompt?.trim();
 		firstPrompt ??=
-			firstPromptOf(ctx) ?? (said && isPersonText(said) ? said : undefined);
+			firstPromptOf(ctx) ?? (prompt === undefined ? undefined : askOf(prompt));
 		if (firstPrompt === undefined) return UNNAMED;
 		// A keeper reloaded into a conversation keeps the budget the one
 		// before it was judged onto, rather than paying to judge again,
@@ -824,18 +820,31 @@ function wasOnQuest(ctx: ExtensionContext): boolean {
 }
 
 /**
- * The first words a person wrote in the session's conversation, so a
+ * The first words asking the session's work in its conversation, so a
  * keeper reloaded mid-conversation judges them again rather than a
- * follow-up like "go on", and never what the harness said under its
- * header, such as a job's report.
+ * follow-up like "go on": a person's, or those its start left it, and
+ * never anything else the harness said under its header, such as a
+ * job's report.
  */
 function firstPromptOf(ctx: ExtensionContext): string | undefined {
 	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
-		if (!isPersonWords(entry)) continue;
-		const text = userTextOf(entry)?.trim();
-		if (text) return text;
+		const text = userTextOf(entry);
+		const ask = text === undefined ? undefined : askOf(text);
+		if (ask) return ask;
 	}
 	return undefined;
+}
+
+/**
+ * What `text` asks of the session, trimmed: a person's words, or those
+ * its start left it, without their header, since a sprout that made no
+ * quest is judged on the ask it was started for. Nothing for anything
+ * else the harness said, or for blank words.
+ */
+function askOf(text: string): string | undefined {
+	const started = startWordsOf(text);
+	const ask = started ?? (isPersonText(text) ? text : undefined);
+	return ask?.trim() || undefined;
 }
 
 /**

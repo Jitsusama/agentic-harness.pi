@@ -12,13 +12,14 @@
  * marked. Whatever goes wrong before the quest exists leaves the node's
  * prose words to be said, as before; once it exists, the words say it.
  *
- * The words this start sets go under the automated header (`started`),
- * so a sprout quoting the ask it was started for never reads in the log
- * as the person correcting it (pain points, 24 November, entry
- * efd94b22). Marked words can't be quoted past a compaction
- * (lib/compaction/selection/units.ts), so only words whose quest exists,
- * and so keeps the ask, are marked: the node's prose, said when no quest
- * was made, stays bare and quotable, as it always was.
+ * A sprout's first words, the node's prose and every word this start
+ * sets in its place, go under the automated header (`started`), so a
+ * sprout quoting the ask it was started for never reads in the log as
+ * the person correcting it (pain points, 24 November, entry efd94b22).
+ * Its reason marks them as the start's, which compaction still quotes
+ * (lib/compaction/selection/units.ts), the ledger takes as starting a
+ * run and the budget keeper judges as the ask, so no path loses its
+ * ask, whether its quest was made, joined or never came.
  */
 
 import type {
@@ -28,7 +29,11 @@ import type {
 import { removeAliasesFromQuest } from "../../../lib/core/quest/front-matter.ts";
 import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
-import { automatedText } from "../../../lib/internal/automated.ts";
+import {
+	automatedText,
+	isAutomatedText,
+	START_WORDS_REASON,
+} from "../../../lib/internal/automated.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -56,11 +61,11 @@ import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { drawsAsNothing } from "../../../lib/internal/unseen.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
-import { pendingWords, START_WORDS_REASON } from "../lifecycle.ts";
+import { pendingWords } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import { create, load } from "../verbs/lifecycle.ts";
 
-/** A start's own words, as no person's: its quest exists and keeps the ask. */
+/** A start's own words, as no person's but still its ask. */
 const started = (words: string): string =>
 	automatedText(START_WORDS_REASON, words);
 
@@ -108,6 +113,11 @@ export async function startSprouted(
 	const hints = pendingWords(ctx).hints;
 	const seed = sproutSeedFrom(hints?.sprout);
 	if (!hints || !seed) return;
+	// The node's prose is marked before anything here can fail, so a quest
+	// never made or loaded, or a throw, still leaves it the start's.
+	if (hints.firstWords && !isAutomatedText(hints.firstWords)) {
+		hints.firstWords = started(hints.firstWords);
+	}
 	if (state.questId) {
 		// This start restored its quest: the prose would only ask for a
 		// second one.

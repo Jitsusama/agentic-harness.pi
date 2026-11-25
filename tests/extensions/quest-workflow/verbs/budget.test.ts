@@ -40,7 +40,10 @@ import {
 	registerBudgetProvider,
 } from "../../../../lib/budget/provider.ts";
 import { BUDGET_ENTRY, BUDGET_SETTLED } from "../../../../lib/budget/record.ts";
-import { automatedText } from "../../../../lib/internal/automated.ts";
+import {
+	automatedText,
+	START_WORDS_REASON,
+} from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
@@ -1837,6 +1840,38 @@ describe("the budget of a session on no quest", () => {
 
 		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
 			"Speed up walgit",
+		]);
+	});
+
+	// A sprout that made no quest is loose, and its ask is in the words
+	// its start left it, marked as no person's.
+	it("judges the ask its start left it, without the header", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		written.push({
+			type: "message",
+			message: {
+				role: "user",
+				content: automatedText(START_WORDS_REASON, "Speed up walgit"),
+			},
+		} as unknown as (typeof written)[number]);
+
+		await keeper.keep(ctx, { prompt: "yes, go on" });
+
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+		]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("judges the start's words sent as its first prompt", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+
+		await keeper.keep(ctx, {
+			prompt: automatedText(START_WORDS_REASON, "Deploy delta"),
+		});
+
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Deploy delta",
 		]);
 	});
 

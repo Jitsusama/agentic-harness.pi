@@ -4,7 +4,7 @@ import type {
 	TurnFacts,
 	TurnPrecedent,
 } from "../core/observability/index.ts";
-import { isAutomatedText } from "../internal/automated.ts";
+import { isAutomatedText, startWordsOf } from "../internal/automated.ts";
 import { LOADED_MESSAGE } from "../internal/reload/loaded.ts";
 import {
 	SERVED_ENTRY,
@@ -262,25 +262,41 @@ function userSaid(
 			step: {},
 		};
 	}
-	// Any other turn the harness started, a background job reporting, is
-	// that work's results arriving, inside the run somebody typed.
-	if (isAutomatedText(textOf(message.content))) {
-		return {
-			after: { ...noting(before, "results"), addedChars: added },
-			step: {},
-		};
-	}
+	const text = textOf(message.content);
 	// A typed message starts a run. It is named by its entry and its time
 	// together, which a fork copies verbatim, so a run split across forked
 	// logs is still one run.
 	const id = typeof entry.id === "string" ? entry.id : "";
 	const stamp = typeof entry.timestamp === "string" ? entry.timestamp : "";
+	const run = { runId: `${stamp}#${id}`, runTurns: 0 };
+	// The words a session's start left it start its run as typed words do,
+	// since they ask its work, though no person typed them, so nothing
+	// counts as typed since.
+	if (startWordsOf(text) !== undefined) {
+		return {
+			after: {
+				...noting(before, "results"),
+				addedChars: added,
+				...run,
+				lastAborted: false,
+				awaiting: null,
+			},
+			step: {},
+		};
+	}
+	// Any other turn the harness started, a background job reporting, is
+	// that work's results arriving, inside the run somebody typed.
+	if (isAutomatedText(text)) {
+		return {
+			after: { ...noting(before, "results"), addedChars: added },
+			step: {},
+		};
+	}
 	return {
 		after: {
 			...noting(before, "typed"),
 			addedChars: added,
-			runId: `${stamp}#${id}`,
-			runTurns: 0,
+			...run,
 			lastTypedAt: at,
 			lastAborted: false,
 			awaiting: null,

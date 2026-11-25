@@ -10,6 +10,8 @@
  * question for asking, later, whether it still holds.
  */
 
+import type { Speaker } from "./units.ts";
+
 /** A kind of paragraph worth keeping in its own words. */
 export type SelectionKind =
 	| "rule"
@@ -33,7 +35,10 @@ export interface KindQuestion {
 export interface KindDefinition {
 	/** How the kind is headed where its excerpts are quoted. */
 	readonly heading: string;
-	/** Only the user can say this kind of thing. */
+	/**
+	 * Only the user can say this kind of thing, or the session's start,
+	 * whose words give the ask it was started for.
+	 */
 	readonly userOnly: boolean;
 	readonly tag: KindQuestion;
 	/** Whether a paragraph of this kind still holds by the end. */
@@ -194,9 +199,9 @@ export const KIND_DEFINITIONS: Readonly<Record<SelectionKind, KindDefinition>> =
 	};
 
 /** The kinds a paragraph from this speaker can be tagged with. */
-export function kindsFor(speaker: "user" | "assistant"): SelectionKind[] {
+export function kindsFor(speaker: Speaker): SelectionKind[] {
 	return SELECTION_KINDS.filter(
-		(kind) => speaker === "user" || !KIND_DEFINITIONS[kind].userOnly,
+		(kind) => speaker !== "assistant" || !KIND_DEFINITIONS[kind].userOnly,
 	);
 }
 

@@ -37,7 +37,11 @@ import {
 	load,
 } from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import { aliasAdd } from "../../../../lib/core/quest/verbs/alias.ts";
-import { isAutomatedText } from "../../../../lib/internal/automated.ts";
+import {
+	automatedText,
+	START_WORDS_REASON,
+	startWordsOf,
+} from "../../../../lib/internal/automated.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -180,6 +184,8 @@ async function start(
 		linkFails?: boolean;
 		/** The quest the real create names when it refuses a held link. */
 		linkHeldBy?: string;
+		/** Every make refused, or throwing, so no quest comes. */
+		createFails?: "refused" | "throws";
 	} = {},
 ) {
 	if (seed) process.env[SEED] = JSON.stringify({ v: 1, ...seed });
@@ -192,6 +198,10 @@ async function start(
 	// quest from its title alone and keeps what it was asked.
 	const make: Create = (params) => {
 		options.asked?.push(params);
+		if (options.createFails === "throws") throw new Error("no disk");
+		if (options.createFails === "refused") {
+			return Promise.resolve({ ok: false, guidance: "can't make it" });
+		}
 		if (options.linkHeldBy && params.url) {
 			return Promise.resolve({
 				ok: false,
@@ -209,12 +219,35 @@ async function start(
 	};
 	const run: RunProgram =
 		options.run ?? (async () => ({ code: 0, stdout: "", stderr: "" }));
-	await startSprouted(state, pi, ctx, {
-		create: make,
-		load: (id) => load(state, pi, ctx, { action: "load", id }),
-		run,
-	});
-	return { state, source, words: pendingWords(ctx).hints?.firstWords };
+	let threw: unknown;
+	try {
+		await startSprouted(state, pi, ctx, {
+			create: make,
+			load: (id) => load(state, pi, ctx, { action: "load", id }),
+			run,
+		});
+	} catch (error) {
+		// Only a case that makes the start throw reads what it left.
+		if (options.createFails !== "throws") throw error;
+		threw = error;
+	}
+	return { state, source, threw, words: pendingWords(ctx).hints?.firstWords };
+}
+
+/**
+ * The start's own words in `words`, without their header, having
+ * checked the log reads them as no person's, or a failure naming what
+ * the start left instead.
+ */
+function startsWords(words: string | undefined): string {
+	const body = startWordsOf(words ?? "");
+	if (body === undefined) throw new Error(`not the start's words: ${words}`);
+	const entry = {
+		type: "message",
+		message: { role: "user", content: words },
+	};
+	expect(isPersonWords(entry), "the log reads them as no one's").toBe(false);
+	return body;
 }
 
 /** The quests on disk. */
@@ -345,19 +378,33 @@ describe("a sprouted session's start", () => {
 
 	// A sprout's words quote the ask it was started for; said bare, a log
 	// reader took that quote for the person correcting the session (pain
-	// points, 24 November, entry efd94b22). Its quest keeps the ask, so
-	// only words whose quest exists are marked; the prose path's stay bare.
-	it("says its words as no person's once its quest is made", async () => {
-		const { words } = await start({
-			words: 'Joel said: "no, not that"',
-			id: "S1m",
-		});
-		expect(isAutomatedText(words ?? ""), String(words)).toBe(true);
-		const entry = {
-			type: "message",
-			message: { role: "user", content: words },
-		};
-		expect(isPersonWords(entry), "the log reads them as no one's").toBe(false);
+	// points, 24 November, entry efd94b22). So every path marks them as
+	// the start's, which compaction, the ledger and the budget still read.
+	it("says its words as its start's once its quest is made", async () => {
+		const asked = 'Joel said: "no, not that"';
+		const { words } = await start({ words: asked, id: "S1m" });
+		const body = startsWords(words);
+		expect(body).toMatch(/is made and loaded for it/u);
+		expect(body).toContain(JSON.stringify(asked));
+		expect(words).toBe(automatedText(START_WORDS_REASON, body));
+	});
+
+	it("says the node's prose as its start's when no quest could be made", async () => {
+		const { state, words } = await start(
+			{ words: "tea", id: "S1r" },
+			{ createFails: "refused" },
+		);
+		expect(state.questId, "a refused make loaded a quest").toBeFalsy();
+		expect(startsWords(words)).toBe("the node's prose");
+	});
+
+	it("leaves the node's prose its start's when making the quest throws", async () => {
+		const { threw, words } = await start(
+			{ words: "tea", id: "S1t" },
+			{ createFails: "throws" },
+		);
+		expect(threw).toBeInstanceOf(Error);
+		expect(startsWords(words)).toBe("the node's prose");
 	});
 
 	it("makes it from a link, with the words as its note", async () => {
@@ -1222,7 +1269,7 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId).toBe(first.state.questId);
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(/already holds this work/u);
+		expect(startsWords(again.words)).toMatch(/already holds this work/u);
 	});
 
 	it("ties no live quest it joined to the cell that asked, which it never came from", async () => {
@@ -1669,7 +1716,7 @@ describe("a sprouted session's start", () => {
 		const again = await start(seed, { sessionId: "sess-join-again" });
 		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(
+		expect(startsWords(again.words)).toMatch(
 			new RegExp(`sprouted for quest ${joined}, which has since ended`, "u"),
 		);
 	});
@@ -1953,7 +2000,7 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(
+		expect(startsWords(again.words)).toMatch(
 			new RegExp(
 				`sprouted for quest ${ended}, which has since ended, so its work is done`,
 				"u",

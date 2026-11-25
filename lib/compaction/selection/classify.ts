@@ -20,11 +20,12 @@ import type {
 	Usage,
 } from "@earendil-works/pi-ai";
 import type { KindQuestion } from "./kinds.ts";
+import type { Speaker } from "./units.ts";
 
 /** One paragraph as the classifier is shown it. */
 export interface Passage {
 	readonly id: string;
-	readonly speaker: "user" | "assistant";
+	readonly speaker: Speaker;
 	readonly text: string;
 }
 
