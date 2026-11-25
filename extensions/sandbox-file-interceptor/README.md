@@ -62,6 +62,12 @@ the work open and the desktop closed, and pi's file tools follow it:
   holds the clipboard's pictures and the desktop's sockets.
 - **Every link** is followed as above, so a link made in the work
   leads nowhere the fence refuses.
+- **A search** walks every folder under its path in pi's own process,
+  outside the fence, so grep refuses a folder holding anything a read
+  would be refused (a token, a private key in `~/.ssh`, other
+  processes, the runtime folder), and on a Mac grep and find refuse one
+  holding the Mac's own secrets, which Santa watches. A search of the
+  work, and `ls` of any folder, run as before.
 - **On a Mac** they also keep to what the fence's seatbelt closes to
   every command: the Mac's own secrets (the keychains, 1Password's,
   the browsers' profiles and cookies, Mail, Messages, and gh's and

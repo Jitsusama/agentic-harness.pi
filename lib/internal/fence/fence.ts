@@ -81,6 +81,7 @@ import {
 	buildersFolderArgs,
 	buildersSecret,
 	inBuildersFolder,
+	lenderFolders,
 } from "./fence-builders.ts";
 import { DEV_SETTINGS, type DevCopies } from "./fence-dev.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
@@ -958,9 +959,58 @@ export function fenceRefusesRead(
 		folder ? path === at || path.startsWith(`${at}/`) : path === at,
 	);
 	if (refused) return true;
+	if (sshSecret(path, place.home, disk)) return true;
 	const runtime = place.runtimeDir;
 	return (
 		runtime !== undefined &&
 		(path === runtime || path.startsWith(`${runtime}/`))
+	);
+}
+
+/**
+ * Whether `path` lies in `~/.ssh` (or where it leads) under an entry the
+ * fence empties for commands: a private key, or a TPM key's handle.
+ */
+function sshSecret(path: string, home: string, disk: Disk): boolean {
+	const ssh = join(home, ".ssh");
+	const real = disk.kind(ssh) === "link" ? disk.real?.(ssh) : undefined;
+	return [ssh, ...(real === undefined ? [] : [real])].some((folder) => {
+		if (!path.startsWith(`${folder}/`)) return false;
+		const entry = path.slice(folder.length + 1).split("/")[0] ?? "";
+		return !SSH_KEPT.test(entry);
+	});
+}
+
+/**
+ * What lies inside `path`, already resolved, that `fenceRefusesRead`
+ * refuses and is there: a search that walks `path` would open it, though
+ * naming it is refused. The first found, or undefined when none is, so a
+ * search of a tree or a quiet folder runs as before.
+ */
+export function fenceHidesBeneath(
+	path: string,
+	place: FencePlace,
+	disk: Disk = DISK,
+): string | undefined {
+	const beneath = (at: string) => at.startsWith(path === "/" ? "/" : `${path}/`);
+	const ssh = join(place.home, ".ssh");
+	const sshSecrets =
+		disk.kind(ssh) === "folder"
+			? disk
+					.entries(ssh)
+					.filter((entry) => !SSH_KEPT.test(entry))
+					.map((entry) => join(ssh, entry))
+			: [];
+	const candidates = [
+		...refusedIn(place.home, disk).map(({ path: at }) => at),
+		...sshSecrets,
+		...lenderFolders(disk),
+		...(place.runtimeDir === undefined ? [] : [place.runtimeDir]),
+		// Any process's own folder stands for them all, so `/proc` itself
+		// counts as holding what it hides.
+		"/proc/1",
+	];
+	return candidates.find(
+		(at) => beneath(at) && at !== path && disk.kind(at) !== undefined,
 	);
 }

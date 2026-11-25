@@ -185,6 +185,68 @@ describe("a fenced session's reads of a hidden key", () => {
 	});
 });
 
+describe("a fenced session's searches", () => {
+	// On 24 November an agent's grep on a Mac opened a file Santa watches:
+	// rg and fd run in pi's own process, so a search of a folder holding
+	// what the fence hides walked into it, though naming it was refused.
+	const fence = { PI_SANDBOX: "fence" };
+	const search = (toolName: string, path: string, mac = false) =>
+		fileToolRefusal(
+			{ toolName, input: { pattern: "x", path } },
+			{ cwd: work, env: fence, home, mac },
+		);
+
+	it("grep no folder holding a token, a private key or other processes", () => {
+		mkdirSync(join(home, ".ssh"));
+		writeFileSync(join(home, ".ssh/id_ed25519"), "private\n");
+		writeFileSync(join(home, ".ssh/known_hosts"), "host\n");
+		const refused = {
+			home: search("grep", "~"),
+			ssh: search("grep", "~/.ssh"),
+			root: search("grep", "/"),
+			proc: search("grep", "/proc"),
+		};
+		for (const [name, said] of Object.entries(refused)) {
+			expect(said, name).toContain("didn't walk it");
+		}
+		expect(refused.home).toContain(join(home, ".npmrc"));
+		expect(refused.ssh).toContain(join(home, ".ssh/id_ed25519"));
+	});
+
+	it("grep the work, and find names anywhere off a Mac, as before", () => {
+		expect(search("grep", ".")).toBeUndefined();
+		expect(search("grep", work)).toBeUndefined();
+		expect(search("find", "~")).toBeUndefined();
+		expect(search("ls", "~")).toBeUndefined();
+	});
+
+	it("read what ~/.ssh keeps for commands, and no private key", () => {
+		mkdirSync(join(home, ".ssh"));
+		writeFileSync(join(home, ".ssh/id_ed25519"), "private\n");
+		writeFileSync(join(home, ".ssh/known_hosts"), "host\n");
+		const read = (path: string) =>
+			fileToolRefusal(
+				{ toolName: "read", input: { path } },
+				{ cwd: work, env: fence, home, mac: false },
+			);
+		expect(read("~/.ssh/known_hosts")).toBeUndefined();
+		expect(read("~/.ssh/id_ed25519")).toContain("keys");
+	});
+
+	it("walk none of the Mac's own secrets there, by grep or find", () => {
+		const support = join(home, "Library/Application Support");
+		mkdirSync(join(support, "Slack"), { recursive: true });
+		expect(search("find", support, true)).toBeUndefined();
+		mkdirSync(join(support, "Google/Chrome"), { recursive: true });
+		for (const tool of ["find", "grep"]) {
+			expect(search(tool, support, true), tool).toContain(
+				join(support, "Google/Chrome"),
+			);
+		}
+		expect(search("find", join(support, "Slack"), true)).toBeUndefined();
+	});
+});
+
 describe("a fenced session's file tools on a Mac", () => {
 	// Until 24 November they kept only to Linux's lists there, so a read
 	// of the keychains or a write to a launch agent, which the seatbelt

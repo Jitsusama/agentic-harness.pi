@@ -13,7 +13,7 @@
  * each path matched as its volume folds case.
  */
 
-import { readlinkSync, realpathSync } from "node:fs";
+import { existsSync, readlinkSync, realpathSync } from "node:fs";
 import {
 	basename,
 	dirname,
@@ -24,7 +24,12 @@ import {
 	sep,
 } from "node:path";
 import type { FenceKind } from "../../mesh/presence.ts";
-import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
+import {
+	FENCE,
+	fenceHidesBeneath,
+	fenceRefusesRead,
+	fenceRefusesWrite,
+} from "../fence/fence.ts";
 import {
 	MAC_PROGRAMS,
 	MAC_READ_ONLY,
@@ -51,15 +56,21 @@ import {
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
- * a folder search the working folder when given none.
+ * a folder search the working folder when given none. A tool that walks
+ * goes down through every folder under it, opening each file (`contents`,
+ * grep) or each folder (`names`, find); `ls` lists one folder.
  */
 const FILE_TOOLS: ReadonlyMap<
 	string,
-	{ readonly use: FileUse; readonly searches: boolean }
+	{
+		readonly use: FileUse;
+		readonly searches: boolean;
+		readonly walks?: "contents" | "names";
+	}
 > = new Map([
 	["read", { use: "read", searches: false }],
-	["grep", { use: "read", searches: true }],
-	["find", { use: "read", searches: true }],
+	["grep", { use: "read", searches: true, walks: "contents" }],
+	["find", { use: "read", searches: true, walks: "names" }],
 	["ls", { use: "read", searches: true }],
 	["edit", { use: "write", searches: false }],
 	["write", { use: "write", searches: false }],
@@ -283,8 +294,35 @@ function fenceRefusal(
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. ${readRoute(real, place)}`;
 		}
+		// pi's grep and find run rg and fd in pi's own process, outside the
+		// fence, so a walk of a folder holding what the fence hides would
+		// open it: grep would hand its lines to the model, and on a Mac
+		// either would open what Santa watches.
+		const walks = FILE_TOOLS.get(toolName)?.walks;
+		const hidden =
+			(walks === "contents" ? fenceHidesBeneath(real, fence) : undefined) ??
+			(mac && walks !== undefined
+				? macSecretBeneath(real, place.home)
+				: undefined);
+		if (hidden !== undefined) {
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps keys, tokens, other processes and the runtime folder from pi's searches, as from every command, and ${path} holds ${hidden}, so ${toolName} didn't walk it. Search the folder inside it that you mean, or run rg or fd in bash, where the fence hides what it holds.`;
+		}
 	}
 	return undefined;
+}
+
+/**
+ * The first of the Mac's own secrets (`MAC_SECRETS`) inside `path`, as
+ * the lists spell it, that is there: a walk of `path` would open it.
+ */
+function macSecretBeneath(path: string, home: string): string | undefined {
+	const homes = [...new Set([home, pastLinks(home)])];
+	return homes
+		.flatMap((from) => MAC_SECRETS.map((entry) => join(from, entry)))
+		.find(
+			(secret) =>
+				secret !== path && inside(secret, path) && existsSync(secret),
+		);
 }
 
 /**
