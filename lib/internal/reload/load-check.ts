@@ -20,10 +20,11 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SESSION_ONLY_VARIABLES } from "../../core/internal/terminal/drivers/shared.ts";
+import { removeTree } from "../files/remove-tree.ts";
 
 /**
  * What ties a process to this session, its holder, its terminal or the
@@ -191,7 +192,7 @@ export function checkLoad(
 		const env: NodeJS.ProcessEnv = loadCheckEnvironment(process.env, sandbox);
 		if (pi.packageDir) env.PI_PACKAGE_DIR = pi.packageDir;
 		const settle = (report: LoadReport) => {
-			rmSync(sandbox, { recursive: true, force: true });
+			removeTree(sandbox);
 			resolve(report);
 		};
 		// A directory with no project settings or context files of its own,

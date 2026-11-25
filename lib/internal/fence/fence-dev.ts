@@ -53,12 +53,12 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
-	rmSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { isOwnFolder, isPrivateFolder, makeFolder } from "./fence-folders.ts";
 import { PLAIN_SESSION } from "./fence-github.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -311,7 +311,7 @@ function freshCopies(
 		// what was made of this set goes, so no half set is left.
 		if (started) {
 			try {
-				rmSync(folder, { recursive: true, force: true });
+				removeTree(folder);
 			} catch {
 				// Left for this pi's end, as its other sets are.
 			}
@@ -363,7 +363,7 @@ function removeEnded(sessions: string, pi: DevMaker): void {
 			if (mounted === null) mounted = pi.mounts();
 			if (mounted === undefined || mounted.includes(`/${FOLDER}/${name}/`))
 				continue;
-			rmSync(path, { recursive: true, force: true });
+			removeTree(path);
 		} catch {
 			// Held by something this process can't remove; the next one tries.
 		}

@@ -1,7 +1,9 @@
 /** Ownership shared by result payloads and web bundles, independent of the host engine. */
+
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { removeTree } from "../../../internal/files/remove-tree.ts";
 import {
 	askedOnceWithTicks,
 	keepTicks,
@@ -160,7 +162,7 @@ export async function reapSessionArtifacts(
 				continue;
 			// A resumed session may have claimed the directory while liveness was being checked.
 			if (fs.readFileSync(file, "utf8") !== before) continue;
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTree(dir);
 		} catch {
 			// Unreadable metadata, unavailable liveness or failed cleanup are retried on a later start.
 		}

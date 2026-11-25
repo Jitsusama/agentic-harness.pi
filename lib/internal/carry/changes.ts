@@ -27,6 +27,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import { removeTree } from "../files/remove-tree.ts";
 import { WRITING } from "../write-whole.ts";
 
 /** What patching a tree's changes did. */
@@ -76,7 +77,7 @@ export async function patchChanges(
 		renameSync(staged, join(into, patch));
 		return { kind: "patched", patch };
 	} finally {
-		rmSync(scratch, { recursive: true, force: true });
+		removeTree(scratch);
 		rmSync(staged, { force: true });
 	}
 }

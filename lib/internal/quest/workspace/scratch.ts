@@ -8,10 +8,11 @@
  * reaped on conclude or retire.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { QuestFrontMatter } from "../../../quest/types.ts";
+import { removeTree } from "../../files/remove-tree.ts";
 import {
 	parseQuestFrontMatter,
 	serializeReadable,
@@ -103,7 +104,7 @@ export function reapQuestScratchDir(
 ): boolean {
 	if (current && isReapableScratch(current)) {
 		try {
-			rmSync(current, { recursive: true, force: true });
+			removeTree(current);
 		} catch {
 			// Best-effort cleanup: a wedged scratch dir must not stop the
 			// quest from concluding. The cleared frontmatter still drops

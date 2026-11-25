@@ -1,0 +1,29 @@
+// A recursive delete goes through remove-tree.ts, never Node's own walk.
+//
+// Node's rm and rmSync walk a tree by path, so a process that can write
+// inside it swaps a subfolder for a link mid-walk and the delete carries
+// on in whatever the link names, with pi's rights (remove-tree.ts says
+// how it was shown). Biome runs this over every file it lints, so a new
+// one fails pnpm lint on the change that writes it. Tests are left out:
+// they remove the folders they made themselves, with nothing else in them.
+
+language js
+
+`$fn($path, $opts)` where {
+	$fn <: or {
+		`rmSync`,
+		`rm`,
+		`rmdirSync`,
+		`rmdir`,
+		`$_.rmSync`,
+		`$_.rm`,
+		`$_.rmdirSync`,
+		`$_.rmdir`
+	},
+	$opts <: contains `recursive`,
+	$filename <: not includes "tests/",
+	register_diagnostic(
+		span=$fn,
+		message="A recursive delete walks by path and follows a link swapped in mid-walk; use removeTree or removeTreeOff from lib/internal/files/remove-tree.ts."
+	)
+}

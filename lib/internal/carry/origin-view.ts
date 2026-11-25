@@ -31,7 +31,7 @@
  * come one at a time, since git asks HEAD of origin with no prefix.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	callSignal,
@@ -39,6 +39,7 @@ import {
 	type ExecResult,
 	withCallSignal,
 } from "../../core/exec/index.ts";
+import { removeTree } from "../files/remove-tree.ts";
 import { messageOf } from "./message.ts";
 
 /** git run in one tree, as arrive hears it. */
@@ -448,7 +449,7 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 		} finally {
 			if (folder !== undefined) {
 				try {
-					rmSync(folder, { recursive: true, force: true });
+					removeTree(folder);
 				} catch {
 					// Left in the tree's .git, where nothing reads it; a throw here
 					// would replace git's own answer.

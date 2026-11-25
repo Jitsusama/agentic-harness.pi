@@ -28,10 +28,10 @@ import {
 	symlinkSync,
 	unlinkSync,
 } from "node:fs";
-import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
+import { removeTreeOff } from "../../lib/internal/files/remove-tree.ts";
 import {
 	btrfsFolders,
 	makeWorkspace,
@@ -79,7 +79,7 @@ function shareJitiCache(tmp: string, shared: string): void {
 		if (stat?.isDirectory()) {
 			const aside = `${link}.old-${process.pid}-${Date.now()}`;
 			renameSync(link, aside);
-			void rm(aside, { recursive: true, force: true }).catch(() => {
+			void removeTreeOff(aside).catch(() => {
 				// What is left is in tmp/, which conclude and the disk guard clear.
 			});
 		} else if (stat) {

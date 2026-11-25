@@ -37,10 +37,10 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
-	rmSync,
 	watch,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { guardedListFile } from "./fence-args-file.ts";
 import { recordRefusal, systemLogger } from "./fence-log.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
@@ -86,7 +86,7 @@ const LIVE: RootWatchDeps = {
 	},
 	remove: (path) => {
 		try {
-			rmSync(path, { recursive: true, force: true });
+			removeTree(path);
 		} catch {
 			// What can't be removed is still logged and its sessions stopped,
 			// and the next command's check tries again.

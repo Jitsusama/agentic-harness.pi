@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import { setTimeout } from "node:timers";
 import type { Browser } from "puppeteer-core";
+import { removeTree } from "../../../internal/files/remove-tree.ts";
 import { headlessEnvironment, resolveChromePath } from "../chrome.ts";
 import { BrowserLaunchFailed } from "./failure.ts";
 import {
@@ -42,7 +43,7 @@ async function launchOnce(executablePath: string): Promise<Browser> {
 	const profileDir = ownProfileDir();
 	// Reset the profile so a half-dead Chrome's SingletonLock from a
 	// prior attempt cannot poison this one.
-	fs.rmSync(profileDir, { recursive: true, force: true });
+	removeTree(profileDir);
 	fs.mkdirSync(profileDir, { recursive: true });
 	const browser = await (await puppeteer()).launch({
 		executablePath,

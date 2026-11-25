@@ -17,6 +17,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Page } from "puppeteer-core";
+import { removeTree } from "../../internal/files/remove-tree.ts";
 import {
 	type ArtifactReaping,
 	reapSessionArtifacts,
@@ -287,8 +288,7 @@ function reapDir(
 		if (!entry.isDirectory()) continue;
 		const dir = path.join(root, entry.name);
 		try {
-			if (stale(dir, entry.name))
-				fs.rmSync(dir, { recursive: true, force: true });
+			if (stale(dir, entry.name)) removeTree(dir);
 		} catch {
 			// The directory vanished under us or is unreadable; skip it.
 		}
@@ -358,7 +358,7 @@ export async function reapAbandonedBundles(
 export function cleanupSessionBundles(ref?: SessionRef): void {
 	if (hosted()) return;
 	try {
-		fs.rmSync(sessionDir(ref), { recursive: true, force: true });
+		removeTree(sessionDir(ref));
 	} catch {
 		// Best-effort cleanup; the reaper reclaims it later if this fails.
 	}
@@ -471,7 +471,7 @@ export async function readPage(
 		return assembleBundle(captured, sink);
 	} catch (err) {
 		// Don't leave a half-written bundle behind on a failed assembly.
-		fs.rmSync(sink.dir, { recursive: true, force: true });
+		removeTree(sink.dir);
 		throw err;
 	}
 }

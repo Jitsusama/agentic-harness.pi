@@ -21,9 +21,10 @@
  * `tree-add` with nothing anybody could press.
  */
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { abortError, WallClockExceeded } from "../../../../clock/bound.ts";
+import { removeTree } from "../../../../internal/files/remove-tree.ts";
 import { gitRules } from "../../../../internal/sandbox/sandbox.ts";
 import { guardedExec } from "../../../../internal/sandbox/tree-git.ts";
 import { spawnExec } from "../../../exec/spawn.ts";
@@ -202,7 +203,7 @@ async function tidyStoppedCut(
 	try {
 		// Twice forced, because a cut stopped early is still locked.
 		await tryGit(tidy, repoRoot, "worktree", "remove", "-f", "-f", treePath);
-		rmSync(treePath, { recursive: true, force: true });
+		removeTree(treePath);
 		await tryGit(tidy, repoRoot, "worktree", "prune");
 		if (branch) await tryGit(tidy, repoRoot, "branch", "-D", branch);
 	} catch {
