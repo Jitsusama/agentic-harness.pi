@@ -154,6 +154,29 @@ describe("hosted screens", () => {
 		expect(one.write).toHaveBeenCalledWith("hello");
 	});
 
+	it("says what each screen's start took, having started it under its own session", async () => {
+		const said: string[] = [];
+		const modes: FakeMode[] = [];
+		const screens = hostScreens({
+			create: (runtime, options) => {
+				const made = new FakeMode(runtime, options);
+				modes.push(made);
+				return made;
+			},
+			report: vi.fn(),
+			said: (line) => said.push(line),
+		});
+		await screens.screens.opened({
+			sessionId: "a",
+			runtime: {},
+			close: async () => undefined,
+		});
+		expect(modes[0]?.startedIn).toBe("a");
+		expect(said).toEqual([
+			expect.stringMatching(/^Screen started in \d+\.\d s \(colours /),
+		]);
+	});
+
 	it("says a conversation is viewed only while a viewer is on its screen", async () => {
 		const screens = host();
 		await screens.screens.opened(screens.view("a"));

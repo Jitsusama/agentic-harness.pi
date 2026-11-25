@@ -37,6 +37,7 @@ import {
 	stopScreen,
 	working,
 } from "./hosted-mode.ts";
+import { startLine, timeStart } from "./start-parts.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
 // The host's program builds its screens from here.
@@ -156,6 +157,8 @@ export const PARKED_LINE =
 export function hostScreens(options: {
 	create: HostedModeFactory;
 	report: (error: unknown) => void;
+	/** Told, as each screen starts, what in its start took the time; without it nothing is timed. */
+	said?: (line: string) => void;
 	/** Shows pi's startup questions; without it the screens offer none. */
 	ask?: StartupAsker;
 	/** Told how many windows view a conversation, each time one joins or leaves. */
@@ -371,8 +374,12 @@ export function hostScreens(options: {
 		const made = screen;
 		terminal.whenFaulted((error) => contain(made, error));
 		live.set(view.sessionId, screen);
+		const init = (): Promise<void> =>
+			withSession(view.sessionId, () => mode.init());
 		try {
-			await withSession(view.sessionId, () => mode.init());
+			const { said } = options;
+			if (said) said(startLine(await timeStart(mode, view.runtime, init)));
+			else await init();
 		} catch (error) {
 			// The engine fails the open itself, so the screen goes without closing.
 			live.delete(view.sessionId);

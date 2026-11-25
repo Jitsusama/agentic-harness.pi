@@ -218,6 +218,7 @@ export async function startHostProgram(
 			configured.startupQuestions.mainScreen,
 		),
 		report,
+		said: report,
 	});
 	let engine: HostEngine | undefined;
 	let rollable: { roll(): void } | undefined;
