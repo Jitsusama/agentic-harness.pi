@@ -263,8 +263,14 @@ function fenceRefusal(
 		share: makeShares(scratch),
 		trees,
 	};
+	// A linked home is judged as it's named and as it leads, since the
+	// lists are built from the home as named and a path from where it leads.
+	const led = pastLinks(place.home);
+	const fences =
+		led === place.home ? [fence] : [fence, { ...fence, home: led }];
 	const mac = place.mac ?? process.platform === "darwin";
 	const spelling = mac ? listSpelling(place.home) : undefined;
+	const lists = mac ? macLists(place) : undefined;
 	for (const candidate of candidates) {
 		const reached = leadsTo(candidate);
 		if (reached === undefined) {
@@ -276,7 +282,14 @@ function fenceRefusal(
 		// lists'; where it leads is as the volume spells it, then the lists.
 		const named = spelling ? spelling(candidate) : candidate;
 		const real = spelling ? spelling(spelledOnDisk(reached)) : reached;
-		const macRefusal = mac && macRefuses(real, use, place.home);
+		// A write may replace a link where it sits rather than write
+		// through it, so that place counts too, its folder as the volume
+		// spells it, since the lists compare case as they're spelled.
+		const sits = spelling
+			? spelling(join(spelledOnDisk(dirname(candidate)), basename(candidate)))
+			: candidate;
+		const judged = use === "write" ? [real, named, sits] : [real];
+		const macRefusal = lists && macRefuses(judged, use, lists);
 		if (macRefusal === "secret") {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps the Mac's own secrets out of reach, as its commands' seatbelt does: the keychains, 1Password's, the browsers' profiles and cookies, Mail, Messages, and gh's and op's settings. ${path} leads to ${real}, so ${toolName} didn't run. A command that needs a key or token gets it through secret_run, which asks the person to release it to that one command.`;
 		}
@@ -287,11 +300,13 @@ function fenceRefusal(
 		// link in a read-only place may replace the link itself.
 		if (
 			use === "write" &&
-			(fenceRefusesWrite(named, fence) || fenceRefusesWrite(real, fence))
+			fences.some((each) =>
+				[named, sits, real].some((path) => fenceRefusesWrite(path, each)),
+			)
 		) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the work tool's trees but the session's own, the folders the person browses in the home folder but the one the session works in, and other quests' scratch and shared folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
-		if (fenceRefusesRead(real, fence)) {
+		if (fences.some((each) => fenceRefusesRead(real, each))) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. ${readRoute(real, place)}`;
 		}
 		// pi's grep and find run rg and fd in pi's own process, outside the
@@ -300,9 +315,13 @@ function fenceRefusal(
 		// either would open what Santa watches.
 		const walks = FILE_TOOLS.get(toolName)?.walks;
 		const hidden =
-			(walks === "contents" ? fenceHidesBeneath(real, fence) : undefined) ??
-			(mac && walks !== undefined
-				? macSecretBeneath(real, place.home)
+			(walks === "contents"
+				? fences
+						.map((each) => fenceHidesBeneath(real, each))
+						.find((found) => found !== undefined)
+				: undefined) ??
+			(lists && walks !== undefined
+				? macSecretBeneath(real, lists.secrets)
 				: undefined);
 		if (hidden !== undefined) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps keys, tokens, other processes and the runtime folder from pi's searches, as from every command, and ${path} holds ${hidden}, so ${toolName} didn't walk it. Search the folder inside it that you mean, or run rg or fd in bash, where the fence hides what it holds.`;
@@ -312,62 +331,121 @@ function fenceRefusal(
 }
 
 /**
- * The first of the Mac's own secrets (`MAC_SECRETS`) inside `path`, as
- * the lists spell it, that is there: a walk of `path` would open it.
+ * A name as a Mac's volume compares it, or wider: composed, and folded
+ * up then down, so `ß` meets `SS` and `ſ` meets `s`. Folding wider than
+ * the volume refuses a name it would keep apart, which fails closed, as
+ * on a volume made case-sensitive, where these lists refuse more than
+ * the seatbelt does.
  */
-function macSecretBeneath(path: string, home: string): string | undefined {
-	const homes = [...new Set([home, pastLinks(home)])];
-	return homes
-		.flatMap((from) => MAC_SECRETS.map((entry) => join(from, entry)))
-		.find(
-			(secret) =>
-				secret !== path && inside(secret, path) && existsSync(secret),
-		);
+function folded(name: string): string {
+	return name.normalize("NFC").toUpperCase().toLowerCase();
+}
+
+/** A path folded a part at a time, as `folded` folds each name. */
+function foldedPath(path: string): string {
+	return path.split("/").map(folded).join("/");
+}
+
+/** Whether `path` lies in `folder`, as a Mac's volume compares names. */
+function insideFolded(path: string, folder: string): boolean {
+	return inside(foldedPath(path), foldedPath(folder));
+}
+
+/** What the Mac's seatbelt closes that Linux's lists don't, by place. */
+interface MacLists {
+	/** Closed to reading and writing alike. */
+	readonly secrets: readonly string[];
+	/** Closed to writing: what runs later as the person. */
+	readonly kept: readonly string[];
 }
 
 /**
- * What the Mac's seatbelt closes that Linux's lists don't, for a path
- * already spelled as the lists spell it: a secret is closed to reading and
- * writing alike, and what runs later as the person to writing.
+ * Each place the seatbelt closes, from the home as named and as it
+ * leads, and where each place leads too: the seatbelt closes the place
+ * a list's entry links to (~/.config/gh to ~/dotfiles/gh), so the file
+ * tools do. The folders on the commands' PATH outside the work are kept
+ * as the seatbelt keeps them, since a program written there runs later
+ * by name.
+ */
+function macLists(place: FilePlace): MacLists {
+	const homes = [...new Set([place.home, pastLinks(place.home)])];
+	const withLeads = (paths: readonly string[]) => [
+		...new Set(
+			paths.flatMap((path) => {
+				try {
+					return [path, realpathSync.native(path)];
+				} catch {
+					return [path];
+				}
+			}),
+		),
+	];
+	const fromHomes = (entries: readonly string[]) =>
+		homes.flatMap((from) => entries.map((entry) => join(from, entry)));
+	const onPath = (place.env.PATH ?? "")
+		.split(":")
+		.filter((entry) => entry.startsWith("/") && !within(entry, place.cwd));
+	return {
+		secrets: withLeads(fromHomes(MAC_SECRETS)),
+		kept: withLeads([...fromHomes(MAC_READ_ONLY), ...MAC_PROGRAMS, ...onPath]),
+	};
+}
+
+/**
+ * The first of the Mac's own secrets inside `path` that is there, as the
+ * volume compares names: a walk of `path` would open it.
+ */
+function macSecretBeneath(
+	path: string,
+	secrets: readonly string[],
+): string | undefined {
+	const walked = foldedPath(path);
+	return secrets.find(
+		(secret) =>
+			foldedPath(secret) !== walked &&
+			insideFolded(secret, path) &&
+			existsSync(secret),
+	);
+}
+
+/**
+ * What the Mac's seatbelt closes that Linux's lists don't, for any of
+ * `paths`: a secret is closed to reading and writing alike, and what runs
+ * later as the person to writing.
  */
 function macRefuses(
-	path: string,
+	paths: readonly string[],
 	use: FileUse,
-	home: string,
+	lists: MacLists,
 ): "secret" | "kept" | undefined {
-	const homes = [...new Set([home, pastLinks(home)])];
-	const inAny = (entries: readonly string[]) =>
-		homes.some((from) =>
-			entries.some((entry) => inside(path, join(from, entry))),
-		);
-	if (inAny(MAC_SECRETS)) return "secret";
-	if (use !== "write") return undefined;
-	if (inAny(MAC_READ_ONLY)) return "kept";
-	return MAC_PROGRAMS.some((folder) => inside(path, folder))
-		? "kept"
-		: undefined;
+	const inAny = (places: readonly string[]) =>
+		paths.some((path) => places.some((at) => insideFolded(path, at)));
+	if (inAny(lists.secrets)) return "secret";
+	return use === "write" && inAny(lists.kept) ? "kept" : undefined;
 }
 
 /**
  * How a Mac's paths are spelled for the fence's lists: a name that folds
  * to a closed path's as the list spells it, since a Mac's volumes fold
- * case and would open ~/Library/keychains as ~/Library/Keychains. Closed
- * paths nested in others are spelled after them, the shortest first, so
- * each part takes the list's own spelling.
+ * case and would open ~/Library/keychains as ~/Library/Keychains. Each
+ * part is folded on its own, so a fold that changes a name's length
+ * (`ß` to `ss`) still meets the list's spelling rather than letting it
+ * through. Closed paths nested in others are spelled after them, the
+ * shortest first, so each part takes the list's own spelling.
  */
 function listSpelling(home: string): (path: string) => string {
 	const closed = closedPaths(home, true, false, true)
 		.concat(closedPaths(home, true, true, true))
+		.map((entry) => entry.split("/"))
 		.sort((a, b) => a.length - b.length);
 	return (path) =>
 		closed.reduce((spelled, entry) => {
-			const folded = spelled.toLowerCase();
-			const at = entry.toLowerCase();
-			// Only where folding kept each length, so the rest is cut where it starts.
-			const kept =
-				folded.length === spelled.length && at.length === entry.length;
-			return kept && (folded === at || folded.startsWith(`${at}/`))
-				? entry + spelled.slice(entry.length)
+			const parts = spelled.split("/");
+			const meets =
+				entry.length <= parts.length &&
+				entry.every((part, at) => folded(part) === folded(parts[at] ?? ""));
+			return meets
+				? [...entry, ...parts.slice(entry.length)].join("/")
 				: spelled;
 		}, path);
 }
@@ -392,7 +470,10 @@ function spelledOnDisk(path: string): string {
  * reaches one command through `secret_run`, which asks the person.
  */
 function readRoute(real: string, place: FilePlace): string {
-	if (real === join(place.home, ".npmrc")) {
+	const npmrcs = [place.home, pastLinks(place.home)].map((from) =>
+		join(from, ".npmrc"),
+	);
+	if (npmrcs.includes(real)) {
 		return "A command reads ~/.npmrc without its tokens.";
 	}
 	const runtime = place.env.XDG_RUNTIME_DIR;

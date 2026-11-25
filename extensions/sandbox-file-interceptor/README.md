@@ -58,25 +58,36 @@ the work open and the desktop closed, and pi's file tools follow it:
   counts as well as where it leads, since writing a link may replace
   it.
 - **Reading** is refused for any process's files in `/proc`, pi's own
-  through `/proc/self` included, and for the runtime folder, which
-  holds the clipboard's pictures and the desktop's sockets.
+  through `/proc/self` included, for the runtime folder, which holds
+  the clipboard's pictures and the desktop's sockets, and for the
+  private keys in `~/.ssh`, which the fence hides from commands; its
+  known hosts and public keys read as before. A linked home is judged
+  as named and as it leads.
 - **Every link** is followed as above, so a link made in the work
   leads nowhere the fence refuses.
 - **A search** walks every folder under its path in pi's own process,
   outside the fence, so grep refuses a folder holding anything a read
   would be refused (a token, a private key in `~/.ssh`, other
   processes, the runtime folder), and on a Mac grep and find refuse one
-  holding the Mac's own secrets, which Santa watches. A search of the
-  work, and `ls` of any folder, run as before.
+  holding the Mac's own secrets, which Santa watches. This holds on
+  Linux too, and refuses more than the fence refuses a command, which
+  may search such a folder while the fence hides what it holds: the
+  refusal says to name the folder meant, or to run rg or fd in bash.
+  A search of the work, and `ls` of any folder, run as before. Neither
+  search follows links, so a link planted in the work walks nowhere.
 - **On a Mac** they also keep to what the fence's seatbelt closes to
   every command: the Mac's own secrets (the keychains, 1Password's,
   the browsers' profiles and cookies, Mail, Messages, and gh's and
   op's settings) are refused both ways, and what runs later as the
   person (the launch agents, preferences, services, scripts, apps'
-  containers, the apps, Homebrew and `/usr/local`) is refused for
-  writing. The lists are the seatbelt's own, so the tools refuse
-  nothing a command may do. Each path is matched as the volume folds
-  case, so `~/.NPMRC` is `~/.npmrc`. pi's own state, which the
+  containers, the apps, Homebrew, `/usr/local`, and every folder on
+  the commands' PATH outside the work) is refused for writing. The
+  lists are the seatbelt's own, each place where it leads included, as
+  the seatbelt closes a linked `~/.config/gh` at its target, so beyond
+  searches the tools refuse nothing a command may do. Each path is
+  matched as the volume folds case, a name at a time, so `~/.NPMRC` is
+  `~/.npmrc`; a volume made case-sensitive is refused a little more
+  than its commands, which fails closed. pi's own state, which the
   seatbelt hides from commands, reads as on Linux, since pi points
   the model at its own files there.
 
