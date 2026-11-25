@@ -46,7 +46,7 @@ function restore(
 }
 
 /** One session log with a few billed turns in it. */
-function aSessionLog(sessions: string): void {
+function aSessionLog(sessions: string, name = "01a0aaaa-0000"): void {
 	const session = join(sessions, "--work--");
 	mkdirSync(session, { recursive: true });
 	const lines = Array.from({ length: 40 }, (_, i) =>
@@ -70,7 +70,7 @@ function aSessionLog(sessions: string): void {
 		}),
 	);
 	writeFileSync(
-		join(session, "2026-10-01T21-46-00-000Z_01a0aaaa-0000.jsonl"),
+		join(session, `2026-10-01T21-46-00-000Z_${name}.jsonl`),
 		`${lines.join("\n")}\n`,
 	);
 }
@@ -125,6 +125,31 @@ describe("cost calls made at the same moment", () => {
 			"fulfilled",
 		]);
 	});
+
+	it("close the ledger only once a pass under way has finished", async () => {
+		// On 25 November a keeper's pass of 24 minutes ended in SQLITE_MISUSE,
+		// its handle closed under it by the session's shutdown.
+		const tool = costTool();
+		await tool.execute("warm", {}, undefined, undefined, ctx);
+		for (let n = 1; n <= 10; n += 1) {
+			aSessionLog(join(dir, "agent", "sessions"), `01a0aaaa-${n}`);
+		}
+
+		const passing = tool.execute(
+			"a",
+			{ reindex: true },
+			undefined,
+			undefined,
+			ctx,
+		);
+		await new Promise((started) => setImmediate(started));
+		for (const handler of handlers.get("session_shutdown") ?? []) {
+			await handler({}, {});
+		}
+
+		const answer = await passing;
+		expect(answer.content[0]?.text).not.toMatch(/closed|MISUSE/i);
+	}, 30_000);
 
 	it("index each log once between them", async () => {
 		const tool = costTool();

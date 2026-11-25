@@ -230,6 +230,16 @@ async function quoteBill(
 	return formatBill(bill, limit, cut ? undefined : by);
 }
 
+/** Wait for `work` to end, whichever way it ends, when there is any. */
+async function settled(work: Promise<unknown> | null): Promise<void> {
+	if (work === null) return;
+	try {
+		await work;
+	} catch {
+		// Its caller hears how it failed; here it only has to be over.
+	}
+}
+
 export default function spendWorkflow(pi: ExtensionAPI) {
 	// Each conversation load or reload runs this again in the same process,
 	// so resource samples can say how many loads its memory has been through.
@@ -383,6 +393,11 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		unregisterRuns?.();
 		unregisterRuns = null;
+		// A pass, or the opening it waits on, may still be under way: a
+		// keeper's runs for minutes. Closing under it would end it on a
+		// closed handle, losing what it read, so the close waits for it.
+		await settled(opening);
+		await settled(indexing);
 		const closingReader = reader;
 		reader = null;
 		if (closingReader) {

@@ -16,7 +16,9 @@
  * seven days, by ISO week.
  *
  * It indexes the session logs into the ledger first, as the tool
- * does before it answers, then reads the ledger read-only. The one
+ * does before it answers, under the keepers' lease, then reads the
+ * ledger read-only. When a keeper's pass holds the lease, it skips the
+ * indexing and reads what that pass has written so far. The one
  * thing a session would add, which tools load on demand, is left
  * out, since only a running pi knows.
  *
@@ -39,6 +41,7 @@ import {
 	indexSessionLogs,
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
+import { claimLease } from "../extensions/spend-workflow/keeper.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
@@ -63,11 +66,25 @@ export async function measure(opts: {
 	const ledgerDir = stateDir("observability");
 	mkdirSync(ledgerDir, { recursive: true });
 	const ledger = join(ledgerDir, "ledger.db");
-	const store = await openTurnStore(ledger);
-	try {
-		await indexSessionLogs(store, join(ledgerDir, "ledger-watermarks.json"));
-	} finally {
-		await store.close();
+	// Under the keepers' lease, or not at all: a keeper's pass holds the
+	// ledger's write lock for minutes, and a measure indexing beside it
+	// met that lock on every try (25 November). Behind a pass under way
+	// it reads the ledger as the last pass left it.
+	const release = claimLease(ledgerDir);
+	if (release !== undefined) {
+		try {
+			const store = await openTurnStore(ledger);
+			try {
+				await indexSessionLogs(
+					store,
+					join(ledgerDir, "ledger-watermarks.json"),
+				);
+			} finally {
+				await store.close();
+			}
+		} finally {
+			release();
+		}
 	}
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
