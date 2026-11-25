@@ -697,6 +697,18 @@ describe("a presence's time it has signed since, read back", () => {
 			expect(sinceOf(odd), JSON.stringify(odd)).toBeUndefined();
 		}
 	});
+
+	it("counts as none when it names no zone, which machines would read apart", () => {
+		expect(sinceOf("2026-11-21T15:47:00")).toBeUndefined();
+	});
+
+	it("counts as none when it is shaped as a time but names none", () => {
+		expect(sinceOf("2026-13-45T99:00:00Z")).toBeUndefined();
+	});
+
+	it("counts as none when its zone carries it past the year 9999", () => {
+		expect(sinceOf("9999-12-31T23:00:00-05:00")).toBeUndefined();
+	});
 });
 
 /** Writes held until each is let go, by its place in the order sent. */

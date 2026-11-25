@@ -916,13 +916,18 @@ function groupsShaped(groups: readonly string[]): string[] {
  * would otherwise win or lose every tie as text, counts as no time.
  */
 function signsSinceOf(value: unknown): { signsSince?: string } {
-	// Only a date and time as an ISO string says: Date.parse alone reads
-	// "0" as the year 2000.
-	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value))
+	// Only a date and time as an ISO string says, with its zone: Date.parse
+	// alone reads "0" as the year 2000, and a time with no zone as local,
+	// which two machines would put at different instants.
+	if (
+		typeof value !== "string" ||
+		!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+	)
 		return {};
 	const at = Date.parse(value);
 	if (!Number.isFinite(at)) return {};
-	// A year past 9999 is written "+275760-01-01T...", which sorts first as text.
+	// A year past 9999, as "9999-12-31T23:00:00-05:00" gives, is written
+	// "+010000-01-01T...", which sorts first as text.
 	const since = new Date(at).toISOString();
 	return /^\d{4}-/.test(since) ? { signsSince: since } : {};
 }

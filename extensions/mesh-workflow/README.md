@@ -1403,8 +1403,11 @@ for its own and heard none, and one read marker served both.
 So the address is one live peer's. A peer starting while
 another live peer signs with it yields: it signs with its
 session id's eight characters, and keeps its own read marker.
-Two that took it at once settle by session id, the lower
-keeping it, so neither flips back and forth. The holder is
+Two that both sign with it settle by who has held it longer,
+and two that took it at once by session id, the lower
+keeping it, so neither flips back and forth. A holder keeps
+its time through a park, and through a kill only if it said
+something in its last ten minutes. The holder is
 told on the mesh and the one yielding is told in its session,
 each asked to agree which part of the quest it takes, since two
 sessions on one quest are how work gets done twice. Both still
