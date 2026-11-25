@@ -327,6 +327,50 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 	expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe("bravo-BBBBBBBB");
 });
 
+it("keeps its quest's address through a restart in its host, over a peer that took it since", async () => {
+	// A hosted conversation's presence goes as it ends, so a restart in
+	// place or a rollover found no time to keep (#2218's review, F21, F37).
+	await inHost();
+	mkdirSync(paths.sessions, { recursive: true });
+	writeFileSync(
+		join(paths.sessions, "alpha-AAAAAAAA.json"),
+		JSON.stringify({ quest: "QEST-20261021-7M6JKG" }),
+	);
+	await peer("bravo-BBBBBBBB");
+	const hello = (from: Awaited<ReturnType<typeof peer>>) =>
+		from.call("mesh_send", { to: "BBBBBBBB", intent: "fyi", text: "hello" });
+	const a = await peer("alpha-AAAAAAAA");
+	expect(await hello(a)).toContain("Sent as 7M6JKG");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const heldFrom = presences.of("alpha-AAAAAAAA")?.signsSince;
+	expect(heldFrom, "it says since when it holds it").toBeDefined();
+
+	await a.close();
+	expect(
+		presences.of("alpha-AAAAAAAA"),
+		"its presence goes as it ends",
+	).toBeUndefined();
+	// Taken meanwhile by a peer whose lower id would keep it without time.
+	const takenAt = new Date(Date.parse(heldFrom ?? "") + 60_000).toISOString();
+	presences.publish({
+		session: "0000-taker",
+		addresses: ["7M6JKG"],
+		signsSince: takenAt,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: takenAt,
+	});
+
+	const again = await peer("alpha-AAAAAAAA");
+	expect(await hello(again)).toContain("Sent as 7M6JKG");
+	expect(
+		presences.of("alpha-AAAAAAAA")?.signsSince,
+		"and says the time it held it from, not its restart's",
+	).toBe(heldFrom);
+});
+
 it("releases a closing conversation's leases on disk before it goes", async () => {
 	const { open } = await inHost();
 	const a = await peer("alpha-AAAAAAAA");
