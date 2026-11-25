@@ -2,6 +2,9 @@
  * A folder's files read as asked, or mirrored for a host: what the first
  * ask gets, how soon another process's write shows, what this process's
  * own writes do, and that the poll keeps up when the watch can't.
+ *
+ * Long because each case drives one mirror through the same mocked disk
+ * and watch, which a split would set up twice.
  */
 import {
 	chmodSync,
@@ -627,8 +630,8 @@ describe("a host's mirror of a folder", () => {
 				},
 				{ timeout: 2000 },
 			);
-			// Polls enough to remake a watch the event had dropped.
 			for (let poll = 0; poll < 5; poll += 1) {
+				// A real pause: polls enough to remake a watch the event dropped.
 				await new Promise((done) => setTimeout(done, 25));
 				folder.files();
 			}
