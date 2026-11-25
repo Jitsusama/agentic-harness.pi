@@ -8,13 +8,25 @@
  * - Memory pressure is the kernel's own verdict,
  *   `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warning, 4
  *   critical. Warning or worse reads as past the queue's limit, and so
- *   does swapping out across the last ten seconds, the nearest a Mac has
- *   to PSI's stall.
+ *   does swapping out across the last minute, the nearest a Mac has to
+ *   PSI's stall (velocity's Mac line, 25 November).
+ * - Swapping is read from one history the whole machine keeps, not one
+ *   a session keeps: every session ticks, but a tick reads the machine
+ *   only in the session that claims the reading (reading-claim.ts), and
+ *   otherwise only as a tool call checks its own start. With thirty
+ *   sessions, each reads about once a minute, so a history of its own
+ *   could hold no two readings inside the window and never see a
+ *   swap-out. On 25
+ *   November at 10:06 the Mac swapped hard while suites still started,
+ *   and Joel's window froze.
+ *   `vm.swapusage`'s free figure isn't read: macOS drops swap files as
+ *   they empty, so it reads short just as the Mac recovers.
  * - Memory available is `kern.memorystatus_level`, the share of memory
  *   the kernel counts as available (free, inactive and purgeable), times
  *   the machine's memory. macOS fills memory with file cache, so that
  *   share falls long before anything waits: it holds work back only
- *   once it is under {@link LEAST_AVAILABLE_PERCENT}.
+ *   once it is under {@link LEAST_AVAILABLE_PERCENT}, the share under
+ *   which velocity found a Mac's window stalling.
  * - CPU pressure is how far the load average runs past the cores, as the
  *   share of runnable work that has to wait, which reads as PSI's
  *   "some" does: nothing until every core is busy.
@@ -25,16 +37,32 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeWhole } from "../write-whole.ts";
 import { MOST_MEMORY_PRESSURE } from "./queue.ts";
 import type { Reading } from "./room.ts";
 
 const GIB = 1024 ** 3;
 
 /** Under this share of memory available, work waits whatever the pressure. */
-export const LEAST_AVAILABLE_PERCENT = 20;
+export const LEAST_AVAILABLE_PERCENT = 35;
 
 /** How far back a swap-out still counts as the machine swapping now. */
-export const SWAPPING_MS = 10_000;
+export const SWAPPING_MS = 60_000;
+
+/**
+ * How old a reading may be and still date the window's start, when
+ * none came just as it began: past this, a swap-out since may be long
+ * over, so it says nothing of now.
+ */
+export const BASELINE_MS = 2 * SWAPPING_MS;
+
+/**
+ * The file that keeps the machine's swap-outs, in the queue's lock
+ * folder, which the desktop's watch on the queue's folder doesn't hear.
+ */
+export const SWAP_FILE = "swapouts.json";
 
 /** The kernel's pressure level from which work waits: warning. */
 const WARNING_LEVEL = 2;
@@ -59,6 +87,122 @@ export interface DarwinFacts {
 	readonly swapouts: number;
 	/** The VM guests running. */
 	readonly guests: number;
+}
+
+/** `vm_stat`'s count of swap-outs, as read at one moment. */
+export interface Swapped {
+	readonly at: number;
+	readonly swapouts: number;
+}
+
+/** Where the swap-outs read lately are kept between readings. */
+export interface SwapHistory {
+	load(): readonly Swapped[];
+	save(seen: readonly Swapped[]): void;
+}
+
+/** A history this process alone keeps. */
+export function historyInMemory(): SwapHistory {
+	let kept: readonly Swapped[] = [];
+	return {
+		load: () => kept,
+		save: (seen) => {
+			kept = seen;
+		},
+	};
+}
+
+/**
+ * A history every session on the machine shares, kept in the folder
+ * `folder` names, asked again on each reading until it names one, so a
+ * session that couldn't name it as it loaded still joins the others.
+ * Each session also keeps what it saved itself, so a file it can't read
+ * or write, or another session's save landing over its own, still leaves
+ * its own readings. Two saves at once keep only one file, which costs
+ * the other's newest reading, never an older one that dates a swap-out:
+ * the count only grows, so any later reading sees it too.
+ */
+export function historyIn(folder: () => string | undefined): SwapHistory {
+	const own = historyInMemory();
+	let named: string | undefined;
+	const file = (): string | undefined => {
+		named ??= folder();
+		return named === undefined ? undefined : join(named, SWAP_FILE);
+	};
+	return {
+		load: () => {
+			const kept = file();
+			return kept === undefined
+				? own.load()
+				: together(readSwaps(kept), own.load());
+		},
+		save: (seen) => {
+			own.save(seen);
+			const kept = file();
+			if (kept === undefined) return;
+			try {
+				writeWhole(kept, JSON.stringify(seen));
+			} catch {
+				// A history that can't be kept this time is kept on the next,
+				// and this session's own readings stand meanwhile.
+			}
+		},
+	};
+}
+
+function readSwaps(file: string): readonly Swapped[] {
+	try {
+		const kept: unknown = JSON.parse(readFileSync(file, "utf8"));
+		return Array.isArray(kept) ? kept.filter(isSwapped) : [];
+	} catch {
+		// None kept yet, or one half written: this reading starts it.
+		return [];
+	}
+}
+
+/** Both lists' readings, each once. */
+function together(
+	first: readonly Swapped[],
+	second: readonly Swapped[],
+): readonly Swapped[] {
+	const seen = new Map<string, Swapped>();
+	for (const read of [...first, ...second])
+		seen.set(`${read.at}:${read.swapouts}`, read);
+	return [...seen.values()];
+}
+
+function isSwapped(value: unknown): value is Swapped {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"at" in value &&
+		typeof value.at === "number" &&
+		"swapouts" in value &&
+		typeof value.swapouts === "number"
+	);
+}
+
+/**
+ * The readings worth keeping at `now`, the newest last: those inside the
+ * window, and the newest before it while it is young enough to date the
+ * window's start. A count above the newest is a boot ago, and goes.
+ */
+export function keptAt(
+	seen: readonly Swapped[],
+	newest: Swapped,
+): readonly Swapped[] {
+	const since = newest.at - SWAPPING_MS;
+	const ours = seen.filter(
+		(read) =>
+			read.at <= newest.at &&
+			read.at >= newest.at - BASELINE_MS &&
+			read.swapouts <= newest.swapouts,
+	);
+	const before = ours.filter((read) => read.at < since).at(-1);
+	const inside = ours.filter((read) => read.at >= since);
+	return [...(before ? [before] : []), ...inside, newest].sort(
+		(a, b) => a.at - b.at,
+	);
 }
 
 /** The value of each `name: value` line of `sysctl` given names. */
@@ -131,21 +275,20 @@ export function darwinFactsNow(): DarwinFacts {
 
 /**
  * Reads a Mac's room as the queue reads a Linux machine's, remembering
- * the last swap-out counts so that swapping now can be told from
- * swapping long ago.
+ * the last swap-out counts in `history` so that swapping now can be told
+ * from swapping long ago.
  */
 export function darwinRoom(
 	facts: () => DarwinFacts = darwinFactsNow,
 	clock: () => number = Date.now,
+	history: SwapHistory = historyInMemory(),
 ): () => Reading {
-	const seen: { at: number; swapouts: number }[] = [];
 	return () => {
-		const now = clock();
+		// Dated once read, as vm_stat can take a while on a Mac that swaps.
 		const read = facts();
-		seen.push({ at: now, swapouts: read.swapouts });
-		while (seen.length > 1 && (seen[0]?.at ?? now) < now - SWAPPING_MS) {
-			seen.shift();
-		}
+		const now = clock();
+		const seen = keptAt(history.load(), { at: now, swapouts: read.swapouts });
+		history.save(seen);
 		const swapping = read.swapouts > (seen[0]?.swapouts ?? read.swapouts);
 		const pressed =
 			read.pressureLevel >= WARNING_LEVEL ||

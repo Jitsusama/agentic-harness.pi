@@ -98,7 +98,7 @@ const STALE_LOCK_MS = 10_000;
  * folder for queue.json. A watch isn't recursive, so one on the queue's
  * folder hears nothing made inside this one.
  */
-const LOCK_FOLDER = "locks";
+export const LOCK_FOLDER = "locks";
 
 /** How often queue.json is written when nothing in it changes. */
 export const HEARTBEAT_MS = 30_000;
