@@ -337,8 +337,14 @@ soon as the machine has memory for it: while the kernel's memory
 `full avg60` is under 10, read from `/proc/pressure/memory`
 (`lib/core/review/ask/memory-room.ts`), and at most two a minute,
 so a long line drains no faster than that minute-long average can
-show what the rounds before took. A machine that keeps no such
-reading, as a Mac, always has room, and keeps the two a minute. A
+show what the rounds before took. A Mac keeps no such file: one
+starts a round while the kernel says at least 35% of its memory is
+free (`kern.memorystatus_level`, what `memory_pressure` prints) and
+`vm_stat`'s swap-outs haven't moved for a minute, so a session's
+first round there waits that minute. A Mac whose figures can't be
+read starts none. A Linux with no pressure file has room. Rounds
+asked in the same millisecond take their turns by ticket id, so
+every look agrees which is ahead. A
 round that waited says how long, behind whom, and what the machine
 was short of. On 24 November a round waited half an hour behind ten
 others under the fixed three-minute gap this replaced, on a machine

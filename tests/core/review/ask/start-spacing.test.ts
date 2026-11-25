@@ -333,6 +333,40 @@ describe("spacing council starts on one machine", () => {
 		expect(order).toEqual(["ISXEG8", "marked", "world", "plain"]);
 	});
 
+	// 25 November, 15:48 to 16:31: two rounds one session asked in the
+	// same millisecond each saw the other ahead, so neither started and
+	// twelve rounds waited behind them.
+	it("starts both of two rounds first asked in the same millisecond", async () => {
+		const asked = new Date(Date.now() - 60_000).toISOString();
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: {
+					at: new Date().toISOString(),
+					by: "A2VLJN",
+					change: "o/r#A2VLJN",
+				},
+				waiting: [],
+				firstAsked: { "o/r#ISXEG8": asked, "o/r#85PKB2": asked },
+			}),
+		);
+		const giving = new AbortController();
+		const started: string[] = [];
+
+		const rounds = ["ISXEG8", "85PKB2"].map((by) =>
+			awaitCouncilStart(path, claim(by), giving.signal).then((start) => {
+				if (start.cancelled === undefined) started.push(by);
+			}),
+		);
+		// Two spacings and a margin: without a tie broken, neither starts.
+		const waited = setTimeout(() => giving.abort(), 4 * SPACING);
+		await Promise.all(rounds);
+		clearTimeout(waited);
+
+		expect([...started].sort(), "both started").toEqual(["85PKB2", "ISXEG8"]);
+	});
+
 	it("replaces an older ask of the session's for the change, keeping its place", async () => {
 		const first = new Date(Date.now() - 30 * 60_000).toISOString();
 		const now = new Date().toISOString();
