@@ -244,14 +244,29 @@ describe("hostBackend", () => {
 		expect(own.heap?.at, "dated by the host's clock").toBe(
 			"2026-11-09T16:00:00.000Z",
 		);
-		const old = own.heap?.spaces?.find(({ name }) => name === "old_space");
+		const spaces = own.heap?.spaces ?? [];
+		expect(spaces.map(({ name }) => name)).toEqual(
+			expect.arrayContaining([
+				"new_space",
+				"old_space",
+				"code_space",
+				"large_object_space",
+			]),
+		);
+		const old = spaces.find(({ name }) => name === "old_space");
 		expect(old?.used, "V8's old space, among its spaces").toBeGreaterThan(0);
 		expect(old?.size).toBeGreaterThanOrEqual(old?.used ?? 0);
+		const inSpaces = spaces.reduce((sum, { used }) => sum + used, 0);
+		expect(inSpaces, "its spaces hold what its heap uses").toBeGreaterThan(
+			(own.heap?.used ?? 0) / 2,
+		);
+		// Array buffers are counted within external, so a swap shows.
+		expect(own.heap?.arrayBuffers).toBeGreaterThanOrEqual(0);
 		expect(
 			own.heap?.external,
-			"what it holds outside the heap",
-		).toBeGreaterThan(0);
-		expect(own.heap?.arrayBuffers).toBeGreaterThanOrEqual(0);
+			"what it holds outside the heap, array buffers among it",
+		).toBeGreaterThanOrEqual(own.heap?.arrayBuffers ?? 0);
+		expect(own.heap?.external).toBeGreaterThan(0);
 		if (process.platform === "linux")
 			expect(own.pss, "its Pss").toBeGreaterThan(1024 * 1024);
 		else expect(own, "no Pss off Linux").not.toHaveProperty("pss");

@@ -12,12 +12,14 @@
  * Without a kind it reads both hosts. KIND:SESSION reads that
  * conversation's child on its own socket instead, for its own heap, Pss
  * and each of V8's spaces, a reading as cheap as the host's own and with
- * none of a heap snapshot's pause. One that doesn't answer is said and
- * the next is read; exits 1 when any wasn't read, 0 otherwise.
+ * none of a heap snapshot's pause. A child listens in its slot, which an
+ * open names afresh, so the child is found by asking: the slot named by
+ * the id first, then those whose file says they hold it, then the rest,
+ * until one says it runs that conversation. One that doesn't answer is
+ * said and the next is read; exits 1 when any wasn't read, 0 otherwise.
  */
 
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import {
 	childFolder,
 	type HostKind,
@@ -25,11 +27,13 @@ import {
 	hostRealm,
 	hostSocketPath,
 } from "../host/service/address.ts";
+import { slotHolds, slotOf, slotsIn } from "../host/service/child-units.ts";
 import { controlRequest } from "../host/service/client.ts";
 import {
 	type MemoryAnswer,
 	parseMemoryResult,
 } from "../host/service/protocol.ts";
+import { isSessionId } from "../lib/core/session/roster.ts";
 import { runtimeDir as loginRuntimeDir } from "../lib/internal/paths.ts";
 import { printable } from "./where-sessions-run.ts";
 
@@ -61,15 +65,18 @@ function median(values: readonly number[]): number {
 
 /**
  * Each of V8's spaces a process said, largest first, as used of held in
- * MiB, then what it holds outside the heap; none where it said none.
+ * MiB, then what it holds outside the heap; why none, where its heap was
+ * read without them; and nothing where no heap was read.
  */
 function spacesOf(heap: MemoryAnswer["own"]["heap"]): string[] {
-	if (heap?.spaces === undefined) return [];
+	if (heap === undefined) return [];
+	if (heap.spaces === undefined)
+		return ["  spaces: not said, by an install older than this script"];
 	const spaces = [...heap.spaces]
 		.sort((a, b) => b.used - a.used)
 		.map(
 			({ name, used, size }) =>
-				`${name} ${Math.round(used / BYTES_PER_MIB)} of ${mib(size)}`,
+				`${printable(name)} ${Math.round(used / BYTES_PER_MIB)} of ${mib(size)}`,
 		);
 	return [
 		`  spaces: ${spaces.join(", ")}; external ${mib(heap.external)}, array buffers ${mib(heap.arrayBuffers)}`,
@@ -104,6 +111,17 @@ export function describeMemory(kind: string, answer: MemoryAnswer): string[] {
 	];
 }
 
+/**
+ * One conversation's child's own memory, as it answered for itself: its
+ * Pss and heap, then each of its heap's spaces.
+ */
+export function describeChild(label: string, answer: MemoryAnswer): string[] {
+	return [
+		`${label}: Pss ${mib(answer.own.pss)}, heap ${heapOf(answer.own.heap)}`,
+		...spacesOf(answer.own.heap),
+	];
+}
+
 /** Why `error` happened, printable. */
 function why(error: unknown): string {
 	return printable(error instanceof Error ? error.message : String(error));
@@ -115,15 +133,57 @@ interface Asked {
 	readonly session?: string;
 }
 
-const SESSION_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
-
 /** `word` as a host's kind, or a kind and a session's id, or none. */
 export function askedOf(word: string): Asked | undefined {
 	const [kind, session, ...rest] = word.split(":");
 	if (kind !== "attended" && kind !== "background") return undefined;
 	if (session === undefined) return { kind };
-	if (rest.length > 0 || !SESSION_ID.test(session)) return undefined;
+	if (rest.length > 0 || !isSessionId(session)) return undefined;
 	return { kind, session };
+}
+
+/** What a socket's process answered for its memory, or undefined where none did. */
+export type AskMemory = (socket: string) => Promise<MemoryAnswer | undefined>;
+
+/**
+ * The memory answer of the child in `folder` that runs `session`, asked
+ * of the slot named by its id first, then of those whose file says they
+ * hold it, then of the rest; undefined when none says it runs it.
+ */
+export async function childRunning(
+	folder: string,
+	key: string,
+	session: string,
+	ask: AskMemory,
+): Promise<MemoryAnswer | undefined> {
+	const wanted = session.toLowerCase();
+	const named = slotOf(folder, key, session);
+	const holding: string[] = [];
+	const rest: string[] = [];
+	for (const slot of await slotsIn(folder, key)) {
+		if (slot.name.toLowerCase() === named.name.toLowerCase()) continue;
+		const holds = (await slotHolds(slot))?.toLowerCase();
+		(holds === wanted ? holding : rest).push(slot.socket);
+	}
+	for (const socket of [named.socket, ...holding, ...rest]) {
+		const answer = await ask(socket);
+		const runs = answer?.sessions.some(
+			({ sessionId }) => sessionId.toLowerCase() === wanted,
+		);
+		if (runs) return answer;
+	}
+	return undefined;
+}
+
+/** What the process on `socket` answers for its memory, or why not. */
+async function memoryAt(socket: string): Promise<MemoryAnswer> {
+	const reply = await controlRequest(socket, {
+		v: 1,
+		id: randomUUID(),
+		op: "memory",
+	});
+	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
+	return parseMemoryResult(reply.result);
 }
 
 /** The lines for one host or child, or why it couldn't be read. */
@@ -132,18 +192,26 @@ async function readOne(
 	{ kind, session }: Asked,
 	runtimeDir: string,
 ): Promise<string[]> {
-	const socket =
-		session === undefined
-			? hostSocketPath(realm, kind, runtimeDir)
-			: join(childFolder(hostKey(realm, kind), runtimeDir), `${session}.sock`);
-	const reply = await controlRequest(socket, {
-		v: 1,
-		id: randomUUID(),
-		op: "memory",
-	});
-	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
-	const label = session === undefined ? kind : `${kind} child ${session}`;
-	return describeMemory(label, parseMemoryResult(reply.result));
+	if (session === undefined)
+		return describeMemory(
+			kind,
+			await memoryAt(hostSocketPath(realm, kind, runtimeDir)),
+		);
+	const key = hostKey(realm, kind);
+	const answer = await childRunning(
+		childFolder(key, runtimeDir),
+		key,
+		session,
+		(socket) =>
+			memoryAt(socket).catch(
+				// A slot with no child listening, or one that refuses, runs
+				// nothing this can read: the next slot is asked.
+				() => undefined,
+			),
+	);
+	if (answer === undefined)
+		throw new Error("no child listening says it runs that conversation");
+	return describeChild(`${kind} child ${session}`, answer);
 }
 
 if (import.meta.main) {

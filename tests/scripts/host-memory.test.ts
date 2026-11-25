@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	slotOf,
+	writeSlot,
+	writeSpareSlot,
+} from "../../host/service/child-units.ts";
 import type { MemoryAnswer } from "../../host/service/protocol.ts";
-import { askedOf, describeMemory } from "../../scripts/host-memory.ts";
+import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import {
+	askedOf,
+	childRunning,
+	describeChild,
+	describeMemory,
+} from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
 const AT = "2026-11-24T08:00:00.000Z";
@@ -43,10 +57,13 @@ describe("a host's memory, described", () => {
 		expect(lines[0]).toBe(
 			"background: host Pss 150 MiB, heap 60 of 4096 MiB; a child's Pss read for 3 of 3 conversations, median 200 MiB, total 890 MiB",
 		);
-		expect(lines[2]).toMatch(
+		expect(lines[1]).toBe(
+			"  spaces: not said, by an install older than this script",
+		);
+		expect(lines[3]).toMatch(
 			new RegExp(`^ {2}Pss 90 MiB +heap 50 of 4096 MiB +${AT} +idle +${ONE}$`),
 		);
-		expect(lines).toHaveLength(4);
+		expect(lines).toHaveLength(5);
 	});
 
 	it("takes an even count's median between its middle two", () => {
@@ -74,8 +91,8 @@ describe("a host's memory, described", () => {
 		);
 	});
 
-	it("gives each of a process's own spaces, largest first, under its line", () => {
-		const lines = describeMemory(`background child ${ONE}`, {
+	it("gives a child's own Pss and heap, then each of its spaces, largest first", () => {
+		const lines = describeChild(`background child ${ONE}`, {
 			host,
 			own: {
 				pss: 270 * MIB,
@@ -95,10 +112,27 @@ describe("a host's memory, described", () => {
 			sessions: [{ sessionId: ONE, state: "busy" }],
 		});
 
-		expect(lines[1]).toBe(
+		expect(lines).toEqual([
+			`background child ${ONE}: Pss 270 MiB, heap 168 of 4096 MiB`,
 			"  spaces: old_space 150 of 160 MiB, code_space 9 of 10 MiB, large_object_space 7 of 7 MiB; external 12 MiB, array buffers 3 MiB",
-		);
-		expect(lines).toHaveLength(3);
+		]);
+	});
+
+	it("prints a space's name with nothing a terminal would act on", () => {
+		const [, spaces] = describeChild("attended child", {
+			host,
+			own: {
+				heap: {
+					used: MIB,
+					limit: 4096 * MIB,
+					at: AT,
+					spaces: [{ name: "old\u001b[2Jspace", used: MIB, size: MIB }],
+				},
+			},
+			sessions: [],
+		});
+
+		expect(spaces).not.toContain("\u001b");
 	});
 
 	it("reads a host's kind, or a kind and a conversation's id, and nothing else", () => {
@@ -112,6 +146,13 @@ describe("a host's memory, described", () => {
 		expect(askedOf(`background:${ONE}:x`)).toBeUndefined();
 	});
 
+	it("reads an id in either case, as a roster takes one", () => {
+		expect(askedOf(`background:${ONE.toUpperCase()}`)).toEqual({
+			kind: "background",
+			session: ONE.toUpperCase(),
+		});
+	});
+
 	it("says no child's Pss was read when none was", () => {
 		const [said] = describeMemory("attended", {
 			host,
@@ -122,5 +163,80 @@ describe("a host's memory, described", () => {
 		expect(said).toBe(
 			"attended: host Pss 80 MiB, heap unread; no child's Pss read",
 		);
+	});
+});
+
+describe("the child a conversation runs in, found", () => {
+	const KEY = "work-background";
+	let folder = "";
+
+	beforeEach(async () => {
+		folder = await mkdtemp(join(tmpdir(), "host-memory-"));
+	});
+
+	afterEach(async () => {
+		await rm(folder, { recursive: true, force: true });
+	});
+
+	/** A conversation as a slot's file holds it. */
+	function rosterEntry(sessionId: string): RosterEntry {
+		return {
+			sessionId,
+			file: join(folder, `${sessionId}.jsonl`),
+			cwd: folder,
+			attended: false,
+			since: AT,
+		};
+	}
+
+	/** The memory answer of a child that runs `sessionId`. */
+	function running(sessionId: string): MemoryAnswer {
+		return { host, own: { pss: MIB }, sessions: [inChild(sessionId, 1, 1)] };
+	}
+
+	it("finds one an open started in a slot of its own, by what it answers", async () => {
+		// An open's child listens in a fresh slot, its file naming nothing yet.
+		const other = slotOf(folder, KEY, TWO);
+		const opened = slotOf(folder, KEY, THREE);
+		await writeSlot(other, rosterEntry(TWO));
+		await writeSlot(opened, undefined);
+		const asked: string[] = [];
+
+		const answer = await childRunning(folder, KEY, ONE, async (socket) => {
+			asked.push(socket);
+			if (socket === opened.socket) return running(ONE);
+			if (socket === other.socket) return running(TWO);
+			return undefined;
+		});
+
+		expect(answer?.sessions[0]?.sessionId).toBe(ONE);
+		expect(asked[0], "the slot its id names, asked first").toBe(
+			slotOf(folder, KEY, ONE).socket,
+		);
+	});
+
+	it("asks a slot whose file says it holds the conversation before the rest", async () => {
+		const spare = slotOf(folder, KEY, TWO);
+		const holding = slotOf(folder, KEY, THREE);
+		await writeSpareSlot(spare);
+		await writeSlot(holding, rosterEntry(ONE));
+		const asked: string[] = [];
+
+		await childRunning(folder, KEY, ONE, async (socket) => {
+			asked.push(socket);
+			return socket === holding.socket ? running(ONE) : undefined;
+		});
+
+		expect(asked).toEqual([slotOf(folder, KEY, ONE).socket, holding.socket]);
+	});
+
+	it("finds none when no child says it runs the conversation", async () => {
+		await writeSlot(slotOf(folder, KEY, TWO), rosterEntry(TWO));
+
+		const answer = await childRunning(folder, KEY, ONE, async () =>
+			running(TWO),
+		);
+
+		expect(answer).toBeUndefined();
 	});
 });
