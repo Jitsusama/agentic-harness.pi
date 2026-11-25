@@ -46,6 +46,7 @@ import { createDamper } from "../../../lib/mesh/damping.ts";
 import { releaseThroughHost } from "../../../lib/mesh/host-close.ts";
 import { createBoard, type LeaseEvent } from "../../../lib/mesh/lease.ts";
 import { senderIdentity } from "../../../lib/mesh/message.ts";
+import { meshTransport } from "../../../lib/mesh/node-transport.ts";
 import { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { createReadFront } from "../../../lib/mesh/reading.ts";
@@ -102,7 +103,8 @@ export function createState(
 	hubTiming: HubTiming = {},
 ): MeshState {
 	const messages = join(paths.mesh, "messages");
-	const local = folderTransport(messages);
+	// Its arrivals come through the node, so hearing one reads no file.
+	const local = meshTransport(paths.mesh);
 	// On a machine that keeps no mesh of its own, the node behind its worker
 	// socket carries what is sent and heard (lib/mesh/worker-link.ts).
 	const workerLink = workerLinkFor(pi, env, messages, local);
