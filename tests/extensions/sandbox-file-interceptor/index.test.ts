@@ -205,15 +205,30 @@ describe("a fenced session's searches", () => {
 			home: search("grep", "~"),
 			ssh: search("grep", "~/.ssh"),
 			root: search("grep", "/"),
-			// Only where there are other processes' folders to walk: a Mac has
-			// no /proc, so its grep walks nothing there.
-			...(existsSync("/proc/1") ? { proc: search("grep", "/proc") } : {}),
+			// Only where there are processes' folders to walk: a Mac has no
+			// /proc, so its grep walks nothing there. pi's own folder is there
+			// wherever /proc is, however it hides other users' processes.
+			...(existsSync("/proc/self") ? { proc: search("grep", "/proc") } : {}),
 		};
 		for (const [name, said] of Object.entries(refused)) {
 			expect(said, name).toContain("didn't walk it");
 		}
 		expect(refused.home).toContain(join(home, ".npmrc"));
 		expect(refused.ssh).toContain(join(home, ".ssh/id_ed25519"));
+	});
+
+	it("grep no private key in a ~/.ssh that links elsewhere", () => {
+		mkdirSync(join(base, "dotfiles/ssh"), { recursive: true });
+		writeFileSync(join(base, "dotfiles/ssh/id_ed25519"), "private\n");
+		writeFileSync(join(base, "dotfiles/ssh/known_hosts"), "host\n");
+		symlinkSync(join(base, "dotfiles/ssh"), join(home, ".ssh"));
+		for (const path of ["~/.ssh", join(base, "dotfiles/ssh")]) {
+			expect(search("grep", path), path).toContain(
+				join(base, "dotfiles/ssh/id_ed25519"),
+			);
+		}
+		rmSync(join(base, "dotfiles/ssh/id_ed25519"));
+		expect(search("grep", "~/.ssh")).toBeUndefined();
 	});
 
 	it("grep the work, and find names anywhere off a Mac, as before", () => {
@@ -326,10 +341,23 @@ describe("a fenced session's file tools on a Mac", () => {
 		}
 	});
 
+	it("write none of a secret not made yet where its folder leads", () => {
+		// The seatbelt names a place that isn't there yet where its folder
+		// leads, so gh's settings are closed before gh first writes them.
+		mkdirSync(join(base, "dotfiles/config"), { recursive: true });
+		rmSync(join(home, ".config"), { recursive: true });
+		symlinkSync(join(base, "dotfiles/config"), join(home, ".config"));
+		expect(
+			onMac("write", {
+				path: join(base, "dotfiles/config/gh/hosts.yml"),
+				content: "x",
+			}),
+		).toContain("the Mac's own secrets");
+	});
+
 	it("meet a list's spelling however folding changes a name's length", () => {
-		// ſ folds to s; İ lowers to two code units, which once let a
-		// mis-cased folder through as no secret, since the whole path's
-		// length changed.
+		// ſ folds to s and İ lowers to two code units; these reads are
+		// folded a name at a time against the Mac's lists.
 		expect(
 			onMac("read", { path: "~/Library/Keychainſ/login.keychain-db" }),
 		).toContain("the Mac's own secrets");
@@ -337,7 +365,8 @@ describe("a fenced session's file tools on a Mac", () => {
 			onMac("read", { path: "~/library/KEYCHAINS/login.keychain-dbİ" }),
 		).toContain("the Mac's own secrets");
 		// Linux's lists compare names as spelled, so only the respelling
-		// holds this one.
+		// holds this one: İ once let it through, since the whole path's
+		// length changed when it was folded.
 		expect(
 			onMac("write", { path: "~/.LOCAL/BIN/toolİ", content: "x" }),
 		).toContain("read-only");
@@ -358,20 +387,24 @@ describe("a fenced session's file tools on a Mac", () => {
 	});
 
 	it("never write a folder on the commands' PATH outside the work", () => {
-		mkdirSync(join(home, "go/bin"), { recursive: true });
+		// Outside the home, where Linux's lists leave it open, so only the
+		// PATH can close it.
+		const tools = join(base, "tools/bin");
+		mkdirSync(tools, { recursive: true });
 		mkdirSync(join(work, "bin"));
-		const env = {
-			...fence,
-			PATH: [join(home, "go/bin"), join(work, "bin"), "bin"].join(":"),
-		};
-		const write = (path: string) =>
+		const write = (path: string, PATH?: string) =>
 			fileToolRefusal(
 				{ toolName: "write", input: { path, content: "x" } },
-				{ cwd: work, env, home, mac: true },
+				{ cwd: work, env: { ...fence, PATH }, home, mac: true },
 			);
-		expect(write("~/go/bin/git")).toContain("read-only");
-		expect(write("~/GO/BIN/git")).toContain("read-only");
-		expect(write("bin/tool")).toBeUndefined();
+		const PATH = [tools, join(work, "bin"), "bin"].join(":");
+		for (const path of [join(tools, "git"), join(base, "TOOLS/BIN/git")]) {
+			expect(write(path, PATH), path).toContain(
+				"every folder on the commands' PATH outside the work",
+			);
+		}
+		expect(write(join(tools, "git"))).toBeUndefined();
+		expect(write("bin/tool", PATH)).toBeUndefined();
 	});
 
 	it("never write a link that sits in a kept folder, whatever it leads to", () => {
@@ -383,20 +416,35 @@ describe("a fenced session's file tools on a Mac", () => {
 		expect(
 			onMac("write", { path: "~/Library/LaunchAgents/a.plist", content: "x" }),
 		).toContain("read-only, as its commands' seatbelt does");
-		mkdirSync(join(home, "src/repo"), { recursive: true });
-		symlinkSync(join(work, "notes.md"), join(home, "src/repo/link"));
-		expect(onMac("write", { path: "~/SRC/repo/link", content: "x" })).toContain(
-			"read-only",
+	});
+
+	it("never write a link in a kept folder reached through a linked one", () => {
+		// Named, the write is in the work, and it leads back there: only
+		// the link's own place, in the launch agents, is kept.
+		mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+		symlinkSync(join(home, "Library/LaunchAgents"), join(work, "agents"));
+		symlinkSync(
+			join(work, "notes.md"),
+			join(home, "Library/LaunchAgents/a.plist"),
 		);
+		expect(onMac("write", { path: "agents/a.plist", content: "x" })).toContain(
+			"read-only, as its commands' seatbelt does",
+		);
+		expect(
+			onMac("write", { path: "agents/a.plist", content: "x" }, false),
+		).toBeUndefined();
 	});
 
 	it("hold Linux's lists however a name is cased, as the volume opens it", () => {
 		expect(onMac("read", { path: "~/.NPMRC" })).toContain(
 			"reads ~/.npmrc without its tokens",
 		);
-		expect(onMac("write", { path: "~/.ZSHRC", content: "x" })).toContain(
-			"startup files",
-		);
+		expect(
+			onMac("write", { path: "~/.CONFIG/git/config", content: "x" }),
+		).toContain("startup files");
+		expect(
+			onMac("write", { path: "~/.CONFIG/git/config", content: "x" }, false),
+		).toBeUndefined();
 		// Off a Mac the names are told apart, and ~/.NPMRC is no secret.
 		expect(onMac("read", { path: "~/.NPMRC" }, false)).toBeUndefined();
 	});

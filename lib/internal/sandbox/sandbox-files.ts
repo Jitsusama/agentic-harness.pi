@@ -265,9 +265,13 @@ function fenceRefusal(
 	};
 	// A linked home is judged as it's named and as it leads, since the
 	// lists are built from the home as named and a path from where it leads.
+	// Its work is led past its links with it, so a work named through the
+	// link stays the entry it works in.
 	const led = pastLinks(place.home);
 	const fences =
-		led === place.home ? [fence] : [fence, { ...fence, home: led }];
+		led === place.home
+			? [fence]
+			: [fence, { ...fence, home: led, cwd: pastLinks(place.cwd) }];
 	const mac = place.mac ?? process.platform === "darwin";
 	const spelling = mac ? listSpelling(place.home) : undefined;
 	const lists = mac ? macLists(place) : undefined;
@@ -294,7 +298,7 @@ function fenceRefusal(
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps the Mac's own secrets out of reach, as its commands' seatbelt does: the keychains, 1Password's, the browsers' profiles and cookies, Mail, Messages, and gh's and op's settings. ${path} leads to ${real}, so ${toolName} didn't run. A command that needs a key or token gets it through secret_run, which asks the person to release it to that one command.`;
 		}
 		if (macRefusal === "kept") {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps what the Mac runs later as the person read-only, as its commands' seatbelt does: the launch agents, preferences, services, scripts, apps' containers, the apps, Homebrew and /usr/local. ${path} leads to ${real}, so ${toolName} didn't run. Change them through core and a switch.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps what the Mac runs later as the person read-only, as its commands' seatbelt does: the launch agents, preferences, services, scripts, apps' containers, the apps, Homebrew, /usr/local and every folder on the commands' PATH outside the work. ${path} leads to ${real}, so ${toolName} didn't run. Change them through core and a switch, or put a program the session makes in its own work.`;
 		}
 		// The path as named counts as well as where it leads: writing a
 		// link in a read-only place may replace the link itself.
@@ -363,22 +367,15 @@ interface MacLists {
  * Each place the seatbelt closes, from the home as named and as it
  * leads, and where each place leads too: the seatbelt closes the place
  * a list's entry links to (~/.config/gh to ~/dotfiles/gh), so the file
- * tools do. The folders on the commands' PATH outside the work are kept
+ * tools do, and one not made yet where its folder leads, as the
+ * seatbelt names it. The folders on the commands' PATH outside the work are kept
  * as the seatbelt keeps them, since a program written there runs later
  * by name.
  */
 function macLists(place: FilePlace): MacLists {
 	const homes = [...new Set([place.home, pastLinks(place.home)])];
 	const withLeads = (paths: readonly string[]) => [
-		...new Set(
-			paths.flatMap((path) => {
-				try {
-					return [path, realpathSync.native(path)];
-				} catch {
-					return [path];
-				}
-			}),
-		),
+		...new Set(paths.flatMap((path) => [path, spelledOnDisk(path)])),
 	];
 	const fromHomes = (entries: readonly string[]) =>
 		homes.flatMap((from) => entries.map((entry) => join(from, entry)));

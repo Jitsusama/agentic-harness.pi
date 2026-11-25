@@ -60,8 +60,9 @@ the work open and the desktop closed, and pi's file tools follow it:
 - **Reading** is refused for any process's files in `/proc`, pi's own
   through `/proc/self` included, for the runtime folder, which holds
   the clipboard's pictures and the desktop's sockets, and for the
-  private keys in `~/.ssh`, which the fence hides from commands; its
-  known hosts and public keys read as before. A linked home is judged
+  private keys in `~/.ssh`, or where a linked one leads, which the
+  fence hides from commands; its known hosts and public keys read as
+  before. A linked home is judged
   as named and as it leads.
 - **Every link** is followed as above, so a link made in the work
   leads nowhere the fence refuses.
@@ -73,6 +74,11 @@ the work open and the desktop closed, and pi's file tools follow it:
   Linux too, and refuses more than the fence refuses a command, which
   may search such a folder while the fence hides what it holds: the
   refusal says to name the folder meant, or to run rg or fd in bash.
+- **Not yet held:** a path is judged when the call is asked for, and
+  pi opens it after. A fenced command left running could swap a folder
+  in the work for a link between the two, which on a Mac, with no
+  process namespace to end it, outlives its bash call. Opening each
+  part of the path without following links would close it.
   A search of the work, and `ls` of any folder, run as before. Neither
   search follows links, so a link planted in the work walks nowhere.
 - **On a Mac** they also keep to what the fence's seatbelt closes to

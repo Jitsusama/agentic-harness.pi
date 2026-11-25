@@ -9,6 +9,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	fenceArgs,
+	fenceHidesBeneath,
 	fenceRefusesRead,
 	fenceRefusesWrite,
 	fenceRules,
@@ -1204,6 +1205,34 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			`${ssh}/known_hosts`,
 		]);
 		expect(args.join(" ")).toContain(`--remount-ro ${ssh}`);
+	});
+
+	it("empties a ~/.ssh that links elsewhere where it leads, for commands and pi's searches", () => {
+		// A dotfiles manager or an impermanent home links ~/.ssh elsewhere,
+		// and its keys are there all the same.
+		const ssh = `${home}/.ssh`;
+		const kept = "/persist/ssh";
+		const folders = diskOf([
+			`${kept}/id_ed25519`,
+			`${kept}/known_hosts`,
+			`${tree}/.git`,
+		]);
+		const linked: Disk = {
+			...folders,
+			kind: (path) => (path === ssh ? "link" : folders.kind(path)),
+			real: (path) => (path === ssh ? kept : path),
+		};
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000", cwd: tree, ownGitFolder: own },
+			linked,
+		);
+		expect(given[given.indexOf(kept) - 1]).toBe("--tmpfs");
+		expect(given.join(" ")).toContain(`--ro-bind ${kept}/known_hosts`);
+		expect(given.join(" ")).not.toContain(`${kept}/id_ed25519`);
+		expect(given.join(" ")).toContain(`--remount-ro ${kept}`);
+		const place = { home, cwd: tree };
+		expect(fenceHidesBeneath(kept, place, linked)).toBe(`${kept}/id_ed25519`);
+		expect(fenceHidesBeneath(tree, place, linked)).toBeUndefined();
 	});
 
 	it("empties the private keys kept outside ~/.ssh, for commands and pi's file tools alike", () => {
