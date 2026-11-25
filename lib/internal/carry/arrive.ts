@@ -402,16 +402,33 @@ async function arriveTree(
 			(one) => one !== undefined,
 		);
 		if (left.length > 0) {
-			const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
-			return {
-				...line,
-				did: "refused",
-				why: `${stopped} And ${left.join(", and ")}.`,
-			};
+			return { ...line, did: "refused", why: andLeft(why, ...left) };
 		}
 	}
-	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
-	return { ...line, did: "refused", why };
+	const left = readied.kind === "cloned" ? letGoOf(path) : undefined;
+	return { ...line, did: "refused", why: andLeft(why, left) };
+}
+
+/**
+ * Takes out a clone this arrival made itself, answering where it is
+ * left and why where the disk refuses, as a busy or unwritable folder
+ * does, so a refused tree is said rather than thrown out of the arrival.
+ */
+function letGoOf(clone: string): string | undefined {
+	try {
+		rmSync(clone, { recursive: true, force: true });
+		return undefined;
+	} catch (error) {
+		return `its clone is left at ${clone}, since it couldn't be taken out: ${messageOf(error)}`;
+	}
+}
+
+/** `why`, then what was `left` behind, where anything was. */
+function andLeft(why: string, ...left: (string | undefined)[]): string {
+	const said = left.filter((one) => one !== undefined);
+	if (said.length === 0) return why;
+	const stopped = /[.!?]$/.test(why) ? why : `${why}.`;
+	return `${stopped} And ${said.join(", and ")}.`;
 }
 
 /**
@@ -490,18 +507,30 @@ async function readyTree(
 			]),
 		);
 		if (cloned.code !== 0) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no(`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`);
+			return no(
+				andLeft(
+					`git couldn't clone ${tree.origin}: ${saidOf(cloned)}`,
+					letGoOf(cloning),
+				),
+			);
 		}
 		if (existsSync(path)) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no("Something arrived there while it was cloned.");
+			return no(
+				andLeft(
+					"Something arrived there while it was cloned.",
+					letGoOf(cloning),
+				),
+			);
 		}
 		try {
 			renameSync(cloning, path);
 		} catch (error) {
-			rmSync(cloning, { recursive: true, force: true });
-			return no(`Its clone couldn't be put in place: ${messageOf(error)}`);
+			return no(
+				andLeft(
+					`Its clone couldn't be put in place: ${messageOf(error)}`,
+					letGoOf(cloning),
+				),
+			);
 		}
 		return { kind: "cloned" };
 	}
@@ -576,8 +605,7 @@ async function cloneTwin(
 			? { kind: "cloned" }
 			: { kind: "cloned", unsure: held.unsure };
 	}
-	rmSync(path, { recursive: true, force: true });
-	return { kind: "refused", why: held.why };
+	return { kind: "refused", why: andLeft(held.why, letGoOf(path)) };
 }
 
 /**
