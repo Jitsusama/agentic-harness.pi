@@ -44,6 +44,7 @@ import { rangeProposal } from "../range.ts";
 import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
+import { isWorldWork, urgentMarks } from "./ask-line.ts";
 import type { RoundAsks } from "./ask-roster.ts";
 import {
 	type Answer,
@@ -171,11 +172,14 @@ export async function awaitRosterStart(
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const spacingMs = await configuredSpacing();
+	const line = councilStartsPath();
 	return await awaitCouncilStart(
-		councilStartsPath(),
+		line,
 		{
 			by: sessionKey(),
 			change,
+			leads: await isWorldWork(change),
+			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => memoryShort(),
 			...(spacingMs === undefined ? {} : { spacingMs }),

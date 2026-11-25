@@ -34,6 +34,22 @@
  * took. The line keeps the order rounds were asked in, and its lock
  * makes each start whole.
  *
+ * A place once lost was lost for good. A round looks at the line under
+ * its lock, and a look that met the lock held past its wait said
+ * nothing, so with sixty rounds waiting on 25 November live tickets
+ * went unseen for two minutes, were dropped, and joined again at the
+ * back: one went from 26th to 53rd in half an hour. So a ticket whose
+ * round has stopped looking is passed over rather than dropped, and
+ * keeps its place while its process lives, for hours at most. The line
+ * is kept in one order, which every look writes back: tickets marked
+ * urgent first, then those that lead (World's changes), then by when
+ * their change was first asked about, which the line remembers for
+ * hours, so a round asked again after a reload takes back its place.
+ * A newer ask from the same session for the same change replaces the
+ * older one, which ends saying so. A look that would change nothing
+ * reads the line without its lock, so only joining, refreshing a
+ * sighting, reordering, dropping and starting contend for it.
+ *
  * Every start is spaced only once every session on the machine runs
  * this, and only among sessions sharing one state directory. A session
  * on an older install keeps its own fixed slot in `last.json` beside
@@ -76,14 +92,24 @@ export const FEWEST_SPACING_MS = 2 * LOOK_AGAIN_MS;
 export const MOST_SPACING_MS = 30 * 60_000;
 
 /**
- * How long a ticket may go unlooked-at before it is taken for one its
- * round left behind. A waiting round looks every {@link LOOK_AGAIN_MS}
- * at most, so this is many looks missed. It is what drops a round a
- * reload abandoned, whose process, the session's own, still runs. A
- * ticket seen this far in the future is dropped too, as a clock moved
- * back or a line written by hand.
+ * How long a ticket may go unlooked-at before the line passes over it.
+ * A waiting round looks every {@link LOOK_AGAIN_MS} at most, so this is
+ * many looks missed: a round a reload abandoned, whose process, the
+ * session's own, still runs, or one whose looks keep meeting a busy
+ * lock. Passed over, it keeps its place for when it looks again, and
+ * holds back nobody meanwhile. A ticket seen this far in the future is
+ * dropped, as a clock moved back or a line written by hand.
  */
 const UNSEEN_TICKET_MS = 2 * 60_000;
+
+/**
+ * How long the line keeps what it remembers: a ticket passed over while
+ * its process lives, a change's first ask, and a ticket a newer ask
+ * replaced. Long enough for a session to reload and ask again, or for a
+ * busy lock to let a round look, and short enough that tickets a reload
+ * abandoned in a host that runs for days don't pile up.
+ */
+const REMEMBERED_MS = 6 * 60 * 60_000;
 
 /**
  * How old a ticket's `seenAt` may grow before a look writes it again.
@@ -123,6 +149,8 @@ interface Ticket {
 	readonly askedAt: string;
 	/** When its round last looked at the line, in ISO form. */
 	readonly seenAt: string;
+	/** Whether it stands ahead of asks that don't, as World's changes do. */
+	readonly leads?: boolean;
 }
 
 /** A start that happened, as kept on disk. */
@@ -146,6 +174,10 @@ interface Started {
 interface Line {
 	readonly started?: Started;
 	readonly waiting: readonly Ticket[];
+	/** When each change waiting, or lately waiting, was first asked about. */
+	readonly firstAsked?: Readonly<Record<string, string>>;
+	/** Tickets a newer ask replaced, with when, so their rounds can end. */
+	readonly replaced?: Readonly<Record<string, string>>;
 }
 
 /** Who is starting a council now, and on what. */
@@ -170,6 +202,17 @@ export interface StartClaim {
 	 * a session on an older install, read again each time the line is.
 	 */
 	readonly startedElsewhere?: () => Promise<Date | undefined>;
+	/**
+	 * Whether this round stands ahead of those that don't, as World's
+	 * changes do (1OGSE7, 25 November). Marks only order the line; they
+	 * never let a round start sooner than its spacing.
+	 */
+	readonly leads?: boolean;
+	/**
+	 * The tickets and changes marked urgent, which stand first of all,
+	 * read at each look. None unless given.
+	 */
+	readonly urgent?: () => Promise<readonly string[]>;
 	/** How often to look at the line again; {@link LOOK_AGAIN_MS} unless given. */
 	readonly lookAgainMs?: number;
 	/** Whether a process still runs; a real check unless given. */
@@ -234,6 +277,7 @@ export async function awaitCouncilStart(
 		pid: process.pid,
 		askedAt: asked,
 		seenAt: asked,
+		...(claim.leads === true ? { leads: true } : {}),
 	};
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
@@ -257,6 +301,10 @@ export async function awaitCouncilStart(
 				});
 				throw error;
 			}
+		}
+		if (turn?.replaced === true) {
+			// Nothing of its own to leave: the newer ask holds its place.
+			return { cancelled: REPLACED_SAID };
 		}
 		if (turn !== undefined) firstSeen ??= turn;
 		if (turn?.short !== undefined) lastShort = turn.short;
@@ -318,8 +366,12 @@ interface Turn {
 	readonly started?: Started;
 	/** The start it replaced, given back if the round is refused. */
 	readonly before?: Started;
-	/** How many rounds stand ahead of it. */
+	/** How many rounds stand ahead of it, passing over those not looking. */
 	readonly ahead: number;
+	/** How many rounds the line holds, itself among them, when it waits. */
+	readonly of?: number;
+	/** Whether a newer ask for its change took its place. */
+	readonly replaced?: boolean;
 	/** How long until it may start, if those ahead start on time. */
 	readonly waitMs: number;
 	/** The round first in line, when another is. */
@@ -336,99 +388,270 @@ async function takeTurn(
 	spacing: number,
 ): Promise<Turn> {
 	const elsewhere = await claim.startedElsewhere?.();
-	// Read before the lock, as it may be slow; a round that reads room and
-	// then finds another first in line waits its turn all the same.
+	// Read before the lock, as they may be slow; a round that reads room
+	// and then finds another first in line waits its turn all the same.
 	const short = await claim.room?.();
+	const urgent = new Set(await claim.urgent?.());
+	const seenFrom = async (line: Line, now: number): Promise<Look> =>
+		look(line, {
+			ticket,
+			now,
+			alive: claim.alive ?? isAlive,
+			urgent,
+			spacing,
+			short,
+			starts: [elsewhere?.getTime(), await oldSlotCome(path, now)],
+		});
+	// Most looks change nothing: the round is kept, seen lately, in order
+	// and not first. Read without the lock, since a line is only ever
+	// written whole by a rename, they leave the lock to the looks that
+	// write, which sixty rounds looking at once kept from it.
+	const peekedAt = Date.now();
+	const peeked = await seenFrom(await readLine(at, peekedAt), peekedAt);
+	if (peeked.next === undefined) return peeked.turn;
 	return withFileLock(at, async () => {
 		const now = Date.now();
-		const alive = claim.alive ?? isAlive;
-		const line = await readLine(at, now);
-		if (line.started?.ticket === ticket.id) {
-			// An earlier look took the start and then failed on its way out:
-			// it is started, not owed another.
-			const { follows } = line.started;
-			return {
+		const seen = await seenFrom(await readLine(at, now), now);
+		if (seen.next !== undefined) await keep(at, seen.next);
+		return seen.turn;
+	});
+}
+
+/** What one look needs beside the line. */
+interface LookAt {
+	readonly ticket: Ticket;
+	readonly now: number;
+	readonly alive: (pid: number) => boolean;
+	/** Tickets and changes marked urgent. */
+	readonly urgent: ReadonlySet<string>;
+	readonly spacing: number;
+	readonly short: string | undefined;
+	/** Starts made outside the line, as times, when there were any. */
+	readonly starts: readonly (number | undefined)[];
+}
+
+/** What a look found, and the line to write back, when it changed. */
+interface Look {
+	readonly turn: Turn;
+	readonly next?: Line;
+}
+
+/**
+ * One look at `line` for a round: whether it starts, and the line as it
+ * should be kept. Pure, so a look without the lock and one under it
+ * judge alike, and only the second writes.
+ */
+function look(line: Line, at: LookAt): Look {
+	const { ticket, now } = at;
+	if (line.started?.ticket === ticket.id) {
+		// An earlier look took the start and then failed on its way out:
+		// it is started, not owed another.
+		const { follows } = line.started;
+		return {
+			turn: {
 				started: line.started,
 				...(follows === undefined ? {} : { before: follows }),
 				ahead: 0,
 				waitMs: 0,
-			};
-		}
-		const kept = line.waiting.find((each) => each.id === ticket.id);
-		const stale =
-			kept === undefined ||
-			Math.abs(now - Date.parse(kept.seenAt)) >= SEEN_REFRESH_MS;
-		const seen =
-			kept !== undefined && !stale
-				? kept
-				: { ...ticket, seenAt: new Date(now).toISOString() };
-		const still = line.waiting.filter(
-			(each) =>
-				each.id === ticket.id ||
-				(alive(each.pid) &&
-					// Either way: a ticket seen in the future is a clock moved
-					// or a line written by hand, and would otherwise hold
-					// every round for as long as its process lives.
-					Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS),
+			},
+		};
+	}
+	if (line.replaced?.[ticket.id] !== undefined) {
+		return { turn: { ahead: 0, waitMs: 0, replaced: true } };
+	}
+	const replaced = remembered(line.replaced, now);
+	const kept = line.waiting.find((each) => each.id === ticket.id);
+	const others = line.waiting.filter(
+		(each) =>
+			each.id !== ticket.id &&
+			at.alive(each.pid) &&
+			// A ticket seen in the future is a clock moved or a line written
+			// by hand, and would otherwise lead the line for as long as its
+			// process lives.
+			Date.parse(each.seenAt) - now < UNSEEN_TICKET_MS &&
+			now - Date.parse(each.seenAt) < REMEMBERED_MS,
+	);
+	const firstAsked = remembered(line.firstAsked, now);
+	let mine: Ticket;
+	let still = others;
+	if (kept === undefined) {
+		// Joining, or joining again after a reader that kept the old rule
+		// dropped it: placed by when its change was first asked about, and
+		// in place of an older ask of this session's for the same change.
+		const older = others.filter(
+			(each) => each.by === ticket.by && each.change === ticket.change,
 		);
-		const waiting = still.map((each) => (each.id === ticket.id ? seen : each));
-		const place = waiting.findIndex((each) => each.id === ticket.id);
-		const mine = place < 0 ? [...waiting, seen] : waiting;
-		const ahead = place < 0 ? waiting.length : place;
-		const last = Math.max(
-			...[
-				line.started === undefined ? undefined : Date.parse(line.started.at),
-				elsewhere?.getTime(),
-				await oldSlotCome(path, now),
-			].filter(
-				(start): start is number =>
-					start !== undefined &&
-					Number.isFinite(start) &&
-					start - now <= FURTHEST_START_AHEAD_MS,
-			),
-			Number.NEGATIVE_INFINITY,
-		);
-		const free = last + spacing;
-		if (ahead === 0 && now >= free && short === undefined) {
-			const replaced = withoutFollows(line.started);
-			const started: Started = {
-				at: new Date(now).toISOString(),
-				by: ticket.by,
-				change: ticket.change,
-				ticket: ticket.id,
-				...(replaced === undefined ? {} : { follows: replaced }),
-			};
-			await keep(at, {
+		for (const each of older) replaced[each.id] = new Date(now).toISOString();
+		still = others.filter((each) => !older.includes(each));
+		const askedAt = earliest([
+			ticket.askedAt,
+			firstAsked[ticket.change],
+			...older.map((each) => each.askedAt),
+		]);
+		mine = { ...ticket, askedAt, seenAt: new Date(now).toISOString() };
+	} else {
+		mine =
+			Math.abs(now - Date.parse(kept.seenAt)) >= SEEN_REFRESH_MS
+				? { ...kept, seenAt: new Date(now).toISOString() }
+				: kept;
+	}
+	const waiting = inOrder([...still, mine], at.urgent);
+	const holding = waiting.filter(
+		(each) =>
+			each.id === ticket.id ||
+			Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS,
+	);
+	const ahead = holding.findIndex((each) => each.id === ticket.id);
+	const last = Math.max(
+		...[
+			line.started === undefined ? undefined : Date.parse(line.started.at),
+			...at.starts,
+		].filter(
+			(start): start is number =>
+				start !== undefined &&
+				Number.isFinite(start) &&
+				start - now <= FURTHEST_START_AHEAD_MS,
+		),
+		Number.NEGATIVE_INFINITY,
+	);
+	const free = last + at.spacing;
+	if (ahead === 0 && now >= free && at.short === undefined) {
+		const before = withoutFollows(line.started);
+		const started: Started = {
+			at: new Date(now).toISOString(),
+			by: ticket.by,
+			change: ticket.change,
+			ticket: ticket.id,
+			...(before === undefined ? {} : { follows: before }),
+		};
+		const left = waiting.filter((each) => each.id !== ticket.id);
+		// Its change has had its start, so an ask after this one takes its
+		// own place rather than this one's.
+		const { [ticket.change]: _started, ...asked } = firstAsked;
+		return {
+			turn: {
 				started,
-				waiting: mine.filter((each) => each.id !== ticket.id),
-			});
-			return {
-				started,
-				...(replaced === undefined ? {} : { before: replaced }),
+				...(before === undefined ? {} : { before }),
 				ahead: 0,
 				waitMs: 0,
-			};
-		}
-		// Only a change is written: a ticket joining, one dropped, or a
-		// sighting old enough to need saying again.
-		if (stale || still.length !== line.waiting.length) {
-			await keep(at, { ...line, waiting: mine });
-		}
-		const first = mine[0];
-		return {
+			},
+			next: remembering({ started, waiting: left }, asked, replaced),
+		};
+	}
+	const next = remembering(
+		line.started === undefined
+			? { waiting }
+			: { started: line.started, waiting },
+		firstAsked,
+		replaced,
+	);
+	const first = holding[0];
+	return {
+		turn: {
 			ahead,
+			of: holding.length,
 			// Room has no time to wait for, so a round held for it waits at
 			// least a moment, which says it waited.
 			waitMs: Math.max(
-				Math.max(free, now) + ahead * spacing - now,
-				ahead > 0 || short !== undefined ? 1 : 0,
+				Math.max(free, now) + ahead * at.spacing - now,
+				ahead > 0 || at.short !== undefined ? 1 : 0,
 			),
 			...(ahead > 0 && first !== undefined
 				? { behind: { by: first.by, change: first.change } }
 				: {}),
-			...(short === undefined ? {} : { short }),
-		};
-	});
+			...(at.short === undefined ? {} : { short: at.short }),
+		},
+		// Only a change is written: a ticket joining, one dropped or moved,
+		// or a sighting old enough to need saying again.
+		...(sameLine(next, line) ? {} : { next }),
+	};
+}
+
+/**
+ * The line with what it remembers: each waiting change's first ask,
+ * folded into those remembered, and the tickets lately replaced.
+ */
+function remembering(
+	line: Pick<Line, "started" | "waiting">,
+	firstAsked: Record<string, string>,
+	replaced: Record<string, string>,
+): Line {
+	const asked = { ...firstAsked };
+	for (const each of line.waiting) {
+		asked[each.change] = earliest([each.askedAt, asked[each.change]]);
+	}
+	return {
+		...line,
+		...(Object.keys(asked).length === 0 ? {} : { firstAsked: asked }),
+		...(Object.keys(replaced).length === 0 ? {} : { replaced }),
+	};
+}
+
+/** What `record` holds from the last {@link REMEMBERED_MS}, as a copy. */
+function remembered(
+	record: Readonly<Record<string, string>> | undefined,
+	now: number,
+): Record<string, string> {
+	const kept: Record<string, string> = {};
+	for (const [key, when] of Object.entries(record ?? {})) {
+		const age = now - Date.parse(when);
+		if (age < REMEMBERED_MS && age > -REMEMBERED_MS) kept[key] = when;
+	}
+	return kept;
+}
+
+/** The earliest of some ISO times, the first given when none is earlier. */
+function earliest(times: readonly (string | undefined)[]): string {
+	let first: string | undefined;
+	for (const each of times) {
+		if (each === undefined || !Number.isFinite(Date.parse(each))) continue;
+		if (first === undefined || Date.parse(each) < Date.parse(first)) {
+			first = each;
+		}
+	}
+	return first ?? new Date().toISOString();
+}
+
+/**
+ * The line's one order: urgent first, then those that lead, then by
+ * when each was first asked about. Stable, so tickets alike keep the
+ * order they had.
+ */
+function inOrder(
+	waiting: readonly Ticket[],
+	urgent: ReadonlySet<string>,
+): Ticket[] {
+	const rank = (each: Ticket): number => {
+		if (urgent.has(each.id) || urgent.has(each.change)) return 0;
+		return leads(each) ? 1 : 2;
+	};
+	return [...waiting].sort(
+		(a, b) =>
+			rank(a) - rank(b) || Date.parse(a.askedAt) - Date.parse(b.askedAt),
+	);
+}
+
+/**
+ * Whether a ticket leads: marked so by its round, or, for a round on an
+ * install that marks nothing, a change World hosts.
+ */
+function leads(ticket: Ticket): boolean {
+	return ticket.leads === true || ticket.change.includes("shop/world");
+}
+
+/** Whether two lines would be kept alike. */
+function sameLine(a: Line, b: Line): boolean {
+	return JSON.stringify(normal(a)) === JSON.stringify(normal(b));
+}
+
+/** A line with only what it keeps, in the order `keep` writes it. */
+function normal(line: Line): Line {
+	return {
+		...(line.started === undefined ? {} : { started: line.started }),
+		waiting: line.waiting,
+		...(line.firstAsked === undefined ? {} : { firstAsked: line.firstAsked }),
+		...(line.replaced === undefined ? {} : { replaced: line.replaced }),
+	};
 }
 
 /** A start without the one it replaced, so the line never nests deeper. */
@@ -451,7 +674,13 @@ async function leave(at: string, ticket: Ticket): Promise<void> {
 		const waiting = line.waiting.filter((each) => each.id !== ticket.id);
 		const started =
 			line.started?.ticket === ticket.id ? line.started.follows : line.started;
-		await keep(at, started === undefined ? { waiting } : { started, waiting });
+		const { started: _was, ...rest } = line;
+		await keep(
+			at,
+			started === undefined
+				? { ...rest, waiting }
+				: { ...rest, started, waiting },
+		);
 	});
 }
 
@@ -473,12 +702,8 @@ async function giveBack(
 			line.started?.at === started.at &&
 			line.started.ticket === ticket.id;
 		if (!ours) return;
-		await keep(
-			at,
-			before === undefined
-				? { waiting: line.waiting }
-				: { started: before, waiting: line.waiting },
-		);
+		const { started: _taken, ...rest } = line;
+		await keep(at, before === undefined ? rest : { ...rest, started: before });
 	});
 }
 
@@ -570,7 +795,16 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 				? parsed.started
 				: undefined;
 		const waiting = parsed.waiting.filter(isTicket);
-		return started === undefined ? { waiting } : { started, waiting };
+		const firstAsked =
+			"firstAsked" in parsed ? timesIn(parsed.firstAsked) : undefined;
+		const replaced =
+			"replaced" in parsed ? timesIn(parsed.replaced) : undefined;
+		return {
+			...(started === undefined ? {} : { started }),
+			waiting,
+			...(firstAsked === undefined ? {} : { firstAsked }),
+			...(replaced === undefined ? {} : { replaced }),
+		};
 	} catch {
 		// Cut short or overwritten by hand: spaced from now.
 		return garbled;
@@ -612,6 +846,23 @@ function isMissing(error: unknown): boolean {
 	);
 }
 
+/**
+ * The times a record kept in the line names, by key, leaving out any
+ * that isn't one; nothing when it holds none, or isn't a record.
+ */
+function timesIn(value: unknown): Record<string, string> | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+	const times: Record<string, string> = {};
+	for (const [key, when] of Object.entries(value)) {
+		if (typeof when === "string" && Number.isFinite(Date.parse(when))) {
+			times[key] = when;
+		}
+	}
+	return Object.keys(times).length === 0 ? undefined : times;
+}
+
 function isStarted(value: unknown): value is Started {
 	return (
 		typeof value === "object" &&
@@ -645,7 +896,8 @@ function isTicket(value: unknown): value is Ticket {
 		Number.isFinite(Date.parse(value.askedAt)) &&
 		"seenAt" in value &&
 		typeof value.seenAt === "string" &&
-		Number.isFinite(Date.parse(value.seenAt))
+		Number.isFinite(Date.parse(value.seenAt)) &&
+		(!("leads" in value) || typeof value.leads === "boolean")
 	);
 }
 
@@ -721,7 +973,57 @@ function waitSaid(
 	waitedMs: number,
 	short: string | undefined,
 ): string {
-	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
+	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round stops looking is passed over after ${UNSEEN_TICKET_MS / 60_000} minutes and keeps its place.`;
+}
+
+/** What a round replaced by a newer ask for its change answers. */
+const REPLACED_SAID =
+	"It was replaced by a newer ask for this change, which keeps its place in the start line, so nothing was started.";
+
+/** One round waiting in the line, as `placesInLine` answers. */
+export interface LinePlace {
+	/** Its place among the rounds the line holds back for, from 1. */
+	readonly position: number;
+	/** How many rounds the line holds back for. */
+	readonly of: number;
+	/** Who asked, as the session. */
+	readonly by: string;
+	/** When its change was first asked about, in ISO form. */
+	readonly askedAt: string;
+}
+
+/**
+ * Where the rounds on `change` stand in the machine's line kept beside
+ * `path`, read without its lock, as `runs` says it. A round that has
+ * stopped looking is left out, as the line passes over it.
+ */
+export async function placesInLine(
+	path: string,
+	change: string,
+	now = Date.now(),
+): Promise<LinePlace[]> {
+	let line: Line;
+	try {
+		line = await readLine(linePath(path), now);
+	} catch {
+		// A line that can't be read this moment holds nobody it can name.
+		return [];
+	}
+	const holding = line.waiting.filter(
+		(each) => Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS,
+	);
+	return holding.flatMap((each, place) =>
+		each.change === change
+			? [
+					{
+						position: place + 1,
+						of: holding.length,
+						by: each.by,
+						askedAt: each.askedAt,
+					},
+				]
+			: [],
+	);
 }
 
 /** The line's file name, said so a person can find a wedged line. */
@@ -767,5 +1069,9 @@ function placeSaid(turn: Turn): string {
 		turn.ahead === 0
 			? "next in line"
 			: `${turn.ahead} ${turn.ahead === 1 ? "round" : "rounds"} ahead`;
-	return `${place}${behind}`;
+	const position =
+		turn.of === undefined
+			? ""
+			: `, position ${turn.ahead + 1} of ${turn.of} in the start line`;
+	return `${place}${behind}${position}`;
 }

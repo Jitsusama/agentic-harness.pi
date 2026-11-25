@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { awaitCouncilStart } from "../../../../lib/core/review/ask/start-spacing.ts";
+import {
+	awaitCouncilStart,
+	placesInLine,
+} from "../../../../lib/core/review/ask/start-spacing.ts";
 
 /**
  * A real wait's spacing: long enough that claims made together land
@@ -181,14 +184,15 @@ describe("spacing council starts on one machine", () => {
 	});
 
 	// A reload abandons a waiting round while the session's process, and
-	// so its id, runs on.
-	it("waits behind no round that has stopped looking at the line", async () => {
+	// so its id, runs on; a busy lock keeps a live round from looking.
+	// Either way it is passed over, and keeps its place while it lives.
+	it("waits behind no round that has stopped looking, which keeps its place", async () => {
 		const long = new Date(Date.now() - 10 * 60_000).toISOString();
 		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
 			{
-				id: "abandoned",
+				id: "unseen",
 				by: "ISXEG8",
-				change: "o/r#abandoned",
+				change: "o/r#unseen",
 				pid: process.pid,
 				askedAt: long,
 				seenAt: long,
@@ -198,7 +202,204 @@ describe("spacing council starts on one machine", () => {
 		const start = await awaitCouncilStart(path, claim("85PKB2"));
 
 		expect(start.waited, "it started at once").toBeUndefined();
-		expect(line().waiting).toEqual([]);
+		expect(line().waiting.map((each: { id: string }) => each.id)).toEqual([
+			"unseen",
+		]);
+	});
+
+	// 25 November: with sixty waiting, live tickets went unseen behind a
+	// busy lock, were dropped, and joined again at the back.
+	it("stands ahead again when a round passed over looks again", async () => {
+		const long = new Date(Date.now() - 10 * 60_000).toISOString();
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(), [
+			{
+				id: "later",
+				by: "85PKB2",
+				change: "o/r#later",
+				pid: process.pid,
+				askedAt: now,
+				seenAt: now,
+			},
+			{
+				id: "mine",
+				by: "ISXEG8",
+				change: "o/r#ISXEG8",
+				pid: process.pid,
+				askedAt: long,
+				seenAt: long,
+			},
+		]);
+		nextTicket.id = "mine";
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000 }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting[0]?.id, { timeout: 4_000, interval: 10 })
+			.toBe("mine");
+		giving.abort();
+
+		expect((await waiting).cancelled).toContain("next in line");
+	});
+
+	// A reader on the old rule drops a ticket it hasn't seen lately, and a
+	// reload loses a round: either way the ask comes back as a new ticket.
+	it("places a round asked again by when its change was first asked", async () => {
+		const first = new Date(Date.now() - 30 * 60_000).toISOString();
+		const now = new Date().toISOString();
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: { at: now, by: "A2VLJN", change: "o/r#A2VLJN" },
+				waiting: [
+					{
+						id: "later",
+						by: "85PKB2",
+						change: "o/r#later",
+						pid: process.pid,
+						askedAt: now,
+						seenAt: now,
+					},
+				],
+				firstAsked: { "o/r#ISXEG8": first },
+			}),
+		);
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000 }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting[0]?.by, { timeout: 4_000, interval: 10 })
+			.toBe("ISXEG8");
+		const placed = line().waiting[0];
+		giving.abort();
+		await waiting;
+
+		expect(placed.askedAt, "the first ask's time").toBe(first);
+	});
+
+	it("keeps urgent rounds first, then those that lead, then by first ask", async () => {
+		const at = (minutes: number) =>
+			new Date(Date.now() - minutes * 60_000).toISOString();
+		const now = new Date().toISOString();
+		const ticket = (id: string, askedAt: string, extra: object = {}) => ({
+			id,
+			by: id,
+			change: `o/r#${id}`,
+			pid: process.pid,
+			askedAt,
+			seenAt: now,
+			...extra,
+		});
+		startedAt("A2VLJN", new Date(), [
+			ticket("plain", at(30)),
+			ticket("world", at(10), { change: "shop/world#1" }),
+			ticket("marked", at(20), { leads: true }),
+		]);
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: 60_000,
+				urgent: async () => ["o/r#ISXEG8"],
+			}),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(4);
+		const order = line().waiting.map((each: { by: string }) => each.by);
+		giving.abort();
+		await waiting;
+
+		expect(order).toEqual(["ISXEG8", "marked", "world", "plain"]);
+	});
+
+	it("replaces an older ask of the session's for the change, keeping its place", async () => {
+		const first = new Date(Date.now() - 30 * 60_000).toISOString();
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(), [
+			{
+				id: "between",
+				by: "85PKB2",
+				change: "o/r#between",
+				pid: process.pid,
+				askedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+				seenAt: now,
+			},
+			{
+				id: "older",
+				by: "ISXEG8",
+				change: "o/r#ISXEG8",
+				pid: process.pid,
+				askedAt: first,
+				seenAt: now,
+			},
+		]);
+		nextTicket.id = "newer";
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000 }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting[0]?.id, { timeout: 4_000, interval: 10 })
+			.toBe("newer");
+		const kept = line();
+		nextTicket.id = "older";
+		const older = await awaitCouncilStart(path, claim("ISXEG8"));
+		giving.abort();
+		await waiting;
+
+		expect(kept.waiting.map((each: { id: string }) => each.id)).toEqual([
+			"newer",
+			"between",
+		]);
+		expect(kept.waiting[0].askedAt, "the first ask's place").toBe(first);
+		expect(older.cancelled).toContain("replaced by a newer ask");
+		expect(older.release, "nothing started for it").toBeUndefined();
+	});
+
+	it("forgets a change's first ask once it has started", async () => {
+		await awaitCouncilStart(path, claim("ISXEG8"));
+
+		expect(line().firstAsked?.["o/r#ISXEG8"]).toBeUndefined();
+	});
+
+	it("says where each round on a change stands, passing over those not looking", async () => {
+		const long = new Date(Date.now() - 10 * 60_000).toISOString();
+		const now = new Date().toISOString();
+		const ticket = (id: string, change: string, seenAt: string) => ({
+			id,
+			by: id,
+			change,
+			pid: process.pid,
+			askedAt: now,
+			seenAt,
+		});
+		startedAt("A2VLJN", new Date(), [
+			ticket("gone quiet", "o/r#1", long),
+			ticket("first", "o/r#1", now),
+			ticket("other", "o/r#2", now),
+			ticket("second", "o/r#1", now),
+		]);
+
+		expect(await placesInLine(path, "o/r#1")).toEqual([
+			{ position: 1, of: 3, by: "first", askedAt: now },
+			{ position: 3, of: 3, by: "second", askedAt: now },
+		]);
+		expect(await placesInLine(path, "o/r#none")).toEqual([]);
 	});
 
 	it("waits behind a round still looking, and says whose", async () => {
@@ -222,7 +423,7 @@ describe("spacing council starts on one machine", () => {
 		giving.abort();
 
 		expect((await waiting).cancelled).toContain(
-			"1 round ahead, behind o/r#ahead (asked by ISXEG8)",
+			"1 round ahead, behind o/r#ahead (asked by ISXEG8), position 2 of 2 in the start line",
 		);
 	});
 

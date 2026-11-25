@@ -39,9 +39,10 @@ import {
 	runOrHandOff,
 } from "../../../lib/jobs/hand-off.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { runDir } from "../engine.ts";
+import { councilStartsPath, runDir } from "../engine.ts";
 import { answerWatching } from "../progress.ts";
 import { askCouncil, retryOne, startRound } from "./ask-council.ts";
+import { lineSaid } from "./ask-line.ts";
 import { type RoundSeat, reportRoster } from "./ask-roster.ts";
 import { type AskParams, releaseIdentity } from "./ask-round.ts";
 import { collectOne, stopRound } from "./ask-settle.ts";
@@ -181,10 +182,14 @@ export async function runAsk(
 	}
 }
 
-/** What has been asked about this change so far. */
+/**
+ * What has been asked about this change so far, and where any round
+ * still waiting for its start stands in the machine's line.
+ */
 async function reportRuns(change: ChangeRef): Promise<Answer> {
 	const runs = await createRunStore(runDir()).list(change);
-	if (runs.length === 0) {
+	const waiting = await lineSaid(councilStartsPath(), change.label);
+	if (runs.length === 0 && waiting.length === 0) {
 		return say(
 			`Nothing has been asked about ${change.label} yet. Run a council to start.`,
 			{ runs: [] },
@@ -192,7 +197,11 @@ async function reportRuns(change: ChangeRef): Promise<Answer> {
 	}
 	const lines = runs.map((run) => describeRun(run));
 	return say(
-		[`${count(runs.length, "round")} on ${change.label}:`, ...lines].join("\n"),
+		[
+			`${count(runs.length, "round")} on ${change.label}:`,
+			...lines,
+			...waiting,
+		].join("\n"),
 		{ runs },
 	);
 }
