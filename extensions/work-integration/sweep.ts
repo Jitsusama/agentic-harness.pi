@@ -212,7 +212,11 @@ export interface SweepAsks {
 	 * sweep may go on judging them past a host's share; no limit by default.
 	 */
 	idleWithinMs?: number;
-	/** Waited on before each idle take but the first; nothing by default. */
+	/**
+	 * Waited on before each idle take but the first; nothing by default.
+	 * Given, it marks a runner that paces its removals, the only one that
+	 * finishes removals stopped part way.
+	 */
 	betweenIdleTakes?: () => Promise<void>;
 	/**
 	 * Whether its git holds to the fence's guard in every repository, as
@@ -257,7 +261,13 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 				: { betweenIdleTakes: asks.betweenIdleTakes }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
-			treesDir: cutTreeDir(),
+			// Stopped removals are finished only by a runner that paces its
+			// removals, off every host's thread: ten recursive removals back
+			// to back, one of 1.3 GiB, would fill a host's file pool while
+			// its sessions wait on it.
+			...(asks.betweenIdleTakes === undefined
+				? {}
+				: { treesDir: cutTreeDir() }),
 			...useSigns(),
 		});
 		// A sweep that rested did nothing, and the one before it said what
