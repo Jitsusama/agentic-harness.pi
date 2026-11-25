@@ -611,6 +611,8 @@ export interface EditNotes {
 		toolCallId: string,
 		content: readonly T[],
 	): (T | { type: "text"; text: string })[] | undefined;
+	/** The edit's run is over: a note it never answered for goes. */
+	closed(toolCallId: string): void;
 }
 
 /**
@@ -632,6 +634,10 @@ export function createEditNotes(): EditNotes {
 			if (note === undefined) return undefined;
 			notes.delete(toolCallId);
 			return [...content, { type: "text", text: note }];
+		},
+		// A later handler refused it, so no result came to carry the note.
+		closed: (toolCallId) => {
+			notes.delete(toolCallId);
 		},
 	};
 }

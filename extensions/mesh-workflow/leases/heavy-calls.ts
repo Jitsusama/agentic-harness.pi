@@ -71,7 +71,9 @@ export function heavySaid(subject: string): string {
  * The heavy shell commands running, by call, so work two calls share is
  * given up only when the last of them ends. A call's work is over when
  * it answers, unless it handed its command to a job, which runs on past
- * the answer until the job says it has ended.
+ * the answer until the job says it has ended. A call a later handler
+ * refused never answers: pi ends it without its `tool_result`, so its
+ * end alone gives its work up.
  */
 export interface HeavyCalls {
 	/** A bash call is starting: the heavy work it runs, if any. */
@@ -80,6 +82,11 @@ export interface HeavyCalls {
 	answered(toolCallId: string, content: readonly unknown[]): void;
 	/** A job a call handed off has ended. */
 	finished(toolCallId: string): void;
+	/**
+	 * A call's run is over, as pi's `tool_execution_end` says, after any
+	 * answer it gave: one that never answered was refused before it ran.
+	 */
+	closed(toolCallId: string): void;
 	/**
 	 * A background command carried here through a restart or a move,
 	 * labelled by its command's first line, runs on as `jobId`.
@@ -169,6 +176,12 @@ export function createHeavyCalls(
 		},
 		finished(toolCallId) {
 			waiting.delete(toolCallId);
+			ended(toolCallId);
+		},
+		closed(toolCallId) {
+			// Answered, it was settled there, handed off or not.
+			if (!commands.has(toolCallId)) return;
+			commands.delete(toolCallId);
 			ended(toolCallId);
 		},
 		takenUp(toolCallId, jobId, label) {

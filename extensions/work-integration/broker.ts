@@ -14,7 +14,7 @@
  * own first version.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -27,6 +27,12 @@ import {
 	createTreeBroker,
 	type TreeBroker,
 } from "../../lib/core/work/broker.ts";
+import {
+	type FetchRule,
+	type FetchRules,
+	fetchingBy,
+	parseWorkFetches,
+} from "../../lib/core/work/fetch-rules.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import {
 	type Objection,
@@ -38,6 +44,7 @@ import {
 	listTreeProviders,
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
+import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	QUEUED_LIMIT_MS,
@@ -86,14 +93,28 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
  * holds it.
  */
 export function treeExec(signal?: AbortSignal): Exec {
+	return fetchExec(signal, UNATTENDED_LIMIT_MS);
+}
+
+/**
+ * The tree provider's git on a clock of `timeoutMs` for what the queue
+ * doesn't take and `queuedMs` for what it does, its wait included. A
+ * fetch that can fall back on the start it has runs on a short clock
+ * either way (`fresh-start.ts`): a branch or a replay whose fetch
+ * waited five hours for a walk's turn held the call that long, where
+ * the start it had would do. A fetch behind World's turn waits on the
+ * clock too, since the turn says no line that holds it, so past it the
+ * start stands as it was and the answer says the fetch ran out of time.
+ */
+export function fetchExec(
+	signal: AbortSignal | undefined,
+	timeoutMs: number,
+	queuedMs = QUEUED_LIMIT_MS,
+): Exec {
 	const stoppedBy = signal ? { signal } : {};
 	return treeExecOver(
-		gitInEnglish({
-			...stoppedBy,
-			timeoutMs: UNATTENDED_LIMIT_MS,
-			turn: WORLD_PUSH_TURN,
-		}),
-		gitInEnglish({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
+		gitInEnglish({ ...stoppedBy, timeoutMs, turn: WORLD_PUSH_TURN }),
+		gitInEnglish({ ...stoppedBy, timeoutMs: queuedMs }),
 	);
 }
 
@@ -126,10 +147,50 @@ const GIT_IN_ENGLISH: Readonly<Record<string, string>> = {
  * git of its own: guarded after, a queued push would run a tree's
  * `.git` as a sandboxed command left it, outside the sandbox. The queue
  * still reads git as it was asked, so its job says `push`.
+ *
+ * A fetch follows the `work` section's rules for its checkout
+ * (`fetch-rules.ts`): answered from a prefetch where one is kept, and
+ * otherwise run behind the turn the section names, inside the guard
+ * and the queue alike.
  */
-export function treeExecOver(direct: Exec, queued: Exec): Exec {
-	return queuedExec(direct, queued, heldGit(gitRules));
+export function treeExecOver(
+	direct: Exec,
+	queued: Exec,
+	rules: FetchRules = configuredFetchRules,
+): Exec {
+	const held = heldGit(gitRules);
+	return fetchingBy(queuedExec(direct, queued, held), rules, (rule, args) =>
+		queuedExec(direct, queued, held, rule.through)("git", [...args]),
+	);
 }
+
+/** The `work` section's fetch rule for the checkout at `gitDir`, read afresh. */
+async function configuredFetchRules(
+	gitDir: string,
+): Promise<FetchRule | undefined> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return undefined;
+	// A section written wrong fetches as it always did; the rest still holds.
+	const { fetches } = parseWorkFetches(loaded.config.sections[WORK_SLUG]);
+	// Keyed as written or as the folder really is, since git names it
+	// by its real path and the person may name it through a link.
+	return Object.entries(fetches).find(
+		([folder]) => folder === gitDir || realPath(folder) === gitDir,
+	)?.[1];
+}
+
+/** `path` with its links followed, or itself when it can't be read. */
+function realPath(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// A folder that isn't there names no checkout git could be in.
+		return path;
+	}
+}
+
+/** The package config's section for the work tool. */
+const WORK_SLUG = "work";
 
 /**
  * One conversation's broker and the pi sessions each tree it takes up

@@ -72,6 +72,12 @@ function shellWord(word: string): string {
  * queue sees only `bash`, while the queue reads it as it was given, so
  * a job is named and weighed by what was asked rather than by the
  * longer line a guard makes of it.
+ *
+ * `through` is shell text each command runs behind, given the command
+ * and its words as `"$@"`, as a fetch of World runs behind its turn
+ * (`fetch-rules.ts`): after the guard, so the guard reads git and not
+ * the shell, and inside the queue's shell, so the queue weighs what
+ * was asked.
  */
 export function queuedExec(
 	direct: Exec,
@@ -79,18 +85,27 @@ export function queuedExec(
 	held: (command: string, args: readonly string[]) => Held = (_, args) => ({
 		args,
 	}),
+	through?: string,
 ): Exec {
 	return (command, args) => {
 		const hold = held(command, args);
 		if ("refused" in hold) return Promise.resolve(hold.refused);
 		const line = shellLine(command, args);
-		const run = shellLine(command, hold.args);
+		const program = through === undefined ? command : "bash";
+		const words =
+			through === undefined
+				? [...hold.args]
+				: ["-c", `${through} "$@"`, BEHIND_NAME, command, ...hold.args];
+		const run = shellLine(program, words);
 		const shell = queuedCommand(line, undefined, () => run);
 		return shell === run
-			? direct(command, [...hold.args])
+			? direct(program, words)
 			: queued("bash", ["-c", shell]);
 	};
 }
+
+/** What the shell a command runs behind calls itself, as `$0`. */
+const BEHIND_NAME = "work-fetch";
 
 /** `command` and `args` as one shell line. */
 function shellLine(command: string, args: readonly string[]): string {

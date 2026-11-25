@@ -114,6 +114,27 @@ describe("the work tool's git, when the queue takes it", () => {
 		]);
 	});
 
+	it("runs a fetch behind its checkout's turn inside the queue, after the guard", async () => {
+		const direct = recording();
+		const queued = recording();
+		const commit = "0123abcd";
+
+		await treeExecOver(direct.exec, queued.exec, async () => ({
+			through: "turn",
+		}))("git", ["-C", tree, "fetch", "--quiet", "origin", commit]);
+
+		const [command, args] = queued.asked[0] ?? ["", []];
+		expect(command, "the queue didn't take the fetch").toBe("bash");
+		expect(args[1], "the turn didn't wrap the guarded git").toContain(
+			`'turn "$@"' work-fetch git -c core.fsmonitor=false -C ${tree} fetch --quiet origin ${commit}`,
+		);
+		// The queue cuts the long line it names a job by, so its start.
+		expect(
+			asked()[0]?.what,
+			"the queue names the fetch as it was asked",
+		).toMatch(new RegExp(`^git -C ${tree} fetch --quiet origin 0`));
+	});
+
 	it("guards the push's own git the same way", async () => {
 		writeFileSync(join(tree, ".git"), `gitdir: ${join(root, "elsewhere")}\n`);
 

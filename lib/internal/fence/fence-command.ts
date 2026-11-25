@@ -46,6 +46,9 @@ const UNSET = [
 	"GCLOUD_KEYFILE_JSON",
 	"GOOGLE_IMPERSONATE_SERVICE_ACCOUNT",
 	"GOOGLE_GHA_CREDS_PATH",
+	// Handed on as `passed` only when the fence lets its socket through
+	// (`fence-worker-socket.ts`), so a path it refused never goes in.
+	"MYCELIUM_WORKER_SOCKET",
 ] as const;
 
 /**

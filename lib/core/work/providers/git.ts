@@ -407,7 +407,7 @@ export function createGitTreeProvider(deps: {
 					);
 					if (!full && !(await has())) {
 						throw new Error(
-							`${request.commit} is in neither ${request.repo.key}'s checkout nor origin's branches. Give the commit's full id, which origin can be asked for directly.`,
+							`${request.commit} is in neither ${request.repo.key}'s checkout nor origin's branches as last fetched, which a prefetched checkout fetches only every few minutes and never during a call. Give the commit's full id, which origin can be asked for directly.`,
 						);
 					}
 				}

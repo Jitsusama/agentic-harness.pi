@@ -104,6 +104,11 @@ import { fenceSshConfig } from "../fence/fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
 import { plantedCache, setAsidePlanted } from "../fence/fence-temp-caches.ts";
 import {
+	fencedWorkerSocket,
+	type SocketDisk,
+	workerSocketPassed,
+} from "../fence/fence-worker-socket.ts";
+import {
 	inStore,
 	type Offload,
 	offloadAt,
@@ -412,6 +417,8 @@ export type Sandbox =
 			readonly gcloud?: CloudGrantSource;
 			/** Drawn for a language server, with no way to gcloud's settings. */
 			readonly served?: boolean;
+			/** The disk the node's worker socket is judged on, unless the real one. */
+			readonly workerSockets?: SocketDisk;
 	  })
 	| (Logged & {
 			readonly kind: "fence";
@@ -426,6 +433,8 @@ export type Sandbox =
 			readonly note?: string;
 			/** Drawn for a language server, with nothing that acts as the person. */
 			readonly served?: boolean;
+			/** The disk the node's worker socket is judged on, unless the real one. */
+			readonly workerSockets?: SocketDisk;
 	  })
 	| (Logged & {
 			readonly kind: "seatbelt";
@@ -803,10 +812,15 @@ export function wrapFor(
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
 			const served = sandbox.served === true;
+			// A language server runs no one's ask, so it reaches no node.
+			const workerSocket = served
+				? undefined
+				: fencedWorkerSocket(place.env, sandbox.workerSockets);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				...(served ? { served } : {}),
+				...(workerSocket ? { workerSocket } : {}),
 				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
@@ -884,7 +898,10 @@ export function wrapFor(
 				// dt and `devx ci` read Delta's token from these, in place of
 				// any the person's shell names (`delta-token.ts`).
 				const delta = deltaVariables(sandbox.delta?.());
-				const cloud = { ...made, passed: { ...passed, ...delta } };
+				const cloud = {
+					...made,
+					passed: { ...passed, ...delta, ...workerSocketPassed(workerSocket) },
+				};
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
@@ -918,12 +935,17 @@ export function wrapFor(
 				mkdirSync(folder, { recursive: true, mode: 0o700 });
 			}
 			const served = sandbox.served === true;
+			// A language server runs no one's ask, so it reaches no node.
+			const workerSocket = served
+				? undefined
+				: fencedWorkerSocket(place.env, sandbox.workerSockets);
 			const rules = strictRules({
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
+				...(workerSocket ? { workerSocket } : {}),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
@@ -935,6 +957,7 @@ export function wrapFor(
 			const passed: Record<string, string> = {
 				...(token ? { GH_TOKEN: token } : {}),
 				...(served ? {} : cloudVariables(grant, home, place.env)),
+				...workerSocketPassed(workerSocket),
 			};
 			return (command) =>
 				sandboxedCommand(

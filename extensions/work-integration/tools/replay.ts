@@ -4,7 +4,7 @@
  * obvious.
  */
 
-import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import {
 	FETCH_MS,
@@ -18,6 +18,7 @@ import {
 } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { fetchExec } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -86,10 +87,7 @@ export async function replay(
 	// A remote's branch is replayed onto as the remote holds it: replayed
 	// onto the last fetch's origin/main, a branch went up a merge behind and
 	// its checks ran against a main that was no longer there.
-	const fetching = spawnExec({
-		...(signal ? { signal } : {}),
-		timeoutMs: FETCH_MS,
-	});
+	const fetching = fetchExec(signal, FETCH_MS, FETCH_MS);
 	const fresh = await refreshStart(fetching, found.path, onto, signal);
 	const stale = fresh.stale === undefined ? [] : [fresh.stale];
 	// Which commits are trunk's is judged by the remote's trunk, so it is
