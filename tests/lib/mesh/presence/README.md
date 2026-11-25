@@ -19,6 +19,7 @@ move is tested beside that step, pause or move.
 | `trees.test.ts`         | the trees its session holds, named by repository        |
 | `subjects.test.ts`      | the subjects it says it works on, owned and declared    |
 | `serves.test.ts`        | the needs its quest took, as the node reads them        |
+| `lineage.test.ts`       | the cell its quest split from, as the node reads it     |
 
 - `support/`: what they share, this session's id, a peer's presence and
   the surroundings its own peer runs in.

@@ -33,6 +33,10 @@ import {
 	withServed,
 } from "../../../lib/internal/quest/fields/serves.ts";
 import {
+	SPLIT_FROM,
+	splitFromOf,
+} from "../../../lib/internal/quest/fields/split-from.ts";
+import {
 	type SproutSeed,
 	sproutAlias,
 	sproutedWords,
@@ -210,6 +214,13 @@ export async function startSprouted(
 	if (seed.need && !servesNeed(state, id, seed, locked)) {
 		unrecorded.push(UNSERVED);
 	}
+	// Only a quest it made, or its own replayed, split from the cell that
+	// asked, as only those are tied to it below; a sprout the person
+	// started names no cell.
+	const split = (held === undefined || made !== undefined) && seed.from;
+	if (split && !splitsFrom(state, id, split, locked)) {
+		unrecorded.push(UNSPLIT);
+	}
 	// Only a quest it made, or its own replayed, is sprouted from the cell
 	// that asked: a live one it joined predates it, and may be that very
 	// cell's own, so the map is left saying where it really came from.
@@ -266,6 +277,37 @@ function servesNeed(
 			const serves = withServed(fm._extra?.serves, taken);
 			return serves ? { ...fm, _extra: { ...fm._extra, serves } } : undefined;
 		}).ok;
+	} catch {
+		// A lock that didn't come or a write that failed: the quest stands
+		// without its lineage, and the tie after this is still made.
+		return false;
+	}
+}
+
+/**
+ * Record on quest `id`'s README the cell `from` its work split from, so
+ * its presence says so and the node's forage draws the split. A README
+ * that can't be written, or whose lock doesn't come, leaves the quest
+ * standing without it, as `servesNeed` does; while `locked` it writes
+ * nothing. Answers whether the quest says it split from `from`.
+ */
+function splitsFrom(
+	state: QuestState,
+	id: string,
+	from: string,
+	locked: boolean,
+): boolean {
+	const quest = discoverQuests(state.questsRoot).index.quests.get(id);
+	if (!quest) return false;
+	if (splitFromOf(quest.doc.frontMatter._extra?.[SPLIT_FROM]) === from) {
+		return true;
+	}
+	if (locked) return false;
+	try {
+		return mutateQuestFrontMatter(quest.dir, (fm) => ({
+			...fm,
+			_extra: { ...fm._extra, [SPLIT_FROM]: from },
+		})).ok;
 	} catch {
 		// A lock that didn't come or a write that failed: the quest stands
 		// without its lineage, and the tie after this is still made.
@@ -352,6 +394,10 @@ const LINK_UNFOUND =
 /** What a joined quest's missing mark costs a replay of its sprout. */
 const RESTARTED =
 	"a replay of it after this quest ends may start its work again";
+
+/** What a split its quest doesn't record costs the node's forage. */
+const UNSPLIT =
+	"the cell it split from isn't recorded on the quest, so the map can't draw the split";
 
 /** What a need its quest doesn't record costs the node's forage. */
 const UNSERVED =

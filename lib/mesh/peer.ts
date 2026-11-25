@@ -54,6 +54,7 @@ import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
 import {
 	type FenceKind,
+	type Lineage,
 	type PeerState,
 	type Presence,
 	type PresenceLeases,
@@ -488,6 +489,7 @@ export function localPeer(at: Surroundings): Peer {
 	let standsAtTop: StandsAtTop | undefined;
 	let subjects: readonly string[] = [];
 	let serves: readonly Served[] = [];
+	let lineage: Lineage | undefined;
 	let shares: readonly Share[] = [];
 	let repo: string | undefined;
 	let workspace: string | undefined;
@@ -591,6 +593,8 @@ export function localPeer(at: Surroundings): Peer {
 			// An ended session works with nobody, so its last word serves and
 			// shares none.
 			...(serves.length > 0 && !ended ? { serves } : {}),
+			// Where its work came from stays true once it ends, for the map.
+			...(lineage ? { lineage } : {}),
 			...(shares.length > 0 && !ended ? { shares } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
@@ -674,6 +678,7 @@ export function localPeer(at: Surroundings): Peer {
 			work.subjects ?? [],
 		);
 		serves = work.serves ?? [];
+		lineage = work.lineage;
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
