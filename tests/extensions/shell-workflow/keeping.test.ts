@@ -231,6 +231,13 @@ const teeKeeps = process.platform === "linux" || (await teePersists());
  */
 const LOADED_MS = 30_000;
 
+/**
+ * How long a case that waits on a loaded machine may take in all: past
+ * vitest's own five seconds, which would end it before its waits, as the
+ * runs on optimus that passed at load 190 had sixty.
+ */
+const LOADED_CASE_MS = 2 * LOADED_MS;
+
 describe("a kept call", () => {
 	it.skipIf(!teeKeeps)(
 		"reads as it did and leaves nothing once it ends in its pi",
@@ -250,6 +257,7 @@ describe("a kept call", () => {
 				{ timeout: LOADED_MS },
 			);
 		},
+		LOADED_CASE_MS,
 	);
 
 	it.skipIf(!teeKeeps)(
@@ -333,6 +341,7 @@ describe("a kept call", () => {
 				"once handed, it isn't carried twice",
 			).toBeUndefined();
 		},
+		LOADED_CASE_MS,
 	);
 
 	it("outlives its time limit here once handed on, the pi that took it up holding it", async () => {
@@ -361,19 +370,25 @@ describe("a kept call", () => {
 		expect(endOf(work.keep), "its own end is on disk").toBe(5);
 	});
 
-	it("times out as pi says while it is still this pi's", async () => {
-		const kept = keeping();
-		const started = Date.now();
-		await expect(
-			run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
-		).rejects.toThrow("timeout:0.3");
-		expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
-		await vi.waitFor(
-			() =>
-				expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
-			{ timeout: LOADED_MS },
-		);
-	});
+	it(
+		"times out as pi says while it is still this pi's",
+		async () => {
+			const kept = keeping();
+			const started = Date.now();
+			await expect(
+				run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
+			).rejects.toThrow("timeout:0.3");
+			expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
+			await vi.waitFor(
+				() =>
+					expect(readdirSync(kept.folder), "its files go just after").toEqual(
+						[],
+					),
+				{ timeout: LOADED_MS },
+			);
+		},
+		LOADED_CASE_MS,
+	);
 
 	it.skipIf(!teeKeeps)(
 		"writes all it says once what read it has gone, as a spawner leaving it does",
@@ -422,6 +437,7 @@ describe("a kept call", () => {
 				"every line, those after its reader went too",
 			).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
 		},
+		LOADED_CASE_MS,
 	);
 
 	// A job is said ended only once its call settles, and a move or a

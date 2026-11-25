@@ -60,8 +60,15 @@ vi.mock("node:fs", async (importOriginal) => {
 const realWatch = (await vi.importActual<typeof import("node:fs")>("node:fs"))
 	.watch;
 
-/** How long a watch may take to hear a change on a loaded machine. */
+/**
+ * How long a watch may take to hear a change on a loaded machine. With
+ * the read's two seconds and the case's own setup it stays well under the
+ * 60 s backstop, so a backstop listing never passes a case that waits on it.
+ */
 const HEARD_MS = 30_000;
+
+/** A case that waits on a watch's hearing: its wait, its read and its setup. */
+const HEARING_CASE_MS = HEARD_MS + 10_000;
 
 /** The watches made on this test's folder, newest last. */
 function watchesOfDir(): ReturnType<typeof watch>[] {
@@ -442,50 +449,59 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: ext4 can hand a removed folder's inode to the
 	// next one made, which a stat of the path can't tell apart.
-	it("watches again when its folder is removed and made again with its inode back", async () => {
-		put("a.txt", "old folder");
-		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
-		await watching(folder);
-		const [made] = watchesOfDir();
-		if (made === undefined) throw new Error("expected a watch on the folder");
-		let heard = 0;
-		made.on("change", () => {
-			heard += 1;
-		});
-		const old = statSync(dir);
-		const stats = vi.mocked(stat);
-		const was = stats.getMockImplementation();
-		// The new folder at the path stats as the removed one did.
-		stats.mockImplementation(async (path: PathLike) => {
-			const found = statSync(path);
-			if (path !== dir) return found;
-			return Object.assign(found, { dev: old.dev, ino: old.ino });
-		});
-		try {
-			rmSync(dir, { recursive: true });
-			mkdirSync(dir);
-			put("b.txt", "new folder");
-			// A Mac's watch hears through FSEvents, which the work Mac under
-			// load delivered past two seconds, so the read is timed from what
-			// the watch heard rather than from the change.
-			await vi.waitFor(
-				() => expect(heard, "the watch heard").toBeGreaterThan(0),
-				{ timeout: HEARD_MS },
-			);
-			await vi.waitFor(
-				() =>
-					expect(
-						wordsOf(folder.files()),
-						"read well before the backstop",
-					).toEqual(["new folder"]),
-				{ timeout: 2000 },
-			);
-		} finally {
-			stats.mockImplementation(
-				was ?? (async (path: PathLike) => statSync(path)),
-			);
-		}
-	});
+	it(
+		"watches again when its folder is removed and made again with its inode back",
+		async () => {
+			put("a.txt", "old folder");
+			const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+			await watching(folder);
+			const [made] = watchesOfDir();
+			if (made === undefined) throw new Error("expected a watch on the folder");
+			// Only the folder's own event after its removal counts: it is the one
+			// the mirror acts on, where a.txt's removal, or a late event from the
+			// folder's making, would start the read's clock too soon.
+			let removed = false;
+			let heard = 0;
+			made.on("change", (_kind: string, name: string | Buffer | null) => {
+				if (removed && String(name) === basename(dir)) heard += 1;
+			});
+			const old = statSync(dir);
+			const stats = vi.mocked(stat);
+			const was = stats.getMockImplementation();
+			// The new folder at the path stats as the removed one did.
+			stats.mockImplementation(async (path: PathLike) => {
+				const found = statSync(path);
+				if (path !== dir) return found;
+				return Object.assign(found, { dev: old.dev, ino: old.ino });
+			});
+			try {
+				removed = true;
+				rmSync(dir, { recursive: true });
+				mkdirSync(dir);
+				put("b.txt", "new folder");
+				// A Mac's watch hears through FSEvents, which the work Mac under
+				// load delivered past two seconds, so the read is timed from what
+				// the watch heard rather than from the change.
+				await vi.waitFor(
+					() => expect(heard, "the watch heard").toBeGreaterThan(0),
+					{ timeout: HEARD_MS },
+				);
+				await vi.waitFor(
+					() =>
+						expect(
+							wordsOf(folder.files()),
+							"read well before the backstop",
+						).toEqual(["new folder"]),
+					{ timeout: 2000 },
+				);
+			} finally {
+				stats.mockImplementation(
+					was ?? (async (path: PathLike) => statSync(path)),
+				);
+			}
+		},
+		HEARING_CASE_MS,
+	);
 
 	// On 21 November seventy children each listed the mesh's presence each
 	// second, and held the disk in btrfs's directory locks.
@@ -841,7 +857,9 @@ describe("a host's mirror of a folder", () => {
 							asked(),
 							"the named read's stat of the locked file",
 						).toBeGreaterThan(before),
-					{ timeout: 2000 },
+					// It follows the watch's event, which optimus at a load of 190
+					// heard past the test's own five seconds.
+					{ timeout: HEARD_MS },
 				);
 				// Long enough for what the read kept to land.
 				await new Promise((done) => setTimeout(done, 200));
@@ -850,6 +868,7 @@ describe("a host's mirror of a folder", () => {
 				chmodSync(dir, 0o700);
 			}
 		},
+		HEARING_CASE_MS,
 	);
 
 	// The council on #1933: a read that fails after its stat, as a parse
