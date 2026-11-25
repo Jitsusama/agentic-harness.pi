@@ -573,6 +573,7 @@ export function answerFromReviewer(
 			...(result.priorAssistantText === undefined
 				? {}
 				: { earlierText: result.priorAssistantText }),
+			...(result.wrappedUp === true ? { wrappedUp: true } : {}),
 			...recordedBy(result),
 			...notesOn(undefined, result),
 			...usageOf(result),

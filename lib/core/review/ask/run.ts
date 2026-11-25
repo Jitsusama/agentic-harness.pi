@@ -74,6 +74,12 @@ export interface ParticipantOutcome {
 	 */
 	stopped?: AskStop;
 	/**
+	 * A stopped participant was asked for what it had, and answered.
+	 * Without it, a stop that raised nothing read nothing a gate may
+	 * count, whatever limit stopped it.
+	 */
+	wrappedUp?: true;
+	/**
 	 * Where this participant's answer was kept, verbatim.
 	 *
 	 * Recorded rather than derived from the ids, because a path that

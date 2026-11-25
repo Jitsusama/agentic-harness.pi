@@ -298,8 +298,10 @@ export interface ReadableTree {
 	caveat?: string;
 	/**
 	 * Said out loud when the tree is the commit but some of the change's
-	 * files couldn't be put in it, kept apart from the caveat since the
-	 * round still read the commit it records.
+	 * files couldn't be put in it. Kept apart from the caveat, since the
+	 * tree is the commit, but recorded as unpinned all the same: reviewers
+	 * who couldn't find the change didn't read it, so neither gate may
+	 * count the round as a read of the head (readFrom).
 	 */
 	lacking?: string;
 }
@@ -335,6 +337,25 @@ export function filesToRead(diff: DiffModel): string[] {
 			),
 		),
 	];
+}
+
+/**
+ * The files a stack's tip must hold: each a change in it writes, as it
+ * stands at the tip. Read in order, so a file one change writes and a
+ * later one deletes or moves away is not asked of the tip, which lacks
+ * it, and whose absence would have the provider refuse every file.
+ */
+export function stackFilesToRead(diffs: readonly DiffModel[]): string[] {
+	const held = new Set<string>();
+	for (const diff of diffs) {
+		for (const file of diff.files) {
+			if (file.oldPath !== undefined && file.oldPath !== file.newPath) {
+				held.delete(file.oldPath);
+			}
+			if (file.newPath !== undefined) held.add(file.newPath);
+		}
+	}
+	return [...held];
 }
 
 /** Where a round will run, and whether that is what was wanted. */
@@ -376,11 +397,20 @@ export function readFrom(
 	// tree be recorded as a round that read the commit faithfully,
 	// which is the opposite of what a refusal means, and it weakened
 	// the one compile-time guarantee this change relies on.
+	const unpinned = unpinnedOf(tree);
 	return whatItRead({
 		...(headCommit === undefined ? {} : { witness: headCommit }),
-		...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
+		...(unpinned === undefined ? {} : { unpinned }),
 		...(baseCommit === undefined ? {} : { from: baseCommit }),
 	});
+}
+
+/**
+ * Why a round on `tree` is not a read of the head, or nothing when it
+ * is: the tree is another commit, or it lacks the change's files.
+ */
+export function unpinnedOf(tree: ReadableTree): string | undefined {
+	return tree.caveat ?? tree.lacking;
 }
 
 /**
@@ -655,7 +685,9 @@ export async function treeForRound(
 	repo: RepoLocator,
 	commit: string | undefined,
 	fallback: string,
-	files: readonly string[] = [],
+	// Required, so a round that forgets its change's files fails to
+	// compile rather than reading a tree without them.
+	files: readonly string[],
 ): Promise<RoundTree> {
 	// Where a degraded round may honestly read, decided before
 	// anything is cut, because this is the one failure a caveat cannot
@@ -726,7 +758,7 @@ export async function treeForRound(
 			const held = await broker.ensure(whole);
 			return {
 				path: held.path,
-				lacking: `The tree is at the commit, but the change's files couldn't all be put in it, so reviewers may not find them: ${why}`,
+				lacking: `The tree couldn't be cut holding the change's files (${why}), so it was cut at the commit alone, and reviewers may not find them; the round doesn't count as a read of the head.`,
 			};
 		} catch (again) {
 			return fallbackAt(

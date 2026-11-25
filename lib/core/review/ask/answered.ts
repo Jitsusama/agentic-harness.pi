@@ -15,9 +15,7 @@ import type { AskLimit } from "./council.ts";
 
 /**
  * The stops that take a reviewer away before it answers, rather than
- * asking it for what it has. A clock running out (wall-clock, idle,
- * soft-deadline) asks the reviewer to answer, so what it returns is
- * its reading; these end it with nothing asked.
+ * asking it for what it has. These end it with nothing asked.
  */
 const TAKEN_AWAY: ReadonlySet<string> = new Set<AskLimit>([
 	"cancelled",
@@ -26,17 +24,21 @@ const TAKEN_AWAY: ReadonlySet<string> = new Set<AskLimit>([
 ]);
 
 /**
- * Whether `outcome` was taken away before it answered and raised
- * nothing: it read nothing a later round would repeat, whatever it
- * spent.
+ * Whether `outcome` was stopped and has nothing to show for it: it
+ * raised nothing, and either it was taken away, or a clock stopped it
+ * (wall-clock, idle, soft-deadline) and no wrap-up answered. A clock
+ * asks the reviewer for what it has, but only an answer to that is a
+ * reading; a wrap-up that never ran, or came back empty, read nothing
+ * a later round would repeat, whatever it spent.
  */
 export function takenAwayEmpty(outcome: unknown): boolean {
 	if (!isRecord(outcome)) return false;
 	const stopped = outcome.stopped;
 	const limit = isRecord(stopped) ? stopped.limit : undefined;
-	if (typeof limit !== "string" || !TAKEN_AWAY.has(limit)) return false;
+	if (typeof limit !== "string") return false;
 	const raised = outcome.findingIds;
-	return !(Array.isArray(raised) && raised.length > 0);
+	if (Array.isArray(raised) && raised.length > 0) return false;
+	return TAKEN_AWAY.has(limit) || outcome.wrappedUp !== true;
 }
 
 /**

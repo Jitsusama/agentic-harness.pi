@@ -17,7 +17,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	filesToRead,
 	forgetWorkLayer,
+	readFrom,
 	saidOfTree,
+	stackFilesToRead,
 	treeForRound,
 	watchForWorkLayer,
 } from "../../../../extensions/review-integration/work.ts";
@@ -135,6 +137,27 @@ describe("the files a round's tree must hold", () => {
 		).toEqual(["areas/a/x.ts", "areas/c/new.ts"]);
 	});
 
+	it("are, for a stack, only those its tip still holds", () => {
+		expect(
+			stackFilesToRead([
+				{
+					files: [
+						file(undefined, "areas/a/added.ts"),
+						file(undefined, "areas/b/moved.ts"),
+						file("areas/c/kept.ts", "areas/c/kept.ts"),
+					],
+				},
+				{
+					files: [
+						file("areas/a/added.ts", undefined),
+						file("areas/b/moved.ts", "areas/d/moved.ts"),
+						file("areas/c/kept.ts", "areas/c/kept.ts"),
+					],
+				},
+			]),
+		).toEqual(["areas/c/kept.ts", "areas/d/moved.ts"]);
+	});
+
 	it("asks the snapshot for the change's files", async () => {
 		const checkout = await checkoutAt();
 		const asked = announceLayer();
@@ -170,11 +193,16 @@ describe("the files a round's tree must hold", () => {
 		expect(
 			asked.map((one) => (one.intent === "snapshot" ? one.paths : "worktree")),
 		).toEqual([["areas/a/x.ts", ".github/CODEOWNERS"], undefined]);
-		// At the commit, so nothing is recorded as unpinned.
+		// At the commit, so no caveat, but the round lacked the change's
+		// files, so it is recorded as unpinned and no gate counts it as a
+		// read of the head.
 		expect(tree.caveat).toBeUndefined();
 		expect(saidOfTree(tree)).toContain(
 			"No zone at this commit holds .github/CODEOWNERS",
 		);
+		const read = readFrom(tree, checkout.head, undefined);
+		expect(read.witness).toBe(checkout.head);
+		expect(read.unpinned).toContain(".github/CODEOWNERS");
 	});
 
 	it("asks for no files when the change names none", async () => {
@@ -184,6 +212,7 @@ describe("the files a round's tree must hold", () => {
 			{ key: KEY, localPath: checkout.path },
 			checkout.head,
 			checkout.path,
+			[],
 		);
 
 		expect(asked).toHaveLength(1);

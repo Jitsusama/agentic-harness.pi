@@ -401,6 +401,7 @@ describe("finding a council that read a change's commits", () => {
 						participantId: "hawk",
 						findingIds: [],
 						stopped: { limit: "soft-deadline", detail: "asked to answer" },
+						wrappedUp: true,
 					},
 				],
 			}),
@@ -411,6 +412,36 @@ describe("finding a council that read a change's commits", () => {
 				(await store.witnessed("github:Shopify/world", new Set([sha])))?.id,
 			).toBe(`council-${sha}`);
 		}
+	});
+
+	it("counts no round whose clock stopped a reviewer that raised nothing and gave no wrap-up", async () => {
+		const store = createRunStore(root);
+		for (const [sha, limit] of [
+			["c1", "wall-clock"],
+			["c2", "idle"],
+			["c3", "soft-deadline"],
+		] as const) {
+			await store.record(
+				range,
+				read(sha, {
+					outcomes: [
+						{
+							participantId: "hawk",
+							findingIds: [],
+							stopped: { limit, detail: "ran out" },
+							usage: { tokens: 80_000 },
+						},
+					],
+				}),
+			);
+		}
+
+		expect(
+			await store.witnessed(
+				"github:Shopify/world",
+				new Set(["c1", "c2", "c3"]),
+			),
+		).toBeUndefined();
 	});
 
 	it("passes over a ledger that won't read", async () => {

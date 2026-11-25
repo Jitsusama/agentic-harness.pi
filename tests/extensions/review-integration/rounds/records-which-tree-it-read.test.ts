@@ -152,6 +152,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			"d7205e3c",
 			"/the/callers/checkout",
+			[],
 		);
 
 		expect(tree).toEqual({
@@ -189,6 +190,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			head,
 			"/the/callers/checkout",
+			[],
 		);
 
 		// Not a refusal, and standing in the configured checkout rather
@@ -215,6 +217,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			named.head,
 			named.path,
+			[],
 		);
 
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
@@ -235,6 +238,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			"d7205e3c",
 			named.path,
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -268,6 +272,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			configured.head,
 			configured.path,
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -291,6 +296,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			named.head,
 			named.path,
+			[],
 		);
 
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
@@ -312,6 +318,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			named.head,
 			inside,
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -332,6 +339,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			stranger.head,
 			stranger.path,
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -361,6 +369,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			named.head,
 			named.path,
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -392,6 +401,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:elsewhere/other" },
 			"d7205e3c",
 			"/the/callers/checkout",
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`stood in ${tree.path}`);
@@ -411,6 +421,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
 			"d7205e3c",
 			"/the/callers/checkout",
+			[],
 		);
 
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
@@ -426,6 +437,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
 			checkout.head.slice(0, 8),
 			"/the/callers/checkout",
+			[],
 		);
 
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
@@ -441,6 +453,7 @@ describe("what a round records about the tree it read", () => {
 			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
 			checkout.head,
 			"/somewhere/else/entirely",
+			[],
 		);
 
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);

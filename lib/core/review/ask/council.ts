@@ -107,6 +107,11 @@ export type AskAnswer =
 			 */
 			earlierText?: string;
 			/**
+			 * Whether a stopped participant was asked for what it had and
+			 * answered. Only then is a stop with nothing raised a reading.
+			 */
+			wrappedUp?: true;
+			/**
 			 * Findings this participant wrote down as it found them,
 			 * rather than saving them for its answer.
 			 *
