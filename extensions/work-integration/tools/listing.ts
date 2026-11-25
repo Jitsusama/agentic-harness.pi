@@ -31,7 +31,6 @@ import {
 	KEPT_BRANCHES,
 	type KeptBranch,
 } from "../../../lib/core/work/sweep-kept-branches.ts";
-import { pinnedCommit } from "../../../lib/core/work/tree.ts";
 import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
 import {
 	gitRun,
@@ -294,8 +293,13 @@ function gitShape(path: string): GitShape {
 	if (isFolder(dotGit)) return "repository";
 	try {
 		if (lstatSync(dotGit).isSymbolicLink()) {
+			// Only a repository inside the tree goes aside with it; one a
+			// link leads out to keeps its commits where it stands, which
+			// can't be told from here.
 			const led = statSync(dotGit);
-			return led.isDirectory() && existsSync(join(dotGit, "objects"))
+			return led.isDirectory() &&
+				existsSync(join(dotGit, "objects")) &&
+				within(dotGit, path)
 				? "repository"
 				: "unknown";
 		}
@@ -394,7 +398,12 @@ async function setUnreadAside(
 	// repository of its own keeps them alone, not on the clone's branch.
 	const read = gitShape(found.path);
 	const shape =
-		read === "entry" && pinnedCommit(found.identity) !== undefined
+		// By what the record says it was cut as, never by its commit's
+		// form: a snapshot cut at a short id or a ref's name is as
+		// detached as one cut at a full id.
+		read === "entry" &&
+		found.identity.shareable &&
+		found.identity.key.startsWith("snapshot-")
 			? "snapshot"
 			: read;
 	let aside: string | undefined;

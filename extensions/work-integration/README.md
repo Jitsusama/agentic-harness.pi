@@ -551,9 +551,11 @@ one is neither. A tree git won't run in can't be read, so it is
 set aside whole with everything in it rather than removed. Its
 branch stays, but git's entry for it, with its index and HEAD, goes
 when the clone that cut it next cuts that name, or at `git worktree
-prune` there. A tree whose `.git` became a repository
-of its own, or a link to one, keeps what was committed there only in
-what was set aside, and the answer says so. Run no git in what was
+prune` there. A snapshot was on no branch, so whatever was committed
+in it hangs only from that entry's HEAD: give it a branch from the
+clone before then. A tree whose `.git` became a repository of its
+own, or a link to one inside the tree, keeps what was committed
+there only in what was set aside, and the answer says so. Run no git in what was
 set aside: a command in the sandbox may have written the settings and
 hooks git would run. One whose `.git` names a worktree's git folder
 whose repository isn't there, as when its checkout moved, stays and

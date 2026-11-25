@@ -354,6 +354,49 @@ describe("giving a tree back", () => {
 		);
 	});
 
+	it("says a snapshot cut at a short id kept no branch either", async () => {
+		// What it was cut as decides, not the form its commit was given in.
+		cutWhereTheToolCuts();
+		const commit = await git(checkout(), "rev-parse", "--short", "HEAD");
+		const { details } = await work({
+			action: "snapshot",
+			repo: REPO,
+			purpose: "read-short",
+			commit,
+		});
+		const { key, path } = details;
+		if (typeof key !== "string" || typeof path !== "string") {
+			throw new Error(JSON.stringify(details));
+		}
+		pointAtEntry(path, outsideEntry(path));
+
+		const released = await work({ action: "release", tree: key });
+
+		if (typeof released.details.aside !== "string") {
+			throw new Error(released.text);
+		}
+		expect(released.text).not.toContain("Its branch stays");
+		expect(released.text).toContain("It was a snapshot, on no branch");
+	});
+
+	it("never says a link's commits are there alone when it leads out of the tree", async () => {
+		// The repository it leads to keeps its commits where it stands.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const outside = join(scratchDir(), "elsewhere", ".git");
+		mkdirSync(join(outside, "objects"), { recursive: true });
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		symlinkSync(outside, join(path, ".git"));
+
+		const released = await work({ action: "release", tree: key });
+
+		if (typeof released.details.aside !== "string") {
+			throw new Error(released.text);
+		}
+		expect(released.text).not.toContain("is there alone");
+		expect(released.text).toContain("Where it led wasn't read");
+	});
+
 	it("never says the branch stays for an entry whose commondir names a repository inside the tree", async () => {
 		// Git takes the repository from commondir, so the commits went
 		// where it names, which goes aside with the tree.
