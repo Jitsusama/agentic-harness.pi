@@ -21,6 +21,7 @@ import {
 	PINS_FILE,
 	pin,
 	projectCode,
+	projectCopy,
 	unpinnedSaying,
 } from "../../../host/engine/project-code.ts";
 
@@ -543,5 +544,111 @@ describe("what is said of code that may not load", () => {
 		expect(unpinnedSaying(folder, { code: both })).toContain(
 			".pi/extensions/a?[2Jb.ts",
 		);
+	});
+});
+
+describe("a copy of a folder's .pi", () => {
+	/** The copy's files by their place within the .pi, as text. */
+	const texts = (cwd: string): Record<string, string> =>
+		Object.fromEntries(
+			projectCopy(cwd).files.map((file) => [file.place, file.text.toString()]),
+		);
+
+	it("holds its code, words, settings and what its links lead to, by place within the .pi", () => {
+		write(".pi/extensions/lint.ts", "code");
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/settings.json", "{}");
+		writeFileSync(join(root, "shared.ts"), "linked");
+		symlinkSync(
+			join(root, "shared.ts"),
+			join(folder, ".pi/extensions/shared.ts"),
+		);
+		expect(texts(folder)).toEqual({
+			"extensions/lint.ts": "code",
+			"extensions/shared.ts": "linked",
+			"skills/a/SKILL.md": "words",
+			"settings.json": "{}",
+		});
+		expect(projectCopy(folder).code?.digest).toBe(projectCode(folder)?.digest);
+	});
+
+	it("holds the whole .pi when it holds no code, settings and words named anywhere in it", () => {
+		write(".pi/prompts/dream.md", "words");
+		write(".pi/team-skills/x/SKILL.md", "team words");
+		write(
+			".pi/settings.json",
+			JSON.stringify({ theme: "dark", skills: ["./team-skills"] }),
+		);
+		const copy = projectCopy(folder);
+		expect(copy.code).toBeUndefined();
+		expect(texts(folder)).toEqual({
+			"prompts/dream.md": "words",
+			"team-skills/x/SKILL.md": "team words",
+			"settings.json": JSON.stringify({
+				theme: "dark",
+				skills: ["./team-skills"],
+			}),
+		});
+		expect(copy.uncopyable).toBeUndefined();
+		expect(copy.wordsLeftOut).toBeUndefined();
+	});
+
+	it("holds a folder linked twice at both its places", () => {
+		write("shared/ext.ts", "shared");
+		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
+		symlinkSync(join(folder, "shared"), join(folder, ".pi/extensions/a"));
+		symlinkSync(join(folder, "shared"), join(folder, ".pi/extensions/b"));
+		expect(texts(folder)).toEqual({
+			"extensions/a/ext.ts": "shared",
+			"extensions/b/ext.ts": "shared",
+		});
+	});
+
+	it.skipIf(asRoot)(
+		"leaves out words it can't read, saying so, and keeps the rest",
+		() => {
+			write(".pi/skills/a/SKILL.md", "words");
+			write(".pi/skills/b/SKILL.md", "hidden");
+			chmodSync(join(folder, ".pi/skills/b/SKILL.md"), 0o000);
+			write(".pi/skills/c/SKILL.md", "more words");
+			const copy = projectCopy(folder);
+			expect(copy.uncopyable, "words left out never stop a copy").toBe(
+				undefined,
+			);
+			expect(copy.wordsLeftOut).toContain("skills/b/SKILL.md");
+			expect(texts(folder)).toEqual({
+				"skills/a/SKILL.md": "words",
+				"skills/c/SKILL.md": "more words",
+			});
+		},
+	);
+
+	it("can't stand in for settings naming code by a home path, a file URL or a path with a step up", () => {
+		for (const named of [
+			"~/ext.ts",
+			"file:///ext.ts",
+			"../../ext.ts",
+			"./x/*/../../../tools/ext.ts",
+		]) {
+			write(".pi/settings.json", JSON.stringify({ packages: [named] }));
+			expect(projectCopy(folder).uncopyable, named).toContain(
+				"rather than from the copy",
+			);
+		}
+		write(
+			".pi/settings.json",
+			JSON.stringify({
+				packages: [
+					"npm:p",
+					"./npm/p",
+					{ source: "./x/*.ts" },
+					"./..tools/ext.ts",
+				],
+			}),
+		);
+		expect(
+			projectCopy(folder).uncopyable,
+			"a fetched package, or a path within the .pi, is in the copy",
+		).toBeUndefined();
 	});
 });

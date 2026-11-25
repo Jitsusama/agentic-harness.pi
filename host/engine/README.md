@@ -245,13 +245,44 @@ folder pi doesn't ask trust for, or that the person said not to trust,
 is never asked about, though a conversation still trusted from before
 the no is checked at each load.
 
+A trusted folder loads from a copy of its .pi, never the .pi itself
+(project-copies.ts): the check keeps the bytes it hashed, words and
+settings too, writes them under project-copies in pi's agent folder,
+named by their digest and renamed into place whole, and points pi's
+settings at the copy before the load, so an extension, package or MCP
+file in .pi swapped in after the check never loads. Whether the folder
+needs trust at all is decided from the same read. The same bytes reuse
+their copy; a folder keeps its newest 8, each for a week after its
+last use, and every folder's copies are looked over hourly, so trees
+never opened again leave none behind. Words that can't be read whole,
+such as a pipe in skills or a skills folder past the walk's limits,
+are left out of the copy, said once, rather than leave the folder
+untrusted. A .pi whose settings name code by an absolute path, a home
+path, a file URL or a path with a step up in it loads untrusted, since
+pi would read that code where it is, as does one holding code whose
+copy can't be written. That needs a pi built with core's
+pi-host-reads-a-checked-copy patch; under one without, a trusted
+folder loads from the tree as it did before, checked against its
+pins.
+
+What a copy changes for a project: an extension loads from the agent
+folder, so a relative import out of .pi, or of the repository's own
+node_modules, no longer resolves; packages pi installs for the project
+go into its copy, so a copy made after a change installs them again;
+and project settings pi writes, such as a `pi install -l`, land in the
+copy, which is written afresh at the next load, so they last only
+until then. Write them in the tree's .pi instead.
+
 What the pins don't cover: code outside .pi that pinned code imports
 or runs, such as a linter an extension starts from the repository; a
-file in .pi an extension already loaded reads again before the next
-load, which the check sees only then; a change between the check and
-pi's reading of the file, which a fenced command swapping a file to
-and fro can try at every reload the model asks for, since the guard
-gives trust back each time it reads the pinned contents again; two
+file an extension reads from the tree's .pi by name, rather than
+beside itself in the copy, which the check sees only at the next load;
+a program a code setting such as `npmCommand` or an MCP server names
+by a path, which runs from wherever that path resolves; under a pi
+without copies, a change between the check and pi's reading of the
+.pi, which a fenced command swapping a file to and fro can try at
+every reload; a conversation running past its folder's 8 newer copies
+or a week unloaded, whose copy may be removed under it; two
 hosts writing the pins at once, where the last write wins; the
 hand-kept lists of pi's code entries and code settings, which a new
 pi may outgrow; a plain pi outside the host, which doesn't check the
