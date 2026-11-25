@@ -22,3 +22,8 @@ export {
 	type SpawnExecOptions,
 	spawnExec,
 } from "./spawn.ts";
+export {
+	ENDING,
+	type Ended,
+	stoppedBySignals,
+} from "./stopped-by-signals.ts";
