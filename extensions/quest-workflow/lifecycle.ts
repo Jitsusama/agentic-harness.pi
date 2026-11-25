@@ -589,6 +589,9 @@ export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
 	);
 }
 
+/** Why a start's first words are said, as their automated header gives it. */
+export const START_WORDS_REASON = "this session's start left it these words";
+
 /**
  * Take what a spawn left a session it started to say first
  * (lib/internal/quest/sessions/first-words.ts), and answer the send that makes
@@ -600,11 +603,16 @@ export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
  * looks for its first turn.
  *
  * Words go under the automated header unless they carry it already, as
- * a quest spawn's do: a sprout's brief and a host's literal words came
- * bare, so they read in the log as the person's, and a sprout quoting
- * the ask it was started for read as him correcting the session (pain
- * points, 24 November, entry efd94b22). They stay a user message, as
- * every turn the harness starts is (lib/internal/automated.ts).
+ * a quest spawn's do: a sprout's brief came bare, so it read in the log
+ * as the person's, and a sprout quoting the ask it was started for read
+ * as him correcting the session (pain points, 24 November, entry
+ * efd94b22). They stay a user message, as every turn the harness starts
+ * is (lib/internal/automated.ts). A host's own first prompt is not said
+ * here: it holds the first prompt pending, and sends it itself.
+ *
+ * Once marked, the words are no longer quotable past a compaction
+ * (lib/compaction/selection/units.ts), as a spawn's never were; the
+ * quest a sprout makes keeps its ask.
  *
  * The caller sends once every extension's session_start has finished,
  * not merely the next turn of the event loop. pi awaits each handler
@@ -641,7 +649,7 @@ export function sayFirstWords(
 		const idle = ctx.isIdle?.() ?? true;
 		const said = isAutomatedText(words)
 			? words
-			: automatedText("this session's start left it these words", words);
+			: automatedText(START_WORDS_REASON, words);
 		pi.sendUserMessage(said, idle ? undefined : { deliverAs: "followUp" });
 	};
 }

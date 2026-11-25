@@ -13,6 +13,7 @@ import {
 	captureSessionIdentity,
 	releaseSessionOnShutdown,
 	resolveStartup,
+	START_WORDS_REASON,
 	sayFirstWords,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { livePeers } from "../../../../extensions/quest-workflow/peers.ts";
@@ -190,12 +191,11 @@ it("takes only its own launch hints and literal first words", async () => {
 	withSession("a", () =>
 		sayFirstWords(pi, contexts("a"), "a", () => false),
 	)?.();
-	// A host's literal words go under the automated header, as no person's.
+	// Only a's hints are said, under the automated header as every start's
+	// words are. A real host holds its first prompt pending and sends it
+	// itself; `pending` is forced false here to read whose hints are said.
 	expect(send).toHaveBeenCalledWith(
-		automatedText(
-			"this session's start left it these words",
-			"only a gets this",
-		),
+		automatedText(START_WORDS_REASON, "only a gets this"),
 		undefined,
 	);
 	expect(

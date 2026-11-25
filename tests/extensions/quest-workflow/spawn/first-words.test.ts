@@ -32,7 +32,11 @@ const sayAtStartsEnd = (
 	send?.();
 	return send;
 };
-/** How the words a start left read once said: under the automated header. */
+/**
+ * How the words a start left read once said: under the automated header,
+ * spelled out here on purpose, since the cost ledger reads it back from
+ * old logs and the wording on the wire must not drift unseen.
+ */
 const marked = (words: string): string =>
 	`[Automated message, no human input: this session's start left it these words.] ${words}`;
 /** The record a session leaves of taking the words under `key`. */
@@ -120,11 +124,11 @@ describe("a session a spawn started", () => {
 	// reader took that quote for the person correcting the session (pain
 	// points, 24 November, entry efd94b22).
 	it("says a sprout's words as no person's, so its quoted ask is never his", async () => {
-		pendingWords(ctx).hints = {
-			firstWords:
-				'This session was sprouted for quest QEST-1. Joel said: "no, not that".',
-		};
+		const brief =
+			'This session was sprouted for quest QEST-1. Joel said: "no, not that".';
+		pendingWords(ctx).hints = { firstWords: brief };
 		sayAtStartsEnd("019a-sprouted");
+		expect(said.map((one) => one.text)).toEqual([marked(brief)]);
 		const entry = {
 			type: "message",
 			message: { role: "user", content: said[0]?.text },
