@@ -339,6 +339,20 @@ describe("runs", () => {
 		).toBeNull();
 	});
 
+	it("starts a run at the words a quest spawn started the session with", () => {
+		const log = new Log()
+			.typed(
+				"u1",
+				"[Automated message, no human input: quest spawn started this session on QEST-1.] Carry on with QEST-1.",
+			)
+			.turn("a1")
+			.add("c1", { type: "compaction", tokensBefore: 200_000, summary: "s" });
+
+		const turns = facts(log);
+		expect(turns.get("a1")?.facts?.runId).toBe("2026-09-24T13:00:01.000Z#u1");
+		expect(turns.get("c1")?.compaction?.sinceTypedMs).toBeNull();
+	});
+
 	it("still reads a resume written before the automated header", () => {
 		const log = new Log()
 			.typed("u1")

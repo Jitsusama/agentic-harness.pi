@@ -475,9 +475,13 @@ async function spawnNaming(
 	// the caller starts its own way is told too, since `pi --model ...`
 	// left CF3ZG0 untold for 44 minutes on 11-03; any other command is
 	// left as it is.
+	// A reopened session's log already has its start, so its words say
+	// they resumed it rather than started it.
+	const reopens =
+		(resumedSessionId ?? resumedBy(spawned.command)?.id) !== undefined;
 	const firstWords =
 		(spawnsPi || startsPi(spawned.command)) && !params.dryRun
-			? spawnedWords(questIdForSpawn, params.note)
+			? spawnedWords(questIdForSpawn, params.note, reopens)
 			: undefined;
 	const leftUnder = (key: string): string | undefined => {
 		if (!firstWords) return undefined;

@@ -86,7 +86,7 @@ import {
 	type SessionContext,
 	sessionEnv,
 } from "../../lib/core/session/index.ts";
-import { startWordsOf } from "../../lib/internal/automated.ts";
+import { isSpawnedText, startWordsOf } from "../../lib/internal/automated.ts";
 import {
 	budgetFoundInRecord,
 	budgetInRecord,
@@ -842,6 +842,9 @@ function firstPromptOf(ctx: ExtensionContext): string | undefined {
  * else the harness said, or for blank words.
  */
 function askOf(text: string): string | undefined {
+	// A spawn's words name its quest, whose budget rules; one left loose
+	// by a quest that failed to load is judged on what a person asks.
+	if (isSpawnedText(text)) return undefined;
 	const started = startWordsOf(text);
 	const ask = started ?? (isPersonText(text) ? text : undefined);
 	return ask?.trim() || undefined;

@@ -31,7 +31,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { automatedText } from "../../automated.ts";
+import { automatedText, spawnReason } from "../../automated.ts";
 import { sessionsDir, stateDir } from "../../paths.ts";
 import { indexSessionFiles } from "./session-liveness.ts";
 
@@ -61,13 +61,22 @@ export function firstWordsDir(): string {
 
 /**
  * The words a spawned session is told first: carry on with its quest,
- * and, when the spawn gave one, what it was started for.
+ * and, when the spawn gave one, what it was started for. A session the
+ * spawn reopens is told the same, but its words land midway through its
+ * log, where they are no start of it: they are marked as the harness's
+ * own turn, so no reader quotes them as what the session started for.
  */
-export function spawnedWords(questId: string, spec?: string): string {
+export function spawnedWords(
+	questId: string,
+	spec?: string,
+	reopened = false,
+): string {
 	const body = `Carry on with ${questId}: read its README and its focused plan, then take the plan's next open item and work it through as the plan says.`;
 	const told = spec?.trim();
 	return automatedText(
-		`quest spawn started this session on ${questId}`,
+		reopened
+			? `quest spawn resumed this session on ${questId}`
+			: spawnReason(questId),
 		told ? `${body}\n\nWhat it was started for:\n\n${told}` : body,
 	);
 }
