@@ -14,6 +14,7 @@
  * any other runs as it was.
  */
 
+import { readFileSync } from "node:fs";
 import type { Exec, Turn } from "../../core/exec/index.ts";
 import { behindThrough } from "../../core/work/fetch-rules.ts";
 import type { Held } from "../sandbox/tree-git.ts";
@@ -55,6 +56,20 @@ export const WORLD_PUSH_TURN: Turn = {
 	longestMs: 35 * 60 * 1000,
 };
 
+/**
+ * What a git held in a folder with no git at or above it runs behind
+ * once the queue takes it: a look at that folder again as its turn
+ * comes, and git kept from finding a repository above it, since a
+ * command can put a `.git` there while it waits (`unrooted-git.sh`).
+ */
+const UNROOTED_GIT = readFileSync(
+	new URL("./unrooted-git.sh", import.meta.url),
+	"utf8",
+);
+
+/** The name the unrooted guard's shell runs as, which its refusals don't say. */
+const UNROOTED_NAME = "pi-unrooted-git";
+
 /** A word the shell reads as it stands. */
 const PLAIN = /^[\w@%+=:,./-]+$/;
 
@@ -79,6 +94,10 @@ function shellWord(word: string): string {
  * (`fetch-rules.ts`): after the guard, so the guard reads git and not
  * the shell, and inside the queue's shell, so the queue weighs what
  * was asked.
+ *
+ * A git `held` found no git for runs, once the queue takes it, behind
+ * a look at its folder again as its turn comes (`UNROOTED_GIT`); one
+ * that runs at once runs as it was, since it starts as it was read.
  */
 export function queuedExec(
 	direct: Exec,
@@ -92,17 +111,36 @@ export function queuedExec(
 		const hold = held(command, args);
 		if ("refused" in hold) return Promise.resolve(hold.refused);
 		const line = shellLine(command, args);
-		const program = through === undefined ? command : "bash";
-		const words =
-			through === undefined
-				? [...hold.args]
-				: behindThrough(through, command, hold.args);
-		const run = shellLine(program, words);
+		const [program, words] = behind(through, command, hold.args);
+		const run =
+			hold.unrooted === undefined
+				? shellLine(program, words)
+				: shellLine(
+						...behind(through, "bash", [
+							"-c",
+							UNROOTED_GIT,
+							UNROOTED_NAME,
+							hold.unrooted,
+							command,
+							...hold.args,
+						]),
+					);
 		const shell = queuedCommand(line, undefined, () => run);
 		return shell === run
 			? direct(program, words)
 			: queued("bash", ["-c", shell]);
 	};
+}
+
+/** `command` and `args` as they run behind `through`, when there is one. */
+function behind(
+	through: string | undefined,
+	command: string,
+	args: readonly string[],
+): [string, string[]] {
+	return through === undefined
+		? [command, [...args]]
+		: ["bash", behindThrough(through, command, args)];
 }
 
 /** `command` and `args` as one shell line. */

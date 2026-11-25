@@ -1,13 +1,16 @@
+import { execFileSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	EXIT_TIMED_OUT,
@@ -20,6 +23,7 @@ import {
 	WORLD_PUSH_TURN,
 } from "../../../../lib/internal/priority/queued-exec.ts";
 import { queueHeavyWork } from "../../../../lib/internal/priority/turn.ts";
+import "../../../../lib/internal/priority/unrooted-git.sh";
 import { at } from "../../../support/at.ts";
 
 let root: string;
@@ -145,6 +149,127 @@ describe("a tool's git put through the machine's queue", () => {
 		const shell = queued.asked[0]?.[1][1] ?? "";
 		const quoted = `'${odd.replace("'", `'\\''`)}'`;
 		expect(shell).toContain(`git -C ${quoted} push origin x`);
+	});
+});
+
+/** The script a queued git with no git above its folder runs behind. */
+const UNROOTED = readFileSync(
+	join(
+		import.meta.dirname,
+		"../../../../lib/internal/priority/unrooted-git.sh",
+	),
+	"utf8",
+);
+
+/** A guard that found no git in `folder` for any git it was asked. */
+const unrootedIn =
+	(folder: string) => (_command: string, args: readonly string[]) => ({
+		args,
+		unrooted: folder,
+	});
+
+/** What `UNROOTED` says and exits with, guarding `folder`, of `command`. */
+function guarded(
+	folder: string,
+	command: string[],
+): { code: number; stdout: string; stderr: string } {
+	try {
+		const stdout = execFileSync(
+			"bash",
+			["-c", UNROOTED, "pi-unrooted-git", folder, ...command],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+		);
+		return { code: 0, stdout, stderr: "" };
+	} catch (error) {
+		const failed = error as { status: number; stdout: string; stderr: string };
+		return {
+			code: failed.status,
+			stdout: failed.stdout,
+			stderr: failed.stderr,
+		};
+	}
+}
+
+// A command can put a `.git` in a folder that held none while a git pi
+// runs there waits for its turn, naming a git folder whose hooks git
+// would run outside the sandbox.
+describe("a queued git in a folder with no git at or above it", () => {
+	const missing = join(homedir(), "world", "trees", "w-none-such", "src");
+
+	it("runs at once as it was when the queue doesn't take it", async () => {
+		const direct = recording();
+		const exec = queuedExec(direct.exec, recording().exec, unrootedIn(root));
+
+		await exec("git", ["status"]);
+
+		expect(direct.asked).toEqual([["git", ["status"]]]);
+	});
+
+	it("won't run once a .git was put in its folder while it waited", async () => {
+		keepQueue();
+		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
+		const exec = queuedExec(
+			recording().exec,
+			spawnExec({ timeoutMs: 60_000, env: { XDG_RUNTIME_DIR: "" } }),
+			unrootedIn(folder),
+		);
+
+		const answer = exec("git", ["-C", missing, "push", "origin", "x"]);
+		const [job] = jobs();
+		writeFileSync(join(folder, ".git"), "gitdir: /elsewhere\n");
+		writeFileSync(join(dir, `${job.id}.turn`), "");
+
+		const result = await answer;
+		expect(result.code, result.stderr).toBe(126);
+		expect(result.stderr).toContain("holds a git now");
+	});
+
+	it("runs once its turn comes while its folder still holds none", async () => {
+		keepQueue();
+		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
+		const exec = queuedExec(
+			recording().exec,
+			spawnExec({ timeoutMs: 60_000, env: { XDG_RUNTIME_DIR: "" } }),
+			unrootedIn(folder),
+		);
+
+		const answer = exec("git", ["-C", missing, "push", "origin", "x"]);
+		const [job] = jobs();
+		writeFileSync(join(dir, `${job.id}.turn`), "");
+
+		const result = await answer;
+		expect(result.code, result.stderr).toBe(128);
+		expect(result.stderr).toContain("w-none-such");
+	});
+
+	it.each([
+		["a .git file", [".git"], []],
+		["a .git link", [], [".git"]],
+		["a bare repository", ["HEAD"], ["objects"]],
+		["a bare repository of links", [], ["HEAD", "objects"]],
+	])("won't run where %s stands above its folder", (_, files, links) => {
+		const above = realpathSync(mkdtempSync(join(root, "above-")));
+		const folder = join(above, "below");
+		mkdirSync(folder);
+		for (const file of files) writeFileSync(join(above, file), "");
+		for (const link of links) symlinkSync(root, join(above, link));
+
+		const said = guarded(folder, ["true"]);
+
+		expect(said.code, said.stderr).toBe(126);
+		expect(said.stderr).toContain(`${above} holds a git now`);
+	});
+
+	it("keeps git from finding a repository above its folder", () => {
+		const folder = realpathSync(mkdtempSync(join(root, "plain-")));
+
+		const said = guarded(folder, [
+			"sh",
+			"-c",
+			'printf %s "$GIT_CEILING_DIRECTORIES"',
+		]);
+
+		expect(said).toEqual({ code: 0, stdout: dirname(folder), stderr: "" });
 	});
 });
 

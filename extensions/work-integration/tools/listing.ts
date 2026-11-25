@@ -234,6 +234,10 @@ const REFUSALS: readonly (readonly [RegExp, string])[] = [
 		"its .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to",
 	],
 	[
+		/ lies where the work tool cuts trees but holds no \.git, as when a command removed it/,
+		"it lies where the work tool cuts trees but holds no .git, as when a command removed it, so git won't run there: a .git put back later could name a git folder of a command's own",
+	],
+	[
 		/ lies where the work tool cuts trees but holds a repository of its own/,
 		"it lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there",
 	],
