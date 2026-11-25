@@ -97,7 +97,9 @@ describe("an arriving clone the disk won't put in place", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "it arrives no tree, since its clone was refused").toBe(
+			false,
+		);
 		const [clone] = leftIn(join(home, "src"));
 		expect(clone, "the clone stays, since it couldn't go").toContain(CLONING);
 		const at = join(home, "src", clone ?? "");
@@ -152,7 +154,10 @@ describe("an arriving clone the disk won't put in place", () => {
 			unpointed,
 		);
 
-		expect(whole).toBe(false);
+		expect(
+			whole,
+			"it arrives no tree, since its twin's clone was refused",
+		).toBe(false);
 		const [clone, ...others] = leftIn(join(home, "src")).filter(
 			(one) => one !== "twin",
 		);
@@ -209,7 +214,7 @@ describe("an arriving clone the disk won't put in place", () => {
 			unsettled,
 		);
 
-		expect(whole).toBe(false);
+		expect(whole, "it arrives no tree, since settling it failed").toBe(false);
 		expect(said[0]).toMatchObject({
 			did: "refused",
 			why: `git couldn't check out topic: fatal: refused. And its clone is left at ${path}, since it couldn't be taken out: EBUSY: refused, rm '${path}'; take it out before arriving again, since the next arrival finds it there.`,
@@ -228,7 +233,10 @@ describe("an arriving clone the disk won't put in place", () => {
 		try {
 			const { whole, said } = await arriveAt(home, from);
 
-			expect(whole).toBe(false);
+			expect(
+				whole,
+				"it arrives no tree, since its clone's name was taken",
+			).toBe(false);
 			expect(said[0]).toMatchObject({
 				did: "refused",
 				why: expect.stringMatching(
@@ -239,7 +247,10 @@ describe("an arriving clone the disk won't put in place", () => {
 			now.mockRestore();
 		}
 		expect(leftIn(planted), "what stood there stays").toEqual(["theirs"]);
-		expect(existsSync(join(home, "src", "app"))).toBe(false);
+		expect(
+			leftIn(join(home, "src")),
+			"nothing at the tree's own place",
+		).not.toContain("app");
 	});
 
 	it("names the tree's own place where git's words about a twin's clone named its clone", async () => {
