@@ -4,7 +4,9 @@
  * with no sandbox is let through untouched.
  *
  * Each case lays out a made-up home folder holding a token file, and a
- * working folder beside it, so nothing of the person's is read.
+ * working folder beside it, so nothing of the person's is read. Long
+ * because every case lays out that same made-up home and drives the one
+ * interceptor through it, so split files would each build it again.
  */
 
 import {
