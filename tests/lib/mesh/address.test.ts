@@ -261,6 +261,19 @@ describe("what a restart keeps of holding its quest's address", () => {
 		).toEqual(kept);
 	});
 
+	it("keeps it up to ten minutes after it ended, and not a moment past", () => {
+		expect(
+			signedSince({ ...last, ended: "2026-11-25T15:50:00.000Z" }, now),
+		).toEqual(kept);
+		expect(
+			signedSince({ ...last, ended: "2026-11-25T15:49:59.999Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("starts afresh where it can't tell when it ended", () => {
+		expect(signedSince({ ...last, ended: "soon" }, now)).toBeUndefined();
+	});
+
 	it("starts afresh after a quit reopened later", () => {
 		expect(
 			signedSince({ ...last, ended: "2026-11-25T15:00:00.000Z" }, now),
