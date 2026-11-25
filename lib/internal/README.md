@@ -33,7 +33,8 @@ no caller reads by.
   it and why.
 - **`clipboard/`**: Ctrl+V under Wayland without the session
   forking: the shell it forks once for its clipboard reads, and what
-  a paste reads and puts in the editor, in pi's own order.
+  a paste reads and puts in the editor, in pi's own order; and a
+  held pi's copies sent to the terminal showing it, as OSC 52.
 - **`config/`**: the loader for the package's one configuration
   file, and which project a checkout is, for settings keyed by
   project.

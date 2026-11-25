@@ -44,6 +44,9 @@ beforeEach(() => {
 	vi.stubEnv("PATH", `${scratch}${delimiter}${process.env.PATH ?? ""}`);
 	vi.stubEnv("WAYLAND_DISPLAY", "wayland-test");
 	vi.stubEnv("TERMUX_VERSION", undefined);
+	// The runner may itself be a held pi; each test here says whether it is.
+	vi.stubEnv("MYCELIUM_HELD", undefined);
+	vi.stubEnv("PI_CLIPBOARD_OSC52", undefined);
 });
 
 afterEach(() => {
@@ -153,5 +156,23 @@ describe("the clipboard widget", () => {
 		const pi = fakePi();
 		clipboardWidget(pi);
 		expect([...pi.recorded.handlers.keys()]).toEqual([]);
+	});
+
+	it("sends a held pi's copies to its terminal under Wayland", () => {
+		vi.stubEnv("MYCELIUM_HELD", "hold-1");
+		clipboardWidget(fakePi());
+		expect(process.env.PI_CLIPBOARD_OSC52).toBe("1");
+	});
+
+	it("sends a held pi's copies to its terminal without a display", () => {
+		vi.stubEnv("WAYLAND_DISPLAY", undefined);
+		vi.stubEnv("MYCELIUM_HELD", "hold-1");
+		clipboardWidget(fakePi());
+		expect(process.env.PI_CLIPBOARD_OSC52).toBe("1");
+	});
+
+	it("leaves an unheld pi's copies as pi makes them", () => {
+		clipboardWidget(fakePi());
+		expect(process.env.PI_CLIPBOARD_OSC52).toBeUndefined();
 	});
 });
