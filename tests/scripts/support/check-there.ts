@@ -1697,6 +1697,13 @@ function sendFrom(
 		? atATerminal([bash, SCRIPT, ...args], environment)
 		: [bash, SCRIPT, ...args];
 	const ran = spawnSync(program, words, {
+		// BSD script asks its stdin for a terminal's settings and forgives only
+		// a file's refusal, never a socket's, which node's pipe is on the Mac.
+		stdio: [
+			seat.terminal && process.platform === "darwin" ? "ignore" : "pipe",
+			"pipe",
+			"pipe",
+		],
 		cwd: root,
 		env: environment,
 		encoding: "utf8",
@@ -1889,6 +1896,13 @@ function localHalf(): void {
 				[
 					"/bin/bash",
 					"/nix/store/a-mycelium-0.1.0/bin/mycelium --realm work holder",
+				],
+			],
+			[
+				"pi launched through node, as on the Mac",
+				[
+					"/bin/zsh",
+					"node /opt/homebrew/lib/node_modules/pi/bin/pi --continue",
 				],
 			],
 		])(

@@ -78,7 +78,7 @@ set -euo pipefail
 # `forebear` which process, or which read, it stopped at.
 forebear=""
 under_pi() {
-  local pid=$PPID ppid args program hops=0
+  local pid=$PPID ppid args program name rest hops=0
   while [ "$pid" -gt 1 ]; do
     # A chain past 64 processes is no shell's (a terminal's, nested
     # through tmux and ssh, runs to a dozen): refused, not walked on,
@@ -92,9 +92,21 @@ under_pi() {
       return 0
     fi
     program=${args%% *}
-    forebear="process $pid, ${program##*/}"
-    case "${program##*/}" in
-      pi | pi-spawner | mycelium) return 0 ;;
+    name=${program##*/}
+    # One launched through node, as pi from a terminal on the Mac shows
+    # (`node /.../bin/pi ...`), is named by the script node runs, where
+    # its next word is a script rather than an option.
+    if [ "$name" = node ] && [ "$args" != "$program" ]; then
+      rest=${args#* }
+      rest=${rest%% *}
+      case "$rest" in
+        -*) ;;
+        *) name=${rest##*/} ;;
+      esac
+    fi
+    forebear="process $pid, $name"
+    case "$name" in
+      pi | pi-host | pi-spawner | mycelium) return 0 ;;
     esac
     case "$program" in
       *pi-host-runtime*) return 0 ;;
