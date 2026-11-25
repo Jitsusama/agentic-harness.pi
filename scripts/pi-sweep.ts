@@ -11,8 +11,9 @@
  * sweeps down. A run that fails, or finds another sweep running, leaves
  * the stamp as it was, so a timer that stops, or runs and can't sweep,
  * hands sweeping back to the hosts within two hours by itself. It takes
- * its turn at the same lock as every other sweep, but never rests after
- * one, as its timer already spaces its runs. The lock, the stamp and the
+ * its turn at the same lock as every other sweep, waiting up to half an
+ * hour for a host's to end rather than standing down, but never rests
+ * after one, as its timer already spaces its runs. The lock, the stamp and the
  * log are found by the same XDG folders as the hosts', so its timer sets
  * none of them.
  *
@@ -150,6 +151,16 @@ const OUTSIDE_IDLE_WITHIN_MS = 10 * 60 * 1000;
 const OUTSIDE_IDLE_PAUSE_MS = 2 * 1000;
 
 /**
+ * How long a run that finds a host's sweep running waits its turn for
+ * the lock. Once the stamp is two hours old the hosts sweep again, and a
+ * run that stood down for theirs never stamped: on 25 November the 09:00
+ * and 10:00 runs each stood down in about 20 seconds, so the hosts went
+ * on sweeping on their threads, and removals only this runner finishes
+ * waited. Half an hour leaves the unit's two hours room for the sweep.
+ */
+const OUTSIDE_LOCK_WAIT_MS = 30 * 60 * 1000;
+
+/**
  * How long a provider may take to judge one tree before the run goes on
  * without it: past World's ten minutes for one dev command, and
  * short of the unit's two hours, which one call that never settled
@@ -233,6 +244,8 @@ export async function sweepOutside({
 		idleWithinMs: OUTSIDE_IDLE_WITHIN_MS,
 		betweenIdleTakes: () =>
 			new Promise((done) => setTimeout(done, OUTSIDE_IDLE_PAUSE_MS)),
+		lockWaitMs: OUTSIDE_LOCK_WAIT_MS,
+		listsMerged: true,
 		told: (why) => tell(`sweep ${why}`),
 	});
 	// Any call that failed shows in the unit's state. A tree whose call

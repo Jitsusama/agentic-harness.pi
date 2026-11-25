@@ -30,6 +30,7 @@ import {
 } from "../../lib/core/work/events.ts";
 import { resolvedPath, type UseSigns } from "../../lib/core/work/in-use.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
+import { mergedPullHeads } from "../../lib/core/work/merged-branch.ts";
 import { listTreeProviders } from "../../lib/core/work/register.ts";
 import {
 	type SweepOutcome,
@@ -226,6 +227,18 @@ export interface SweepAsks {
 	 */
 	betweenIdleTakes?: () => Promise<void>;
 	/**
+	 * How long a sweep that finds another running waits its turn for the
+	 * lock, in milliseconds of awake time; a host's stands down at once.
+	 */
+	lockWaitMs?: number;
+	/**
+	 * Whether it asks GitHub, once a repository, which pull requests merged
+	 * at which heads, so a clean ended tree at one goes: for the runner
+	 * outside every host, since a listing goes over the network with the
+	 * machine's one sweep lock held.
+	 */
+	listsMerged?: boolean;
+	/**
 	 * Whether its git holds to the fence's guard in every repository, as
 	 * a fenced session's does, whatever this process's own sandbox.
 	 */
@@ -272,6 +285,13 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			...(asks.betweenIdleTakes === undefined
 				? {}
 				: { betweenIdleTakes: asks.betweenIdleTakes }),
+			...(asks.lockWaitMs === undefined ? {} : { lockWaitMs: asks.lockWaitMs }),
+			...(asks.listsMerged
+				? {
+						mergedHeads: (checkout: string, base: string) =>
+							mergedPullHeads(exec, checkout, base),
+					}
+				: {}),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			// Stopped removals are finished only by a runner that paces its
@@ -308,7 +328,12 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		line = { failed: messageOf(error) };
 		asks.told?.(`failed: ${messageOf(error)}`);
 	}
-	logSweep({ ms: Date.now() - started, ...line }, started);
+	// Dated and timed from its turn, not from the wait for it.
+	const waited = typeof line.waitedMs === "number" ? line.waitedMs : 0;
+	logSweep(
+		{ ms: Math.max(0, Date.now() - started - waited), ...line },
+		started + waited,
+	);
 	if (taken.length > 0) {
 		try {
 			await asks.swept(taken);
@@ -685,7 +710,12 @@ function bootedAt(): { bootedAt?: number } {
 
 /** A sweep's outcome as its log line holds it. */
 function said(outcome: SweepOutcome): Record<string, unknown> {
-	if (outcome.skipped !== undefined) return { skipped: outcome.skipped };
+	// A wait is said apart, so a run's own time reads without it.
+	const waited =
+		outcome.waitedMs === undefined ? {} : { waitedMs: outcome.waitedMs };
+	if (outcome.skipped !== undefined) {
+		return { skipped: outcome.skipped, ...waited };
+	}
 	return {
 		taken: outcome.taken,
 		refused: outcome.refused,
@@ -711,6 +741,8 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		// The idle phase's own time, so a slow run says whether its snapshots
 		// or the ended trees before them took it.
 		...(outcome.idleMs === undefined ? {} : { idleMs: outcome.idleMs }),
+		...(outcome.unlisted === undefined ? {} : { unlisted: outcome.unlisted }),
+		...waited,
 	};
 }
 

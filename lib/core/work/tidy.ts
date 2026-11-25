@@ -117,6 +117,14 @@ export interface OrphanAsk {
 	 * reads the broker's records, can say what a tree was cut at.
 	 */
 	stillPinned?: (path: string, commit: string | undefined) => boolean;
+	/**
+	 * The pull request a forge merged with this commit as its head, given
+	 * the commit a clean tree on a branch sits at. Such a tree holds what
+	 * was merged, though a squash merge left trunk without its commits and
+	 * the forge then deleted its branch. Without it such a tree is a
+	 * decision for a person, as before.
+	 */
+	landed?: (commit: string) => number | undefined;
 }
 
 /** A tree nothing claims any more, and what was in it. */
@@ -125,6 +133,10 @@ export interface Reclaimable {
 	branch?: string;
 	/** Set when only its remote, not trunk, holds the branch's commits. */
 	pushed?: boolean;
+	/** The pull request merged at its HEAD, when trunk didn't hold it. */
+	landed?: number;
+	/** The commit it sat at when it was found merged there. */
+	commit?: string;
 }
 
 /** A tree being left alone, and the reason. */
@@ -261,6 +273,21 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 					true,
 				);
 			}
+			continue;
+		}
+		// Merged at exactly its HEAD, so nothing past what was reviewed and
+		// merged is in it, and its branch stays to recut it at. On 25
+		// November one machine kept 169 trees whose branches trunk didn't
+		// contain, and 448 worktrees sat at a merged pull request's head.
+		const landed =
+			tree.commit === undefined ? undefined : ask.landed?.(tree.commit);
+		if (landed !== undefined) {
+			reclaimable.push({
+				path: tree.path,
+				branch: tree.branch,
+				landed,
+				...(tree.commit === undefined ? {} : { commit: tree.commit }),
+			});
 			continue;
 		}
 		// On its remote, the branch's commits are kept twice over, there and

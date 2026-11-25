@@ -306,4 +306,41 @@ describe("trees left behind", () => {
 		expect(kept?.why).toContain("squash");
 		expect(kept?.why).toContain("only copy");
 	});
+
+	it("offers a tree at a merged pull request's head, and only there", () => {
+		const at = (path: string, commit: string): WorktreeOnDisk => ({
+			path,
+			branch: "plan-9",
+			commit,
+		});
+		const merged = new Map([["c0ffee", 42]]);
+		const plan = orphanedTrees({
+			...ask([
+				{ path: main },
+				at("/repo/.worktrees/landed", "c0ffee"),
+				at("/repo/.worktrees/past", "decade"),
+				{ ...at("/repo/.worktrees/dirty", "c0ffee"), dirty: true },
+				at("/repo/.worktrees/nobodys", "c0ffee"),
+			]),
+			unattributed: ["/repo/.worktrees/nobodys"],
+			landed: (commit) => merged.get(commit),
+		});
+
+		expect(plan.reclaimable, "the trees offered").toEqual([
+			{
+				path: "/repo/.worktrees/landed",
+				branch: "plan-9",
+				landed: 42,
+				commit: "c0ffee",
+			},
+		]);
+		const past = plan.retained.find(
+			(kept) => kept.path === "/repo/.worktrees/past",
+		);
+		expect(past?.why, "a commit past the merged head").toContain("squash");
+		expect(
+			plan.retained.find((kept) => kept.path === "/repo/.worktrees/nobodys"),
+			"a tree nobody's name is on, though merged, is a person's to judge",
+		).toMatchObject({ decide: true });
+	});
 });

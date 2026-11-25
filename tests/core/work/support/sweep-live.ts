@@ -156,7 +156,15 @@ export async function setUp() {
 	const sweep = (
 		claims: SweepClaims = [],
 		wentWithFinishedWork?: (gitDir: string) => boolean,
-		signs: Pick<SweepDeps, "sessionFolders" | "busyAmong"> = {},
+		signs: Pick<
+			SweepDeps,
+			| "sessionFolders"
+			| "busyAmong"
+			| "mergedHeads"
+			| "lockWaitMs"
+			| "lockWaitEveryMs"
+			| "betweenIdleTakes"
+		> = {},
 	) =>
 		sweepEndedTrees({
 			exec,

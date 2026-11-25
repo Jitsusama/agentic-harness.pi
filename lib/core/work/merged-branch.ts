@@ -7,6 +7,10 @@
  * of config, which every git command there read, the host's presence
  * publish among them. A branch whose commits are all on the remote's
  * trunk holds nothing anyone can lose, so it goes when its tree does.
+ *
+ * A squash merge lands a branch's work under a commit of trunk's own, so
+ * trunk never holds the branch's commits; the forge says which heads it
+ * merged instead ({@link mergedPullHeads}).
  */
 
 import { statSync } from "node:fs";
@@ -209,4 +213,96 @@ function settled(log: string, before: number): boolean {
 		// branch last moved, so it is kept.
 		return false;
 	}
+}
+
+/**
+ * How many merged pull requests one listing reads, newest first: on 25
+ * November one machine's worktrees of its three busiest repositories sat
+ * at the heads of 448 among their newest thousand merged. A tree landed
+ * earlier is kept, as before.
+ */
+const MERGED_LISTED = 1000;
+
+/** A GitHub repository's owner and name, from its remote's URL. */
+const GITHUB_REMOTE =
+	/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/;
+
+/** One merged pull request as gh lists it. */
+interface MergedPull {
+	number: number;
+	headRefOid: string;
+}
+
+/** Whether gh's listing holds a merged pull request's number and head. */
+function isMergedPull(value: unknown): value is MergedPull {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"number" in value &&
+		typeof value.number === "number" &&
+		"headRefOid" in value &&
+		typeof value.headRefOid === "string"
+	);
+}
+
+/**
+ * The head commit of each pull request GitHub merged into `base`, the
+ * trunk of the repository `checkout`'s origin names, with its number,
+ * newest first up to {@link MERGED_LISTED}, in one listing. A tree whose
+ * HEAD is one of them holds what was reviewed and merged, though a squash
+ * merge left trunk without its commits and the forge then deleted its
+ * branch. A pull request merged into another base counts for nothing,
+ * since that base may never land. Where there is no listing, why: an
+ * origin elsewhere than GitHub, or gh unable to say, as without a login
+ * or a network.
+ */
+export async function mergedPullHeads(
+	exec: Exec,
+	checkout: string,
+	base: string,
+): Promise<ReadonlyMap<string, number> | string> {
+	const origin = await exec("git", [
+		"-C",
+		checkout,
+		"remote",
+		"get-url",
+		"origin",
+	]);
+	const repository = GITHUB_REMOTE.exec(origin.stdout.trim())?.[1];
+	if (origin.code !== 0 || repository === undefined) {
+		return "its origin isn't on GitHub";
+	}
+	const listed = await exec("gh", [
+		"pr",
+		"list",
+		// Named with its host, so a GH_HOST set to another forge can't send
+		// the listing to a same-named repository there.
+		"--repo",
+		`github.com/${repository}`,
+		"--state",
+		"merged",
+		"--base",
+		base,
+		"--limit",
+		String(MERGED_LISTED),
+		"--json",
+		"number,headRefOid",
+	]);
+	if (listed.code !== 0) {
+		const first = listed.stderr.trim().split("\n")[0] ?? "";
+		return `gh couldn't list its merged pull requests (exit ${listed.code}${first === "" ? "" : `: ${first}`})`;
+	}
+	let pulls: unknown;
+	try {
+		pulls = JSON.parse(listed.stdout);
+	} catch {
+		// Not gh's listing, so nothing it says can be trusted to name a head.
+		return "gh's listing wasn't JSON";
+	}
+	if (!Array.isArray(pulls)) return "gh's listing wasn't a list";
+	return new Map(
+		pulls
+			.filter(isMergedPull)
+			.map((pull) => [pull.headRefOid, pull.number] as const),
+	);
 }

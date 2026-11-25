@@ -2,8 +2,10 @@
  * The one lock every sweep of a machine's trees takes, so two never
  * judge the same trees at once.
  *
- * It is a file holding its holder's pid. A second sweep has nothing to
- * add to the first, so it never waits: it answers why it can't run. A
+ * It is a file holding its holder's pid. A host's second sweep has
+ * nothing to add to the first, so taking the lock never waits: it
+ * answers why it can't run. The runner outside every host waits its turn
+ * by asking again, since it alone finishes what hosts leave. A
  * running sweep touches its lock every {@link LOCK_FRESH_EVERY_MS}, so
  * one left behind, by its holder ending or by standing untouched past
  * {@link SWEEP_STALE_MS}, is a sweep that stopped: it is moved aside and
@@ -73,7 +75,7 @@ export interface LockFresh {
  * sweep has it. While held the lock is touched as `fresh` says. A lock
  * whose holder has ended, or that has stood untouched past
  * {@link SWEEP_STALE_MS}, is moved aside and taken over. Unlike the
- * record locks this never waits: a second sweep has nothing to add.
+ * record locks this never waits; a caller that would asks again.
  */
 export function sweepLock(
 	lockPath: string,
