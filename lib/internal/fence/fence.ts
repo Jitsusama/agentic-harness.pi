@@ -992,7 +992,8 @@ export function fenceHidesBeneath(
 	place: FencePlace,
 	disk: Disk = DISK,
 ): string | undefined {
-	const beneath = (at: string) => at.startsWith(path === "/" ? "/" : `${path}/`);
+	const beneath = (at: string) =>
+		at.startsWith(path === "/" ? "/" : `${path}/`);
 	const ssh = join(place.home, ".ssh");
 	const sshSecrets =
 		disk.kind(ssh) === "folder"
