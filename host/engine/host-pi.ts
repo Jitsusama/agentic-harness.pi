@@ -106,7 +106,29 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 			hasFields(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostRuns === true,
 	},
+	{
+		patch: "pi-host-park-leaves-its-run.patch",
+		why: "a conversation parked while a tool runs holds every stop to its bound",
+		// Only from pi 1.6, whose dispose aborts the run; 1.5's aborts nothing.
+		present: ({ codingAgent }) =>
+			!disposeAborts(codingAgent.VERSION) ||
+			(hasFields(codingAgent.AgentSessionRuntime) &&
+				codingAgent.AgentSessionRuntime.hostLeavesRun === true),
+	},
 ];
+
+/** The first pi release whose runtime's dispose aborts the session's run. */
+const DISPOSE_ABORTS_FROM = [1, 6] as const;
+
+/** Whether a pi of this version aborts its run as its runtime is disposed; an unreadable version is taken to. */
+function disposeAborts(version: unknown): boolean {
+	if (typeof version !== "string") return true;
+	const [major, minor] = version.split(".").map(Number);
+	if (major === undefined || minor === undefined) return true;
+	if (Number.isNaN(major) || Number.isNaN(minor)) return true;
+	const [fromMajor, fromMinor] = DISPOSE_ABORTS_FROM;
+	return major > fromMajor || (major === fromMajor && minor >= fromMinor);
+}
 
 /** What a pi lacking wanted seams goes without, each patch named once, for the host's report. */
 export function lackingSeams(

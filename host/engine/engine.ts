@@ -82,6 +82,7 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
+import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
 import {
 	backgroundIn,
 	carryEnds,
@@ -101,30 +102,6 @@ interface Preparing {
 	readonly manager: SessionManager;
 	readonly traits: ConversationTraits;
 	readonly launch: Readonly<Record<string, string>>;
-}
-
-/**
- * pi's runtime as its dispose takes the host's park, which the host's
- * runtime patch (pi-host-park-leaves-its-run) gives it. A pi that takes
- * no options ignores it, which is right for one whose dispose aborts
- * nothing, as 1.5's did.
- */
-interface ParkableRuntime {
-	dispose(options?: { readonly leaveRun?: boolean }): Promise<void>;
-}
-
-/**
- * Dispose a conversation's runtime. pi 1.6's dispose first aborts the
- * session and waits for its run to settle, which a parked agent never
- * does while a tool it carries runs on: every conversation mid-tool held
- * the stop to its bound. A park leaves the run as it stands, for the
- * next host to carry on.
- */
-async function disposeRuntime(
-	runtime: ParkableRuntime,
-	parked: boolean,
-): Promise<void> {
-	await runtime.dispose(parked ? { leaveRun: true } : undefined);
 }
 
 /** Load the host's pi and make the engine over the host's ownership. */
@@ -481,13 +458,13 @@ export async function createEngine(
 			else await screens?.closed(sessionId, why);
 		}
 		const agent = record.conversation?.agent;
-		if (record.ending !== "closed") agent?.park();
+		if (leavesItsRun(record.ending)) agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();
 		record.unsubscribe?.();
 		if (record.parking && record.runtime && !record.disposed)
 			requests.keepProviders(sessionId, record.runtime.services.modelRuntime);
 		if (!record.disposed && record.runtime)
-			await disposeRuntime(record.runtime, record.ending !== "closed");
+			await disposeRuntime(record.runtime, record.ending);
 		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
 		try {
 			await record.conversation?.close();

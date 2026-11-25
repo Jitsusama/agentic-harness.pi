@@ -43,9 +43,13 @@ interface FakeSeams {
 	/** Whether the runs-through-pi patch lets the host run its own turns as pi's; it does with the agent interface unless said. */
 	readonly runs?: boolean;
 	readonly auth?: boolean;
+	/** The release the install says it is; FAKE_VERSION unless said. */
+	readonly version?: string;
+	/** Whether the leave-run patch marks pi's runtime; it doesn't unless said. */
+	readonly leaves?: boolean;
 }
 
-/** The version every fake install says it is. */
+/** The version every fake install says it is, unless it says another. */
 const FAKE_VERSION = "1.5.0-fake";
 
 /** A pi install laid out as World's and nixpkgs' are, with the markers each patch adds. */
@@ -70,11 +74,12 @@ function fakeInstall(
 		seams.screen && seams.quit !== false ? " static hostedQuit = true;" : "";
 	const screen = lifecycle + quit;
 	const auth = seams.auth ? "static hostAuthContextVersion = 2;" : "";
+	const leaves = seams.leaves ? "static hostLeavesRun = true;" : "";
 	const phases = seams.turn
 		? "{ committedTurn() {}, turnBoundary() {} }"
 		: "{ request() {} }";
 	const sources: Record<keyof typeof files, string> = {
-		codingAgent: `export const VERSION = "${FAKE_VERSION}";\nexport class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
+		codingAgent: `export const VERSION = "${seams.version ?? FAKE_VERSION}";\nexport class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\nexport class AgentSessionRuntime { ${leaves} }\n`,
 		builtins:
 			'export const builtInExtensions = [{ name: "tool-search", factory: () => {}, replaceable: true, builtin: true }];\n',
 		projectTrust: "export const resolveProjectTrusted = async () => true;\n",
@@ -155,6 +160,35 @@ it("loads a pi built before the runs-through-pi seam, saying what goes without i
 	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
 		`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections`,
 	);
+});
+
+it("loads a pi 1.6 built before the leave-run seam, saying what goes without it", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+		version: "1.6.0",
+	});
+	const pi = await loadHostPi(dir);
+	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
+		`The pi at ${dir} lacks pi-host-park-leaves-its-run.patch: without it a conversation parked while a tool runs holds every stop to its bound`,
+	);
+});
+
+it("wants the leave-run seam only of a pi whose dispose aborts its run", async () => {
+	const seams = { agent: true, turn: true, screen: true, auth: true };
+	const marked = await loadHostPi(
+		fakeInstall({ ...seams, version: "1.6.0", leaves: true }),
+	);
+	const later = await loadHostPi(fakeInstall({ ...seams, version: "2.0.1" }));
+	const earlier = await loadHostPi(fakeInstall({ ...seams, version: "1.5.9" }));
+	expect(marked.lacking, "1.6 with the patch").toEqual([]);
+	expect(
+		later.lacking.map((seam) => seam.patch),
+		"a later release without it",
+	).toEqual(["pi-host-park-leaves-its-run.patch"]);
+	expect(earlier.lacking, "1.5, whose dispose aborts nothing").toEqual([]);
 });
 
 it("refuses a pi whose package names no pi command", async () => {
@@ -289,16 +323,22 @@ it("refuses pi 1.6.0's own generation, at version 3 without the committed-turn p
 	]);
 });
 
-it("refuses a generation at the committed-turn version without its phases", async () => {
-	const dir = fakeInstall({ agent: true, screen: true, auth: true });
-	writeFileSync(
-		hostPiFiles(dir).durable,
-		"export const GenerationTask = { definition: { version: 3, phases: {} } };\n",
-	);
-	const error = await refusal(dir);
-	expect(error.missing.map((seam) => seam.patch)).toEqual([
-		"pi-host-committed-turn.patch",
-	]);
+it("refuses the port's version without its phases, and a version past the port's", async () => {
+	for (const definition of [
+		"{ version: 4, phases: {} }",
+		"{ version: 5, phases: { committedTurn() {}, turnBoundary() {} } }",
+	]) {
+		const dir = fakeInstall({ agent: true, screen: true, auth: true });
+		writeFileSync(
+			hostPiFiles(dir).durable,
+			`export const GenerationTask = { definition: ${definition} };\n`,
+		);
+		const error = await refusal(dir);
+		expect(
+			error.missing.map((seam) => seam.patch),
+			definition,
+		).toEqual(["pi-host-committed-turn.patch"]);
+	}
 });
 
 it("says which module files an incomplete install lacks", async () => {
