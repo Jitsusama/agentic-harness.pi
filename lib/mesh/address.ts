@@ -190,6 +190,21 @@ export function yieldsTo<
 }
 
 /**
+ * Since when a peer signs with its quest's address once its addresses
+ * are settled: the time it already held it from, or `now` when it has
+ * just taken it, and none once it signs as itself.
+ */
+export function signingSince(
+	signing: string | undefined,
+	addresses: readonly string[],
+	heldSince: string | undefined,
+	now: number,
+): { address: string; since: string } | undefined {
+	if (signing === undefined || addresses[0] !== signing) return undefined;
+	return { address: signing, since: heldSince ?? new Date(now).toISOString() };
+}
+
+/**
  * How long before a start its session's last presence may say it ended
  * and still be a restart: a restart in place and a rollover end the old
  * process through the same path a quit does, moments before the new one

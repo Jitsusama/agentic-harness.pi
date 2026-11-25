@@ -13,6 +13,7 @@ import {
 	olderAddresses,
 	questAddress,
 	signedSince,
+	signingSince,
 	yieldsTo,
 } from "../../../lib/mesh/address.ts";
 
@@ -197,6 +198,20 @@ describe("what a restart keeps of holding its quest's address", () => {
 		expect(
 			signedSince({ ...last, ended: "2026-11-25T15:00:00.000Z" }, now),
 		).toBeUndefined();
+	});
+
+	it("keeps the time while it signs, starts it on taking, and drops it on yielding", () => {
+		const held = "2026-11-21T20:47:00.000Z";
+
+		expect(signingSince("7M6JKG", ["7M6JKG", "24B025FE"], held, now)).toEqual(
+			kept,
+		);
+		expect(signingSince("7M6JKG", ["7M6JKG"], undefined, now)).toEqual({
+			address: "7M6JKG",
+			since: "2026-11-25T16:00:00.000Z",
+		});
+		expect(signingSince("7M6JKG", ["24B025FE"], held, now)).toBeUndefined();
+		expect(signingSince(undefined, ["24B025FE"], held, now)).toBeUndefined();
 	});
 
 	it("keeps nothing where the last presence said no time", () => {

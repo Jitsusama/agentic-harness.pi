@@ -47,6 +47,7 @@ import {
 	sessionAddress,
 	signaturesOfOthers,
 	signedSince,
+	signingSince,
 	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
@@ -684,13 +685,7 @@ export function localPeer(at: Surroundings): Peer {
 			signaturesOfOthers(at.session, everyone),
 			yieldedTo !== undefined,
 		);
-		signsSince =
-			signing !== undefined && addresses[0] === signing
-				? {
-						address: signing,
-						since: heldSince ?? new Date(now()).toISOString(),
-					}
-				: undefined;
+		signsSince = signingSince(signing, addresses, heldSince, now());
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
 		receiver = {
