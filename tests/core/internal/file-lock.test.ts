@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	unlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,6 +94,83 @@ describe("withFileLock", () => {
 				lock.isLockHeld(new Error("EACCES: permission denied")),
 				"any failure reads as a held lock",
 			).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps waiting while the lock changes hands, and says a line that never lets it in is busy", async () => {
+		const lock = await loadedAgain();
+		const path = join(dir, "record.json");
+		const lockPath = `${path}.lock`;
+		// A fresh file each time is a new holder: what many rounds taking
+		// the line in turn look like to one waiting on it. Made at the faked
+		// date, as a real one is made at the real one, so it is never stale.
+		const nextHolder = () => {
+			unlinkSync(lockPath);
+			writeFileSync(lockPath, String(process.ppid));
+			const made = new Date();
+			utimesSync(lockPath, made, made);
+		};
+		writeFileSync(lockPath, String(process.ppid));
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			let settled: unknown = "waiting";
+			const written = lock.withFileLock(path, async () => "written");
+			written.then(
+				(value) => {
+					settled = value;
+				},
+				(error: unknown) => {
+					settled = error;
+				},
+			);
+			// Each real pause lets the writer's retries, 20 ms apart, see what
+			// the step before it did.
+			const look = () => new Promise((done) => setTimeout(done, 100));
+			await look();
+			for (let hand = 0; hand < 3; hand += 1) {
+				vi.setSystemTime(Date.now() + 8_000);
+				nextHolder();
+				await look();
+			}
+			expect(
+				settled,
+				"24 s of holders 8 s each counted as one held past 10 s",
+			).toBe("waiting");
+
+			vi.setSystemTime(Date.now() + 120_000);
+			nextHolder();
+			await look();
+			expect(String(settled), "it wrote, or blamed one holder").toMatch(
+				/changed hands 4 times/,
+			);
+			expect(lock.isLockHeld(settled), "a busy line reads as broken").toBe(
+				true,
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("writes once the holders stop taking the lock", async () => {
+		const lock = await loadedAgain();
+		const path = join(dir, "record.json");
+		const lockPath = `${path}.lock`;
+		writeFileSync(lockPath, String(process.ppid));
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			const written = lock.withFileLock(path, async () => "written");
+			// A real pause, as above, so the retries see each step.
+			await new Promise((done) => setTimeout(done, 100));
+			vi.setSystemTime(Date.now() + 8_000);
+			unlinkSync(lockPath);
+			writeFileSync(lockPath, String(process.ppid));
+			await new Promise((done) => setTimeout(done, 100));
+			vi.setSystemTime(Date.now() + 8_000);
+			unlinkSync(lockPath);
+
+			await expect(written).resolves.toBe("written");
 		} finally {
 			vi.useRealTimers();
 		}
