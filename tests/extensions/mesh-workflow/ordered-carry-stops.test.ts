@@ -540,6 +540,30 @@ describe("an ordered carry's close", () => {
 		expect(kept.at(-1)).toBe(after);
 	});
 
+	it("says a close told failed before its deadline, then landing, closed after all, once", async () => {
+		const told: string[] = [];
+		const one = session({
+			tell: (text) => told.push(text),
+			close: (_, failed, closed) => {
+				failed(new Error("the engine stalled"));
+				closed();
+				closed();
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		const after =
+			"Carried to penelope, as WCJQSG ordered for its camera work needs the Mac, and it closed here after all.";
+		expect(told.filter((line) => line.startsWith(UNCLOSED))).toEqual([
+			`${UNCLOSED} the engine stalled. Each run here is stopped, so the two never both work.`,
+		]);
+		expect(
+			told.filter((line) => line === after),
+			"once",
+		).toHaveLength(1);
+	});
+
 	it("says nothing more where it lands in time, however late it is told again", async () => {
 		const kept: string[] = [];
 		let land: (() => void) | undefined;
