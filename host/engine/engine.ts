@@ -82,6 +82,7 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
+import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
 import {
 	backgroundIn,
 	carryEnds,
@@ -457,12 +458,13 @@ export async function createEngine(
 			else await screens?.closed(sessionId, why);
 		}
 		const agent = record.conversation?.agent;
-		if (record.ending !== "closed") agent?.park();
+		if (leavesItsRun(record.ending)) agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();
 		record.unsubscribe?.();
 		if (record.parking && record.runtime && !record.disposed)
 			requests.keepProviders(sessionId, record.runtime.services.modelRuntime);
-		if (!record.disposed) await record.runtime?.dispose();
+		if (!record.disposed && record.runtime)
+			await disposeRuntime(record.runtime, record.ending);
 		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
 		try {
 			await record.conversation?.close();

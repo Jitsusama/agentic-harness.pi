@@ -106,7 +106,29 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 			hasFields(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostRuns === true,
 	},
+	{
+		patch: "pi-host-park-leaves-its-run.patch",
+		why: "a conversation parked while a tool runs holds every stop to its bound",
+		// Only from pi 1.6, whose dispose aborts the run; 1.5's aborts nothing.
+		present: ({ codingAgent }) =>
+			!disposeAborts(codingAgent.VERSION) ||
+			(hasFields(codingAgent.AgentSessionRuntime) &&
+				codingAgent.AgentSessionRuntime.hostLeavesRun === true),
+	},
 ];
+
+/** The first pi release whose runtime's dispose aborts the session's run. */
+const DISPOSE_ABORTS_FROM = [1, 6] as const;
+
+/** Whether a pi of this version aborts its run as its runtime is disposed; an unreadable version is taken to. */
+function disposeAborts(version: unknown): boolean {
+	if (typeof version !== "string") return true;
+	const [major, minor] = version.split(".").map(Number);
+	if (major === undefined || minor === undefined) return true;
+	if (Number.isNaN(major) || Number.isNaN(minor)) return true;
+	const [fromMajor, fromMinor] = DISPOSE_ABORTS_FROM;
+	return major > fromMajor || (major === fromMajor && minor >= fromMinor);
+}
 
 /** What a pi lacking wanted seams goes without, each patch named once, for the host's report. */
 export function lackingSeams(
@@ -287,16 +309,23 @@ function staticNumber(owner: unknown, name: string): number | undefined {
 	return typeof value === "number" ? value : undefined;
 }
 
-/** Whether a GenerationTask holds the committed-turn phases at the version that introduced them. */
+/** Whether a GenerationTask holds the committed-turn phases at a version the patch gives it. */
 function committedTurnGeneration(task: unknown): boolean {
 	if (!hasFields(task) || !hasFields(task.definition)) return false;
 	const { version, phases } = task.definition;
-	if (version !== COMMITTED_TURN_VERSION || !hasFields(phases)) return false;
+	if (typeof version !== "number") return false;
+	if (!COMMITTED_TURN_VERSIONS.includes(version) || !hasFields(phases)) {
+		return false;
+	}
 	return COMMITTED_TURN_PHASES.every(
 		(phase) => typeof phases[phase] === "function",
 	);
 }
 
-/** GenerationTask's version from the committed-turn patch on. */
-const COMMITTED_TURN_VERSION = 3;
+/**
+ * GenerationTask's version under the committed-turn patch: 3 on pi 1.5, and 4
+ * on its port to pi 1.6.0, whose own task is already at 3 without the phases,
+ * so the phases, not the version, are what say the patch is there.
+ */
+const COMMITTED_TURN_VERSIONS: readonly number[] = [3, 4];
 const COMMITTED_TURN_PHASES = ["committedTurn", "turnBoundary"] as const;

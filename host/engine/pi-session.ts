@@ -266,7 +266,8 @@ export interface AgentSessionRuntime {
 	setRebindSession(rebind?: (session: AgentSession) => Promise<void>): void;
 	/** A callback run as pi invalidates the session it is replacing, just before disposing it. */
 	setBeforeSessionInvalidate(callback?: () => void): void;
-	dispose(): Promise<void>;
+	/** With leaveRun, which the host's runtime patch gives it, the run is left as it stands rather than aborted. */
+	dispose(options?: { readonly leaveRun?: boolean }): Promise<void>;
 }
 
 /** What pi's runtime factory is handed for each session it builds. */
