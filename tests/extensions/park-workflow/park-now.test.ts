@@ -8,14 +8,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	onTestFinished,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FAILED_PARK_HOLDS_MS } from "../../../extensions/park-workflow/undo.ts";
 import {
 	type Parkable,
@@ -295,20 +288,25 @@ describe("parking now, as the person asked", () => {
 				parks.push(id);
 			},
 		});
-		onTestFinished(uninstall);
-		watching();
+		// Taken out within the test, since the teardown after each test
+		// reads no session while a host is in.
+		try {
+			watching();
 
-		expect(ask().why).toBe("its park failed: its host is restarting");
-		expect(
-			readParked(SESSION, folder),
-			"its marker taken back",
-		).toBeUndefined();
-		expect(undone).toEqual([{ session: SESSION }]);
-		expect(exits, "its process was never to exit").toEqual([]);
+			expect(ask().why).toBe("its park failed: its host is restarting");
+			expect(
+				readParked(SESSION, folder),
+				"its marker taken back",
+			).toBeUndefined();
+			expect(undone).toEqual([{ session: SESSION }]);
+			expect(exits, "its process was never to exit").toEqual([]);
 
-		refuses = false;
-		expect(ask().parked).toBe(true);
-		expect(parks).toEqual([SESSION]);
+			refuses = false;
+			expect(ask().parked).toBe(true);
+			expect(parks).toEqual([SESSION]);
+		} finally {
+			uninstall();
+		}
 	});
 
 	it("answers nothing once its watch has stopped", () => {
