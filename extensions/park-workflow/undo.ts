@@ -73,8 +73,10 @@ export function undoPark(failed: unknown, half: HalfPark): never {
 		tryTo("its word to its holder", () => unsayParked(half.env, half.pid));
 		takeBackExit();
 	}
+	// pi's bus says a listener's failure itself rather than throwing, so
+	// a mesh left reading it as parked shows there, never in `left`.
 	const undone: ParkUndone = { session: half.session };
-	tryTo("its word to the mesh", () => half.bus.emit(PARK_UNDONE, undone));
+	half.bus.emit(PARK_UNDONE, undone);
 	if (left.length > 0) throw new ParkLeftHalfDone(failed, left);
 	throw failed;
 }
@@ -95,7 +97,8 @@ export interface FailedPark {
 /**
  * Why the clock doesn't park again yet, after the park that `failed`;
  * nothing once it is long enough past, or where none failed. The
- * person's Park still tries, since they asked.
+ * person's Park still tries, since they asked, and so does a host's
+ * drain or roll, which waits on the park to restart.
  */
 export function heldByFailure(
 	failed: FailedPark | undefined,

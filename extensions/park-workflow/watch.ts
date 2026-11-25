@@ -538,13 +538,17 @@ export function watch(
 	// and no window views it, where the person would see the run stop; and
 	// its host would hold the wake it leaves, rather than wake it here at
 	// once, as past a drain's ceiling. Answers why not.
+	const moving = (): boolean => {
+		const host = hosted();
+		return (
+			host?.draining?.(session) === true || host?.rolling?.(session) === true
+		);
+	};
 	const keepsRunning = (): string | undefined => {
 		const host = hosted();
 		if (!(host && parkingHost())) return "no host parks it mid-run";
 		if (host.viewed?.(session) === true) return "a window views its run";
-		const moving =
-			host.draining?.(session) === true || host.rolling?.(session) === true;
-		if (!moving) return "its host neither drains nor rolls";
+		if (!moving()) return "its host neither drains nor rolls";
 		// A child older than wakeHeld, its watch reloaded onto this one,
 		// holds every wake while its host drains and none while it only
 		// rolls: its drain says, since a child never passes a ceiling. A
@@ -567,7 +571,9 @@ export function watch(
 		check = false,
 	): string | undefined => {
 		if (parked) return "parking already";
-		const stuck = asked ? undefined : heldByFailure(failed, now());
+		// A drain or a roll waits on this park to restart its host, so a
+		// failure holds only the clock's own tries.
+		const stuck = asked || moving() ? undefined : heldByFailure(failed, now());
 		if (stuck !== undefined) return stuck;
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;

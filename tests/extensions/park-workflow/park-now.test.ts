@@ -309,6 +309,41 @@ describe("parking now, as the person asked", () => {
 		}
 	});
 
+	// A drain waits on this park to restart its host, so a failed one
+	// holds only the clock's own tries.
+	it("lets a draining host's park try again at once after one failed", () => {
+		const parks: string[] = [];
+		let refuses = true;
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-park-now-draining",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("a park reads no host environment");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+			draining: () => true,
+			park: (id) => {
+				if (refuses) throw new Error("its host is restarting");
+				parks.push(id);
+			},
+		});
+		try {
+			const watched = watching();
+			expect(ask().why).toBe("its park failed: its host is restarting");
+
+			refuses = false;
+			watched.look();
+
+			expect(parks, "its drain's park went").toEqual([SESSION]);
+		} finally {
+			uninstall();
+		}
+	});
+
 	it("answers nothing once its watch has stopped", () => {
 		watching().stop();
 

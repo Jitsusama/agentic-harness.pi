@@ -19,7 +19,9 @@ import {
 	takeBackExit,
 } from "../../../extensions/park-workflow/restart.ts";
 import {
+	FAILED_PARK_HOLDS_MS,
 	type HalfPark,
+	heldByFailure,
 	ParkLeftHalfDone,
 	undoPark,
 } from "../../../extensions/park-workflow/undo.ts";
@@ -144,29 +146,22 @@ describe("taking back a half-done park", () => {
 	});
 
 	it("names each part it left, in the order it tried them", () => {
+		const marker = parkedPath(SESSION, folder);
+		rmSync(marker);
+		mkdirSync(join(marker, "in-the-way"), { recursive: true });
 		mkdirSync(join(folder, "held.parked", "in-the-way"), { recursive: true });
 
 		const error = thrown(() =>
-			undoPark(
-				new Error("its holder is gone"),
-				half({
-					saidToHolder: true,
-					bus: {
-						emit: () => {
-							throw new Error("the mesh is gone too");
-						},
-					},
-				}),
-			),
+			undoPark(new Error("its holder is gone"), half({ saidToHolder: true })),
 		);
 
 		const left = (error as ParkLeftHalfDone).left;
 		expect(left).toHaveLength(2);
-		expect(left[0]).toMatch(/^its word to its holder is left: \S/);
-		expect(left[1]).toBe("its word to the mesh is left: the mesh is gone too");
-		expect(readParked(SESSION, folder), "its marker still taken back").toBe(
-			undefined,
-		);
+		expect(left[0]).toMatch(/^its parked marker is left: \S/);
+		expect(left[1]).toMatch(/^its word to its holder is left: \S/);
+		expect(said, "the mesh still told").toEqual([
+			[PARK_UNDONE, { session: SESSION }],
+		]);
 	});
 
 	it("takes back the code its process was to exit with", () => {
@@ -186,6 +181,24 @@ describe("taking back a half-done park", () => {
 		expect(process.listenerCount("exit")).toBe(before + 1);
 		takeBackExit();
 		expect(process.listenerCount("exit")).toBe(before);
+	});
+});
+
+describe("the clock's hold after a failed park", () => {
+	const failed = { at: 1_000, error: new Error("this context is stale") };
+
+	it("holds the clock's tries until half an hour has passed", () => {
+		expect(heldByFailure(failed, 1_000 + FAILED_PARK_HOLDS_MS - 1)).toBe(
+			"its last park failed, so it tries again half an hour on: this context is stale",
+		);
+	});
+
+	it("lifts once half an hour has passed", () => {
+		expect(heldByFailure(failed, 1_000 + FAILED_PARK_HOLDS_MS)).toBeUndefined();
+	});
+
+	it("holds nothing where no park failed", () => {
+		expect(heldByFailure(undefined, 1_000)).toBeUndefined();
 	});
 });
 

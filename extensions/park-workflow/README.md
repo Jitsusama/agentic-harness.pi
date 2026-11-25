@@ -228,6 +228,18 @@ leave it out.
    says in the window that it parked and that a key or a message
    wakes it, and once was enough.
 
+A park that fails once it has begun saying so, as a stale context
+throwing while pi shuts down, is taken back: its marker, any wake it
+wrote and its word to its holder go, and pi's bus says
+`session:park-undone:v1`, on which the mesh says it is awake again.
+What it couldn't take back is named in the window, since that part
+may still read as parked until the session restarts. Windows it
+closed stay closed. A host parks its conversation after the asking
+call returns, so a host's own later failure is not seen here. A
+failed park then holds the clock's next try for half an hour, so one
+that fails every time isn't said and taken back each minute; the
+person's Park, and a host's drain or roll, still try at once.
+
 Sessions that parked before this closed their windows keep them
 open. `scripts/park-windows.ts` lists, by the same checks, which of
 them would close now (`--running` adds the held pis awake, and
