@@ -199,10 +199,10 @@ describe("the areas each quest led in its landings", () => {
 		);
 		const landings = [
 			...[0, 1].map((d) => merge("QEST-A", areas, d)),
-			...[0, 1, 2].map((d) => merge("QEST-A", ["lib/most"], d)),
+			...[0, 1, 2].map((d) => merge("QEST-A", ["lib/mesh"], d)),
 		];
 		const said = led(landings)["QEST-A"] ?? [];
-		expect(said[0]).toBe("agentic-harness.pi:lib/most");
+		expect(said[0]).toBe("agentic-harness.pi:lib/mesh");
 		expect(said).toHaveLength(MOST_SUBJECTS);
 	});
 });
