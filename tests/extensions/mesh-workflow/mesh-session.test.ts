@@ -27,6 +27,7 @@ import {
 } from "../../../lib/internal/session/left.ts";
 import {
 	PARK_ASK,
+	PARK_UNDONE,
 	PARKING,
 	type Parking,
 } from "../../../lib/internal/session/park.ts";
@@ -610,6 +611,20 @@ describe("ending", () => {
 		await parked.fire("session_shutdown", { reason: "quit" });
 		expect(presence(), "a park").toMatchObject({ state: "parked" });
 		expect(presence(), "a park").not.toHaveProperty("ended");
+	});
+
+	it("reads awake again once its park is taken back, and ends as a quit", async () => {
+		const taken = await startSession();
+		taken.emit(PARKING, { session, addresses: [] });
+		taken.emit(PARK_UNDONE, { session: "another-session" });
+		expect(presence(), "another's take-back").toMatchObject({
+			state: "parked",
+		});
+
+		taken.emit(PARK_UNDONE, { session });
+		expect(presence(), "its own").not.toMatchObject({ state: "parked" });
+		await taken.fire("session_shutdown", { reason: "quit" });
+		expect(presence()?.ended, "a quit").toMatch(/^\d{4}-\d\d-\d\dT/);
 	});
 
 	it("says a session switched away from has ended", async () => {

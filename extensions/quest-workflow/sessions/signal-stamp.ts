@@ -14,7 +14,12 @@ import {
 } from "../../../lib/core/session/host.ts";
 import { sessionSlot } from "../../../lib/core/session/slot.ts";
 import { markSignalled } from "../../../lib/internal/quest/sessions/session-registry.ts";
-import { isParking, PARKING } from "../../../lib/internal/session/park.ts";
+import {
+	isParking,
+	isParkUndone,
+	PARK_UNDONE,
+	PARKING,
+} from "../../../lib/internal/session/park.ts";
 import { readRecord, recordSessionEnd, saveRecord } from "./records.ts";
 
 /** What the signal stamp needs from the world, replaceable in tests. */
@@ -207,6 +212,10 @@ export function followHostStamps(
 	const offParking = bus.on(PARKING, (data) => {
 		if (isParking(data) && data.session === session) parking = true;
 	});
+	// A park taken back leaves a signal that ends it what it was.
+	const offUndone = bus.on(PARK_UNDONE, (data) => {
+		if (isParkUndone(data) && data.session === session) parking = false;
+	});
 	const offStamps = bus.on(SESSION_STAMP_EVENT, (data) => {
 		if (!isSessionStamp(data) || data.session !== session) return;
 		if (data.how !== "signalled") recordSessionEnd(session, "quit");
@@ -216,6 +225,7 @@ export function followHostStamps(
 	});
 	return () => {
 		offParking();
+		offUndone();
 		offStamps();
 	};
 }

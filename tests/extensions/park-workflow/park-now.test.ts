@@ -9,15 +9,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FAILED_PARK_HOLDS_MS } from "../../../extensions/park-workflow/undo.ts";
 import {
 	type Parkable,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
+import { installHost } from "../../../lib/core/session/index.ts";
 import { RUN_UNDER_WAY } from "../../../lib/internal/session/free.ts";
 import {
 	isParkAsk,
 	PARK_ASK,
 	PARK_NOW_ASK,
+	PARK_UNDONE,
 	PARKED_EXIT,
 	type ParkNowAsk,
 	parkSwitch,
@@ -215,26 +218,130 @@ describe("parking now, as the person asked", () => {
 		expect(ask(SESSION, true).ready).toBe(true);
 	});
 
-	it("answers a park that failed part-way as one that may read as parked", () => {
-		watch(session(), events, {
-			env: holder(),
+	// A context gone stale throws as pi is shut down, after its holder was
+	// told and its exit code said.
+	it("takes back a park whose end fails, holding the clock's next while a later ask parks it", () => {
+		const parked = join(folder, "held.parked");
+		const undone: unknown[] = [];
+		events.on(PARK_UNDONE, (data) => undone.push(data));
+		let stale = true;
+		let now = 1_000;
+		const stalling: Parkable = {
+			...session(),
+			shutdown: () => {
+				if (stale) throw new Error("this context is stale");
+			},
+		};
+		const watched = watch(stalling, events, {
+			env: { ...holder(), MYCELIUM_PARKED: parked },
 			args: [],
 			pid: HELD_PID,
 			switchPath: parkSwitch(folder),
 			folder,
-			now: () => 1_000,
-			exitWith: () => {
-				throw new Error("its holder is gone");
-			},
+			now: () => now,
+			exitWith: (code) => exits.push(code),
 			clock: false,
 		});
 
-		expect(ask().why).toBe(
-			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone",
+		expect(ask().why).toBe("its park failed: this context is stale");
+		expect(
+			readParked(SESSION, folder),
+			"its marker taken back",
+		).toBeUndefined();
+		expect(existsSync(parked), "its holder untold").toBe(false);
+		expect(undone).toEqual([{ session: SESSION }]);
+
+		// Idle long past its rule's wait, yet held.
+		now += FAILED_PARK_HOLDS_MS - 1;
+		expect(watched.look(), "its clock waits rather than fail again").toBe(
+			"its last park failed, so it tries again half an hour on: this context is stale",
 		);
-		// What it said of its park stands, as its answer warns.
-		expect(readParked(SESSION, folder)).toBeDefined();
-		expect(ask().why).toBe("parking already");
+
+		stale = false;
+		expect(ask().parked, "its person's Park tries at once").toBe(true);
+		// This fake keeps each code it was told; pi's own exitWith is taken
+		// back as the park is (undo.test.ts).
+		expect(exits).toEqual([PARKED_EXIT, PARKED_EXIT]);
+		expect(existsSync(parked)).toBe(true);
+	});
+
+	// A host parks the conversation alone, after its marker and its word
+	// to the mesh: a host that refuses leaves them to be taken back.
+	it("takes back a park its host refused, leaving its process to run", () => {
+		const undone: unknown[] = [];
+		events.on(PARK_UNDONE, (data) => undone.push(data));
+		const parks: string[] = [];
+		let refuses = true;
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-park-now-background",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("a park reads no host environment");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+			park: (id) => {
+				if (refuses) throw new Error("its host is restarting");
+				parks.push(id);
+			},
+		});
+		// Taken out within the test, since the teardown after each test
+		// reads no session while a host is in.
+		try {
+			watching();
+
+			expect(ask().why).toBe("its park failed: its host is restarting");
+			expect(
+				readParked(SESSION, folder),
+				"its marker taken back",
+			).toBeUndefined();
+			expect(undone).toEqual([{ session: SESSION }]);
+			expect(exits, "its process was never to exit").toEqual([]);
+
+			refuses = false;
+			expect(ask().parked).toBe(true);
+			expect(parks).toEqual([SESSION]);
+		} finally {
+			uninstall();
+		}
+	});
+
+	// A drain waits on this park to restart its host, so a failed one
+	// holds only the clock's own tries.
+	it("lets a draining host's park try again at once after one failed", () => {
+		const parks: string[] = [];
+		let refuses = true;
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-park-now-draining",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("a park reads no host environment");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+			draining: () => true,
+			park: (id) => {
+				if (refuses) throw new Error("its host is restarting");
+				parks.push(id);
+			},
+		});
+		try {
+			const watched = watching();
+			expect(ask().why).toBe("its park failed: its host is restarting");
+
+			refuses = false;
+			watched.look();
+
+			expect(parks, "its drain's park went").toEqual([SESSION]);
+		} finally {
+			uninstall();
+		}
 	});
 
 	it("answers nothing once its watch has stopped", () => {

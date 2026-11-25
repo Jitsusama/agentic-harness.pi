@@ -143,17 +143,31 @@ export function shownIn(wake: string): string[] | undefined {
 	);
 }
 
+/** What {@link exitWith} armed, while it may still be taken back. */
+let exiting: (() => void) | undefined;
+
 /**
  * Say to the process that, whatever pi exits with, it exits with this,
  * leaving `line` in its window.
  */
 export function exitWith(code: number): void {
+	takeBackExit();
 	// pi ends a quit with process.exit(0); an exit listener's code wins.
 	// The window stays with its holder, which says it parked, so this
 	// writes nothing: a line of its own said it twice (KP0L6A, 11 November).
-	process.once("exit", () => {
+	exiting = () => {
 		process.exitCode = code;
-	});
+	};
+	process.once("exit", exiting);
+}
+
+/**
+ * Takes back the code {@link exitWith} said, for a run that stays up
+ * after all, so a later quit exits as a quit rather than a park.
+ */
+export function takeBackExit(): void {
+	if (exiting !== undefined) process.removeListener("exit", exiting);
+	exiting = undefined;
 }
 
 /**

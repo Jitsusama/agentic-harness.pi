@@ -329,17 +329,14 @@ export function sayParked(env: NodeJS.ProcessEnv, pid: number): void {
  * clears it: left, a later quit whose exit hangs would count as a park.
  * Like sayParked, it touches nothing where no holder runs `pid` itself,
  * as for a subagent that inherited the variable from a parent whose
- * mark is real.
+ * mark is real. Throws where the file stands and can't be taken out,
+ * so a caller can say what is left.
  */
 export function unsayParked(env: NodeJS.ProcessEnv, pid: number): void {
 	const parked = env[PARKED_ENV] ?? "";
 	const wake = env[WAKE_ENV] ?? "";
 	if (parked === "" || wake === "" || !heldDirectly(wake, pid)) return;
-	try {
-		rmSync(parked, { force: true });
-	} catch {
-		// Left in place, only a quit whose exit then hangs is misread.
-	}
+	rmSync(parked, { force: true });
 }
 
 /**
@@ -360,7 +357,12 @@ export function takeBackRestartPark(env: NodeJS.ProcessEnv, pid: number): void {
 	const saidBy = env[PARK_SAID_ENV];
 	if (saidBy === undefined) return;
 	delete env[PARK_SAID_ENV];
-	if (saidBy === String(pid)) unsayParked(env, pid);
+	if (saidBy !== String(pid)) return;
+	try {
+		unsayParked(env, pid);
+	} catch {
+		// Left in place, only a quit whose exit then hangs is misread.
+	}
 }
 
 /** Writes the holder's parked file `parked`, empty. */
@@ -466,6 +468,24 @@ export const PARK_ASK = "session:park-ask:v1";
  * in the addresses it answers to and its quest, before `emit` returns.
  */
 export const PARKING = "session:parking:v1";
+
+/**
+ * Said on the bus as a park that failed part-way is taken back, naming
+ * the session, so what {@link PARKING} set (the mesh's `parked`, a
+ * shutdown read as a park) reads as awake again: the process goes on.
+ */
+export const PARK_UNDONE = "session:park-undone:v1";
+
+/** What {@link PARK_UNDONE} carries. */
+export interface ParkUndone {
+	readonly session: string;
+}
+
+/** Whether a payload is a {@link ParkUndone}. */
+export function isParkUndone(data: unknown): data is ParkUndone {
+	if (typeof data !== "object" || data === null) return false;
+	return typeof (data as Record<string, unknown>).session === "string";
+}
 
 /**
  * Said on the bus as a session starts again from a park, naming it, so
