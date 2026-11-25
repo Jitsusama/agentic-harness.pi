@@ -4,6 +4,7 @@
  * subvolume answers a rename from outside it.
  */
 
+import { spawnSync } from "node:child_process";
 import {
 	appendFileSync,
 	chmodSync,
@@ -229,6 +230,38 @@ describe("moving a file whole", () => {
 
 		expect(readdirSync(join(here, "trees"))).toEqual(["kept.txt"]);
 		expect(readdirSync(there)).toEqual([]);
+	});
+
+	it("refuses a pipe across volumes without waiting on it, leaving it and nothing beside its place", () => {
+		const { here, there } = twoFolders();
+		const pipe = join(here, "log.jsonl");
+		expect(spawnSync("mkfifo", [pipe]).status, "a pipe is made").toBe(0);
+
+		expect(() => moveFile(pipe, join(there, "log.jsonl"))).toThrow(
+			"isn't a file or a link",
+		);
+
+		expect(lstatSync(pipe).isFIFO(), "the pipe stays").toBe(true);
+		expect(readdirSync(there)).toEqual([]);
+	});
+
+	it("replaces a link planted at its place across volumes, never writing through it", () => {
+		const { here, there } = twoFolders();
+		const victim = join(made[0] ?? "", "victim.txt");
+		writeFileSync(victim, "secret\n");
+		symlinkSync(victim, join(there, "done.json"));
+		writeFileSync(join(here, "done.json"), "new\n");
+
+		moveFile(join(here, "done.json"), join(there, "done.json"));
+
+		expect(lstatSync(join(there, "done.json")).isFile(), "a file now").toBe(
+			true,
+		);
+		expect(readFileSync(join(there, "done.json"), "utf8")).toBe("new\n");
+		expect(readFileSync(victim, "utf8"), "what it pointed at stays").toBe(
+			"secret\n",
+		);
+		expect(readdirSync(there)).toEqual(["done.json"]);
 	});
 
 	it("throws any other failure of the rename as it was, copying nothing", () => {
