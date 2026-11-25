@@ -4,6 +4,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -629,6 +630,171 @@ describe("spacing council starts on one machine", () => {
 		expect(start.release).toBeDefined();
 		expect(Date.now()).toBeGreaterThanOrEqual(asked + SPACING - TIMER_EARLY_MS);
 		expect(line().started.by, "readable again").toBe("ISXEG8");
+	});
+});
+
+/** A claim that starts on room alone, with no spacing asked for. */
+const onRoom = (by: string, room: () => Promise<string | undefined>) =>
+	claim(by, { spacingMs: undefined, room });
+const roomy = async (): Promise<string | undefined> => undefined;
+
+// 24 November: a round waited about 30 minutes behind ten others, three
+// minutes apart, on a machine with memory for all of them.
+describe("starting council rounds on room alone", () => {
+	it("starts at once after another round's start when the machine has room", async () => {
+		startedAt("A2VLJN", new Date());
+		const asked = Date.now();
+
+		const start = await awaitCouncilStart(path, onRoom("ISXEG8", roomy));
+
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(Date.now() - asked, "no spacing held it").toBeLessThan(SPACING);
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("waits while the machine is short, then starts, saying what it was short of", async () => {
+		let looks = 0;
+		const room = async () => {
+			looks += 1;
+			return looks <= 3 ? "memory full avg60 was 14, at or past 10" : undefined;
+		};
+
+		const start = await awaitCouncilStart(path, onRoom("ISXEG8", room));
+
+		expect(looks, "it looked until there was room").toBe(4);
+		expect(start.waited).toContain(
+			"once those asked before it have and it has room",
+		);
+		expect(start.waited).toContain("memory full avg60 was 14");
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("keeps a round short of room in line, so the one behind it waits its turn", async () => {
+		let short = true;
+		const room = async () => (short ? "memory full avg60 was 12" : undefined);
+		const first = awaitCouncilStart(path, onRoom("A2VLJN", room));
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(1);
+		const second = awaitCouncilStart(path, onRoom("ISXEG8", roomy));
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(2);
+
+		short = false;
+		const order: string[] = [];
+		await Promise.all([
+			first.then(() => order.push("A2VLJN")),
+			second.then(() => order.push("ISXEG8")),
+		]);
+
+		expect(order, "in the order they were asked").toEqual(["A2VLJN", "ISXEG8"]);
+	});
+
+	it("starts rounds in the order asked, a look apart rather than a spacing", async () => {
+		const joined = ["A2VLJN", "ISXEG8", "85PKB2"];
+		const starts: number[] = [];
+		const asked = Date.now();
+
+		await Promise.all(
+			joined.map((by) =>
+				awaitCouncilStart(path, onRoom(by, roomy)).then(() => {
+					starts.push(Date.now());
+				}),
+			),
+		);
+
+		expect(starts).toHaveLength(3);
+		expect(Date.now() - asked, "all three inside one spacing").toBeLessThan(
+			SPACING,
+		);
+	});
+
+	it("says the rule it waited under when stopped", async () => {
+		const stop = new AbortController();
+		const start = awaitCouncilStart(
+			path,
+			onRoom("ISXEG8", async () => "memory full avg60 was 20"),
+			stop.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(1);
+		stop.abort();
+
+		const stopped = await start;
+		expect(stopped.cancelled).toContain("it has room");
+		expect(line().waiting, "its place given up").toEqual([]);
+	});
+});
+
+// 24 November: a round lost a 42-minute place to a lock other waiters
+// held past its wait, with 67 in line.
+describe("a busy line's lock", () => {
+	it("keeps looking past a lock held too long, however many times", async () => {
+		let looks = 0;
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				startedElsewhere: async () => {
+					looks += 1;
+					if (looks <= 6) {
+						throw Object.assign(new Error("line.json.lock has been held"), {
+							code: "ELOCKHELD",
+						});
+					}
+					return undefined;
+				},
+			}),
+		);
+
+		expect(looks, "past the four failures a broken line gets").toBe(7);
+		expect(start.cancelled).toBeUndefined();
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	// 25 November, A2VLJN: seventy rounds each rewriting the line every
+	// look, only to refresh when they were seen, kept its lock changing hands.
+	it("leaves the line unwritten by a look that changes nothing in it", async () => {
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "ahead",
+				by: "ISXEG8",
+				change: "o/r#ahead",
+				pid: process.pid,
+				askedAt: now,
+				seenAt: now,
+			},
+		]);
+		let looks = 0;
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("85PKB2", {
+				startedElsewhere: async () => {
+					looks += 1;
+					return undefined;
+				},
+			}),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(2);
+		// Every write lands by a rename, so a new file is a write, even of
+		// the same words.
+		const joined = statSync(linePath()).ino;
+		const joinedAt = looks;
+		await expect
+			.poll(() => looks, { timeout: 4_000, interval: 5 })
+			.toBeGreaterThanOrEqual(joinedAt + 3);
+		const later = statSync(linePath()).ino;
+		giving.abort();
+		await waiting;
+
+		expect(later, "three looks later, the line is as it joined").toBe(joined);
 	});
 });
 

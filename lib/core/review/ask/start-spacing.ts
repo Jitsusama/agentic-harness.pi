@@ -24,6 +24,14 @@
  * is dropped by whoever reads the line next, so nothing waits behind a
  * round that will never start.
  *
+ * A fixed spacing guarded nothing it should: on 24 November a round
+ * waited about 30 minutes behind ten others on a machine with memory
+ * for all of them. So a claim may say what the machine is short of
+ * instead (`room`), and with no spacing asked for, the first in line
+ * starts as soon as nothing is short, the next a look later. The line
+ * then only keeps the order rounds were asked in, and keeps two rounds
+ * from both reading room and both starting at one moment.
+ *
  * Every start is spaced only once every session on the machine runs
  * this, and only among sessions sharing one state directory. A session
  * on an older install keeps its own fixed slot in `last.json` beside
@@ -36,7 +44,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { withFileLock } from "../../internal/file-lock.ts";
+import { isLockHeld, withFileLock } from "../../internal/file-lock.ts";
 
 /** How long after one council starts on a machine before another may. */
 export const COUNCIL_START_SPACING_MS = 3 * 60_000;
@@ -74,6 +82,14 @@ export const MOST_SPACING_MS = 30 * 60_000;
  * back or a line written by hand.
  */
 const UNSEEN_TICKET_MS = 2 * 60_000;
+
+/**
+ * How old a ticket's `seenAt` may grow before a look writes it again.
+ * A quarter of {@link UNSEEN_TICKET_MS}, so a live round is never
+ * dropped, while seventy rounds looking every fifteen seconds no longer
+ * rewrite the whole line at every look only to say they are there.
+ */
+const SEEN_REFRESH_MS = UNSEEN_TICKET_MS / 4;
 
 /**
  * How far ahead a start may lie and still be spaced from. One further
@@ -136,8 +152,16 @@ export interface StartClaim {
 	readonly by: string;
 	/** The change it reads, by label. */
 	readonly change: string;
-	/** How long after one start another may; {@link COUNCIL_START_SPACING_MS} unless given. */
+	/**
+	 * How long after one start another may: {@link COUNCIL_START_SPACING_MS}
+	 * unless given, or none when `room` is given instead.
+	 */
 	readonly spacingMs?: number;
+	/**
+	 * What keeps a round from starting now, such as memory, said for its
+	 * answer, or nothing when the machine has room. Read at each look.
+	 */
+	readonly room?: () => Promise<string | undefined>;
 	/**
 	 * The latest start made outside the line, such as a round started by
 	 * a session on an older install, read again each time the line is.
@@ -188,10 +212,10 @@ export async function awaitCouncilStart(
 	// Never under two looks, whoever asks: the line's own guard against a
 	// failed look losing its start, and against a tight loop, holds here
 	// rather than only in whichever reader of a config remembered it.
-	const spacing = Math.max(
-		claim.spacingMs ?? COUNCIL_START_SPACING_MS,
-		2 * lookAgain,
-	);
+	const spacing =
+		claim.room !== undefined && claim.spacingMs === undefined
+			? 0
+			: Math.max(claim.spacingMs ?? COUNCIL_START_SPACING_MS, 2 * lookAgain);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -205,6 +229,7 @@ export async function awaitCouncilStart(
 	};
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
+	let lastShort: string | undefined;
 	let failed = 0;
 	for (;;) {
 		let turn: Turn | undefined;
@@ -212,7 +237,11 @@ export async function awaitCouncilStart(
 			turn = await takeTurn(at, path, ticket, claim, spacing);
 			failed = 0;
 		} catch (error) {
-			failed += 1;
+			// A lock another live round holds past the wait is a busy line,
+			// not a broken one: on 24 November a round lost a 42-minute place
+			// to it with 67 waiting. Only a line that can't be read or written
+			// counts against the round.
+			if (!isLockHeld(error)) failed += 1;
 			if (failed >= FAILED_LOOKS_AT_MOST) {
 				await leave(at, ticket).catch(() => {
 					// The line can't be written either; the ticket is dropped
@@ -222,6 +251,7 @@ export async function awaitCouncilStart(
 			}
 		}
 		if (turn !== undefined) firstSeen ??= turn;
+		if (turn?.short !== undefined) lastShort = turn.short;
 		const started = turn?.started;
 		if (turn !== undefined && started !== undefined) {
 			const release = () =>
@@ -239,11 +269,18 @@ export async function awaitCouncilStart(
 			const waitedMs = Date.now() - Date.parse(asked);
 			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
-				: { waited: waitSaid(firstSeen, spacing, waitedMs), release };
+				: {
+						waited: waitSaid(firstSeen, spacing, waitedMs, lastShort),
+						release,
+					};
 		}
 		try {
+			// Room and the rounds ahead have no time to wait for, so a round
+			// started on room alone looks again at the usual pace.
 			await sleep(
-				Math.max(1, Math.min(turn?.waitMs ?? lookAgain, lookAgain)),
+				spacing === 0
+					? lookAgain
+					: Math.max(1, Math.min(turn?.waitMs ?? lookAgain, lookAgain)),
 				undefined,
 				signal === undefined ? {} : { signal },
 			);
@@ -278,6 +315,8 @@ interface Turn {
 	readonly waitMs: number;
 	/** The round first in line, when another is. */
 	readonly behind?: { readonly by: string; readonly change: string };
+	/** What the machine was short of, when that held it back. */
+	readonly short?: string;
 }
 
 async function takeTurn(
@@ -288,6 +327,9 @@ async function takeTurn(
 	spacing: number,
 ): Promise<Turn> {
 	const elsewhere = await claim.startedElsewhere?.();
+	// Read before the lock, as it may be slow; a round that reads room and
+	// then finds another first in line waits its turn all the same.
+	const short = await claim.room?.();
 	return withFileLock(at, async () => {
 		const now = Date.now();
 		const alive = claim.alive ?? isAlive;
@@ -303,18 +345,24 @@ async function takeTurn(
 				waitMs: 0,
 			};
 		}
-		const seen = { ...ticket, seenAt: new Date(now).toISOString() };
-		const waiting = line.waiting
-			.filter(
-				(each) =>
-					each.id === ticket.id ||
-					(alive(each.pid) &&
-						// Either way: a ticket seen in the future is a clock moved
-						// or a line written by hand, and would otherwise hold
-						// every round for as long as its process lives.
-						Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS),
-			)
-			.map((each) => (each.id === ticket.id ? seen : each));
+		const kept = line.waiting.find((each) => each.id === ticket.id);
+		const stale =
+			kept === undefined ||
+			Math.abs(now - Date.parse(kept.seenAt)) >= SEEN_REFRESH_MS;
+		const seen =
+			kept !== undefined && !stale
+				? kept
+				: { ...ticket, seenAt: new Date(now).toISOString() };
+		const still = line.waiting.filter(
+			(each) =>
+				each.id === ticket.id ||
+				(alive(each.pid) &&
+					// Either way: a ticket seen in the future is a clock moved
+					// or a line written by hand, and would otherwise hold
+					// every round for as long as its process lives.
+					Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS),
+		);
+		const waiting = still.map((each) => (each.id === ticket.id ? seen : each));
 		const place = waiting.findIndex((each) => each.id === ticket.id);
 		const mine = place < 0 ? [...waiting, seen] : waiting;
 		const ahead = place < 0 ? waiting.length : place;
@@ -331,8 +379,8 @@ async function takeTurn(
 			),
 			Number.NEGATIVE_INFINITY,
 		);
-		const free = last + spacing;
-		if (ahead === 0 && now >= free) {
+		const free = spacing === 0 ? now : last + spacing;
+		if (ahead === 0 && now >= free && short === undefined) {
 			const replaced = withoutFollows(line.started);
 			const started: Started = {
 				at: new Date(now).toISOString(),
@@ -352,14 +400,24 @@ async function takeTurn(
 				waitMs: 0,
 			};
 		}
-		await keep(at, { ...line, waiting: mine });
+		// Only a change is written: a ticket joining, one dropped, or a
+		// sighting old enough to need saying again.
+		if (stale || still.length !== line.waiting.length) {
+			await keep(at, { ...line, waiting: mine });
+		}
 		const first = mine[0];
 		return {
 			ahead,
-			waitMs: Math.max(free, now) + ahead * spacing - now,
+			// Room has no time to wait for, so a round held for it waits at
+			// least a moment, which says it waited.
+			waitMs: Math.max(
+				Math.max(free, now) + ahead * spacing - now,
+				ahead > 0 || short !== undefined ? 1 : 0,
+			),
 			...(ahead > 0 && first !== undefined
 				? { behind: { by: first.by, change: first.change } }
 				: {}),
+			...(short === undefined ? {} : { short }),
 		};
 	});
 }
@@ -648,8 +706,13 @@ function bounded(name: string): string {
 		: `${name.slice(0, NAME_SAID_AT_MOST)}...`;
 }
 
-function waitSaid(turn: Turn, spacing: number, waitedMs: number): string {
-	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since one roster round starts on this machine each ${spacingSaid(spacing)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
+function waitSaid(
+	turn: Turn,
+	spacing: number,
+	waitedMs: number,
+	short: string | undefined,
+): string {
+	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
 }
 
 /** The line's file name, said so a person can find a wedged line. */
@@ -673,7 +736,16 @@ function minutesSaid(ms: number): string {
 
 function stoppedSaid(turn: Turn | undefined, spacing: number): string {
 	const where = turn === undefined ? "" : `, ${placeSaid(turn)},`;
-	return `It was stopped while it waited for its start${where}, so nothing was started. One roster round starts on this machine each ${spacingSaid(spacing)}.`;
+	return `It was stopped while it waited for its start${where}, so nothing was started, since ${startRuleSaid(spacing, undefined)}.`;
+}
+
+/** When a round starts here, and what held it, as its answer says. */
+function startRuleSaid(spacing: number, short: string | undefined): string {
+	const rule =
+		spacing === 0
+			? "a roster round starts on this machine once those asked before it have and it has room"
+			: `one roster round starts on this machine each ${spacingSaid(spacing)}`;
+	return short === undefined ? rule : `${rule}, and while it waited ${short}`;
 }
 
 function placeSaid(turn: Turn): string {

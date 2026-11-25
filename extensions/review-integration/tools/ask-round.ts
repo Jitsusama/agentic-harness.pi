@@ -10,6 +10,7 @@
  */
 
 import { join } from "node:path";
+import { memoryShort } from "../../../lib/core/review/ask/memory-room.ts";
 import {
 	awaitCouncilStart,
 	type CouncilStart,
@@ -176,6 +177,7 @@ export async function awaitRosterStart(
 			by: sessionKey(),
 			change,
 			startedElsewhere: () => newestRosterStartIn(runs),
+			room: () => memoryShort(),
 			...(spacingMs === undefined ? {} : { spacingMs }),
 		},
 		signal,
@@ -184,7 +186,7 @@ export async function awaitRosterStart(
 
 /**
  * The spacing this machine's config sets between round starts, or
- * undefined for the line's default. A config that can't be read keeps
+ * undefined for none, so rounds start on room alone. A config that can't be read keeps
  * the default rather than stopping a round over a setting it may not
  * even hold.
  */
