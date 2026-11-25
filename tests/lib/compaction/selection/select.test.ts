@@ -224,4 +224,14 @@ describe("renderExcerpts", () => {
 		);
 		expect(text).toContain("User:\n> The cache lives\n> for an hour.");
 	});
+
+	// A sprout's ask, quoted, is never put in the person's mouth.
+	it("names a start's words as the start's, never the person's", () => {
+		const ask = candidate("goal", 1, "Tidy the rows.");
+		const text = renderExcerpts([
+			{ ...ask, unit: { ...ask.unit, speaker: "start" } },
+		]);
+		expect(text).toContain("This session's start:\n> Tidy the rows.");
+		expect(text).not.toContain("User:");
+	});
 });

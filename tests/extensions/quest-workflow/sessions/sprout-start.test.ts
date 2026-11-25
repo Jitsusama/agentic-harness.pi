@@ -38,6 +38,10 @@ import {
 } from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import { aliasAdd } from "../../../../lib/core/quest/verbs/alias.ts";
 import {
+	automatedText,
+	startWordsOf,
+} from "../../../../lib/internal/automated.ts";
+import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../../lib/internal/quest/creation/alias-index.ts";
@@ -47,6 +51,7 @@ import {
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import { harnessLogPath } from "../../../../lib/internal/quest/documents/harness-log.ts";
 import { wroteSaid } from "../../../../lib/internal/quest/sessions/sprout-seed.ts";
+import { isPersonWords } from "../../../../lib/internal/session/driven.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
 import {
 	clearRefTypes,
@@ -178,10 +183,16 @@ async function start(
 		linkFails?: boolean;
 		/** The quest the real create names when it refuses a held link. */
 		linkHeldBy?: string;
+		/** Every make refused, or throwing, so no quest comes. */
+		createFails?: "refused" | "throws";
+		/** The case makes the start throw, and reads what it left. */
+		throws?: boolean;
+		/** The node's prose, when not its usual. */
+		prose?: string;
 	} = {},
 ) {
 	if (seed) process.env[SEED] = JSON.stringify({ v: 1, ...seed });
-	process.env[PROSE] = "the node's prose";
+	process.env[PROSE] = options.prose ?? "the node's prose";
 	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 	const pi = fakePi();
 	const ctx = ctxOf(options.sessionId);
@@ -190,6 +201,10 @@ async function start(
 	// quest from its title alone and keeps what it was asked.
 	const make: Create = (params) => {
 		options.asked?.push(params);
+		if (options.createFails === "throws") throw new Error("no disk");
+		if (options.createFails === "refused") {
+			return Promise.resolve({ ok: false, guidance: "can't make it" });
+		}
 		if (options.linkHeldBy && params.url) {
 			return Promise.resolve({
 				ok: false,
@@ -207,12 +222,35 @@ async function start(
 	};
 	const run: RunProgram =
 		options.run ?? (async () => ({ code: 0, stdout: "", stderr: "" }));
-	await startSprouted(state, pi, ctx, {
-		create: make,
-		load: (id) => load(state, pi, ctx, { action: "load", id }),
-		run,
-	});
-	return { state, source, words: pendingWords(ctx).hints?.firstWords };
+	let threw: unknown;
+	try {
+		await startSprouted(state, pi, ctx, {
+			create: make,
+			load: (id) => load(state, pi, ctx, { action: "load", id }),
+			run,
+		});
+	} catch (error) {
+		// Only a case that makes the start throw reads what it left.
+		if (options.createFails !== "throws" && !options.throws) throw error;
+		threw = error;
+	}
+	return { state, source, threw, words: pendingWords(ctx).hints?.firstWords };
+}
+
+/**
+ * The start's own words in `words`, without their header, having
+ * checked the log reads them as no person's, or a failure naming what
+ * the start left instead.
+ */
+function startsWords(words: string | undefined): string {
+	const body = startWordsOf(words ?? "");
+	if (body === undefined) throw new Error(`not the start's words: ${words}`);
+	const entry = {
+		type: "message",
+		message: { role: "user", content: words },
+	};
+	expect(isPersonWords(entry), "the log reads them as no one's").toBe(false);
+	return body;
 }
 
 /** The quests on disk. */
@@ -339,6 +377,73 @@ describe("a sprouted session's start", () => {
 			/is made and loaded for it from the words it was asked with/u,
 		);
 		expect(words).not.toMatch(/quest create/u);
+	});
+
+	// A sprout's words quote the ask it was started for; said bare, a log
+	// reader took that quote for the person correcting the session (pain
+	// points, 24 November, entry efd94b22). So every path marks them as
+	// the start's, which compaction, the ledger and the budget still read.
+	it("says its words as its start's once its quest is made", async () => {
+		const asked = 'Joel said: "no, not that"';
+		const { words } = await start({ words: asked, id: "S1m" });
+		const body = startsWords(words);
+		expect(body).toMatch(/is made and loaded for it/u);
+		expect(body).toContain(JSON.stringify(asked));
+		// Written out, since logs on disk are read back by these very words.
+		expect(words).toBe(
+			`[Automated message, no human input: this session's start left it these words.] ${body}`,
+		);
+	});
+
+	it("says the node's prose as its start's when its seed won't read", async () => {
+		process.env[SEED] = "not a seed";
+		const { state, words } = await start(undefined);
+		expect(state.questId, "an unread seed made a quest").toBeFalsy();
+		expect(startsWords(words)).toBe("the node's prose");
+	});
+
+	// Under another header the words would be the harness's, but no
+	// reader would take them as the start's ask, so they'd lose it.
+	it("marks the node's prose as its start's under another header too", async () => {
+		const prose = automatedText("a job finished", "the node's prose");
+		const { words } = await start(
+			{ words: "tea", id: "S1h" },
+			{ createFails: "refused", prose },
+		);
+		expect(startsWords(words)).toBe(prose);
+	});
+
+	it("says its quest is there as its start's when a throw comes after the make", async () => {
+		const { state, threw, words } = await start(
+			{ words: "tea", id: "S1x", from: "TERN02" },
+			{
+				throws: true,
+				run: async () => {
+					throw new Error("no node");
+				},
+			},
+		);
+		expect(threw).toBeInstanceOf(Error);
+		expect(state.questId).toMatch(/^QEST-/);
+		expect(startsWords(words)).toMatch(/is made and loaded for it/u);
+	});
+
+	it("says the node's prose as its start's when no quest could be made", async () => {
+		const { state, words } = await start(
+			{ words: "tea", id: "S1r" },
+			{ createFails: "refused" },
+		);
+		expect(state.questId, "a refused make loaded a quest").toBeFalsy();
+		expect(startsWords(words)).toBe("the node's prose");
+	});
+
+	it("leaves the node's prose its start's when making the quest throws", async () => {
+		const { threw, words } = await start(
+			{ words: "tea", id: "S1t" },
+			{ createFails: "throws" },
+		);
+		expect(threw).toBeInstanceOf(Error);
+		expect(startsWords(words)).toBe("the node's prose");
 	});
 
 	it("makes it from a link, with the words as its note", async () => {
@@ -1203,7 +1308,7 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId).toBe(first.state.questId);
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(/already holds this work/u);
+		expect(startsWords(again.words)).toMatch(/already holds this work/u);
 	});
 
 	it("ties no live quest it joined to the cell that asked, which it never came from", async () => {
@@ -1650,7 +1755,7 @@ describe("a sprouted session's start", () => {
 		const again = await start(seed, { sessionId: "sess-join-again" });
 		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(
+		expect(startsWords(again.words)).toMatch(
 			new RegExp(`sprouted for quest ${joined}, which has since ended`, "u"),
 		);
 	});
@@ -1934,7 +2039,7 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
 		expect(questIds()).toEqual(before);
-		expect(again.words).toMatch(
+		expect(startsWords(again.words)).toMatch(
 			new RegExp(
 				`sprouted for quest ${ended}, which has since ended, so its work is done`,
 				"u",
@@ -1963,7 +2068,8 @@ describe("a sprouted session's start", () => {
 		expect(source).not.toBe("sprout");
 		expect(state.questId, "a start with no seed made a quest").toBeFalsy();
 		expect(questIds()).toEqual([]);
-		expect(words).toBe("the node's prose");
+		// Still the start's words, though its seed was refused.
+		expect(startsWords(words)).toBe("the node's prose");
 	});
 
 	it("leaves the prose path when there is no seed", async () => {

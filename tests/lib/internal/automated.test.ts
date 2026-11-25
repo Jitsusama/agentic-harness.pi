@@ -10,6 +10,8 @@ import {
 	automatedHeader,
 	automatedText,
 	isAutomatedText,
+	START_WORDS_REASON,
+	startWordsOf,
 } from "../../../lib/internal/automated.ts";
 import { isOutboxMessage, OUTBOX_HEADER } from "../../../lib/jobs/report.ts";
 
@@ -83,6 +85,16 @@ describe("the turns the harness starts itself", () => {
 			isResumeText(OUTBOX_HEADER),
 			"a job report does not read as a resume",
 		).toBe(false);
+	});
+
+	it("reads back the words a session's start left it, and only those", () => {
+		const words = automatedText(START_WORDS_REASON, "Quest QEST-1 is made.");
+		expect(isAutomatedText(words)).toBe(true);
+		expect(startWordsOf(`\n${words}`)).toBe("Quest QEST-1 is made.");
+		expect(startWordsOf(automatedText("a job finished", "Quest"))).toBe(
+			undefined,
+		);
+		expect(startWordsOf("Quest QEST-1 is made.")).toBe(undefined);
 	});
 
 	it("reads a run for messages that waited as automated, not as a resume", () => {

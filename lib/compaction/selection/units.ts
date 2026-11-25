@@ -4,14 +4,16 @@
  *
  * Tool results, thinking and tool calls are left out, since what they
  * hold is either repeated in the assistant's words or too long to
- * quote, and so are the messages the harness types to resume a run. A
+ * quote, and so are the messages the harness types to resume a run.
+ * The words a session's start left it are kept as the start's, never
+ * the person's: they hold the ask a sprout was started for. A
  * paragraph too short to mean anything alone, or too long to quote, is
  * left out too.
  */
 
 import { createHash } from "node:crypto";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { isAutomatedText } from "../../internal/automated.ts";
+import { isAutomatedText, startWordsOf } from "../../internal/automated.ts";
 import { paragraphsOf } from "./paragraphs.ts";
 
 /** Shorter than this and a paragraph says too little alone. */
@@ -48,6 +50,12 @@ export function refHashPrefix(ref: string): string | undefined {
 	return REF_PATTERN.exec(ref.trim().toLowerCase())?.[1];
 }
 
+/**
+ * Who said a paragraph: the person, the assistant, or the session's
+ * start, whose words hold its ask though no person typed them.
+ */
+export type Speaker = "user" | "assistant" | "start";
+
 /** One paragraph of the session. */
 export interface SelectionUnit {
 	/** The entry the paragraph is in. */
@@ -57,7 +65,7 @@ export interface SelectionUnit {
 	/** Its text, whitespace aside, which is how a repeat is recognised. */
 	readonly hash: string;
 	readonly text: string;
-	readonly speaker: "user" | "assistant";
+	readonly speaker: Speaker;
 }
 
 /** The paragraphs of one entry, or none when it is not a message worth reading. */
@@ -98,7 +106,7 @@ function hashOf(text: string): string {
 
 function spokenText(
 	entry: SessionEntry,
-): { text: string; speaker: "user" | "assistant" } | undefined {
+): { text: string; speaker: Speaker } | undefined {
 	if (entry.type !== "message") return undefined;
 	const { message } = entry;
 	if (message.role === "user") {
@@ -108,6 +116,8 @@ function spokenText(
 				: message.content
 						.map((part) => (part.type === "text" ? part.text : ""))
 						.join("\n\n");
+		const started = startWordsOf(text);
+		if (started !== undefined) return { text: started, speaker: "start" };
 		// The harness's own turns are not what a person said.
 		if (isAutomatedText(text)) return undefined;
 		return { text, speaker: "user" };

@@ -595,6 +595,14 @@ export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
  * Either way it leaves word that it took them, for the spawn that
  * looks for its first turn.
  *
+ * Words are said as they were left, a user message as every turn the
+ * harness starts is (lib/internal/automated.ts). Whoever wrote them
+ * marked them, never this send, which can't tell whose they are: a quest
+ * spawn's and a sprout's come under the automated header
+ * (sessions/sprout-start.ts), and a host's may be words the person
+ * typed in the launcher, which a send past its first-prompt window must
+ * not say are no one's.
+ *
  * The caller sends once every extension's session_start has finished,
  * not merely the next turn of the event loop. pi awaits each handler
  * in turn, so a prompt sent on the next turn went out while later ones

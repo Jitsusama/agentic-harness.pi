@@ -315,6 +315,30 @@ describe("runs", () => {
 		});
 	});
 
+	// A sprout's first words are its start's, marked as no person's; its
+	// turns are still a run, though nobody typed one.
+	it("starts a run at the words a session's start left it", () => {
+		const log = new Log()
+			.typed(
+				"u1",
+				"[Automated message, no human input: this session's start left it these words.] Quest QEST-1 is made.",
+			)
+			.turn("a1")
+			.turn("a2")
+			.add("c1", { type: "compaction", tokensBefore: 200_000, summary: "s" });
+
+		const turns = facts(log);
+		expect(turns.get("a1")?.facts?.runId).toBe("2026-09-24T13:00:01.000Z#u1");
+		expect(turns.get("a2")?.facts).toMatchObject({
+			runId: turns.get("a1")?.facts?.runId,
+			runTurn: 2,
+		});
+		expect(
+			turns.get("c1")?.compaction?.sinceTypedMs,
+			"nobody typed, so nothing counts from a typed turn",
+		).toBeNull();
+	});
+
 	it("still reads a resume written before the automated header", () => {
 		const log = new Log()
 			.typed("u1")

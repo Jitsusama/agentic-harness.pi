@@ -13,7 +13,9 @@ import {
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
+	spawnedWords,
 } from "../../../../lib/internal/quest/sessions/first-words.ts";
+import { isPersonWords } from "../../../../lib/internal/session/driven.ts";
 
 let dir: string;
 let said: { text: string; options: unknown }[];
@@ -107,6 +109,26 @@ describe("a session a spawn started", () => {
 		expect(said).toEqual([]);
 		expect(readdirSync(dir)).toEqual(["019a-hushed.taken"]);
 		expect(takenRecord("019a-hushed")).toMatchObject({ said: false });
+	});
+
+	// Whoever left the words marked them: this send can't tell a host's
+	// words, which the person may have typed, from a start's, so it marks
+	// none and never says his are no one's.
+	it("says words as they were left, marked by whoever wrote them or not", async () => {
+		const words = spawnedWords("QEST-1");
+		leaveFirstWords("019a-spawned-quest", words, dir);
+		sayAtStartsEnd("019a-spawned-quest");
+		pendingWords(ctx).hints = { firstWords: "fix the rows, as I typed" };
+		sayAtStartsEnd("019a-typed");
+		expect(said.map((one) => one.text)).toEqual([
+			words,
+			"fix the rows, as I typed",
+		]);
+		const entry = {
+			type: "message",
+			message: { role: "user", content: said[1]?.text },
+		};
+		expect(isPersonWords(entry), "typed words stay his").toBe(true);
 	});
 
 	it("says nothing when no spawn left it words", async () => {

@@ -15,13 +15,20 @@
 
 import type { Candidate } from "./candidates.ts";
 import { KIND_DEFINITIONS, SELECTION_KINDS } from "./kinds.ts";
-import { paragraphRef } from "./units.ts";
+import { paragraphRef, type Speaker } from "./units.ts";
 
 /** How the excerpts are rendered. */
 export interface RenderOptions {
 	/** Name each quote's paragraph, for a recall tool to read in place. */
 	readonly refs?: boolean;
 }
+
+/** How each speaker is named above its quote. */
+const SPEAKER_NAMES: Readonly<Record<Speaker, string>> = {
+	user: "User",
+	assistant: "Assistant",
+	start: "This session's start",
+};
 
 /** The heading the excerpts appear under. */
 export const EXCERPTS_HEADING = "## Excerpts Kept Verbatim";
@@ -33,7 +40,7 @@ export function renderExcerpts(
 ): string {
 	if (chosen.length === 0) return "";
 	const who = (c: Candidate) => {
-		const speaker = c.unit.speaker === "user" ? "User" : "Assistant";
+		const speaker = SPEAKER_NAMES[c.unit.speaker];
 		return options.refs ? `${speaker} (${paragraphRef(c.unit.hash)})` : speaker;
 	};
 	const sections: string[] = [];

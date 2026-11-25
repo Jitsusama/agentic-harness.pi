@@ -189,6 +189,10 @@ it("takes only its own launch hints and literal first words", async () => {
 	withSession("a", () =>
 		sayFirstWords(pi, contexts("a"), "a", () => false),
 	)?.();
+	// Only a's hints are said, as they were given: a host's may be words
+	// the person typed, so nothing marks them no one's. A real host holds
+	// its first prompt pending and sends it itself; `pending` is forced
+	// false here to read whose hints are said.
 	expect(send).toHaveBeenCalledWith("only a gets this", undefined);
 	expect(
 		withSession("b", () => sayFirstWords(pi, contexts("b"), "b", () => false)),

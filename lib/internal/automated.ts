@@ -41,6 +41,26 @@ export function automatedText(reason: string, body: string): string {
 	return `${automatedHeader(reason)} ${body}`;
 }
 
+/**
+ * Why a session's first words are marked when its start, not a person,
+ * left them: a sprout's ask, which the session works from. Logs on disk
+ * are matched by these exact words, so a change leaves every older
+ * sprout's words unread as its start's.
+ */
+export const START_WORDS_REASON = "this session's start left it these words";
+
+/**
+ * The words a session's start left it, without their header, or nothing
+ * when `text` isn't those. Unlike the harness's other turns, they hold
+ * what the session was asked to do, so a reader that drops automated
+ * turns as no one's words can still keep these as the start's.
+ */
+export function startWordsOf(text: string): string | undefined {
+	const header = `${automatedHeader(START_WORDS_REASON)} `;
+	const opening = text.trimStart();
+	return opening.startsWith(header) ? opening.slice(header.length) : undefined;
+}
+
 /** Whether a user message's text is one the harness sent rather than a person. */
 export function isAutomatedText(text: string): boolean {
 	const opening = text.trimStart();
