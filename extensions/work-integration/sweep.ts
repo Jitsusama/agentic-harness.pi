@@ -85,6 +85,12 @@ const HELD_NAMED = 10;
 const LOCK_HELD = /^.+ has been held for over (\d+)s by .*$/s;
 
 /**
+ * A tree's record lock that changed hands too often to let the sweep in,
+ * in file-lock's words, the lock's path before them.
+ */
+const LOCK_BUSY = /^.+ changed hands \d+ times in the (\d+)s since .*$/s;
+
+/**
  * One conversation's sweep timers. In a session slot rather than module
  * state, since a host runs several conversations in one process: B's
  * start must not stop A's sweeps, nor B's close leave A sweeping never.
@@ -690,7 +696,7 @@ function held(kept: SweepOutcome["kept"]): {
 	held?: { path: string; why: string }[];
 } {
 	const locked = kept
-		.filter((one) => LOCK_HELD.test(one.why))
+		.filter((one) => LOCK_HELD.test(one.why) || LOCK_BUSY.test(one.why))
 		.slice(0, HELD_NAMED)
 		.map(({ path, why }) => ({ path, why }));
 	return locked.length === 0 ? {} : { held: locked };
@@ -715,6 +721,10 @@ function commonest(whys: readonly string[]): Record<string, number> {
 			.replace(
 				LOCK_HELD,
 				"its record's lock was held for over $1s by a process still running",
+			)
+			.replace(
+				LOCK_BUSY,
+				"its record's lock changed hands for $1s without the sweep getting a turn",
 			)
 			// The World provider's words for a tree whose src git can't read.
 			.replace(/^git can't read .+$/s, "git can't read its folder");

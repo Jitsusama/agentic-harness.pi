@@ -115,39 +115,53 @@ describe("withFileLock", () => {
 		writeFileSync(lockPath, String(process.ppid));
 		vi.useFakeTimers({ toFake: ["Date"] });
 		try {
-			let settled: unknown = "waiting";
-			const written = lock.withFileLock(path, async () => "written");
-			written.then(
-				(value) => {
-					settled = value;
-				},
-				(error: unknown) => {
-					settled = error;
-				},
-			);
+			const watched = (written: Promise<string>) => {
+				const seen: { settled: unknown } = { settled: "waiting" };
+				written.then(
+					(value) => {
+						seen.settled = value;
+					},
+					(error: unknown) => {
+						seen.settled = error;
+					},
+				);
+				return seen;
+			};
+			const first = watched(lock.withFileLock(path, async () => "written"));
+			// Queued behind the first in this process, from the same moment.
+			const second = watched(lock.withFileLock(path, async () => "written"));
 			// Each real pause lets the writer's retries, 20 ms apart, see what
 			// the step before it did.
 			const look = () => new Promise((done) => setTimeout(done, 100));
 			await look();
-			for (let hand = 0; hand < 3; hand += 1) {
+			// Steps under the 30 s that makes a lock stale, so no retry caught
+			// mid-look can judge a holder gone.
+			for (let hand = 0; hand < 7; hand += 1) {
 				vi.setSystemTime(Date.now() + 8_000);
 				nextHolder();
 				await look();
 			}
 			expect(
-				settled,
-				"24 s of holders 8 s each counted as one held past 10 s",
+				first.settled,
+				"56 s of holders 8 s each counted as one held past 10 s, or as busy",
 			).toBe("waiting");
 
-			vi.setSystemTime(Date.now() + 120_000);
+			vi.setSystemTime(Date.now() + 8_000);
 			nextHolder();
 			await look();
-			expect(String(settled), "it wrote, or blamed one holder").toMatch(
-				/changed hands 4 times/,
-			);
-			expect(lock.isLockHeld(settled), "a busy line reads as broken").toBe(
-				true,
-			);
+			expect(
+				String(first.settled),
+				"it wrote, or blamed one holder, past 64 s",
+			).toMatch(/changed hands 8 times/);
+			expect(
+				lock.isLockHeld(first.settled),
+				"a busy line reads as broken",
+			).toBe(true);
+			await look();
+			expect(
+				lock.isLockHeld(second.settled),
+				"the writer queued behind it took a bound of its own",
+			).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -168,6 +182,8 @@ describe("withFileLock", () => {
 			writeFileSync(lockPath, String(process.ppid));
 			await new Promise((done) => setTimeout(done, 100));
 			vi.setSystemTime(Date.now() + 8_000);
+			// Seen 16 s after the writer asked, past the 10 s one holder may keep it.
+			await new Promise((done) => setTimeout(done, 100));
 			unlinkSync(lockPath);
 
 			await expect(written).resolves.toBe("written");

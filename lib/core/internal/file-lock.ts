@@ -36,9 +36,13 @@ import { processGlobal } from "../../internal/process/process-global.ts";
 const WAIT_MS = 10_000;
 /**
  * How long a writer waits on a lock that keeps changing hands before
- * saying the line is too busy to let it in.
+ * saying the line is too busy to let it in, counted from its call, so
+ * writers queued in one process share the bound rather than each taking
+ * it in turn. Under 105 s, since the council line drops a ticket unseen
+ * for 2 minutes and a round looks again 15 s after its last look: a
+ * round kept out longer would lose the place this wait keeps for it.
  */
-const BUSY_MS = 120_000;
+const BUSY_MS = 60_000;
 /** Pause between attempts at the lock. */
 const RETRY_MS = 20;
 /**
@@ -48,13 +52,17 @@ const RETRY_MS = 20;
  */
 const STALE_MS = 30_000;
 
-/** The code a live holder keeping the lock past {@link WAIT_MS} throws with. */
+/**
+ * The code a writer kept out throws with: one live holder kept the lock
+ * past {@link WAIT_MS}, or holders in turn kept it past {@link BUSY_MS}.
+ */
 const LOCK_HELD = "ELOCKHELD";
 
 /**
- * A live holder kept the lock past {@link WAIT_MS}, so nothing was
- * written and nothing else went wrong: a caller may give up on what it
- * was writing for and go on with the rest.
+ * A live holder kept the lock past {@link WAIT_MS}, or holders in turn
+ * past {@link BUSY_MS}, so nothing was written and nothing else went
+ * wrong: a caller may give up on what it was writing for and go on with
+ * the rest.
  */
 class LockHeld extends Error {
 	/** Read by {@link isLockHeld}, since another copy of this module has another class. */
@@ -77,8 +85,8 @@ export function lockHeldMessage(
  * What a lock too busy to let this writer in is said as: no holder kept
  * it long, but `hands` others took it in turn for {@link BUSY_MS}.
  */
-function lockBusyMessage(lockPath: string, hands: number): string {
-	return `${lockPath} changed hands ${hands} times in ${BUSY_MS / 1000}s without this writer getting a turn, so many processes are writing it at once. Nothing was written; try again once fewer are.`;
+export function lockBusyMessage(lockPath: string, hands: number): string {
+	return `${lockPath} changed hands ${hands} times in the ${BUSY_MS / 1000}s since this writer asked, without it getting a turn, so many processes are writing it at once. Nothing was written; try again once fewer are.`;
 }
 
 /**
@@ -113,10 +121,11 @@ export async function withFileLock<T>(
 	path: string,
 	fn: () => Promise<T>,
 ): Promise<T> {
+	const busyUntil = Date.now() + BUSY_MS;
 	const before = queues.get(path) ?? Promise.resolve();
 	const turn = before.then(
-		() => locked(path, fn),
-		() => locked(path, fn),
+		() => locked(path, fn, busyUntil),
+		() => locked(path, fn, busyUntil),
 	);
 	// The queue only orders writers; it never carries a failure from one
 	// to the next, so the entry it holds settles either way.
@@ -132,9 +141,13 @@ export async function withFileLock<T>(
 	}
 }
 
-async function locked<T>(path: string, fn: () => Promise<T>): Promise<T> {
+async function locked<T>(
+	path: string,
+	fn: () => Promise<T>,
+	busyUntil: number,
+): Promise<T> {
 	const lockPath = `${path}.lock`;
-	const held = await acquire(lockPath);
+	const held = await acquire(lockPath, busyUntil);
 	try {
 		return await fn();
 	} finally {
@@ -142,8 +155,7 @@ async function locked<T>(path: string, fn: () => Promise<T>): Promise<T> {
 	}
 }
 
-async function acquire(lockPath: string): Promise<number> {
-	const busyUntil = Date.now() + BUSY_MS;
+async function acquire(lockPath: string, busyUntil: number): Promise<number> {
 	let holder: { readonly is: string; readonly until: number } | undefined;
 	let hands = 0;
 	while (true) {
