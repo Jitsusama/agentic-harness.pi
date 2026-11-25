@@ -6,8 +6,8 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { basename, join } from "node:path";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { Delivered } from "../../../extensions/mesh-workflow/delivery.ts";
 import { SWEPT_STAMP } from "../../../lib/mesh/retention.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -23,11 +23,11 @@ import {
 
 // The folder's watcher, as a test can have it: deaf, as one is when the
 // kernel drops its events, and with a message landing as it is armed;
-// and how often the mesh armed one through this fake.
+// and how often one was armed on a messages folder through this fake.
 const watching = vi.hoisted(() => ({
 	deaf: false,
 	armed: undefined as (() => void) | undefined,
-	calls: 0,
+	messages: 0,
 }));
 // The folders listed, while a test keeps a list of them.
 const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
@@ -48,7 +48,7 @@ vi.mock("node:fs", async (importOriginal) => {
 			return fs.readFileSync(...args);
 		}) as typeof fs.readFileSync,
 		watch: ((...args: Parameters<typeof fs.watch>) => {
-			watching.calls += 1;
+			if (basename(String(args[0])) === "messages") watching.messages += 1;
 			watching.armed?.();
 			return watching.deaf ? { close() {} } : fs.watch(...args);
 		}) as typeof fs.watch,
@@ -58,7 +58,7 @@ vi.mock("node:fs", async (importOriginal) => {
 beforeEach(() => {
 	watching.deaf = false;
 	watching.armed = undefined;
-	watching.calls = 0;
+	watching.messages = 0;
 	listing.dirs = undefined;
 	reading.files = undefined;
 });
@@ -67,13 +67,17 @@ beforeEach(() => {
 // the real one heard the message instead. That happens where the mesh's
 // transport loaded before this file's fake, as a setup file loading it
 // makes it (tests/lib/internal/sandbox/loads-no-mesh-transport.test.ts).
-afterEach(() => {
-	if (!watching.deaf) return;
-	expect(
-		watching.calls,
-		"the mesh armed its watcher through this file's fake of node:fs, so the transport loaded after it",
-	).toBeGreaterThan(0);
-});
+// Checked once the test is done, after every afterEach, so a failure
+// here never skips the sessions' shutdown or the fixture's removal.
+function deafen(): void {
+	watching.deaf = true;
+	onTestFinished(() => {
+		expect(
+			watching.messages,
+			"the mesh armed its messages folder's watcher through this file's fake of node:fs; none means the transport loaded before the fake, or never watched",
+		).toBeGreaterThan(0);
+	});
+}
 
 describe("a session switched out", () => {
 	it("lets go of a message still being judged, never reading the old session's context", async () => {
@@ -306,7 +310,7 @@ describe("a message never lost", () => {
 
 	it("is heard when it lands as the peer starts watching", async () => {
 		// Watching only after the catch-up lost what landed between the two.
-		watching.deaf = true;
+		deafen();
 		watching.armed = () => {
 			watching.armed = undefined;
 			fromElsewhere({ to: ["@7M6JKG"], text: "just in time" });
@@ -319,7 +323,7 @@ describe("a message never lost", () => {
 	});
 
 	it("is looked for again when the watcher never reports it", async () => {
-		watching.deaf = true;
+		deafen();
 		const { sent } = await startSession(
 			{},
 			{},
@@ -337,7 +341,7 @@ describe("a message never lost", () => {
 	});
 
 	it("is looked for again as a run ends", async () => {
-		watching.deaf = true;
+		deafen();
 		const { sent, fire } = await startSession();
 		fromElsewhere({ to: ["@7M6JKG"], text: "dropped by the kernel" });
 
@@ -408,7 +412,7 @@ describe("an old copy written back", () => {
 		// Seen live on 14 November: a move to another machine wrote a week
 		// of expired messages back at the top, and every session took each
 		// as new, its questions with a turn.
-		watching.deaf = true;
+		deafen();
 		const { sent, entries, fire } = await startSession(
 			{},
 			{ isIdle: () => true },
