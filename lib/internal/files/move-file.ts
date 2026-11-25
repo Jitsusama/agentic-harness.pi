@@ -10,10 +10,14 @@
  * made only now and refused where anything stands, so nothing planted
  * beside the new place is written through; and since it is renamed in,
  * whoever reads the new place finds the old file or the whole new one.
+ * The original is removed only while its path still names the file
+ * copied, since a copy lasts as long as the file is long, and a folder on
+ * its way swapped for a link meanwhile would have it remove another.
  */
 
 import { randomUUID } from "node:crypto";
 import {
+	type BigIntStats,
 	closeSync,
 	constants,
 	fchmodSync,
@@ -53,7 +57,8 @@ const MODE_BITS = 0o777;
  * so `to` holds either what it held or the whole of `from`. Throws, with
  * `to` as it was, where `from` is a folder or anything but a file or a
  * link on another volume, or where the move fails; only a failure to
- * remove `from` after its copy stands leaves both.
+ * remove `from` after its copy stands, or `from` naming another file by
+ * then, leaves both.
  */
 export function moveFile(from: string, to: string): void {
 	try {
@@ -63,22 +68,36 @@ export function moveFile(from: string, to: string): void {
 		if (errnoOf(error) !== "EXDEV") throw error;
 	}
 	const beside = join(dirname(to), `.${basename(to)}.moving-${randomUUID()}`);
+	let moved: BigIntStats;
 	try {
-		copied(from, beside);
+		moved = copied(from, beside);
 		renameSync(beside, to);
 	} catch (error) {
-		rmSync(beside, { force: true });
+		try {
+			rmSync(beside, { force: true });
+		} catch {
+			// Hidden, so it never crosses; why the move failed matters more.
+		}
 		throw error;
+	}
+	const now = lstatSync(from, { bigint: true });
+	if (now.dev !== moved.dev || now.ino !== moved.ino) {
+		throw new Error(
+			`${from} names another file than the one copied to ${to}, so it isn't removed.`,
+		);
 	}
 	unlinkSync(from);
 }
 
-/** Copies the file or link at `from` to `to`, where nothing stands yet. */
-function copied(from: string, to: string): void {
-	const found = lstatSync(from);
+/**
+ * Copies the file or link at `from` to `to`, where nothing stands yet,
+ * answering what it copied.
+ */
+function copied(from: string, to: string): BigIntStats {
+	const found = lstatSync(from, { bigint: true });
 	if (found.isSymbolicLink()) {
 		symlinkSync(readlinkSync(from), to);
-		return;
+		return found;
 	}
 	if (!found.isFile()) {
 		throw new Error(`${from} isn't a file or a link, so it isn't moved.`);
@@ -86,18 +105,21 @@ function copied(from: string, to: string): void {
 	const source = openSync(from, READ);
 	try {
 		// Swapped since the look above for anything but a file, it stays.
-		if (!fstatSync(source).isFile()) {
+		const opened = fstatSync(source, { bigint: true });
+		if (!opened.isFile()) {
 			throw new Error(`${from} isn't a file or a link, so it isn't moved.`);
 		}
-		const target = openSync(to, MAKE, found.mode & MODE_BITS);
+		const mode = Number(opened.mode) & MODE_BITS;
+		const target = openSync(to, MAKE, mode);
 		try {
 			// Set again, past the umask that clipped it at the open.
-			fchmodSync(target, found.mode & MODE_BITS);
+			fchmodSync(target, mode);
 			copyAll(source, target);
 			fsyncSync(target);
 		} finally {
 			closeSync(target);
 		}
+		return opened;
 	} finally {
 		closeSync(source);
 	}

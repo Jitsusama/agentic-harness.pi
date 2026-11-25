@@ -74,7 +74,7 @@ const live = processGlobal("pi.carry.staging.live", () => new Set<string>());
 export interface Stage {
 	readonly folder: string;
 	/**
-	 * Renames `names` from the folder into the handover, moving `gone`
+	 * Moves `names` from the folder into the handover, moving `gone`
 	 * and any file of those names already there aside first, kept until
 	 * the carry stands. A folder at any of `names` fails it before
 	 * anything moves, rather than deleting what it holds; a folder at one
@@ -180,7 +180,7 @@ export async function staged<T>(
 			}
 			for (const name of [...gone, ...names]) {
 				if (moved.includes(name) || !besideFolder(join(into, name))) continue;
-				moveFile(join(into, name), join(aside, name));
+				movedThrough(into, join(into, name), join(aside, name));
 				moved.push(name);
 			}
 			// Named only once nothing of its name is left in the handover, so
@@ -188,7 +188,7 @@ export async function staged<T>(
 			placed.push(...names);
 			record();
 			for (const name of names) {
-				moveFile(join(folder, name), join(into, name));
+				movedThrough(into, join(folder, name), join(into, name));
 			}
 		},
 	};
@@ -238,10 +238,25 @@ function putBack(
 	const stuck = placed.filter(
 		(name) => !undo(() => rmSync(join(into, name), { force: true })),
 	);
-	const left = readdirSync(aside).filter(
-		(name) => !undo(() => moveFile(join(aside, name), join(into, name))),
+	const left = readdirSync(aside).filter((name) =>
+		// A copy cut off on its way aside is no earlier file, so it goes.
+		name.startsWith(".")
+			? !undo(() => rmSync(join(aside, name), { force: true }))
+			: !undo(() => movedThrough(into, join(aside, name), join(into, name))),
 	);
 	return { stuck, left };
+}
+
+/**
+ * Moves `from` to `to`, one of them in the handover `into`, once `into`
+ * is still no link: asked before each move, not once for all, since a
+ * move across volumes copies for as long as its file is long, and a
+ * fenced command may swap the handover meanwhile, which would have the
+ * next move read or write through it.
+ */
+function movedThrough(into: string, from: string, to: string): void {
+	unlinked(into);
+	moveFile(from, to);
 }
 
 /**
