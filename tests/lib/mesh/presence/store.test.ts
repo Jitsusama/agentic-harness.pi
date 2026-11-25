@@ -677,6 +677,28 @@ describe("a presence's landings, read back", () => {
 	});
 });
 
+describe("a presence's time it has signed since, read back", () => {
+	const sinceOf = (signsSince: unknown) => {
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({ ...presence(), signsSince }),
+		);
+		return createPresences(root).of("s-1")?.signsSince;
+	};
+
+	it("is written the one way, so text order is time order", () => {
+		expect(sinceOf("2026-11-21T15:47:00-05:00")).toBe(
+			"2026-11-21T20:47:00.000Z",
+		);
+	});
+
+	it("counts as none when it isn't a time a tie could compare", () => {
+		for (const odd of ["", "soon", "0", "+275760-09-13T00:00:00.000Z", 3]) {
+			expect(sinceOf(odd), JSON.stringify(odd)).toBeUndefined();
+		}
+	});
+});
+
 /** Writes held until each is let go, by its place in the order sent. */
 function heldWrites() {
 	const calls: { wanted: Wanted; go: () => void }[] = [];

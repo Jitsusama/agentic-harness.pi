@@ -910,6 +910,20 @@ function groupsShaped(groups: readonly string[]): string[] {
 	return groups.filter(isGroupShaped).slice(0, MOST_GROUPS);
 }
 
+/**
+ * A presence's `signsSince` when it reads as a time, written the one way
+ * so comparing two as text compares them as times: anything else, which
+ * would otherwise win or lose every tie as text, counts as no time.
+ */
+function signsSinceOf(value: unknown): { signsSince?: string } {
+	if (typeof value !== "string") return {};
+	const at = Date.parse(value);
+	if (!Number.isFinite(at)) return {};
+	// A year past 9999 is written "+275760-01-01T...", which sorts first as text.
+	const since = new Date(at).toISOString();
+	return /^\d{4}-/.test(since) ? { signsSince: since } : {};
+}
+
 /** Presence read from outside, or nothing when it is not one. */
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -952,9 +966,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		worksOn: said(one.worksOn) ?? "",
 		owns: strings(one.owns) ? one.owns : [],
 		...(quest !== undefined ? { quest } : {}),
-		...(typeof one.signsSince === "string" && one.signsSince !== ""
-			? { signsSince: one.signsSince }
-			: {}),
+		...signsSinceOf(one.signsSince),
 		busy: one.busy === true,
 		...(isPeerState(one.state) ? { state: one.state } : {}),
 		...(typeof one.since === "string" ? { since: one.since } : {}),

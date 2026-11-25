@@ -27,11 +27,12 @@ import {
 } from "./support/mesh.ts";
 
 /** A peer signing with the fixture's quest, as it has since `since`. */
-function holding(holder: string, since: string) {
+function holding(holder: string, since: string, ended?: string) {
 	createPresences(join(fixture.paths.mesh, "presence")).publish({
 		session: holder,
 		addresses: ["7M6JKG"],
 		signsSince: since,
+		...(ended ? { ended } : {}),
 		groups: [],
 		worksOn: "",
 		owns: [],
@@ -154,16 +155,52 @@ describe("sending", () => {
 		expect(await send(tools, "p9r1ki", "fyi", "second")).toContain(
 			"Sent as 24B025FE",
 		);
+		expect(presences.of(session)?.signsSince, "nor says it holds it").toBe(
+			undefined,
+		);
 	});
 
+	// The peer that took it meanwhile has the lower id, so only time keeps it.
+	const taker = "0000-taker";
+	const heldFrom = "2026-11-21T20:47:00.000Z";
+	const takenAt = "2026-11-25T13:53:49.000Z";
+
 	it("keeps its quest's address through its own restart, over a peer that took it since", async () => {
-		holding(session, "2026-11-21T20:47:00.000Z");
-		holding("session-x", "2026-11-25T13:53:49.000Z");
+		holding(session, heldFrom);
+		holding(taker, takenAt);
 		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession();
 
 		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
 			"Sent as 7M6JKG",
+		);
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		expect(
+			presences.of(session)?.signsSince,
+			"and says the time it held it from, not its restart's",
+		).toBe(heldFrom);
+	});
+
+	it("keeps its quest's address through a restart in place, which says it ended a moment before", async () => {
+		// A restart in place and a rollover end the old process as a quit does.
+		holding(session, heldFrom, new Date(Date.now() - 30_000).toISOString());
+		holding(taker, takenAt);
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 7M6JKG",
+		);
+	});
+
+	it("starts afresh, leaving its quest's address, when it ended an hour before", async () => {
+		holding(session, heldFrom, new Date(Date.now() - 3_600_000).toISOString());
+		holding(taker, takenAt);
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 24B025FE",
 		);
 	});
 

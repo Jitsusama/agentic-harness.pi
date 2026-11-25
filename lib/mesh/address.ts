@@ -31,11 +31,13 @@
  * to the holder's machine is back, gives it back once the holder is
  * heard: on 25 November one such kept it for having the lower session
  * id, and its quest's orchestrator, on another machine, lost its asks.
- * A holder keeps its time through its own restart, unless it ended for
- * good, so a park or a reboot doesn't hand the address on. Where either
- * says no time, as an older harness's presence doesn't, or both say
- * the same, the lower session id keeps it, so neither flips back and
- * forth. Times are each machine's own clock, so a clock wrong by more
+ * A holder keeps its time through its own restart, a park, a reboot,
+ * or a restart in place or rollover, which say it ended a moment before
+ * it starts again, so none of them hands the address on; one that ended
+ * longer ago than that starts afresh. Where any signer says no time, as
+ * an older harness's presence doesn't, the lower session id keeps it as
+ * it always did, and where two say the same, the lower id too, so none
+ * flips back and forth. Times are each machine's own clock, so a clock wrong by more
  * than the gap between two takings picks the wrong one.
  */
 
@@ -149,7 +151,9 @@ export function loadedAddress(
  * The live peer this session leaves its quest's address to, if any: one
  * already signing with it, when this session is not; or, when both are,
  * one that has signed with it longer than `signsSince`, or, where a time
- * is missing or the same, one whose session id is lower.
+ * is missing or the same, one whose session id is lower. A session with
+ * a time kept from before its restart contests the address before it
+ * signs again, but only against signers that say one too.
  */
 export function yieldsTo<
 	One extends {
@@ -165,16 +169,56 @@ export function yieldsTo<
 	signsSince?: string,
 ): One | undefined {
 	if (signing === undefined) return undefined;
-	const heldLonger = (one: One) =>
-		one.signsSince === undefined ||
-		signsSince === undefined ||
-		one.signsSince === signsSince
-			? one.session < session
-			: one.signsSince < signsSince;
-	return live
+	const signers = live
 		.filter((one) => one.session !== session && one.addresses[0] === signing)
-		.sort((one, other) => one.session.localeCompare(other.session))
-		.find((one) => !signingNow || heldLonger(one));
+		.sort((one, other) => one.session.localeCompare(other.session));
+	// Times settle it only when every signer says one: one timeless signer
+	// puts all of them back on the old rule, so every peer, old harness or
+	// new, ranks the same live set the same way and none of three cycles.
+	const since = signsSince;
+	if (
+		since !== undefined &&
+		signers.every((one) => one.signsSince !== undefined)
+	) {
+		return signers.find(
+			(one) =>
+				(one.signsSince ?? since) < since ||
+				(one.signsSince === since && one.session < session),
+		);
+	}
+	return signers.find((one) => !signingNow || one.session < session);
+}
+
+/**
+ * How long before a start its session's last presence may say it ended
+ * and still be a restart: a restart in place and a rollover end the old
+ * process through the same path a quit does, moments before the new one
+ * starts, while a quit reopened later is a new start.
+ */
+const RESTARTED_WITHIN_MS = 10 * 60_000;
+
+/**
+ * The address a session's last presence signed with and since when, when
+ * it said a time and ended no longer than a restart before `now`: what
+ * its peer keeps of its holding through its own restart.
+ */
+export function signedSince(
+	presence:
+		| {
+				readonly addresses: readonly string[];
+				readonly signsSince?: string;
+				readonly ended?: string;
+		  }
+		| undefined,
+	now: number,
+): { address: string; since: string } | undefined {
+	const address = presence?.addresses[0];
+	const since = presence?.signsSince;
+	if (address === undefined || since === undefined) return undefined;
+	const ended = presence?.ended;
+	const restarted =
+		ended === undefined || now - Date.parse(ended) <= RESTARTED_WITHIN_MS;
+	return restarted ? { address, since } : undefined;
 }
 
 /**
