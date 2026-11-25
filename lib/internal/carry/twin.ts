@@ -14,7 +14,7 @@
  * what it left out.
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
@@ -29,6 +29,68 @@ const LEVELS = 3;
  * by an arrival that was killed.
  */
 export const CLONING = ".cloning-";
+
+/** A clone's whole name: the tree's, then the arrival's process and time. */
+const CLONE = /^(.+)\.cloning-(\d+)-(\d+)$/;
+
+/**
+ * The name an arrival in this process gives the clone it makes beside
+ * `path` at `at`, which only `clonerOf` reads back.
+ */
+export function cloningAt(path: string, at: number): string {
+	return `${path}${CLONING}${process.pid}-${at}`;
+}
+
+/**
+ * The process that made the clone named `name`, of a tree named `tree`
+ * where it is given; or nothing where `name` isn't one. A folder that
+ * only holds `.cloning-` somewhere in its name is someone's own.
+ */
+export function clonerOf(name: string, tree?: string): number | undefined {
+	const clone = CLONE.exec(name);
+	if (clone === null || (tree !== undefined && clone[1] !== tree)) {
+		return undefined;
+	}
+	return Number(clone[2]);
+}
+
+/**
+ * Takes out the clones beside `path` that arrivals killed before they
+ * could take them out themselves, so each retry doesn't leave another
+ * whole repository behind. Only a clone whose process is gone is taken:
+ * one still running may be another arrival's, under way.
+ */
+export function sweepClonesOf(path: string): void {
+	const above = dirname(path);
+	let names: string[];
+	try {
+		names = readdirSync(above);
+	} catch {
+		// Nothing to read is nothing left; the clone itself says what fails.
+		return;
+	}
+	for (const name of names) {
+		const cloner = clonerOf(name, basename(path));
+		if (cloner === undefined || runs(cloner)) continue;
+		try {
+			rmSync(join(above, name), { recursive: true, force: true });
+		} catch {
+			// Left for the next arrival to take out; this one clones beside it.
+		}
+	}
+}
+
+/** Whether a process `pid` runs here, as far as this one can tell. */
+function runs(pid: number): boolean {
+	if (pid === process.pid) return true;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// Another account's process is refused the signal, yet runs.
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+}
 
 /** How many folders in any one place are looked at, at most. */
 const MOST_BESIDE = 64;
@@ -121,7 +183,9 @@ function beside(folder: string, name: string): string[] {
 	let entries: string[];
 	try {
 		entries = readdirSync(folder, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory() && !entry.name.includes(CLONING))
+			.filter(
+				(entry) => entry.isDirectory() && clonerOf(entry.name) === undefined,
+			)
 			.map((entry) => entry.name)
 			.sort()
 			.slice(0, MOST_BESIDE);

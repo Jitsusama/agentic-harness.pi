@@ -169,6 +169,32 @@ describe("arriving with a tree to clone from origin", () => {
 		).toEqual([origin]);
 	});
 
+	it("takes out what a killed arrival's clone left beside it, keeping one still under way", async () => {
+		const { from, head } = await carried();
+		const home = folder(made, "arriving");
+		const src = join(home, "src");
+		// No process runs past the largest pid Linux or macOS gives out.
+		const killed = join(src, "app.cloning-999999999-1");
+		const running = join(src, `app.cloning-${process.pid}-1`);
+		const another = join(src, "other.cloning-999999999-1");
+		for (const left of [killed, running, another]) {
+			mkdirSync(left, { recursive: true });
+			writeFileSync(join(left, "half"), "made\n");
+		}
+
+		const { whole } = await arriveThrough(home, from, exec);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(await git(join(src, "app"), "rev-parse", "HEAD")).toBe(head);
+		expect(leftIn(src).sort(), "only the killed arrival's clone goes").toEqual(
+			[
+				"app",
+				`app.cloning-${process.pid}-1`,
+				"other.cloning-999999999-1",
+			].sort(),
+		);
+	});
+
 	it("clones nothing once its tree's hour has run out", async () => {
 		const { from } = await carried();
 		const home = folder(made, "arriving");
