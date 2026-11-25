@@ -71,14 +71,6 @@ export const FIND_WHILE_QUIET =
 
 /**
  * What a lost need's refusal says to do, not knowing who, when the node
- * answered but the presences couldn't be read to find what is above
- * this peer: the node isn't why, and nothing above was settled.
- */
-export const FIND_WHILE_UNREAD =
-	"Not knowing who, nothing above this peer could be found while the mesh's presences couldn't be read, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
-
-/**
- * What a lost need's refusal says to do, not knowing who, when the node
  * answered but the mesh doesn't list this peer yet, as while its first
  * publish waits: nothing above can be found for a peer not listed, and
  * the node isn't why.
@@ -89,8 +81,10 @@ export const FIND_WHILE_UNLISTED =
 /**
  * What a lost need's refusal says to do, not knowing who, when the node
  * answered the need but the find for what is above couldn't settle for
- * another reason, and this peer keeps no hub: the node was heard, so it
- * isn't blamed, and the refusal says only that none could be found.
+ * another reason, or failed, and this peer keeps no hub: the node was
+ * heard, so it isn't blamed, and the refusal says only that none could
+ * be found. A find reads the census, the presences and the node's ties,
+ * so a failure names none of them as why.
  */
 export const FIND_NONE_FOUND =
 	"Not knowing who, nothing above this peer could be found just now, so find the owner in mesh_groups, which names what each peer works on and its own quest, and ask it by address.";
@@ -136,9 +130,9 @@ async function whomToAsk(
 		return found.unasked === true ? FIND_WHILE_UNLISTED : FIND_NONE_FOUND;
 	} catch {
 		// No hub could be found, so nothing above can be named to ask; a
-		// throw says nothing settled, so the refusal says none was found,
-		// and why: the node answered, so it wasn't quiet.
-		return FIND_WHILE_UNREAD;
+		// throw from any of what the find reads says nothing settled, so the
+		// refusal says none was found, not why, nor that the node was quiet.
+		return FIND_NONE_FOUND;
 	}
 }
 

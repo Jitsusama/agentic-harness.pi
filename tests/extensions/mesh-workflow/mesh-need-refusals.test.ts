@@ -13,7 +13,6 @@ import {
 	FIND_NONE_FOUND,
 	FIND_WHILE_QUIET,
 	FIND_WHILE_UNLISTED,
-	FIND_WHILE_UNREAD,
 	FIND_WHO_OWNS_IT,
 	needRead,
 } from "../../../extensions/mesh-workflow/tools/need.ts";
@@ -353,7 +352,8 @@ describe("a lost need's refusal, by where this peer sits", () => {
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 	});
 
-	it("says none was found when reading the presences fails during the find", async () => {
+	// The find reads more than the presences, so a failure names no cause.
+	it("says none was found, and not why, when reading the presences fails during the find", async () => {
 		const all = vi
 			.fn<() => Presence[]>()
 			.mockReturnValueOnce([])
@@ -365,7 +365,8 @@ describe("a lost need's refusal, by where this peer sits", () => {
 
 		expect(all).toHaveBeenCalledTimes(2);
 		expect(said).toContain("Not sent: no word of its about");
-		expect(said).toContain(FIND_WHILE_UNREAD);
+		expect(said).toContain(FIND_NONE_FOUND);
+		expect(said).not.toContain("presences couldn't be read");
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
 	});
