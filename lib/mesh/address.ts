@@ -108,8 +108,11 @@ export function addressesOf(
 ): string[] {
 	const own = sessionAddress(sessionId);
 	const signing = loadedAddress(sessionId, records);
+	// Its own address goes last, once, though an older list (its own last
+	// presence's) already ends with it.
 	const kept = older.filter(
-		(address) => address !== signing && !claimed.has(address),
+		(address) =>
+			address !== signing && address !== own && !claimed.has(address),
 	);
 	return [...(signing && !yielded ? [signing] : []), ...kept, own];
 }
