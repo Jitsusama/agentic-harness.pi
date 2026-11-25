@@ -15,6 +15,7 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	type WatchListener,
 	watch,
 	writeFileSync,
 } from "node:fs";
@@ -66,6 +67,11 @@ function watchesOfDir(): ReturnType<typeof watch>[] {
 		const result = made.results[index];
 		return path === dir && result?.type === "return" ? [result.value] : [];
 	});
+}
+
+/** Whether a watch's argument is the listener it calls. */
+function isListener(one: unknown): one is WatchListener<string> {
+	return typeof one === "function";
 }
 
 /** How often this test's folder was listed off the thread. */
@@ -642,12 +648,16 @@ describe("a host's mirror of a folder", () => {
 	// names before the change its watch heard, so it lists once more.
 	it("lists again after a listing under way when a Mac's watch names its folder", async () => {
 		put("a.txt", "here");
-		// A deaf watch, so only a listing can find the new file.
+		// A watch deaf to the folder, so only a listing can find the new
+		// file, which still hears what the test says it heard.
 		const elsewhere = join(dir, "elsewhere");
 		mkdirSync(elsewhere);
-		vi.mocked(watch).mockImplementationOnce(() =>
-			realWatch(elsewhere, { persistent: false }),
-		);
+		vi.mocked(watch).mockImplementationOnce((...args: unknown[]) => {
+			const deaf = realWatch(elsewhere, { persistent: false });
+			const heard = args.find(isListener);
+			if (heard !== undefined) deaf.on("change", heard);
+			return deaf;
+		});
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
 		const [made] = watchesOfDir();
@@ -783,8 +793,10 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: a stat that failed on a file still there
 	// dropped a live peer until it published again.
-	// Root reads a folder whatever its mode, so it can't lock one.
-	it.skipIf(process.getuid?.() === 0)(
+	// Root reads a folder whatever its mode, so it can't lock one. On the
+	// work Mac a write with the folder locked at once after was heard as a
+	// change to the folder alone, so no named read is made there.
+	it.skipIf(process.getuid?.() === 0 || process.platform === "darwin")(
 		"keeps a named file whose stat fails while the file is still there",
 		async () => {
 			put("a.txt", "here");
