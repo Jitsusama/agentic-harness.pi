@@ -124,8 +124,12 @@ async function peer(id: string) {
 	withSession(id, () =>
 		meshWorkflow(
 			paths,
-			// No machine's owners file: the test reads none.
-			{ PI_OWNERS_FILE: join(root, "no-owners.txt") },
+			// No machine's owners file, and no runtime folder of a node, which
+			// on a Mac would otherwise be the account's own: the test reads none.
+			{
+				PI_OWNERS_FILE: join(root, "no-owners.txt"),
+				XDG_RUNTIME_DIR: join(root, "no-node"),
+			},
 			{ settleMs: 1, spreadMs: 0 },
 		)(pi as unknown as ExtensionAPI),
 	);

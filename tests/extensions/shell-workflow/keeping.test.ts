@@ -218,8 +218,9 @@ async function run(
 
 // What the stub writes it writes through `tee -p`, which a Mac's own tee
 // lacks; pi keeps no call there (agent-bash.ts), so these cases have
-// nothing to drive.
-const teeKeeps = await teePersists();
+// nothing to drive. Linux's tee always has it, so there a slow probe
+// never skips them.
+const teeKeeps = process.platform === "linux" || (await teePersists());
 
 describe("a kept call", () => {
 	it.skipIf(!teeKeeps)(
