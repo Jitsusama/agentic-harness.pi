@@ -67,6 +67,21 @@ describe("the fetch rule a checkout is read with", () => {
 		});
 	});
 
+	it("reads the rule for a git folder asked through a link or with a trailing slash", async () => {
+		// A near miss fetches outside the rule and says nothing, so the
+		// folder asked for is taken as the config's keys are.
+		const real = join(place, "store");
+		mkdirSync(real);
+		symlinkSync(real, join(place, "link"));
+		configWith({ fetches: { [real]: { through: "exec turn --" } } });
+
+		for (const asked of [join(place, "link"), `${real}/`]) {
+			expect(await configuredFetchRule(asked, config), asked).toEqual({
+				through: "exec turn --",
+			});
+		}
+	});
+
 	it("reads none from a config that isn't there or can't be parsed", async () => {
 		expect(await configuredFetchRule("/repos/world/git", config)).toBe(
 			undefined,
@@ -83,6 +98,30 @@ describe("running a command behind a rule", () => {
 		const ran = await exec(
 			"bash",
 			behindThrough("exec env RULED=yes", "printenv", ["RULED"]),
+		);
+
+		expect(ran).toMatchObject({ code: 0, stdout: "yes\n" });
+	});
+
+	it("hands each word to the command whole, never as shell text", async () => {
+		// A refspec or path a provider passes must reach git as it is:
+		// split, globbed or run, it would fetch the wrong thing or worse.
+		const words = ["a b", `$(touch ${join(place, "x")})`, "it's", "*"];
+		const ran = await exec(
+			"bash",
+			behindThrough("exec", "printf", ["%s\n", ...words]),
+		);
+
+		expect(ran).toMatchObject({ code: 0, stdout: `${words.join("\n")}\n` });
+		expect(await exec("test", ["-e", join(place, "x")])).toMatchObject({
+			code: 1,
+		});
+	});
+
+	it("runs the command though the rule's text ends in a newline", async () => {
+		const ran = await exec(
+			"bash",
+			behindThrough("exec env RULED=yes\n", "printenv", ["RULED"]),
 		);
 
 		expect(ran).toMatchObject({ code: 0, stdout: "yes\n" });

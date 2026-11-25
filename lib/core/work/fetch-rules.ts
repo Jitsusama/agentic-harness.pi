@@ -64,14 +64,18 @@ const BEHIND_NAME = "work-fetch";
  * The words bash takes to run `command` with `args` behind `through`:
  * the rule's shell text with the command as `"$@"`, so a rule ending
  * in `exec turn --` runs the command inside its turn, and a rule that
- * exits first, as one does during a call, runs nothing.
+ * exits first, as one does during a call, runs nothing. The command
+ * and its words travel as bash's positional parameters, never as shell
+ * text. The rule's text is taken without trailing space, since a
+ * newline there would leave `"$@"` on a line of its own and the rule
+ * running with no command.
  */
 export function behindThrough(
 	through: string,
 	command: string,
 	args: readonly string[],
 ): string[] {
-	return ["-c", `${through} "$@"`, BEHIND_NAME, command, ...args];
+	return ["-c", `${through.trimEnd()} "$@"`, BEHIND_NAME, command, ...args];
 }
 
 /** The `work` section's fetch rules, keyed by git folder, and what was wrong. */
