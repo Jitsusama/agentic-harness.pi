@@ -91,8 +91,8 @@ export default function workIntegration(pi: ExtensionAPI) {
 		void treesHeldBySession(id);
 		// And the trees it already holds name the process it runs in now,
 		// since after a restart their records still name the old one. Not
-		// awaited: the start reads the records but never waits on a lock
-		// or a rewrite.
+		// awaited: the records are read off the thread, and the start never
+		// waits on a lock or a rewrite.
 		void reownSessionTrees(id).catch(() => {
 			// A record that can't be rewritten keeps its old owner, as it
 			// did before, and the next start tries again.
