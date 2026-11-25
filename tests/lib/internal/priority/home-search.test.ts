@@ -54,6 +54,20 @@ describe("a search of the whole home folder", () => {
 		["find ~ -maxdepth 1 -type d -exec rg foo {} +", "find", home],
 		["fd -d 1 -t d . ~ -x rg foo", "fd", home],
 		["ls; find ~ -name x", "find", home],
+		[
+			"rg foo ~/.local/share/pi-packages ~/.pi/pkg/pi-1.6.0/dist ~/.pi/agent",
+			"rg",
+			`${home}/.local/share/pi-packages`,
+		],
+		[
+			"rg foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi",
+			"rg",
+			`${home}/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi`,
+		],
+		["grep -rn foo ~/.pi/agent/sessions", "grep", `${home}/.pi/agent/sessions`],
+		["rg foo ~/.pi/agent", "rg", `${home}/.pi/agent`],
+		["fd x ~/.pi", "fd", `${home}/.pi`],
+		["find ~/.local -name x", "find", `${home}/.local`],
 	])("is read in %s", (command, tool, root) => {
 		expect(searchesHomeWhole(command, inSrc)).toEqual({ tool, root });
 	});
@@ -94,6 +108,21 @@ describe("a search of the whole home folder", () => {
 		["a pattern that only looks like the home", "rg '~' src"],
 		["a search in quotes", 'git commit -m "fix && find ~ -name x"'],
 		["a folder elsewhere", "find /nix/store -name x"],
+		[
+			"one installed pi package",
+			"rg foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/current/lib",
+		],
+		[
+			"one installed version by its commit",
+			"rg foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/versions/d8addb81",
+		],
+		["pi's own code", "rg foo ~/.pi/pkg/pi-1.6.0/dist"],
+		["pi's skills", "grep -r foo ~/.pi/agent/skills"],
+		[
+			"one folder's session logs",
+			"rg foo ~/.pi/agent/sessions/--home-joel-src--",
+		],
+		["a shallow look at pi's state", "find ~/.pi -maxdepth 2"],
 	])("leaves alone %s", (_, command) => {
 		expect(searchesHomeWhole(command, inSrc)).toBeUndefined();
 	});
@@ -139,6 +168,22 @@ describe("the refusal of a search of the whole home folder", () => {
 		// guardian adds its own word on going through.
 		expect(homeSearchRefusal("find ~ -name x", inSrc)).not.toMatch(
 			/again|repeat/i,
+		);
+	});
+
+	it("names pi's installed packages for a search of them", () => {
+		const reason =
+			homeSearchRefusal("rg foo ~/.local/share/pi-packages", inSrc) ?? "";
+
+		expect(reason).toContain(
+			"This rg searches every folder from ~/.local/share/pi-packages, which takes in every version of every installed pi package,",
+		);
+		expect(reason).toContain("/current");
+	});
+
+	it("names pi's session logs for a search of them", () => {
+		expect(homeSearchRefusal("grep -r foo ~/.pi", inSrc)).toContain(
+			"This grep searches every folder from ~/.pi, which takes in every pi session's log,",
 		);
 	});
 

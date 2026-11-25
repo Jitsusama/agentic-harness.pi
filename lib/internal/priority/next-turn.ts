@@ -371,9 +371,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * while the person is on a call here, only the work that starts while
  * memory is short starts, each job held waiting on `call`. 21: a `find`,
  * `rg`, recursive `grep` or `fd` of the whole home folder or the disk
- * reads as a build, as a search of a whole World checkout does.
+ * reads as a build, as a search of a whole World checkout does. 22:
+ * so does one of pi's installed packages or session logs, or a folder
+ * holding them.
  */
-export const RULES_VERSION = 21;
+export const RULES_VERSION = 22;
 
 /**
  * The job to start now, if any: the first waiting in order that its

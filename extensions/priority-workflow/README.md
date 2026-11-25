@@ -191,8 +191,14 @@ the folder it runs in when it names none) is refused by the
 `home-search` guard, on every platform. Such a search walks every
 World checkout and every cache: at 18:56 on 23 November one agent's
 `find ~ -maxdepth 6 -path '*cadence*'` held its call 60 s and ran on
-past its timeout. The refusal names a narrower folder, or a depth of
-2 or less, which only lists folders and is left alone unless it runs
+past its timeout. pi's installed packages
+(`~/.local/share/pi-packages`) and session logs (`~/.pi/agent/sessions`),
+or a folder holding either, are refused the same way: on 24 November
+they held 4.7 GB and 15.5 GB on the Mac, and an rg over them held the
+person for 94 s. One package's `current` or one of its `versions`, pi's
+own `dist` and one folder's logs are narrow enough. The refusal names
+a narrower folder, or a depth of 2 or less, which only lists folders
+and is left alone unless it runs
 a deeper search on each folder. The tool is read past `sudo`, `env`,
 assignments, subshells, substitutions, `xargs` and time limits, and as
 `egrep`, `fgrep`, `rgrep` or `fdfind` too; an rg reading a pipe or a

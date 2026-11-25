@@ -1,7 +1,7 @@
 /**
  * Walks of World's git objects: which steps of a command walk them, what
- * each walk does, and whether a search covers the whole of World, or
- * the whole home folder that holds it.
+ * each walk does, and whether a search covers the whole of World, the
+ * whole home folder that holds it, or pi's packages or session logs.
  */
 
 import { homedir } from "node:os";
@@ -112,6 +112,43 @@ export interface HomeSearch {
  */
 const SHALLOW_DEPTH = 2;
 
+/**
+ * pi's folders under a home that no search should walk whole: every
+ * version of every installed package (4.7 GB on the Mac on 24
+ * November), and every session's log (15.5 GB). At 20:01 that day an rg
+ * over the first, ~/.pi/agent and pi's dist held Joel for 94 s.
+ */
+const PI_PACKAGES = ".local/share/pi-packages";
+const PI_SESSIONS = ".pi/agent/sessions";
+
+/**
+ * What a search from a folder walks whole that it shouldn't, said for its
+ * refusal, or nothing for a narrower folder: the disk or a folder holding
+ * every home, the home itself, pi's installed packages or pi's session
+ * logs, or a folder holding either. Within the packages, one package's
+ * `current` or one of its `versions` is narrow enough, as is one
+ * folder's session logs.
+ */
+function whatItTakesIn(path: string, home: string): string | undefined {
+	const holds = (folder: string) =>
+		path === folder ||
+		folder.startsWith(path.endsWith("/") ? path : `${path}/`);
+	if (path === home) return "the whole home folder";
+	if (holds(home)) return "every home folder on the machine";
+	const packages = join(home, PI_PACKAGES);
+	if (holds(packages)) return "every version of every installed pi package";
+	if (path.startsWith(`${packages}/`)) {
+		const within = path.slice(packages.length + 1).split("/");
+		const versions = within.indexOf("versions");
+		const one =
+			within.includes("current") ||
+			(versions >= 0 && within.length > versions + 1);
+		if (!one) return "every version of every installed pi package";
+	}
+	if (holds(join(home, PI_SESSIONS))) return "every pi session's log";
+	return undefined;
+}
+
 /** Each search tool read for a home walk, with its options that take the next word as their value. */
 const SEARCH_VALUED: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 	["rg", new Set([...RG_VALUED, "-d", "--max-depth", "--maxdepth"])],
@@ -173,7 +210,9 @@ const WORDS_END = /^(?:\d|&)?>|^</;
  * runs in after any `cd`. Over a home folder one walks every World
  * checkout beside every cache: at 18:56 on 23 November an agent's
  * `find ~ -maxdepth 6 -path '*cadence*'` held its call 60 s and ran on
- * past its timeout (4UKB4W). A search kept within
+ * past its timeout (4UKB4W). pi's installed packages and session logs,
+ * or a folder holding them, count as a home does
+ * ({@link whatItTakesIn}). A search kept within
  * {@link SHALLOW_DEPTH} levels only lists folders, and is left alone,
  * as a search of a narrower folder is, unless it runs a deeper search on
  * each folder it lists. A path named through a variable other than
@@ -203,10 +242,8 @@ export function searchesHomeWhole(
 		if (isAbsolute(expanded)) return resolve(expanded);
 		return from === undefined ? undefined : resolve(from, expanded);
 	};
-	const holdsHome = (path: string | undefined) =>
-		path !== undefined &&
-		(path === where.home ||
-			where.home.startsWith(path.endsWith("/") ? path : `${path}/`));
+	const tooWide = (path: string | undefined) =>
+		path !== undefined && whatItTakesIn(path, where.home) !== undefined;
 	let folder = where.cwd;
 	for (const { step, piped } of pipedSteps(command)) {
 		const { bare, viaXargs } = pastWhatItRunsUnder(step);
@@ -232,7 +269,7 @@ export function searchesHomeWhole(
 		const roots = named
 			? search.paths.map((path) => pathOf(path, from))
 			: [from];
-		const root = roots.find(holdsHome);
+		const root = roots.find(tooWide);
 		if (root !== undefined) return { tool, root };
 	}
 	return undefined;
@@ -383,8 +420,9 @@ function searchOf(typed: string, words: readonly string[]): Search | undefined {
 }
 
 /**
- * Why a search of a whole home folder or the disk is refused, naming a
- * narrower folder to search, or nothing for any other command. It says
+ * Why a search of a whole home folder, the disk, or pi's packages or
+ * session logs is refused, naming a narrower folder to search, or
+ * nothing for any other command. It says
  * nothing of a repeat: under the guard's redirect mode the guardian adds
  * that one goes ahead, waiting its turn as a build does (queue.ts's
  * `kindOf`), since a search of everything is sometimes what is wanted,
@@ -396,12 +434,19 @@ export function homeSearchRefusal(
 ): string | undefined {
 	const search = searchesHomeWhole(command, where);
 	if (search === undefined) return undefined;
-	const root = search.root === where.home ? "~" : search.root;
-	const whole =
+	const whole = whatItTakesIn(search.root, where.home);
+	const underHome = search.root.startsWith(`${where.home}/`);
+	const root =
 		search.root === where.home
-			? "the whole home folder"
-			: "every home folder on the machine";
-	return `This ${search.tool} searches every folder from ${root}, which takes in ${whole}, World's checkouts and every cache with it: on 23 November one such find held its call for 60 seconds and ran on past its timeout. Search a narrower folder instead, such as the repository you mean (~/src/<host>/<org>/<repo>) or one World zone, or keep it shallow: find ${root} -maxdepth 2, or --max-depth 2 for rg and fd.`;
+			? "~"
+			: underHome
+				? `~${search.root.slice(where.home.length)}`
+				: search.root;
+	const shallow = `or keep it shallow: find ${root} -maxdepth 2, or --max-depth 2 for rg and fd.`;
+	if (underHome) {
+		return `This ${search.tool} searches every folder from ${root}, which takes in ${whole}, gigabytes of files: on 24 November one such rg held Joel for 94 seconds. Search a narrower folder instead, such as one package's ~/${PI_PACKAGES}/<host>/<org>/<repo>/current, pi's own ~/.pi/pkg/<pi>/dist, or one folder's logs in ~/${PI_SESSIONS}, ${shallow}`;
+	}
+	return `This ${search.tool} searches every folder from ${root}, which takes in ${whole}, World's checkouts and every cache with it: on 23 November one such find held its call for 60 seconds and ran on past its timeout. Search a narrower folder instead, such as the repository you mean (~/src/<host>/<org>/<repo>) or one World zone, ${shallow}`;
 }
 
 /**
