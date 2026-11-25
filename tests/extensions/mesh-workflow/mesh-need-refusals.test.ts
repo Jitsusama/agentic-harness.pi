@@ -305,14 +305,28 @@ function holding(
 	roles: { orchestrates?: string; questHeads?: string },
 	all: () => Presence[],
 	found: NeedRecord | undefined,
+	nodeAnswered?: () => void,
 ): Local {
 	const peer = { session: "session-s", addresses: ["8XK2PQ"], ...roles };
 	return {
 		peer,
 		presences: { all },
 		need: vi.fn().mockResolvedValue(found),
+		nodeAnswered,
 	} as unknown as Local;
 }
+
+/** The presence of the peer `holding` makes, on no quest, so nothing is above it. */
+const ON_NO_QUEST: Presence = {
+	session: "session-s",
+	addresses: ["8XK2PQ"],
+	groups: [],
+	joined: [],
+	worksOn: "",
+	owns: [],
+	busy: false,
+	at: new Date().toISOString(),
+};
 
 /** What a need about the launcher's fonts was refused with, from `at`. */
 async function refusedAt(at: Local): Promise<string> {
@@ -380,5 +394,32 @@ describe("a lost need's refusal, by where this peer sits", () => {
 		expect(said).toContain(FIND_WHILE_UNLISTED);
 		expect(said).not.toContain(FIND_WHILE_QUIET);
 		expect(said).not.toContain(FIND_WHO_OWNS_IT);
+	});
+
+	// As a send does, a find the node let finish tells the kept hub the
+	// node is back, so a keeping backed off from a quiet node asks again
+	// (#2147's F13).
+	it("tells the kept hub the node answered when its find settles", async () => {
+		const nodeAnswered = vi.fn();
+
+		const said = await refusedAt(
+			holding({}, () => [ON_NO_QUEST], LOST_ON_WORDS, nodeAnswered),
+		);
+
+		expect(said).toContain(FIND_WHO_OWNS_IT);
+		expect(nodeAnswered).toHaveBeenCalledOnce();
+	});
+
+	// A find left unfinished says nothing of the node, so the kept hub
+	// isn't told it is back.
+	it("tells the kept hub nothing when its find is left unfinished", async () => {
+		const nodeAnswered = vi.fn();
+
+		const said = await refusedAt(
+			holding({}, () => [], LOST_ON_WORDS, nodeAnswered),
+		);
+
+		expect(said).toContain(FIND_WHILE_UNLISTED);
+		expect(nodeAnswered).not.toHaveBeenCalled();
 	});
 });
