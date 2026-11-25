@@ -11,6 +11,7 @@ import { FENCE } from "../../../../lib/internal/fence/fence.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
+	rootOwners,
 	sealedPath,
 	systemProgram,
 } from "../../../../lib/internal/sandbox/system-program.ts";
@@ -152,5 +153,50 @@ describe("on this machine's own disk", () => {
 		);
 
 		expect(sandbox.kind).toBe("refused");
+	});
+});
+
+describe("root inside a user namespace", () => {
+	/** `/proc` as a process sees it with `map` as its uid_map. */
+	const proc =
+		(map: string) =>
+		(path: string): string => {
+			if (path === "/proc/self/uid_map") return map;
+			if (path === "/proc/sys/kernel/overflowuid") return "65534\n";
+			throw new Error(`ENOENT ${path}`);
+		};
+
+	it("is root alone where the namespace maps root", () => {
+		expect(rootOwners(proc("         0          0 4294967295\n"))).toEqual([0]);
+	});
+
+	it("is also the overflow user where it maps only the person, as the fence's", () => {
+		expect(rootOwners(proc("      1000       1000          1\n"))).toEqual([
+			0, 65534,
+		]);
+	});
+
+	it("is root alone where there is no /proc, as on a Mac", () => {
+		expect(
+			rootOwners(() => {
+				throw new Error("ENOENT");
+			}),
+		).toEqual([0]);
+	});
+
+	it("takes a program the overflow user holds only where it stands for root", () => {
+		const overflowed: Record<string, Partial<Node>> = Object.fromEntries(
+			Object.entries(NIXOS).map(([path, node]) => [
+				path,
+				{ ...node, uid: 65534 },
+			]),
+		);
+		const seen = (owners: readonly number[]): Look => ({
+			...disk(overflowed),
+			rootOwners: () => owners,
+		});
+
+		expect(systemProgram("bwrap", PROFILE, seen([0]))).toBeUndefined();
+		expect(systemProgram("bwrap", PROFILE, seen([0, 65534]))).toBeDefined();
 	});
 });

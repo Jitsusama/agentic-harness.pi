@@ -19,8 +19,8 @@ import {
 	readlinkSync,
 	realpathSync,
 } from "node:fs";
-import * as promises from "node:fs/promises";
 import { join, sep } from "node:path";
+import { removeTreeOff } from "../../../internal/files/remove-tree.ts";
 import { isId, prefixOf } from "../../../internal/quest/creation/id.ts";
 import { conversationsIn } from "../../../internal/session/host-holds.ts";
 
@@ -78,85 +78,15 @@ export async function removeQuestWorkspace(
 	const { dir } = questWorkspace(root, questId);
 	if (!existsSync(dir)) return { removed: false, why: "none" };
 	if (users(dir).length > 0) return { removed: false, why: "in use" };
+	// The system's `rm`, off the thread: a walk on pi's own thread held a
+	// host for 7 s on 19 Nov, and one by path follows a link a fenced
+	// command swaps in mid-walk (remove-tree.ts).
 	try {
-		await removeTree(dir);
+		await removeTreeOff(dir);
 	} catch (error) {
 		return { removed: false, why: "stuck", error };
 	}
 	return { removed: true };
-}
-
-/** What a removal needs to know of a thing on disk. */
-interface Found {
-	isDirectory(): boolean;
-}
-
-/** The filesystem calls a removal makes. */
-export interface TreeRemovalCalls {
-	lstat(path: string): Promise<Found>;
-	chmod(path: string, mode: number): Promise<void>;
-	/** A folder's entries, each named and saying whether it's a folder. */
-	entries(dir: string): Promise<readonly (Found & { name: string })[]>;
-	rmdir(path: string): Promise<void>;
-	unlink(path: string): Promise<void>;
-}
-
-/** The filesystem's own calls, through its promises. */
-export const diskRemovalCalls: TreeRemovalCalls = {
-	lstat: (path) => promises.lstat(path),
-	chmod: (path, mode) => promises.chmod(path, mode),
-	entries: (dir) => promises.readdir(dir, { withFileTypes: true }),
-	rmdir: (path) => promises.rmdir(path),
-	unlink: (path) => promises.unlink(path),
-};
-
-/**
- * Remove `path` and everything under it, one filesystem call at a time.
- *
- * A host shares its thread with every conversation, and its thread pool
- * too: removed in one go, a workspace of builds held a host's thread for
- * 7 s on 19 Nov, and node's own recursive removal fans out onto the four
- * threads every conversation's reads and writes wait on. A link is
- * removed, never followed, and each folder is made writable by its
- * owner first, since Go's module cache makes its folders read-only.
- * What something else removed meanwhile counts as gone.
- */
-export async function removeTree(
-	path: string,
-	calls: TreeRemovalCalls = diskRemovalCalls,
-): Promise<void> {
-	const found = await unlessGone(calls.lstat(path));
-	if (found === undefined) return;
-	if (found.isDirectory()) await removeFolder(path, calls);
-	else await unlessGone(calls.unlink(path));
-}
-
-/** A folder, its contents first, as `removeTree` takes it. */
-async function removeFolder(
-	dir: string,
-	calls: TreeRemovalCalls,
-): Promise<void> {
-	const writable = calls.chmod(dir, 0o700).then(() => true);
-	if ((await unlessGone(writable)) === undefined) return;
-	const entries = await unlessGone(calls.entries(dir));
-	for (const entry of entries ?? []) {
-		const path = join(dir, entry.name);
-		// A link to a folder is no folder here, so its target is spared.
-		if (entry.isDirectory()) await removeFolder(path, calls);
-		else await unlessGone(calls.unlink(path));
-	}
-	await unlessGone(calls.rmdir(dir));
-}
-
-/** What a call gave, or nothing if what it acts on is already gone. */
-async function unlessGone<T>(call: Promise<T>): Promise<T | undefined> {
-	try {
-		return await call;
-	} catch (error) {
-		if (error instanceof Error && Reflect.get(error, "code") === "ENOENT")
-			return undefined;
-		throw error;
-	}
 }
 
 /**

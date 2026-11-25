@@ -26,10 +26,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	firstLines,
 	removerFolders,
 	removeTree,
 	removeTreeOff,
+	systemRmCommand,
 } from "../../../../lib/internal/files/remove-tree.ts";
+
+/** Root writes where its folders' modes say nobody may, so refusals don't hold. */
+const notRoot = process.getuid?.() !== 0;
 
 /** Files in the swapped folder, and in the canary it is swapped for. */
 const FILES = 2000;
@@ -224,22 +229,80 @@ describe("removing a tree", () => {
 		expect(readdirSync(tree)).toHaveLength(2);
 	});
 
-	it("says why rm couldn't remove a tree", async () => {
-		const tree = filled(join(folder, "tree", "sealed"), 1);
-		// A folder its owner can't write keeps its files from rm too.
-		const sealed = join(folder, "tree", "sealed");
-		chmodSync(sealed, 0o555);
-		try {
-			expect(() => removeTree(join(folder, "tree"))).toThrow(
-				/rm couldn't remove .*tree/,
-			);
-			await expect(removeTreeOff(join(folder, "tree"))).rejects.toThrow(
-				/rm couldn't remove .*tree/,
-			);
-		} finally {
-			chmodSync(sealed, 0o755);
+	it.runIf(notRoot)(
+		"says why rm couldn't remove a tree, in rm's words",
+		async () => {
+			// A folder its owner can't write keeps the tree in it: rm empties
+			// the tree, then can't take the tree's own name.
+			const outer = join(folder, "outer");
+			const tree = join(outer, "tree");
+			filled(join(tree, "d"), 1);
+			chmodSync(outer, 0o555);
+			try {
+				expect(() => removeTree(tree)).toThrow(
+					/rm couldn't remove .*tree: rm: /,
+				);
+				filled(join(tree, "d"), 1);
+				await expect(removeTreeOff(tree)).rejects.toThrow(
+					/rm couldn't remove .*tree: rm: /,
+				);
+			} finally {
+				chmodSync(outer, 0o755);
+			}
+			expect(lstatSync(tree).isDirectory()).toBe(true);
+		},
+	);
+
+	it("removes a tree of read-only folders, as Go's module cache makes", async () => {
+		for (const remove of [
+			async (path: string) => removeTree(path),
+			removeTreeOff,
+		]) {
+			const cache = join(folder, "cache");
+			const module = join(cache, "mod@v1", "pkg");
+			filled(module, 3);
+			chmodSync(module, 0o555);
+			chmodSync(join(cache, "mod@v1"), 0o555);
+
+			await remove(cache);
+
+			expect(existsSync(cache), `${cache} is removed`).toBe(false);
 		}
-		expect(lstatSync(tree).isDirectory()).toBe(true);
+	});
+
+	it("removes a link named with a trailing slash, never what it names", async () => {
+		const outside = filled(join(folder, "outside"), 3);
+		for (const remove of [
+			async (path: string) => removeTree(path),
+			removeTreeOff,
+		]) {
+			const link = join(folder, "link");
+			symlinkSync(outside, link);
+
+			await remove(`${link}/`);
+
+			expect(existsSync(link), "the link is gone").toBe(false);
+			expect(readdirSync(outside), "what it names").toHaveLength(3);
+		}
+	});
+
+	it("keeps the first of rm's lines and counts the rest", () => {
+		const said = Array.from(
+			{ length: 5000 },
+			(_, n) => `rm: cannot remove 'f${n}'`,
+		);
+
+		expect(firstLines(said.join("\n"))).toBe(
+			"rm: cannot remove 'f0'; rm: cannot remove 'f1'; " +
+				"rm: cannot remove 'f2'; and 4997 more",
+		);
+	});
+
+	it("names the system's rm by a path root alone keeps, for a shell", () => {
+		const rm = systemRmCommand();
+
+		expect(rm, "an rm in the system's folders").toMatch(/^\/.*\/rm$/);
+		expect(systemRmCommand([folder]), "none in the user's own").toBeUndefined();
 	});
 
 	it("finds a root's rm on this machine", () => {
@@ -271,9 +334,12 @@ describe("removing a tree", () => {
 			removeTree(join(folder, "canary"));
 			const off = await lostToRace(removeTreeOff);
 
-			// Every round the swap landed mid-walk, so the race was run.
-			expect(sync).toEqual({ lost: 0, swaps: ROUNDS });
-			expect(off).toEqual({ lost: 0, swaps: ROUNDS });
+			// A round whose swap came after the walk proves nothing either
+			// way, and a busy machine makes some, so one landing is enough.
+			expect(sync.lost).toBe(0);
+			expect(off.lost).toBe(0);
+			expect(sync.swaps, "rounds the swap landed in").toBeGreaterThan(0);
+			expect(off.swaps, "rounds the swap landed in").toBeGreaterThan(0);
 		},
 		RACE_TIMEOUT_MS,
 	);

@@ -192,7 +192,13 @@ export function checkLoad(
 		const env: NodeJS.ProcessEnv = loadCheckEnvironment(process.env, sandbox);
 		if (pi.packageDir) env.PI_PACKAGE_DIR = pi.packageDir;
 		const settle = (report: LoadReport) => {
-			removeTree(sandbox);
+			// The report is the answer; a sandbox left in temp is not worth
+			// losing it, and a throw here, in a child's handler, would.
+			try {
+				removeTree(sandbox);
+			} catch {
+				// Left for the system's temp sweep.
+			}
 			resolve(report);
 		};
 		// A directory with no project settings or context files of its own,

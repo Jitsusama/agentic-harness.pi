@@ -89,6 +89,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/priority/push-hooks.test.ts",
 	"tests/lib/internal/fence/fence-sockets.test.ts",
 	"tests/lib/internal/fence/fence-quest-locks.test.ts",
+	"tests/lib/internal/files/remove-tree.test.ts",
 	"tests/lib/internal/fence/fence-text-arguments.test.ts",
 	"tests/host/service/own-threads.test.ts",
 	"tests/lib/internal/shell/spawner-register-sockets.test.ts",

@@ -40,7 +40,7 @@ import {
 	watch,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { removeTree } from "../files/remove-tree.ts";
+import { removeTree, systemRmCommand } from "../files/remove-tree.ts";
 import { guardedListFile } from "./fence-args-file.ts";
 import { recordRefusal, systemLogger } from "./fence-log.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
@@ -271,16 +271,26 @@ export function guardedFolders(
  * starts, so the text stays short however many trees the session holds
  * and a sweep during a long command can't take the list away; when the
  * file can't be read, it says so rather than checking nothing quietly.
+ *
+ * It runs outside the fence, so its `rm` is the system's, named by its
+ * whole path (`remove-tree.ts`), never one `PATH` finds, since `PATH`
+ * holds folders a fenced command can write. Where the system keeps none
+ * where root alone can, what is planted is logged and said, not removed.
  */
 export function withAfterCheck(
 	command: string,
 	guarded: readonly string[],
 	log: string,
 	listFile?: string,
+	rm: string | undefined = systemRmCommand(),
 ): string {
 	if (guarded.length === 0) return command;
 	const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
-	const check = `if [ -e "$__pi_path" ] || [ -L "$__pi_path" ]; then rm -rf -- "$__pi_path"; ${log}; fi`;
+	const remove =
+		rm === undefined
+			? `printf '%s\n' ${quote(UNREMOVED)} "$__pi_path" >&2`
+			: `${quote(rm)} -rf -- "$__pi_path"`;
+	const check = `if [ -e "$__pi_path" ] || [ -L "$__pi_path" ]; then ${remove}; ${log}; fi`;
 	if (!listFile)
 		return `${command}\n__pi_status=$?; for __pi_path in ${guarded.map(quote).join(" ")}; do ${check}; done; (exit $__pi_status)`;
 	const read = `__pi_guarded=(); __pi_listed=0; if [ -r ${quote(listFile)} ] && mapfile -d '' -t __pi_guarded < ${quote(listFile)}; then __pi_listed=1; fi`;
@@ -308,6 +318,10 @@ export function withAfterCheckIn(
 		guardedListFile(runtimeDir, guarded),
 	);
 }
+
+/** What the after-check says of what it found but couldn't remove. */
+const UNREMOVED =
+	"pi's fence found this planted in a git folder but has no rm only root keeps to remove it:";
 
 /** What the after-check says when its list file is gone. */
 const UNCHECKED =
