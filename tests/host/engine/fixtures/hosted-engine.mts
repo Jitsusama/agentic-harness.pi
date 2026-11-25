@@ -36,7 +36,7 @@ import type { SessionHost } from "../../../../host/engine/session-host.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
-import { until } from "../../../support/until.ts";
+import { quietFor, until } from "../../../support/until.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
 interface Compat {
@@ -1284,21 +1284,20 @@ const scenarios: Record<string, Scenario> = {
 			let release = (): void => {
 				// Set once the held build reaches its load.
 			};
-			const reached = new Promise<void>((started) => {
-				Reflect.set(globalThis, BUILD_HOLD, () => {
-					// Only the first build is held; the one beside it loads straight through.
-					Reflect.deleteProperty(globalThis, BUILD_HOLD);
-					started();
-					return new Promise<void>((letGo) => {
-						release = letGo;
-					});
+			let reached = false;
+			Reflect.set(globalThis, BUILD_HOLD, () => {
+				// Only the first build is held; the one beside it loads straight through.
+				Reflect.deleteProperty(globalThis, BUILD_HOLD);
+				reached = true;
+				return new Promise<void>((letGo) => {
+					release = letGo;
 				});
 			});
 			const holding = open(engine, {});
-			await reached;
+			await until("the held build to reach its load", () => reached, UNTIL_MS);
 			const built = await open(engine, {});
 			// Twice the settle after the second build settled, which alone would bring a collection.
-			await new Promise((later) => setTimeout(later, 2 * SETTLE_MS));
+			await quietFor(SETTLE_MS, 2);
 			const collectedWhileHeld = collectedQuietly();
 			release();
 			const held = await holding;

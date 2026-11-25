@@ -715,11 +715,13 @@ describe("the host's engine", () => {
 	it(
 		"holds the quiet collection while a build is under way, and collects once it settles",
 		async () => {
+			// The scenario itself fails, naming what never came, when no
+			// collection follows the held build's settle.
 			const seen = await step(hostFolder(), "held-build-collected");
-			expect(seen.collectedWhileHeld).toBe(false);
-			expect(seen.reported).toContainEqual(
-				expect.stringMatching(/^Collected while quiet in \d+ ms/),
-			);
+			expect(
+				seen.collectedWhileHeld,
+				"a collection came while a build was under way",
+			).toBe(false);
 		},
 		HOST_LIFE_MS,
 	);
