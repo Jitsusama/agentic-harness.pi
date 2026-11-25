@@ -15,19 +15,24 @@ import {
 	QUEUED_FOR_MS,
 	queuedHere,
 	type Seen,
+	seenOf,
 	settleQueued,
 } from "../../../../extensions/review-integration/queued.ts";
 import {
+	type BoundTarget,
 	type ChangeRef,
 	type ConversationFacet,
 	clearReviewProviders,
 	clearTargetBindings,
+	createDraftStore,
+	createReviewEngine,
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
 import {
 	SESSION_CLOSED_CHANGE,
 	SESSION_LANDED,
 } from "../../../../lib/internal/session/landings.ts";
+import { fakeExec } from "../../../support/fake-exec.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
 import {
 	activate,
@@ -128,6 +133,31 @@ describe("a change sent to a queue", () => {
 		expect(queuedHere()).toEqual([]);
 	});
 
+	it("says the areas its files are in once it merges", async () => {
+		const told = bus();
+		noteQueued(change("5"), undefined, NOW);
+
+		await settleQueued(
+			reading({
+				"5": {
+					state: "merged",
+					title: "Five",
+					url: "https://d/5",
+					files: ["lib/mesh/peer.ts", "lib/mesh/presence.ts"],
+				},
+			}),
+			told,
+			NOW,
+		);
+
+		expect(told.said).toEqual([
+			{
+				event: SESSION_LANDED,
+				data: expect.objectContaining({ areas: ["lib/mesh"] }),
+			},
+		]);
+	});
+
 	it("is said closed once it closes unmerged, and let go", async () => {
 		const told = bus();
 		noteQueued(change("3"), undefined, NOW);
@@ -212,5 +242,85 @@ describe("what sends a change to the queue", () => {
 		expect(queuedHere().map((one) => one.change.label)).toEqual([
 			"shop/world#7",
 		]);
+	});
+});
+
+/**
+ * A change bound over a provider that finds it in `state` and diffs it
+ * as `diff` says, its every diff and fetch into a checkout counted.
+ */
+async function boundIn(
+	state: "open" | "merged",
+	diff: string | Error,
+): Promise<{ bound: BoundTarget; asked: string[] }> {
+	const asked: string[] = [];
+	const repo = { key: "delta:shop/world", localPath: root };
+	registerReviewProvider(
+		stubProvider({
+			id: "delta",
+			priority: 1,
+			facets: {
+				changes: {
+					fetch: async (ref) => ({
+						ref,
+						title: "Delete Unread Settings",
+						body: "",
+						state,
+						draft: false,
+						author: { id: "someone" },
+						base: "main",
+						head: "feature",
+						url: "https://delta.example/shop/world/pull/9",
+					}),
+					diff: async () => {
+						asked.push("diff");
+						if (diff instanceof Error) throw diff;
+						return diff;
+					},
+					fetchAsRef: async () => {
+						asked.push("fetch into the checkout");
+						return "refs/fetched";
+					},
+				},
+			},
+		}),
+	);
+	const { exec } = fakeExec([]);
+	const engine = createReviewEngine({ exec, store: createDraftStore(root) });
+	return { bound: await engine.bound({ ...change("9"), repo }), asked };
+}
+
+describe("a look at a queued change", () => {
+	it("finds the paths a merged change touched, from its diff", async () => {
+		const { bound } = await boundIn(
+			"merged",
+			"diff --git a/lib/mesh/peer.ts b/lib/mesh/peer.ts\n--- a/lib/mesh/peer.ts\n+++ b/lib/mesh/peer.ts\n@@ -1 +1 @@\n-a\n+b\n",
+		);
+
+		expect((await seenOf(bound))?.files).toEqual(["lib/mesh/peer.ts"]);
+	});
+
+	it("never diffs a change still queued", async () => {
+		const { bound, asked } = await boundIn("open", "");
+
+		const seen = await seenOf(bound);
+
+		expect(seen?.state).toBe("open");
+		expect(asked).toEqual([]);
+	});
+
+	// The engine's fallback for a refused diff fetches into the checkout
+	// and diffs against a local base that may be stale.
+	it("finds no paths, fetching nothing, when its backend refuses the diff", async () => {
+		const { bound, asked } = await boundIn(
+			"merged",
+			new Error("HTTP 406: the diff exceeded the maximum number of lines"),
+		);
+
+		const seen = await seenOf(bound);
+
+		expect(seen?.state).toBe("merged");
+		expect(seen).not.toHaveProperty("files");
+		expect(asked).toEqual(["diff"]);
 	});
 });

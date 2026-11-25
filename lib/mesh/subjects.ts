@@ -4,15 +4,18 @@
  * Mycelium's node serves each cell's `subjects` from its presence, and
  * need-route.ts reads them, but until this nothing wrote them, so no
  * subject had a holder and no hub formed (FZ9MFJ, 18 November). A cell's
- * subjects come from two places, as the routes note settled
- * (FZ9MFJ's routes-into-subjects.md, 17 November):
+ * subjects come from three places, the first two as the routes note
+ * settled (FZ9MFJ's routes-into-subjects.md, 17 November):
  *
  * - the owner lines in the machine's config, `prefix=ADDRESS`, the very
  *   values cadence takes as `--owner`, naming the address the cell signs
  *   with or its session's own: the prefix as written, longest first,
  *   since a longer prefix is the narrower subject and is never split at
  *   colons or dots here;
- * - its quest's own list, its README's `subjects` front matter.
+ * - its quest's own list, its README's `subjects` front matter;
+ * - the areas its quest's landings led, worked out from what its merges
+ *   changed (led-areas.ts), since on 25 November 104 of 122 live cells
+ *   declared none by the first two.
  *
  * The owner lines are read from a file of them, one a line, which
  * cadence's home module writes from the same list it passes as

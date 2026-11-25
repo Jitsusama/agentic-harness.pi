@@ -318,7 +318,8 @@ export interface Presence {
 	readonly standsAtTop?: StandsAtTop;
 	/**
 	 * What it says it works on (see subjects.ts): the owner prefixes the
-	 * config names its address for, then its quest's own `subjects`, which
+	 * config names its address for, then its quest's own `subjects`, then
+	 * the areas its quest's landings led (led-areas.ts), which
 	 * mycelium's node serves on its cell and a need is routed by. Missing
 	 * while it declares none, and from an older presence.
 	 */

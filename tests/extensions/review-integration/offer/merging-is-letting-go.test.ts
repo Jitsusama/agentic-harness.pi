@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHANGED_PATHS_MS } from "../../../../extensions/review-integration/changed-paths.ts";
 import { queuedHere } from "../../../../extensions/review-integration/queued.ts";
 import {
 	type AuthoringCapabilities,
@@ -72,15 +73,23 @@ const proposal: Change = {
 	url: "https://example.invalid/438",
 };
 
+/** The changes a backend was asked to fetch into a checkout, to diff them there. */
+const fetchedAsRef: string[] = [];
+
 /**
  * A backend whose merge lands, or is taken into a queue. Its merge
  * names the commit it landed as unless `commit` says otherwise, and
- * `readBack` is the change it reads back afterwards.
+ * `readBack` is the change it reads back afterwards. Its diff is
+ * `diff` when given, one that never answers when that is "hangs",
+ * else one it can't read. Its changes are checked out at `checkout`
+ * when given, so a diff it refuses could be read there instead.
  */
 function backend(outcome: {
 	kind: "merged" | "enqueued";
 	commit?: string | null;
 	readBack?: Partial<Change>;
+	diff?: string;
+	checkout?: string;
 }) {
 	return stubProvider({
 		id: "meteorite",
@@ -88,7 +97,10 @@ function backend(outcome: {
 		claimRepo: () => ({ key: "meteorite:shop/world" }),
 		claimReference: (input) => ({
 			provider: "meteorite",
-			repo: { key: "meteorite:shop/world" },
+			repo: {
+				key: "meteorite:shop/world",
+				...(outcome.checkout ? { localPath: outcome.checkout } : {}),
+			},
 			id: input,
 			label: `shop/world#${input}`,
 		}),
@@ -96,7 +108,18 @@ function backend(outcome: {
 		facets: {
 			changes: {
 				fetch: async () => ({ ...proposal, ...outcome.readBack }),
-				diff: unused("diff a change"),
+				diff:
+					outcome.diff === undefined
+						? async () => {
+								throw new Error("this backend can't read a diff");
+							}
+						: outcome.diff === "hangs"
+							? () => new Promise<string>(() => {})
+							: async () => outcome.diff ?? "",
+				fetchAsRef: async (ref) => {
+					fetchedAsRef.push(ref.id);
+					return "refs/fetched";
+				},
 			},
 			authoring: {
 				propose: unused("propose a change"),
@@ -250,6 +273,70 @@ describe("what merging says it landed", () => {
 		const { landed } = await attachThenMerge({ kind: "merged", commit: null });
 
 		expect(landed[0]).not.toHaveProperty("commit");
+	});
+
+	it("says the areas its files are in, so the mesh can say what its quest works on", async () => {
+		const file = (path: string) =>
+			`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			diff: [
+				file("extensions/review-integration/queued.ts"),
+				file("tests/extensions/review-integration/queued.test.ts"),
+			].join(""),
+		});
+
+		expect(landed).toEqual([
+			expect.objectContaining({ areas: ["extensions/review-integration"] }),
+		]);
+	});
+
+	it("says no areas when its diff can't be read, and still says it landed", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toHaveLength(1);
+		expect(landed[0]).not.toHaveProperty("areas");
+	});
+
+	// The council, 25 November: the engine's fallback for a diff its
+	// backend refuses fetches into the checkout and diffs against a local
+	// base that may be stale, taking in other people's commits.
+	it("says it landed without areas, fetching nothing, when its backend refuses the diff", async () => {
+		fetchedAsRef.length = 0;
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			checkout: tmpdir(),
+		});
+
+		expect(landed).toHaveLength(1);
+		expect(landed[0]).not.toHaveProperty("areas");
+		expect(fetchedAsRef).toEqual([]);
+	});
+
+	it("says it landed without areas when its diff doesn't answer in time", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			let done = false;
+			const merging = attachThenMerge({
+				kind: "merged",
+				diff: "hangs",
+			}).finally(() => {
+				done = true;
+			});
+			// The bound's timer is set only once the merge's real file work
+			// is done, so each step lets a real turn pass before moving the
+			// clock; the test's own timeout ends a merge that never answers.
+			while (!done) {
+				await new Promise((next) => setImmediate(next));
+				await vi.advanceTimersByTimeAsync(CHANGED_PATHS_MS);
+			}
+			const { landed } = await merging;
+
+			expect(landed).toHaveLength(1);
+			expect(landed[0]).not.toHaveProperty("areas");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("names the branch it landed on, so a stacked parent's is told from trunk", async () => {

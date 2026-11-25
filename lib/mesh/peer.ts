@@ -260,6 +260,12 @@ export interface Surroundings {
 	 * (see subjects.ts). Left out, it owns no subjects by them.
 	 */
 	readonly owners?: () => readonly string[];
+	/**
+	 * The areas a quest's landings led, read at each refresh for the
+	 * quest it has loaded and said after its README's subjects (see
+	 * led-areas.ts). Left out, it says none.
+	 */
+	readonly ledAreas?: (quest: string) => readonly string[];
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -669,10 +675,10 @@ export function localPeer(at: Surroundings): Peer {
 			...(signing && yieldedTo === undefined ? [signing] : []),
 			sessionAddress(at.session),
 		];
-		subjects = subjectsOf(
-			ownedPrefixes(at.owners?.() ?? [], working),
-			work.subjects ?? [],
-		);
+		subjects = subjectsOf(ownedPrefixes(at.owners?.() ?? [], working), [
+			...(work.subjects ?? []),
+			...(quest && at.ledAreas ? at.ledAreas(quest) : []),
+		]);
 		serves = work.serves ?? [];
 		shares = work.shares ?? [];
 		repo = work.repo;

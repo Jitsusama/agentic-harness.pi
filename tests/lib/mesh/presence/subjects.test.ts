@@ -81,6 +81,33 @@ describe("the subjects this session's peer says", () => {
 		]);
 	});
 
+	it("says the areas its quest's landings led after the subjects its README lists", () => {
+		write(readme("subjects: [needs]\n"));
+		const asked: string[] = [];
+		localPeer({
+			...surroundingsAt(root),
+			ledAreas: (quest) => {
+				asked.push(quest);
+				return ["agentic-harness.pi:lib/mesh", "needs"];
+			},
+		});
+
+		expect([asked[0], kept()?.subjects]).toEqual([
+			LOOP,
+			["needs", "agentic-harness.pi:lib/mesh"],
+		]);
+	});
+
+	it("says no led areas with no quest loaded", () => {
+		mkdirSync(join(root, "sessions"), { recursive: true });
+		localPeer({
+			...surroundingsAt(root),
+			ledAreas: () => ["agentic-harness.pi:lib/mesh"],
+		});
+
+		expect(kept()?.subjects).toBeUndefined();
+	});
+
 	it("says an owner's prefixes with no quest loaded, by its session's own address", () => {
 		mkdirSync(join(root, "sessions"), { recursive: true });
 		localPeer({

@@ -8,7 +8,8 @@
  * history". So each landing is also kept here, with whose it was and
  * where, for 30 days, newest first. The mycelium node serves the file
  * whole, as it does quests.json; nothing here reads it back but the
- * writes.
+ * writes. Each write also works out the areas each quest led in it and
+ * keeps them beside it (led-areas.ts), which a peer reads instead.
  *
  * Many sessions land at once, so each write takes the file's lock,
  * reads what is there, adds or takes away one, prunes past the month
@@ -22,6 +23,7 @@ import { withFileLock } from "../core/internal/file-lock.ts";
 import { thisMachine } from "../internal/machine/machine.ts";
 import type { Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
+import { keepLedAreas } from "./led-areas.ts";
 
 /** The history's file name, in the mesh's state folder. */
 export const LANDING_HISTORY_FILE = "landings.json";
@@ -38,11 +40,21 @@ export interface KeptLanding extends Landing {
 	readonly address?: string;
 	/** The quest it had loaded. */
 	readonly quest?: string;
+	/**
+	 * The quest that proposed the change, where this machine's record of
+	 * proposals knows it, whether its own quest or another, as a gate
+	 * merging other cells' changes has: its areas are that quest's, and a
+	 * landing without one leads no area (led-areas.ts).
+	 */
+	readonly proposedBy?: string;
 	/** The repository the change is in, as `owner/name` or its name. */
 	readonly repo?: string;
 	/** The machine it landed on, by its short name. */
 	readonly machine?: string;
 }
+
+/** The quest that proposed the change at a web page, where one is known. */
+export type ProposerOf = (url: string) => string | undefined;
 
 /** The file as it is written. */
 interface History {
@@ -79,15 +91,24 @@ export function repoOf(landing: Landing): string | undefined {
 	return /^[A-Z]+-\d{8}-[A-Z0-9]+$/.test(before) ? undefined : before;
 }
 
-/** A landing as kept, with whose it is and where. */
-export function kept(landing: Landing, whose: Whose): KeptLanding {
+/**
+ * A landing as kept, with whose it is and where, and which quest
+ * proposed it where `proposerOf` knows.
+ */
+export function kept(
+	landing: Landing,
+	whose: Whose,
+	proposerOf?: ProposerOf,
+): KeptLanding {
 	const repo = repoOf(landing) ?? whose.repo;
+	const proposedBy = landing.url ? proposerOf?.(landing.url) : undefined;
 	return {
 		key: keyOf(whose.session, landing.ref),
 		...landing,
 		session: whose.session,
 		...(whose.address ? { address: whose.address } : {}),
 		...(whose.quest ? { quest: whose.quest } : {}),
+		...(proposedBy ? { proposedBy } : {}),
 		...(repo ? { repo } : {}),
 		...(whose.machine ? { machine: whose.machine } : {}),
 	};
@@ -145,6 +166,8 @@ async function changeHistory(
 			landings: keptAt(change(await readHistory(path)), now),
 		};
 		writeWhole(path, `${JSON.stringify(history, null, 2)}\n`);
+		// Under the same lock, so the areas said are those of the history written.
+		keepLedAreas(dir, history.landings, now);
 	});
 }
 
@@ -170,15 +193,22 @@ export interface LandingKeeper {
 	unlanded(session: string, ref: string): void;
 }
 
+/** How a keeper names its machine, tells the time and finds a proposer. */
+export interface KeeperOptions {
+	readonly machine?: string;
+	readonly now?: () => number;
+	readonly proposerOf?: ProposerOf;
+}
+
 /**
- * A keeper writing to the history at `dir`, naming this machine. A write
- * that fails is let go: the landing still stands in the presence, the
- * plan and the pull request, and the next one writes the file again.
+ * A keeper writing to the history at `dir`, naming this machine and,
+ * where `proposerOf` knows one, the quest that proposed a change. A
+ * write that fails is let go: the landing still stands in the presence,
+ * the plan and the pull request, and the next one writes the file again.
  */
 export function landingKeeper(
 	dir: string,
-	machine: string = thisMachine(),
-	now: () => number = Date.now,
+	{ machine = thisMachine(), now = Date.now, proposerOf }: KeeperOptions = {},
 ): LandingKeeper {
 	const quietly = (write: Promise<void>) => {
 		write.catch(() => {
@@ -187,7 +217,13 @@ export function landingKeeper(
 	};
 	return {
 		landed(landing, whose) {
-			quietly(keepLanding(dir, kept(landing, { machine, ...whose }), now()));
+			quietly(
+				keepLanding(
+					dir,
+					kept(landing, { machine, ...whose }, proposerOf),
+					now(),
+				),
+			);
 		},
 		unlanded(session, ref) {
 			quietly(forgetLanding(dir, keyOf(session, ref), now()));

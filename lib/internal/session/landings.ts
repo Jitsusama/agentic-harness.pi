@@ -61,6 +61,13 @@ export interface Landing {
 	 * parent lands on trunk, so only one landed on trunk is matched.
 	 */
 	readonly onto?: string;
+	/**
+	 * The areas of its repository a merged change touched, those most of
+	 * its files are in first (changed-areas.ts): what the mesh says a
+	 * quest works on, by the ones it led (lib/mesh/led-areas.ts).
+	 * Missing where nothing touched one, and from a plan item.
+	 */
+	readonly areas?: readonly string[];
 }
 
 /**
@@ -72,7 +79,7 @@ const COMMIT = /^[0-9a-f]{7,64}$/;
 /** Whether a payload is a landing, as this version says one. */
 export function isLanding(data: unknown): data is Landing {
 	if (typeof data !== "object" || data === null) return false;
-	const { at, ref, what, person, url, commit, onto } = data as Record<
+	const { at, ref, what, person, url, commit, onto, areas } = data as Record<
 		string,
 		unknown
 	>;
@@ -85,7 +92,9 @@ export function isLanding(data: unknown): data is Landing {
 		(url === undefined || typeof url === "string") &&
 		(commit === undefined ||
 			(typeof commit === "string" && COMMIT.test(commit))) &&
-		(onto === undefined || typeof onto === "string")
+		(onto === undefined || typeof onto === "string") &&
+		(areas === undefined ||
+			(Array.isArray(areas) && areas.every((area) => typeof area === "string")))
 	);
 }
 
@@ -99,6 +108,7 @@ export function sayLanded(
 		url?: string;
 		commit?: string;
 		onto?: string;
+		areas?: readonly string[];
 	},
 	now: number = Date.now(),
 ): void {
@@ -117,6 +127,9 @@ export function sayLanded(
 		...(url ? { url } : {}),
 		...(commit ? { commit } : {}),
 		...(onto ? { onto } : {}),
+		...(landed.areas && landed.areas.length > 0
+			? { areas: [...landed.areas] }
+			: {}),
 	};
 	try {
 		bus.emit(SESSION_LANDED, landing);

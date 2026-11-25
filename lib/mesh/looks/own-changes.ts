@@ -251,6 +251,32 @@ export function keptProposed(
 const OWN_CHANGE_INSTEAD =
 	"The person reviews no change his sessions put up (Joel, 24 November: review it yourself, take it out of draft and ask for review when you are comfortable with it). Have a council read it, fix what holds, mark it ready and ask its reviewers with review_offer; what only he can decide goes to him as a question, through mesh_send to person, saying what to decide in words rather than asking anyone to put the change on his look list.";
 
+/** An owner's folder that is a quest's, rather than a session's. */
+const QUEST_FOLDER = /^QEST-\d{8}-[A-Z0-9]+$/;
+
+/**
+ * The one quest whose record keeps `url` as proposed, or none where no
+ * quest's does or more than one does. A session's own record is never
+ * the answer: what a quest's session proposed is kept under its quest
+ * too, and a session without one names no quest to credit.
+ */
+export function proposingQuest(dir: string, url: string): string | undefined {
+	const key = proposedKey(url);
+	if (!namesChange(key)) return undefined;
+	let owners: string[];
+	try {
+		owners = readdirSync(dir).filter((name) => QUEST_FOLDER.test(name));
+	} catch {
+		// No record yet on this machine: nobody is known to have proposed it.
+		return undefined;
+	}
+	const name = changeFile(key);
+	const keeping = owners.filter(
+		(owner) => readChange(join(dir, owner, name)) !== undefined,
+	);
+	return keeping.length === 1 ? keeping[0] : undefined;
+}
+
 /** What a session is told when it points the person at its own change. */
 export const OWN_CHANGE_REFUSED = `This session or its quest proposed that change. ${OWN_CHANGE_INSTEAD}`;
 

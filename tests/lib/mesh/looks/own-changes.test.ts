@@ -19,6 +19,7 @@ import {
 	ownChangesBeside,
 	proposedIn,
 	proposedKey,
+	proposingQuest,
 } from "../../../../lib/mesh/looks/own-changes.ts";
 
 const PR = "https://github.com/Jitsusama/agentic-harness.pi/pull/12";
@@ -118,6 +119,29 @@ describe("the record of what a quest proposed", () => {
 			"https://github.com/o/r/pull/9",
 		]);
 		expect(keptProposed(dir, ["QEST-2", ""])).toEqual([]);
+	});
+
+	// FZ9MFJ, 25 November: a gate merging other cells' changes would be
+	// credited with what they wrote, unless the proposer is found.
+	it("names the one quest that proposed a change, however its URL is spelled", () => {
+		const dir = records();
+		keepProposed(dir, "QEST-20261115-FZ9MFJ", [PR]);
+		keepProposed(dir, "0193-session", [PR]);
+
+		expect(proposingQuest(dir, `${PR.toUpperCase()}/`)).toBe(
+			"QEST-20261115-FZ9MFJ",
+		);
+	});
+
+	it("names none for a change no quest kept, or one two quests kept", () => {
+		const dir = records();
+		keepProposed(dir, "0193-session", [PR]);
+		keepProposed(dir, "QEST-20261115-FZ9MFJ", [`${PR}3`]);
+		keepProposed(dir, "QEST-20261108-OSPHT4", [`${PR}3`]);
+
+		expect(proposingQuest(dir, PR)).toBeUndefined();
+		expect(proposingQuest(dir, `${PR}3`)).toBeUndefined();
+		expect(proposingQuest(join(dir, "none"), PR)).toBeUndefined();
 	});
 
 	it("keeps every change, and an owner's id never names a folder outside the record", () => {

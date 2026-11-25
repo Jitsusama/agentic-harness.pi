@@ -11,8 +11,10 @@
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { areasOf } from "../../../lib/internal/session/changed-areas.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
+import { changedPaths } from "../changed-paths.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
 import {
@@ -90,7 +92,11 @@ async function headGuard(
  * launcher tells when a switch has brought it to the machine. The read
  * back runs once, straight after the merge: a host that answers it late
  * or not at all leaves the landing without the commit it would have
- * offered, and the launcher draws no line for it.
+ * offered, and the launcher draws no line for it. `areas` are the
+ * areas its diff touched, by which the mesh says what its quest works
+ * on, read beside the read back and waited on for a bounded time
+ * (changed-paths.ts): a diff that can't be read in that time leaves the
+ * landing without them rather than holding up the merge's answer.
  */
 async function sayMerged(
 	bus: EventBus,
@@ -105,11 +111,13 @@ async function sayMerged(
 		base?: string;
 		mergeCommit?: string;
 	} | null = null;
+	const pathsRead = changedPaths(bound);
 	try {
 		read = await bound.proposal();
 	} catch {
 		// A change that can't be read now still landed; it is named alone.
 	}
+	const areas = areasOf(await pathsRead);
 	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
 	// The merge's own answer first; a host that didn't give one may say
 	// it on the change read back.
@@ -126,8 +134,10 @@ async function sayMerged(
 		...(person ? { person } : {}),
 		...(landedAs ? { commit: landedAs } : {}),
 		...(read?.base ? { onto: read.base } : {}),
+		...(areas.length > 0 ? { areas } : {}),
 	});
 }
+
 /**
  * The package config's `review` section, or why the config couldn't be
  * read: a file that doesn't parse is not one naming no gate, or a stray

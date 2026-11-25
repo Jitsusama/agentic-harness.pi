@@ -28,6 +28,11 @@ import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import { landingKeeper } from "../../../lib/mesh/landing-history.ts";
 import { carryLeases, ownLeases } from "../../../lib/mesh/lease.ts";
+import { ledAreasAt } from "../../../lib/mesh/led-areas.ts";
+import {
+	ownChangesBeside,
+	proposingQuest,
+} from "../../../lib/mesh/looks/own-changes.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
@@ -187,8 +192,15 @@ export function onSessionStart(
 				: {}),
 			...(previous ? { previous } : {}),
 			...terminalOf(),
-			// Kept a month past the presence, for the desktop's Landed.
-			history: landingKeeper(m.paths.mesh),
+			// Kept a month past the presence, for the desktop's Landed, each
+			// change credited to the quest that proposed it where this machine's
+			// record of proposals says (looks/own-changes.ts).
+			history: landingKeeper(m.paths.mesh, {
+				proposerOf: (url) =>
+					m.paths.looks
+						? proposingQuest(ownChangesBeside(m.paths.looks), url)
+						: undefined,
+			}),
 			// Which mycelium matches against the machine it carries to.
 			fence: fenceKindOf(m.env),
 			// Its background commands hold heavy leases (leases/heavy-calls.ts),
@@ -197,6 +209,8 @@ export function onSessionStart(
 			// The subjects it owns by the machine's config, read at each refresh so
 			// a switch rewriting them is said with the next (subjects.ts).
 			owners: () => ownerLinesAt(ownersFile(m.env)),
+			// The areas its quest led in the machine's landings, kept beside them.
+			ledAreas: (quest) => ledAreasAt(m.paths.mesh, quest),
 		});
 		for (const want of m.wanting.values()) m.peer.want(want);
 		// A move asked before a reload goes on waiting for the session.
