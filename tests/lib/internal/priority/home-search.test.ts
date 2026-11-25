@@ -68,6 +68,38 @@ describe("a search of the whole home folder", () => {
 		["rg foo ~/.pi/agent", "rg", `${home}/.pi/agent`],
 		["fd x ~/.pi", "fd", `${home}/.pi`],
 		["find ~/.local -name x", "find", `${home}/.local`],
+		[
+			"rg foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/versions",
+			"rg",
+			`${home}/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/versions`,
+		],
+		[
+			"grep -r foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/versions/*/lib",
+			"grep",
+			`${home}/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/versions/*/lib`,
+		],
+		["rg foo ~/.pi/agent/sessions/*/", "rg", `${home}/.pi/agent/sessions/*`],
+		[
+			"rg foo ~/.pi/agent/sessions/*/*.jsonl",
+			"rg",
+			`${home}/.pi/agent/sessions/*/*.jsonl`,
+		],
+		["rg foo $HOME/.pi/agent/sessions/", "rg", `${home}/.pi/agent/sessions`],
+		[
+			"cd ~/.local/share/pi-packages && rg foo",
+			"rg",
+			`${home}/.local/share/pi-packages`,
+		],
+		[
+			"rg --max-depth 2 foo ~/.pi/agent/sessions",
+			"rg",
+			`${home}/.pi/agent/sessions`,
+		],
+		[
+			"find ~/.pi/agent/sessions -maxdepth 2 -exec grep foo {} +",
+			"find",
+			`${home}/.pi/agent/sessions`,
+		],
 	])("is read in %s", (command, tool, root) => {
 		expect(searchesHomeWhole(command, inSrc)).toEqual({ tool, root });
 	});
@@ -123,6 +155,14 @@ describe("a search of the whole home folder", () => {
 			"rg foo ~/.pi/agent/sessions/--home-joel-src--",
 		],
 		["a shallow look at pi's state", "find ~/.pi -maxdepth 2"],
+		[
+			"a few session folders by a word",
+			"rg foo ~/.pi/agent/sessions/--*harness*--/",
+		],
+		[
+			"a session log by its name",
+			"find ~/.pi/agent/sessions -maxdepth 2 -name '01a2*'",
+		],
 	])("leaves alone %s", (_, command) => {
 		expect(searchesHomeWhole(command, inSrc)).toBeUndefined();
 	});
@@ -184,6 +224,25 @@ describe("the refusal of a search of the whole home folder", () => {
 	it("names pi's session logs for a search of them", () => {
 		expect(homeSearchRefusal("grep -r foo ~/.pi", inSrc)).toContain(
 			"This grep searches every folder from ~/.pi, which takes in every pi session's log,",
+		);
+	});
+
+	it("names one package's versions for a search of that package", () => {
+		expect(
+			homeSearchRefusal(
+				"rg foo ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi",
+				inSrc,
+			),
+		).toContain("which takes in every version of this pi package,");
+	});
+
+	it("offers no depth that reads every log for a search of the sessions", () => {
+		const reason =
+			homeSearchRefusal("rg foo ~/.pi/agent/sessions", inSrc) ?? "";
+
+		expect(reason).not.toContain("--max-depth 2");
+		expect(reason).toContain(
+			"find ~/.pi/agent/sessions -maxdepth 2 -name '<id>*'",
 		);
 	});
 

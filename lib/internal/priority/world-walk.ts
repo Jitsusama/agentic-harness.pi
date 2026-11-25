@@ -127,9 +127,15 @@ const PI_SESSIONS = ".pi/agent/sessions";
  * every home, the home itself, pi's installed packages or pi's session
  * logs, or a folder holding either. Within the packages, one package's
  * `current` or one of its `versions` is narrow enough, as is one
- * folder's session logs.
+ * folder's session logs. A glob that picks every child, as `*`, `**` or
+ * `--*`, reads as the folder it sits in, so `sessions/*` and
+ * `versions/*` take in the whole tree; one naming a word, as
+ * `--*harness*--`, picks a few and stays narrow. Paths are read as
+ * written: a link, or another casing on a disk that ignores case, goes
+ * unread.
  */
-function whatItTakesIn(path: string, home: string): string | undefined {
+function whatItTakesIn(written: string, home: string): string | undefined {
+	const path = upToEveryChild(written);
 	const holds = (folder: string) =>
 		path === folder ||
 		folder.startsWith(path.endsWith("/") ? path : `${path}/`);
@@ -143,6 +149,7 @@ function whatItTakesIn(path: string, home: string): string | undefined {
 		const one =
 			within.includes("current") ||
 			(versions >= 0 && within.length > versions + 1);
+		if (!one && within.length >= 3) return "every version of this pi package";
 		if (!one) return "every version of every installed pi package";
 	}
 	if (holds(join(home, PI_SESSIONS))) return "every pi session's log";
@@ -257,7 +264,6 @@ export function searchesHomeWhole(
 		if (asksHowToCall(bare)) continue;
 		const search = searchFor(tool, rest);
 		if (search === undefined) continue;
-		if (shallow(search) && !runsSearch(search.runs)) continue;
 		const named = search.paths.length > 0;
 		if (!named && viaXargs) continue;
 		const readsInput = piped || rest.some((word) => /^</.test(word));
@@ -269,6 +275,7 @@ export function searchesHomeWhole(
 		const roots = named
 			? search.paths.map((path) => pathOf(path, from))
 			: [from];
+		if (spared(tool, search, roots, where.home)) continue;
 		const root = roots.find(tooWide);
 		if (root !== undefined) return { tool, root };
 	}
@@ -297,6 +304,42 @@ function pastWhatItRunsUnder(step: string): {
 /** What a `find`, or another search tool, searches; nothing for any other command. */
 function searchFor(tool: string, words: readonly string[]): Search | undefined {
 	return tool === "find" ? findOf(words) : searchOf(tool, words);
+}
+
+/**
+ * Whether a shallow search is left alone: one kept within
+ * {@link SHALLOW_DEPTH} levels only lists folders, unless it runs a
+ * deeper search on each. From pi's sessions folder two levels reach
+ * every log, so there only a `find` or `fd` that runs nothing on what
+ * it lists, reading names alone, is spared.
+ */
+function spared(
+	tool: string,
+	search: Search,
+	roots: readonly (string | undefined)[],
+	home: string,
+): boolean {
+	if (!shallow(search) || runsSearch(search.runs)) return false;
+	if (!roots.some((root) => atSessions(root, home))) return true;
+	const lists = ["find", "fd"].includes(READS_AS.get(tool) ?? tool);
+	return lists && search.runs === undefined;
+}
+
+/** Whether a path is pi's sessions folder itself, or every child of it. */
+function atSessions(root: string | undefined, home: string): boolean {
+	return root !== undefined && upToEveryChild(root) === join(home, PI_SESSIONS);
+}
+
+/**
+ * A path up to its first glob that picks every child, as `*`, `**` or
+ * `--*`: the folder such a glob walks whole.
+ */
+function upToEveryChild(path: string): string {
+	const segments = path.split("/");
+	const every = segments.findIndex((segment) =>
+		/^[-*?]*\*[-*?]*$/.test(segment),
+	);
+	return every < 0 ? path : segments.slice(0, every).join("/") || "/";
 }
 
 /** Whether a search keeps within {@link SHALLOW_DEPTH} levels. */
@@ -442,7 +485,9 @@ export function homeSearchRefusal(
 			: underHome
 				? `~${search.root.slice(where.home.length)}`
 				: search.root;
-	const shallow = `or keep it shallow: find ${root} -maxdepth 2, or --max-depth 2 for rg and fd.`;
+	const shallow = atSessions(search.root, where.home)
+		? `or find a log by its name: find ${root} -maxdepth 2 -name '<id>*'.`
+		: `or keep it shallow: find ${root} -maxdepth 2, or --max-depth 2 for rg and fd.`;
 	if (underHome) {
 		return `This ${search.tool} searches every folder from ${root}, which takes in ${whole}, gigabytes of files: on 24 November one such rg held Joel for 94 seconds. Search a narrower folder instead, such as one package's ~/${PI_PACKAGES}/<host>/<org>/<repo>/current, pi's own ~/.pi/pkg/<pi>/dist, or one folder's logs in ~/${PI_SESSIONS}, ${shallow}`;
 	}

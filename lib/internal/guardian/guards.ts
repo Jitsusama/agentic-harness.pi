@@ -92,7 +92,7 @@ export const GUARDS = {
 		name: "home-search",
 		class: "form",
 		description:
-			"Refuses a find, rg, recursive grep or fd of the whole home folder or the disk, naming a narrower folder",
+			"Refuses a find, rg, recursive grep or fd of the whole home folder, the disk, or pi's installed packages or session logs, naming a narrower folder",
 		// A search reaches nobody else and a search of everything is
 		// sometimes the point, so a repeat goes ahead, waiting its turn as
 		// a build does.
