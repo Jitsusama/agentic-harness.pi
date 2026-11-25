@@ -70,7 +70,9 @@ function changeAt(id: string, head: string, draft: boolean): Change {
 }
 
 /** A backend that can do every gated thing, and records each it did. */
-function recordingProvider(options: { fetches?: boolean } = {}) {
+function recordingProvider(
+	options: { fetches?: boolean; refuses?: string } = {},
+) {
 	const did: string[] = [];
 	const provider = stubProvider({
 		id: "meteorite",
@@ -112,6 +114,7 @@ function recordingProvider(options: { fetches?: boolean } = {}) {
 				requestReviewers: async (_change: ChangeRef, people: string[]) => {
 					did.push(`ask ${people.join(",")}`);
 				},
+				reviewersRefusal: () => options.refuses,
 			},
 		},
 	});
@@ -315,6 +318,24 @@ describe("waiting for our own council", () => {
 		);
 
 		expect(did).toEqual(["ask someone"]);
+	});
+
+	it("refuses reviewers no ask could take before the council or the gate", async () => {
+		const { provider, did } = recordingProvider({
+			refuses: "elsewhere/ci is a team of elsewhere. Nobody was asked.",
+		});
+		registerReviewProvider(provider);
+
+		const { text, asked } = await offer(
+			{ action: "reviewers", change: "7", reviewers: ["elsewhere/ci"] },
+			true,
+		);
+
+		expect(did, "nobody is asked").toEqual([]);
+		expect(asked, "no council is consulted for it").toEqual([]);
+		expect(text, "the refusal is said").toContain(
+			"is a team of elsewhere. Nobody was asked.",
+		);
 	});
 
 	it("holds it when the backend can't say what the change's commits are", async () => {

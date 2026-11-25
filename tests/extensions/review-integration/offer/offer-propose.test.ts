@@ -90,15 +90,19 @@ type ProposeRequest = {
  * A provider that maps any checkout onto one hosted repo and records
  * every propose it is asked for.
  */
-function recordingProvider() {
+function recordingProvider(
+	capabilities: AuthoringCapabilities = CAN_ONLY_PROPOSE,
+	extra: Record<string, unknown> = {},
+) {
 	const asked: ProposeRequest[] = [];
 	const provider = stubProvider({
 		id: "meteorite",
 		priority: 50,
 		claimRepo: () => world,
-		capabilities: { authoring: CAN_ONLY_PROPOSE },
+		capabilities: { authoring: capabilities },
 		facets: {
 			authoring: {
+				...extra,
 				edit: unused("edit a change"),
 				close: unused("close a change"),
 				merge: unused("merge a change"),
@@ -250,6 +254,51 @@ describe("proposing through the tool", () => {
 		expect(asked).toHaveLength(0);
 		expect(JSON.stringify(answer)).toContain("Jitsusama");
 		expect(JSON.stringify(answer)).toMatch(/email/i);
+	});
+
+	it("refuses reviewers no ask could take before anything is made", async () => {
+		// Asked afterwards, the change would stay up with nobody asked to
+		// read it, though the names alone said so.
+		const { provider, asked } = recordingProvider(
+			{ ...CAN_ONLY_PROPOSE, reviewersAt: "any-time", identifies: "login" },
+			{
+				reviewersRefusal: (_repo: RepoLocator, actors: string[]) =>
+					`${actors.join(", ")} can't be asked. Nobody was asked.`,
+				requestReviewers: unused("request reviewers"),
+			},
+		);
+		registerReviewProvider(provider);
+
+		const answer = await offer({ ...proposal, reviewers: ["elsewhere/ci"] });
+
+		expect(asked, "nothing proposed").toHaveLength(0);
+		expect(
+			JSON.stringify(answer),
+			"says why, and that nothing was made",
+		).toMatch(
+			/elsewhere\/ci can't be asked\. Nobody was asked\. Nothing was proposed\./,
+		);
+	});
+
+	it("proposes and asks reviewers the names alone don't refuse", async () => {
+		const requested: string[][] = [];
+		const { provider, asked } = recordingProvider(
+			{ ...CAN_ONLY_PROPOSE, reviewersAt: "any-time", identifies: "login" },
+			{
+				reviewersRefusal: () => undefined,
+				requestReviewers: async (_change: unknown, actors: string[]) => {
+					requested.push(actors);
+				},
+			},
+		);
+		registerReviewProvider(provider);
+
+		await offer({ ...proposal, reviewers: ["@shop/ci"] });
+
+		expect(asked, "proposed").toHaveLength(1);
+		expect(requested, "the team asked, its @ let through").toEqual([
+			["@shop/ci"],
+		]);
 	});
 
 	it("lets an email through to a backend that wants one", async () => {

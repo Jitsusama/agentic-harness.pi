@@ -229,6 +229,17 @@ describe("naming a person the way the backend names them", () => {
 		expect(misnamedPeople(["Jitsusama"], "login")).toBeUndefined();
 	});
 
+	it("reads a leading @ as a mention, not an address", () => {
+		expect(
+			misnamedPeople(["@Jitsusama", "@shop/ci"], "login"),
+			"a mention is a login",
+		).toBeUndefined();
+		expect(
+			misnamedPeople(["@joel"], "email"),
+			"a mention is no address",
+		).toContain("@joel");
+	});
+
 	it("names the value and the form when a login is given for an email", () => {
 		const complaint = misnamedPeople(["Jitsusama"], "email");
 

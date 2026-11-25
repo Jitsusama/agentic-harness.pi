@@ -498,6 +498,12 @@ export async function runOffer(
 					run: gateRunner(),
 				});
 			case "reviewers": {
+				// From the names alone, before a council wait or a gate is spent
+				// on an ask that could never go out.
+				const unaskable = params.reviewers?.length
+					? authoring.reviewersRefusal?.(bound.repo, params.reviewers)
+					: undefined;
+				if (unaskable !== undefined) return refuse(unaskable);
 				const waits = await heldForCouncil(
 					bound,
 					change,
