@@ -10,6 +10,7 @@ import {
 	automatedHeader,
 	automatedText,
 	isAutomatedText,
+	isSpawnedText,
 	START_WORDS_REASON,
 	startWordsOf,
 } from "../../../lib/internal/automated.ts";
@@ -113,6 +114,48 @@ describe("the turns the harness starts itself", () => {
 			),
 			"a header naming no quest id isn't a spawn's",
 		).toBe(undefined);
+	});
+
+	// Written out as a spawn has logged them since before the reader, so
+	// a change to the writer can't make this pass by itself.
+	it("reads a spawn's words as a log on disk holds them", () => {
+		const logged =
+			"[Automated message, no human input: quest spawn started this session on QEST-20261116-42P0R4.] Carry on with QEST-20261116-42P0R4: read its README.";
+		expect(startWordsOf(logged)).toBe(
+			"Carry on with QEST-20261116-42P0R4: read its README.",
+		);
+		expect(startWordsOf(`\n  ${logged}`), "leading space aside").toBe(
+			"Carry on with QEST-20261116-42P0R4: read its README.",
+		);
+		expect(isSpawnedText(logged)).toBe(true);
+		expect(isSpawnedText(automatedText(START_WORDS_REASON, "x"))).toBe(false);
+	});
+
+	it("keeps a spawn's body whole when it holds a header's close itself", () => {
+		const words = spawnedWords("QEST-1", "Say [it.] then stop.");
+		expect(startWordsOf(words)).toMatch(/Say \[it\.\] then stop\.$/u);
+	});
+
+	it("reads no start in a spawn header that names nothing or never closes", () => {
+		const opening =
+			"[Automated message, no human input: quest spawn started this session on ";
+		expect(startWordsOf(`${opening}.] Carry on.`), "no quest id").toBe(
+			undefined,
+		);
+		expect(startWordsOf(`${opening}QEST-1 Carry on.`), "no close").toBe(
+			undefined,
+		);
+		expect(isSpawnedText(`${opening}.] Carry on.`)).toBe(false);
+	});
+
+	// A reopened session's log already holds its start, so the words a
+	// spawn sends into it midway are the harness's turn, never a start.
+	it("reads a spawn's words into a reopened session as no start", () => {
+		const words = spawnedWords("QEST-1", "Fix the drawer.", true);
+		expect(startWordsOf(words)).toBe(undefined);
+		expect(isSpawnedText(words)).toBe(false);
+		expect(isAutomatedText(words)).toBe(true);
+		expect(words).toMatch(/Fix the drawer\.$/u);
 	});
 
 	it("reads a run for messages that waited as automated, not as a resume", () => {

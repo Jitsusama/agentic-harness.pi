@@ -74,17 +74,29 @@ export function spawnReason(questId: string): string {
 
 const SPAWN_OPENING = "quest spawn started this session on ";
 
+/** How a header and the words after it are parted. */
+const HEADER_CLOSE = ".] ";
+
+/**
+ * Whether `text` is a quest spawn's start, as `startWordsOf` reads it: a
+ * session it starts is its quest's, so a reader judging a loose
+ * session's ask passes over it to what a person said.
+ */
+export function isSpawnedText(text: string): boolean {
+	return spawnedBodyOf(text.trimStart()) !== undefined;
+}
+
 /** A spawn's words after their header, or nothing when `opening` isn't. */
 function spawnedBodyOf(opening: string): string | undefined {
 	const lead = `${HEADER_OPENING}${SPAWN_OPENING}`;
 	if (!opening.startsWith(lead)) return undefined;
-	const close = opening.indexOf(".] ", lead.length);
+	const close = opening.indexOf(HEADER_CLOSE, lead.length);
 	if (close < 0) return undefined;
 	// A quest's id holds no space, so a header that closes past one isn't
 	// a spawn's.
 	const questId = opening.slice(lead.length, close);
 	return questId.length > 0 && !/\s/u.test(questId)
-		? opening.slice(close + 3)
+		? opening.slice(close + HEADER_CLOSE.length)
 		: undefined;
 }
 

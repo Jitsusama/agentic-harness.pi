@@ -26,6 +26,7 @@ import { keepQuestBudget } from "../../../../extensions/quest-workflow/budget.ts
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { registerBudgetProvider } from "../../../../lib/budget/provider.ts";
+import { startWordsOf } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import {
 	FIRST_WORDS_VARIABLE,
@@ -456,6 +457,23 @@ describe("spawn through the desktop's launcher", () => {
 			},
 		]);
 		expect(opened).toBeUndefined();
+	});
+
+	// A restarted session's log already holds its start, so the words a
+	// spawn leaves it say they resumed it, which no reader quotes as one.
+	it("tells a restarted session its words resumed it, not started it", async () => {
+		const { state, id } = await quest();
+		const back = "01a1b496-049b-7607-91e1-3d9c8adb7edc";
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: `pi --session ${back}`,
+			note: "Fix the drawer.",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const words = wordsFor(back);
+		expect(words).toContain(`quest spawn resumed this session on ${id}.]`);
+		expect(startWordsOf(words ?? "")).toBe(undefined);
 	});
 
 	it("opens a resume that asks for more than a model itself", async () => {

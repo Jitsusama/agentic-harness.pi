@@ -7,6 +7,7 @@ import {
 	automatedText,
 	START_WORDS_REASON,
 } from "../../../../lib/internal/automated.ts";
+import { spawnedWords } from "../../../../lib/internal/quest/sessions/first-words.ts";
 import { assistant, compaction, user } from "./fixtures.ts";
 
 describe("paragraphsOf", () => {
@@ -94,6 +95,20 @@ describe("unitsOf", () => {
 			['Quest QEST-1 is made for "tidy the rows".', "start"],
 			["Tie it to the map.", "start"],
 		]);
+	});
+
+	// A quest spawn's words say what its session was started for, as a
+	// sprout's do; those it sends into a session it reopens don't.
+	it("quotes a quest spawn's words as the start's, unless it reopened the session", () => {
+		const started = unitsOf(
+			user("u1", spawnedWords("QEST-1", "Tidy the drawer's rows.")),
+		);
+		expect(started.map((u) => u.speaker)).toEqual(["start", "start", "start"]);
+		expect(started.at(-1)?.text).toBe("Tidy the drawer's rows.");
+		const reopened = unitsOf(
+			user("u2", spawnedWords("QEST-1", "Tidy the drawer's rows.", true)),
+		);
+		expect(reopened).toEqual([]);
 	});
 
 	it("lets a start's words give the ask, as only the person's can besides", () => {

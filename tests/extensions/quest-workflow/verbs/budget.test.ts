@@ -45,6 +45,7 @@ import {
 	START_WORDS_REASON,
 } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { spawnedWords } from "../../../../lib/internal/quest/sessions/first-words.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
@@ -1861,6 +1862,26 @@ describe("the budget of a session on no quest", () => {
 			"Speed up walgit",
 		]);
 		expect(process.env[KEY]).toBe("delta");
+	});
+
+	// A spawned session is its quest's; left loose by a quest that failed
+	// to load, it is judged on what a person asks, not the spawn's words.
+	it("passes over a quest spawn's words to the person's ask", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		for (const content of [
+			spawnedWords("QEST-1", "Deploy aquifer's walgit"),
+			"Speed up walgit",
+		])
+			written.push({
+				type: "message",
+				message: { role: "user", content },
+			} as unknown as (typeof written)[number]);
+
+		await keeper.keep(ctx, { prompt: "yes, go on" });
+
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+		]);
 	});
 
 	it("judges the start's words sent as its first prompt", async () => {
