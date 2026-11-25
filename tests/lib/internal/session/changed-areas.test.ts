@@ -21,6 +21,27 @@ describe("the areas a change touched", () => {
 		]);
 	});
 
+	// FZ9MFJ, 25 November: read two deep, every one of lib/core's domains
+	// was the one area lib/core, whose word, core, names none of them.
+	it("reads three folders under lib/core, where each domain is a folder", () => {
+		expect(
+			areasOf([
+				"lib/core/review/ask/round.ts",
+				"lib/core/review/index.ts",
+				"lib/core/work/tree.ts",
+				"lib/core/index.ts",
+				"lib/mesh/peer.ts",
+			]),
+		).toEqual(["lib/core/review", "lib/core/work", "lib/core", "lib/mesh"]);
+	});
+
+	it("reads two folders under lib, past lib/core", () => {
+		expect(areasOf(["lib/corelike/x/y.ts", "lib/constructor/z.ts"])).toEqual([
+			"lib/corelike",
+			"lib/constructor",
+		]);
+	});
+
 	// FZ9MFJ, 25 November: World's zones would be said as shopify or dev,
 	// words many needs carry, and no World landing has been measured.
 	it("names none for World's zones, until their landings are measured", () => {
