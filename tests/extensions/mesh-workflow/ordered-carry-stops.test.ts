@@ -509,6 +509,15 @@ describe("an ordered carry's close", () => {
 			`${UNCLOSED} the engine is gone. Each run here is stopped, so the two never both work.`,
 		]);
 		expect(one.refused, "a journal that throws refuses nothing").toEqual([]);
+
+		one.ordering.started();
+
+		expect(
+			told.at(-1),
+			"nor keeps a later run from being stopped and told why",
+		).toBe(
+			"This run is stopped: the session was carried to penelope and runs there.",
+		);
 	});
 
 	it("says a close that lands past its deadline closed after all, on screen and in the journal", async () => {

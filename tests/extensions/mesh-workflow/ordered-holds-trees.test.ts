@@ -4,7 +4,8 @@
  * carry that can't see a tree mustn't leave it behind unasked.
  */
 
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -12,8 +13,12 @@ import { describe, expect, it, vi } from "vitest";
 import { orderedHolds } from "../../../extensions/mesh-workflow/ordered-carry.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 
-// What reading the trees a session holds throws, while a test sets it.
-const reading = vi.hoisted(() => ({ throws: undefined as Error | undefined }));
+// What reading the trees a session holds throws, or the trees it reads,
+// while a test sets them.
+const reading = vi.hoisted(() => ({
+	throws: undefined as Error | undefined,
+	trees: undefined as string[] | undefined,
+}));
 vi.mock("../../../lib/internal/work-records.ts", async (importOriginal) => {
 	const records =
 		await importOriginal<
@@ -21,12 +26,22 @@ vi.mock("../../../lib/internal/work-records.ts", async (importOriginal) => {
 		>();
 	return {
 		...records,
-		treesHeldByNow: async (session: string) => {
+		treesHeldByNow: async (
+			...args: Parameters<typeof records.treesHeldByNow>
+		) => {
 			if (reading.throws) throw reading.throws;
-			return records.treesHeldByNow(session);
+			if (reading.trees) return reading.trees;
+			return records.treesHeldByNow(...args);
 		},
 	};
 });
+
+/** A fresh git tree with no rebase under way. */
+function gitTree(): string {
+	const tree = mkdtempSync(join(tmpdir(), "ordered-trees-git-"));
+	execFileSync("git", ["init", "-q", tree]);
+	return tree;
+}
 
 /** Said for what was thrown that said nothing, as carrying's messageOf words it. */
 const SILENT = "something was thrown that said nothing of why";
@@ -76,6 +91,23 @@ describe("a session whose trees can't be told", () => {
 	});
 
 	it("isn't held when they can be told and none has a rebase halted", async () => {
-		expect(await holds()).toBeUndefined();
+		reading.trees = [gitTree()];
+		try {
+			expect(await holds()).toBeUndefined();
+		} finally {
+			reading.trees = undefined;
+		}
+	});
+
+	it("is held, naming the tree, when one it holds has a rebase halted", async () => {
+		const clean = gitTree();
+		const halted = gitTree();
+		mkdirSync(join(halted, ".git", "rebase-merge"));
+		reading.trees = [clean, halted];
+		try {
+			expect(await holds()).toBe(`a rebase is halted part-way in ${halted}`);
+		} finally {
+			reading.trees = undefined;
+		}
 	});
 });
