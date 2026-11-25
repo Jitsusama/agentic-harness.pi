@@ -262,6 +262,26 @@ describe("a lease", () => {
 		);
 	});
 
+	// A holder's why runs as long as it writes, so it is cut as a
+	// holder's work is, whole characters each.
+	it("says a long why of a rewrite cut short", async () => {
+		mkdirSync(join(fixture.root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {
+			subject: fixture.root,
+			checkout: fixture.root,
+			why: `${"a".repeat(119)}\u{1F344}${"b".repeat(2_000)}`,
+		});
+		const { fire } = await startSession();
+
+		const first = (await fire(...editing("a.ts"))) as { reason?: string };
+
+		expect(first.reason).toContain(
+			`is working on what \`${"a".repeat(119)}\u{1F344}...\` left in ${fixture.root},`,
+		);
+		expect(first.reason).not.toContain("b".repeat(10));
+	});
+
 	// A paused presence may name no address, and its lease still stops.
 	it("says a rewrite's holder that names no address as a peer", async () => {
 		mkdirSync(join(fixture.root, ".git"));
