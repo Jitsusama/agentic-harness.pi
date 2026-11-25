@@ -48,7 +48,11 @@ type Handler = (event: unknown, ctx: unknown) => unknown;
 function activate(active: string[]) {
 	const handlers = new Map<string, Handler>();
 	let declared = [...active];
+	const told: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
+		sendMessage: (message: unknown, options: unknown) => {
+			told.push({ message, options });
+		},
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		getAllTools: () => TOOLS,
 		getActiveTools: () => [...declared],
@@ -64,7 +68,7 @@ function activate(active: string[]) {
 		declared = [...new Set([...declared, ...names])];
 		await fire("tool_result", called("tool_search"));
 	};
-	return { fire, search, declared: () => declared };
+	return { fire, search, declared: () => declared, told };
 }
 
 /** A call's result, as pi hands it to `tool_result`. */
@@ -292,6 +296,31 @@ describe("putting down what a session stopped using", () => {
 		await fire("session_compact", {});
 
 		expect(declared()).toEqual(["bash", "browser_see", "tool_search"]);
+	});
+
+	// 25 November: pi says a put-down tool is "no longer available", and a
+	// session read that as unable to reload, and stalled (IKQ63G).
+	it("tells the session which it put down and how to load them again, and says nothing when none went", async () => {
+		const { fire, told } = activate(["bash", "browser_go", "browser_see"]);
+		await fire("session_start", {});
+
+		await fire("tool_result", called("browser_see"));
+		await fire("session_compact", {});
+		await fire("tool_result", called("browser_see"));
+		await fire("session_compact", {});
+
+		expect(told, "one note, for the one compaction that put any down").toEqual([
+			{
+				message: expect.objectContaining({
+					customType: "loadout-put-down",
+					display: false,
+					content: expect.stringMatching(
+						/unused since the one before: browser_go\..*tool_search loads any of them again/,
+					),
+				}),
+				options: { deliverAs: "nextTurn" },
+			},
+		]);
 	});
 
 	it("keeps a tool loaded since the last compaction until one more passes without a call", async () => {

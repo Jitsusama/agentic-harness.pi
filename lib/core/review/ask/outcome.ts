@@ -35,6 +35,7 @@ export function outcomeOf(
 		participantId,
 		findingIds,
 		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+		...(answer.wrappedUp === true ? { wrappedUp: true } : {}),
 		...(answer.answerPath === undefined
 			? {}
 			: { answerPath: answer.answerPath }),

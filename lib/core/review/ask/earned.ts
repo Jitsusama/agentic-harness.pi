@@ -12,21 +12,25 @@
  * reviewer.
  */
 
+import { takenAwayEmpty } from "./answered.ts";
 import type { AskRun } from "./run.ts";
 
 /**
- * Whether every reviewer `run` heard from failed before reading
- * anything, with none still to answer. One that spent tokens read the
- * change, so a failure that comes late, as a change that makes its
- * reviewers die would, still counts against asking again.
+ * Whether every reviewer `run` heard from left nothing read, with none
+ * still to answer: each failed before reading anything, or was taken
+ * away (stopped, its parent or supervisor gone) before it raised
+ * anything. One that spent tokens and then failed read the change, so
+ * a failure that comes late, as a change that makes its reviewers die
+ * would, still counts against asking again.
  */
-function everyoneFailedUnread(run: AskRun): boolean {
+function nobodyRead(run: AskRun): boolean {
 	return (
 		run.open !== true &&
 		run.outcomes.length > 0 &&
 		run.outcomes.every(
 			(outcome) =>
-				outcome.failure !== undefined && !((outcome.usage?.tokens ?? 0) > 0),
+				takenAwayEmpty(outcome) ||
+				(outcome.failure !== undefined && !((outcome.usage?.tokens ?? 0) > 0)),
 		)
 	);
 }
@@ -51,10 +55,7 @@ export function councilNotEarned(
 	// tokens, and asking again once that was mended read nothing any of
 	// them had read.
 	const councils = earlier.filter(
-		(run) =>
-			run.round === "council" &&
-			run.closed !== true &&
-			!everyoneFailedUnread(run),
+		(run) => run.round === "council" && run.closed !== true && !nobodyRead(run),
 	);
 	const sameCommit =
 		head === undefined

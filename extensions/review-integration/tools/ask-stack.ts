@@ -19,7 +19,12 @@ import {
 } from "../../../lib/core/review/index.ts";
 import { findingDir, reviewEngine, runDir } from "../engine.ts";
 import type { RoundWatch } from "../progress.ts";
-import { treeForRound } from "../work.ts";
+import {
+	saidOfTree,
+	stackFilesToRead,
+	treeForRound,
+	unpinnedOf,
+} from "../work.ts";
 import { answerFor } from "./ask-answer.ts";
 import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
@@ -96,6 +101,9 @@ export async function askStack(
 		bound.repo,
 		tip.proposal.headCommit,
 		params.repo ?? seat.cwd,
+		// Every change's files that the tip still holds, since the tip
+		// holds the whole stack's work.
+		stackFilesToRead(changes.map((one) => one.diff)),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// Every change in the stack, since a lens the stack edits anywhere
@@ -159,7 +167,7 @@ export async function askStack(
 			),
 			// Per-change witnesses, but one tree, so the caveat is about
 			// the round exactly as it is for every other kind.
-			...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
+			...(unpinnedOf(tree) === undefined ? {} : { unpinned: unpinnedOf(tree) }),
 			...givenBy(ISOLATED, conventions),
 		},
 		{
@@ -184,7 +192,7 @@ export async function askStack(
 		[
 			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
 			...(start.waited === undefined ? [] : [start.waited]),
-			answerFor(run, warnings, tree.caveat),
+			answerFor(run, warnings, saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },
 	);

@@ -30,7 +30,7 @@ import {
 import { runDir } from "../engine.ts";
 import type { RoundWatch } from "../progress.ts";
 import { roundToRead } from "../round-to-read.ts";
-import { readFrom, treeForRound } from "../work.ts";
+import { filesToRead, readFrom, saidOfTree, treeForRound } from "../work.ts";
 import { answerFor, judgeHandOff } from "./ask-answer.ts";
 import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
@@ -100,6 +100,7 @@ export async function askJudge(
 		bound.repo,
 		proposal.headCommit,
 		params.repo ?? seat.cwd,
+		filesToRead(diff),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "judge", diff);
@@ -134,7 +135,7 @@ export async function askJudge(
 		[
 			...collected.said,
 			`It consolidated ${council.id}.`,
-			answerFor(run, warnings, tree.caveat),
+			answerFor(run, warnings, saidOfTree(tree)),
 			...judgeHandOff(run),
 		].join("\n"),
 		{ run, warnings },
@@ -174,6 +175,7 @@ export async function askCritique(
 		bound.repo,
 		proposal.headCommit,
 		params.repo ?? seat.cwd,
+		filesToRead(diff),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
@@ -219,7 +221,7 @@ export async function askCritique(
 		[
 			`It pushed back on ${judged.id}.`,
 			...(start.waited === undefined ? [] : [start.waited]),
-			answerFor(run, warnings, tree.caveat),
+			answerFor(run, warnings, saidOfTree(tree)),
 			...(critiques.length === 0
 				? ["Nobody took a position."]
 				: ["", ...describeCritiques(critiques)]),
@@ -275,6 +277,7 @@ export async function askAudit(
 		bound.repo,
 		proposal.headCommit,
 		params.repo ?? seat.cwd,
+		filesToRead(diff),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 
@@ -319,7 +322,7 @@ export async function askAudit(
 	await createRunStore(runDir()).record(change, run);
 	return say(
 		[
-			answerFor(run, warnings, tree.caveat),
+			answerFor(run, warnings, saidOfTree(tree)),
 			...(audits.length === 0
 				? ["No thread was judged."]
 				: ["", ...describeAudits(audits)]),
