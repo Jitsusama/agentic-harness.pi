@@ -184,8 +184,13 @@ describe("a warm spare", () => {
 		expect(units.started, "before the adopt").toEqual([]);
 		const adopted = Date.now();
 		await supervisor.adopt();
-		await warmSpare();
+		// Its start, not its warm, which would add its own time to an early start.
+		await vi.waitFor(() => expect(units.started).toHaveLength(1), {
+			interval: 5,
+			timeout: after * 5,
+		});
 		expect(Date.now() - adopted).toBeGreaterThanOrEqual(after - 20);
+		await warmSpare();
 
 		const took = Date.now();
 		await supervisor.resume(entry(a));
@@ -230,6 +235,40 @@ describe("a warm spare", () => {
 		await vi.waitFor(() =>
 			expect(existsSync(slotNamed(left).file)).toBe(false),
 		);
+		expect(reported).toEqual([]);
+	});
+
+	it("whose mark goes between a take's read and its rename is let go, the start running its own unit", async () => {
+		let spare = "";
+		superviseAgain({
+			clocks: {
+				spares: () => true,
+				spareAfterMs: SPARE_AFTER_MS,
+				spareCheckMs: 60_000,
+				// Asked after the take read the mark and before it renames it, so
+				// the spare leaving on its own lands in between.
+				spareMoved: async () => {
+					await rm(warmMark(spare));
+					return undefined;
+				},
+			},
+		});
+		units.next = { spareVersion: "one" };
+		await supervisor.adopt();
+		spare = await warmSpare();
+
+		const resumed = await supervisor.resume(entry(a));
+
+		expect(resumed.sessionId).toBe(a);
+		const own = slotOf(folder, key, a);
+		// Its replacement may start before or after the resume's own unit.
+		expect(units.started[0]).toBe(spare);
+		expect(units.started).toContain(own.unit);
+		expect(routes.routeOf(a)?.socket).toBe(own.socket);
+		expect(said).toContainEqual(
+			expect.stringContaining(`${spare}: a warm spare left untaken`),
+		);
+		await vi.waitFor(() => expect(units.started).toHaveLength(3));
 		expect(reported).toEqual([]);
 	});
 
