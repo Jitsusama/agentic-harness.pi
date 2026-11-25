@@ -16,12 +16,12 @@ import { cloneAt, exec, folder, removeAll } from "./support/machines.ts";
 
 /**
  * What the disk refuses of an arriving clone's own folder, and with what;
- * or, for its removal, of the folder at `removing` where one is named.
+ * or, for its removal, of the folders `removing` takes where it is given.
  */
 const refusing = vi.hoisted(() => ({
 	rename: undefined as string | undefined,
 	remove: undefined as string | undefined,
-	removing: undefined as string | undefined,
+	removing: undefined as ((path: string) => boolean) | undefined,
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -29,11 +29,13 @@ vi.mock("node:fs", async (importOriginal) => {
 	/** A failure as node's own fs throws it, code and all. */
 	const refused = (code: string, call: string, path: string) =>
 		Object.assign(new Error(`${code}: refused, ${call} '${path}'`), { code });
+	/** Whether `path` is a clone's own folder, not a file within one. */
+	const aClone = (path: string) => /\.cloning-[^/]+$/.test(path);
 	return {
 		...real,
 		renameSync: (...args: Parameters<typeof real.renameSync>) => {
 			const from = String(args[0]);
-			if (refusing.rename !== undefined && from.includes(".cloning-")) {
+			if (refusing.rename !== undefined && aClone(from)) {
 				throw refused(refusing.rename, "rename", from);
 			}
 			real.renameSync(...args);
@@ -42,8 +44,8 @@ vi.mock("node:fs", async (importOriginal) => {
 			const path = String(args[0]);
 			const named =
 				refusing.removing === undefined
-					? path.includes(".cloning-")
-					: path === refusing.removing;
+					? aClone(path)
+					: refusing.removing(path);
 			if (refusing.remove !== undefined && named) {
 				throw refused(refusing.remove, "rm", path);
 			}
@@ -159,12 +161,36 @@ describe("an arriving clone the disk won't put in place", () => {
 		});
 	});
 
+	it("arrives from its twin though the files it feeds git can't be taken out", async () => {
+		const { from, origin, head } = await carried();
+		const home = folder(made, "arriving");
+		await cloneAt(origin, join(home, "src", "twin"));
+		const fed: string[] = [];
+		refusing.remove = "EBUSY";
+		refusing.removing = (at) => {
+			const feeding = /\/\.git\/carry-in-[^/]+$/.test(at);
+			if (feeding) fed.push(at);
+			return feeding;
+		};
+
+		const { whole, said } = await arriveAt(home, from);
+
+		expect(fed.length, "git was fed lines through a file").toBeGreaterThan(0);
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(said[0]).toMatchObject({ did: "cloned" });
+		expect(
+			(
+				await exec("git", ["-C", join(home, "src", "app"), "rev-parse", "HEAD"])
+			).stdout.trim(),
+		).toBe(head);
+	});
+
 	it("says where a cloned tree is left when settling it fails and it can't be taken out", async () => {
 		const { from } = await carried();
 		const home = folder(made, "arriving");
 		const path = join(home, "src", "app");
 		refusing.remove = "EBUSY";
-		refusing.removing = path;
+		refusing.removing = (at) => at === path;
 		const unsettled: Exec = async (command, args) =>
 			args.includes("checkout") && args.includes("-B")
 				? { code: 128, stdout: "", stderr: "fatal: refused" }
