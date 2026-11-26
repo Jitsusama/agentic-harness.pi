@@ -24,7 +24,9 @@ import {
 	leftOutOf,
 } from "../../../host/engine/kept-history.ts";
 import {
+	LightFellBack,
 	type LightPi,
+	openHeld,
 	openKept,
 	readLight,
 } from "../../../host/engine/light-open.ts";
@@ -117,11 +119,23 @@ function userId(sessions: SessionManager, text: string): string {
 	return entry.id;
 }
 
+/** A compaction's details and usage, as pi's own summariser records them. */
+function summarised(sessions: SessionManager, summary: string, from: string) {
+	sessions.appendCompaction(
+		summary,
+		userId(sessions, from),
+		900,
+		{ summariser: "conversation", readFiles: ["a file ✓"] },
+		false,
+		usage(0.25) as never,
+	);
+}
+
 /**
  * A log written by pi with every kind of entry the light read drops
- * values from, two compactions keeping the system message, an abandoned
- * branch and state, the last compaction keeping from "kept one"; answers
- * with its file.
+ * values from, two compactions keeping the system message, with their
+ * details and usage, an abandoned branch and state, the last compaction
+ * keeping from "kept one"; answers with its file.
  */
 function compactedLog(cwd: string = dir): string {
 	const sessions = SessionManager.create(cwd, dir);
@@ -136,22 +150,14 @@ function compactedLog(cwd: string = dir): string {
 	toolTurn(sessions, "early one", 1);
 	const note = "a long note é".repeat(30);
 	sessions.appendCustomMessageEntry("peers", note, false, { by: "a peer ✓" });
-	sessions.appendCompaction(
-		"the first summary é",
-		userId(sessions, "early one"),
-		900,
-	);
+	summarised(sessions, "the first summary é", "early one");
 	const fork = sessions.getLeafId() ?? "";
 	toolTurn(sessions, "abandoned", 3);
 	sessions.branchWithSummary(fork, "what the abandoned branch did ✓");
 	sessions.appendCustomEntry("away-state", { away: true });
 	toolTurn(sessions, "early two", 2);
 	toolTurn(sessions, "kept one");
-	sessions.appendCompaction(
-		"the last summary 🙂",
-		userId(sessions, "kept one"),
-		1000,
-	);
+	summarised(sessions, "the last summary 🙂", "kept one");
 	toolTurn(sessions, "after");
 	const file = sessions.getSessionFile();
 	if (!file) throw new Error("pi named no file");
@@ -199,11 +205,24 @@ function answers(manager: SessionManager, file: string): unknown {
 	);
 }
 
-/** pi's own open of `file`, held as the engine holds it. */
-function piHeld(file: string): SessionManager {
+/**
+ * pi's own open of `file`, held as the engine holds it, holding a kept
+ * view unless `whole`.
+ */
+function piHeld(file: string, whole = false): SessionManager {
 	const held = holdKeptHistory(SessionManager.open(file));
-	expect(leftOutOf(held)).toBeDefined();
+	if (whole) expect(leftOutOf(held)).toBeUndefined();
+	else expect(leftOutOf(held)).toBeDefined();
 	return held;
+}
+
+/** Where `file`'s only line holding `text` sits among its lines. */
+function lineOf(file: string, text: string): number {
+	const found = readFileSync(file, "utf8")
+		.split("\n")
+		.flatMap((line, at) => (line.includes(text) ? [at] : []));
+	if (found.length !== 1) throw new Error(`${found.length} lines hold ${text}`);
+	return found[0] ?? -1;
 }
 
 /** pi's session layer as the engine hands it to the light open. */
@@ -235,6 +254,29 @@ describe("a log opened light", () => {
 		expect(readFileSync(file, "utf8")).toBe(before);
 	});
 
+	it("with no compaction is read once and held whole, as pi's open holds it", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "only");
+		toolTurn(sessions, "second");
+		const file = sessions.getSessionFile() ?? "";
+		const read = readLight(file);
+		expect(read?.lightened).toBe(0);
+		expect(read?.entries).toEqual(lines(file));
+		const light = lightHeld(file);
+		expect(leftOutOf(light)).toBeUndefined();
+		expect(answers(light, file)).toEqual(answers(piHeld(file, true), file));
+	});
+
+	it("whose last entry is its compaction holds what pi's open holds", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "early one");
+		toolTurn(sessions, "kept one");
+		summarised(sessions, "the only summary", "kept one");
+		const file = sessions.getSessionFile() ?? "";
+		expect(readLight(file)?.lightened).toBeGreaterThan(0);
+		expect(answers(lightHeld(file), file)).toEqual(answers(piHeld(file), file));
+	});
+
 	it("skips blank and malformed lines as pi's open does", () => {
 		const file = compactedLog();
 		const text = readFileSync(file, "utf8").split("\n");
@@ -257,26 +299,56 @@ describe("a log opened light", () => {
 		]);
 	});
 
+	it("says what its kept view says once it has opened", () => {
+		const file = compactedLog();
+		const said: unknown[] = [];
+		const opened = openKept(PI, file, (what) => said.push(what));
+		if (!opened || !(opened.manager instanceof SessionManager))
+			throw new Error("the light open fell back to pi's");
+		expect(said).toEqual([]);
+		opened.manager.getTree();
+		expect(said).toEqual([
+			expect.stringContaining("whole log back into memory to show its tree"),
+		]);
+	});
+
 	it("opens in the folder that stands when its own is gone, as pi's does", () => {
 		const gone = join(dir, "tree", "gone");
 		mkdirSync(gone, { recursive: true });
 		const file = compactedLog(gone);
 		rmSync(join(dir, "tree"), { recursive: true });
+		const before = readFileSync(file, "utf8");
 		const light = openKept(PI, file, () => {}, dir);
 		const standing = openStanding(SessionManager, file, dir);
-		expect(light?.left).toBe(standing.left);
-		expect(light?.left).toBe(gone);
-		expect(light?.manager.getCwd()).toBe(standing.manager.getCwd());
-		expect(light?.manager.getCwd()).toBe(dir);
+		const held = holdKeptHistory(standing.manager);
+		if (!light || !(light.manager instanceof SessionManager))
+			throw new Error("the light open fell back to pi's");
+		if (!(held instanceof SessionManager))
+			throw new Error("pi's open gave another manager");
+		expect(light.left).toBe(standing.left);
+		expect(light.left).toBe(gone);
+		expect(light.manager.getCwd()).toBe(dir);
+		expect(answers(light.manager, file)).toEqual(answers(held, file));
+		expect(readFileSync(file, "utf8")).toBe(before);
 	});
 });
 
 describe("a light read", () => {
-	it("drops the values only a held entry needs, keeping what the view reads", () => {
+	it("drops the values only a held entry needs before the last compaction, keeping what the view reads", () => {
 		const file = compactedLog();
 		const read = readLight(file);
 		if (!read) throw new Error("no light read");
-		const records = read.entries.filter(isRecord);
+		const last = read.entries
+			.map((entry) => isRecord(entry) && entry.type === "compaction")
+			.lastIndexOf(true);
+		expect(read.entries.slice(last)).toEqual(lines(file).slice(last));
+		const records = read.entries.slice(0, last).filter(isRecord);
+		const whole = lines(file).map((entry) => JSON.stringify(entry));
+		const changed = read.entries
+			.slice(0, last)
+			.filter((entry, i) => JSON.stringify(entry) !== whole[i]);
+		expect(changed.length).toBeGreaterThan(0);
+		expect(read.lightened).toBe(changed.length);
 		const said = (role: string) =>
 			records.flatMap(({ message }) =>
 				isRecord(message) && message.role === role ? [message] : [],
@@ -303,7 +375,7 @@ describe("a light read", () => {
 		const users = said("user").map(({ content }) => content);
 		expect(users).toContain("early one é✓🙂");
 		const summaries = [...typed("compaction"), ...typed("branch_summary")];
-		expect(summaries.map(({ summary }) => summary)).toEqual(["", "", ""]);
+		expect(summaries.map(({ summary }) => summary)).toEqual(["", ""]);
 		const written = lines(file).filter(
 			(entry) => isRecord(entry) && entry.type === "compaction",
 		);
@@ -313,7 +385,12 @@ describe("a light read", () => {
 		]);
 		expect(typed("compaction")).toEqual([
 			expect.not.objectContaining({ systemMessage: expect.anything() }),
-			expect.not.objectContaining({ systemMessage: expect.anything() }),
+		]);
+		expect(typed("compaction")).toEqual([
+			expect.objectContaining({
+				details: { summariser: "conversation", readFiles: ["a file ✓"] },
+				usage: expect.objectContaining({ output: 10 }),
+			}),
 		]);
 		expect(typed("custom_message")).toEqual([
 			expect.not.objectContaining({ details: expect.anything() }),
@@ -333,12 +410,16 @@ describe("a light read", () => {
 		}
 	});
 
-	it("refuses to read back a line that no longer parses", () => {
+	it("refuses to read back a light line that no longer parses", () => {
 		const file = compactedLog();
 		const read = readLight(file);
 		if (!read) throw new Error("no light read");
-		const text = readFileSync(file, "utf8");
-		writeFileSync(file, `${text.slice(0, 200)}${text.slice(210)}`);
+		const text = readFileSync(file, "utf8").split("\n");
+		const at = lineOf(file, "output of early one");
+		const line = text[at] ?? "";
+		expect(line.startsWith("{")).toBe(true);
+		text[at] = `[${line.slice(1)}`;
+		writeFileSync(file, text.join("\n"));
 		expect(() => read.whole(read.entries as Entry[])).toThrow(
 			/no longer holds/,
 		);
@@ -368,10 +449,15 @@ describe("pi's own open stands", () => {
 		return opened === undefined;
 	}
 
-	it("for a log the view would hold whole", () => {
+	it("for a log whose view would hold entries read light whole", () => {
 		const sessions = SessionManager.create(dir, dir);
-		toolTurn(sessions, "only");
-		expect(fallsBack(sessions.getSessionFile() ?? "")).toBe(true);
+		toolTurn(sessions, "first");
+		toolTurn(sessions, "second");
+		const first = sessions.getEntries()[0]?.id ?? "";
+		sessions.appendCompaction("from the start", first, 900);
+		const file = sessions.getSessionFile() ?? "";
+		expect(readLight(file)?.lightened).toBeGreaterThan(0);
+		expect(fallsBack(file)).toBe(true);
 	});
 
 	it("for a log pi would migrate, which pi writes back whole", () => {
@@ -407,6 +493,39 @@ describe("pi's own open stands", () => {
 		expect(fallsBack(compactedLog(), pi)).toBe(true);
 	});
 
+	/** A pi whose session manager `change`s what it built before answering. */
+	function changing(change: (manager: Record<string, unknown>) => void) {
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const changes = function (...args: unknown[]) {
+			const made: unknown = Reflect.construct(SessionManager, args);
+			if (isRecord(made)) change(made);
+			return made;
+		};
+		return { SessionManager: changes, version: CURRENT_SESSION_VERSION };
+	}
+
+	it("for a session manager that replaces the entries it was given", () => {
+		const pi = changing(({ fileEntries }) => {
+			if (Array.isArray(fileEntries)) fileEntries[1] = { ...fileEntries[1] };
+		});
+		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
+	it("for a session manager that indexes copies of its entries", () => {
+		const pi = changing(({ byId }) => {
+			if (byId instanceof Map)
+				for (const [id, entry] of byId) byId.set(id, { ...entry });
+		});
+		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
+	it("for a session manager that names another session", () => {
+		const pi = changing((manager) => {
+			manager.sessionId = "another";
+		});
+		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
 	it("for a session manager that reads the log itself rather than take its entries", () => {
 		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
 		const reads = function (...args: unknown[]) {
@@ -414,5 +533,49 @@ describe("pi's own open stands", () => {
 		};
 		const pi = { SessionManager: reads, version: CURRENT_SESSION_VERSION };
 		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+});
+
+describe("a light open that falls back", () => {
+	/** A log whose view would hold entries read light, so the light open falls back. */
+	function fromTheStart(): string {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "first");
+		const first = sessions.getEntries()[0]?.id ?? "";
+		sessions.appendCompaction("from the start", first, 900);
+		return sessions.getSessionFile() ?? "";
+	}
+
+	/** pi's own open as the engine makes it, saying `says` as it opens. */
+	const whole =
+		(says: unknown[]) => (file: string, report: (said: unknown) => void) => {
+			for (const said of says) report(said);
+			return { manager: holdKeptHistory(SessionManager.open(file)) };
+		};
+
+	it("says why once, when pi's own open says nothing", () => {
+		const said: unknown[] = [];
+		const file = fromTheStart();
+		openHeld(PI, file, (what) => said.push(what), whole([]));
+		expect(said).toEqual([expect.any(LightFellBack)]);
+		expect(String(said[0])).toContain(`light open of ${file} fell back`);
+	});
+
+	it("leaves pi's own open to say it when it says something", () => {
+		const said: unknown[] = [];
+		const failed = new Error("the view failed");
+		openHeld(PI, fromTheStart(), (what) => said.push(what), whole([failed]));
+		expect(said).toEqual([failed]);
+	});
+
+	it("says once that pi's session layer is not what it reads", () => {
+		const said: unknown[] = [];
+		class Other {}
+		const pi = { SessionManager: Other, version: CURRENT_SESSION_VERSION };
+		const file = compactedLog();
+		openKept(pi, file, (what) => said.push(what));
+		openKept(pi, file, (what) => said.push(what));
+		expect(said).toEqual([expect.any(LightFellBack)]);
+		expect(String(said[0])).toContain("Light opens are off");
 	});
 });

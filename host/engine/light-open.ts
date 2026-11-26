@@ -7,20 +7,23 @@
  * peaks at the whole parse first, and the process's resident memory
  * keeps that peak. Opening a 68 MB log and holding its view peaked at
  * 298 MB resident, against 172 MB opened this way. This reads the
- * log line by line as pi does, but drops each entry's heavy values as it
- * parses it: an answer's content, keeping each part's type, which pi's
- * /session counts tool calls by; a tool result's content and details; a
+ * log line by line as pi does, and once a compaction shows that the
+ * view starts after the entries read so far, drops their heavy values:
+ * an answer's content, keeping each part's type, which pi's /session
+ * counts tool calls by; a tool result's content and details; a
  * summary's text and the system message a compaction keeps; and an
  * extension message's content and details.
  * Nothing the view reads of an entry it leaves out is among those: ids,
  * parents, types, usage and models, user messages and state. Every
- * entry the view holds is read again whole from its own line.
+ * entry the view holds that was read light is read again whole from its
+ * own line. A log with no compaction is read once and held whole, as
+ * pi's own open holds it, since the view would hold all of it.
  *
  * pi's own open stands wherever this can't match it: a log pi would
  * migrate and write back, or end without a newline, a file that isn't a
  * log, a session manager that no longer takes preloaded entries as this
- * expects, and a log the view would hold whole, whose light entries
- * must never reach the model.
+ * expects, and a log whose view would hold an entry read light whole,
+ * since a light entry must never reach the model.
  */
 
 import { closeSync, openSync, readSync } from "node:fs";
@@ -44,11 +47,13 @@ interface Span {
 	readonly length: number;
 }
 
-/** A log read with its entries' heavy values dropped. */
+/** A log read with the heavy values of what its view leaves out dropped. */
 export interface LightLog {
 	/** Its entries, header first, as pi's open would hold them but lighter. */
 	readonly entries: unknown[];
-	/** `entries`, each one read light read again whole from its line. */
+	/** How many of `entries` were read light. */
+	readonly lightened: number;
+	/** The entries given, with each that was read light read again whole. */
 	whole(entries: readonly Entry[]): Entry[];
 }
 
@@ -63,6 +68,10 @@ export function readLight(
 ): LightLog | undefined {
 	const entries: unknown[] = [];
 	const spans = new WeakMap<object, Span>();
+	// The entries read since the last compaction, each with its line, held
+	// whole until a later compaction shows the view starts after them.
+	let since: { entry: Record<string, unknown>; span: Span }[] = [];
+	let lightened = 0;
 	const take = (bytes: Buffer, start: number): void => {
 		const line = bytes.toString("utf8");
 		if (!line.trim()) return;
@@ -73,11 +82,19 @@ export function readLight(
 			// pi's open skips a line that isn't JSON, so this does too.
 			return;
 		}
-		// pi's open keeps whatever a line parses to but null and false.
+		// pi's open keeps whatever a line parses to unless it is falsy.
 		if (!entry) return;
-		if (isRecord(entry) && lighten(entry))
-			spans.set(entry, { start, length: bytes.length });
 		entries.push(entry);
+		if (!isRecord(entry)) return;
+		if (entry.type === "compaction") {
+			for (const read of since) {
+				if (!lighten(read.entry)) continue;
+				spans.set(read.entry, read.span);
+				lightened++;
+			}
+			since = [];
+		}
+		since.push({ entry, span: { start, length: bytes.length } });
 	};
 	const fd = openSync(file, "r");
 	try {
@@ -111,7 +128,11 @@ export function readLight(
 	const header = entries[0];
 	if (!isRecord(header) || header.type !== "session") return undefined;
 	if (typeof header.id !== "string") return undefined;
-	return { entries, whole: (light) => wholeEntries(file, light, spans) };
+	return {
+		entries,
+		lightened,
+		whole: (light) => wholeEntries(file, light, spans),
+	};
 }
 
 /**
@@ -204,11 +225,42 @@ export interface LightPi {
 /** Says what to say, or the error that stopped something. */
 type Report = (said: unknown) => void;
 
+/** Why a light open let pi's own open read its log after all. */
+export class LightFellBack extends Error {}
+
+/**
+ * A report that holds what it is told until `sayTo` names where it goes,
+ * then says it there, as it says all it is told after. Made apart from
+ * any open, so what kept-history keeps of it keeps no open's log alive.
+ */
+class HeldReport {
+	/** What it was told before it had anywhere to say it. */
+	readonly held: unknown[] = [];
+	private to: Report | undefined;
+
+	/** Says `what` where it goes, or holds it until that is named. */
+	readonly report: Report = (what) => {
+		if (this.to) this.to(what);
+		else this.held.push(what);
+	};
+
+	/** Says what it holds to `to`, and all it is told after. */
+	sayTo(to: Report): void {
+		this.to = to;
+		for (const what of this.held.splice(0)) to(what);
+	}
+}
+
+/** The session layers already told they are not what the light open reads. */
+const toldUnlike = new WeakSet<LightPi>();
+
 /**
  * `file` opened light and holding its kept view, in the folder that
  * stands nearest the one it names when that one is gone (as
  * gone-folder.ts's `openStanding`), or undefined when pi's own open
- * should open it, said when that is because something failed.
+ * should open it. What went wrong on the way is said as a LightFellBack
+ * when pi's open is left to read it, and as it was said otherwise; that
+ * pi's session layer is not what this reads is said once for each layer.
  */
 export function openKept(
 	pi: LightPi,
@@ -217,8 +269,21 @@ export function openKept(
 	home: string = homedir(),
 ): StandingOpen | undefined {
 	const { SessionManager: Manager, version } = pi;
-	if (typeof Manager !== "function" || typeof version !== "number")
+	const unlike = (why: string): undefined => {
+		if (toldUnlike.has(pi)) return undefined;
+		toldUnlike.add(pi);
+		report(
+			new LightFellBack(
+				`Light opens are off, so every log is read whole first: ${why}`,
+			),
+		);
 		return undefined;
+	};
+	if (typeof Manager !== "function" || typeof version !== "number")
+		return unlike(
+			"pi no longer has the session manager or log version it reads",
+		);
+	const said = new HeldReport();
 	try {
 		const log = readLight(file);
 		if (!log) return undefined;
@@ -229,6 +294,9 @@ export function openKept(
 		const path = resolve(file);
 		const headerCwd = typeof header.cwd === "string" ? header.cwd : undefined;
 		const open = (cwd?: string): SessionManager => {
+			// What pi is given, to check it took it unchanged; a copy kept past
+			// the check would hold every entry the kept view lets go of.
+			const read = [...log.entries];
 			// pi's own open builds its manager so when its header scan fails.
 			const manager: unknown = Reflect.construct(Manager, [
 				cwd ?? headerCwd ?? process.cwd(),
@@ -238,19 +306,73 @@ export function openKept(
 				undefined,
 				log.entries,
 			]);
-			if (!took(manager, log.entries, path))
+			if (!took(manager, log.entries, read, path, header.id))
 				throw new NotLikePi(
 					"pi's session manager no longer takes a log's entries as the light open expects",
 				);
 			return manager;
 		};
 		const standing = standingOpen(open, home);
-		holdKeptHistory(standing.manager, report, log.whole);
-		return leftOutOf(standing.manager) ? standing : undefined;
+		holdKeptHistory(standing.manager, said.report, log.whole);
+		// A log with nothing read light is held as pi's own open holds it,
+		// so it stands whether or not the view could be taken.
+		if (leftOutOf(standing.manager) || log.lightened === 0) {
+			said.sayTo(report);
+			return standing;
+		}
+		said.report(new Error("its kept view would hold entries read light"));
 	} catch (error) {
-		if (!(error instanceof NotLikePi)) report(error);
-		return undefined;
+		if (error instanceof NotLikePi) return unlike(error.message);
+		said.report(error);
 	}
+	said.sayTo((what) => report(fellBack(file, what)));
+	return undefined;
+}
+
+/**
+ * `what`, said while opening `file` light, as the reason it fell back:
+ * an error as a LightFellBack, and anything else as it was said.
+ */
+function fellBack(file: string, what: unknown): unknown {
+	if (!(what instanceof Error)) return what;
+	const why = what.message;
+	return new LightFellBack(
+		`The light open of ${file} fell back to pi's own open: ${why}`,
+	);
+}
+
+/**
+ * `file` opened holding its kept view: light when it can be, and
+ * otherwise by `openWhole`, pi's own open. Why a light open fell back is
+ * said only when pi's own open says nothing of its own, since a cause
+ * both meet (a view that can't be built) is told best by the open that
+ * stands; anything that isn't an error is always said.
+ */
+export function openHeld(
+	pi: LightPi,
+	file: string,
+	report: Report,
+	openWhole: (file: string, report: Report) => StandingOpen,
+	home: string = homedir(),
+): StandingOpen {
+	const fell: unknown[] = [];
+	const kept = openKept(
+		pi,
+		file,
+		(what) => {
+			if (what instanceof LightFellBack) fell.push(what);
+			else report(what);
+		},
+		home,
+	);
+	if (kept) return kept;
+	let saidWhole = false;
+	const standing = openWhole(file, (what) => {
+		saidWhole = true;
+		report(what);
+	});
+	if (!saidWhole) for (const what of fell) report(what);
+	return standing;
 }
 
 /** pi's session manager is not what the light open builds on. */
@@ -258,17 +380,26 @@ class NotLikePi extends Error {}
 
 /**
  * Whether pi built `manager` over `entries` for `path`, as its open of
- * that file would: holding those very entries, unmigrated.
+ * that file would: holding those very entries, unmigrated and unchanged
+ * from `read`, indexed by them alone, and naming the log's own session.
  */
 function took(
 	manager: unknown,
 	entries: unknown[],
+	read: readonly unknown[],
 	path: string,
+	id: unknown,
 ): manager is SessionManager {
+	if (!holdsLikePi(manager)) return false;
+	if (manager.fileEntries !== entries || entries.length !== read.length)
+		return false;
+	if (!entries.every((entry, i) => entry === read[i])) return false;
+	const readSet = new Set(read);
+	for (const entry of manager.byId.values())
+		if (!readSet.has(entry)) return false;
 	return (
-		holdsLikePi(manager) &&
-		manager.fileEntries === entries &&
 		manager.getSessionFile() === path &&
+		manager.getSessionId() === id &&
 		manager.flushed
 	);
 }

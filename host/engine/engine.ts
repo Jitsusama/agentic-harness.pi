@@ -118,7 +118,7 @@ export async function createEngine(
 	// the program loads, a missing install would fail the import before
 	// the program's configuration check refuses it with exit 78.
 	const { holdKeptHistory } = await import("./kept-history.ts");
-	const { openKept } = await import("./light-open.ts");
+	const { openHeld } = await import("./light-open.ts");
 	const { countLeftOut } = await import("./kept-history-session.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
@@ -281,21 +281,20 @@ export async function createEngine(
 		return { tools: running, jobs, waiting, builds: buildsRunning };
 	}
 
-	/**
-	 * Open a conversation's log to hold its kept view, in the folder that
-	 * stands nearest the one it names when that one is gone, as a tree
-	 * released once its change merged is, rather than have pi refuse it.
-	 */
 	/** pi's session layer as the light open builds on it. */
 	const lightPi = {
 		SessionManager: sessions.SessionManager,
 		version: pi.modules.codingAgent.CURRENT_SESSION_VERSION,
 	};
 
-	/** `file` opened holding its kept view: light, or else by pi's own open. */
+	/**
+	 * Open a conversation's log to hold its kept view, light or else by
+	 * pi's own open, in the folder that stands nearest the one it names
+	 * when that one is gone, as a tree released once its change merged
+	 * is, rather than have pi refuse it.
+	 */
 	function openLog(file: string): StandingOpen {
-		const { manager, left } =
-			openKept(lightPi, file, report) ?? openWhole(file);
+		const { manager, left } = openHeld(lightPi, file, report, openWhole);
 		if (left)
 			report(
 				`Conversation ${manager.getSessionId()}'s folder ${left} is gone, so it opens in ${manager.getCwd()}`,
@@ -304,10 +303,13 @@ export async function createEngine(
 	}
 
 	/** `file` opened by pi's own open, then holding its kept view. */
-	function openWhole(file: string): StandingOpen {
+	function openWhole(
+		file: string,
+		say: (said: unknown) => void = report,
+	): StandingOpen {
 		const { manager, left } = openStanding(sessions.SessionManager, file);
 		return {
-			manager: holdKeptHistory(manager, report),
+			manager: holdKeptHistory(manager, say),
 			...(left ? { left } : {}),
 		};
 	}
