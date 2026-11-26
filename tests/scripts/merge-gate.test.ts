@@ -196,7 +196,7 @@ async function change(
 		const path = join(checkout, file);
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(path, text);
-		await git(checkout, "add", file);
+		await git(checkout, "add", "--", file);
 	}
 	await git(checkout, "commit", "-q", "-m", "change");
 	return git(checkout, "rev-parse", "HEAD");
@@ -474,6 +474,34 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).not.toContain("Cannot read file");
 		expect(answered.said).toContain("lib/loud.ts:1:1");
+	});
+
+	it("judges a changed file whose name git would quote", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/odd é.ts": "export const odd = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "the file wasn't judged").toContain(
+			"Biome passes the 1 file(s)",
+		);
+	});
+
+	it("reads a changed file named like an option as a file", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"--write.ts": "export const written=2\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "Biome didn't fault the file").toContain(
+			"Formatter would have printed the following content",
+		);
 	});
 
 	it("names a file by main's config as it is now, not as it was at the cut", async () => {
@@ -1091,6 +1119,25 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain("tracks files under a node_modules folder");
+	});
+
+	it("refuses packages of its own at the root, whose name git would quote", async () => {
+		const checkout = await harness();
+		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
+		// Not a file Biome reads, so only the sweep can see it.
+		const own = join(checkout, "node_modules", "é", "README.md");
+		mkdirSync(dirname(own), { recursive: true });
+		writeFileSync(own, "# Mine\n");
+		await git(checkout, "add", "-f", own);
+		await git(checkout, "commit", "-q", "-m", "own");
+		const sha = await git(checkout, "rev-parse", "HEAD");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the packages weren't seen").toContain(
+			"tracks files under a node_modules folder",
+		);
 	});
 
 	it("judges by main's rule, not one the head loosened", async () => {

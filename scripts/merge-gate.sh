@@ -109,7 +109,7 @@ unattributed() {
 gate_index() {
   index="$scratch/index" unattributed -c core.symlinks=false "$@"
 }
-# Main's tree, for the files the run by main's config reads from main.
+# Main's tree, so the run by main's config reads main's own plugins.
 main_index() {
   index="$scratch/main-index" unattributed -c core.symlinks=false "$@"
 }
@@ -134,12 +134,14 @@ fi
 
 # What Biome reads, of what the change adds or modifies. The diff is its
 # own step, so a diff that fails stops the gate rather than passing as a
-# change that touches nothing.
-changed=$(unattributed diff --name-only --diff-filter=d "$base" "$head_id" -- \
+# change that touches nothing. Paths are read whole with -z, since git
+# quotes an odd name without it, and a quoted name is one checkout-index
+# can't find.
+unattributed diff -z --name-only --diff-filter=d "$base" "$head_id" -- \
   '*.ts' '*.mts' '*.cts' '*.tsx' '*.js' '*.mjs' '*.cjs' '*.jsx' \
-  '*.json' '*.jsonc' '*.css')
-if [[ -n $changed ]]; then
-  mapfile -t files <<< "$changed"
+  '*.json' '*.jsonc' '*.css' > "$scratch/changed-files"
+mapfile -d '' -t files < "$scratch/changed-files"
+if [[ ${#files[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
   # The config goes out once: named again as a changed file, checkout-index
@@ -150,8 +152,7 @@ if [[ -n $changed ]]; then
   done
   gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${others[@]}"
   # Biome loads a config's GritQL plugins before it judges anything, so
-  # they go out too, changed or not; none is among the files above. Paths
-  # are read whole with -z, since git quotes an odd name without it. Other
+  # they go out too, changed or not; none is among the files above. Other
   # files a config can load, an extends target or a nested config, don't
   # go out yet.
   gate_index ls-files -z -- '*.grit' > "$scratch/grits"
@@ -160,7 +161,9 @@ if [[ -n $changed ]]; then
     gate_index checkout-index --prefix="$tree/" -- "${plugins[@]}"
   fi
   set +e
-  said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off "${files[@]}" 2>&1)
+  # The paths follow --, so a file named like an option is read as a file.
+  said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off \
+    -- "${files[@]}" 2>&1)
   checked=$?
   set -e
   if [[ $checked != 0 ]]; then
@@ -192,7 +195,7 @@ if [[ -n $changed ]]; then
       main_index checkout-index --prefix="$before/" -- "${main_plugins[@]}"
     fi
     if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
-      --colors=off "${others[@]}" > "$scratch/before.said" 2>&1); then
+      --colors=off -- "${others[@]}" > "$scratch/before.said" 2>&1); then
       # Biome fails the same way when it can't load the config at all, so
       # only a run that faults a changed file, on a line that opens with its
       # path as Biome's diagnostics do, is called a loosening; a path quoted
@@ -227,9 +230,11 @@ fi
 
 # A head's own packages would stand before the checkout's, and the rules
 # would import its vitest rather than the one installed. A Mac's disk
-# takes Node_Modules for node_modules, so any case is refused.
-tracked=$(unattributed ls-tree -r --name-only "$head_id")
-if grep -qiE '(^|/)node_modules(/|$)' <<< "$tracked"; then
+# takes Node_Modules for node_modules, so any case is refused. Paths are
+# read whole with -z, since a name git quotes opens with a quote, which
+# would hide a node_modules folder at the root.
+unattributed ls-tree -r -z --name-only "$head_id" > "$scratch/tracked"
+if grep -qizE '(^|/)node_modules(/|$)' "$scratch/tracked"; then
   echo "merge-gate: $sha tracks files under a node_modules folder, which would stand before the installed packages." >&2
   echo "Remove them from the branch, push, and merge the new head." >&2
   exit 1
