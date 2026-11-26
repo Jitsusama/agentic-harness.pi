@@ -181,11 +181,78 @@ describe("what a restart keeps of holding its quest's address", () => {
 	const last = {
 		addresses: ["7M6JKG", "24B025FE"],
 		signsSince: "2026-11-21T20:47:00.000Z",
+		at: "2026-11-25T15:59:30.000Z",
 	};
 	const kept = { address: "7M6JKG", since: "2026-11-21T20:47:00.000Z" };
 
-	it("keeps the time across a restart that never said it ended", () => {
+	it("keeps the time across a kill that said nothing moments before", () => {
 		expect(signedSince(last, now)).toEqual(kept);
+	});
+
+	it("starts afresh after a kill that last said anything an hour ago", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:00:00.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("keeps the time across a park however long it slept, while its marker stands", () => {
+		const slept = {
+			...last,
+			session: "s",
+			at: "2026-11-24T16:00:00.000Z",
+			state: "parked",
+		};
+
+		expect(signedSince(slept, now, { parked: () => true })).toEqual(kept);
+		expect(
+			signedSince(slept, now, { parked: () => false }),
+			"nor once a reboot voided its marker",
+		).toBeUndefined();
+	});
+
+	it("bounds a park that ended by when it ended, not by its marker", () => {
+		expect(
+			signedSince(
+				{
+					...last,
+					session: "s",
+					state: "parked",
+					ended: "2026-11-25T15:00:00.000Z",
+				},
+				now,
+				{ parked: () => true },
+			),
+		).toBeUndefined();
+	});
+
+	it("keeps the time across a reload, which the same process starts however long it was quiet", () => {
+		const owner = { pid: 4242, startedAt: 1_000, bootId: "b" };
+		const quiet = { ...last, at: "2026-11-25T12:00:00.000Z", owner };
+
+		expect(signedSince(quiet, now, { owner })).toEqual(kept);
+		expect(
+			signedSince(quiet, now, { owner: { ...owner, startedAt: 9_000_000 } }),
+			"nor for a new process wearing its pid",
+		).toBeUndefined();
+		expect(
+			signedSince(quiet, now, { owner: { ...owner, bootId: "c" } }),
+			"nor for one in another boot",
+		).toBeUndefined();
+	});
+
+	it("keeps it up to ten minutes after its last word, and not a moment past", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:50:00.000Z" }, now),
+		).toEqual(kept);
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:49:59.999Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("starts afresh after a last word dated far ahead, as a clock set wrong writes", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-26T16:00:00.000Z" }, now),
+		).toBeUndefined();
 	});
 
 	it("keeps it across one that ended moments before, as a rollover does", () => {
@@ -215,7 +282,9 @@ describe("what a restart keeps of holding its quest's address", () => {
 	});
 
 	it("keeps nothing where the last presence said no time", () => {
-		expect(signedSince({ addresses: ["7M6JKG"] }, now)).toBeUndefined();
+		expect(
+			signedSince({ addresses: ["7M6JKG"], at: last.at }, now),
+		).toBeUndefined();
 		expect(signedSince(undefined, now)).toBeUndefined();
 	});
 });

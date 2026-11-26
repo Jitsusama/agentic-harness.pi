@@ -31,10 +31,12 @@
  * to the holder's machine is back, gives it back once the holder is
  * heard: on 25 November one such kept it for having the lower session
  * id, and its quest's orchestrator, on another machine, lost its asks.
- * A holder keeps its time through its own restart, a park, a reboot,
- * or a restart in place or rollover, which say it ended a moment before
- * it starts again, so none of them hands the address on; one that ended
- * longer ago than that starts afresh. Where any signer says no time, as
+ * A holder keeps its time through a reload, a park its marker still
+ * stands for, a restart in place and a rollover, so none of them hands
+ * the address on. A kill keeps it only where the holder said anything
+ * in its last ten minutes, which an idle one seldom has, and a reboot
+ * voids a park's marker, so after either the address mostly goes to
+ * whichever session is back first. Where any signer says no time, as
  * an older harness's presence doesn't, the lower session id keeps it as
  * it always did, and where two say the same, the lower id too, so none
  * flips back and forth. Times are each machine's own clock, so a clock wrong by more
@@ -43,6 +45,9 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { type Owner, sameProcess } from "../core/process/process.ts";
+import { isParked } from "../internal/session/park.ts";
+import type { ParkedAsk } from "./liveness.ts";
 
 /** Where the quest workflow keeps what addressing reads. */
 export interface QuestRecords {
@@ -205,35 +210,69 @@ export function signingSince(
 }
 
 /**
- * How long before a start its session's last presence may say it ended
- * and still be a restart: a restart in place and a rollover end the old
- * process through the same path a quit does, moments before the new one
- * starts, while a quit reopened later is a new start.
+ * How long before a start its session's last presence may say it ended,
+ * or last said anything, and still be a restart: a restart in place and
+ * a rollover end the old process through the same path a quit does,
+ * moments before the new one starts, while a quit reopened later is a
+ * new start, and so is a kill come back from long after.
  */
 const RESTARTED_WITHIN_MS = 10 * 60_000;
 
 /**
  * The address a session's last presence signed with and since when, when
- * it said a time and ended no longer than a restart before `now`: what
- * its peer keeps of its holding through its own restart.
+ * it said a time and stopped no longer than a restart before `now`: what
+ * its peer keeps of its holding through its own restart. A session ended
+ * for good says when. One that never stopped counting as there, as
+ * liveness.ts counts it, kept signing, so nobody took the address
+ * meanwhile and it keeps its time: written by this very process (`owner`),
+ * as a reload leaves it, or parked while its marker stands (`parked`),
+ * which a reboot voids. Any other said nothing, killed, so its last word
+ * (`at`) bounds it, lest one back hours after a crash take the address
+ * from the peer that held it since; a word dated ahead by more than the
+ * bound, from a clock set wrong, bounds it too.
  */
 export function signedSince(
 	presence:
 		| {
+				readonly session?: string;
 				readonly addresses: readonly string[];
 				readonly signsSince?: string;
 				readonly ended?: string;
+				readonly at: string;
+				readonly state?: string;
+				readonly owner?: Owner;
 		  }
 		| undefined,
 	now: number,
+	still: { readonly owner?: Owner; readonly parked?: ParkedAsk } = {},
 ): { address: string; since: string } | undefined {
-	const address = presence?.addresses[0];
-	const since = presence?.signsSince;
+	if (presence === undefined) return undefined;
+	const address = presence.addresses[0];
+	const since = presence.signsSince;
 	if (address === undefined || since === undefined) return undefined;
-	const ended = presence?.ended;
-	const restarted =
-		ended === undefined || now - Date.parse(ended) <= RESTARTED_WITHIN_MS;
-	return restarted ? { address, since } : undefined;
+	const parked = still.parked ?? isParked;
+	const stood =
+		presence.ended === undefined &&
+		(ownedBy(presence.owner, still.owner) ||
+			(presence.state === "parked" &&
+				presence.session !== undefined &&
+				parked(presence.session)));
+	if (stood) return { address, since };
+	const stopped = Date.parse(presence.ended ?? presence.at);
+	return Math.abs(now - stopped) <= RESTARTED_WITHIN_MS
+		? { address, since }
+		: undefined;
+}
+
+/** Whether a presence's owner is the process `owner` names, in its boot. */
+function ownedBy(said: Owner | undefined, owner: Owner | undefined): boolean {
+	return (
+		said !== undefined &&
+		owner !== undefined &&
+		said.pid === owner.pid &&
+		said.bootId === owner.bootId &&
+		sameProcess(said.startedAt, owner.startedAt)
+	);
 }
 
 /**

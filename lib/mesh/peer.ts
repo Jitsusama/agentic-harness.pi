@@ -479,9 +479,9 @@ export function localPeer(at: Surroundings): Peer {
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Since when it signs with its quest's address, which a restart keeps,
-	// so a holder parked, rebooted, restarted in place or rolled over still
+	// so a holder reloaded, parked, restarted in place or rolled over still
 	// holds it longer than one that took it meanwhile (address.ts).
-	let signsSince = signedSince(before, now());
+	let signsSince = signedSince(before, now(), { owner: at.owner });
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = [
