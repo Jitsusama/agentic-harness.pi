@@ -39,7 +39,7 @@ import { tempCodeCaches } from "../fence/fence-temp-caches.ts";
 import { cacheDir, stateDir } from "../paths.ts";
 import { cutTreeDir } from "../work-records.ts";
 import { landsAt, linksOn } from "./leads-to.ts";
-import { namedGitFolder, real, within } from "./tree-git.ts";
+import { lies, namedGitFolder, real, within } from "./tree-git.ts";
 
 /**
  * What a session's own refusal of its folder names as refusing: the
@@ -346,9 +346,17 @@ export function unfencedFolder(
 	// On a Mac, each also folded, as its volumes fold names.
 	const mac = place.mac ?? process.platform === "darwin";
 	const folded = (path: string) => reallyAt(path, mac).toLowerCase();
+	// A link on the way to a folder that lies in the working folder is one a
+	// command may take out and make again, leading the folder anywhere: one
+	// to nothing at the fence's homes becomes the folder its cargo runs from.
+	const landed = landsAt(cwd);
+	const holdsLink = (link: string) =>
+		lies(link, landed) ||
+		(mac && lies(link.toLowerCase(), landed.toLowerCase()));
 	const meets = (folder: string) =>
 		within(folder, cwd) ||
 		within(cwd, folder) ||
+		linksOn(folder).some(holdsLink) ||
 		(mac &&
 			(spelledWithin(folded(cwd), folded(folder)) ||
 				spelledWithin(folded(folder), folded(cwd))));

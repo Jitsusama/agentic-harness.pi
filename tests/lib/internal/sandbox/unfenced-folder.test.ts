@@ -609,6 +609,20 @@ describe("a working folder the sandbox won't let commands write", () => {
 		}
 	});
 
+	it("is one holding links to nothing where the agent fence keeps its state", () => {
+		// A command there may take a link out and make the folder the fence's
+		// cargo runs from. A home of its own, holding nothing else.
+		const at = join(home, "gone-fence-home");
+		mkdirSync(join(at, ".cache/pi-fence"), { recursive: true });
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		for (const folder of ["homes", "gcloud"]) {
+			symlinkSync(join(at, "gone"), join(at, ".cache/pi-fence", folder));
+		}
+		expect(
+			unfencedFolder(join(at, ".cache/pi-fence"), at, ASKED, place),
+		).toContain("the agent fence's own state");
+	});
+
 	it("names the sandbox as the variable that asks for it", () => {
 		expect(ASKED).toBe(`${SANDBOX_VARIABLE}=${STRICT}`);
 	});
