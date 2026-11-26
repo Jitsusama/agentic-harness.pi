@@ -104,13 +104,18 @@ export interface ProcessTable {
 export interface Reaped {
 	readonly groups: number[];
 	readonly pids: number[];
-	/** It ended nothing, since a kept call's file failed to read for the moment. */
+	/** It ended nothing, since what it spares failed to read. */
 	readonly waited?: true;
 }
 
-/** What a caller says of a reap that waited, which the next reap retries. */
+/**
+ * What a caller says of a reap that waited. The next reap of the same
+ * tries again: a conversation's next stop, the supervisor's next sweep,
+ * or a host's start's own retry each STRAY_LOOK_MS (stopping.ts). What
+ * failed is said beside it where it lasts, as each reader reports it.
+ */
 export const REAP_WAITED =
-	"A kept call's file failed to read for the moment, so this reap ended nothing rather than guess whom to spare";
+	"What this reap spares (a kept call's file, a park's notes or the key's folder) failed to read, so it ended nothing rather than guess whom to spare";
 
 /** The host a conversation runs under: its key, and its process's owner mark. */
 export interface HostMark {

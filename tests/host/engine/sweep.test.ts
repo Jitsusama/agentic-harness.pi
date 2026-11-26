@@ -28,9 +28,13 @@ const listFault = vi.hoisted(() => ({
 	code: "EMFILE",
 }));
 
+/** Every folder listed, in order, so a test can count a sweep's listings. */
+const listings = vi.hoisted((): string[] => []);
+
 vi.mock("node:fs/promises", async (original) => {
 	const fs = await original<typeof import("node:fs/promises")>();
 	const readdir = ((...args: Parameters<typeof fs.readdir>) => {
+		listings.push(String(args[0]));
 		const code = listFault.code;
 		if (listFault.folder !== undefined && String(args[0]) === listFault.folder)
 			return Promise.reject(
@@ -266,8 +270,17 @@ describe("sweeping a key for what no live host holds", () => {
 		);
 		expect(
 			options.report,
-			"tried again at the next sweep",
-		).not.toHaveBeenCalled();
+			"a fault that keeps coming back is seen",
+		).toHaveBeenCalledWith(expect.objectContaining({ code: "EMFILE" }));
+	});
+
+	it("lists the key's folder once a sweep, its start reading what the sweep listed", async () => {
+		await mkdir(join(root, "one"));
+		await writeFile(join(root, "one", LEFT_FILE), "[]");
+		const { fake } = table({ 1: { group: 1, env: {} } });
+		listings.length = 0;
+		await sweepUnheld(KEY, new Set(), { ...sweeping(), table: fake });
+		expect(listings.filter((folder) => folder === root)).toHaveLength(1);
 	});
 
 	it("looks only in conversation folders holding a note, and reads its cgroup once", async () => {

@@ -10,7 +10,7 @@ import type { SessionStamp } from "../../lib/core/session/index.ts";
 import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { carriedCalls } from "../../lib/internal/shell/kept.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
-import type { CarriedShells } from "./carried-shells.ts";
+import { type CarriedShells, STRAY_LOOK_MS } from "./carried-shells.ts";
 import { isHeavy } from "./heavy.ts";
 import { leftRunning, sparedUnder } from "./left-running.ts";
 import type { EventBus } from "./pi-session.ts";
@@ -43,7 +43,15 @@ export interface Running {
 
 /** What a conversation's stop keeps and its close ends. */
 export interface StopKeeping {
-	/** End what this host's dead predecessors' tools left running, held or not. */
+	/**
+	 * End what this host's dead predecessors' tools left running, held or
+	 * not. One that waits, since what it spares failed to read, is tried
+	 * again each STRAY_LOOK_MS until one doesn't: nothing else reaps the
+	 * key whole while this host runs, so what a dead host left for a
+	 * conversation this one never resumes would run on until the next
+	 * start. Only a dead host's are ended, so a later try spares this
+	 * host's own as the first did.
+	 */
 	reapEarlier(hostKey: string): Promise<void>;
 	/**
 	 * End what a conversation's tools left running, sparing what is carried
@@ -87,6 +95,8 @@ export function stopKeeping(options: {
 	 * /proc by default. A Mac has none, so none is reaped there.
 	 */
 	readonly table?: ProcessTable;
+	/** Run `run` every `ms`, answering how to stop; an unreferenced interval by default. */
+	readonly every?: (ms: number, run: () => void) => () => void;
 }): StopKeeping {
 	const { report } = options;
 	const table = options.table ?? linuxProcessTable();
@@ -180,18 +190,49 @@ export function stopKeeping(options: {
 		}
 	}
 
+	/** One reap of what dead hosts under the key left, answering whether it waited. */
+	async function reapEarlierOnce(hostKey: string): Promise<boolean> {
+		// The whole key's, so every child's notes too, not only this host's.
+		const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
+			report,
+		});
+		const reaped = await reapLeftBehind(hostKey, table, spared);
+		if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
+		if (reaped.groups.length > 0 || reaped.pids.length > 0)
+			report(
+				`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
+			);
+		return reaped.waited === true;
+	}
+
+	/** Try a start's reap that waited again each STRAY_LOOK_MS, one at a time, until one doesn't wait. */
+	function retryEarlier(hostKey: string): void {
+		const every =
+			options.every ??
+			((ms: number, run: () => void) => {
+				const timer = setInterval(run, ms);
+				timer.unref();
+				return () => clearInterval(timer);
+			});
+		let trying = false;
+		const stop = every(STRAY_LOOK_MS, () => {
+			// A try still out when the next tick comes is let finish first.
+			if (trying) return;
+			trying = true;
+			reapEarlierOnce(hostKey)
+				.then((waited) => {
+					if (!waited) stop();
+				})
+				.catch(report)
+				.finally(() => {
+					trying = false;
+				});
+		});
+	}
+
 	return {
 		async reapEarlier(hostKey) {
-			// The whole key's, so every child's notes too, not only this host's.
-			const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
-				report,
-			});
-			const reaped = await reapLeftBehind(hostKey, table, spared);
-			if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
-			if (reaped.groups.length > 0 || reaped.pids.length > 0)
-				report(
-					`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
-				);
+			if (await reapEarlierOnce(hostKey)) retryEarlier(hostKey);
 		},
 
 		reap,
