@@ -17,6 +17,7 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -785,6 +786,25 @@ describe("discovery on a host", () => {
 		const ofBare = errors.filter((error) => error.path.startsWith(bare));
 		expect(ofBare.map((error) => error.message)).toEqual(["README.md missing"]);
 	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"drops the root's fault at once when the root lists again",
+		() => {
+			// Root reads a folder whatever its mode, so it never sees the fault.
+			chmodSync(root, 0o000);
+			try {
+				expect(discoverQuests(root).errors, "unreadable").toEqual([
+					{ path: root, message: "Quests root is not a readable directory." },
+				]);
+			} finally {
+				chmodSync(root, 0o755);
+			}
+			settle(root);
+			const { errors } = discoverQuests(root);
+			expect(errors, "repaired").toEqual([]);
+			expect(questIds()).toContain(ID);
+		},
+	);
 
 	it("reads a quest folder removed and put back under its name by the next signing", async () => {
 		settledOther();

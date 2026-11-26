@@ -110,13 +110,16 @@ export function pendingOf(
  * `last` with what `found` read of the root's entries in `names` in
  * place of what it held of them: each quest kept where it stood, one
  * gone dropped, one new added at the end, and the errors of those
- * entries replaced.
+ * entries replaced. The root's own fault goes too once `rootListed`
+ * says the root listed since, as one repaired or made since does;
+ * no entry's walk would ever replace it.
  */
 export function merged(
 	questsRoot: string,
 	last: DiscoveryResult,
 	names: ReadonlySet<string>,
 	found: DiscoveryResult,
+	rootListed: boolean,
 ): DiscoveryResult {
 	const fresh = new Map<string, QuestEntry>();
 	for (const entry of found.index.quests.values()) {
@@ -138,8 +141,10 @@ export function merged(
 		quests.set(entry.doc.frontMatter.id, entry);
 	}
 	const among = (path: string) => names.has(entryUnder(questsRoot, path));
+	const stale = (path: string) =>
+		among(path) || (rootListed && path === questsRoot);
 	const errors = [
-		...last.errors.filter((error) => !among(error.path)),
+		...last.errors.filter((error) => !stale(error.path)),
 		...found.errors,
 	];
 	return { index: { quests, children: childrenOf(quests) }, errors };
@@ -200,7 +205,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	if (!rootEntries) {
 		const empty = { quests: new Map(), children: new Map() };
 		// A fresh data folder has no quests yet: an empty store, not a fault.
-		if (unlistedRoot(questsRoot) === "gone")
+		if (unlistedRoot(questsRoot, pass) === "gone")
 			return { index: empty, errors: [] };
 		const errors = [
 			{ path: questsRoot, message: "Quests root is not a readable directory." },

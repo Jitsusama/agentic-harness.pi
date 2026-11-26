@@ -13,18 +13,17 @@ import { createHash } from "node:crypto";
 import {
 	type BigIntStats,
 	type Dirent,
-	lstatSync,
 	readdirSync,
 	readFileSync,
 	statSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
-import { errnoOf } from "../../files/errno.ts";
 import { isId, prefixOf } from "../creation/id.ts";
 import { splitFrontMatter } from "../documents/frontmatter.ts";
 import type { JournalMark } from "../write-journal.ts";
 import type { DiscoveryResult } from "./discovery.ts";
+import { rootStanding } from "./root-standing.mjs";
 
 /**
  * A listed entry as the walk reads it: its name and kind, from a
@@ -61,6 +60,11 @@ export interface Pass {
 	/** Each folder's real path, as a signing off the thread resolved it. */
 	reals: Map<string, string | undefined>;
 	/**
+	 * How each root that wouldn't list stood when it was listed, so the
+	 * signature and the walk read one answer, a thread's where it sent one.
+	 */
+	unlisted: Map<string, "gone" | "unreadable">;
+	/**
 	 * Each quest folder's stamp with its README's, taken off the thread
 	 * before the folder was listed, for a folder the walk finds unready.
 	 */
@@ -79,6 +83,7 @@ export function newPass(): Pass {
 		hashes: new Map(),
 		absent: new Set(),
 		reals: new Map(),
+		unlisted: new Map(),
 		pending: new Map(),
 		parsed: new Set(),
 		parses: 0,
@@ -102,19 +107,16 @@ export const CANONICAL_DOCUMENT_DIRS = [
 ] as const;
 
 /**
- * How a quests root that won't list stands. "gone" when nothing is at
- * it nor along it, as a fresh data folder's root is before its first
- * quest (an empty store); "unreadable" when something is: a dangling
- * link, a file, a folder that can't be listed, a file where a folder
- * above should be, or a folder above that can't be searched (a fault).
+ * How a quests root that won't list stands (`rootStanding`), read once
+ * a pass, so a root made or removed between the signature and the walk
+ * can't sign one answer and walk the other.
  */
-export function unlistedRoot(path: string): "gone" | "unreadable" {
-	try {
-		lstatSync(path);
-		return "unreadable";
-	} catch (error) {
-		return errnoOf(error) === "ENOENT" ? "gone" : "unreadable";
-	}
+export function unlistedRoot(path: string, pass: Pass): "gone" | "unreadable" {
+	const known = pass.unlisted.get(path);
+	if (known) return known;
+	const standing = rootStanding(path);
+	pass.unlisted.set(path, standing);
+	return standing;
 }
 
 /** A directory's listing, read once a pass, or undefined when it has none. */
@@ -341,7 +343,7 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 	const rootEntries = readEntries(questsRoot, pass);
 	// Gone and unreadable sign apart, so a root that turns from one to the
 	// other is walked again rather than answered from the first.
-	if (!rootEntries) return `absent:${unlistedRoot(questsRoot)}`;
+	if (!rootEntries) return `absent:${unlistedRoot(questsRoot, pass)}`;
 	parts.push(`root:${layout(rootEntries)}`);
 	for (const entry of rootEntries) {
 		if (!entry.isDirectory()) continue;

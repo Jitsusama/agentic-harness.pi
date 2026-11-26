@@ -600,9 +600,11 @@ function caughtUp(
 	const pass = newPass();
 	const rootStamp = folderStampOf(questsRoot);
 	let { rootNames } = slot;
+	let rootListed = false;
 	if (rootStamp === undefined || rootStamp !== slot.rootStamp) {
 		const listed = readEntries(questsRoot, pass);
 		if (!rootNames || !listed) return undefined;
+		rootListed = true;
 		const now = namesOf(listed);
 		const moved = movedNames(rootNames, now);
 		for (const name of moved) names.add(name);
@@ -626,9 +628,11 @@ function caughtUp(
 		return slot.result;
 	}
 	const found = names.size > 0 ? walkNamed(questsRoot, names, pass) : undefined;
-	const result = found
-		? merged(questsRoot, slot.result, names, found)
-		: slot.result;
+	// A root that lists again with no quest to read still sheds its fault.
+	const result =
+		found || rootListed
+			? merged(questsRoot, slot.result, names, found ?? NOTHING, rootListed)
+			: slot.result;
 	const pending = new Map(
 		[...slot.pending].filter(([dir]) => !names.has(basename(dir))),
 	);
@@ -654,6 +658,12 @@ function caughtUp(
 
 /** The signature of a walk brought up to date quest by quest. */
 const CAUGHT_UP = "caught up";
+
+/** A walk that found nothing, for a merge that replaces no entry. */
+const NOTHING: DiscoveryResult = {
+	index: { quests: new Map(), children: new Map() },
+	errors: [],
+};
 
 /** Whether this process has said it can't place a write. */
 let saidUnplaced = false;
