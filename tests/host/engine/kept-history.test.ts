@@ -130,6 +130,23 @@ interface LogShape {
 	 * answer costing 0.25 that says "zephyr".
 	 */
 	readonly before?: "note" | "answer";
+	/**
+	 * An entry early in the log shaped as one the view holds in place of
+	 * what it leaves out: a record naming this log as its parent, counting
+	 * -1000 entries dropped, or a usage entry of the view's kind.
+	 */
+	readonly lookalike?: "record" | "usage";
+}
+
+/** Append `entry` to `sessions` as pi appends its own, whatever its type. */
+function appendRaw(
+	sessions: SessionManager,
+	entry: Record<string, unknown>,
+): void {
+	const append: unknown = Reflect.get(sessions, "_appendEntry");
+	if (typeof append !== "function")
+		throw new Error("pi's session manager no longer appends with _appendEntry");
+	append.call(sessions, entry);
 }
 
 /**
@@ -147,6 +164,22 @@ function compactedLog(shape: LogShape = {}): string {
 		});
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendThinkingLevelChange("high");
+	if (shape.lookalike === "record")
+		sessions.appendCustomEntry(ROLLOVER_RECORD, {
+			parentSession: fileOf(sessions),
+			parentLeaf: "00000000",
+			dropped: -1000,
+			carried: {},
+		});
+	if (shape.lookalike === "usage")
+		appendRaw(sessions, {
+			type: "usage",
+			id: "feed0001",
+			parentId: sessions.getLeafId(),
+			timestamp: new Date().toISOString(),
+			kind: "kept-history",
+			note: "written by another tool",
+		});
 	exchange(sessions, "early one", 1, shape.earlyBy, shape.earlyPrompt);
 	if (shape.abandoned) {
 		const fork = sessions.getLeafId() ?? "";
@@ -618,6 +651,55 @@ describe("a held conversation that compacts again", () => {
 		);
 		expect(ids.size, "no id in the log repeats").toBe(
 			SessionManager.open(file).getEntries().length,
+		);
+	});
+});
+
+describe("what a held conversation holds in place of what it leaves out", () => {
+	/** How many entries the record of `file`'s view says it left out. */
+	const droppedFrom = (file: string): number => {
+		const dropped = rolledFrom(hold(file).getBranch())?.dropped;
+		if (typeof dropped !== "number")
+			throw new Error("the view holds no record");
+		return dropped;
+	};
+
+	it("counts a record its log holds as an entry left out, though it names the log", () => {
+		const plain = droppedFrom(compactedLog());
+		expect(droppedFrom(compactedLog({ lookalike: "record" }))).toBe(plain + 1);
+	});
+
+	it("counts a usage entry its log holds as an entry left out, whatever its kind", () => {
+		const plain = droppedFrom(compactedLog());
+		expect(droppedFrom(compactedLog({ lookalike: "usage" }))).toBe(plain + 1);
+	});
+
+	it("keeps no id for what a compaction it couldn't leave out would have held", () => {
+		const report = vi.fn();
+		const held = hold(compactedLog(), report);
+		exchange(held, "later one", 0.75);
+		const kept = entryReading(held, "later one").id;
+		exchange(held, "later two", 0.25);
+		const drawnFor = ["abcd0001", "abcd0002", "abcd0003", "abcd0004"];
+		drawn.push(...drawnFor);
+		// The view taken again fails to index once, after drawing its ids.
+		Reflect.set(held, "_buildIndex", () => {
+			Reflect.deleteProperty(held, "_buildIndex");
+			throw new Error("no index this once");
+		});
+		held.appendCompaction("what happened since", kept, 2000);
+		expect(drawn, "the view drew ids for what it would hold").not.toHaveLength(
+			4,
+		);
+		expect(report).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: expect.stringContaining("couldn't leave out"),
+			}),
+		);
+		for (const id of drawnFor)
+			expect(held.getEntry(id), `no entry has ${id}`).toBeUndefined();
+		expect(report).not.toHaveBeenCalledWith(
+			expect.stringContaining("whole log back into memory"),
 		);
 	});
 });
