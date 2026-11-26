@@ -25,6 +25,7 @@ import {
 	heldGit,
 	refusedIn,
 	treeGit,
+	within,
 	withoutFolders,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
@@ -49,6 +50,23 @@ beforeEach(async () => {
 afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 	disposeRepo(template);
+});
+
+describe("a path within a folder", () => {
+	it("is one not there yet below a linked folder, judged where the link leads", () => {
+		// A Mac's /tmp is a link, so a folder not yet made in its caches was
+		// judged outside them.
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		const linked = join(home, "linked");
+		symlinkSync(folder, linked);
+		const missing = join(linked, "not-yet", "deeper");
+		expect(within(missing, linked)).toBe(true);
+		expect(within(missing, folder)).toBe(true);
+		expect(within(join(folder, "not-yet"), linked)).toBe(true);
+		expect(within(join(home, "beside", "not-yet"), linked)).toBe(false);
+		expect(within(join(linked, "..", "beside"), linked)).toBe(false);
+	});
 });
 
 /** What every git pi runs outside the fence is given first. */

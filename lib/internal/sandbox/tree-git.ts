@@ -57,9 +57,25 @@ export function real(path: string): string {
 	}
 }
 
+/**
+ * A path as it really is as far as it is there, and as given past that:
+ * one not made yet below a linked folder lies where the link leads, as a
+ * Mac's /tmp does.
+ */
+function realAsFar(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// Not there: resolved as far as its folder is.
+	}
+	const parent = dirname(path);
+	if (parent === path) return path;
+	return join(realAsFar(parent), basename(path));
+}
+
 /** Whether `path` is `folder` or lies inside it, as both really are. */
 export function within(path: string, folder: string): boolean {
-	const between = relative(real(folder), real(path));
+	const between = relative(realAsFar(folder), realAsFar(path));
 	// A child named `..x` lies inside; only `..` and what climbs past it don't.
 	return !(
 		between === ".." ||
