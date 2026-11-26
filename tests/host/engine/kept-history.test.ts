@@ -185,14 +185,19 @@ function texts(entries: readonly unknown[]): string[] {
 function hold(file: string, report?: (said: unknown) => void): SessionManager {
 	const held = holdKeptHistory(SessionManager.open(file), report);
 	expect(texts(held.getEntries())).not.toContain("early one");
-	expect(Object.hasOwn(held, "getTree")).toBe(true);
+	expect(Object.hasOwn(held, "getTree"), "the view's getTree is held").toBe(
+		true,
+	);
 	return held;
 }
 
 /** The lines `file` gained since it read `before`, parsed. */
 function linesAdded(file: string, before: string): Entry[] {
 	const after = readFileSync(file, "utf8");
-	expect(after.startsWith(before)).toBe(true);
+	expect(
+		after.startsWith(before),
+		`the log after starts with the log before: ${after}`,
+	).toBe(true);
 	expect(after).not.toContain(ROLLOVER_RECORD);
 	return after
 		.slice(before.length)
@@ -252,6 +257,7 @@ describe("a conversation held from a compacted log", () => {
 					(entry) =>
 						entry.type === "custom" && entry.customType === "away-state",
 				),
+			"the away state written before the kept entry is held",
 		).toBe(true);
 	});
 
@@ -588,7 +594,9 @@ describe("a held conversation and its whole log", () => {
 		const own = held as unknown as { byId: Map<string, unknown> };
 		own.byId = new Map(own.byId);
 		expect(held.getTree()).toEqual(whole);
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+			false,
+		);
 	});
 
 	it("writes the whole log when pi rewrites its file", () => {
@@ -608,15 +616,22 @@ describe("a held conversation and its whole log", () => {
 			"elsewhere",
 			"answer to elsewhere",
 		]);
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+			false,
+		);
 	});
 
 	it("lets go of the view when it starts a new session", () => {
 		const held = hold(compactedLog());
 		held.newSession();
 		expect(held.getEntries()).toEqual([]);
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
-		expect(Object.hasOwn(held, "getEntry")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+			false,
+		);
+		expect(
+			Object.hasOwn(held, "getEntry"),
+			"the view's getEntry is let go",
+		).toBe(false);
 	});
 
 	it("stays held and guarded when its log is gone", () => {
@@ -628,7 +643,9 @@ describe("a held conversation and its whole log", () => {
 		expect(held.getSessionId()).toBe(id);
 		expect(texts(held.getEntries())).not.toContain("early one");
 		expect(texts(held.getEntries())).toContain("after");
-		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is held").toBe(
+			true,
+		);
 	});
 
 	it("stays held and guarded, and leaves the file alone, when its log is emptied", () => {
@@ -640,7 +657,9 @@ describe("a held conversation and its whole log", () => {
 		expect(readFileSync(file, "utf8")).toBe("");
 		expect(held.getSessionId()).toBe(id);
 		expect(texts(held.getEntries())).toContain("after");
-		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is held").toBe(
+			true,
+		);
 	});
 
 	it("stays guarded when its view fails to index again after a refused read-back", () => {
@@ -655,8 +674,13 @@ describe("a held conversation and its whole log", () => {
 		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
 			"Error: index broke",
 		]);
-		expect(Object.hasOwn(held, "getTree")).toBe(true);
-		expect(Object.hasOwn(held, "_rewriteFile")).toBe(true);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is held").toBe(
+			true,
+		);
+		expect(
+			Object.hasOwn(held, "_rewriteFile"),
+			"the view's _rewriteFile guard is held",
+		).toBe(true);
 	});
 
 	it("stays held, guarded and appending when its file now holds another conversation", () => {
@@ -673,7 +697,9 @@ describe("a held conversation and its whole log", () => {
 		expect(held.getSessionFile()).toBe(file);
 		expect(held.getLeafId()).toBe(leaf);
 		expect(texts(held.getEntries())).not.toContain("elsewhere");
-		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is held").toBe(
+			true,
+		);
 		exchange(held, "later");
 		const added = linesAdded(file, elsewhere);
 		expect(added).toHaveLength(2);
@@ -703,7 +729,9 @@ describe("a held conversation and its whole log", () => {
 		]);
 		expect(texts(held.getEntries())).toContain("early one");
 		expect(held.getLeafId()).toBe(leaf);
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
+			false,
+		);
 	});
 
 	it("reads its log afresh, its leaf where it was, when its own entries fail to index again", () => {
@@ -730,7 +758,9 @@ describe("a held conversation and its whole log", () => {
 		expect(texts(held.getEntries())).toContain("early one");
 		expect(held.getLeafId()).toBe(target);
 		expect(held.getLeafId()).not.toBe(SessionManager.open(file).getLeafId());
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+			false,
+		);
 	});
 
 	it("stays its own conversation when its entries fail to index again and its log is gone", () => {
@@ -832,7 +862,9 @@ describe("a conversation the view leaves whole", () => {
 		sessions.appendCompaction("what happened early", kept.id, 1000);
 		const held = holdKeptHistory(sessions);
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
+			false,
+		);
 	});
 
 	it("holds everything when a rollover record sits after the kept entry", () => {
@@ -850,7 +882,9 @@ describe("a conversation the view leaves whole", () => {
 		exchange(sessions, "after");
 		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
+			false,
+		);
 	});
 
 	it("holds everything when a rollover record sits just before the kept turns", () => {
@@ -868,7 +902,9 @@ describe("a conversation the view leaves whole", () => {
 		exchange(sessions, "after");
 		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
+			false,
+		);
 	});
 
 	it("holds everything when its leaf is a label on an entry left on disk", () => {
@@ -903,7 +939,10 @@ describe("a held conversation and pi's writes", () => {
 
 describe("pi's session manager", () => {
 	it("still has every private the view reaches into", () => {
-		expect(holdsLikePi(SessionManager.inMemory(dir))).toBe(true);
+		expect(
+			holdsLikePi(SessionManager.inMemory(dir)),
+			"pi's session manager still has every private the view reaches into",
+		).toBe(true);
 	});
 
 	it("writes its file only where the view knows it does", () => {

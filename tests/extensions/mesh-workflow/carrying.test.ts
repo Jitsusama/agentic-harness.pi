@@ -214,7 +214,10 @@ describe("carrying a steered session's work", () => {
 		);
 
 		expect(inHandover()).toEqual(before);
-		expect(existsSync(join(into, "s-whole.done.json"))).toBe(false);
+		expect(
+			existsSync(join(into, "s-whole.done.json")),
+			"no done file is written for a refused carry",
+		).toBe(false);
 		expect(carryUnderWay("s-whole")).toBeUndefined();
 	});
 

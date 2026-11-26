@@ -63,11 +63,13 @@ describe("a script told to stop", () => {
 	it.each(ENDING)("stops its commands at once on %s, naming it", (sent) => {
 		const script = standIn();
 		const signal = stoppedBySignals(script.ended);
-		expect(signal.aborted).toBe(false);
+		expect(signal.aborted, "the signal is not aborted before the stop").toBe(
+			false,
+		);
 
 		script.send(sent);
 
-		expect(signal.aborted).toBe(true);
+		expect(signal.aborted, "the signal is aborted by the stop").toBe(true);
 		expect((signal.reason as Error).message).toBe(
 			`it was told to stop (${sent})`,
 		);
@@ -107,7 +109,10 @@ describe("a script told to stop", () => {
 		script.send("SIGTERM");
 		vi.advanceTimersByTime(WIND_DOWN_MS * 2);
 
-		expect(signal.aborted).toBe(true);
+		expect(
+			signal.aborted,
+			"the signal is aborted, though another listener ends the work",
+		).toBe(true);
 		expect(script.killed).toEqual([]);
 	});
 

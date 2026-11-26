@@ -172,7 +172,9 @@ describe("a language server started in a fence", () => {
 		).rejects.toThrow(
 			"fake won't start: no bash lies where only the system's administrator can put one",
 		);
-		expect(existsSync(join(dir, "starts.log"))).toBe(false);
+		expect(existsSync(join(dir, "starts.log")), "no server was started").toBe(
+			false,
+		);
 	});
 
 	it("fails a start whose shell can't be spawned, rather than leaving its error unheard", async () => {
@@ -204,7 +206,9 @@ describe("a language server started in a fence", () => {
 				refuses: () => undefined,
 			}),
 		).rejects.toThrow("fake won't start: this machine can't fence a command");
-		expect(existsSync(join(dir, "starts.log"))).toBe(false);
+		expect(existsSync(join(dir, "starts.log")), "no server was started").toBe(
+			false,
+		);
 	});
 
 	it("says just what the fence said when it refuses the server, under the fence's own watcher", async () => {
@@ -247,14 +251,23 @@ describe("a language server started in a fence", () => {
 				`sleep 600 </dev/null >/dev/null 2>&1 & echo $! > ${said([pidFile])}; exec ${said(words)}`,
 		);
 		const beside = Number(readFileSync(pidFile, "utf8").trim());
-		expect(alive(beside)).toBe(true);
+		expect(alive(beside), "what the fence started beside the server runs").toBe(
+			true,
+		);
 
 		await server.dispose();
 		server = undefined;
 
-		await vi.waitFor(() => expect(alive(beside)).toBe(false), {
-			timeout: 5000,
-		});
+		await vi.waitFor(
+			() =>
+				expect(
+					alive(beside),
+					"what the fence started beside the server has ended",
+				).toBe(false),
+			{
+				timeout: 5000,
+			},
+		);
 	}, 15_000);
 
 	it("kills what ignores the telling once the grace is out", async () => {
@@ -269,9 +282,15 @@ describe("a language server started in a fence", () => {
 		await server.dispose();
 		server = undefined;
 
-		await vi.waitFor(() => expect(alive(beside)).toBe(false), {
-			timeout: 5000,
-		});
+		await vi.waitFor(
+			() =>
+				expect(alive(beside), "what ignored the telling was killed").toBe(
+					false,
+				),
+			{
+				timeout: 5000,
+			},
+		);
 	}, 15_000);
 
 	it("lets the fence's shell finish what it runs after its server, within the grace", async () => {
@@ -306,9 +325,16 @@ describe("a language server started in a fence", () => {
 			server.hover({ path: file, position: { line: 1, character: 0 } }),
 		).rejects.toThrow();
 
-		await vi.waitFor(() => expect(alive(beside)).toBe(false), {
-			timeout: 5000,
-		});
+		await vi.waitFor(
+			() =>
+				expect(
+					alive(beside),
+					"what the fence started has ended with the server",
+				).toBe(false),
+			{
+				timeout: 5000,
+			},
+		);
 	}, 15_000);
 
 	it("reads pi a file for a fenced server where the fence lets it", async () => {

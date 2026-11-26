@@ -91,7 +91,10 @@ describe("the turns the harness starts itself", () => {
 
 	it("reads back the words a session's start left it, and only those", () => {
 		const words = automatedText(START_WORDS_REASON, "Quest QEST-1 is made.");
-		expect(isAutomatedText(words)).toBe(true);
+		expect(
+			isAutomatedText(words),
+			`the start's words read as automated: ${words}`,
+		).toBe(true);
 		expect(startWordsOf(`\n${words}`)).toBe("Quest QEST-1 is made.");
 		expect(startWordsOf(automatedText("a job finished", "Quest"))).toBe(
 			undefined,
@@ -127,8 +130,14 @@ describe("the turns the harness starts itself", () => {
 		expect(startWordsOf(`\n  ${logged}`), "leading space aside").toBe(
 			"Carry on with QEST-20261116-42P0R4: read its README.",
 		);
-		expect(isSpawnedText(logged)).toBe(true);
-		expect(isSpawnedText(automatedText(START_WORDS_REASON, "x"))).toBe(false);
+		expect(
+			isSpawnedText(logged),
+			`the logged spawn words read as a spawn: ${logged}`,
+		).toBe(true);
+		expect(
+			isSpawnedText(automatedText(START_WORDS_REASON, "x")),
+			"automated start words are no spawn",
+		).toBe(false);
 	});
 
 	it("keeps a spawn's body whole when it holds a header's close itself", () => {
@@ -145,7 +154,10 @@ describe("the turns the harness starts itself", () => {
 		expect(startWordsOf(`${opening}QEST-1 Carry on.`), "no close").toBe(
 			undefined,
 		);
-		expect(isSpawnedText(`${opening}.] Carry on.`)).toBe(false);
+		expect(
+			isSpawnedText(`${opening}.] Carry on.`),
+			"a header that names no quest is no spawn",
+		).toBe(false);
 	});
 
 	// A reopened session's log already holds its start, so the words a
@@ -153,8 +165,14 @@ describe("the turns the harness starts itself", () => {
 	it("reads a spawn's words into a reopened session as no start", () => {
 		const words = spawnedWords("QEST-1", "Fix the drawer.", true);
 		expect(startWordsOf(words)).toBe(undefined);
-		expect(isSpawnedText(words)).toBe(false);
-		expect(isAutomatedText(words)).toBe(true);
+		expect(
+			isSpawnedText(words),
+			`the reopened words read as no spawn: ${words}`,
+		).toBe(false);
+		expect(
+			isAutomatedText(words),
+			`the reopened words read as automated: ${words}`,
+		).toBe(true);
 		expect(words).toMatch(/Fix the drawer\.$/u);
 	});
 

@@ -105,10 +105,18 @@ describe("the other places no fenced command writes", () => {
 
 describe("a path inside the install", () => {
 	it("is the install or below it, never a folder whose name only starts the same", () => {
-		expect(inside(packages, packages)).toBe(true);
-		expect(inside(installed, packages)).toBe(true);
-		expect(inside(`${packages}-planted`, packages)).toBe(false);
-		expect(inside(installed, null)).toBe(false);
+		expect(inside(packages, packages), "the install is inside itself").toBe(
+			true,
+		);
+		expect(
+			inside(installed, packages),
+			"a folder below the install is inside it",
+		).toBe(true);
+		expect(
+			inside(`${packages}-planted`, packages),
+			"a folder whose name only starts the install's is not inside it",
+		).toBe(false);
+		expect(inside(installed, null), "nothing is inside no install").toBe(false);
 	});
 });
 

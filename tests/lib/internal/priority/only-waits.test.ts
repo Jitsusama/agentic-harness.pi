@@ -88,7 +88,7 @@ describe("a command that only waits", () => {
 		],
 		["arithmetic on numbers", "echo $((1 + 2)); sleep 1"],
 	])("waits: %s", (_, command) => {
-		expect(onlyWaits(command)).toBe(true);
+		expect(onlyWaits(command), `the command only waits: ${command}`).toBe(true);
 	});
 
 	it.each([
@@ -335,6 +335,9 @@ describe("a command that only waits", () => {
 		],
 		["a count of arguments", 'sleep "$#"'],
 	])("doesn't wait: %s", (_, command) => {
-		expect(onlyWaits(command)).toBe(false);
+		expect(
+			onlyWaits(command),
+			`the command does more than wait: ${command}`,
+		).toBe(false);
 	});
 });

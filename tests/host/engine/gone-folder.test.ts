@@ -109,8 +109,13 @@ describe("a conversation whose folder is gone", () => {
 		});
 		const other = { type: "custom_message", customType: "other" };
 
-		expect(toldOfMove([], "/a", "/")).toBe(false);
-		expect(toldOfMove([said("/a", "/"), other], "/a", "/")).toBe(true);
+		expect(toldOfMove([], "/a", "/"), "no word of a move is no move told").toBe(
+			false,
+		);
+		expect(
+			toldOfMove([said("/a", "/"), other], "/a", "/"),
+			"the newest word of the move is told",
+		).toBe(true);
 		expect(
 			toldOfMove([said("/a", "/"), said("/b", "/")], "/a", "/"),
 			"a later move is the one it knows",

@@ -148,7 +148,10 @@ describe("groups", () => {
 
 		const text = joined?.content[0]?.text ?? "";
 		const lines = text.split("\n");
-		expect(lines.some((line) => line.startsWith("OWNERQ"))).toBe(false);
+		expect(
+			lines.some((line) => line.startsWith("OWNERQ")),
+			`no line names the forged owner: ${lines.join(" | ")}`,
+		).toBe(false);
 		expect(text).not.toContain("\u0085");
 		expect(text, "its members name no forged signature").not.toContain(
 			"SIGNER",
@@ -661,7 +664,10 @@ describe("groups", () => {
 
 			const text = listed?.content[0]?.text ?? "";
 			const lines = text.split("\n");
-			expect(lines.some((line) => line.startsWith("OWNERQ"))).toBe(false);
+			expect(
+				lines.some((line) => line.startsWith("OWNERQ")),
+				`no line names the forged owner: ${lines.join(" | ")}`,
+			).toBe(false);
 			// A fixed list, not the helper's own class, so a class the helper
 			// leaves out still fails here.
 			const hidden = [
@@ -1247,6 +1253,9 @@ describe("what a listing is handed", () => {
 		expect(lines.at(-1)).toBe(
 			"and 1 tie left out, the other end not an address",
 		);
-		expect(lines.some((line) => line.includes("weaker"))).toBe(false);
+		expect(
+			lines.some((line) => line.includes("weaker")),
+			`no line counts a tie as weaker: ${lines.join(" | ")}`,
+		).toBe(false);
 	});
 });

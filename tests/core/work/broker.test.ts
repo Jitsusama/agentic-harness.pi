@@ -523,7 +523,7 @@ describe("createTreeBroker", () => {
 		expect(moved).toEqual([mine.path]);
 		expect(released).toEqual([]);
 		expect(forgotten).toEqual([mine.path]);
-		expect(broker.cutHere(mine.path)).toBe(false);
+		expect(broker.cutHere(mine.path), "the tree was not cut here").toBe(false);
 		expect(broker.held()).toEqual([]);
 	});
 

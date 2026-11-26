@@ -428,7 +428,7 @@ it("says a park carries its bash calls as the engine says, and tells the convers
 	expect(host.carries("a"), "none until the engine says").toBe(false);
 	let keeps = true;
 	host.keepsCarried(() => keeps);
-	expect(host.carries("a")).toBe(true);
+	expect(host.carries("a"), "the park carries its bash calls").toBe(true);
 	keeps = false;
 	expect(host.carries("a"), "asked each time").toBe(false);
 

@@ -25,14 +25,18 @@ describe("letting go of a conversation's runtime", () => {
 	])("leaves the run for the next host on %s", async (_, ending) => {
 		const runtime = recordingRuntime();
 		await disposeRuntime(runtime, ending);
-		expect(leavesItsRun(ending)).toBe(true);
+		expect(leavesItsRun(ending), `an ending of ${ending} leaves its run`).toBe(
+			true,
+		);
 		expect(runtime.asked).toEqual([{ leaveRun: true }]);
 	});
 
 	it("ends the run of a conversation closed for good", async () => {
 		const runtime = recordingRuntime();
 		await disposeRuntime(runtime, "closed");
-		expect(leavesItsRun("closed")).toBe(false);
+		expect(leavesItsRun("closed"), "a closed conversation ends its run").toBe(
+			false,
+		);
 		expect(runtime.asked).toEqual([undefined]);
 	});
 });

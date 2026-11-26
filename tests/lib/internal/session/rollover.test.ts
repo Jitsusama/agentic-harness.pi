@@ -650,7 +650,10 @@ describe("messages asked of the parent logs", () => {
 		);
 
 		expect(read).toEqual([]);
-		expect(finds.located.has(ids.early)).toBe(false);
+		expect(
+			finds.located.has(ids.early),
+			"the early session is not located once aborted",
+		).toBe(false);
 		expect([...finds.absent]).toEqual([]);
 		const after = messagesOnDisk(
 			fresh.getBranch(),

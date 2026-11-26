@@ -38,14 +38,24 @@ function store(path: string, ...extra: string[]): void {
 
 describe("which rounds lead the start line", () => {
 	it("leads with a change World hosts", async () => {
-		expect(await isWorldWork("shop/world#2535422")).toBe(true);
-		expect(await isWorldWork("Jitsusama/core.nix#6544")).toBe(false);
+		expect(
+			await isWorldWork("shop/world#2535422"),
+			"a World change reads as World work",
+		).toBe(true);
+		expect(
+			await isWorldWork("Jitsusama/core.nix#6544"),
+			"a core.nix change reads as no World work",
+		).toBe(false);
 	});
 
 	it("doesn't lead with a label that only holds World's name", async () => {
-		expect(await isWorldWork("workshop/world-x#1")).toBe(false);
+		expect(
+			await isWorldWork("workshop/world-x#1"),
+			"a name only holding World's reads as no World work",
+		).toBe(false);
 		expect(
 			await isWorldWork(`a..b in local:${join(home, "shop", "world")}`),
+			"a checkout named world reads as no World work",
 		).toBe(false);
 	});
 
@@ -58,7 +68,10 @@ describe("which rounds lead the start line", () => {
 			"../../../world/git/objects\n",
 		);
 
-		expect(await isWorldWork(`a..b in local:${borrowing}`)).toBe(true);
+		expect(
+			await isWorldWork(`a..b in local:${borrowing}`),
+			"a checkout borrowing World's objects by a relative path reads as World work",
+		).toBe(true);
 	});
 
 	it("asks again about a checkout git couldn't answer for", async () => {
@@ -87,17 +100,24 @@ describe("which rounds lead the start line", () => {
 		const own = join(home, "own");
 		store(own);
 
-		expect(await isWorldWork(`a..b in local:${borrowing}`)).toBe(true);
-		expect(await isWorldWork(`a..b in local:${own}`)).toBe(false);
+		expect(
+			await isWorldWork(`a..b in local:${borrowing}`),
+			"a checkout borrowing World's objects reads as World work",
+		).toBe(true);
+		expect(
+			await isWorldWork(`a..b in local:${own}`),
+			"a checkout with its own objects reads as no World work",
+		).toBe(false);
 	});
 
 	it("reads a checkout that is gone as not World's", async () => {
 		// World's store is here, so the answer turns on the checkout alone.
 		store(join(home, "world", "git"), "--bare");
 
-		expect(await isWorldWork(`a..b in local:${join(home, "gone")}`)).toBe(
-			false,
-		);
+		expect(
+			await isWorldWork(`a..b in local:${join(home, "gone")}`),
+			"a gone checkout reads as no World work",
+		).toBe(false);
 	});
 });
 

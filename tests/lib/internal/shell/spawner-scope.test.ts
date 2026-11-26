@@ -74,7 +74,10 @@ describe("starting a host's spawner", () => {
 		const setting = linuxHost({
 			exists: (path) => path === "/run/user/1000/systemd/private",
 		});
-		expect(spawnerStart("/bin/pi-spawner", setting).scoped).toBe(true);
+		expect(
+			spawnerStart("/bin/pi-spawner", setting).scoped,
+			"the spawner starts in a scope",
+		).toBe(true);
 	});
 
 	it("never takes systemd-run from the PATH", () => {
@@ -252,7 +255,10 @@ describe("whether a host's calls are kept", () => {
 	// PV3TE0's round 2 (F1, F6, F9): read as no reason given, plain pi's
 	// direct start, which gives none, was called scoped.
 	it("isn't so for plain pi, whose spawner runs where it always has", () => {
-		expect(spawnersScoped(linuxHost({ hosted: false }))).toBe(false);
+		expect(
+			spawnersScoped(linuxHost({ hosted: false })),
+			"plain pi's spawners aren't scoped",
+		).toBe(false);
 	});
 });
 

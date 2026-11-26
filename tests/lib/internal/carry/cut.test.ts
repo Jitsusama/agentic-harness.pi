@@ -119,7 +119,7 @@ describe("cutting a tree from the person's checkout", () => {
 		expect(refused).toMatchObject({
 			why: expect.stringMatching(/couldn't read topic .*broken ref/),
 		});
-		expect(existsSync(at)).toBe(false);
+		expect(existsSync(at), `no tree is cut: ${at}`).toBe(false);
 	});
 
 	it.skipIf(process.getuid?.() === 0)(
@@ -249,7 +249,7 @@ describe("taking a cut tree out again", () => {
 
 		expect(left).toBeUndefined();
 		expect(await standing(path, "topic")).toBe(topic);
-		expect(existsSync(at)).toBe(false);
+		expect(existsSync(at), `nothing is left at the cut: ${at}`).toBe(false);
 	});
 
 	it("takes out a branch settling made", async () => {
@@ -268,7 +268,7 @@ describe("taking a cut tree out again", () => {
 
 		expect(await uncut(exec, one, at, "topic", undefined)).toBeUndefined();
 		expect(await standing(path, "topic")).toBe(main);
-		expect(existsSync(at)).toBe(false);
+		expect(existsSync(at), `nothing is left at the cut: ${at}`).toBe(false);
 	});
 
 	it("leaves a branch something else moved meanwhile", async () => {
@@ -326,7 +326,7 @@ describe("taking a cut tree out again", () => {
 		const refusing = failing("remove", { code: 128, stderr: "fatal: no\n" });
 
 		expect(await uncut(refusing, one, at, "topic", main)).toBeUndefined();
-		expect(existsSync(at)).toBe(false);
+		expect(existsSync(at), `the tree is taken out: ${at}`).toBe(false);
 		expect(readdirSync(join(gitDir, "worktrees"))).toEqual([]);
 		expect(await standing(path, "topic")).toBe(topic);
 	});

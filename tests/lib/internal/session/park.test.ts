@@ -163,8 +163,14 @@ describe("whether a session parks, and after how long", () => {
 			easePath("s-1", folder),
 			`${JSON.stringify({ at: "2026-11-22T07:00:00Z", why: "memory" })}\n`,
 		);
-		expect(isEased("s-1", folder)).toBe(true);
-		expect(isEased("s-2", folder)).toBe(false);
+		expect(
+			isEased("s-1", folder),
+			"the session the ease file names is eased",
+		).toBe(true);
+		expect(
+			isEased("s-2", folder),
+			"a session it doesn't name is not eased",
+		).toBe(false);
 		expect(isEased("", folder), "no session, no ask").toBe(false);
 		// The ask is read by the watch beside the switch's rule, never folded
 		// into it: an eased session the switch leaves out still reads as
@@ -244,15 +250,20 @@ describe("whether a session parks, and after how long", () => {
 	});
 
 	it("says the switch is off only by a line of its own", () => {
-		expect(switchOff(switchSays("off"))).toBe(true);
-		expect(switchOff(switchSays("on", "off", "s-1"))).toBe(true);
-		expect(switchOff(switchSays("on"))).toBe(false);
+		expect(switchOff(switchSays("off")), "a line of its own says off").toBe(
+			true,
+		);
+		expect(
+			switchOff(switchSays("on", "off", "s-1")),
+			"an off line among others says off",
+		).toBe(true);
+		expect(switchOff(switchSays("on")), "on is not off").toBe(false);
 		expect(switchOff(switchSays("  off  ")), "padded").toBe(true);
 		expect(
 			switchOff(switchSays("# off for the night", "offline")),
 			"off within a line",
 		).toBe(false);
-		expect(switchOff(switchSays())).toBe(false);
+		expect(switchOff(switchSays()), "an empty switch is not off").toBe(false);
 		expect(switchOff(join(folder, "none")), "no switch").toBe(false);
 	});
 
@@ -262,15 +273,22 @@ describe("whether a session parks, and after how long", () => {
 	it("takes a switch that is there but can't be read as off", () => {
 		const unreadable = join(folder, "a-folder");
 		mkdirSync(unreadable);
-		expect(switchOff(unreadable)).toBe(true);
+		expect(switchOff(unreadable), "an unreadable switch reads as off").toBe(
+			true,
+		);
 	});
 
 	it("stops easing a session once its ease file is cleared, and clears none twice", () => {
 		mkdirSync(join(folder, "ease"), { recursive: true });
 		writeFileSync(easePath("s-1", folder), "{}\n");
 		clearEase("s-1", folder);
-		expect(existsSync(easePath("s-1", folder))).toBe(false);
-		expect(isEased("s-1", folder)).toBe(false);
+		expect(
+			existsSync(easePath("s-1", folder)),
+			"the ease file is cleared",
+		).toBe(false);
+		expect(isEased("s-1", folder), "the session is no longer eased").toBe(
+			false,
+		);
 		expect(() => clearEase("s-1", folder)).not.toThrow();
 	});
 });
@@ -380,7 +398,7 @@ describe("saying a run parked", () => {
 	it("writes nothing for a process its holder doesn't run itself", () => {
 		sayParked({ ...held(), MYCELIUM_PARKED: parked() }, 4243);
 
-		expect(existsSync(parked())).toBe(false);
+		expect(existsSync(parked()), "no park marker is written").toBe(false);
 	});
 
 	it("writes nothing where its holder names no file, and never throws", () => {

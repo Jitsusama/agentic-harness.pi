@@ -339,13 +339,22 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 		it("says here until elsewhere first answers far, then far", async () => {
 			const { ask, pending } = answers();
 			const now = Date.now();
-			expect(placedFarKnown("first-answer", now, ask)).toBe(false);
+			expect(
+				placedFarKnown("first-answer", now, ask),
+				"here until elsewhere answers",
+			).toBe(false);
 			expect(pending).toHaveLength(1);
-			expect(placedFarKnown("first-answer", now + 1_000, ask)).toBe(false);
+			expect(
+				placedFarKnown("first-answer", now + 1_000, ask),
+				"here until elsewhere answers",
+			).toBe(false);
 			expect(pending, "asked once a minute at most").toHaveLength(1);
 			pending[0]?.(true);
 			await settled();
-			expect(placedFarKnown("first-answer", Date.now(), ask)).toBe(true);
+			expect(
+				placedFarKnown("first-answer", Date.now(), ask),
+				"far once elsewhere answers far",
+			).toBe(true);
 		});
 
 		it("stops believing far once the answer outlives two asks", async () => {
@@ -354,7 +363,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			placedFarKnown("goes-stale", now, ask);
 			pending[0]?.(true);
 			await settled();
-			expect(placedFarKnown("goes-stale", now + 61_000, ask)).toBe(true);
+			expect(
+				placedFarKnown("goes-stale", now + 61_000, ask),
+				"far until the answer outlives two asks",
+			).toBe(true);
 			expect(pending, "a minute on, it asks again").toHaveLength(2);
 			expect(
 				placedFarKnown("goes-stale", Date.now() + 121_000, ask),
@@ -371,7 +383,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			placedFarKnown("turns-here", now + 61_000, ask);
 			pending[1]?.(false);
 			await settled();
-			expect(placedFarKnown("turns-here", now + 62_000, ask)).toBe(false);
+			expect(
+				placedFarKnown("turns-here", now + 62_000, ask),
+				"here at once on a later answer of here",
+			).toBe(false);
 		});
 
 		// An agent runs a check, edits for minutes and runs it again, so an
@@ -390,7 +405,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			expect(done, "waits for elsewhere's answer").toBe(false);
 			pending[0]?.(true);
 			await placed;
-			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+			expect(
+				placedFarKnown("waits-first", Date.now(), ask),
+				"far once the fresh answer came",
+			).toBe(true);
 
 			const later = now + 5 * 60_000;
 			let doneAgain = false;
@@ -404,7 +422,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			expect(doneAgain, "and waits, the old answer being stale").toBe(false);
 			pending[1]?.(true);
 			await again;
-			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+			expect(
+				placedFarKnown("waits-first", Date.now(), ask),
+				"far once the fresh answer came",
+			).toBe(true);
 		});
 
 		it("waits for nothing when no step is an elsewhere run, or the answer is fresh", async () => {
@@ -434,6 +455,7 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				placesFar(
 					'{"because":"placed","here":false,"kind":"harness-check","machine":"equilibrius","programs":["pnpm"],"schema":"elsewhere.where/1"}',
 				),
+				"an answer placed far reads as far",
 			).toBe(true);
 			for (const answer of [
 				'{"here":true,"kind":"harness-check"}',

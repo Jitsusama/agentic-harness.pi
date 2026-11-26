@@ -180,6 +180,7 @@ describe("withFileLock", () => {
 			vi.setSystemTime(Date.now() + 8_000);
 			unlinkSync(lockPath);
 			writeFileSync(lockPath, String(process.ppid));
+			// Another real pause, so a retry sees the new holder's lock.
 			await new Promise((done) => setTimeout(done, 100));
 			vi.setSystemTime(Date.now() + 8_000);
 			// Seen 16 s after the writer asked, past the 10 s one holder may keep it.

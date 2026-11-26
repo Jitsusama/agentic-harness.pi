@@ -38,6 +38,7 @@
  * through a gate that reads main as it is then.
  */
 
+import { isRecord } from "../../internal/record.ts";
 import type { Exec, ExecResult } from "../exec/index.ts";
 
 /** How one checkout's fetches are made. */
@@ -133,10 +134,6 @@ function ruleOf(value: unknown): FetchRule | string {
 		...(typeof through === "string" ? { through } : {}),
 		...(prefetched === true ? { prefetched } : {}),
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function withoutTrailingSlash(path: string): string {

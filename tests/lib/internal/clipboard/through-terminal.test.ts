@@ -47,14 +47,20 @@ describe("copyThroughHeldTerminal", () => {
 	it.skipIf(process.platform !== "linux")(
 		"makes pi's own copy send OSC 52 in a held pi with no SSH markers",
 		async () => {
-			expect(await copiedAsOsc52("h1")).toBe(true);
+			expect(
+				await copiedAsOsc52("h1"),
+				"the value is copied through the terminal",
+			).toBe(true);
 		},
 	);
 
 	it.skipIf(process.platform !== "linux")(
 		"leaves pi's own copy local in the same pi when it is not held",
 		async () => {
-			expect(await copiedAsOsc52(undefined)).toBe(false);
+			expect(
+				await copiedAsOsc52(undefined),
+				"an unheld pi copies locally, not through the terminal",
+			).toBe(false);
 		},
 	);
 });

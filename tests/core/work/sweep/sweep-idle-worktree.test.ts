@@ -211,7 +211,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("keeps one holding an ignored file, and takes one holding only ignored folders and links", async () => {
@@ -257,9 +257,10 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(join(tree, ".worktrees", "spike", "notes.md"))).toBe(
-			true,
-		);
+		expect(
+			existsSync(join(tree, ".worktrees", "spike", "notes.md")),
+			"the worktree's own notes are kept",
+		).toBe(true);
 	});
 
 	it("keeps one with a file marked skip-worktree, whose edits the status hides", async () => {
@@ -276,7 +277,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("names its branch whole when a tag shares the name", async () => {
@@ -301,7 +302,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("keeps one its session switched branch in between the choosing and the take, leaving no note", async () => {
@@ -326,7 +327,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 
 		expect(asked, "times the processes were asked").toBe(2);
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 		expect(
 			outcome.kept.find((one) => one.path === tree)?.why,
 			"a worktree its session switched branch in was blamed on the reading",
@@ -393,7 +394,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("keeps one with a file nobody committed, or a change", async () => {
@@ -408,8 +409,14 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(untracked.tree)).toBe(true);
-		expect(existsSync(changed.tree)).toBe(true);
+		expect(
+			existsSync(untracked.tree),
+			`the tree with an untracked file is kept: ${untracked.tree}`,
+		).toBe(true);
+		expect(
+			existsSync(changed.tree),
+			`the tree with a change is kept: ${changed.tree}`,
+		).toBe(true);
 	});
 
 	it("keeps one whose branch has a stash", async () => {
@@ -422,7 +429,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("keeps one whose last commit is on no remote", async () => {
@@ -434,7 +441,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `the tree is kept: ${tree}`).toBe(true);
 	});
 
 	it("keeps one a process works in, or one something claims", async () => {
@@ -448,7 +455,12 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		});
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(busy.tree)).toBe(true);
-		expect(existsSync(claimed.tree)).toBe(true);
+		expect(existsSync(busy.tree), `the busy tree is kept: ${busy.tree}`).toBe(
+			true,
+		);
+		expect(
+			existsSync(claimed.tree),
+			`the claimed tree is kept: ${claimed.tree}`,
+		).toBe(true);
 	});
 });

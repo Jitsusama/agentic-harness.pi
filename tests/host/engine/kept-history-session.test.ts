@@ -209,7 +209,10 @@ function heldSession(
 	report: (said: unknown) => void = () => {},
 ): AgentSession {
 	const manager = holdKeptHistory(SessionManager.open(file), report);
-	expect(Object.hasOwn(manager, "getTree")).toBe(true);
+	expect(
+		Object.hasOwn(manager, "getTree"),
+		"the manager holds the view's getTree",
+	).toBe(true);
 	const session = piSession(manager);
 	countLeftOut(session, report);
 	return session;
@@ -249,7 +252,10 @@ describe("a held session's /session counts", () => {
 		const session = heldSession(file);
 		compactAgain(session.sessionManager);
 		holdKeptHistory(session.sessionManager);
-		expect(saysUser(session.sessionManager, "after")).toBe(true);
+		expect(
+			saysUser(session.sessionManager, "after"),
+			`the user message "after" is listed`,
+		).toBe(true);
 		expect(counts(session)).toEqual(counts(wholeSession(file)));
 		expect(session.getUserMessagesForForking()).toEqual(
 			wholeSession(file).getUserMessagesForForking(),
@@ -334,7 +340,10 @@ describe("a held session's /fork list", () => {
 		const file = compactedLog();
 		const session = heldSession(file);
 		session.sessionManager.getTree();
-		expect(Object.hasOwn(session.sessionManager, "getTree")).toBe(false);
+		expect(
+			Object.hasOwn(session.sessionManager, "getTree"),
+			"the manager no longer holds the view's getTree",
+		).toBe(false);
 		expect(session.getUserMessagesForForking()).toEqual(
 			wholeSession(file).getUserMessagesForForking(),
 		);
@@ -373,7 +382,10 @@ describe("a held session's /fork list", () => {
 			"after",
 		]);
 		const session = heldSession(file);
-		expect(saysUser(session.sessionManager, "aside")).toBe(false);
+		expect(
+			saysUser(session.sessionManager, "aside"),
+			"the abandoned branch's message is not listed",
+		).toBe(false);
 		expect(session.getUserMessagesForForking()).toEqual(whole);
 	});
 
@@ -477,7 +489,10 @@ describe("a held session's /fork, through pi's own", () => {
 		const expected = await forkOf(whole, at);
 		const report = vi.fn();
 		const manager = holdKeptHistory(SessionManager.open(file), report);
-		expect(Object.hasOwn(manager, "getTree")).toBe(false);
+		expect(
+			Object.hasOwn(manager, "getTree"),
+			"the manager no longer holds the view's getTree",
+		).toBe(false);
 		const said = report.mock.calls.map(([what]) => String(what));
 		expect(said).toEqual([
 			expect.stringMatching(

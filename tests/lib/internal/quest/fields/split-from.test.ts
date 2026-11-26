@@ -31,7 +31,9 @@ describe("the cell a quest split from", () => {
 	});
 
 	it("checks a seed's cell the same way, untrimmed", () => {
-		expect(isCellAddress("TERN02")).toBe(true);
-		expect(isCellAddress(" TERN02")).toBe(false);
+		expect(isCellAddress("TERN02"), "a cell address reads as one").toBe(true);
+		expect(isCellAddress(" TERN02"), "an untrimmed address reads as none").toBe(
+			false,
+		);
 	});
 });

@@ -37,7 +37,7 @@ describe("writePlain", () => {
 		const note = join(root, "note");
 		writeFileSync(note, "a longer note than the next\n");
 
-		expect(writePlain(note, "main\n")).toBe(true);
+		expect(writePlain(note, "main\n"), "the plain file was written").toBe(true);
 		expect(readFileSync(note, "utf8")).toBe("main\n");
 	});
 
@@ -47,7 +47,10 @@ describe("writePlain", () => {
 		const note = join(root, "note");
 		symlinkSync(target, note);
 
-		expect(writePlain(note, "main\n")).toBe(false);
+		expect(
+			writePlain(note, "main\n"),
+			"nothing was written through the link",
+		).toBe(false);
 		expect(readFileSync(target, "utf8")).toBe(KEPT);
 		expect(readlinkSync(note)).toBe(target);
 	});
@@ -58,7 +61,10 @@ describe("writePlain", () => {
 		const note = join(root, "note");
 		linkSync(target, note);
 
-		expect(writePlain(note, "main\n")).toBe(false);
+		expect(
+			writePlain(note, "main\n"),
+			"nothing was written into the shared file",
+		).toBe(false);
 		expect(readFileSync(target, "utf8")).toBe(KEPT);
 	});
 
@@ -70,7 +76,10 @@ describe("writePlain", () => {
 		execFileSync("mkfifo", [note]);
 		const reader = openSync(note, constants.O_RDONLY | constants.O_NONBLOCK);
 		try {
-			expect(writePlain(note, "main\n")).toBe(false);
+			expect(
+				writePlain(note, "main\n"),
+				"nothing was written into the fifo",
+			).toBe(false);
 		} finally {
 			closeSync(reader);
 		}

@@ -127,7 +127,10 @@ describe("a carry staged on another volume than its handover", () => {
 		const tree0 = carried.handover.trees[0];
 		expect(names).toContain(tree0?.bundle);
 		expect(names).toContain(tree0?.patch);
-		expect(names.some((name) => name.endsWith(".done.json"))).toBe(true);
+		expect(
+			names.some((name) => name.endsWith(".done.json")),
+			`a done file is placed: ${names.join(" ")}`,
+		).toBe(true);
 		expect(
 			names.filter((name) => name.includes(".moving-")),
 			"no copy is left beside its place",

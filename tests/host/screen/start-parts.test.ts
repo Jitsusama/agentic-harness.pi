@@ -308,7 +308,10 @@ describe("a screen's start parts", () => {
 			draw: 30,
 			providers: 40,
 		});
-		expect(Object.hasOwn(mode, "rebindCurrentSession")).toBe(false);
+		expect(
+			Object.hasOwn(mode, "rebindCurrentSession"),
+			"the step is back on its class, with no copy on the instance",
+		).toBe(false);
 		expect(mode.rebindCurrentSession).toBe(Mode.prototype.rebindCurrentSession);
 	});
 
@@ -406,7 +409,10 @@ describe("a screen's start parts", () => {
 		const mode = modeWith(time, runtime);
 		await timeStart(mode, runtime, () => mode.init(), time.now);
 		expect(list).toEqual([]);
-		expect(Object.hasOwn(list, "indexOf")).toBe(false);
+		expect(
+			Object.hasOwn(list, "indexOf"),
+			"the handler list keeps no own indexOf",
+		).toBe(false);
 	});
 
 	it("puts everything back, and rejects as the start did, when the start fails", async () => {
