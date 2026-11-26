@@ -159,19 +159,33 @@ if [[ -n $changed ]]; then
 
   # A head judges itself by its own config, as pnpm lint at the head would,
   # so a change that loosens a rule passes its own check. It may mean to,
-  # so it isn't refused, but the files the base's config would fault are
-  # named, for whoever merges to see what the change lets through.
+  # so it isn't refused, but the files main's config would fault are
+  # named, for whoever merges to see what the change lets through. Main's
+  # own config is read, not the merge-base's, so a rule main tightened
+  # since the cut counts and one it loosened isn't blamed on the change.
   if [[ ${#others[@]} -gt 0 && ${#others[@]} -lt ${#files[@]} ]] &&
-    unattributed cat-file -e "$base:biome.jsonc" 2>/dev/null; then
+    unattributed cat-file -e "$main_id:biome.jsonc" 2>/dev/null; then
     before="$scratch/before"
     mkdir "$before"
     gate_index checkout-index --prefix="$before/" -- "${others[@]}"
-    unattributed cat-file blob "$base:biome.jsonc" > "$before/biome.jsonc"
+    unattributed cat-file blob "$main_id:biome.jsonc" > "$before/biome.jsonc"
     if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
       --colors=off "${others[@]}" > "$scratch/before.said" 2>&1); then
-      echo "merge-gate: $sha changes biome.jsonc, and main's config faults what it lets through:" >&2
-      cat "$scratch/before.said" >&2
-      echo "merge-gate: so the change loosens a rule for these files; that passes, said here." >&2
+      # Biome fails the same way when it can't load the config at all, so
+      # only a run that names a changed file is called a loosening.
+      named=0
+      for file in "${others[@]}"; do
+        if grep -qF -- "$file" "$scratch/before.said"; then named=1; fi
+      done
+      if [[ $named == 1 ]]; then
+        echo "merge-gate: $sha changes biome.jsonc, and main's config faults what it lets through:" >&2
+        cat "$scratch/before.said" >&2
+        echo "merge-gate: so the change loosens a rule for these files; that passes, said here." >&2
+      else
+        echo "merge-gate: $sha changes biome.jsonc, and Biome couldn't judge its files by main's config:" >&2
+        cat "$scratch/before.said" >&2
+        echo "merge-gate: so what the change lets through goes unnamed; that passes, said here." >&2
+      fi
     fi
   fi
 fi

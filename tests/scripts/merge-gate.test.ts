@@ -380,6 +380,45 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).toContain("Biome passes the 1 file(s)");
+		expect(answered.said).not.toContain("main's config");
+	});
+
+	it("says nothing of loosening when main has no config to compare", async () => {
+		const checkout = await harness();
+		await git(checkout, "rm", "-q", "biome.jsonc");
+		await git(checkout, "commit", "-q", "-m", "no config");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).not.toContain("main's config");
+	});
+
+	it("says it couldn't judge, not that a rule loosened, when main's config won't load", async () => {
+		const checkout = await harness();
+		writeFileSync(
+			join(checkout, "biome.jsonc"),
+			`{ "formatter": { "indentStyle": "sideways" } }\n`,
+		);
+		await git(checkout, "commit", "-q", "-a", "-m", "broken config");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.jsonc": CONFIG,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain(
+			"couldn't judge its files by main's config",
+		);
+		expect(answered.said).not.toContain("loosens a rule");
 	});
 
 	it("lets a change that only deletes a file through", async () => {
