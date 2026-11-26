@@ -10,6 +10,7 @@ import {
 import { ALL } from "../../../../lib/mesh/group.ts";
 import {
 	createBoard,
+	LEASE_WORDS_CHARS,
 	type LeaseEvent,
 	MOST_HOLD_MS,
 	type OwnLeases,
@@ -388,6 +389,45 @@ describe("leases as listed", () => {
 
 		expect(leasesText(board, [present("w", "WCJQSG")], now, jobs)).toBe(
 			`\nLeases:\nWCJQSG: changing a OWNERQ: answering [aaaaaaaa]; waiting on [aaaaaaaa] (mine OWNERQ: x); running a build since ${at} (nix build OWNERQ: answering [aaaaaaaa])`,
+		);
+	});
+
+	// A holder writes its subjects and whys as long as it likes, so each
+	// is cut as a lease's words are, whole characters each, and one at
+	// the bound is kept whole though a character past the basic plane
+	// is two UTF-16 units (#2217's third council).
+	it("say a peer's long subjects and reasons cut short, whole characters each", () => {
+		const now = Date.now();
+		const until = new Date(now + 60_000).toISOString();
+		const kept = `${"a".repeat(LEASE_WORDS_CHARS - 1)}\u{1F344}`;
+		const long = `${kept}\u{1F344}${"b".repeat(2_000)}`;
+		const board = [
+			{
+				session: "w",
+				leases: [
+					{
+						kind: "change" as const,
+						subject: "/w",
+						since: "",
+						until,
+						checkout: "/w",
+						why: long,
+					},
+					{ kind: "change" as const, subject: long, since: "", until },
+					{ kind: "change" as const, subject: kept, since: "", until },
+					{
+						kind: "wait" as const,
+						subject: "m-aaaaaaaa",
+						since: "",
+						until,
+						why: long,
+					},
+				],
+			},
+		];
+
+		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
+			`\nLeases:\nWCJQSG: rewrote the files of /w (${kept}...); changing ${kept}..., ${kept}; waiting on [aaaaaaaa] (${kept}...)`,
 		);
 	});
 

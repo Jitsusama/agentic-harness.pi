@@ -83,14 +83,19 @@ export async function join(
 	);
 	const notHomes = invited.filter((one) => !homes.includes(one));
 	// A peer already in the most groups would refuse the invite, which
-	// says it is in the group from now on, so none is sent it.
-	const full = homes.filter((home) =>
-		standing.present.some(
-			(one) =>
-				one.addresses.map(homeOf).includes(home) &&
-				joinRefused(one.groups, group) === "full",
-		),
-	);
+	// says it is in the group from now on, so none is sent it. An invite
+	// to a home reaches every session going by it, so a home is left out
+	// only when every one there is full. One that hears the group through
+	// a part is not full for it (`heard`), and is invited.
+	const full = homes.filter((home) => {
+		const there = standing.present.filter((one) =>
+			one.addresses.map(homeOf).includes(home),
+		);
+		return (
+			there.length > 0 &&
+			there.every((one) => joinRefused(one.groups, group) === "full")
+		);
+	});
 	const fullText =
 		full.length > 0
 			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has left one.`

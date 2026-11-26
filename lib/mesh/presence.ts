@@ -916,6 +916,29 @@ export function joinRefused(
 }
 
 /**
+ * The groups of `joined` a peer in `scopes` keeps, so the two together
+ * name at most `MOST_GROUPS`. A scope comes of a quest loaded or a tree
+ * gained, at a refresh no join is asked about, so a full peer gaining
+ * one lets go of the joined groups that sort last rather than have its
+ * presence drop whatever sorts last, as often its quest's own scope.
+ * A joined group that is also a scope costs no room.
+ */
+export function joinedWithin(
+	scopes: readonly string[],
+	joined: readonly string[],
+): string[] {
+	const scoped = new Set(scopes);
+	const room = Math.max(0, MOST_GROUPS - scoped.size);
+	const kept = new Set(
+		[...joined]
+			.filter((group) => !scoped.has(group))
+			.sort()
+			.slice(0, room),
+	);
+	return joined.filter((group) => scoped.has(group) || kept.has(group));
+}
+
+/**
  * Whether a group a presence names is one a group is named as, read
  * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,
  * `@5GV2AH`), so none starts a line or forges a field: the shape held

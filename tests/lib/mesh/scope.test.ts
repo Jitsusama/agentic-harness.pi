@@ -12,7 +12,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { groupNamed, hears } from "../../../lib/mesh/group.ts";
+import {
+	groupNamed,
+	hears,
+	isJoinable,
+	MOST_GROUP_CHARS,
+} from "../../../lib/mesh/group.ts";
 import {
 	part,
 	repositoryKey,
@@ -54,6 +59,20 @@ describe("a peer's scopes", () => {
 		})) {
 			expect(groupNamed(scope)).toBe(scope);
 		}
+	});
+
+	// A presence drops a group longer than one may run, and a send to
+	// one is refused, so a long repository name is cut to fit where its
+	// group is made, the same for every peer in it (#2217's third council).
+	it("cut a long repository's group to the most a group may run", () => {
+		const name = `a-${"long-name-".repeat(12)}repo`;
+		const [scope = ""] = scopesOf({ questChain: [], repositories: [name] });
+
+		expect(scope.length).toBeLessThanOrEqual(MOST_GROUP_CHARS);
+		expect(isJoinable(scope), "a peer can join it").toBe(true);
+		expect(groupNamed(scope), "it reads back as itself").toBe(scope);
+		expect(scope.startsWith("#repo/a-long-name-")).toBe(true);
+		expect(scope.endsWith("-"), "no dash left hanging").toBe(false);
 	});
 
 	it("give each orchestration it is in its group, named by the orchestrator's address", () => {

@@ -30,6 +30,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { keptTreesHeldBy } from "../internal/work-records.ts";
 import { questAddress } from "./address.ts";
+import { MOST_GROUP_CHARS } from "./group.ts";
 
 /** What a peer's scopes are worked out from. */
 export interface Work {
@@ -47,6 +48,20 @@ export interface Work {
 /** The deepest quest group that is written out; deeper is very rare. */
 const MOST_QUEST_LEVELS = 6;
 
+/** What a repository's group is named after. */
+const REPO_GROUP = "#repo/";
+
+/**
+ * A part cut so a group naming it after `before` characters runs no
+ * longer than `MOST_GROUP_CHARS`, with no dash left hanging. A longer
+ * group is dropped from every presence and refused as a send's
+ * recipient, so its peers would share none; cut, every peer in the
+ * same repository still names the same one.
+ */
+function fitted(name: string, before: number): string {
+	return name.slice(0, MOST_GROUP_CHARS - before).replace(/-+$/, "");
+}
+
 /** The groups this work puts a peer in, canonical and sorted. */
 export function scopesOf(work: Work): string[] {
 	const quest = [...work.questChain]
@@ -55,9 +70,9 @@ export function scopesOf(work: Work): string[] {
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean);
 	const repositories = work.repositories
-		.map(part)
+		.map((name) => fitted(part(name), REPO_GROUP.length))
 		.filter(Boolean)
-		.map((name) => `#repo/${name}`);
+		.map((name) => `${REPO_GROUP}${name}`);
 	const orchestrations = (work.orchestrations ?? [])
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean)

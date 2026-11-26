@@ -788,7 +788,11 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			group.startsWith("#") && group !== ALL && !hears(at.peer.groups, group),
 	);
 	const reading = notHeard.filter((group) => at.peer.join(group));
-	const unread = notHeard.filter((group) => !reading.includes(group));
+	// A part joined for one recipient lets this peer hear another (a
+	// send to #a/b and #a), so whether it hears is asked again after.
+	const unread = notHeard.filter(
+		(group) => !reading.includes(group) && !hears(at.peer.groups, group),
+	);
 	const {
 		notes: reachNotes,
 		reached,

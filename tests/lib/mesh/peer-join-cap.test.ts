@@ -3,7 +3,7 @@
  * than a group runs, whichever way it is brought in: mesh_join, a send
  * to a group, or another peer's invite all join through it.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
+	joinedWithin,
 	joinRefused,
 	MOST_GROUPS,
 } from "../../../lib/mesh/presence.ts";
@@ -103,6 +104,50 @@ describe("a peer joining past what a presence names", () => {
 
 		expect(peer.join(long), "the join is refused").toBe(false);
 		expect(peer.joined).not.toContain(long);
+	});
+
+	// A quest loaded or a tree gained adds a scope at the next refresh,
+	// which no join is asked about, so a full peer would name one past
+	// the most and its presence would drop whatever sorted last, as
+	// often its quest's scope (#2217's third council).
+	it("keeps the scope a refresh brings a full peer, leaving a joined group for it", () => {
+		const { peer, presences } = aPeer();
+		fill(peer);
+		const quest = "QEST-20261021-LUQ49E";
+		mkdirSync(join(root, "sessions"), { recursive: true });
+		writeFileSync(
+			join(root, "sessions", `${session}.json`),
+			JSON.stringify({ quest }),
+		);
+		mkdirSync(join(root, "quests", quest), { recursive: true });
+		writeFileSync(
+			join(root, "quests", quest, "README.md"),
+			`---\nid: ${quest}\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# A Stable Substrate\n\n## 📜 Summary\n\nGrow the mesh.\n`,
+		);
+
+		peer.refresh();
+
+		const said = presences.of(session);
+		expect(peer.groups, "its quest's scope").toContain("#quest/luq49e");
+		expect(peer.groups, "no more than a presence names").toHaveLength(
+			MOST_GROUPS,
+		);
+		expect(said?.groups, "as published").toEqual(peer.groups);
+		expect(said?.joined, "the joined group let go").toEqual(peer.joined);
+		expect(peer.joined).toHaveLength(MOST_GROUPS - 1);
+	});
+
+	it("lets a joined group that is also a scope cost no room", () => {
+		const joined = Array.from(
+			{ length: MOST_GROUPS },
+			(_, at) => `#group-${String(at).padStart(3, "0")}`,
+		);
+
+		expect(joinedWithin(["#group-000"], joined)).toEqual(joined);
+		expect(joinedWithin(["#quest/a", "#repo/b"], joined)).toEqual(
+			joined.slice(0, MOST_GROUPS - 2),
+		);
+		expect(joinedWithin(joined, ["#zzz"])).toEqual([]);
 	});
 
 	it("joins again once it has left one", () => {

@@ -57,6 +57,7 @@ import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
 import {
 	type FenceKind,
+	joinedWithin,
 	joinRefused,
 	type Lineage,
 	type PeerState,
@@ -700,8 +701,16 @@ export function localPeer(at: Surroundings): Peer {
 			yieldedTo !== undefined,
 		);
 		signsSince = signingSince(signing, addresses, heldSince, now());
-		const work = workOf(at.session, joined, at.cwd, at.records);
+		let work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
+		// A scope this refresh brought may leave no room for every joined
+		// group; what it owns is read again without those let go.
+		const kept = joinedWithin(scopes, joined);
+		if (kept.length < joined.length) {
+			joined = kept;
+			work = workOf(at.session, joined, at.cwd, at.records);
+			scopes = [...work.scopes];
+		}
 		receiver = {
 			addresses,
 			worksOn: work.worksOn,

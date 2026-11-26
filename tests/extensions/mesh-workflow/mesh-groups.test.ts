@@ -1094,6 +1094,24 @@ describe("a peer reads what it writes to", () => {
 		);
 	}, 30_000);
 
+	// The part joined for the first recipient hears the second, so the
+	// second is not called unheard though it could not be joined.
+	it("says nothing is unheard that a part it just joined hears", async () => {
+		peer("session-p", ["P9R1KI"], ["#ops/power", "#ops"]);
+		const { tools } = await startSession();
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+		await tools.get("mesh_leave")?.execute("call-leave", { group: "#many-0" });
+
+		const answer = await send(tools, "#ops/power, #ops", "fyi", "rebooting");
+
+		expect(answer).toContain("This peer is in #ops/power now");
+		expect(answer).not.toContain("won't hear the answers");
+	}, 30_000);
+
 	// No peer can join a group that long, so nobody would ever read it.
 	it("refuses a send to a group longer than any peer may join", async () => {
 		const { tools } = await startSession();
@@ -1183,6 +1201,42 @@ describe("an invitation", () => {
 			transport.ids().map((id) => transport.read(id)?.invite),
 			"no invite written",
 		).not.toContain("#jobs");
+	});
+
+	// It hears the group already, so the invite asks nothing of its room
+	// and it is not told to make some (hearing.ts lets it be).
+	it("invites a full peer that hears the group through a part of it", async () => {
+		const many = Array.from(
+			{ length: MOST_GROUPS - 1 },
+			(_, at) => `#many-${at}`,
+		);
+		peer("session-p", ["P9R1KI"], [...many, "#jobs/night"]);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Invited P9R1KI.");
+		expect(text).not.toContain("Not invited");
+	});
+
+	// An invite to a home reaches every session that goes by it, so one
+	// full session there keeps none of the others from it.
+	it("invites a home that one session there is too full to join", async () => {
+		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
+		peer("session-p", ["P9R1KI"], many);
+		peer("session-q", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Invited P9R1KI.");
+		expect(text).not.toContain("Not invited");
 	});
 
 	it("invites a peer with room beside one already in the most groups", async () => {

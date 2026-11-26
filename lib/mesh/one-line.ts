@@ -77,3 +77,13 @@ const QUEST_IN = /QEST/i;
 export function isName(text: string): boolean {
 	return NAME.test(text) && !QUEST_IN.test(text);
 }
+
+/**
+ * Text cut to `most` characters with `...` after, counted whole, so a
+ * cut never splits a character past the basic plane in two; text at
+ * the bound or under is kept as it is.
+ */
+export function cutWhole(text: string, most: number): string {
+	const each = [...text];
+	return each.length > most ? `${each.slice(0, most).join("")}...` : text;
+}
