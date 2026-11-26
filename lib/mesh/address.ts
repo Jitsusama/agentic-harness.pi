@@ -39,8 +39,16 @@
  * whichever session is back first. Where any signer says no time, as
  * an older harness's presence doesn't, the lower session id keeps it as
  * it always did, and where two say the same, the lower id too, so none
- * flips back and forth. Times are each machine's own clock, so a clock wrong by more
- * than the gap between two takings picks the wrong one.
+ * flips back and forth. Times are each machine's own clock, so a clock
+ * wrong by more than the gap between two takings picks the wrong one.
+ * A stamp is carried through every restart, so one wrong would last:
+ * one from before any harness stamped one, as a clock reset at boot
+ * writes, isn't believed (`believedSince`). It ranks after every time
+ * that is, rather than as no time, lest it put the whole set back on
+ * the id rule and win by a lower id, and a peer holding one stamps
+ * afresh. A clock ahead only loses, so nothing bounds it. A clock
+ * behind by hours, not years, still stands until its session stops
+ * holding.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -153,12 +161,39 @@ export function loadedAddress(
 }
 
 /**
+ * No harness stamped a holding's time before November 2026, when
+ * presences began to say one, so an earlier one is a clock not yet set.
+ */
+const EARLIEST_SIGNS_SINCE = Date.parse("2026-11-01T00:00:00.000Z");
+
+/**
+ * A holding's time where it could be true, and none before any harness
+ * stamped one, since a stamp is carried through every restart and a
+ * wrong one would otherwise last as long as its session. Judged from
+ * the time alone, so every peer judges it alike.
+ */
+export function believedSince(since: string | undefined): string | undefined {
+	return since !== undefined && Date.parse(since) >= EARLIEST_SIGNS_SINCE
+		? since
+		: undefined;
+}
+
+/** Where a holding's time ranks: as it says, or after every one believed. */
+function rankOf(since: string): number {
+	const believed = believedSince(since);
+	return believed === undefined
+		? Number.POSITIVE_INFINITY
+		: Date.parse(believed);
+}
+
+/**
  * The live peer this session leaves its quest's address to, if any: one
  * already signing with it, when this session is not; or, when both are,
  * one that has signed with it longer than `signsSince`, or, where a time
  * is missing or the same, one whose session id is lower. A session with
  * a time kept from before its restart contests the address before it
- * signs again, but only against signers that say one too.
+ * signs again, but only against signers that say one too. A time that
+ * can't be true ranks after every one that can, by id among themselves.
  */
 export function yieldsTo<
 	One extends {
@@ -180,16 +215,17 @@ export function yieldsTo<
 	// Times settle it only when every signer says one: one timeless signer
 	// puts all of them back on the old rule, so every peer, old harness or
 	// new, ranks the same live set the same way and none of three cycles.
-	const since = signsSince;
+	// One that can't be true still says a time, so it stays on the time
+	// rule, ranked last: by time, then id, one order every peer computes.
 	if (
-		since !== undefined &&
+		signsSince !== undefined &&
 		signers.every((one) => one.signsSince !== undefined)
 	) {
-		return signers.find(
-			(one) =>
-				(one.signsSince ?? since) < since ||
-				(one.signsSince === since && one.session < session),
-		);
+		const mine = rankOf(signsSince);
+		return signers.find((one) => {
+			const theirs = rankOf(one.signsSince ?? signsSince);
+			return theirs < mine || (theirs === mine && one.session < session);
+		});
 	}
 	return signers.find((one) => !signingNow || one.session < session);
 }
@@ -197,7 +233,11 @@ export function yieldsTo<
 /**
  * Since when a peer signs with its quest's address once its addresses
  * are settled: the time it already held it from, or `now` when it has
- * just taken it, and none once it signs as itself.
+ * just taken it or held it from a time that can't be true, and none once
+ * it signs as itself. A clock still reading before any could be stamps
+ * all the same, which ranks last, rather than saying no time, which
+ * would put every signer back on the id rule; it keeps that first stamp
+ * until the clock is set, rather than rewriting its presence each time.
  */
 export function signingSince(
 	signing: string | undefined,
@@ -206,7 +246,12 @@ export function signingSince(
 	now: number,
 ): { address: string; since: string } | undefined {
 	if (signing === undefined || addresses[0] !== signing) return undefined;
-	return { address: signing, since: heldSince ?? new Date(now).toISOString() };
+	const stamp = new Date(now).toISOString();
+	const unset = believedSince(stamp) === undefined;
+	return {
+		address: signing,
+		since: believedSince(heldSince) ?? (unset ? (heldSince ?? stamp) : stamp),
+	};
 }
 
 /**
@@ -229,7 +274,8 @@ export const RESTARTED_WITHIN_MS = 10 * 60_000;
  * which a reboot voids. Any other said nothing, killed, so its last word
  * (`at`) bounds it, lest one back hours after a crash take the address
  * from the peer that held it since; a word dated ahead by more than the
- * bound, from a clock set wrong, bounds it too.
+ * bound, from a clock set wrong, bounds it too. A time that can't be
+ * true keeps nothing (`believedSince`).
  */
 export function signedSince(
 	presence:
@@ -248,7 +294,7 @@ export function signedSince(
 ): { address: string; since: string } | undefined {
 	if (presence === undefined) return undefined;
 	const address = presence.addresses[0];
-	const since = presence.signsSince;
+	const since = believedSince(presence.signsSince);
 	if (address === undefined || since === undefined) return undefined;
 	const parked = still.parked ?? isParked;
 	const stood =

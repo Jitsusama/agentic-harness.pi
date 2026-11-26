@@ -134,6 +134,116 @@ describe("a quest's address, when two sessions have it loaded", () => {
 		).toEqual({ ...older, signsSince: atOnce });
 	});
 
+	it("wins nothing with a time from before any harness stamped one, as a clock reset at boot writes", () => {
+		// #2218 F35/F41: a session resumed before its machine's clock was
+		// set would otherwise outrank every true holder for as long as it
+		// kept restarting within the bound.
+		const reset = { ...holder, signsSince: "1970-01-01T00:00:05.000Z" };
+		const taken = { ...older, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [reset], taken.signsSince),
+			"the true one keeps it",
+		).toBeUndefined();
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [taken], reset.signsSince),
+			"the one stamped early leaves it",
+		).toBe(taken);
+	});
+
+	it("wins nothing with a time from before any harness stamped one, whatever its id", () => {
+		// Read as no time, it put the set on the id rule, and a lower id won.
+		const reset = { ...older, signsSince: "1970-01-01T00:00:05.000Z" };
+		const held = { ...holder, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [held], reset.signsSince),
+			"the one stamped early leaves it, for all its lower id",
+		).toBe(held);
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [reset], held.signsSince),
+			"the true one keeps it, and so keeps its time",
+		).toBeUndefined();
+	});
+
+	it("is kept by exactly one of three signers when one was stamped early", () => {
+		const all = [
+			{
+				session: "01-reset",
+				addresses: ["7M6JKG"],
+				signsSince: "1970-01-01T00:00:05.000Z",
+			},
+			{
+				session: "02-held",
+				addresses: ["7M6JKG"],
+				signsSince: "2026-11-21T20:47:00.000Z",
+			},
+			{
+				session: "00-taken",
+				addresses: ["7M6JKG"],
+				signsSince: "2026-11-25T13:53:49.000Z",
+			},
+		];
+
+		const keepers = all.filter(
+			(one) =>
+				yieldsTo(one.session, "7M6JKG", true, all, one.signsSince) ===
+				undefined,
+		);
+
+		expect(keepers.map((one) => one.session)).toEqual(["02-held"]);
+	});
+
+	it("is kept by the lower id of two stamped early, whatever each says", () => {
+		const all = [
+			{
+				session: "02-later",
+				addresses: ["7M6JKG"],
+				signsSince: "1970-01-01T00:00:05.000Z",
+			},
+			{
+				session: "01-earlier",
+				addresses: ["7M6JKG"],
+				signsSince: "2026-10-31T00:00:00.000Z",
+			},
+		];
+
+		const keepers = all.filter(
+			(one) =>
+				yieldsTo(one.session, "7M6JKG", true, all, one.signsSince) ===
+				undefined,
+		);
+
+		expect(keepers.map((one) => one.session)).toEqual(["01-earlier"]);
+	});
+
+	it("believes a time from the first of November 2026, and not a moment before", () => {
+		const taken = { ...holder, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [taken], "2026-11-01T00:00:00.000Z"),
+			"from it, it wins",
+		).toBeUndefined();
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [taken], "2026-10-31T23:59:59.999Z"),
+			"before it, it loses",
+		).toBe(taken);
+	});
+
+	it("ranks a time stamped ahead as it says, which only loses", () => {
+		const ahead = { ...older, signsSince: "2026-12-25T00:00:00.000Z" };
+
+		expect(
+			yieldsTo(
+				"02-holder",
+				"7M6JKG",
+				true,
+				[ahead],
+				"2026-11-25T13:53:49.000Z",
+			),
+		).toBeUndefined();
+	});
+
 	it("is contested by a restarted holder only where the signer says a time too", () => {
 		// Restarted, it signs with nothing yet but kept the time it held from.
 		const before = "2026-11-21T20:47:00.000Z";
@@ -253,6 +363,47 @@ describe("what a restart keeps of holding its quest's address", () => {
 		expect(
 			signedSince({ ...last, at: "2026-11-26T16:00:00.000Z" }, now),
 		).toBeUndefined();
+	});
+
+	it("starts afresh after a time from before any harness stamped one", () => {
+		expect(
+			signedSince({ ...last, signsSince: "1970-01-01T00:00:05.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("keeps a time stamped ahead, which only loses", () => {
+		expect(
+			signedSince({ ...last, signsSince: "2026-11-25T17:00:00.000Z" }, now),
+		).toEqual({ address: "7M6JKG", since: "2026-11-25T17:00:00.000Z" });
+	});
+
+	it("stamps afresh only a time from before any harness stamped one", () => {
+		expect(
+			signingSince("7M6JKG", ["7M6JKG"], "1970-01-01T00:00:05.000Z", now),
+			"a time stamped before the clock was set",
+		).toEqual({ address: "7M6JKG", since: "2026-11-25T16:00:00.000Z" });
+		expect(
+			signingSince("7M6JKG", ["7M6JKG"], "2026-11-26T16:00:00.000Z", now),
+			"a time ahead of now is kept, lest a clock stepped back stamp earlier",
+		).toEqual({ address: "7M6JKG", since: "2026-11-26T16:00:00.000Z" });
+		expect(
+			signingSince(
+				"7M6JKG",
+				["7M6JKG"],
+				undefined,
+				Date.parse("1970-01-01T00:00:05.000Z"),
+			),
+			"a clock still before the floor stamps all the same, ranking last",
+		).toEqual({ address: "7M6JKG", since: "1970-01-01T00:00:05.000Z" });
+		expect(
+			signingSince(
+				"7M6JKG",
+				["7M6JKG"],
+				"1970-01-01T00:00:05.000Z",
+				Date.parse("1970-01-01T00:01:05.000Z"),
+			),
+			"and keeps that stamp while it still is, so its presence isn't rewritten each time",
+		).toEqual({ address: "7M6JKG", since: "1970-01-01T00:00:05.000Z" });
 	});
 
 	it("keeps it across one that ended moments before, as a rollover does", () => {
