@@ -93,9 +93,9 @@ export async function startHost(options: {
 	/** Flags for node itself, ahead of the host's source, as an inspector. */
 	nodeArgs?: readonly string[];
 }): Promise<HostProcess> {
-	const rollout = options.admitsOne
-		? `() => Promise.reject(hostRefusal("rollout_refused", "this host admits one conversation"))`
-		: "() => Promise.resolve()";
+	const places = options.admitsOne
+		? `{ rollout: () => Promise.reject(hostRefusal("rollout_refused", "this host admits one conversation")) }`
+		: "{}";
 	const source = `
 const { runHost } = await import(${JSON.stringify(RUN)});
 const { hostRefusal } = await import(${JSON.stringify(DISPATCH)});
@@ -105,7 +105,7 @@ const run = await runHost({
 	env: process.env,
 	engine,
 	ready: async () => {},
-	places: { rollout: ${rollout} },
+	places: ${places},
 });
 // A restart the host asked for: coming, then systemd's stop.
 process.once("SIGUSR2", () => {

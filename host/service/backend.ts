@@ -605,8 +605,8 @@ export function hostBackend(options: {
 	async function beginOnce(
 		request: OpenRequest | AdoptRequest,
 	): Promise<unknown> {
-		// A begin's time runs from here, so the gate's census below comes
-		// out of it: the caller's wait began when it asked (BEGINS_WITHIN_MS).
+		// A begin's time runs from here, so a gate's ask below comes out
+		// of it: the caller's wait began when it asked (BEGINS_WITHIN_MS).
 		const taken = Date.now();
 		const another = roster.entries().length + beginning > 0;
 		beginning += 1;

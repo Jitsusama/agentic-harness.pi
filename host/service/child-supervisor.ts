@@ -1963,7 +1963,7 @@ export function childSupervisor(options: {
 				request.op === "adopt" ? resolve(request.sessionFile) : undefined;
 			if (file !== undefined && fileHeld(file))
 				return Promise.reject(new Error(`Conversation already held: ${file}`));
-			// What the host spent before this begin, its census under load, can
+			// What the host spent before this begin, a gate's ask under load, can
 			// leave the child too little time to start and answer: refused then,
 			// before a unit starts only to be stopped on a machine already
 			// loaded, and reported to the journal with the request and where
