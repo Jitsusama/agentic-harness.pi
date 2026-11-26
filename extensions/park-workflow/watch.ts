@@ -465,9 +465,8 @@ export function watch(
 	// Ended pi's own process, as a host's conversation never does.
 	let endedProcess = false;
 	let failed: FailedPark | undefined;
-	// How the park under way went on, so one its host refuses after `end`
-	// returns, as a host parks once the asking call returns, is taken back.
-	let parkGoesOn = false;
+	// The windows the park under way closed, for a take-back to say.
+	let closedWindows = 0;
 	// Its person was last at its window, as far as this process saw.
 	let presentAt = Number.NEGATIVE_INFINITY;
 	const holding = (): Holding => ({
@@ -533,9 +532,8 @@ export function watch(
 			? Math.min(usual, OLD_PARK_AFTER_MS)
 			: usual;
 	};
-	const end = (goesOn: boolean) => {
+	const end = () => {
 		parked = true;
-		parkGoesOn = goesOn;
 		// Parked, it has done what an ask to park soon asked.
 		clearEase(session, folder);
 		// A host parks this conversation alone, keeping its window and wake.
@@ -654,22 +652,28 @@ export function watch(
 		}
 		try {
 			mark(goesOn, afterMs, sessionFile, windows);
-			end(goesOn);
+			end();
 		} catch (error) {
-			takeBack(error, goesOn);
+			takeBack(error);
 		}
 		return undefined;
 	};
 	// Still up, it reads as awake again, and a later park may go.
-	const takeBack = (error: unknown, goesOn: boolean): never => {
+	const takeBack = (error: unknown): never => {
 		const saidToHolder = endedProcess;
 		parked = false;
 		endedProcess = false;
-		failed = { at: now(), error };
 		const pid = options.pid ?? process.pid;
-		const wakeWritten = goesOn ? { wakeWritten: wake } : {};
-		const half = { session, folder, saidToHolder, env, pid, bus };
-		return undoPark(error, { ...half, ...wakeWritten });
+		const windowsClosed = closedWindows;
+		closedWindows = 0;
+		const half = { session, folder, wake, windowsClosed };
+		try {
+			return undoPark(error, { ...half, saidToHolder, env, pid, bus });
+		} catch (thrown) {
+			// What it threw, so the clock's hold says any part left standing.
+			failed = { at: now(), error: thrown };
+			throw thrown;
+		}
 	};
 	// Say it parks, to the mesh and in its marker, before its holder ends it.
 	const mark = (
@@ -678,6 +682,7 @@ export function watch(
 		sessionFile: string,
 		windows: readonly HeldWindow[],
 	): void => {
+		closedWindows = 0;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		// A host watches its conversations' inboxes itself (host/engine).
@@ -701,6 +706,7 @@ export function watch(
 		// itself.
 		if (windows.length > 0) {
 			const left = leftOf(leaveScreen(session, windows, desk()));
+			closedWindows = left.closed.length;
 			writeParked({ ...marker, windows: left }, folder);
 		}
 	};
@@ -801,7 +807,7 @@ export function watch(
 	const unrefused = bus.on(PARK_REFUSED_EVENT, (data) => {
 		if (!isParkRefused(data) || data.session !== session || !parked) return;
 		try {
-			takeBack(new Error(data.why), parkGoesOn);
+			takeBack(new Error(data.why));
 		} catch (error) {
 			// Its host already said why it runs on; pi's bus says what a
 			// listener throws, so only what couldn't be taken back goes there.
