@@ -156,7 +156,7 @@ function sentUnanswered(why: string): ClaimTold {
 	return { kind: "unasked", why, mayLand: true };
 }
 
-/** The last line of `stdout` read as JSON, or nothing. */
+/** The node's reply in `stdout` (replyIn), read as JSON, or nothing. */
 function lastJson(stdout: string): unknown {
 	// Read as a sprout's is (replyIn), so an escape after it never hides it.
 	const line = replyIn(stdout);

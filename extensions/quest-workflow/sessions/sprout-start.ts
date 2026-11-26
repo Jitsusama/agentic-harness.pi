@@ -77,10 +77,10 @@ const started = (words: string): string =>
 const TIE_PATIENCE_MS = 15_000;
 
 /**
- * The most of mycelium's last line a tie that didn't land quotes in the
- * session's first words: enough for a line of a reason, never a page. It
- * is only what mycelium last wrote, which a kill (SIGKILL) leaves unsaid,
- * so it is quoted as that, never as why.
+ * The most of what mycelium wrote that a tie that didn't land quotes in
+ * the session's first words, every line that shows (stderrSaid): enough
+ * for a reason, never a page. It is only what mycelium wrote, which a
+ * kill (SIGKILL) leaves unsaid, so it is quoted as that, never as why.
  */
 const MOST_QUOTED = 200;
 
