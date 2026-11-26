@@ -42,6 +42,7 @@ import {
 	addressesOf,
 	loadedAddress,
 	olderAddresses,
+	olderAddressesOff,
 	type QuestRecords,
 	questAddress,
 	sessionAddress,
@@ -490,13 +491,20 @@ export function localPeer(at: Surroundings): Peer {
 	let signsSince = takeHeldAtStart(before, at, now());
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
-	const older = [
+	const remembered = [
+		...(carried?.addresses ?? []),
+		// Its own last presence, which a reload or a rolled-over log may
+		// no longer find through the quests or the carried presence.
+		...(before?.addresses ?? []),
+	];
+	// A peer that answered before answers to that at once, and reads the
+	// READMEs off the thread: on 26 November the reading on the thread
+	// held one start for 12.7 s. One new to the mesh still waits for them.
+	const readOff = remembered.length > 0;
+	let older = [
 		...new Set([
-			...olderAddresses(at.session, at.records),
-			...(carried?.addresses ?? []),
-			// Its own last presence, which a reload or a rolled-over log may
-			// no longer find through the quests or the carried presence.
-			...(before?.addresses ?? []),
+			...(readOff ? [] : olderAddresses(at.session, at.records)),
+			...remembered,
 		]),
 	];
 	// A cell never split from itself, as the asking cell's own session
@@ -737,6 +745,19 @@ export function localPeer(at: Surroundings): Peer {
 		publish();
 	};
 	refresh();
+	if (readOff) {
+		olderAddressesOff(at.session, at.records)
+			.then((found) => {
+				const more = found.filter((address) => !older.includes(address));
+				if (disposed || more.length === 0) return;
+				older = [...older, ...more];
+				refresh();
+			})
+			.catch(() => {
+				// A refresh that threw here has `older` already grown, so the
+				// peer's next refresh, at its next message or publish, says it.
+			});
+	}
 	return {
 		session: at.session,
 		get addresses() {

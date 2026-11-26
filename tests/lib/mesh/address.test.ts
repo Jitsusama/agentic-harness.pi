@@ -11,6 +11,7 @@ import {
 	isAddress,
 	namedAtStart,
 	olderAddresses,
+	olderAddressesOff,
 	questAddress,
 	signedSince,
 	signingSince,
@@ -522,6 +523,32 @@ describe("a peer's addresses", () => {
 
 	it("are the session id's tail alone with no quest store", () => {
 		expect(addressesOf(session, records())).toEqual(["24B025FE"]);
+	});
+});
+
+describe("a peer's older addresses, read off the thread", () => {
+	it("name what the reading on the thread names, past one batch of READMEs", async () => {
+		// 70 quests is more than two batches of 32, with listing ones in each.
+		for (let n = 0; n < 70; n += 1) {
+			const id = `QEST-20261101-Q${String(n).padStart(5, "0")}`;
+			quest(id, n % 9 === 0 ? `- ${session}` : "- someone-else");
+		}
+		// A README that is a folder, and a quest with no README, name nobody.
+		mkdirSync(join(root, "quests", "QEST-20261101-FOLDER", "README.md"), {
+			recursive: true,
+		});
+		mkdirSync(join(root, "quests", "QEST-20261101-NOREAD"));
+
+		const off = await olderAddressesOff(session, records());
+
+		expect(off, "one for every ninth quest").toHaveLength(8);
+		expect([...off].sort()).toEqual(
+			[...olderAddresses(session, records())].sort(),
+		);
+	});
+
+	it("name nothing with no quest store", async () => {
+		expect(await olderAddressesOff(session, records())).toEqual([]);
 	});
 });
 
