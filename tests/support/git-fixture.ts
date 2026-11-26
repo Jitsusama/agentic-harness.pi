@@ -67,11 +67,16 @@ vi.setConfig({ testTimeout: REAL_GIT_MS, hookTimeout: REAL_GIT_MS });
  * runs its own git with the process's environment, which is why the
  * template below also sets its identity and signing in its own config.
  *
- * Nor does the fixture's git start maintenance. A commit starts `git
- * maintenance run --auto --detach`, which outlives the commit and makes
- * and removes `objects/maintenance.lock`, so a copy taken just after
- * lists the lock and then fails to find it. Under load that hit the
- * first test of a file, whose copy follows the template's commit.
+ * Nor does the fixture's git start maintenance. A commit or a fetch
+ * starts `git maintenance run --auto --detach`, which outlives it and
+ * makes and removes `objects/maintenance.lock`, so a copy taken just
+ * after lists the lock and then fails to find it. Under load that hit
+ * the first test of a file, whose copy follows the template's commit.
+ * The setting rides on the command line (git 2.31 and later read it
+ * there), and every repo the fixture's git makes, by init or clone,
+ * holds it in its own config too, so the code under test starts none
+ * in them either. So does `core.fsmonitor`, another writer that
+ * outlives a command, should the person's settings turn it on.
  */
 const GIT_ENV = {
 	GIT_CONFIG_GLOBAL: "/dev/null",
@@ -82,17 +87,37 @@ const GIT_ENV = {
 	GIT_CONFIG_VALUE_0: "false",
 } as const;
 
+/** The settings every repo the fixture's git makes starts with. */
+const REPO_SETTINGS =
+	"[maintenance]\n\tauto = false\n[core]\n\tfsmonitor = false\n";
+
+/** The template folder git makes each repo from, written once per worker. */
+let repoTemplate: string | undefined;
+
+/** The folder whose `config` each new repo starts with, written on first use. */
+function repoTemplateDir(): string {
+	if (!repoTemplate) {
+		repoTemplate = mkdtempSync(join(tmpdir(), "git-fixture-settings-"));
+		writeFileSync(join(repoTemplate, "config"), REPO_SETTINGS);
+	}
+	return repoTemplate;
+}
+
 /** Run git in a directory, returning stdout, shielded from the person's settings. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
 	const { stdout } = await execFileAsync("git", args, {
 		cwd,
-		env: { ...withoutGitSettings(process.env), ...GIT_ENV },
+		env: {
+			...withoutGitSettings(process.env),
+			...GIT_ENV,
+			GIT_TEMPLATE_DIR: repoTemplateDir(),
+		},
 	});
 	return stdout.trim();
 }
 
 /** An environment with none of the variables git reads its settings from. */
-function withoutGitSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function withoutGitSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return Object.fromEntries(
 		Object.entries(env).filter(([name]) => !name.startsWith("GIT_")),
 	);
@@ -114,10 +139,6 @@ async function buildTemplate(): Promise<string> {
 	await git(dir, "config", "user.name", "Test");
 	await git(dir, "config", "commit.gpgsign", "false");
 	await git(dir, "config", "tag.gpgsign", "false");
-	// The code under test runs git in the copies with the process's own
-	// settings, so a commit it makes starts no maintenance either, while
-	// its test may copy that repo again.
-	await git(dir, "config", "maintenance.auto", "false");
 	writeFileSync(join(dir, "README.md"), "scratch repo\n");
 	await git(dir, "add", "README.md");
 	await git(dir, "commit", "-qm", "initial");

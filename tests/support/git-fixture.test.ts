@@ -14,7 +14,15 @@ import {
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disposeRepo, freshRepo, git } from "./git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	git,
+	withoutGitSettings,
+} from "./git-fixture.ts";
+
+/** What git's trace says as a command starts background maintenance, of either kind. */
+const STARTS_MAINTENANCE = /run_command: git (maintenance|gc)\b/;
 
 describe("the git fixture", () => {
 	let repo: string;
@@ -87,37 +95,68 @@ describe("the git fixture", () => {
 		}
 	});
 
-	it("starts no maintenance from its own git, so nothing writes a repo it copies", async () => {
-		await git(repo, "config", "--unset", "maintenance.auto");
-
-		expect(await git(repo, "config", "--get", "maintenance.auto")).toBe(
-			"false",
-		);
+	it("turns maintenance off on its own git's command line", async () => {
+		expect(
+			await git(repo, "config", "--show-scope", "--get", "maintenance.auto"),
+			"git before 2.31 reads no settings from GIT_CONFIG_COUNT",
+		).toBe("command\tfalse");
 	});
 
-	it("hands out repos whose commits start no maintenance under anyone's git", async () => {
-		// The code under test runs git with the process's settings, not the
-		// fixture's, and git traces the maintenance a commit starts.
-		const env = Object.fromEntries(
-			Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
-		);
+	it("hands out copies whose commits start no maintenance from git's own settings", async () => {
+		expect(
+			await tracedCommit(repo, "-c", "maintenance.auto=true"),
+			"this git's trace never shows a commit starting maintenance",
+		).toMatch(STARTS_MAINTENANCE);
+
+		expect(await tracedCommit(repo)).not.toMatch(STARTS_MAINTENANCE);
+	});
+
+	it("makes clones that start no maintenance or monitor of their own", async () => {
+		const clone = `${repo}-clone`;
+		try {
+			await git(repo, "clone", "-q", repo, clone);
+
+			expect(await tracedCommit(clone)).not.toMatch(STARTS_MAINTENANCE);
+			expect(
+				await git(clone, "config", "--local", "--get", "core.fsmonitor"),
+			).toBe("false");
+		} finally {
+			disposeRepo(clone);
+		}
+	});
+
+	/**
+	 * A commit in `dir` by git as the code under test runs it, with the
+	 * process's settings rather than the fixture's, and none of the
+	 * person's or the system's, answering what git traced as it ran.
+	 */
+	async function tracedCommit(
+		dir: string,
+		...settings: string[]
+	): Promise<string> {
 		const { stderr } = await promisify(execFile)(
 			"git",
-			["commit", "-q", "--allow-empty", "-m", "from the code"],
+			[...settings, "commit", "-q", "--allow-empty", "-m", "from the code"],
 			{
-				cwd: repo,
+				cwd: dir,
 				env: {
-					...env,
+					...withoutGitSettings(process.env),
 					GIT_CONFIG_GLOBAL: "/dev/null",
 					GIT_CONFIG_NOSYSTEM: "1",
 					GIT_TRACE: "1",
+					// A clone holds none of the template's identity.
+					GIT_AUTHOR_NAME: "Test",
+					GIT_AUTHOR_EMAIL: "test@example.com",
+					GIT_COMMITTER_NAME: "Test",
+					GIT_COMMITTER_EMAIL: "test@example.com",
 				},
 			},
 		);
-
-		expect(stderr).toContain("built-in: git commit");
-		expect(stderr).not.toContain("maintenance run");
-	});
+		expect(stderr, "git traced nothing of the commit").toContain(
+			"built-in: git commit",
+		);
+		return stderr;
+	}
 
 	/** Point git's global settings at a file holding these. */
 	function personSettings(text: string): void {
