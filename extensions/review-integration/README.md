@@ -338,7 +338,10 @@ soon as the machine has memory for it: while the kernel's memory
 (`lib/core/review/ask/memory-room.ts`), and at most two a minute,
 so a long line drains no faster than that minute-long average can
 show what the rounds before took. A machine that keeps no such
-reading, as a Mac, always has room, and keeps the two a minute. A
+reading, as a Mac, always has room, and keeps the two a minute.
+Rounds with the same first ask, as two sessions' rounds on one
+change always have, take their turns by ticket id, so every look
+agrees which is ahead. A
 round that waited says how long, behind whom, and what the machine
 was short of. On 24 November a round waited half an hour behind ten
 others under the fixed three-minute gap this replaced, on a machine
