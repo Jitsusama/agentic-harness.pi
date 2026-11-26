@@ -287,7 +287,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							: "",
 						...rewrote.map(
 							(one) =>
-								`${holders([one])} ${changingText([one.lease])} in ${one.lease.subject}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
+								`${holders([one])} ${changingText([one.lease])} in ${leaseWords(one.lease.subject)}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
 						),
 					].filter(Boolean);
 					return {

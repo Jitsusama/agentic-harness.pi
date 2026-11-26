@@ -287,6 +287,14 @@ export interface Surroundings {
 	 * led-areas.ts). Left out, it says none.
 	 */
 	readonly ledAreas?: (quest: string) => readonly string[];
+	/**
+	 * Told the joined groups a refresh newly sets aside (`setAside`), as a
+	 * scope gained at a refresh no join is asked about, so the session
+	 * knows it no longer hears them. Not told of those set aside as it
+	 * started, which it was told of before, nor of a group its own join
+	 * sets aside at once, which mesh_join says.
+	 */
+	readonly onSetAside?: (groups: readonly string[]) => void;
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -683,6 +691,10 @@ export function localPeer(at: Surroundings): Peer {
 		}
 	};
 	let yieldedTo: Presence | undefined;
+	// The joined groups last found set aside, none before the first
+	// refresh, and the group a join is adding, said by the join itself.
+	let aside: ReadonlySet<string> | undefined;
+	let joining: string | undefined;
 	const refresh = (listed?: readonly Presence[]) => {
 		const everyone = listed ?? at.presences.all();
 		// Another process wrote this peer's file: on 10 November a plain pi
@@ -724,6 +736,12 @@ export function localPeer(at: Surroundings): Peer {
 			work = workOf(at.session, kept, at.cwd, at.records);
 			scopes = [...work.scopes];
 		}
+		const inForceNow = new Set(joinedWithin(scopes, joined));
+		const nowAside = joined.filter((group) => !inForceNow.has(group));
+		const newly = aside
+			? nowAside.filter((group) => !aside?.has(group) && group !== joining)
+			: [];
+		aside = new Set(nowAside);
 		receiver = {
 			addresses,
 			worksOn: work.worksOn,
@@ -765,6 +783,8 @@ export function localPeer(at: Surroundings): Peer {
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
+		// Told last, so the peer it tells of is whole and published first.
+		if (newly.length > 0) at.onSetAside?.(newly);
 	};
 	refresh();
 	if (readOff) {
@@ -952,7 +972,13 @@ export function localPeer(at: Surroundings): Peer {
 			if (joined.includes(group)) return false;
 			if (joinRefused(groups(), group) !== undefined) return false;
 			joined = [...joined, group].sort();
-			refresh();
+			joining = group;
+			try {
+				refresh();
+			} finally {
+				// Only this join's own refresh leaves its group untold.
+				joining = undefined;
+			}
 			return groups().includes(group);
 		},
 		leave(group) {

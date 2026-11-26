@@ -938,6 +938,25 @@ export function joinedWithin(
 	return joined.filter((group) => scoped.has(group) || kept.has(group));
 }
 
+/** The set-aside groups named in `roomToJoin`; the rest are counted. */
+const ROOM_NAMES = 3;
+
+/**
+ * What a peer in the most groups does to join one more, holding
+ * `setAside`, as words after "so": each leave gives its room to the
+ * set-aside group that sorts first (`joinedWithin`), so it leaves one
+ * more than it holds aside.
+ */
+export function roomToJoin(setAside: readonly string[]): string {
+	if (setAside.length === 0) {
+		return "leave one it no longer works on with mesh_leave";
+	}
+	const named = setAside.slice(0, ROOM_NAMES).join(", ");
+	const more = setAside.length - ROOM_NAMES;
+	const aside = more > 0 ? `${named} and ${more} more` : named;
+	return `leave ${setAside.length + 1} of the groups it joined and no longer works on with mesh_leave, set aside or not, since those it set aside (${aside}) take any room first`;
+}
+
 /**
  * Whether a group a presence names is one a group is named as, read
  * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,

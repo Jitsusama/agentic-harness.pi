@@ -7,15 +7,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { groupsText } from "../../../extensions/mesh-workflow/tools/groups.ts";
+import {
+	groupsText,
+	join as joinTool,
+} from "../../../extensions/mesh-workflow/tools/groups.ts";
 import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
+import { createBoard } from "../../../lib/mesh/lease.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	joinedWithin,
 	joinRefused,
 	MOST_GROUPS,
+	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
+import { folderTransport } from "../../../lib/mesh/transport.ts";
 
 let root: string;
 const session = "01a1be5c-fff0-70a1-9301-f505d5634bf7";
@@ -28,10 +34,11 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-/** A peer with a presence folder of its own. */
-function aPeer() {
+/** A peer with a presence folder of its own, told what it sets aside. */
+function aPeer(onSetAside?: (groups: readonly string[]) => void) {
 	const presences = createPresences(join(root, "presence"));
 	const peer = localPeer({
+		...(onSetAside ? { onSetAside } : {}),
 		session,
 		cwd: root,
 		records: { sessions: join(root, "sessions"), quests: join(root, "quests") },
@@ -200,5 +207,92 @@ describe("a peer joining past what a presence names", () => {
 			peer.join("#zzz-one-more"),
 			"a join fits once a leave frees its place",
 		).toBe(true);
+	});
+
+	// A refresh in the background is asked by no tool, so nothing else
+	// would tell the session it stopped hearing a group (#2243's fourth
+	// council, F17).
+	it("tells the session once of a group a refresh sets aside", () => {
+		const told: string[][] = [];
+		const { peer } = aPeer((groups) => told.push([...groups]));
+		fill(peer);
+		loadQuest();
+
+		peer.refresh();
+		peer.refresh();
+
+		expect(told, "told once, naming it").toEqual([["#group-063"]]);
+		const again: string[][] = [];
+		aPeer((groups) => again.push([...groups]));
+		expect(again, "not told again as a reload starts").toEqual([]);
+	});
+
+	it("leaves the telling of a group its own join sets aside to the join", () => {
+		const told: string[][] = [];
+		const { peer } = aPeer((groups) => told.push([...groups]));
+		fill(peer);
+		peer.leave("#group-063");
+		loadQuest();
+
+		expect(peer.join("#zzz-last"), "not in force").toBe(false);
+		expect(told).toEqual([]);
+	});
+
+	// mesh_join refreshes before it joins, so a scope landing between the
+	// two sets the join aside at once (#2243's fourth council, F1).
+	it("has mesh_join say a join it set aside at once is not heard yet", async () => {
+		const { peer, presences } = aPeer();
+		fill(peer);
+		peer.leave("#group-063");
+		loadQuest();
+
+		const answer = await joinTool(
+			{
+				peer,
+				presences,
+				transport: folderTransport(join(root, "messages")),
+				board: createBoard(join(root, "leases")),
+				sent: () => {},
+			},
+			{ group: "#zzz-last" },
+		);
+
+		const text = answer.content[0]?.text ?? "";
+		expect(text).toContain(
+			"Joined #zzz-last, but set it aside at once, so it hears nothing there yet.",
+		);
+		expect(text).not.toContain("In #zzz-last.");
+		expect(text, "and why").toContain(
+			"It set aside #zzz-last, which it joined",
+		);
+	});
+
+	// Each leave gives its room to the set-aside group that sorts first,
+	// so one leave makes no room for a join (#2243's fourth council, F2).
+	it("says a full peer holding groups aside must leave one more than it holds", () => {
+		const { peer } = aPeer();
+		fill(peer);
+		loadQuest();
+		peer.refresh();
+		expect(roomToJoin(peer.setAside)).toContain("leave 2 of the groups");
+
+		peer.leave("#group-000");
+		expect(peer.join("#zzz-one-more"), "the set-aside one took the room").toBe(
+			false,
+		);
+		peer.leave("#group-001");
+		expect(peer.join("#zzz-one-more"), "the second leave makes room").toBe(
+			true,
+		);
+	});
+
+	it("names at most three groups it holds aside, counting the rest", () => {
+		const aside = ["#a", "#b", "#c", "#d", "#e"];
+
+		expect(roomToJoin(aside)).toContain("(#a, #b, #c and 2 more)");
+		expect(roomToJoin(aside)).toContain("leave 6 of the groups");
+		expect(roomToJoin([])).toBe(
+			"leave one it no longer works on with mesh_leave",
+		);
 	});
 });

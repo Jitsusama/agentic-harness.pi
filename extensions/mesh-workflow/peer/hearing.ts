@@ -40,6 +40,7 @@ import {
 	joinRefused,
 	MOST_GROUPS,
 	type Presence,
+	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import {
 	readsAsReceptor,
@@ -529,10 +530,18 @@ export function createHearing(m: MeshState, f: Handing) {
 			if (joinRefused(m.peer.groups, message.invite) === "full") {
 				return {
 					...message,
-					text: `${message.text} It couldn't join ${message.invite}, though: it is in ${MOST_GROUPS} groups, the most a peer may be in. Leave one it no longer works on with mesh_leave, then join with mesh_join.`,
+					text: `${message.text} It couldn't join ${message.invite}, though: it is in ${MOST_GROUPS} groups, the most a peer may be in, so ${roomToJoin(m.peer.setAside)}, then join with mesh_join.`,
 				};
 			}
 			m.peer.join(message.invite);
+			// A join its work's groups leave no room for is set aside at
+			// once, so the invite's "in the group from now on" isn't so yet.
+			if (m.peer.setAside.includes(message.invite)) {
+				return {
+					...message,
+					text: `${message.text} It joined ${message.invite}, but set it aside at once: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears nothing there until there is room, when the set-aside group that sorts first comes back by itself. mesh_groups says which it set aside.`,
+				};
+			}
 		}
 		return message;
 	};

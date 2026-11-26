@@ -8,6 +8,8 @@ import {
 	tending,
 } from "../../../../lib/internal/pineapple/hold.ts";
 import { type Stop, stopOf } from "../../../../lib/internal/pineapple/stops.ts";
+import { MOST_GROUP_CHARS } from "../../../../lib/mesh/group.ts";
+import { scopesOf } from "../../../../lib/mesh/scope.ts";
 
 function stop(id: string, reaches: string[], fields = {}): Stop {
 	const made = stopOf({ shadow: false, reaches, ...fields }, id);
@@ -50,6 +52,26 @@ describe("groupsOf", () => {
 		).toEqual(["#all"]);
 		expect(groupsOf(stop("a", ["realm:work"]), chainOf)).toEqual(["#all"]);
 		expect(groupsOf(stop("a", ["pr:12"]), chainOf)).toEqual(["#all"]);
+	});
+
+	it("sends a long repository's hold to the cut group its sessions hear", () => {
+		const name = `${"long-".repeat(30)}name`;
+		const [heard] = scopesOf({ questChain: [], repositories: [name] });
+		const [sent] = groupsOf(stop("a", [`repo:example/${name}`]), chainOf);
+		expect(sent).toBe(heard);
+		expect(
+			(sent ?? "").length <= MOST_GROUP_CHARS,
+			`${sent} runs past the most a group may`,
+		).toBe(true);
+	});
+
+	it("sends to every session for a repository whose name gives no group", () => {
+		expect(groupsOf(stop("a", ["repo:example/..."]), chainOf)).toEqual([
+			"#all",
+		]);
+		expect(groupsOf(stop("a", ["pr:example/__#12"]), chainOf)).toEqual([
+			"#all",
+		]);
 	});
 });
 

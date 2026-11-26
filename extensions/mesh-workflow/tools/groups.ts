@@ -22,6 +22,7 @@ import {
 	joinRefused,
 	MOST_GROUPS,
 	type Presence,
+	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
@@ -42,7 +43,7 @@ export async function join(
 	const refused = joinRefused(at.peer.groups, group);
 	if (refused === "full") {
 		return answer(
-			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in. Leave one it no longer works on first. ${LISTED_IN_GROUPS}`,
+			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in, so ${roomToJoin(at.peer.setAside)} first. ${LISTED_IN_GROUPS}`,
 			{ groups: at.peer.groups },
 		);
 	}
@@ -60,7 +61,11 @@ export async function join(
 		? `Already in ${group} by this peer's work.`
 		: heard
 			? `Already hears ${group} through a group under it, so it was not joined: this peer is in ${at.peer.groups.length} groups, the most a peer may be in.`
-			: `In ${group}.`;
+			: at.peer.setAside.includes(group)
+				? // Joined but past the room its work leaves, which standsText
+					// says why, it hears nothing there yet.
+					`Joined ${group}, but set it aside at once, so it hears nothing there yet.`
+				: `In ${group}.`;
 	const invited = groupsNamed(params.invite ?? "");
 	const lately = joinedNow ? await saidLately(at, group) : "";
 	if (invited.length === 0) {
@@ -98,7 +103,7 @@ export async function join(
 	});
 	const fullText =
 		full.length > 0
-			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has left one.`
+			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has made room.`
 			: "";
 	const skipped =
 		notHomes.length > 0
@@ -238,7 +243,7 @@ function standsText(peer: Peer): string {
 	// Set aside by a scope its work brought, they are heard by nobody
 	// here until there is room, so it is told rather than left to wonder.
 	return aside.size > 0
-		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Leave one it no longer works on with mesh_leave to make room.`
+		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Each group it joined and leaves with mesh_leave gives its room to the one set aside that sorts first.`
 		: stands;
 }
 

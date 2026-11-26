@@ -122,8 +122,9 @@ function groupsOfReach(
 
 /**
  * The group of a repository, `owner/name` or `name`, as its sessions'
- * scopes name it; everyone for a name that gives no group, so the stop
- * still reaches whoever it was meant for.
+ * scopes name it, cut as theirs is. A name with no letter or digit gives
+ * no group, and goes to everyone as any reach the stop can't read does
+ * (stops.ts), since a stop that parks nobody would fail without a word.
  */
 function repoGroup(repo: string): string {
 	return repositoryGroup(repo.split("/").at(-1) ?? repo) ?? ALL;

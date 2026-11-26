@@ -34,7 +34,11 @@ import {
 } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import { pivotTargets } from "../../../lib/mesh/pivot.ts";
-import { MOST_GROUPS, type Presence } from "../../../lib/mesh/presence.ts";
+import {
+	MOST_GROUPS,
+	type Presence,
+	roomToJoin,
+} from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -821,7 +825,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	if (unread.length > 0) {
-		notes.push(unreadNote(unread));
+		notes.push(unreadNote(unread, at.peer.setAside));
 	}
 	if (message.intent === "hold") {
 		notes.push(
@@ -888,8 +892,8 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
  * knows it won't hear the answers there: it is in the most groups a peer
  * may be in. A group too long to join is never written to (see send).
  */
-function unreadNote(unread: readonly string[]) {
-	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${unread.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so leave one it no longer works on with mesh_leave).`;
+function unreadNote(unread: readonly string[], setAside: readonly string[]) {
+	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${unread.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so ${roomToJoin(setAside)}).`;
 }
 
 /** Why a send leaves out the addresses no session here goes by. */
