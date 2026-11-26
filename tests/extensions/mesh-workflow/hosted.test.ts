@@ -45,7 +45,9 @@ import {
 	PARKING,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
 import { handIn } from "../../../lib/mesh/hand.ts";
+import { KEPT_KEY } from "../../../lib/mesh/kept-holding.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 import { census } from "../../../lib/mesh/liveness.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
@@ -72,7 +74,11 @@ let uninstall: (() => void) | undefined;
 afterEach(async () => {
 	for (const stop of stops.splice(0)) await stop();
 	vi.unstubAllEnvs();
-	for (const id of ["alpha-AAAAAAAA", "bravo-BBBBBBBB"]) releaseSession(id);
+	for (const id of ["alpha-AAAAAAAA", "bravo-BBBBBBBB", "alpha-CCCCCCCC"]) {
+		releaseSession(id);
+	}
+	// What an ended conversation kept is the test process's, as a host's.
+	(globalThis as { [KEPT_KEY]?: Map<string, unknown> })[KEPT_KEY]?.clear();
 	uninstall?.();
 	rmSync(root, { recursive: true, force: true });
 });
@@ -83,7 +89,7 @@ type Tool = {
 	execute: (...args: unknown[]) => Promise<{ content: { text: string }[] }>;
 };
 
-async function peer(id: string) {
+async function peer(id: string, branch: readonly unknown[] = []) {
 	const handlers = new Map<string, Handler>();
 	const tools = new Map<string, Tool>();
 	const messages: { content: string }[] = [];
@@ -111,8 +117,8 @@ async function peer(id: string) {
 		sessionManager: {
 			getSessionId: () => id,
 			getSessionFile: () => join(root, `${id}.jsonl`),
-			getBranch: () => [],
-			// An empty branch, read back from its leaf as pi's walk reads it.
+			getBranch: () => branch,
+			// The branch it is given, its leaf unset as pi's walk reads a fresh one.
 			getLeafId: () => null,
 			getEntry: () => undefined,
 			getSessionName: () => undefined,
@@ -325,6 +331,102 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 		),
 	);
 	expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe("bravo-BBBBBBBB");
+});
+
+it("keeps its quest's address through a close and reopen in its host, over a peer that took it since", async () => {
+	// A hosted conversation's presence goes as it ends, so a reopen or a
+	// rollover found no time to keep (#2218's review, F21, F37). A host
+	// turns down a restart in place, so a close and reopen is its restart.
+	await inHost();
+	mkdirSync(paths.sessions, { recursive: true });
+	writeFileSync(
+		join(paths.sessions, "alpha-AAAAAAAA.json"),
+		JSON.stringify({ quest: "QEST-20261021-7M6JKG" }),
+	);
+	await peer("bravo-BBBBBBBB");
+	const hello = (from: Awaited<ReturnType<typeof peer>>) =>
+		from.call("mesh_send", { to: "BBBBBBBB", intent: "fyi", text: "hello" });
+	const a = await peer("alpha-AAAAAAAA");
+	expect(await hello(a)).toContain("Sent as 7M6JKG");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const heldFrom = presences.of("alpha-AAAAAAAA")?.signsSince;
+	expect(heldFrom, "it says since when it holds it").toBeDefined();
+
+	await a.close();
+	expect(
+		presences.of("alpha-AAAAAAAA"),
+		"its presence goes as it ends",
+	).toBeUndefined();
+	// Taken meanwhile by a peer whose lower id would keep it without time.
+	const takenAt = new Date(Date.parse(heldFrom ?? "") + 60_000).toISOString();
+	presences.publish({
+		session: "0000-taker",
+		addresses: ["7M6JKG"],
+		signsSince: takenAt,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: takenAt,
+	});
+
+	const again = await peer("alpha-AAAAAAAA");
+	expect(await hello(again)).toContain("Sent as 7M6JKG");
+	expect(
+		presences.of("alpha-AAAAAAAA")?.signsSince,
+		"and says the time it held it from, not its reopen's",
+	).toBe(heldFrom);
+});
+
+it("keeps its quest's address through a rollover in its host, over a peer that took it since", async () => {
+	const { open } = await inHost();
+	open.add("alpha-CCCCCCCC");
+	mkdirSync(paths.sessions, { recursive: true });
+	for (const id of ["alpha-AAAAAAAA", "alpha-CCCCCCCC"]) {
+		writeFileSync(
+			join(paths.sessions, `${id}.json`),
+			JSON.stringify({ quest: "QEST-20261021-7M6JKG" }),
+		);
+	}
+	await peer("bravo-BBBBBBBB");
+	const hello = (from: Awaited<ReturnType<typeof peer>>) =>
+		from.call("mesh_send", { to: "BBBBBBBB", intent: "fyi", text: "hello" });
+	const a = await peer("alpha-AAAAAAAA");
+	expect(await hello(a)).toContain("Sent as 7M6JKG");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const heldFrom = presences.of("alpha-AAAAAAAA")?.signsSince;
+	expect(heldFrom, "it says since when it holds it").toBeDefined();
+
+	// pi ends the log it rolls over from before it starts the new one.
+	await a.close("new");
+	const takenAt = new Date(Date.parse(heldFrom ?? "") + 60_000).toISOString();
+	presences.publish({
+		session: "0000-taker",
+		addresses: ["7M6JKG"],
+		signsSince: takenAt,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: takenAt,
+	});
+
+	const rolled = await peer("alpha-CCCCCCCC", [
+		{
+			type: "custom",
+			customType: ROLLOVER_RECORD,
+			data: {
+				parentSession: "alpha-AAAAAAAA",
+				parentLeaf: "leaf",
+				carried: { mesh: { session: "alpha-AAAAAAAA" } },
+			},
+		},
+	]);
+	expect(await hello(rolled)).toContain("Sent as 7M6JKG");
+	expect(
+		presences.of("alpha-CCCCCCCC")?.signsSince,
+		"and says the time the session it left held it from",
+	).toBe(heldFrom);
 });
 
 it("releases a closing conversation's leases on disk before it goes", async () => {

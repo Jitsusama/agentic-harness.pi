@@ -1407,7 +1407,14 @@ Two that both sign with it settle by who has held it longer,
 and two that took it at once by session id, the lower
 keeping it, so neither flips back and forth. A holder keeps
 its time through a park, and through a kill only if it said
-something in its last ten minutes. The holder is
+something in its last ten minutes. A hosted conversation
+closed and reopened, or rolled over, within ten minutes keeps
+it too: a hosted
+conversation's presence goes as it ends, so its host's
+process keeps the time for its next start. One that starts
+again in another process starts afresh: handed to a plain pi,
+or reopened by a host that runs each conversation in a child
+of its own, since the child ends as it closes. The holder is
 told on the mesh and the one yielding is told in its session,
 each asked to agree which part of the quest it takes, since two
 sessions on one quest are how work gets done twice. Both still

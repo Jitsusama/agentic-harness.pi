@@ -11,6 +11,7 @@ import { runStarted } from "../../../lib/internal/session/first-prompt.ts";
 import { isParked } from "../../../lib/internal/session/park.ts";
 import { ROLLOVER_CARRY } from "../../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../../lib/internal/session/turn-end.ts";
+import { keepHolding } from "../../../lib/mesh/kept-holding.ts";
 import { RUN_KINDS } from "../../../lib/mesh/lease.ts";
 import { toolDetail } from "../../../lib/mesh/step.ts";
 import { localDay, noUsage, withCall } from "../../../lib/mesh/usage.ts";
@@ -278,9 +279,14 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		m.peer?.dispose();
 		// A hosted conversation's presence goes with it, unless it parked: its
 		// host is still there to wake it, and a sender finds it parked by its
-		// presence (wakeParked), as it finds a plain pi that parked.
-		if (hosted() && m.peer && !reloading(event) && !isParked(m.peer.session))
+		// presence (wakeParked), as it finds a plain pi that parked. What it
+		// signed with, and since when, stays with the process, for a restart
+		// in place or a rollover starting it again there (kept-holding.ts).
+		if (hosted() && m.peer && !reloading(event) && !isParked(m.peer.session)) {
+			const said = m.presences.of(m.peer.session);
+			if (said) keepHolding(said, new Date().toISOString());
 			m.presences.forget(m.peer.session);
+		}
 		// What a host still had on its way lands before the session goes:
 		// its presence marked ended and its leases released (85PKB2).
 		m.presences.settle();

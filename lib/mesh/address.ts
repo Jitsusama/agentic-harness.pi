@@ -216,7 +216,7 @@ export function signingSince(
  * moments before the new one starts, while a quit reopened later is a
  * new start, and so is a kill come back from long after.
  */
-const RESTARTED_WITHIN_MS = 10 * 60_000;
+export const RESTARTED_WITHIN_MS = 10 * 60_000;
 
 /**
  * The address a session's last presence signed with and since when, when
