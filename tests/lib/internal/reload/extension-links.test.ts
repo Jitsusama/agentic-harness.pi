@@ -4,21 +4,27 @@
  */
 
 import {
+	chmodSync,
 	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { linksMovedSince } from "../../../../lib/internal/reload/extension-links.ts";
 
 const dirs: string[] = [];
+const storeWas = process.env.NIX_STORE_DIR;
 
 afterEach(() => {
+	if (storeWas === undefined) delete process.env.NIX_STORE_DIR;
+	else process.env.NIX_STORE_DIR = storeWas;
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -30,26 +36,30 @@ function folder(): string {
 }
 
 /** A tree holding an entry file and a helper beside it, as an extension's. */
-function tree(root: string, name: string, helper: string): string {
+function tree(root: string, name: string): string {
 	const at = join(root, name);
 	mkdirSync(join(at, "lib"), { recursive: true });
 	writeFileSync(join(at, "index.ts"), 'export * from "./lib/helper.ts";\n');
-	writeFileSync(join(at, "lib", "helper.ts"), helper);
+	writeFileSync(join(at, "lib", "helper.ts"), "export const a = 1;\n");
 	return at;
 }
 
 /**
- * An extensions folder whose link the process found on `first` when it
- * started, an hour after the link was made, then made again onto
- * `second`, as the Mac's switch makes it.
+ * An extensions folder whose link the process found on a first tree when
+ * it started, an hour after the link was made, then made again onto a
+ * second tree, as the Mac's switch makes it. Both trees start the same;
+ * `shape` changes them before the move. Both lie in the store unless
+ * `store` is false.
  */
 function remade(
-	firstHelper: string,
-	secondHelper: string,
+	shape: (first: string, second: string) => void = () => {},
+	{ store = true }: { store?: boolean } = {},
 ): { dir: string; first: string; startedAt: number } {
-	const root = folder();
-	const first = tree(root, "first", firstHelper);
-	const second = tree(root, "second", secondHelper);
+	const root = realpathSync(folder());
+	const first = tree(root, "first");
+	const second = tree(root, "second");
+	shape(first, second);
+	if (store) process.env.NIX_STORE_DIR = root;
 	const dir = join(root, "extensions");
 	mkdirSync(dir);
 	const link = join(dir, "the-proxy");
@@ -80,11 +90,8 @@ describe("extension links moved since a process started", () => {
 		).toEqual(["made-since"]);
 	});
 
-	it("names no link made again onto a tree the same as its first", () => {
-		const { dir, startedAt } = remade(
-			"export const a = 1;\n",
-			"export const a = 1;\n",
-		);
+	it("names no link made again onto a store tree the same as its first", () => {
+		const { dir, startedAt } = remade();
 
 		expect(
 			linksMovedSince(dir, startedAt),
@@ -92,23 +99,98 @@ describe("extension links moved since a process started", () => {
 		).toEqual([]);
 	});
 
-	it("names a link made again onto a tree that differs by a byte", () => {
-		const { dir, startedAt } = remade(
-			"export const a = 1;\n",
-			"export const a = 2;\n",
+	it("keeps what it first found through a reload of this module", async () => {
+		const { dir, startedAt } = remade();
+		vi.resetModules();
+		const again = await import(
+			"../../../../lib/internal/reload/extension-links.ts"
 		);
 
 		expect(
+			again.linksMovedSince(dir, startedAt),
+			"a fresh module would find the link made since, and no first target",
+		).toEqual([]);
+	});
+
+	it.each([
+		[
+			"a file that differs by a byte",
+			(_first: string, second: string) =>
+				writeFileSync(
+					join(second, "lib", "helper.ts"),
+					"export const a = 2;\n",
+				),
+		],
+		[
+			"a file with the same bytes under another name",
+			(_first: string, second: string) =>
+				renameSync(
+					join(second, "lib", "helper.ts"),
+					join(second, "lib", "helpers.ts"),
+				),
+		],
+		[
+			"an empty folder more",
+			(_first: string, second: string) => mkdirSync(join(second, "empty")),
+		],
+		[
+			"a link inside it that leads elsewhere",
+			(first: string, second: string) => {
+				symlinkSync("lib/helper.ts", join(first, "alias.ts"));
+				symlinkSync("index.ts", join(second, "alias.ts"));
+			},
+		],
+		[
+			"a link inside it that leads out of it",
+			(first: string, second: string) => {
+				symlinkSync("../shared", join(first, "shared"));
+				symlinkSync("../shared", join(second, "shared"));
+			},
+		],
+		[
+			"more entries than it reads",
+			(first: string, second: string) => {
+				for (const at of [first, second]) {
+					mkdirSync(join(at, "many"));
+					for (let n = 0; n < 2_000; n += 1)
+						writeFileSync(join(at, "many", String(n)), "");
+				}
+			},
+		],
+		[
+			"a file it can't read",
+			(_first: string, second: string) =>
+				chmodSync(join(second, "lib", "helper.ts"), 0o000),
+		],
+	])("names a link made again onto a tree with %s", (_what, shape) => {
+		const { dir, startedAt } = remade(shape);
+
+		expect(
 			linksMovedSince(dir, startedAt),
-			"a reload would mix the new entry with the first helper",
+			"it can't be shown to load the same code",
+		).toEqual(["the-proxy"]);
+	});
+
+	it("names no link made again onto a tree whose inner links are the same", () => {
+		const { dir, startedAt } = remade((first, second) => {
+			symlinkSync("lib/helper.ts", join(first, "alias.ts"));
+			symlinkSync("lib/helper.ts", join(second, "alias.ts"));
+		});
+
+		expect(linksMovedSince(dir, startedAt), "the same tree").toEqual([]);
+	});
+
+	it("names a link made again onto the same tree outside the store", () => {
+		const { dir, startedAt } = remade(() => {}, { store: false });
+
+		expect(
+			linksMovedSince(dir, startedAt),
+			"a tree outside the store can change after it is compared",
 		).toEqual(["the-proxy"]);
 	});
 
 	it("names a link whose first target is gone, though the trees were the same", () => {
-		const { dir, first, startedAt } = remade(
-			"export const a = 1;\n",
-			"export const a = 1;\n",
-		);
+		const { dir, first, startedAt } = remade();
 		expect(
 			linksMovedSince(dir, startedAt),
 			"the same while both stand",
@@ -123,31 +205,30 @@ describe("extension links moved since a process started", () => {
 	});
 
 	it("names a link the process first found already made since it started", () => {
-		const root = folder();
-		const first = tree(root, "first", "export const a = 1;\n");
-		const second = tree(root, "second", "export const a = 1;\n");
+		const root = realpathSync(folder());
+		process.env.NIX_STORE_DIR = root;
+		const first = tree(root, "first");
+		const second = tree(root, "second");
 		const dir = join(root, "extensions");
 		mkdirSync(dir);
 		const startedAt = Date.now() - 60_000;
 		symlinkSync(first, join(dir, "the-proxy"));
 		expect(
 			linksMovedSince(dir, startedAt),
-			"where it first pointed is unknown, so it counts as moved",
+			"where its resolver first found it is unknown",
 		).toEqual(["the-proxy"]);
 
 		rmSync(join(dir, "the-proxy"));
 		symlinkSync(second, join(dir, "the-proxy"));
 
-		expect(linksMovedSince(dir, startedAt), "and still does").toEqual([
-			"the-proxy",
-		]);
+		expect(
+			linksMovedSince(dir, startedAt),
+			"so a same tree can't be shown the same as it",
+		).toEqual(["the-proxy"]);
 	});
 
 	it("names a link made again onto nothing", () => {
-		const { dir, startedAt } = remade(
-			"export const a = 1;\n",
-			"export const a = 1;\n",
-		);
+		const { dir, startedAt } = remade();
 		rmSync(join(dir, "the-proxy"));
 		symlinkSync(join(dir, "nowhere"), join(dir, "the-proxy"));
 

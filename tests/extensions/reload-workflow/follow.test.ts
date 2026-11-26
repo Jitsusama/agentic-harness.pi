@@ -5,8 +5,10 @@
  */
 
 import {
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -156,6 +158,49 @@ function movedLinks(): { extensions: string; startedAt: number } {
 	symlinkSync(second, join(extensions, "the-proxy"));
 	rmSync(first, { recursive: true });
 	return { extensions, startedAt };
+}
+
+/**
+ * An extensions folder whose link was made onto a store tree an hour
+ * before the process started; `remake` makes it again onto another store
+ * tree holding the same file, as the Mac's switch does. The store is the
+ * fixture's own root until `restore`.
+ */
+function remadeSame(): {
+	extensions: string;
+	startedAt: number;
+	remake: () => void;
+	restore: () => void;
+} {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "extensions-")));
+	dirs.push(root);
+	const storeWas = process.env.NIX_STORE_DIR;
+	process.env.NIX_STORE_DIR = root;
+	const [first, second] = ["first", "second"].map((name) => {
+		const at = join(root, name);
+		mkdirSync(at);
+		writeFileSync(join(at, "index.ts"), "export const a = 1;\n");
+		return at;
+	});
+	const extensions = join(root, "extensions");
+	mkdirSync(extensions);
+	const link = join(extensions, "the-proxy");
+	symlinkSync(first, link);
+	const startedAt = Date.now() - 60_000;
+	const hourBefore = (startedAt - 3_600_000) / 1000;
+	lutimesSync(link, hourBefore, hourBefore);
+	return {
+		extensions,
+		startedAt,
+		remake: () => {
+			rmSync(link);
+			symlinkSync(second, link);
+		},
+		restore: () => {
+			if (storeWas === undefined) delete process.env.NIX_STORE_DIR;
+			else process.env.NIX_STORE_DIR = storeWas;
+		},
+	};
 }
 
 function settingsFor(root: string): PackageSettings {
@@ -489,6 +534,28 @@ describe("following the install", () => {
 		expect(entries, "the log says why it starts again").toMatchObject([
 			{ type: RESTARTING_ENTRY, data: { links: ["the-proxy"] } },
 		]);
+	});
+
+	it("reloads, rather than starts again, when a link was made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const { follower, prompted, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: (ask) => {
+					ask.why = "a command is out";
+				},
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the reload is asked for", () => prompted.length > 0);
+			expect(prompted).toEqual(["/harness reload"]);
+			expect(asks, "no restart is asked of its holder").toEqual([]);
+		} finally {
+			links.restore();
+		}
 	});
 
 	it("keeps its code and says why when its holder can't start it again", async () => {

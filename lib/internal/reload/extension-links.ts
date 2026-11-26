@@ -18,15 +18,28 @@
  * resolver may hold stale. Its change time won't do: anything that
  * touches the link's owner or mode moves that too.
  *
- * A link made again onto a tree the same, file for file and byte for
- * byte, as the one it first pointed at, with that first tree still
- * there, is no move: the entry and its helpers read the same code from
- * either. The Mac's switch makes every link again onto the whole pi
- * config's new store path, though most switches change no extension's
- * code, and the follower can't start a session again while a command is
- * out; on 26 November 25 of the Mac's 125 live sessions had kept older
- * code that way for up to two days. So the first call in a process
- * notes each link's real target, and each move is compared once.
+ * A link made again from one Nix store tree onto another the same, file
+ * for file and byte for byte, with the first still there, is no move:
+ * the entry and its helpers read the same code from either. The Mac's
+ * switch makes every link again onto the whole pi config's new store
+ * path, though most switches change no extension's code, and the
+ * follower can't start a session again while a command is out; on 26
+ * November 25 of the Mac's 125 live sessions had kept older code that
+ * way for up to two days. So the first call in a process notes each
+ * link's real target, and each move is compared once: store trees never
+ * change, so a verdict holds for good. A tree outside the store can
+ * change after it is compared, so a move onto or from one always counts.
+ *
+ * What the comparison doesn't cover. A link inside the tree that leads
+ * out of it counts as moved, but an import that reaches out of the tree
+ * (a relative path up past its root, or a package in a node_modules
+ * above it) isn't read: it resolves against the first target as before,
+ * which is still there, so a reload keeps what the process first loaded
+ * there, older but never mixed. Neither Shopify link's extension imports
+ * anything from outside its own folder. The first target is looked for
+ * at each check, not held: a collection in the seconds between the check
+ * and the reload, or one later that a dynamic import then meets, fails
+ * as on 11 November, and the next check counts the link as moved again.
  */
 
 import { createHash } from "node:crypto";
@@ -38,20 +51,21 @@ import {
 	readlinkSync,
 	realpathSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, posix, sep } from "node:path";
 
 /**
  * Where a process keeps what it knows of each extensions folder, on
  * `globalThis`, since a reload evaluates this module afresh and the
- * resolver's memory lives as long as the process.
+ * resolver's memory lives as long as the process. Versioned, since a
+ * reload may bring code that keeps it in another shape.
  */
-const KNOWN = Symbol.for("agentic-harness.reload.extension-links");
+const KNOWN = Symbol.for("agentic-harness.reload.extension-links.v1");
 
 /** The most entries a tree is read to, past which it counts as moved. */
-const MOST_ENTRIES = 10_000;
+const MOST_ENTRIES = 2_000;
 
 /** The most bytes a tree's files are read to, past which it counts as moved. */
-const MOST_BYTES = 64 * 1024 * 1024;
+const MOST_BYTES = 8 * 1024 * 1024;
 
 /** What a process knows of one extensions folder's links. */
 interface Known {
@@ -65,9 +79,9 @@ interface Known {
 
 /**
  * The names of the links in `folder` made after `startedAt` (epoch ms)
- * onto other code: each one but those made again onto a tree the same as
- * their first target, which is still there. A folder that can't be read
- * has none, since nothing in it was loaded.
+ * onto other code: each one but those made again from one store tree
+ * onto another the same, with the first still there. A folder that can't
+ * be read has none, since nothing in it was loaded.
  */
 export function linksMovedSince(folder: string, startedAt: number): string[] {
 	let names: string[];
@@ -82,15 +96,12 @@ export function linksMovedSince(folder: string, startedAt: number): string[] {
 		.filter((name) => {
 			try {
 				const stat = lstatSync(join(folder, name));
-				return (
-					stat.isSymbolicLink() &&
-					stat.mtimeMs > startedAt &&
-					!sameAsFirst(known, folder, name)
-				);
+				if (!(stat.isSymbolicLink() && stat.mtimeMs > startedAt)) return false;
 			} catch {
 				// Gone between the listing and the look: nothing to load stale.
 				return false;
 			}
+			return !sameAsFirst(known, folder, name);
 		})
 		.sort();
 }
@@ -102,11 +113,10 @@ export function linksMovedSince(folder: string, startedAt: number): string[] {
  * has no first target known, and so counts as moved.
  */
 function knownOf(folder: string, names: string[], startedAt: number): Known {
-	const held = globalThis as typeof globalThis & {
-		[KNOWN]?: Map<string, Known>;
-	};
-	held[KNOWN] ??= new Map();
-	const found = held[KNOWN].get(folder);
+	const held = globalThis as typeof globalThis & { [KNOWN]?: unknown };
+	if (!(held[KNOWN] instanceof Map)) held[KNOWN] = new Map<string, Known>();
+	const folders = held[KNOWN] as Map<string, Known>;
+	const found = folders.get(folder);
 	if (found !== undefined) return found;
 	const known: Known = {
 		first: new Map(),
@@ -124,45 +134,57 @@ function knownOf(folder: string, names: string[], startedAt: number): Known {
 			// A link that leads nowhere loaded nothing to keep.
 		}
 	}
-	held[KNOWN].set(folder, known);
+	folders.set(folder, known);
 	return known;
 }
 
 /**
  * Whether `name` now leads to a tree the same as its first target,
  * which must still be there: a collected first target fails a reload's
- * imports whatever the new one holds.
+ * imports whatever the new one holds. Anything that goes wrong in
+ * finding out counts as a move.
  */
 function sameAsFirst(known: Known, folder: string, name: string): boolean {
-	const first = known.first.get(name);
-	if (first === undefined) return false;
-	let target: string;
 	try {
-		target = realpathSync(join(folder, name));
+		const first = known.first.get(name);
+		if (first === undefined) return false;
+		const target = realpathSync(join(folder, name));
+		if (!existsSync(first)) return false;
+		if (target === first) return true;
+		if (!(inStore(first) && inStore(target))) return false;
+		const move = `${name}\0${target}`;
+		let same = known.same.get(move);
+		if (same === undefined) {
+			if (!known.firstDigest.has(name)) {
+				known.firstDigest.set(name, treeDigest(first));
+			}
+			const was = known.firstDigest.get(name);
+			same = was !== undefined && was === treeDigest(target);
+			known.same.set(move, same);
+		}
+		return same;
 	} catch {
-		// A link that leads nowhere can't be loaded the same.
+		// A link that leads nowhere, or a tree that can't be read, can't
+		// be shown to load the same.
 		return false;
 	}
-	if (!existsSync(first)) return false;
-	if (target === first) return true;
-	const move = `${name}\0${target}`;
-	let same = known.same.get(move);
-	if (same === undefined) {
-		if (!known.firstDigest.has(name)) {
-			known.firstDigest.set(name, treeDigest(first));
-		}
-		const was = known.firstDigest.get(name);
-		same = was !== undefined && was === treeDigest(target);
-		known.same.set(move, same);
-	}
-	return same;
+}
+
+/**
+ * Whether `path` lies in the Nix store, whose trees never change once
+ * made: where Nix itself is told the store is, else `/nix/store`.
+ */
+function inStore(path: string): boolean {
+	const store = process.env.NIX_STORE_DIR ?? "/nix/store";
+	return path.startsWith(store.endsWith(sep) ? store : `${store}${sep}`);
 }
 
 /**
  * A digest of the tree at `root`: each entry's path within it and kind,
  * a file's bytes and a link's own target, in name order. Undefined for a
- * tree that can't be read whole or is past {@link MOST_ENTRIES} entries
- * or {@link MOST_BYTES} bytes, which then counts as moved.
+ * tree that can't be read whole, holds a link that leads out of it, or
+ * is past {@link MOST_ENTRIES} entries or {@link MOST_BYTES} bytes,
+ * which then counts as moved.
  */
 function treeDigest(root: string): string | undefined {
 	const hash = createHash("sha256");
@@ -173,7 +195,11 @@ function treeDigest(root: string): string | undefined {
 		if (entries > MOST_ENTRIES) return false;
 		const stat = lstatSync(path);
 		if (stat.isSymbolicLink()) {
-			hash.update(`link\0${within}\0${readlinkSync(path)}\0`);
+			const text = readlinkSync(path);
+			const lands = posix.normalize(posix.join(posix.dirname(within), text));
+			if (posix.isAbsolute(text) || lands === ".." || lands.startsWith("../"))
+				return false;
+			hash.update(`link\0${within}\0${text}\0`);
 			return true;
 		}
 		if (stat.isDirectory()) {
