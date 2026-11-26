@@ -23,8 +23,9 @@ export function hostRoot(): string {
 	try {
 		return realpathSync(root);
 	} catch {
-		// A root that won't resolve is used as given: an install move read
-		// from it then finds none, which leaves the host where it is.
+		// A root that won't resolve is used as given, so the host still
+		// starts: its version, its children's program and the install it
+		// moves with are all read from the path as it was named.
 		return root;
 	}
 }

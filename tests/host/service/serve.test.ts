@@ -593,7 +593,8 @@ describe("serveHost", () => {
  * Refuse, saying why, a run whose TMPDIR leaves no room for a child's
  * socket: the host then runs every conversation itself, as it should, and
  * a test of its children would fail on what it never started. A run's
- * folders all sit under its TMPDIR, and a quest's is about 80 bytes.
+ * folders sit 26 bytes under its TMPDIR, and a child's socket 67 more,
+ * so past a TMPDIR of about 10 bytes, the system's own, there is none.
  */
 function roomForChildren(): void {
 	try {
@@ -605,6 +606,9 @@ function roomForChildren(): void {
 		);
 	}
 }
+
+/** A runtime folder whose host's socket fits and a child's doesn't. */
+const LONG_RUN_BYTES = 60;
 
 describe("serveHost with children", () => {
 	it("resumes a moved conversation in a child, leaves it running through a stop, and takes it up again", async () => {
@@ -719,7 +723,12 @@ describe("serveHost with children", () => {
 	it("runs every conversation itself when no child's socket would fit, saying so", async () => {
 		// Long enough that a child's socket, 39 bytes further down than the
 		// host's, passes the limit while the host's still fits.
-		const long = join(run, "x".repeat(60 - run.length));
+		if (run.length > LONG_RUN_BYTES) {
+			throw new Error(
+				`No folder of ${LONG_RUN_BYTES} bytes fits under ${run}: run with a shorter TMPDIR`,
+			);
+		}
+		const long = join(run, "x".repeat(LONG_RUN_BYTES - run.length));
 		await mkdir(long, { mode: 0o700 });
 		const at = { ...places(), runtimeDir: long };
 		const first = await serveHost({ ...at, engine: async (h) => engine(h) });
