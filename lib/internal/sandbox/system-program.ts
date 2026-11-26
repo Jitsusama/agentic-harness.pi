@@ -28,12 +28,10 @@ import {
 } from "node:fs";
 import { userInfo } from "node:os";
 import { posix } from "node:path";
+import { MOST_LINKS } from "./leads-to.ts";
 
 /** The store's folder, whose paths can't change once added. */
 const STORE = "/nix/store";
-
-/** The most links a lookup follows, as the kernel's own limit. */
-const MOST_LINKS = 40;
 
 /** Writable by the group or by everyone. */
 const OTHERS_WRITE = 0o022;
@@ -90,7 +88,9 @@ export function systemProgram(
 
 /**
  * `path` resolved, when every step of it, and of every link it follows,
- * is owned by root and writable by nobody else.
+ * is owned by root and writable by nobody else. It follows at most as
+ * many links as the system would, so a path the system can't open is
+ * never one it finds.
  */
 export function sealedPath(
 	path: string,
