@@ -335,15 +335,42 @@ describe("when a steer reaches the session", () => {
 	it("starts a turn when the session is idle, now or not", () => {
 		for (const now of [undefined, true] as const) {
 			expect(
-				steerDelivery({ ...(now ? { now } : {}) }, true),
+				steerDelivery({ text: "hi", ...(now ? { now } : {}) }, true),
 				`idle, now ${now}`,
+			).toBeUndefined();
+			expect(
+				steerDelivery(
+					{ text: "hi", from: "joel", ...(now ? { now } : {}) },
+					true,
+				),
+				`the person's, idle, now ${now}`,
 			).toBeUndefined();
 		}
 	});
 
 	it("waits for the run under way to end, unless it says now", () => {
-		expect(steerDelivery({}, false), "busy").toBe("followUp");
-		expect(steerDelivery({ now: true }, false), "busy, now").toBe("steer");
+		expect(steerDelivery({ text: "hi" }, false), "busy").toBe("followUp");
+		expect(
+			steerDelivery({ text: "hi", from: "ABC123" }, false),
+			"a peer's, busy",
+		).toBe("followUp");
+		expect(steerDelivery({ text: "hi", now: true }, false), "busy, now").toBe(
+			"steer",
+		);
+	});
+
+	it("reads the person's own talk into a busy run after its tool, as typing does", () => {
+		expect(
+			steerDelivery({ text: "look here", from: "joel" }, false),
+			"Joel's talk",
+		).toBe("steer");
+		expect(
+			steerDelivery({ text: "carry on", from: "joel", act: "resume" }, false),
+			"a resume with his words",
+		).toBe("steer");
+		expect(steerDelivery({ text: "", from: "joel" }, false), "no words").toBe(
+			"followUp",
+		);
 	});
 });
 

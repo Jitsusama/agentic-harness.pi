@@ -21,6 +21,7 @@ import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
 	ASKING_FROM_OUTSIDE,
 	inboxOf,
+	isPersonsTalk,
 	type Steer,
 	type Taken,
 	takenSteers,
@@ -164,16 +165,17 @@ export function createSteering(host: SteeringHost): Steering {
 
 /**
  * How a steer's words reach the session: a turn of their own when it is
- * idle (nothing), read into the run under way after its current tool
- * when the steer says `now`, and otherwise once that run ends, so a
- * task isn't broken into unless the person says to.
+ * idle (nothing), and into the run under way after its current tool when
+ * the steer says `now` or is the person's own talk, as pi's editor steers
+ * what he types on Enter. A peer's or the machine's words otherwise wait
+ * for that run to end, so an agent's task isn't broken into by them.
  */
 export function steerDelivery(
-	steer: Pick<Steer, "now">,
+	steer: Pick<Steer, "now" | "text" | "act" | "from">,
 	idle: boolean,
 ): "steer" | "followUp" | undefined {
 	if (idle) return undefined;
-	return steer.now ? "steer" : "followUp";
+	return steer.now || isPersonsTalk(steer) ? "steer" : "followUp";
 }
 
 /** What the session is doing as a steer reaches it. */
