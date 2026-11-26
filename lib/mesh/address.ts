@@ -39,8 +39,14 @@
  * whichever session is back first. Where any signer says no time, as
  * an older harness's presence doesn't, the lower session id keeps it as
  * it always did, and where two say the same, the lower id too, so none
- * flips back and forth. Times are each machine's own clock, so a clock wrong by more
- * than the gap between two takings picks the wrong one.
+ * flips back and forth. Times are each machine's own clock, so a clock
+ * wrong by more than the gap between two takings picks the wrong one.
+ * A stamp is carried through every restart, so one wrong would last:
+ * one from before any harness stamped one, as a clock reset at boot
+ * writes, or later than its presence's own last word, or than now, by
+ * more than a minute, reads as no time (`believedSince`), and a peer
+ * holding one stamps afresh. A clock wrong by hours, not years, still
+ * stands until its session stops holding.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -153,18 +159,48 @@ export function loadedAddress(
 }
 
 /**
+ * No harness stamped a holding's time before November 2026, when
+ * presences began to say one, so an earlier one is a clock not yet set.
+ */
+const EARLIEST_SIGNS_SINCE = Date.parse("2026-11-01T00:00:00.000Z");
+
+/** How far one clock's two reads, a stamp and a later word, may cross. */
+const SIGNS_AHEAD_MS = 60_000;
+
+/**
+ * A holding's time where it could be true: none before any harness
+ * stamped one, or later than `latest` (the presence's last word, or
+ * now) by more than a minute, since a stamp is carried through every
+ * restart and a wrong one would otherwise last as long as its session.
+ * Judged only from what the presence says, so every peer judges it alike.
+ */
+export function believedSince(
+	since: string | undefined,
+	latest?: number,
+): string | undefined {
+	if (since === undefined) return undefined;
+	const time = Date.parse(since);
+	if (!(time >= EARLIEST_SIGNS_SINCE)) return undefined;
+	return latest === undefined || time <= latest + SIGNS_AHEAD_MS
+		? since
+		: undefined;
+}
+
+/**
  * The live peer this session leaves its quest's address to, if any: one
  * already signing with it, when this session is not; or, when both are,
  * one that has signed with it longer than `signsSince`, or, where a time
  * is missing or the same, one whose session id is lower. A session with
  * a time kept from before its restart contests the address before it
- * signs again, but only against signers that say one too.
+ * signs again, but only against signers that say one too. A time that
+ * can't be true, by its presence's own `at`, reads as none.
  */
 export function yieldsTo<
 	One extends {
 		readonly session: string;
 		readonly addresses: readonly string[];
 		readonly signsSince?: string;
+		readonly at?: string;
 	},
 >(
 	session: string,
@@ -180,16 +216,20 @@ export function yieldsTo<
 	// Times settle it only when every signer says one: one timeless signer
 	// puts all of them back on the old rule, so every peer, old harness or
 	// new, ranks the same live set the same way and none of three cycles.
-	const since = signsSince;
+	const since = believedSince(signsSince);
+	const sinceOf = (one: One) =>
+		believedSince(
+			one.signsSince,
+			one.at === undefined ? undefined : Date.parse(one.at),
+		);
 	if (
 		since !== undefined &&
-		signers.every((one) => one.signsSince !== undefined)
+		signers.every((one) => sinceOf(one) !== undefined)
 	) {
-		return signers.find(
-			(one) =>
-				(one.signsSince ?? since) < since ||
-				(one.signsSince === since && one.session < session),
-		);
+		return signers.find((one) => {
+			const theirs = sinceOf(one) ?? since;
+			return theirs < since || (theirs === since && one.session < session);
+		});
 	}
 	return signers.find((one) => !signingNow || one.session < session);
 }
@@ -197,7 +237,8 @@ export function yieldsTo<
 /**
  * Since when a peer signs with its quest's address once its addresses
  * are settled: the time it already held it from, or `now` when it has
- * just taken it, and none once it signs as itself.
+ * just taken it or held it from a time that can't be true, and none once
+ * it signs as itself, or while its clock reads before any could be.
  */
 export function signingSince(
 	signing: string | undefined,
@@ -206,7 +247,10 @@ export function signingSince(
 	now: number,
 ): { address: string; since: string } | undefined {
 	if (signing === undefined || addresses[0] !== signing) return undefined;
-	return { address: signing, since: heldSince ?? new Date(now).toISOString() };
+	const since =
+		believedSince(heldSince, now) ??
+		believedSince(new Date(now).toISOString(), now);
+	return since === undefined ? undefined : { address: signing, since };
 }
 
 /**
@@ -229,7 +273,8 @@ export const RESTARTED_WITHIN_MS = 10 * 60_000;
  * which a reboot voids. Any other said nothing, killed, so its last word
  * (`at`) bounds it, lest one back hours after a crash take the address
  * from the peer that held it since; a word dated ahead by more than the
- * bound, from a clock set wrong, bounds it too.
+ * bound, from a clock set wrong, bounds it too. A time that can't be
+ * true, by its last word or by now, keeps nothing (`believedSince`).
  */
 export function signedSince(
 	presence:
@@ -248,7 +293,10 @@ export function signedSince(
 ): { address: string; since: string } | undefined {
 	if (presence === undefined) return undefined;
 	const address = presence.addresses[0];
-	const since = presence.signsSince;
+	const since = believedSince(
+		presence.signsSince,
+		Math.min(Date.parse(presence.at), now),
+	);
 	if (address === undefined || since === undefined) return undefined;
 	const parked = still.parked ?? isParked;
 	const stood =
