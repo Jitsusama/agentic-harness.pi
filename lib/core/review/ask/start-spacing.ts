@@ -638,8 +638,8 @@ function earliest(times: readonly (string | undefined)[]): string {
 
 /**
  * The line's one order: urgent first, then those that lead, then by
- * when each was first asked about. Stable, so tickets alike keep the
- * order they had.
+ * when each was first asked about, then by id, so every look orders
+ * the same tickets the same way, whoever is looking.
  */
 function inOrder(
 	waiting: readonly Ticket[],
@@ -649,10 +649,20 @@ function inOrder(
 		if (urgent.has(each.id) || urgent.has(each.change)) return 0;
 		return leads(each) ? 1 : 2;
 	};
+	// Two asks in one millisecond fall to their ids, so every look agrees
+	// which is ahead rather than each seeing the other first.
 	return [...waiting].sort(
 		(a, b) =>
-			rank(a) - rank(b) || Date.parse(a.askedAt) - Date.parse(b.askedAt),
+			rank(a) - rank(b) ||
+			Date.parse(a.askedAt) - Date.parse(b.askedAt) ||
+			byId(a, b),
 	);
+}
+
+/** Orders two tickets by id alone, the same way on every look. */
+function byId(a: Ticket, b: Ticket): number {
+	if (a.id === b.id) return 0;
+	return a.id < b.id ? -1 : 1;
 }
 
 /**
