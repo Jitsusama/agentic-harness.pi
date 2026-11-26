@@ -92,7 +92,7 @@ describe("a hosted conversation's holding through its restart", () => {
 	it("keeps nothing of a session that said no time", () => {
 		keepHolding(signing("never-held"), ended);
 
-		expect(keptMap()?.has("never-held")).toBe(false);
+		expect(keptMap()?.get("never-held")).toBeUndefined();
 	});
 
 	it("drops, at each keep, what ended longer ago than a restart", () => {
