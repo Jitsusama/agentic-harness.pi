@@ -17,8 +17,8 @@
  * it left chose is said as that node's, never as an orchestrator's.
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readPlain } from "../../core/work/plain-file.ts";
 import { isAddress, sessionAddress } from "../../mesh/address.ts";
 import { giveSteer } from "../../mesh/steer.ts";
 import { FROM_MACHINE, nodeMachine } from "../../mesh/steer-who.ts";
@@ -69,10 +69,21 @@ export function writeRefused(
  */
 const AHEAD_MS = 1000;
 
-/** The time the refusal at `file` says, or NaN where none can be read. */
+/**
+ * The most of a refusal read: far more than its session, reason and time
+ * need, so one longer reads as none.
+ */
+const REFUSAL_LIMIT = 64 * 1024;
+
+/**
+ * The time the refusal at `file` says, or NaN where none can be read. A
+ * fenced command can write the handover, so a link, a pipe or anything
+ * but a plain file there is no refusal, read neither through nor waited
+ * on.
+ */
 function refusedAt(file: string): number {
 	try {
-		const said: unknown = JSON.parse(readFileSync(file, "utf8"));
+		const said: unknown = JSON.parse(readPlain(file, REFUSAL_LIMIT) ?? "");
 		const was =
 			typeof said === "object" &&
 			said !== null &&

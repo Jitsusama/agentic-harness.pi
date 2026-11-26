@@ -106,8 +106,9 @@ export function doneNames(listing: readonly string[]): string[] {
  * The largest file mycelium's share takes from a folder named for
  * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
  * since the machine it lands on holds each file whole. A long-lived
- * session's log passes it. Every file a carry writes into its handover
- * is held to it, so nothing larger there is a carry's.
+ * session's log passes it, so a carry gzips one that does. Every file a
+ * carry writes into its handover is held to it; only a harness that
+ * never gzipped left one larger there, a session's whole log.
  */
 export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
 
@@ -129,8 +130,8 @@ export function writeHandover(dir: string, handover: Handover): string {
 }
 
 /**
- * The most of a done file read: what the share takes, so one longer
- * can't have been carried, and reads as no done file.
+ * The most of a done file read: what the share takes, since no longer
+ * one is written. A longer one is read only to the limit.
  */
 const DONE_LIMIT = SHARE_LARGEST_FILE;
 

@@ -517,8 +517,9 @@ export function nameFor(path: string, owner: string): string {
 /**
  * Copies a session's file into the staging folder `stage`, answering its
  * name there: gzipped when it is larger than `largest`, so the share
- * takes it. A gzip still over `largest` is refused, since the share
- * would refuse it too.
+ * takes it, and gzipped too when it grew past `largest` while copied. A
+ * gzip still over `largest` is refused, since the share would refuse it
+ * too.
  */
 async function copyBeside(
 	file: string,
@@ -529,7 +530,9 @@ async function copyBeside(
 	const size = statSync(file).size;
 	if (size <= largest) {
 		copyFileSync(file, join(stage, name));
-		return name;
+		if (statSync(join(stage, name)).size <= largest) return name;
+		// It grew while copied: no copy over what the share takes stays.
+		rmSync(join(stage, name), { force: true });
 	}
 	const zipped = `${name}${ZIPPED}`;
 	await pipeline(

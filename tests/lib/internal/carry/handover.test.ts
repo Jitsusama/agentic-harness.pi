@@ -104,7 +104,7 @@ describe("a handover", () => {
 		expect(readHandover(writeHandover(dir, moved))).toEqual(moved);
 	});
 
-	it("reads back a done file far longer than the files of git's read the same way", () => {
+	it("reads back a done file longer than the 4 KiB git's files are read to", () => {
 		const dir = mkdtempSync(join(tmpdir(), "handover-"));
 		const moved: Handover = {
 			...handover,

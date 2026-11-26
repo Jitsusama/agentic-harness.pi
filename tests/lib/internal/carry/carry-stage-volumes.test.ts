@@ -176,7 +176,7 @@ describe("a carry staged on another volume than its handover", () => {
 		expect(readdirSync(stagingOf(into))).toEqual([]);
 	});
 
-	it("removes a pipe or a file larger than the share takes planted at a name it places, rather than copy it aside", async () => {
+	it("removes a pipe planted at a name it places, and places over a file larger than the share takes, copying neither aside", async () => {
 		const into = join(folder(made, "scratch"), QUEST, "handover", "kestrel");
 		mkdirSync(into, { recursive: true });
 		const pipe = join(into, "a.bundle");
@@ -199,6 +199,34 @@ describe("a carry staged on another volume than its handover", () => {
 		expect(readdirSync(stagingOf(into)), "its staging folder is gone").toEqual(
 			[],
 		);
+	});
+
+	it("keeps a larger session log an earlier carry left until the carry that drops it stands", async () => {
+		const into = join(folder(made, "scratch"), QUEST, "handover", "kestrel");
+		mkdirSync(into, { recursive: true });
+		const old = join(into, "2026-11-25_s-v.jsonl");
+		// As a harness that never gzipped left it: sparse here, whole if copied.
+		writeFileSync(old, "");
+		truncateSync(old, SHARE_LARGEST_FILE + 1);
+		const carry = (fails: boolean) =>
+			staged(into, "s-v", async (stage) => {
+				writeFileSync(join(stage.folder, "a.bundle"), "new a\n");
+				stage.place(["a.bundle"], ["2026-11-25_s-v.jsonl"]);
+				if (fails) throw new Error("the disk is full");
+			});
+
+		await expect(carry(true)).rejects.toThrow("the disk is full");
+
+		expect(statSync(old).size, "a failed carry leaves it").toBe(
+			SHARE_LARGEST_FILE + 1,
+		);
+
+		await carry(false);
+
+		expect(readdirSync(into), "a carry that stands drops it").toEqual([
+			"a.bundle",
+		]);
+		expect(readdirSync(stagingOf(into))).toEqual([]);
 	});
 
 	it("moves nothing more through a handover swapped for a link between two moves", async () => {

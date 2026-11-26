@@ -134,7 +134,11 @@ function untilChangeTimePasses(path: string): void {
 	const probe = join(made[0] ?? "", "clock-probe");
 	writeFileSync(probe, "");
 	let mode = 0o600;
+	const until = Date.now() + 5000;
 	while (statSync(probe, { bigint: true }).ctimeNs <= was) {
+		if (Date.now() > until) {
+			throw new Error(`${probe}: its change time never moved past ${was}`);
+		}
 		mode ^= 0o040;
 		chmodSync(probe, mode);
 	}
@@ -376,7 +380,7 @@ describe("moving a file whole", () => {
 
 		expect(() =>
 			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
-		).toThrow();
+		).toThrow("ENOTDIR");
 
 		expect(readFileSync(join(here, "log.jsonl"), "utf8")).toBe("carried\n");
 		expect(readFileSync(join(`${there}-was`, "log.jsonl"), "utf8")).toBe(
