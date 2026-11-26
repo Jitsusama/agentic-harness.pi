@@ -203,7 +203,7 @@ describe("removing a tree", () => {
 
 		removeTree(join(folder, "tree"));
 
-		expect(existsSync(join(folder, "tree"))).toBe(false);
+		expect(existsSync(join(folder, "tree")), "the tree is gone").toBe(false);
 		expect(readdirSync(outside)).toHaveLength(3);
 	});
 
@@ -213,7 +213,7 @@ describe("removing a tree", () => {
 
 		removeTree(join(folder, "link"));
 
-		expect(existsSync(join(folder, "link"))).toBe(false);
+		expect(existsSync(join(folder, "link")), "the link is gone").toBe(false);
 		expect(readdirSync(outside)).toHaveLength(2);
 	});
 
@@ -253,7 +253,7 @@ describe("removing a tree", () => {
 		expect(tidyTree(join(folder, "tree"), [folder])).toMatch(/no rm found/);
 		expect(readdirSync(tree)).toHaveLength(2);
 		expect(tidyTree(join(folder, "tree"))).toBeUndefined();
-		expect(existsSync(join(folder, "tree"))).toBe(false);
+		expect(existsSync(join(folder, "tree")), "the tree is gone").toBe(false);
 	});
 
 	it.runIf(notRoot)(
@@ -276,7 +276,9 @@ describe("removing a tree", () => {
 			} finally {
 				chmodSync(outer, 0o755);
 			}
-			expect(lstatSync(tree).isDirectory()).toBe(true);
+			expect(lstatSync(tree).isDirectory(), "the tree rm refused stays").toBe(
+				true,
+			);
 		},
 	);
 
