@@ -807,6 +807,9 @@ export function parking(options: {
 			const until = new Promise<unknown>((resolve) => {
 				started = resolve;
 			});
+			// Its caller hears a failed park from `done`; a wait on `until`
+			// hears it from its own chain, so it isn't left unhandled here.
+			until.catch(() => undefined);
 			settling.set(sessionId, { done: until, asked });
 			const done = park(sessionId, asked);
 			started(done);
