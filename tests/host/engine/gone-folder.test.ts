@@ -2,7 +2,13 @@
  * Where a conversation opens when its log's folder is gone: the nearest
  * folder above that stands, or home, said to it once.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +28,15 @@ afterEach(() => {
 	for (const folder of folders.splice(0))
 		rmSync(folder, { recursive: true, force: true });
 });
+
+/** A log in `folder` whose session header names `cwd`, followed by a turn. */
+function logNaming(folder: string, cwd: string | undefined): string {
+	const file = join(folder, "log.jsonl");
+	const header = { type: "session", version: 3, id: "s1", cwd };
+	const turn = { type: "message", id: "m1", parentId: null };
+	writeFileSync(file, `${JSON.stringify(header)}\n${JSON.stringify(turn)}\n`);
+	return file;
+}
 
 function scratch(): string {
 	const folder = mkdtempSync(join(tmpdir(), "gone-folder-"));
@@ -99,6 +114,60 @@ describe("a conversation whose folder is gone", () => {
 		expect(opened.left).toBe(gone);
 		expect(opened.manager.getCwd()).toBe(root);
 		expect(pi.calls.at(-1)).toEqual(["/log.jsonl", undefined, root]);
+	});
+
+	it("opens its log once, in the folder that stands, when its header names a gone one", () => {
+		const root = scratch();
+		const gone = join(root, "tree");
+		const file = logNaming(root, gone);
+		const pi = piOpening(gone);
+		const opened = openStanding(pi.sessions, file, scratch());
+
+		expect(opened.left).toBe(gone);
+		expect(opened.manager.getCwd()).toBe(root);
+		expect(pi.calls).toEqual([[file, undefined, root]]);
+	});
+
+	it("opens its log once, as pi does, when its header names a folder that stands", () => {
+		const root = scratch();
+		const file = logNaming(root, root);
+		const pi = piOpening(root);
+		const opened = openStanding(pi.sessions, file);
+
+		expect(opened.left).toBeUndefined();
+		expect(pi.calls).toEqual([[file, undefined, undefined]]);
+	});
+
+	it("leaves a header naming no folder, or an empty one, to pi's open to fill in", () => {
+		for (const cwd of [undefined, ""]) {
+			const root = scratch();
+			const file = logNaming(root, cwd);
+			const pi = piOpening(root);
+			const opened = openStanding(pi.sessions, file);
+
+			expect(opened.left, `a header naming ${cwd}`).toBeUndefined();
+			expect(pi.calls, `a header naming ${cwd}`).toEqual([
+				[file, undefined, undefined],
+			]);
+		}
+	});
+
+	it("reads the folder from pi's open when its first line isn't a session header", () => {
+		const root = scratch();
+		const gone = join(root, "tree");
+		const file = join(root, "log.jsonl");
+		writeFileSync(
+			file,
+			`\n${JSON.stringify({ type: "session", id: "s1", cwd: gone })}\n`,
+		);
+		const pi = piOpening(gone);
+		const opened = openStanding(pi.sessions, file, scratch());
+
+		expect(opened.left).toBe(gone);
+		expect(pi.calls).toEqual([
+			[file, undefined, undefined],
+			[file, undefined, root],
+		]);
 	});
 
 	it("is told of a move once, by the newest word of a move in its log", () => {

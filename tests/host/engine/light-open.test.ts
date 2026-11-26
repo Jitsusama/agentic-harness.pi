@@ -468,6 +468,24 @@ describe("a log opened light", () => {
 		expect(answers(light.manager, file)).toEqual(answers(held, file));
 		expect(readFileSync(file, "utf8")).toBe(before);
 	});
+
+	it("builds its manager once when its folder is gone, in the folder that stands", () => {
+		const gone = join(dir, "tree", "gone");
+		mkdirSync(gone, { recursive: true });
+		const file = compactedLog(gone);
+		rmSync(join(dir, "tree"), { recursive: true });
+		const cwds: unknown[] = [];
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const counting = function (...args: unknown[]) {
+			cwds.push(args[0]);
+			return Reflect.construct(SessionManager, args);
+		};
+		const pi = { SessionManager: counting, version: CURRENT_SESSION_VERSION };
+		const light = openKept(pi, file, () => {}, dir);
+
+		expect(light?.left).toBe(gone);
+		expect(cwds).toEqual([dir]);
+	});
 });
 
 describe("a light read", () => {
