@@ -134,6 +134,48 @@ describe("a quest's address, when two sessions have it loaded", () => {
 		).toEqual({ ...older, signsSince: atOnce });
 	});
 
+	it("wins nothing with a time from before any harness stamped one, as a clock reset at boot writes", () => {
+		// #2218 F35/F41: a session resumed before its machine's clock was
+		// set would otherwise outrank every true holder for as long as it
+		// kept restarting within the bound.
+		const reset = { ...holder, signsSince: "1970-01-01T00:00:05.000Z" };
+		const taken = { ...older, signsSince: "2026-11-25T13:53:49.000Z" };
+
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [reset], taken.signsSince),
+			"the other keeps it by the lower id",
+		).toBeUndefined();
+		expect(
+			yieldsTo("02-holder", "7M6JKG", true, [taken], reset.signsSince),
+			"the one stamped early leaves it, by the same rule",
+		).toBe(taken);
+	});
+
+	it("wins nothing with a time later than its own last word, as no clock right then stamps", () => {
+		const taken = { ...older, signsSince: "2026-11-25T13:53:49.000Z" };
+		const since = "2026-11-21T20:47:00.000Z";
+
+		expect(
+			yieldsTo(
+				"00-older",
+				"7M6JKG",
+				true,
+				[{ ...holder, signsSince: since, at: "2026-11-21T20:45:59.999Z" }],
+				taken.signsSince,
+			),
+			"past a minute ahead of its last word, it reads as no time",
+		).toBeUndefined();
+		const moments = {
+			...holder,
+			signsSince: since,
+			at: "2026-11-21T20:46:00.000Z",
+		};
+		expect(
+			yieldsTo("00-older", "7M6JKG", true, [moments], taken.signsSince),
+			"within a minute, as two reads of one clock fall, it stands",
+		).toBe(moments);
+	});
+
 	it("is contested by a restarted holder only where the signer says a time too", () => {
 		// Restarted, it signs with nothing yet but kept the time it held from.
 		const before = "2026-11-21T20:47:00.000Z";
@@ -252,6 +294,59 @@ describe("what a restart keeps of holding its quest's address", () => {
 	it("starts afresh after a last word dated far ahead, as a clock set wrong writes", () => {
 		expect(
 			signedSince({ ...last, at: "2026-11-26T16:00:00.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("starts afresh after a time from before any harness stamped one", () => {
+		expect(
+			signedSince({ ...last, signsSince: "1970-01-01T00:00:05.000Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("starts afresh after a time later than its last word, or than now, by more than a minute", () => {
+		expect(
+			signedSince({ ...last, signsSince: "2026-11-25T16:00:30.001Z" }, now),
+			"past its last word",
+		).toBeUndefined();
+		const owner = { pid: 4242, startedAt: 1_000, bootId: "b" };
+		expect(
+			signedSince(
+				{
+					...last,
+					signsSince: "2026-11-25T17:00:00.000Z",
+					at: "2026-11-25T17:00:00.000Z",
+					owner,
+				},
+				now,
+				{ owner },
+			),
+			"past now, as a clock set back since writes, though a reload keeps the rest",
+		).toBeUndefined();
+		expect(
+			signedSince({ ...last, signsSince: "2026-11-25T16:00:30.000Z" }, now),
+			"within the minute",
+		).toEqual({ address: "7M6JKG", since: "2026-11-25T16:00:30.000Z" });
+	});
+
+	it("stamps afresh a time held from a clock set wrong, and none while the clock still is", () => {
+		const taking = { address: "7M6JKG", since: "2026-11-25T16:00:00.000Z" };
+
+		expect(
+			signingSince("7M6JKG", ["7M6JKG"], "1970-01-01T00:00:05.000Z", now),
+			"a time stamped before the clock was set",
+		).toEqual(taking);
+		expect(
+			signingSince("7M6JKG", ["7M6JKG"], "2026-11-26T16:00:00.000Z", now),
+			"a time stamped ahead, the clock since set back",
+		).toEqual(taking);
+		expect(
+			signingSince(
+				"7M6JKG",
+				["7M6JKG"],
+				undefined,
+				Date.parse("1970-01-01T00:00:05.000Z"),
+			),
+			"while the clock reads before the floor, it signs saying no time",
 		).toBeUndefined();
 	});
 
