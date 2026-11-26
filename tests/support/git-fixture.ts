@@ -9,21 +9,23 @@
  * of those files and the part whose timing depended most on what else
  * was running.
  *
- * So build one pristine repo per process and copy it. A directory
+ * So build one pristine repo per test file and copy it. A directory
  * copy of a repo this size is a few milliseconds and, more to the
- * point, spawns nothing. The template is memoized for the life of the
- * worker, so a file with twelve tests pays for one repo rather than
- * twelve, and a second file in the same worker pays for none.
+ * point, spawns nothing. The template is memoized for the file, which
+ * vitest loads apart from every other, so a file with twelve tests
+ * pays for one repo rather than twelve.
  *
  * Copying rather than sharing keeps the isolation a `beforeEach` was
  * there to provide: every test still gets a repo nobody else has
  * touched, and may commit to it, branch it or add worktrees to it.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import {
 	cpSync,
+	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
@@ -66,30 +68,95 @@ vi.setConfig({ testTimeout: REAL_GIT_MS, hookTimeout: REAL_GIT_MS });
  * config files. The code under test still
  * runs its own git with the process's environment, which is why the
  * template below also sets its identity and signing in its own config.
+ *
+ * Nor does the fixture's git start maintenance. A commit or a fetch
+ * starts `git maintenance run --auto --detach`, which outlives it and
+ * makes and removes `objects/maintenance.lock`, so a copy taken just
+ * after lists the lock and then fails to find it. Under load that hit
+ * the first test of a file, whose copy follows the template's commit.
+ * The setting rides on the command line (git 2.31 and later read it
+ * there), and every repo the fixture's git makes, by init or clone,
+ * holds it in its own config too, so the code under test starts none
+ * in them either. So does `core.fsmonitor`, another writer that
+ * outlives a command, should the person's settings turn it on.
  */
 const GIT_ENV = {
 	GIT_CONFIG_GLOBAL: "/dev/null",
 	GIT_CONFIG_NOSYSTEM: "1",
 	GIT_EDITOR: "true",
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "maintenance.auto",
+	GIT_CONFIG_VALUE_0: "false",
 } as const;
+
+/** The settings every repo the fixture's git makes starts with. */
+const REPO_SETTINGS =
+	"[maintenance]\n\tauto = false\n[core]\n\tfsmonitor = false\n";
+
+/**
+ * What of git's own template each repo keeps: the folders tests write
+ * hooks and excludes into, and the description beside them. Named rather
+ * than taken as all `git init` makes, which on a git storing refs another
+ * way holds more than a template should.
+ */
+const FROM_GITS_TEMPLATE = ["hooks", "info", "description"];
+
+/** The template folder git makes each repo from, written once per test file. */
+let repoTemplate: string | undefined;
+
+/**
+ * The folder each new repo starts from: git's own template, its hooks
+ * folder and the rest, which tests write into, with the settings above
+ * as its config. A template folder replaces git's own rather than adding
+ * to it, so git's is copied from a repo made with it. Written on first
+ * use in each test file, which vitest loads apart; the run's temp root
+ * (tests/setup/temp-root.ts) removes it, since vitest ends its workers
+ * without their exit handlers.
+ */
+function repoTemplateDir(): string {
+	if (repoTemplate) return repoTemplate;
+	const folder = mkdtempSync(join(tmpdir(), "git-fixture-settings-"));
+	const probe = join(folder, "probe");
+	execFileSync("git", ["init", "-q", probe], {
+		env: { ...withoutGitSettings(process.env), ...GIT_ENV },
+		timeout: REAL_GIT_MS,
+	});
+	const template = join(folder, "template");
+	mkdirSync(template);
+	const made = new Set(readdirSync(join(probe, ".git")));
+	for (const part of FROM_GITS_TEMPLATE) {
+		if (!made.has(part)) continue;
+		cpSync(join(probe, ".git", part), join(template, part), {
+			recursive: true,
+		});
+	}
+	writeFileSync(join(template, "config"), REPO_SETTINGS);
+	rmSync(probe, { recursive: true, force: true });
+	repoTemplate = template;
+	return template;
+}
 
 /** Run git in a directory, returning stdout, shielded from the person's settings. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
 	const { stdout } = await execFileAsync("git", args, {
 		cwd,
-		env: { ...withoutGitSettings(process.env), ...GIT_ENV },
+		env: {
+			...withoutGitSettings(process.env),
+			...GIT_ENV,
+			GIT_TEMPLATE_DIR: repoTemplateDir(),
+		},
 	});
 	return stdout.trim();
 }
 
 /** An environment with none of the variables git reads its settings from. */
-function withoutGitSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function withoutGitSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return Object.fromEntries(
 		Object.entries(env).filter(([name]) => !name.startsWith("GIT_")),
 	);
 }
 
-/** The memoized template, built at most once per worker. */
+/** The memoized template, built at most once per test file. */
 let template: Promise<string> | undefined;
 
 async function buildTemplate(): Promise<string> {
