@@ -98,6 +98,20 @@ describe("the subjects this session's peer says", () => {
 		]);
 	});
 
+	it("says the areas its quest's landings led before a README subject that routes no need", () => {
+		write(readme("subjects: ['x:can', needs]\n"));
+		localPeer({
+			...surroundingsAt(root),
+			ledAreas: () => ["agentic-harness.pi:lib/mesh"],
+		});
+
+		expect(kept()?.subjects).toEqual([
+			"needs",
+			"agentic-harness.pi:lib/mesh",
+			"x:can",
+		]);
+	});
+
 	it("says no led areas with no quest loaded", () => {
 		mkdirSync(join(root, "sessions"), { recursive: true });
 		localPeer({

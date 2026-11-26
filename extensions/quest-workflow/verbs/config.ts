@@ -210,6 +210,22 @@ function namesNoWork(subject: string): boolean {
 }
 
 /**
+ * A subject's word as the subject writes it, where words are read
+ * lowercased, so a refusal names what its writer can find. Its last
+ * place is taken, since a subject's words come from its narrowest part;
+ * the word as read stands where lowercasing changes the subject's
+ * length, so no place in one maps to the other (#2220's sixth
+ * council, F59).
+ */
+function asWritten(word: string, subject: string): string {
+	const lower = subject.toLowerCase();
+	const at = lower.lastIndexOf(word);
+	return at < 0 || lower.length !== subject.length
+		? word
+		: subject.slice(at, at + word.length);
+}
+
+/**
  * Set the subjects the quest `id` names (else the loaded one) says its
  * sessions work on, on its front matter, so every session on it declares
  * the same; an empty list clears them. Refused, changing nothing, when
@@ -239,7 +255,7 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 		);
 	}
 	const overLong = hubless.flatMap((one) =>
-		overLongWords(one).map((word) => `${word} in ${one}`),
+		overLongWords(one).map((word) => `${asWritten(word, one)} in ${one}`),
 	);
 	if (overLong.length > 0) {
 		return refuse(

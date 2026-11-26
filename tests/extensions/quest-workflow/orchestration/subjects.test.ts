@@ -180,6 +180,21 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 	});
 
+	// Words are read lowercased, but the writer looks for the word as
+	// written (#2220's sixth council, F59).
+	it("refuse a subject with a word past the longest kept, naming it as written", async () => {
+		const id = await made();
+		const word = `Ab${"c".repeat(LONGEST_WORD)}`;
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=x:${word}-lines`,
+		});
+		expect(said(result), "the word as written").toContain(
+			`${word} in x:${word}-lines`,
+		);
+	});
+
 	// No need keeps a joined id past LONGEST_WORD either, and one with a
 	// number is said only whole, so its hub could take none (#2220's
 	// sixth council, F57).
