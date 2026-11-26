@@ -475,11 +475,10 @@ describe("a log opened light", () => {
 		const file = compactedLog(gone);
 		rmSync(join(dir, "tree"), { recursive: true });
 		const cwds: unknown[] = [];
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const counting = function (...args: unknown[]) {
+		const counting = constructedBy((args) => {
 			cwds.push(args[0]);
 			return Reflect.construct(SessionManager, args);
-		};
+		});
 		const pi = { SessionManager: counting, version: CURRENT_SESSION_VERSION };
 		const light = openKept(pi, file, () => {}, dir);
 
