@@ -719,6 +719,11 @@ const scenarios: Record<string, Scenario> = {
 					closedBefore,
 					switchedTo,
 					onHostPi: keptHistoryOnHostPi(),
+					// What the engine said of its light opens: that one fell back,
+					// or that the pi it was given isn't what they read.
+					lightOpens: reported.filter((said) =>
+						/light open|Light opens/.test(said),
+					),
 				},
 			};
 		},

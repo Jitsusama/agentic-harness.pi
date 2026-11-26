@@ -299,14 +299,17 @@ export function openKept(
 		// write the light entries over it.
 		if (!isRecord(header) || header.version !== version) return undefined;
 		const path = resolve(file);
-		const headerCwd = typeof header.cwd === "string" ? header.cwd : undefined;
+		// pi's own open takes the process's folder for a header naming none;
+		// that log is left to it rather than read light.
+		if (typeof header.cwd !== "string") return undefined;
+		const headerCwd = header.cwd;
 		const open = (cwd?: string): SessionManager => {
 			// What pi is given, to check it took it unchanged; a copy kept past
 			// the check would hold every entry the kept view lets go of.
 			const read = [...log.entries];
 			// pi's own open builds its manager so when its header scan fails.
 			const manager: unknown = Reflect.construct(Manager, [
-				cwd ?? headerCwd ?? process.cwd(),
+				cwd ?? headerCwd,
 				dirname(path),
 				path,
 				true,
@@ -320,19 +323,7 @@ export function openKept(
 			return manager;
 		};
 		const standing = standingOpen(open, home);
-		// The hold's own failure, kept back while it holds: where pi's open
-		// is left to read the log, that failure is why, not what it says.
-		let unheld: Error | undefined;
-		let holding = true;
-		holdKeptHistory(
-			standing.manager,
-			(what) => {
-				if (holding && !unheld && what instanceof Error) unheld = what;
-				else said.report(what);
-			},
-			log.whole,
-		);
-		holding = false;
+		const unheld = holdQuietly(standing.manager, log.whole, said);
 		// A log with nothing read light is held as pi's own open holds it,
 		// so it stands whether or not the view could be taken.
 		if (leftOutOf(standing.manager) || log.lightened === 0) {
@@ -354,6 +345,33 @@ export function openKept(
 	}
 	said.sayTo((what) => report(fellBack(file, what)));
 	return undefined;
+}
+
+/**
+ * Have `manager` hold its kept view, reading light entries whole by
+ * `whole`, and answer the hold's own failure, kept back from `said`:
+ * where pi's open is left to read the log, that failure is why, not what
+ * it says. All else the hold says, then or later, goes to `said`. Made
+ * apart from the open, whose closures share one context, so the report
+ * the held conversation keeps for its life keeps no open's log alive.
+ */
+function holdQuietly(
+	manager: SessionManager,
+	whole: LightLog["whole"],
+	said: HeldReport,
+): Error | undefined {
+	let unheld: Error | undefined;
+	let holding = true;
+	holdKeptHistory(
+		manager,
+		(what) => {
+			if (holding && !unheld && what instanceof Error) unheld = what;
+			else said.report(what);
+		},
+		whole,
+	);
+	holding = false;
+	return unheld;
 }
 
 /**

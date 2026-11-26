@@ -13,6 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import {
 	CURRENT_SESSION_VERSION,
 	SessionManager,
@@ -248,6 +250,35 @@ function lines(file: string): unknown[] {
 }
 
 describe("a log opened light", () => {
+	it("lets go of its light read once it holds the kept view", async () => {
+		setFlagsFromString("--expose-gc");
+		const gc: unknown = runInNewContext("gc");
+		if (typeof gc !== "function") throw new Error("this node won't collect");
+		let given: WeakRef<object> | undefined;
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const watched = function (...args: unknown[]) {
+			const entries = args[5];
+			if (typeof entries === "object" && entries !== null)
+				given = new WeakRef(entries);
+			return Reflect.construct(SessionManager, args);
+		};
+		const pi = { SessionManager: watched, version: CURRENT_SESSION_VERSION };
+		const opened = openKept(pi, compactedLog());
+		if (!opened) throw new Error("the light open fell back to pi's");
+		expect(leftOutOf(opened.manager)).toBeDefined();
+
+		// A weak reference holds its value until the job that made it ends.
+		await new Promise((done) => setImmediate(done));
+		gc();
+
+		expect(given, "the open gave pi no entries").toBeDefined();
+		expect(
+			given?.deref(),
+			"the held conversation keeps the light read alive",
+		).toBeUndefined();
+		expect(opened.manager.getEntries().length).toBeGreaterThan(0);
+	});
+
 	it("holds what pi's open holds once it holds the kept view", () => {
 		const file = compactedLog();
 		const before = readFileSync(file, "utf8");
@@ -508,6 +539,17 @@ describe("pi's own open stands", () => {
 		expect(readLight(file)).toBeUndefined();
 	});
 
+	it("for a session header naming no folder, which pi's open fills in itself", () => {
+		const file = compactedLog();
+		const [header = "", ...rest] = readFileSync(file, "utf8").split("\n");
+		const { cwd: _, ...nowhere } = JSON.parse(header);
+		writeFileSync(file, [JSON.stringify(nowhere), ...rest].join("\n"));
+		expect(readLight(file)?.lightened).toBeGreaterThan(0);
+		const said: unknown[] = [];
+		expect(openKept(PI, file, (what) => said.push(what))).toBeUndefined();
+		expect(said, "it isn't a failure, so nothing is said").toEqual([]);
+	});
+
 	it("for a pi whose session manager no longer takes entries as this expects", () => {
 		class Other {}
 		const pi = { SessionManager: Other, version: CURRENT_SESSION_VERSION };
@@ -538,6 +580,45 @@ describe("pi's own open stands", () => {
 				for (const [id, entry] of byId) byId.set(id, { ...entry });
 		});
 		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
+	it("for a session manager that drops an entry it was given", () => {
+		const pi = changing(({ fileEntries }) => {
+			if (Array.isArray(fileEntries)) fileEntries.pop();
+		});
+		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
+	it("for a session manager that writes to another file", () => {
+		const pi = changing((manager) => {
+			manager.sessionFile = join(dir, "elsewhere.jsonl");
+		});
+		expect(fallsBack(compactedLog(), pi)).toBe(true);
+	});
+
+	it("for a session manager that would write its log again whole", () => {
+		const pi = changing((manager) => {
+			manager.flushed = false;
+		});
+		const said: unknown[] = [];
+		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
+			undefined,
+		);
+		expect(said).toEqual([expect.any(LightOpensOff)]);
+	});
+
+	it("for a session manager that fails to open, saying why it fell back", () => {
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const fails = function () {
+			throw new Error("no room to open");
+		};
+		const pi = { SessionManager: fails, version: CURRENT_SESSION_VERSION };
+		const said: unknown[] = [];
+		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
+			undefined,
+		);
+		expect(said).toEqual([expect.any(LightFellBack)]);
+		expect(String(said[0])).toContain("no room to open");
 	});
 
 	it("for a session manager that names another session", () => {

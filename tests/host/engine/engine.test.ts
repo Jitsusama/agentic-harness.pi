@@ -955,6 +955,7 @@ describe("the host's engine", () => {
 				closedBefore: true,
 				switchedTo: true,
 				onHostPi: true,
+				lightOpens: [],
 			});
 		},
 		HOST_LIFE_MS,
