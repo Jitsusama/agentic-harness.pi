@@ -88,13 +88,14 @@ export function systemProgram(
 
 /**
  * `path` resolved, when every step of it, and of every link it follows,
- * is owned by root and writable by nobody else. It follows at most as
- * many links as the system would, so a path the system can't open is
- * never one it finds.
+ * is owned by root and writable by nobody else. It follows at most
+ * `most` links, as many as this system would, so a path the system
+ * can't open is never one it finds.
  */
 export function sealedPath(
 	path: string,
 	look: Look = real,
+	most: number = MOST_LINKS,
 ): string | undefined {
 	if (!posix.isAbsolute(path) || !sealed("/", look)) return undefined;
 	let at = "/";
@@ -116,7 +117,7 @@ export function sealedPath(
 			continue;
 		}
 		links += 1;
-		if (links > MOST_LINKS) return undefined;
+		if (links > most) return undefined;
 		const target = look.readlink(next);
 		if (posix.isAbsolute(target)) at = "/";
 		rest = [...target.split("/").filter(Boolean), ...rest];
