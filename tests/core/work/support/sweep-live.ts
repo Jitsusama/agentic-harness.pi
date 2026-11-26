@@ -285,7 +285,8 @@ export async function landed(
 	branch: string,
 ): Promise<string> {
 	const tree = await cut(branch, ["-b", branch, "@", "main"]);
-	await git(tree, "commit", "-q", "--allow-empty", "-m", "work");
+	// A message of its own, so two branches landed in one second differ.
+	await git(tree, "commit", "-q", "--allow-empty", "-m", `work on ${branch}`);
 	await git(tree, "push", "-q", "origin", branch);
 	return tree;
 }

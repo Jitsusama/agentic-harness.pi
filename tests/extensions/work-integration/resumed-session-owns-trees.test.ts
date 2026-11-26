@@ -10,7 +10,7 @@
  * names the process it runs in now.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -98,5 +98,43 @@ it("names the new host's process on a resumed session's trees, leaving others' a
 	);
 	expect(ownersOf(theirs), "another session's record is its own").toEqual([
 		{ pid: GONE, startedAt: 1_000, session: "b", host: "test-host" },
+	]);
+});
+
+it("says on stderr when a resumed session's trees could not be re-owned", async () => {
+	const ours = cutBeforeTheRestart("a", "ours");
+	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	// A folder nobody may list fails the reading, as a fault the start
+	// can't settle would.
+	chmodSync(treeRecordDir(), 0o000);
+	try {
+		const stub = activateWith(workIntegration);
+		const started = stub.lifecycle.get("session_start");
+		if (started === undefined)
+			throw new Error("work-integration registered no session_start");
+
+		withSession("a", () =>
+			started(
+				{ reason: "resume" },
+				{ sessionManager: { getSessionId: () => "a" } },
+			),
+		);
+
+		await vi.waitFor(
+			() =>
+				expect(
+					said.mock.calls.map(([line]) => String(line)).join(""),
+					"the failed re-owning was said",
+				).toMatch(
+					/the trees session a holds still name the process it ran in before.*EACCES/,
+				),
+			{ timeout: 3_000 },
+		);
+	} finally {
+		chmodSync(treeRecordDir(), 0o755);
+		said.mockRestore();
+	}
+	expect(ownersOf(ours), "the record keeps its old owner").toEqual([
+		{ pid: GONE, startedAt: 1_000, session: "a", host: "test-host" },
 	]);
 });

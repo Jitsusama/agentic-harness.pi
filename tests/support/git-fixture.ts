@@ -51,9 +51,30 @@ export const REAL_GIT_MS = 30_000;
 
 vi.setConfig({ testTimeout: REAL_GIT_MS, hookTimeout: REAL_GIT_MS });
 
-/** Run git in a directory, returning stdout. */
+/**
+ * What the fixture's own git runs under: none of the person's or the
+ * system's settings, and an editor that returns at once.
+ *
+ * A developer's global config is open-ended (signing, hooks, aliases,
+ * merge drivers), so shielding it one setting at a time only finds the
+ * next one when a test hangs on it, as `tag.gpgsign` did. An editor
+ * that returns at once makes a command wanting a message fail loudly
+ * rather than wait out the test's clock. The code under test still
+ * runs its own git with the process's environment, which is why the
+ * template below also sets its identity and signing in its own config.
+ */
+const GIT_ENV = {
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_CONFIG_NOSYSTEM: "1",
+	GIT_EDITOR: "true",
+} as const;
+
+/** Run git in a directory, returning stdout, shielded from the person's settings. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
-	const { stdout } = await execFileAsync("git", args, { cwd });
+	const { stdout } = await execFileAsync("git", args, {
+		cwd,
+		env: { ...process.env, ...GIT_ENV },
+	});
 	return stdout.trim();
 }
 
