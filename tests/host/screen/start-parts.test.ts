@@ -160,15 +160,55 @@ describe("a screen's start parts", () => {
 			},
 		]);
 		const mode = modeWith(time, runtime);
+		let heard: unknown;
 		const parts = await timeStart(
 			mode,
 			runtime,
-			() => mode.init().catch(() => undefined),
+			() =>
+				mode.init().catch((error: unknown) => {
+					heard = error;
+				}),
 			time.now,
 		);
+		expect(heard).toEqual(new Error("no such quest"));
 		expect(parts.extensions).toEqual([
 			{ name: "throws-workflow", ms: 60, heldMs: 60 },
 		]);
+	});
+
+	it("counts a handler still running at the start's end as far as it got, and says so", async () => {
+		const time = clock();
+		let finish = (): void => undefined;
+		const late: Handler = () => {
+			time.pass(200);
+			return new Promise<void>((resolve) => {
+				finish = resolve;
+			});
+		};
+		const runtime = runtimeWith([
+			{
+				path: "/pkg/extensions/late-workflow/index.ts",
+				handlers: new Map([["session_start", [late]]]),
+			},
+		]);
+		const [extension] = runtime.session.extensionRunner.extensions;
+		const mode = {
+			async init(): Promise<void> {
+				const [handler] = extension?.handlers.get("session_start") ?? [];
+				// pi doesn't wait for every handler before its screen is up.
+				void handler?.("session_start");
+				time.pass(900);
+			},
+		};
+		const parts = await timeStart(mode, runtime, () => mode.init(), time.now);
+		finish();
+		await Promise.resolve();
+		expect(parts.extensions).toEqual([
+			{ name: "late-workflow", ms: 1100, heldMs: 200, running: true },
+		]);
+		expect(startLine(parts)).toContain(
+			"late-workflow 1.1 s so far, still running (held 0.2 s)",
+		);
 	});
 
 	it("reads how busy the thread was over the start", async () => {
@@ -202,6 +242,21 @@ describe("a screen's start parts", () => {
 			() => mode.init(),
 			time.now,
 			unread,
+		);
+		expect(parts.busy).toBeUndefined();
+		expect(startLine(parts)).not.toContain("busy");
+	});
+
+	it("says no share where no time passed between the readings", async () => {
+		const time = clock();
+		const runtime = runtimeWith([]);
+		const mode = modeWith(time, runtime);
+		const parts = await timeStart(
+			mode,
+			runtime,
+			() => mode.init(),
+			time.now,
+			() => ({ active: 0, idle: 0 }),
 		);
 		expect(parts.busy).toBeUndefined();
 		expect(startLine(parts)).not.toContain("busy");
@@ -389,7 +444,7 @@ describe("a screen's start parts", () => {
 });
 
 describe("a screen's start line", () => {
-	it("names the steps, what's left, and the five slowest extensions", () => {
+	it("names the steps, what's left, and the five extensions that held the thread most", () => {
 		const line = startLine({
 			ms: 4600,
 			steps: [
@@ -409,7 +464,7 @@ describe("a screen's start line", () => {
 			busy: 0.914,
 		});
 		expect(line).toBe(
-			"Screen started in 4.6 s (colours 0.1 s, bind 3.2 s, draw 0.7 s, providers 0.1 s, rest 0.5 s); the thread busy 91% of it; extensions' handlers 3.1 s (held 1.1 s), slowest a 1.2 s (held 0.1 s), b 0.9 s (held 0.8 s), c 0.4 s (held 0.0 s), d 0.3 s (held 0.0 s), e 0.2 s (held 0.1 s)",
+			"Screen started in 4.6 s (colours 0.1 s, bind 3.2 s, draw 0.7 s, providers 0.1 s, rest 0.5 s); the thread busy 91% of it; extensions' handlers 3.1 s (held 1.1 s), holding most b 0.9 s (held 0.8 s), a 1.2 s (held 0.1 s), e 0.2 s (held 0.1 s), f 0.1 s (held 0.1 s), c 0.4 s (held 0.0 s)",
 		);
 	});
 });

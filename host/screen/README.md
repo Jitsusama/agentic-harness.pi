@@ -70,17 +70,21 @@ Each screen's start says where its time went, when the host gives the
 screens `said`: one journal line naming pi's init steps (the terminal's
 colours, binding the extensions, drawing the conversation, counting
 providers), what's left (finding fd and rg among it), and the five
-extensions whose handlers took longest. A wake's "screen" phase is this
+extensions whose handlers held the thread longest. A wake's "screen" phase is this
 start, and a warm spare can't pay it ahead, so the line says what in it
 to cut. `start-parts.ts` wraps pi's methods and the extensions' handlers
 only while the start runs, and puts back only its own wraps after.
 
 A handler's time runs until its promise settles, so it counts waiting
-on the disk, a child, or the other conversations on the host's thread.
-The line tells the two apart. It says how busy the thread was over the
-start, so a starved start reads as starved. And beside each extension
-it says what its handlers held the thread: their synchronous runs, a
-floor, since a handler's work after its first await isn't seen.
+on an asynchronous read, a child, or the other conversations on the
+host's thread. Beside each extension the line says what its handlers
+held the thread: their synchronous runs, a synchronous disk read among
+them. That is a floor, since a handler's work after its first await
+isn't seen. A handler still running as the start ends reads as its
+time so far. The line also says how busy the thread was over the start,
+and that share counts the start's own work too: a share near the whole
+with little held points at other conversations holding the thread,
+while one near the whole with as much held is the start's own work.
 
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host
