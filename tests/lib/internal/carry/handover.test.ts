@@ -131,7 +131,10 @@ describe("a handover", () => {
 			"more than the share takes",
 		);
 
-		expect(existsSync(doneFileOf(dir, "s-1"))).toBe(false);
+		expect(
+			existsSync(doneFileOf(dir, "s-1")),
+			"no done file once the write is refused",
+		).toBe(false);
 	});
 
 	it("trusts nothing in another machine's done file that could reach elsewhere", () => {
