@@ -320,6 +320,37 @@ describe("the ask tool with nobody there", () => {
 		});
 	});
 
+	it("leaves its parked question standing through a run its host carries on", async () => {
+		const { execute, handlers } = loaded();
+		await askShip(execute);
+
+		await handlers.get("before_agent_start")?.(
+			{ messageType: "continue" },
+			ctx,
+		);
+
+		expect(looksIn(stateDir("looks"))[0]?.state).toBe("waiting");
+	});
+
+	it("reads the list at a run's start only while it may have parked one", async () => {
+		const { execute, handlers } = loaded();
+		await handlers.get("before_agent_start")?.({}, ctx);
+		await askShip(execute);
+		const start = handlers.get("before_agent_start");
+
+		await start?.({}, ctx);
+		expect(looksIn(stateDir("looks"))[0]?.state, "taken back").toBe("resolved");
+		const look = looksIn(stateDir("looks"))[0];
+		const file = join(stateDir("looks"), `${look?.id}.json`);
+		writeFileSync(file, JSON.stringify({ ...look, state: "waiting" }));
+		await start?.({}, ctx);
+
+		expect(
+			looksIn(stateDir("looks"))[0]?.state,
+			"nothing parked since, so not read",
+		).toBe("waiting");
+	});
+
 	it("parks at once, taking no recommendation, while the screen is locked", async () => {
 		const { execute } = loaded();
 		const result = (await execute(

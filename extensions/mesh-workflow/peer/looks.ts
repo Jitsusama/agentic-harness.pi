@@ -125,11 +125,16 @@ async function askHostsAboutLooks(
 
 /**
  * Resolve the looks of the `cells` that have ended: those the census
- * finds gone, and those with no presence at all {@link UNHEARD_CELL_MS}
- * after they pointed, since a session publishes one as it starts. A
- * parked session is there, as the census says, so a question it parked
- * waits for it. Peers that can't be read or judged now are asked again
- * next turn.
+ * finds gone, and, for a look that names its session's mesh address,
+ * those with no presence at all {@link UNHEARD_CELL_MS} after they
+ * pointed, since a session on the mesh publishes one as it starts. A
+ * look with no address came from a session off the mesh, which never
+ * publishes one, and an empty listing is a read that found nothing, so
+ * neither is taken as unheard. A look some session still there carries
+ * on, on its quest or at its address, as a rollover's next session
+ * does, stays for that session to answer. A parked session is there,
+ * as the census says, so a question it parked waits for it. Peers that
+ * can't be read or judged now are asked again next turn.
  */
 async function endLooksOfEndedCells(
 	dir: string,
@@ -141,19 +146,29 @@ async function endLooksOfEndedCells(
 	if (cells.length === 0) return;
 	try {
 		const holding = new Set(cells);
-		const heard = (await presences.listed()).filter((one) =>
-			holding.has(one.session),
-		);
-		const { gone } = await judge(heard);
+		// Every presence, not only those of the cells holding looks: the
+		// census tells a process's latest session from its earlier ones
+		// only by seeing them all.
+		const heard = await presences.listed();
+		const { gone, present } = await judge(heard);
 		const ended = new Set(gone.map((one) => one.session));
 		const known = new Set(heard.map((one) => one.session));
+		const quests = new Set(present.flatMap((one) => one.quest ?? []));
+		const addresses = new Set(present.flatMap((one) => one.addresses));
+		const carriedOn = (look: Look): boolean =>
+			(look.quest !== undefined && quests.has(look.quest)) ||
+			(look.address !== undefined && addresses.has(look.address));
+		const unheard = (look: Look): boolean =>
+			look.address !== undefined &&
+			heard.length > 0 &&
+			!known.has(look.session) &&
+			Date.parse(look.at) <= now - UNHEARD_CELL_MS;
 		resolveLooksOfEndedCells(
 			dir,
 			(look) =>
 				holding.has(look.session) &&
-				(ended.has(look.session) ||
-					(!known.has(look.session) &&
-						Date.parse(look.at) <= now - UNHEARD_CELL_MS)),
+				(ended.has(look.session) || unheard(look)) &&
+				!carriedOn(look),
 			new Date(now),
 		);
 	} catch {

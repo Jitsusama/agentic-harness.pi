@@ -21,6 +21,7 @@ import { openSessionStore } from "../../lib/core/result/location.ts";
 import { askAuthored } from "../../lib/internal/session/authored.ts";
 import {
 	LOOK_KINDS,
+	type Look,
 	type Pointing,
 	pointAt,
 	refusalOf,
@@ -67,6 +68,18 @@ export type { Local } from "./tools/local.ts";
 
 /** A target a change's host could claim: a web address, not a file or a session. */
 const WEB_ADDRESS = /^https?:\/\//i;
+
+/** What the pointing agent reads of when `look` leaves the person's list. */
+function leavingOf(look: Look): string {
+	const ended =
+		"its session ends with nobody on its quest to carry it on, or this session takes it back with withdraw once it no longer applies";
+	if ((look.choices?.length ?? 0) > 0 || look.wants?.words === true) {
+		return `It stays there until they answer or clear it, a day after they open it, or ${ended}.`;
+	}
+	return look.asks
+		? `It offers nothing to answer in place, so it leaves once they open it, or ${ended}.`
+		: "It asks nothing back, so it leaves once they open it, or in a day.";
+}
 
 export function registerTools(
 	pi: ExtensionAPI,
@@ -365,7 +378,7 @@ export function registerTools(
 		promptSnippet:
 			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
 		description:
-			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an act of 'Just See', with no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find, but never for a pull request you or another session put up: review it yourself, take it out of draft and ask for review (Joel, 24 November); one this session or its quest proposed is refused, whatever kind it is said as. Write title, happened, matters, act and follows for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that offers no choices and takes none of their words is a read: it leaves once they open it, and one that asks nothing back (an act of 'Just See') leaves a day on unopened too. A look with choices leaves a day after they open it unanswered, and you are told. Any look leaves once its session ends with no session left on its quest or at its address to carry it on. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find, but never for a pull request you or another session put up: review it yourself, take it out of draft and ask for review (Joel, 24 November); one this session or its quest proposed is refused, whatever kind it is said as. Write title, happened, matters, act and follows for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
 		parameters: Type.Object({
 			kind: StringEnum([...LOOK_KINDS], {
 				description:
@@ -488,7 +501,7 @@ export function registerTools(
 				...(quest ? { quest } : {}),
 			});
 			return answer(
-				`On the person's look list: ${look.title}. ${look.asks ? "It stays there until they answer or clear it, its quest ends, or this session takes it back with withdraw once it no longer applies." : "It asks nothing back, so it leaves once they open it, or in a day."}${look.choices ? " What they pick comes back as a message." : ""}`,
+				`On the person's look list: ${look.title}. ${leavingOf(look)}${look.choices ? " What they pick comes back as a message." : ""}`,
 				{ look },
 			);
 		}),

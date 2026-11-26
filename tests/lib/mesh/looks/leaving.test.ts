@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	answerLook,
 	expireLooks,
 	type LookState,
 	leaveSeenLooks,
@@ -180,6 +181,23 @@ describe("a look whose session has ended", () => {
 		});
 		expect(byId[here.id]?.state).toBe("waiting");
 	});
+
+	it("leaves a look the person cleared while it was being judged as he left it", () => {
+		const look = pointAt(dir, pr, { session: "S2", quest: "Q2" }, t0);
+
+		const marked = resolveLooksOfEndedCells(
+			dir,
+			() => {
+				// The launcher writes between this read and the write.
+				mark(look.id, "cleared");
+				return true;
+			},
+			later,
+		);
+
+		expect(marked, "nothing written over his clearing").toBe(0);
+		expect(looksIn(dir)[0]?.state).toBe("cleared");
+	});
 });
 
 describe("a session carrying on past its looks", () => {
@@ -202,5 +220,25 @@ describe("a session carrying on past its looks", () => {
 		expect(byId[other.id]?.state, "another thread").toBe("waiting");
 		expect(byId[theirs.id]?.state, "another session's").toBe("waiting");
 		expect(takeBackThread(dir, "S1", "parked question", later), "once").toBe(0);
+	});
+
+	it("still hears the person's pick when it lands just after the take-back", () => {
+		const parked = pointAt(
+			dir,
+			{ ...pr, thread: "parked question", choices: ["Keep It", "Drop It"] },
+			who,
+			t0,
+		);
+		takeBackThread(dir, "S1", "parked question", later);
+		const value = parked.choices?.[0]?.value ?? "";
+
+		expect(answerLook(dir, parked.id, { value }, later)).toMatchObject({
+			state: "resolved",
+			answer: value,
+		});
+		expect(
+			answerLook(dir, parked.id, { value }, later),
+			"answered once",
+		).toBeUndefined();
 	});
 });

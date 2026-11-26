@@ -356,6 +356,16 @@ function stands(look: Look): boolean {
 }
 
 /**
+ * Whether the person's answer to `look` still reaches its session: one
+ * standing, or one its own session took back as it carried on, since a
+ * pick he made in the launcher may land just after the take-back, and
+ * his words are worth more than the order they came in.
+ */
+function answerable(look: Look): boolean {
+	return stands(look) || look.how === "its session carried on";
+}
+
+/**
  * Whether a pointing wants something back: choices, his own words, or
  * an ask beyond seeing, read off the act when it is said in the second
  * form.
@@ -696,15 +706,13 @@ export function resolveLooks(
 ): number {
 	const key = changeKey(url);
 	if (key === "") return 0;
-	let marked = 0;
-	for (const look of looksIn(dir)) {
-		if (!stands(look)) continue;
-		if (look.kind !== "pr" && look.kind !== "diff") continue;
-		if (changeKey(look.target) !== key) continue;
-		markResolvedLook(dir, look, how, now);
-		marked++;
-	}
-	return marked;
+	const atIt = looksIn(dir).filter(
+		(look) =>
+			stands(look) &&
+			(look.kind === "pr" || look.kind === "diff") &&
+			changeKey(look.target) === key,
+	);
+	return resolveEach(dir, atIt, how, now);
 }
 
 /**
@@ -727,8 +735,7 @@ export function withdrawLook(
 			heldBy(one, pointer) &&
 			foldOf(one.kind, one.target) === fold,
 	);
-	for (const one of taken) markResolvedLook(dir, one, "taken back", now);
-	return taken.length > 0;
+	return resolveEach(dir, taken, "taken back", now) > 0;
 }
 
 /**
@@ -744,15 +751,15 @@ export function expireLooks(
 	now: Date = new Date(),
 ): Look[] {
 	const due = looksIn(dir).filter((one) => isDue(one, owns, now));
-	return due.map((one) => {
-		const expired: Look = {
-			...one,
-			state: "expired",
-			resolvedAt: now.toISOString(),
-		};
-		writeLook(dir, expired);
-		return expired;
-	});
+	return due
+		.map((one) =>
+			rewriteLook(dir, one, (still) => ({
+				...still,
+				state: "expired",
+				resolvedAt: now.toISOString(),
+			})),
+		)
+		.filter((one): one is Look => one !== undefined);
 }
 
 /**
@@ -763,9 +770,7 @@ export function expireLooks(
  * Answers how many it marked.
  */
 export function leaveSeenLooks(dir: string, now: Date = new Date()): number {
-	const seen = looksIn(dir).filter(isSeen);
-	for (const one of seen) markResolvedLook(dir, one, "seen", now);
-	return seen.length;
+	return resolveEach(dir, looksIn(dir).filter(isSeen), "seen", now);
 }
 
 /**
@@ -774,11 +779,15 @@ export function leaveSeenLooks(dir: string, now: Date = new Date()): number {
  * {@link OPENED_LASTS_MS} after; answers how many it stamped.
  */
 export function stampOpenedLooks(dir: string, now: Date = new Date()): number {
-	const unstamped = looksIn(dir).filter(isUnstamped);
-	for (const one of unstamped) {
-		writeLook(dir, { ...one, openedAt: now.toISOString() });
-	}
-	return unstamped.length;
+	const stamped = looksIn(dir)
+		.filter(isUnstamped)
+		.map((one) =>
+			rewriteLook(dir, one, (still) => ({
+				...still,
+				openedAt: now.toISOString(),
+			})),
+		);
+	return stamped.filter((one) => one !== undefined).length;
 }
 
 /**
@@ -800,8 +809,7 @@ export function resolveLooksOfEndedCells(
 	now: Date = new Date(),
 ): number {
 	const done = looksIn(dir).filter((look) => stands(look) && ended(look));
-	for (const one of done) markResolvedLook(dir, one, "its session ended", now);
-	return done.length;
+	return resolveEach(dir, done, "its session ended", now);
 }
 
 /**
@@ -820,10 +828,7 @@ export function takeBackThread(
 		(look) =>
 			stands(look) && look.session === session && look.thread === thread,
 	);
-	for (const one of taken) {
-		markResolvedLook(dir, one, "its session carried on", now);
-	}
-	return taken.length;
+	return resolveEach(dir, taken, "its session carried on", now);
 }
 
 /**
@@ -836,13 +841,8 @@ export function resolveLooksOfQuests(
 	ended: (quest: string) => boolean,
 	now: Date = new Date(),
 ): number {
-	let marked = 0;
-	for (const look of looksIn(dir)) {
-		if (!isOfEnded(look, ended)) continue;
-		markResolvedLook(dir, look, "its quest ended", now);
-		marked++;
-	}
-	return marked;
+	const over = looksIn(dir).filter((look) => isOfEnded(look, ended));
+	return resolveEach(dir, over, "its quest ended", now);
 }
 
 /** The most of his own words a look keeps as his answer. */
@@ -865,7 +865,7 @@ export function answerLook(
 	now: Date = new Date(),
 ): Look | undefined {
 	const look = looksIn(dir).find((one) => one.id === id);
-	if (!look || !stands(look)) return undefined;
+	if (!look || !answerable(look)) return undefined;
 	const answeredAt = now.toISOString();
 	if ("value" in given) {
 		const choice = look.choices?.find((one) => one.value === given.value);
@@ -940,23 +940,76 @@ export function openLook(
 	return opened;
 }
 
-/** Write `look` back resolved, `how`, with what else it now says. */
+/**
+ * Write `look` back resolved, `how`, with what else it now says, while
+ * its file still holds it as read (see {@link rewriteLook}); answers it
+ * so written, or nothing when it had changed.
+ */
 function markResolvedLook(
 	dir: string,
 	look: Look,
 	how: LookResolution,
 	now: Date,
 	also: Partial<Pick<Look, "answer" | "answeredAt" | "answeredInWords">> = {},
-): Look {
-	const resolved: Look = {
-		...look,
+): Look | undefined {
+	return rewriteLook(dir, look, (still) => ({
+		...still,
 		...also,
 		state: "resolved",
 		how,
 		resolvedAt: now.toISOString(),
-	};
-	writeLook(dir, resolved);
-	return resolved;
+	}));
+}
+
+/**
+ * Resolve each of `looks`, `how`, that its file still holds as read;
+ * answers how many were.
+ */
+function resolveEach(
+	dir: string,
+	looks: readonly Look[],
+	how: LookResolution,
+	now: Date,
+): number {
+	return looks.filter(
+		(one) => markResolvedLook(dir, one, how, now) !== undefined,
+	).length;
+}
+
+/**
+ * Write `change` of `look` over its file, read again at once, only while
+ * the file still holds it as `look` was read: a clock reads the list off
+ * the thread and writes after, and the launcher or another session may
+ * have opened, answered or cleared it meanwhile, which a write from the
+ * old read would undo. Answers what it wrote, or nothing.
+ */
+function rewriteLook(
+	dir: string,
+	look: Look,
+	change: (still: Look) => Look,
+): Look | undefined {
+	const still = lookNow(dir, look.id);
+	if (
+		still === undefined ||
+		still.state !== look.state ||
+		still.openedAt !== look.openedAt ||
+		still.resolvedAt !== look.resolvedAt
+	) {
+		return undefined;
+	}
+	const changed = change(still);
+	writeLook(dir, changed);
+	return changed;
+}
+
+/** Look `id` as its file in `dir` holds it now, or nothing. */
+function lookNow(dir: string, id: string): Look | undefined {
+	try {
+		return lookFrom(readFileSync(join(dir, `${id}.json`), "utf8"));
+	} catch {
+		// Gone since it was listed: nothing is left to change.
+		return undefined;
+	}
 }
 
 /** Write `look` whole to its file in `dir`. */
