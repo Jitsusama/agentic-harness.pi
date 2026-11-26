@@ -40,6 +40,20 @@
  * with it until the next open. A conversation that switches to another
  * log, or starts a new one, lets go of the view. Any failure leaves pi's
  * own full open as it was.
+ *
+ * Each compaction a held conversation appends takes the view again, over
+ * what it holds rather than its log read again, so what the compaction
+ * leaves out goes back to disk too; without this a conversation that ran
+ * a day after it opened held a day's turns. The record and usage entries
+ * the view held fall into what is left out, so their carried spend,
+ * first prompt and usage carry on into the new ones, and what was left
+ * out before is still counted and listed. A failure leaves it holding
+ * what it held, said each time.
+ *
+ * Long because the view, the guards that answer in its place and its
+ * retake at each compaction all reach into the same privates of pi's
+ * manager and share the ids it keeps taken, so splitting them would
+ * export what only the view should touch.
  */
 
 import { randomBytes } from "node:crypto";
@@ -84,6 +98,7 @@ export interface HeldManager {
 	branchWithSummary(id: string | null, ...rest: unknown[]): unknown;
 	createBranchedSession(leafId: string): unknown;
 	newSession(...rest: unknown[]): unknown;
+	appendCompaction(...rest: unknown[]): unknown;
 }
 
 /** The methods a held view answers itself, to read the whole log back first. */
@@ -96,6 +111,7 @@ const GUARDED = [
 	"_rewriteFile",
 	"setSessionFile",
 	"newSession",
+	"appendCompaction",
 ] as const;
 
 /** Whether `manager` still has every private the view reaches into. */
@@ -233,12 +249,16 @@ interface Held {
 /**
  * The entries `manager` holds once it holds the kept view, or undefined
  * when its log has nothing to leave out, or a rollover record the view
- * would hide.
+ * would hide. Every id in `taken` stays clear of the ids it gives the
+ * record and usage entries. A manager already holding a view takes it
+ * again over what it holds, adding to what it left out before, `prior`.
  */
 function heldEntries(
 	manager: HeldManager,
 	file: string,
 	whole: Whole,
+	taken: Set<string> = new Set(manager.byId.keys()),
+	prior?: LeftOut,
 ): Held | undefined {
 	const branch = manager.getBranch() as Entry[];
 	const view = keptView(branch);
@@ -248,7 +268,6 @@ function heldEntries(
 	if (recordIndex(branch) >= view.from) return undefined;
 	const header = manager.fileEntries[0];
 	if (!isHeader(header)) return undefined;
-	const taken = new Set(manager.byId.keys());
 	const firstKept = branch[view.from];
 	if (!firstKept) return undefined;
 	// pi forks from a user message by opening the file afresh at its
@@ -277,8 +296,9 @@ function heldEntries(
 	});
 	const keptIds = new Set([...state, ...run, ...kept].map((entry) => entry.id));
 	const left = branch.filter((entry) => !keptIds.has(entry.id));
-	// With only those left out, the view would save nothing.
-	if (left.length === 0) return undefined;
+	// With only those left out, or only what a view held in their place,
+	// the view would save nothing.
+	if (left.every((entry) => standsIn(entry, file))) return undefined;
 	// A leaf the view leaves out, such as a label on an entry left on disk,
 	// would have the next turn hang off the entry before it, forking the log.
 	const leaf = branch[branch.length - 1];
@@ -290,7 +310,7 @@ function heldEntries(
 	const record: RolloverRecord = {
 		parentSession: file,
 		parentLeaf: before.id,
-		dropped: left.length,
+		dropped: droppedBy(left, file),
 		carried: {
 			...rolledFrom(left)?.carried,
 			[SPEND_CARRY]: { spend: spentOnBranch(left) },
@@ -361,7 +381,63 @@ function heldEntries(
 		chained.map((entry) => entry.id).filter((id) => !live.has(id)),
 	);
 	const onDisk = messagesLeftOut(manager.fileEntries, keptIds);
-	return { entries: [header, ...chained], dated, left: onDisk };
+	return {
+		entries: [header, ...chained],
+		dated,
+		left: prior ? leftAgain(prior, onDisk) : onDisk,
+	};
+}
+
+/**
+ * Whether `entry` is one a view of `file` holds in place of what it left
+ * out, and never writes: a usage entry or its record.
+ */
+function standsIn(entry: Entry, file: string): boolean {
+	if (entry.type === "usage") return entry.kind === "kept-history";
+	return (
+		isRolloverRecord(entry) &&
+		isRecord(entry.data) &&
+		entry.data.parentSession === file
+	);
+}
+
+/**
+ * How many entries of its log a view of `file` leaves out with `left`:
+ * those a record it held already left out, and the rest of `left` but
+ * what stood in for them.
+ */
+function droppedBy(left: readonly Entry[], file: string): number {
+	let dropped = 0;
+	for (const entry of left) {
+		if (!standsIn(entry, file)) dropped++;
+		else if (isRolloverRecord(entry) && isRecord(entry.data)) {
+			const before = entry.data.dropped;
+			if (typeof before === "number" && Number.isFinite(before))
+				dropped += before;
+		}
+	}
+	return dropped;
+}
+
+/**
+ * What a view taken again leaves on disk: what it left before, `prior`,
+ * with the messages it held and now leaves out, `now`, counted too, and
+ * every user message `prior` did not list, those it held since, after
+ * them in the log's order.
+ */
+function leftAgain(prior: LeftOut, now: LeftOut): LeftOut {
+	const listed = new Set(prior.forks.map((point) => point.entryId));
+	return {
+		userMessages: prior.userMessages + now.userMessages,
+		assistantMessages: prior.assistantMessages + now.assistantMessages,
+		toolCalls: prior.toolCalls + now.toolCalls,
+		toolResults: prior.toolResults + now.toolResults,
+		totalMessages: prior.totalMessages + now.totalMessages,
+		forks: [
+			...prior.forks,
+			...now.forks.filter((point) => !listed.has(point.entryId)),
+		],
+	};
 }
 
 /** Whether `entry` is a rollover record. */
@@ -528,8 +604,9 @@ function guard(
 	taken: Set<string>,
 	report: Report,
 ): void {
-	const { dated } = held;
-	leftOutBy.set(manager, held.left);
+	// What it holds now, taken again at each compaction it appends.
+	let current = held;
+	leftOutBy.set(manager, current.left);
 	const own = manager as unknown as Record<string, unknown>;
 	// pi's own, taken before the view answers in their place, so no guard
 	// ever reaches itself, whatever has become of the view by then.
@@ -542,13 +619,14 @@ function guard(
 		_rewriteFile: manager._rewriteFile,
 		setSessionFile: manager.setSessionFile,
 		newSession: manager.newSession,
+		appendCompaction: manager.appendCompaction,
 	};
 	/** Whether the view itself holds `id`, apart from the ids only taken. */
 	const holds = (id: string): boolean =>
 		Map.prototype.has.call(manager.byId, id);
 	/** Whether the view answers for `id` as the whole log would. */
 	const answers = (id: string | null): boolean =>
-		id === null || (holds(id) && !dated.has(id));
+		id === null || (holds(id) && !current.dated.has(id));
 	let holding = true;
 	const whole = (why: string): void => {
 		if (!holding) return;
@@ -570,7 +648,7 @@ function guard(
 			}
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
-			guard(manager, file, held, taken, report);
+			guard(manager, file, current, taken, report);
 			throw error;
 		}
 		// pi's open leaves its leaf on the file's last entry; a reset leaf
@@ -583,6 +661,53 @@ function guard(
 	const letGo = (): void => {
 		holding = false;
 		release(manager);
+	};
+	// The view taken again over what it holds, leaving out what the
+	// compaction pi just appended does; held as it was when that fails.
+	const retake = (): void => {
+		const entries = manager.fileEntries;
+		const leaf = manager.leafId;
+		// pi indexes what it appends without taking its id, so what was
+		// appended since the open stays taken once the view leaves it out.
+		for (const id of manager.byId.keys()) taken.add(id);
+		try {
+			const next = heldEntries(
+				manager,
+				file,
+				(held) => [...held],
+				taken,
+				current.left,
+			);
+			if (!next) return;
+			manager.fileEntries = next.entries;
+			manager._buildIndex();
+			manager.byId = new TakenIds(manager.byId, taken);
+			manager.leafId = leaf;
+			current = next;
+			leftOutBy.set(manager, next.left);
+		} catch (error) {
+			const why = error instanceof Error ? error.message : String(error);
+			report(
+				new Error(
+					`Kept history couldn't leave out what conversation ${manager.sessionId}'s new compaction did, so it holds that until it next opens: ${why}`,
+					{ cause: error },
+				),
+			);
+			manager.fileEntries = entries;
+			try {
+				manager._buildIndex();
+			} catch (again) {
+				// What it held is held again regardless; what failed is said.
+				report(again);
+			}
+			manager.byId = new TakenIds(manager.byId, taken);
+			manager.leafId = leaf;
+		}
+	};
+	own.appendCompaction = (...rest: unknown[]) => {
+		const id = pi.appendCompaction.call(manager, ...rest);
+		if (holding) retake();
+		return id;
 	};
 	own.getEntry = (id: string) => {
 		const entry = manager.byId.get(id);
