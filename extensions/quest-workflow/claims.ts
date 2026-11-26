@@ -90,8 +90,10 @@ import type { QuestTree } from "../../lib/quest/types.ts";
  * tree listed since would be in no claim. Plain pi walks every ask
  * afresh, so it offers the asker nothing more to wait on. A walk that
  * leaves out a quest, as when its README changes during it, with no
- * earlier walk to hold for it, lets idle rules take nothing: that quest
- * may hold any tree as its newest.
+ * earlier walk to hold for it, names no tree for idle rules to take,
+ * on a host or off it: that quest may list any of them as its newest.
+ * The left-out quest's own trees are in no claim at all, which is why
+ * the outside sweep refuses to run while any quest can't be read.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
@@ -103,14 +105,17 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		const walked = stores.filter(questsWalked);
 		const walks = walked.map((store) => discoverQuests(store));
 		const last = claimFrom(walks, into, claims.idleMayTake);
-		if (!hosted()) {
+		if (!hosted() || claims.answering === undefined) {
 			if (anyLeftOut(walked, walks)) claims.idleMayTake?.splice(0);
 			return;
 		}
-		claims.answering?.push(
+		claims.answering.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
 				(walks) => {
 					claimFrom(walks, into, claims.idleMayTake, last);
+					// The last walk holds the trees of a quest it read; one
+					// neither walk read may hold any.
+					if (anyLeftOut(stores, walks, last)) claims.idleMayTake?.splice(0);
 				},
 			),
 		);
@@ -149,12 +154,14 @@ export function liveQuestClaims(questsRoot: string): QuestTreeClaims {
 
 /**
  * Whether any quest folder in `stores` is missing from its walk, the one
- * at the same place in `walks` that the claims read, or a store that
- * stands can't be listed, since it may hold any quest.
+ * at the same place in `walks` that the claims read, and from `held`, an
+ * earlier walk's lists, or a store that stands can't be listed, since it
+ * may hold any quest.
  */
 function anyLeftOut(
 	stores: readonly string[],
 	walks: readonly DiscoveryResult[],
+	held?: ReadonlyMap<string, ReadonlySet<string>>,
 ): boolean {
 	return stores.some((store, at) => {
 		const walk = walks[at];
@@ -166,7 +173,8 @@ function anyLeftOut(
 			return lstatSync(store, { throwIfNoEntry: false }) !== undefined;
 		}
 		return (
-			walk === undefined || whyQuestLeftOut(store, names, walk) !== undefined
+			walk === undefined ||
+			whyQuestLeftOut(store, names, walk, held) !== undefined
 		);
 	});
 }
@@ -215,6 +223,7 @@ function whyQuestLeftOut(
 	store: string,
 	names: readonly string[],
 	walk: DiscoveryResult,
+	held?: ReadonlyMap<string, unknown>,
 ): string | undefined {
 	const walked = new Set(
 		[...walk.index.quests.values()].map((quest) => quest.dir),
@@ -222,7 +231,7 @@ function whyQuestLeftOut(
 	for (const name of names) {
 		if (!isId(name) || prefixOf(name) !== "QEST") continue;
 		const dir = join(store, name);
-		if (walked.has(dir) || beingMade(dir)) continue;
+		if (walked.has(dir) || held?.has(dir) || beingMade(dir)) continue;
 		return `the quest at ${dir} can't be read for its claims: ${whyLeftOut(dir, walk)}`;
 	}
 	return undefined;

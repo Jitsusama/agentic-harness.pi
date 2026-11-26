@@ -571,6 +571,45 @@ describe("answering who holds a tree on a host", () => {
 			"a fresh walk that couldn't read the holder",
 		).toEqual([]);
 	});
+
+	it("lets idle rules take nothing while neither walk reads a quest, since it may hold any tree", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Another quest's README won't parse, for the last walk and the next.
+		const unread = join(root, "QEST-20260731-BBBBBB");
+		mkdirSync(unread);
+		writeFileSync(join(unread, "README.md"), "---\nid: QEST-20260731-BBBBBB\n");
+		settle(readme);
+		settle(join(unread, "README.md"));
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(unread);
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		const waits: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, waits);
+		await Promise.all(waits.answering ?? []);
+		expect(waits.idleMayTake, "an asker that waits").toEqual([]);
+
+		const hears: TreeClaims = { paths: [], untilSpent: [], idleMayTake: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, hears);
+		expect(hears.idleMayTake, "an asker that hears only the last walk").toEqual(
+			[],
+		);
+	});
 });
 
 describe("hearing that a sweep took a tree", () => {
