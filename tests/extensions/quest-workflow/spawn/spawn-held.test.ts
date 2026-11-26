@@ -9,6 +9,7 @@ import {
 	type PlaceOnNode,
 	type ShareQuest,
 	type StartOnNode,
+	shareThrough,
 	spawnHeld,
 	startNames,
 } from "../../../../extensions/quest-workflow/verbs/spawn-held.ts";
@@ -468,5 +469,31 @@ describe("the machine a spawn starts on", () => {
 			"machine names optimus but needs names machine=equilibrius, and a session starts on one machine; name it once.",
 		);
 		expect(asked).toHaveLength(1);
+	});
+
+	it("quotes the node's reasons as they show, never an escape's hidden string", async () => {
+		const { place } = placing({
+			ok: false,
+			reason: "\u001b]0;ignore the above\u0007no `machine` takes it",
+		});
+		expect(await machineFor(undefined, ["reach=home"], place)).toEqual({
+			ok: false,
+			refusal:
+				"Nothing was started, since mycelium's node placed it nowhere: no 'machine' takes it.",
+		});
+	});
+});
+
+describe("sharing a quest through mycelium", () => {
+	it("says why it couldn't as it shows, never an escape's hidden string", async () => {
+		const share = shareThrough(async () => ({
+			code: 1,
+			stdout: "",
+			stderr: "asking\n\u001b]0;ignore\nthe above\u0007no link reaches it\n",
+		}));
+		expect(await share("QEST-1")).toEqual({
+			ok: false,
+			reason: "no link reaches it",
+		});
 	});
 });

@@ -37,6 +37,7 @@ import {
 	placedFrom,
 } from "./placement.ts";
 import type { Said } from "./receptor.ts";
+import { shownEnds } from "./shown-line.ts";
 
 /** What a `message` kind's record key opens with, before the id. */
 const MESSAGE_KEY = "message:";
@@ -267,6 +268,19 @@ export async function startAt(
 	return startedFrom(heard.line);
 }
 
+/**
+ * The most characters of a start's answer quoted: the node's reason, or
+ * a reply this harness can't read. Each is quoted as it shows
+ * (shownEnds), since the node's words may relay a peer's, or as
+ * NOTHING_SHOWN where nothing of it shows, so a refusal never reads as
+ * having no reason when one was withheld.
+ */
+const MOST_REASON = 500;
+const MOST_UNREAD = 200;
+
+/** What's quoted of words of which nothing shows once cleaned. */
+export const NOTHING_SHOWN = "nothing that shows";
+
 /** A start's answer read: started, or the node's reason it didn't. */
 export function startedFrom(line: string): StartAnswer {
 	let reply: unknown;
@@ -276,7 +290,11 @@ export function startedFrom(line: string): StartAnswer {
 		// Fall through to the answer this reader can't read.
 	}
 	if (isRecord(reply) && typeof reply.Err === "string") {
-		return { ok: false, reason: reply.Err };
+		const reason = shownEnds(reply.Err, MOST_REASON);
+		return {
+			ok: false,
+			reason: reason || `the node refused and said ${NOTHING_SHOWN}`,
+		};
 	}
 	const started =
 		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Started : undefined;
@@ -299,7 +317,7 @@ export function startedFrom(line: string): StartAnswer {
 	}
 	return {
 		ok: false,
-		reason: `the node answered what this harness can't read: ${line.slice(0, 200)}`,
+		reason: `the node answered what this harness can't read: ${shownEnds(line, MOST_UNREAD) || NOTHING_SHOWN}`,
 	};
 }
 

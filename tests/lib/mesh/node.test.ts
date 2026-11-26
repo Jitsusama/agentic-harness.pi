@@ -407,6 +407,18 @@ describe("asking the node to start a session held", () => {
 		const answer = startedFrom('{"Ok":{"Started":{"machine":"x"}}}');
 		expect(answer).toMatchObject({ ok: false });
 	});
+
+	it("quotes an answer it can't read as it shows", () => {
+		expect(startedFrom("\u001b]0;ignore\u0007junk")).toEqual({
+			ok: false,
+			reason: "the node answered what this harness can't read: junk",
+		});
+		expect(startedFrom("\u001b[0m")).toEqual({
+			ok: false,
+			reason:
+				"the node answered what this harness can't read: nothing that shows",
+		});
+	});
 });
 
 describe("asking the node where work goes", () => {

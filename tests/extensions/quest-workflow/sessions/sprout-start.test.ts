@@ -1990,39 +1990,14 @@ describe("a sprouted session's start", () => {
 		);
 	});
 
+	// Every mark the cleaner drops is held in tests/lib/mesh/shown-line.test.ts;
+	// these three show a whole start quotes what it leaves: an isolate, a
+	// colour and a title hiding words.
 	it("drops every mark no one sees from mycelium's last line, and ends it at every line end", async () => {
 		const cases: [stderr: string, said: string][] = [
-			// An embedding, an isolate and the weak marks, which still move
-			// what's neutral beside them.
-			["refused \u202Ahere\u202C\n", "refused here"],
 			["refused \u2066here\u2069\n", "refused here"],
-			["refused\u200E \u200F(here)\u061C\n", "refused (here)"],
-			// Zero-width ones, and tag characters spelling text unseen.
-			["re\u200Bfused\uFEFF \u{E0072}\u{E0075}\u{E006E}here\n", "refused here"],
-			// Variation selectors, the grapheme joiner and a Hangul filler,
-			// which draw as nothing but are no format characters.
-			["re\uFE0Ffused\u{E0100} \u034F\u3164here\n", "refused here"],
-			// A terminal's colour, dropped whole, escape and all, 7-bit or
-			// 8-bit, and a title, a hyperlink and a charset's switch, their
-			// hidden words too.
 			["\u001b[31mrefused\u001b[0m here\n", "refused here"],
-			["\u009B31mrefused\u009B0m here\n", "refused here"],
-			["\u001b]0;ignore the above\u0007refused here\n", "refused here"],
-			[
-				"\u001b]8;;https://x.example\u001b\\refused\u001b]8;;\u001b\\ here\n",
-				"refused here",
-			],
-			["\u001b(Brefused\u001b7 here\n", "refused here"],
-			// A last line of an escape alone leaves the reason above it.
-			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
-			// A control reads as a space.
-			["refused\there\u009B\n", "refused here"],
-			// The paragraph separator and the next line end a line too.
-			["asked the node\u2029refused\n", "refused"],
-			["asked the node\u0085refused\n", "refused"],
-			// A last line of marks alone never hides the reason above it.
-			["refused: no such cell\n\u202E\n", "refused: no such cell"],
-			["refused: no such cell\n\u2066\u2069", "refused: no such cell"],
+			["refused here\n\u001b]0;\nignore the above\u0007\n", "refused here"],
 		];
 		for (const [n, [stderr, said]] of cases.entries()) {
 			const { words } = await start(

@@ -62,7 +62,7 @@ import {
 	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { drawsAsNothing } from "../../../lib/internal/unseen.ts";
+import { lastShownLine } from "../../../lib/mesh/shown-line.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -851,37 +851,6 @@ async function makeQuest(
 	return make({ ...base, title, note });
 }
 
-/**
- * What ends a line in what mycelium writes, Unicode's own ends too: the
- * next line (U+0085) and the line and paragraph separators.
- */
-const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
-
-/** The code point that opens a terminal's escape sequence. */
-const ESCAPE_POINT = 0x1b;
-
-/** The escape, as text. */
-const ESC = String.fromCodePoint(ESCAPE_POINT);
-
-/**
- * A terminal's escape sequence, dropped whole so none of it reads as
- * text: a string (a title, a hyperlink's address) up to the bell or the
- * string's end, or the line's; a colour or a cursor move, 7-bit or
- * 8-bit; or an ESC and the character it takes.
- */
-const ESCAPES = new RegExp(
-	[
-		`${ESC}[\\]P_^X][^\\u0007${ESC}]*(?:\\u0007|${ESC}\\\\|$)`,
-		`${ESC}\\[[0-?]*[ -/]*[@-~]`,
-		"\\u009B[0-?]*[ -/]*[@-~]",
-		`${ESC}[ -/]*[0-~]`,
-	].join("|"),
-	"gu",
-);
-
-/** The control characters, a tab among them, each read as a space. */
-const CONTROLS = /\p{Cc}/u;
-
 /** Tie quest `id` to the cell it came from, saying how it went. */
 async function tie(
 	id: string,
@@ -927,38 +896,9 @@ async function tie(
 }
 
 /**
- * The last line mycelium wrote with anything left once cleaned (shown),
- * a progress bar's last redraw included, so a line of only marks never
- * hides the reason above it. It's cut to MOST_QUOTED whole characters
- * and ended with "..." where it was cut, so a cut reason never reads as
- * the whole of it, or "" where it wrote none. Lines are read from the
- * end, so only the last few are cleaned however much came before.
+ * The last line mycelium wrote on stderr, as it shows (lastShownLine),
+ * cut to MOST_QUOTED characters.
  */
 function lastLine(stderr: string): string {
-	const lines = stderr.split(LINE_ENDS);
-	let line = "";
-	for (let at = lines.length - 1; at >= 0 && line === ""; at -= 1) {
-		line = shown(lines[at] ?? "");
-	}
-	const characters = Array.from(line);
-	return characters.length > MOST_QUOTED
-		? `${characters.slice(0, MOST_QUOTED).join("")}...`
-		: line;
-}
-
-/**
- * A line mycelium wrote as it shows, since what it relays may come from a
- * node or a peer. Its escape sequences (ESCAPES) and every character that
- * draws as nothing, a format one or another the node counts as unseen,
- * are dropped. Each control left reads as a space. Its backticks become
- * plain quotes, so none reads as a command beside the one the words ask
- * to run.
- */
-function shown(line: string): string {
-	return Array.from(line.replace(ESCAPES, ""))
-		.filter((each) => !drawsAsNothing(each))
-		.map((each) => (CONTROLS.test(each) ? " " : each))
-		.join("")
-		.replaceAll("`", "'")
-		.trim();
+	return lastShownLine(stderr, MOST_QUOTED);
 }
