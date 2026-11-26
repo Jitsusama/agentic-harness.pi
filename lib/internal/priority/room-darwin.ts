@@ -274,6 +274,32 @@ export function darwinFactsNow(): DarwinFacts {
 }
 
 /**
+ * What holds work back on a Mac read as `read`, said for a person, or
+ * nothing when it has room: the kernel's pressure at warning or worse,
+ * a swap-out since the oldest of `seen`, the readings {@link keptAt}
+ * keeps, or less available than {@link LEAST_AVAILABLE_PERCENT}. The
+ * queue and a council's start read the one rule.
+ */
+export function darwinShort(
+	read: DarwinFacts,
+	seen: readonly Swapped[],
+): string | undefined {
+	if (read.pressureLevel >= WARNING_LEVEL) {
+		return `the kernel's memory pressure level is ${read.pressureLevel}, at or past warning`;
+	}
+	const since = seen[0];
+	if (since !== undefined && read.swapouts > since.swapouts) {
+		const newest = seen.at(-1)?.at ?? since.at;
+		const seconds = Math.round((newest - since.at) / 1000);
+		return `it swapped out ${read.swapouts - since.swapouts} pages in the last ${seconds} s`;
+	}
+	if (read.availablePercent < LEAST_AVAILABLE_PERCENT) {
+		return `${read.availablePercent}% of its memory is available, under ${LEAST_AVAILABLE_PERCENT}%`;
+	}
+	return undefined;
+}
+
+/**
  * Reads a Mac's room as the queue reads a Linux machine's, remembering
  * the last swap-out counts in `history` so that swapping now can be told
  * from swapping long ago.
@@ -289,12 +315,8 @@ export function darwinRoom(
 		const now = clock();
 		const seen = keptAt(history.load(), { at: now, swapouts: read.swapouts });
 		history.save(seen);
-		const swapping = read.swapouts > (seen[0]?.swapouts ?? read.swapouts);
-		const pressed =
-			read.pressureLevel >= WARNING_LEVEL ||
-			swapping ||
-			read.availablePercent < LEAST_AVAILABLE_PERCENT;
-		const memoryPressure = pressed ? MOST_MEMORY_PRESSURE : 0;
+		const memoryPressure =
+			darwinShort(read, seen) === undefined ? 0 : MOST_MEMORY_PRESSURE;
 		const waiting =
 			read.load > read.cores ? ((read.load - read.cores) / read.load) * 100 : 0;
 		const cpuPressure = Math.round(waiting * 100) / 100;

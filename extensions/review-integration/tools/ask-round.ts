@@ -10,7 +10,11 @@
  */
 
 import { join } from "node:path";
-import { memoryShort } from "../../../lib/core/review/ask/memory-room.ts";
+import {
+	macRoundRoom,
+	memoryShort,
+	type RoundRoom,
+} from "../../../lib/core/review/ask/memory-room.ts";
 import {
 	awaitCouncilStart,
 	type CouncilStart,
@@ -175,9 +179,10 @@ export async function awaitRosterStart(
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
-	const spacingMs = await configuredSpacing();
+	const room = roundRoom();
+	const spacingMs = (await configuredSpacing()) ?? room.spacingMs;
 	const line = councilStartsPath();
-	return await awaitCouncilStart(
+	const start = await awaitCouncilStart(
 		line,
 		{
 			by: sessionKey(),
@@ -186,11 +191,34 @@ export async function awaitRosterStart(
 			leads: await isWorldWork(change),
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
-			room: () => memoryShort(),
+			room: () => room.short(),
 			...(spacingMs === undefined ? {} : { spacingMs }),
 		},
 		signal,
 	);
+	const unread = room.startedUnread();
+	return unread === undefined
+		? start
+		: { ...start, waited: [start.waited, unread].filter(Boolean).join(" ") };
+}
+
+/**
+ * How long a Mac leaves between round starts when its config sets none:
+ * its swap-outs show a round's reviewers only once they have loaded, a
+ * minute or more after the start, so two a minute would start a third
+ * before the first showed.
+ */
+const MAC_SPACING_MS = 2 * 60_000;
+
+/**
+ * The room a round reads on this machine: a Mac reads the queue's rule
+ * for a Mac, since it keeps no pressure file, and Linux its pressure.
+ */
+function roundRoom(): RoundRoom & { readonly spacingMs?: number } {
+	if (process.platform === "darwin") {
+		return { ...macRoundRoom(), spacingMs: MAC_SPACING_MS };
+	}
+	return { short: () => memoryShort(), startedUnread: () => undefined };
 }
 
 /**

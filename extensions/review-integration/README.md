@@ -337,8 +337,18 @@ soon as the machine has memory for it: while the kernel's memory
 `full avg60` is under 10, read from `/proc/pressure/memory`
 (`lib/core/review/ask/memory-room.ts`), and at most two a minute,
 so a long line drains no faster than that minute-long average can
-show what the rounds before took. A machine that keeps no such
-reading, as a Mac, always has room, and keeps the two a minute.
+show what the rounds before took. A Linux machine that keeps no
+such reading has room. A Mac reads the rule the machine queue reads
+there: it is short at the kernel's warning pressure, after a
+swap-out within the last minute, or with under 35% of its memory
+available. It waits for a reading a minute old, from the swap
+history every session shares, and starts at most one round every
+two minutes, since a round's reviewers show in its swap-outs only
+once they have loaded. One reading serves a session's rounds for
+ten seconds. Figures it can't read hold a round for at most 15
+minutes, after which it starts and says why. On 25 November a Mac
+swapped hard while rounds still started on it, and Joel's window
+froze.
 Rounds with the same first ask, as two sessions' rounds on one
 change always have, take their turns by ticket id, so every look
 agrees which is ahead. A
