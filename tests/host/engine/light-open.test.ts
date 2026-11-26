@@ -26,6 +26,7 @@ import {
 	leftOutOf,
 } from "../../../host/engine/kept-history.ts";
 import {
+	heldLight,
 	LightFellBack,
 	LightOpensOff,
 	type LightPi,
@@ -473,13 +474,26 @@ describe("a light read", () => {
 });
 
 describe("pi's own open stands", () => {
-	/** Whether the light open of `file` fell back, `file` left as it was. */
-	function fallsBack(file: string, pi: LightPi = PI): boolean {
+	/**
+	 * Whether the light open of `file` fell back, `file` left as it was,
+	 * saying `says` as it did: nothing, for a log pi's own open reads as
+	 * it reads any.
+	 */
+	function fallsBack(
+		file: string,
+		pi: LightPi = PI,
+		says: unknown[] = [],
+	): boolean {
 		const before = readFileSync(file, "utf8");
-		const opened = openKept(pi, file);
+		const said: unknown[] = [];
+		const opened = openKept(pi, file, (what) => said.push(what));
 		expect(readFileSync(file, "utf8")).toBe(before);
+		expect(said).toEqual(says);
 		return opened === undefined;
 	}
+
+	/** What a changed session manager says: that light opens are off. */
+	const OFF = [expect.any(LightOpensOff)];
 
 	it("for a log whose view would hold entries read light whole", () => {
 		const sessions = SessionManager.create(dir, dir);
@@ -490,6 +504,22 @@ describe("pi's own open stands", () => {
 		const file = sessions.getSessionFile() ?? "";
 		expect(readLight(file)?.lightened).toBeGreaterThan(0);
 		expect(fallsBack(file)).toBe(true);
+	});
+
+	it("for a log whose leaf's branch passes no compaction, saying nothing", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "first");
+		const fork = sessions.getLeafId() ?? "";
+		toolTurn(sessions, "second");
+		summarised(sessions, "the summary", "second");
+		toolTurn(sessions, "after");
+		sessions.branch(fork);
+		toolTurn(sessions, "off the branch");
+		const file = sessions.getSessionFile() ?? "";
+		expect(readLight(file)?.lightened).toBeGreaterThan(0);
+		expect(fallsBack(file)).toBe(true);
+		const held = piHeld(file, true);
+		expect(held.getBranch().some((e) => e.type === "compaction")).toBe(false);
 	});
 
 	it("for a log pi would migrate, which pi writes back whole", () => {
@@ -553,7 +583,7 @@ describe("pi's own open stands", () => {
 	it("for a pi whose session manager no longer takes entries as this expects", () => {
 		class Other {}
 		const pi = { SessionManager: Other, version: CURRENT_SESSION_VERSION };
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	/** A pi whose session manager `change`s what it built before answering. */
@@ -571,7 +601,7 @@ describe("pi's own open stands", () => {
 		const pi = changing(({ fileEntries }) => {
 			if (Array.isArray(fileEntries)) fileEntries[1] = { ...fileEntries[1] };
 		});
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	it("for a session manager that indexes copies of its entries", () => {
@@ -579,21 +609,21 @@ describe("pi's own open stands", () => {
 			if (byId instanceof Map)
 				for (const [id, entry] of byId) byId.set(id, { ...entry });
 		});
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	it("for a session manager that drops an entry it was given", () => {
 		const pi = changing(({ fileEntries }) => {
 			if (Array.isArray(fileEntries)) fileEntries.pop();
 		});
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	it("for a session manager that writes to another file", () => {
 		const pi = changing((manager) => {
 			manager.sessionFile = join(dir, "elsewhere.jsonl");
 		});
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	it("for a session manager that would write its log again whole", () => {
@@ -625,7 +655,7 @@ describe("pi's own open stands", () => {
 		const pi = changing((manager) => {
 			manager.sessionId = "another";
 		});
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
 
 	it("for a session manager that reads the log itself rather than take its entries", () => {
@@ -634,7 +664,31 @@ describe("pi's own open stands", () => {
 			return SessionManager.open(String(args[2]));
 		};
 		const pi = { SessionManager: reads, version: CURRENT_SESSION_VERSION };
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
+	});
+});
+
+describe("heldLight", () => {
+	it("tells a manager the light open stood with entries read lighter", () => {
+		expect(heldLight(lightHeld(compactedLog()))).toBe(true);
+	});
+
+	it("tells pi's own open of the same log apart", () => {
+		expect(heldLight(piHeld(compactedLog()))).toBe(false);
+	});
+
+	it("tells a light open of a log with nothing read lighter apart", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "only");
+		const file = sessions.getSessionFile() ?? "";
+		const opened = openKept(PI, file);
+		expect(opened).toBeDefined();
+		expect(heldLight(opened?.manager)).toBe(false);
+	});
+
+	it("answers false for what is no manager", () => {
+		expect(heldLight(undefined)).toBe(false);
+		expect(heldLight("a manager")).toBe(false);
 	});
 });
 
@@ -655,14 +709,33 @@ describe("a light open that falls back", () => {
 			return { manager: holdKeptHistory(SessionManager.open(file)) };
 		};
 
-	it("says why once, when pi's own open says nothing", () => {
+	it("says nothing of a log pi's own open holds whole, as it would any", () => {
 		const said: unknown[] = [];
 		const file = fromTheStart();
-		openHeld(PI, file, (what) => said.push(what), whole([]));
-		expect(said).toEqual([expect.any(LightFellBack)]);
-		expect(String(said[0])).toContain(`light open of ${file} fell back`);
-		const why = said[0] instanceof Error ? said[0].cause : undefined;
-		expect(why).toEqual(new Error("pi would hold entries it read light"));
+		const opened = openHeld(PI, file, (what) => said.push(what), whole([]));
+		expect(said).toEqual([]);
+		expect(leftOutOf(opened.manager)).toBeUndefined();
+		expect(heldLight(opened.manager)).toBe(false);
+	});
+
+	it("says what the hold says once the open stands, as itself", () => {
+		const said: unknown[] = [];
+		const file = compactedLog();
+		const opened = openKept(PI, file, (what) => said.push(what));
+		const manager = opened?.manager;
+		if (!(manager instanceof SessionManager)) throw new Error("no light open");
+		expect(said).toEqual([]);
+		// With its log gone and its index failing, the hold's read back whole
+		// fails, and says why its index couldn't be built again.
+		rmSync(file);
+		const failed = new Error("no index");
+		Object.assign(manager, {
+			_buildIndex: () => {
+				throw failed;
+			},
+		});
+		expect(() => manager.getTree()).toThrow();
+		expect(said).toEqual([failed]);
 	});
 
 	it("says once that the kept view couldn't be built, when pi's own open says nothing", () => {

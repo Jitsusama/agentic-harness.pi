@@ -23,7 +23,9 @@
  * migrate and write back, or end without a newline, a file that isn't a
  * log, a session manager that no longer takes preloaded entries as this
  * expects, and a log whose view would hold an entry read light whole,
- * since a light entry must never reach the model.
+ * since a light entry must never reach the model. A log pi's own open
+ * reads as it reads any, such as one whose leaf's branch passes no
+ * compaction, is left to it with nothing said.
  */
 
 import { closeSync, openSync, readSync } from "node:fs";
@@ -68,8 +70,10 @@ export function readLight(
 ): LightLog | undefined {
 	const entries: unknown[] = [];
 	const spans = new WeakMap<object, Span>();
-	// The entries read since the last compaction, each with its line, held
-	// whole until a later compaction shows the view starts after them.
+	// The entries read since the last compaction, each with its line: each
+	// compaction makes those before it lighter, since the view of a branch
+	// passing it starts there at the latest. A branch that passes none
+	// would hold them, so its log falls back to pi's own open.
 	let since: { entry: Record<string, unknown>; span: Span }[] = [];
 	let lightened = 0;
 	const take = (bytes: Buffer, start: number): void => {
@@ -234,6 +238,19 @@ export class LightFellBack extends Error {}
  */
 export class LightOpensOff extends Error {}
 
+/** Every session manager a light open stood with entries read lighter. */
+const openedLight = new WeakSet<object>();
+
+/**
+ * Whether `manager` is one a light open stood with entries read lighter,
+ * which only it tells from a manager pi's own open built.
+ */
+export function heldLight(manager: unknown): boolean {
+	return typeof manager === "object" && manager !== null
+		? openedLight.has(manager)
+		: false;
+}
+
 /**
  * A report that holds what it is told until `sayTo` names where it goes,
  * then says it there, as it says all it is told after. Made apart from
@@ -329,15 +346,19 @@ export function openKept(
 		if (leftOutOf(standing.manager) || log.lightened === 0) {
 			if (unheld) said.report(unheld);
 			said.sayTo(report);
+			if (log.lightened > 0) openedLight.add(standing.manager);
 			return standing;
 		}
-		const why = unheld?.cause instanceof Error ? unheld.cause : unheld;
+		// Kept history left the log whole, as it would pi's own open of it,
+		// such as one whose leaf's branch passes no compaction: an ordinary
+		// log, which pi's own open reads, with nothing said of it: what this
+		// manager's hold said, pi's own open's hold says of its own.
+		if (!unheld) return undefined;
+		const why = unheld.cause instanceof Error ? unheld.cause : unheld;
 		said.report(
-			why
-				? new Error(`its kept view couldn't be built: ${why.message}`, {
-						cause: why,
-					})
-				: new Error("pi would hold entries it read light"),
+			new Error(`its kept view couldn't be built: ${why.message}`, {
+				cause: why,
+			}),
 		);
 	} catch (error) {
 		if (error instanceof NotLikePi) return unlike(error.message);
