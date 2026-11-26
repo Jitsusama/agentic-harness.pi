@@ -589,9 +589,14 @@ async function standsOff(path: string): Promise<boolean> {
  * reading to one pass of reads plus its listings. A record
  * rewritten while one reading runs is seen as it was when first read,
  * and as rewritten by the next, since the kept listing is stamped from
- * before this one began.
+ * before this one began. Given `keep`, only the trees it keeps are
+ * looked for on disk: a caller that wants a session's few of thousands
+ * waits on a look for each of those alone.
  */
-export async function recallOff(dir: string): Promise<HeldTree[]> {
+export async function recallOff(
+	dir: string,
+	keep: (held: HeldTree) => boolean = () => true,
+): Promise<HeldTree[]> {
 	const read: ReadSoFar = new Map();
 	const seen = new Set<string>();
 	let settled: string[] | undefined;
@@ -605,7 +610,9 @@ export async function recallOff(dir: string): Promise<HeldTree[]> {
 		}
 		for (const name of names) seen.add(name);
 	}
-	const trees = recordsNamed(settled ?? seen, read).map(({ held }) => held);
+	const trees = recordsNamed(settled ?? seen, read)
+		.map(({ held }) => held)
+		.filter(keep);
 	const stands = await standingOff(trees.map((held) => held.path));
 	return trees.filter((_, at) => stands[at]);
 }

@@ -589,17 +589,19 @@ function heldIn(trees: readonly RecordedTree[], session: string): string[] {
 }
 
 /**
- * `treesHeldBy`, read off the thread first whenever the records changed
- * since the last reading: for a caller that asks once and acts on the
- * answer, such as a carry, which a tree cut a read ago by another
- * process would otherwise be left out of. A reading already under way
- * may predate a change, so it waits for that one and then reads again
- * when the folder moved since, or when that reading came so soon after
- * a write that a later one may share its stamp, though a failed reading
- * waits out its minute: what it answers from began after it was asked.
- * It refuses, throwing, rather than answer from a listing it can't
- * vouch for: when the folder can't be looked at, when the reading
- * fails, and when none lands within `within` milliseconds.
+ * `treesHeldBy`, read afresh off the thread: for a caller that asks once
+ * and acts on the answer, such as a carry, which a tree cut a read ago
+ * by another process would otherwise be left out of. Its reading is its
+ * own, begun after it was asked, so it never waits on the shared one,
+ * which a busy machine's writes keep starting again, and it looks on
+ * disk only for the trees `session` holds, not for every tree the
+ * records name: with thousands of them, a look for each, through a
+ * host's few threads under load, ran past a minute (A210E4CA, 25
+ * November). This process's own writes since are laid over it, as the
+ * kept listing's are. It refuses, throwing, rather than answer from a
+ * reading it can't vouch for: when the folder can't be looked at, when
+ * the reading fails, and when it doesn't land within `within`
+ * milliseconds.
  */
 export async function treesHeldByNow(
 	session: string,
@@ -623,23 +625,26 @@ export async function treesHeldByNow(
 	}
 }
 
-/** `treesHeldByNow`'s answer, however long its readings take. */
+/** `treesHeldByNow`'s answer, however long its reading takes. */
 async function readNow(session: string, dir: string): Promise<string[]> {
-	for (let under = underWay(dir); under; under = underWay(dir)) {
-		await under.done;
-	}
 	const folder = folderNow(dir);
 	if (folder === "gone") return [];
 	if (folder === "unseen") {
 		throw new Error(`the tree records in ${dir} can't be looked at`);
 	}
-	const known = listings.get(recordDirKey(dir));
-	const kept = known ?? readFirst(dir, folder);
-	const unvouched =
-		known !== undefined &&
-		(outOfDate(known.listing, folder) || known.listing.recheckAt !== undefined);
-	if (unvouched && !(await begin(dir, kept, folder, "reading").done)) {
-		throw new Error(`the tree records in ${dir} couldn't be read`);
+	const started = Date.now();
+	const through = recordWritesSoFar();
+	let trees: HeldTree[];
+	try {
+		trees = await recallOff(
+			dir,
+			(held) => Array.isArray(held.sessions) && held.sessions.includes(session),
+		);
+	} catch (error) {
+		throw new Error(
+			`the tree records in ${dir} couldn't be read: ${whyOf(error)}`,
+		);
 	}
-	return heldIn(laidOver(dir, kept.listing), session);
+	const listing = listingOf(trees, folder, through, started);
+	return heldIn(laidOver(dir, listing), session);
 }
