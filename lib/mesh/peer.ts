@@ -518,6 +518,19 @@ export function localPeer(at: Surroundings): Peer {
 	// A peer that reads its older addresses off the thread reads these
 	// off it too, since every sprouted quest names a split: it says the
 	// split meanwhile, and takes it back if the reading finds it its own.
+	// It joins a reading already under way, such as its start's, rather
+	// than sweep the store twice at once; a disposed peer reads no more.
+	let reading: Promise<string[]> | undefined;
+	const readOlderOff = (): Promise<string[]> => {
+		reading ??= olderAddressesOff(
+			at.session,
+			at.records,
+			() => disposed,
+		).finally(() => {
+			reading = undefined;
+		});
+		return reading;
+	};
 	let splitJudged: { key: string; itself: boolean } | undefined;
 	const splitFromItself = (from: string, loaded?: string): boolean => {
 		if (isOwn(from, [...addresses, ...older, sessionAddress(at.session)])) {
@@ -534,7 +547,7 @@ export function localPeer(at: Surroundings): Peer {
 		}
 		const judging = { key, itself: false };
 		splitJudged = judging;
-		olderAddressesOff(at.session, at.records)
+		readOlderOff()
 			.then((found) => {
 				if (disposed || splitJudged !== judging || !isOwn(from, found)) {
 					return;
@@ -765,7 +778,7 @@ export function localPeer(at: Surroundings): Peer {
 	};
 	refresh();
 	if (readOff) {
-		olderAddressesOff(at.session, at.records)
+		readOlderOff()
 			.then((found) => {
 				const more = found.filter((address) => !older.includes(address));
 				if (disposed || more.length === 0) return;

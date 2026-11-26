@@ -550,6 +550,20 @@ describe("a peer's older addresses, read off the thread", () => {
 	it("name nothing with no quest store", async () => {
 		expect(await olderAddressesOff(session, records())).toEqual([]);
 	});
+
+	it("read no batch past the one where it is told to stop", async () => {
+		for (let n = 0; n < 70; n += 1) {
+			quest(`QEST-20261101-Q${String(n).padStart(5, "0")}`, `- ${session}`);
+		}
+		let asked = 0;
+
+		const off = await olderAddressesOff(session, records(), () => {
+			asked += 1;
+			return asked > 1;
+		});
+
+		expect(off, "the first batch of 32 alone").toHaveLength(32);
+	});
 });
 
 describe("the peers a message opens by naming", () => {
