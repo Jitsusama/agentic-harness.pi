@@ -69,6 +69,36 @@ function headerIn(line: string): SessionLogHeader | undefined {
 }
 
 /**
+ * Each indexed session's parent, as its log's header names it: the
+ * session a rollover or a fork carried on from. `logs` maps a session's
+ * id to its log, as indexSessionFiles finds them. Each log's header is
+ * read at most once, however many asks walk through it, and a parent's
+ * id is taken from the index by its log's path, so only a parent log
+ * the index lacks has its own header read. Walking every open session's
+ * line back for the restore file read two headers a step, ancestors
+ * shared by many sessions again for each: 0.89 s of seven starts'
+ * threads on 26 November.
+ */
+export function logParents(
+	logs: ReadonlyMap<string, string>,
+	headerOf: (path: string) => SessionLogHeader | undefined = sessionLogHeader,
+): (sessionId: string) => string | undefined {
+	const idAt = new Map<string, string>();
+	for (const [id, path] of logs) idAt.set(path, id);
+	const parents = new Map<string, string | undefined>();
+	return (sessionId) => {
+		if (parents.has(sessionId)) return parents.get(sessionId);
+		const log = logs.get(sessionId);
+		const parentLog = log ? headerOf(log)?.parentSession : undefined;
+		const parent = parentLog
+			? (idAt.get(parentLog) ?? headerOf(parentLog)?.id)
+			: undefined;
+		parents.set(sessionId, parent);
+		return parent;
+	};
+}
+
+/**
  * The id of the session that carries `from` on, when the log at
  * `target` names the log `from` as its parent; otherwise nothing.
  */

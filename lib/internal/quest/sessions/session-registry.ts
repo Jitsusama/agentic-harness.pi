@@ -592,6 +592,9 @@ export function carriedOnElsewhere(
 	running: readonly SessionRecord[],
 	parentOf: (sessionId: string) => string | undefined,
 ): Set<string> {
+	// Only a session coming back can be carried on, so with none there is
+	// no line to walk.
+	if (coming.length === 0) return new Set();
 	const ancestors = new Set<string>();
 	for (const descendant of [...coming, ...running]) {
 		const seen = new Set([descendant.sessionId]);

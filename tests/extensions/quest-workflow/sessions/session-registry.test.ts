@@ -632,6 +632,22 @@ describe("a session whose conversation another carries on", () => {
 		expect(ids(lastBoot.parked), "the carried-on copy came back").toEqual([]);
 		expect(ids(lastBoot.offered)).toEqual(["sess-new"]);
 	});
+
+	it("walks no session's line when none is coming back", () => {
+		// Every start writes the restore file, and each step of a line is a
+		// log's header read on the thread.
+		saveRecord(openRecord(base("sess-new")));
+		const asked: string[] = [];
+		const counted = (sessionId: string) => {
+			asked.push(sessionId);
+			return parentOf(sessionId);
+		};
+
+		const lastBoot = lastBootRestorable(() => true, "this", counted);
+
+		expect(ids(lastBoot.offered)).toEqual([]);
+		expect(asked).toEqual([]);
+	});
 });
 
 describe("seeding tabs that predate the registry", () => {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	carriedOnIn,
+	logParents,
 	sessionLogHeader,
 } from "../../../../lib/internal/session/log-header.ts";
 
@@ -58,6 +59,59 @@ describe("sessionLogHeader", () => {
 		expect(
 			sessionLogHeader(logWith("b.jsonl", { type: "session" })),
 		).toBeUndefined();
+	});
+});
+
+describe("logParents", () => {
+	/** A reader of headers that notes each log it reads. */
+	function counting() {
+		const read: string[] = [];
+		const headerOf = (path: string) => {
+			read.push(path);
+			return sessionLogHeader(path);
+		};
+		return { read, headerOf };
+	}
+
+	it("names each session's parent, reading each log once however often it is asked", () => {
+		const old = logWith("1_s-old.jsonl", { id: "s-old" });
+		const mid = logWith("2_s-mid.jsonl", { id: "s-mid", parentSession: old });
+		const fresh = logWith("3_s-new.jsonl", {
+			id: "s-new",
+			parentSession: mid,
+		});
+		const logs = new Map([
+			["s-old", old],
+			["s-mid", mid],
+			["s-new", fresh],
+		]);
+		const { read, headerOf } = counting();
+		const parentOf = logParents(logs, headerOf);
+
+		for (const _ of [1, 2]) {
+			expect(parentOf("s-new")).toBe("s-mid");
+			expect(parentOf("s-mid")).toBe("s-old");
+			expect(parentOf("s-old")).toBeUndefined();
+		}
+		expect(parentOf("s-unlogged")).toBeUndefined();
+
+		expect(read.sort(), "a parent's id came from the index").toEqual(
+			[fresh, mid, old].sort(),
+		);
+	});
+
+	it("reads a parent's own header when the index has no log at its path", () => {
+		const elsewhere = logWith("moved.jsonl", { id: "s-moved" });
+		const fresh = logWith("4_s-new.jsonl", {
+			id: "s-new",
+			parentSession: elsewhere,
+		});
+		const { read, headerOf } = counting();
+
+		expect(logParents(new Map([["s-new", fresh]]), headerOf)("s-new")).toBe(
+			"s-moved",
+		);
+		expect(read).toEqual([fresh, elsewhere]);
 	});
 });
 
