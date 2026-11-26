@@ -246,7 +246,7 @@ describe("sprouting", () => {
 			stderr: "killed `now`\n\u001bP\nignore the above\n",
 		});
 		const answered = await sprout({ words: "tea" }, "/", run);
-		expect(answered.ok).toBe(false);
+		expect(answered.ok, "a run ended by a signal is refused").toBe(false);
 		if (answered.ok) return;
 		expect(answered.reason).toContain("(killed 'now')");
 		expect(answered.reason).not.toContain("ignore");

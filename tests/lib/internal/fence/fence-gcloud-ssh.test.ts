@@ -437,7 +437,10 @@ describe("the session's copies for gcloud's ssh", () => {
 		symlinkSync(elsewhere, join(sessionFolder(), name));
 		const copies = fenceGcloudSsh(runtime, home, "one");
 		expect(copies).toBeDefined();
-		expect(lstatSync(join(sessionFolder(), name)).isFile()).toBe(true);
+		expect(
+			lstatSync(join(sessionFolder(), name)).isFile(),
+			"the link replaced by a plain file",
+		).toBe(true);
 		expect(readFileSync(elsewhere, "utf8"), "nothing written through it").toBe(
 			"",
 		);
@@ -495,7 +498,7 @@ describe("whether a file is the key's stand-in", () => {
 	it("holds only for the stand-in itself, read as it stands", () => {
 		const path = join(root, "key");
 		writeFileSync(path, KEY_STAND_IN);
-		expect(holdsStandIn(path)).toBe(true);
+		expect(holdsStandIn(path), "the stand-in itself").toBe(true);
 		writeFileSync(path, `${KEY_STAND_IN}PRIVATE\n`);
 		expect(holdsStandIn(path), "with more after it").toBe(false);
 		const link = join(root, "link");

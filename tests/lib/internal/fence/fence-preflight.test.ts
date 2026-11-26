@@ -182,12 +182,13 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 	}
 
 	it("reads the stand-in as the stand-in", () => {
-		expect(readsAsStandIn(probed(KEY_STAND_IN))).toBe(true);
+		expect(readsAsStandIn(probed(KEY_STAND_IN)), "the stand-in").toBe(true);
 	});
 
 	it("reads the person's real key as no stand-in", () => {
 		expect(
 			readsAsStandIn(probed("-----BEGIN OPENSSH PRIVATE KEY-----\n")),
+			"the person's real key",
 		).toBe(false);
 	});
 
@@ -199,7 +200,7 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 	it("fails, rather than saying unread, where its tools are missing", () => {
 		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", folder);
 		expect(ran.code).toBe(127);
-		expect(readsAsStandIn(ran)).toBe(false);
+		expect(readsAsStandIn(ran), "its tools missing").toBe(false);
 	});
 
 	it("fails, rather than saying unread, where head alone is missing", () => {
@@ -214,7 +215,7 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", tools);
 		expect(ran.code).not.toBe(0);
 		expect(ran.out.trim()).not.toBe("unread");
-		expect(readsAsStandIn(ran)).toBe(false);
+		expect(readsAsStandIn(ran), "head missing").toBe(false);
 	});
 
 	it("takes a path a shell would split or expand as one word", () => {
@@ -224,7 +225,10 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
-		expect(readsAsStandIn({ code: ran.status, out: ran.stdout })).toBe(true);
+		expect(
+			readsAsStandIn({ code: ran.status, out: ran.stdout }),
+			"an odd path read as one word",
+		).toBe(true);
 	});
 });
 
