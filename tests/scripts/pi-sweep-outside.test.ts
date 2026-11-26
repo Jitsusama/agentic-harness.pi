@@ -190,7 +190,7 @@ function questListing(
 		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			`trees:\n  - path: ${path}\n    providerId: git-worktree\n` +
-			`    repoRoot: ${path}\n    origin: cut\n` +
+			`    repoRoot: ${path}\n    origin: scaffolded\n` +
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with a tree.\n",
 	);
 }
@@ -333,7 +333,7 @@ it("passes on to the idle rules a live quest's older tree here", async () => {
 	mkdirSync(join(seen.quests, id), { recursive: true });
 	const tree = (path: string) =>
 		`  - path: ${path}\n    providerId: git-worktree\n` +
-		`    repoRoot: /src/repo\n    host: ${hostname()}\n    origin: cut\n`;
+		`    repoRoot: /src/repo\n    host: ${hostname()}\n    origin: scaffolded\n`;
 	writeFileSync(
 		join(seen.quests, id, "README.md"),
 		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +

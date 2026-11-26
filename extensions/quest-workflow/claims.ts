@@ -23,7 +23,7 @@ import {
 	readdirSync,
 	statSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -46,7 +46,7 @@ import {
 	README_MISSING,
 } from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
-import { isWithin } from "../../lib/internal/quest/workspace/git-signals.ts";
+import { canonicalPath } from "../../lib/internal/quest/workspace/git-signals.ts";
 import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	forgetBranchesFromQuest,
@@ -162,7 +162,7 @@ export function liveQuestClaims(questsRoot: string): QuestTreeClaims {
 function anyLeftOut(
 	stores: readonly string[],
 	walks: readonly DiscoveryResult[],
-	held?: ReadonlyMap<string, ReadonlySet<string>>,
+	held?: ReadonlyMap<string, unknown>,
 ): boolean {
 	return stores.some((store, at) => {
 		const walk = walks[at];
@@ -300,55 +300,72 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
  * A quest `before`, an earlier walk of the same ask, saw listing a tree
  * keeps it, the older ones it let go then included, when this walk
  * couldn't read that quest, as when its README changes during the walk:
- * what it would say now is unknown. A tree any live quest's session
- * started in is kept too, newest or not and whichever quest that session
- * is on, since reopening it finds its log only there; the two folders
- * are compared as the disk resolves them, so a linked spelling still
- * matches. A tree the quest adopted is kept, as adopting it promised.
- * Says what each quest walked lists.
+ * what it would say now is unknown, and so do the folders its sessions
+ * started in then. A tree any live quest's session started in is kept
+ * too, newest or not and whichever quest that session is on, since
+ * reopening it finds its log only there; the two folders are compared
+ * as the disk resolves them, each resolved once, so a linked spelling
+ * still matches. Only a tree the quest's tool cut may go: one it adopted,
+ * or one with no mark, as a hand-registered tree has, is kept, as the
+ * mark promises. Says what each quest walked holds.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
 	into: string[],
 	mayTake?: string[],
-	before?: ReadonlyMap<string, ReadonlySet<string>>,
-): Map<string, Set<string>> {
+	before?: ReadonlyMap<string, QuestHold>,
+): Map<string, QuestHold> {
 	const kept = new Set<string>();
-	const lists = new Map<string, Set<string>>();
+	const holds = new Map<string, QuestHold>();
 	const older: string[] = [];
-	const quests = [...liveQuests(walks)];
-	const startedIn = quests.flatMap((entry) =>
-		(entry.doc.frontMatter.sessions ?? []).flatMap((session) =>
-			session.cwd === undefined ? [] : [session.cwd],
-		),
-	);
-	for (const entry of quests) {
+	for (const entry of liveQuests(walks)) {
 		const trees = entry.doc.frontMatter.trees ?? [];
 		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
 		const letGo = olderInEachRepo(trees);
 		for (const tree of trees) {
-			const opened = startedIn.some((cwd) => isWithin(cwd, tree.path));
-			const mayGo = letGo.has(tree.path) && tree.origin !== "adopted";
-			if (mayGo && !opened) older.push(tree.path);
-			else kept.add(tree.path);
+			if (letGo.has(tree.path) && tree.origin === "scaffolded") {
+				older.push(tree.path);
+			} else kept.add(tree.path);
 		}
-		lists.set(entry.dir, new Set(trees.map((tree) => tree.path)));
+		holds.set(entry.dir, {
+			trees: new Set(trees.map((tree) => tree.path)),
+			startedIn: (entry.doc.frontMatter.sessions ?? []).flatMap((session) =>
+				session.cwd === undefined ? [] : [session.cwd],
+			),
+		});
 	}
-	for (const [dir, listed] of before ?? []) {
-		if (lists.has(dir)) continue;
-		for (const path of listed) kept.add(path);
+	const startedIn = [...holds.values()].flatMap((hold) => hold.startedIn);
+	for (const [dir, hold] of before ?? []) {
+		if (holds.has(dir)) continue;
+		for (const path of hold.trees) kept.add(path);
+		startedIn.push(...hold.startedIn);
 	}
-	if (mayTake === undefined) return lists;
+	if (mayTake === undefined) return holds;
+	const opened = startedIn.map(canonicalPath);
+	const keeps = (path: string): boolean => {
+		if (kept.has(path)) return true;
+		const top = canonicalPath(path);
+		return opened.some((cwd) => cwd === top || cwd.startsWith(top + sep));
+	};
 	for (const path of older) {
-		if (!kept.has(path) && !mayTake.includes(path)) mayTake.push(path);
+		if (!mayTake.includes(path) && !keeps(path)) mayTake.push(path);
 	}
 	for (let at = mayTake.length - 1; at >= 0; at--) {
 		const path = mayTake[at];
-		if (path !== undefined && kept.has(path)) mayTake.splice(at, 1);
+		if (path !== undefined && keeps(path)) mayTake.splice(at, 1);
 	}
-	return lists;
+	return holds;
+}
+
+/**
+ * What a walk saw a live quest hold: the trees it lists, and the folders
+ * its sessions started in, as recorded.
+ */
+interface QuestHold {
+	readonly trees: ReadonlySet<string>;
+	readonly startedIn: readonly string[];
 }
 
 /**
