@@ -50,7 +50,7 @@ import {
 	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
-import { heldAtStart } from "./kept-holding.ts";
+import { takeHeldAtStart } from "./kept-holding.ts";
 import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
@@ -482,7 +482,7 @@ export function localPeer(at: Surroundings): Peer {
 	// so a holder reloaded, parked, restarted in place or rolled over still
 	// holds it longer than one that took it meanwhile (address.ts); a
 	// hosted one's presence goes, so its process keeps it (kept-holding.ts).
-	let signsSince = heldAtStart(before, at, now());
+	let signsSince = takeHeldAtStart(before, at, now());
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = [

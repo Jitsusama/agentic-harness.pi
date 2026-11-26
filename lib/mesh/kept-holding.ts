@@ -6,15 +6,21 @@
  * next start reads its holding time from it (address.ts). A hosted
  * conversation's presence goes as it ends (peer/runs.ts), since the
  * host it names runs on. A restart in place and a rollover start again
- * in that same process, so the time is kept here instead, and
- * signedSince bounds it as it would bound the presence. A host's own
- * restart parks what it brings back, and a parked presence stays.
+ * in that same process, the old session ending before the new one
+ * starts, so the time is kept here instead, and signedSince bounds it
+ * as it would bound the presence. A host's own restart parks what it
+ * brings back, and a parked presence stays. A conversation the host
+ * hands to a plain pi starts in another process, so it keeps nothing
+ * and starts afresh.
  *
  * Held on the process rather than a module, since a reload loads every
- * module afresh, as lib/internal/session/left.ts holds its marks.
+ * module afresh, as lib/internal/session/left.ts holds its marks. Each
+ * keep drops what is past the bound, which no start could take, so a
+ * host running for weeks holds only what ended in its last minutes.
  */
 
-import { signedSince } from "./address.ts";
+import type { Owner } from "../core/process/process.ts";
+import { RESTARTED_WITHIN_MS, signedSince } from "./address.ts";
 
 /** A holding as signedSince reads it, said ended when it was kept. */
 export interface KeptHolding {
@@ -24,7 +30,8 @@ export interface KeptHolding {
 	readonly at: string;
 }
 
-const KEPT_KEY = Symbol.for("agentic-harness.mesh.kept-holding");
+/** The key the process's map is held under, on `globalThis`. */
+export const KEPT_KEY = Symbol.for("agentic-harness.mesh.kept-holding");
 
 type KeptGlobal = { [KEPT_KEY]?: Map<string, KeptHolding> };
 
@@ -36,8 +43,9 @@ function kept(): Map<string, KeptHolding> {
 }
 
 /**
- * Keep what `presence` signs with, as its session ends at `ended`; a
- * presence that says no time holds nothing to keep.
+ * Keep what `presence` signs with, as its session ends at `ended`, and
+ * drop every holding kept more than a restart before it; a presence
+ * that says no time holds nothing to keep.
  */
 export function keepHolding(
 	presence: {
@@ -47,9 +55,16 @@ export function keepHolding(
 	},
 	ended: string,
 ): void {
+	const map = kept();
+	const now = Date.parse(ended);
+	for (const [session, holding] of map) {
+		if (!(now - Date.parse(holding.ended) <= RESTARTED_WITHIN_MS)) {
+			map.delete(session);
+		}
+	}
 	const { session, addresses, signsSince } = presence;
 	if (signsSince === undefined) return;
-	kept().set(session, { addresses, signsSince, ended, at: ended });
+	map.set(session, { addresses, signsSince, ended, at: ended });
 }
 
 /** Take what `session` kept as it ended, once: the next start has it. */
@@ -60,18 +75,31 @@ function takeHolding(session: string): KeptHolding | undefined {
 }
 
 /**
- * What a session starting at `now` signs with and since when: read from
- * its last presence (`before`) where that says, else from what it, or
- * the session it rolled over from (`previous`), kept here as it ended.
- * Both kept are taken, so neither seeds a later start.
+ * What a session starting at `now` signs with and since when, taking
+ * what it, or the session it rolled over from (`previous`), kept here
+ * as it ended, so neither seeds a later start. Its last presence
+ * (`before`) decides wherever there is one, even one saying no time,
+ * since that one yielded since; only where none stands does the later
+ * of the two kept holdings.
  */
-export function heldAtStart(
+export function takeHeldAtStart(
 	before: Parameters<typeof signedSince>[0],
-	session: string,
-	previous: string | undefined,
+	at: {
+		readonly session: string;
+		readonly previous?: string;
+		readonly owner?: Owner;
+	},
 	now: number,
 ): ReturnType<typeof signedSince> {
-	const own = takeHolding(session);
-	const carried = previous === undefined ? undefined : takeHolding(previous);
-	return signedSince(before, now) ?? signedSince(own ?? carried, now);
+	const own = takeHolding(at.session);
+	const carried =
+		at.previous === undefined ? undefined : takeHolding(at.previous);
+	if (before !== undefined) {
+		return signedSince(before, now, { owner: at.owner });
+	}
+	const later =
+		own === undefined || (carried !== undefined && carried.ended > own.ended)
+			? carried
+			: own;
+	return signedSince(later, now);
 }
