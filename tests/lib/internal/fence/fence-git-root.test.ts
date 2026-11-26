@@ -10,6 +10,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -33,6 +34,7 @@ import {
 	withAfterCheck,
 	withAfterCheckIn,
 } from "../../../../lib/internal/fence/fence-git-root.ts";
+import { systemRmCommand } from "../../../../lib/internal/files/remove-tree.ts";
 
 /** How soon a planted name must be gone (ISXEG8). */
 const PROMPTLY_MS = 100;
@@ -324,6 +326,65 @@ describe("the after-check", () => {
 		expect(ran.stdout.trim()).toBe("logged");
 		const linked = checked(`ln -s /nowhere ${planted}`, [planted]);
 		expect(linked.stdout.trim(), "a dangling link logged").toBe("logged");
+	});
+
+	it("removes with the rm it is given by path, never one PATH finds", () => {
+		const planted = join(root, "commondir");
+		const bin = join(base, "bin");
+		mkdirSync(bin);
+		const used = join(base, "used");
+		// A stand-in for the system's rm that says it ran, and one on PATH
+		// that would say so too, so only the named one may be heard.
+		const given = join(base, "given-rm");
+		const rm = systemRmCommand();
+		expect(rm, "an rm only root keeps on this machine").toBeDefined();
+		writeFileSync(
+			given,
+			`#!/bin/sh\necho given >> '${used}'\nexec '${rm}' "$@"\n`,
+			{
+				mode: 0o755,
+			},
+		);
+		writeFileSync(join(bin, "rm"), `#!/bin/sh\necho path >> '${used}'\n`, {
+			mode: 0o755,
+		});
+		const ran = spawnSync(
+			"sh",
+			[
+				"-c",
+				withAfterCheck(
+					`mkdir ${planted}`,
+					[planted],
+					"echo logged",
+					undefined,
+					given,
+				),
+			],
+			{
+				encoding: "utf8",
+				env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+			},
+		);
+
+		expect(ran.stdout.trim(), "the plant logged").toBe("logged");
+		expect(readFileSync(used, "utf8"), "only the given rm ran").toBe("given\n");
+	});
+
+	it("leaves a plant and says so where no rm only root keeps is found", () => {
+		const planted = join(root, "commondir");
+		const text = withAfterCheck(
+			`mkdir ${planted}`,
+			[planted],
+			"echo logged",
+			undefined,
+			null,
+		);
+		const ran = spawnSync("sh", ["-c", text], { encoding: "utf8" });
+
+		expect(text, "no rm is run").not.toMatch(/\brm\b.*-rf/u);
+		expect(existsSync(planted), "the plant stays").toBe(true);
+		expect(ran.stderr).toContain("has no rm only root keeps to remove it");
+		expect(ran.stdout.trim(), "and is logged").toBe("logged");
 	});
 
 	it("logs nothing when nothing was planted", () => {

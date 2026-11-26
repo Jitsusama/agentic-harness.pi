@@ -29,6 +29,8 @@ const FORMS: readonly (readonly [string, boolean])[] = [
 	['await promises.rm("e", { ...options });', true],
 	['fs.rmSync("f", made());', true],
 	['rmdirSync("g", { recursive: true });', true],
+	['rmSync("l", { recursive: deep });', true],
+	['rmSync("m", { force: true, recursive });', true],
 	['rmSync("h", { recursive: false });', false],
 	['rmSync("i", { force: true });', false],
 	['rmSync("j");', false],
@@ -41,6 +43,8 @@ const LEAD = [
 	'import { promises, rmdirSync, rmSync } from "node:fs";',
 	"const options = { recursive: true };",
 	"const made = () => options;",
+	"const deep = true;",
+	"const recursive = true;",
 ];
 
 const folder = join(ROOT, ".worktrees", `recursive-delete-${process.pid}`);

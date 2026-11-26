@@ -85,32 +85,39 @@ function rootOwnersHere(): readonly number[] {
 }
 
 /**
- * Root, and the overflow user where this process's user namespace maps
- * no root, as `/proc/self/uid_map` says; root alone where there is no
- * `/proc`, as on a Mac.
+ * The owner root's files show as in this process's user namespace, as
+ * `/proc/self/uid_map` says: the inner id the outer root maps to, or the
+ * overflow user where the namespace maps no root. Never the inner 0 of a
+ * namespace that maps someone else there, as `unshare -r` maps the
+ * person, since their own files would then pass as root's. Root alone
+ * where there is no `/proc`, as on a Mac.
+ *
+ * Where root is unmapped, the overflow user also stands for every other
+ * account the namespace leaves out. That trusts their files too, which
+ * a fenced command can't make: it runs as the person, whom the
+ * namespace maps.
  */
 export function rootOwners(read: (path: string) => string): readonly number[] {
 	try {
-		if (mapsRoot(read("/proc/self/uid_map"))) return [0];
-		return [0, Number(read("/proc/sys/kernel/overflowuid").trim())];
+		const inner = innerRoot(read("/proc/self/uid_map"));
+		if (inner !== undefined) return [inner];
+		return [Number(read("/proc/sys/kernel/overflowuid").trim())];
 	} catch {
 		// No `/proc`: no user namespaces, so root is root.
 		return [0];
 	}
 }
 
-/** Whether a `uid_map` maps the outer root into this namespace. */
-function mapsRoot(map: string): boolean {
-	return map
-		.split("\n")
-		.map((line) => line.trim().split(/\s+/).map(Number))
-		.some(
-			([, outside, count]) =>
-				outside !== undefined &&
-				count !== undefined &&
-				outside <= 0 &&
-				outside + count > 0,
-		);
+/** The inner id a `uid_map` maps the outer root to, if it maps it. */
+function innerRoot(map: string): number | undefined {
+	for (const line of map.split("\n")) {
+		const [inside, outside, count] = line.trim().split(/\s+/).map(Number);
+		if (inside === undefined || outside === undefined || count === undefined) {
+			continue;
+		}
+		if (outside <= 0 && outside + count > 0) return inside - outside;
+	}
+	return undefined;
 }
 
 /** The folders the system's profiles put this user's programs in. */

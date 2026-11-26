@@ -48,12 +48,20 @@ import { posix } from "node:path";
 import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
 
 /**
- * Where root alone puts an `rm`: the system's profiles on NixOS and
- * nix-darwin, then the base system's own, where a Mac keeps BSD's and
- * another Linux keeps coreutils'.
+ * Where root alone puts an `rm`: the system's own profile on NixOS and
+ * nix-darwin, then the base system's, where a Mac keeps BSD's and another
+ * Linux keeps coreutils'. The person's profile comes last, only where
+ * none of those holds one: a busybox or uutils `rm` the person installs
+ * there walks by path, so it never stands in for the system's.
  */
 export function removerFolders(): string[] {
-	return [...systemFolders(), "/bin", "/usr/bin"];
+	const [personal, system] = systemFolders();
+	return [
+		...(system === undefined ? [] : [system]),
+		"/bin",
+		"/usr/bin",
+		...(personal === undefined ? [] : [personal]),
+	];
 }
 
 /**
@@ -71,6 +79,12 @@ export function systemRmCommand(
 
 /** The longest an `rm` may take, so a stalled disk can't hold a caller. */
 const RM_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * The environment `rm` and `chmod` run in: pi's own, in the C locale, so
+ * what they say of a tree they left reads the same on every machine.
+ */
+const SAID_PLAINLY: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" };
 
 /** How many of `rm`'s lines an error keeps; the rest are counted. */
 const LINES_KEPT = 3;
@@ -168,6 +182,7 @@ function failure(
 function runSync(program: Program, args: string[]): string | undefined {
 	const run = spawnSync(program.path, args, {
 		argv0: program.name,
+		env: SAID_PLAINLY,
 		encoding: "utf8",
 		maxBuffer: Number.POSITIVE_INFINITY,
 		stdio: ["ignore", "ignore", "pipe"],
@@ -188,6 +203,7 @@ function runOff(program: Program, args: string[]): Promise<string | undefined> {
 	return new Promise((resolve) => {
 		const child = spawn(program.path, args, {
 			argv0: program.name,
+			env: SAID_PLAINLY,
 			stdio: ["ignore", "ignore", "pipe"],
 			timeout: RM_TIMEOUT_MS,
 		});
@@ -235,10 +251,10 @@ export function removeTree(
  */
 export function tidyTree(
 	path: string,
-	folders: readonly string[] = removerFolders(),
+	folders?: readonly string[],
 ): string | undefined {
 	try {
-		removeTree(path, folders);
+		removeTree(path, folders ?? removerFolders());
 		return undefined;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);

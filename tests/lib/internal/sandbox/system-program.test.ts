@@ -170,10 +170,26 @@ describe("root inside a user namespace", () => {
 		expect(rootOwners(proc("         0          0 4294967295\n"))).toEqual([0]);
 	});
 
-	it("is also the overflow user where it maps only the person, as the fence's", () => {
+	it("is the overflow user alone where it maps only the person, as the fence's", () => {
 		expect(rootOwners(proc("      1000       1000          1\n"))).toEqual([
-			0, 65534,
+			65534,
 		]);
+	});
+
+	it("never counts the person mapped as inner root, as `unshare -r` does", () => {
+		expect(rootOwners(proc("         0       1000          1\n"))).toEqual([
+			65534,
+		]);
+	});
+
+	it("is the inner id the outer root maps to, wherever that is", () => {
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n      5000          0          1\n",
+				),
+			),
+		).toEqual([5000]);
 	});
 
 	it("is root alone where there is no /proc, as on a Mac", () => {

@@ -275,19 +275,20 @@ export function guardedFolders(
  * It runs outside the fence, so its `rm` is the system's, named by its
  * whole path (`remove-tree.ts`), never one `PATH` finds, since `PATH`
  * holds folders a fenced command can write. Where the system keeps none
- * where root alone can, what is planted is logged and said, not removed.
+ * where root alone can, `rm` is null and what is planted is logged and
+ * said, not removed.
  */
 export function withAfterCheck(
 	command: string,
 	guarded: readonly string[],
 	log: string,
 	listFile?: string,
-	rm: string | undefined = systemRmCommand(),
+	rm: string | null = systemRmCommand() ?? null,
 ): string {
 	if (guarded.length === 0) return command;
 	const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 	const remove =
-		rm === undefined
+		rm === null
 			? `printf '%s\n' ${quote(UNREMOVED)} "$__pi_path" >&2`
 			: `${quote(rm)} -rf -- "$__pi_path"`;
 	const check = `if [ -e "$__pi_path" ] || [ -L "$__pi_path" ]; then ${remove}; ${log}; fi`;

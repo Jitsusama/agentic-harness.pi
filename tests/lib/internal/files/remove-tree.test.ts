@@ -34,7 +34,10 @@ import {
 	tidyTree,
 	writableArgs,
 } from "../../../../lib/internal/files/remove-tree.ts";
-import { systemProgram } from "../../../../lib/internal/sandbox/system-program.ts";
+import {
+	systemFolders,
+	systemProgram,
+} from "../../../../lib/internal/sandbox/system-program.ts";
 
 /** Root writes where its folders' modes say nobody may, so refusals don't hold. */
 const notRoot = process.getuid?.() !== 0;
@@ -380,6 +383,8 @@ describe("removing a tree", () => {
 		const rm = systemRmCommand();
 
 		expect(rm, "an rm in the system's folders").toMatch(/^\/.*\/rm$/);
+		// A runnable rm the person owns, so only the trust check can refuse it.
+		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 		expect(systemRmCommand([folder]), "none in the user's own").toBeUndefined();
 	});
 
@@ -387,6 +392,14 @@ describe("removing a tree", () => {
 		// Every other case here leans on one; without it they'd all throw.
 		expect(() => removeTree(filled(join(folder, "t", "u"), 1))).not.toThrow();
 		expect(removerFolders()).toContain("/bin");
+	});
+
+	it("looks in the person's own profile only after the system's folders", () => {
+		const [personal, system] = systemFolders();
+		const folders = removerFolders();
+
+		expect(folders.at(-1), "the person's profile last").toBe(personal);
+		expect(folders.indexOf(system ?? ""), "the system's profile first").toBe(0);
 	});
 
 	it(
