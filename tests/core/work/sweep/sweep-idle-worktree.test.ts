@@ -156,6 +156,35 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		).toBe(commit);
 	});
 
+	it("takes one its live quest claims until spent, keeping only the quest's newest", async () => {
+		const setup = await setUp();
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		const newest = await pushedAndLeft(setup, "cut-last", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: {
+				held: [],
+				untilSpent: [older.tree, newest.tree],
+				newest: [newest.tree],
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([older.tree]);
+		expect(existsSync(newest.tree), "the quest's newest is kept").toBe(true);
+	});
+
+	it("keeps every one its live quest claims until spent when the asker names no newest", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "claimed", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: { held: [], untilSpent: [tree] },
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
 	it("gives the same branch and head back to a session asking for it again", async () => {
 		const setup = await setUp();
 		const { tree, commit } = await pushedAndLeft(setup, "asked-again", IDLE);

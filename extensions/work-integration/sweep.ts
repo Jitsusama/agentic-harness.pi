@@ -153,10 +153,19 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// Asked only by a sweep that runs, as the sweep says why, and
 		// waited on, so a quest answers from its tree as it stands now.
 		claimed: async () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
+			const claims: TreeClaims = {
+				paths: [],
+				untilSpent: [],
+				newest: [],
+				answering: [],
+			};
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
 			await Promise.all(claims.answering ?? []);
-			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
+			return {
+				held: claims.paths,
+				untilSpent: claims.untilSpent ?? [],
+				newest: claims.newest ?? [],
+			};
 		},
 		// Whoever listed a tree it took stops listing a folder that is gone.
 		// pi's bus reports a listener's error itself, never to the emitter.
@@ -193,10 +202,14 @@ export function judgedProviders(): string[] {
  */
 export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
 
-/** The trees held for good, and those held only until spent. */
+/**
+ * The trees held for good, those held only until spent, and of those
+ * each holder's newest, which idle rules leave while it lives.
+ */
 export interface SweepHolds {
 	held: string[];
 	untilSpent: string[];
+	newest?: string[];
 }
 
 /** What a sweep asks of whoever runs it. */

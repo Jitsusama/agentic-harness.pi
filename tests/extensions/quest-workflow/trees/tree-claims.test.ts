@@ -219,6 +219,26 @@ describe("answering who holds a tree", () => {
 		]);
 	});
 
+	it("names a live quest's last-listed tree as its newest for an asker that offers that list", () => {
+		const pi = bus();
+		answerTreeClaims(
+			pi as never,
+			questsRootHolding(
+				"/src/repo/.worktrees/first",
+				"/src/repo/.worktrees/last",
+			),
+		);
+
+		const claims: TreeClaims = { paths: [], untilSpent: [], newest: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.untilSpent, "held until spent").toEqual([
+			"/src/repo/.worktrees/first",
+			"/src/repo/.worktrees/last",
+		]);
+		expect(claims.newest, "its newest").toEqual(["/src/repo/.worktrees/last"]);
+	});
+
 	it("gives an asker that waits nothing more to wait on, since its walk is fresh", () => {
 		const pi = bus();
 		answerTreeClaims(

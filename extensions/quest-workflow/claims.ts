@@ -88,11 +88,12 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		claimFrom(
 			stores.filter(questsWalked).map((store) => discoverQuests(store)),
 			into,
+			claims.newest,
 		);
 		if (!hosted()) return;
 		claims.answering?.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
-				(walks) => claimFrom(walks, into),
+				(walks) => claimFrom(walks, into, claims.newest),
 			),
 		);
 	});
@@ -107,6 +108,21 @@ export function liveQuestTrees(questsRoot: string): string[] {
 	const paths: string[] = [];
 	claimFrom(
 		storesOf(questsRoot).map((store) => discoverQuests(store)),
+		paths,
+	);
+	return paths;
+}
+
+/**
+ * Each live quest's newest tree, the last it lists, in any realm, read
+ * as {@link liveQuestTrees} reads them: the one its session goes back
+ * to, which a sweep in a process of its own keeps from its idle rules.
+ */
+export function newestQuestTrees(questsRoot: string): string[] {
+	const paths: string[] = [];
+	claimFrom(
+		storesOf(questsRoot).map((store) => discoverQuests(store)),
+		[],
 		paths,
 	);
 	return paths;
@@ -219,12 +235,23 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
 
 /**
  * Push every tree a live quest in `walks` lists onto `into`, once, so
- * the fresh answer adds only what the last walk didn't hold.
+ * the fresh answer adds only what the last walk didn't hold, and each
+ * quest's newest onto `newest` when it is given. A quest adds a tree
+ * to the end of its list as it cuts it, so the last is its newest.
  */
-function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
+function claimFrom(
+	walks: readonly DiscoveryResult[],
+	into: string[],
+	newest?: string[],
+): void {
 	for (const entry of liveQuests(walks)) {
-		for (const tree of entry.doc.frontMatter.trees ?? []) {
+		const trees = entry.doc.frontMatter.trees ?? [];
+		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
+		}
+		const last = trees.at(-1)?.path;
+		if (newest !== undefined && last !== undefined && !newest.includes(last)) {
+			newest.push(last);
 		}
 	}
 }

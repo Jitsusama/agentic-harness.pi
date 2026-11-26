@@ -255,7 +255,7 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 
 	expect(ran, "how the run ended").toEqual({ end: "ran", troubles: [] });
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT] },
+		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
 	]);
 	expect(seen.rests, "the rest it was asked for").toEqual([undefined]);
 	expect(
@@ -318,7 +318,7 @@ it("claims the trees another realm's live quests list, and no sealed one's", asy
 	await sweepOutside({ env: {} });
 
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT] },
+		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
 	]);
 });
 
@@ -860,7 +860,7 @@ it("sweeps past a quest named apart from its id, and ones still being made", asy
 
 	expect(ran.end, "how the run ended").not.toBe("failed");
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT] },
+		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
 	]);
 });
 
