@@ -6,7 +6,16 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	realpath,
+	rm,
+	stat,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -31,7 +40,9 @@ afterEach(async () => {
 
 /**
  * A child node's `--import`, starting the cache as node 22 would in
- * whatever node runs it, and failing the run should it not start.
+ * whatever node runs it, and failing the run should it not start. It
+ * serves the package `CODE_ROOT` names, or where none is named, the
+ * package the cache's own module lies in, as a host's start does.
  */
 function startingAs22(): string {
 	const module = pathToFileURL(
@@ -42,7 +53,7 @@ function startingAs22(): string {
 		"const started = startStrippedSourceCache({ facts: { env: process.env,",
 		'\tversion: "v22.0.0", typescript: process.features.typescript,',
 		"\tsourceMaps: process.sourceMapsEnabled, hooks: true },",
-		"\tpackageRoot: process.env.CODE_ROOT });",
+		"\tpackageRoot: process.env.CODE_ROOT || undefined });",
 		'if (started.state === "failed") throw new Error(started.reason);',
 	].join("\n");
 	return `--import=data:text/javascript,${encodeURIComponent(code)}`;
@@ -115,7 +126,66 @@ async function says(
 	};
 }
 
+/** The entries the cache keeps under `state`, with when each was read. */
+async function entriesUnder(state: string): Promise<Map<string, number>> {
+	const cache = join(state, "pi", "agentic-harness.pi", "stripped-source");
+	const entries = new Map<string, number>();
+	for (const install of await readdir(cache)) {
+		for (const name of await readdir(join(cache, install))) {
+			if (name === "root") continue;
+			const path = join(cache, install, name);
+			entries.set(path, (await stat(path)).mtimeMs);
+		}
+	}
+	return entries;
+}
+
+/** Whether node loaded its transpiler importing the package's own `record.ts`. */
+async function transpiledRecord(state: string): Promise<boolean> {
+	const record = pathToFileURL(
+		join(import.meta.dirname, "../../../lib/internal/record.ts"),
+	).href;
+	const { stdout } = await run(
+		process.execPath,
+		[
+			startingAs22(),
+			"--input-type=module",
+			"--eval",
+			[
+				`await import(${JSON.stringify(record)});`,
+				"console.log(process.moduleLoadList.some((m) => m.includes('amaro')));",
+			].join("\n"),
+		],
+		{
+			env: { PATH: process.env.PATH, HOME: root, XDG_STATE_HOME: state },
+			timeout: ONE_RUN,
+		},
+	);
+	return stdout.trim() === "true";
+}
+
 describe("the stripped-source cache in a node", () => {
+	it(
+		"serves the package's own modules where no package is named, marking an entry read again once a day has passed",
+		async () => {
+			const state = join(root, ".local", "state");
+
+			expect(await transpiledRecord(state), "the first strips").toBe(true);
+			const kept = await entriesUnder(state);
+			expect(kept.size, "an entry is kept").toBeGreaterThan(0);
+			expect(await transpiledRecord(state), "the next reads back").toBe(false);
+
+			const dayAndMore = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
+			for (const path of kept.keys())
+				await utimes(path, dayAndMore, dayAndMore);
+			const before = Date.now() - 60_000;
+			expect(await transpiledRecord(state)).toBe(false);
+			for (const [path, read] of await entriesUnder(state))
+				expect(read, `${path} is marked read`).toBeGreaterThan(before);
+		},
+		3 * ONE_RUN,
+	);
+
 	it(
 		"runs a module read back as node ran it, with no transpiler loaded",
 		async () => {
