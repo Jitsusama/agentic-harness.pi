@@ -596,12 +596,12 @@ describe("serveHost", () => {
  * folders sit 26 bytes under its TMPDIR, and a child's socket 67 more,
  * so past a TMPDIR of about 10 bytes, the system's own, there is none.
  */
-function roomForChildren(): void {
+function roomForChildren(at = run): void {
 	try {
-		slotOf(slotFolder(run, "work-attended"), "work-attended", randomUUID());
+		slotOf(slotFolder(at, "work-attended"), "work-attended", randomUUID());
 	} catch (error) {
 		throw new Error(
-			`No child's socket fits under ${run}: run with a shorter TMPDIR`,
+			`No child's socket fits under ${at}: run with a shorter TMPDIR`,
 			{ cause: error },
 		);
 	}
@@ -609,6 +609,20 @@ function roomForChildren(): void {
 
 /** A runtime folder whose host's socket fits and a child's doesn't. */
 const LONG_RUN_BYTES = 60;
+
+describe("the children tests' guard", () => {
+	it("says a TMPDIR too deep for a child's socket is why, rather than failing on what never started", () => {
+		const deep = join(run, "x".repeat(LONG_RUN_BYTES));
+
+		expect(() => roomForChildren(deep)).toThrow(
+			`No child's socket fits under ${deep}: run with a shorter TMPDIR`,
+		);
+	});
+
+	it("lets a run go on where a child's socket fits", () => {
+		expect(() => roomForChildren("/r")).not.toThrow();
+	});
+});
 
 describe("serveHost with children", () => {
 	it("resumes a moved conversation in a child, leaves it running through a stop, and takes it up again", async () => {

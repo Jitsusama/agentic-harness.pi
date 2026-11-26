@@ -242,7 +242,9 @@ rules, and where it doesn't yet.
   root, `fs.suid_dumpable` not 1), a `/proc` that shows every
   process's folders (`seesEveryProcess`), a `/proc` at all (a
   process's command line), off Linux a `tee` that takes `-p`
-  (`teePersists`), or a platform. The browser lane fails without
+  (`teePersists`), a hard core limit of 0, as a pi host's unit
+  sets, under which a killed host can't be given 1 (`givesNoCore`),
+  or a platform. The browser lane fails without
   a Chrome rather than skipping.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The
   129 that didn't on 8 November are listed in
