@@ -2,7 +2,7 @@
  * What a hosted conversation's process keeps of its holding as it ends,
  * and how its next start there reads it.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	KEPT_KEY,
 	type KeptHolding,
@@ -135,15 +135,72 @@ describe("a hosted conversation's holding through its restart", () => {
 		).toBeUndefined();
 	});
 
-	it("takes the later of its own and the one it rolled from, where both kept", () => {
+	it("takes its own over the one it rolled from, though that one ended later", () => {
 		const earlier = new Date(endedAt - 60_000).toISOString();
-		keepHolding(signing("both-kept", "2026-11-25T20:00:00.000Z"), earlier);
-		keepHolding(signing("both-kept-from", heldFrom), ended);
+		keepHolding(signing("own-kept", heldFrom), earlier);
+		keepHolding(signing("own-kept-from", "2026-11-25T20:00:00.000Z"), ended);
 
 		expect(
 			takeHeldAtStart(
 				undefined,
-				{ session: "both-kept", previous: "both-kept-from" },
+				{ session: "own-kept", previous: "own-kept-from" },
+				endedAt + 30_000,
+			),
+		).toEqual(kept);
+	});
+
+	it("takes its own over the one it rolled from, where its own ended later", () => {
+		const earlier = new Date(endedAt - 60_000).toISOString();
+		keepHolding(signing("own-later", heldFrom), ended);
+		keepHolding(signing("own-later-from", "2026-11-25T20:00:00.000Z"), earlier);
+
+		expect(
+			takeHeldAtStart(
+				undefined,
+				{ session: "own-later", previous: "own-later-from" },
+				endedAt + 30_000,
+			),
+		).toEqual(kept);
+	});
+
+	it("takes the one it rolled from where its own is past the bound", () => {
+		const longAgo = new Date(endedAt - 3_600_000).toISOString();
+		keepHolding(signing("own-stale", "2026-11-25T19:00:00.000Z"), longAgo);
+		// Kept apart, so the later keep's pruning leaves the stale one standing.
+		const stale = keptMap()?.get("own-stale");
+		keepHolding(signing("own-stale-from", heldFrom), ended);
+		if (stale) keptMap()?.set("own-stale", stale);
+
+		expect(
+			takeHeldAtStart(
+				undefined,
+				{ session: "own-stale", previous: "own-stale-from" },
+				endedAt + 30_000,
+			),
+		).toEqual(kept);
+	});
+
+	it("drops, at each keep, what ended a restart ahead of it, as after a clock set back", () => {
+		keepHolding(
+			signing("ahead", heldFrom),
+			new Date(endedAt + 3_600_000).toISOString(),
+		);
+
+		keepHolding(signing("now", heldFrom), ended);
+
+		expect([...(keptMap()?.keys() ?? [])]).toEqual(["now"]);
+	});
+
+	it("keeps what it kept through a reload, which loads every module afresh", async () => {
+		keepHolding(signing("reloads", heldFrom), ended);
+		vi.resetModules();
+
+		const fresh = await import("../../../lib/mesh/kept-holding.ts");
+
+		expect(
+			fresh.takeHeldAtStart(
+				undefined,
+				{ session: "reloads" },
 				endedAt + 30_000,
 			),
 		).toEqual(kept);

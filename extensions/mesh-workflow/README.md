@@ -1410,8 +1410,10 @@ its time through a park, and through a kill only if it said
 something in its last ten minutes. A restart in place or a
 rollover within ten minutes keeps it too: a hosted
 conversation's presence goes as it ends, so its host's
-process keeps the time for its next start, and one the host
-hands to a plain pi starts afresh. The holder is
+process keeps the time for its next start. One that starts
+again in another process starts afresh: handed to a plain pi,
+or reopened by a host that runs each conversation in a child
+of its own, since the child ends as it closes. The holder is
 told on the mesh and the one yielding is told in its session,
 each asked to agree which part of the quest it takes, since two
 sessions on one quest are how work gets done twice. Both still

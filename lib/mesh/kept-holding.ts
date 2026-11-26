@@ -9,9 +9,10 @@
  * in that same process, the old session ending before the new one
  * starts, so the time is kept here instead, and signedSince bounds it
  * as it would bound the presence. A host's own restart parks what it
- * brings back, and a parked presence stays. A conversation the host
- * hands to a plain pi starts in another process, so it keeps nothing
- * and starts afresh.
+ * brings back, and a parked presence stays. A conversation that starts
+ * again in another process keeps nothing and starts afresh: one the host
+ * hands to a plain pi, and one a host running each conversation in a
+ * child of its own reopens, since the child ends as it closes.
  *
  * Held on the process rather than a module, since a reload loads every
  * module afresh, as lib/internal/session/left.ts holds its marks. Each
@@ -44,7 +45,7 @@ function kept(): Map<string, KeptHolding> {
 
 /**
  * Keep what `presence` signs with, as its session ends at `ended`, and
- * drop every holding kept more than a restart before it; a presence
+ * drop every holding that ended more than a restart from it; a presence
  * that says no time holds nothing to keep.
  */
 export function keepHolding(
@@ -58,7 +59,8 @@ export function keepHolding(
 	const map = kept();
 	const now = Date.parse(ended);
 	for (const [session, holding] of map) {
-		if (!(now - Date.parse(holding.ended) <= RESTARTED_WITHIN_MS)) {
+		// Either way, as signedSince bounds it, so a clock set back drops it too.
+		if (!(Math.abs(now - Date.parse(holding.ended)) <= RESTARTED_WITHIN_MS)) {
 			map.delete(session);
 		}
 	}
@@ -79,8 +81,11 @@ function takeHolding(session: string): KeptHolding | undefined {
  * what it, or the session it rolled over from (`previous`), kept here
  * as it ended, so neither seeds a later start. Its last presence
  * (`before`) decides wherever there is one, even one saying no time,
- * since that one yielded since; only where none stands does the later
- * of the two kept holdings.
+ * since that one yielded since. Where none stands, its own kept holding
+ * does, within the bound; the one it rolled from only where its own is
+ * gone or past it, since a session rolled over to reads that one again
+ * at each of its starts, and the log it left could since have held the
+ * address afresh.
  */
 export function takeHeldAtStart(
 	before: Parameters<typeof signedSince>[0],
@@ -97,9 +102,5 @@ export function takeHeldAtStart(
 	if (before !== undefined) {
 		return signedSince(before, now, { owner: at.owner });
 	}
-	const later =
-		own === undefined || (carried !== undefined && carried.ended > own.ended)
-			? carried
-			: own;
-	return signedSince(later, now);
+	return signedSince(own, now) ?? signedSince(carried, now);
 }
