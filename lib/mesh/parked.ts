@@ -53,12 +53,11 @@ function listenerOf(parked: Presence) {
 	};
 }
 
+/** A parked peer as one listening, to judge a message by. */
+type Listener = ReturnType<typeof listenerOf>;
+
 /** Whether a message reaches a parked peer at all, judged on what its presence says. */
-function reachesParked(
-	message: Message,
-	parked: Presence,
-	listener = listenerOf(parked),
-): boolean {
+function reachesParked(message: Message, listener: Listener): boolean {
 	// Its process is gone, so no pid of a sender is its own.
 	return reaches(message, listener, -1);
 }
@@ -80,7 +79,24 @@ export function wakes(
 	now: number = Date.parse(message.at),
 ): boolean {
 	const listener = listenerOf(parked);
-	if (!reachesParked(message, parked, listener)) return false;
+	return (
+		reachesParked(message, listener) &&
+		wakesOnceReached(message, parked, listener, read, sender, now)
+	);
+}
+
+/**
+ * Whether a message that reaches the parked peer, as `listener`, would
+ * give it a turn: `wakes` past its reach.
+ */
+function wakesOnceReached(
+	message: Message,
+	parked: Presence,
+	listener: Listener,
+	read: Reader,
+	sender: Pick<Presence, "orchestratedBy"> | undefined,
+	now: number,
+): boolean {
 	if (message.intent === "pivot") return true;
 	const self = { addresses: parked.addresses, pid: -1 };
 	const led =
@@ -206,9 +222,12 @@ export function wakeParked(
 	for (const one of everyone) {
 		// Reached first, since a marker is looked at on the thread for each:
 		// on 26 November that was 1.4 s of one start's catch-up.
-		if (!saysParked(one) || !reachesParked(message, one)) continue;
+		if (!saysParked(one)) continue;
+		const listener = listenerOf(one);
+		if (!reachesParked(message, listener)) continue;
 		if (!isParked(one.session)) continue;
-		if (!wakes(message, one, read, sender, judged.now)) continue;
+		const now = judged.now ?? Date.parse(message.at);
+		if (!wakesOnceReached(message, one, listener, read, sender, now)) continue;
 		if (judged.still && !judged.still(one)) continue;
 		try {
 			askWake(one.session, message.id);
