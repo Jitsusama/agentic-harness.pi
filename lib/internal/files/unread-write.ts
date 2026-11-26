@@ -11,8 +11,64 @@
  * has nothing to lose.
  */
 
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { stampOf } from "./stamped-read.ts";
+
+/** The size in bytes a stamp names, its last part. */
+export function stampSize(stamp: string): number {
+	return Number(stamp.slice(stamp.lastIndexOf(":") + 1));
+}
+
+/**
+ * Whether the file at `path` holds what a write sent, so nothing that
+ * landed between the write and its result is taken as seen.
+ */
+export function writtenAsSent(path: string, content: unknown): boolean {
+	if (typeof content !== "string") return false;
+	try {
+		return readFileSync(path, "utf8") === content;
+	} catch {
+		// Gone or unreadable since: nothing the conversation can say it saw.
+		return false;
+	}
+}
+
+/**
+ * How many bytes an edit's replacements move a file by, read from its
+ * input as pi's edit tool reads it (an array, one edit alone, a JSON
+ * string of either, or the older oldText and newText), or nothing where
+ * it names none.
+ */
+export function editDelta(input: unknown): number | undefined {
+	if (typeof input !== "object" || input === null) return undefined;
+	const edits = [...editsOf("edits" in input ? input.edits : undefined)];
+	if ("oldText" in input && "newText" in input) edits.push(input);
+	let delta = 0;
+	for (const edit of edits) {
+		const oldText = "oldText" in edit ? edit.oldText : undefined;
+		const newText = "newText" in edit ? edit.newText : undefined;
+		if (typeof oldText !== "string" || typeof newText !== "string")
+			return undefined;
+		delta += Buffer.byteLength(newText) - Buffer.byteLength(oldText);
+	}
+	return edits.length === 0 ? undefined : delta;
+}
+
+/** The replacements an edit's `edits` field names, however it was sent. */
+function editsOf(edits: unknown): readonly object[] {
+	let named = edits;
+	if (typeof named === "string") {
+		try {
+			named = JSON.parse(named);
+		} catch {
+			// Not JSON: pi refuses it too, so it names no replacement.
+			return [];
+		}
+	}
+	if (Array.isArray(named))
+		return named.filter((edit) => typeof edit === "object" && edit !== null);
+	return typeof named === "object" && named !== null ? [named] : [];
+}
 
 /** The stamp of the file at `path` now, or nothing where no file is. */
 export function stampNow(path: string): string | undefined {

@@ -10,8 +10,11 @@
  * Each conversation keeps the stamp each file had when it last saw all
  * of it (lib/internal/files/unread-write.ts says what a stamp is and
  * which writes lose nothing). The stamps sit in a session slot, so a
- * reload keeps them and a host keeps each conversation's apart. The
- * guard redirects: the same write sent again over the file as it now
+ * reload keeps them and a host keeps each conversation's apart; a
+ * compaction or a move in the session tree forgets them, since the
+ * context may no longer hold what was read. A same-size change within
+ * the filesystem's mtime resolution passes as unchanged. The guard
+ * redirects: the same write sent again over the file as it now
  * is goes through, since the agent may know a file its own command
  * made; a file that changes after is a new refusal.
  */
@@ -25,8 +28,11 @@ import { sessionCwd, sessionSlot } from "../../lib/core/session/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { toolPath } from "../../lib/internal/files/tool-path.ts";
 import {
+	editDelta,
 	stampNow,
+	stampSize,
 	unreadWriteRefusal,
+	writtenAsSent,
 } from "../../lib/internal/files/unread-write.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 
@@ -35,6 +41,26 @@ const SEEING = new Set(["read", "write", "edit"]);
 
 /** The slot holding a conversation's stamps, by the file's absolute path. */
 const STAMPS = "pi:unread-write-stamps";
+
+/** How many of a file's earlier stamps an edit may have begun from. */
+const HELD_STAMPS = 8;
+
+/**
+ * What a conversation knows of a file: its stamp when last seen whole,
+ * and the stamps it held before that through its own writes and edits,
+ * so edits sent together each count from the one before.
+ */
+interface Seen {
+	readonly now: string;
+	readonly held: readonly string[];
+}
+
+/** A finished call on a file, as its tool_result reports it. */
+interface Finished {
+	readonly toolName: string;
+	readonly input: unknown;
+	readonly details?: unknown;
+}
 
 export default function unreadWriteInterceptor(pi: ExtensionAPI) {
 	declareGuards(GUARDS.unreadWrite);
@@ -49,11 +75,7 @@ export default function unreadWriteInterceptor(pi: ExtensionAPI) {
 			before.set(event.toolCallId, stampNow(file));
 			return undefined;
 		}
-		const stamps = stampsOf(ctx);
-		const refused =
-			stamps === undefined
-				? unreadWriteRefusal(file, undefined)
-				: unreadWriteRefusal(file, stamps.get(file));
+		const refused = unreadWriteRefusal(file, stampsOf(ctx)?.get(file)?.now);
 		return refusalUnder(
 			GUARDS.unreadWrite.name,
 			refused === undefined ? undefined : { block: true, reason: refused },
@@ -70,11 +92,23 @@ export default function unreadWriteInterceptor(pi: ExtensionAPI) {
 		const stamps = stampsOf(ctx);
 		if (file === undefined || stamps === undefined) return undefined;
 		const now = stampNow(file);
-		if (now !== undefined && seesItWhole(event, began, now, stamps.get(file)))
-			stamps.set(file, now);
-		else stamps.delete(file);
+		const seen = stamps.get(file);
+		if (now === undefined) stamps.delete(file);
+		else if (seesItWhole(event, file, began, now, seen))
+			stamps.set(file, seenNow(event.toolName, now, seen));
+		// A call that showed less leaves a stamp the file still has.
+		else if (seen?.now !== now) stamps.delete(file);
 		return undefined;
 	});
+
+	// A call another guard blocked has no tool_result, only this.
+	pi.on("tool_execution_end", async (event) => {
+		before.delete(event.toolCallId);
+	});
+
+	// The context may no longer hold what was read before either.
+	pi.on("session_compact", async (_event, ctx) => stampsOf(ctx)?.clear());
+	pi.on("session_tree", async (_event, ctx) => stampsOf(ctx)?.clear());
 
 	pi.on("session_shutdown", async (event, ctx) => {
 		// A reload carries on the same conversation; anything else ends it.
@@ -83,37 +117,65 @@ export default function unreadWriteInterceptor(pi: ExtensionAPI) {
 }
 
 /**
- * Whether a finished call leaves the conversation knowing the whole file
- * as it now is: a write, which put it there; a read of all of it that
- * nothing changed under, its stamp the same at its start and its end;
- * or an edit of a file it already knew, as it was when the edit began.
+ * What the conversation knows of a file it now sees whole: a read starts
+ * afresh, and a write or an edit keeps what it held before, so a later
+ * edit sent beside it still counts.
  */
-function seesItWhole(
-	event: {
-		readonly toolName: string;
-		readonly input: unknown;
-		readonly details?: unknown;
-	},
-	began: string | undefined,
-	now: string,
-	known: string | undefined,
-): boolean {
-	if (event.toolName === "write") return true;
-	if (began === undefined) return false;
-	if (event.toolName === "edit") return known === began;
-	return began === now && !isPartialRead(event.input, event.details);
+function seenNow(tool: string, now: string, seen: Seen | undefined): Seen {
+	if (tool === "read" || seen === undefined) return { now, held: [now] };
+	return { now, held: [...seen.held, now].slice(-HELD_STAMPS) };
 }
 
-/** Whether a read showed less than the whole file: a slice, or cut short. */
-function isPartialRead(input: unknown, details: unknown): boolean {
-	const sliced =
-		typeof input === "object" &&
-		input !== null &&
-		(("offset" in input && input.offset !== undefined) ||
-			("limit" in input && input.limit !== undefined));
+/**
+ * Whether a finished call leaves the conversation knowing the whole file
+ * as it now is: a write whose text the file still holds; a read of all
+ * of it that nothing changed under, its stamp the same at its start and
+ * its end; or an edit that began from a version the conversation knew
+ * and moved the file's size by just its own replacements, so nothing
+ * appended while it waited its turn is taken as seen.
+ */
+function seesItWhole(
+	event: Finished,
+	file: string,
+	began: string | undefined,
+	now: string,
+	seen: Seen | undefined,
+): boolean {
+	if (event.toolName === "write") {
+		const input = event.input;
+		const content =
+			typeof input === "object" && input !== null && "content" in input
+				? input.content
+				: undefined;
+		return writtenAsSent(file, content);
+	}
+	if (began === undefined) return false;
+	if (event.toolName === "edit") {
+		const delta = editDelta(event.input);
+		return (
+			seen !== undefined &&
+			delta !== undefined &&
+			seen.held.includes(began) &&
+			stampSize(now) === stampSize(seen.now) + delta
+		);
+	}
+	return began === now && isWholeRead(event.input, event.details);
+}
+
+/**
+ * Whether a read showed the whole file: from its first line, with no
+ * limit, and not cut short, which pi's read tool says by putting
+ * `truncation` in its details only when it cut the text.
+ */
+function isWholeRead(input: unknown, details: unknown): boolean {
+	if (typeof input !== "object" || input === null) return false;
+	const offset = "offset" in input ? input.offset : undefined;
+	const limit = "limit" in input ? input.limit : undefined;
+	const fromTheTop =
+		offset === undefined || (typeof offset === "number" && offset <= 1);
 	const cut =
 		typeof details === "object" && details !== null && "truncation" in details;
-	return sliced || cut;
+	return fromTheTop && limit === undefined && !cut;
 }
 
 /**
@@ -122,9 +184,9 @@ function isPartialRead(input: unknown, details: unknown): boolean {
  * host), in which case nothing is stamped and every write over a file
  * is refused once.
  */
-function stampsOf(ctx: ExtensionContext): Map<string, string> | undefined {
+function stampsOf(ctx: ExtensionContext): Map<string, Seen> | undefined {
 	try {
-		return sessionSlot(STAMPS, ctx, () => new Map<string, string>());
+		return sessionSlot(STAMPS, ctx, () => new Map<string, Seen>());
 	} catch {
 		// A stale context, or none in a host: no stamps, so no write over a
 		// file goes through unrefused, at the cost of a refusal.
