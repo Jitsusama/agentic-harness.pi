@@ -194,6 +194,29 @@ describe("a quest's address, when two sessions have it loaded", () => {
 		expect(keepers.map((one) => one.session)).toEqual(["02-held"]);
 	});
 
+	it("is kept by the lower id of two stamped early, whatever each says", () => {
+		const all = [
+			{
+				session: "02-later",
+				addresses: ["7M6JKG"],
+				signsSince: "1970-01-01T00:00:05.000Z",
+			},
+			{
+				session: "01-earlier",
+				addresses: ["7M6JKG"],
+				signsSince: "2026-10-31T00:00:00.000Z",
+			},
+		];
+
+		const keepers = all.filter(
+			(one) =>
+				yieldsTo(one.session, "7M6JKG", true, all, one.signsSince) ===
+				undefined,
+		);
+
+		expect(keepers.map((one) => one.session)).toEqual(["01-earlier"]);
+	});
+
 	it("believes a time from the first of November 2026, and not a moment before", () => {
 		const taken = { ...holder, signsSince: "2026-11-25T13:53:49.000Z" };
 
@@ -371,6 +394,15 @@ describe("what a restart keeps of holding its quest's address", () => {
 				Date.parse("1970-01-01T00:00:05.000Z"),
 			),
 			"a clock still before the floor stamps all the same, ranking last",
+		).toEqual({ address: "7M6JKG", since: "1970-01-01T00:00:05.000Z" });
+		expect(
+			signingSince(
+				"7M6JKG",
+				["7M6JKG"],
+				"1970-01-01T00:00:05.000Z",
+				Date.parse("1970-01-01T00:01:05.000Z"),
+			),
+			"and keeps that stamp while it still is, so its presence isn't rewritten each time",
 		).toEqual({ address: "7M6JKG", since: "1970-01-01T00:00:05.000Z" });
 	});
 

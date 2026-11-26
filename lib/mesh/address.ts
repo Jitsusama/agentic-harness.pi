@@ -236,7 +236,8 @@ export function yieldsTo<
  * just taken it or held it from a time that can't be true, and none once
  * it signs as itself. A clock still reading before any could be stamps
  * all the same, which ranks last, rather than saying no time, which
- * would put every signer back on the id rule.
+ * would put every signer back on the id rule; it keeps that first stamp
+ * until the clock is set, rather than rewriting its presence each time.
  */
 export function signingSince(
 	signing: string | undefined,
@@ -245,9 +246,11 @@ export function signingSince(
 	now: number,
 ): { address: string; since: string } | undefined {
 	if (signing === undefined || addresses[0] !== signing) return undefined;
+	const stamp = new Date(now).toISOString();
+	const unset = believedSince(stamp) === undefined;
 	return {
 		address: signing,
-		since: believedSince(heldSince) ?? new Date(now).toISOString(),
+		since: believedSince(heldSince) ?? (unset ? (heldSince ?? stamp) : stamp),
 	};
 }
 

@@ -84,7 +84,7 @@ function takeHolding(session: string): KeptHolding | undefined {
  * (`before`) decides wherever there is one, even one saying no time,
  * since that one yielded since. Where none stands, its own kept holding
  * does, within the bound; the one it rolled from only where its own is
- * gone or past it, since a session rolled over to reads that one again
+ * gone, past it, or stamped before any could be (believedSince), since a session rolled over to reads that one again
  * at each of its starts, and the log it left could since have held the
  * address afresh.
  */
