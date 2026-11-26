@@ -29,6 +29,10 @@ import {
 	fenceCensus,
 	SIGHTING_LASTS_MS,
 } from "../../../../lib/internal/fence/fence-census.ts";
+import {
+	GCLOUD_KEY,
+	KEY_STAND_IN,
+} from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "../../../../lib/internal/fence/fence-hidden.ts";
 import { KEEPING_STUB } from "../../../../lib/internal/shell/kept.ts";
 import type { Presence } from "../../../../lib/mesh/presence.ts";
@@ -352,6 +356,13 @@ describe("the fence's census", () => {
 		expect(censusHolds(census), "a census of proven sessions holds").toBe(true);
 	});
 
+	it("proves a session fenced that sees only the fence's stand-in for gcloud's key", () => {
+		piWithCommand(100, ONE, "fenced");
+		put(join(proc, "104/root"), `${HOME}/.ssh/${GCLOUD_KEY}`, KEY_STAND_IN);
+		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
+		expect(census.rows.map((row) => row.judged)).toEqual(["proven"]);
+	});
+
 	it("finds a command running unfenced, and fails the census", () => {
 		piWithCommand(100, ONE, "unfenced");
 		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
@@ -421,6 +432,7 @@ describe("the fence's census", () => {
 	// only where what the fence hides is gone from what it sees.
 	it.each([
 		["a private key in ~/.ssh", `${HOME}/.ssh/id_ed25519`, "PRIVATE\n"],
+		["gcloud's own key", `${HOME}/.ssh/${GCLOUD_KEY}`, "PRIVATE\n"],
 		["the session's bus", `${RUNTIME}/bus`, ""],
 		["gh's token", `${HOME}/.config/gh/hosts.yml`, "oauth_token: gho_x\n"],
 		[

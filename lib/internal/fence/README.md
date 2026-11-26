@@ -141,6 +141,13 @@ would miss what another binds over it.
 - **`fence-copy.ts`**: where the fence keeps the copies it binds over
   files inside, pi's folder in the runtime folder, written when they
   change.
+- **`fence-gcloud-ssh.ts`**: the session's copies of what gcloud's ssh
+  writes in `~/.ssh`: its known hosts, bound writable and brought up to
+  date before each command, and a stand-in for its private key, so
+  gcloud signs through pi's agent proxy rather than making a key.
+- **`fence-folders.ts`**: the folders those copies and dev's are kept
+  in, made for this account alone where several pis may race to, and
+  never a link or a folder another account left taken for pi's own.
 - **`fence-npmrc.ts`**: the copy of `~/.npmrc` the fence binds over it,
   every line but its registry tokens'.
 - **`fence-quest-locks.ts`**: the quest lock folder bound back writable

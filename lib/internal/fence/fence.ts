@@ -86,6 +86,12 @@ import {
 import { DEV_SETTINGS, type DevCopies } from "./fence-dev.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { DOCKER_CONFIG, dockerArgs } from "./fence-docker.ts";
+import {
+	GCLOUD_KEY,
+	GCLOUD_KNOWN_HOSTS,
+	type GcloudSsh,
+	hasPublicHalf,
+} from "./fence-gcloud-ssh.ts";
 import { githubDoorArgs } from "./fence-github.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -321,6 +327,11 @@ export interface FencePlace extends Worktrees {
 	 * folder, bound in their place (`fence-dev.ts`).
 	 */
 	readonly devCopies?: DevCopies;
+	/**
+	 * The session's copies of what gcloud's ssh writes in `~/.ssh`, bound
+	 * in their place (`fence-gcloud-ssh.ts`).
+	 */
+	readonly gcloudSsh?: GcloudSsh;
 }
 
 /**
@@ -465,7 +476,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...args,
 		...homeArgs(place, disk),
 		...brokerTreeArgs(place.trees, place.cwd, disk),
-		...sshArgs(place.home, disk),
+		...sshArgs(place.home, disk, place.gcloudSsh),
 		...gitArgs(place, disk),
 		...ownArgs(place.scratch, disk),
 		...ownArgs(place.share, disk),
@@ -587,16 +598,33 @@ const SSH_KEPT = FENCE_HIDDEN.sshKept;
 /**
  * bubblewrap's arguments for `~/.ssh`: emptied, with only what names
  * hosts and keys bound back read-only, so no private key or TPM key
- * handle can be read.
+ * handle can be read. With the session's copies for gcloud's ssh
+ * (`fence-gcloud-ssh.ts`), its known-hosts file is the session's own,
+ * writable, and where its public key is kept, a stand-in takes the
+ * private key's place. `--remount-ro` makes only the folder's own mount
+ * read-only, never one bound in it, so the copy stays writable, as a real
+ * bubblewrap shows (`fence-gcloud-ssh-bwrap.test.ts`).
  */
-function sshArgs(home: string, disk: Disk): string[] {
+function sshArgs(home: string, disk: Disk, gcloud?: GcloudSsh): string[] {
 	const ssh = sshFolder(home, disk);
 	if (ssh === undefined) return [];
 	const args = ["--tmpfs", ssh];
-	for (const entry of [...disk.entries(ssh)].sort()) {
+	const entries = [...disk.entries(ssh)].sort();
+	for (const entry of entries) {
 		const path = join(ssh, entry);
+		if (gcloud && entry === GCLOUD_KNOWN_HOSTS) continue;
 		if (SSH_KEPT.test(entry) && disk.kind(path) === "file") {
 			args.push("--ro-bind", path, path);
+		}
+	}
+	if (gcloud) {
+		// Each wrap dates the session's folder afresh, and a sweep takes only
+		// folders a day old, re-reading the date once it has put one aside;
+		// only a wrap in the instant between its two renames can lose these
+		// before bubblewrap starts, failing that one command (`sweepEnded`).
+		args.push("--bind", gcloud.knownHosts, join(ssh, GCLOUD_KNOWN_HOSTS));
+		if (entries.includes(`${GCLOUD_KEY}.pub`) && hasPublicHalf(ssh, disk)) {
+			args.push("--ro-bind", gcloud.key, join(ssh, GCLOUD_KEY));
 		}
 	}
 	return [...args, "--remount-ro", ssh];

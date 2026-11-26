@@ -8,6 +8,7 @@
  * in `fence-preflight-desktop.ts`.
  */
 
+import { createHash } from "node:crypto";
 import {
 	accessSync,
 	constants,
@@ -19,10 +20,12 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
 import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
 import { FENCE, LET_THROUGH, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";
+import { GCLOUD_KEY, KEY_STAND_IN } from "./fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	type Check,
@@ -150,9 +153,105 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 		);
 		if (ran.code === 0) read.push(path);
 	}
-	return read.length === 0
-		? passed(`${paths.length} hidden files, none readable inside`)
-		: failed(`readable inside: ${read.join(", ")}`);
+	// gcloud's private key is bound over by a stand-in on purpose
+	// (fence-gcloud-ssh.ts), so inside it must read as that and nothing else,
+	// or not at all. Only its digest comes out, so a fence that let the real
+	// key through still never brings the key itself into pi. A run that
+	// fails (a refused wrap, a timeout, a missing tool) proves nothing and
+	// fails the check, saying it couldn't probe rather than that it read.
+	const gcloudKey = join(home, ".ssh", GCLOUD_KEY);
+	const checked = existsSync(gcloudKey) ? 1 : 0;
+	const probed = checked
+		? keyProbed(
+				gcloudKey,
+				await fenced(
+					gcloudKeyProbe(gcloudKey),
+					context.scratch,
+					context.session,
+				),
+			)
+		: {};
+	return hiddenVerdict(paths.length + checked, read, probed);
+}
+
+/**
+ * Check (13)'s verdict on `count` hidden files, of which `read` read
+ * inside, with what the probe of gcloud's key found (`keyProbed`): it
+ * passes only where nothing read and the probe proved the key held.
+ */
+export function hiddenVerdict(
+	count: number,
+	read: readonly string[],
+	probed: { readonly read?: string; readonly unprobed?: string },
+): Verdict {
+	const readInside = probed.read ? [...read, probed.read] : read;
+	const said = [
+		...(readInside.length > 0
+			? [`readable inside: ${readInside.join(", ")}`]
+			: []),
+		...(probed.unprobed ? [probed.unprobed] : []),
+	];
+	return said.length === 0
+		? passed(`${count} hidden files, none readable inside`)
+		: failed(said.join("; "));
+}
+
+/**
+ * The shell that says, inside the fence, what gcloud's key at `path`
+ * reads as: `unread` where it can't be read, read as the other hidden
+ * files are, or else its digest. It exits 127 where `head` or
+ * `sha256sum` is missing, since a missing `head` would otherwise read
+ * as `unread`.
+ */
+export function gcloudKeyProbe(path: string): string {
+	const key = quoted(path);
+	return [
+		// Each asked alone: `command -v` given both answers 0 where either
+		// is found.
+		"{ command -v head && command -v sha256sum; } > /dev/null || exit 127",
+		`if head -c1 ${key} > /dev/null 2>&1 && test -s ${key}; then sha256sum < ${key}; else echo unread; fi`,
+	].join("\n");
+}
+
+/**
+ * What the probe of gcloud's key at `path` found, from its run `ran`:
+ * the key, where its digest was anything but the stand-in's; why it
+ * proves nothing, where the probe failed or said neither `unread` nor a
+ * digest; neither where the key held.
+ */
+export function keyProbed(
+	path: string,
+	ran: Ran,
+): { readonly read?: string; readonly unprobed?: string } {
+	if (ran.code !== 0) {
+		return {
+			unprobed: `couldn't probe ${path} inside (exit ${ran.code ?? "stopped"}): ${tailOf(ran)}`,
+		};
+	}
+	if (readsAsStandIn(ran)) return {};
+	const said = ran.out.trim().split(/\s+/);
+	return /^[0-9a-f]{64}$/.test(said.at(-2) ?? "")
+		? { read: path }
+		: {
+				unprobed: `couldn't probe ${path} inside: it said neither unread nor a digest: ${tailOf(ran)}`,
+			};
+}
+
+/**
+ * Whether a fenced digest of gcloud's key says the key read as the
+ * stand-in, or couldn't be read: the probe's own `unread`, or the digest
+ * `sha256sum` ends its output with, whatever the wrap printed before it,
+ * against the stand-in's own. A probe that didn't end 0 said neither.
+ */
+export function readsAsStandIn(ran: {
+	code: number | null;
+	out: string;
+}): boolean {
+	if (ran.code !== 0) return false;
+	const said = ran.out.trim().split(/\s+/);
+	if (said.at(-1) === "unread") return true;
+	const digest = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	return said.at(-2) === digest;
 }
 
 /**

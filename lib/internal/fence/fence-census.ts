@@ -42,6 +42,7 @@ import { count, verb } from "../../ui/count.ts";
 import { ticksOfStat } from "../process-ticks.ts";
 import { SANDBOX_NAMES, STRICT } from "../sandbox/sandbox.ts";
 import { KEEP_VARIABLE, KEEPING_STUB } from "../shell/kept.ts";
+import { GCLOUD_KEY, holdsStandIn } from "./fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import { liftFence } from "./fence-lifted.ts";
 import { askedSandbox, inFirstStage } from "./fence-stage.ts";
@@ -411,13 +412,16 @@ function notProven(
 /**
  * The first thing the fence hides that a process with root `root` can
  * see, as its own path, or nothing: a file in `~/.ssh` other than what
- * names hosts and keys, the session's bus, a token in gh's hosts file,
+ * names hosts and keys and the fence's stand-in for gcloud's key
+ * (`fence-gcloud-ssh.ts`), the session's bus, a token in gh's hosts file,
  * or anything in what `fence-hidden.json` empties.
  */
 function hiddenSeen(root: string, place: CensusPlace): string | undefined {
 	const ssh = join(place.home, ".ssh");
+	const standIn = (entry: string): boolean =>
+		entry === GCLOUD_KEY && holdsStandIn(join(root, ssh, entry));
 	const sshSeen = (entriesOf(join(root, ssh)) ?? []).find(
-		(entry) => !FENCE_HIDDEN.sshKept.test(entry),
+		(entry) => !(FENCE_HIDDEN.sshKept.test(entry) || standIn(entry)),
 	);
 	if (sshSeen !== undefined) return join(ssh, sshSeen);
 	if (place.runtimeDir !== undefined) {

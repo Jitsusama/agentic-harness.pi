@@ -1,0 +1,435 @@
+/**
+ * What `gcloud compute ssh` needs of `~/.ssh` inside the agent fence,
+ * which empties the folder and keeps it read-only (`fence.ts`'s
+ * `sshArgs`). gcloud writes two files there, and failed on each:
+ *
+ * - `google_compute_known_hosts`, which it rewrites on every login to an
+ *   instance whose guest attributes give its host keys, known or not
+ *   (`WriteHostKeysToKnownHosts` in gcloud's `ssh_utils.py`). A session
+ *   gets a copy of its own, bound writable over it, copied afresh from
+ *   the person's file the first time this process asks and whenever
+ *   what theirs says changes after. It is writable only through that
+ *   bind: pi's own file tools still refuse all of `~/.ssh`
+ *   (`fenceRefusesWrite`), where this name is the person's real file.
+ * - `google_compute_engine`, its own private key, which the fence
+ *   empties. With the public half kept and no private one, gcloud calls
+ *   the pair broken and runs ssh-keygen into the read-only folder. A
+ *   one-line stand-in is bound over it: gcloud reads only a key file's
+ *   first line, and ssh skips a file it can't load as a key. A fenced
+ *   ssh signs only through pi's agent proxy, which the machine's ssh
+ *   settings name for OS Login instances.
+ *
+ * Both lie in pi's folder in the runtime folder, which the fence empties
+ * (`fence-copy.ts`), so a fenced command can change what the known-hosts
+ * copy says but can't put a link where it lies. bubblewrap follows a
+ * link when it binds, later than the checks here; that gap is reached
+ * by nothing a fenced or strict command, or pi's file tools, can write,
+ * only by the account's unfenced programs, which reach the files anyway. Each is written beside
+ * its place and renamed over it, so a command still running keeps the
+ * file it bound whole, and a link found where one lies is replaced, never
+ * followed. The person's file is read only as a plain file, never
+ * through a link.
+ *
+ * Neither widens what a fenced login reaches. The agent proxy, core.nix's
+ * `modules/pi/agent-proxy`, is a user service outside the fence that
+ * reads `%h/.ssh/google_compute_known_hosts`, the person's own file, by
+ * its path (`--os-login-hosts`, pinned by its
+ * `pi-agent-proxy-reaches-os-login-machines-wired` check). It signs only
+ * a login to a session bound by `session-bind@openssh.com` and signed by
+ * a host key in that file (`src/bind.rs`); a sign asked with no session
+ * bound is refused (its `refuses_to_sign_with_no_session_bound` test).
+ * So a host key a fenced command writes into its copy changes what its
+ * own ssh trusts and nothing the proxy signs for. An instance the person
+ * never reached is refused until gcloud outside learns its host key, and
+ * the proxy's journal says so ("a session with a host it isn't told
+ * of"), where the fenced ssh says only that its key was denied.
+ *
+ * That holds while the fence has no cloud token (`NO_CLOUD_IN_THE_FENCE`).
+ * A fenced command holding one could have gcloud make a key of its own
+ * in a writable folder, add it to the instance or OS Login, and log in
+ * with it directly, past the proxy; a writable known-hosts copy takes
+ * away the last snag on that path. So the gate for a fenced token is its
+ * IAM role, which must not set metadata or import OS Login keys, not the
+ * proxy.
+ */
+
+import { createHash, randomUUID } from "node:crypto";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	fstatSync,
+	lstatSync,
+	lutimesSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	readSync,
+	renameSync,
+	rmdirSync,
+	rmSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { DISK, type Disk } from "./fence-disk.ts";
+import { isPrivateFolder, makeFolder } from "./fence-folders.ts";
+import { codeOf } from "./fence-log.ts";
+
+/** gcloud's known-hosts file, in `~/.ssh`. */
+export const GCLOUD_KNOWN_HOSTS = "google_compute_known_hosts";
+
+/** gcloud's private key, in `~/.ssh`, whose public half ends `.pub`. */
+export const GCLOUD_KEY = "google_compute_engine";
+
+/** pi's folder in the runtime folder, as `fence-copy.ts` names it. */
+const FOLDER = "pi-fence";
+
+/** The folder in it holding each session's copies. */
+const SESSIONS = "gcloud-ssh";
+
+/** A session's name as a folder may take it, as the sandbox makes them. */
+const SESSION_NAME = /^[A-Za-z0-9-]{1,64}$/;
+
+/**
+ * What stands in for gcloud's private key inside, one line gcloud reads.
+ * Never reword it: the census takes only this exact text for the stand-in
+ * (`holdsStandIn`), and a command still running keeps the text it was
+ * bound with, so a census by a newer pi would call those commands
+ * unfenced.
+ */
+export const KEY_STAND_IN =
+	"# gcloud's key stays outside the agent fence; ssh signs through pi's agent proxy\n";
+
+/** A session's copies, which the fence binds over gcloud's files in `~/.ssh`. */
+export interface GcloudSsh {
+	/** The session's known-hosts file, bound writable. */
+	readonly knownHosts: string;
+	/** The stand-in for gcloud's private key, bound read-only. */
+	readonly key: string;
+}
+
+/** A file opened for reading as it stands: never through a link, never waiting on a fifo. */
+const AS_IT_STANDS =
+	constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+
+/**
+ * Each session's known-hosts copy, by its path, with what the person's
+ * file said when last copied in, so a copy is renewed when theirs changes
+ * and kept while it doesn't, whatever gcloud inside wrote to it. A copy
+ * this process hasn't made yet is made afresh, so neither a session
+ * resumed nor one whose folder name comes round again keeps hosts it
+ * didn't copy.
+ */
+const copiedFrom = new Map<string, string>();
+
+/**
+ * How long a session's copies stand unrenewed before a later pi takes
+ * them for an ended session's and removes them. A live session idle that
+ * long only has them made afresh at its next command; one still running
+ * keeps the files it bound.
+ */
+const UNUSED_FOR_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How often a pi sweeps ended sessions' copies, at an ask: a host that
+ * lives for days sweeps as it goes, not only at its first command.
+ */
+const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+/** When this process last swept ended sessions' copies, never at first. */
+let sweptAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * The person's known-hosts file, read as a plain file, with a digest of
+ * what it says, which tells one version from another where its dates,
+ * size and inode may all repeat; or nothing where it isn't there or
+ * isn't a plain file, which counts as no hosts.
+ */
+function personsHosts(
+	path: string,
+): { readonly text: Buffer; readonly version: string } | undefined {
+	let fd: number;
+	try {
+		fd = openSync(path, AS_IT_STANDS);
+	} catch {
+		// Not there, a link or unreadable: no hosts to copy.
+		return undefined;
+	}
+	try {
+		if (!fstatSync(fd).isFile()) return undefined;
+		const text = readFileSync(fd);
+		return { text, version: createHash("sha256").update(text).digest("hex") };
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * Whether the file at `path`, read as it stands, is the stand-in for
+ * gcloud's key, reading no more of it than tells, as the census does of
+ * what a fenced command sees.
+ */
+export function holdsStandIn(path: string): boolean {
+	return says(path, KEY_STAND_IN);
+}
+
+/** Whether `path` holds a plain file, not following a link. */
+function isPlainFile(path: string): boolean {
+	try {
+		return lstatSync(path).isFile();
+	} catch {
+		// Not there.
+		return false;
+	}
+}
+
+/** Whether the file at `path`, read as it stands, says `text`, reading no more than it needs. */
+function says(path: string, text: string): boolean {
+	let fd: number;
+	try {
+		fd = openSync(path, AS_IT_STANDS);
+	} catch {
+		// Not there, or a link: it says nothing.
+		return false;
+	}
+	try {
+		if (!fstatSync(fd).isFile()) return false;
+		const want = Buffer.from(text);
+		const read = Buffer.alloc(want.length + 1);
+		const got = readSync(fd, read, 0, read.length, 0);
+		return got === want.length && read.subarray(0, got).equals(want);
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * Writes `text` to `path` beside it and renames it over, so what stood
+ * there, a file a command still reads or a link, is replaced whole.
+ */
+function writeOver(path: string, text: Buffer | string): void {
+	const staging = `${path}.${randomUUID()}`;
+	try {
+		writeFileSync(staging, text, { mode: 0o600, flag: "wx" });
+		renameSync(staging, path);
+	} finally {
+		rmSync(staging, { force: true });
+	}
+}
+
+/**
+ * Makes each folder from pi's own down, one at a time, never the runtime
+ * folder itself: node's recursive mkdir spins for good where a parent
+ * exists but refuses a child with ENOENT (`fence-copy.ts`). Each must be
+ * the account's own private folder, not a link another left; the deepest
+ * is answered, and where one isn't, what it is is thrown.
+ */
+function privateFolders(runtimeDir: string, names: readonly string[]): string {
+	// A folder below the runtime folder gone as it was asked for was most
+	// likely put aside by a sweep; that is its cause, not a folder of the
+	// wrong mode. No sweep takes the runtime folder, nor makes it again.
+	const refused = (folder: string): Error => {
+		if (existsSync(folder) || isLink(folder)) {
+			return new Error(
+				`${folder} isn't this account's own private folder (mode 700)`,
+			);
+		}
+		return new Error(
+			folder === runtimeDir
+				? `${folder}, the runtime folder, isn't there`
+				: `${folder} went as it was made, as a sweep of ended sessions takes one; the next command makes it again`,
+		);
+	};
+	if (!isPrivateFolder(runtimeDir)) throw refused(runtimeDir);
+	let folder = runtimeDir;
+	for (const name of names) {
+		folder = join(folder, name);
+		if (!existsSync(folder)) makeFolder(folder);
+		if (!isPrivateFolder(folder)) throw refused(folder);
+	}
+	return folder;
+}
+
+/**
+ * Removes the copies of sessions not used for `UNUSED_FOR_MS` from
+ * `sessions`, pi's folder of them, as each session's folder dates its
+ * last use, half-written copies a killed pi left among them; never `session`'s
+ * own folder, nor anything but this account's own plain files and the
+ * folders holding them. Nothing is followed: each name is unlinked, never
+ * walked. Each is first renamed aside, under a name no session takes, and
+ * its date read again there: one its session dated afresh after it was
+ * judged is put back, and once aside its session makes a fresh folder
+ * rather than writing into the one being emptied. A session idle a day
+ * whose command is wrapped in the instant between the two renames can
+ * still fail that one command's bind; its next makes the copies anew.
+ * One put aside and left, by a pi killed mid-sweep or a removal that
+ * failed, is taken by a later sweep once `ASIDE_LEFT_MS` past the rename
+ * that dated its change, so never one another pi's sweep is still
+ * ending. `end` ends each folder put aside, `endAside` but in tests.
+ */
+export function sweepEnded(
+	sessions: string,
+	session: string,
+	now: number,
+	end: typeof endAside = endAside,
+): void {
+	let names: string[];
+	try {
+		names = readdirSync(sessions);
+	} catch {
+		// Nothing to sweep.
+		return;
+	}
+	for (const name of names) {
+		const folder = join(sessions, name);
+		try {
+			if (ASIDE.test(name)) {
+				if (now - lstatSync(folder).ctimeMs >= ASIDE_LEFT_MS) {
+					removeAside(folder);
+				}
+				continue;
+			}
+			if (name === session || !SESSION_NAME.test(name)) continue;
+			const stat = lstatSync(folder);
+			if (!isPrivateFolder(folder) || now - stat.mtimeMs < UNUSED_FOR_MS) {
+				continue;
+			}
+			const aside = join(sessions, `.ended-${randomUUID()}`);
+			renameSync(folder, aside);
+			end(aside, folder, stat.mtimeMs);
+		} catch {
+			// In use again, or not this account's to remove: left as it is.
+		}
+	}
+}
+
+/** A name the sweep puts a folder aside under, which no session's name takes. */
+const ASIDE = /^\.ended-[0-9a-f-]{36}$/;
+
+/**
+ * How long a folder put aside must have sat, since the rename that dated
+ * its change, before a sweep takes it as left: far past the instant one
+ * sweep takes to end what it put aside.
+ */
+const ASIDE_LEFT_MS = 10 * 60 * 1000;
+
+/**
+ * Ends the copies the sweep put aside at `aside` from `folder`, judged
+ * unused when dated `judgedMs`: put back where its session dated it
+ * since, and otherwise removed (`removeAside`). Throws where it can do
+ * neither, leaving it for a later sweep.
+ */
+export function endAside(
+	aside: string,
+	folder: string,
+	judgedMs: number,
+): void {
+	const stat = lstatSync(aside);
+	if (stat.isDirectory() && stat.mtimeMs !== judgedMs) {
+		// Its session dated it as it was judged: back where it was.
+		renameSync(aside, folder);
+		return;
+	}
+	removeAside(aside);
+}
+
+/**
+ * Removes `aside`, a folder the sweep put aside: its plain files, then
+ * itself, where it is this account's own private folder. Anything else
+ * there, a link swapped in as it was judged among them, is unlinked as a
+ * name, never walked; a folder within one, which no session's copies
+ * make, is left, and so the aside, for the person. Between the check and
+ * the walk only the account's processes outside the fence could swap a
+ * link in, since pi's folder of sessions is its own and private.
+ */
+function removeAside(aside: string): void {
+	if (!isPrivateFolder(aside)) {
+		if (isLink(aside)) unlinkSync(aside);
+		return;
+	}
+	for (const file of readdirSync(aside)) {
+		const path = join(aside, file);
+		const stat = lstatSync(path);
+		if (stat.isFile() || stat.isSymbolicLink()) unlinkSync(path);
+	}
+	rmdirSync(aside);
+}
+
+/**
+ * Whether gcloud's key in `ssh`, the person's `~/.ssh`, has its public
+ * half as a plain file: only then is the stand-in bound over the key,
+ * since ssh signs through the agent with the key the `.pub` names.
+ */
+export function hasPublicHalf(ssh: string, disk: Disk = DISK): boolean {
+	return disk.kind(join(ssh, `${GCLOUD_KEY}.pub`)) === "file";
+}
+
+/** Whether `path` is a link itself. */
+function isLink(path: string): boolean {
+	try {
+		return lstatSync(path).isSymbolicLink();
+	} catch {
+		// Not there.
+		return false;
+	}
+}
+
+/**
+ * The session `session`'s copies of gcloud's files in `~/.ssh`, made in
+ * pi's folder in `runtimeDir` and brought up to date: the known-hosts
+ * file copied afresh the first time this process asks, whenever the
+ * person's changes or the session's isn't a plain file, empty where the
+ * person has none; the stand-in written wherever it reads wrong. Asked
+ * before each command, so each finds the person's latest hosts. Nothing
+ * where there is no runtime folder, where a folder on the way isn't the
+ * account's own and private, or where a copy can't be written; the fence
+ * then binds neither, and `unmade` is told why.
+ */
+export function fenceGcloudSsh(
+	runtimeDir: string | undefined,
+	home: string,
+	session: string,
+	unmade: (why: string) => void = () => {},
+): GcloudSsh | undefined {
+	if (!runtimeDir) {
+		unmade("no XDG_RUNTIME_DIR is set");
+		return undefined;
+	}
+	if (!SESSION_NAME.test(session)) {
+		unmade(`the session's name ${JSON.stringify(session)} can't name a folder`);
+		return undefined;
+	}
+	try {
+		const folder = privateFolders(runtimeDir, [FOLDER, SESSIONS, session]);
+		// Dated as used now, so no other pi sweeps it as an ended session's.
+		const now = new Date();
+		lutimesSync(folder, now, now);
+		if (now.getTime() - sweptAt >= SWEEP_EVERY_MS) {
+			sweptAt = now.getTime();
+			sweepEnded(join(runtimeDir, FOLDER, SESSIONS), session, now.getTime());
+		}
+		const knownHosts = join(folder, GCLOUD_KNOWN_HOSTS);
+		const key = join(folder, GCLOUD_KEY);
+		const person = personsHosts(join(home, ".ssh", GCLOUD_KNOWN_HOSTS));
+		const version = person?.version ?? "none";
+		if (!isPlainFile(knownHosts) || copiedFrom.get(knownHosts) !== version) {
+			copiedFrom.delete(knownHosts);
+			writeOver(knownHosts, person?.text ?? "");
+			copiedFrom.set(knownHosts, version);
+		}
+		if (!holdsStandIn(key)) writeOver(key, KEY_STAND_IN);
+		return { knownHosts, key };
+	} catch (error) {
+		// No copies, so the fence binds none, and gcloud's ssh fails inside
+		// as it did before they existed, with why told: a full runtime
+		// folder reads as one, not as a folder's mode.
+		const said = error instanceof Error ? error.message : String(error);
+		unmade(
+			codeOf(error) === "ENOENT"
+				? `${said}, most likely as a sweep of ended sessions took its folder; the next command makes it again`
+				: said,
+		);
+		return undefined;
+	}
+}

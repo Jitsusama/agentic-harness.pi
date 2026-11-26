@@ -86,6 +86,11 @@ import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
 import {
+	fenceGcloudSsh,
+	GCLOUD_KEY,
+	hasPublicHalf,
+} from "../fence/fence-gcloud-ssh.ts";
+import {
 	guardedFolders,
 	guardedIn,
 	plantStopped,
@@ -533,6 +538,38 @@ export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
 });
 
 /**
+ * `command`, preceded by a note on stderr when it runs gcloud's ssh or
+ * scp and the session's copies of gcloud's ssh files couldn't be made,
+ * so the agent reads why `gcloud compute ssh` fails on `~/.ssh` beside
+ * gcloud's own complaint, rather than taking the fence for one that never
+ * made them. gsutil, bq and gcloud's other commands never write there, so
+ * they aren't told. `unmade` says why, or nothing where they were made;
+ * `asked` is the command as the agent asked it, read for gcloud's ssh,
+ * since `text` may already carry other notes that name gcloud.
+ */
+export function withGcloudSshNote(
+	text: string,
+	unmade: string | undefined,
+	asked: string = text,
+): string {
+	if (unmade === undefined || !runsGcloudSsh(asked)) return text;
+	return `printf 'pi: %s\\n' ${quoted(gcloudSshUnmade(unmade))} >&2\n${text}`;
+}
+
+/** Whether a command names gcloud and its ssh or scp, which write `~/.ssh`. */
+function runsGcloudSsh(command: string): boolean {
+	return (
+		/(^|[^\w.-])gcloud($|[^\w.-])/.test(command) &&
+		/(^|[^\w.-])(ssh|scp)($|[^\w.-])/.test(command)
+	);
+}
+
+/** What the note says when gcloud's ssh can't work in this session, for `why`. */
+export function gcloudSshUnmade(why: string): string {
+	return `gcloud's ssh can't work in this session (fence-gcloud-ssh.ts): ${why}. So gcloud compute ssh fails on the read-only ~/.ssh here; mend that, or run it from an unfenced session`;
+}
+
+/**
  * `command`, preceded by a note on stderr saying why gcloud has no token
  * when it names the cloud's programs and `grant` gives none, so the agent
  * reads the reason beside gcloud's own complaint.
@@ -812,6 +849,28 @@ export function wrapFor(
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
 			const served = sandbox.served === true;
+			// gcloud's ssh writes its known hosts and wants its key's two
+			// halves in ~/.ssh, which the fence keeps read-only and empties of
+			// private keys, so the session has copies (fence-gcloud-ssh.ts).
+			// Every caller wraps afresh for each command, so this brings them
+			// up to date just before the one command it wraps.
+			let gcloudUnmade: string | undefined;
+			const gcloudSsh = served
+				? undefined
+				: fenceGcloudSsh(
+						place.env.XDG_RUNTIME_DIR,
+						home,
+						sessionFolderName(place.env),
+						(why) => {
+							gcloudUnmade = `its files couldn't be copied: ${why}`;
+						},
+					);
+			// With no public half as a plain file the fence binds no stand-in,
+			// so gcloud finds no key and makes one, which the read-only ~/.ssh
+			// refuses.
+			if (gcloudSsh && !hasPublicHalf(join(home, ".ssh"))) {
+				gcloudUnmade = `~/.ssh/${GCLOUD_KEY}.pub is missing or not a plain file, so gcloud would make a new key, which it can't write here; make it once outside the fence`;
+			}
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
 				? undefined
@@ -830,6 +889,7 @@ export function wrapFor(
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
 				docker: dockerHoldsCredentials(home),
 				...(devCopies ? { devCopies } : {}),
+				...(gcloudSsh ? { gcloudSsh } : {}),
 			};
 			makeFoldersFirst(home);
 			setAsidePlanted();
@@ -909,7 +969,14 @@ export function wrapFor(
 				);
 				const text = withAfterCheckIn(
 					fence.runtimeDir,
-					fencedCommand(withCloudNote(withSecretNote(command), grant), cloud),
+					fencedCommand(
+						withGcloudSshNote(
+							withCloudNote(withSecretNote(command), grant),
+							gcloudUnmade,
+							command,
+						),
+						cloud,
+					),
 					guarded,
 					planted,
 				);
@@ -918,7 +985,7 @@ export function wrapFor(
 				const long = tooLong(
 					text,
 					command,
-					made.args,
+					cloud.args,
 					() =>
 						guarded.length > 0 &&
 						guardedListFile(fence.runtimeDir, guarded) === undefined,

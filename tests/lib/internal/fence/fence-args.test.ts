@@ -1235,6 +1235,89 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(fenceHidesBeneath(tree, place, linked)).toBeUndefined();
 	});
 
+	it("binds the session's copies for gcloud's ssh, its known hosts writable", () => {
+		const ssh = `${home}/.ssh`;
+		const copies = {
+			knownHosts:
+				"/run/user/1000/pi-fence/gcloud-ssh/one/google_compute_known_hosts",
+			key: "/run/user/1000/pi-fence/gcloud-ssh/one/google_compute_engine",
+		};
+		const gcloudArgs = fenceArgs(
+			{
+				home,
+				runtimeDir: "/run/user/1000",
+				cwd: tree,
+				ownGitFolder: own,
+				gcloudSsh: copies,
+			},
+			diskOf([
+				...paths,
+				`${ssh}/google_compute_known_hosts`,
+				`${ssh}/google_compute_engine`,
+				`${ssh}/google_compute_engine.pub`,
+			]),
+		);
+		const text = gcloudArgs.join(" ");
+		expect(text).toContain(
+			`--bind ${copies.knownHosts} ${ssh}/google_compute_known_hosts`,
+		);
+		expect(text).not.toContain(`--ro-bind ${ssh}/google_compute_known_hosts`);
+		expect(text).toContain(
+			`--ro-bind ${copies.key} ${ssh}/google_compute_engine `,
+		);
+		expect(text, "the person's own key is never bound").not.toContain(
+			`--ro-bind ${ssh}/google_compute_engine ${ssh}/google_compute_engine `,
+		);
+		expect(
+			fenceRefusesWrite(`${ssh}/google_compute_known_hosts`, {
+				home,
+				runtimeDir: "/run/user/1000",
+				cwd: tree,
+				gcloudSsh: copies,
+			}),
+			"pi's own tools write the person's real known hosts, which the proxy trusts",
+		).toBe(true);
+		// Where `flag` is given `path`, as the pair of words bubblewrap reads.
+		const pair = (flag: string, path: string): number =>
+			gcloudArgs.findIndex(
+				(word, at) => word === flag && gcloudArgs[at + 1] === path,
+			);
+		const emptied = pair("--tmpfs", ssh);
+		const bound = pair("--bind", copies.knownHosts);
+		const standIn = pair("--ro-bind", copies.key);
+		const sealed = pair("--remount-ro", ssh);
+		expect(emptied, "the folder is emptied").toBeGreaterThanOrEqual(0);
+		expect(sealed, "and made read-only").toBeGreaterThan(emptied);
+		for (const [name, at] of [
+			["the known hosts", bound],
+			["the key's stand-in", standIn],
+		] as const) {
+			expect(at, `${name}, after the folder is emptied`).toBeGreaterThan(
+				emptied,
+			);
+			expect(at, `${name}, before it is made read-only`).toBeLessThan(sealed);
+		}
+	});
+
+	it("stands in no key for gcloud where its public half isn't kept", () => {
+		const copies = { knownHosts: "/run/k", key: "/run/e" };
+		const text = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000", cwd: tree, gcloudSsh: copies },
+			diskOf(paths),
+		).join(" ");
+		expect(text).toContain(
+			`--bind /run/k ${home}/.ssh/google_compute_known_hosts`,
+		);
+		expect(text).not.toContain("/run/e");
+		// Nor where the public half is a folder, which the fence doesn't bind
+		// back either.
+		const folder = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000", cwd: tree, gcloudSsh: copies },
+			diskOf([...paths, `${home}/.ssh/google_compute_engine.pub/`]),
+		).join(" ");
+		expect(folder, "a stand-in beside a folder").not.toContain("/run/e");
+	});
+
 	it("empties the private keys kept outside ~/.ssh, for commands and pi's file tools alike", () => {
 		const key = `${home}/.local/state/nix-offload/store_ed25519`;
 		expect(HIDDEN.map((path) => `${home}/${path}`)).toContain(key);
