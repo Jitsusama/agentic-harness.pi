@@ -44,6 +44,21 @@ export function saysParked(presence: Pick<Presence, "state">): boolean {
 	return presence.state === "parked";
 }
 
+/** A parked peer as one listening for a message. */
+function listenerOf(parked: Presence) {
+	return {
+		addresses: parked.addresses,
+		groups: parked.groups,
+		...(parked.machine !== undefined ? { machine: parked.machine } : {}),
+	};
+}
+
+/** Whether a message reaches a parked peer at all, judged on what its presence says. */
+function reachesParked(message: Message, parked: Presence): boolean {
+	// Its process is gone, so no pid of a sender is its own.
+	return reaches(message, listenerOf(parked), -1);
+}
+
 /**
  * Whether this message would give the parked peer a turn, were it
  * there. A pivot counts from anyone: who orchestrates it is read from
@@ -60,13 +75,8 @@ export function wakes(
 	sender?: Pick<Presence, "orchestratedBy">,
 	now: number = Date.parse(message.at),
 ): boolean {
-	const listener = {
-		addresses: parked.addresses,
-		groups: parked.groups,
-		...(parked.machine !== undefined ? { machine: parked.machine } : {}),
-	};
-	// Its process is gone, so no pid of a sender is its own.
-	if (!reaches(message, listener, -1)) return false;
+	const listener = listenerOf(parked);
+	if (!reachesParked(message, parked)) return false;
 	if (message.intent === "pivot") return true;
 	const self = { addresses: parked.addresses, pid: -1 };
 	const led =
@@ -190,7 +200,10 @@ export function wakeParked(
 	const woken: string[] = [];
 	const sender = everyone.find((one) => one.addresses.includes(message.from));
 	for (const one of everyone) {
-		if (!saysParked(one) || !isParked(one.session)) continue;
+		// Reached first, since a marker is looked at on the thread for each:
+		// on 26 November that was 1.4 s of one start's catch-up.
+		if (!saysParked(one) || !reachesParked(message, one)) continue;
+		if (!isParked(one.session)) continue;
 		if (!wakes(message, one, read, sender, judged.now)) continue;
 		if (judged.still && !judged.still(one)) continue;
 		try {

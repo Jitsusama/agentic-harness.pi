@@ -200,6 +200,31 @@ describe("waking a parked peer", () => {
 		expect(woken).toEqual(["s-parked"]);
 		expect(asked).toEqual([["s-parked", "2-80ECO2-1-aaaa"]]);
 	});
+
+	it("looks at the marker only of a parked peer the message reaches", () => {
+		// On 26 November one start's catch-up spent 1.4 s on its thread
+		// looking at every parked peer's marker for each message carried in.
+		const elsewhere: Presence = {
+			...parked,
+			session: "s-elsewhere",
+			addresses: ["QQQQQQ"],
+			groups: [],
+		};
+		const looked: string[] = [];
+
+		wakeParked(
+			message(),
+			[elsewhere, parked],
+			nothing,
+			(session) => {
+				looked.push(session);
+				return true;
+			},
+			() => {},
+		);
+
+		expect(looked).toEqual(["s-parked"]);
+	});
 });
 
 describe("waking a parked peer for a message carried in", () => {
