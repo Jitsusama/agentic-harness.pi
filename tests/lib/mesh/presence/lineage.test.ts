@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/fields/mutate.ts";
 import { questAddress, sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
@@ -151,6 +151,203 @@ describe("the cell this session's peer says its work split from", () => {
 			"no lineage naming its old address",
 		).toBeUndefined();
 	});
+
+	// A restarted peer remembers what it answered to, so it reads the
+	// READMEs off the thread; every sprouted quest names a split, so the
+	// split's judgement is read off it too, joining the start's reading
+	// rather than sweeping the store beside it, and said once it lands.
+	it("judges a split off the thread once it remembers its addresses, and takes it back once read", async () => {
+		const remembered = questAddress("QEST-20261122-BEFORE");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [remembered],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		const old = "QEST-20261123-ASKERQ";
+		mkdirSync(join(root, "quests", old), { recursive: true });
+		writeFileSync(
+			join(root, "quests", old, "README.md"),
+			`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${session}\n`,
+		);
+		write(readme(`split-from: ${questAddress(old)}\n`));
+		const peer = localPeer(surroundingsAt(root));
+
+		try {
+			expect(kept()?.lineage, "no README read on the thread").toEqual({
+				split_from: questAddress(old),
+			});
+			// The pool reads behind whatever a loaded machine has queued.
+			await vi.waitFor(
+				() =>
+					expect(
+						kept()?.lineage,
+						"none once its old quest is read",
+					).toBeUndefined(),
+				{ timeout: 10_000 },
+			);
+		} finally {
+			peer.dispose();
+		}
+	}, 15_000);
+
+	// Its start's reading is done by then, so only the split's own
+	// reading, off the thread, finds the old quest that listed it since.
+	it("judges off the thread a split from a quest that listed it after it began", async () => {
+		const remembered = questAddress("QEST-20261122-BEFORE");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [remembered],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		const listing = "QEST-20261121-LISTED";
+		mkdirSync(join(root, "quests", listing), { recursive: true });
+		writeFileSync(
+			join(root, "quests", listing, "README.md"),
+			`---\nid: ${listing}\nstatus: active\n---\n# ${listing}\n\n- ${session}\n`,
+		);
+		write(readme());
+		const peer = localPeer(surroundingsAt(root));
+
+		try {
+			// The quest only the start's reading finds marks its end.
+			await vi.waitFor(
+				() => expect(peer.addresses).toContain(questAddress(listing)),
+				{ timeout: 10_000 },
+			);
+			const old = "QEST-20261123-ASKERQ";
+			mkdirSync(join(root, "quests", old), { recursive: true });
+			writeFileSync(
+				join(root, "quests", old, "README.md"),
+				`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${session}\n`,
+			);
+			write(readme(`split-from: ${questAddress(old)}\n`));
+			peer.refresh();
+
+			expect(kept()?.lineage, "no README read on the thread").toEqual({
+				split_from: questAddress(old),
+			});
+			await vi.waitFor(
+				() =>
+					expect(
+						kept()?.lineage,
+						"none once its old quest is read",
+					).toBeUndefined(),
+				{ timeout: 10_000 },
+			);
+		} finally {
+			peer.dispose();
+		}
+	}, 25_000);
+
+	// The split joins the start's reading, which may have passed its old
+	// quest before that quest listed it, so a miss is judged again.
+	it("judges again a split its joined reading didn't find", async () => {
+		const remembered = questAddress("QEST-20261122-BEFORE");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [remembered],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		const listing = "QEST-20261121-LISTED";
+		mkdirSync(join(root, "quests", listing), { recursive: true });
+		writeFileSync(
+			join(root, "quests", listing, "README.md"),
+			`---\nid: ${listing}\nstatus: active\n---\n# ${listing}\n\n- ${session}\n`,
+		);
+		const old = "QEST-20261123-ASKERQ";
+		const oldReadme = (names: string) =>
+			writeFileSync(
+				join(root, "quests", old, "README.md"),
+				`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${names}\n`,
+			);
+		mkdirSync(join(root, "quests", old), { recursive: true });
+		oldReadme("someone-else");
+		write(readme());
+		const peer = localPeer(surroundingsAt(root));
+
+		try {
+			// Asked in the same turn as the start, so it joins that reading.
+			write(readme(`split-from: ${questAddress(old)}\n`));
+			peer.refresh();
+			await vi.waitFor(
+				() => expect(peer.addresses).toContain(questAddress(listing)),
+				{ timeout: 10_000 },
+			);
+			expect(kept()?.lineage, "a split the reading didn't find").toEqual({
+				split_from: questAddress(old),
+			});
+
+			oldReadme(session);
+			peer.refresh();
+
+			await vi.waitFor(
+				() =>
+					expect(
+						kept()?.lineage,
+						"none once a fresh reading finds it",
+					).toBeUndefined(),
+				{ timeout: 10_000 },
+			);
+		} finally {
+			peer.dispose();
+		}
+	}, 25_000);
+
+	// A reading that took back every split would pass the two above.
+	it("keeps saying a split from another cell once the readings land", async () => {
+		const remembered = questAddress("QEST-20261122-BEFORE");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [remembered],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		const listing = "QEST-20261121-LISTED";
+		mkdirSync(join(root, "quests", listing), { recursive: true });
+		writeFileSync(
+			join(root, "quests", listing, "README.md"),
+			`---\nid: ${listing}\nstatus: active\n---\n# ${listing}\n\n- ${session}\n`,
+		);
+		write(readme("split-from: TERN02\n"));
+		const peer = localPeer(surroundingsAt(root));
+
+		try {
+			await vi.waitFor(
+				() => expect(peer.addresses).toContain(questAddress(listing)),
+				{ timeout: 10_000 },
+			);
+			peer.refresh();
+
+			expect(kept()?.lineage, "still the split from TERN02").toEqual({
+				split_from: "TERN02",
+			});
+		} finally {
+			peer.dispose();
+		}
+	}, 15_000);
 
 	// A session's address is hex, so it can be all digits, which YAML
 	// would read back as a number were it written bare.

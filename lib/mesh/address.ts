@@ -424,11 +424,14 @@ const READMES_AT_ONCE = 32;
  * `olderAddresses`, read off the thread: the READMEs are read by
  * libuv's pool, a few at a time, so a start that already knows what it
  * answered to before needn't wait on hundreds of reads. One unreadable
- * README, or no quest store, names nothing, as on the thread.
+ * README, or no quest store, names nothing, as on the thread. Once
+ * `stopped` says so, as when its peer is disposed, it reads no more
+ * batches and answers what it found so far.
  */
 export async function olderAddressesOff(
 	sessionId: string,
 	records: QuestRecords,
+	stopped: () => boolean = () => false,
 ): Promise<string[]> {
 	let ids: string[] = [];
 	try {
@@ -437,7 +440,7 @@ export async function olderAddressesOff(
 		// No quest store: the session id alone addresses the peer.
 	}
 	const listing: string[] = [];
-	for (let at = 0; at < ids.length; at += READMES_AT_ONCE) {
+	for (let at = 0; at < ids.length && !stopped(); at += READMES_AT_ONCE) {
 		const batch = ids.slice(at, at + READMES_AT_ONCE);
 		const lists = await Promise.all(
 			batch.map((id) =>
