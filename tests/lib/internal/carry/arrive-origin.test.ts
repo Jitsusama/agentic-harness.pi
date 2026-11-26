@@ -239,6 +239,53 @@ describe("arriving with a tree to clone from origin", () => {
 		]);
 	});
 
+	// #2252 F40: a done file could otherwise have an arrival clone a
+	// repository wherever this login may write.
+	it("refuses a tree its done file places outside home or in a hidden folder, making nothing there", async () => {
+		const { from } = await carried();
+		const home = folder(made, "arriving");
+		const outside = join(folder(made, "elsewhere"), "app");
+		const hidden = join(home, ".pi", "agent", "extensions", "app");
+		const file = doneFileOf(from, SESSION);
+		const done = JSON.parse(readFileSync(file, "utf8"));
+		const kept = done.trees[0];
+		done.trees = [
+			{ ...kept, path: outside },
+			{ ...kept, path: "~/.pi/agent/extensions/app" },
+			kept,
+		];
+		writeFileSync(file, JSON.stringify(done));
+		const { through, fetches } = boundedFetches();
+
+		const { whole, said } = await arriveThrough(home, from, through);
+
+		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
+		expect(said[0]).toMatchObject({
+			path: outside,
+			did: "refused",
+			why: expect.stringMatching(/outside the person's home/),
+		});
+		expect(said[1]).toMatchObject({
+			path: hidden,
+			did: "refused",
+			why: expect.stringMatching(/in a hidden folder/),
+		});
+		expect(said[2], "the tree beside them still arrives").toMatchObject({
+			path: join(home, "src", "app"),
+			did: "cloned",
+		});
+		expect(existsSync(outside), "nothing made outside home").toBe(false);
+		expect(existsSync(join(home, ".pi")), "nor in the hidden folder").toBe(
+			false,
+		);
+		expect(
+			fetches.filter(({ args }) =>
+				args.some((arg) => arg.includes("elsewhere") || arg.includes(".pi")),
+			),
+			"git is asked nothing for the refused ones",
+		).toEqual([]);
+	});
+
 	it("refuses a tree whose done file names a branch git could read as a flag, and only that tree", async () => {
 		const { from } = await carried();
 		const home = folder(made, "arriving");

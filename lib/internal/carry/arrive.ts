@@ -53,6 +53,7 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
+import { placeRefused } from "./tree-place.ts";
 import { cloningAt, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
@@ -363,6 +364,8 @@ async function arriveTree(
 			why: `Its done file names ${flag}, which git could read as an option, so it isn't given to git.`,
 		};
 	}
+	const astray = placeRefused(path, here.home, here.trees);
+	if (astray !== undefined) return { ...line, did: "refused", why: astray };
 	const readied = await readyTree(exec, git, tree, from, path, here);
 	if (readied.kind === "refused") {
 		return { ...line, did: "refused", why: readied.why };
