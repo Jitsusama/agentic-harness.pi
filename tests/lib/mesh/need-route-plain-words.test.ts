@@ -183,6 +183,12 @@ describe("the plain words a need is not matched by", () => {
 		expect(wordsOf(`${id}p`), "past it").not.toContain(`${id}p`);
 	});
 
+	// A common word before a phrase's head leaves the phrase whole
+	// (#2220's fifth council, F6).
+	it("reads a phrase after a common word", () => {
+		expect(wordsOf("please back up the database")).toContain("back-up");
+	});
+
 	it("keeps a plain word inside an id, which names the work whole", () => {
 		expect(wordsOf("hand-over"), "the id kept").toContain("hand-over");
 	});

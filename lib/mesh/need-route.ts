@@ -312,10 +312,12 @@ const PARTICLES = ["over", "off", "out", "up", "down", "back", "away"];
  * common words, left out alone, so without the phrase "hand over" says
  * only hand, and a hub of hand-off takes it as surely as one of
  * hand-over (#2204's judge, F37). An id no cell holds costs nothing,
- * since a need keeps only the words some cell works on.
+ * since a need keeps only the words some cell works on. The particle
+ * is looked ahead at, not taken, so it may head a phrase of its own:
+ * "please back up" is back-up (#2220's fifth council, F6).
  */
 const PARTICLE_IN_PROSE = new RegExp(
-	`(?<![\\p{L}\\p{N}_-])(\\p{L}[\\p{L}\\p{N}]*)\\s+(${PARTICLES.join("|")})(?![\\p{L}\\p{N}_-])`,
+	`(?<![\\p{L}\\p{N}_-])(\\p{L}[\\p{L}\\p{N}]*)(?=\\s+(${PARTICLES.join("|")})(?![\\p{L}\\p{N}_-]))`,
 	"gu",
 );
 
@@ -445,6 +447,18 @@ export function routingWords(subject: string): string[] {
  */
 export function overLongWords(subject: string): string[] {
 	return subjectWords(subject).filter((word) => word.length > LONGEST_WORD);
+}
+
+/**
+ * Whether a subject's hub takes no need: its narrowest part holds no
+ * word routing reads (`routingWords`), or one past `LONGEST_WORD`
+ * (`overLongWords`), which no need says. Config refuses such a subject,
+ * its report names one already declared, and none is led.
+ */
+export function hubTakesNone(subject: string): boolean {
+	return (
+		routingWords(subject).length === 0 || overLongWords(subject).length > 0
+	);
 }
 
 /**
@@ -651,7 +665,12 @@ function routeAs(
 	);
 	const holds = (address: string, word: string) =>
 		wordsHeld.get(address)?.has(word) ?? false;
-	const saying = new Set(said.words);
+	// A word past the cap is a token, not work, which no need keeps, so
+	// no hub is taken by it, even said whole: a subject holding one is
+	// refused by config and led by nobody (#2220's fifth council, F1/F5).
+	const saying = new Set(
+		said.words.filter((word) => word.length <= LONGEST_WORD),
+	);
 	// A need naming one numbered id, leg 27, says nothing of another,
 	// leg-26, whose words it shares: a cell holding leg-26 takes it on
 	// the word leg only when the need says leg-26 as well. A longer id

@@ -100,6 +100,7 @@ describe("plainQuotes", () => {
 		["the Hebrew gershayim, which draws as a double quote", "\u05F4"],
 		["the ideographic ditto mark", "\u3003"],
 		["a modifier double acute accent", "\u02DD"],
+		["the mid-height double grave and double acute", "\u02F5\u02F6"],
 	])("says %s as a straight single quote", (_, quote) => {
 		expect(plainQuotes(`y${quote}z`)).toBe(
 			`y${"'".repeat([...quote].length)}z`,

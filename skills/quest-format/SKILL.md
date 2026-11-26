@@ -196,7 +196,9 @@ Field semantics:
   for, so a need on the mesh finds them by those. Each names
   the work in its narrowest part, after its last colon, dot or
   slash: `config` refuses one whose part there holds only short,
-  over-long or common words, as `x:can` or `hooks:after`. Set
+  over-long or common words, as `x:can` or `hooks:after`, and
+  one holding any word there past 32 letters, which no need
+  keeps, so its hub would take none. Set
   with the quest tool's `config` (`ref` `subjects=a,b`, cleared
   with `subjects=`), never by hand.
 - `stands-at-top`: optional, `{name: The Void, keywords:

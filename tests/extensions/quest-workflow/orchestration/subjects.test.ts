@@ -12,6 +12,7 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { questAddress } from "../../../../lib/mesh/address.ts";
 import { LONGEST_WORD } from "../../../../lib/mesh/need-route.ts";
+import { MOST_SUBJECTS } from "../../../../lib/mesh/subjects.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
@@ -111,7 +112,10 @@ describe("the subjects a quest's sessions declare", () => {
 	it("refuse more than the node reads, or one it would pass over, changing nothing", async () => {
 		const id = await made();
 		// Each routes, so only the cap can refuse them.
-		const many = Array.from({ length: 13 }, (_, at) => `area${at}`).join(",");
+		const many = Array.from(
+			{ length: MOST_SUBJECTS + 1 },
+			(_, at) => `area${at}`,
+		).join(",");
 		const tooMany = await run({
 			action: "config",
 			id,
@@ -126,7 +130,9 @@ describe("the subjects a quest's sessions declare", () => {
 			[tooMany.ok, tooLong.ok, subjectsOf(id)],
 			"both refused, nothing set",
 		).toEqual([false, false, undefined]);
-		expect(said(tooMany)).toMatch(/reads at most 12 subjects/);
+		expect(said(tooMany)).toMatch(
+			new RegExp(`reads at most ${MOST_SUBJECTS} subjects`),
+		);
 	});
 
 	it("refuse a subject whose narrowest part names no work, changing nothing", async () => {
@@ -216,6 +222,24 @@ describe("the subjects a quest's sessions declare", () => {
 		const report = await run({ action: "config", id });
 		expect(said(report)).toMatch(/, of which x:can names no work a need/);
 		expect(said(report), "the owned prefix").toMatch(/owning after\./);
+	});
+
+	// One set by hand, or before config refused it, would leave its hub
+	// quiet unseen (#2220's fifth council, F3, F7, F9 and F11).
+	it("name one the README declares whose word past the longest kept leaves its hub taking none", async () => {
+		const id = await made();
+		const long = `x:${"a".repeat(LONGEST_WORD + 1)}-lines`;
+		const file = join(questsRoot(), id, "README.md");
+		const text = readFileSync(file, "utf8");
+		writeFileSync(
+			file,
+			text.replace(/\n---\n/, `\nsubjects:\n  - needs\n  - ${long}\n---\n`),
+		);
+		const report = await run({ action: "config", id });
+		expect(said(report)).toContain(
+			`, of which ${long} says a word past ${LONGEST_WORD} characters, which no need keeps, so its hub takes none`,
+		);
+		expect(said(report), "not as naming no work").not.toMatch(/names no work/);
 	});
 
 	it("refuse what the owner prefixes would crowd out of the twelve places, changing nothing", async () => {

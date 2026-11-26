@@ -602,9 +602,12 @@ while there are none. A need finds a cell by the words of a
 subject's narrowest part, after its last colon, dot or slash, so
 `config` refuses one whose narrowest part holds no word routing
 reads (each too short, past 32 letters or as common as can or
-after), as `x:can` or `hooks:after`, and its report names any such
-subject the README already holds. A subject routes a need and
-grants nothing.
+after), as `x:can` or `hooks:after`. It refuses one holding any
+word there past 32 letters as well: a hub takes a need only when
+the need says every word of its subject, and no need keeps such a
+word. Its report names any subject of either kind the README
+already holds, and neither is ever a led area. A subject routes a
+need and grants nothing.
 
 A quest marked `hears: addressed` (set with the quest tool's
 `config`, `ref` `hears=addressed`, and cleared with `hears=all`)

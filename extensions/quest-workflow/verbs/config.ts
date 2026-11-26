@@ -24,6 +24,7 @@ import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutat
 import { stewards } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
 import {
+	hubTakesNone,
 	LONGEST_WORD,
 	overLongWords,
 	routingWords,
@@ -157,7 +158,8 @@ function ownedByQuest(questId: string): string[] {
  * What the quest's sessions say they work on, as presence publishes
  * it: what they own, then what the README declares, naming any of
  * those the node would pass over or the places would leave out, and
- * which it declares name no work a need is routed by. What it owns is
+ * which it declares name no work a need is routed by or say a word
+ * whose hub no need reaches. What it owns is
  * the machine's config, which `subjects=` can't change, so it is left
  * out of those.
  */
@@ -169,6 +171,12 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	const silent = said.filter(
 		(one) => declared.includes(one) && namesNoWork(one),
 	);
+	// Set by hand or before config refused them, so said here, where
+	// their hubs would otherwise go quiet unseen (#2220's fifth council,
+	// F3, F7, F9 and F11).
+	const hubless = said.filter(
+		(one) => declared.includes(one) && !namesNoWork(one) && hubTakesNone(one),
+	);
 	const parts = [
 		said.length > 0
 			? `They say they work on ${said.join(", ")}`
@@ -177,6 +185,11 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	if (silent.length > 0) {
 		parts.push(
 			`of which ${silent.join(", ")} ${silent.length === 1 ? "names" : "name"} no work a need is routed by`,
+		);
+	}
+	if (hubless.length > 0) {
+		parts.push(
+			`of which ${hubless.join(", ")} ${hubless.length === 1 ? "says a word" : "say words"} past ${LONGEST_WORD} characters, which no need keeps, so ${hubless.length === 1 ? "its hub takes" : "their hubs take"} none`,
 		);
 	}
 	if (owned.length > 0) parts.push(`owning ${owned.join(", ")}`);

@@ -668,6 +668,28 @@ describe("a need routed by declared subjects", () => {
 		});
 	});
 
+	// A word past LONGEST_WORD is a token, not work, even said whole, so
+	// the hub config refuses is never taken (#2220's fifth council, F1
+	// and F5).
+	it("takes no hub for a word longer than any a need keeps, even said whole", () => {
+		const long = "p".repeat(LONGEST_WORD + 1);
+		const found = routeNeed(asked("A", "easing", long, "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
 	it("keeps a word only an ended cell holds by how rare it is, going to the live cell holding more", () => {
 		const taken = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
 		const found = routeNeed(asked("A", "gone", ...taken), {

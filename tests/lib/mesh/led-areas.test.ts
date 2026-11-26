@@ -280,15 +280,36 @@ describe("the led areas kept beside the landings", () => {
 				quests: {
 					"QEST-A": [
 						1,
-						"x:y",
-						{ subject: "x:z" },
-						{ subject: "x:w", until: "later" },
-						{ subject: "x:v", until: NOW + 1 },
+						"x:yarns",
+						{ subject: "x:zones" },
+						{ subject: "x:wells", until: "later" },
+						{ subject: "x:vents", until: NOW + 1 },
 					],
 				},
 			}),
 		);
-		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:y", "x:v"]);
+		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:yarns", "x:vents"]);
+	});
+
+	// A file written before such areas were left out, or by a session not
+	// yet reloaded, still names them until the lead lapses (#2220's fifth
+	// council, F12).
+	it("read none whose hub takes no need, however the file came to hold it", () => {
+		const long = `x:${"a".repeat(LONGEST_WORD + 1)}-lines`;
+		writeFileSync(
+			join(dir, LED_AREAS_FILE),
+			JSON.stringify({
+				v: 2,
+				quests: {
+					"QEST-A": [
+						{ subject: long, until: NOW + 1 },
+						"x:can",
+						{ subject: "x:vents", until: NOW + 1 },
+					],
+				},
+			}),
+		);
+		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:vents"]);
 	});
 
 	// The council, 25 November: a pipe in the file's place would hold a
