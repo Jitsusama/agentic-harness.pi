@@ -24,7 +24,7 @@ import {
 	CURRENT_SESSION_VERSION,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openStanding } from "../../../host/engine/gone-folder.ts";
 import {
 	holdKeptHistory,
@@ -41,6 +41,20 @@ import {
 } from "../../../host/engine/light-open.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import type { Entry } from "../../../lib/internal/session/rollover.ts";
+
+// Each read the light open makes of a log, counted, so a case can tell a
+// look at a log's header from a read of the whole of it.
+const reads = vi.hoisted(() => ({ count: 0 }));
+vi.mock("node:fs", async (original) => {
+	const fs = await original<typeof import("node:fs")>();
+	return {
+		...fs,
+		readSync: (...args: Parameters<typeof fs.readSync>) => {
+			reads.count += 1;
+			return fs.readSync(...args);
+		},
+	};
+});
 
 let dir: string;
 
@@ -362,6 +376,14 @@ describe("a log opened light", () => {
 		expect(answers(lightHeld(file), file)).toEqual(answers(piHeld(file), file));
 	});
 
+	it("takes its header past lines pi's open skips before it, as pi's open does", () => {
+		const file = compactedLog();
+		const text = readFileSync(file, "utf8").split("\n");
+		text.unshift("", "{not json", "   ", "null");
+		writeFileSync(file, text.join("\n"));
+		expect(answers(lightHeld(file), file)).toEqual(answers(piHeld(file), file));
+	});
+
 	it("adds only its next entry to the log, off the leaf it opened on", () => {
 		const file = compactedLog();
 		const before = readFileSync(file, "utf8");
@@ -582,6 +604,31 @@ describe("pi's own open stands", () => {
 			text.replace(`"version":${CURRENT_SESSION_VERSION}`, '"version":2'),
 		);
 		expect(fallsBack(file), "it falls back to pi's own open").toBe(true);
+	});
+
+	it("for a log its header leaves to pi, reading no more of it than the header", () => {
+		// Each is pi's own to open whatever follows its header: a log pi
+		// would migrate, and one whose header names no folder.
+		const headers = [
+			(header: Record<string, unknown>) => ({ ...header, version: 2 }),
+			({ cwd: _, ...header }: Record<string, unknown>) => header,
+		];
+		for (const changed of headers) {
+			const file = compactedLog();
+			const [header = "", ...rest] = readFileSync(file, "utf8").split("\n");
+			// Three of the open's reads long, so reading the whole log is told
+			// from a look at its header.
+			const long = JSON.stringify({
+				type: "custom",
+				customType: "long",
+				data: "x".repeat(3 * 1024 * 1024),
+			});
+			const first = JSON.stringify(changed(JSON.parse(header)));
+			writeFileSync(file, [first, long, ...rest].join("\n"));
+			reads.count = 0;
+			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
+			expect(reads.count, "the log was read past its header").toBe(1);
+		}
 	});
 
 	it("for a pi that doesn't say its log version, saying light opens are off", () => {
