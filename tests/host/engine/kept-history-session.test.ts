@@ -253,9 +253,23 @@ describe("a held session's /session counts", () => {
 		compactAgain(session.sessionManager);
 		holdKeptHistory(session.sessionManager);
 		expect(
-			saysUser(session.sessionManager, "after"),
-			`the user message "after" is listed`,
+			saysUser(session.sessionManager, "latest"),
+			`the user message "latest" is held`,
 		).toBe(true);
+		expect(counts(session)).toEqual(counts(wholeSession(file)));
+		expect(session.getUserMessagesForForking()).toEqual(
+			wholeSession(file).getUserMessagesForForking(),
+		);
+	});
+
+	it("count and list every message once a new compaction leaves out more", () => {
+		const file = compactedLog();
+		const session = heldSession(file);
+		compactAgain(session.sessionManager);
+		expect(
+			saysUser(session.sessionManager, "after"),
+			`the new compaction leaves "after" on disk`,
+		).toBe(false);
 		expect(counts(session)).toEqual(counts(wholeSession(file)));
 		expect(session.getUserMessagesForForking()).toEqual(
 			wholeSession(file).getUserMessagesForForking(),

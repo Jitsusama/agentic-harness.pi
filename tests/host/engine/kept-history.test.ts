@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	holdKeptHistory,
 	holdsLikePi,
+	leftOutOf,
 } from "../../../host/engine/kept-history.ts";
 import { compactionHistory } from "../../../lib/compaction/history.ts";
 import {
@@ -31,11 +32,28 @@ import {
 	type Entry,
 	messagesOnDisk,
 	ROLLOVER_RECORD,
+	rolledFrom,
 } from "../../../lib/internal/session/rollover.ts";
 import {
 	SPEND_CARRY,
 	spentOnBranch,
 } from "../../../lib/internal/spend/session-spend.ts";
+
+/** Ids, in hex, the next random draws answer before any random one. */
+const drawn = vi.hoisted((): string[] => []);
+
+vi.mock("node:crypto", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:crypto")>();
+	return {
+		...actual,
+		randomBytes: (size: number) => {
+			const next = drawn.shift();
+			return next === undefined
+				? actual.randomBytes(size)
+				: Buffer.from(next, "hex");
+		},
+	};
+});
 
 let dir: string;
 
@@ -44,6 +62,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	drawn.length = 0;
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -452,6 +471,128 @@ function entryReading(manager: SessionManager, text: string) {
 	return found;
 }
 
+/**
+ * Turns after the compaction a held `manager` holds, then a compaction
+ * keeping from the second of them, an extension's note just before it,
+ * and a turn after it.
+ */
+function compactsAgain(manager: SessionManager): void {
+	exchange(manager, "later one", 0.75);
+	manager.appendCustomMessageEntry("peers", "another note", false);
+	exchange(manager, "later two", 0.25);
+	const kept = entryReading(manager, "later two").id;
+	exchange(manager, "later three");
+	manager.appendCompaction("what happened since", kept, 2000);
+	exchange(manager, "latest");
+}
+
+describe("a held conversation that compacts again", () => {
+	it("lets go of what its new compaction leaves out", () => {
+		const held = hold(compactedLog());
+		compactsAgain(held);
+		expect(texts(held.getEntries())).toEqual([
+			"later two",
+			"answer to later two",
+			"later three",
+			"answer to later three",
+			"latest",
+			"answer to latest",
+		]);
+	});
+
+	it("holds what its log held afresh holds, and answers as it does", async () => {
+		const breakdown = await pisBreakdown();
+		const file = compactedLog({
+			rolled: true,
+			earlyPrompt: 40_000,
+			earlyBy: { provider: "other", model: "other-1" },
+			abandoned: true,
+		});
+		const held = hold(file);
+		compactsAgain(held);
+		const whole = SessionManager.open(file);
+		const fresh = hold(file);
+		expect(texts(held.getEntries())).toEqual(texts(fresh.getEntries()));
+		expect(held.getLeafId()).toBe(whole.getLeafId());
+		expect(held.buildSessionContext()).toEqual(whole.buildSessionContext());
+		expect(spentOnBranch(held.getBranch())).toBeCloseTo(
+			spentOnBranch(whole.getBranch()),
+		);
+		expect(spentOnBranch(whole.getBranch())).toBeCloseTo(16.5);
+		expect(compactionHistory(held.getBranch()).firstPromptTokens).toBe(40_000);
+		expect(carriedBy(held.getBranch(), "other")).toEqual({ kept: true });
+		expect(rolledFrom(held.getBranch())?.dropped).toBe(
+			rolledFrom(fresh.getBranch())?.dropped,
+		);
+		expect(rounded(breakdown(held.getEntries()))).toEqual(
+			rounded(breakdown(whole.getEntries())),
+		);
+		expect(carriedBy(held.getBranch(), SPEND_CARRY)).toEqual(
+			carriedBy(fresh.getBranch(), SPEND_CARRY),
+		);
+	});
+
+	it("reads back what its new compaction left out, and says so", () => {
+		const file = compactedLog();
+		const report = vi.fn();
+		const held = hold(file, report);
+		compactsAgain(held);
+		const after = entryReading(SessionManager.open(file), "after");
+		expect(held.getEntry(after.id)).toEqual(after);
+		expect(report).toHaveBeenCalledWith(
+			expect.stringContaining("whole log back into memory"),
+		);
+	});
+
+	it("lets session_recall read what each compaction left on disk", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		compactsAgain(held);
+		const whole = SessionManager.open(file).getBranch();
+		for (const text of ["early one", "after", "answer to later one"]) {
+			const { id } = entryAt(whole, text);
+			const found = recalled(held.getBranch(), { entryId: id });
+			expect(found.kind, `session_recall finds ${text}`).toBe("entry");
+			expect(found).toEqual(recalled(whole, { entryId: id }));
+		}
+	});
+
+	it("gives what it holds in their place no id its log has", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		const after = entryReading(SessionManager.open(file), "after");
+		const first = entryReading(SessionManager.open(file), "early one");
+		// The ids drawn first are those of entries left out before and now.
+		drawn.push(after.id, first.id, after.id, first.id);
+		compactsAgain(held);
+		expect(drawn, "the view drew ids for what it holds").not.toHaveLength(4);
+		// The entry left out before goes first: reading back one left out
+		// reads the whole log, which would hide a stand-in holding its id.
+		expect(held.getEntry(first.id)).toEqual(first);
+		expect(held.getEntry(after.id)).toEqual(after);
+	});
+
+	it("appends after its new leaf, every earlier line as it was", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		compactsAgain(held);
+		const before = readFileSync(file, "utf8");
+		const leaf = held.getLeafId();
+		exchange(held, "newest");
+		const added = linesAdded(file, before);
+		expect(added).toHaveLength(2);
+		expect(added[0]?.parentId).toBe(leaf);
+		const ids = new Set(
+			SessionManager.open(file)
+				.getEntries()
+				.map((entry) => entry.id),
+		);
+		expect(ids.size, "no id in the log repeats").toBe(
+			SessionManager.open(file).getEntries().length,
+		);
+	});
+});
+
 describe("a held conversation and its whole log", () => {
 	it("keeps pi's usage totals by model, other models and abandoned branches included", async () => {
 		const breakdown = await pisBreakdown();
@@ -829,12 +970,15 @@ describe("a held conversation and its whole log", () => {
 		exchange(held, "later two");
 		held.appendCompaction("what happened since", kept, 1000);
 		exchange(held, "latest");
+		// The compaction already took the view again.
+		expect(texts(held.getEntries())).not.toContain("after");
 		const entries = held.getEntries();
 		const leaf = held.getLeafId();
+		const left = leftOutOf(held);
 		const report = vi.fn();
 		expect(holdKeptHistory(held, report)).toBe(held);
 		expect(held.getEntries()).toEqual(entries);
-		expect(texts(held.getEntries())).toContain("after");
+		expect(leftOutOf(held)).toBe(left);
 		expect(held.getLeafId()).toBe(leaf);
 		expect(report).not.toHaveBeenCalled();
 	});
