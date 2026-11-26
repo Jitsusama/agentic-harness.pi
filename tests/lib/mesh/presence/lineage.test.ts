@@ -251,6 +251,66 @@ describe("the cell this session's peer says its work split from", () => {
 		}
 	}, 25_000);
 
+	// The split joins the start's reading, which may have passed its old
+	// quest before that quest listed it, so a miss is judged again.
+	it("judges again a split its joined reading didn't find", async () => {
+		const remembered = questAddress("QEST-20261122-BEFORE");
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [remembered],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		const listing = "QEST-20261121-LISTED";
+		mkdirSync(join(root, "quests", listing), { recursive: true });
+		writeFileSync(
+			join(root, "quests", listing, "README.md"),
+			`---\nid: ${listing}\nstatus: active\n---\n# ${listing}\n\n- ${session}\n`,
+		);
+		const old = "QEST-20261123-ASKERQ";
+		const oldReadme = (names: string) =>
+			writeFileSync(
+				join(root, "quests", old, "README.md"),
+				`---\nid: ${old}\nstatus: active\n---\n# ${old}\n\n- ${names}\n`,
+			);
+		mkdirSync(join(root, "quests", old), { recursive: true });
+		oldReadme("someone-else");
+		write(readme());
+		const peer = localPeer(surroundingsAt(root));
+
+		try {
+			// Asked in the same turn as the start, so it joins that reading.
+			write(readme(`split-from: ${questAddress(old)}\n`));
+			peer.refresh();
+			await vi.waitFor(
+				() => expect(peer.addresses).toContain(questAddress(listing)),
+				{ timeout: 10_000 },
+			);
+			expect(kept()?.lineage, "a split the reading didn't find").toEqual({
+				split_from: questAddress(old),
+			});
+
+			oldReadme(session);
+			peer.refresh();
+
+			await vi.waitFor(
+				() =>
+					expect(
+						kept()?.lineage,
+						"none once a fresh reading finds it",
+					).toBeUndefined(),
+				{ timeout: 10_000 },
+			);
+		} finally {
+			peer.dispose();
+		}
+	}, 25_000);
+
 	// A reading that took back every split would pass the two above.
 	it("keeps saying a split from another cell once the readings land", async () => {
 		const remembered = questAddress("QEST-20261122-BEFORE");

@@ -518,18 +518,19 @@ export function localPeer(at: Surroundings): Peer {
 	// A peer that reads its older addresses off the thread reads these
 	// off it too, since every sprouted quest names a split: it says the
 	// split meanwhile, and takes it back if the reading finds it its own.
-	// It joins a reading already under way, such as its start's, rather
+	// The first to ask starts a reading and the other joins it, rather
 	// than sweep the store twice at once; a disposed peer reads no more.
+	// A joined reading may have passed a quest listed since it began, so
+	// a split it doesn't find is judged again at the next refresh.
 	let reading: Promise<string[]> | undefined;
-	const readOlderOff = (): Promise<string[]> => {
-		reading ??= olderAddressesOff(
-			at.session,
-			at.records,
-			() => disposed,
-		).finally(() => {
-			reading = undefined;
-		});
-		return reading;
+	const readOlderOff = (): { found: Promise<string[]>; joined: boolean } => {
+		if (reading) return { found: reading, joined: true };
+		reading = olderAddressesOff(at.session, at.records, () => disposed).finally(
+			() => {
+				reading = undefined;
+			},
+		);
+		return { found: reading, joined: false };
 	};
 	let splitJudged: { key: string; itself: boolean } | undefined;
 	const splitFromItself = (from: string, loaded?: string): boolean => {
@@ -547,9 +548,12 @@ export function localPeer(at: Surroundings): Peer {
 		}
 		const judging = { key, itself: false };
 		splitJudged = judging;
-		readOlderOff()
+		const { found: answer, joined } = readOlderOff();
+		answer
 			.then((found) => {
-				if (disposed || splitJudged !== judging || !isOwn(from, found)) {
+				if (disposed || splitJudged !== judging) return;
+				if (!isOwn(from, found)) {
+					if (joined) splitJudged = undefined;
 					return;
 				}
 				judging.itself = true;
@@ -779,7 +783,7 @@ export function localPeer(at: Surroundings): Peer {
 	refresh();
 	if (readOff) {
 		readOlderOff()
-			.then((found) => {
+			.found.then((found) => {
 				const more = found.filter((address) => !older.includes(address));
 				if (disposed || more.length === 0) return;
 				older = [...older, ...more];
