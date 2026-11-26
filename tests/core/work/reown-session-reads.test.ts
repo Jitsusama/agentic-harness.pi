@@ -161,17 +161,19 @@ describe("re-owning a resumed session's trees", () => {
 		expect(ownersIn(memory)).toEqual({ "ours-1": [joined, US] });
 	});
 
-	it("leaves a record it can't read under the lock as it was, and re-owns the rest", async () => {
+	it("leaves a record it can't read under the lock as it was, re-owns the rest, and says so", async () => {
 		const dir = join(root, "cut");
 		const memory = createTreeMemory(dir);
 		memory.remember(tree("ours-1", ["a"], BEFORE));
 		memory.remember(tree("ours-2", ["a"], BEFORE));
 		thread.faulty = join(dir, "ours-1.json");
 
-		const changed = await memory.reownSession("a", facts);
+		const reowning = memory.reownSession("a", facts);
+		await expect(reowning).rejects.toThrow(
+			"1 of its 2 records kept the old owner, since rewriting failed (too many open files)",
+		);
 		thread.faulty = undefined;
 
-		expect(changed).toBe(1);
 		expect(ownersIn(memory)).toEqual({ "ours-1": [BEFORE], "ours-2": [US] });
 	});
 
