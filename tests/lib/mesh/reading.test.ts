@@ -73,4 +73,13 @@ describe("the read front", () => {
 		expect(front.handed(["100-A"])).toBe("100-A");
 		expect(front.handed(["100-A"])).toBeUndefined();
 	});
+
+	it("passes what it lets go, as it passes what was never taken", () => {
+		const front = createReadFront();
+		for (const id of ["100-A", "200-B", "300-C"]) front.taken(id);
+
+		expect(front.handed(["300-C"])).toBeUndefined();
+		front.letGo(["100-A"]);
+		expect(front.handed(["200-B"])).toBe("300-C");
+	});
 });

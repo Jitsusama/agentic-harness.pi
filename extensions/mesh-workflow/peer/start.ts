@@ -137,6 +137,10 @@ export function onSessionStart(
 		if (!hosted() && (await writerHold(started.sessionManager.getSessionId())))
 			return;
 		m.ctx = started;
+		// A front of its own before anything here waits, so a catch-up an
+		// earlier start left reading knows itself overtaken from now on,
+		// and neither takes nor says it caught up for this one.
+		m.front = createReadFront();
 		// Opened again in a host since its close, a carry still running from
 		// before holds it until this opening closes (PV3TE0's round 10, F1).
 		sessionOpened(sessionKeyOf(started));
@@ -320,7 +324,6 @@ export function onSessionStart(
 		m.left.clear();
 		m.unjudgedSaid.clear();
 		for (const id of handedIn(branch)) m.seen.add(id);
-		m.front = createReadFront();
 		// Watching before looking, so what lands between the two is heard
 		// by one of them, and seen keeps it to once.
 		m.stopWatching?.();
@@ -328,7 +331,7 @@ export function onSessionStart(
 		try {
 			m.stopWatching = m.transport.watch((id) => {
 				const message = f.take(id);
-				if (message) f.routeTaken([message]);
+				if (message) void f.route([message]);
 			});
 		} catch (error) {
 			// A transport that cannot be watched leaves this peer slow to
@@ -402,11 +405,22 @@ export function onSessionStart(
 		void f
 			.catchUp(since)
 			.then((missed) => f.route(missed, true))
+			.catch((error: unknown) => {
+				// Only a throw taking or routing what was caught up on: a folder
+				// that won't list or a file that won't read is none, as on the
+				// thread before. Said, rather than a rejection nothing handles.
+				if (m.front !== front || !started.hasUI) return;
+				started.ui.notify(
+					`Mesh: catching up at start failed (${error instanceof Error ? error.message : String(error)}), so some messages sent before this start may not reach this session.`,
+					"warning",
+				);
+			})
 			.finally(() => {
 				// Started again meanwhile, the new start's catch-up says when.
 				if (m.front !== front) return;
 				m.startCaughtUp = true;
 				f.readWhatWaited();
+				f.lookIfPassedOver();
 			});
 		f.steer(m.paths.steer);
 		f.identity();

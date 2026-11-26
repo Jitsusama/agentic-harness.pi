@@ -45,8 +45,14 @@ export interface ReadFront {
 	 * marker may now move to, when it may move at all.
 	 */
 	handed(ids: readonly string[]): string | undefined;
+	/**
+	 * These were taken before they were read, and once read are not to be
+	 * handed over: the marker passes them as it passes any id never taken.
+	 */
+	letGo(ids: readonly string[]): void;
 }
 
+/** Where the marker may move, from nothing taken yet. */
 export function createReadFront(): ReadFront {
 	const waiting = new Set<string>();
 	// Handed over, but behind one still waiting, so the marker cannot pass.
@@ -68,6 +74,9 @@ export function createReadFront(): ReadFront {
 			if (front === undefined) return undefined;
 			behind = behind.filter((id) => id > front);
 			return front;
+		},
+		letGo(ids) {
+			for (const id of ids) waiting.delete(id);
 		},
 	};
 }

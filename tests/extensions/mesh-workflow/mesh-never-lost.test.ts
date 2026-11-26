@@ -39,6 +39,13 @@ const listing = vi.hoisted(() => ({
 const reading = vi.hoisted(() => ({
 	files: undefined as string[] | undefined,
 }));
+// A read off the thread held until a test lets it on: the first of the
+// file named, which says so as it is held.
+const holding = vi.hoisted(() => ({
+	name: undefined as string | undefined,
+	held: () => {},
+	open: Promise.resolve(),
+}));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
 	return {
@@ -66,8 +73,29 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 			listing.off?.push(String(args[0]));
 			return fs.opendir(...args);
 		}) as typeof fs.opendir,
+		readFile: (async (...args: Parameters<typeof fs.readFile>) => {
+			if (holding.name && String(args[0]).endsWith(holding.name)) {
+				holding.name = undefined;
+				holding.held();
+				await holding.open;
+			}
+			return fs.readFile(...args);
+		}) as typeof fs.readFile,
 	};
 });
+
+/** Hold the first read off the thread of this message until `release`. */
+function holdRead(id: string): { held: Promise<void>; release: () => void } {
+	let release = () => {};
+	holding.open = new Promise((resolve) => {
+		release = resolve;
+	});
+	const held = new Promise<void>((resolve) => {
+		holding.held = resolve;
+	});
+	holding.name = `${id}.json`;
+	return { held, release };
+}
 
 beforeEach(() => {
 	watching.deaf = false;
@@ -76,6 +104,7 @@ beforeEach(() => {
 	listing.dirs = undefined;
 	listing.off = undefined;
 	reading.files = undefined;
+	holding.name = undefined;
 });
 
 // A deaf watcher the mesh never armed through this fake proves nothing:
@@ -261,6 +290,67 @@ describe("a message never lost", () => {
 			),
 			"the folders caught up from, listed on the thread",
 		).toEqual([]);
+	});
+
+	it("is heard as it lands while the catch-up reads, the marker kept behind what is read", async () => {
+		// Handed over before the catch-up had taken its own, a message
+		// carried the marker past one still being read, which a restart
+		// then lost; held until the catch-up ended, it left the peer deaf.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+
+		await vi.waitFor(() =>
+			expect(handed(sent), "heard while the catch-up read").toEqual([
+				"7M6JKG: lately?",
+			]),
+		);
+		expect(marker(), "the marker, while yesterday's is read").toBe(floor);
+		read.release();
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("is caught up on once, by the start that overtook a catch-up still reading", async () => {
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+		const { sent, fire, restart } = await startSession(
+			{},
+			{ isIdle: () => true },
+		);
+		await read.held;
+		await fire("session_shutdown");
+
+		// The same runtime starting again, while the first read is still held.
+		await restart();
+		await vi.waitFor(() =>
+			expect(handed(sent)).toEqual(["7M6JKG: yesterday?"]),
+		);
+		read.release();
+		// A real pause: the test is that the first start's catch-up, let go
+		// now, hands nothing over in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(handed(sent), "handed over once, by the start that stands").toEqual([
+			"7M6JKG: yesterday?",
+		]);
 	});
 
 	it("is heard once across a restart, whichever folder it rests in", async () => {
