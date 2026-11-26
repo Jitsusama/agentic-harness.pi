@@ -17,11 +17,16 @@ import type { Exec } from "../../core/exec/index.ts";
 import {
 	carryAway,
 	carryQuestTrees,
-	SHARE_LARGEST_FILE,
 	type TreeCarried,
 	ZIPPED,
 } from "./carry-away.ts";
-import { doneFileOf, doneNames, readHandover, withinHome } from "./handover.ts";
+import {
+	doneFileOf,
+	doneNames,
+	readHandover,
+	SHARE_LARGEST_FILE,
+	withinHome,
+} from "./handover.ts";
 import { messageOf } from "./message.ts";
 import type { QuestHere } from "./quest-here.ts";
 

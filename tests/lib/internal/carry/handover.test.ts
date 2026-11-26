@@ -3,7 +3,8 @@
  * done file must hold before anything here trusts it.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
 	type Handover,
 	handoverOf,
 	readHandover,
+	SHARE_LARGEST_FILE,
 	underHome,
 	withinHome,
 	writeHandover,
@@ -76,6 +78,18 @@ describe("a handover", () => {
 		expect(readHandover(file)).toEqual(handover);
 	});
 
+	it("reads no done file through a link, nor waits on a pipe at its name", () => {
+		const real = arrived(handover);
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const linked = join(dir, "s-1.done.json");
+		symlinkSync(real, linked);
+		const pipe = join(dir, "s-2.done.json");
+		expect(spawnSync("mkfifo", [pipe]).status, "a pipe is made").toBe(0);
+
+		expect(readHandover(linked), "a link").toBeUndefined();
+		expect(readHandover(pipe), "a pipe, at once").toBeUndefined();
+	});
+
 	it("reads back the fence it ran under and its quest's notes", () => {
 		const dir = mkdtempSync(join(tmpdir(), "handover-"));
 		const moved: Handover = {
@@ -88,6 +102,36 @@ describe("a handover", () => {
 		};
 
 		expect(readHandover(writeHandover(dir, moved))).toEqual(moved);
+	});
+
+	it("reads back a done file longer than the 4 KiB git's files are read to", () => {
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const moved: Handover = {
+			...handover,
+			notes: Array.from({ length: 200 }, (_, at) => ({
+				text: `fact ${at}: the gate runs every check there is, on a lender`,
+				tags: ["gate"],
+			})),
+		};
+
+		const file = writeHandover(dir, moved);
+
+		expect(JSON.stringify(moved).length).toBeGreaterThan(8192);
+		expect(readHandover(file)).toEqual(moved);
+	});
+
+	it("writes no done file longer than the share takes, saying so", () => {
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const moved: Handover = {
+			...handover,
+			notes: [{ text: "x".repeat(SHARE_LARGEST_FILE), tags: [] }],
+		};
+
+		expect(() => writeHandover(dir, moved)).toThrow(
+			"more than the share takes",
+		);
+
+		expect(existsSync(doneFileOf(dir, "s-1"))).toBe(false);
 	});
 
 	it("trusts nothing in another machine's done file that could reach elsewhere", () => {

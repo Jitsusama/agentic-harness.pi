@@ -16,9 +16,9 @@
  * field is checked before git or the disk is given it.
  */
 
-import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { Needed } from "../../core/work/carry.ts";
+import { readPlain } from "../../core/work/plain-file.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { writeWhole } from "../write-whole.ts";
 import { isFenceKind } from "./fence.ts";
@@ -102,18 +102,49 @@ export function doneNames(listing: readonly string[]): string[] {
 		.map((name) => name.slice(0, -DONE.length));
 }
 
-/** Writes `handover` as its done file in `dir`, whole, answering its path. */
+/**
+ * The largest file mycelium's share takes from a folder named for
+ * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
+ * since the machine it lands on holds each file whole. A long-lived
+ * session's log passes it, so a carry gzips one that does. Every file a
+ * carry writes into its handover is held to it; only a harness that
+ * never gzipped left one larger there, a session's whole log.
+ */
+export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
+
+/**
+ * Writes `handover` as its done file in `dir`, whole, answering its path.
+ * Throws, writing nothing, where it would pass what the share takes.
+ */
 export function writeHandover(dir: string, handover: Handover): string {
 	const file = doneFileOf(dir, handover.session);
-	writeWhole(file, `${JSON.stringify(handover, null, 2)}\n`);
+	const text = `${JSON.stringify(handover, null, 2)}\n`;
+	const size = Buffer.byteLength(text, "utf8");
+	if (size > SHARE_LARGEST_FILE) {
+		throw new Error(
+			`The done file for ${handover.session} is ${size} bytes, more than the share takes (${SHARE_LARGEST_FILE}), so it isn't written.`,
+		);
+	}
+	writeWhole(file, text);
 	return file;
 }
 
-/** The done file at `file`, or undefined when it isn't there or doesn't hold up. */
+/**
+ * The most of a done file read: what the share takes, since no longer
+ * one is written. A longer one is read only to the limit.
+ */
+const DONE_LIMIT = SHARE_LARGEST_FILE;
+
+/**
+ * The done file at `file`, or undefined when it isn't there or doesn't
+ * hold up. A fenced command can write the handover, so a link, a pipe or
+ * anything but a plain file there is no done file, read neither through
+ * nor waited on.
+ */
 export function readHandover(file: string): Handover | undefined {
 	let said: unknown;
 	try {
-		said = JSON.parse(readFileSync(file, "utf8"));
+		said = JSON.parse(readPlain(file, DONE_LIMIT) ?? "");
 	} catch {
 		// Not there yet, or not a done file: either way nothing to take up.
 		return undefined;

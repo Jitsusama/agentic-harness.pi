@@ -25,7 +25,14 @@
  * under the scratches' own folder, which the fence binds read-only, so
  * nothing a fenced command plants is read. The handover itself it can
  * write, so a carry refuses one that is a link or lies under one, before
- * sweeping and again before placing.
+ * sweeping and again before placing. Every file a carry writes there is
+ * held to what the share takes, so a move never copies more. A pipe, a
+ * socket or a device at a name it places is planted, since no harness
+ * writes one, so it goes rather than wait aside, which no carry could
+ * then pass. A file larger than the share takes, as a harness that never
+ * gzipped left a session's whole log, would be copied whole to go aside,
+ * so it stays where it is, replaced where the carry places its name, and
+ * goes once the carry stands where the carry only drops it.
  */
 
 import { randomUUID } from "node:crypto";
@@ -44,7 +51,7 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { moveFile } from "../files/move-file.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
-import { doneFileOf } from "./handover.ts";
+import { doneFileOf, SHARE_LARGEST_FILE } from "./handover.ts";
 import { messageOf } from "./message.ts";
 
 /** The folder beside the quest scratches that carries stage in. */
@@ -139,6 +146,8 @@ export async function staged<T>(
 	const aside = join(folder, BEFORE);
 	const placed: string[] = [];
 	const moved: string[] = [];
+	/** Larger files the carry drops, which go only once it stands. */
+	const dropped: string[] = [];
 	const record = (failed = false): void =>
 		writeRecord(folder, {
 			into,
@@ -180,7 +189,16 @@ export async function staged<T>(
 			}
 			for (const name of [...gone, ...names]) {
 				if (moved.includes(name) || !besideFolder(join(into, name))) continue;
-				movedThrough(into, join(into, name), join(aside, name));
+				const found = foundAt(join(into, name));
+				if (found === "gone") continue;
+				if (found === "carried") {
+					movedThrough(into, join(into, name), join(aside, name));
+				} else if (found === "planted") {
+					unlinked(into);
+					rmSync(join(into, name), { force: true });
+				} else if (!names.includes(name)) {
+					dropped.push(name);
+				}
 				moved.push(name);
 			}
 			// Named only once nothing of its name is left in the handover, so
@@ -193,7 +211,17 @@ export async function staged<T>(
 		},
 	};
 	try {
-		return await work(stage);
+		const done = await work(stage);
+		// It stands, so what it dropped goes; one it placed since is its own.
+		for (const name of dropped.filter((one) => !placed.includes(one))) {
+			undo(() => {
+				unlinked(into);
+				if (foundAt(join(into, name)) === "larger") {
+					rmSync(join(into, name), { force: true });
+				}
+			});
+		}
+		return done;
 	} catch (error) {
 		const back = putBack(into, aside, placed);
 		if (back.stuck.length === 0 && back.left.length === 0) throw error;
@@ -252,11 +280,12 @@ function putBack(
  * is still no link: asked before each move, not once for all, since a
  * move across volumes copies for as long as its file is long, and a
  * fenced command may swap the handover meanwhile, which would have the
- * next move read or write through it.
+ * next move read or write through it. No file a carry writes passes
+ * what the share takes, so no move copies more.
  */
 function movedThrough(into: string, from: string, to: string): void {
 	unlinked(into);
-	moveFile(from, to);
+	moveFile(from, to, SHARE_LARGEST_FILE);
 }
 
 /**
@@ -453,6 +482,26 @@ function exists(path: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * What is at `path`, not following a link: nothing (`gone`); a link or a
+ * plain file no larger than the share takes, as a carry writes
+ * (`carried`); a plain file larger (`larger`), as a harness that never
+ * gzipped left a session's log; or a pipe, a socket or a device, which
+ * no harness writes (`planted`).
+ */
+function foundAt(path: string): "gone" | "carried" | "larger" | "planted" {
+	let found: ReturnType<typeof lstatSync>;
+	try {
+		found = lstatSync(path);
+	} catch {
+		// Gone since it was looked for: nothing there to move aside.
+		return "gone";
+	}
+	if (found.isSymbolicLink()) return "carried";
+	if (!found.isFile()) return "planted";
+	return found.size <= SHARE_LARGEST_FILE ? "carried" : "larger";
 }
 
 /** Whether `path` is a file, not following a link. */
