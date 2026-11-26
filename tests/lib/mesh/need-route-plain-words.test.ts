@@ -126,6 +126,56 @@ describe("the plain words a need is not matched by", () => {
 		).toMatchObject({ fit: "F", path: ["F"] });
 	});
 
+	// Each cell covers a need saying hand over by hand alone, so only the
+	// phrase tells them apart, and a hub's find goes first (#2220's fourth
+	// judge, F13).
+	it("sends a need saying hand over to the cell holding the phrase, not a hub's hand-off fit", () => {
+		const found = routeNeed(asked("A", ...wordsOf("hand over the notes")), {
+			foragers: cells({
+				A: [],
+				X: ["hand", "hand-over"],
+				Y: ["hand", "hand-off"],
+			}),
+			ties: ties(["A", "X", 1]),
+			hubs: [{ subject: "x:hand-off", hub: "Y", fits: ["Y"] }],
+		});
+
+		expect(found, "the hand-over cell").toMatchObject({ fit: "X" });
+	});
+
+	it("counts the phrase of a cell when the asker holds its first word", () => {
+		const found = routeNeed(asked("A", ...wordsOf("hand over the notes")), {
+			foragers: cells({
+				A: ["hand"],
+				F: ["hand", "hand-over"],
+				N: ["notes"],
+			}),
+			ties: ties(["A", "N", 1], ["A", "F", 1]),
+			hubs: [],
+		});
+
+		expect(found, "the cell holding the phrase").toMatchObject({ fit: "F" });
+	});
+
+	it("says an ended hand-over cell owned a need a live hand-off cell would take", () => {
+		const found = routeNeed(asked("A", ...wordsOf("hand over the notes")), {
+			foragers: cells({
+				A: [],
+				X: ["hand", "hand-over"],
+				Y: ["hand", "hand-off"],
+			}),
+			ties: ties(["A", "Y", 1], ["A", "X", 1]),
+			hubs: [],
+			live: (address) => address !== "X",
+		});
+
+		expect(found, "lost, with its owner named").toMatchObject({
+			fit: null,
+			ended: ["X"],
+			fellShort: "Y",
+		});
+	});
+
 	it("keeps an id as long as LONGEST_WORD, and none longer", () => {
 		const id = `leg-${"p".repeat(LONGEST_WORD - 4)}`;
 

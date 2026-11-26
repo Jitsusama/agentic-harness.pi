@@ -155,6 +155,25 @@ describe("the subjects a quest's sessions declare", () => {
 		expect(said(result)).toContain(long);
 	});
 
+	// A hub takes a need saying every word of its subject, and no need
+	// keeps one past LONGEST_WORD, so its hub could take none.
+	it("refuse a subject with any word past the longest kept, naming it", async () => {
+		const id = await made();
+		const word = "a".repeat(LONGEST_WORD + 1);
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=needs,x:${word}-lines`,
+		});
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result), "the word named").toContain(
+			`${word} in x:${word}-lines`,
+		);
+	});
+
 	it("set a subject whose one word is as long as the longest kept", async () => {
 		const id = await made();
 		const longest = `x:${"a".repeat(LONGEST_WORD)}`;
@@ -174,6 +193,9 @@ describe("the subjects a quest's sessions declare", () => {
 			ref: "subjects=x:ab.service",
 		});
 		expect(result.ok).toBe(false);
+		expect(said(result), "its type set aside").toMatch(
+			/a \.service ending set aside/,
+		);
 		expect(said(result), "the unit named").toMatch(
 			/x:ab\.service holds none there/,
 		);

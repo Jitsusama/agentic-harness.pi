@@ -439,6 +439,15 @@ export function routingWords(subject: string): string[] {
 }
 
 /**
+ * The words of a subject (`subjectWords`) past `LONGEST_WORD`: a hub of
+ * it takes a need only when the need says every one, and no need keeps
+ * these, so with any its hub takes nothing.
+ */
+export function overLongWords(subject: string): string[] {
+	return subjectWords(subject).filter((word) => word.length > LONGEST_WORD);
+}
+
+/**
  * The cells in a node's list of its `cell` kind, each with the words of
  * its title, repository and declared subjects; none for an answer that
  * lists no records. A node that doesn't know subjects yet lists none.
@@ -755,27 +764,47 @@ function routeAs(
 		takes(address) && worksOnWord(address, word);
 	// How many of `words` a cell works on, read as fitsOn reads a word,
 	// so a leg-26 cell never counts the leg of a need for leg-27. A
-	// phrase's id counts only where its first word doesn't, since it says
-	// that word again: it tells hand-over from hand-off, but a cell whose
-	// title says find out never outweighs one holding the need's subject.
+	// phrase's id counts only where its first word isn't counted too,
+	// being among `words` and worked on, since it says that word again:
+	// a cell whose title says find out never outweighs one holding the
+	// need's subject. Where the asker holds the first word, the phrase is
+	// all of it the cell can count.
 	const covers = (address: string, words: readonly string[]) =>
 		words.filter((word) => {
 			if (!worksOnWord(address, word)) return false;
 			const head = phraseHead(word);
-			return head === undefined || !worksOnWord(address, head);
+			return (
+				head === undefined ||
+				!words.includes(head) ||
+				!worksOnWord(address, head)
+			);
 		}).length;
+	// How many of the phrases the asker lacks a cell works on: of cells
+	// covering as much, it tells the hand-over cell from the hand-off one
+	// for a need saying hand over, which each covers by hand alone.
+	const phrases = (address: string) =>
+		lacking.filter(
+			(word) => phraseHead(word) !== undefined && worksOnWord(address, word),
+		).length;
 	// How much of the need a cell works on.
 	const most = (address: string) => covers(address, asked.words);
 	// How much of what the asker lacks a cell works on: the words its
 	// owner is judged by, since a word the asker holds routes nowhere and
 	// an ended sibling holding it owns nothing the live fit can't take.
 	const needed = (address: string) => covers(address, lacking);
-	// A fit is weighed by what the asker lacks first, since a word it
-	// holds routes nowhere, then by the whole need, so of cells as useful
-	// the one nearer the asker's own work.
-	const better = (one: string, than: string) =>
+	// Whether a cell works on more of what the asker lacks, or as much
+	// and more of its phrases: what an ended owner must outdo the fit by.
+	const outranks = (one: string, than: string) =>
 		needed(one) > needed(than) ||
-		(needed(one) === needed(than) && most(one) > most(than));
+		(needed(one) === needed(than) && phrases(one) > phrases(than));
+	// A fit is weighed by what the asker lacks first, since a word it
+	// holds routes nowhere, then by its phrases, then by the whole need,
+	// so of cells as useful the one nearer the asker's own work.
+	const better = (one: string, than: string) =>
+		outranks(one, than) ||
+		(needed(one) === needed(than) &&
+			phrases(one) === phrases(than) &&
+			most(one) > most(than));
 	const best = (candidates: readonly string[]) =>
 		candidates.reduce<string | undefined>(
 			(chosen, one) =>
@@ -844,7 +873,7 @@ function routeAs(
 		.filter(
 			(address) =>
 				ended(address) &&
-				needed(address) > needed(found.fit) &&
+				outranks(address, found.fit) &&
 				heardWithin(reach.ties, address, said.at),
 		)
 		.sort((one, other) =>

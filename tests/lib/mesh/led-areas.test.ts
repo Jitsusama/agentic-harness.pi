@@ -14,7 +14,7 @@ import {
 	ledAreas,
 	ledAreasAt,
 } from "../../../lib/mesh/led-areas.ts";
-import { routingWords } from "../../../lib/mesh/need-route.ts";
+import { LONGEST_WORD, routingWords } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 
 const NOW = Date.parse("2026-11-25T06:00:00Z");
@@ -201,6 +201,19 @@ describe("the areas each quest led in its landings", () => {
 			led([
 				merge("QEST-A", ["lib/most", "lib/mesh"]),
 				merge("QEST-A", ["lib/most", "lib/mesh"], 1),
+			]),
+		).toEqual({ "QEST-A": ["agentic-harness.pi:lib/mesh"] });
+	});
+
+	// A hub takes a need saying every word of its subject, and no need
+	// keeps one past LONGEST_WORD, so such an area's hub would take none.
+	it("leaves out an area with a word past the longest a need keeps", () => {
+		const long = `lib/${"a".repeat(LONGEST_WORD + 1)}-lines`;
+		expect(routingWords(`agentic-harness.pi:${long}`)).toEqual(["lines"]);
+		expect(
+			led([
+				merge("QEST-A", [long, "lib/mesh"]),
+				merge("QEST-A", [long, "lib/mesh"], 1),
 			]),
 		).toEqual({ "QEST-A": ["agentic-harness.pi:lib/mesh"] });
 	});
