@@ -844,8 +844,7 @@ describe("the host's engine", () => {
 				seen.probe.filter((line) => line.event === "park-refused"),
 				"its own bus heard why",
 			).toEqual([{ event: "park-refused", why: expect.stringMatching(/\S/) }]);
-			expect(seen.runsOn, "it runs on").not.toBe("let go");
-			expect(seen.runsOn).not.toBe("parked");
+			expect(seen.runsOn, "it runs on, idle as it was").toBe("idle");
 			expect(seen.screensParked, "its close is no park").toEqual([]);
 			expect(seen.screensClosed).toEqual([seen.sessionId]);
 		},
