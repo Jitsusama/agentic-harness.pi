@@ -47,7 +47,7 @@ import {
 	type Resuming,
 	resumeHeld,
 } from "./resume-held.ts";
-import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
+import type { AdmitAnother } from "./rollout.ts";
 import { openRoster, type RosterWait } from "./roster.ts";
 import {
 	listenControl,
@@ -137,8 +137,8 @@ export async function serveHost(options: {
 	/** Where dropped stale-context rejections are written. */
 	rejectionLog?: string;
 	/**
-	 * What a second conversation must pass, at open, adopt and resume: by
-	 * default the rollout gate over the install this host runs from.
+	 * What a second conversation must pass, at open, adopt and resume:
+	 * without one, a host admits every conversation (rollout.ts).
 	 */
 	rollout?: AdmitAnother;
 	/**
@@ -170,7 +170,7 @@ export async function serveHost(options: {
 		policy: (key: string) => Promise<ChildPolicy>;
 	};
 }): Promise<ServingHost> {
-	const admitAnother = options.rollout ?? hostRolloutGate();
+	const admitAnother = options.rollout;
 	const key = hostKey(options.realm, options.kind);
 	spareStaleRejections(
 		options.rejectionLog ??

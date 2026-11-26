@@ -309,8 +309,8 @@ const hostPss = oneReadAtOnce(pssBytesOf);
 /**
  * Answer every control operation in the order that keeps holds durable.
  * With `admitAnother`, an open, adopt or wake while the host already
- * holds a conversation, or is starting one, must pass it first (the
- * rollout gate, rollout.ts); a refusal prepares and holds nothing.
+ * holds a conversation, or is starting one, must pass it first (as a
+ * child's oneConversation, child.ts); a refusal prepares and holds nothing.
  */
 export function hostBackend(options: {
 	identity: ControlBackend["identity"];

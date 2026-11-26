@@ -138,7 +138,7 @@ export interface ChildSlot {
 	readonly woken?: boolean;
 }
 
-/** The rollout gate a child keeps: it runs one conversation, and a second is refused. */
+/** The gate a child keeps: it runs one conversation, and a second is refused. */
 export const oneConversation: AdmitAnother = () =>
 	Promise.reject(
 		hostRefusal(

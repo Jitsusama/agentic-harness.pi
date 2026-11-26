@@ -21,8 +21,8 @@ input pipeline or screen. No unit or running host is installed yet.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
   Host stop never counts as an end. A conversation the
   engine parked while idle is held but not running; `wake` resumes it,
-  in turn with any close of it and through the rollout gate as another
-  start would, and an attach to it wakes it first. A wake of one whose
+  in turn with any close of it and through any gate a second
+  conversation passes, as another start would, and an attach to it wakes it first. A wake of one whose
   start or park failed, which leaves it held but not running, says so,
   since only a close lets it go.
   A rollback's release (scripts/host-release.ts) never cuts a run: a
@@ -43,17 +43,12 @@ input pipeline or screen. No unit or running host is installed yet.
   held and listed parked for a person to close, apart from one whose
   session file is gone, which nothing could resume: it is dropped, and
   the journal's ready line names it.
-- rollout.ts: the rollout gate. A host opens, adopts or resumes a
-  second conversation only once every live pi (each `loaded/<pid>`
-  in the install whose pid runs) loaded a harness holding 5b5b7260,
-  whose mesh census judges hosted presences each on its own; an older
-  one takes all but the newest as ended. A root that can't be read or
-  dated counts as stale, and the refusal names each stale pid and
-  root. A wake it refuses is told it stays parked and wakes at the
-  next message or key once those pis reload or end, since its sender
-  has nothing to fix. One conversation per host is never gated. A
-  host run from a tree keeps to one. `node scripts/host-rollout.ts` prints the same
-  verdict for a person.
+- rollout.ts: what a second conversation passes, and the root a host
+  runs. A host admits every conversation unless given a gate: a child
+  refuses a second (child.ts), and tests give their own. The census
+  gate it once held, which waited for every live pi to load a harness
+  holding 5b5b7260, was retired on 26 November once every live pi
+  held it.
 - serve.ts: one realm-kind host's life. It takes the roster's lock,
   installs SessionHost, loads the engine, listens, then resumes what is
   held, so a second host, an unreadable roster or a pi the engine

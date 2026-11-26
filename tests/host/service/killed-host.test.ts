@@ -187,8 +187,6 @@ describe
 		const report = vi.fn<(error: unknown) => void>();
 		const next = await serveHost({
 			...places(),
-			// Run from a tree, so the rollout gate is opened for it.
-			rollout: () => Promise.resolve(),
 			report,
 			engine: async (h) => engine(h, dir),
 		});

@@ -3,8 +3,8 @@
  *
  * A sender wakes a parked hosted conversation by writing to its wake
  * file (park.ts's askWake), naming the message that asked. The host
- * removes the file and wakes it, and a wake the host refuses, at its
- * rollout gate or as it stops, was told only to the host's own log: on
+ * removes the file and wakes it, and a wake the host refuses, at the
+ * gate a second conversation passes or as it stops, was told only to the host's own log: on
  * 11 November H2 found the sender, and anyone writing to it after,
  * heard nothing of why it slept on. So the host keeps the refusal here,
  * for the mesh to say beside the parked peer, and clears it as the

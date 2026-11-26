@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../../extensions/quest-workflow/sessions/restore.ts";
+import { systemFacts } from "../../lib/core/process/process.ts";
 import { dataDir, sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import {
 	type TickFacts,
@@ -52,7 +53,6 @@ import { giveSteer } from "../../lib/mesh/steer.ts";
 import { type HostKind, hostKey, hostSocketPath } from "../service/address.ts";
 import { controlRequest, nothingListens } from "../service/client.ts";
 import { parseListResult } from "../service/protocol.ts";
-import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
 import type {
@@ -262,7 +262,7 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 			return (
 				presence?.hosted === undefined &&
 				pid !== undefined &&
-				rolloutFacts.alive(pid)
+				systemFacts.alive(pid)
 			);
 		},
 		reopen: async (note) => {
@@ -381,7 +381,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			askWake(session, `move-${Date.now()}`);
 		},
 		notes: () => {
-			restoreStrandedClaims((pid) => rolloutFacts.alive(pid), moves);
+			restoreStrandedClaims((pid) => systemFacts.alive(pid), moves);
 			return readMoveNotes(moves);
 		},
 		removeNote: (session) => removeMoveNote(session, moves),
@@ -406,7 +406,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			const owner = presences.of(note.session)?.owner;
 			// Without its presence, the pid alone: a pid is seldom reused
 			// within the seconds between a note and its pi's end.
-			if (owner?.pid !== note.pid) return rolloutFacts.alive(note.pid);
+			if (owner?.pid !== note.pid) return systemFacts.alive(note.pid);
 			return (await tickedStanding(owner, ticks)) !== "gone";
 		},
 		held: async () =>
@@ -454,7 +454,7 @@ export function takeUpFacts(places: CutoverPlaces): TakeUpFacts {
 		standing: async (session) => {
 			const presence = presences.of(session);
 			const pid = presence?.owner?.pid;
-			if (pid === undefined || !rolloutFacts.alive(pid)) return "gone";
+			if (pid === undefined || !systemFacts.alive(pid)) return "gone";
 			return presence?.moving === undefined ? "off" : "moving";
 		},
 	};

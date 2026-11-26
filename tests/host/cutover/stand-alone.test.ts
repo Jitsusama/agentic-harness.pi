@@ -16,11 +16,7 @@ import { describe, expect, it } from "vitest";
 const ROOT = resolve(import.meta.dirname, "../../..");
 
 /** The programs a person runs with node alone. */
-const PROGRAMS = [
-	"scripts/host-cutover.ts",
-	"scripts/host-release.ts",
-	"scripts/host-rollout.ts",
-];
+const PROGRAMS = ["scripts/host-cutover.ts", "scripts/host-release.ts"];
 
 /** What pi provides to what it loads, and only to that. */
 const PI = /^@(?:earendil-works|mariozechner)\/pi-/;

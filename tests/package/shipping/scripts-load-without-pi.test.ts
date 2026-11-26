@@ -48,7 +48,6 @@ const SCRIPT_MODULES: Record<string, () => Promise<unknown>> = {
 	"scripts/host-memory.ts": () => import("../../../scripts/host-memory.ts"),
 	"scripts/host-prove.ts": () => import("../../../scripts/host-prove.ts"),
 	"scripts/host-release.ts": () => import("../../../scripts/host-release.ts"),
-	"scripts/host-rollout.ts": () => import("../../../scripts/host-rollout.ts"),
 	"scripts/host-take-up.ts": () => import("../../../scripts/host-take-up.ts"),
 	"scripts/learning-sensor.ts": () =>
 		import("../../../scripts/learning-sensor.ts"),

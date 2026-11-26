@@ -147,7 +147,7 @@ export interface HostRunOptions {
 	viewer?: (host: SessionHost) => ViewerBridge;
 	/** Whether a window views a conversation now, as the screens say. */
 	viewed?: (sessionId: string) => boolean;
-	/** What a second conversation must pass; serve's rollout gate by default. */
+	/** What a second conversation must pass; without one, every conversation is admitted. */
 	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { on(signal: string, listener: () => void): unknown };
@@ -223,8 +223,8 @@ export interface HostRunOptions {
 	 */
 	children?: Parameters<typeof serveHost>[0]["children"];
 	/**
-	 * Passed on to serveHost, for tests: a host run from a tree is given
-	 * its rollout gate, since it has no install to read one from.
+	 * Passed on to serveHost, for tests: where a host keeps its state,
+	 * and the gate a second conversation passes.
 	 */
 	places?: Pick<
 		Parameters<typeof serveHost>[0],
