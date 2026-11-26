@@ -1,7 +1,9 @@
 /**
  * A session following its install: it reloads itself when the install
  * moves, at a moment that loses nothing, and a session that is not
- * somebody's to sit at never does.
+ * somebody's to sit at never does. Long because every case drives the
+ * one follower through the same git fixture, fake session and slot,
+ * built once above both groups, so a split would copy all of it.
  */
 
 import {
