@@ -1626,6 +1626,15 @@ describe("a park whose stop fails", () => {
 		await parked.settled("a");
 		expect(stop, "not tried again").toHaveBeenCalledOnce();
 		expect(said).not.toHaveBeenCalled();
+		// #2249 F17: it runs on, so a wake is asked as of one awake, not
+		// left waiting on a park that already settled. Nothing can wake it
+		// here, so it answers that within the turn.
+		const woke = parked.wake("a").then(
+			() => "woke",
+			() => "answered",
+		);
+		const turn = new Promise((resolve) => setImmediate(resolve, "hung"));
+		expect(await Promise.race([woke, turn])).toBe("answered");
 	});
 
 	it("settles, still owed, a stop tried again that throws as it is asked", async () => {
