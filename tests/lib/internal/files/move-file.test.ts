@@ -164,9 +164,15 @@ describe("moving a file whole", () => {
 		const bytes = Buffer.alloc(3 * 1024 * 1024 + 7, "carried\n");
 		writeFileSync(join(here, "log.jsonl"), bytes);
 		// Bits a umask would clip at the open, and setuid, which never goes.
+		// The umask is set here, since one of 0 clips nothing (#2227 F8).
 		chmodSync(join(here, "log.jsonl"), 0o4766);
+		const umask = process.umask(0o022);
 
-		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
+		try {
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
+		} finally {
+			process.umask(umask);
+		}
 
 		expect(
 			readFileSync(join(there, "log.jsonl")).equals(bytes),
