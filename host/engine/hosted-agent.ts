@@ -28,10 +28,17 @@ import type {
 } from "./durable-types.ts";
 import { Admissions, type WordsWatch } from "./hosted-agent/admissions.ts";
 import type {
+	CompactingSession,
 	DurableBinding,
 	QueueShowingSession,
 	ShowQueued,
 } from "./hosted-agent/binding.ts";
+import {
+	compacted,
+	markCompaction,
+	newestCompaction,
+	type PiCompaction,
+} from "./hosted-agent/compaction-head.ts";
 import {
 	defaultConvertToLlm,
 	jsonCopy,
@@ -132,6 +139,8 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
+	/** Where the session this agent joined is told of faults it carries on past, once it has joined one. */
+	private reportJoined: ((error: unknown) => void) | undefined;
 	private readonly piRuns = new PiRuns(
 		() => this.parked,
 		(say) => this.within(say),
@@ -200,6 +209,9 @@ export class HostedAgent {
 			transcript: this.transcript,
 			followUp: this.followUpQueue,
 			admissions: this.admissions,
+			markCompaction: (compaction) => this.markCompaction(compaction),
+			// Before any session is joined there is nowhere to say it, and the recovery goes on all the same.
+			report: (error) => this.reportJoined?.(error),
 			parking: this.parking.signal,
 			active: () => this.active,
 			parked: () => this.parked,
@@ -394,14 +406,50 @@ export class HostedAgent {
 	 * show in its pending list, where pi has the seam, as pi lists only what
 	 * it queued. The agent's own runs open as pi's there (pi-runs.ts), and
 	 * one pi fails to prepare, or prepares too late, is said to `report`.
+	 * Each compaction pi finishes there is told to durable, as a marker its
+	 * reads start from; one that fails is said to `report` too.
 	 */
 	joinSession(
-		session: QueueShowingSession & HostRunningSession,
+		session: QueueShowingSession & HostRunningSession & CompactingSession,
 		report?: (error: unknown) => void,
 	): void {
+		this.reportJoined = report;
 		this.piRuns.tell(session, report);
+		session.subscribe?.((event) => {
+			if (!compacted(event) || this.parked) return;
+			this.markCompaction(newestCompaction(this.state.messages)).catch(
+				(error: unknown) => report?.(error),
+			);
+		});
 		if (typeof session.showQueued !== "function") return;
 		this.pending = (text, mode) => session.showQueued?.(text, mode);
+	}
+
+	/** Markings of pi's compactions, one at a time, so no two search durable's log at once. */
+	private marking: Promise<unknown> = Promise.resolve();
+
+	/**
+	 * Settles once every marking of pi's compactions begun has ended, those
+	 * begun while it waits among them, so durable's store closes behind
+	 * them rather than under them; a marking that failed was said where it
+	 * began.
+	 */
+	async marked(): Promise<void> {
+		let waited: Promise<unknown> | undefined;
+		while (waited !== this.marking) {
+			waited = this.marking;
+			await waited;
+		}
+	}
+
+	/** Tell durable where `compaction` keeps from, after any marking before it. */
+	private markCompaction(compaction: PiCompaction | undefined): Promise<void> {
+		if (!compaction) return Promise.resolve();
+		const next = this.marking.then(async () => {
+			await markCompaction(this.durable, compaction);
+		});
+		this.marking = next.catch(() => undefined);
+		return next;
 	}
 
 	/**

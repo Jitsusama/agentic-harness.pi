@@ -15,6 +15,7 @@ import {
 import type { ToolRound } from "../tool-round.ts";
 import type { Admissions } from "./admissions.ts";
 import type { DurableBinding, ShowQueued } from "./binding.ts";
+import { newestCompaction, type PiCompaction } from "./compaction-head.ts";
 import { cutOffAnswer, queuedText } from "./messages.ts";
 import type { ActiveRun, Run } from "./run.ts";
 import type { HostedAgentState } from "./state.ts";
@@ -30,6 +31,10 @@ export interface RecoverySide {
 	readonly transcript: Transcript;
 	readonly followUp: MessageQueue;
 	readonly admissions: Admissions;
+	/** Tell durable where pi's newest compaction keeps from, so its reads start there. */
+	markCompaction(compaction: PiCompaction | undefined): Promise<void>;
+	/** Say a fault that leaves the recovery going, such as a marking that failed. */
+	report(error: unknown): void;
 	/** Aborts once the conversation parks. */
 	readonly parking: AbortSignal;
 	active(): ActiveRun | undefined;
@@ -98,6 +103,11 @@ export class Recovery {
 		for (let active = side.active(); active; active = side.active())
 			await active.promise;
 		await side.transcript.placeAtSession();
+		// Before durable resumes, so the first request it prepares reads only what pi kept.
+		// Only a shortcut: one that fails leaves durable reading the whole log, and the conversation still opens.
+		await side
+			.markCompaction(newestCompaction(side.state.messages))
+			.catch((error: unknown) => side.report(error));
 		const before = await side.durable.runFailure();
 		const waits = turn !== undefined && (await side.durable.carrying());
 		let giveBack: GiveBack = () => {};

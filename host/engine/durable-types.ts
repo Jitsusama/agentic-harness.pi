@@ -59,6 +59,16 @@ export type SubmissionDraft = { readonly requestId?: string } & (
 			readonly entry?: { readonly kind: string; readonly data?: unknown };
 	  }
 	| { readonly type: "continue" }
+	| {
+			readonly type: "write";
+			readonly entry: {
+				readonly kind: string;
+				/** The first entry of the context it starts, for a head marker. */
+				readonly head?: number;
+				readonly model?: readonly AgentMessage[];
+				readonly data?: unknown;
+			};
+	  }
 );
 
 /** The newest run durable ended without an answer, as a conversation's `pi.live` keeps it. */

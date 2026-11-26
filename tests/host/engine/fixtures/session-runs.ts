@@ -54,6 +54,15 @@ export interface Observed {
 	readonly logged?: readonly unknown[];
 	/** The patches of seams the host wants that its pi lacks. */
 	readonly lacking?: readonly string[];
+	/** Each scan durable's storage made, by its range and how many entries it gave, for a scenario counting them. */
+	readonly scans?: readonly {
+		readonly minEntryId?: number;
+		readonly maxEntryId?: number;
+		readonly order?: string;
+		readonly items: number;
+	}[];
+	/** The head of each marker of pi's compaction durable's storage committed, for a scenario noting them. */
+	readonly markings?: readonly number[];
 }
 
 /** The scenarios' runs on the host's pi, found as each case asks. */

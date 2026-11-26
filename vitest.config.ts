@@ -107,6 +107,7 @@ const PROCESS_TESTS = [
 	"tests/host/threads-as-source.test.ts",
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/call-signal.test.ts",
+	"tests/host/engine/compacted-reads.test.ts",
 	"tests/host/engine/carried-runs.test.ts",
 	"tests/host/engine/engine.test.ts",
 	"tests/host/parity/parity.test.ts",

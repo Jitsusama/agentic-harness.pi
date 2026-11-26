@@ -31,8 +31,12 @@ pi-runs.test.ts opens the agent's own runs as pi's through a session
 standing in for pi's runForHost: one run for nested holds, none for a
 run pi began, and no settle once the host parks.
 
-hosted-agent.test.ts, call-signal.test.ts, engine.test.ts and
-carried-runs.test.ts are the exceptions. The last holds that a carried
+hosted-agent.test.ts, call-signal.test.ts, compacted-reads.test.ts,
+engine.test.ts and carried-runs.test.ts are the exceptions.
+compacted-reads.test.ts runs the session fixture twice in one folder,
+compacting, then reopening, and holds that durable reads a reopened
+conversation's context from what pi kept, counting its storage's scans.
+The last holds that a carried
 run's first request carries the sections a typed prompt's would, where
 the runtime has pi's run seam. The first runs fixtures/hosted-session.mts in child node
 processes, beside pi's own agent, on pi's scripted provider; the second

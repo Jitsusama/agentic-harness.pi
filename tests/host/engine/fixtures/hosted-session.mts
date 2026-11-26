@@ -61,6 +61,8 @@ interface Session {
 	/** The words pi's screen lists as pending behind the turn. */
 	getFollowUpMessages(): readonly string[];
 	navigateTree(targetId: string, options: object): Promise<unknown>;
+	/** Compact the session's context, as pi's /compact does. */
+	compact(): Promise<unknown>;
 	readonly isStreaming: boolean;
 	readonly extensionRunner: {
 		emit(event: {
@@ -233,6 +235,16 @@ interface Scenario {
 	 * writing first what the scenario typed, since the run never prints.
 	 */
 	diesAtSettle?: boolean;
+	/**
+	 * Join the agent to the session deaf to its events, as a host from
+	 * before the agent heard pi's compactions joined it.
+	 */
+	unheard?: boolean;
+	/**
+	 * Note each scan durable's storage makes, by its range and how many
+	 * entries it gave, and the head of each marker of pi's compaction it commits.
+	 */
+	notesStorage?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -288,6 +300,15 @@ const STEERED_AS_IT_ENDS = "steered as it ended";
 const CARRIED_END_WAIT_MS = 20_000;
 /** What that scenario saw as it typed, written as the host dies. */
 let typedAsItEnds: object = { typed: false };
+/** Each scan durable's storage made, when the scenario counts them. */
+const scans: {
+	readonly minEntryId?: unknown;
+	readonly maxEntryId?: unknown;
+	readonly order?: unknown;
+	readonly items: number;
+}[] = [];
+/** The head of each marker of pi's compaction durable's storage committed, when the scenario notes them. */
+const markings: number[] = [];
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -1084,6 +1105,30 @@ const scenarios: Record<string, Scenario> = {
 			await session.prompt("second");
 		},
 	},
+	/** Three turns, then a compaction keeping only the last, by a host deaf to it, as before the agent heard pi's compactions. */
+	"compacted-unheard": {
+		responses: compactingResponses,
+		drive: compactAfterThreeTurns,
+		settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+		persist: true,
+		unheard: true,
+		notesStorage: true,
+	},
+	/** As compacted-unheard, the agent hearing the compaction. */
+	compacted: {
+		responses: compactingResponses,
+		drive: compactAfterThreeTurns,
+		settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+		persist: true,
+		notesStorage: true,
+	},
+	/** Reopen a compacted conversation and ask again, noting what durable's storage scans. */
+	"reopen-compacted": {
+		responses: () => [say("four")],
+		drive: (session) => session.prompt("fourth"),
+		persist: true,
+		notesStorage: true,
+	},
 	/** Go back to the first answer and carry on from there, leaving the second on its own branch. */
 	branch: {
 		responses: () => [say("one"), say("two"), say("three")],
@@ -1172,7 +1217,9 @@ try {
 	const conversation =
 		mode === "hosted"
 			? await openHostedConversation({
-					modules: pi.modules,
+					modules: scenario.notesStorage
+						? notingStorage(pi.modules)
+						: pi.modules,
 					library: piLibrary(pi.modules),
 					storePath: join(folder, "durable", "store.sqlite"),
 					env: async () => ({}),
@@ -1228,7 +1275,11 @@ try {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
-		conversation.agent.joinSession(session);
+		conversation.agent.joinSession(
+			scenario.unheard ? deaf(session) : session,
+			(error) =>
+				process.stderr.write(`joined session reported: ${String(error)}\n`),
+		);
 	}
 	stopHost = () => {
 		// As the engine's release does for a stopping host, then the process ends before any turn does.
@@ -1337,6 +1388,7 @@ try {
 			logged,
 			lacking: pi.lacking.map((seam) => seam.patch),
 			...(scenario.persist ? { ran } : {}),
+			...(scenario.notesStorage ? { scans, markings } : {}),
 		})}\n`,
 	);
 } finally {
@@ -1386,6 +1438,93 @@ function stallingExtension(pi: ExtensionPi): void {
 		// A handler waiting on a slow service, as PREPARING_MS allows for.
 		await new Promise((done) => setTimeout(done, STALL_MS));
 	});
+}
+
+/** The head of each marker of pi's compaction among `batches`, as durable's storage is asked to commit them. */
+function markersIn(batches: unknown): number[] {
+	if (!Array.isArray(batches)) return [];
+	return batches.flatMap((writes: unknown) =>
+		Array.isArray(writes)
+			? writes.flatMap((write: unknown) => {
+					const value = isRecord(write) ? write.value : undefined;
+					return isRecord(write) &&
+						write.type === "entry" &&
+						isRecord(value) &&
+						value.kind === "pi.compaction" &&
+						typeof value.head === "number"
+						? [value.head]
+						: [];
+				})
+			: [],
+	);
+}
+
+/** `modules` with durable's SQLite storage noting each scan in `scans` and each marker it commits in `markings`. */
+function notingStorage(modules: typeof pi.modules): typeof pi.modules {
+	const open = modules.sqlite.openNodeSqliteStorage;
+	if (typeof open !== "function") throw new Error("no SQLite storage");
+	const counted = async (...args: unknown[]): Promise<unknown> => {
+		const storage: unknown = await open(...args);
+		if (!isRecord(storage)) return storage;
+		return new Proxy(storage, {
+			get(target, key) {
+				const value: unknown = Reflect.get(target, key, target);
+				if (key === "commit" && typeof value === "function")
+					return async (batches: unknown, ...rest: unknown[]) => {
+						const stored: unknown = await value.call(target, batches, ...rest);
+						markings.push(...markersIn(batches));
+						return stored;
+					};
+				if (key !== "scanEntries" || typeof value !== "function")
+					return typeof value === "function" ? value.bind(target) : value;
+				return async (query: unknown, ...rest: unknown[]) => {
+					const page: unknown = await value.call(target, query, ...rest);
+					const items = isRecord(page) ? page.items : undefined;
+					const range = isRecord(query) ? query : {};
+					scans.push({
+						minEntryId: range.minEntryId,
+						maxEntryId: range.maxEntryId,
+						order: range.order,
+						items: Array.isArray(items) ? items.length : 0,
+					});
+					return page;
+				};
+			},
+		});
+	};
+	return {
+		...modules,
+		sqlite: { ...modules.sqlite, openNodeSqliteStorage: counted },
+	};
+}
+
+/** `session` with no events to hear, as a host deaf to them joined it. */
+function deaf(session: Session): Session {
+	return new Proxy(session, {
+		get: (target, key) =>
+			key === "subscribe" ? undefined : Reflect.get(target, key, target),
+	});
+}
+
+/** Three answers, then a summary of the conversation and of the last turn's start, with spares. */
+function compactingResponses(): unknown[] {
+	return [
+		say("one"),
+		say("two"),
+		say("three"),
+		say("the conversation so far, summarised"),
+		// Keeping one token cuts through the last turn, so pi summarises its start as well.
+		say("the turn so far, summarised"),
+		say("spare"),
+	];
+}
+
+/** Three turns, then pi's compaction. */
+async function compactAfterThreeTurns(session: Session): Promise<void> {
+	await session.prompt("first");
+	await session.prompt("second");
+	await session.prompt("third");
+	await session.compact();
 }
 
 /** The session file under the folder, opened if a run before left one. */
