@@ -29,6 +29,7 @@ import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { real, within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
+import { placeRefused } from "./arrival-place.ts";
 import { andLeft, claimed, letGoOf } from "./clone-aside.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
@@ -53,7 +54,6 @@ import {
 } from "./origin-view.ts";
 import { isReadForm, type Placing, placeSession } from "./place-session.ts";
 import { standSparse } from "./sparse.ts";
-import { placeRefused } from "./tree-place.ts";
 import { cloningAt, guardedCheckoutOf, twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
@@ -501,6 +501,9 @@ async function readyTree(
 				),
 			);
 		}
+		// Judged again, since a link above it may have moved while it cloned.
+		const astray = placeRefused(path, here.home, here.trees);
+		if (astray !== undefined) return no(andLeft(astray, letGoOf(cloning)));
 		try {
 			renameSync(cloning, path);
 		} catch (error) {
