@@ -12,6 +12,7 @@ import {
 	MOST_SUBJECT_WORDS,
 	MOST_WORDS,
 	type NeedAsked,
+	routingWords,
 	subjectWords,
 } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
@@ -175,6 +176,16 @@ describe("the words a cell's declared subjects give it", () => {
 			cell?.words,
 			"no id longer than a route keeps, as each joined run of words is",
 		).not.toContain(run(0).join("-"));
+	});
+
+	it("routes by a subject word as long as LONGEST_WORD, and none longer", () => {
+		const longest = "p".repeat(LONGEST_WORD);
+
+		expect(routingWords(`x:${longest}`), "at the cap").toEqual([longest]);
+		expect(routingWords(`x:${longest}p`), "past it").toEqual([]);
+		expect(subjectWords(`x:${longest}p`), "still the subject's").toEqual([
+			`${longest}p`,
+		]);
 	});
 
 	it("spends none of a cell's MOST_SUBJECT_WORDS on a word no need keeps", () => {

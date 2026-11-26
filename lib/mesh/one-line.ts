@@ -40,15 +40,17 @@ export function oneLine(text: string): string {
  * the backtick and its lookalikes, the quote ornaments among them,
  * past the basic plane too, every corner bracket Unicode counts as a
  * quotation mark, and each mark's canonical twin, as the Greek varia
- * is a backtick's. Others may draw as one in some font; these are the
- * ones Unicode names as quotes or draws so.
+ * is a backtick's, and the gershayim, the ditto mark and the double
+ * acute, which draw as a double quote. Others may draw as one in some
+ * font; these are every one Unicode names a quotation mark, which a
+ * test walks, and those drawn so.
  * A peer's words said inside quotes or a
  * code span have each of these as `'`, which closes neither, since
  * JSON escapes only the straight double quote and a model reads the
  * rest as closing it too.
  */
 const QUOTE_LIKE =
-	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u0374\u1FEF\u1FFD\u2035\uFF02\uFF07\uFF40\uFF62\uFF63\u300C-\u300F\uFE41-\uFE44\u275B-\u2760\u{1F676}-\u{1F678}\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C]/gu;
+	/["`\u2018-\u201F\u2032-\u2037\u02B9-\u02BC\u02C8\u02CA\u02CB\u02F4\u00B4\u0374\u1FEF\u1FFD\u2035\uFF02\uFF07\uFF40\uFF62\uFF63\u300C-\u300F\uFE41-\uFE44\u275B-\u2760\u{1F676}-\u{1F678}\u301D-\u301F\u00AB\u00BB\u2039\u203A\u2E42\u02EE\uA78B\uA78C\u05F4\u3003\u02DD]/gu;
 
 /** Text with every quote or backtick a reader may take as closing one as `'`. */
 export function plainQuotes(text: string): string {

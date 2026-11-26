@@ -155,6 +155,17 @@ describe("the subjects a quest's sessions declare", () => {
 		expect(said(result)).toContain(long);
 	});
 
+	it("set a subject whose one word is as long as the longest kept", async () => {
+		const id = await made();
+		const longest = `x:${"a".repeat(LONGEST_WORD)}`;
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=${longest}`,
+		});
+		expect([result.ok, subjectsOf(id)], "set").toEqual([true, [longest]]);
+	});
+
 	it("refuse a service unit by its name, saying its type is set aside", async () => {
 		const id = await made();
 		const result = await run({
@@ -163,7 +174,9 @@ describe("the subjects a quest's sessions declare", () => {
 			ref: "subjects=x:ab.service",
 		});
 		expect(result.ok).toBe(false);
-		expect(said(result)).toMatch(/a \.service ending set aside/);
+		expect(said(result), "the unit named").toMatch(
+			/x:ab\.service holds none there/,
+		);
 	});
 
 	// What the quest owns is the machine's config, which subjects= can't

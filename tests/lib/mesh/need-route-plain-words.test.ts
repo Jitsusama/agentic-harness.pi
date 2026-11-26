@@ -6,7 +6,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { foragersFrom, wordsOf } from "../../../lib/mesh/need-route.ts";
+import {
+	foragersFrom,
+	LONGEST_WORD,
+	wordsOf,
+} from "../../../lib/mesh/need-route.ts";
 import { asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 describe("the plain words a need is not matched by", () => {
@@ -50,6 +54,13 @@ describe("the plain words a need is not matched by", () => {
 		expect(words, "an id after an opening quote").toContain("pr-42");
 	});
 
+	it("reads an apostrophe's look-alikes as one", () => {
+		expect(
+			wordsOf("it\u02BCs 5, it\u00B4s 6, it\u2018s 7, don\u02BCt"),
+			"no stub's id, and no contraction kept whole",
+		).toEqual([]);
+	});
+
 	it("takes no word from a contraction's stubs", () => {
 		expect(
 			wordsOf("don't, isn't, won't, can't, shouldn't, didn't, wasn't"),
@@ -64,6 +75,33 @@ describe("the plain words a need is not matched by", () => {
 			"hand-over",
 		]);
 		expect(wordsOf("over the notes"), "a particle alone").toEqual(["notes"]);
+	});
+
+	it("keeps no phrase whose first word names no work", () => {
+		expect(wordsOf("them off the notes"), "a common word's").toEqual(["notes"]);
+		expect(wordsOf("go up"), "a short word's").toEqual([]);
+	});
+
+	// A phrase says its first word again: hand-over is work on hand. So a
+	// cell whose title says find out, and nothing else of the need, works
+	// on one of its words, not two (#2220's third judge).
+	it("counts a phrase and its first word as one word of the need", () => {
+		const found = routeNeed(
+			asked("A", ...wordsOf("find out who keeps the launcher fonts")),
+			{
+				foragers: cells({
+					A: [],
+					T: ["find", "find-out"],
+					R: ["launcher", "fonts"],
+				}),
+				ties: ties(["A", "T", 1], ["A", "R", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "the cell working on the fonts").toMatchObject({
+			fit: "R",
+		});
 	});
 
 	it("sends a need saying hand over to hand-over's hub, not hand-off's", () => {
@@ -86,6 +124,13 @@ describe("the plain words a need is not matched by", () => {
 			routeNeed(asked("A", ...wordsOf("hand off the notes")), reach),
 			"hand-off's hub takes the other",
 		).toMatchObject({ fit: "F", path: ["F"] });
+	});
+
+	it("keeps an id as long as LONGEST_WORD, and none longer", () => {
+		const id = `leg-${"p".repeat(LONGEST_WORD - 4)}`;
+
+		expect(wordsOf(id), "at the cap").toContain(id);
+		expect(wordsOf(`${id}p`), "past it").not.toContain(`${id}p`);
 	});
 
 	it("keeps a plain word inside an id, which names the work whole", () => {

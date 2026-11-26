@@ -291,9 +291,20 @@ const JOINED_ID = /(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
  * a word already inside a joined id, whose number would join the id's
  * last part alone, nor a contraction's stub, whose "it's 5" names no
  * s-5, though a word after an opening quote, as 'PR 42', is read.
+ * Read after `APOSTROPHE_LIKE` is folded, so a plain one stands for all.
  */
 const NUMBER_IN_PROSE =
-	/(?<![\p{L}\p{N}_-]|\p{L}['\u2019])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+	/(?<![\p{L}\p{N}_-]|\p{L}')(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+
+/**
+ * What prose writes for an apostrophe besides the plain one: the curly
+ * right and left single quotes, the modifier letter, which a split
+ * would keep inside its word as a letter, and the acute accent.
+ */
+const APOSTROPHE_LIKE = /[\u2018\u2019\u02BC\u00B4]/gu;
+
+/** The particles a word before them makes a phrase of, as hand over. */
+const PARTICLES = ["over", "off", "out", "up", "down", "back", "away"];
 
 /**
  * A word and the particle after it in prose, "hand over" or "roll
@@ -303,8 +314,25 @@ const NUMBER_IN_PROSE =
  * hand-over (#2204's judge, F37). An id no cell holds costs nothing,
  * since a need keeps only the words some cell works on.
  */
-const PARTICLE_IN_PROSE =
-	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(over|off|out|up|down|back|away)(?![\p{L}\p{N}_-])/gu;
+const PARTICLE_IN_PROSE = new RegExp(
+	`(?<![\\p{L}\\p{N}_-])(\\p{L}[\\p{L}\\p{N}]*)\\s+(${PARTICLES.join("|")})(?![\\p{L}\\p{N}_-])`,
+	"gu",
+);
+
+/** A phrase's id, hand-over, read back into its first word. */
+const PHRASE_ID = new RegExp(
+	`^(\\p{L}[\\p{L}\\p{N}]*)-(?:${PARTICLES.join("|")})$`,
+	"u",
+);
+
+/**
+ * The first word of a phrase's id, hand of hand-over, or nothing for a
+ * word that is no phrase's. A subject's joined id of the same shape,
+ * x:roll-back, reads the same, since it names the same work.
+ */
+function phraseHead(word: string): string | undefined {
+	return PHRASE_ID.exec(word)?.[1];
+}
 
 /** Whether a word in prose may name work: long enough, and not common. */
 function isWorkWord(word: string | undefined): word is string {
@@ -322,7 +350,7 @@ function isWorkWord(word: string | undefined): word is string {
  * with a particle after it as theirs (`PARTICLE_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
-	const lower = text.toLowerCase();
+	const lower = text.toLowerCase().replace(APOSTROPHE_LIKE, "'");
 	const words = lower.split(/[^\p{L}\p{N}]+/u).filter(isWorkWord);
 	const ids = [...lower.matchAll(JOINED_ID)]
 		.map(([id]) => id)
@@ -725,15 +753,23 @@ function routeAs(
 
 	const fitsOn = (address: string, word: string) =>
 		takes(address) && worksOnWord(address, word);
-	// How much of the need a cell works on, read as fitsOn reads a word,
-	// so a leg-26 cell never counts the leg of a need for leg-27.
-	const most = (address: string) =>
-		asked.words.filter((word) => worksOnWord(address, word)).length;
+	// How many of `words` a cell works on, read as fitsOn reads a word,
+	// so a leg-26 cell never counts the leg of a need for leg-27. A
+	// phrase's id counts only where its first word doesn't, since it says
+	// that word again: it tells hand-over from hand-off, but a cell whose
+	// title says find out never outweighs one holding the need's subject.
+	const covers = (address: string, words: readonly string[]) =>
+		words.filter((word) => {
+			if (!worksOnWord(address, word)) return false;
+			const head = phraseHead(word);
+			return head === undefined || !worksOnWord(address, head);
+		}).length;
+	// How much of the need a cell works on.
+	const most = (address: string) => covers(address, asked.words);
 	// How much of what the asker lacks a cell works on: the words its
 	// owner is judged by, since a word the asker holds routes nowhere and
 	// an ended sibling holding it owns nothing the live fit can't take.
-	const needed = (address: string) =>
-		lacking.filter((word) => worksOnWord(address, word)).length;
+	const needed = (address: string) => covers(address, lacking);
 	// A fit is weighed by what the asker lacks first, since a word it
 	// holds routes nowhere, then by the whole need, so of cells as useful
 	// the one nearer the asker's own work.
