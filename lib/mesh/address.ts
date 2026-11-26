@@ -43,10 +43,12 @@
  * wrong by more than the gap between two takings picks the wrong one.
  * A stamp is carried through every restart, so one wrong would last:
  * one from before any harness stamped one, as a clock reset at boot
- * writes, or later than its presence's own last word, or than now, by
- * more than a minute, reads as no time (`believedSince`), and a peer
- * holding one stamps afresh. A clock wrong by hours, not years, still
- * stands until its session stops holding.
+ * writes, isn't believed (`believedSince`). It ranks after every time
+ * that is, rather than as no time, lest it put the whole set back on
+ * the id rule and win by a lower id, and a peer holding one stamps
+ * afresh. A clock ahead only loses, so nothing bounds it. A clock
+ * behind by hours, not years, still stands until its session stops
+ * holding.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -164,26 +166,24 @@ export function loadedAddress(
  */
 const EARLIEST_SIGNS_SINCE = Date.parse("2026-11-01T00:00:00.000Z");
 
-/** How far one clock's two reads, a stamp and a later word, may cross. */
-const SIGNS_AHEAD_MS = 60_000;
-
 /**
- * A holding's time where it could be true: none before any harness
- * stamped one, or later than `latest` (the presence's last word, or
- * now) by more than a minute, since a stamp is carried through every
- * restart and a wrong one would otherwise last as long as its session.
- * Judged only from what the presence says, so every peer judges it alike.
+ * A holding's time where it could be true, and none before any harness
+ * stamped one, since a stamp is carried through every restart and a
+ * wrong one would otherwise last as long as its session. Judged from
+ * the time alone, so every peer judges it alike.
  */
-export function believedSince(
-	since: string | undefined,
-	latest?: number,
-): string | undefined {
-	if (since === undefined) return undefined;
-	const time = Date.parse(since);
-	if (!(time >= EARLIEST_SIGNS_SINCE)) return undefined;
-	return latest === undefined || time <= latest + SIGNS_AHEAD_MS
+export function believedSince(since: string | undefined): string | undefined {
+	return since !== undefined && Date.parse(since) >= EARLIEST_SIGNS_SINCE
 		? since
 		: undefined;
+}
+
+/** Where a holding's time ranks: as it says, or after every one believed. */
+function rankOf(since: string): number {
+	const believed = believedSince(since);
+	return believed === undefined
+		? Number.POSITIVE_INFINITY
+		: Date.parse(believed);
 }
 
 /**
@@ -193,14 +193,13 @@ export function believedSince(
  * is missing or the same, one whose session id is lower. A session with
  * a time kept from before its restart contests the address before it
  * signs again, but only against signers that say one too. A time that
- * can't be true, by its presence's own `at`, reads as none.
+ * can't be true ranks after every one that can, by id among themselves.
  */
 export function yieldsTo<
 	One extends {
 		readonly session: string;
 		readonly addresses: readonly string[];
 		readonly signsSince?: string;
-		readonly at?: string;
 	},
 >(
 	session: string,
@@ -216,19 +215,16 @@ export function yieldsTo<
 	// Times settle it only when every signer says one: one timeless signer
 	// puts all of them back on the old rule, so every peer, old harness or
 	// new, ranks the same live set the same way and none of three cycles.
-	const since = believedSince(signsSince);
-	const sinceOf = (one: One) =>
-		believedSince(
-			one.signsSince,
-			one.at === undefined ? undefined : Date.parse(one.at),
-		);
+	// One that can't be true still says a time, so it stays on the time
+	// rule, ranked last: by time, then id, one order every peer computes.
 	if (
-		since !== undefined &&
-		signers.every((one) => sinceOf(one) !== undefined)
+		signsSince !== undefined &&
+		signers.every((one) => one.signsSince !== undefined)
 	) {
+		const mine = rankOf(signsSince);
 		return signers.find((one) => {
-			const theirs = sinceOf(one) ?? since;
-			return theirs < since || (theirs === since && one.session < session);
+			const theirs = rankOf(one.signsSince ?? signsSince);
+			return theirs < mine || (theirs === mine && one.session < session);
 		});
 	}
 	return signers.find((one) => !signingNow || one.session < session);
@@ -238,7 +234,9 @@ export function yieldsTo<
  * Since when a peer signs with its quest's address once its addresses
  * are settled: the time it already held it from, or `now` when it has
  * just taken it or held it from a time that can't be true, and none once
- * it signs as itself, or while its clock reads before any could be.
+ * it signs as itself. A clock still reading before any could be stamps
+ * all the same, which ranks last, rather than saying no time, which
+ * would put every signer back on the id rule.
  */
 export function signingSince(
 	signing: string | undefined,
@@ -247,10 +245,10 @@ export function signingSince(
 	now: number,
 ): { address: string; since: string } | undefined {
 	if (signing === undefined || addresses[0] !== signing) return undefined;
-	const since =
-		believedSince(heldSince, now) ??
-		believedSince(new Date(now).toISOString(), now);
-	return since === undefined ? undefined : { address: signing, since };
+	return {
+		address: signing,
+		since: believedSince(heldSince) ?? new Date(now).toISOString(),
+	};
 }
 
 /**
@@ -274,7 +272,7 @@ export const RESTARTED_WITHIN_MS = 10 * 60_000;
  * (`at`) bounds it, lest one back hours after a crash take the address
  * from the peer that held it since; a word dated ahead by more than the
  * bound, from a clock set wrong, bounds it too. A time that can't be
- * true, by its last word or by now, keeps nothing (`believedSince`).
+ * true keeps nothing (`believedSince`).
  */
 export function signedSince(
 	presence:
@@ -293,10 +291,7 @@ export function signedSince(
 ): { address: string; since: string } | undefined {
 	if (presence === undefined) return undefined;
 	const address = presence.addresses[0];
-	const since = believedSince(
-		presence.signsSince,
-		Math.min(Date.parse(presence.at), now),
-	);
+	const since = believedSince(presence.signsSince);
 	if (address === undefined || since === undefined) return undefined;
 	const parked = still.parked ?? isParked;
 	const stood =
