@@ -260,7 +260,8 @@ const toldUnlike = new WeakSet<LightPi>();
  * gone-folder.ts's `openStanding`), or undefined when pi's own open
  * should open it. What went wrong on the way is said as a LightFellBack
  * when pi's open is left to read it, and as it was said otherwise; that
- * pi's session layer is not what this reads is said once for each layer.
+ * pi's session layer is not what this reads is said once for each layer,
+ * which every later open then leaves to pi's own unread.
  */
 export function openKept(
 	pi: LightPi,
@@ -268,9 +269,9 @@ export function openKept(
 	report: Report = () => {},
 	home: string = homedir(),
 ): StandingOpen | undefined {
+	if (toldUnlike.has(pi)) return undefined;
 	const { SessionManager: Manager, version } = pi;
 	const unlike = (why: string): undefined => {
-		if (toldUnlike.has(pi)) return undefined;
 		toldUnlike.add(pi);
 		report(
 			new LightFellBack(
@@ -320,7 +321,9 @@ export function openKept(
 			said.sayTo(report);
 			return standing;
 		}
-		said.report(new Error("its kept view would hold entries read light"));
+		// Said whether its view held them or couldn't be taken, which the
+		// hold has said already.
+		said.report(new Error("pi would hold entries it read light"));
 	} catch (error) {
 		if (error instanceof NotLikePi) return unlike(error.message);
 		said.report(error);
@@ -335,9 +338,9 @@ export function openKept(
  */
 function fellBack(file: string, what: unknown): unknown {
 	if (!(what instanceof Error)) return what;
-	const why = what.message;
 	return new LightFellBack(
-		`The light open of ${file} fell back to pi's own open: ${why}`,
+		`The light open of ${file} fell back to pi's own open: ${what.message}`,
+		{ cause: what },
 	);
 }
 

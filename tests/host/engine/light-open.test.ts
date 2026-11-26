@@ -559,6 +559,8 @@ describe("a light open that falls back", () => {
 		openHeld(PI, file, (what) => said.push(what), whole([]));
 		expect(said).toEqual([expect.any(LightFellBack)]);
 		expect(String(said[0])).toContain(`light open of ${file} fell back`);
+		const why = said[0] instanceof Error ? said[0].cause : undefined;
+		expect(why).toEqual(new Error("pi would hold entries it read light"));
 	});
 
 	it("leaves pi's own open to say it when it says something", () => {
@@ -568,14 +570,20 @@ describe("a light open that falls back", () => {
 		expect(said).toEqual([failed]);
 	});
 
-	it("says once that pi's session layer is not what it reads", () => {
+	it("says once that pi's session layer is not what it reads, and reads no log after", () => {
 		const said: unknown[] = [];
-		class Other {}
+		let built = 0;
+		class Other {
+			constructor() {
+				built += 1;
+			}
+		}
 		const pi = { SessionManager: Other, version: CURRENT_SESSION_VERSION };
 		const file = compactedLog();
 		openKept(pi, file, (what) => said.push(what));
 		openKept(pi, file, (what) => said.push(what));
 		expect(said).toEqual([expect.any(LightFellBack)]);
 		expect(String(said[0])).toContain("Light opens are off");
+		expect(built).toBe(1);
 	});
 });
