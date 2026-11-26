@@ -196,9 +196,11 @@ describe("reading worktree state from a real repository", () => {
 	// status read started a daemon that never exits (2AF2DH [c9039904]).
 	it("reads each tree's status without starting git's fsmonitor daemon", async () => {
 		const { local } = await repoWithRemote();
-		await git(local, "config", "core.fsmonitor", "true");
 		await git(local, "branch", "spent", "main");
 		await git(local, "worktree", "add", "-q", `${local}/.wt/spent`, "spent");
+		// Set only once the setup's own git is done, so the daemon is met by
+		// the reads under test alone and the setup starts none to leave behind.
+		await git(local, "config", "core.fsmonitor", "true");
 		const statuses: string[][] = [];
 		const watched = (command: string, args: readonly string[]) => {
 			if (args.includes("status")) statuses.push([...args]);
