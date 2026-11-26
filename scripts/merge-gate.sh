@@ -145,6 +145,13 @@ if [[ -n $changed ]]; then
     [[ $file == biome.jsonc ]] || others+=("$file")
   done
   gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${others[@]}"
+  # Biome loads a config's GritQL plugins before it judges anything, so
+  # they go out too, changed or not; none is among the files above.
+  grits=$(gate_index ls-files -- '*.grit')
+  if [[ -n $grits ]]; then
+    mapfile -t plugins <<< "$grits"
+    gate_index checkout-index --prefix="$tree/" -- "${plugins[@]}"
+  fi
   set +e
   said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off "${files[@]}" 2>&1)
   checked=$?
@@ -169,18 +176,29 @@ if [[ -n $changed ]]; then
     mkdir "$before"
     gate_index checkout-index --prefix="$before/" -- "${others[@]}"
     unattributed cat-file blob "$main_id:biome.jsonc" > "$before/biome.jsonc"
+    # Main's config loads main's plugins, as the head's loads its own.
+    main_grits=$(unattributed ls-tree -r --name-only "$main_id")
+    while IFS= read -r grit; do
+      [[ $grit == *.grit ]] || continue
+      [[ $grit == */* ]] && mkdir -p "$before/${grit%/*}"
+      unattributed cat-file blob "$main_id:$grit" > "$before/$grit"
+    done <<< "$main_grits"
     if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
       --colors=off "${others[@]}" > "$scratch/before.said" 2>&1); then
       # Biome fails the same way when it can't load the config at all, so
-      # only a run that names a changed file is called a loosening.
+      # only a run that faults a changed file, on a line that opens with its
+      # path as Biome's diagnostics do, is called a loosening; a path quoted
+      # inside a config error's frame doesn't count.
       named=0
-      for file in "${others[@]}"; do
-        if grep -qF -- "$file" "$scratch/before.said"; then named=1; fi
-      done
+      while IFS= read -r line; do
+        for file in "${others[@]}"; do
+          if [[ $line == "$file:"* || $line == "$file "* ]]; then named=1; fi
+        done
+      done < "$scratch/before.said"
       if [[ $named == 1 ]]; then
         echo "merge-gate: $sha changes biome.jsonc, and main's config faults what it lets through:" >&2
         cat "$scratch/before.said" >&2
-        echo "merge-gate: so the change loosens a rule for these files; that passes, said here." >&2
+        echo "merge-gate: so the change loosens a rule for these files, or main tightened one since the cut; that passes, said here." >&2
       else
         echo "merge-gate: $sha changes biome.jsonc, and Biome couldn't judge its files by main's config:" >&2
         cat "$scratch/before.said" >&2

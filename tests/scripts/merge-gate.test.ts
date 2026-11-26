@@ -383,6 +383,61 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).not.toContain("main's config");
 	});
 
+	it("loads the plugins the head's config names, though the change leaves them be", async () => {
+		const checkout = await harness();
+		const plugin = "lib/no-debugger.grit";
+		const config = `{ "plugins": ["./${plugin}"] }\n`;
+		mkdirSync(join(checkout, "lib"), { recursive: true });
+		writeFileSync(
+			join(checkout, plugin),
+			'language js\n\n`debugger` as $d where {\n\tregister_diagnostic(span=$d, message="no debugger")\n}\n',
+		);
+		writeFileSync(join(checkout, "biome.jsonc"), config);
+		await git(checkout, "add", plugin, "biome.jsonc");
+		await git(checkout, "commit", "-q", "-m", "plugin");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "plugins": ["./${plugin}"], "files": { "maxSize": 2097152 } }\n`,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).not.toContain("Cannot read file");
+		expect(answered.said).not.toContain("main's config");
+	});
+
+	it("names a file by main's config as it is now, not as it was at the cut", async () => {
+		const checkout = await harness();
+		// A config of several lines, so main's edit at the top and the head's
+		// at the bottom merge cleanly, as edits to a real config do.
+		const config = (indent: string, size: number) =>
+			`{\n\t"formatter": {\n\t\t"indentStyle": "${indent}"\n\t},\n\t"linter": {\n\t\t"enabled": true\n\t},\n\t"files": {\n\t\t"maxSize": ${size}\n\t}\n}\n`;
+		writeFileSync(join(checkout, "biome.jsonc"), config("tab", 1048576));
+		await git(checkout, "commit", "-q", "-a", "-m", "long config");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.jsonc": config("tab", 2097152),
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+		// Main moves to spaces after the cut, so only its config as it is now
+		// faults the head's tabs; the merge-base's still indents with tabs.
+		await git(checkout, "checkout", "-q", "-B", "spaced", "origin/main");
+		writeFileSync(join(checkout, "biome.jsonc"), config("space", 1048576));
+		await git(checkout, "commit", "-q", "-a", "-m", "spaces");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said).toContain("main tightened one since the cut");
+		expect(answered.said).toContain("lib/tabbed.ts");
+	});
+
 	it("says nothing of loosening when main has no config to compare", async () => {
 		const checkout = await harness();
 		await git(checkout, "rm", "-q", "biome.jsonc");
