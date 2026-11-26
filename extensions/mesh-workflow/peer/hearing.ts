@@ -36,7 +36,11 @@ import {
 import { nodeSocket, servedAt } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
 import { wakeForCarriedIn, wakeSteered } from "../../../lib/mesh/parked.ts";
-import type { Presence } from "../../../lib/mesh/presence.ts";
+import {
+	joinRefused,
+	MOST_GROUPS,
+	type Presence,
+} from "../../../lib/mesh/presence.ts";
 import {
 	readsAsReceptor,
 	type Unvouched,
@@ -519,6 +523,15 @@ export function createHearing(m: MeshState, f: Handing) {
 			message.invite.startsWith("#") &&
 			isJoinable(message.invite)
 		) {
+			// Too full to join, it is told so beside an invite that says it
+			// is in the group now, which it then is not. One that hears the
+			// group already through a part of it is told nothing more.
+			if (joinRefused(m.peer.groups, message.invite) === "full") {
+				return {
+					...message,
+					text: `${message.text} It couldn't join ${message.invite}, though: it is in ${MOST_GROUPS} groups, the most a peer may be in. Leave one it no longer works on with mesh_leave, then join with mesh_join.`,
+				};
+			}
 			m.peer.join(message.invite);
 		}
 		return message;

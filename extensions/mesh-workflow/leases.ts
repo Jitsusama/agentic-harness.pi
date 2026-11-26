@@ -585,9 +585,9 @@ function holders(
 
 /**
  * What a peer's changes in one checkout are, to follow "is". A holder
- * writes its why as it likes, so it is said on one line and its
- * backticks and their lookalikes as quotes, which can't close the code
- * span it is said in.
+ * writes its why as it likes, so it is said on one line, cut as its
+ * work is, and its backticks and their lookalikes as quotes, which
+ * can't close the code span it is said in.
  */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
@@ -601,7 +601,7 @@ function changingText(leases: readonly Lease[]): string {
 			.filter(claimsCheckout)
 			.map((lease) =>
 				lease.why
-					? `working on what \`${plainQuotes(oneLine(lease.why))}\` left`
+					? `working on what \`${plainQuotes(cut(lease.why))}\` left`
 					: "working on all of them",
 			),
 	]
@@ -652,8 +652,13 @@ export function createEditNotes(): EditNotes {
 	};
 }
 
-/** A message's words, cut to what a lease keeps. */
+/**
+ * A message's words on one line, cut to what a lease keeps, counted
+ * whole so a cut never splits a character in two.
+ */
 function cut(text: string): string {
-	const one = oneLine(text);
-	return one.length > WHY_CHARS ? `${one.slice(0, WHY_CHARS)}...` : one;
+	const each = [...oneLine(text)];
+	return each.length > WHY_CHARS
+		? `${each.slice(0, WHY_CHARS).join("")}...`
+		: each.join("");
 }

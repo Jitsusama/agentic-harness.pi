@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import {
 	isStopped,
+	STOP_WHY_CHARS,
 	type Stop,
 	stoppedBy,
 	stopsFrom,
@@ -40,6 +41,22 @@ describe("stopsFrom", () => {
 			{ address: "P9R1KI", at, session: "s-p", why: "too much" },
 			{ address: "WCJQSG", at },
 		]);
+	});
+
+	// A character past the basic plane is two UTF-16 units, one to count.
+	it("keeps a why at the bound whole, though its characters run long", () => {
+		const why = `${"a".repeat(STOP_WHY_CHARS - 1)}\u{1F344}`;
+
+		expect(stopsFrom([{ address: "P9R1KI", at, why }])[0]?.why).toBe(why);
+	});
+
+	it("cuts a why past the bound, never splitting a character", () => {
+		const kept = `${"a".repeat(STOP_WHY_CHARS - 1)}\u{1F344}`;
+		const why = `${kept}\u{1F344}${"b".repeat(500)}`;
+
+		expect(stopsFrom([{ address: "P9R1KI", at, why }])[0]?.why).toBe(
+			`${kept}...`,
+		);
 	});
 
 	it("finds none in what is not a list", () => {

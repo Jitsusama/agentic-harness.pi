@@ -56,6 +56,7 @@ import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
 import {
 	type FenceKind,
+	joinRefused,
 	type Lineage,
 	type PeerState,
 	type Presence,
@@ -209,7 +210,10 @@ export interface Peer {
 	readonly usage: SessionUsage | undefined;
 	/** Keep this usage, said with the next presence written (usage.ts). */
 	setUsage(usage: SessionUsage): void;
-	/** Join a canonical group; answers whether it was new. */
+	/**
+	 * Join a canonical group; answers whether it was new. One it may not
+	 * join (`joinRefused`) is not joined, and answers false too.
+	 */
 	join(group: string): boolean;
 	/**
 	 * Leave a canonical group it joined; answers whether it had. A scope
@@ -898,6 +902,7 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		join(group) {
 			if (joined.includes(group)) return false;
+			if (joinRefused(groups(), group) !== undefined) return false;
 			joined = [...joined, group].sort();
 			refresh();
 			return true;

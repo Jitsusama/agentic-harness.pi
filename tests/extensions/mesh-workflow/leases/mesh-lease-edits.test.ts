@@ -262,6 +262,26 @@ describe("a lease", () => {
 		);
 	});
 
+	// A holder's why runs as long as it writes, so it is cut as a
+	// holder's work is, whole characters each.
+	it("says a long why of a rewrite cut short", async () => {
+		mkdirSync(join(fixture.root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {
+			subject: fixture.root,
+			checkout: fixture.root,
+			why: `${"a".repeat(119)}\u{1F344}${"b".repeat(2_000)}`,
+		});
+		const { fire } = await startSession();
+
+		const first = (await fire(...editing("a.ts"))) as { reason?: string };
+
+		expect(first.reason).toContain(
+			`is working on what \`${"a".repeat(119)}\u{1F344}...\` left in ${fixture.root},`,
+		);
+		expect(first.reason).not.toContain("b".repeat(10));
+	});
+
 	// A paused presence may name no address, and its lease still stops.
 	it("says a rewrite's holder that names no address as a peer", async () => {
 		mkdirSync(join(fixture.root, ".git"));
@@ -346,6 +366,31 @@ describe("a lease", () => {
 		expect(sent[1]?.message.details).toMatchObject({
 			why: ["about this peer's work, let go unanswered by P9R1KI"],
 		});
+	});
+
+	it("leaves a question let go be once its asker withdrew it", async () => {
+		const { sent, asked } = await answeredByP9R1KI();
+
+		const withdrawal = fromElsewhere({
+			text: "asked the wrong way",
+			supersedes: asked.id,
+		});
+		await vi.waitFor(() =>
+			expect(
+				sent.some((one) =>
+					String(one.message.content).includes(withdrawal.text),
+				),
+			).toBe(true),
+		);
+		const heard = sent.length;
+		createBoard(join(fixture.paths.mesh, "leases")).hold({
+			session: "session-p",
+			leases: [],
+		});
+
+		// A real pause: the test is that the question isn't taken up in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(sent).toHaveLength(heard);
 	});
 
 	it("leaves a question let go be once another peer answered it", async () => {

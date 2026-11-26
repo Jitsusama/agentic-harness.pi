@@ -74,7 +74,7 @@ import {
 	type QuestRecords,
 	questAddress,
 } from "./address.ts";
-import { groupNamed, MOST_GROUP_CHARS } from "./group.ts";
+import { groupNamed, hears, isJoinable, MOST_GROUP_CHARS } from "./group.ts";
 import {
 	type MoveOff,
 	type Moving,
@@ -888,9 +888,32 @@ function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
  * The most groups or joined groups a presence may name, each printed
  * a line of its own; the most any on equilibrius named on 23 November
  * was 20. Past it the rest are dropped where it is read, so a join
- * past it is refused (mesh_join).
+ * past it is refused (`joinRefused`).
  */
 export const MOST_GROUPS = 64;
+
+/**
+ * Why a peer in these groups may not join one more: `heard` when it is
+ * full but hears the group already through a part of it it is in, so
+ * it is not told to make room for what it has.
+ */
+export type JoinRefusal = "unjoinable" | "full" | "heard";
+
+/**
+ * Why a peer in `groups` may not join `group`, or nothing when it may:
+ * a group it can't join, or one more past `MOST_GROUPS`, which a
+ * presence would drop where it is read, so it would be heard by none.
+ * Every join goes through this, whether by mesh_join, a send or an
+ * invite, so none goes round it.
+ */
+export function joinRefused(
+	groups: readonly string[],
+	group: string,
+): JoinRefusal | undefined {
+	if (!isJoinable(group)) return "unjoinable";
+	if (groups.includes(group) || groups.length < MOST_GROUPS) return undefined;
+	return hears(groups, group) ? "heard" : "full";
+}
 
 /**
  * Whether a group a presence names is one a group is named as, read

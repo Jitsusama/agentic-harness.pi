@@ -13,7 +13,9 @@ import {
 	groupsNamed,
 	hears,
 	homeOf,
+	isJoinable,
 	MACHINE,
+	MOST_GROUP_CHARS,
 	machineTakes,
 	namesOrchestrator,
 	needNamed,
@@ -32,7 +34,7 @@ import {
 } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import { pivotTargets } from "../../../lib/mesh/pivot.ts";
-import type { Presence } from "../../../lib/mesh/presence.ts";
+import { MOST_GROUPS, type Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -693,12 +695,30 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		standing,
 		asker ? [homeOf(asker.from)] : [],
 	);
-	const to = unbarred.filter((group) => !unheard.includes(group));
+	// No peer can join a group longer than one may run, nor any part of
+	// it, so what is written there would be read by nobody, ever.
+	const tooLong = unbarred.filter(
+		(group) => group.startsWith("#") && group !== ALL && !isJoinable(group),
+	);
+	const tooLongText = `${tooLong.join(", ")} ${tooLong.length === 1 ? "runs" : "each run"} longer than the ${MOST_GROUP_CHARS} characters a group may, so no peer can join it to read what is said there. Name a shorter group.`;
+	if (tooLong.length > 0 && tooLong.length === unbarred.length) {
+		return answer(`Not sent: ${tooLongText}`, {
+			sent: false,
+			refused: tooLong,
+		} satisfies SendDetails);
+	}
+	if (tooLong.length > 0) {
+		notes.push(`Not written to ${tooLong.join(", ")}: ${tooLongText}`);
+	}
+	const to = unbarred.filter(
+		(group) => !unheard.includes(group) && !tooLong.includes(group),
+	);
 	const flows = unheard.length > 0 ? ((await at.flows?.()) ?? []) : [];
 	if (to.length === 0) {
-		return answer(`Not sent: ${unheardText(unheard, flows)}`, {
+		const also = tooLong.length > 0 ? ` And ${tooLongText}` : "";
+		return answer(`Not sent: ${unheardText(unheard, flows)}${also}`, {
 			sent: false,
-			refused: unheard,
+			refused: [...unheard, ...tooLong],
 		} satisfies SendDetails);
 	}
 	if (unheard.length > 0) {
@@ -763,13 +783,12 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	at.sent(message);
 	// A peer reads what it writes to: overnight Skynet listened to one
 	// channel while it spoke in others, so an objection there went unheard.
-	const reading = to.filter(
+	const notHeard = to.filter(
 		(group) =>
-			group.startsWith("#") &&
-			group !== ALL &&
-			!hears(at.peer.groups, group) &&
-			at.peer.join(group),
+			group.startsWith("#") && group !== ALL && !hears(at.peer.groups, group),
 	);
+	const reading = notHeard.filter((group) => at.peer.join(group));
+	const unread = notHeard.filter((group) => !reading.includes(group));
 	const {
 		notes: reachNotes,
 		reached,
@@ -796,6 +815,9 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes.push(
 			`This peer is in ${reading.join(", ")} now, so it hears the answers.`,
 		);
+	}
+	if (unread.length > 0) {
+		notes.push(unreadNote(unread));
 	}
 	if (message.intent === "hold") {
 		notes.push(
@@ -857,6 +879,15 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
 	return meant.length === 1 ? meant[0] : undefined;
 }
 
+/**
+ * Why a sender isn't in the groups it sent to and couldn't join, so it
+ * knows it won't hear the answers there: it is in the most groups a peer
+ * may be in. A group too long to join is never written to (see send).
+ */
+function unreadNote(unread: readonly string[]) {
+	return `This peer couldn't join every group it sent to, so it won't hear the answers there (${unread.join(", ")}: this peer is in ${MOST_GROUPS} groups, the most a peer may be in, so leave one it no longer works on with mesh_leave).`;
+}
+
 /** Why a send leaves out the addresses no session here goes by. */
 function unheardText(
 	unheard: readonly string[],
@@ -880,10 +911,7 @@ function anyoneElseIn(
 	);
 }
 
-/**
- * Every joined group with who is in it among the peers still there,
- * where this peer stands, and who joined groups but has since ended.
- */
+/** Whether two lists name the same groups, in any order. */
 function sameGroups(one: readonly string[], other: readonly string[]): boolean {
 	return (
 		one.length === other.length && one.every((group) => other.includes(group))
