@@ -129,12 +129,14 @@ describe("the node's placement read", () => {
 						},
 						{ machine: "made", because: [{ lives_only: "PT1H" }] },
 						{ machine: "mac", because: ["unheard"] },
+						{ machine: "new", because: [{ unknown: "cloud" }] },
+						{ machine: "person", because: [{ full: 6 }] },
 					],
 				},
 			}),
 		);
 		expect(!refused.ok && refused.reason).toBe(
-			"no machine takes it: optimus isn't a cloud machine; vm leaves at 2026-11-26T19:06:03Z, before the work ends; made would live only a while, ending before the work would; mac hasn't said its room lately",
+			"no machine takes it: optimus isn't a cloud machine; vm leaves at 2026-11-26T19:06:03Z, before the work ends; made would live only PT1H, ending before the work; mac hasn't said its room lately; new hasn't said whether it has a cloud machine; person holds the 6 sessions it holds at most",
 		);
 	});
 
@@ -158,6 +160,15 @@ describe("the node's placement read", () => {
 		expect(placedFrom('{"Err":"not a request"}')).toEqual({
 			ok: false,
 			reason: "not a request",
+		});
+		expect(
+			placedFrom(
+				'{"Err":"not a request: unknown variant `cloud`, expected one of `machine`"}',
+			),
+		).toEqual({
+			ok: false,
+			reason:
+				"not a request: unknown variant `cloud`, expected one of `machine` (the node is older than the needs cloud and tool=)",
 		});
 		expect(placedFrom("not json")).toMatchObject({ ok: false });
 		expect(placedFrom(placement({ placed: {} }))).toMatchObject({ ok: false });

@@ -1,7 +1,7 @@
 /**
  * Where a mycelium node places work: the needs work says in the node's
- * own `kind=value` words, and the node's answer read as the machine it
- * chose or its reasons for choosing none.
+ * own words, `kind=value` or the bare `cloud`, and the node's answer read
+ * as the machine it chose or its reasons for choosing none.
  *
  * The node chooses among the machines its realm links by what each says
  * it is, and ranks them by what each is going through (on battery, short
@@ -103,7 +103,7 @@ export function placedFrom(line: string): PlaceAnswer {
 		// Fall through to the answer this reader can't read.
 	}
 	if (isRecord(reply) && typeof reply.Err === "string") {
-		return { ok: false, reason: reply.Err };
+		return { ok: false, reason: withOldNodeSaid(reply.Err) };
 	}
 	const placement =
 		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Placement : undefined;
@@ -131,6 +131,19 @@ export function placedFrom(line: string): PlaceAnswer {
 	};
 }
 
+/** How a node too old for a need word says it can't read the request. */
+const UNKNOWN_NEW_NEED = /unknown variant `(?:cloud|tool)`/;
+
+/**
+ * The node's refusal, said with why when it is a node older than the
+ * words `cloud` and `tool=`, which would otherwise read as a typo.
+ */
+function withOldNodeSaid(refusal: string): string {
+	return UNKNOWN_NEW_NEED.test(refusal)
+		? `${refusal} (the node is older than the needs cloud and tool=)`
+		: refusal;
+}
+
 /** Each machine passed over and why, as a sentence's tail. */
 function missesIn(misses: unknown): string {
 	if (!Array.isArray(misses) || misses.length === 0) {
@@ -154,8 +167,12 @@ function reasonIn(because: unknown): string {
 	if (typeof because.leaves_first === "string") {
 		return `leaves at ${because.leaves_first}, before the work ends`;
 	}
-	if (because.lives_only !== undefined) {
-		return "would live only a while, ending before the work would";
+	// jiff writes a duration as ISO 8601, such as PT1H, said as it came.
+	if (typeof because.lives_only === "string") {
+		return `would live only ${because.lives_only}, ending before the work`;
+	}
+	if (typeof because.full === "number") {
+		return `holds the ${because.full} sessions it holds at most`;
 	}
 	if (because.lacks === CLOUD) return "isn't a cloud machine";
 	if (because.lacks !== undefined) return `lacks ${wordsOf(because.lacks)}`;

@@ -1,6 +1,7 @@
 /**
  * What a quest needs of the machine its sessions run on, in mycelium's
- * `kind=value` words, such as `reach=home` or `system=macos`.
+ * words: `kind=value`, such as `reach=home` or `tool=gcloud`, or the
+ * bare `cloud`.
  *
  * `need-add` and `need-remove` keep the list in the quest's front
  * matter as `needs`, each word checked as the node's placement reads
@@ -196,7 +197,7 @@ function wordsOf(
 	if (tokens.length === 0) {
 		return {
 			refusal:
-				"Pass the needs in `ref` as kind=value, such as `reach=home`; separate several with commas.",
+				"Pass the needs in `ref` as kind=value, such as `reach=home`, or the bare `cloud`; separate several with commas.",
 		};
 	}
 	const words: string[] = [];

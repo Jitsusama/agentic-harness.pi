@@ -378,8 +378,8 @@ shipped and tested.
   asks only where it would go.
 - **What a quest needs of a machine**: `need-add` and
   `need-remove` keep a quest's `needs` in its front matter, in
-  the same `kind=value` words, each checked as the node reads
-  it, on the quest `id` names or the loaded one. `spawn` given
+  the same words (`kind=value`, or `cloud`), each checked as
+  the node reads it, on the quest `id` names or the loaded one. `spawn` given
   neither `machine` nor `needs` places by the spawned quest's
   own needs; either one named replaces them. A quest with none
   starts here, as before, and a subquest takes none from its

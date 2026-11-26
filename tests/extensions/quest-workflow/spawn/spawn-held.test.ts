@@ -415,7 +415,7 @@ describe("the machine a spawn starts on", () => {
 		]);
 	});
 
-	it("asks the node for a cloud machine, or one holding a tool, as mycelium words them", async () => {
+	it("places a spawn needing cloud and a tool rather than refusing the words", async () => {
 		const { asked, place } = placing({
 			ok: true,
 			machine: "v2s-gcp-provider-a",
@@ -428,6 +428,15 @@ describe("the machine a spawn starts on", () => {
 		});
 		expect(asked).toEqual([
 			[{ kind: "cloud" }, { kind: "tool", value: "gcloud" }],
+		]);
+	});
+
+	it("takes a machine beside a cloud need as one more need, naming no other machine", async () => {
+		const { asked, place } = placing({ ok: true, machine: "optimus" });
+		const chosen = await machineFor("optimus", ["cloud"], place);
+		expect(chosen).toMatchObject({ ok: true, machine: "optimus" });
+		expect(asked).toEqual([
+			[{ kind: "cloud" }, { kind: "machine", value: "optimus" }],
 		]);
 	});
 
