@@ -13,7 +13,19 @@
  * An area is a file's first two folders, as `lib/mesh` or
  * `extensions/review-integration`, since routing reads a subject's
  * narrowest part as its words, and those name a module. Under
- * `modules/` it is three, where core.nix keeps a module. A folder that says how code is laid out rather
+ * `modules/` it is three, where core.nix keeps a module, and under
+ * `lib/core` too, which holds 22 domains (review, work, quest, session
+ * and more): read two deep, a cell leading the review tools' library
+ * said only core, and needs about them went to whichever cell's title
+ * said a word of theirs. Under `lib/core/internal` it is four, since
+ * that holds 12 domains of its own (quest, notes, guardian, lsp and
+ * more), so `lib/core/internal/quest` is an area, while a file directly
+ * in it climbs to `lib/core`. Five of those share their last folder with
+ * a `lib/core` domain, as quest does: routing reads the word once, and
+ * each still names a hub of its own at the node, so they stay apart.
+ * These apply to any repository's files,
+ * though on 25 November only this harness had a `lib/core` among the
+ * repositories checked out here. A folder that says how code is laid out rather
  * than what it is about is climbed past to its parent, so
  * `modules/quickshell/checks` is `modules/quickshell`: replayed over a
  * week of needs, leaving it drew every need saying checks to the
@@ -31,9 +43,25 @@
 /** The most areas one landing says: past this a change is a sweep. */
 export const MOST_AREAS = 24;
 
-/** How deep an area reads under each top folder, two elsewhere. */
-const DEPTH: Readonly<Record<string, number>> = { modules: 3 };
+/**
+ * How deep an area reads under each of these folders, two elsewhere;
+ * where two hold a file, the deeper folder's.
+ */
+const DEPTH: ReadonlyMap<string, number> = new Map([
+	["modules", 3],
+	["lib/core", 3],
+	["lib/core/internal", 4],
+]);
 const DEFAULT_DEPTH = 2;
+
+/** How deep the area of a file in `folders` reads. */
+function depthOf(folders: readonly string[]): number {
+	for (let at = folders.length; at > 0; at--) {
+		const depth = DEPTH.get(folders.slice(0, at).join("/"));
+		if (depth !== undefined) return depth;
+	}
+	return DEFAULT_DEPTH;
+}
 
 /** Top folders whose files name no area. */
 const NO_AREA = new Set(["tests", "test", "spec", "docs", "areas"]);
@@ -68,7 +96,7 @@ function areaOf(path: string): string | undefined {
 	if (top === undefined || top.startsWith(".") || NO_AREA.has(top)) {
 		return undefined;
 	}
-	const kept = folders.slice(0, DEPTH[top] ?? DEFAULT_DEPTH);
+	const kept = folders.slice(0, depthOf(folders));
 	while (kept.length > 1 && LAYOUT.has(kept.at(-1) ?? "")) kept.pop();
 	if (kept.length > 1) return kept.join("/");
 	const named = folders.findIndex(

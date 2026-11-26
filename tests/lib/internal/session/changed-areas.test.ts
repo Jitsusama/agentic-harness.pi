@@ -21,6 +21,41 @@ describe("the areas a change touched", () => {
 		]);
 	});
 
+	// FZ9MFJ, 25 November: read two deep, every one of lib/core's domains
+	// was the one area lib/core, whose word, core, names none of them.
+	it("reads three folders under lib/core, where each domain is a folder", () => {
+		expect(
+			areasOf([
+				"lib/core/review/ask/round.ts",
+				"lib/core/review/index.ts",
+				"lib/core/work/tree.ts",
+				"lib/core/index.ts",
+				"lib/mesh/peer.ts",
+			]),
+		).toEqual(["lib/core/review", "lib/core/work", "lib/core", "lib/mesh"]);
+	});
+
+	// The council, 25 November: lib/core/internal holds 12 domains of its
+	// own, and read three deep each climbed past internal to lib/core.
+	it("reads four folders under lib/core/internal, the deeper folder's depth winning", () => {
+		expect(
+			areasOf([
+				"lib/core/internal/quest/a.ts",
+				"lib/core/internal/quest/b/c.ts",
+				"lib/core/internal/notes/d.ts",
+				"lib/core/internal/file-lock.ts",
+			]),
+		).toEqual([
+			"lib/core/internal/quest",
+			"lib/core/internal/notes",
+			"lib/core",
+		]);
+	});
+
+	it("reads two folders under a folder whose name only starts like lib/core", () => {
+		expect(areasOf(["lib/corelike/x/y.ts"])).toEqual(["lib/corelike"]);
+	});
+
 	// FZ9MFJ, 25 November: World's zones would be said as shopify or dev,
 	// words many needs carry, and no World landing has been measured.
 	it("names none for World's zones, until their landings are measured", () => {
