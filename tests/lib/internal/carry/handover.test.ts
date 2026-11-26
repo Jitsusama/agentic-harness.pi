@@ -3,7 +3,8 @@
  * done file must hold before anything here trusts it.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -74,6 +75,18 @@ describe("a handover", () => {
 
 		expect(file).toBe(join(dir, "s-1.done.json"));
 		expect(readHandover(file)).toEqual(handover);
+	});
+
+	it("reads no done file through a link, nor waits on a pipe at its name", () => {
+		const real = arrived(handover);
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const linked = join(dir, "s-1.done.json");
+		symlinkSync(real, linked);
+		const pipe = join(dir, "s-2.done.json");
+		expect(spawnSync("mkfifo", [pipe]).status, "a pipe is made").toBe(0);
+
+		expect(readHandover(linked), "a link").toBeUndefined();
+		expect(readHandover(pipe), "a pipe, at once").toBeUndefined();
 	});
 
 	it("reads back the fence it ran under and its quest's notes", () => {

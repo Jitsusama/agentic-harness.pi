@@ -16,9 +16,9 @@
  * field is checked before git or the disk is given it.
  */
 
-import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { Needed } from "../../core/work/carry.ts";
+import { readPlain } from "../../core/work/plain-file.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { writeWhole } from "../write-whole.ts";
 import { isFenceKind } from "./fence.ts";
@@ -109,11 +109,22 @@ export function writeHandover(dir: string, handover: Handover): string {
 	return file;
 }
 
-/** The done file at `file`, or undefined when it isn't there or doesn't hold up. */
+/**
+ * The most of a done file read: far past any carry's, so one longer is
+ * planted, and reads as no done file.
+ */
+const DONE_LIMIT = 1024 * 1024;
+
+/**
+ * The done file at `file`, or undefined when it isn't there or doesn't
+ * hold up. A fenced command can write the handover, so a link, a pipe or
+ * anything but a plain file there is no done file, read neither through
+ * nor waited on.
+ */
 export function readHandover(file: string): Handover | undefined {
 	let said: unknown;
 	try {
-		said = JSON.parse(readFileSync(file, "utf8"));
+		said = JSON.parse(readPlain(file, DONE_LIMIT) ?? "");
 	} catch {
 		// Not there yet, or not a done file: either way nothing to take up.
 		return undefined;
