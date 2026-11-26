@@ -164,6 +164,7 @@ const { createTreeMemory, recallOff } = await import(
 );
 const {
 	isAgentCut,
+	keptTreesHeldBy,
 	recordedTrees,
 	treesHeldBy,
 	treesHeldByNow,
@@ -756,6 +757,62 @@ describe("the work broker's records", () => {
 		createTreeMemory(dir).recall();
 
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+	});
+
+	// 26 November: a child's first presence read 3,278 records on the
+	// thread for 52.8 s of its start.
+	it("answer a caller that can wait nothing until the first reading, which never runs on the thread, lands", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		mkdirSync(dir, { recursive: true });
+		recordedElsewhere(dir, one, ["s-1"]);
+		settled(dir);
+		const onThread = () =>
+			disk.listedOnThread.filter((listed) => listed === dir).length +
+			disk.readsOnThread.filter((read) => read.startsWith(dir)).length;
+		const before = onThread();
+
+		expect(keptTreesHeldBy("s-1", dir), "nothing yet").toBeUndefined();
+		expect(keptTreesHeldBy("s-2", dir), "nothing yet").toBeUndefined();
+		await whenRefreshed(dir);
+
+		expect(keptTreesHeldBy("s-1", dir)).toEqual([one]);
+		expect(
+			disk.listingsOf(dir),
+			"one reading for both asks, off the thread",
+		).toBe(1);
+		expect(onThread() - before, "nothing read on the thread").toBe(0);
+		expect(treesHeldBy("s-1", dir), "the listing every caller reads").toEqual([
+			one,
+		]);
+	});
+
+	it("answer a caller that can wait nothing again after a failed first reading, and read once more", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		mkdirSync(dir, { recursive: true });
+		recordedElsewhere(dir, one, ["s-1"]);
+		settled(dir);
+		const said = stderrSaid();
+		disk.failing = true;
+
+		expect(keptTreesHeldBy("s-1", dir)).toBeUndefined();
+		await whenRefreshed(dir);
+		expect(keptTreesHeldBy("s-1", dir), "still nothing").toBeUndefined();
+		await whenRefreshed(dir);
+		expect(
+			said.naming(dir),
+			"the failure said once, not at each try",
+		).toHaveLength(1);
+		disk.failing = false;
+
+		expect(keptTreesHeldBy("s-1", dir)).toBeUndefined();
+		await whenRefreshed(dir);
+		expect(keptTreesHeldBy("s-1", dir), "the reading begun again").toEqual([
+			one,
+		]);
 	});
 
 	it("answer a caller that asks once with another process's cut, read off the thread first", async () => {

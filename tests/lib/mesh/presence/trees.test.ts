@@ -78,6 +78,22 @@ function record(path: string, sessions: readonly string[]): void {
 /** A peer whose records name the broker's records folder. */
 function peerWithTrees() {
 	const presences = createPresences(join(root, "presence"));
+	return { presences, ...peerOn(presences) };
+}
+
+/**
+ * A peer whose records name the broker's records folder, its presence
+ * republished once the process's first reading of them has landed.
+ */
+async function peerHavingRead() {
+	const made = peerWithTrees();
+	await whenRefreshed(join(root, "cut"));
+	made.peer.refresh();
+	return made;
+}
+
+/** A peer publishing in `presences`, whose records name the broker's folder. */
+function peerOn(presences: ReturnType<typeof createPresences>) {
 	const peer = localPeer({
 		session,
 		cwd: root,
@@ -88,11 +104,11 @@ function peerWithTrees() {
 		},
 		presences,
 	});
-	return { peer, presences };
+	return { peer };
 }
 
 describe("a peer's trees", () => {
-	it("name each tree it holds by key, repository and branch or commit", () => {
+	it("name each tree it holds by key, repository and branch or commit", async () => {
 		const harness = mainCheckout(
 			"harness",
 			"https://github.com/Jitsusama/agentic-harness.pi.git",
@@ -102,7 +118,7 @@ describe("a peer's trees", () => {
 			session,
 		]);
 		record(worktree(local, "s-pinned", SHA), [session, other]);
-		const { presences, peer } = peerWithTrees();
+		const { presences, peer } = await peerHavingRead();
 
 		expect(presences.of(session)?.trees, "both trees, by key").toEqual([
 			{ key: "s-pinned", repo: "local:acceluary", commit: SHA },
@@ -115,21 +131,23 @@ describe("a peer's trees", () => {
 		peer.dispose();
 	});
 
-	it("leave out a tree only another session holds, and say none at all", () => {
+	it("leave out a tree only another session holds, and say none at all", async () => {
 		const harness = mainCheckout("harness");
 		record(worktree(harness, "w-theirs", "ref: refs/heads/theirs"), [other]);
-		const { presences, peer } = peerWithTrees();
+		const { presences, peer } = await peerHavingRead();
 
 		expect(presences.of(session)?.trees, "none of its own").toBeUndefined();
 		peer.dispose();
 	});
 
-	it("are read again once a record changes", () => {
+	it("are read again once a record changes", async () => {
 		const harness = mainCheckout("harness");
 		const { presences, peer } = peerWithTrees();
 		expect(presences.of(session)?.trees, "none yet").toBeUndefined();
 
 		record(worktree(harness, "w-later", "ref: refs/heads/later"), [session]);
+		peer.refresh();
+		await whenRefreshed(join(root, "cut"));
 		peer.refresh();
 
 		expect(presences.of(session)?.trees, "the new tree").toEqual([
@@ -173,6 +191,44 @@ describe("a peer's trees", () => {
 
 		expect(presences.of(session)?.trees, "the tree taken up").toEqual([
 			{ key: "w-taken", repo: "local:harness", branch: "taken" },
+		]);
+		peer.dispose();
+	});
+
+	// 26 November: a child's first publish read 3,278 records on the thread
+	// for 52.8 s of its start.
+	it("say the trees its presence said before until the process has read the records", async () => {
+		const harness = mainCheckout("harness");
+		record(worktree(harness, "w-held", "ref: refs/heads/held"), [session]);
+		const presences = createPresences(join(root, "presence"));
+		const said = { key: "w-said", repo: "local:harness", branch: "said" };
+		// An earlier session's presence, which read no records of these.
+		const first = localPeer({
+			session,
+			cwd: root,
+			records: {
+				sessions: join(root, "sessions"),
+				quests: join(root, "quests"),
+			},
+			presences,
+		});
+		const own = presences.of(session);
+		if (own === undefined) throw new Error("the peer published nothing");
+		first.dispose();
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify({ ...own, trees: [said] }),
+		);
+		const { peer } = peerOn(presences);
+
+		expect(
+			presences.of(session)?.trees,
+			"what it said, until the records are read",
+		).toEqual([said]);
+		await whenRefreshed(join(root, "cut"));
+		peer.refresh();
+		expect(presences.of(session)?.trees, "what the records say").toEqual([
+			{ key: "w-held", repo: "local:harness", branch: "held" },
 		]);
 		peer.dispose();
 	});

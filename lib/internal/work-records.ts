@@ -154,6 +154,15 @@ const readings = processGlobal(
 	() => ({ under: new Map<string, Reading>(), begun: 0 }),
 );
 
+// The first reading of each folder begun off the thread, for a caller
+// that answers without the records until it lands (`keptTreesHeldBy`),
+// and when it began, so one that hangs is let go as a reading is.
+const firsts = processGlobal(
+	"agentic-harness.internal/work-records/firsts.v1",
+	() =>
+		new Map<string, { readonly done: Promise<void>; readonly since: number }>(),
+);
+
 // What has been said on stderr of each folder, so a host's journal
 // hears of a folder going unseen, a reading failing at a stamp or a
 // reading hanging once, not at every call while it lasts.
@@ -529,12 +538,13 @@ export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 
 /**
  * Settles once the reading of `dir` under way, if one is, has landed or
- * failed: for a caller, or a test, that needs another process's write
- * seen before it asks again.
+ * failed, the first one off the thread included: for a caller, or a
+ * test, that needs another process's write seen before it asks again.
  */
 export async function whenRefreshed(
 	dir: string = treeRecordDir(),
 ): Promise<void> {
+	await firsts.get(recordDirKey(dir))?.done;
 	await readings.under.get(recordDirKey(dir))?.done;
 }
 
@@ -580,6 +590,64 @@ export function treesHeldBy(
 	dir: string = treeRecordDir(),
 ): string[] {
 	return heldIn(recordedTrees(dir), session);
+}
+
+/**
+ * `treesHeldBy`, for a caller that can answer without it for now: never
+ * read on the thread. Before the process has a listing of `dir` it
+ * begins the first reading off the thread and answers nothing
+ * (`undefined`); once that lands it answers as `treesHeldBy` does. A
+ * presence asks at every publish, and its first, as a session starts,
+ * read 3,278 records on the thread for 52.8 s of one child's start on
+ * 26 November, while the disk was full; it says the trees it last said
+ * until this answers. A folder gone or out of reach answers as
+ * `treesHeldBy` does, which reads nothing.
+ */
+export function keptTreesHeldBy(
+	session: string,
+	dir: string = treeRecordDir(),
+): string[] | undefined {
+	const folder = folderNow(dir);
+	if (typeof folder === "string" || listings.has(recordDirKey(dir))) {
+		return treesHeldBy(session, dir);
+	}
+	readFirstOff(dir, folder);
+	return undefined;
+}
+
+/**
+ * Begin the first reading of `dir` off the thread, unless one is under
+ * way and not yet hung, keeping what it reads as the listing unless a
+ * reading on the thread kept one first. One that fails keeps nothing,
+ * says so once, and is begun again at the next ask.
+ */
+function readFirstOff(dir: string, folder: Folder): void {
+	const at = recordDirKey(dir);
+	const under = firsts.get(at);
+	if (under !== undefined && Date.now() - under.since <= HUNG_AFTER_MS) return;
+	const started = Date.now();
+	const done = readOff(dir, folder, started).then(
+		(listing) => {
+			if (listings.has(at)) return;
+			listings.set(at, { listing, read: 0, failed: undefined });
+			recordWritesRead(dir, listing.through);
+			untell(at, (what) => what === "first reading failed");
+		},
+		(error: unknown) => {
+			tell(
+				at,
+				"first reading failed",
+				`the tree records in ${dir} couldn't be read off the thread; reading again at the next ask: ${whyOf(error)}`,
+			);
+		},
+	);
+	const first = {
+		done: done.finally(() => {
+			if (firsts.get(at) === first) firsts.delete(at);
+		}),
+		since: started,
+	};
+	firsts.set(at, first);
 }
 
 /** The folders of `trees` that `session` holds. */
