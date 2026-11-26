@@ -253,6 +253,13 @@ for its commands, which needs no model, and closes stdin. pi exits 1
 naming every extension that failed to load. The whole package takes
 about 13 seconds.
 
+pi runs in a process group of its own. A timeout or a stop kills
+the group, so a process an extension started at load goes with it,
+and when pi exits, what it left in its group goes too. One an
+extension started in a session of its own is out of reach; the check
+stops reading pi's output 5 seconds after pi exits, so it can't hold
+the reload tool open.
+
 ## Tree Check
 
 Code that loads can still be wrong, and a session reloaded onto it

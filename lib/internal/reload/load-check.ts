@@ -185,8 +185,29 @@ export function readLoad(
 export const LOAD_STOPPED = "the load was stopped before pi answered";
 
 /**
+ * How long pi's output may stay open once pi has exited, before what
+ * still holds it, a process an extension started in a session of its
+ * own, is let go.
+ */
+const CLOSE_GRACE_MS = 5000;
+
+/** Kill every process in the group `leader` leads. */
+function killGroup(leader: number | undefined): void {
+	if (leader === undefined) return;
+	try {
+		process.kill(-leader, "SIGKILL");
+	} catch {
+		// The group has already gone, which is what the kill was for.
+	}
+}
+
+/**
  * Load `packageRoot` in a pi of its own and report what happened. Once
  * `signal` aborts, the pi is killed and the report says it was stopped.
+ * pi runs in a process group of its own, so a kill takes what its
+ * extensions started too, and once pi exits the report waits on its
+ * output no longer than a short grace, so no process an extension
+ * started can hold the check open.
  */
 export function checkLoad(
 	pi: PiToRun,
@@ -200,8 +221,17 @@ export function checkLoad(
 		const sandbox = mkdtempSync(join(tmpdir(), "load-check-sandbox-"));
 		const env: NodeJS.ProcessEnv = loadCheckEnvironment(process.env, sandbox);
 		if (pi.packageDir) env.PI_PACKAGE_DIR = pi.packageDir;
+		let settled = false;
+		const timers: NodeJS.Timeout[] = [];
 		const settle = (report: LoadReport) => {
+			if (settled) return;
+			settled = true;
+			for (const timer of timers) clearTimeout(timer);
 			signal?.removeEventListener("abort", stop);
+			// Whatever is left of the group goes with the check.
+			killGroup(child.pid);
+			child.stdout.destroy();
+			child.stderr.destroy();
 			// The report is the answer; a sandbox left in temp is not worth
 			// losing it, and a throw here, in a child's handler, would.
 			tidyTree(sandbox);
@@ -210,13 +240,14 @@ export function checkLoad(
 		let stopped = false;
 		const stop = (): void => {
 			stopped = true;
-			child.kill("SIGKILL");
+			killGroup(child.pid);
 		};
 		// A directory with no project settings or context files of its own,
 		// so the load is the package's and nothing the cwd adds.
 		const child = spawn(pi.node, [pi.entry, ...loadCheckArgs(packageRoot)], {
 			cwd: tmpdir(),
 			env,
+			detached: true,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		let stdout = "";
@@ -228,21 +259,22 @@ export function checkLoad(
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString();
 		});
-		const timer = setTimeout(() => {
-			hung = true;
-			child.kill("SIGKILL");
-		}, timeoutMs);
+		timers.push(
+			setTimeout(() => {
+				hung = true;
+				killGroup(child.pid);
+			}, timeoutMs),
+		);
 		signal?.addEventListener("abort", stop, { once: true });
 		child.on("error", (error) => {
-			clearTimeout(timer);
 			settle({
 				ok: false,
 				failures: [],
 				problem: `pi would not start: ${error.message}`,
 			});
 		});
-		child.on("close", (code) => {
-			clearTimeout(timer);
+		let exited: number | null | undefined;
+		const ended = (code: number | null): void => {
 			if (stopped) {
 				settle({
 					ok: false,
@@ -260,6 +292,18 @@ export function checkLoad(
 				return;
 			}
 			settle(readLoad(stdout, stderr, code));
+		};
+		child.on("exit", (code) => {
+			exited = code;
+			// What an extension left running in pi's group would hold its
+			// output open until the timeout.
+			killGroup(child.pid);
+			timers.push(setTimeout(() => ended(exited ?? null), CLOSE_GRACE_MS));
+		});
+		// `close` once the output is all read; the grace above ends the check
+		// when something outside the group keeps it from closing.
+		child.on("close", (code) => {
+			ended(exited === undefined ? code : exited);
 		});
 		child.stdin.on("error", () => {
 			// pi exited before reading its request; close says why.
