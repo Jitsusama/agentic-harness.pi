@@ -179,7 +179,10 @@ describe("the stripped-source cache in a node", () => {
 			// read would cost every start a write per module.
 			const hoursAgo = Math.floor((Date.now() - 2 * 60 * 60 * 1000) / 1000);
 			for (const path of kept.keys()) await utimes(path, hoursAgo, hoursAgo);
-			expect(await transpiledRecord(state)).toBe(false);
+			expect(
+				await transpiledRecord(state),
+				"an entry read hours ago still reads back",
+			).toBe(false);
 			for (const [path, read] of await entriesUnder(state))
 				expect(read, `${path} is left as it was`).toBe(hoursAgo * 1000);
 
@@ -187,7 +190,10 @@ describe("the stripped-source cache in a node", () => {
 			for (const path of kept.keys())
 				await utimes(path, dayAndMore, dayAndMore);
 			const before = Date.now() - 60_000;
-			expect(await transpiledRecord(state)).toBe(false);
+			expect(
+				await transpiledRecord(state),
+				"an entry read days ago still reads back",
+			).toBe(false);
 			for (const [path, read] of await entriesUnder(state))
 				expect(read, `${path} is marked read`).toBeGreaterThan(before);
 		},
@@ -230,7 +236,10 @@ describe("the stripped-source cache in a node", () => {
 			await says(entry, env, startingAs22());
 			const second = await says(entry, env, startingAs22());
 
-			expect(second.transpiler).toBe(true);
+			expect(
+				second.transpiler,
+				"turned off, node strips the second start with its transpiler",
+			).toBe(true);
 		},
 		2 * ONE_RUN,
 	);

@@ -105,7 +105,9 @@ describe("strippedSourceLoad", () => {
 		expect(first.strip).toHaveBeenCalledWith("const a: number = 1;", URL_A);
 		expect(first.kept).toHaveLength(1);
 		const [file, text] = first.kept[0] ?? ["", ""];
-		expect(file.startsWith("/cache/")).toBe(true);
+		expect(file, "the entry is kept under the cache folder").toMatch(
+			/^\/cache\//,
+		);
 		expect(text).toBe(entryText(`js(const a: number = 1;)@${URL_A}`));
 		expect(text).toMatch(/^module [0-9a-f]{64}\n/);
 
