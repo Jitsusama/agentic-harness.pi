@@ -228,7 +228,9 @@ export interface TreeMemory {
 	 * process is gone, and gains this one, under the record's lock. A
 	 * record already naming only live holders and this one is left as it
 	 * is. Plain pi names no session on an owner, so only hosted records
-	 * follow.
+	 * follow. A record that can't be rewritten keeps its old owner while
+	 * the rest follow, and then the answer rejects, saying how many were
+	 * left and why the first was.
 	 */
 	reownSession(session: string, facts?: ProcessFacts): Promise<number>;
 }
@@ -1058,6 +1060,7 @@ export function createTreeMemory(
 				facts === systemFacts ? tickFacts : facts,
 			);
 			let changed = 0;
+			const left: unknown[] = [];
 			for (const found of ours) {
 				// Read again under the lock, so a holder that arrived since the
 				// listing is kept.
@@ -1093,10 +1096,20 @@ export function createTreeMemory(
 				});
 				try {
 					await reowned;
-				} catch {
+				} catch (error) {
 					// One record that can't be rewritten keeps its old owner, as
-					// before; the rest of the session's trees still follow it.
+					// before; the rest of the session's trees still follow it, and
+					// the failure is said once they have.
+					left.push(error);
 				}
+			}
+			if (left.length > 0) {
+				const first = left[0];
+				const why = first instanceof Error ? first.message : String(first);
+				throw new Error(
+					`${left.length} of its ${ours.length} records kept the old owner, since rewriting failed (${why})`,
+					{ cause: first },
+				);
 			}
 			return changed;
 		},

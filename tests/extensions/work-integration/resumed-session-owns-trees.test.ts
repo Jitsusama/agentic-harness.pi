@@ -101,40 +101,44 @@ it("names the new host's process on a resumed session's trees, leaving others' a
 	]);
 });
 
-it("says on stderr when a resumed session's trees could not be re-owned", async () => {
-	const ours = cutBeforeTheRestart("a", "ours");
-	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-	// A folder nobody may list fails the reading, as a fault the start
-	// can't settle would.
-	chmodSync(treeRecordDir(), 0o000);
-	try {
-		const stub = activateWith(workIntegration);
-		const started = stub.lifecycle.get("session_start");
-		if (started === undefined)
-			throw new Error("work-integration registered no session_start");
+// Root lists a folder whatever its mode, so the fault can't be made there.
+it.skipIf(process.getuid?.() === 0)(
+	"says on stderr when a resumed session's trees could not be re-owned",
+	async () => {
+		const ours = cutBeforeTheRestart("a", "ours");
+		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		// A folder nobody may list fails the reading, as a fault the start
+		// can't settle would.
+		chmodSync(treeRecordDir(), 0o000);
+		try {
+			const stub = activateWith(workIntegration);
+			const started = stub.lifecycle.get("session_start");
+			if (started === undefined)
+				throw new Error("work-integration registered no session_start");
 
-		withSession("a", () =>
-			started(
-				{ reason: "resume" },
-				{ sessionManager: { getSessionId: () => "a" } },
-			),
-		);
-
-		await vi.waitFor(
-			() =>
-				expect(
-					said.mock.calls.map(([line]) => String(line)).join(""),
-					"the failed re-owning was said",
-				).toMatch(
-					/the trees session a holds still name the process it ran in before.*EACCES/,
+			withSession("a", () =>
+				started(
+					{ reason: "resume" },
+					{ sessionManager: { getSessionId: () => "a" } },
 				),
-			{ timeout: 3_000 },
-		);
-	} finally {
-		chmodSync(treeRecordDir(), 0o755);
-		said.mockRestore();
-	}
-	expect(ownersOf(ours), "the record keeps its old owner").toEqual([
-		{ pid: GONE, startedAt: 1_000, session: "a", host: "test-host" },
-	]);
-});
+			);
+
+			await vi.waitFor(
+				() =>
+					expect(
+						said.mock.calls.map(([line]) => String(line)).join(""),
+						"the failed re-owning was said",
+					).toMatch(
+						/the trees session a holds still name the process it ran in before.*EACCES/,
+					),
+				{ timeout: 3_000 },
+			);
+		} finally {
+			chmodSync(treeRecordDir(), 0o755);
+			said.mockRestore();
+		}
+		expect(ownersOf(ours), "the record keeps its old owner").toEqual([
+			{ pid: GONE, startedAt: 1_000, session: "a", host: "test-host" },
+		]);
+	},
+);

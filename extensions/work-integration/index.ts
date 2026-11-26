@@ -94,9 +94,11 @@ export default function workIntegration(pi: ExtensionAPI) {
 		// awaited: the record folder is listed off the thread, only the
 		// session's own records are read on it, and the start never waits
 		// on a lock or a rewrite.
-		void reownSessionTrees(id).catch((error: unknown) =>
-			sayReownFailed(id, error),
-		);
+		if (id !== undefined) {
+			void reownSessionTrees(id).catch((error: unknown) =>
+				sayReownFailed(id, error),
+			);
+		}
 		// A new session must not inherit the last one's providers or
 		// its broker: the trees on disk outlive the session, but which
 		// provider would be chosen for one is a question of the
@@ -122,9 +124,9 @@ export default function workIntegration(pi: ExtensionAPI) {
  * owner and the next start tries again, but meanwhile the sweep may
  * judge them abandoned, so a failure here must not pass without a word.
  */
-function sayReownFailed(id: string | undefined, error: unknown): void {
+function sayReownFailed(id: string, error: unknown): void {
 	const why = error instanceof Error ? error.message : String(error);
 	process.stderr.write(
-		`work-integration: the trees session ${id ?? "(unnamed)"} holds still name the process it ran in before, since re-owning them failed: ${why}. The next start tries again.\n`,
+		`work-integration: the trees session ${id} holds still name the process it ran in before, since re-owning them failed: ${why}. The next start tries again.\n`,
 	);
 }

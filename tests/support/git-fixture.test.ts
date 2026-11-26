@@ -20,6 +20,7 @@ describe("the git fixture", () => {
 	const was = {
 		global: process.env.GIT_CONFIG_GLOBAL,
 		editor: process.env.GIT_EDITOR,
+		dir: process.env.GIT_DIR,
 	};
 
 	beforeEach(async () => {
@@ -31,6 +32,7 @@ describe("the git fixture", () => {
 	afterEach(() => {
 		restore("GIT_CONFIG_GLOBAL", was.global);
 		restore("GIT_EDITOR", was.editor);
+		restore("GIT_DIR", was.dir);
 		disposeRepo(repo);
 		rmSync(person, { recursive: true, force: true });
 	});
@@ -67,6 +69,20 @@ describe("the git fixture", () => {
 			"a commit with no message went through",
 		).rejects.toThrow();
 		expect(existsSync(opened), "the person's editor was opened").toBe(false);
+	});
+
+	it("works in its own repository when the suite runs from a hook's", async () => {
+		// A hook runs with GIT_DIR naming the repository it fired in.
+		const theirs = await freshRepo("git-fixture-theirs");
+		try {
+			process.env.GIT_DIR = join(theirs, ".git");
+
+			expect(await git(repo, "rev-parse", "--absolute-git-dir")).toBe(
+				join(repo, ".git"),
+			);
+		} finally {
+			disposeRepo(theirs);
+		}
 	});
 
 	/** Point git's global settings at a file holding these. */
