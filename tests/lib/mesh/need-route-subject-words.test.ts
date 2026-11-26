@@ -64,11 +64,14 @@ describe("the words a cell's declared subjects give it", () => {
 		]);
 	});
 
-	it("reads every one of MOST_SUBJECTS subjects, each its own word", () => {
-		const subjects = Array.from(
-			{ length: MOST_SUBJECTS },
-			(_, at) => `x:word${at}`,
-		);
+	it("reads every one of MOST_SUBJECTS subjects, the last included", () => {
+		// One word over and over, then another in the last place, so the
+		// last is read only if the non-string before them took no place,
+		// whatever MOST_SUBJECT_WORDS holds the words to.
+		const subjects = [
+			...Array.from({ length: MOST_SUBJECTS - 1 }, () => "x:zorbic"),
+			"x:quuxly",
+		];
 		const line = JSON.stringify({
 			id: 2,
 			records: [{ key: "cell:XXXXXX", subjects: [5, ...subjects] }],
@@ -76,9 +79,10 @@ describe("the words a cell's declared subjects give it", () => {
 
 		const [cell] = foragersFrom(line);
 
-		expect(cell?.words, "a non-string takes no subject's place").toEqual(
-			Array.from({ length: MOST_SUBJECTS }, (_, at) => `word${at}`),
-		);
+		expect(cell?.words, "a non-string takes no subject's place").toEqual([
+			"zorbic",
+			"quuxly",
+		]);
 	});
 
 	it("gives a word a subject shares with the title once, as the title's", () => {

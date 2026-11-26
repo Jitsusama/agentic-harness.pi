@@ -20,6 +20,7 @@ import {
 import { sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
+import { MOST_SUBJECTS } from "../../../../lib/mesh/subjects.ts";
 import { session, surroundingsAt } from "./support/presences.ts";
 
 let root: string;
@@ -159,12 +160,12 @@ describe("the subjects this session's peer says", () => {
 		]);
 	});
 
-	it("writes only what the node serves: twelve, plain, each once", () => {
+	it(`writes only what the node serves: ${MOST_SUBJECTS}, plain, each once`, () => {
 		const owned = Array.from({ length: 4 }, (_, at) => `owned${at}.=QCXZEB`);
 		const declared = [
 			"owned0.",
 			"zero\u200bwidth",
-			...Array.from({ length: 12 }, (_, at) => `declared${at}`),
+			...Array.from({ length: MOST_SUBJECTS }, (_, at) => `declared${at}`),
 		];
 		write(readme(`subjects: ${JSON.stringify(declared)}\n`));
 		localPeer({ ...surroundingsAt(root), owners: () => owned });
@@ -174,7 +175,10 @@ describe("the subjects this session's peer says", () => {
 			"owned1.",
 			"owned2.",
 			"owned3.",
-			...Array.from({ length: 8 }, (_, at) => `declared${at}`),
+			...Array.from(
+				{ length: MOST_SUBJECTS - owned.length },
+				(_, at) => `declared${at}`,
+			),
 		]);
 	});
 

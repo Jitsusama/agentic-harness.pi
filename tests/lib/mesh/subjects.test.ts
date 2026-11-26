@@ -87,7 +87,10 @@ describe("a cell's subjects", () => {
 	});
 
 	it(`holds at most ${MOST_SUBJECTS}, as the node reads no more`, () => {
-		const many = Array.from({ length: 20 }, (_, at) => `subject-${at}`);
+		const many = Array.from(
+			{ length: MOST_SUBJECTS + 8 },
+			(_, at) => `subject-${at}`,
+		);
 		const kept = subjectsOf(many.slice(0, 8), many.slice(8));
 		expect(kept).toHaveLength(MOST_SUBJECTS);
 		expect(kept.at(-1)).toBe(`subject-${MOST_SUBJECTS - 1}`);

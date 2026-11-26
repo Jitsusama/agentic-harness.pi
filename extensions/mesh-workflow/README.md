@@ -596,7 +596,7 @@ takes as `--owner`, read at each refresh from
 `~/.config/cadence/owners.txt` (under `XDG_CONFIG_HOME` when set;
 `PI_OWNERS_FILE` names another file). Then its quest's own
 `subjects`, set with the quest tool's `config` (`ref`
-`subjects=a,b`). At most 12, each plain text of at most 120
+`subjects=a,b`). At most 24, each plain text of at most 120
 characters, as the node reads them; presence leaves the key out
 while there are none. A need finds a cell by the words of a
 subject's narrowest part, after its last colon, dot or slash, so

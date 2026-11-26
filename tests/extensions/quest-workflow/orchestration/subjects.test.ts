@@ -286,7 +286,7 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 	});
 
-	it("refuse what the owner prefixes would crowd out of the twelve places, changing nothing", async () => {
+	it(`refuse what the owner prefixes would crowd out of the ${MOST_SUBJECTS} places, changing nothing`, async () => {
 		const id = await made();
 		const address = questAddress(id);
 		owners(
@@ -295,23 +295,26 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 		const list = (count: number) =>
 			Array.from({ length: count }, (_, at) => `area${at}`).join(",");
+		const places = MOST_SUBJECTS - 4;
 		const crowded = await run({
 			action: "config",
 			id,
-			ref: `subjects=${list(9)}`,
+			ref: `subjects=${list(places + 1)}`,
 		});
 		const before = subjectsOf(id);
 		const room = await run({
 			action: "config",
 			id,
-			ref: `subjects=${list(8)}`,
+			ref: `subjects=${list(places)}`,
 		});
 		const report = await run({ action: "config", id });
 		expect(
 			[crowded.ok, before, room.ok, subjectsOf(id)],
-			"crowded refused, nothing set, then room for eight",
-		).toEqual([false, undefined, true, list(8).split(",")]);
-		expect(said(crowded)).toMatch(/owned0\..*4 of the 12 places/);
+			"crowded refused, nothing set, then room for the rest",
+		).toEqual([false, undefined, true, list(places).split(",")]);
+		expect(said(crowded)).toMatch(
+			new RegExp(`owned0\\..*4 of the ${MOST_SUBJECTS} places`),
+		);
 		expect(said(report)).toMatch(
 			/owning owned0\., owned1\., owned2\., owned3\./,
 		);
@@ -319,7 +322,10 @@ describe("the subjects a quest's sessions declare", () => {
 
 	it("are reported as left out once owner prefixes given later crowd them out", async () => {
 		const id = await made();
-		const declared = Array.from({ length: 10 }, (_, at) => `area${at}`);
+		const declared = Array.from(
+			{ length: MOST_SUBJECTS - 2 },
+			(_, at) => `area${at}`,
+		);
 		await run({ action: "config", id, ref: `subjects=${declared.join(",")}` });
 		const address = questAddress(id);
 		owners(...[0, 1, 2, 3].map((at) => `owned${at}.=${address}`));
