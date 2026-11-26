@@ -9,11 +9,11 @@
  * of those files and the part whose timing depended most on what else
  * was running.
  *
- * So build one pristine repo per process and copy it. A directory
+ * So build one pristine repo per test file and copy it. A directory
  * copy of a repo this size is a few milliseconds and, more to the
- * point, spawns nothing. The template is memoized for the life of the
- * worker, so a file with twelve tests pays for one repo rather than
- * twelve, and a second file in the same worker pays for none.
+ * point, spawns nothing. The template is memoized for the file, which
+ * vitest loads apart from every other, so a file with twelve tests
+ * pays for one repo rather than twelve.
  *
  * Copying rather than sharing keeps the isolation a `beforeEach` was
  * there to provide: every test still gets a repo nobody else has
@@ -156,7 +156,7 @@ export function withoutGitSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	);
 }
 
-/** The memoized template, built at most once per worker. */
+/** The memoized template, built at most once per test file. */
 let template: Promise<string> | undefined;
 
 async function buildTemplate(): Promise<string> {
