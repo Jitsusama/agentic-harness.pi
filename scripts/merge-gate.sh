@@ -138,7 +138,13 @@ if [[ -n $changed ]]; then
   mapfile -t files <<< "$changed"
   tree="$scratch/changed"
   mkdir "$tree"
-  gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${files[@]}"
+  # The config goes out once: named again as a changed file, checkout-index
+  # would find the copy it just wrote and refuse the whole checkout.
+  others=()
+  for file in "${files[@]}"; do
+    [[ $file == biome.jsonc ]] || others+=("$file")
+  done
+  gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${others[@]}"
   set +e
   said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off "${files[@]}" 2>&1)
   checked=$?

@@ -310,6 +310,22 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code).toBe(0);
 	});
 
+	it("judges a change to Biome's own config by the config it makes", async () => {
+		const checkout = await harness();
+		// The config is the one file the gate checks out whatever changed, so
+		// a change to it must still be checked out once, and read as the head has it.
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered, "the head's config judges the head").toMatchObject({
+			code: 0,
+		});
+	});
+
 	it("lets a change that only deletes a file through", async () => {
 		const checkout = await harness();
 		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
