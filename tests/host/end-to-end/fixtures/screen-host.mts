@@ -210,7 +210,6 @@ const serving = await serveHost({
 	// past it stays short; a slower one only adds lines to the journal.
 	attachSlowMs: 500,
 	runtimeDir: process.env.XDG_RUNTIME_DIR,
-	rollout: () => Promise.resolve(),
 });
 process.stdout.write(`${JSON.stringify({ path: serving.path })}\n`);
 /** Stop as systemd's stop does: park every conversation and leave. */

@@ -1,6 +1,7 @@
 /** A host killed outright comes back with what it held, at the same address. */
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +32,20 @@ const serve = resolve(import.meta.dirname, "../../../host/service/serve.ts");
  * so nothing reaches systemd-coredump; it logs one line saying so.
  */
 const NO_CORE = "1";
+
+/** A core limit of 0, which SIGKILL never dumps under, nor at any other. */
+const NONE_AT_ALL = "0";
+
+/**
+ * Whether this process may give a child the core limit of 1: not under a
+ * hard limit of 0, as a pi host's unit sets, which a child can't raise.
+ * Read only on Linux, the one platform whose /proc says.
+ */
+function mayGiveNoCore(): boolean {
+	if (process.platform !== "linux") return false;
+	const limits = readFileSync("/proc/self/limits", "utf8");
+	return limits.match(/^Max core file size\s+\S+\s+(\S+)/m)?.[1] !== "0";
+}
 
 /**
  * The same fake engine both hosts run: a conversation is a registration
@@ -101,13 +116,14 @@ function places() {
 }
 
 /** Start a host in a process of its own and wait for it to listen. */
-async function hostInAChild(): Promise<{ pid: number; path: string }> {
+async function hostInAChild(
+	core: string,
+): Promise<{ pid: number; path: string }> {
 	const source = `${engineSource}
 const { serveHost } = await import(${JSON.stringify(serve)});
 const places = JSON.parse(process.env.PLACES);
 const host = await serveHost({
 	...places,
-	rollout: () => Promise.resolve(),
 	report: (error) => console.error(error),
 	engine: async (h) => engine(h, places.runtimeDir),
 });
@@ -117,7 +133,7 @@ setInterval(() => {}, 1000);`;
 	const started = spawn(
 		"prlimit",
 		[
-			`--core=${NO_CORE}`,
+			`--core=${core}`,
 			"--",
 			process.execPath,
 			"--no-warnings",
@@ -164,49 +180,56 @@ async function open(path: string, id: string): Promise<string> {
 // SIGKILL as an out-of-memory kill sends it, and SIGABRT as systemd's
 // watchdog sends it to a host whose loop stopped turning. Only on Linux,
 // since the killed host starts under prlimit and its core limit is read
-// from /proc, neither of which a Mac has.
+// from /proc, neither of which a Mac has. SIGABRT dumps a core, so it
+// runs only where its host may be given the limit that keeps it from
+// systemd-coredump; SIGKILL dumps none, so it runs under any.
+const givesNoCore = mayGiveNoCore();
 describe
 	.skipIf(process.platform !== "linux")
 	.each(["SIGKILL", "SIGABRT"] as const)("a host killed with %s", (signal) => {
-	it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
-		const killed = await hostInAChild();
-		const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
-		const limits = await readFile(`/proc/${killed.pid}/limits`, "utf8");
-		expect(
-			limits.match(/^Max core file size\s+(\S+)\s+(\S+)/m)?.slice(1),
-			"a host the test kills leaves no core for systemd-coredump to count",
-		).toEqual([NO_CORE, NO_CORE]);
-
-		process.kill(killed.pid, signal);
-		await gone(killed.pid, 5_000);
-		expect(
-			(await lstat(killed.path)).isSocket(),
-			"a killed host's socket outlives it, as after a crash",
-		).toBe(true);
-
-		const report = vi.fn<(error: unknown) => void>();
-		const next = await serveHost({
-			...places(),
-			report,
-			engine: async (h) => engine(h, dir),
-		});
-		try {
-			expect(next.path).toBe(killed.path);
-			expect(next.unresumed).toEqual([]);
-			const reply = await controlRequest(next.path, {
-				v: 1,
-				id: "l",
-				op: "list",
-			});
-			if (!reply.ok) throw new Error(reply.error.message);
-			const listed = parseListResult(reply.result);
-			expect(listed.host.owner.pid).toBe(process.pid);
+	const core = givesNoCore ? NO_CORE : NONE_AT_ALL;
+	it.skipIf(signal === "SIGABRT" && !givesNoCore)(
+		"leaves its lock and socket, and the next host takes both and resumes its holds",
+		async () => {
+			const killed = await hostInAChild(core);
+			const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
+			const limits = await readFile(`/proc/${killed.pid}/limits`, "utf8");
 			expect(
-				listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
-			).toEqual(ids.map((id) => [id, "idle"]));
-			expect(report).not.toHaveBeenCalled();
-		} finally {
-			await next.stop();
-		}
-	});
+				limits.match(/^Max core file size\s+(\S+)\s+(\S+)/m)?.slice(1),
+				"a host the test kills leaves no core for systemd-coredump to count",
+			).toEqual([core, core]);
+
+			process.kill(killed.pid, signal);
+			await gone(killed.pid, 5_000);
+			expect(
+				(await lstat(killed.path)).isSocket(),
+				"a killed host's socket outlives it, as after a crash",
+			).toBe(true);
+
+			const report = vi.fn<(error: unknown) => void>();
+			const next = await serveHost({
+				...places(),
+				report,
+				engine: async (h) => engine(h, dir),
+			});
+			try {
+				expect(next.path).toBe(killed.path);
+				expect(next.unresumed).toEqual([]);
+				const reply = await controlRequest(next.path, {
+					v: 1,
+					id: "l",
+					op: "list",
+				});
+				if (!reply.ok) throw new Error(reply.error.message);
+				const listed = parseListResult(reply.result);
+				expect(listed.host.owner.pid).toBe(process.pid);
+				expect(
+					listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
+				).toEqual(ids.map((id) => [id, "idle"]));
+				expect(report).not.toHaveBeenCalled();
+			} finally {
+				await next.stop();
+			}
+		},
+	);
 });
