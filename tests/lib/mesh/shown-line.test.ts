@@ -184,6 +184,14 @@ describe("replyIn", () => {
 			// nothing that shows.
 			[`starting 40%\r${reply}\n`, reply],
 			[`${reply}\r\u001b[K\n`, reply],
+			// A title or a hyperlink's address, ended at the bell or the
+			// string's end, and a device string, each dropped whole.
+			[`\u001b]0;pi: a title\u0007${reply}\n`, reply],
+			[`\u001b]8;;https://x.test/{"a":1}\u001b\\${reply}\n`, reply],
+			[`${reply}\u001bPq#0;2;0;0;0\u001b\\\n`, reply],
+			// An 8-bit control, which a JSON string may hold, is never dropped.
+			[`\u009b32m${reply}\n`, undefined],
+			[`${reply}\u009d0;title\u009c\n`, undefined],
 			// An escape within it is never dropped to make it read as JSON.
 			['{"Err":"no\u001b[0m realm"}\n', undefined],
 			// A line after it that shows, and words drawn over it, are no reply.

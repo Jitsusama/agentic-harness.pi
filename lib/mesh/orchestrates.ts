@@ -121,21 +121,29 @@ function toldBy(ran: Ran): ClaimTold {
 	}
 	if (ran.code === 0 && isRecord(reply) && "Ok" in reply)
 		return { kind: "recorded" };
-	const said = oneLine(ran.stderr);
 	// Killed before it ended, its ask may already be with the node; and one
 	// that ended well with words it can't read most likely was recorded,
 	// which costs no more than a forget to treat as maybe.
-	// Words that hide alone are said to be there, so they never read as none.
-	const quiet = ran.stderr.trim() ? ` and said ${NOTHING_SHOWN}` : "";
+	// A stdout it can't read is quoted beside why, never dropped unmarked,
+	// and words that hide alone on either are said to be there.
+	const said = oneLine(ran.stderr);
+	const wrote = oneLine(ran.stdout);
+	const told =
+		said && (wrote ? `${said} (it also wrote, unread: ${wrote})` : said);
+	const rest = wrote
+		? ` and wrote what this harness can't read: ${wrote}`
+		: ran.stderr.trim() || ran.stdout.trim()
+			? ` and said ${NOTHING_SHOWN}`
+			: "";
 	if (ran.code === null)
 		return sentUnanswered(
-			said || `mycelium was stopped before it answered${quiet}`,
+			told || `mycelium was stopped before it answered${rest}`,
 		);
 	if (ran.code === 0)
 		return sentUnanswered(
-			said || `mycelium ended well with no reply it reads${quiet}`,
+			told || `mycelium ended well with no reply it reads${rest}`,
 		);
-	return unasked(said || `mycelium ended with ${ran.code}${quiet}`);
+	return unasked(told || `mycelium ended with ${ran.code}${rest}`);
 }
 
 /**

@@ -160,6 +160,62 @@ describe("telling the node", () => {
 		});
 	});
 
+	it("says an empty refusal said nothing, as a start's reader does", async () => {
+		const { run } = answering({ code: 0, stdout: '{"Err":""}\n', stderr: "" });
+		expect(await tellOrchestrates("forget", "s", "work", {}, run)).toEqual({
+			kind: "refused",
+			why: "the node refused and said nothing",
+		});
+	});
+
+	it("quotes a stdout it can't read, beside why or alone, never dropped", async () => {
+		const cases: [Ran, string][] = [
+			[
+				{ code: 1, stdout: "judging\n", stderr: "connecting: refused\n" },
+				"connecting: refused (it also wrote, unread: judging)",
+			],
+			[
+				{ code: 1, stdout: "judging\n", stderr: "" },
+				"mycelium ended with 1 and wrote what this harness can't read: judging",
+			],
+			[
+				{ code: 0, stdout: "judging\n", stderr: "" },
+				"mycelium ended well with no reply it reads and wrote what this harness can't read: judging",
+			],
+			[
+				{ code: null, stdout: "judging\n", stderr: "" },
+				"mycelium was stopped before it answered and wrote what this harness can't read: judging",
+			],
+		];
+		for (const [ran, why] of cases) {
+			const { run } = answering(ran);
+			const told = await tellOrchestrates("forget", "s", "work", {}, run);
+			expect("why" in told ? told.why : "", JSON.stringify(ran)).toBe(why);
+		}
+	});
+
+	it("says hidden words on either stream were said, however mycelium ends", async () => {
+		const cases: [Ran, string][] = [
+			[
+				{ code: null, stdout: "", stderr: "\u001b[0m\n" },
+				"mycelium was stopped before it answered and said nothing that shows",
+			],
+			[
+				{ code: 0, stdout: "", stderr: "\u001b[0m\n" },
+				"mycelium ended well with no reply it reads and said nothing that shows",
+			],
+			[
+				{ code: 1, stdout: "\u001b[0m\n", stderr: "" },
+				"mycelium ended with 1 and said nothing that shows",
+			],
+		];
+		for (const [ran, why] of cases) {
+			const { run } = answering(ran);
+			const told = await tellOrchestrates("forget", "s", "work", {}, run);
+			expect("why" in told ? told.why : "", JSON.stringify(ran)).toBe(why);
+		}
+	});
+
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {
 		const cases: [Ran, string, boolean][] = [
 			[

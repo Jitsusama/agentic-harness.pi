@@ -277,6 +277,35 @@ describe("sprouting", () => {
 		);
 	});
 
+	it("keeps both ends of a failed run's long unread stdout, with a mark between", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: `judging\n${"x".repeat(600)}\nno room here\n`,
+			stderr: "",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason:
+				"mycelium sprout ended with 1 and wrote what this harness can't read: judging / ... / no room here",
+		});
+	});
+
+	it("quotes the lines above a reply that is neither a start nor a refusal", async () => {
+		const stdout = 'judging\n{"Ok":{"Something":1}}\n';
+		const clean = answering({ code: 0, stdout, stderr: "" });
+		const answer = await sprout({ words: "tea" }, "/", clean.run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(answer.ok ? "" : answer.reason).toContain(
+			'can\'t read: judging / {"Ok":{"Something":1}}, so',
+		);
+		const failed = answering({ code: 1, stdout, stderr: "" });
+		expect(await sprout({ words: "tea" }, "/", failed.run)).toEqual({
+			ok: false,
+			reason:
+				'mycelium sprout ended with 1 and wrote what this harness can\'t read: judging / {"Ok":{"Something":1}}',
+		});
+	});
+
 	it("quotes every line of an unread stdout that shows", async () => {
 		const { run } = answering({
 			code: 0,
