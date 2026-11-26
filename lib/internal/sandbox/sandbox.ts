@@ -58,7 +58,7 @@
  * from mint, which answers only outside (`delta-token.ts`).
  */
 
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import {
@@ -85,7 +85,11 @@ import {
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
-import { fenceGcloudSsh, GCLOUD_KEY } from "../fence/fence-gcloud-ssh.ts";
+import {
+	fenceGcloudSsh,
+	GCLOUD_KEY,
+	hasPublicHalf,
+} from "../fence/fence-gcloud-ssh.ts";
 import {
 	guardedFolders,
 	guardedIn,
@@ -861,10 +865,11 @@ export function wrapFor(
 							gcloudUnmade = `its files couldn't be copied: ${why}`;
 						},
 					);
-			// With no public half the fence binds no stand-in, so gcloud finds
-			// no key and makes one, which the read-only ~/.ssh refuses.
-			if (gcloudSsh && !existsSync(join(home, ".ssh", `${GCLOUD_KEY}.pub`))) {
-				gcloudUnmade = `~/.ssh/${GCLOUD_KEY}.pub is missing, so gcloud would make a new key, which it can't write here; make it once outside the fence`;
+			// With no public half as a plain file the fence binds no stand-in,
+			// so gcloud finds no key and makes one, which the read-only ~/.ssh
+			// refuses.
+			if (gcloudSsh && !hasPublicHalf(join(home, ".ssh"))) {
+				gcloudUnmade = `~/.ssh/${GCLOUD_KEY}.pub is missing or not a plain file, so gcloud would make a new key, which it can't write here; make it once outside the fence`;
 			}
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served

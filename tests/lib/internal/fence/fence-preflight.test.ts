@@ -28,6 +28,7 @@ import {
 } from "../../../../lib/internal/fence/fence-preflight.ts";
 import {
 	gcloudKeyProbe,
+	hiddenVerdict,
 	keyProbed,
 	readsAsStandIn,
 } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
@@ -234,5 +235,36 @@ describe("what the preflight makes of the key's probe", () => {
 			`couldn't probe ${key} inside (exit 127)`,
 		);
 		expect(keyProbed(key, ran(null, "")).unprobed).toContain("exit stopped");
+	});
+
+	it("says it couldn't probe where the probe ended 0 saying neither unread nor a digest", () => {
+		const odd = keyProbed(key, ran(0, "bwrap: some notice\n"));
+		expect(odd.read).toBeUndefined();
+		expect(odd.unprobed).toContain("said neither unread nor a digest");
+	});
+});
+
+describe("the hidden files' verdict", () => {
+	const key = "/home/one/.ssh/google_compute_engine";
+
+	it("passes only where nothing read and the key held", () => {
+		expect(hiddenVerdict(3, [], {})).toEqual({
+			outcome: "passed",
+			said: "3 hidden files, none readable inside",
+		});
+	});
+
+	it("fails naming gcloud's key where its probe read it", () => {
+		expect(hiddenVerdict(3, ["/home/one/.netrc"], { read: key })).toEqual({
+			outcome: "failed",
+			said: `readable inside: /home/one/.netrc, ${key}`,
+		});
+	});
+
+	it("fails saying why where the key couldn't be probed", () => {
+		expect(hiddenVerdict(3, [], { unprobed: "couldn't probe it" })).toEqual({
+			outcome: "failed",
+			said: "couldn't probe it",
+		});
 	});
 });

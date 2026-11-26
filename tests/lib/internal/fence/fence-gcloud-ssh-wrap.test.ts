@@ -162,46 +162,53 @@ describe("what the fence binds for gcloud's ssh", () => {
 		}
 	});
 
-	it("tells gcloud's ssh, binding no stand-in, where its key has no public half", () => {
-		const fence = sandboxFor(
-			{ PI_SANDBOX: FENCE },
-			"linux",
-			all,
-			undefined,
-			noCloud,
-			undefined,
-			undefined,
-			undefined,
-			noDelta,
-		);
-		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-gcloud-")));
-		const home = join(base, "home");
-		const runtimeDir = join(base, "run");
-		mkdirSync(join(home, ".ssh"), { recursive: true, mode: 0o700 });
-		mkdirSync(runtimeDir, { mode: 0o700 });
-		const session = basename(base);
-		const wrapped = (command: string): string =>
-			wrapFor(
-				fence,
-				{
-					cwd: home,
-					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
-				},
-				home,
-			)?.(command) ?? "";
-		try {
-			const text = wrapped("gcloud compute ssh one");
-			expect(text, "gcloud's ssh wasn't told").toContain(
-				"google_compute_engine.pub is missing",
+	it.each(["missing", "a folder"])(
+		"tells gcloud's ssh, binding no stand-in, where its key's public half is %s",
+		(pub) => {
+			const fence = sandboxFor(
+				{ PI_SANDBOX: FENCE },
+				"linux",
+				all,
+				undefined,
+				noCloud,
+				undefined,
+				undefined,
+				undefined,
+				noDelta,
 			);
-			expect(argsReadIn(text), "a stand-in with no public half").not.toContain(
-				join(home, ".ssh", "google_compute_engine"),
-			);
-			expect(wrapped("true"), "another command was told").not.toContain(
-				"is missing",
-			);
-		} finally {
-			rmSync(base, { recursive: true, force: true });
-		}
-	});
+			const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-gcloud-")));
+			const home = join(base, "home");
+			const runtimeDir = join(base, "run");
+			mkdirSync(join(home, ".ssh"), { recursive: true, mode: 0o700 });
+			if (pub === "a folder") {
+				mkdirSync(join(home, ".ssh", "google_compute_engine.pub"));
+			}
+			mkdirSync(runtimeDir, { mode: 0o700 });
+			const session = basename(base);
+			const wrapped = (command: string): string =>
+				wrapFor(
+					fence,
+					{
+						cwd: home,
+						env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
+					},
+					home,
+				)?.(command) ?? "";
+			try {
+				const text = wrapped("gcloud compute ssh one");
+				expect(text, "gcloud's ssh wasn't told").toContain(
+					"google_compute_engine.pub is missing",
+				);
+				expect(
+					argsReadIn(text),
+					"a stand-in with no public half",
+				).not.toContain(join(home, ".ssh", "google_compute_engine"));
+				expect(wrapped("true"), "another command was told").not.toContain(
+					"is missing",
+				);
+			} finally {
+				rmSync(base, { recursive: true, force: true });
+			}
+		},
+	);
 });

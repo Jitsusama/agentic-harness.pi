@@ -90,6 +90,7 @@ import {
 	GCLOUD_KEY,
 	GCLOUD_KNOWN_HOSTS,
 	type GcloudSsh,
+	hasPublicHalf,
 } from "./fence-gcloud-ssh.ts";
 import { githubDoorArgs } from "./fence-github.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
@@ -622,11 +623,7 @@ function sshArgs(home: string, disk: Disk, gcloud?: GcloudSsh): string[] {
 		// only a wrap in the instant between its two renames can lose these
 		// before bubblewrap starts, failing that one command (`sweepEnded`).
 		args.push("--bind", gcloud.knownHosts, join(ssh, GCLOUD_KNOWN_HOSTS));
-		const publicKey = join(ssh, `${GCLOUD_KEY}.pub`);
-		if (
-			entries.includes(`${GCLOUD_KEY}.pub`) &&
-			disk.kind(publicKey) === "file"
-		) {
+		if (entries.includes(`${GCLOUD_KEY}.pub`) && hasPublicHalf(ssh, disk)) {
 			args.push("--ro-bind", gcloud.key, join(ssh, GCLOUD_KEY));
 		}
 	}

@@ -171,13 +171,28 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 				),
 			)
 		: {};
-	if (probed.read) read.push(probed.read);
+	return hiddenVerdict(paths.length + checked, read, probed);
+}
+
+/**
+ * Check (13)'s verdict on `count` hidden files, of which `read` read
+ * inside, with what the probe of gcloud's key found (`keyProbed`): it
+ * passes only where nothing read and the probe proved the key held.
+ */
+export function hiddenVerdict(
+	count: number,
+	read: readonly string[],
+	probed: { readonly read?: string; readonly unprobed?: string },
+): Verdict {
+	const readInside = probed.read ? [...read, probed.read] : read;
 	const said = [
-		...(read.length > 0 ? [`readable inside: ${read.join(", ")}`] : []),
+		...(readInside.length > 0
+			? [`readable inside: ${readInside.join(", ")}`]
+			: []),
 		...(probed.unprobed ? [probed.unprobed] : []),
 	];
 	return said.length === 0
-		? passed(`${paths.length + checked} hidden files, none readable inside`)
+		? passed(`${count} hidden files, none readable inside`)
 		: failed(said.join("; "));
 }
 
@@ -198,8 +213,9 @@ export function gcloudKeyProbe(path: string): string {
 
 /**
  * What the probe of gcloud's key at `path` found, from its run `ran`:
- * the key, where it read as anything but the stand-in or unread; why it
- * proves nothing, where the probe failed; neither where the key held.
+ * the key, where its digest was anything but the stand-in's; why it
+ * proves nothing, where the probe failed or said neither `unread` nor a
+ * digest; neither where the key held.
  */
 export function keyProbed(
 	path: string,
@@ -210,7 +226,13 @@ export function keyProbed(
 			unprobed: `couldn't probe ${path} inside (exit ${ran.code ?? "stopped"}): ${tailOf(ran)}`,
 		};
 	}
-	return readsAsStandIn(ran) ? {} : { read: path };
+	if (readsAsStandIn(ran)) return {};
+	const said = ran.out.trim().split(/\s+/);
+	return /^[0-9a-f]{64}$/.test(said.at(-2) ?? "")
+		? { read: path }
+		: {
+				unprobed: `couldn't probe ${path} inside: it said neither unread nor a digest: ${tailOf(ran)}`,
+			};
 }
 
 /**

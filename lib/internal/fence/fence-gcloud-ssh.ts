@@ -72,6 +72,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { DISK, type Disk } from "./fence-disk.ts";
 import { isPrivateFolder, makeFolder } from "./fence-folders.ts";
 
 /** gcloud's known-hosts file, in `~/.ssh`. */
@@ -255,9 +256,16 @@ function privateFolders(runtimeDir: string, names: readonly string[]): string {
  * whose command is wrapped in the instant between the two renames can
  * still fail that one command's bind; its next makes the copies anew.
  * One put aside and left, by a pi killed mid-sweep or a removal that
- * failed, is taken by a later sweep, since no session uses its name.
+ * failed, is taken by a later sweep once `ASIDE_LEFT_MS` past the rename
+ * that dated its change, so never one another pi's sweep is still
+ * ending. `end` ends each folder put aside, `endAside` but in tests.
  */
-function sweepEnded(sessions: string, session: string, now: number): void {
+export function sweepEnded(
+	sessions: string,
+	session: string,
+	now: number,
+	end: typeof endAside = endAside,
+): void {
 	let names: string[];
 	try {
 		names = readdirSync(sessions);
@@ -269,7 +277,9 @@ function sweepEnded(sessions: string, session: string, now: number): void {
 		const folder = join(sessions, name);
 		try {
 			if (ASIDE.test(name)) {
-				removeAside(folder);
+				if (now - lstatSync(folder).ctimeMs >= ASIDE_LEFT_MS) {
+					removeAside(folder);
+				}
 				continue;
 			}
 			if (name === session || !SESSION_NAME.test(name)) continue;
@@ -279,7 +289,7 @@ function sweepEnded(sessions: string, session: string, now: number): void {
 			}
 			const aside = join(sessions, `.ended-${randomUUID()}`);
 			renameSync(folder, aside);
-			endAside(aside, folder, stat.mtimeMs);
+			end(aside, folder, stat.mtimeMs);
 		} catch {
 			// In use again, or not this account's to remove: left as it is.
 		}
@@ -288,6 +298,13 @@ function sweepEnded(sessions: string, session: string, now: number): void {
 
 /** A name the sweep puts a folder aside under, which no session's name takes. */
 const ASIDE = /^\.ended-[0-9a-f-]{36}$/;
+
+/**
+ * How long a folder put aside must have sat, since the rename that dated
+ * its change, before a sweep takes it as left: far past the instant one
+ * sweep takes to end what it put aside.
+ */
+const ASIDE_LEFT_MS = 10 * 60 * 1000;
 
 /**
  * Ends the copies the sweep put aside at `aside` from `folder`, judged
@@ -313,7 +330,10 @@ export function endAside(
  * Removes `aside`, a folder the sweep put aside: its plain files, then
  * itself, where it is this account's own private folder. Anything else
  * there, a link swapped in as it was judged among them, is unlinked as a
- * name, never walked; a folder within one is left, and so the folder.
+ * name, never walked; a folder within one, which no session's copies
+ * make, is left, and so the aside, for the person. Between the check and
+ * the walk only the account's processes outside the fence could swap a
+ * link in, since pi's folder of sessions is its own and private.
  */
 function removeAside(aside: string): void {
 	if (!isPrivateFolder(aside)) {
@@ -326,6 +346,15 @@ function removeAside(aside: string): void {
 		if (stat.isFile() || stat.isSymbolicLink()) unlinkSync(path);
 	}
 	rmdirSync(aside);
+}
+
+/**
+ * Whether gcloud's key in `ssh`, the person's `~/.ssh`, has its public
+ * half as a plain file: only then is the stand-in bound over the key,
+ * since ssh signs through the agent with the key the `.pub` names.
+ */
+export function hasPublicHalf(ssh: string, disk: Disk = DISK): boolean {
+	return disk.kind(join(ssh, `${GCLOUD_KEY}.pub`)) === "file";
 }
 
 /** Whether `path` is a link itself. */
@@ -387,7 +416,12 @@ export function fenceGcloudSsh(
 		// No copies, so the fence binds none, and gcloud's ssh fails inside
 		// as it did before they existed, with why told: a full runtime
 		// folder reads as one, not as a folder's mode.
-		unmade(error instanceof Error ? error.message : String(error));
+		const said = error instanceof Error ? error.message : String(error);
+		unmade(
+			(error as NodeJS.ErrnoException).code === "ENOENT"
+				? `${said}, most likely as a sweep of ended sessions took its folder; the next command makes it again`
+				: said,
+		);
 		return undefined;
 	}
 }

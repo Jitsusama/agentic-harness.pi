@@ -31,6 +31,7 @@ import {
 	GCLOUD_KNOWN_HOSTS,
 	holdsStandIn,
 	KEY_STAND_IN,
+	sweepEnded,
 } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 
 let root = "";
@@ -262,23 +263,65 @@ describe("the session's copies for gcloud's ssh", () => {
 		);
 	});
 
-	it("takes a folder an earlier sweep left aside, however fresh", async () => {
+	it("takes a folder an earlier sweep left aside, never one another pi's sweep is still ending", () => {
 		const sessions = join(runtime, "pi-fence/gcloud-ssh");
-		vi.resetModules();
-		const fresh = await import(
-			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
-		);
-		fresh.fenceGcloudSsh(runtime, home, "one");
+		fenceGcloudSsh(runtime, home, "one");
 		const left = join(sessions, `.ended-${"4".padEnd(36, "0")}`);
 		mkdirSync(left, { mode: 0o700 });
 		writeFileSync(join(left, GCLOUD_KEY), KEY_STAND_IN);
-		vi.resetModules();
-		const next = await import(
-			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
-		);
-		next.fenceGcloudSsh(runtime, home, "one");
+		sweepEnded(sessions, "one", Date.now());
+		expect(existsSync(left), "one put aside just now").toBe(true);
+		sweepEnded(sessions, "one", Date.now() + 11 * 60 * 1000);
 		expect(existsSync(left), "left aside for good").toBe(false);
 		expect(existsSync(sessionFolder()), "its own").toBe(true);
+	});
+
+	it("leaves an aside holding a folder, which no session's copies make", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		fenceGcloudSsh(runtime, home, "one");
+		const left = join(sessions, `.ended-${"5".padEnd(36, "0")}`);
+		mkdirSync(join(left, "within"), { recursive: true, mode: 0o700 });
+		chmodSync(left, 0o700);
+		writeFileSync(join(left, GCLOUD_KEY), KEY_STAND_IN);
+		sweepEnded(sessions, "one", Date.now() + 11 * 60 * 1000);
+		expect(existsSync(join(left, "within")), "the folder within").toBe(true);
+		expect(existsSync(join(left, GCLOUD_KEY)), "its plain file").toBe(false);
+	});
+
+	it("has the sweep put back a folder its session dated once it was put aside", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		fenceGcloudSsh(runtime, home, "one");
+		fenceGcloudSsh(runtime, home, "two");
+		utimesSync(join(sessions, "two"), daysOn(-2), daysOn(-2));
+		// Its session wraps a command in the instant after the rename.
+		sweepEnded(sessions, "one", Date.now(), (aside, folder, judgedMs) => {
+			utimesSync(aside, new Date(), new Date());
+			endAside(aside, folder, judgedMs);
+		});
+		expect(
+			readFileSync(join(sessions, "two", GCLOUD_KEY), "utf8"),
+			"the dated one wasn't put back whole",
+		).toBe(KEY_STAND_IN);
+		sweepEnded(sessions, "one", Date.now() + 2 * 24 * 60 * 60 * 1000);
+		expect(existsSync(join(sessions, "two")), "undated, it stayed").toBe(false);
+	});
+
+	it("puts a dated folder back over an empty one its session remade, and leaves both over a full one", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		fenceGcloudSsh(runtime, home, "one");
+		const folder = join(sessions, "one");
+		const aside = join(sessions, `.ended-${"6".padEnd(36, "0")}`);
+		renameSync(folder, aside);
+		mkdirSync(folder, { mode: 0o700 });
+		endAside(aside, folder, 0);
+		expect(readFileSync(join(folder, GCLOUD_KEY), "utf8")).toBe(KEY_STAND_IN);
+		renameSync(folder, aside);
+		fenceGcloudSsh(runtime, home, "one");
+		expect(() => endAside(aside, folder, 0)).toThrow(/ENOTEMPTY|EEXIST/);
+		expect(existsSync(aside), "the aside, for a later sweep").toBe(true);
+		expect(existsSync(join(folder, GCLOUD_KEY)), "the remade copies").toBe(
+			true,
+		);
 	});
 
 	it("says why it made no copies", () => {
