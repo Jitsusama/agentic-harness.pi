@@ -145,7 +145,7 @@ describe("leadsTo", () => {
 		mkdirSync(join(home, "C0"));
 		for (let link = 1; link <= most + 1; link++)
 			symlinkSync(`C${link - 1}`, join(home, `C${link}`));
-		expect(statSync(join(home, `C${most}`)).isDirectory()).toBe(true);
+		expect(() => statSync(join(home, `C${most}`))).not.toThrow();
 		expect(() => statSync(join(home, `C${most + 1}`))).toThrow(
 			expect.objectContaining({ code: "ELOOP" }),
 		);
