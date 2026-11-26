@@ -470,6 +470,13 @@ describe("running a check's command", () => {
 			? Promise.resolve({ code: 0, stdout: "", stderr: "", hung: false })
 			: runCommand(command, args, cwd, env, timeoutMs, signal);
 
+	/**
+	 * Waiting a minute for output held open past an exit, so a case's
+	 * bound is kept only by killing the whole group, never by the close
+	 * grace letting go of a sleeper the kill missed.
+	 */
+	const holdsOn = commandRunner({ closeGraceMs: 60_000 });
+
 	it("reads stand-in programs' output, exits and report file through the same pipes", async () => {
 		install(
 			"tsc",
@@ -499,7 +506,13 @@ describe("running a check's command", () => {
 		// the run would wait out its 30 s, past this case's own budget.
 		install("tsc", "sleep 30 &\nsleep 30");
 		const began = Date.now();
-		const hung = await checkTree(tree, { run: runReal, timeoutMs: 500 });
+		const hung = await checkTree(tree, {
+			run: (command, args, cwd, env, timeoutMs, signal) =>
+				command === "git"
+					? runReal(command, args, cwd, env, timeoutMs, signal)
+					: holdsOn(command, args, cwd, env, timeoutMs, signal),
+			timeoutMs: 500,
+		});
 		expect(Date.now() - began).toBeLessThan(10_000);
 		expect(describeTree(hung, "~/t")).toBe(
 			"~/t fails a check. Its typecheck failed: it was still running after 1s.",
@@ -515,7 +528,7 @@ describe("running a check's command", () => {
 		const stop = new AbortController();
 		const began = Date.now();
 		const path = { PATH: process.env.PATH ?? "" };
-		const running = runCommand(sh, [], tree, path, 60_000, stop.signal);
+		const running = holdsOn(sh, [], tree, path, 60_000, stop.signal);
 		// Long enough for sh to have started both sleepers before the stop.
 		setTimeout(() => stop.abort(), 300);
 		const ran = await running;
@@ -576,34 +589,40 @@ describe("running a check's command", () => {
 		expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
 	}, 15_000);
 
-	it("lets go of output held open from outside its group once the command has exited", async () => {
-		// setsid puts the sleeper in a session of its own, out of the group's
-		// kill, still holding the pipes; the test ends it by its pid. The
-		// script waits for it to have left, or the kill at its exit would
-		// catch it first.
-		const sh = script(
-			[
-				`setsid sh -c 'echo $$ > "${tree}/escaped"; exec sleep 30' &`,
-				`until [ -s "${tree}/escaped" ]; do sleep 0.05; done`,
-				"echo done",
-			].join("\n"),
-		);
-		const began = Date.now();
-		try {
-			const ran = await commandRunner({ closeGraceMs: 300 })(
-				sh,
-				[],
-				tree,
-				path,
-				60_000,
+	// setsid is util-linux's, and macOS has none: there the script would
+	// wait for a pid file nothing writes until the test's timeout.
+	it.skipIf(process.platform !== "linux")(
+		"lets go of output held open from outside its group once the command has exited",
+		async () => {
+			// setsid puts the sleeper in a session of its own, out of the group's
+			// kill, still holding the pipes; the test ends it by its pid. The
+			// script waits for it to have left, or the kill at its exit would
+			// catch it first.
+			const sh = script(
+				[
+					`setsid sh -c 'echo $$ > "${tree}/escaped"; exec sleep 30' &`,
+					`until [ -s "${tree}/escaped" ]; do sleep 0.05; done`,
+					"echo done",
+				].join("\n"),
 			);
-			expect(Date.now() - began).toBeLessThan(10_000);
-			expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
-		} finally {
-			const escaped = Number(readFileSync(join(tree, "escaped"), "utf8"));
-			process.kill(escaped, "SIGKILL");
-		}
-	}, 15_000);
+			const began = Date.now();
+			try {
+				const ran = await commandRunner({ closeGraceMs: 300 })(
+					sh,
+					[],
+					tree,
+					path,
+					60_000,
+				);
+				expect(Date.now() - began).toBeLessThan(10_000);
+				expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
+			} finally {
+				const escaped = Number(readFileSync(join(tree, "escaped"), "utf8"));
+				process.kill(escaped, "SIGKILL");
+			}
+		},
+		15_000,
+	);
 
 	it("stops a command that says more than it holds, and says why", async () => {
 		const sh = script("head -c 5000 /dev/zero | tr '\\0' x\nsleep 30");
