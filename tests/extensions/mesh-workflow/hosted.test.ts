@@ -166,7 +166,7 @@ async function peer(id: string, branch: readonly unknown[] = []) {
 async function inHost() {
 	const owner = await tickedOwnerNow();
 	if (!owner) throw new Error("test process has no owner");
-	const open = new Set(["alpha-AAAAAAAA", "bravo-BBBBBBBB", "alpha-CCCCCCCC"]);
+	const open = new Set(["alpha-AAAAAAAA", "bravo-BBBBBBBB"]);
 	const whys: string[] = [];
 	const environments = new Map<string, Record<string, string>>();
 	const env = (id: string): SessionEnvironment => {
@@ -378,7 +378,8 @@ it("keeps its quest's address through a restart in its host, over a peer that to
 });
 
 it("keeps its quest's address through a rollover in its host, over a peer that took it since", async () => {
-	await inHost();
+	const { open } = await inHost();
+	open.add("alpha-CCCCCCCC");
 	mkdirSync(paths.sessions, { recursive: true });
 	for (const id of ["alpha-AAAAAAAA", "alpha-CCCCCCCC"]) {
 		writeFileSync(
