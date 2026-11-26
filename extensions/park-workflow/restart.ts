@@ -5,15 +5,17 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, writeFileSync } from "node:fs";
+import { accessSync, constants, writeFileSync } from "node:fs";
 import {
-	flagsLost,
 	holderCommand,
 	holderRecord,
-	opensOnlyItself,
 	PARK_SAID_ENV,
 	restartCommand,
 } from "../../lib/internal/session/park.ts";
+import {
+	logWritten,
+	restartRefused,
+} from "../../lib/internal/session/restart-checks.ts";
 
 /** What a window shows as its session starts again on a fresh log. */
 export const RESTART_LINE =
@@ -206,37 +208,4 @@ export function restartNamed(
 	} catch {
 		return "its holder couldn't be told how to start it again";
 	}
-}
-
-/**
- * Why its holder couldn't wake this session into itself, whatever its
- * log: fixed by how it was started, so a check reads it mid-run, and
- * writing nothing, so its holder is told nothing.
- */
-export function restartRefused(
-	again: string,
-	args: readonly string[],
-	session: string,
-	sessionFile: string,
-): string | undefined {
-	if (again === "") {
-		return opensOnlyItself(args, session, sessionFile)
-			? undefined
-			: "its holder would start it as a new session";
-	}
-	const lost = flagsLost(args);
-	return lost.length > 0
-		? `starting again would drop ${lost.join(", ")}`
-		: undefined;
-}
-
-/**
- * Why a session can't start again from its log, if it can't: pi writes a
- * log at its first answer, so one never asked anything would wake as a
- * new session, under another address.
- */
-export function logWritten(sessionFile: string): string | undefined {
-	if (sessionFile === "") return "it has no log to start again from";
-	if (!existsSync(sessionFile)) return "its log isn't written yet";
-	return undefined;
 }

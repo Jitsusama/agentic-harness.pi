@@ -67,6 +67,10 @@ import {
 } from "../../lib/internal/session/park-window.ts";
 import { askQuit } from "../../lib/internal/session/quit-asker.ts";
 import {
+	logWritten,
+	restartRefused,
+} from "../../lib/internal/session/restart-checks.ts";
+import {
 	onTurnEnd,
 	type TurnOver,
 } from "../../lib/internal/session/turn-end.ts";
@@ -80,10 +84,8 @@ import { awakeNote } from "./awake.ts";
 import { answerParkNow } from "./park-now.ts";
 import {
 	exitWith,
-	logWritten,
 	niriFocused,
 	restartNamed,
-	restartRefused,
 	restartWith,
 	shownIn,
 } from "./restart.ts";

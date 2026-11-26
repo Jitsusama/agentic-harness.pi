@@ -86,6 +86,15 @@ describe("quitLine", () => {
 		);
 	});
 
+	it("says a restart its holder couldn't be told the session of starts with its own command, and why", () => {
+		expect(
+			quitLine("s1", undefined, true, "it has no log\nto open"),
+			"the why is kept to one line",
+		).toBe(
+			`pi: quitting session s1, asked by ${UNNAMED_QUIT}; it exits ${UNASKED_EXIT} so its holder starts it again, with its own command, since it has no log to open`,
+		);
+	});
+
 	it("keeps an asker's name to one line, so it writes no line of its own", () => {
 		expect(quitLine("s1", "a steer\npi: forged", false)).toBe(
 			"pi: quitting session s1, asked by a steer pi: forged",

@@ -60,6 +60,7 @@ import {
 	crashText,
 	recordCrashes,
 } from "../../lib/internal/session/crash-record.ts";
+import { restartAfterUnaskedQuit } from "../../lib/internal/session/hand-over.ts";
 import {
 	type JournalCommand,
 	journalCommand,
@@ -157,7 +158,7 @@ export default function crashRecord(pi: ExtensionAPI): void {
 		stop = undefined;
 		unlistenKeys?.();
 		unlistenKeys = undefined;
-		if (event.reason === "quit") sayQuit(sessionOf(ctx));
+		if (event.reason === "quit") sayQuit(sessionOf(ctx), logOf(ctx));
 		// Only a quit ends the process; a reload, new session, resume or
 		// fork starts the next session in it, which watches afresh.
 		if (event.reason === "quit") slowEnd?.arm("quit");
@@ -187,12 +188,26 @@ function listenForQuitKeys(ctx: ExtensionContext): () => void {
 
 /**
  * Says who asked this pi to quit, in the system's log; a held pi nobody asked exits with `UNASKED_EXIT`, which its
- * holder answers by starting it again.
+ * holder answers by starting it again, on the session's own log where it has one.
  */
-function sayQuit(session: string): void {
+function sayQuit(session: string, log: string | undefined): void {
 	const asker = quitAsker();
-	const held = holderFiles(process.env, process.pid) !== undefined;
-	const restarts = quitExit(asker, held, 0) === UNASKED_EXIT;
+	const files = holderFiles(process.env, process.pid);
+	const held = files !== undefined;
+	// An exit code set before the quit, as a hand-over's, decides as it will at exit.
+	const set = process.exitCode;
+	const restarts =
+		quitExit(asker, held, typeof set === "number" ? set : 0) === UNASKED_EXIT;
+	const untold =
+		restarts && files !== undefined
+			? restartAfterUnaskedQuit(files, {
+					args: process.argv.slice(2),
+					session,
+					sessionFile: log,
+					env: process.env,
+					startedAtMs: Date.now() - process.uptime() * MS_PER_SECOND,
+				})
+			: undefined;
 	if (restarts) {
 		// pi ends a quit with process.exit(0); an exit listener's code wins,
 		// and one an earlier listener set, as one-writer's, stands.
@@ -209,10 +224,13 @@ function sayQuit(session: string): void {
 	// serves other screens, so its line waits on nothing.
 	const say = hosted() === undefined ? writeJournal : sayInJournal;
 	say(
-		quitLine(session, asker, restarts),
+		quitLine(session, asker, restarts, untold),
 		journalCommand(asker === undefined ? "err" : "info"),
 	);
 }
+
+/** Milliseconds in a second, for the process's uptime. */
+const MS_PER_SECOND = 1000;
 
 /** What a pi ended past a pending lookup says held it. */
 const HELD_BY_LOOKUP =

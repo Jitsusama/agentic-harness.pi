@@ -8,6 +8,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +17,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	goQuiet,
 	handingOf,
+	nameRestart,
+	restartAfterUnaskedQuit,
 	tellHolder,
 	untellHolder,
 	whyWriting,
@@ -207,6 +210,118 @@ describe("telling the holder what starts next", () => {
 
 		expect(() => untellHolder(files), "a folder it can't remove").not.toThrow();
 		expect(existsSync(files.wake), "the wake still goes").toBe(false);
+	});
+});
+
+describe("naming the restart of a pi that quit unasked", () => {
+	it("names the command alone: no wake, and no park", () => {
+		const { files } = holderFor(4242);
+		const parked = join(dirname(files.wake), "s.parked");
+
+		expect(
+			nameRestart({ ...files, parked }, ["pi", "--session", log]),
+			"the holder is told",
+		).toEqual({ told: true });
+
+		expect(
+			JSON.parse(readFileSync(files.again, "utf8")),
+			"the session's own command",
+		).toEqual(["pi", "--session", log]);
+		expect(existsSync(files.wake), "no wake").toBe(false);
+		expect(existsSync(parked), "no park").toBe(false);
+	});
+
+	it("says why when the command can't be written", () => {
+		const { files } = holderFor(4242);
+		mkdirSync(files.again);
+
+		expect(
+			nameRestart(files, ["pi"]),
+			"a command it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.again/),
+		});
+	});
+});
+
+describe("bringing back a pi that quit unasked", () => {
+	/** A holder's files and a log on disk, for a pi started `startedAtMs`. */
+	function quitting(args: readonly string[] = []) {
+		const { files } = holderFor(4242);
+		const written = join(dirname(files.again), "s.jsonl");
+		writeFileSync(written, "");
+		return {
+			files,
+			quit: {
+				args,
+				session: "s",
+				sessionFile: written,
+				env: {},
+				startedAtMs: Date.now(),
+			},
+		};
+	}
+
+	/** Dates `path` an hour back, as a file left from before this pi. */
+	function leftFromBefore(path: string): void {
+		const hourAgo = new Date(Date.now() - 3_600_000);
+		utimesSync(path, hourAgo, hourAgo);
+	}
+
+	it("names its own session's command once its log is written", () => {
+		const { files, quit } = quitting();
+		writeFileSync(files.again, JSON.stringify(["pi", "--old"]));
+		leftFromBefore(files.again);
+
+		expect(restartAfterUnaskedQuit(files, quit)).toBeUndefined();
+
+		expect(JSON.parse(readFileSync(files.again, "utf8"))).toEqual(
+			expect.arrayContaining([quit.sessionFile]),
+		);
+	});
+
+	it("refuses flags the restart would drop, taking an older command away", () => {
+		const { files, quit } = quitting(["--offline"]);
+		writeFileSync(files.again, JSON.stringify(["pi", "--old"]));
+		leftFromBefore(files.again);
+
+		expect(restartAfterUnaskedQuit(files, quit)).toMatch(/--offline/);
+
+		expect(existsSync(files.again), "no older command").toBe(false);
+	});
+
+	it("refuses a log not yet written, naming nothing", () => {
+		const { files, quit } = quitting();
+		rmSync(quit.sessionFile);
+
+		expect(restartAfterUnaskedQuit(files, quit)).toMatch(/log isn't written/);
+
+		expect(existsSync(files.again), "nothing named").toBe(false);
+	});
+
+	it("refuses with no log at all", () => {
+		const { files, quit } = quitting();
+
+		expect(
+			restartAfterUnaskedQuit(files, { ...quit, sessionFile: undefined }),
+		).toMatch(/no log/);
+	});
+
+	it("leaves a command another path wrote since this pi started", () => {
+		const { files, quit } = quitting(["--offline"]);
+		// Started a second back, a margin over the file system's clock.
+		const startedAtMs = Date.now() - 1000;
+		const handedOver = JSON.stringify(["pi-view", "--join"]);
+		writeFileSync(files.again, handedOver);
+
+		expect(
+			restartAfterUnaskedQuit(files, { ...quit, startedAtMs }),
+		).toBeUndefined();
+
+		expect(readFileSync(files.again, "utf8"), "its word stands").toBe(
+			handedOver,
+		);
 	});
 });
 

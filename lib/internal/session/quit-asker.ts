@@ -109,14 +109,23 @@ export const KEY_QUITS = {
 export const UNNAMED_QUIT =
 	"nobody that named itself: no key in its window, harness caller or signal";
 
-/** The system log's line for a quit, naming who asked and what follows. */
+/**
+ * The system log's line for a quit, naming who asked and what follows:
+ * for a restart its holder couldn't be told the session of, that the
+ * holder starts it with its own command, and why.
+ */
 export function quitLine(
 	session: string,
 	asker: string | undefined,
 	restarts: boolean,
+	untold?: string,
 ): string {
+	const fresh =
+		untold === undefined
+			? ""
+			: `, with its own command, since ${untold.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")}`;
 	const then = restarts
-		? `; it exits ${UNASKED_EXIT} so its holder starts it again`
+		? `; it exits ${UNASKED_EXIT} so its holder starts it again${fresh}`
 		: "";
 	// An asker's name is one line, so none can write a line of its own.
 	const by = (asker ?? UNNAMED_QUIT).replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ");
