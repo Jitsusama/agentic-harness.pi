@@ -1,10 +1,11 @@
 /**
  * The person's looks: asking their hosts what became of the changes they
- * point at, and resolving those whose change or quest has ended.
+ * point at, and resolving those whose change, quest or session has ended.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveReference } from "../../../lib/core/review/index.ts";
+import { type Census, census } from "../../../lib/mesh/liveness.ts";
 import {
 	ASK_EVERY_MS,
 	askable,
@@ -26,8 +27,12 @@ import {
 	looksListed,
 	type Pointer,
 	resolveLooks,
+	resolveLooksOfEndedCells,
 	resolveLooksOfQuests,
+	sessionsHolding,
+	UNHEARD_CELL_MS,
 } from "../../../lib/mesh/looks/looks.ts";
+import type { Presence, Presences } from "../../../lib/mesh/presence.ts";
 import { expiredText, keepLooks } from "../looks-clock.ts";
 
 /** How often a session looks whether it's its turn to ask GitHub about looks. */
@@ -36,18 +41,24 @@ export const LOOKS_CHECK_MS = 60_000;
 /** How long one ask of GitHub about looks may take. */
 const LOOKS_ASK_TIMEOUT_MS = 30_000;
 
+/** Which of the peers listed are gone: the machine's census, or a test's. */
+export type JudgeCells = (listed: readonly Presence[]) => Promise<Census>;
+
 /**
  * Ask the hosts of the changes the person's waiting looks point at about
  * them, when it's this session's turn, and mark what merged, closed or
  * got their review resolved: GitHub in one query, and every other host
- * through the review provider that claims the look's URL. A host that
+ * through the review provider that claims the look's URL. In the same
+ * turn, the looks of sessions that have ended resolve. A host that
  * can't be asked now leaves its looks waiting for the next turn.
  */
 export async function askAboutLooks(
 	pi: Pick<ExtensionAPI, "exec">,
 	dir: string,
 	session: string,
+	presences: Pick<Presences, "listed">,
 	listed?: readonly Look[],
+	judge: JudgeCells = census,
 ): Promise<void> {
 	try {
 		// Read again off the thread: a host runs every conversation's
@@ -56,11 +67,15 @@ export async function askAboutLooks(
 		const now = Date.now();
 		const asked = askable(looks);
 		const elsewhere = askableElsewhere(looks, Math.floor(now / ASK_EVERY_MS));
-		if (asked.length === 0 && elsewhere.length === 0) return;
+		const cells = sessionsHolding(looks).filter((one) => one !== session);
+		if (asked.length === 0 && elsewhere.length === 0 && cells.length === 0) {
+			return;
+		}
 		if (!takeTurnToAsk(dir, session, now)) return;
 		await Promise.all([
 			askGitHubAboutLooks(pi, dir, asked),
 			askHostsAboutLooks(dir, elsewhere),
+			endLooksOfEndedCells(dir, cells, presences, judge, now),
 		]);
 	} catch {
 		// The looks unreadable now: asked again next turn.
@@ -109,6 +124,44 @@ async function askHostsAboutLooks(
 }
 
 /**
+ * Resolve the looks of the `cells` that have ended: those the census
+ * finds gone, and those with no presence at all {@link UNHEARD_CELL_MS}
+ * after they pointed, since a session publishes one as it starts. A
+ * parked session is there, as the census says, so a question it parked
+ * waits for it. Peers that can't be read or judged now are asked again
+ * next turn.
+ */
+async function endLooksOfEndedCells(
+	dir: string,
+	cells: readonly string[],
+	presences: Pick<Presences, "listed">,
+	judge: JudgeCells,
+	now: number,
+): Promise<void> {
+	if (cells.length === 0) return;
+	try {
+		const holding = new Set(cells);
+		const heard = (await presences.listed()).filter((one) =>
+			holding.has(one.session),
+		);
+		const { gone } = await judge(heard);
+		const ended = new Set(gone.map((one) => one.session));
+		const known = new Set(heard.map((one) => one.session));
+		resolveLooksOfEndedCells(
+			dir,
+			(look) =>
+				holding.has(look.session) &&
+				(ended.has(look.session) ||
+					(!known.has(look.session) &&
+						Date.parse(look.at) <= now - UNHEARD_CELL_MS)),
+			new Date(now),
+		);
+	} catch {
+		// Presences unreadable or the looks unwritable now: next turn.
+	}
+}
+
+/**
  * Where a change stands on the host whose review provider claims its
  * URL, or none when no provider claims it. A host slower than
  * {@link LOOKS_ASK_TIMEOUT_MS} counts as unanswered.
@@ -145,8 +198,9 @@ export function tellLooksExpired(
 /**
  * One tick of the looks clock for `owner`, a session and its quest: the
  * looks of ended quests resolve, their hosts are asked about the
- * changes the rest point at, and what was seen or is past its time
- * leaves, the agent told what expired. The list is read once off the
+ * changes the rest point at, the looks of sessions `presences` and the
+ * census show ended resolve, opened looks are stamped, and what was
+ * seen or is past its time leaves, the agent told what expired. The list is read once off the
  * thread, since a host runs every conversation's clock on one, and a
  * step reads it again, at once, only when it has something to write,
  * so it never writes over what another session changed meanwhile.
@@ -161,14 +215,18 @@ export async function keepLooksFor(
 	owner: Pointer,
 	ended: (quest: string) => boolean,
 	stands: () => boolean,
+	presences: Pick<Presences, "listed">,
 ): Promise<void> {
 	const looks = await looksListed(dir);
 	if (!stands()) return;
 	const due = looksDue(looks, (look) => heldBy(look, owner), ended);
 	if (due.ended) endLooksOfQuests(dir, ended);
 	// What ended quests left is read again rather than asked about.
-	void askAboutLooks(pi, dir, owner.session, due.ended ? undefined : looks);
-	if (due.seen || due.expired) tellLooksExpired(pi, keepLooks(dir, owner));
+	const left = due.ended ? undefined : looks;
+	void askAboutLooks(pi, dir, owner.session, presences, left);
+	if (due.seen || due.unstamped || due.expired) {
+		tellLooksExpired(pi, keepLooks(dir, owner));
+	}
 }
 
 /**

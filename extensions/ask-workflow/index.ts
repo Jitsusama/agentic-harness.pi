@@ -18,7 +18,7 @@
  * A question never holds its turn for long: left unanswered five
  * minutes, or asked while the screen is locked or the person is away
  * from it, it parks on their look list and the session carries on
- * (see parking.ts).
+ * (see parking.ts), until the session takes up new work.
  */
 
 import { join } from "node:path";
@@ -45,6 +45,7 @@ import type {
 import {
 	ABSENCE_EVERY_MS,
 	absence,
+	leaveParked,
 	PARK_AFTER_MS,
 	type ParkReason,
 	parkedText,
@@ -332,6 +333,11 @@ function answered(
 }
 
 export default function ask(pi: ExtensionAPI) {
+	// New work leaves what this session parked behind.
+	pi.on("before_agent_start", (_event, ctx) => {
+		leaveParked(stateDir("looks"), ctx.sessionManager.getSessionId());
+	});
+
 	pi.registerTool({
 		name: "ask",
 		label: "Ask",

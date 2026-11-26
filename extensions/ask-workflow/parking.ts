@@ -16,6 +16,13 @@
  * does (mesh-workflow's steer). Nothing is decided for him: a parked
  * question takes no recommendation, which only away mode does.
  *
+ * A parked question stands only while it is still the question: once
+ * its session takes up new work, a run of its own, it leaves his list,
+ * and a session that still needs him asks afresh with things as they
+ * are then (WCJQSG for Joel, 25 November, of seven such questions back
+ * to 15 November whose sessions had long carried on). One whose session
+ * ends leaves with the rest of its looks (mesh-workflow's looks clock).
+ *
  * Whether he's there is read from the shell's own files in the runtime
  * folder: "locked" in quickshell-locked while the lock is up, and "away"
  * in quickshell-away after ten minutes with no input and nothing holding
@@ -33,6 +40,7 @@ import {
 	type Pointing,
 	pointAt,
 	refusalOf,
+	takeBackThread,
 } from "../../lib/mesh/looks/looks.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 
@@ -151,7 +159,7 @@ export function parkedPointing(
 		kind: "terminal" as const,
 		target: session,
 		why: PARKED_BECAUSE[reason],
-		thread: "parked question",
+		thread: PARKED_THREAD,
 	};
 	const only = questions.length === 1 ? questions[0] : undefined;
 	if (!only) {
@@ -180,6 +188,28 @@ export function parkedPointing(
 			ask: OPEN_TO_ANSWER,
 		}
 	);
+}
+
+/** The thread a session's parked questions fold on, one look at a time. */
+const PARKED_THREAD = "parked question";
+
+/**
+ * Take `session`'s parked questions off the look list in `dir`, as it
+ * takes up new work; answers how many it took. One the person answered
+ * has already left; a list that can't be written now is let be, and the
+ * question goes with its session's end.
+ */
+export function leaveParked(
+	dir: string,
+	session: string,
+	now: Date = new Date(),
+): number {
+	try {
+		return takeBackThread(dir, session, PARKED_THREAD, now);
+	} catch {
+		// Unwritable now: the looks clock lets it go once the session ends.
+		return 0;
+	}
 }
 
 /** A parked question's look, or why none could be kept. */
@@ -250,7 +280,7 @@ export function parkedText(reason: ParkReason, parked: Parked): string {
 			? "with its choices; what they pick"
 			: "opening this window; what they answer";
 		lines.push(
-			`It is on the person's look list, ${picks} arrives later as a message. A later question this session parks replaces it there.`,
+			`It is on the person's look list, ${picks} arrives later as a message. A later question this session parks replaces it there, and it leaves the list once this session takes up new work or ends: ask afresh then if you still need them.`,
 		);
 	} else {
 		lines.push(

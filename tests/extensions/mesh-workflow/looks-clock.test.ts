@@ -7,12 +7,23 @@ import {
 	expiredText,
 	keepLooks,
 } from "../../../extensions/mesh-workflow/looks-clock.ts";
-import { keepLooksFor } from "../../../extensions/mesh-workflow/peer/looks.ts";
+import {
+	askAboutLooks,
+	keepLooksFor,
+} from "../../../extensions/mesh-workflow/peer/looks.ts";
 import {
 	looksIn,
 	pointAt,
 	SHOWING_LASTS_MS,
+	UNHEARD_CELL_MS,
 } from "../../../lib/mesh/looks/looks.ts";
+import type { Presence } from "../../../lib/mesh/presence.ts";
+import { presence } from "../../lib/mesh/presence/support/presences.ts";
+
+/** A mesh whose presences are `these`, as the looks clock lists them. */
+const listing = (these: readonly Presence[] = []) => ({
+	listed: async () => [...these],
+});
 
 let dir: string;
 beforeEach(() => {
@@ -86,16 +97,79 @@ describe("the looks clock", () => {
 		const ended = () => false;
 		let standing = true;
 
-		const reading = keepLooksFor(pi, dir, owner, ended, () => standing);
+		const reading = keepLooksFor(
+			pi,
+			dir,
+			owner,
+			ended,
+			() => standing,
+			listing(),
+		);
 		standing = false;
 		await reading;
 		expect(looksIn(dir)[0]?.state, "left for its next session").toBe("waiting");
 		expect(told, "nobody to tell").toEqual([]);
 
-		await keepLooksFor(pi, dir, owner, ended, () => true);
+		await keepLooksFor(pi, dir, owner, ended, () => true, listing());
 		expect(looksIn(dir)[0]?.state, "expired by a session there").toBe(
 			"expired",
 		);
 		expect(told, "and told").toHaveLength(1);
+	});
+});
+
+describe("the looks of sessions that ended", () => {
+	const pi: Pick<ExtensionAPI, "exec"> = {
+		exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
+	};
+	const file = { ...shows, kind: "file" as const, target: "/notes.md" };
+
+	it("resolve once the census finds the session gone, or it went unheard", async () => {
+		const long = new Date(Date.now() - UNHEARD_CELL_MS - 60_000);
+		const lately = new Date();
+		pointAt(dir, { ...file, title: "mine" }, { session: "S1" }, long);
+		pointAt(dir, { ...file, title: "gone" }, { session: "S2" }, long);
+		pointAt(dir, { ...file, title: "unheard" }, { session: "S3" }, long);
+		pointAt(dir, { ...file, title: "just said" }, { session: "S4" }, lately);
+		pointAt(dir, { ...file, title: "parked" }, { session: "S5" }, long);
+		const gone = presence({ session: "S2" });
+		const parked = presence({ session: "S5" });
+		const judged: string[][] = [];
+
+		await askAboutLooks(
+			pi,
+			dir,
+			"S1",
+			listing([gone, parked, presence({ session: "S9" })]),
+			undefined,
+			async (listed) => {
+				judged.push(listed.map((one) => one.session));
+				return { present: [parked], gone: [gone], resuming: [] };
+			},
+		);
+
+		expect(judged, "only the sessions holding looks are judged").toEqual([
+			["S2", "S5"],
+		]);
+		expect(
+			Object.fromEntries(looksIn(dir).map((look) => [look.title, look.state])),
+		).toEqual({
+			mine: "waiting",
+			gone: "resolved",
+			unheard: "resolved",
+			"just said": "waiting",
+			parked: "waiting",
+		});
+	});
+
+	it("wait for a later turn when the presences can't be read", async () => {
+		const long = new Date(Date.now() - UNHEARD_CELL_MS - 60_000);
+		pointAt(dir, file, { session: "S2" }, long);
+
+		await askAboutLooks(pi, dir, "S1", {
+			listed: () => Promise.reject(new Error("unreadable")),
+		});
+
+		expect(looksIn(dir)[0]?.state).toBe("waiting");
 	});
 });

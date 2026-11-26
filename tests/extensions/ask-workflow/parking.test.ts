@@ -260,14 +260,31 @@ describe("the ask tool with nobody there", () => {
 		if (saved.state === undefined) delete process.env.XDG_STATE_HOME;
 	});
 
-	it("parks at once, taking no recommendation, while the screen is locked", async () => {
+	type Handler = (event: unknown, ctx: unknown) => unknown;
+	const ctx = { hasUI: true, sessionManager: { getSessionId: () => "s1" } };
+
+	/** The ask tool's execute, and its handlers by event, as pi would hold them. */
+	function loaded(): {
+		execute: (...args: unknown[]) => Promise<unknown>;
+		handlers: Map<string, Handler>;
+	} {
 		let execute: ((...args: unknown[]) => Promise<unknown>) | undefined;
+		const handlers = new Map<string, Handler>();
 		ask({
+			on: (event: string, handler: Handler) => handlers.set(event, handler),
 			registerTool: (tool: { execute: typeof execute }) => {
 				execute = tool.execute;
 			},
 		} as unknown as ExtensionAPI);
-		const result = (await execute?.(
+		if (execute === undefined) throw new Error("no ask tool registered");
+		return { execute, handlers };
+	}
+
+	/** Ask `execute` one question, with the screen as the test set it. */
+	function askShip(
+		execute: (...args: unknown[]) => Promise<unknown>,
+	): Promise<unknown> {
+		return execute(
 			"t1",
 			{
 				questions: [
@@ -284,7 +301,45 @@ describe("the ask tool with nobody there", () => {
 			},
 			undefined,
 			undefined,
-			{ hasUI: true, sessionManager: { getSessionId: () => "s1" } },
+			ctx,
+		);
+	}
+
+	// WCJQSG for Joel, 25 November: seven parked questions stood on his
+	// list back to 15 November, their sessions long since on other work.
+	it("takes its parked question off the list once the session starts new work", async () => {
+		const { execute, handlers } = loaded();
+		await askShip(execute);
+		expect(looksIn(stateDir("looks"))[0]?.state, "parked").toBe("waiting");
+
+		await handlers.get("before_agent_start")?.({}, ctx);
+
+		expect(looksIn(stateDir("looks"))[0]).toMatchObject({
+			state: "resolved",
+			how: "its session carried on",
+		});
+	});
+
+	it("parks at once, taking no recommendation, while the screen is locked", async () => {
+		const { execute } = loaded();
+		const result = (await execute(
+			"t1",
+			{
+				questions: [
+					{
+						id: "ship",
+						prompt: QUESTION.prompt,
+						options: [
+							{ value: "ship", label: "Ship it" },
+							{ value: "wait", label: "Wait for Monday" },
+						],
+						recommended: "ship",
+					},
+				],
+			},
+			undefined,
+			undefined,
+			ctx,
 		)) as { content: { text: string }[]; details: { parked?: string } };
 		const text = result.content[0]?.text ?? "";
 		expect(text).toMatch(/^Parked, unanswered: the person's screen is locked/);
