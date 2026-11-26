@@ -29,6 +29,7 @@ import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
+import { placeRefused } from "./arrival-place.ts";
 import { andLeft, claimed, letGoOf } from "./clone-aside.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
 import {
@@ -363,6 +364,8 @@ async function arriveTree(
 			why: `Its done file names ${flag}, which git could read as an option, so it isn't given to git.`,
 		};
 	}
+	const astray = placeRefused(path, here.home, here.trees);
+	if (astray !== undefined) return { ...line, did: "refused", why: astray };
 	const readied = await readyTree(exec, git, tree, from, path, here);
 	if (readied.kind === "refused") {
 		return { ...line, did: "refused", why: readied.why };
@@ -498,6 +501,9 @@ async function readyTree(
 				),
 			);
 		}
+		// Judged again, since a link above it may have moved while it cloned.
+		const astray = placeRefused(path, here.home, here.trees);
+		if (astray !== undefined) return no(andLeft(astray, letGoOf(cloning)));
 		try {
 			renameSync(cloning, path);
 		} catch (error) {

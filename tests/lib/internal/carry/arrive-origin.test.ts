@@ -239,6 +239,55 @@ describe("arriving with a tree to clone from origin", () => {
 		]);
 	});
 
+	// #2252 F40: a done file could otherwise have an arrival clone a
+	// repository wherever this login may write.
+	it("refuses a tree its done file places outside where trees go or in a hidden folder, making nothing there", async () => {
+		const { from } = await carried();
+		const home = folder(made, "arriving");
+		const outside = join(home, ".pi", "agent", "extensions", "app");
+		const hidden = join(home, "src", ".hooks", "app");
+		const file = doneFileOf(from, SESSION);
+		const done = JSON.parse(readFileSync(file, "utf8"));
+		const kept = done.trees[0];
+		done.trees = [
+			{ ...kept, path: "~/.pi/agent/extensions/app" },
+			{ ...kept, path: hidden },
+			kept,
+		];
+		writeFileSync(file, JSON.stringify(done));
+		const { through, fetches } = boundedFetches();
+
+		const { whole, said } = await arriveThrough(home, from, through);
+
+		expect(whole, "a refused tree leaves the arrival not whole").toBe(false);
+		expect(said[0]).toMatchObject({
+			path: outside,
+			did: "refused",
+			why: expect.stringMatching(/outside the work broker's trees/),
+		});
+		expect(said[1]).toMatchObject({
+			path: hidden,
+			did: "refused",
+			why: expect.stringMatching(/in a hidden folder/),
+		});
+		expect(said[2], "the tree beside them still arrives").toMatchObject({
+			path: join(home, "src", "app"),
+			did: "cloned",
+		});
+		expect(existsSync(join(home, ".pi")), "nothing made outside").toBe(false);
+		expect(
+			existsSync(join(home, "src", ".hooks")),
+			"nor in the hidden folder",
+		).toBe(false);
+		const refused = [join(home, ".pi"), join(home, "src", ".hooks")];
+		expect(
+			fetches.filter(({ args }) =>
+				args.some((arg) => refused.some((place) => arg.includes(place))),
+			),
+			"git is asked nothing for the refused ones",
+		).toEqual([]);
+	});
+
 	it("refuses a tree whose done file names a branch git could read as a flag, and only that tree", async () => {
 		const { from } = await carried();
 		const home = folder(made, "arriving");
