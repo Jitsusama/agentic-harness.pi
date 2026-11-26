@@ -240,8 +240,11 @@ interface Scenario {
 	 * before the agent heard pi's compactions joined it.
 	 */
 	unheard?: boolean;
-	/** Note each scan durable's storage makes, by its range and how many entries it gave. */
-	countsScans?: boolean;
+	/**
+	 * Note each scan durable's storage makes, by its range and how many
+	 * entries it gave, and the head of each marker of pi's compaction it commits.
+	 */
+	notesStorage?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -304,6 +307,8 @@ const scans: {
 	readonly order?: unknown;
 	readonly items: number;
 }[] = [];
+/** The head of each marker of pi's compaction durable's storage committed, when the scenario notes them. */
+const markings: number[] = [];
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -1107,6 +1112,7 @@ const scenarios: Record<string, Scenario> = {
 		settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
 		persist: true,
 		unheard: true,
+		notesStorage: true,
 	},
 	/** As compacted-unheard, the agent hearing the compaction. */
 	compacted: {
@@ -1114,13 +1120,14 @@ const scenarios: Record<string, Scenario> = {
 		drive: compactAfterThreeTurns,
 		settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
 		persist: true,
+		notesStorage: true,
 	},
 	/** Reopen a compacted conversation and ask again, noting what durable's storage scans. */
 	"reopen-compacted": {
 		responses: () => [say("four")],
 		drive: (session) => session.prompt("fourth"),
 		persist: true,
-		countsScans: true,
+		notesStorage: true,
 	},
 	/** Go back to the first answer and carry on from there, leaving the second on its own branch. */
 	branch: {
@@ -1210,8 +1217,8 @@ try {
 	const conversation =
 		mode === "hosted"
 			? await openHostedConversation({
-					modules: scenario.countsScans
-						? countingScans(pi.modules)
+					modules: scenario.notesStorage
+						? notingStorage(pi.modules)
 						: pi.modules,
 					library: piLibrary(pi.modules),
 					storePath: join(folder, "durable", "store.sqlite"),
@@ -1381,7 +1388,7 @@ try {
 			logged,
 			lacking: pi.lacking.map((seam) => seam.patch),
 			...(scenario.persist ? { ran } : {}),
-			...(scenario.countsScans ? { scans } : {}),
+			...(scenario.notesStorage ? { scans, markings } : {}),
 		})}\n`,
 	);
 } finally {
@@ -1433,8 +1440,27 @@ function stallingExtension(pi: ExtensionPi): void {
 	});
 }
 
-/** `modules` with durable's SQLite storage noting each scan in `scans`. */
-function countingScans(modules: typeof pi.modules): typeof pi.modules {
+/** The head of each marker of pi's compaction among `batches`, as durable's storage is asked to commit them. */
+function markersIn(batches: unknown): number[] {
+	if (!Array.isArray(batches)) return [];
+	return batches.flatMap((writes: unknown) =>
+		Array.isArray(writes)
+			? writes.flatMap((write: unknown) => {
+					const value = isRecord(write) ? write.value : undefined;
+					return isRecord(write) &&
+						write.type === "entry" &&
+						isRecord(value) &&
+						value.kind === "pi.compaction" &&
+						typeof value.head === "number"
+						? [value.head]
+						: [];
+				})
+			: [],
+	);
+}
+
+/** `modules` with durable's SQLite storage noting each scan in `scans` and each marker it commits in `markings`. */
+function notingStorage(modules: typeof pi.modules): typeof pi.modules {
 	const open = modules.sqlite.openNodeSqliteStorage;
 	if (typeof open !== "function") throw new Error("no SQLite storage");
 	const counted = async (...args: unknown[]): Promise<unknown> => {
@@ -1443,6 +1469,12 @@ function countingScans(modules: typeof pi.modules): typeof pi.modules {
 		return new Proxy(storage, {
 			get(target, key) {
 				const value: unknown = Reflect.get(target, key, target);
+				if (key === "commit" && typeof value === "function")
+					return async (batches: unknown, ...rest: unknown[]) => {
+						const stored: unknown = await value.call(target, batches, ...rest);
+						markings.push(...markersIn(batches));
+						return stored;
+					};
 				if (key !== "scanEntries" || typeof value !== "function")
 					return typeof value === "function" ? value.bind(target) : value;
 				return async (query: unknown, ...rest: unknown[]) => {

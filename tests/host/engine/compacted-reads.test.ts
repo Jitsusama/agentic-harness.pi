@@ -30,12 +30,15 @@ function contextScans(observed: Observed): NonNullable<Observed["scans"]> {
 	);
 }
 
-/** A compacted conversation reopened and asked again, on the host's agent. */
-async function reopenedAfter(compacting: string): Promise<Observed> {
+/** A conversation compacted on the host's agent, then reopened and asked again: each run as it was observed. */
+async function reopenedAfter(
+	compacting: string,
+): Promise<{ readonly compacted: Observed; readonly reopened: Observed }> {
 	const folder = mkdtempSync(join(tmpdir(), "hosted-compacted-"));
 	try {
-		await observe("hosted", compacting, folder);
-		return await observe("hosted", "reopen-compacted", folder);
+		const compacted = await observe("hosted", compacting, folder);
+		const reopened = await observe("hosted", "reopen-compacted", folder);
+		return { compacted, reopened };
 	} finally {
 		rmSync(folder, { recursive: true, force: true });
 	}
@@ -45,8 +48,13 @@ describe("a compacted conversation's reads on the host's agent", {
 	timeout: TWO_RUNS_MS,
 }, () => {
 	it("reads only what pi kept, for a compaction the agent heard", async () => {
-		const reopened = await reopenedAfter("compacted");
+		const { compacted, reopened } = await reopenedAfter("compacted");
 
+		expect(
+			compacted.markings,
+			"the compaction was marked as pi finished it, not left to the next start",
+		).toHaveLength(1);
+		expect(reopened.markings, "the reopen found it marked already").toEqual([]);
 		expect(said(reopened, "assistant").at(-1)).toBe("four");
 		const scans = contextScans(reopened);
 		expect(scans.length, "durable read a context").toBeGreaterThan(0);
@@ -58,8 +66,13 @@ describe("a compacted conversation's reads on the host's agent", {
 
 	it("reads only what pi kept, for a compaction from before the agent heard them", async () => {
 		// Conversations compacted before this change are marked at their next start.
-		const reopened = await reopenedAfter("compacted-unheard");
+		const { compacted, reopened } = await reopenedAfter("compacted-unheard");
 
+		expect(compacted.markings, "a deaf host marked nothing").toEqual([]);
+		expect(
+			reopened.markings,
+			"the reopen marked it before durable resumed",
+		).toHaveLength(1);
 		expect(said(reopened, "assistant").at(-1)).toBe("four");
 		const scans = contextScans(reopened);
 		expect(scans.length, "durable read a context").toBeGreaterThan(0);

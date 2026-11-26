@@ -33,6 +33,8 @@ export interface RecoverySide {
 	readonly admissions: Admissions;
 	/** Tell durable where pi's newest compaction keeps from, so its reads start there. */
 	markCompaction(compaction: PiCompaction | undefined): Promise<void>;
+	/** Say a fault that leaves the recovery going, such as a marking that failed. */
+	report(error: unknown): void;
 	/** Aborts once the conversation parks. */
 	readonly parking: AbortSignal;
 	active(): ActiveRun | undefined;
@@ -102,7 +104,10 @@ export class Recovery {
 			await active.promise;
 		await side.transcript.placeAtSession();
 		// Before durable resumes, so the first request it prepares reads only what pi kept.
-		await side.markCompaction(newestCompaction(side.state.messages));
+		// Only a shortcut: one that fails leaves durable reading the whole log, and the conversation still opens.
+		await side
+			.markCompaction(newestCompaction(side.state.messages))
+			.catch((error: unknown) => side.report(error));
 		const before = await side.durable.runFailure();
 		const waits = turn !== undefined && (await side.durable.carrying());
 		let giveBack: GiveBack = () => {};

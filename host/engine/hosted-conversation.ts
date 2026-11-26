@@ -28,6 +28,14 @@ import type { AgentOptions, AssistantMessage } from "./pi-types.ts";
 /** The durable extension's name; one per conversation's registry. */
 export const HOSTED_EXTENSION = "pi-host";
 
+/**
+ * How long a close waits for a marking of pi's compaction still under
+ * way, in ms, before closing the store all the same: a marking reads a
+ * page or two of the log, and one hung on a store that won't answer
+ * mustn't hold the close, which a host's stop runs within 45 s.
+ */
+const MARKED_WITHIN_MS = 10_000;
+
 /** A conversation's durable side, ready for pi to build its agent on. */
 export interface HostedConversation {
 	/** The agent pi's createAgentSession gets from its createAgent option. */
@@ -141,7 +149,12 @@ export async function openHostedConversation(options: {
 			// Checkpointed first, off the thread, so the store's own TRUNCATE as it closes finds nothing left to copy.
 			try {
 				// A compaction pi just finished is marked before the store closes, not refused by it.
-				await agent?.marked();
+				if (agent && !(await settlesWithin(agent.marked(), MARKED_WITHIN_MS)))
+					options.report?.(
+						new Error(
+							`Closing ${options.storePath} under a marking of pi's compaction that didn't end in ${MARKED_WITHIN_MS / 1000} s`,
+						),
+					);
 				try {
 					await kept?.settle();
 				} catch (error) {
@@ -154,6 +167,22 @@ export async function openHostedConversation(options: {
 			}
 		},
 	};
+}
+
+/** Whether `work` settles within `ms`, waiting no longer, its timer cleared either way. */
+async function settlesWithin(
+	work: Promise<void>,
+	ms: number,
+): Promise<boolean> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<false>((done) => {
+		timer = setTimeout(() => done(false), ms);
+	});
+	try {
+		return await Promise.race([work.then(() => true), late]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** The run failure a conversation's `pi.live` document holds, if any. */

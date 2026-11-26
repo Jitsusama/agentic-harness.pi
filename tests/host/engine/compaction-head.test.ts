@@ -113,8 +113,9 @@ describe("marking pi's compaction for durable", () => {
 
 	it("marks nothing where durable holds none of what pi kept", async () => {
 		if (!compaction) throw new Error("no compaction found");
+		// Five pages of entries, all a day before what pi kept.
 		const { durable, read, submitted } = durableOver(
-			logOf(history.slice(0, 100)),
+			logOf(history.slice(0, 1000)),
 		);
 
 		await expect(markCompaction(durable, compaction)).resolves.toBe(

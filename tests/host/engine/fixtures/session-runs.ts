@@ -61,6 +61,8 @@ export interface Observed {
 		readonly order?: string;
 		readonly items: number;
 	}[];
+	/** The head of each marker of pi's compaction durable's storage committed, for a scenario noting them. */
+	readonly markings?: readonly number[];
 }
 
 /** The scenarios' runs on the host's pi, found as each case asks. */
