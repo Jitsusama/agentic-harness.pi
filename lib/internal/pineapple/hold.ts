@@ -16,7 +16,7 @@
 
 import { ALL } from "../../mesh/group.ts";
 import { MOST_HOLD_MS } from "../../mesh/lease.ts";
-import { part, scopesOf } from "../../mesh/scope.ts";
+import { repositoryGroup, scopesOf } from "../../mesh/scope.ts";
 import { describeReach, type Reach, type Stop } from "./stops.ts";
 
 /** The address every stop's hold is sent from. */
@@ -120,8 +120,13 @@ function groupsOfReach(
 	}
 }
 
+/**
+ * The group of a repository, `owner/name` or `name`, as its sessions'
+ * scopes name it; everyone for a name that gives no group, so the stop
+ * still reaches whoever it was meant for.
+ */
 function repoGroup(repo: string): string {
-	return `#repo/${part(repo.split("/").at(-1) ?? repo)}`;
+	return repositoryGroup(repo.split("/").at(-1) ?? repo) ?? ALL;
 }
 
 /** Whether a stop's hold is sent in `realm`'s mesh. */

@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { groupsText } from "../../../extensions/mesh-workflow/tools/groups.ts";
 import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import {
@@ -53,6 +54,21 @@ function fill(peer: ReturnType<typeof aPeer>["peer"]): void {
 		peer.join(`#group-${String(at).padStart(3, "0")}`);
 	}
 	expect(peer.groups, "the peer filled up").toHaveLength(MOST_GROUPS);
+}
+
+/** Puts this session on a quest, whose scope its next refresh brings. */
+function loadQuest(): void {
+	const quest = "QEST-20261021-LUQ49E";
+	mkdirSync(join(root, "sessions"), { recursive: true });
+	writeFileSync(
+		join(root, "sessions", `${session}.json`),
+		JSON.stringify({ quest }),
+	);
+	mkdirSync(join(root, "quests", quest), { recursive: true });
+	writeFileSync(
+		join(root, "quests", quest, "README.md"),
+		`---\nid: ${quest}\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# A Stable Substrate\n\n## 📜 Summary\n\nGrow the mesh.\n`,
+	);
 }
 
 describe("a peer joining past what a presence names", () => {
@@ -109,21 +125,14 @@ describe("a peer joining past what a presence names", () => {
 	// A quest loaded or a tree gained adds a scope at the next refresh,
 	// which no join is asked about, so a full peer would name one past
 	// the most and its presence would drop whatever sorted last, as
-	// often its quest's scope (#2217's third council).
-	it("keeps the scope a refresh brings a full peer, leaving a joined group for it", () => {
+	// often its quest's scope (#2217's third council). The joined group
+	// it sets aside for it stays its choice, through a reload, and comes
+	// back once the scope goes (#2243's first council, G).
+	it("keeps the scope a refresh brings a full peer, setting a joined group aside for it", () => {
 		const { peer, presences } = aPeer();
 		fill(peer);
-		const quest = "QEST-20261021-LUQ49E";
-		mkdirSync(join(root, "sessions"), { recursive: true });
-		writeFileSync(
-			join(root, "sessions", `${session}.json`),
-			JSON.stringify({ quest }),
-		);
-		mkdirSync(join(root, "quests", quest), { recursive: true });
-		writeFileSync(
-			join(root, "quests", quest, "README.md"),
-			`---\nid: ${quest}\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# A Stable Substrate\n\n## 📜 Summary\n\nGrow the mesh.\n`,
-		);
+		const chosen = [...peer.joined];
+		loadQuest();
 
 		peer.refresh();
 
@@ -133,8 +142,38 @@ describe("a peer joining past what a presence names", () => {
 			MOST_GROUPS,
 		);
 		expect(said?.groups, "as published").toEqual(peer.groups);
-		expect(said?.joined, "the joined group let go").toEqual(peer.joined);
-		expect(peer.joined).toHaveLength(MOST_GROUPS - 1);
+		expect(peer.joined, "still its choice").toEqual(chosen);
+		expect(said?.joined, "as published").toEqual(chosen);
+		expect(peer.setAside, "the last set aside").toEqual(["#group-063"]);
+		expect(peer.groups).not.toContain("#group-063");
+		expect(aPeer().peer.setAside, "through a reload").toEqual(["#group-063"]);
+		const listed = groupsText(
+			{ present: [], gone: [], resuming: [] },
+			peer,
+			[],
+		);
+		expect(listed, "mesh_groups names it").toContain(
+			"It set aside #group-063, which it joined",
+		);
+		expect(listed, "not as joined").not.toMatch(/has joined [^;]*#group-063/);
+
+		rmSync(join(root, "sessions", `${session}.json`));
+		peer.refresh();
+
+		expect(peer.groups, "back once the scope goes").toContain("#group-063");
+		expect(peer.setAside).toEqual([]);
+	});
+
+	// A join's own refresh may bring a scope that leaves it no room.
+	it("says a join it had to set aside at once did not join", () => {
+		const { peer } = aPeer();
+		fill(peer);
+		peer.leave("#group-063");
+		loadQuest();
+
+		expect(peer.join("#zzz-last"), "not in force").toBe(false);
+		expect(peer.groups).toContain("#quest/luq49e");
+		expect(peer.setAside).toEqual(["#zzz-last"]);
 	});
 
 	it("lets a joined group that is also a scope cost no room", () => {

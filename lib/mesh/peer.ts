@@ -89,12 +89,21 @@ export interface Peer {
 	readonly addresses: readonly string[];
 	/** The address it signs with. */
 	readonly signature: string;
-	/** Every group it is in, its scopes and those it joined, sorted. */
+	/**
+	 * Every group it is in, its scopes and those it joined, sorted, less
+	 * any joined group set aside (`setAside`).
+	 */
 	readonly groups: readonly string[];
 	/** The groups its work puts it in, sorted. */
 	readonly scopes: readonly string[];
-	/** The groups it joined itself, sorted. */
+	/** The groups it joined itself, sorted, set aside or not. */
 	readonly joined: readonly string[];
+	/**
+	 * The groups it joined that its scopes leave no room for, sorted: it
+	 * hears none of them, but they stay its choice and are in force again
+	 * once there is room (`joinedWithin`).
+	 */
+	readonly setAside: readonly string[];
 	/** The peers it has stopped reaching it (see stop.ts). */
 	readonly stops: readonly Stop[];
 	/** Who messages reach, as `reaches` asks. */
@@ -213,8 +222,9 @@ export interface Peer {
 	/** Keep this usage, said with the next presence written (usage.ts). */
 	setUsage(usage: SessionUsage): void;
 	/**
-	 * Join a canonical group; answers whether it was new. One it may not
-	 * join (`joinRefused`) is not joined, and answers false too.
+	 * Join a canonical group; answers whether it was new and is in force.
+	 * One it may not join (`joinRefused`) is not joined, and answers false
+	 * too, as does one the refresh after it must set aside at once.
 	 */
 	join(group: string): boolean;
 	/**
@@ -597,7 +607,10 @@ export function localPeer(at: Surroundings): Peer {
 		);
 	const personal = () => [...wanting.values()].filter(forPerson);
 	let usage = carriedUsage(before?.usage, new Date(now()));
-	const groups = () => [...new Set([...scopes, ...joined])].sort();
+	// The joined groups in force: its scopes go first, as its work puts
+	// it there, and those past the room are set aside, still its choice.
+	const inForce = () => joinedWithin(scopes, joined);
+	const groups = () => [...new Set([...scopes, ...inForce()])].sort();
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
 	let published: string | undefined;
@@ -704,11 +717,11 @@ export function localPeer(at: Surroundings): Peer {
 		let work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
 		// A scope this refresh brought may leave no room for every joined
-		// group; what it owns is read again without those let go.
+		// group; what it owns is read again without those set aside, which
+		// stay joined to come back once there is room.
 		const kept = joinedWithin(scopes, joined);
 		if (kept.length < joined.length) {
-			joined = kept;
-			work = workOf(at.session, joined, at.cwd, at.records);
+			work = workOf(at.session, kept, at.cwd, at.records);
 			scopes = [...work.scopes];
 		}
 		receiver = {
@@ -783,6 +796,10 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get joined() {
 			return joined;
+		},
+		get setAside() {
+			const kept = new Set(inForce());
+			return joined.filter((group) => !kept.has(group));
 		},
 		get stops() {
 			return stops;
@@ -936,7 +953,7 @@ export function localPeer(at: Surroundings): Peer {
 			if (joinRefused(groups(), group) !== undefined) return false;
 			joined = [...joined, group].sort();
 			refresh();
-			return true;
+			return groups().includes(group);
 		},
 		leave(group) {
 			if (!joined.includes(group)) return false;

@@ -62,6 +62,16 @@ function fitted(name: string, before: number): string {
 	return name.slice(0, MOST_GROUP_CHARS - before).replace(/-+$/, "");
 }
 
+/**
+ * The group of the repository `name`, as `#repo/agentic-harness-pi`,
+ * cut to the most a group may run (`fitted`), so a scope, a landing
+ * note and a hold all name the same one; none for a name with no part.
+ */
+export function repositoryGroup(name: string): string | undefined {
+	const cut = fitted(part(name), REPO_GROUP.length);
+	return cut ? `${REPO_GROUP}${cut}` : undefined;
+}
+
 /** The groups this work puts a peer in, canonical and sorted. */
 export function scopesOf(work: Work): string[] {
 	const quest = [...work.questChain]
@@ -70,9 +80,8 @@ export function scopesOf(work: Work): string[] {
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean);
 	const repositories = work.repositories
-		.map((name) => fitted(part(name), REPO_GROUP.length))
-		.filter(Boolean)
-		.map((name) => `${REPO_GROUP}${name}`);
+		.map(repositoryGroup)
+		.filter((group) => group !== undefined);
 	const orchestrations = (work.orchestrations ?? [])
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean)

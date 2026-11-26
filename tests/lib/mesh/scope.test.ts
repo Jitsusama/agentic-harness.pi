@@ -20,6 +20,7 @@ import {
 } from "../../../lib/mesh/group.ts";
 import {
 	part,
+	repositoryGroup,
 	repositoryKey,
 	repositoryName,
 	scopesOf,
@@ -64,15 +65,18 @@ describe("a peer's scopes", () => {
 	// A presence drops a group longer than one may run, and a send to
 	// one is refused, so a long repository name is cut to fit where its
 	// group is made, the same for every peer in it (#2217's third council).
+	// Its 90 characters end on a dash, which the cut lets go.
 	it("cut a long repository's group to the most a group may run", () => {
-		const name = `a-${"long-name-".repeat(12)}repo`;
+		const name = `${"long-name-".repeat(12)}repo`;
 		const [scope = ""] = scopesOf({ questChain: [], repositories: [name] });
 
 		expect(scope.length).toBeLessThanOrEqual(MOST_GROUP_CHARS);
 		expect(isJoinable(scope), "a peer can join it").toBe(true);
 		expect(groupNamed(scope), "it reads back as itself").toBe(scope);
-		expect(scope.startsWith("#repo/a-long-name-")).toBe(true);
-		expect(scope.endsWith("-"), "no dash left hanging").toBe(false);
+		expect(scope, "no dash left hanging").toBe(
+			`#repo/${"long-name-".repeat(9).slice(0, -1)}`,
+		);
+		expect(repositoryGroup(name), "as every other site names it").toBe(scope);
 	});
 
 	it("give each orchestration it is in its group, named by the orchestrator's address", () => {

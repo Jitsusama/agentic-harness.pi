@@ -223,14 +223,23 @@ function joinable(
 
 /** The groups this peer is in, by its work and by joining. */
 function standsText(peer: Peer): string {
-	const joined = peer.joined.filter((group) => !peer.scopes.includes(group));
+	const aside = new Set(peer.setAside);
+	const joined = peer.joined.filter(
+		(group) => !peer.scopes.includes(group) && !aside.has(group),
+	);
 	const standsIn = [
 		peer.scopes.length > 0 ? `is in ${peer.scopes.join(", ")} by its work` : "",
 		joined.length > 0 ? `has joined ${joined.join(", ")}` : "",
 	].filter(Boolean);
-	return standsIn.length > 0
-		? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
-		: "This peer is in its home group and #machine only.";
+	const stands =
+		standsIn.length > 0
+			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
+			: "This peer is in its home group and #machine only.";
+	// Set aside by a scope its work brought, they are heard by nobody
+	// here until there is room, so it is told rather than left to wonder.
+	return aside.size > 0
+		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Leave one it no longer works on with mesh_leave to make room.`
+		: stands;
 }
 
 /**

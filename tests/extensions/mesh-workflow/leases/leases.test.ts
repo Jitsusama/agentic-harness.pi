@@ -407,10 +407,10 @@ describe("leases as listed", () => {
 				leases: [
 					{
 						kind: "change" as const,
-						subject: "/w",
+						subject: long,
 						since: "",
 						until,
-						checkout: "/w",
+						checkout: long,
 						why: long,
 					},
 					{ kind: "change" as const, subject: long, since: "", until },
@@ -422,12 +422,13 @@ describe("leases as listed", () => {
 						until,
 						why: long,
 					},
+					{ kind: "heavy" as const, subject: long, since: "", until },
 				],
 			},
 		];
 
 		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
-			`\nLeases:\nWCJQSG: rewrote the files of /w (${kept}...); changing ${kept}..., ${kept}; waiting on [aaaaaaaa] (${kept}...)`,
+			`\nLeases:\nWCJQSG: rewrote the files of ${kept}... (${kept}...); changing ${kept}..., ${kept}; waiting on [aaaaaaaa] (${kept}...); running heavy work on ${kept}...`,
 		);
 	});
 

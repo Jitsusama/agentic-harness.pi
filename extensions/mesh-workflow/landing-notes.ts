@@ -19,7 +19,7 @@ import type { Landing } from "../../lib/internal/session/landings.ts";
 import type { Message } from "../../lib/mesh/message.ts";
 import { senderIdentity } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
-import { part } from "../../lib/mesh/scope.ts";
+import { repositoryGroup } from "../../lib/mesh/scope.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 
 /** A plan document's id, which a ticked item's ref opens with. */
@@ -39,8 +39,7 @@ export function repositoryOf(landing: Landing): string | undefined {
 	const repository = landing.ref.slice(0, hash);
 	if (DOCUMENT_ID.test(repository)) return undefined;
 	if (!/^\d+$/.test(landing.ref.slice(hash + 1))) return undefined;
-	const name = part(repository);
-	return name ? `#repo/${name}` : undefined;
+	return repositoryGroup(repository);
 }
 
 /**

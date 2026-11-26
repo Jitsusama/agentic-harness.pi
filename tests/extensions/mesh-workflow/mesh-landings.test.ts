@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { repositoryOf } from "../../../extensions/mesh-workflow/landing-notes.ts";
 import { SESSION_LANDED } from "../../../lib/internal/session/landings.ts";
+import { scopesOf } from "../../../lib/mesh/scope.ts";
 import { sentOut, startSession } from "./support/mesh.ts";
 
 /** A landing of `ref`, now. */
@@ -54,5 +55,10 @@ describe("a session's landings", () => {
 		expect(repositoryOf(landing("PLAN-20261030-QMUYBH#15"))).toBeUndefined();
 		expect(repositoryOf(landing("#12"))).toBeUndefined();
 		expect(repositoryOf(landing("notes#draft"))).toBeUndefined();
+		// A long name is cut as its sessions' scope is, or none would hear.
+		const long = `${"long-name-".repeat(12)}repo`;
+		expect(repositoryOf(landing(`${long}#5`))).toBe(
+			scopesOf({ questChain: [], repositories: [long] })[0],
+		);
 	});
 });
