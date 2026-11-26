@@ -11,18 +11,28 @@ import {
 	realpathSync,
 	renameSync,
 	rmSync,
+	statSync,
 	symlinkSync,
+	truncateSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { linksMovedSince } from "../../../../lib/internal/reload/extension-links.ts";
+import {
+	linkChanges,
+	linksMovedSince,
+	MOST_BYTES,
+	MOST_ENTRIES,
+} from "../../../../lib/internal/reload/extension-links.ts";
 
 const dirs: string[] = [];
 const storeWas = process.env.NIX_STORE_DIR;
+/** Where the module keeps what each process knows, across its reloads. */
+const KNOWN = Symbol.for("agentic-harness.reload.extension-links.v1");
 
 afterEach(() => {
+	Reflect.deleteProperty(globalThis, KNOWN);
 	if (storeWas === undefined) delete process.env.NIX_STORE_DIR;
 	else process.env.NIX_STORE_DIR = storeWas;
 	for (const dir of dirs.splice(0))
@@ -54,7 +64,13 @@ function tree(root: string, name: string): string {
 function remade(
 	shape: (first: string, second: string) => void = () => {},
 	{ store = true }: { store?: boolean } = {},
-): { dir: string; first: string; startedAt: number } {
+): {
+	dir: string;
+	root: string;
+	first: string;
+	second: string;
+	startedAt: number;
+} {
 	const root = realpathSync(folder());
 	const first = tree(root, "first");
 	const second = tree(root, "second");
@@ -70,8 +86,17 @@ function remade(
 	expect(linksMovedSince(dir, startedAt), "nothing moved yet").toEqual([]);
 	rmSync(link);
 	symlinkSync(second, link);
-	return { dir, first, startedAt };
+	return { dir, root, first, second, startedAt };
 }
+
+/** Makes the link in `dir` again, onto `target`. */
+function remake(dir: string, target: string): void {
+	rmSync(join(dir, "the-proxy"));
+	symlinkSync(target, join(dir, "the-proxy"));
+}
+
+/** Whether this process runs as root, which reads a file whatever its mode. */
+const asRoot = process.getuid?.() === 0;
 
 describe("extension links moved since a process started", () => {
 	it("names a link made since, and not one made before or a real folder", () => {
@@ -148,19 +173,35 @@ describe("extension links moved since a process started", () => {
 			},
 		],
 		[
+			"a link inside it that leads out through another",
+			(first: string, second: string) => {
+				// `lib/q` is the tree itself, so `lib/q/..` is the folder above
+				// it, though the text reads as `lib/shared`.
+				for (const at of [first, second]) {
+					writeFileSync(join(at, "..", "shared"), "");
+					symlinkSync("..", join(at, "lib", "q"));
+					symlinkSync("lib/q/../shared", join(at, "shared"));
+				}
+			},
+		],
+		[
 			"more entries than it reads",
 			(first: string, second: string) => {
 				for (const at of [first, second]) {
 					mkdirSync(join(at, "many"));
-					for (let n = 0; n < 2_000; n += 1)
+					for (let n = 0; n < MOST_ENTRIES; n += 1)
 						writeFileSync(join(at, "many", String(n)), "");
 				}
 			},
 		],
 		[
-			"a file it can't read",
-			(_first: string, second: string) =>
-				chmodSync(join(second, "lib", "helper.ts"), 0o000),
+			"more bytes than it reads",
+			(first: string, second: string) => {
+				for (const at of [first, second]) {
+					writeFileSync(join(at, "big"), "");
+					truncateSync(join(at, "big"), MOST_BYTES + 1);
+				}
+			},
 		],
 	])("names a link made again onto a tree with %s", (_what, shape) => {
 		const { dir, startedAt } = remade(shape);
@@ -169,6 +210,140 @@ describe("extension links moved since a process started", () => {
 			linksMovedSince(dir, startedAt),
 			"it can't be shown to load the same code",
 		).toEqual(["the-proxy"]);
+	});
+
+	it("names no link made again onto the same trees at their caps", () => {
+		const { dir, startedAt } = remade((first, second) => {
+			for (const at of [first, second]) {
+				// The tree, index.ts, lib and its helper are four entries;
+				// `many` and the file that fills the byte cap two more.
+				mkdirSync(join(at, "many"));
+				for (let n = 0; n < MOST_ENTRIES - 6; n += 1)
+					writeFileSync(join(at, "many", String(n)), "");
+				const written =
+					statSync(join(at, "index.ts")).size +
+					statSync(join(at, "lib", "helper.ts")).size;
+				writeFileSync(join(at, "many", "big"), "");
+				truncateSync(join(at, "many", "big"), MOST_BYTES - written);
+			}
+		});
+
+		expect(linksMovedSince(dir, startedAt), "read whole, and the same").toEqual(
+			[],
+		);
+	});
+
+	it.skipIf(asRoot)(
+		"names a link made again onto a tree with a file it can't read, and reads it again",
+		() => {
+			const helper = (second: string) => join(second, "lib", "helper.ts");
+			const { dir, second, startedAt } = remade((_first, second) =>
+				chmodSync(helper(second), 0o000),
+			);
+			expect(
+				linkChanges(dir, startedAt),
+				"it can't be shown to load the same code",
+			).toEqual([{ name: "the-proxy", verdict: "unreadable" }]);
+
+			chmodSync(helper(second), 0o644);
+
+			expect(
+				linksMovedSince(dir, startedAt),
+				"a read that failed is no verdict, so the next look reads again",
+			).toEqual([]);
+		},
+	);
+
+	it("says why each link made since counts", () => {
+		const { dir, startedAt } = remade((_first, second) =>
+			writeFileSync(join(second, "lib", "helper.ts"), "export const a = 2;\n"),
+		);
+		symlinkSync(join(dir, "nowhere"), join(dir, "made-since"));
+
+		expect(linkChanges(dir, startedAt), "in name order").toEqual([
+			{ name: "made-since", verdict: "first unknown" },
+			{ name: "the-proxy", verdict: "differs" },
+		]);
+	});
+
+	it("names a second move onto other code after a first onto the same", () => {
+		const { dir, root, startedAt } = remade();
+		expect(linksMovedSince(dir, startedAt), "the first move").toEqual([]);
+		const third = tree(root, "third");
+		writeFileSync(join(third, "lib", "helper.ts"), "export const a = 3;\n");
+
+		remake(dir, third);
+
+		expect(
+			linksMovedSince(dir, startedAt),
+			"each move is compared on its own",
+		).toEqual(["the-proxy"]);
+	});
+
+	it.each([
+		["in the store", true],
+		["outside the store", false],
+	])(
+		"names no link made again onto its own first target, %s",
+		(_where, store) => {
+			const { dir, first, startedAt } = remade(() => {}, { store });
+
+			remake(dir, first);
+
+			expect(
+				linksMovedSince(dir, startedAt),
+				"its resolver already holds that target",
+			).toEqual([]);
+		},
+	);
+
+	it("names a link to a single file made again onto the same file", () => {
+		const root = realpathSync(folder());
+		process.env.NIX_STORE_DIR = root;
+		const first = tree(root, "first");
+		const second = tree(root, "second");
+		writeFileSync(join(second, "lib", "helper.ts"), "export const a = 2;\n");
+		const dir = join(root, "extensions");
+		mkdirSync(dir);
+		const link = join(dir, "the-proxy.ts");
+		symlinkSync(join(first, "index.ts"), link);
+		const startedAt = Date.now() - 60_000;
+		const hourBefore = (startedAt - 3_600_000) / 1000;
+		lutimesSync(link, hourBefore, hourBefore);
+		expect(linksMovedSince(dir, startedAt), "nothing moved yet").toEqual([]);
+
+		rmSync(link);
+		symlinkSync(join(second, "index.ts"), link);
+
+		expect(
+			linkChanges(dir, startedAt),
+			"its helpers lie beside it, outside what is compared",
+		).toEqual([{ name: "the-proxy.ts", verdict: "not a folder" }]);
+	});
+
+	it("names a link made again onto a tree beside the store that shares its name", () => {
+		const { dir, root, startedAt } = remade();
+		remake(dir, tree(root, "fixed"));
+		process.env.NIX_STORE_DIR = join(root, "fi");
+
+		expect(
+			linkChanges(dir, startedAt),
+			"first and fixed only start with the store's name",
+		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
+	});
+
+	it.each([
+		["empty", ""],
+		["relative", "store"],
+		["the disk's root", "/"],
+	])("takes no tree for the store's when its name is %s", (_what, named) => {
+		const { dir, startedAt } = remade();
+		process.env.NIX_STORE_DIR = named;
+
+		expect(
+			linkChanges(dir, startedAt),
+			"the default store holds neither tree",
+		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
 	});
 
 	it("names no link made again onto a tree whose inner links are the same", () => {

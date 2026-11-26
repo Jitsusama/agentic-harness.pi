@@ -17,9 +17,12 @@
  * started is started again through its holder rather than reloaded,
  * since a reload would resolve those extensions through their first
  * targets (lib/internal/reload/extension-links.ts). A link made again
- * onto a tree the same as its first, still there, is no move, and such
- * a pi reloads as any other. One its holder can't start
- * again keeps the code it runs, and says why. A runtime that starts
+ * onto a store folder the same as its first, still there, loads the
+ * same code through a reload but not what it imports from outside its
+ * folder, so such a pi still starts again where its holder can, and
+ * reloads where it can't, saying why. One whose links moved onto other
+ * code and that its holder can't start again keeps the code it runs,
+ * and says why. A runtime that starts
  * with such links came up through a reload, which loaded them half
  * stale, so it starts again too once idle, install moved or not: the
  * first swap after this lands reaches every pi through the reload of
@@ -40,7 +43,11 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
-import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
+import {
+	type LinkChange,
+	linkChanges,
+	linksMovedSince,
+} from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
 	dependenciesReady,
@@ -333,10 +340,14 @@ export async function follow(
 					retryAt = Date.now() + HELD_MS;
 				return;
 			}
-			const links = linksMovedSince(extensions, startedAt);
-			if (links.length > 0) {
-				restartOver(links, reason);
-				return;
+			// A link made again onto the same store folder loads the same
+			// code through a reload, but not what it imports from outside its
+			// folder, so the session starts again where its holder can and
+			// reloads only where it can't (extension-links.ts).
+			const changes = linkChanges(extensions, startedAt);
+			if (changes.length > 0) {
+				const same = changes.every((change) => change.verdict === "same");
+				if (restartOver(changes, reason, { orReload: same })) return;
 			}
 			const slot = reloadSlot();
 			if (slot.request !== undefined) return;
@@ -362,42 +373,64 @@ export async function follow(
 	 * targets. The park watch answers only when nothing holds the session
 	 * and nobody may be looking at it, and it carries the fence and the
 	 * spawner (#1345). Refused, the session keeps the code it runs, asks
-	 * again after {@link HELD_MS}, and says why once for each reason.
+	 * again after {@link HELD_MS}, and says why once for each reason;
+	 * or, `orReload`, where every link was made again onto the same store
+	 * folder, says why once and reloads. Answers whether that was handled
+	 * here, so false means reload.
 	 */
-	const restartOver = (links: string[], reason: string) => {
+	const restartOver = (
+		changes: LinkChange[],
+		reason: string,
+		{ orReload = false }: { orReload?: boolean } = {},
+	): boolean => {
+		const links = changes.map((change) => change.name);
+		// Why each link counts, so a log says whether its code changed.
+		const verdicts = Object.fromEntries(
+			changes.map((change) => [change.name, change.verdict]),
+		);
 		let ask: RestartAsk;
 		try {
 			const sessionFile = ctx.sessionManager.getSessionFile();
 			if (sessionFile === undefined) {
+				if (orReload) return false;
 				retryAt = Date.now() + HELD_MS;
 				sayWhy("its extension links moved, and it has no log to start on", {
 					links,
+					verdicts,
 				});
-				return;
+				return true;
 			}
 			ask = { session: ctx.sessionManager.getSessionId(), sessionFile };
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");
-			return;
+			return true;
 		}
 		pi.events.emit(RESTART_ASK, ask);
 		if (ask.restarting === true) {
 			try {
 				pi.appendEntry(RESTARTING_ENTRY, {
 					links,
+					verdicts,
 					reason,
 					at: new Date().toISOString(),
 				});
 			} catch {
 				// A stale runtime has no log to write to; the restart goes on.
 			}
-			return;
+			return true;
+		}
+		if (orReload) {
+			sayWhy(
+				`its extension links were made again onto the same code (${links.join(", ")}), and it can't start again, so it reloads: ${ask.why ?? "nothing here starts it again"}`,
+				{ links, verdicts },
+			);
+			return false;
 		}
 		retryAt = Date.now() + HELD_MS;
 		const why = `its extension links moved (${links.join(", ")}), and it can't start again: ${ask.why ?? "nothing here starts it again"}`;
-		if (waitingNoted.has(why)) return;
-		sayWhy(why, { links });
+		if (waitingNoted.has(why)) return true;
+		sayWhy(why, { links, verdicts });
 		try {
 			ctx.ui.notify(
 				`${why.charAt(0).toUpperCase()}${why.slice(1)}. It keeps the code it runs; /${COMMAND} ${RESTART_ARG} starts it again to load them afresh.`,
@@ -406,6 +439,7 @@ export async function follow(
 		} catch {
 			// A context with no screen; the entry still says it.
 		}
+		return true;
 	};
 
 	// Read at start, and again while unread: a read that failed as thirty

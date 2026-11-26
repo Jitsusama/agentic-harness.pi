@@ -168,16 +168,20 @@ Shopify proxy's link moved and reloads failed with "Cannot find module
 was made after the process started (`lib/internal/reload/extension-links.ts`),
 the follower asks the park watch to start the session again on its own
 log through its holder (`session:restart-ask:v1`), as a rollover does.
-A link made again from one Nix store tree onto another the same, file
-for file and byte for byte, with the first still there, is no move, and
-the session reloads as any other: the Mac's switch remakes its Shopify
-links onto the pi config's new store path whether their code changed or
-not, and on 2026-11-26 that kept 25 of its 125 sessions, each with a
-command out, on code up to two days old. Each process notes its links'
-first targets once and compares each move once; an import reaching out
-of a link's tree isn't compared, and keeps resolving against the first
-target.
-That waits for the session to be idle, keeps its fence and spawner,
+A link made again from one Nix store folder onto another the same, file
+for file and byte for byte, with the first still there, is told apart:
+the Mac's switch remakes its Shopify links onto the pi config's new
+store path whether their code changed or not, and on 2026-11-26 that
+kept 25 of its 125 sessions, each with a command out, on code up to two
+days old. An import reaching out of a link's folder isn't compared and
+keeps resolving against the first target, so the session still starts
+again where its holder can; where its holder refuses, it reloads rather
+than wait, saying why once. Each process notes its links' first targets
+once, and keeps each comparison it read whole; one whose read failed is
+read again at the next look. A link to a single file, a folder outside
+the store, or a link within the folder that resolves out of it always
+counts as moved, and the follower's log names why each link counted.
+The restart waits for the session to be idle, keeps its fence and spawner,
 and opens or moves no window; a session its person may be looking at,
 or one nothing holds, keeps the code it runs, says why once, and asks
 again ten minutes later. A reload somebody asks for still reloads, and

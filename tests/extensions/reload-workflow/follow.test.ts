@@ -538,15 +538,16 @@ describe("following the install", () => {
 		]);
 	});
 
-	it("reloads, rather than starts again, when a link was made again onto the same tree", async () => {
+	it("reloads, when its holder can't start it again, over a link made again onto the same tree", async () => {
 		const links = remadeSame();
 		try {
-			const { follower, prompted, asks } = await behind({
+			const refuse = (ask: RestartAsk) => {
+				ask.why = "a command is out";
+			};
+			const { follower, prompted, entries, asks } = await behind({
 				extensions: links.extensions,
 				startedAt: links.startedAt,
-				answer: (ask) => {
-					ask.why = "a command is out";
-				},
+				answer: refuse,
 			});
 			links.remake();
 
@@ -554,7 +555,62 @@ describe("following the install", () => {
 
 			await until("the reload is asked for", () => prompted.length > 0);
 			expect(prompted).toEqual(["/harness reload"]);
-			expect(asks, "no restart is asked of its holder").toEqual([]);
+			expect(asks, "its holder is asked first").toHaveLength(1);
+			expect(entries, "the log says why it reloads").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						reason: expect.stringContaining("made again onto the same code"),
+						links: ["the-proxy"],
+						verdicts: { "the-proxy": "same" },
+					},
+				},
+			]);
+
+			// The runtime the reload brings up follows afresh over the same
+			// links, as the session's next runtime does.
+			const reloaded = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				current: true,
+				answer: refuse,
+			});
+			reloaded.follower?.consider();
+
+			await quietFor(QUIET_MS, 4);
+			expect(reloaded.asks, "it came up on the same code").toEqual([]);
+			expect(reloaded.prompted, "nothing reloads it again").toEqual([]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("starts again, when its holder can, over a link made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: (ask) => {
+					ask.restarting = true;
+				},
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the restart is asked for", () => asks.length > 0);
+			await quietFor(QUIET_MS, 4);
+			expect(
+				prompted,
+				"a new process reads what the extension imports from outside its folder afresh",
+			).toEqual([]);
+			expect(entries, "the log says why it starts again").toMatchObject([
+				{
+					type: RESTARTING_ENTRY,
+					data: { links: ["the-proxy"], verdicts: { "the-proxy": "same" } },
+				},
+			]);
 		} finally {
 			links.restore();
 		}
