@@ -90,6 +90,10 @@ export function toolPaths(path: string, cwd: string, home: string): string[] {
 	];
 }
 
+/** Why a path's way can't be followed, as leads-to.ts gives up on it. */
+const CANT_FOLLOW =
+	"a loop of links, more links than the system follows, a link whose target isn't UTF-8, or a name it couldn't look at";
+
 /** Whether `path` is `folder` or lies inside it, both already resolved. */
 function inside(path: string, folder: string): boolean {
 	const between = relative(folder, path);
@@ -245,7 +249,7 @@ function fenceRefusal(
 	for (const candidate of candidates) {
 		const reached = leadsTo(candidate);
 		if (reached === undefined) {
-			return `${SANDBOX_VARIABLE}=${FENCE} couldn't follow ${path} through its links, so ${toolName} didn't run.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} couldn't say where ${path} leads (${CANT_FOLLOW}), so ${toolName} didn't run.`;
 		}
 		// On a Mac each is judged as the lists spell it too, since its
 		// volumes open ~/.NPMRC as ~/.npmrc.
@@ -478,7 +482,7 @@ function strictRefusal(
 		}
 		const where =
 			real === undefined
-				? "through links it couldn't follow: a loop, more than the system follows, or a name it couldn't look at"
+				? `where it couldn't be followed: ${CANT_FOLLOW}`
 				: `to ${real}, outside it`;
 		const what =
 			use === "write"

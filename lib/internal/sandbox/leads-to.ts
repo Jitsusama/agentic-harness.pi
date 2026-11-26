@@ -32,8 +32,12 @@ const NOTHING_THERE = new Set(["ENOENT", "ENOTDIR"]);
  * own gives back a case-insensitive volume's spelling of each name, not
  * the one asked for, which the checks match their lists against.
  *
- * A relative path stays relative, its leading `..` kept, for the caller
- * to read from the folder it means, as the system would. The links
+ * It judges the path as the system is handed it. pi's own tools fold
+ * `..` as text before they ask (tool-path.ts), so the fence's checks
+ * hand it the path folded so, which is where those tools write.
+ *
+ * A relative path is looked at from the process's folder, as the system
+ * would look at it, and stays relative, its leading `..` kept. The links
  * are counted across the whole walk, as the system counts them, so links
  * that fan out to each other cost no more than one chain of that length.
  * The names still to walk are held in a list, so the walk can say every
@@ -76,7 +80,8 @@ function walk(path: string): {
 			continue;
 		}
 		met.add(here);
-		if (links === 0) return { to: undefined, met };
+		if (target === UNREADABLE_LINK || links === 0)
+			return { to: undefined, met };
 		links -= 1;
 		// Not folded as text: a `..` in the target climbs from where it leads.
 		if (isAbsolute(target)) at = sep;
@@ -102,20 +107,34 @@ export function landsAt(path: string): string {
 /** What {@link linkAt} answers for a name that is no link, or not there. */
 const NOT_A_LINK = Symbol("not a link");
 
+/** What {@link linkAt} answers for a link whose target it can't name. */
+const UNREADABLE_LINK = Symbol("a link it can't read");
+
 /**
  * The target of the link at `path`, NOT_A_LINK where nothing there is a
- * link, or undefined where it can't be said: a look that fails for any
- * reason but nothing being there, or a target that isn't UTF-8, which
- * read as text would name another file than the system follows.
+ * link, UNREADABLE_LINK where a link is there but its target can't be
+ * named (it can't be read, or isn't UTF-8, which read as text would name
+ * another file than the system follows), or undefined where a look at
+ * the name fails for any reason but nothing being there.
  */
-function linkAt(path: string): string | typeof NOT_A_LINK | undefined {
+function linkAt(
+	path: string,
+): string | typeof NOT_A_LINK | typeof UNREADABLE_LINK | undefined {
+	let link: boolean;
 	try {
-		if (!lstatSync(path).isSymbolicLink()) return NOT_A_LINK;
-		const raw = readlinkSync(path, { encoding: "buffer" });
-		const target = raw.toString("utf8");
-		return Buffer.from(target, "utf8").equals(raw) ? target : undefined;
+		link = lstatSync(path).isSymbolicLink();
 	} catch (error) {
 		return isNothingThere(error) ? NOT_A_LINK : undefined;
+	}
+	if (!link) return NOT_A_LINK;
+	try {
+		const raw = readlinkSync(path, { encoding: "buffer" });
+		const target = raw.toString("utf8");
+		return Buffer.from(target, "utf8").equals(raw) ? target : UNREADABLE_LINK;
+	} catch {
+		// Gone or changed since the look: still a link the walk met, whose
+		// target is not known.
+		return UNREADABLE_LINK;
 	}
 }
 

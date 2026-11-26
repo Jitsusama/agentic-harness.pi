@@ -62,10 +62,13 @@ export function real(path: string): string {
  * Whether `path` is `folder` or lies inside it, each where it leads past
  * its links, made yet or not, as a Mac's /tmp leads to /private/tmp
  * (leads-to.ts). Where either's links can't be followed it is judged as
- * far as they lead and spelled past that, as main judged a path realpath
- * couldn't resolve: callers ask this both to let a path in and to refuse
- * one, so no answer here would be the safe one for all of them, and the
- * fence's own checks refuse such a path outright (sandbox-files.ts).
+ * far as they lead and spelled past that, as a path realpath couldn't
+ * resolve was judged before the walk: callers ask this both to let a path
+ * in and to refuse one, so no answer here would be the safe one for all
+ * of them, and the fence's own checks refuse such a path outright
+ * (sandbox-files.ts). A walk past the system's path length is one such:
+ * the system may still follow it, so where it lands is not what this
+ * says, though what a fenced command may write is held by the fence.
  */
 export function within(path: string, folder: string): boolean {
 	const between = relative(landsAt(folder), landsAt(path));

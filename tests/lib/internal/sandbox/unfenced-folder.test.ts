@@ -462,6 +462,21 @@ describe("a working folder the sandbox won't let commands write", () => {
 		);
 	});
 
+	it("names a closed path not made yet whose way runs through a link the folder holds", () => {
+		// The folder lies on no closed path and holds none, but a link in it
+		// decides where gsutil's credentials, not written yet, lead. A home
+		// of its own, holding nothing else.
+		const at = join(home, "through-home");
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		mkdirSync(join(at, "a"), { recursive: true });
+		mkdirSync(join(at, "b", "gsutil"), { recursive: true });
+		symlinkSync(join(at, "a", "gsutil"), join(at, ".gsutil"));
+		symlinkSync(join(at, "b", "gsutil"), join(at, "a", "gsutil"));
+		expect(unfencedFolder(join(at, "a"), at, ASKED, place)).toContain(
+			`which holds ${join(at, ".gsutil/credstore2")}, a path`,
+		);
+	});
+
 	it("is one holding a link a closed path's loop runs through", () => {
 		// Taking the link out of the loop leaves a name a command may write,
 		// which the shell then runs. A home of its own, since the shared one
