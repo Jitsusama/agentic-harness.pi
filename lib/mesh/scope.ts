@@ -28,7 +28,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
-import { treesHeldBy } from "../internal/work-records.ts";
+import { keptTreesHeldBy } from "../internal/work-records.ts";
 import { questAddress } from "./address.ts";
 
 /** What a peer's scopes are worked out from. */
@@ -210,16 +210,22 @@ export function treesFrom(value: unknown): HeldTree[] {
  *
  * Asked at every publish; the records are kept for the process by
  * `recordedTrees` (lib/internal/work-records.ts), read again only when
- * their folder changed. Each held tree's HEAD is read every time, since
- * a branch moves without its record being rewritten.
+ * their folder changed, and never read on the thread here
+ * (`keptTreesHeldBy`): until the process's first reading lands, the
+ * trees `said` names, as its presence last said them, stand. Each held
+ * tree's HEAD is read every time, since a branch moves without its
+ * record being rewritten.
  */
 export function heldTreesOf(
 	session: string,
 	dir: string | undefined,
+	said: readonly HeldTree[] = [],
 ): () => { trees?: HeldTree[] } {
 	if (dir === undefined) return () => ({});
 	return () => {
-		const trees = treesHeldBy(session, dir)
+		const held = keptTreesHeldBy(session, dir);
+		if (held === undefined) return said.length > 0 ? { trees: [...said] } : {};
+		const trees = held
 			.flatMap((path) => heldTreeAt(path) ?? [])
 			.sort((one, other) => one.key.localeCompare(other.key));
 		return trees.length > 0 ? { trees } : {};

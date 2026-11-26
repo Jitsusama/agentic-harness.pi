@@ -453,8 +453,9 @@ export function localPeer(at: Surroundings): Peer {
 	const now = at.now ?? Date.now;
 	let landings: Landing[] = standing(before?.landings ?? [], now());
 	let events: SessionEvent[] = recentEvents(before?.events ?? [], now());
-	// The trees it holds, read again at each publish (scope.ts).
-	const held = heldTreesOf(at.session, at.records.trees);
+	// The trees it holds, read again at each publish (scope.ts), those it
+	// said before standing until the process has read the records.
+	const held = heldTreesOf(at.session, at.records.trees, before?.trees);
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
 	// A move outlasts a reload, in the same process; the conversation that
