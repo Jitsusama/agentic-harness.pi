@@ -751,6 +751,16 @@ describe("pi's own open stands", () => {
 		expect(String(said[0])).toContain("log version");
 	});
 
+	it("for a pi that no longer has a session manager, saying so once", () => {
+		const pi = { SessionManager: undefined, version: CURRENT_SESSION_VERSION };
+		const said: unknown[] = [];
+		const file = compactedLog();
+		expect(openKept(pi, file, (what) => said.push(what))).toBe(undefined);
+		expect(openKept(pi, file, (what) => said.push(what))).toBe(undefined);
+		expect(said).toEqual([expect.any(LightOpensOff)]);
+		expect(String(said[0])).toContain("session manager");
+	});
+
 	it("for a log whose last line is unfinished, which pi ends itself", () => {
 		const file = compactedLog();
 		writeFileSync(file, `${readFileSync(file, "utf8")}{"type":"cus`);
