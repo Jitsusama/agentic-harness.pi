@@ -53,7 +53,9 @@ describe("a folder made for this account alone", () => {
 describe("whether a folder is this account's own and private", () => {
 	it("takes a folder of mode 700", () => {
 		makeFolder(join(base, "one"));
-		expect(isPrivateFolder(join(base, "one"))).toBe(true);
+		expect(isPrivateFolder(join(base, "one")), "a folder of mode 700").toBe(
+			true,
+		);
 	});
 
 	it("refuses one others can reach, a link to a private one, a file and nothing", () => {

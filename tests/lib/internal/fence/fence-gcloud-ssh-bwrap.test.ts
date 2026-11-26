@@ -108,6 +108,7 @@ describe.skipIf(bwrap === undefined)(
 			const hosts = join(ssh, GCLOUD_KNOWN_HOSTS);
 			expect(
 				fenced(`printf 'compute.2 ssh-ed25519 BBBB\\n' >> '${hosts}'`).ok,
+				"gcloud's write went through",
 			).toBe(true);
 			expect(readFileSync(copies?.knownHosts ?? "", "utf8")).toContain(
 				"compute.2",
@@ -119,12 +120,15 @@ describe.skipIf(bwrap === undefined)(
 		});
 
 		it("still refuses a new file in the folder", () => {
-			expect(fenced(`touch '${join(ssh, "new")}'`).ok).toBe(false);
+			expect(
+				fenced(`touch '${join(ssh, "new")}'`).ok,
+				"a new file refused",
+			).toBe(false);
 		});
 
 		it("reads gcloud's private key as the stand-in, never the person's", () => {
 			const read = fenced(`cat '${join(ssh, GCLOUD_KEY)}'`);
-			expect(read.ok).toBe(true);
+			expect(read.ok, "its key read").toBe(true);
 			expect(read.out).toBe(KEY_STAND_IN);
 		});
 	},
