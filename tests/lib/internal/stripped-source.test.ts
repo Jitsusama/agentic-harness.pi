@@ -346,16 +346,24 @@ describe("entryWriter", () => {
 		expect(await readdir(folder)).toEqual([]);
 	});
 
-	it("writes nothing below a folder others may write, though its own is private", async () => {
+	it("closes a folder above its own that others may write, then writes", async () => {
 		const above = join(root, "above");
-		await mkdir(join(above, "key"), { recursive: true, mode: 0o700 });
+		const folder = join(above, "key");
+		await mkdir(folder, { recursive: true, mode: 0o700 });
 		await chmod(above, 0o775);
-		const { said, made } = await refusal(join(above, "key"));
-		expect(said).toEqual([
-			expect.stringContaining(`${above} has mode 775, which others may write`),
-		]);
-		expect(made).not.toBeCalled();
-		expect(await readdir(join(above, "key"))).toEqual([]);
+		const report = vi.fn();
+		entryWriter({
+			folder,
+			held: root,
+			served: "/install/one",
+			version: "v22.23.5",
+			report,
+		})(join(folder, "e1"), "one");
+		await vi.waitFor(async () => {
+			expect((await readdir(folder)).sort()).toEqual(["e1", "root"]);
+		});
+		expect((await stat(above)).mode & 0o777).toBe(0o755);
+		expect(report).not.toBeCalled();
 	});
 
 	it("writes nothing through a link above its folder", async () => {
@@ -437,10 +445,10 @@ describe("sweepGone", () => {
 		await folder("mine", mine);
 		await folder("older node", mine, "v22.22.0");
 		await writeFile(join(root, "older node", "entry"), "x");
-		await usedAgo("older node", 3);
+		await usedAgo("older node", 3.5);
 		await mkdir(join(root, "unversioned"));
 		await writeFile(join(root, "unversioned", "root"), mine);
-		await usedAgo("unversioned", 3);
+		await usedAgo("unversioned", 3.5);
 
 		await sweep(mine);
 
@@ -456,8 +464,10 @@ describe("sweepGone", () => {
 		await folder("older node", mine, "v22.22.0");
 		for (const name of ["read", "unread"])
 			await writeFile(join(root, "older node", name), "x");
-		await usedAgo("older node", 3);
-		await utimes(join(root, "older node", "read"), daysAgo(1), daysAgo(1));
+		await usedAgo("older node", 4);
+		// Marked 2.5 days ago, it may have been read a day after: a read
+		// marks an entry only once it is a day old.
+		await utimes(join(root, "older node", "read"), daysAgo(2.5), daysAgo(2.5));
 
 		await sweep(mine);
 
@@ -579,7 +589,7 @@ describe("startStrippedSourceCache", () => {
 			cacheRoot({}, root),
 			installKey("/install/one", "v22.23.5"),
 		);
-		await mkdir(folder, { recursive: true });
+		await mkdir(folder, { recursive: true, mode: 0o700 });
 		await chmod(folder, 0o755);
 		const register = vi.fn();
 		const started = startStrippedSourceCache({
@@ -598,12 +608,12 @@ describe("startStrippedSourceCache", () => {
 		expect(register).not.toBeCalled();
 	});
 
-	it("names the folder above its own that others may write", async () => {
+	it("closes the folders above its own that others may write, and reads its own", async () => {
 		const above = cacheRoot({}, root);
 		const folder = join(above, installKey("/install/one", "v22.23.5"));
 		await mkdir(folder, { recursive: true, mode: 0o700 });
-		await chmod(folder, 0o700);
 		await chmod(above, 0o775);
+		await chmod(heldState(root), 0o777);
 		const register = vi.fn();
 		const started = startStrippedSourceCache({
 			env: {},
@@ -612,13 +622,48 @@ describe("startStrippedSourceCache", () => {
 			facts: STRIPPING,
 			register,
 		});
-		expect(started).toEqual({
-			state: "failed",
-			reason: expect.stringMatching(
-				new RegExp(`^${above} has mode 775, which others may write`, "u"),
-			),
+		expect(started).toEqual({ state: "on", folder });
+		expect((await stat(above)).mode & 0o777).toBe(0o755);
+		expect((await stat(heldState(root))).mode & 0o777).toBe(0o755);
+		expect(register).toHaveBeenCalled();
+	});
+
+	it("starts where code before it made pi's state under a umask that lets the group write", async () => {
+		const was = process.umask(0o002);
+		try {
+			await mkdir(join(heldState(root), "agentic-harness.pi"), {
+				recursive: true,
+			});
+			expect((await stat(heldState(root))).mode & 0o777).toBe(0o775);
+			const started = startStrippedSourceCache({
+				env: {},
+				home: root,
+				packageRoot: "/install/one",
+				facts: STRIPPING,
+				register: vi.fn(),
+			});
+			expect(started.state).toBe("on");
+		} finally {
+			process.umask(was);
+		}
+	});
+
+	it("leaves a folder of its own that others may write as it is, and fails", async () => {
+		const folder = join(
+			cacheRoot({}, root),
+			installKey("/install/one", "v22.23.5"),
+		);
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		await chmod(folder, 0o770);
+		const started = startStrippedSourceCache({
+			env: {},
+			home: root,
+			packageRoot: "/install/one",
+			facts: STRIPPING,
+			register: vi.fn(),
 		});
-		expect(register).not.toBeCalled();
+		expect(started.state).toBe("failed");
+		expect((await stat(folder)).mode & 0o777).toBe(0o770);
 	});
 
 	it("names its folder by the package's type as well", async () => {
