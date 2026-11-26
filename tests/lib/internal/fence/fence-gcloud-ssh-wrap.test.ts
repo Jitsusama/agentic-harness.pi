@@ -119,6 +119,14 @@ describe("what the fence binds for gcloud's ssh", () => {
 				wrapped(fence, "true"),
 				"a command not naming the cloud was told",
 			).not.toContain(UNMADE);
+			expect(
+				wrapped(fence, "gsutil ls gs://one"),
+				"a cloud command that runs no ssh was told",
+			).not.toContain(UNMADE);
+			expect(
+				wrapped(fence, "gcloud compute scp a one:b"),
+				"gcloud's scp wasn't told",
+			).toContain(UNMADE);
 			chmodSync(copies, 0o700);
 			expect(
 				argsReadIn(wrapped(fence, "true")),

@@ -53,7 +53,6 @@ import {
 	fstatSync,
 	lstatSync,
 	lutimesSync,
-	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
@@ -65,6 +64,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { makeFolder } from "./fence-dev.ts";
 
 /** gcloud's known-hosts file, in `~/.ssh`. */
 export const GCLOUD_KNOWN_HOSTS = "google_compute_known_hosts";
@@ -215,19 +215,6 @@ function isPrivateFolder(path: string): boolean {
 	} catch {
 		// Not there.
 		return false;
-	}
-}
-
-/**
- * Makes `folder`, private, or finds it made: another pi making the same
- * one at the same moment wins the race, and its folder is checked as any
- * found there would be.
- */
-function makeFolder(folder: string): void {
-	try {
-		mkdirSync(folder, { mode: 0o700 });
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 	}
 }
 

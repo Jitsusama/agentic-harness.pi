@@ -338,12 +338,16 @@ function hiddenIn(
 		);
 }
 
-/** Makes the folder `path` for this account alone, where no one has yet. */
-function makeFolder(path: string): void {
+/**
+ * Makes the folder `path` for this account alone, where no one has yet:
+ * another pi making the same one at the same moment wins the race, and
+ * the caller judges the folder it finds as any found there.
+ */
+export function makeFolder(path: string): void {
 	try {
 		mkdirSync(path, { mode: 0o700 });
 	} catch (error) {
-		// Another pi made it first, which isOwnFolder then judges.
+		// Another pi made it first, which the caller then judges.
 		if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
 			throw error;
 	}

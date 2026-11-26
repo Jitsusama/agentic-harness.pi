@@ -617,6 +617,8 @@ function sshArgs(home: string, disk: Disk, gcloud?: GcloudSsh): string[] {
 		}
 	}
 	if (gcloud) {
+		// No sweep takes these between wrap and start: each wrap dates the
+		// session's folder afresh, and a sweep takes only folders a day old.
 		args.push("--bind", gcloud.knownHosts, join(ssh, GCLOUD_KNOWN_HOSTS));
 		const publicKey = join(ssh, `${GCLOUD_KEY}.pub`);
 		if (

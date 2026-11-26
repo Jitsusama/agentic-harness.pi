@@ -5,7 +5,6 @@
  * written through a link or into a folder that isn't the account's own.
  */
 
-import { createHash } from "node:crypto";
 import {
 	chmodSync,
 	existsSync,
@@ -29,7 +28,6 @@ import {
 	holdsStandIn,
 	KEY_STAND_IN,
 } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
-import { readsAsStandIn } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
 
 let root = "";
 let home = "";
@@ -168,6 +166,15 @@ describe("the session's copies for gcloud's ssh", () => {
 		expect(readFileSync(join(elsewhere, "kept"), "utf8")).toBe("kept\n");
 	});
 
+	it("dates a session's folder afresh at each ask, so a long-lived session's copies outlast a day", () => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		fenceGcloudSsh(runtime, home, "one");
+		utimesSync(sessionFolder(), daysOn(-2), daysOn(-2));
+		fenceGcloudSsh(runtime, home, "one");
+		const age = Date.now() - statSync(sessionFolder()).mtimeMs;
+		expect(age, "the folder kept its old date").toBeLessThan(60_000);
+	});
+
 	it("renames a renewed copy into place, so a command reading the old one keeps it whole", () => {
 		const person = personHosts("compute.1 ssh-ed25519 AAAA\n");
 		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
@@ -281,25 +288,6 @@ describe("the session's copies for gcloud's ssh", () => {
 	it("makes nothing with no runtime folder, or a session name a folder can't take", () => {
 		expect(fenceGcloudSsh(undefined, home, "one")).toBeUndefined();
 		expect(fenceGcloudSsh(runtime, home, "../away")).toBeUndefined();
-	});
-});
-
-describe("whether gcloud's key read inside as the stand-in", () => {
-	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
-	const real = createHash("sha256").update("PRIVATE\n").digest("hex");
-
-	it.each([
-		["the stand-in's digest", { code: 0, out: `${standIn}  -\n` }, true],
-		[
-			"after what the wrap printed",
-			{ code: 0, out: `pi: note\n${standIn}  -\n` },
-			true,
-		],
-		["not read, or empty", { code: 1, out: "" }, true],
-		["another key's digest", { code: 0, out: `${real}  -\n` }, false],
-		["nothing said, though it ran", { code: 0, out: "" }, false],
-	])("takes %s as %s", (_, ran, standsIn) => {
-		expect(readsAsStandIn(ran)).toBe(standsIn);
 	});
 });
 

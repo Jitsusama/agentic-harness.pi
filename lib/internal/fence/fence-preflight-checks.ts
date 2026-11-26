@@ -155,33 +155,40 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 	// gcloud's private key is bound over by a stand-in on purpose
 	// (fence-gcloud-ssh.ts), so inside it must read as that and nothing else,
 	// or not at all. Only its digest comes out, so a fence that let the real
-	// key through still never brings the key itself into pi.
+	// key through still never brings the key itself into pi. The probe says
+	// `unread` itself where the key can't be read, read as the files above
+	// are, so a run that fails (a refused wrap, a timeout, a missing
+	// sha256sum) proves nothing and fails the check.
 	const gcloudKey = join(home, ".ssh", GCLOUD_KEY);
-	if (existsSync(gcloudKey)) {
+	const checked = existsSync(gcloudKey) ? 1 : 0;
+	if (checked) {
 		const ran = await fenced(
-			`test -s '${gcloudKey}' && sha256sum < '${gcloudKey}'`,
+			`if head -c1 '${gcloudKey}' > /dev/null 2>&1 && test -s '${gcloudKey}'; then sha256sum < '${gcloudKey}'; else echo unread; fi`,
 			context.scratch,
 			context.session,
 		);
 		if (!readsAsStandIn(ran)) read.push(gcloudKey);
 	}
 	return read.length === 0
-		? passed(`${paths.length} hidden files, none readable inside`)
+		? passed(`${paths.length + checked} hidden files, none readable inside`)
 		: failed(`readable inside: ${read.join(", ")}`);
 }
 
 /**
  * Whether a fenced digest of gcloud's key says the key read as the
- * stand-in, or couldn't be read: the digest `sha256sum` ends its output
- * with, whatever the wrap printed before it, against the stand-in's own.
+ * stand-in, or couldn't be read: the probe's own `unread`, or the digest
+ * `sha256sum` ends its output with, whatever the wrap printed before it,
+ * against the stand-in's own. A probe that didn't end 0 said neither.
  */
 export function readsAsStandIn(ran: {
 	code: number | null;
 	out: string;
 }): boolean {
-	if (ran.code !== 0) return true;
+	if (ran.code !== 0) return false;
+	const said = ran.out.trim().split(/\s+/);
+	if (said.at(-1) === "unread") return true;
 	const digest = createHash("sha256").update(KEY_STAND_IN).digest("hex");
-	return ran.out.trim().split(/\s+/).at(-2) === digest;
+	return said.at(-2) === digest;
 }
 
 /**

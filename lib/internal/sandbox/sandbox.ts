@@ -534,20 +534,29 @@ export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
 });
 
 /**
- * `command`, preceded by a note on stderr when it names the cloud's
- * programs and the session's copies of gcloud's ssh files couldn't be
- * made, so the agent reads why `gcloud compute ssh` fails on `~/.ssh`
- * beside gcloud's own complaint, rather than taking the fence for one
- * that never made them.
+ * `command`, preceded by a note on stderr when it runs gcloud's ssh or
+ * scp and the session's copies of gcloud's ssh files couldn't be made,
+ * so the agent reads why `gcloud compute ssh` fails on `~/.ssh` beside
+ * gcloud's own complaint, rather than taking the fence for one that never
+ * made them. gsutil, bq and gcloud's other commands never write there, so
+ * they aren't told.
  */
 export function withGcloudSshNote(command: string, made: boolean): string {
-	if (made || !namesTheCloud(command)) return command;
+	if (made || !runsGcloudSsh(command)) return command;
 	return `printf 'pi: %s\\n' ${quoted(GCLOUD_SSH_UNMADE)} >&2\n${command}`;
+}
+
+/** Whether a command names gcloud and its ssh or scp, which write `~/.ssh`. */
+function runsGcloudSsh(command: string): boolean {
+	return (
+		/(^|[^\w.-])gcloud($|[^\w.-])/.test(command) &&
+		/(^|[^\w.-])(ssh|scp)($|[^\w.-])/.test(command)
+	);
 }
 
 /** What the note says when gcloud's ssh copies couldn't be made. */
 export const GCLOUD_SSH_UNMADE =
-	"gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts), so gcloud compute ssh fails on the read-only ~/.ssh here";
+	"gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts), so gcloud compute ssh fails on the read-only ~/.ssh here. The copies are made only where XDG_RUNTIME_DIR and each pi-fence folder under it are this account's own and private (mode 700); fix those, or run it from an unfenced session";
 
 /**
  * `command`, preceded by a note on stderr saying why gcloud has no token

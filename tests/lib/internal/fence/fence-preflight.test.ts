@@ -4,7 +4,9 @@
  * passed.
  */
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { KEY_STAND_IN } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 import {
 	type Check,
 	exitStatus,
@@ -19,6 +21,7 @@ import {
 	summary,
 	type Verdict,
 } from "../../../../lib/internal/fence/fence-preflight.ts";
+import { readsAsStandIn } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
 
 const CONTEXT: PreflightContext = {
 	session: "s",
@@ -100,5 +103,31 @@ describe("judging a command's run", () => {
 	it("passes a command that must be refused only when it didn't succeed", () => {
 		expect(refusedAs(ran(1), "touch").outcome, "refused").toBe("passed");
 		expect(refusedAs(ran(0), "touch").outcome, "let through").toBe("failed");
+	});
+});
+
+describe("whether gcloud's key read inside as the stand-in", () => {
+	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	const real = createHash("sha256").update("PRIVATE\n").digest("hex");
+
+	it.each([
+		["the stand-in's digest", { code: 0, out: `${standIn}  -\n` }, true],
+		[
+			"after what the wrap printed",
+			{ code: 0, out: `pi: note\n${standIn}  -\n` },
+			true,
+		],
+		["the probe's own unread", { code: 0, out: "unread\n" }, true],
+		["another key's digest", { code: 0, out: `${real}  -\n` }, false],
+		["nothing said, though it ran", { code: 0, out: "" }, false],
+		[
+			"a probe that failed, though it said unread",
+			{ code: 1, out: "unread\n" },
+			false,
+		],
+		["a probe killed at its time limit", { code: null, out: "" }, false],
+		["a refused wrap", { code: 126, out: "" }, false],
+	])("takes %s as %s", (_, ran, standsIn) => {
+		expect(readsAsStandIn(ran)).toBe(standsIn);
 	});
 });
