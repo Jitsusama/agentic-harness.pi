@@ -20,6 +20,14 @@
  * (`ran`); one that can't be written wakes it as soon as it parks, and
  * a close for good stops the calls, which nobody would take up.
  *
+ * What the stop says it carried is not all a park watches. A call the
+ * conversation recorded as it ran (lib/internal/shell/kept-jobs.ts) that
+ * still runs is watched too: on 26 November at 00:25 a roll parked
+ * 15277F02 while its `devx ci drill` ran, its stop saying no carry,
+ * and the call ran on unwatched, its result waiting half an hour for
+ * the park's own wake. The conversation takes such a call up from its
+ * record as it resumes, as after a kill.
+ *
  * While the host drains for a restart, or its code is stale and no
  * window views the conversation (`holding`), a wake through the file or a
  * steer is held: the file stays on disk and the steer in its inbox, so a
@@ -57,8 +65,10 @@ import {
 	writeRefusedWakeOff,
 } from "../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
+import { recordedKeptJobs } from "../../lib/internal/shell/kept-jobs.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
 import {
+	callRuns,
 	carriedCalls,
 	forgetCarriedCalls,
 	hearParkCarry,
@@ -69,6 +79,13 @@ import {
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
+
+/** The bash calls `sessionId` recorded as they ran, from the kept folder. */
+async function recordedCallsOf(
+	sessionId: string,
+): Promise<readonly CarriedShell[]> {
+	return (await recordedKeptJobs(sessionId)).map((job) => job.work);
+}
 
 /**
  * What a wake file holds, read off the thread: nothing where there is
@@ -281,6 +298,11 @@ export function parking(options: {
 	readonly carries?: () => boolean;
 	/** Whether a carried call still runs; its shell, read from the machine, by default. */
 	readonly callRuns?: (work: CarriedShell) => boolean | Promise<boolean>;
+	/**
+	 * The bash calls a conversation recorded as they ran, whoever holds
+	 * them; read from the kept folder, off the thread, by default.
+	 */
+	readonly recorded?: (sessionId: string) => Promise<readonly CarriedShell[]>;
 	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
 	readonly lookEveryMs?: number;
 	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
@@ -558,6 +580,7 @@ export function parking(options: {
 			} finally {
 				stopping.delete(sessionId);
 			}
+			if (carrying) await keepRecorded(sessionId);
 			const held = unrecorded.get(sessionId);
 			unrecorded.delete(sessionId);
 			options.parked?.(sessionId);
@@ -595,6 +618,47 @@ export function parking(options: {
 				},
 			);
 		return ranOn;
+	}
+
+	// Add to what its park carried each call it recorded as it ran that
+	// still runs and its stop never said, so its end wakes it. Never
+	// throws: what can't be read parks it on what its stop said.
+	async function keepRecorded(sessionId: string): Promise<void> {
+		const folder = folderOf(sessionId);
+		const untold: CarriedShell[] = [];
+		try {
+			const recorded = await (options.recorded ?? recordedCallsOf)(sessionId);
+			if (recorded.length === 0) return;
+			const known = new Set(
+				[...carriedCalls(folder), ...(unrecorded.get(sessionId) ?? [])].map(
+					(work) => work.keep,
+				),
+			);
+			const runs = options.callRuns ?? callRuns;
+			for (const work of recorded) {
+				if (known.has(work.keep) || !(await runs(work))) continue;
+				known.add(work.keep);
+				untold.push(work);
+			}
+		} catch (error) {
+			report(error);
+			return;
+		}
+		if (untold.length === 0) return;
+		try {
+			mkdirSync(folder, { recursive: true });
+			keepCarriedCalls(folder, untold);
+		} catch (error) {
+			// Unwritten, nothing would wake it as they end: it wakes once parked.
+			unrecorded.set(sessionId, [
+				...(unrecorded.get(sessionId) ?? []),
+				...untold,
+			]);
+			report(error);
+		}
+		options.said?.(
+			`${sessionId}: its park carries ${untold.length} bash call(s) it recorded but never said it carried`,
+		);
 	}
 
 	// Rest one whose park's stop failed, owed that stop, answering whether

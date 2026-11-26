@@ -619,6 +619,18 @@ export function keptJobsOf(
 }
 
 /**
+ * Every call `session` recorded, whoever holds it and however it
+ * stands, read off the thread: what a park reads for calls the
+ * conversation ran that its stop never said it carried.
+ */
+export async function recordedKeptJobs(
+	session: string,
+	folder: string = keptFolder(),
+): Promise<KeptJob[]> {
+	return (await recordsRead(folder)).filter((job) => job.session === session);
+}
+
+/**
  * The recorded calls whose pi has gone and whose end is not yet said:
  * the ones a host looks at to stop, once nobody takes them up in time.
  * Read off the thread, since a host looks on the loop its conversations

@@ -39,6 +39,7 @@ import {
 	forgetOwnKeptJob,
 	type KeptJob,
 	keptJobsOf,
+	recordedKeptJobs,
 	recordKeptJob,
 	strayKeptJobs,
 } from "../../../../lib/internal/shell/kept-jobs.ts";
@@ -2267,5 +2268,28 @@ describe("a stray recorded job", () => {
 			(await strayKeptJobs(where, () => false)).map((job) => job.id).sort(),
 			"an end not read is an end not said",
 		).toEqual(["stray", "unread"]);
+	});
+});
+
+// What a park reads for the calls its stop never said it carried.
+describe("a session's recorded jobs", () => {
+	it("are each of its records, held or not, ended or not, and none of another's", async () => {
+		const where = folder();
+		await recorded(where, "s1", "held", 4242, { owner: 77 });
+		const ended = await recorded(where, "s1", "ended", 4242, { owner: 88 });
+		writeFileSync(`${ended.work.keep}.end`, "0\n");
+		await recorded(where, "s2", "other", 4242, { owner: 88 });
+		disk.forget();
+		expect(
+			(await recordedKeptJobs("s1", where)).map((job) => job.id).sort(),
+		).toEqual(["ended", "held"]);
+		expect(
+			askedOnThread(where),
+			"read off the thread, as a park on a host's loop reads it",
+		).toEqual([]);
+	});
+
+	it("are none before there is a folder", async () => {
+		expect(await recordedKeptJobs("s1", folder())).toEqual([]);
 	});
 });

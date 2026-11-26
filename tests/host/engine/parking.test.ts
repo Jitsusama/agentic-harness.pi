@@ -5,7 +5,7 @@
  * case drives that one module through a real wake folder.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, watch } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, watch } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -792,6 +792,10 @@ function carrying(
 		holding?: () => boolean;
 		now?: () => number;
 		watch?: FolderWatch;
+		/** The calls the conversation recorded as it ran, none unless said. */
+		recorded?: (sessionId: string) => Promise<readonly CarriedShell[]>;
+		/** Whether its stop says the carry; it does unless said. */
+		tells?: boolean;
 	} = {},
 ) {
 	const bus = createEventBus();
@@ -802,7 +806,7 @@ function carrying(
 	const stop = vi.fn(
 		async (_sessionId: string, _why: string, carry: boolean) => {
 			// A stop that doesn't carry cuts the calls off, saying nothing.
-			if (!carry) return;
+			if (!carry || more.tells === false) return;
 			more.beforeCarry?.();
 			const carried: JobsCarried = {
 				session: "a",
@@ -827,6 +831,7 @@ function carrying(
 		...(more.watch ? { watch: more.watch } : {}),
 		carries: () => keeps,
 		callRuns: (work) => runs.has(work.keep),
+		recorded: more.recorded ?? (() => Promise.resolve([])),
 		lookEveryMs: CALLS_LOOKED_AT_MS,
 		...(more.wakeAgainMs === undefined
 			? {}
@@ -1054,6 +1059,86 @@ describe("a park that carries bash calls", () => {
 
 		await until(
 			"the ended call to wake it",
+			() => asking.mock.calls.length > 0,
+		);
+		parked.unwatch("a");
+	});
+
+	// 26 November, 00:25: a roll parked 15277F02 while its `devx ci drill`
+	// ran in the background, its stop saying no carry. The call ran on, as
+	// its record said, but nothing watched it, so its end woke nothing and
+	// the result waited half an hour for the park's own wake.
+	it("watches the calls its conversation recorded that its stop never said it carried", async () => {
+		const told = call("told");
+		const untold = call("untold");
+		const ended = call("ended");
+		const runs = new Set([told.keep, untold.keep]);
+		const recorded = vi.fn((_sessionId: string) =>
+			Promise.resolve([told, untold, ended]),
+		);
+		const { parked, asking, said } = carrying([told], runs, true, {
+			recorded,
+		});
+		await parked.park("a");
+
+		expect(recorded).toHaveBeenCalledWith("a");
+		const kept = JSON.parse(readFileSync(callsFile(), "utf8")) as {
+			keep: string;
+		}[];
+		expect(
+			kept.map((work) => work.keep),
+			"each running call once, the ended one left to its resume",
+		).toEqual([told.keep, untold.keep]);
+		expect(said).toContain(
+			"a: its park carries 1 bash call(s) it recorded but never said it carried",
+		);
+		runs.delete(told.keep);
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "the untold call still runs").not.toHaveBeenCalled();
+		runs.delete(untold.keep);
+		await until("the untold call's end to wake it", () =>
+			asking.mock.calls.some(([id]) => id === "a"),
+		);
+		parked.unwatch("a");
+	});
+
+	it("watches a recorded call when its stop told no carry at all", async () => {
+		const untold = call("untold");
+		const runs = new Set([untold.keep]);
+		const { parked, asking } = carrying([untold], runs, true, {
+			recorded: () => Promise.resolve([untold]),
+			tells: false,
+		});
+		await parked.park("a");
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "it still runs").not.toHaveBeenCalled();
+		runs.delete(untold.keep);
+		await until("its end to wake it", () => asking.mock.calls.length > 0);
+		parked.unwatch("a");
+	});
+
+	it("reads no record where its park carries nothing", async () => {
+		const recorded = vi.fn(() => Promise.resolve([call("cut")]));
+		const { parked } = carrying([call("cut")], new Set(), false, {
+			recorded,
+		});
+		await parked.park("a");
+		expect(recorded).not.toHaveBeenCalled();
+		expect(existsSync(callsFile())).toBe(false);
+		parked.unwatch("a");
+	});
+
+	it("parks on, waking as before, when the recorded calls can't be read", async () => {
+		const told = call("told");
+		const runs = new Set([told.keep]);
+		const { parked, asking } = carrying([told], runs, true, {
+			recorded: () => Promise.reject(new Error("EIO")),
+		});
+		await parked.park("a");
+		expect(parked.watches("a"), "parked and watched").toBe(true);
+		runs.clear();
+		await until(
+			"the told call's end to wake it",
 			() => asking.mock.calls.length > 0,
 		);
 		parked.unwatch("a");
