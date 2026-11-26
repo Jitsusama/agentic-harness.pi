@@ -238,7 +238,8 @@ export async function sweepOutside({
 	}
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], ...liveQuestClaims(questsRoot) }),
-		swept: (paths) => forgetTrees(questsRoot, paths),
+		swept: (paths, branchesGone) =>
+			forgetTrees(questsRoot, paths, branchesGone),
 		fencedGit: true,
 		idleTakes: OUTSIDE_IDLE_TAKES,
 		idleWithinMs: OUTSIDE_IDLE_WITHIN_MS,

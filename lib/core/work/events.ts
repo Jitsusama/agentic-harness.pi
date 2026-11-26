@@ -111,6 +111,12 @@ export const WORK_TREES_SWEPT = "work:trees-swept:v1";
 /** What a sweep says it took. */
 export interface SweptTrees {
 	paths: readonly string[];
+	/**
+	 * The branches the sweep deleted as it ran, with a tree or after one,
+	 * trunk holding all of them: a holder that keeps a taken tree's branch
+	 * in mind lets these go. Left out by a sweep that never says.
+	 */
+	branchesGone?: readonly string[];
 }
 
 /**

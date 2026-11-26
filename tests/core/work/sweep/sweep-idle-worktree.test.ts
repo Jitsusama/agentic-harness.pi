@@ -173,6 +173,25 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(existsSync(newest.tree), "the quest's newest is kept").toBe(true);
 	});
 
+	it("takes none its holder lets idle rules take in a run that took one it kept from them", async () => {
+		const setup = await setUp();
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		// The quest's newest, its session ended and trunk holding its branch,
+		// which reclaim's rules take before the idle phase.
+		const newest = await setup.cut("cut-last", ["-b", "cut-last", "@", "main"]);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: {
+				held: [],
+				untilSpent: [older.tree, newest],
+				idleMayTake: [older.tree],
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+	});
+
 	it("keeps every one its live quest claims until spent when its holder lets idle rules take none", async () => {
 		const setup = await setUp();
 		const { tree } = await pushedAndLeft(setup, "claimed", IDLE);

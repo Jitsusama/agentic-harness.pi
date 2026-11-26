@@ -338,9 +338,10 @@ Dropping a merged branch with `git branch -D` still reads them all,
 but that cost 0.27 s with 1,130, and detached snapshots, most of
 what a sweep takes, have no branch to drop.
 A tree claimed
-over `work:tree-claims:v1` (unless only until spent and named in
-`idleMayTake`, below), one whose record names nobody, and one the
-broker never cut are left alone. The outside runner alone also
+over `work:tree-claims:v1` for good, one whose record names nobody,
+and one the broker never cut are left alone; one claimed only until
+spent goes by the rules above once its sessions end, and by the idle
+rules below only as they say. The outside runner alone also
 finishes up to ten removals a run that stopped part way: folders named
 as cut trees with no `.git` at their top or just below, which no record
 or claim names, reaches into or holds from above, untouched for a day
@@ -414,9 +415,11 @@ holder claims stays, unless it claims it only until spent and some
 holder names it in `idleMayTake`, one list for them all: a live quest
 names there each tree it lists on this machine in a known repository
 but that repository's last whose folder stands, and never one any
-live quest keeps, so the tree its session reopens in stays. A taken
-tree leaves its quest's list but its branch's alias stays, so a change
-on that branch still finds the quest. One whose record names no
+live quest keeps, so the tree its session reopens in stays. A run
+whose ended trees took one a holder kept from these rules lets them
+take none it claims, since the holder chose before that tree went. A
+taken tree leaves its quest's list, but its branch's alias stays while
+the branch does, so a change on that branch still finds the quest. One whose record names no
 session stays, as nothing could tell or keep its
 branch for it. Worktrees go first, with half the share, so a backlog
 of snapshots never starves them, and `idleWorktreesLeft` says how many

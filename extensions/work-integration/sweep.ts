@@ -169,8 +169,11 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		},
 		// Whoever listed a tree it took stops listing a folder that is gone.
 		// pi's bus reports a listener's error itself, never to the emitter.
-		swept: (paths) => {
-			const swept: SweptTrees = { paths: [...paths] };
+		swept: (paths, branchesGone) => {
+			const swept: SweptTrees = {
+				paths: [...paths],
+				branchesGone: [...branchesGone],
+			};
 			pi.events.emit(WORK_TREES_SWEPT, swept);
 		},
 		restMs: SWEEP_REST_MS,
@@ -217,10 +220,14 @@ export interface SweepAsks {
 	/** The trees held for good, and those held only until spent. */
 	claimed(): SweepHolds | Promise<SweepHolds>;
 	/**
-	 * Told the trees a sweep took, when it took any, and waited on, so a
-	 * process of its own doesn't end before its holders have forgotten them.
+	 * Told the trees a sweep took, when it took any, and the branches it
+	 * deleted, and waited on, so a process of its own doesn't end before
+	 * its holders have forgotten them.
 	 */
-	swept(paths: readonly string[]): void | Promise<void>;
+	swept(
+		paths: readonly string[],
+		branchesGone: readonly string[],
+	): void | Promise<void>;
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
 	/**
@@ -268,6 +275,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
+	let branchesGone: string[] = [];
 	let end: SweepEnd = "failed";
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
@@ -328,6 +336,14 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		if (outcome.rested !== undefined) return "rested";
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
+		branchesGone = [
+			...outcome.taken.flatMap((tree) =>
+				tree.branchGone && tree.branch !== undefined ? [tree.branch] : [],
+			),
+			...outcome.branches.flatMap((checkout) =>
+				checkout.went.map((went) => went.branch),
+			),
+		];
 		end =
 			outcome.skipped !== undefined
 				? "skipped"
@@ -349,7 +365,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	);
 	if (taken.length > 0) {
 		try {
-			await asks.swept(taken);
+			await asks.swept(taken, branchesGone);
 		} catch (error) {
 			// The trees are gone either way, and a holder that still lists
 			// one lists a path to nothing, which holds nothing; the line says

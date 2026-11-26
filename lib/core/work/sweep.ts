@@ -455,6 +455,18 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			await branchesKeptFor(deps.exec, keptDir, await deps.liveSessions?.()),
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
+		// A holder chose what idle rules may take before the trees above went:
+		// one it kept from them going may leave an older tree its only one, so
+		// a run that took such a tree lets them take none it claims, and the
+		// next run asks again.
+		const keptFromIdle = new Set(
+			untilSpent.filter((path) => !idleMayTake.has(path)).map(resolved),
+		);
+		const letGo = outcome.taken.some((tree) =>
+			keptFromIdle.has(resolved(tree.path)),
+		)
+			? new Set<string>()
+			: idleMayTake;
 		const { idleWithinMs } = deps;
 		// Read as the idle phase begins, not as the run does: the ended trees
 		// before it can spend the whole bound, leaving only a host's share.
@@ -489,10 +501,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				...choice,
 				// A quest lists every tree it ever cut, and those lists alone kept
 				// every idle worktree of an open quest: what its holder lets go, goes.
-				claims: [
-					...claims,
-					...untilSpent.filter((path) => !idleMayTake.has(path)),
-				],
+				claims: [...claims, ...untilSpent.filter((path) => !letGo.has(path))],
 				most: Math.ceil(share / 2),
 				left: (count: number) => {
 					outcome.idleWorktreesLeft = count;

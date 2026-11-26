@@ -313,7 +313,8 @@ function olderInEachRepo(trees: readonly QuestTree[]): Set<string> {
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
-		forgetTrees(questsRoot, (data as SweptTrees).paths).catch(
+		const swept = data as SweptTrees;
+		forgetTrees(questsRoot, swept.paths, swept.branchesGone).catch(
 			(error: unknown) => {
 				sayForgetFailed("any quest", error);
 			},
@@ -329,8 +330,13 @@ export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 export function forgetTrees(
 	questsRoot: string,
 	paths: readonly string[],
+	branchesGone?: readonly string[],
 ): Promise<void> {
-	return forgetTaken(questsRoot, new Set(paths));
+	return forgetTaken(
+		questsRoot,
+		new Set(paths),
+		branchesGone === undefined ? undefined : new Set(branchesGone),
+	);
 }
 
 /**
@@ -338,13 +344,15 @@ export function forgetTrees(
  * quest's write on its own, so one quest's locked or vanished folder
  * leaves the rest forgetting. A tree whose folder is back by the time
  * the walk ends was cut again at its path while the quest was signed,
- * so it stays listed. Its branch's alias stays either way: a sweep
- * takes only a tree whose work another branch or a remote holds, and a
- * live quest's open change on that branch still has to find it.
+ * so it stays listed. Its branch's alias stays while the branch does,
+ * as an idle take leaves it, since a live quest's open change on that
+ * branch still has to find it; one the sweep says it deleted goes with
+ * its tree, as does every one when the sweep says nothing of branches.
  */
 async function forgetTaken(
 	questsRoot: string,
 	taken: ReadonlySet<string>,
+	branchesGone: ReadonlySet<string> | undefined,
 ): Promise<void> {
 	const walks: DiscoveryResult[] = [];
 	for (const store of storesOf(questsRoot)) {
@@ -356,8 +364,12 @@ async function forgetTaken(
 			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
 			try {
 				// A write refused says why as a throw does, and stops the second.
+				const stands =
+					branchesGone !== undefined &&
+					tree.branch !== undefined &&
+					!branchesGone.has(tree.branch);
 				const removed = removeTreeFromQuest(entry.dir, tree.path, {
-					keepBranch: true,
+					keepBranch: stands,
 				});
 				if (!removed.ok) throw new Error(removed.reason);
 				const cleared = setPendingPrune(entry.dir, null, {
