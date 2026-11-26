@@ -2,6 +2,11 @@
  * A hosted conversation's log opened light holds what pi's own open and
  * the kept view hold, and what the view leaves out is never held whole,
  * while pi's own open stands wherever the light one can't match it.
+ *
+ * Long because it tests one module, light-open.ts, and every case builds
+ * on the same compacted-log builder, pi's own open to compare against and
+ * the stand-ins for pi's session manager, so splitting it would only move
+ * those helpers into a fixture each part imports.
  */
 
 import {
@@ -232,6 +237,21 @@ function lineOf(file: string, text: string): number {
 /** pi's session layer as the engine hands it to the light open. */
 const PI: LightPi = { SessionManager, version: CURRENT_SESSION_VERSION };
 
+/**
+ * A stand-in for pi's SessionManager class: what the light open builds
+ * with `new` is what `make` gives back from the arguments it was given.
+ */
+function constructedBy(make: (args: unknown[]) => unknown): unknown {
+	return new Proxy(class {}, {
+		construct(_target, args): object {
+			const made = make(args);
+			if (typeof made !== "object" || made === null)
+				throw new Error("a stand-in built something that isn't a manager");
+			return made;
+		},
+	});
+}
+
 /** The light open of `file` as the engine makes it, failing when it fell back. */
 function lightHeld(file: string): SessionManager {
 	const opened = openKept(PI, file);
@@ -256,13 +276,12 @@ describe("a log opened light", () => {
 		const gc: unknown = runInNewContext("gc");
 		if (typeof gc !== "function") throw new Error("this node won't collect");
 		let given: WeakRef<object> | undefined;
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const watched = function (...args: unknown[]) {
+		const watched = constructedBy((args) => {
 			const entries = args[5];
 			if (typeof entries === "object" && entries !== null)
 				given = new WeakRef(entries);
 			return Reflect.construct(SessionManager, args);
-		};
+		});
 		const pi = { SessionManager: watched, version: CURRENT_SESSION_VERSION };
 		const opened = openKept(pi, compactedLog());
 		if (!opened) throw new Error("the light open fell back to pi's");
@@ -613,12 +632,11 @@ describe("pi's own open stands", () => {
 
 	/** A pi whose session manager `change`s what it built before answering. */
 	function changing(change: (manager: Record<string, unknown>) => void) {
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const changes = function (...args: unknown[]) {
+		const changes = constructedBy((args) => {
 			const made: unknown = Reflect.construct(SessionManager, args);
 			if (isRecord(made)) change(made);
 			return made;
-		};
+		});
 		return { SessionManager: changes, version: CURRENT_SESSION_VERSION };
 	}
 
@@ -663,10 +681,9 @@ describe("pi's own open stands", () => {
 	});
 
 	it("for a session manager that fails to open, saying why it fell back", () => {
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const fails = function () {
+		const fails = constructedBy(() => {
 			throw new Error("no room to open");
-		};
+		});
 		const pi = { SessionManager: fails, version: CURRENT_SESSION_VERSION };
 		const said: unknown[] = [];
 		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
@@ -678,11 +695,10 @@ describe("pi's own open stands", () => {
 
 	it("for a log gone as pi opens it, saying so, with light opens left on", () => {
 		let removing = true;
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const removes = function (...args: unknown[]) {
+		const removes = constructedBy((args) => {
 			if (removing) rmSync(String(args[2]));
 			return Reflect.construct(SessionManager, args);
-		};
+		});
 		const pi = { SessionManager: removes, version: CURRENT_SESSION_VERSION };
 		const said: unknown[] = [];
 		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
@@ -702,10 +718,7 @@ describe("pi's own open stands", () => {
 	});
 
 	it("for a session manager that reads the log itself rather than take its entries", () => {
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const reads = function (...args: unknown[]) {
-			return SessionManager.open(String(args[2]));
-		};
+		const reads = constructedBy((args) => SessionManager.open(String(args[2])));
 		const pi = { SessionManager: reads, version: CURRENT_SESSION_VERSION };
 		expect(fallsBack(compactedLog(), pi, OFF)).toBe(true);
 	});
@@ -787,13 +800,12 @@ describe("a light open that falls back", () => {
 	 * own open skips: its kept view can't be built, and the open falls back.
 	 */
 	function moving(file: string): LightPi {
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const moves = function (...args: unknown[]) {
+		const moves = constructedBy((args) => {
 			const made: unknown = Reflect.construct(SessionManager, args);
 			const [header, ...rest] = readFileSync(file, "utf8").split("\n");
 			writeFileSync(file, [header, "", ...rest].join("\n"));
 			return made;
-		};
+		});
 		return { SessionManager: moves, version: CURRENT_SESSION_VERSION };
 	}
 
@@ -811,15 +823,14 @@ describe("a light open that falls back", () => {
 		const sessions = SessionManager.create(dir, dir);
 		toolTurn(sessions, "only");
 		const file = sessions.getSessionFile() ?? "";
-		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
-		const unbranched = function (...args: unknown[]) {
+		const unbranched = constructedBy((args) => {
 			const made: unknown = Reflect.construct(SessionManager, args);
 			if (isRecord(made))
 				made.getBranch = () => {
 					throw new Error("no branch");
 				};
 			return made;
-		};
+		});
 		const pi = { SessionManager: unbranched, version: CURRENT_SESSION_VERSION };
 		const said: unknown[] = [];
 		expect(openKept(pi, file, (what) => said.push(what))).toBeDefined();

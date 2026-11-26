@@ -33,7 +33,11 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { Entry } from "../../lib/internal/session/rollover.ts";
-import { type StandingOpen, standingOpen } from "./gone-folder.ts";
+import {
+	openStanding,
+	type StandingOpen,
+	standingOpen,
+} from "./gone-folder.ts";
 import { holdKeptHistory, holdsLikePi, leftOutOf } from "./kept-history.ts";
 import type { SessionManager } from "./pi-session.ts";
 
@@ -443,6 +447,37 @@ export function openHeld(
 	});
 	if (!saidWhole) for (const what of fell) report(what);
 	return standing;
+}
+
+/**
+ * The host's open of a conversation's log, holding its kept view: light
+ * when it can be, and otherwise by pi's own open of `sessions`, in the
+ * folder that stands nearest the one the log names when that one is gone,
+ * as a tree released once its change merged is, rather than have pi
+ * refuse it. `version` is the log version pi writes.
+ */
+export function hostOpen(
+	sessions: Parameters<typeof openStanding>[0],
+	version: unknown,
+	report: Report,
+): (file: string) => StandingOpen {
+	const pi: LightPi = { SessionManager: sessions, version };
+	const openWhole = (file: string, say: Report): StandingOpen => {
+		const { manager, left } = openStanding(sessions, file);
+		return {
+			manager: holdKeptHistory(manager, say),
+			...(left ? { left } : {}),
+		};
+	};
+	return (file) => {
+		const standing = openHeld(pi, file, report, openWhole);
+		const { manager, left } = standing;
+		if (left)
+			report(
+				`Conversation ${manager.getSessionId()}'s folder ${left} is gone, so it opens in ${manager.getCwd()}`,
+			);
+		return standing;
+	};
 }
 
 /** pi's session manager is not what the light open builds on. */
