@@ -236,18 +236,17 @@ const LOCK_WAIT_EVERY_MS = 10 * 1000;
  * What holders claim: paths held for good, or those and the paths held
  * only while they are still work, which reclaim's rules may take once
  * nothing else holds them, as `orphanedTrees` says under `spendable`.
- * Of those, `newest` names each holder's newest, the one its session
- * goes back to: a worktree a day idle in its open session is taken by
- * the idle rules unless it is one of them, as the sweep ruling of 24
- * November keeps a quest's newest tree. An asker that names no newest
- * keeps every one it holds until spent from those rules.
+ * Of those, `idleMayTake` names the ones a holder lets the idle rules
+ * take: a worktree a day idle in its open session, clean and pushed, is
+ * taken by them only when it is named there, and every other one held
+ * until spent stays. A snapshot held until spent stays either way.
  */
 export type SweepClaims =
 	| readonly string[]
 	| {
 			held: readonly string[];
 			untilSpent: readonly string[];
-			newest?: readonly string[];
+			idleMayTake?: readonly string[];
 	  };
 
 /** A tree the sweep took back, with the branch it leaves behind. */
@@ -404,7 +403,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			typeof deps.claims === "function" ? await deps.claims() : deps.claims;
 		const claims = "held" in asked ? asked.held : asked;
 		const untilSpent = "held" in asked ? asked.untilSpent : [];
-		const newest = "held" in asked ? asked.newest : undefined;
+		const idleMayTake = new Set("held" in asked ? asked.idleMayTake : []);
 		const facts = deps.facts ?? systemFacts;
 		const inUse = await treesInUse(deps, deps.memory.recall());
 		const held = [...(await deps.memory.heldNow(facts)), ...inUse];
@@ -489,8 +488,11 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			const worktrees: IdleChoice = {
 				...choice,
 				// A quest lists every tree it ever cut, and those lists alone kept
-				// every idle worktree of an open quest: only its newest stays.
-				claims: [...claims, ...(newest ?? untilSpent)],
+				// every idle worktree of an open quest: what its holder lets go, goes.
+				claims: [
+					...claims,
+					...untilSpent.filter((path) => !idleMayTake.has(path)),
+				],
 				most: Math.ceil(share / 2),
 				left: (count: number) => {
 					outcome.idleWorktreesLeft = count;

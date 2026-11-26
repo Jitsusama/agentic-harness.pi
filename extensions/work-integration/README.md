@@ -339,7 +339,7 @@ but that cost 0.27 s with 1,130, and detached snapshots, most of
 what a sweep takes, have no branch to drop.
 A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
-the broker never cut are left alone. The outside runner alone also
+the broker never cut are left alone, but for the idle worktrees below. The outside runner alone also
 finishes up to ten removals a run that stopped part way: folders named
 as cut trees with no `.git` at their top or just below, which no record
 or claim names, reaches into or holds from above, untouched for a day
@@ -408,8 +408,11 @@ file beyond what builds make again (ignored links, as Nix's `result`,
 and ignored folders builds name, as `node_modules/` and `target/`; any
 other ignored folder, as `.worktrees/`, may hold work), no file marked
 skip-worktree or assume-unchanged, no stash on its branch, no commit
-only its HEAD's reflog holds, not locked and no submodules. One whose
-record names no session stays, as nothing could tell or keep its
+only its HEAD's reflog holds, not locked and no submodules. One a
+holder claims stays, unless it claims it only until spent and names
+it in `idleMayTake`: a live quest names there every tree it lists on
+this machine but its newest in each repository, so the tree its
+session goes back to stays. One whose record names no session stays, as nothing could tell or keep its
 branch for it. Worktrees go first, with half the share, so a backlog
 of snapshots never starves them, and `idleWorktreesLeft` says how many
 a run left.

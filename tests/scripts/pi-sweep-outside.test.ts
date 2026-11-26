@@ -22,7 +22,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { liveQuestTrees } from "../../extensions/quest-workflow/claims.ts";
@@ -255,7 +255,7 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 
 	expect(ran, "how the run ended").toEqual({ end: "ran", troubles: [] });
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
+		{ held: [], untilSpent: [SPENT], idleMayTake: [] },
 	]);
 	expect(seen.rests, "the rest it was asked for").toEqual([undefined]);
 	expect(
@@ -318,7 +318,29 @@ it("claims the trees another realm's live quests list, and no sealed one's", asy
 	await sweepOutside({ env: {} });
 
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
+		{ held: [], untilSpent: [SPENT], idleMayTake: [] },
+	]);
+});
+
+it("lets idle rules take a live quest's older tree here, from the same walk as its claims", async () => {
+	const older = "/src/repo/.worktrees/older";
+	const id = "QEST-20260731-AAAAAA";
+	mkdirSync(join(seen.quests, id), { recursive: true });
+	const tree = (path: string) =>
+		`  - path: ${path}\n    providerId: git-worktree\n` +
+		`    repoRoot: /src/repo\n    host: ${hostname()}\n    origin: cut\n`;
+	writeFileSync(
+		join(seen.quests, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			`trees:\n${tree(older)}${tree(SPENT)}` +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with two trees.\n",
+	);
+
+	await sweepOutside({ env: {} });
+
+	expect(seen.claims, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [older, SPENT], idleMayTake: [older] },
 	]);
 });
 
@@ -860,7 +882,7 @@ it("sweeps past a quest named apart from its id, and ones still being made", asy
 
 	expect(ran.end, "how the run ended").not.toBe("failed");
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [SPENT], newest: [SPENT] },
+		{ held: [], untilSpent: [SPENT], idleMayTake: [] },
 	]);
 });
 

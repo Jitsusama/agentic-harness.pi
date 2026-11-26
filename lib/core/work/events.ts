@@ -82,12 +82,12 @@ export interface TreeClaims {
 	 */
 	untilSpent?: string[];
 	/**
-	 * Of {@link untilSpent}, each holder's newest, the one its session goes
-	 * back to, which a sweep keeps from its idle rules while the holder
-	 * lives. Offered by an asker that takes the rest by those rules; one
-	 * that doesn't offer it keeps all of them.
+	 * Of {@link untilSpent}, the trees a holder lets a sweep's idle rules
+	 * take while it lives: a day unused, clean and pushed. Offered by an
+	 * asker with idle rules; a holder that names none of its trees here,
+	 * or never heard of it, keeps every one from those rules.
 	 */
-	newest?: string[];
+	idleMayTake?: string[];
 	/**
 	 * Offered by an asker that can wait: a holder whose quick answer may
 	 * be out of date pushes a promise here that ends once it has written

@@ -156,7 +156,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		).toBe(commit);
 	});
 
-	it("takes one its live quest claims until spent, keeping only the quest's newest", async () => {
+	it("takes one its live quest claims until spent and lets idle rules take, keeping the rest it claims", async () => {
 		const setup = await setUp();
 		const older = await pushedAndLeft(setup, "cut-first", IDLE);
 		const newest = await pushedAndLeft(setup, "cut-last", IDLE);
@@ -165,7 +165,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 			claims: {
 				held: [],
 				untilSpent: [older.tree, newest.tree],
-				newest: [newest.tree],
+				idleMayTake: [older.tree],
 			},
 		});
 
@@ -173,7 +173,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(existsSync(newest.tree), "the quest's newest is kept").toBe(true);
 	});
 
-	it("keeps every one its live quest claims until spent when the asker names no newest", async () => {
+	it("keeps every one its live quest claims until spent when its holder lets idle rules take none", async () => {
 		const setup = await setUp();
 		const { tree } = await pushedAndLeft(setup, "claimed", IDLE);
 

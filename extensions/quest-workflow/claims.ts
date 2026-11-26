@@ -45,6 +45,7 @@ import {
 	README_MISSING,
 } from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
+import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	removeTreeFromQuest,
 	setPendingPrune,
@@ -68,6 +69,13 @@ import {
  * the asker's {@link TreeClaims.untilSpent} when it offers that list,
  * and are held for good only by an asker that doesn't.
  *
+ * Of those, a quest lets an unattended sweep's idle rules take every
+ * tree it lists on this machine but its newest in each repository, the
+ * one its session goes back to, as the sweep ruling of 24 November
+ * keeps; it names them in {@link TreeClaims.idleMayTake} when the asker
+ * offers that list. A quest's older trees alone kept every idle worktree
+ * of an open quest: 24 clean, pushed and day-idle trees on 26 November.
+ *
  * The claims come at once from each store's last walk, which on a host
  * may predate another process's change by as long as nobody asked. An
  * asker that offers {@link TreeClaims.answering} waits as well on each
@@ -88,12 +96,12 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		claimFrom(
 			stores.filter(questsWalked).map((store) => discoverQuests(store)),
 			into,
-			claims.newest,
+			claims.idleMayTake,
 		);
 		if (!hosted()) return;
 		claims.answering?.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
-				(walks) => claimFrom(walks, into, claims.newest),
+				(walks) => claimFrom(walks, into, claims.idleMayTake),
 			),
 		);
 	});
@@ -105,27 +113,28 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
  * a host each store is signed as it stands on every ask.
  */
 export function liveQuestTrees(questsRoot: string): string[] {
-	const paths: string[] = [];
-	claimFrom(
-		storesOf(questsRoot).map((store) => discoverQuests(store)),
-		paths,
-	);
-	return paths;
+	return liveQuestClaims(questsRoot).untilSpent;
+}
+
+/** What the live quests hold until spent, and which of it idle rules may take. */
+export interface QuestTreeClaims {
+	untilSpent: string[];
+	idleMayTake: string[];
 }
 
 /**
- * Each live quest's newest tree, the last it lists, in any realm, read
- * as {@link liveQuestTrees} reads them: the one its session goes back
- * to, which a sweep in a process of its own keeps from its idle rules.
+ * Every tree a live quest lists, as {@link liveQuestTrees} reads them,
+ * and of those the ones idle rules may take, from one walk, so the two
+ * lists tell of the same moment.
  */
-export function newestQuestTrees(questsRoot: string): string[] {
-	const paths: string[] = [];
+export function liveQuestClaims(questsRoot: string): QuestTreeClaims {
+	const claims: QuestTreeClaims = { untilSpent: [], idleMayTake: [] };
 	claimFrom(
 		storesOf(questsRoot).map((store) => discoverQuests(store)),
-		[],
-		paths,
+		claims.untilSpent,
+		claims.idleMayTake,
 	);
-	return paths;
+	return claims;
 }
 
 /**
@@ -235,24 +244,42 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
 
 /**
  * Push every tree a live quest in `walks` lists onto `into`, once, so
- * the fresh answer adds only what the last walk didn't hold, and each
- * quest's newest onto `newest` when it is given. A quest adds a tree
- * to the end of its list as it cuts it, so the last is its newest.
+ * the fresh answer adds only what the last walk didn't hold, and onto
+ * `mayTake`, when it is given, each of its trees here that isn't the
+ * newest of its repository. A quest adds a tree to the end of its list
+ * as it cuts it, so a repository's last is its newest. A tree whose
+ * repository isn't known, or that any live quest holds as its newest,
+ * is never named, and one named by an earlier walk that this one finds
+ * newest is taken back off.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
 	into: string[],
-	newest?: string[],
+	mayTake?: string[],
 ): void {
+	const newest = new Set<string>();
+	const older: string[] = [];
 	for (const entry of liveQuests(walks)) {
 		const trees = entry.doc.frontMatter.trees ?? [];
 		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
-		const last = trees.at(-1)?.path;
-		if (newest !== undefined && last !== undefined && !newest.includes(last)) {
-			newest.push(last);
+		const lastInRepo = new Map<string, string>();
+		for (const tree of treesHere(trees)) {
+			if (tree.repoRoot === undefined) continue;
+			const before = lastInRepo.get(tree.repoRoot);
+			if (before !== undefined) older.push(before);
+			lastInRepo.set(tree.repoRoot, tree.path);
 		}
+		for (const path of lastInRepo.values()) newest.add(path);
+	}
+	if (mayTake === undefined) return;
+	for (const path of older) {
+		if (!newest.has(path) && !mayTake.includes(path)) mayTake.push(path);
+	}
+	for (let at = mayTake.length - 1; at >= 0; at--) {
+		const path = mayTake[at];
+		if (path !== undefined && newest.has(path)) mayTake.splice(at, 1);
 	}
 }
 

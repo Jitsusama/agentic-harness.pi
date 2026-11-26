@@ -69,8 +69,7 @@ import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	forgetTrees,
-	liveQuestTrees,
-	newestQuestTrees,
+	liveQuestClaims,
 	whyQuestsUnread,
 } from "../extensions/quest-workflow/claims.ts";
 import { questsRootNow } from "../extensions/quest-workflow/config.ts";
@@ -238,11 +237,7 @@ export async function sweepOutside({
 		);
 	}
 	const end = await sweepAndLog({
-		claimed: () => ({
-			held: [],
-			untilSpent: liveQuestTrees(questsRoot),
-			newest: newestQuestTrees(questsRoot),
-		}),
+		claimed: () => ({ held: [], ...liveQuestClaims(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),
 		fencedGit: true,
 		idleTakes: OUTSIDE_IDLE_TAKES,

@@ -209,7 +209,7 @@ it("holds a live quest's tree only until spent", async () => {
 	await vi.waitFor(() => expect(given, "claims given").toHaveLength(1));
 
 	expect(given, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [tree], newest: [tree] },
+		{ held: [], untilSpent: [tree], idleMayTake: [] },
 	]);
 });
 
@@ -580,7 +580,7 @@ it("says what it took to whoever listed it", async () => {
 	await sweepOn(events);
 
 	expect(given, "the claims the sweep was given").toEqual([
-		{ held: ["/src/repo/.worktrees/kept"], untilSpent: [], newest: [] },
+		{ held: ["/src/repo/.worktrees/kept"], untilSpent: [], idleMayTake: [] },
 	]);
 	expect(heard, "what holders heard was taken").toEqual([
 		"/src/repo/.worktrees/spent",

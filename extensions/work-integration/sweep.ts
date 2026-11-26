@@ -156,7 +156,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			const claims: TreeClaims = {
 				paths: [],
 				untilSpent: [],
-				newest: [],
+				idleMayTake: [],
 				answering: [],
 			};
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
@@ -164,7 +164,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			return {
 				held: claims.paths,
 				untilSpent: claims.untilSpent ?? [],
-				newest: claims.newest ?? [],
+				idleMayTake: claims.idleMayTake ?? [],
 			};
 		},
 		// Whoever listed a tree it took stops listing a folder that is gone.
@@ -204,12 +204,12 @@ export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
 
 /**
  * The trees held for good, those held only until spent, and of those
- * each holder's newest, which idle rules leave while it lives.
+ * the ones their holders let idle rules take while they live.
  */
 export interface SweepHolds {
 	held: string[];
 	untilSpent: string[];
-	newest?: string[];
+	idleMayTake?: string[];
 }
 
 /** What a sweep asks of whoever runs it. */
