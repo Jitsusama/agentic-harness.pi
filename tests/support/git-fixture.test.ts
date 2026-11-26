@@ -21,7 +21,7 @@ import {
 	withoutGitSettings,
 } from "./git-fixture.ts";
 
-/** What git's trace says as a command starts background maintenance, of either kind. */
+/** What git's trace says as a command starts maintenance, of either kind, detached or not. */
 const STARTS_MAINTENANCE = /run_command: git (maintenance|gc)\b/;
 
 /**

@@ -93,10 +93,15 @@ const GIT_ENV = {
 const REPO_SETTINGS =
 	"[maintenance]\n\tauto = false\n[core]\n\tfsmonitor = false\n";
 
-/** What `git init` writes of its own rather than copies from a template. */
-const MADE_BY_INIT = new Set(["HEAD", "config", "objects", "refs"]);
+/**
+ * What of git's own template each repo keeps: the folders tests write
+ * hooks and excludes into, and the description beside them. Named rather
+ * than taken as all `git init` makes, which on a git storing refs another
+ * way holds more than a template should.
+ */
+const FROM_GITS_TEMPLATE = ["hooks", "info", "description"];
 
-/** The template folder git makes each repo from, written once per worker. */
+/** The template folder git makes each repo from, written once per test file. */
 let repoTemplate: string | undefined;
 
 /**
@@ -104,20 +109,23 @@ let repoTemplate: string | undefined;
  * folder and the rest, which tests write into, with the settings above
  * as its config. A template folder replaces git's own rather than adding
  * to it, so git's is copied from a repo made with it. Written on first
- * use, and removed as the worker exits.
+ * use in each test file, which vitest loads apart; the run's temp root
+ * (tests/setup/temp-root.ts) removes it, since vitest ends its workers
+ * without their exit handlers.
  */
 function repoTemplateDir(): string {
 	if (repoTemplate) return repoTemplate;
 	const folder = mkdtempSync(join(tmpdir(), "git-fixture-settings-"));
-	process.once("exit", () => rmSync(folder, { recursive: true, force: true }));
 	const probe = join(folder, "probe");
 	execFileSync("git", ["init", "-q", probe], {
 		env: { ...withoutGitSettings(process.env), ...GIT_ENV },
+		timeout: REAL_GIT_MS,
 	});
 	const template = join(folder, "template");
 	mkdirSync(template);
-	for (const part of readdirSync(join(probe, ".git"))) {
-		if (MADE_BY_INIT.has(part)) continue;
+	const made = new Set(readdirSync(join(probe, ".git")));
+	for (const part of FROM_GITS_TEMPLATE) {
+		if (!made.has(part)) continue;
 		cpSync(join(probe, ".git", part), join(template, part), {
 			recursive: true,
 		});
