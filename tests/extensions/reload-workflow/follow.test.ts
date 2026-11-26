@@ -176,12 +176,14 @@ function remadeSame(): {
 	dirs.push(root);
 	const storeWas = process.env.NIX_STORE_DIR;
 	process.env.NIX_STORE_DIR = root;
-	const [first, second] = ["first", "second"].map((name) => {
+	const storeTree = (name: string): string => {
 		const at = join(root, name);
 		mkdirSync(at);
 		writeFileSync(join(at, "index.ts"), "export const a = 1;\n");
 		return at;
-	});
+	};
+	const first = storeTree("first");
+	const second = storeTree("second");
 	const extensions = join(root, "extensions");
 	mkdirSync(extensions);
 	const link = join(extensions, "the-proxy");
