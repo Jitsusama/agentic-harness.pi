@@ -180,6 +180,36 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 	});
 
+	// No need keeps a joined id past LONGEST_WORD either, and one with a
+	// number is said only whole, so its hub could take none (#2220's
+	// sixth council, F57).
+	it("refuse a subject joining a number into an id past the longest kept, naming it", async () => {
+		const id = await made();
+		const joined = `${"a".repeat(LONGEST_WORD - 6)}-leg-26`;
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=x:${joined}`,
+		});
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result), "the id named").toContain(`${joined} in x:${joined}`);
+	});
+
+	// One with no number is said by its parts, so its hub takes a need.
+	it("set a subject joining words into an id past the longest kept", async () => {
+		const id = await made();
+		const joined = `x:${"a".repeat(LONGEST_WORD - 5)}-lines`;
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=${joined}`,
+		});
+		expect([result.ok, subjectsOf(id)], "set").toEqual([true, [joined]]);
+	});
+
 	it("set a subject whose one word is as long as the longest kept", async () => {
 		const id = await made();
 		const longest = `x:${"a".repeat(LONGEST_WORD)}`;
@@ -240,6 +270,20 @@ describe("the subjects a quest's sessions declare", () => {
 			`, of which ${long} says a word past ${LONGEST_WORD} characters, which no need keeps, so its hub takes none`,
 		);
 		expect(said(report), "not as naming no work").not.toMatch(/names no work/);
+	});
+
+	// An owned prefix is the machine's config, which subjects= can't
+	// change, so it is never named as the README's (#2220's sixth
+	// council, F46).
+	it("name no owned prefix whose word past the longest kept leaves its hub taking none", async () => {
+		const id = await made();
+		const long = `${"a".repeat(LONGEST_WORD + 1)}-lines.`;
+		owners(`${long}=${questAddress(id)}`);
+		const report = await run({ action: "config", id });
+		expect(said(report), "the owned prefix").toContain(`owning ${long}`);
+		expect(said(report), "not as the README's").not.toMatch(
+			/past \d+ characters/,
+		);
 	});
 
 	it("refuse what the owner prefixes would crowd out of the twelve places, changing nothing", async () => {

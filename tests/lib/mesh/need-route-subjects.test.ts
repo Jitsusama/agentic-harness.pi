@@ -14,6 +14,7 @@ import {
 	type NeedAsked,
 	routingWords,
 	subjectWords,
+	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 import {
@@ -682,6 +683,50 @@ describe("a need routed by declared subjects", () => {
 			}),
 			ties: ties(["A", "C", 1]),
 			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	// The cap keeps a word as long as it, so a hub of one is taken by a
+	// need saying it (#2220's sixth council, F44).
+	it("takes the hub for a word as long as LONGEST_WORD, said whole", () => {
+		const longest = "p".repeat(LONGEST_WORD);
+		const found = routeNeed(asked("A", "easing", longest, "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${longest}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "its hub takes it to H").toMatchObject({
+			fit: "H",
+			path: ["H"],
+		});
+	});
+
+	// A joined id with a number is said only whole or inside a longer id,
+	// and past LONGEST_WORD no need keeps it: a hub left matching by its
+	// other words would take a need for leg 27 for a subject of leg 26
+	// (#2220's sixth council, F57).
+	it("takes no hub whose subject joins a number into an id longer than any a need keeps", () => {
+		const word = "p".repeat(LONGEST_WORD - 6);
+		const found = routeNeed(asked("A", ...wordsOf(`easing ${word} leg 27`)), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["leg"],
+				W: ["leg"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${word}-leg-26`, hub: "H", fits: ["H"] }],
 		});
 
 		expect(found, "easing carries it to C").toMatchObject({

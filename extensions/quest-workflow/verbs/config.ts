@@ -228,18 +228,27 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 			`Nothing changed: mycelium's node reads at most ${MOST_SUBJECTS} subjects, each plain text of at most ${LONGEST_SUBJECT} characters, and would pass over ${dropped.length} of these. ${SUBJECTS_USAGE}`,
 		);
 	}
-	const silent = subjects.filter(namesNoWork);
+	// Refused by the one rule led areas and the report read, so the three
+	// can't part, and worded by its causes (#2220's sixth council, F45
+	// and F47).
+	const hubless = subjects.filter(hubTakesNone);
+	const silent = hubless.filter(namesNoWork);
 	if (silent.length > 0) {
 		return refuse(
 			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash with a .service ending set aside, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short, too long or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
 		);
 	}
-	const overLong = subjects.flatMap((one) =>
+	const overLong = hubless.flatMap((one) =>
 		overLongWords(one).map((word) => `${word} in ${one}`),
 	);
 	if (overLong.length > 0) {
 		return refuse(
 			`Nothing changed: a subject's hub takes a need only when it says every word of the subject's narrowest part, and no need keeps a word past ${LONGEST_WORD} characters, so its hub would take none for ${overLong.join(", ")}. Name the work there in shorter words. ${SUBJECTS_USAGE}`,
+		);
+	}
+	if (hubless.length > 0) {
+		return refuse(
+			`Nothing changed: no need would reach the hub of ${hubless.join(", ")}. Name the work itself there. ${SUBJECTS_USAGE}`,
 		);
 	}
 	const owned = subjectsOf(ownedByQuest(target.questId), []);

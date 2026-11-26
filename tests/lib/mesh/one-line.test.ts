@@ -88,6 +88,7 @@ describe("plainQuotes", () => {
 		["a fullwidth double quote", "\uFF02"],
 		["a fullwidth backtick", "\uFF40"],
 		["a double prime", "\u2033"],
+		["a quadruple prime, which draws as two double quotes", "\u2057"],
 		["a modifier grave accent", "\u02CB"],
 		["an ornamental quote", "\u275E"],
 		["heavy low comma quote ornaments", "\u275F\u2760"],

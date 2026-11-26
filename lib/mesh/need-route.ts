@@ -352,21 +352,28 @@ function isWorkWord(word: string | undefined): word is string {
  * with a particle after it as theirs (`PARTICLE_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
+	return wordsAndIdsOf(text, (id) => id.length <= LONGEST_WORD);
+}
+
+/**
+ * The words `wordsOf` reads, keeping of the ids only those `keep`
+ * holds to: `wordsOf` keeps none past `LONGEST_WORD`, and a subject's
+ * words keep every one, so a subject saying one is seen to say it.
+ */
+function wordsAndIdsOf(text: string, keep: (id: string) => boolean): string[] {
 	const lower = text.toLowerCase().replace(APOSTROPHE_LIKE, "'");
 	const words = lower.split(/[^\p{L}\p{N}]+/u).filter(isWorkWord);
-	const ids = [...lower.matchAll(JOINED_ID)]
-		.map(([id]) => id)
-		.filter((id) => id.length <= LONGEST_WORD);
+	const ids = [...lower.matchAll(JOINED_ID)].map(([id]) => id).filter(keep);
 	// A plain word's number is no id: "under 15" or "on 24" names no
 	// work. A short word's is, so PR 42 and v 2 keep their ids.
 	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
 		.filter(([, word]) => word !== undefined && !COMMON.has(word))
 		.map(([, word, n]) => `${word}-${n}`)
-		.filter((id) => id.length <= LONGEST_WORD);
+		.filter(keep);
 	const phrases = [...lower.matchAll(PARTICLE_IN_PROSE)]
 		.filter(([, word]) => isWorkWord(word))
 		.map(([, word, particle]) => `${word}-${particle}`)
-		.filter((id) => id.length <= LONGEST_WORD);
+		.filter(keep);
 	return [...new Set([...words, ...ids, ...numbered, ...phrases])];
 }
 
@@ -422,13 +429,14 @@ function subjectParts(subject: string): string[] {
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
  * `asks`, and `unstamped:agents.service` gives `agents`, since a
  * service unit's type is left out. A narrowest part with no word long
- * enough gives none, rather than a broader part's. A word past
- * `LONGEST_WORD` is kept, since a hub is matched by every word of its
- * subject, and no need says that one: left out, the hub would take a
- * need saying only the subject's shorter words.
+ * enough gives none, rather than a broader part's. A word or a joined
+ * id past `LONGEST_WORD` is kept, since a hub is matched by every word
+ * of its subject, and no need says that one: left out, the hub would
+ * take a need saying only the subject's shorter words, and a hub of
+ * x:...-leg-26 one for leg 27 (#2220's sixth council, F57).
  */
 export function subjectWords(subject: string): string[] {
-	return wordsOf(subjectParts(subject).at(-1) ?? "");
+	return wordsAndIdsOf(subjectParts(subject).at(-1) ?? "", () => true);
 }
 
 /**
@@ -441,12 +449,18 @@ export function routingWords(subject: string): string[] {
 }
 
 /**
- * The words of a subject (`subjectWords`) past `LONGEST_WORD`: a hub of
- * it takes a need only when the need says every one, and no need keeps
- * these, so with any its hub takes nothing.
+ * The words of a subject (`subjectWords`) past `LONGEST_WORD` that no
+ * need can say: a hub of it takes a need only when the need says every
+ * one, and no need keeps these, so with any its hub takes nothing. A
+ * joined id is among them only where a part is a number, since one
+ * without is said by its parts (`saysWord`), and one with is said only
+ * whole or inside a longer id, neither of which a need keeps.
  */
 export function overLongWords(subject: string): string[] {
-	return subjectWords(subject).filter((word) => word.length > LONGEST_WORD);
+	return subjectWords(subject).filter(
+		(word) =>
+			word.length > LONGEST_WORD && (!isJoined(word) || isNumbered(word)),
+	);
 }
 
 /**
