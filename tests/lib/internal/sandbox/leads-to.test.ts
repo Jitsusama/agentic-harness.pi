@@ -9,6 +9,7 @@ import {
 	type PathLike,
 	realpathSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -137,13 +138,17 @@ describe("leadsTo", () => {
 	});
 
 	it("follows as many links as the system would, and gives up past them", () => {
-		// C0 is no link, so a chain from Cn follows n links: 40 on Linux, 32
-		// on a Mac.
-		const most = process.platform === "darwin" ? 32 : 40;
-		expect(MOST_LINKS).toBe(most);
+		// C0 is no link, so a chain from Cn follows n links. The system
+		// itself says where its count ends, so the walk is held to the
+		// system's, not to a copy of its own.
+		const most = MOST_LINKS;
 		mkdirSync(join(home, "C0"));
 		for (let link = 1; link <= most + 1; link++)
 			symlinkSync(`C${link - 1}`, join(home, `C${link}`));
+		expect(() => statSync(join(home, `C${most}`))).not.toThrow();
+		expect(() => statSync(join(home, `C${most + 1}`))).toThrow(
+			expect.objectContaining({ code: "ELOOP" }),
+		);
 
 		expect(leadsTo(join(home, `C${most}`, "made"))).toBe(
 			join(home, "C0", "made"),

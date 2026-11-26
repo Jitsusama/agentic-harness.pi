@@ -9,6 +9,7 @@
  * interceptor through it, so split files would each build it again.
  */
 
+import { Buffer } from "node:buffer";
 import {
 	existsSync,
 	mkdirSync,
@@ -162,7 +163,26 @@ describe("a strict session's reads", () => {
 	});
 });
 
-describe("a strict session's writes", () => {
+describe("a fenced session's file tools", () => {
+	const fence = { PI_SANDBOX: "fence" };
+
+	it("refuse a loop of links rather than chase it", () => {
+		symlinkSync(join(work, "b"), join(work, "a"));
+		symlinkSync(join(work, "a"), join(work, "b"));
+		expect(refusal("read", { path: "a" }, fence)).toContain(
+			"couldn't say where a leads",
+		);
+	});
+
+	it("refuse a link whose target isn't UTF-8, rather than follow another name", () => {
+		symlinkSync(Buffer.from([0x66, 0xff]), join(work, "odd"));
+		expect(refusal("read", { path: "odd" }, fence)).toContain(
+			"couldn't say where odd leads",
+		);
+	});
+});
+
+describe("a strict session's writes through links", () => {
 	it("never follow a link to nothing out of the work through a linked folder", () => {
 		// Named through a deep link back to the work, the link's `..` read
 		// from how its folder is spelled lands in the work; the system reads
