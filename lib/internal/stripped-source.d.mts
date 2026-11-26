@@ -32,6 +32,12 @@ export function cacheRoot(
 ): string;
 
 /**
+ * The folder of pi's state the fence keeps read-only to its commands,
+ * which every install's folder must lie in.
+ */
+export function heldState(home: string): string;
+
+/**
  * The folder name for the install at `packageRoot` under node `version`,
  * its package.json naming `type`.
  */
@@ -69,13 +75,18 @@ export function strippedSourceLoad(parts: LoadParts): LoadHookSync;
 export interface WriterParts {
 	/** The folder its entries lie in. */
 	readonly folder: string;
+	/**
+	 * The folder it lies in that the fence keeps read-only, from which
+	 * down every folder must be this login's own and no link.
+	 */
+	readonly held: string;
 	/** The install it serves. */
 	readonly served: string;
 	/** The node version it serves under. */
 	readonly version: string;
 	/** Told once, when a write first fails. */
 	readonly report?: (said: string) => void;
-	/** Told once the folder is made and private. */
+	/** Told once the folder is made and stands as a start would read from it. */
 	readonly made?: () => void;
 }
 
@@ -100,8 +111,9 @@ export interface SweepParts {
 
 /**
  * Remove the folders in `root` but `keep` whose install is gone, that
- * hold `served` under another node, or that name none an hour after
- * they were made; and the entries in `keep` no start read for 30 days.
+ * hold `served` under another node and were read from by no start for
+ * two days, or that name none an hour after they were made; and the
+ * entries in `keep` no start read for 30 days.
  */
 export function sweepGone(parts: SweepParts): Promise<void>;
 

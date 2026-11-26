@@ -14,6 +14,7 @@ import {
 	realpath,
 	rm,
 	stat,
+	symlink,
 	utimes,
 	writeFile,
 } from "node:fs/promises";
@@ -26,6 +27,7 @@ import {
 	cacheRoot,
 	entryText,
 	entryWriter,
+	heldState,
 	installKey,
 	OFF_VARIABLE,
 	type ProcessFacts,
@@ -258,6 +260,7 @@ describe("entryWriter", () => {
 		const made = vi.fn();
 		const keep = entryWriter({
 			folder,
+			held: root,
 			served: "/install/one",
 			version: "v22.23.5",
 			made,
@@ -288,6 +291,7 @@ describe("entryWriter", () => {
 		});
 		const keep = entryWriter({
 			folder,
+			held: root,
 			served: "/install/one",
 			version: "v22.23.5",
 			report: (what) => {
@@ -310,15 +314,14 @@ describe("entryWriter", () => {
 		}
 	});
 
-	it("writes nothing to a folder others may write", async () => {
-		const folder = join(root, "open");
-		await mkdir(folder);
-		await chmod(folder, 0o777);
+	/** What a writer of `folder` in the root says of its first entry. */
+	const refusal = async (folder: string) => {
 		const said: string[] = [];
 		const made = vi.fn();
 		await new Promise<void>((settle) => {
 			entryWriter({
 				folder,
+				held: root,
 				served: "/install/one",
 				version: "v22.23.5",
 				made,
@@ -328,9 +331,51 @@ describe("entryWriter", () => {
 				},
 			})(join(folder, "e1"), "one");
 		});
+		return { said, made };
+	};
+
+	it("writes nothing to a folder others may write", async () => {
+		const folder = join(root, "open");
+		await mkdir(folder);
+		await chmod(folder, 0o777);
+		const { said, made } = await refusal(folder);
 		expect(said).toEqual([expect.stringContaining("closed to others")]);
 		expect(made).not.toBeCalled();
 		expect(await readdir(folder)).toEqual([]);
+	});
+
+	it("writes nothing below a folder others may write, though its own is private", async () => {
+		const above = join(root, "above");
+		await mkdir(join(above, "key"), { recursive: true, mode: 0o700 });
+		await chmod(above, 0o775);
+		const { said, made } = await refusal(join(above, "key"));
+		expect(said).toEqual([expect.stringContaining("closed to others")]);
+		expect(made).not.toBeCalled();
+		expect(await readdir(join(above, "key"))).toEqual([]);
+	});
+
+	it("writes nothing through a link above its folder", async () => {
+		const real = join(root, "real");
+		await mkdir(join(real, "key"), { recursive: true, mode: 0o700 });
+		await symlink(real, join(root, "link"));
+		const { said, made } = await refusal(join(root, "link", "key"));
+		expect(said).toEqual([expect.stringContaining("through no link")]);
+		expect(made).not.toBeCalled();
+		expect(await readdir(join(real, "key"))).toEqual([]);
+	});
+
+	it("writes nothing outside the folder the fence holds", async () => {
+		const outside = await realpath(
+			await mkdtemp(join(tmpdir(), "stripped-outside-")),
+		);
+		try {
+			const { said, made } = await refusal(join(outside, "key"));
+			expect(said).toEqual([expect.stringContaining(`from ${root} down`)]);
+			expect(made).not.toBeCalled();
+			expect(await readdir(join(outside, "key"))).toEqual([]);
+		} finally {
+			await rm(outside, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -369,17 +414,48 @@ describe("sweepGone", () => {
 		]);
 	});
 
-	it("removes its own install's folder under another node, though the install stands", async () => {
+	/** Mark `name`'s folder and everything in it last used `days` ago. */
+	const usedAgo = async (name: string, days: number) => {
+		for (const each of await readdir(join(root, name)))
+			await utimes(join(root, name, each), daysAgo(days), daysAgo(days));
+		await utimes(join(root, name), daysAgo(days), daysAgo(days));
+	};
+
+	it("removes its own install's folder under another node once no start has read it for two days", async () => {
 		const mine = join(root, "mine-install");
 		await mkdir(mine);
 		await folder("mine", mine);
 		await folder("older node", mine, "v22.22.0");
+		await writeFile(join(root, "older node", "entry"), "x");
+		await usedAgo("older node", 3);
 		await mkdir(join(root, "unversioned"));
 		await writeFile(join(root, "unversioned", "root"), mine);
+		await usedAgo("unversioned", 3);
 
 		await sweep(mine);
 
 		expect((await readdir(root)).sort()).toEqual(["mine", "mine-install"]);
+	});
+
+	it("keeps its own install's folder under another node while a start still reads it", async () => {
+		// As a start from before a switch to another node 22 still does:
+		// each start would otherwise sweep the other's away.
+		const mine = join(root, "mine-install");
+		await mkdir(mine);
+		await folder("mine", mine);
+		await folder("older node", mine, "v22.22.0");
+		for (const name of ["read", "unread"])
+			await writeFile(join(root, "older node", name), "x");
+		await usedAgo("older node", 3);
+		await utimes(join(root, "older node", "read"), daysAgo(1), daysAgo(1));
+
+		await sweep(mine);
+
+		expect((await readdir(root)).sort()).toEqual([
+			"mine",
+			"mine-install",
+			"older node",
+		]);
 	});
 
 	it("removes the entries of its own folder no start has read for 30 days", async () => {
@@ -420,9 +496,10 @@ describe("sweepGone", () => {
 describe("startStrippedSourceCache", () => {
 	it("registers its hook where node 22 strips, keeping in the install's folder", () => {
 		const register = vi.fn();
+		const env = { XDG_STATE_HOME: join(root, ".local", "state") };
 		const started = startStrippedSourceCache({
-			env: { XDG_STATE_HOME: root },
-			home: "/home/u",
+			env,
+			home: root,
 			packageRoot: "/install/one",
 			facts: STRIPPING,
 			register,
@@ -430,11 +507,49 @@ describe("startStrippedSourceCache", () => {
 		expect(started).toEqual({
 			state: "on",
 			folder: join(
-				cacheRoot({ XDG_STATE_HOME: root }, "/home/u"),
+				cacheRoot(env, root),
 				installKey("/install/one", "v22.23.5"),
 			),
 		});
 		expect(register).toHaveBeenCalledWith({ load: expect.any(Function) });
+	});
+
+	it("stands aside where pi's state lies outside the folder the fence holds", () => {
+		const register = vi.fn();
+		const started = startStrippedSourceCache({
+			env: { XDG_STATE_HOME: join(root, "elsewhere") },
+			home: root,
+			packageRoot: "/install/one",
+			facts: STRIPPING,
+			register,
+		});
+		expect(started).toEqual({
+			state: "off",
+			reason: expect.stringContaining(heldState(root)),
+		});
+		expect(register).not.toBeCalled();
+	});
+
+	it("fails rather than read through a link in pi's state", async () => {
+		const real = join(root, "real");
+		await mkdir(join(real, "state", "pi", "agentic-harness.pi"), {
+			recursive: true,
+		});
+		await mkdir(join(root, ".local"));
+		await symlink(join(real, "state"), join(root, ".local", "state"));
+		const register = vi.fn();
+		const started = startStrippedSourceCache({
+			env: {},
+			home: root,
+			packageRoot: "/install/one",
+			facts: STRIPPING,
+			register,
+		});
+		expect(started).toEqual({
+			state: "failed",
+			reason: expect.stringContaining("through no link"),
+		});
+		expect(register).not.toBeCalled();
 	});
 
 	it("registers nothing where it stands aside", () => {
@@ -449,15 +564,15 @@ describe("startStrippedSourceCache", () => {
 
 	it("fails rather than read a folder others may write", async () => {
 		const folder = join(
-			cacheRoot({ XDG_STATE_HOME: root }, "/home/u"),
+			cacheRoot({}, root),
 			installKey("/install/one", "v22.23.5"),
 		);
 		await mkdir(folder, { recursive: true });
 		await chmod(folder, 0o755);
 		const register = vi.fn();
 		const started = startStrippedSourceCache({
-			env: { XDG_STATE_HOME: root },
-			home: "/home/u",
+			env: {},
+			home: root,
 			packageRoot: "/install/one",
 			facts: STRIPPING,
 			register,
@@ -474,7 +589,8 @@ describe("startStrippedSourceCache", () => {
 		await mkdir(install);
 		await writeFile(join(install, "package.json"), '{ "type": "module" }');
 		const started = startStrippedSourceCache({
-			env: { XDG_STATE_HOME: root },
+			env: {},
+			home: root,
 			packageRoot: install,
 			facts: STRIPPING,
 			register: vi.fn(),
@@ -482,7 +598,7 @@ describe("startStrippedSourceCache", () => {
 		expect(started).toEqual({
 			state: "on",
 			folder: join(
-				cacheRoot({ XDG_STATE_HOME: root }, "/home/u"),
+				cacheRoot({}, root),
 				installKey(install, "v22.23.5", "module"),
 			),
 		});
@@ -490,6 +606,8 @@ describe("startStrippedSourceCache", () => {
 
 	it("answers why it failed rather than throwing, leaving node to strip", () => {
 		const started = startStrippedSourceCache({
+			env: {},
+			home: root,
 			packageRoot: "/install/one",
 			facts: STRIPPING,
 			register: () => {

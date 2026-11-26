@@ -120,7 +120,7 @@ describe("the stripped-source cache in a node", () => {
 		"runs a module read back as node ran it, with no transpiler loaded",
 		async () => {
 			const entry = await sayingModule();
-			const env = { XDG_STATE_HOME: join(root, "state") };
+			const env = { XDG_STATE_HOME: join(root, ".local", "state") };
 
 			const native = await says(entry, env);
 			const first = await says(entry, env, startingAs22());
@@ -145,7 +145,7 @@ describe("the stripped-source cache in a node", () => {
 		async () => {
 			const entry = await sayingModule();
 			const env = {
-				XDG_STATE_HOME: join(root, "state"),
+				XDG_STATE_HOME: join(root, ".local", "state"),
 				[OFF_VARIABLE]: "off",
 			};
 
@@ -166,7 +166,11 @@ describe("the stripped-source cache in a node", () => {
 				process.execPath,
 				supervisorArguments(script, "request.json"),
 				{
-					env: { PATH: process.env.PATH, HOME: root, XDG_STATE_HOME: root },
+					env: {
+						PATH: process.env.PATH,
+						HOME: root,
+						XDG_STATE_HOME: join(root, ".local", "state"),
+					},
 					timeout: ONE_RUN,
 				},
 			);

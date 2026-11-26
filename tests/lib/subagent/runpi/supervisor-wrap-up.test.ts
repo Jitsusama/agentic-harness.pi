@@ -193,7 +193,8 @@ describe("handing a wrap-up over", () => {
 				),
 			{ timeout: 15_000 },
 		);
-	});
+		// Past the wait for its child node, which a busy machine may need whole.
+	}, 20_000);
 
 	it("takes its request back when its supervisor cannot start", async () => {
 		// Left behind, the request would hold a collect for a wrap-up

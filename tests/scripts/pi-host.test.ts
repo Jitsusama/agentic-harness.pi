@@ -44,7 +44,13 @@ const ROOT = join(import.meta.dirname, "..", "..");
 const SCRIPT = join(ROOT, "scripts", "pi-host.mjs");
 
 /** Where the stripped-source cache keeps what node stripped, under a home. */
-const CACHE = join("state", "pi", "agentic-harness.pi", "stripped-source");
+const CACHE = join(
+	".local",
+	"state",
+	"pi",
+	"agentic-harness.pi",
+	"stripped-source",
+);
 
 /**
  * What a run made under `home` but the stripped-source cache, which a
@@ -173,7 +179,9 @@ describe("pi-host", () => {
 	it(
 		"exits 78 with only the reason when its proof or pi install is refused, leaving no socket",
 		async () => {
-			const home = mkdtempSync(join(tmpdir(), "h2-pi-host-"));
+			// At its real path, as the cache reads only from a folder no link
+			// leads to.
+			const home = realpathSync(mkdtempSync(join(tmpdir(), "h2-pi-host-")));
 			const proofs = mkdtempSync(join(tmpdir(), "h2-pi-host-proofs-"));
 			made.push(home, proofs);
 			const unproven = {
@@ -181,7 +189,7 @@ describe("pi-host", () => {
 				HOME: home,
 				TMPDIR: home,
 				XDG_RUNTIME_DIR: join(home, "run"),
-				XDG_STATE_HOME: join(home, "state"),
+				XDG_STATE_HOME: join(home, ".local", "state"),
 				MYCELIUM_REALM: "work",
 				PI_PACKAGE_DIR: join(home, "no-pi"),
 			};
@@ -221,7 +229,9 @@ describe("pi-host", () => {
 	it(
 		"starts the stripped-source cache before node loads any of its TypeScript",
 		async () => {
-			const home = mkdtempSync(join(tmpdir(), "h2-pi-host-start-"));
+			const home = realpathSync(
+				mkdtempSync(join(tmpdir(), "h2-pi-host-start-")),
+			);
 			made.push(home);
 			const { stderr } = await run(
 				process.execPath,
@@ -236,7 +246,7 @@ describe("pi-host", () => {
 						PATH: process.env.PATH,
 						HOME: home,
 						TMPDIR: home,
-						XDG_STATE_HOME: join(home, "state"),
+						XDG_STATE_HOME: join(home, ".local", "state"),
 					},
 					timeout: ONE_RUN,
 				},
