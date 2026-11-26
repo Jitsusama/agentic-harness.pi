@@ -41,6 +41,7 @@ import {
 	type Pass,
 	parsedOnce,
 	readEntries,
+	unlistedRoot,
 	vouchQuestFiles,
 } from "./discovery-reads.ts";
 import { pendingStampOf } from "./off-thread.ts";
@@ -197,13 +198,14 @@ export function discoverQuestsUncached(
 function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	const rootEntries = readEntries(questsRoot, pass);
 	if (!rootEntries) {
+		const empty = { quests: new Map(), children: new Map() };
+		// A fresh data folder has no quests yet: an empty store, not a fault.
+		if (unlistedRoot(questsRoot) === "gone")
+			return { index: empty, errors: [] };
 		const errors = [
-			{
-				path: questsRoot,
-				message: "Quests root does not exist as a directory.",
-			},
+			{ path: questsRoot, message: "Quests root is not a readable directory." },
 		];
-		return { index: { quests: new Map(), children: new Map() }, errors };
+		return { index: empty, errors };
 	}
 	const visited = new Set<string>();
 	const rootReal = safeRealpath(questsRoot, pass);
