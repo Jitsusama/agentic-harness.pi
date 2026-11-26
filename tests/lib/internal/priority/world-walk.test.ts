@@ -310,10 +310,14 @@ describe("walks of World's objects among themselves", () => {
 		]) {
 			expect(pushesWorld(pushing, inWorld), pushing).toBe(true);
 		}
-		expect(pushesWorld("git rebase origin/main", inWorld)).toBe(false);
-		expect(pushesWorld("git push", { cwd: `${home}/src/core.nix`, home })).toBe(
-			false,
-		);
+		expect(
+			pushesWorld("git rebase origin/main", inWorld),
+			"a rebase is no push",
+		).toBe(false);
+		expect(
+			pushesWorld("git push", { cwd: `${home}/src/core.nix`, home }),
+			"a push outside World is no World push",
+		).toBe(false);
 	});
 
 	it("knows a push of World that skips its pre-push hooks", () => {

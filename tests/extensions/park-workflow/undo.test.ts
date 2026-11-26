@@ -100,8 +100,14 @@ describe("taking back a half-done park", () => {
 
 		expect(error).toBe(failed);
 		expect(readParked(SESSION, folder)).toBeUndefined();
-		expect(existsSync(join(folder, "held.wake"))).toBe(false);
-		expect(existsSync(join(folder, "held.parked"))).toBe(false);
+		expect(
+			existsSync(join(folder, "held.wake")),
+			"the wake is taken back",
+		).toBe(false);
+		expect(
+			existsSync(join(folder, "held.parked")),
+			"the parked marker is taken back",
+		).toBe(false);
 		expect(said).toEqual([[PARK_UNDONE, { session: SESSION }]]);
 	});
 
@@ -111,8 +117,14 @@ describe("taking back a half-done park", () => {
 
 		thrown(() => undoPark(new Error("no"), half()));
 
-		expect(existsSync(join(folder, "held.wake"))).toBe(true);
-		expect(existsSync(join(folder, "held.parked"))).toBe(true);
+		expect(
+			existsSync(join(folder, "held.wake")),
+			"the wake it never wrote is left",
+		).toBe(true);
+		expect(
+			existsSync(join(folder, "held.parked")),
+			"the parked marker it never wrote is left",
+		).toBe(true);
 	});
 
 	it("tries every part, saying which it left where its first fails", () => {

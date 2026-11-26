@@ -263,8 +263,14 @@ describe("carrying what a quest's steered sessions left", () => {
 		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
 			/session s-huge: .*still over the 0\.0 MiB the share carries/,
 		);
-		expect(existsSync(join(into, "s-huge.done.json"))).toBe(false);
-		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
+		expect(
+			existsSync(join(into, "s-huge.done.json")),
+			"no done file for the refused session",
+		).toBe(false);
+		expect(
+			existsSync(join(into, `${QUEST}.done.json`)),
+			"no done file for the quest",
+		).toBe(false);
 	});
 
 	it("refuses a quest's own tree whose bundle is larger than the share carries", async () => {
@@ -279,12 +285,15 @@ describe("carrying what a quest's steered sessions left", () => {
 			200,
 		);
 
-		expect(whole).toBe(false);
+		expect(whole, "the carry is not whole").toBe(false);
 		const failed = said.at(-1);
 		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
 			/\.bundle is \d+ bytes, over the 200 bytes the share carries/,
 		);
-		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
+		expect(
+			existsSync(join(into, `${QUEST}.done.json`)),
+			"no done file for the quest",
+		).toBe(false);
 	});
 
 	it("says a failed line when the quest's own carry throws, leaving what stood there", async () => {
@@ -298,7 +307,7 @@ describe("carrying what a quest's steered sessions left", () => {
 			questHere({ trees: [trees.app ?? ""] }),
 		);
 
-		expect(whole).toBe(false);
+		expect(whole, "the carry is not whole").toBe(false);
 		expect(said).toContainEqual({ kind: "done", files: [] });
 		const failed = said.at(-1);
 		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
@@ -324,7 +333,7 @@ describe("carrying what a quest's steered sessions left", () => {
 
 		const { whole, said } = await carry(home, into, here, 4000);
 
-		expect(whole).toBe(false);
+		expect(whole, "the carry is not whole").toBe(false);
 		expect(readHandover(done), "its earlier done file, as it was").toEqual(
 			before,
 		);
@@ -356,7 +365,7 @@ describe("carrying what a quest's steered sessions left", () => {
 
 		const { whole, said } = await carry(home, into, here, 4000);
 
-		expect(whole).toBe(false);
+		expect(whole, "the carry is not whole").toBe(false);
 		expect(said).toContainEqual(
 			expect.objectContaining({
 				kind: "tree",
@@ -381,6 +390,9 @@ describe("carrying what a quest's steered sessions left", () => {
 			questHere({ trees: [trees.fine ?? ""] }),
 		);
 
-		expect(said.some((line) => line.kind === "failed")).toBe(false);
+		expect(
+			said.some((line) => line.kind === "failed"),
+			`no line says failed: ${JSON.stringify(said)}`,
+		).toBe(false);
 	});
 });

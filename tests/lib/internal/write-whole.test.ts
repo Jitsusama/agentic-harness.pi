@@ -54,7 +54,9 @@ describe("writing a file whole", () => {
 					/is a link or no folder/,
 				);
 				expect(readdirSync(elsewhere)).toEqual([]);
-				expect(existsSync(file)).toBe(false);
+				expect(existsSync(file), `nothing is left at the file: ${file}`).toBe(
+					false,
+				);
 			} finally {
 				rmSync(elsewhere, { recursive: true, force: true });
 			}
@@ -79,7 +81,9 @@ describe("writing a file whole", () => {
 				`${join(dir, WRITING)} is a link or no folder, so nothing is staged there.`,
 			);
 			expect(existsSync(nowhere), "nothing is made where it leads").toBe(false);
-			expect(existsSync(file)).toBe(false);
+			expect(existsSync(file), `nothing is left at the file: ${file}`).toBe(
+				false,
+			);
 		},
 	);
 

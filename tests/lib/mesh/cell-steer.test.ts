@@ -128,14 +128,20 @@ describe("holding or waking another cell", () => {
 		const signed = await steerCell("/s", "85pkb2", "hold", signer, hear);
 		const ownCell = await steerCell("/s", "25243c75", "wake", signer, hear);
 
-		expect(odd.ok).toBe(false);
+		expect(odd.ok, "what is no address is refused").toBe(false);
 		expect(signed.ok ? "" : signed.reason).toContain("is this session");
 		expect(ownCell.ok ? "" : ownCell.reason).toContain("is this session");
 		expect(asked).toEqual([]);
 	});
 
 	it("reads an answer it doesn't know as not told", () => {
-		expect(steeredFrom("not json").ok).toBe(false);
-		expect(steeredFrom(JSON.stringify({ Ok: { Started: {} } })).ok).toBe(false);
+		expect(
+			steeredFrom("not json").ok,
+			"an answer that isn't json is not told",
+		).toBe(false);
+		expect(
+			steeredFrom(JSON.stringify({ Ok: { Started: {} } })).ok,
+			"an answer it doesn't know is not told",
+		).toBe(false);
 	});
 });

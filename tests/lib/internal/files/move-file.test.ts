@@ -101,7 +101,10 @@ describe("moving a file whole", () => {
 
 		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
 
-		expect(readFileSync(join(there, "log.jsonl")).equals(bytes)).toBe(true);
+		expect(
+			readFileSync(join(there, "log.jsonl")).equals(bytes),
+			"the moved log has the same bytes",
+		).toBe(true);
 		expect(statSync(join(there, "log.jsonl")).mode & 0o7777).toBe(0o766);
 		expect(readdirSync(here), "the original is gone").toEqual([]);
 		expect(readdirSync(there), "nothing is left beside it").toEqual([
@@ -135,7 +138,10 @@ describe("moving a file whole", () => {
 
 		moveFile(join(here, "planted"), join(there, "planted"));
 
-		expect(lstatSync(join(there, "planted")).isSymbolicLink()).toBe(true);
+		expect(
+			lstatSync(join(there, "planted")).isSymbolicLink(),
+			"the moved link is still a link",
+		).toBe(true);
 		expect(readlinkSync(join(there, "planted"))).toBe(victim);
 		expect(readdirSync(here)).toEqual([]);
 		expect(readFileSync(victim, "utf8"), "what it points at stays").toBe(

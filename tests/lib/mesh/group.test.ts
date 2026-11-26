@@ -169,7 +169,13 @@ describe("joining", () => {
 	it("is for no group longer than a presence may name", () => {
 		const longest = `#${"a".repeat(MOST_GROUP_CHARS - 1)}`;
 
-		expect(isJoinable(longest)).toBe(true);
-		expect(isJoinable(`${longest}a`)).toBe(false);
+		expect(
+			isJoinable(longest),
+			"the longest name a presence may hold is joinable",
+		).toBe(true);
+		expect(
+			isJoinable(`${longest}a`),
+			"a name past the longest is not joinable",
+		).toBe(false);
 	});
 });

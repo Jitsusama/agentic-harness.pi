@@ -170,7 +170,7 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 
 		const { whole, tree } = await arriveAt(home, from);
 
-		expect(whole).toBe(true);
+		expect(whole, "the arrival is whole").toBe(true);
 		expect(await commonOf(tree)).toBe(join(checkout, ".git"));
 	});
 
@@ -236,12 +236,12 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 
 		const { whole, said, tree } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "the arrival is not whole").toBe(false);
 		expect(said[0]).toMatchObject({ did: "refused" });
 		expect(String(said[0]?.kind === "tree" && said[0].why)).toMatch(
 			/^Its changes didn't apply/,
 		);
-		expect(existsSync(tree)).toBe(false);
+		expect(existsSync(tree), `no tree is made: ${tree}`).toBe(false);
 		const now = await exec("git", [
 			"-C",
 			checkout,
@@ -275,7 +275,7 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 				headUnread(answer),
 			);
 
-			expect(whole).toBe(false);
+			expect(whole, "the arrival is not whole").toBe(false);
 			expect(refusalOf(said)).toMatch(
 				new RegExp(
 					`^Its changes didn't apply.*And its branch topic may be left at ${head}, though there was no such branch before, since git couldn't say which branch the tree was on: ${words}\\.$`,
@@ -304,7 +304,7 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 			headUnread({ code: 128, stderr: "fatal: broken\n" }),
 		);
 
-		expect(whole).toBe(false);
+		expect(whole, "the arrival is not whole").toBe(false);
 		expect(refusalOf(said)).toMatch(
 			new RegExp(
 				`And its branch topic may be left at ${head}, where it stood at ${stood} before, since git couldn't say which branch the tree was on: fatal: broken\\.$`,
@@ -326,7 +326,7 @@ describe("arriving with a tree from where the work tool cuts them", () => {
 
 		const { whole, tree } = await arriveAt(home, from);
 
-		expect(whole).toBe(true);
+		expect(whole, "the arrival is whole").toBe(true);
 		expect(
 			statSync(join(tree, ".git")).isDirectory(),
 			"a clone of its own",

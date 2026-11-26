@@ -197,7 +197,10 @@ describe("parking now, as the person asked", () => {
 		idle = false;
 
 		expect(ask(SESSION, true).why).toMatch(/^starting again would drop -e/);
-		expect(existsSync(join(folder, "held.again"))).toBe(false);
+		expect(
+			existsSync(join(folder, "held.again")),
+			"no again file is written mid-run",
+		).toBe(false);
 	});
 
 	it("checks mid-run that its holder would start it as itself", () => {
@@ -215,7 +218,9 @@ describe("parking now, as the person asked", () => {
 		watching();
 		idle = false;
 
-		expect(ask(SESSION, true).ready).toBe(true);
+		expect(ask(SESSION, true).ready, "the check is ready without the log").toBe(
+			true,
+		);
 	});
 
 	// A context gone stale throws as pi is shut down, after its holder was
@@ -262,7 +267,7 @@ describe("parking now, as the person asked", () => {
 		// This fake keeps each code it was told; pi's own exitWith is taken
 		// back as the park is (undo.test.ts).
 		expect(exits).toEqual([PARKED_EXIT, PARKED_EXIT]);
-		expect(existsSync(parked)).toBe(true);
+		expect(existsSync(parked), `the park marker is kept: ${parked}`).toBe(true);
 	});
 
 	// A host parks the conversation alone, after its marker and its word
@@ -302,7 +307,9 @@ describe("parking now, as the person asked", () => {
 			expect(exits, "its process was never to exit").toEqual([]);
 
 			refuses = false;
-			expect(ask().parked).toBe(true);
+			expect(ask().parked, "the session stays parked in the asker's eyes").toBe(
+				true,
+			);
 			expect(parks).toEqual([SESSION]);
 		} finally {
 			uninstall();

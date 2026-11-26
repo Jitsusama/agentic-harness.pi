@@ -398,7 +398,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(true);
+		expect(
+			ownerKeepsFolder("/run/mycelium", stat, SESSION),
+			"the node's folder under root's is taken",
+		).toBe(true);
 	});
 
 	it("takes whichever account root gave the folder to, not the node's alone", () => {
@@ -407,7 +410,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": { uid: 65_534, mode: 0o40700, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(true);
+		expect(
+			ownerKeepsFolder("/run/mycelium", stat, SESSION),
+			"the folder root gave away is taken",
+		).toBe(true);
 	});
 
 	it("refuses another account's folder in a folder that isn't root's", () => {
@@ -416,7 +422,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+		expect(
+			ownerKeepsFolder("/run/mycelium", stat, SESSION),
+			"another account's folder outside root's is refused",
+		).toBe(false);
 	});
 
 	it("refuses another account's folder in root's folder its group may write", () => {
@@ -425,7 +434,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+		expect(
+			ownerKeepsFolder("/run/mycelium", stat, SESSION),
+			"another account's folder its group may write is refused",
+		).toBe(false);
 	});
 
 	it("refuses another account's folder whose parent can't be read as a folder", () => {
@@ -436,8 +448,14 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": mycelium,
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", unread, SESSION)).toBe(false);
-		expect(ownerKeepsFolder("/run/mycelium", linked, SESSION)).toBe(false);
+		expect(
+			ownerKeepsFolder("/run/mycelium", unread, SESSION),
+			"an unreadable parent is refused",
+		).toBe(false);
+		expect(
+			ownerKeepsFolder("/run/mycelium", linked, SESSION),
+			"a linked parent is refused",
+		).toBe(false);
 	});
 
 	it("lets a strict command through to a worker socket in the node's own folder", () => {
@@ -473,7 +491,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/tmp/mycelium": { uid: NODE, mode: 0o40755, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/tmp/mycelium", stat, SESSION)).toBe(false);
+		expect(
+			ownerKeepsFolder("/tmp/mycelium", stat, SESSION),
+			"a folder anyone could make is refused",
+		).toBe(false);
 	});
 
 	it("refuses a folder others may write, whoever made it", () => {
@@ -482,7 +503,10 @@ describe("whose folder the worker socket may sit in", () => {
 			"/run/mycelium": { uid: 0, mode: 0o40775, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/run/mycelium", stat, SESSION)).toBe(false);
+		expect(
+			ownerKeepsFolder("/run/mycelium", stat, SESSION),
+			"a folder others may write is refused",
+		).toBe(false);
 	});
 
 	it("takes root's or the session's own folder wherever it is", () => {
@@ -491,8 +515,14 @@ describe("whose folder the worker socket may sit in", () => {
 			"/opt/roots": { uid: 0, mode: 0o40755, isFolder: true },
 		});
 
-		expect(ownerKeepsFolder("/home/s/mine", stat, SESSION)).toBe(true);
-		expect(ownerKeepsFolder("/opt/roots", stat, SESSION)).toBe(true);
+		expect(
+			ownerKeepsFolder("/home/s/mine", stat, SESSION),
+			"the session's own folder is taken",
+		).toBe(true);
+		expect(
+			ownerKeepsFolder("/opt/roots", stat, SESSION),
+			"root's folder is taken",
+		).toBe(true);
 	});
 });
 

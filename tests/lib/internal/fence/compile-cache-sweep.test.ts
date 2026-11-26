@@ -70,7 +70,7 @@ describe("sweeping node's compile cache", () => {
 			walked: false,
 			removed: 0,
 		});
-		expect(existsSync(idle)).toBe(true);
+		expect(existsSync(idle), `the idle cache is kept: ${idle}`).toBe(true);
 
 		expect(sweepIdleCompiled(folder, NOW + SWEEP_EVERY_MS)).toEqual({
 			walked: true,

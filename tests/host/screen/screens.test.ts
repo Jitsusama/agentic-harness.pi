@@ -196,7 +196,7 @@ describe("hosted screens", () => {
 			close: async () => undefined,
 		});
 		expect(report).toHaveBeenCalledWith(new Error("the journal is gone"));
-		expect(screens.viewed("a")).toBe(false);
+		expect(screens.viewed("a"), "the screen is not viewed").toBe(false);
 		expect(screens.viewer.attach(attach("a"), sink())).toBeDefined();
 	});
 

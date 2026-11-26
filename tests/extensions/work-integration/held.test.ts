@@ -173,7 +173,10 @@ describe("giving a tree back", () => {
 		);
 		expect(existsSync(path), "the tree is gone from where it was").toBe(false);
 		expect(existsSync(join(aside, "notes.txt")), "its work is kept").toBe(true);
-		expect(lstatSync(join(aside, ".git-was")).isSymbolicLink()).toBe(true);
+		expect(
+			lstatSync(join(aside, ".git-was")).isSymbolicLink(),
+			"the .git-was is a link",
+		).toBe(true);
 		expect(existsLink(join(aside, ".git")), "parted from git").toBe(false);
 		expect(existsSync(join(aside, ".git-real")), "git's own kept").toBe(true);
 		expect((await work({})).details).toEqual({ ok: true, held: 0 });
@@ -213,7 +216,10 @@ describe("giving a tree back", () => {
 			/^\.git-was-[0-9a-f]{8}$/.test(name),
 		);
 		expect(parted).toHaveLength(1);
-		expect(lstatSync(join(aside, parted[0] ?? "")).isSymbolicLink()).toBe(true);
+		expect(
+			lstatSync(join(aside, parted[0] ?? "")).isSymbolicLink(),
+			"the parted .git is a link",
+		).toBe(true);
 	});
 
 	it("keeps a tree git won't run in, still held, when it can't be set aside", async () => {

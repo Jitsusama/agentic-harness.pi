@@ -395,7 +395,7 @@ describe("reading what waits", () => {
 			killed: true,
 		}));
 
-		expect(read.ok).toBe(false);
+		expect(read.ok, "a run its clock stopped reads as failed").toBe(false);
 		expect(read.ok ? "" : read.reason).toContain(
 			"was stopped before it answered",
 		);

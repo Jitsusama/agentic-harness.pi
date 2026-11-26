@@ -23,11 +23,17 @@ const NESTED = "sandbox-exec: sandbox_apply: Operation not permitted\n";
 
 describe("whether pi runs inside a Mac's sandbox", () => {
 	it("reads a trial profile sandbox-exec ran but couldn't apply as a sandbox around pi", () => {
-		expect(insideMacSandbox(ran({ status: 71, stderr: NESTED }))).toBe(true);
+		expect(
+			insideMacSandbox(ran({ status: 71, stderr: NESTED })),
+			"a nested profile's refusal reads as inside a sandbox",
+		).toBe(true);
 	});
 
 	it("reads a trial that applied as no sandbox around pi", () => {
-		expect(insideMacSandbox(ran({ status: 0 }))).toBe(false);
+		expect(
+			insideMacSandbox(ran({ status: 0 })),
+			"a trial that applied reads as no sandbox",
+		).toBe(false);
 	});
 
 	it("reads sandbox-exec refused before it runs as no sandbox, since a tool vetting programs refuses it alike", () => {
@@ -46,6 +52,7 @@ describe("whether pi runs inside a Mac's sandbox", () => {
 						"sandbox-exec: execvp() of '/usr/bin/true' failed: Operation not permitted\n",
 				}),
 			),
+			"another refusal reads as no sandbox",
 		).toBe(false);
 	});
 
@@ -120,7 +127,10 @@ describe("keeping the trial's answer", () => {
 		kept();
 		kept();
 		expect(trial.runs(), "the trial ran again").toBe(1);
-		expect(insideMacSandbox(kept)).toBe(true);
+		expect(
+			insideMacSandbox(kept),
+			"the kept trial reads as inside a sandbox",
+		).toBe(true);
 	});
 
 	it("tries again after a trial that ran out of time", () => {

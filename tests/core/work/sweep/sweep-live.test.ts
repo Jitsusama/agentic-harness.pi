@@ -1091,7 +1091,10 @@ describe("taking a tree in a repository of thousands", () => {
 		expect(outcome.refused).toEqual([
 			{ path: tree, why: "it holds submodules" },
 		]);
-		expect(existsSync(join(tree, "données", ".git"))).toBe(true);
+		expect(
+			existsSync(join(tree, "données", ".git")),
+			"the submodule's git folder is kept",
+		).toBe(true);
 		expect(asidesOf(state, tree)).toEqual([]);
 	});
 
@@ -1437,9 +1440,10 @@ describe("taking a tree in a repository of thousands", () => {
 					},
 				]);
 				expect(outcome.refused[0]?.why).toContain(aside ?? "no aside");
-				expect(existsSync(join(aside ?? "", "target", "held", "deep"))).toBe(
-					true,
-				);
+				expect(
+					existsSync(join(aside ?? "", "target", "held", "deep")),
+					"the tree's held folder is in the aside",
+				).toBe(true);
 				expect(existsSync(tree), "nothing at its own path").toBe(false);
 				expect(existsSync(gitDir), "its git folder").toBe(false);
 				const listed = worktreesOf(

@@ -442,10 +442,16 @@ describe("what the link keeps and says", () => {
 	});
 
 	it("reads a bare stamped id as one, and a path or a stamp past time as none", () => {
-		expect(isBareId("1764000000000-KP0L6A-7-0a1b2c3d")).toBe(true);
-		expect(isBareId("1-KP0L6A-7-../x")).toBe(false);
-		expect(isBareId(".hidden")).toBe(false);
-		expect(isBareId("9999999999999999-KP0L6A-7-aa")).toBe(false);
+		expect(
+			isBareId("1764000000000-KP0L6A-7-0a1b2c3d"),
+			"a stamped id reads as one",
+		).toBe(true);
+		expect(isBareId("1-KP0L6A-7-../x"), "a path reads as none").toBe(false);
+		expect(isBareId(".hidden"), "a hidden name reads as none").toBe(false);
+		expect(
+			isBareId("9999999999999999-KP0L6A-7-aa"),
+			"a stamp past time reads as none",
+		).toBe(false);
 	});
 
 	it("says each presence it publishes to the node too", () => {
@@ -485,7 +491,7 @@ describe("reading the node's lines", () => {
 			replyFrom('{"Refused":{"code":"not-yours","why":"no such quest"}}'),
 			"as a crossing refuses",
 		).toEqual({ ok: false, why: "no such quest" });
-		expect(replyFrom("garbled").ok).toBe(false);
+		expect(replyFrom("garbled").ok, "a garbled reply is not done").toBe(false);
 	});
 
 	it("reads messages from either event, and drops what isn't one", () => {

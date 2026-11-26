@@ -211,9 +211,17 @@ describe("what holds a session from ending", () => {
 		expect(all).toBe(
 			"a run is under way; messages wait for it; a review watch is out (j674: #2061); a prompt is open; text is typed and unsent",
 		);
-		expect(heldByRun(all ?? "")).toBe(true);
-		expect(heldByRun("messages wait for it")).toBe(false);
-		expect(heldByRun("a run is under way somewhere")).toBe(false);
+		expect(heldByRun(all ?? ""), `a run under way holds first: ${all}`).toBe(
+			true,
+		);
+		expect(
+			heldByRun("messages wait for it"),
+			"waiting messages are no run",
+		).toBe(false);
+		expect(
+			heldByRun("a run is under way somewhere"),
+			"a run elsewhere is no run here",
+		).toBe(false);
 	});
 
 	it("names the jobs that hold by kind and id, in the words /host and a wave print", () => {
