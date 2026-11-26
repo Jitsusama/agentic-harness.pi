@@ -136,6 +136,10 @@ async function keptHead(
 		);
 		for (const entry of page.items) {
 			if (marks(entry, compaction)) return "already";
+			// An earlier compaction's marker is neither what pi kept nor a sign
+			// of order: written at a start, it lies after entries pi keeps now,
+			// its summary stamped with that compaction's older time.
+			if (entry.kind === COMPACTION_KIND) continue;
 			const messages = messagesOf(entry);
 			if (messages.some((message) => wanted.has(messageKey(message))))
 				head = entry.id;

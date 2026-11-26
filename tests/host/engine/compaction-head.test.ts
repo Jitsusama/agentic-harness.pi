@@ -147,6 +147,46 @@ describe("marking pi's compaction for durable", () => {
 		).toBe(1997);
 	});
 
+	it("reads past an earlier compaction's marker, written after entries pi keeps now", async () => {
+		// Marked at a start for a compaction of long before, after what the
+		// next compaction keeps, its summary stamped with that older time.
+		const long = START + 10 * 60_000;
+		const earlier: EntryRecord = {
+			id: history.length + 1,
+			kind: "pi.compaction",
+			model: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "long ago" }],
+					timestamp: long,
+				},
+			],
+			data: { reason: "pi", compactedAt: long },
+		};
+		const after = [said("user", 2010), said("assistant", 2011)];
+		const log = [
+			...logOf(history),
+			earlier,
+			...logOf(after).map((entry) => ({
+				...entry,
+				id: entry.id + history.length + 1,
+			})),
+		];
+		const next = newestCompaction(
+			compactedContext([...kept, ...after], START + 2012 * 60_000),
+		);
+		if (!next) throw new Error("no compaction found");
+		const { durable, submitted } = durableOver(log);
+
+		await expect(markCompaction(durable, next)).resolves.toBe("marked");
+
+		const [marker] = submitted;
+		expect(
+			marker?.type === "write" ? marker.entry.head : undefined,
+			"the head is the first entry pi kept, below the earlier marker",
+		).toBe(1997);
+	});
+
 	it("finds no compaction in a context pi never compacted", () => {
 		expect(newestCompaction(history)).toBeUndefined();
 	});
