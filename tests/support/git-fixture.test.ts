@@ -3,6 +3,7 @@
  * suite, so a developer's global config can't hang or fail a test.
  */
 
+import { execFile } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -11,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { disposeRepo, freshRepo, git } from "./git-fixture.ts";
 
@@ -83,6 +85,38 @@ describe("the git fixture", () => {
 		} finally {
 			disposeRepo(theirs);
 		}
+	});
+
+	it("starts no maintenance from its own git, so nothing writes a repo it copies", async () => {
+		await git(repo, "config", "--unset", "maintenance.auto");
+
+		expect(await git(repo, "config", "--get", "maintenance.auto")).toBe(
+			"false",
+		);
+	});
+
+	it("hands out repos whose commits start no maintenance under anyone's git", async () => {
+		// The code under test runs git with the process's settings, not the
+		// fixture's, and git traces the maintenance a commit starts.
+		const env = Object.fromEntries(
+			Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+		);
+		const { stderr } = await promisify(execFile)(
+			"git",
+			["commit", "-q", "--allow-empty", "-m", "from the code"],
+			{
+				cwd: repo,
+				env: {
+					...env,
+					GIT_CONFIG_GLOBAL: "/dev/null",
+					GIT_CONFIG_NOSYSTEM: "1",
+					GIT_TRACE: "1",
+				},
+			},
+		);
+
+		expect(stderr).toContain("built-in: git commit");
+		expect(stderr).not.toContain("maintenance run");
 	});
 
 	/** Point git's global settings at a file holding these. */

@@ -66,11 +66,20 @@ vi.setConfig({ testTimeout: REAL_GIT_MS, hookTimeout: REAL_GIT_MS });
  * config files. The code under test still
  * runs its own git with the process's environment, which is why the
  * template below also sets its identity and signing in its own config.
+ *
+ * Nor does the fixture's git start maintenance. A commit starts `git
+ * maintenance run --auto --detach`, which outlives the commit and makes
+ * and removes `objects/maintenance.lock`, so a copy taken just after
+ * lists the lock and then fails to find it. Under load that hit the
+ * first test of a file, whose copy follows the template's commit.
  */
 const GIT_ENV = {
 	GIT_CONFIG_GLOBAL: "/dev/null",
 	GIT_CONFIG_NOSYSTEM: "1",
 	GIT_EDITOR: "true",
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "maintenance.auto",
+	GIT_CONFIG_VALUE_0: "false",
 } as const;
 
 /** Run git in a directory, returning stdout, shielded from the person's settings. */
@@ -105,6 +114,10 @@ async function buildTemplate(): Promise<string> {
 	await git(dir, "config", "user.name", "Test");
 	await git(dir, "config", "commit.gpgsign", "false");
 	await git(dir, "config", "tag.gpgsign", "false");
+	// The code under test runs git in the copies with the process's own
+	// settings, so a commit it makes starts no maintenance either, while
+	// its test may copy that repo again.
+	await git(dir, "config", "maintenance.auto", "false");
 	writeFileSync(join(dir, "README.md"), "scratch repo\n");
 	await git(dir, "add", "README.md");
 	await git(dir, "commit", "-qm", "initial");
