@@ -37,6 +37,12 @@ const duringCopy = vi.hoisted((): (() => void)[] => []);
 /** The bytes free on every volume, or the disk's own answer when unset. */
 const room = vi.hoisted((): { bytes?: bigint } => ({}));
 
+/** Each rename's new place and each fsync's path, in order. */
+const durable = vi.hoisted((): string[] => []);
+
+/** The path each open descriptor was opened at. */
+const opened = vi.hoisted(() => new Map<number, string>());
+
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
 	const volumeOf = (path: string) =>
@@ -53,6 +59,16 @@ vi.mock("node:fs", async (importOriginal) => {
 				);
 			}
 			real.renameSync(...args);
+			durable.push(`rename ${to}`);
+		},
+		openSync: (...args: Parameters<typeof real.openSync>) => {
+			const fd = real.openSync(...args);
+			opened.set(fd, String(args[0]));
+			return fd;
+		},
+		fsyncSync: (fd: number) => {
+			real.fsyncSync(fd);
+			durable.push(`fsync ${opened.get(fd)}`);
 		},
 		readSync: (...args: unknown[]) => {
 			duringCopy.shift()?.();
@@ -73,6 +89,8 @@ afterEach(() => {
 	renames.length = 0;
 	duringCopy.length = 0;
 	room.bytes = undefined;
+	durable.length = 0;
+	opened.clear();
 	for (const path of made.splice(0)) {
 		rmSync(path, { recursive: true, force: true });
 	}
@@ -129,6 +147,18 @@ describe("moving a file whole", () => {
 		expect(last?.[0].startsWith(`${there}/`), "from beside its place").toBe(
 			true,
 		);
+	});
+
+	it("syncs its new folder after the copy is renamed in, so a crash keeps the name", () => {
+		const { here, there } = twoFolders();
+		writeFileSync(join(here, "log.jsonl"), "carried\n");
+
+		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
+
+		expect(durable.slice(-2)).toEqual([
+			`rename ${join(there, "log.jsonl")}`,
+			`fsync ${there}`,
+		]);
 	});
 
 	it("replaces what stands at its place across volumes", () => {

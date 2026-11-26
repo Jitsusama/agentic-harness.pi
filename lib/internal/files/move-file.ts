@@ -1,7 +1,10 @@
 /**
  * Moving a file or a link to another path whole: by rename where both
- * lie on one volume, and else by a copy beside its new place, made
- * durable, renamed in, and the original then removed.
+ * lie on one volume, and else by a copy beside its new place, synced,
+ * renamed in, its folder synced so the new name outlasts a crash, and
+ * the original then removed. On the Mac a sync reaches only the drive's
+ * own cache, since Node has no F_FULLFSYNC, so a power cut there can
+ * still lose a copy just made.
  *
  * A btrfs subvolume answers a rename from outside it with EXDEV though
  * the disk is the same, and each quest's scratch is a subvolume of its
@@ -62,8 +65,8 @@ const MODE_BITS = 0o777;
  * so `to` holds either what it held or the whole of `from`. Throws, with
  * `to` as it was, where `from` is a folder or anything but a file or a
  * link on another volume, or where the move fails; only a failure to
- * remove `from` after its copy stands, or `from` naming another file by
- * then, leaves both.
+ * sync its new folder or remove `from` after its copy stands, or `from`
+ * naming another file by then, leaves both.
  */
 export function moveFile(from: string, to: string): void {
 	try {
@@ -85,6 +88,7 @@ export function moveFile(from: string, to: string): void {
 		}
 		throw error;
 	}
+	syncFolder(dirname(to));
 	const now = lstatSync(from, { bigint: true });
 	if (now.dev !== moved.dev || now.ino !== moved.ino) {
 		throw new Error(
@@ -92,6 +96,21 @@ export function moveFile(from: string, to: string): void {
 		);
 	}
 	unlinkSync(from);
+}
+
+/**
+ * Syncs the folder at `path`, so a name just renamed into it stays.
+ * Where its volume can't sync a folder (EINVAL), there is nothing to do.
+ */
+function syncFolder(path: string): void {
+	const folder = openSync(path, constants.O_RDONLY);
+	try {
+		fsyncSync(folder);
+	} catch (error) {
+		if (errnoOf(error) !== "EINVAL") throw error;
+	} finally {
+		closeSync(folder);
+	}
 }
 
 /**
