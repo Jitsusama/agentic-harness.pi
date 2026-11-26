@@ -34,9 +34,8 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 }));
 
 let dir: string;
-// The runtime folder, made apart from `dir` and short, since a child's
-// socket sits three names below it and a Unix socket's path can't pass
-// 107 bytes.
+// The runtime folder, made apart from `dir` by shortRuntime, which says
+// why a child's socket needs it short.
 let run: string;
 let report: ReturnType<typeof vi.fn<(error: unknown) => void>>;
 beforeEach(async () => {

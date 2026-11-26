@@ -6,9 +6,9 @@
  */
 
 import type * as Fs from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import setup, { runRootBase } from "./temp-root.ts";
+import setup, { runRootBase, SOCKET_ROOT } from "./temp-root.ts";
 
 // Named rather than made or removed, so the setup's own run is read
 // without writing where this machine's /tmp may not let a test write.
@@ -42,6 +42,8 @@ describe("a test run's temp root", () => {
 		const platform = Object.getOwnPropertyDescriptor(process, "platform");
 		Object.defineProperty(process, "platform", { value: "darwin" });
 		vi.stubEnv("TMPDIR", MAC_TMPDIR);
+		// So this worker's own short folder comes back once the case ends.
+		vi.stubEnv(SOCKET_ROOT, process.env[SOCKET_ROOT]);
 		try {
 			const teardown = setup();
 			expect(vi.mocked(mkdtempSync)).toHaveBeenCalledWith("/tmp/vitest-run-");
@@ -53,6 +55,51 @@ describe("a test run's temp root", () => {
 		} finally {
 			if (platform !== undefined)
 				Object.defineProperty(process, "platform", platform);
+			vi.unstubAllEnvs();
+		}
+	});
+
+	// A session's TMPDIR, made 18 bytes longer by the run's own folder,
+	// leaves a socket test nowhere short to listen.
+	it("names a short folder for sockets under /tmp, and removes it at its end", () => {
+		vi.stubEnv("TMPDIR", "/tmp/pi-quest-x");
+		vi.stubEnv(SOCKET_ROOT, process.env[SOCKET_ROOT]);
+		vi.mocked(rmSync).mockClear();
+		try {
+			const teardown = setup();
+			expect(process.env[SOCKET_ROOT], "while the run lasts").toBe(
+				"/tmp/vs-XXXXXX",
+			);
+			teardown();
+			expect(process.env[SOCKET_ROOT], "after it").toBeUndefined();
+			expect(vi.mocked(rmSync)).toHaveBeenCalledWith("/tmp/vs-XXXXXX", {
+				recursive: true,
+				force: true,
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	// As under a fence that grants a fenced run only its TMPDIR.
+	it("names none where /tmp can't be written, and still runs", () => {
+		vi.stubEnv("TMPDIR", "/tmp/pi-quest-x");
+		// Unset, rather than this worker's own, so only setup could name one.
+		vi.stubEnv(SOCKET_ROOT, undefined);
+		vi.mocked(mkdtempSync).mockImplementation((prefix) => {
+			if (String(prefix).startsWith("/tmp/vs-"))
+				throw new Error("EACCES: permission denied");
+			return `${prefix}XXXXXX`;
+		});
+		try {
+			const teardown = setup();
+			expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
+			expect(process.env.TMPDIR, "the run's TMPDIR").toBe(
+				"/tmp/pi-quest-x/vitest-run-XXXXXX",
+			);
+			teardown();
+		} finally {
+			vi.mocked(mkdtempSync).mockImplementation((prefix) => `${prefix}XXXXXX`);
 			vi.unstubAllEnvs();
 		}
 	});

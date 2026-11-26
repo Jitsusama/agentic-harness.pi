@@ -33,16 +33,45 @@ export function runRootBase(platform: NodeJS.Platform, base: string): string {
 	return platform === "darwin" && MAC_DEFAULT_TMPDIR.test(base) ? "/tmp" : base;
 }
 
-/** Point TMPDIR at the run's own directory, and remove it at the end. */
+/**
+ * What names the run's short folder, for a test whose sockets wouldn't
+ * fit under the run's directory, as under any session's TMPDIR, which
+ * this run's own folder makes 18 bytes longer still.
+ */
+export const SOCKET_ROOT = "PI_TEST_SOCKET_ROOT";
+
+/**
+ * Point TMPDIR at the run's own directory, name a short one for sockets,
+ * and remove both at the end, so what a killed worker left in either
+ * goes too.
+ */
 export default function setup(): () => void {
 	const previous = process.env.TMPDIR;
 	const root = mkdtempSync(
 		join(runRootBase(process.platform, tmpdir()), "vitest-run-"),
 	);
 	process.env.TMPDIR = root;
+	const sockets = socketRoot();
+	if (sockets !== undefined) process.env[SOCKET_ROOT] = sockets;
 	return () => {
 		if (previous === undefined) delete process.env.TMPDIR;
 		else process.env.TMPDIR = previous;
+		delete process.env[SOCKET_ROOT];
 		rmSync(root, { recursive: true, force: true });
+		if (sockets !== undefined)
+			rmSync(sockets, { recursive: true, force: true });
 	};
+}
+
+/**
+ * The run's short folder, 14 bytes under /tmp, or none where /tmp can't
+ * be written, as under a fence granting only TMPDIR: a test needing one
+ * then fails as it would have, while every other test still runs.
+ */
+function socketRoot(): string | undefined {
+	try {
+		return mkdtempSync("/tmp/vs-");
+	} catch {
+		return undefined;
+	}
 }

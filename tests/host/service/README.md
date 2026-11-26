@@ -28,11 +28,11 @@ host of one key and a refused engine never listen, holds survive
 stop and resume at the next start, and a starting host answers a list
 before it has resumed what it held. The stale-rejection net is mocked,
 so the test worker keeps its own handling; the test checks a host sets
-it before its engine loads. Its child cases, and run.test.ts's realm
-host, take their runtime folder from support/short-runtime.ts: under
-the run's temp folder when a child's socket fits there, else under
-/tmp, since a session's temp folder may be too long for one.
-short-runtime.test.ts checks both.
+it before its engine loads. Its cases, and run.test.ts's realm host,
+take their runtime folder from support/short-runtime.ts: under the
+run's temp folder when a child's socket fits there, else under the
+run's short folder in /tmp, since a session's temp folder is too long
+for one. short-runtime.test.ts checks both at the limit's edge.
 children.test.ts checks a host passing what names a conversation a
 child runs to the child's socket over real sockets with fake backends:
 an attach and the window's keys and frames both ways, a frame split
