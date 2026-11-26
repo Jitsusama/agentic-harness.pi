@@ -217,6 +217,34 @@ describe("sprouting", () => {
 		});
 	});
 
+	it("reads a start with a reset on its line, or a redraw before it, as started", async () => {
+		for (const stdout of [
+			`${STARTED}\u001b[0m\n`,
+			`starting 40%\r${STARTED}\n`,
+		]) {
+			const { run } = answering({ code: 0, stdout, stderr: "" });
+			expect(
+				await sprout({ words: "tea" }, "/", run),
+				JSON.stringify(stdout),
+			).toMatchObject({
+				ok: true,
+			});
+		}
+	});
+
+	it("keeps both ends of a long unread stdout, with a mark between", async () => {
+		// Cleaned once, its lines stay lines, so the cut keeps its last.
+		const { run } = answering({
+			code: 0,
+			stdout: `judging\n${"x".repeat(300)}\nno room here\n`,
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"can't read: judging / ... / no room here, so",
+		);
+	});
+
 	it("quotes every line of an unread stdout that shows", async () => {
 		const { run } = answering({
 			code: 0,

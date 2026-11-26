@@ -16,7 +16,7 @@
  */
 
 import { isRecord } from "../internal/record.ts";
-import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
+import { NOTHING_SHOWN, replyIn, shownLines } from "./shown-line.ts";
 import { type Ran, type RunProgram, runProgram } from "./sprout.ts";
 
 /** What a session orchestrates: the quest it heads and those below it. */
@@ -158,12 +158,7 @@ function sentUnanswered(why: string): ClaimTold {
 
 /** The last line of `stdout` read as JSON, or nothing. */
 function lastJson(stdout: string): unknown {
-	const line = stdout.trim().split("\n").at(-1);
-	if (!line) return undefined;
-	try {
-		return JSON.parse(line);
-	} catch {
-		// Not the node's reply, which toldBy reads as no answer.
-		return undefined;
-	}
+	// Read as a sprout's is (replyIn), so an escape after it never hides it.
+	const line = replyIn(stdout);
+	return line === undefined ? undefined : JSON.parse(line);
 }

@@ -21,7 +21,7 @@ import {
 	startedFrom,
 	unreadAnswer,
 } from "./node.ts";
-import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
+import { NOTHING_SHOWN, replyIn, shownLines } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -172,7 +172,7 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
-	const line = replyLine(ran.stdout);
+	const line = replyIn(ran.stdout);
 	const said = shownLines(ran.stderr, MOST_SAID);
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
@@ -196,8 +196,9 @@ export async function sprout(
 	if (answer && (answer.ok || (line && refusedByNode(line)) || !said)) {
 		return answer;
 	}
-	const shown = shownLines(ran.stdout, MOST_SAID);
-	if (!said && shown) return unreadAnswer(shown);
+	// Quoted as written, since unreadAnswer cleans it, and cleaned twice
+	// its lines would read as one, cut where its last should show.
+	if (!said && shownLines(ran.stdout, 1)) return unreadAnswer(ran.stdout);
 	return {
 		ok: false,
 		reason:
@@ -217,11 +218,10 @@ function startedOrMayLand(
 	line: string | undefined,
 	stdout: string,
 ): StartAnswer {
-	const shown = line ? "" : shownLines(stdout, MOST_SAID);
 	const answer = line
 		? startedFrom(line)
-		: shown
-			? unreadAnswer(shown)
+		: shownLines(stdout, 1)
+			? unreadAnswer(stdout)
 			: {
 					ok: false as const,
 					reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
@@ -241,36 +241,6 @@ function refusedByNode(line: string): boolean {
 		return isRecord(reply) && typeof reply.Err === "string";
 	} catch {
 		// Not JSON, so not the node's refusal.
-		return false;
-	}
-}
-
-/**
- * The line of a sprout's stdout its answer is read from: the last that
- * shows anything once cleaned, as written, where it's the node's JSON,
- * whose strings are read before they're quoted; else none. So a line of
- * escapes alone after a start, a colour reset say, never hides it. A
- * line is only cleaned to see whether it shows anything, never to be
- * parsed, since cleaning rewrites what it keeps (a control to a space, a
- * backtick to a quote), so a reply that wasn't JSON could read as started
- * or refused, and a start's words to join it by could be changed.
- */
-function replyLine(stdout: string): string | undefined {
-	const lines = stdout.split("\n");
-	for (let at = lines.length - 1; at >= 0; at -= 1) {
-		const line = (lines[at] ?? "").trim();
-		if (shownLines(line, 1) !== "") return isJson(line) ? line : undefined;
-	}
-	return undefined;
-}
-
-/** Whether `line` parses as JSON. */
-function isJson(line: string): boolean {
-	try {
-		JSON.parse(line);
-		return true;
-	} catch {
-		// Not JSON, which is the answer asked for.
 		return false;
 	}
 }

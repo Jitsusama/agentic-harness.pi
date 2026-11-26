@@ -106,6 +106,15 @@ describe("telling the node", () => {
 		});
 	});
 
+	it("reads the node's reply though a line of escapes alone follows it", async () => {
+		const { run } = answering({ ...OK, stdout: '{"Ok":"Done"}\n\u001b[0m\n' });
+		expect(
+			await tellOrchestrates("forget", "sess-42", "work", {}, run),
+		).toEqual({
+			kind: "recorded",
+		});
+	});
+
 	it("reads the node's refusal as one, however mycelium ends", async () => {
 		const { run } = answering({
 			code: 1,

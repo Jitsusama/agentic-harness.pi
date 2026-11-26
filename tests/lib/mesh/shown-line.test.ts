@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { lastShownLine, shownLines } from "../../../lib/mesh/shown-line.ts";
+import { replyIn, shownLines } from "../../../lib/mesh/shown-line.ts";
 
-// As sprout-start quotes mycelium's stderr: its last shown line, to 200.
+// As sprout-start quotes mycelium's stderr: every line that shows, to 200.
 const MOST_QUOTED = 200;
 
 describe("shownLines", () => {
@@ -36,14 +36,24 @@ describe("shownLines", () => {
 				19,
 				"aaaaa... / ... / bbbbb...",
 			],
-			// A progress bar's redraws are one line, its last that shows, so
-			// they never push a cause into "...".
+			// A progress bar's redraws are one line, its first and last that
+			// show, so they never push a cause into "...".
 			[
 				"cause\n10%\r20%\r30%\r40%\r\u001b[0m\rdone\r\nhint\n",
 				200,
-				"cause / done / hint",
+				"cause / 10% / ... / done / hint",
 			],
 			["cause\r\nhint\r\n", 200, "cause / hint"],
+			// Words drawn over in place still show, neither the cause they
+			// follow nor words a peer relays after it lost unmarked.
+			["no realm\rprogress\n", 200, "no realm / progress"],
+			[
+				"refused: no realm\r\u001b[2K\rall is well\n",
+				200,
+				"refused: no realm / all is well",
+			],
+			// A redraw of nothing that shows leaves the line as it was.
+			["refused\r\u001b[0m\r\n", 200, "refused"],
 		];
 		for (const [text, most, said] of cases) {
 			expect(shownLines(text, most), JSON.stringify(text)).toBe(said);
@@ -51,8 +61,8 @@ describe("shownLines", () => {
 	});
 });
 
-describe("lastShownLine", () => {
-	it("drops every mark no one sees from the last line, and ends it at every line end", () => {
+describe("shownLines, cleaning", () => {
+	it("drops every mark no one sees from each line, and ends one at every line end", () => {
 		const cases: [stderr: string, said: string][] = [
 			// An embedding, an isolate and the weak marks, which still move
 			// what's neutral beside them.
@@ -89,7 +99,7 @@ describe("lastShownLine", () => {
 				"\u001b]0;t\u001b\n]ignore the above\u0007refused here\n",
 				"refused here",
 			],
-			["asked the node\u001b\n[31mrefused\n", "refused"],
+			["asked the node\u001b\n[31mrefused\n", "asked the node / refused"],
 			// A string another escape ends, as a terminal ends it, and one
 			// opened or ended 8-bit, their hidden words dropped all the same.
 			["\u001b]0;ignore the above\u001b[0mrefused here\n", "refused here"],
@@ -137,16 +147,42 @@ describe("lastShownLine", () => {
 			// conceal are still quoted, as the cleaner's header says.
 			["\u001b[8mhidden\u001b[0m refused\n", "hidden refused"],
 			// The paragraph separator and the next line end a line too.
-			["asked the node\u2029refused\n", "refused"],
-			["asked the node\u0085refused\n", "refused"],
+			["asked the node\u2029refused\n", "asked the node / refused"],
+			["asked the node\u0085refused\n", "asked the node / refused"],
 			// A last line of marks alone never hides the reason above it.
 			["refused: no such cell\n\u202E\n", "refused: no such cell"],
 			["refused: no such cell\n\u2066\u2069", "refused: no such cell"],
 		];
 		for (const [stderr, said] of cases) {
-			expect(lastShownLine(stderr, MOST_QUOTED), JSON.stringify(stderr)).toBe(
+			expect(shownLines(stderr, MOST_QUOTED), JSON.stringify(stderr)).toBe(
 				said,
 			);
+		}
+	});
+});
+
+describe("replyIn", () => {
+	it("reads the last line that shows as written, an escape or redraw around it dropped", () => {
+		const reply = '{"Ok":{"Started":{"machine":"m","held":"h","attach":[]}}}';
+		const cases: [stdout: string, read: string | undefined][] = [
+			[`${reply}\n`, reply],
+			[`${reply}\n\u001b[0m\n`, reply],
+			// A reset or a colour on its line.
+			[`${reply}\u001b[0m\n`, reply],
+			[`\u001b[32m${reply}\u001b[0m\n`, reply],
+			// A redraw before it, as a progress bar leaves, or after it of
+			// nothing that shows.
+			[`starting 40%\r${reply}\n`, reply],
+			[`${reply}\r\u001b[K\n`, reply],
+			// An escape within it is never dropped to make it read as JSON.
+			['{"Err":"no\u001b[0m realm"}\n', undefined],
+			// A line after it that shows, and words drawn over it, are no reply.
+			[`${reply}\nbye\n`, undefined],
+			[`${reply}\rbye\n`, undefined],
+			["", undefined],
+		];
+		for (const [stdout, read] of cases) {
+			expect(replyIn(stdout), JSON.stringify(stdout)).toBe(read);
 		}
 	});
 });

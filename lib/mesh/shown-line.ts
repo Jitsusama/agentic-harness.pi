@@ -3,9 +3,9 @@
  * from a node or a peer, so neither an escape sequence, nor the string
  * one hides, nor a character that draws as nothing is quoted as if it
  * were the reason. Sequences are dropped, not carried out, so words a
- * terminal would conceal (SGR 8), erase or write over in place are still
- * quoted, though with no escape left the model and Joel read the same
- * words. A reply quoted unread is cleaned as written, so an escape
+ * terminal would conceal (SGR 8) or erase are still quoted, and of a
+ * line written over in place (REDRAW) its first and last drawing are, so
+ * with no escape left the model and Joel read the same words. A reply quoted unread is cleaned as written, so an escape
  * still written as JSON text (\u001b) is quoted as that text. One copy,
  * for a sprout's own refusal (sprout.ts), the node's refusal of a start
  * (node.ts) or a placement (placement.ts and the quest workflow's
@@ -67,18 +67,30 @@ const ESC_OPEN = `${ESC}${WAITED_PAST}`;
  * or 8-bit; or an ESC and the character it takes. An ESC opens each
  * though controls come before that character (ESC_OPEN).
  */
-const ESCAPES = new RegExp(
-	[
-		terminalString(`${ESC_OPEN}\\]`, ["\\u0007"]),
-		terminalString(`${ESC_OPEN}[P_^X]`, []),
-		terminalString("\\u009D", ["\\u0007", "\\u009C"]),
-		terminalString("[\\u0090\\u0098\\u009E\\u009F]", ["\\u009C"]),
-		`${ESC_OPEN}\\[[0-?]*[ -/]*[@-~]`,
-		"\\u009B[0-?]*[ -/]*[@-~]",
-		`${ESC_OPEN}[ -/]*[0-~]`,
-	].join("|"),
-	"gu",
-);
+const OPENED_BY_ESC = [
+	terminalString(`${ESC_OPEN}\\]`, ["\\u0007"]),
+	terminalString(`${ESC_OPEN}[P_^X]`, []),
+	`${ESC_OPEN}\\[[0-?]*[ -/]*[@-~]`,
+	`${ESC_OPEN}[ -/]*[0-~]`,
+];
+const OPENED_8_BIT = [
+	terminalString("\\u009D", ["\\u0007", "\\u009C"]),
+	terminalString("[\\u0090\\u0098\\u009E\\u009F]", ["\\u009C"]),
+	"\\u009B[0-?]*[ -/]*[@-~]",
+];
+const ESCAPES = new RegExp([...OPENED_BY_ESC, ...OPENED_8_BIT].join("|"), "gu");
+
+/**
+ * The sequences an ESC opens and the controls below the space, written
+ * before or after JSON on its line, as a colour and its reset are. JSON
+ * can hold neither as written, so dropping them from its ends never
+ * changes JSON there; one within stays, so a line JSON can't read is
+ * never made to read as JSON. An 8-bit control, which a JSON string may
+ * hold, is never dropped.
+ */
+const AROUND = `(?:${[...OPENED_BY_ESC, "[\\u0000-\\u001F\\u007F]"].join("|")})+`;
+const BEFORE_JSON = new RegExp(`^${AROUND}`, "u");
+const AFTER_JSON = new RegExp(`${AROUND}$`, "u");
 
 /** What a terminal reads past after an ESC, at the start of a sequence. */
 const WAITED_AT_START = new RegExp(`^${WAITED_PAST}`, "u");
@@ -100,18 +112,45 @@ function unescaped(text: string): string {
 const CONTROLS = /\p{Cc}/u;
 
 /**
- * The last line of `text` with anything left once cleaned (shownLine),
- * each line read as its last redraw that shows (redrawn), so a line of
- * only marks never hides the reason above it. It's cut to `most` whole characters and
- * ended with "..." where it was cut, so a cut reason never reads as the
- * whole of it, or "" where `text` has none. Its escapes are dropped
- * from the whole of it first (ESCAPES), since a string a terminal hides
- * runs on across line ends; lines are then read from the end, so only
- * the last few are cleaned of the rest however much came before.
+ * The node's reply in what mycelium wrote on stdout: its last line that
+ * shows anything, as written, where that's JSON, else none. So a line of
+ * escapes alone after it, a colour reset say, never hides it, nor does
+ * an escape or a progress bar's redraw on its line: where the line as
+ * written isn't JSON, its last redraw that shows is read with what an ESC opens and
+ * controls dropped from its ends (AROUND), which can't change JSON.
+ * It's otherwise never
+ * cleaned to be parsed, since cleaning rewrites what it keeps (a control
+ * to a space, a backtick to a quote), so a reply that wasn't JSON could
+ * read as started or refused, and words to join a start by could change.
  */
-export function lastShownLine(text: string, most: number): string {
-	const lines = unescaped(text).split(LINE_ENDS);
-	return cut(lastShownFrom(lines, 0), most);
+export function replyIn(stdout: string): string | undefined {
+	const lines = stdout.split("\n");
+	for (let at = lines.length - 1; at >= 0; at -= 1) {
+		const line = (lines[at] ?? "").trim();
+		if (shownLines(line, 1) === "") continue;
+		if (isJson(line)) return line;
+		const redraws = line
+			.split(REDRAW)
+			.filter((each) => shownLines(each, 1) !== "");
+		const drawn = (redraws.at(-1) ?? "")
+			.replace(BEFORE_JSON, "")
+			.replace(AFTER_JSON, "")
+			.trim();
+		return isJson(drawn) ? drawn : undefined;
+	}
+	return undefined;
+}
+
+/** Whether `line` parses as JSON. */
+function isJson(line: string): boolean {
+	if (line === "") return false;
+	try {
+		JSON.parse(line);
+		return true;
+	} catch {
+		// Not JSON, so no reply.
+		return false;
+	}
 }
 
 /** What's quoted of words of which nothing shows once cleaned. */
@@ -124,8 +163,12 @@ const BETWEEN_LINES = " / ";
 const LEFT_OUT = "...";
 
 /**
- * Every line of `text` with anything left once cleaned, as lastShownLine
- * cleans them, joined by " / ", cut to `most` as it cuts. Where they
+ * Every line of `text` with anything left once cleaned (shownLine), each
+ * read as it's drawn again in place (redrawn), joined by " / ", and cut
+ * to `most` whole characters, ended with "..." where cut, so a cut
+ * reason never reads as the whole of it; or "" where none shows. Its
+ * escapes are dropped from the whole of it first (ESCAPES), since a
+ * string a terminal hides runs on across line ends. Where they
  * don't fit, the first and the last are kept and the lines between from
  * the first on while they fit, the rest standing as "...", since a
  * program puts its cause first and a hint last (clap's "error:
@@ -185,27 +228,24 @@ function bothCut(
 	);
 }
 
-/** The last of `lines` from `from` on with anything left once cleaned. */
-function lastShownFrom(lines: readonly string[], from: number): string {
-	let line = "";
-	for (let at = lines.length - 1; at >= from && line === ""; at -= 1) {
-		line = redrawn(lines[at] ?? "");
-	}
-	return line;
-}
-
 /**
- * A line as it shows once drawn again in place (REDRAW): its last redraw
- * with anything left once cleaned (shownLine), so a progress bar counts
- * as one line, never filling a quote's room or pushing a cause out.
+ * A line drawn again in place (REDRAW), as one: its first drawing and its
+ * last with anything left once cleaned (shownLine), joined as lines are,
+ * with "..." between where drawings between are left out. So a progress
+ * bar never fills a quote's room or pushes a cause out, and neither words
+ * a cause leads with nor words a peer relays after them are lost unmarked.
  */
 function redrawn(line: string): string {
-	const drawn = line.split(REDRAW);
-	let shown = "";
-	for (let at = drawn.length - 1; at >= 0 && shown === ""; at -= 1) {
-		shown = shownLine(drawn[at] ?? "");
-	}
-	return shown;
+	const drawn = line
+		.split(REDRAW)
+		.map(shownLine)
+		.filter((each) => each !== "");
+	const first = drawn[0];
+	const last = drawn.at(-1);
+	if (first === undefined || last === undefined) return "";
+	if (drawn.length === 1) return first;
+	const gap = drawn.length > 2 ? [LEFT_OUT] : [];
+	return [first, ...gap, last].join(BETWEEN_LINES);
 }
 
 /** `line` cut to `most` whole characters, ended with "..." where cut. */
