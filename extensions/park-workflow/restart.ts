@@ -7,15 +7,15 @@
 import { execFileSync } from "node:child_process";
 import { accessSync, constants, writeFileSync } from "node:fs";
 import {
-	logWritten,
-	restartRefused,
-} from "../../lib/internal/session/restart-checks.ts";
-import {
 	holderCommand,
 	holderRecord,
 	PARK_SAID_ENV,
 	restartCommand,
 } from "../../lib/internal/session/park.ts";
+import {
+	logWritten,
+	restartRefused,
+} from "../../lib/internal/session/restart-checks.ts";
 
 /** What a window shows as its session starts again on a fresh log. */
 export const RESTART_LINE =
@@ -209,4 +209,3 @@ export function restartNamed(
 		return "its holder couldn't be told how to start it again";
 	}
 }
-
