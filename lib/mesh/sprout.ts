@@ -21,7 +21,7 @@ import {
 	startedFrom,
 	unreadAnswer,
 } from "./node.ts";
-import { lastShownLine, NOTHING_SHOWN, shownLines } from "./shown-line.ts";
+import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -190,8 +190,13 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
-	if (line) return startedFrom(line);
-	const shown = lastShownLine(ran.stdout, MOST_SAID);
+	// Its JSON counts only where it says started or refused; any other,
+	// a bare number say, beats nothing stderr says of why it failed.
+	const answer = line ? startedFrom(line) : undefined;
+	if (answer && (answer.ok || (line && refusedByNode(line)) || !said)) {
+		return answer;
+	}
+	const shown = shownLines(ran.stdout, MOST_SAID);
 	if (!said && shown) return unreadAnswer(shown);
 	return {
 		ok: false,
@@ -205,14 +210,14 @@ export async function sprout(
  * What a sprout that ended well answered: started, or the node's own
  * refusal, else a reply this harness can't read, which may still have
  * started a cell, so the model looks before asking again. With no
- * `line`, its `stdout`'s last line as it shows is quoted, or it says
- * whether it wrote nothing, or nothing shown.
+ * `line`, every line of its `stdout` that shows is quoted (shownLines),
+ * or it says whether it wrote nothing, or nothing shown.
  */
 function startedOrMayLand(
 	line: string | undefined,
 	stdout: string,
 ): StartAnswer {
-	const shown = line ? "" : lastShownLine(stdout, MOST_SAID);
+	const shown = line ? "" : shownLines(stdout, MOST_SAID);
 	const answer = line
 		? startedFrom(line)
 		: shown
@@ -241,16 +246,22 @@ function refusedByNode(line: string): boolean {
 }
 
 /**
- * The line of a sprout's stdout its answer is read from: the last, as
- * written, where it's the node's JSON, whose strings are read before
- * they're quoted; else none. A line is never cleaned to be parsed, since
- * cleaning rewrites what it keeps (a control to a space, a backtick to a
- * quote), so a reply that wasn't JSON could read as started or refused,
- * and a start's words to join it by could be changed.
+ * The line of a sprout's stdout its answer is read from: the last that
+ * shows anything once cleaned, as written, where it's the node's JSON,
+ * whose strings are read before they're quoted; else none. So a line of
+ * escapes alone after a start, a colour reset say, never hides it. A
+ * line is only cleaned to see whether it shows anything, never to be
+ * parsed, since cleaning rewrites what it keeps (a control to a space, a
+ * backtick to a quote), so a reply that wasn't JSON could read as started
+ * or refused, and a start's words to join it by could be changed.
  */
 function replyLine(stdout: string): string | undefined {
-	const last = stdout.trim().split("\n").at(-1);
-	return last && isJson(last) ? last : undefined;
+	const lines = stdout.split("\n");
+	for (let at = lines.length - 1; at >= 0; at -= 1) {
+		const line = (lines[at] ?? "").trim();
+		if (shownLines(line, 1) !== "") return isJson(line) ? line : undefined;
+	}
+	return undefined;
 }
 
 /** Whether `line` parses as JSON. */

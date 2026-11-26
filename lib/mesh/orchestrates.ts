@@ -16,7 +16,7 @@
  */
 
 import { isRecord } from "../internal/record.ts";
-import { shownLines } from "./shown-line.ts";
+import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
 import { type Ran, type RunProgram, runProgram } from "./sprout.ts";
 
 /** What a session orchestrates: the quest it heads and those below it. */
@@ -108,19 +108,33 @@ function toldBy(ran: Ran): ClaimTold {
 			`mycelium answered nothing in ${CLAIM_PATIENCE_MS / 1000} s`,
 		);
 	const reply = lastJson(ran.stdout);
-	if (isRecord(reply) && typeof reply.Err === "string")
-		return { kind: "refused", why: oneLine(reply.Err) };
+	if (isRecord(reply) && typeof reply.Err === "string") {
+		const why =
+			oneLine(reply.Err) || `the node refused and said ${hiddenOr(reply.Err)}`;
+		return { kind: "refused", why };
+	}
 	if (ran.code === 0 && isRecord(reply) && "Ok" in reply)
 		return { kind: "recorded" };
 	const said = oneLine(ran.stderr);
 	// Killed before it ended, its ask may already be with the node; and one
 	// that ended well with words it can't read most likely was recorded,
 	// which costs no more than a forget to treat as maybe.
+	// Words that hide alone are said to be there, so they never read as none.
+	const quiet = ran.stderr.trim() ? ` and said ${NOTHING_SHOWN}` : "";
 	if (ran.code === null)
-		return sentUnanswered(said || "mycelium was stopped before it answered");
+		return sentUnanswered(
+			said || `mycelium was stopped before it answered${quiet}`,
+		);
 	if (ran.code === 0)
-		return sentUnanswered(said || "mycelium ended well with no reply it reads");
-	return unasked(said || `mycelium ended with ${ran.code}`);
+		return sentUnanswered(
+			said || `mycelium ended well with no reply it reads${quiet}`,
+		);
+	return unasked(said || `mycelium ended with ${ran.code}${quiet}`);
+}
+
+/** "nothing that shows" where `said` holds words that all hide, else "nothing". */
+function hiddenOr(said: string): string {
+	return said.trim() ? NOTHING_SHOWN : "nothing";
 }
 
 /**

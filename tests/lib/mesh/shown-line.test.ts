@@ -26,6 +26,24 @@ describe("shownLines", () => {
 			],
 			// One long line is cut to whole characters.
 			["\u{1F600}".repeat(5), 3, "\u{1F600}\u{1F600}\u{1F600}..."],
+			// Two that overflow keep both ends, a short cause whole.
+			["refused\nfor more, try --help now\n", 20, "refused / for more, ..."],
+			// Two long ones each keep a share.
+			["a".repeat(20) + "\n" + "b".repeat(20), 13, "aaaaa... / bbbbb..."],
+			// Many whose ends alone overflow keep both ends and mark what's between.
+			[
+				"a".repeat(20) + "\nmiddle\n" + "b".repeat(20),
+				19,
+				"aaaaa... / ... / bbbbb...",
+			],
+			// A progress bar's redraws are one line, its last that shows, so
+			// they never push a cause into "...".
+			[
+				"cause\n10%\r20%\r30%\r40%\r\u001b[0m\rdone\r\nhint\n",
+				200,
+				"cause / done / hint",
+			],
+			["cause\r\nhint\r\n", 200, "cause / hint"],
 		];
 		for (const [text, most, said] of cases) {
 			expect(shownLines(text, most), JSON.stringify(text)).toBe(said);

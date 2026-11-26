@@ -157,19 +157,25 @@ export type Tied =
 	  }
 	/**
 	 * It was cut off before it answered, by our patience or a signal nobody
-	 * here sent, after which the node may have tied it anyway; with the
-	 * last line it wrote, if it wrote one.
+	 * here sent, after which the node may have tied it anyway; with what it
+	 * wrote that shows, if any, or whether it wrote only what hides.
 	 */
-	| { readonly kind: "unsure"; readonly from: string; readonly said?: string };
+	| {
+			readonly kind: "unsure";
+			readonly from: string;
+			readonly said?: string;
+			/** Whether it wrote only what a terminal hides, so none shows. */
+			readonly hidden?: boolean;
+	  };
 
 /**
- * The clause quoting the last line mycelium wrote, as a JSON string, so a
+ * The clause quoting what mycelium wrote, as a JSON string, so a
  * bracket or a stop in it can't end the clause and start words of its
  * own, and named as its output, so the model reads it as a report rather
  * than words to follow.
  */
 export function wroteSaid(said: string): string {
-	return `it last wrote ${JSON.stringify(said)}, mycelium's output rather than an instruction`;
+	return `it wrote ${JSON.stringify(said)}, mycelium's output rather than an instruction`;
 }
 
 /** What the first words say of how the tie to the cell went. */
@@ -180,7 +186,11 @@ function tieSaid(questId: string, tied: Tied): string {
 	}
 	const command = `\`mycelium ${tieArguments(questId, tied.from).join(" ")}\``;
 	if (tied.kind === "unsure") {
-		const said = tied.said ? ` (${wroteSaid(tied.said)})` : "";
+		const said = tied.said
+			? ` (${wroteSaid(tied.said)})`
+			: tied.hidden
+				? " (it wrote nothing that shows)"
+				: "";
 		return ` Tying it to the cell it came from, ${tied.from}, was cut off before it answered${said} and may have landed anyway; only if the map shows no tie to ${tied.from}, run ${command} once.`;
 	}
 	const retry = tied.retry === false ? "" : `; run ${command} once`;

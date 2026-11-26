@@ -19,9 +19,13 @@ import { drawsAsNothing } from "../internal/unseen.ts";
 
 /**
  * What ends a line in what mycelium writes, Unicode's own ends too: the
- * next line (U+0085) and the line and paragraph separators.
+ * next line (U+0085) and the line and paragraph separators. A carriage
+ * return alone ends no line: it draws the line again in place (REDRAW).
  */
-const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
+const LINE_ENDS = /\r?\n|\u0085|\u2028|\u2029/u;
+
+/** What draws a line again in place, as a progress bar does. */
+const REDRAW = "\r";
 
 /** The code point that opens a terminal's escape sequence. */
 const ESCAPE_POINT = 0x1b;
@@ -97,8 +101,8 @@ const CONTROLS = /\p{Cc}/u;
 
 /**
  * The last line of `text` with anything left once cleaned (shownLine),
- * a progress bar's last redraw included, so a line of only marks never
- * hides the reason above it. It's cut to `most` whole characters and
+ * each line read as its last redraw that shows (redrawn), so a line of
+ * only marks never hides the reason above it. It's cut to `most` whole characters and
  * ended with "..." where it was cut, so a cut reason never reads as the
  * whole of it, or "" where `text` has none. Its escapes are dropped
  * from the whole of it first (ESCAPES), since a string a terminal hides
@@ -127,36 +131,81 @@ const LEFT_OUT = "...";
  * program puts its cause first and a hint last (clap's "error:
  * unexpected argument" above "For more information, try '--help'."),
  * and what's between can be its message (a Rust panic's below where it
- * panicked) or a cause in a chain. So no line is left out unmarked.
+ * panicked) or a cause in a chain. Where the first and the last alone
+ * don't fit, each is cut to a share of `most` (bothCut). So no line is
+ * left out unmarked, and neither end is lost to the other.
  */
 export function shownLines(text: string, most: number): string {
 	const lines = unescaped(text)
 		.split(LINE_ENDS)
-		.map(shownLine)
+		.map(redrawn)
 		.filter((line) => line !== "");
 	const whole = lines.join(BETWEEN_LINES);
 	const first = lines[0];
 	const last = lines.at(-1);
-	if (lines.length < 3 || first === undefined || last === undefined) {
+	if (Array.from(whole).length <= most) return whole;
+	if (lines.length < 2 || first === undefined || last === undefined) {
 		return cut(whole, most);
 	}
-	if (Array.from(whole).length <= most) return whole;
+	const between = lines.slice(1, -1);
+	const gap = between.length > 0 ? [LEFT_OUT] : [];
+	const ends = [first, ...gap, last].join(BETWEEN_LINES);
+	if (Array.from(ends).length > most) return bothCut(first, last, gap, most);
 	const kept = [first];
-	for (const line of lines.slice(1, -1)) {
+	for (const line of between) {
 		const tried = [...kept, line, LEFT_OUT, last].join(BETWEEN_LINES);
 		if (Array.from(tried).length > most) break;
 		kept.push(line);
 	}
-	return cut([...kept, LEFT_OUT, last].join(BETWEEN_LINES), most);
+	return [...kept, LEFT_OUT, last].join(BETWEEN_LINES);
+}
+
+/**
+ * The first and the last line, with `gap` ("..." or nothing) between,
+ * each cut to its share of what `most` leaves once they're joined: the
+ * last gets half, or more where the first needs less, so a short cause
+ * keeps its whole and a long one never takes the hint's room.
+ */
+function bothCut(
+	first: string,
+	last: string,
+	gap: readonly string[],
+	most: number,
+): string {
+	const joins = Array.from(["", ...gap, ""].join(BETWEEN_LINES)).length;
+	const room = most - joins;
+	if (room < 2) return cut([first, ...gap, last].join(BETWEEN_LINES), most);
+	const firstLength = Array.from(first).length;
+	const lastRoom = Math.min(
+		Array.from(last).length,
+		Math.max(Math.ceil(room / 2), room - firstLength),
+	);
+	return [cut(first, room - lastRoom), ...gap, cut(last, lastRoom)].join(
+		BETWEEN_LINES,
+	);
 }
 
 /** The last of `lines` from `from` on with anything left once cleaned. */
 function lastShownFrom(lines: readonly string[], from: number): string {
 	let line = "";
 	for (let at = lines.length - 1; at >= from && line === ""; at -= 1) {
-		line = shownLine(lines[at] ?? "");
+		line = redrawn(lines[at] ?? "");
 	}
 	return line;
+}
+
+/**
+ * A line as it shows once drawn again in place (REDRAW): its last redraw
+ * with anything left once cleaned (shownLine), so a progress bar counts
+ * as one line, never filling a quote's room or pushing a cause out.
+ */
+function redrawn(line: string): string {
+	const drawn = line.split(REDRAW);
+	let shown = "";
+	for (let at = drawn.length - 1; at >= 0 && shown === ""; at -= 1) {
+		shown = shownLine(drawn[at] ?? "");
+	}
+	return shown;
 }
 
 /** `line` cut to `most` whole characters, ended with "..." where cut. */

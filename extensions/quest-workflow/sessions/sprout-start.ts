@@ -62,7 +62,7 @@ import {
 	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { lastShownLine, NOTHING_SHOWN } from "../../../lib/mesh/shown-line.ts";
+import { shownLines } from "../../../lib/mesh/shown-line.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -875,7 +875,10 @@ async function tie(
 			!ran.stopped)
 	) {
 		const said = stderrSaid(ran.stderr);
-		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
+		if (said) return { kind: "unsure", from, said };
+		return ran.stderr.trim()
+			? { kind: "unsure", from, hidden: true }
+			: { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
 		return {
@@ -891,18 +894,22 @@ async function tie(
 		return { kind: "failed", from, why, retry: false };
 	}
 	const said = stderrSaid(ran.stderr);
-	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
+	const ended = `it ended with ${ran.code ?? "no code"}`;
+	// Words that hide alone are said to be there, in this harness's words
+	// rather than quoted as mycelium's, so withheld words never read as none.
+	const why = said
+		? wroteSaid(said)
+		: ran.stderr.trim()
+			? `${ended} and wrote nothing that shows`
+			: ended;
 	return { kind: "failed", from, why };
 }
 
 /**
- * The last line mycelium wrote on stderr, as it shows (lastShownLine),
- * cut to MOST_QUOTED characters, since a tie's earlier lines say how it
- * went and its last says where it stopped; or NOTHING_SHOWN where it
- * wrote only what a terminal hides, so withheld words never read as none.
+ * Every line mycelium wrote on stderr that shows (shownLines), cut to
+ * MOST_QUOTED characters, so a Rust panic keeps its message between
+ * where it panicked and the hint below; "" where none shows.
  */
 function stderrSaid(stderr: string): string {
-	return (
-		lastShownLine(stderr, MOST_QUOTED) || (stderr.trim() ? NOTHING_SHOWN : "")
-	);
+	return shownLines(stderr, MOST_QUOTED);
 }

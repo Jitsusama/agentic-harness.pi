@@ -194,14 +194,51 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("never parses a line that only reads as JSON once cleaned", async () => {
+	it("never parses a start that only reads as JSON once cleaned, and says it may have landed", async () => {
+		// An escape between its tokens leaves no JSON as written, though
+		// cleaned it's a start a parse of the cleaned line would take.
 		const { run } = answering({
 			code: 0,
-			stdout: '\u001b[0m{"Started":{"address":"X"}}\n',
+			stdout: `${STARTED.replace('{"Started"', '\u001b[0m{"Started"')}\n`,
 			stderr: "",
 		});
 		const answer = await sprout({ words: "tea" }, "/", run);
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+	});
+
+	it("reads a start followed by a line of escapes alone as started", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: `${STARTED}\n\u001b[0m\n`,
+			stderr: "",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toMatchObject({
+			ok: true,
+		});
+	});
+
+	it("quotes every line of an unread stdout that shows", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: "judging\nno room here\n",
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"can't read: judging / no room here, so",
+		);
+	});
+
+	it("takes stderr's cause over a failed run's JSON that is neither a start nor a refusal", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "5\n",
+			stderr: "connecting to the node: refused\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "connecting to the node: refused",
+		});
 	});
 
 	it("says the node's refusal as it shows, never an escape's hidden string", async () => {

@@ -130,6 +130,27 @@ describe("telling the node", () => {
 		).toEqual({ kind: "refused", why: "refused / pi: a forged line" });
 	});
 
+	it("says words that hide alone were said, never that none were", async () => {
+		const refused = answering({
+			code: 0,
+			stdout: '{"Err":"\\u001b[0m"}\n',
+			stderr: "",
+		});
+		expect(
+			await tellOrchestrates("forget", "s", "work", {}, refused.run),
+		).toEqual({
+			kind: "refused",
+			why: "the node refused and said nothing that shows",
+		});
+		const failed = answering({ code: 1, stdout: "", stderr: "\u001b[0m\n" });
+		expect(
+			await tellOrchestrates("forget", "s", "work", {}, failed.run),
+		).toEqual({
+			kind: "unasked",
+			why: "mycelium ended with 1 and said nothing that shows",
+		});
+	});
+
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {
 		const cases: [Ran, string, boolean][] = [
 			[
