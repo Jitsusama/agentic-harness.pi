@@ -949,12 +949,15 @@ describe("the host's engine", () => {
 				forks: ["early", "kept", "after"],
 			};
 			expect(seen.keptHistory).toEqual({
-				resumed: held,
-				adopted: held,
-				replaced: held,
+				// Resumed and adopted logs are opened light; a switch holds the
+				// manager pi built for it, which pi's own open read whole.
+				resumed: { ...held, light: true },
+				adopted: { ...held, light: true },
+				replaced: { ...held, light: false },
 				closedBefore: true,
 				switchedTo: true,
 				onHostPi: true,
+				lightOpens: [],
 			});
 		},
 		HOST_LIFE_MS,

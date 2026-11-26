@@ -101,6 +101,7 @@ const {
 	warmingCarryDir,
 	writeWarmingCarry,
 } = await import("../../../../lib/internal/cache/warming-carry.ts");
+const { heldLight } = await import("../../../../host/engine/light-open.ts");
 const { holdForCarry } = await import(
 	"../../../../lib/internal/carry/under-way.ts"
 );
@@ -719,6 +720,11 @@ const scenarios: Record<string, Scenario> = {
 					closedBefore,
 					switchedTo,
 					onHostPi: keptHistoryOnHostPi(),
+					// What the engine said of its light opens: that one fell back,
+					// or that the pi it was given isn't what they read.
+					lightOpens: reported.filter((said) =>
+						/light open|Light opens/.test(said),
+					),
 				},
 			};
 		},
@@ -2034,8 +2040,9 @@ async function compacted(
  * kept history writes in place of what it leaves out, whether the entry
  * the compaction keeps is held with its parent on disk held before it, as
  * /fork from it needs, and whether
- * the turn before it is still held; and the user messages its session
- * counts for /session and lists for /fork, which take in those left out.
+ * the turn before it is still held; the user messages its session
+ * counts for /session and lists for /fork, which take in those left out;
+ * and whether the light open stood its manager with entries read lighter.
  */
 function heldOf(
 	engine: HostEngine,
@@ -2060,6 +2067,7 @@ function heldOf(
 		forks: sessionOf(engine, id)
 			?.getUserMessagesForForking()
 			.map((point) => point.text),
+		light: heldLight(logOf(engine, id)),
 	};
 }
 

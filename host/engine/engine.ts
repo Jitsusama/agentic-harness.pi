@@ -59,7 +59,7 @@ import type {
 } from "./contract.ts";
 import { conversationBuilds, type Live } from "./conversation-build.ts";
 import { restGivenUp } from "./given-up.ts";
-import { openStanding, type StandingOpen } from "./gone-folder.ts";
+import type { StandingOpen } from "./gone-folder.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessRequest,
@@ -118,6 +118,7 @@ export async function createEngine(
 	// the program loads, a missing install would fail the import before
 	// the program's configuration check refuses it with exit 78.
 	const { holdKeptHistory } = await import("./kept-history.ts");
+	const { hostOpen } = await import("./light-open.ts");
 	const { countLeftOut } = await import("./kept-history-session.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
@@ -280,22 +281,12 @@ export async function createEngine(
 		return { tools: running, jobs, waiting, builds: buildsRunning };
 	}
 
-	/**
-	 * Open a conversation's log to hold its kept view, in the folder that
-	 * stands nearest the one it names when that one is gone, as a tree
-	 * released once its change merged is, rather than have pi refuse it.
-	 */
-	function openLog(file: string): StandingOpen {
-		const { manager, left } = openStanding(sessions.SessionManager, file);
-		if (left)
-			report(
-				`Conversation ${manager.getSessionId()}'s folder ${left} is gone, so it opens in ${manager.getCwd()}`,
-			);
-		return {
-			manager: holdKeptHistory(manager, report),
-			...(left ? { left } : {}),
-		};
-	}
+	/** A conversation's log opened holding its kept view (light-open.ts). */
+	const openLog = hostOpen(
+		sessions.SessionManager,
+		pi.modules.codingAgent.CURRENT_SESSION_VERSION,
+		report,
+	);
 
 	function held(sessionId: string, file: string): boolean {
 		return (

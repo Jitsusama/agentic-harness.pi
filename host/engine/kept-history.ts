@@ -163,8 +163,15 @@ type Report = (said: unknown) => void;
  * answer it. It holds everything, as pi opened it, when its log has no
  * compaction to start from, when pi's privates are not what this reads
  * (said once a process), or when building the view fails (said each time).
+ * Each entry the view holds goes through `whole` first, which answers it
+ * as its line has it when `manager` was opened with entries made lighter
+ * (light-open.ts).
  */
-export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
+export function holdKeptHistory<M>(
+	manager: M,
+	report: Report = () => {},
+	whole: Whole = (entries) => [...entries],
+): M {
 	if (!holdsLikePi(manager)) {
 		if (!toldUnlikePi && typeof manager === "object" && manager !== null) {
 			toldUnlikePi = true;
@@ -183,7 +190,7 @@ export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
 	if (!file || !manager.flushed) return manager;
 	let held: Held | undefined;
 	try {
-		held = heldEntries(manager, file);
+		held = heldEntries(manager, file, whole);
 	} catch (error) {
 		// Nothing was changed yet: pi's full open stands.
 		report(heldWhole(manager, error));
@@ -210,6 +217,9 @@ function heldWhole(manager: HeldManager, error: unknown): Error {
 	);
 }
 
+/** The entries given, each as its line in the log has it. */
+type Whole = (entries: readonly Entry[]) => Entry[];
+
 /** What a manager holds once it holds the kept view. */
 interface Held {
 	/** Its entries, header first. */
@@ -225,7 +235,11 @@ interface Held {
  * when its log has nothing to leave out, or a rollover record the view
  * would hide.
  */
-function heldEntries(manager: HeldManager, file: string): Held | undefined {
+function heldEntries(
+	manager: HeldManager,
+	file: string,
+	whole: Whole,
+): Held | undefined {
 	const branch = manager.getBranch() as Entry[];
 	const view = keptView(branch);
 	if (!view || view.from === 0) return undefined;
@@ -307,9 +321,11 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const standIns = [...usage, recordEntry];
 	// When the state kept ends with the entry before the run, the record
 	// goes first, so that entry stays the run's parent.
-	const ordered = beforeHeld
-		? [...standIns, ...state, ...run, ...kept]
-		: [...state, ...standIns, ...run, ...kept];
+	const ordered = whole(
+		beforeHeld
+			? [...standIns, ...state, ...run, ...kept]
+			: [...state, ...standIns, ...run, ...kept],
+	);
 	const chained: Entry[] = [];
 	let parentId: string | null = null;
 	for (const entry of ordered) {
