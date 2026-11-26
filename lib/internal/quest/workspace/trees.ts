@@ -111,11 +111,14 @@ export function addTreeToQuest(
 
 /**
  * Remove this machine's tree at `path` from the quest's `trees:` list,
- * leaving any other machine's tree that reads as the same path.
+ * leaving any other machine's tree that reads as the same path. With
+ * `keepBranch`, its branch's alias stays, for a tree taken whose branch
+ * lives on, so a change on that branch still finds its quest.
  */
 export function removeTreeFromQuest(
 	questDir: string,
 	path: string,
+	options: { keepBranch?: boolean } = {},
 ): { ok: true; removed: boolean } | { ok: false; reason: string } {
 	let removedFlag = false;
 	const outcome = changeQuestFrontMatter(
@@ -132,7 +135,7 @@ export function removeTreeFromQuest(
 			const nextTrees = trees.filter((t) => t !== target);
 			const nextAliases = [...fm.aliases];
 			removeAlias(nextAliases, { type: "git-worktree", value: path });
-			if (target.branch) {
+			if (target.branch && options.keepBranch !== true) {
 				removeAlias(nextAliases, { type: "git-branch", value: target.branch });
 			}
 			const next = { ...fm, aliases: nextAliases } as typeof fm;

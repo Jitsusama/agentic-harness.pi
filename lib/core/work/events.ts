@@ -84,8 +84,11 @@ export interface TreeClaims {
 	/**
 	 * Of {@link untilSpent}, the trees a holder lets a sweep's idle rules
 	 * take while it lives: a day unused, clean and pushed. Offered by an
-	 * asker with idle rules; a holder that names none of its trees here,
-	 * or never heard of it, keeps every one from those rules.
+	 * asker with idle rules. The list is one for every holder, so a path
+	 * any holder names here is open to those rules whoever else claims it
+	 * until spent: a holder names only trees it knows no other holder
+	 * keeps. When no holder names a tree, as when none heard of this list,
+	 * every one they claim until spent is kept from those rules.
 	 */
 	idleMayTake?: string[];
 	/**

@@ -322,8 +322,13 @@ it("claims the trees another realm's live quests list, and no sealed one's", asy
 	]);
 });
 
-it("lets idle rules take a live quest's older tree here, from the same walk as its claims", async () => {
-	const older = "/src/repo/.worktrees/older";
+it("passes on to the idle rules a live quest's older tree here", async () => {
+	// The repository's last tree counts as newest only while its folder stands.
+	const trees = mkdtempSync(join(tmpdir(), "outside-trees-"));
+	const older = join(trees, "older");
+	const newest = join(trees, "newest");
+	mkdirSync(older);
+	mkdirSync(newest);
 	const id = "QEST-20260731-AAAAAA";
 	mkdirSync(join(seen.quests, id), { recursive: true });
 	const tree = (path: string) =>
@@ -333,14 +338,14 @@ it("lets idle rules take a live quest's older tree here, from the same walk as i
 		join(seen.quests, id, "README.md"),
 		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
-			`trees:\n${tree(older)}${tree(SPENT)}` +
+			`trees:\n${tree(older)}${tree(newest)}` +
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with two trees.\n",
 	);
 
 	await sweepOutside({ env: {} });
 
 	expect(seen.claims, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [older, SPENT], idleMayTake: [older] },
+		{ held: [], untilSpent: [older, newest], idleMayTake: [older] },
 	]);
 });
 

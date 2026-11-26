@@ -14,7 +14,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -210,6 +210,36 @@ it("holds a live quest's tree only until spent", async () => {
 
 	expect(given, "the claims the sweep was given").toEqual([
 		{ held: [], untilSpent: [tree], idleMayTake: [] },
+	]);
+});
+
+it("passes on to the idle rules a live quest's older tree here", async () => {
+	const events = createEventBus();
+	const quests = join(root, "quests");
+	const id = "QEST-20260731-AAAAAA";
+	// The repository's last tree counts as newest only while its folder stands.
+	const older = join(root, "trees", "older");
+	const newest = join(root, "trees", "newest");
+	mkdirSync(older, { recursive: true });
+	mkdirSync(newest, { recursive: true });
+	mkdirSync(join(quests, id), { recursive: true });
+	const tree = (path: string) =>
+		`  - path: ${path}\n    providerId: git-worktree\n` +
+		`    repoRoot: /src/repo\n    host: ${hostname()}\n    origin: cut\n`;
+	writeFileSync(
+		join(quests, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			`trees:\n${tree(older)}${tree(newest)}` +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with two trees.\n",
+	);
+	answerTreeClaims({ events } as never, quests);
+
+	await sweepOn(events);
+	await vi.waitFor(() => expect(given, "claims given").toHaveLength(1));
+
+	expect(given, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [older, newest], idleMayTake: [older] },
 	]);
 });
 

@@ -50,6 +50,7 @@ import {
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../lib/internal/quest/workspace/trees.ts";
+import type { QuestTree } from "../../lib/quest/types.ts";
 
 /**
  * Answer the working layer's question about held trees.
@@ -70,9 +71,10 @@ import {
  * and are held for good only by an asker that doesn't.
  *
  * Of those, a quest lets an unattended sweep's idle rules take every
- * tree it lists on this machine but its newest in each repository, the
- * one its session goes back to, as the sweep ruling of 24 November
- * keeps; it names them in {@link TreeClaims.idleMayTake} when the asker
+ * tree it lists on this machine in a known repository but that
+ * repository's newest whose folder stands, which holds the one its
+ * session reopens in, as the sweep ruling of 24 November keeps; it
+ * names them in {@link TreeClaims.idleMayTake} when the asker
  * offers that list. A quest's older trees alone kept every idle worktree
  * of an open quest: 24 clean, pushed and day-idle trees on 26 November.
  *
@@ -247,40 +249,57 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
  * the fresh answer adds only what the last walk didn't hold, and onto
  * `mayTake`, when it is given, each of its trees here that isn't the
  * newest of its repository. A quest adds a tree to the end of its list
- * as it cuts it, so a repository's last is its newest. A tree whose
- * repository isn't known, or that any live quest holds as its newest,
- * is never named, and one named by an earlier walk that this one finds
- * newest is taken back off.
+ * as it cuts it, so a repository's last whose folder stands is its
+ * newest: one already gone leaves the tree before it to its session.
+ * Each quest keeps every other tree it lists, such as one whose
+ * repository isn't known, and a tree any live quest keeps is never
+ * named, so one quest letting a tree go never overrides another's
+ * hold. One an earlier walk named that this one keeps is taken back.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
 	into: string[],
 	mayTake?: string[],
 ): void {
-	const newest = new Set<string>();
+	const kept = new Set<string>();
 	const older: string[] = [];
 	for (const entry of liveQuests(walks)) {
 		const trees = entry.doc.frontMatter.trees ?? [];
 		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
-		const lastInRepo = new Map<string, string>();
-		for (const tree of treesHere(trees)) {
-			if (tree.repoRoot === undefined) continue;
-			const before = lastInRepo.get(tree.repoRoot);
-			if (before !== undefined) older.push(before);
-			lastInRepo.set(tree.repoRoot, tree.path);
+		const letGo = olderInEachRepo(trees);
+		for (const tree of trees) {
+			if (letGo.has(tree.path)) older.push(tree.path);
+			else kept.add(tree.path);
 		}
-		for (const path of lastInRepo.values()) newest.add(path);
 	}
 	if (mayTake === undefined) return;
 	for (const path of older) {
-		if (!newest.has(path) && !mayTake.includes(path)) mayTake.push(path);
+		if (!kept.has(path) && !mayTake.includes(path)) mayTake.push(path);
 	}
 	for (let at = mayTake.length - 1; at >= 0; at--) {
 		const path = mayTake[at];
-		if (path !== undefined && newest.has(path)) mayTake.splice(at, 1);
+		if (path !== undefined && kept.has(path)) mayTake.splice(at, 1);
 	}
+}
+
+/**
+ * The trees a quest lists here, in a known repository, before that
+ * repository's last whose folder stands: the ones it lets idle rules
+ * take.
+ */
+function olderInEachRepo(trees: readonly QuestTree[]): Set<string> {
+	const here = treesHere(trees).filter(
+		(tree) => tree.repoRoot !== undefined && existsSync(tree.path),
+	);
+	const newest = new Map<string, string>();
+	for (const tree of here) newest.set(tree.repoRoot ?? "", tree.path);
+	return new Set(
+		here
+			.filter((tree) => newest.get(tree.repoRoot ?? "") !== tree.path)
+			.map((tree) => tree.path),
+	);
 }
 
 /**
@@ -319,7 +338,9 @@ export function forgetTrees(
  * quest's write on its own, so one quest's locked or vanished folder
  * leaves the rest forgetting. A tree whose folder is back by the time
  * the walk ends was cut again at its path while the quest was signed,
- * so it stays listed.
+ * so it stays listed. Its branch's alias stays either way: a sweep
+ * takes only a tree whose work another branch or a remote holds, and a
+ * live quest's open change on that branch still has to find it.
  */
 async function forgetTaken(
 	questsRoot: string,
@@ -335,7 +356,9 @@ async function forgetTaken(
 			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
 			try {
 				// A write refused says why as a throw does, and stops the second.
-				const removed = removeTreeFromQuest(entry.dir, tree.path);
+				const removed = removeTreeFromQuest(entry.dir, tree.path, {
+					keepBranch: true,
+				});
 				if (!removed.ok) throw new Error(removed.reason);
 				const cleared = setPendingPrune(entry.dir, null, {
 					clearPath: tree.path,
