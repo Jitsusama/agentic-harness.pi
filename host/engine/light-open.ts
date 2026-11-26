@@ -28,7 +28,7 @@
  * compaction, is left to it with nothing said.
  */
 
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -333,11 +333,14 @@ export function openKept(
 				undefined,
 				log.entries,
 			]);
-			if (!took(manager, log.entries, read, path, header.id))
-				throw new NotLikePi(
-					"pi's session manager no longer takes a log's entries as the light open expects",
-				);
-			return manager;
+			if (took(manager, log.entries, read, path, header.id)) return manager;
+			// pi starts a new session for a log gone by the time it looks, which
+			// says nothing of its shape: that open alone falls back.
+			if (!existsSync(path))
+				throw new Error(`${path} was gone as pi opened it`);
+			throw new NotLikePi(
+				"pi's session manager no longer takes a log's entries as the light open expects",
+			);
 		};
 		const standing = standingOpen(open, home);
 		const unheld = holdQuietly(standing.manager, log.whole, said);

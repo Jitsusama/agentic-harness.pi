@@ -310,6 +310,31 @@ describe("a log opened light", () => {
 		expect(answers(lightHeld(file), file)).toEqual(answers(piHeld(file), file));
 	});
 
+	it("holds what pi's open holds on a branch back past a later compaction on another", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "early");
+		toolTurn(sessions, "kept");
+		summarised(sessions, "the first summary", "kept");
+		toolTurn(sessions, "after the first");
+		const fork = sessions.getLeafId() ?? "";
+		toolTurn(sessions, "elsewhere one");
+		toolTurn(sessions, "elsewhere two");
+		summarised(sessions, "the other summary", "elsewhere two");
+		toolTurn(sessions, "elsewhere after");
+		sessions.branch(fork);
+		toolTurn(sessions, "back on the first");
+		const file = sessions.getSessionFile() ?? "";
+		// The other branch's compaction comes later in the log, so the light
+		// read lets go of the first compaction's kept entries and of it.
+		expect(readLight(file)?.lightened).toBeGreaterThan(0);
+		const light = lightHeld(file);
+		expect(answers(light, file)).toEqual(answers(piHeld(file), file));
+		const compactions = light
+			.getBranch()
+			.flatMap((e) => (e.type === "compaction" ? [e.summary] : []));
+		expect(compactions).toEqual(["the first summary"]);
+	});
+
 	it("skips blank and malformed lines as pi's open does", () => {
 		const file = compactedLog();
 		const text = readFileSync(file, "utf8").split("\n");
@@ -651,6 +676,24 @@ describe("pi's own open stands", () => {
 		expect(String(said[0])).toContain("no room to open");
 	});
 
+	it("for a log gone as pi opens it, saying so, with light opens left on", () => {
+		let removing = true;
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const removes = function (...args: unknown[]) {
+			if (removing) rmSync(String(args[2]));
+			return Reflect.construct(SessionManager, args);
+		};
+		const pi = { SessionManager: removes, version: CURRENT_SESSION_VERSION };
+		const said: unknown[] = [];
+		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
+			undefined,
+		);
+		expect(said).toEqual([expect.any(LightFellBack)]);
+		expect(String(said[0])).toContain("was gone as pi opened it");
+		removing = false;
+		expect(openKept(pi, compactedLog())).toBeDefined();
+	});
+
 	it("for a session manager that names another session", () => {
 		const pi = changing((manager) => {
 			manager.sessionId = "another";
@@ -738,11 +781,12 @@ describe("a light open that falls back", () => {
 		expect(said).toEqual([failed]);
 	});
 
-	it("says once that the kept view couldn't be built, when pi's own open says nothing", () => {
-		const said: unknown[] = [];
-		const file = compactedLog();
-		// Once pi has built its manager, a blank line after the header moves
-		// every line the light read placed, which pi's own open skips.
+	/**
+	 * A pi whose session manager, once built, puts a blank line after
+	 * `file`'s header, moving every line the light read placed, which pi's
+	 * own open skips: its kept view can't be built, and the open falls back.
+	 */
+	function moving(file: string): LightPi {
 		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
 		const moves = function (...args: unknown[]) {
 			const made: unknown = Reflect.construct(SessionManager, args);
@@ -750,8 +794,13 @@ describe("a light open that falls back", () => {
 			writeFileSync(file, [header, "", ...rest].join("\n"));
 			return made;
 		};
-		const pi = { SessionManager: moves, version: CURRENT_SESSION_VERSION };
-		openHeld(pi, file, (what) => said.push(what), whole([]));
+		return { SessionManager: moves, version: CURRENT_SESSION_VERSION };
+	}
+
+	it("says once that the kept view couldn't be built, when pi's own open says nothing", () => {
+		const said: unknown[] = [];
+		const file = compactedLog();
+		openHeld(moving(file), file, (what) => said.push(what), whole([]));
 		expect(said).toEqual([expect.any(LightFellBack)]);
 		const why = said[0] instanceof Error ? said[0].cause : undefined;
 		expect(String(why)).toContain("its kept view couldn't be built");
@@ -791,7 +840,8 @@ describe("a light open that falls back", () => {
 	it("leaves pi's own open to say it when it says something", () => {
 		const said: unknown[] = [];
 		const failed = new Error("the view failed");
-		openHeld(PI, fromTheStart(), (what) => said.push(what), whole([failed]));
+		const file = compactedLog();
+		openHeld(moving(file), file, (what) => said.push(what), whole([failed]));
 		expect(said).toEqual([failed]);
 	});
 
