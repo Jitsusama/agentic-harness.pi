@@ -333,9 +333,10 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 	expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe("bravo-BBBBBBBB");
 });
 
-it("keeps its quest's address through a restart in its host, over a peer that took it since", async () => {
-	// A hosted conversation's presence goes as it ends, so a restart in
-	// place or a rollover found no time to keep (#2218's review, F21, F37).
+it("keeps its quest's address through a close and reopen in its host, over a peer that took it since", async () => {
+	// A hosted conversation's presence goes as it ends, so a reopen or a
+	// rollover found no time to keep (#2218's review, F21, F37). A host
+	// turns down a restart in place, so a close and reopen is its restart.
 	await inHost();
 	mkdirSync(paths.sessions, { recursive: true });
 	writeFileSync(
@@ -373,7 +374,7 @@ it("keeps its quest's address through a restart in its host, over a peer that to
 	expect(await hello(again)).toContain("Sent as 7M6JKG");
 	expect(
 		presences.of("alpha-AAAAAAAA")?.signsSince,
-		"and says the time it held it from, not its restart's",
+		"and says the time it held it from, not its reopen's",
 	).toBe(heldFrom);
 });
 

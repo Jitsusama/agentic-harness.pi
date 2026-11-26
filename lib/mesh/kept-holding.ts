@@ -5,10 +5,11 @@
  * A plain pi's presence stays a day after it ends, saying when, so its
  * next start reads its holding time from it (address.ts). A hosted
  * conversation's presence goes as it ends (peer/runs.ts), since the
- * host it names runs on. A restart in place and a rollover start again
- * in that same process, the old session ending before the new one
- * starts, so the time is kept here instead, and signedSince bounds it
- * as it would bound the presence. A host's own restart parks what it
+ * host it names runs on. A conversation closed and reopened in its
+ * host, and a rollover there, start again in that same process, the old
+ * session ending before the new one starts, so the time is kept here
+ * instead, and signedSince bounds it as it would bound the presence. A
+ * host turns down a restart in place, so a reopen is its restart. A host's own restart parks what it
  * brings back, and a parked presence stays. A conversation that starts
  * again in another process keeps nothing and starts afresh: one the host
  * hands to a plain pi, and one a host running each conversation in a

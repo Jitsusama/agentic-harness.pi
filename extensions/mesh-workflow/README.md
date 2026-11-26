@@ -1407,8 +1407,9 @@ Two that both sign with it settle by who has held it longer,
 and two that took it at once by session id, the lower
 keeping it, so neither flips back and forth. A holder keeps
 its time through a park, and through a kill only if it said
-something in its last ten minutes. A restart in place or a
-rollover within ten minutes keeps it too: a hosted
+something in its last ten minutes. A hosted conversation
+closed and reopened, or rolled over, within ten minutes keeps
+it too: a hosted
 conversation's presence goes as it ends, so its host's
 process keeps the time for its next start. One that starts
 again in another process starts afresh: handed to a plain pi,

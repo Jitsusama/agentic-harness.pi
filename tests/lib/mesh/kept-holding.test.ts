@@ -3,6 +3,7 @@
  * and how its next start there reads it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RESTARTED_WITHIN_MS } from "../../../lib/mesh/address.ts";
 import {
 	KEPT_KEY,
 	type KeptHolding,
@@ -97,9 +98,9 @@ describe("a hosted conversation's holding through its restart", () => {
 	it("drops, at each keep, what ended longer ago than a restart", () => {
 		const later = (ms: number) => new Date(endedAt + ms).toISOString();
 		keepHolding(signing("long-gone", heldFrom), ended);
-		keepHolding(signing("lately-gone", heldFrom), later(55 * 60_000));
+		keepHolding(signing("lately-gone", heldFrom), later(5 * 60_000));
 
-		keepHolding(signing("now-gone", heldFrom), later(3_600_000));
+		keepHolding(signing("now-gone", heldFrom), later(RESTARTED_WITHIN_MS + 1));
 
 		expect([...(keptMap()?.keys() ?? [])]).toEqual(["lately-gone", "now-gone"]);
 	});
@@ -164,18 +165,20 @@ describe("a hosted conversation's holding through its restart", () => {
 	});
 
 	it("takes the one it rolled from where its own is past the bound", () => {
-		const longAgo = new Date(endedAt - 3_600_000).toISOString();
-		keepHolding(signing("own-stale", "2026-11-25T19:00:00.000Z"), longAgo);
-		// Kept apart, so the later keep's pruning leaves the stale one standing.
-		const stale = keptMap()?.get("own-stale");
+		// Its own ended a minute sooner, so a start just past its bound is
+		// still within the other's.
+		const sooner = endedAt - 60_000;
+		keepHolding(
+			signing("own-stale", "2026-11-25T19:00:00.000Z"),
+			new Date(sooner).toISOString(),
+		);
 		keepHolding(signing("own-stale-from", heldFrom), ended);
-		if (stale) keptMap()?.set("own-stale", stale);
 
 		expect(
 			takeHeldAtStart(
 				undefined,
 				{ session: "own-stale", previous: "own-stale-from" },
-				endedAt + 30_000,
+				sooner + RESTARTED_WITHIN_MS + 30_000,
 			),
 		).toEqual(kept);
 	});
