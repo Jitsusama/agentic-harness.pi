@@ -6,6 +6,7 @@
  */
 
 import {
+	chmod,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -23,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cacheRoot,
+	entryText,
 	entryWriter,
 	installKey,
 	OFF_VARIABLE,
@@ -56,11 +58,17 @@ const STRIPPING = {
 	version: "v22.23.5",
 	typescript: "strip",
 	sourceMaps: false,
+	hooks: true,
 } as const;
 
 /** A hook over files held in `files`, and what it called. */
-function hookOver(files: Map<string, string>, format = "module-typescript") {
+function hookOver(
+	files: Map<string, string>,
+	format = "module-typescript",
+	trusted = true,
+) {
 	const kept: [string, string][] = [];
+	const touched: string[] = [];
 	const read = vi.fn((path: string) => {
 		const text = files.get(path);
 		if (text === undefined) throw new Error(`ENOENT: ${path}`);
@@ -72,11 +80,14 @@ function hookOver(files: Map<string, string>, format = "module-typescript") {
 	);
 	const load = strippedSourceLoad({
 		folder: "/cache",
+		within: "file:///install/",
 		read,
 		strip,
 		keep: (file, text) => kept.push([file, text]),
+		trusted: () => trusted,
+		touch: (file) => touched.push(file),
 	});
-	return { load, read, strip, nextLoad, kept };
+	return { load, read, strip, nextLoad, kept, touched };
 }
 
 describe("strippedSourceLoad", () => {
@@ -93,7 +104,8 @@ describe("strippedSourceLoad", () => {
 		expect(first.kept).toHaveLength(1);
 		const [file, text] = first.kept[0] ?? ["", ""];
 		expect(file.startsWith("/cache/")).toBe(true);
-		expect(text).toBe(`module\njs(const a: number = 1;)@${URL_A}`);
+		expect(text).toBe(entryText(`js(const a: number = 1;)@${URL_A}`));
+		expect(text).toMatch(/^module [0-9a-f]{64}\n/);
 
 		files.set(file, text);
 		const second = hookOver(files);
@@ -105,6 +117,19 @@ describe("strippedSourceLoad", () => {
 		expect(second.nextLoad, "node's load loads its stripper").not.toBeCalled();
 		expect(second.strip).not.toBeCalled();
 		expect(second.kept).toEqual([]);
+		expect(second.touched).toEqual([file]);
+	});
+
+	it("reads no entry from a folder it may not trust, leaving node to strip", () => {
+		const files = new Map([[fileURLToPath(URL_A), "x"]]);
+		const first = hookOver(files);
+		first.load(URL_A, CONTEXT, first.nextLoad);
+		const [file, text] = first.kept[0] ?? ["", ""];
+		files.set(file, text);
+		const untrusted = hookOver(files, "module-typescript", false);
+		untrusted.load(URL_A, CONTEXT, untrusted.nextLoad);
+		expect(untrusted.read).not.toHaveBeenCalledWith(file);
+		expect(untrusted.nextLoad).toHaveBeenCalledOnce();
 	});
 
 	it("keeps a module apart by its source and by its URL", () => {
@@ -136,25 +161,43 @@ describe("strippedSourceLoad", () => {
 		expect(kept).toEqual([]);
 	});
 
-	it("leaves to node every module that isn't a TypeScript file, reading none", () => {
+	it("leaves to node, as node loads it, every module that isn't the package's own TypeScript, reading none", () => {
 		const { load, nextLoad, read } = hookOver(new Map());
-		for (const url of [
+		const urls = [
 			"file:///install/a.mjs",
 			"file:///install/a.cts",
+			"file:///elsewhere/a.ts",
+			"file:///install/node_modules/dep/a.ts",
+			"file:///install/host/node_modules/dep/a.mts",
 			"node:fs",
 			"data:text/javascript,export {}",
-		])
-			load(url, CONTEXT, nextLoad);
-		expect(nextLoad).toHaveBeenCalledTimes(4);
+		];
+		for (const url of urls)
+			expect(load(url, CONTEXT, nextLoad), url).toEqual({
+				format: "module-typescript",
+				source: "raw",
+			});
+		expect(nextLoad.mock.calls.map(([url]) => url)).toEqual(urls);
 		expect(read).not.toBeCalled();
 	});
 
-	it("reads an entry cut short as one not kept", () => {
+	it("reads an entry cut short or damaged as one not kept", () => {
 		const files = new Map([[fileURLToPath(URL_A), "x"]]);
 		const first = hookOver(files);
 		first.load(URL_A, CONTEXT, first.nextLoad);
-		const [file] = first.kept[0] ?? [""];
-		for (const cut of ["", "module", "modu", "commonjs\nx"]) {
+		const [file, text] = first.kept[0] ?? ["", ""];
+		const head = text.slice(0, text.indexOf("\n"));
+		for (const cut of [
+			"",
+			"module",
+			"modu",
+			"commonjs\nx",
+			"module\njs(x)",
+			head,
+			`${head}\n`,
+			`${head}\njs(y)@${URL_A}`,
+			text.slice(0, -1),
+		]) {
 			files.set(file, cut);
 			const again = hookOver(files);
 			again.load(URL_A, CONTEXT, again.nextLoad);
@@ -176,6 +219,7 @@ describe("whyNot", () => {
 			transforming: { ...STRIPPING, typescript: "transform" },
 			"no TypeScript": { ...STRIPPING, typescript: false },
 			"source maps": { ...STRIPPING, sourceMaps: true },
+			"no hooks": { ...STRIPPING, hooks: false },
 		};
 		for (const [name, facts] of Object.entries(cases))
 			expect(whyNot(facts), name).toBeTypeOf("string");
@@ -204,13 +248,20 @@ describe("where entries lie", () => {
 		expect(one).toMatch(/^[0-9a-f]{16}$/);
 		expect(installKey("/install/two", "v22.23.5")).not.toBe(one);
 		expect(installKey("/install/one", "v22.23.6")).not.toBe(one);
+		expect(installKey("/install/one", "v22.23.5", "module")).not.toBe(one);
 	});
 });
 
 describe("entryWriter", () => {
-	it("writes each entry and the install it serves, owner-only", async () => {
+	it("writes each entry and the install and node it serves, owner-only", async () => {
 		const folder = join(root, "cache", "key");
-		const keep = entryWriter(folder, "/install/one");
+		const made = vi.fn();
+		const keep = entryWriter({
+			folder,
+			served: "/install/one",
+			version: "v22.23.5",
+			made,
+		});
 		keep(join(folder, "e1"), "module\none");
 		keep(join(folder, "e2"), "module\ntwo");
 
@@ -218,30 +269,88 @@ describe("entryWriter", () => {
 			expect((await readdir(folder)).sort()).toEqual(["e1", "e2", "root"]);
 		});
 		expect(await readFile(join(folder, "e2"), "utf8")).toBe("module\ntwo");
-		expect(await readFile(join(folder, "root"), "utf8")).toBe("/install/one");
+		expect(await readFile(join(folder, "root"), "utf8")).toBe(
+			"/install/one\nv22.23.5",
+		);
 		expect((await stat(folder)).mode & 0o777).toBe(0o700);
 		expect((await stat(join(folder, "e1"))).mode & 0o777).toBe(0o600);
+		expect(made).toHaveBeenCalled();
 	});
 
-	it("loses nothing but the entry where it can't write", async () => {
+	it("says once where it can't write, and keeps nothing more", async () => {
 		const blocked = join(root, "file");
 		await writeFile(blocked, "");
-		const keep = entryWriter(join(blocked, "key"), "/install/one");
-		keep(join(blocked, "key", "e1"), "module\none");
-		await new Promise((settle) => setTimeout(settle, 50));
+		const folder = join(blocked, "key");
+		const said: string[] = [];
+		let settle = () => {};
+		const reported = new Promise<void>((settled) => {
+			settle = settled;
+		});
+		const keep = entryWriter({
+			folder,
+			served: "/install/one",
+			version: "v22.23.5",
+			report: (what) => {
+				said.push(what);
+				settle();
+			},
+		});
+		keep(join(folder, "e1"), "one");
+		keep(join(folder, "e2"), "two");
+		await reported;
+		expect(said).toEqual([expect.stringContaining("keeps nothing more")]);
 		expect(await readdir(root)).toEqual(["file"]);
+		// Once stopped, a later entry schedules no write at all.
+		vi.useFakeTimers({ toFake: ["setImmediate"] });
+		try {
+			keep(join(folder, "e3"), "three");
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("writes nothing to a folder others may write", async () => {
+		const folder = join(root, "open");
+		await mkdir(folder);
+		await chmod(folder, 0o777);
+		const said: string[] = [];
+		const made = vi.fn();
+		await new Promise<void>((settle) => {
+			entryWriter({
+				folder,
+				served: "/install/one",
+				version: "v22.23.5",
+				made,
+				report: (what) => {
+					said.push(what);
+					settle();
+				},
+			})(join(folder, "e1"), "one");
+		});
+		expect(said).toEqual([expect.stringContaining("closed to others")]);
+		expect(made).not.toBeCalled();
+		expect(await readdir(folder)).toEqual([]);
 	});
 });
 
 describe("sweepGone", () => {
+	const VERSION = "v22.23.5";
+	/** A sweep of `root` by a start serving `served`, keeping "mine". */
+	const sweep = (served = join(root, "mine-install"), at = root) =>
+		sweepGone({ root: at, keep: "mine", served, version: VERSION });
+	/** A folder `name` in the root, naming `served` under `version`. */
+	const folder = async (name: string, served?: string, version = VERSION) => {
+		await mkdir(join(root, name));
+		if (served !== undefined)
+			await writeFile(join(root, name, "root"), `${served}\n${version}`);
+	};
+	/** Seconds since the epoch `days` ago. */
+	const daysAgo = (days: number) => (Date.now() - days * 86_400_000) / 1000;
+
 	it("removes the folders of installs gone from the disk, and those naming none an hour on", async () => {
 		const live = join(root, "live-install");
 		await mkdir(live);
-		const folder = async (name: string, served?: string) => {
-			await mkdir(join(root, name));
-			if (served !== undefined)
-				await writeFile(join(root, name, "root"), served);
-		};
 		await folder("mine");
 		await folder("live", live);
 		await folder("gone", join(root, "no-such-install"));
@@ -250,7 +359,7 @@ describe("sweepGone", () => {
 		const hourAgo = (Date.now() - 61 * 60 * 1000) / 1000;
 		await utimes(join(root, "stale"), hourAgo, hourAgo);
 
-		await sweepGone(root, "mine");
+		await sweep();
 
 		expect((await readdir(root)).sort()).toEqual([
 			"fresh",
@@ -260,17 +369,51 @@ describe("sweepGone", () => {
 		]);
 	});
 
-	it("keeps its own folder though it names a gone install", async () => {
-		await mkdir(join(root, "mine"));
-		await writeFile(join(root, "mine", "root"), join(root, "gone"));
-		await sweepGone(root, "mine");
+	it("removes its own install's folder under another node, though the install stands", async () => {
+		const mine = join(root, "mine-install");
+		await mkdir(mine);
+		await folder("mine", mine);
+		await folder("older node", mine, "v22.22.0");
+		await mkdir(join(root, "unversioned"));
+		await writeFile(join(root, "unversioned", "root"), mine);
+
+		await sweep(mine);
+
+		expect((await readdir(root)).sort()).toEqual(["mine", "mine-install"]);
+	});
+
+	it("removes the entries of its own folder no start has read for 30 days", async () => {
+		await folder("mine", join(root, "gone"));
+		for (const name of ["read", "unread"])
+			await writeFile(join(root, "mine", name), "x");
+		await utimes(join(root, "mine", "read"), daysAgo(29), daysAgo(29));
+		await utimes(join(root, "mine", "unread"), daysAgo(31), daysAgo(31));
+		await utimes(join(root, "mine", "root"), daysAgo(90), daysAgo(90));
+
+		await sweep();
+
 		expect(await readdir(root)).toEqual(["mine"]);
+		expect((await readdir(join(root, "mine"))).sort()).toEqual([
+			"read",
+			"root",
+		]);
+	});
+
+	it("leaves a folder whose install can't be looked at now for a later sweep", async () => {
+		const shut = join(root, "shut");
+		await mkdir(join(shut, "install"), { recursive: true });
+		await folder("unseen", join(shut, "install"));
+		await chmod(shut, 0o000);
+		try {
+			await sweep();
+		} finally {
+			await chmod(shut, 0o700);
+		}
+		expect((await readdir(root)).sort()).toEqual(["shut", "unseen"]);
 	});
 
 	it("sweeps nothing where nothing was kept", async () => {
-		await expect(sweepGone(join(root, "none"), "mine")).resolves.toBe(
-			undefined,
-		);
+		await expect(sweep(undefined, join(root, "none"))).resolves.toBe(undefined);
 	});
 });
 
@@ -302,6 +445,47 @@ describe("startStrippedSourceCache", () => {
 		});
 		expect(started.state).toBe("off");
 		expect(register).not.toBeCalled();
+	});
+
+	it("fails rather than read a folder others may write", async () => {
+		const folder = join(
+			cacheRoot({ XDG_STATE_HOME: root }, "/home/u"),
+			installKey("/install/one", "v22.23.5"),
+		);
+		await mkdir(folder, { recursive: true });
+		await chmod(folder, 0o755);
+		const register = vi.fn();
+		const started = startStrippedSourceCache({
+			env: { XDG_STATE_HOME: root },
+			home: "/home/u",
+			packageRoot: "/install/one",
+			facts: STRIPPING,
+			register,
+		});
+		expect(started).toEqual({
+			state: "failed",
+			reason: expect.stringContaining("closed to others"),
+		});
+		expect(register).not.toBeCalled();
+	});
+
+	it("names its folder by the package's type as well", async () => {
+		const install = join(root, "install");
+		await mkdir(install);
+		await writeFile(join(install, "package.json"), '{ "type": "module" }');
+		const started = startStrippedSourceCache({
+			env: { XDG_STATE_HOME: root },
+			packageRoot: install,
+			facts: STRIPPING,
+			register: vi.fn(),
+		});
+		expect(started).toEqual({
+			state: "on",
+			folder: join(
+				cacheRoot({ XDG_STATE_HOME: root }, "/home/u"),
+				installKey(install, "v22.23.5", "module"),
+			),
+		});
 	});
 
 	it("answers why it failed rather than throwing, leaving node to strip", () => {

@@ -26,6 +26,11 @@ const BINDS_PI: Record<string, string> = {
 		"binds every pi import to the host's own install before loading the host",
 };
 
+/** Whether `file` is one of the scripts that bind pi themselves. */
+function bindsPi(file: string): boolean {
+	return dirname(file) === SCRIPTS && relative(SCRIPTS, file) in BINDS_PI;
+}
+
 /**
  * The scripts plain node runs, but for those that bind pi themselves,
  * each as an import never called. vitest's `--changed` follows a
@@ -58,6 +63,7 @@ const SCRIPT_MODULES: Record<string, () => Promise<unknown>> = {
 	"scripts/park-windows.ts": () => import("../../../scripts/park-windows.ts"),
 	"scripts/pi-carry.ts": () => import("../../../scripts/pi-carry.ts"),
 	"scripts/pi-fence.ts": () => import("../../../scripts/pi-fence.ts"),
+	"scripts/pi-host.mjs": () => import("../../../scripts/pi-host.mjs"),
 	"scripts/pi-sweep.ts": () => import("../../../scripts/pi-sweep.ts"),
 	"scripts/pi-verbs.ts": () => import("../../../scripts/pi-verbs.ts"),
 	"scripts/redraw-tally.ts": () => import("../../../scripts/redraw-tally.ts"),
@@ -88,6 +94,8 @@ const STARTED_MODULES: Record<string, () => Promise<unknown>> = {
 		import("../../../lib/internal/priority/push-hooks.mjs"),
 	"lib/internal/quest/discovery/tree-read.mjs": () =>
 		import("../../../lib/internal/quest/discovery/tree-read.mjs"),
+	"lib/internal/stripped-source-start.mjs": () =>
+		import("../../../lib/internal/stripped-source-start.mjs"),
 	"lib/subagent/runpi/supervisor.mjs": () =>
 		import("../../../lib/subagent/runpi/supervisor.mjs"),
 	"scripts/host-join.ts": () => import("../../../scripts/host-join.ts"),
@@ -124,7 +132,8 @@ function loaded(source: string): string[] {
 
 /**
  * Each pi package a script loads, as `file specifier (by way of ...)`,
- * following its relative imports through every file they reach.
+ * following its relative imports through every file they reach but a
+ * script that binds pi itself, as pi-host.mjs reaches pi-host.ts.
  */
 function piReached(script: string): string[] {
 	const found: string[] = [];
@@ -149,7 +158,7 @@ function piReached(script: string): string[] {
 					found.push(
 						`${relative(ROOT, file)} ${specifier} names no file (${way(file)})`,
 					);
-				} else if (!cameFrom.has(next)) {
+				} else if (!cameFrom.has(next) && !bindsPi(next)) {
 					cameFrom.set(next, file);
 					todo.push(next);
 				}

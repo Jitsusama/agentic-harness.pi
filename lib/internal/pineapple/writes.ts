@@ -1176,7 +1176,7 @@ function patternWrites(command: string): WriteCall[] {
 			"start",
 		],
 		[
-			/\b(?:node|tsx|bun|deno)\s+(?:\S*\/)?(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts\b/,
+			/\b(?:node|tsx|bun|deno)\s+(?:\S*\/)?(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.(?:ts|mjs)\b/,
 			"pi host move",
 			"start",
 		],

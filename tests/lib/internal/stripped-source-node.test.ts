@@ -41,17 +41,22 @@ function startingAs22(): string {
 		`import { startStrippedSourceCache } from ${JSON.stringify(module)};`,
 		"const started = startStrippedSourceCache({ facts: { env: process.env,",
 		'\tversion: "v22.0.0", typescript: process.features.typescript,',
-		"\tsourceMaps: process.sourceMapsEnabled } });",
+		"\tsourceMaps: process.sourceMapsEnabled, hooks: true },",
+		"\tpackageRoot: process.env.CODE_ROOT });",
 		'if (started.state === "failed") throw new Error(started.reason);',
 	].join("\n");
 	return `--import=data:text/javascript,${encodeURIComponent(code)}`;
 }
 
-/** A TypeScript module saying how it was loaded, in a folder of its own. */
+/**
+ * A TypeScript module saying how it was loaded, in a package of its own
+ * that names no type, as this one names none, so node tells its format
+ * from its syntax.
+ */
 async function sayingModule(): Promise<string> {
 	const code = join(root, "code");
 	await mkdir(code);
-	await writeFile(join(code, "package.json"), '{ "type": "module" }\n');
+	await writeFile(join(code, "package.json"), '{ "name": "code" }\n');
 	const entry = join(code, "entry.ts");
 	await writeFile(
 		entry,
@@ -71,11 +76,28 @@ async function says(
 	entry: string,
 	env: NodeJS.ProcessEnv,
 	hook?: string,
-): Promise<{ fn: string; where: string; transpiler: boolean }> {
-	const { stdout } = await run(
+): Promise<{
+	fn: string;
+	where: string;
+	transpiler: boolean;
+	stderr: string;
+}> {
+	const { stdout, stderr } = await run(
 		process.execPath,
-		[...(hook ? [hook] : []), entry],
-		{ env: { PATH: process.env.PATH, HOME: root, ...env }, timeout: ONE_RUN },
+		[
+			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			...(hook ? [hook] : []),
+			entry,
+		],
+		{
+			env: {
+				PATH: process.env.PATH,
+				HOME: root,
+				CODE_ROOT: join(root, "code"),
+				...env,
+			},
+			timeout: ONE_RUN,
+		},
 	);
 	const told: unknown = JSON.parse(stdout);
 	if (
@@ -85,7 +107,12 @@ async function says(
 		typeof told.transpiler !== "boolean"
 	)
 		throw new Error(`the module said ${stdout}`);
-	return { fn: told.fn, where: told.where, transpiler: told.transpiler };
+	return {
+		fn: told.fn,
+		where: told.where,
+		transpiler: told.transpiler,
+		stderr,
+	};
 }
 
 describe("the stripped-source cache in a node", () => {
@@ -100,8 +127,15 @@ describe("the stripped-source cache in a node", () => {
 			const second = await says(entry, env, startingAs22());
 
 			expect(native.transpiler, "node strips with its transpiler").toBe(true);
-			expect(first).toEqual(native);
-			expect(second).toEqual({ ...native, transpiler: false });
+			expect(first.stderr, "the strip it keeps warns of nothing").not.toMatch(
+				/stripTypeScriptTypes/,
+			);
+			expect({ ...first, stderr: "" }).toEqual({ ...native, stderr: "" });
+			expect({ ...second, stderr: "" }).toEqual({
+				...native,
+				transpiler: false,
+				stderr: "",
+			});
 		},
 		3 * ONE_RUN,
 	);
@@ -128,7 +162,7 @@ describe("the stripped-source cache in a node", () => {
 		async () => {
 			const script = join(root, "supervisor.mjs");
 			await writeFile(script, "console.log(process.argv[2]);\n");
-			const { stdout } = await run(
+			const { stdout, stderr } = await run(
 				process.execPath,
 				supervisorArguments(script, "request.json"),
 				{
@@ -137,6 +171,7 @@ describe("the stripped-source cache in a node", () => {
 				},
 			);
 			expect(stdout.trim()).toBe("request.json");
+			expect(stderr, "the cache started or stood aside").toBe("");
 		},
 		ONE_RUN,
 	);

@@ -342,6 +342,8 @@ describe("writesInBash", () => {
 		held("pi-host --attended", "pi-host");
 		held("pi-carry ab12", "pi-carry");
 		held("node scripts/pi-host.ts", "pi pi-host");
+		held("node scripts/pi-host.mjs attended", "pi pi-host");
+		held("./scripts/pi-host.mjs --child", "pi pi-host");
 		held("tsx --env-file x scripts/pi-carry.ts", "pi pi-carry");
 		held("./scripts/host-take-up.ts", "pi host-take-up");
 		held("systemd-run --user --unit=x -p RuntimeMaxSec=60 -- pi", "pi");

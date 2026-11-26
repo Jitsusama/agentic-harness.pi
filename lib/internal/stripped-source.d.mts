@@ -18,6 +18,8 @@ export interface ProcessFacts {
 	readonly typescript: string | false | undefined;
 	/** Whether source maps are on, as `process.sourceMapsEnabled` says. */
 	readonly sourceMaps: boolean;
+	/** Whether node has `registerHooks` and `stripTypeScriptTypes`. */
+	readonly hooks: boolean;
 }
 
 /** Why the cache stands aside in such a process, or undefined when it serves. */
@@ -29,39 +31,79 @@ export function cacheRoot(
 	home: string,
 ): string;
 
-/** The folder name for the install at `packageRoot` under node `version`. */
-export function installKey(packageRoot: string, version: string): string;
+/**
+ * The folder name for the install at `packageRoot` under node `version`,
+ * its package.json naming `type`.
+ */
+export function installKey(
+	packageRoot: string,
+	version: string,
+	type?: string,
+): string;
+
+/** What an entry holding `stripped` reads on disk. */
+export function entryText(stripped: string): string;
 
 /** What the load hook reads, strips and keeps with. */
 export interface LoadParts {
 	/** The folder its entries lie in. */
 	readonly folder: string;
+	/** The URL of the folder whose own modules it keeps, ending in a slash. */
+	readonly within: string;
 	/** Reads a file as text, throwing when it can't. */
 	readonly read: (path: string) => string;
 	/** Strips a module's source as node would at its URL. */
 	readonly strip: (source: string, url: string) => string;
 	/** Takes a new entry's file and text to write. */
 	readonly keep: (file: string, text: string) => void;
+	/** Whether its folder may be read from, as it may by default. */
+	readonly trusted?: () => boolean;
+	/** Told of each entry it reads back. */
+	readonly touch?: (file: string) => void;
 }
 
 /** A load hook keeping in `folder` what node strips. */
 export function strippedSourceLoad(parts: LoadParts): LoadHookSync;
 
-/** A writer of `folder`'s entries, for the install at `packageRoot`. */
+/** What a writer of an install's entries writes for. */
+export interface WriterParts {
+	/** The folder its entries lie in. */
+	readonly folder: string;
+	/** The install it serves. */
+	readonly served: string;
+	/** The node version it serves under. */
+	readonly version: string;
+	/** Told once, when a write first fails. */
+	readonly report?: (said: string) => void;
+	/** Told once the folder is made and private. */
+	readonly made?: () => void;
+}
+
+/** A writer of an install's entries. */
 export function entryWriter(
-	folder: string,
-	packageRoot: string,
+	parts: WriterParts,
 ): (file: string, text: string) => void;
 
+/** What a sweep sweeps, and the folder it keeps. */
+export interface SweepParts {
+	/** The folder every install's folder lies in. */
+	readonly root: string;
+	/** The name of this start's own folder. */
+	readonly keep: string;
+	/** The install this start serves. */
+	readonly served: string;
+	/** The node version this start runs on. */
+	readonly version: string;
+	/** The time to sweep as of, in milliseconds. */
+	readonly now?: number;
+}
+
 /**
- * Remove the folders in `root` but `keep` whose install is gone, or that
- * name none an hour after they were made.
+ * Remove the folders in `root` but `keep` whose install is gone, that
+ * hold `served` under another node, or that name none an hour after
+ * they were made; and the entries in `keep` no start read for 30 days.
  */
-export function sweepGone(
-	root: string,
-	keep: string,
-	now?: number,
-): Promise<void>;
+export function sweepGone(parts: SweepParts): Promise<void>;
 
 /** Whether the cache serves, and where; why it stands aside; or why it failed. */
 export type StrippedSource =
@@ -75,6 +117,7 @@ export interface StartOptions {
 	readonly packageRoot?: string;
 	readonly facts?: ProcessFacts;
 	readonly register?: (hooks: RegisterHooksOptions) => unknown;
+	readonly report?: (said: string) => void;
 }
 
 /** Keep what node strips of this package, where node 22 strips it. */

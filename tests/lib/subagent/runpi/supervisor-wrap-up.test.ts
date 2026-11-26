@@ -7,8 +7,11 @@
 import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { told } from "../../../../lib/subagent/runpi/supervisor-request.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+	supervisorArguments,
+	told,
+} from "../../../../lib/subagent/runpi/supervisor-request.ts";
 import {
 	handOver,
 	wrapUpOwed,
@@ -169,6 +172,27 @@ describe("handing a wrap-up over", () => {
 		expect(
 			JSON.parse(await readFile(asked.paths.requestPath, "utf8")).cwd,
 		).toBe(dir);
+	});
+
+	it("starts its supervisor as every supervisor starts, with the stripped-source cache", async () => {
+		const dir = await tempDir();
+		const script = join(dir, "supervisor.mjs");
+		const said = join(dir, "said.json");
+		await writeFile(
+			script,
+			`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(said)}, JSON.stringify([...process.execArgv, ...process.argv.slice(1)]));\n`,
+		);
+		const asked = await wrapUpIn(dir);
+
+		await handOver(asked, script);
+
+		await vi.waitFor(
+			async () =>
+				expect(JSON.parse(await readFile(said, "utf8"))).toEqual(
+					supervisorArguments(script, asked.paths.requestPath),
+				),
+			{ timeout: 15_000 },
+		);
 	});
 
 	it("takes its request back when its supervisor cannot start", async () => {

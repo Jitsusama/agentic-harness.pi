@@ -51,7 +51,7 @@ const HOST_UNIT = /^(?:pi-host|pi-conversation|mycelium-pi)[-*@]|^pi-\*/;
 
 /** The harness's scripts that start a host or move conversations into one. */
 const HOST_SCRIPT =
-	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts$/;
+	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.(?:ts|mjs)$/;
 
 /** Programs that start pi, a host of conversations, or a carried session. */
 const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
@@ -117,7 +117,11 @@ export function startIn(name: string, args: string[]): WriteCall | undefined {
 		return startsNoAgent(after) ? undefined : { action: "pi", kind: "start" };
 	}
 	if (script === undefined || !HOST_SCRIPT.test(script)) return undefined;
-	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
+	const moves =
+		script
+			.split("/")
+			.at(-1)
+			?.replace(/\.(?:ts|mjs)$/, "") ?? script;
 	return { action: `pi ${moves}`, kind: "start" };
 }
 
