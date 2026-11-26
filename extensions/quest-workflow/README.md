@@ -365,8 +365,9 @@ shipped and tested.
   the launcher starts afresh under its id with `pi --session-id`,
   its quest autoloaded, since there is no file to resume.
 - **Spawn where it fits**: `spawn` with `needs`, each in
-  mycelium's own `kind=value` words (`reach=home`,
-  `system=macos`), asks the node where such work goes before
+  mycelium's own words (`reach=home`, `system=macos`,
+  `tool=gcloud`, or `cloud` alone for any machine a provider
+  made), asks the node where such work goes before
   anything else, since resuming holds only on this machine. The
   node chooses among the machines its realm links, ranking down
   one on battery or short of memory or disk, and the session
@@ -377,8 +378,8 @@ shipped and tested.
   asks only where it would go.
 - **What a quest needs of a machine**: `need-add` and
   `need-remove` keep a quest's `needs` in its front matter, in
-  the same `kind=value` words, each checked as the node reads
-  it, on the quest `id` names or the loaded one. `spawn` given
+  the same words (`kind=value`, or `cloud`), each checked as
+  the node reads it, on the quest `id` names or the loaded one. `spawn` given
   neither `machine` nor `needs` places by the spawned quest's
   own needs; either one named replaces them. A quest with none
   starts here, as before, and a subquest takes none from its

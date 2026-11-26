@@ -415,6 +415,31 @@ describe("the machine a spawn starts on", () => {
 		]);
 	});
 
+	it("places a spawn needing cloud and a tool rather than refusing the words", async () => {
+		const { asked, place } = placing({
+			ok: true,
+			machine: "v2s-gcp-provider-a",
+		});
+		const chosen = await machineFor(undefined, ["cloud", "tool=gcloud"], place);
+		expect(chosen).toEqual({
+			ok: true,
+			machine: "v2s-gcp-provider-a",
+			needs: [{ kind: "cloud" }, { kind: "tool", value: "gcloud" }],
+		});
+		expect(asked).toEqual([
+			[{ kind: "cloud" }, { kind: "tool", value: "gcloud" }],
+		]);
+	});
+
+	it("takes a machine beside a cloud need as one more need, naming no other machine", async () => {
+		const { asked, place } = placing({ ok: true, machine: "optimus" });
+		const chosen = await machineFor("optimus", ["cloud"], place);
+		expect(chosen).toMatchObject({ ok: true, machine: "optimus" });
+		expect(asked).toEqual([
+			[{ kind: "cloud" }, { kind: "machine", value: "optimus" }],
+		]);
+	});
+
 	it("tells the node the fence it declares, whatever is needed", async () => {
 		const fences: unknown[] = [];
 		const place: PlaceOnNode = async (_needs, fence) => {

@@ -80,7 +80,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/remove: comma-separated `type:value` (e.g. `github-pr:shop/world#47281`). need-add/remove: comma-separated kind=value, as needs. budget: a provider's name, `none` or `inherit`; left out, it says which. tree-expand: the zone (e.g. system/gitstream).",
+				"alias-add/remove: comma-separated `type:value` (e.g. `github-pr:shop/world#47281`). need-add/remove: comma-separated needs, as spawn's needs (kind=value, or the bare `cloud`). budget: a provider's name, `none` or `inherit`; left out, it says which. tree-expand: the zone (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
@@ -144,7 +144,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, kind=value, e.g. reach=home; the node picks one.",
+				"spawn: what the machine must be, kind=value (e.g. reach=home, tool=gcloud), or cloud alone; the node picks one.",
 		}),
 	),
 	fence: Type.Optional(
