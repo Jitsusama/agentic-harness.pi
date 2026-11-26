@@ -13,10 +13,12 @@
  * hosted conversation kept the code it started with until something
  * asked it to reload, where plain pi moved on by itself.
  *
- * A plain pi whose extension links moved since it started is started
- * again through its holder rather than reloaded, since a reload would
- * resolve those extensions through their first targets
- * (lib/internal/reload/extension-links.ts). One its holder can't start
+ * A plain pi whose extension links moved onto other code since it
+ * started is started again through its holder rather than reloaded,
+ * since a reload would resolve those extensions through their first
+ * targets (lib/internal/reload/extension-links.ts). A link made again
+ * onto a tree the same as its first, still there, is no move, and such
+ * a pi reloads as any other. One its holder can't start
  * again keeps the code it runs, and says why. A runtime that starts
  * with such links came up through a reload, which loaded them half
  * stale, so it starts again too once idle, install moved or not: the
