@@ -484,10 +484,17 @@ describe("this session's peer", () => {
 		expect(peer.addresses, "no README read on the thread").not.toContain(
 			questAddress(listing),
 		);
-		await vi.waitFor(() =>
-			expect(peer.addresses).toContain(questAddress(listing)),
-		);
-		peer.dispose();
+		try {
+			// The pool reads the README behind whatever a loaded machine has
+			// queued there, so it gets longer than the default second.
+			await vi.waitFor(
+				() => expect(peer.addresses).toContain(questAddress(listing)),
+				{ timeout: 10_000 },
+			);
+			expect(peer.addresses, "added to, not replaced").toContain(before);
+		} finally {
+			peer.dispose();
+		}
 	});
 
 	it("is in the repository it runs in, with no quest", () => {
