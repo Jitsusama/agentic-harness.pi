@@ -12,6 +12,10 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isHeavy } from "../../host/engine/heavy.ts";
+import {
+	isParkRefused,
+	PARK_REFUSED_EVENT,
+} from "../../lib/core/session/host.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import { whyWriting } from "../../lib/internal/session/hand-over.ts";
@@ -89,7 +93,12 @@ import {
 	restartWith,
 	shownIn,
 } from "./restart.ts";
-import { type FailedPark, heldByFailure, undoPark } from "./undo.ts";
+import {
+	type FailedPark,
+	heldByFailure,
+	ParkLeftHalfDone,
+	undoPark,
+} from "./undo.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -456,6 +465,9 @@ export function watch(
 	// Ended pi's own process, as a host's conversation never does.
 	let endedProcess = false;
 	let failed: FailedPark | undefined;
+	// How the park under way went on, so one its host refuses after `end`
+	// returns, as a host parks once the asking call returns, is taken back.
+	let parkGoesOn = false;
 	// Its person was last at its window, as far as this process saw.
 	let presentAt = Number.NEGATIVE_INFINITY;
 	const holding = (): Holding => ({
@@ -521,8 +533,9 @@ export function watch(
 			? Math.min(usual, OLD_PARK_AFTER_MS)
 			: usual;
 	};
-	const end = () => {
+	const end = (goesOn: boolean) => {
 		parked = true;
+		parkGoesOn = goesOn;
 		// Parked, it has done what an ask to park soon asked.
 		clearEase(session, folder);
 		// A host parks this conversation alone, keeping its window and wake.
@@ -641,19 +654,22 @@ export function watch(
 		}
 		try {
 			mark(goesOn, afterMs, sessionFile, windows);
-			end();
+			end(goesOn);
 		} catch (error) {
-			// Still up, it reads as awake again, and a later park may go.
-			const saidToHolder = endedProcess;
-			parked = false;
-			endedProcess = false;
-			failed = { at: now(), error };
-			const pid = options.pid ?? process.pid;
-			const wakeWritten = goesOn ? { wakeWritten: wake } : {};
-			const half = { session, folder, saidToHolder, env, pid, bus };
-			undoPark(error, { ...half, ...wakeWritten });
+			takeBack(error, goesOn);
 		}
 		return undefined;
+	};
+	// Still up, it reads as awake again, and a later park may go.
+	const takeBack = (error: unknown, goesOn: boolean): never => {
+		const saidToHolder = endedProcess;
+		parked = false;
+		endedProcess = false;
+		failed = { at: now(), error };
+		const pid = options.pid ?? process.pid;
+		const wakeWritten = goesOn ? { wakeWritten: wake } : {};
+		const half = { session, folder, saidToHolder, env, pid, bus };
+		return undoPark(error, { ...half, ...wakeWritten });
 	};
 	// Say it parks, to the mesh and in its marker, before its holder ends it.
 	const mark = (
@@ -782,6 +798,16 @@ export function watch(
 		if (!isParkNowAsk(data) || data.session !== session) return;
 		answerParkNow(data, () => decide(false, true, true), parkNow);
 	});
+	const unrefused = bus.on(PARK_REFUSED_EVENT, (data) => {
+		if (!isParkRefused(data) || data.session !== session || !parked) return;
+		try {
+			takeBack(new Error(data.why), parkGoesOn);
+		} catch (error) {
+			// Its host already said why it runs on; pi's bus says what a
+			// listener throws, so only what couldn't be taken back goes there.
+			if (error instanceof ParkLeftHalfDone) throw error;
+		}
+	});
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;
 		const why = restartInto(data.sessionFile, data.asked === true);
@@ -834,6 +860,7 @@ export function watch(
 		stop() {
 			unasked();
 			unparked();
+			unrefused();
 			clearInterval(clock);
 			note(undefined);
 		},

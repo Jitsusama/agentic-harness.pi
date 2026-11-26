@@ -113,14 +113,24 @@ export type FolderWatch = (
 const watchFolder: FolderWatch = (folder, heard) =>
 	watch(folder, (_, name) => heard(name));
 
+/** A park whose stop threw before it began, so its conversation runs on as it was. */
+export interface RanOn {
+	readonly error: unknown;
+}
+
 /** What parks and wakes the engine's conversations. */
 export interface Parking {
 	/** Where a sender wakes this conversation once it parks. */
 	wakeFile(sessionId: string): string;
 	/** It runs now: a wake left from an earlier park would wake its next at once. */
 	running(sessionId: string): void;
-	/** Park it, then watch for its wake; a wake asked meanwhile wakes it once parked. */
-	park(sessionId: string): Promise<void>;
+	/**
+	 * Park it, then watch for its wake; a wake asked meanwhile wakes it
+	 * once parked. Answers what refused it when its stop threw before it
+	 * began, so it runs on as it was, and nothing once it stopped or rests
+	 * owed its stop.
+	 */
+	park(sessionId: string): Promise<RanOn | undefined>;
 	/**
 	 * It parked under an earlier host and still rests: watch for its wake
 	 * as its park would have, waking it for one written meanwhile.
@@ -226,7 +236,7 @@ export interface SteerInboxes {
 
 /** A park under way: when it settles, and the wakes asked of it meanwhile. */
 interface Settling {
-	readonly done: Promise<void>;
+	readonly done: Promise<unknown>;
 	readonly asked: { resolve(): void; reject(error: unknown): void }[];
 }
 
@@ -515,7 +525,11 @@ export function parking(options: {
 		});
 	}
 
-	async function park(sessionId: string, asked: Settling["asked"]) {
+	async function park(
+		sessionId: string,
+		asked: Settling["asked"],
+	): Promise<RanOn | undefined> {
+		let ranOn: RanOn | undefined;
 		let wakeAtOnce = false;
 		let watched = false;
 		let began = false;
@@ -561,6 +575,7 @@ export function parking(options: {
 			// half run cleanup left. One whose stop threw before it began was
 			// never stopped at all, and runs on as it was.
 			if (began && !stopped) watched = restOwed(sessionId, carrying);
+			else if (!began) ranOn = { error };
 			// Stopped but unwatched, only a viewer or an attach wakes it, and
 			// calls it carried would end with nobody to wake it: it wakes.
 			wakeAtOnce = !watched && carriedSome(sessionId);
@@ -579,6 +594,7 @@ export function parking(options: {
 					for (const one of asked) one.reject(error);
 				},
 			);
+		return ranOn;
 	}
 
 	// Rest one whose park's stop failed, owed that stop, answering whether

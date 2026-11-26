@@ -25,6 +25,8 @@ import {
 	HOST_RESTARTING_EVENT,
 	type HostReloadRequest,
 	type HostRestarting,
+	PARK_REFUSED_EVENT,
+	type ParkRefused,
 } from "../../lib/core/session/host.ts";
 import {
 	type LaunchHints,
@@ -32,6 +34,7 @@ import {
 	type SessionStamp,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { messageOf } from "../../lib/internal/carry/message.ts";
 import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { moveHoldsReload } from "../../lib/internal/session/move-waiting.ts";
@@ -405,9 +408,17 @@ export async function createEngine(
 				record.bus.emit(HOST_RESTARTING_EVENT, restarting);
 			},
 			// Its close then keeps its screen's terminal for the wake.
-			park: () => {
+			// One whose stop never began runs on, so its watch takes back saying it parks.
+			park: async () => {
 				record.parking = true;
-				return parked.park(sessionId);
+				const ranOn = await parked.park(sessionId);
+				if (ranOn === undefined) return;
+				record.parking = false;
+				const refused: ParkRefused = {
+					session: sessionId,
+					why: messageOf(ranOn.error),
+				};
+				record.bus.emit(PARK_REFUSED_EVENT, refused);
 			},
 		});
 		// It reads its mesh as it starts, so nothing left from a park wakes it.
