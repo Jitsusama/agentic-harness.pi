@@ -352,6 +352,30 @@ describe("removing a tree", () => {
 		}
 	});
 
+	it("makes nothing writable through a link named with a slash, even read-only, either way", async () => {
+		// Through the public calls, so the even-read-only branch passing chmod
+		// the path as given, slash and all, rather than the link, fails here.
+		const cache = readOnlyCache();
+		const reads = [join(cache, "mod@v1"), join(cache, "mod@v1", "pkg")];
+		const way = { evenReadOnly: true };
+		const inLine = join(folder, "swapped-in-line");
+		const off = join(folder, "swapped-off");
+		symlinkSync(cache, inLine);
+		symlinkSync(cache, off);
+		try {
+			removeTree(`${inLine}/`, removerFolders(), way);
+			await removeTreeOff(`${off}/`, removerFolders(), way);
+
+			expect(existsSync(inLine), "removeTree left the link").toBe(false);
+			expect(existsSync(off), "removeTreeOff left the link").toBe(false);
+			for (const read of reads) {
+				expect(lstatSync(read).mode & 0o777, read).toBe(0o555);
+			}
+		} finally {
+			for (const read of reads) chmodSync(read, 0o755);
+		}
+	});
+
 	it("tries chmod again without -P only when it refused -P, as GNU's before 9.5 does", () => {
 		const at = join(folder, "cache");
 		// What coreutils 9.4's chmod says, under LC_ALL=C, to `-R -P`.
