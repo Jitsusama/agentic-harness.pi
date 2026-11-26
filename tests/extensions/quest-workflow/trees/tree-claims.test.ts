@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	answerTreeClaims,
 	forgetSweptTrees,
+	forgetTrees,
 } from "../../../../extensions/quest-workflow/claims.ts";
 import {
 	type SweptTrees,
@@ -607,6 +608,35 @@ describe("hearing that a sweep took a tree", () => {
 	it("drops the alias of a swept tree's branch the sweep deleted", async () => {
 		const kept = await aliasKeptWhenGone(["open-change"]);
 		expect(kept, "the branch's alias").toBe(false);
+	});
+
+	it("drops an alias an earlier take left once a later run deletes its branch, keeping a listed tree's", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const id = "QEST-20260731-AAAAAA";
+		mkdirSync(join(root, id));
+		const readme = join(root, id, "README.md");
+		writeFileSync(
+			readme,
+			`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+				"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+				"aliases:\n  - type: git-branch\n    value: taken-earlier\n" +
+				"  - type: git-branch\n    value: still-listed\n" +
+				"trees:\n  - path: /src/repo/.worktrees/working\n" +
+				"    branch: still-listed\n    providerId: git-worktree\n" +
+				"    repoRoot: /src/repo\n    origin: cut\n" +
+				"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
+		);
+		await forgetTrees(root, [], ["taken-earlier", "still-listed"]);
+
+		const after = readFileSync(readme, "utf8");
+		expect(
+			after.includes("value: taken-earlier"),
+			"the alias of a deleted branch no listed tree is on",
+		).toBe(false);
+		expect(
+			after.includes("value: still-listed"),
+			"the alias of a branch a listed tree is on",
+		).toBe(true);
 	});
 
 	it("leaves a quest's trees alone when the sweep took others", async () => {

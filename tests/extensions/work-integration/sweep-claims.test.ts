@@ -112,7 +112,22 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		);
 		return {
 			...none,
-			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
+			// One taken with its branch, one with its branch deleted too, and a
+			// branch deleted with no tree.
+			taken: [
+				{ path: "/src/repo/.worktrees/spent", branch: "spent" },
+				{
+					path: "/src/repo/.worktrees/merged",
+					branch: "merged",
+					branchGone: true,
+				},
+			],
+			branches: [
+				{
+					checkout: "/src/repo",
+					went: [{ branch: "settled", commit: "c0ffee" }],
+				},
+			],
 			kept: [...keeps],
 			...(idle.partly === undefined ? {} : { idleUnjudged: idle.partly }),
 		};
@@ -533,7 +548,7 @@ it("says how many it couldn't tell when forgetting fails later", async () => {
 
 	expect(end, "how the sweep said it ended").toBe("ran");
 	expect(readFileSync(sweepLog(), "utf8"), "the sweep's log").toContain(
-		'"unforgotten":1,"why":"a quest\'s folder was locked"',
+		'"unforgotten":2,"why":"a quest\'s folder was locked"',
 	);
 });
 
@@ -603,8 +618,10 @@ it("says what it took to whoever listed it", async () => {
 		(data as TreeClaims).paths.push("/src/repo/.worktrees/kept");
 	});
 	const heard: string[] = [];
+	const branchesGone: string[] = [];
 	events.on(WORK_TREES_SWEPT, (data) => {
 		heard.push(...(data as SweptTrees).paths);
+		branchesGone.push(...((data as SweptTrees).branchesGone ?? []));
 	});
 
 	await sweepOn(events);
@@ -614,5 +631,10 @@ it("says what it took to whoever listed it", async () => {
 	]);
 	expect(heard, "what holders heard was taken").toEqual([
 		"/src/repo/.worktrees/spent",
+		"/src/repo/.worktrees/merged",
+	]);
+	expect(branchesGone, "the branches holders heard went").toEqual([
+		"merged",
+		"settled",
 	]);
 });

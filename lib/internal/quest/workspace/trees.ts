@@ -149,6 +149,38 @@ export function removeTreeFromQuest(
 	return { ok: true, removed: removedFlag };
 }
 
+/**
+ * Drop the quest's `git-branch` alias for each of `branches`, branches a
+ * sweep deleted, that no tree it still lists is on: a tree taken earlier
+ * may have left the alias while its branch stood. A branch a listed tree
+ * is on keeps its alias, as removing a tree would. Says whether any went.
+ */
+export function forgetBranchesFromQuest(
+	questDir: string,
+	branches: ReadonlySet<string>,
+): { ok: true; removed: boolean } | { ok: false; reason: string } {
+	let removedFlag = false;
+	const outcome = changeQuestFrontMatter(
+		questDir,
+		(fm) => {
+			const onTrees = new Set((fm.trees ?? []).map((tree) => tree.branch));
+			const nextAliases = [...fm.aliases];
+			removedFlag = false;
+			for (const branch of branches) {
+				if (onTrees.has(branch)) continue;
+				if (removeAlias(nextAliases, { type: "git-branch", value: branch })) {
+					removedFlag = true;
+				}
+			}
+			if (!removedFlag) return undefined;
+			return { ...fm, aliases: nextAliases } as typeof fm;
+		},
+		"tree-remove",
+	);
+	if (!outcome.ok) return outcome;
+	return { ok: true, removed: removedFlag };
+}
+
 /** Snapshot the quest's tree list. */
 export function listTreesOnQuest(
 	questDir: string,

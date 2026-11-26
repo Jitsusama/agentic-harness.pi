@@ -399,8 +399,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	try {
 		// Asked at once, before any wait, so a conversation that closes
 		// while the sweep runs has already said what its quests hold.
-		const asked =
+		const ask = async () =>
 			typeof deps.claims === "function" ? await deps.claims() : deps.claims;
+		const asked = await ask();
 		const claims = "held" in asked ? asked.held : asked;
 		const untilSpent = "held" in asked ? asked.untilSpent : [];
 		const idleMayTake = new Set("held" in asked ? asked.idleMayTake : []);
@@ -455,18 +456,13 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			await branchesKeptFor(deps.exec, keptDir, await deps.liveSessions?.()),
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
-		// A holder chose what idle rules may take before the trees above went:
-		// one it kept from them going may leave an older tree its only one, so
-		// a run that took such a tree lets them take none it claims, and the
-		// next run asks again.
-		const keptFromIdle = new Set(
-			untilSpent.filter((path) => !idleMayTake.has(path)).map(resolved),
+		const letGo = await stillLetGo(
+			deps.claims,
+			ask,
+			untilSpent,
+			idleMayTake,
+			outcome,
 		);
-		const letGo = outcome.taken.some((tree) =>
-			keptFromIdle.has(resolved(tree.path)),
-		)
-			? new Set<string>()
-			: idleMayTake;
 		const { idleWithinMs } = deps;
 		// Read as the idle phase begins, not as the run does: the ended trees
 		// before it can spend the whole bound, leaving only a host's share.
@@ -604,6 +600,41 @@ async function byRepository(
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
 	return { byMain: repositories, orphans };
+}
+
+/**
+ * What idle rules may take of `idleMayTake`, the trees holders let them
+ * take as the run began. Holders chose before the trees above went, and
+ * one they kept from those rules going, or moving aside and staying
+ * there, may leave an older tree its only one. So a run that took or
+ * refused such a tree asks them again and takes only what both answers
+ * name, since a holder judges again by what stands. Claims that are
+ * a list, which can't be asked again, and an ask that fails, let them
+ * take none.
+ */
+async function stillLetGo(
+	claims: SweepDeps["claims"],
+	ask: () => Promise<SweepClaims>,
+	untilSpent: readonly string[],
+	idleMayTake: ReadonlySet<string>,
+	outcome: SweepOutcome,
+): Promise<ReadonlySet<string>> {
+	const keptFromIdle = new Set(
+		untilSpent.filter((path) => !idleMayTake.has(path)).map(resolved),
+	);
+	const touched = [...outcome.taken, ...outcome.refused].some((tree) =>
+		keptFromIdle.has(resolved(tree.path)),
+	);
+	if (!touched) return idleMayTake;
+	if (typeof claims !== "function") return new Set();
+	try {
+		const again = await ask();
+		const fresh = new Set("held" in again ? again.idleMayTake : []);
+		return new Set([...idleMayTake].filter((path) => fresh.has(path)));
+	} catch {
+		// Nobody answered again, so nobody let anything go again.
+		return new Set();
+	}
 }
 
 /**

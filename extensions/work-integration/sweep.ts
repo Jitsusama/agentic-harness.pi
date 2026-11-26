@@ -363,7 +363,9 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		{ ms: Math.max(0, Date.now() - started - waited), ...line },
 		started + waited,
 	);
-	if (taken.length > 0) {
+	// A branch deleted with no tree taken is said too: a holder still
+	// keeping its alias from an earlier take lets it go.
+	if (taken.length > 0 || branchesGone.length > 0) {
 		try {
 			await asks.swept(taken, branchesGone);
 		} catch (error) {

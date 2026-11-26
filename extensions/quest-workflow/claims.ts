@@ -38,6 +38,7 @@ import {
 	type DiscoveryResult,
 	discoverQuests,
 	discoverQuestsAfresh,
+	type QuestEntry,
 	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -47,6 +48,7 @@ import {
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import {
+	forgetBranchesFromQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../lib/internal/quest/workspace/trees.ts";
@@ -348,6 +350,10 @@ export function forgetTrees(
  * as an idle take leaves it, since a live quest's open change on that
  * branch still has to find it; one the sweep says it deleted goes with
  * its tree, as does every one when the sweep says nothing of branches.
+ * A deleted branch's alias that an earlier take left goes too, from a
+ * quest that lists no tree on it. Aliases name a branch alone, so a
+ * branch of that name in another repository loses its alias with it,
+ * unless the quest lists a tree on it.
  */
 async function forgetTaken(
 	questsRoot: string,
@@ -360,25 +366,44 @@ async function forgetTaken(
 		if (walk) walks.push(walk);
 	}
 	for (const entry of liveQuests(walks)) {
-		for (const tree of entry.doc.frontMatter.trees ?? []) {
-			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
-			try {
-				// A write refused says why as a throw does, and stops the second.
-				const stands =
-					branchesGone !== undefined &&
-					tree.branch !== undefined &&
-					!branchesGone.has(tree.branch);
-				const removed = removeTreeFromQuest(entry.dir, tree.path, {
-					keepBranch: stands,
-				});
-				if (!removed.ok) throw new Error(removed.reason);
-				const cleared = setPendingPrune(entry.dir, null, {
-					clearPath: tree.path,
-				});
-				if (!cleared.ok) throw new Error(cleared.reason);
-			} catch (error) {
-				sayForgetFailed(entry.doc.frontMatter.id, error);
-			}
+		forgetTakenFrom(entry, taken, branchesGone);
+		if (branchesGone === undefined || branchesGone.size === 0) continue;
+		try {
+			const forgot = forgetBranchesFromQuest(entry.dir, branchesGone);
+			if (!forgot.ok) throw new Error(forgot.reason);
+		} catch (error) {
+			sayForgetFailed(entry.doc.frontMatter.id, error);
+		}
+	}
+}
+
+/**
+ * Drop each tree in `taken` from the quest at `entry`, as
+ * {@link forgetTaken} says.
+ */
+function forgetTakenFrom(
+	entry: QuestEntry,
+	taken: ReadonlySet<string>,
+	branchesGone: ReadonlySet<string> | undefined,
+): void {
+	for (const tree of entry.doc.frontMatter.trees ?? []) {
+		if (!taken.has(tree.path) || existsSync(tree.path)) continue;
+		try {
+			// A write refused says why as a throw does, and stops the second.
+			const stands =
+				branchesGone !== undefined &&
+				tree.branch !== undefined &&
+				!branchesGone.has(tree.branch);
+			const removed = removeTreeFromQuest(entry.dir, tree.path, {
+				keepBranch: stands,
+			});
+			if (!removed.ok) throw new Error(removed.reason);
+			const cleared = setPendingPrune(entry.dir, null, {
+				clearPath: tree.path,
+			});
+			if (!cleared.ok) throw new Error(cleared.reason);
+		} catch (error) {
+			sayForgetFailed(entry.doc.frontMatter.id, error);
 		}
 	}
 }
