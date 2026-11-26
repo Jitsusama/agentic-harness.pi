@@ -110,10 +110,23 @@ function rmArgs(path: string): string[] {
 
 /**
  * The arguments that make every folder in `path` writable by its owner,
- * links passed by, both under it and as `path` itself.
+ * following no link, under it or as `path` itself: `-P` says so to GNU's
+ * chmod and BSD's alike. `-h` isn't used: BSD's refuses it beside `-R`,
+ * and GNU's, given it, follows a link named as `path`. Options end
+ * before the mode, as BSD's reads anything after it as a file.
  */
-function writableArgs(path: string): string[] {
-	return ["-R", "-h", "u+w", "--", path];
+export function writableArgs(path: string): string[] {
+	return ["-R", "-P", "--", "u+w", path];
+}
+
+/** Why `rm` left `at`, with why `chmod` couldn't help it where it failed too. */
+function leftBecause(
+	at: string,
+	said: string,
+	chmodSaid: string | undefined,
+): string {
+	const first = chmodSaid === undefined ? "" : ` (chmod first: ${chmodSaid})`;
+	return `rm couldn't remove ${at}: ${said}${first}`;
 }
 
 /** An error's code, when it has one. */
@@ -204,11 +217,12 @@ export function removeTree(
 	if (removedWithoutWalk(at)) return;
 	const rm = systemTool("rm", folders);
 	let said = runSync(rm, rmArgs(at));
+	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		runSync(systemTool("chmod", folders), writableArgs(at));
+		chmodSaid = runSync(systemTool("chmod", folders), writableArgs(at));
 		said = runSync(rm, rmArgs(at));
 	}
-	if (said !== undefined) throw new Error(`rm couldn't remove ${at}: ${said}`);
+	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
 }
 
 /**
@@ -241,11 +255,12 @@ export async function removeTreeOff(
 	if (await removedWithoutWalkOff(at)) return;
 	const rm = systemTool("rm", folders);
 	let said = await runOff(rm, rmArgs(at));
+	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		await runOff(systemTool("chmod", folders), writableArgs(at));
+		chmodSaid = await runOff(systemTool("chmod", folders), writableArgs(at));
 		said = await runOff(rm, rmArgs(at));
 	}
-	if (said !== undefined) throw new Error(`rm couldn't remove ${at}: ${said}`);
+	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
 }
 
 /**

@@ -10,7 +10,7 @@
  * descriptor through the system's `rm` and never are.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -32,7 +32,9 @@ import {
 	removeTreeOff,
 	systemRmCommand,
 	tidyTree,
+	writableArgs,
 } from "../../../../lib/internal/files/remove-tree.ts";
+import { systemProgram } from "../../../../lib/internal/sandbox/system-program.ts";
 
 /** Root writes where its folders' modes say nobody may, so refusals don't hold. */
 const notRoot = process.getuid?.() !== 0;
@@ -319,6 +321,30 @@ describe("removing a tree", () => {
 		chmodSync(join(cache, "mod@v1"), 0o555);
 		return cache;
 	}
+
+	it("makes nothing writable through a link swapped in for the tree", () => {
+		const chmod = systemProgram("chmod", removerFolders());
+		expect(chmod, "no chmod root keeps").toBeDefined();
+		const cache = readOnlyCache();
+		const link = join(folder, "swapped");
+		symlinkSync(cache, link);
+		try {
+			const ran = spawnSync(chmod ?? "chmod", writableArgs(link), {
+				argv0: "chmod",
+				encoding: "utf8",
+			});
+			expect(ran.status, ran.stderr).toBe(0);
+			for (const read of [
+				join(cache, "mod@v1"),
+				join(cache, "mod@v1", "pkg"),
+			]) {
+				expect(lstatSync(read).mode & 0o777, read).toBe(0o555);
+			}
+		} finally {
+			chmodSync(join(cache, "mod@v1"), 0o755);
+			chmodSync(join(cache, "mod@v1", "pkg"), 0o755);
+		}
+	});
 
 	it("removes a link named with a trailing slash, never what it names", async () => {
 		const outside = filled(join(folder, "outside"), 3);
