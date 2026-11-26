@@ -339,7 +339,9 @@ describe("entryWriter", () => {
 		await mkdir(folder);
 		await chmod(folder, 0o777);
 		const { said, made } = await refusal(folder);
-		expect(said).toEqual([expect.stringContaining("closed to others")]);
+		expect(said).toEqual([
+			expect.stringContaining(`${folder} has mode 777, open to others`),
+		]);
 		expect(made).not.toBeCalled();
 		expect(await readdir(folder)).toEqual([]);
 	});
@@ -349,7 +351,9 @@ describe("entryWriter", () => {
 		await mkdir(join(above, "key"), { recursive: true, mode: 0o700 });
 		await chmod(above, 0o775);
 		const { said, made } = await refusal(join(above, "key"));
-		expect(said).toEqual([expect.stringContaining("closed to others")]);
+		expect(said).toEqual([
+			expect.stringContaining(`${above} has mode 775, which others may write`),
+		]);
 		expect(made).not.toBeCalled();
 		expect(await readdir(join(above, "key"))).toEqual([]);
 	});
@@ -359,7 +363,9 @@ describe("entryWriter", () => {
 		await mkdir(join(real, "key"), { recursive: true, mode: 0o700 });
 		await symlink(real, join(root, "link"));
 		const { said, made } = await refusal(join(root, "link", "key"));
-		expect(said).toEqual([expect.stringContaining("through no link")]);
+		expect(said).toEqual([
+			expect.stringContaining(`${join(root, "link")} is a link`),
+		]);
 		expect(made).not.toBeCalled();
 		expect(await readdir(join(real, "key"))).toEqual([]);
 	});
@@ -370,7 +376,11 @@ describe("entryWriter", () => {
 		);
 		try {
 			const { said, made } = await refusal(join(outside, "key"));
-			expect(said).toEqual([expect.stringContaining(`from ${root} down`)]);
+			expect(said).toEqual([
+				expect.stringContaining(
+					`${join(outside, "key")} doesn't lie within ${root}`,
+				),
+			]);
 			expect(made).not.toBeCalled();
 			expect(await readdir(join(outside, "key"))).toEqual([]);
 		} finally {
@@ -547,7 +557,9 @@ describe("startStrippedSourceCache", () => {
 		});
 		expect(started).toEqual({
 			state: "failed",
-			reason: expect.stringContaining("through no link"),
+			reason: expect.stringMatching(
+				new RegExp(`^${heldState(root)} lies through a link, at `, "u"),
+			),
 		});
 		expect(register).not.toBeCalled();
 	});
@@ -579,7 +591,32 @@ describe("startStrippedSourceCache", () => {
 		});
 		expect(started).toEqual({
 			state: "failed",
-			reason: expect.stringContaining("closed to others"),
+			reason: expect.stringMatching(
+				new RegExp(`^${folder} has mode 755, open to others`, "u"),
+			),
+		});
+		expect(register).not.toBeCalled();
+	});
+
+	it("names the folder above its own that others may write", async () => {
+		const above = cacheRoot({}, root);
+		const folder = join(above, installKey("/install/one", "v22.23.5"));
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		await chmod(folder, 0o700);
+		await chmod(above, 0o775);
+		const register = vi.fn();
+		const started = startStrippedSourceCache({
+			env: {},
+			home: root,
+			packageRoot: "/install/one",
+			facts: STRIPPING,
+			register,
+		});
+		expect(started).toEqual({
+			state: "failed",
+			reason: expect.stringMatching(
+				new RegExp(`^${above} has mode 775, which others may write`, "u"),
+			),
 		});
 		expect(register).not.toBeCalled();
 	});

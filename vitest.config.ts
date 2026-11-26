@@ -31,11 +31,15 @@ export const RERUN_EVERYTHING = [
  * tests/host/service/program-binds-no-pi-at-load.test.ts) are
  * otherwise never picked for a change to it alone. A pi import slipped
  * in there leaves a host systemd restarts every few seconds, which is
- * worth a whole run on a file this seldom changed.
+ * worth a whole run on a file this seldom changed. The stripped-source
+ * cache's start module, which the entry and the supervisor load before
+ * anything else, is reached by the tests that run it only as a path, so
+ * it counts as one too.
  */
 const HOST_ENTRIES = [
 	join(import.meta.dirname, "scripts", "pi-host.mjs"),
 	join(import.meta.dirname, "scripts", "pi-host.ts"),
+	join(import.meta.dirname, "lib", "internal", "stripped-source-start.mjs"),
 ];
 
 // Several suites spawn real OS processes: the reviewer supervisor
