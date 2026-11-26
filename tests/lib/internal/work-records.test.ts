@@ -65,6 +65,8 @@ const disk = vi.hoisted(() => {
 		reads: [] as string[],
 		/** Every tree looked for on disk off the thread, in order. */
 		looked: [] as string[],
+		/** Every path looked for on disk on the thread, in order. */
+		lookedOnThread: [] as string[],
 		/**
 		 * Stop the readings whose trees lie under `root` where they look for
 		 * them: only those, since an earlier test's reading may still run.
@@ -145,7 +147,11 @@ vi.mock("node:fs", async (importOriginal) => {
 		}
 		return real.readFileSync(...args);
 	}) as typeof real.readFileSync;
-	const mocked = { ...real, readdirSync, readFileSync };
+	const existsSync = ((...args: Parameters<typeof real.existsSync>) => {
+		disk.lookedOnThread.push(String(args[0]));
+		return real.existsSync(...args);
+	}) as typeof real.existsSync;
+	const mocked = { ...real, existsSync, readdirSync, readFileSync };
 	return { ...mocked, default: mocked };
 });
 
@@ -1129,11 +1135,14 @@ describe("the work broker's records", () => {
 		recorded(dir, three, ["s-2", "s-3"]);
 		settled(dir);
 		disk.looked.length = 0;
+		disk.lookedOnThread.length = 0;
 
 		expect(await treesHeldByNow("s-1", dir)).toEqual([one]);
 
 		expect(
-			disk.looked.filter((path) => path.startsWith(root)),
+			[...disk.looked, ...disk.lookedOnThread].filter((path) =>
+				path.startsWith(join(root, "trees")),
+			),
 			"no other session's tree is looked for",
 		).toEqual([one]);
 	});
