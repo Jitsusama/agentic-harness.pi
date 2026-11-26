@@ -11,6 +11,12 @@ sandbox its hour-long tokens.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it, under the strict profile's rules
   or the agent fence from `fence/fence.ts`.
+- **`mac-sandbox.ts`**: whether pi already runs inside a sandbox on
+  a Mac, which decides whether a fenced session's commands run there
+  as they are or with the fence laid around each.
+- **`fence-told.ts`**: what a hosted session's tools tell its host of
+  the fence they hold it to, so the host's record says what really
+  runs under it.
 - **`strict-rules.ts`**: what the strict profile lets a command reach,
   as landrun's rules, and how far pi's own file tools reach under it.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
@@ -24,11 +30,18 @@ sandbox its hour-long tokens.
   word quoted for the shell, and the variable a command travels in.
 - **`sandbox-trees.ts`**: which tree a fenced command stands in, and
   the git folder a call outside the fence is held to there.
+- **`quest-folders.ts`**: the folders a session's quest keeps on this
+  machine, as the sandbox binds them: its scratch, its shared folder,
+  and those a fenced command's direnv trusts an `.envrc` in.
 - **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
   pi's own file tools to, under either sandbox.
 - **`leads-to.ts`**: where a path leads past its links, made yet or
   not, as a write to it would land; the one walk `sandbox-files.ts`,
   `tree-git.ts` and `unfenced-folder.ts` judge paths by.
+- **`unfenced-folder.ts`**: the folders a sandbox won't let a command
+  take as its own to write, since what's written there is read later
+  outside every sandbox; the fence's own list, which strict and pi's
+  file tools ask first.
 - **`tree-git.ts`**: where pi may run git outside the sandbox, and
   with which git folder: a tree only as its own files agree, and in a
   sandboxed session only in repositories the fence guards.
