@@ -185,6 +185,7 @@ describe("hosted screens", () => {
 		const PROFILED = "Screen start profiled: the thread's time went to pi";
 		const said: string[] = [];
 		const modes: FakeMode[] = [];
+		const inside: (string | undefined)[] = [];
 		let profiled = 0;
 		const screens = hostScreens({
 			create: (runtime, options) => {
@@ -194,10 +195,13 @@ describe("hosted screens", () => {
 			},
 			report: vi.fn(),
 			said: (line) => said.push(line),
-			profile: async (start) => {
+			profile: async (start, sayProfile) => {
 				profiled += 1;
 				await start();
-				return { line: profiled === 1 ? PROFILED : undefined };
+				// What the start did, read before the profile's start returns.
+				inside.push(modes.at(-1)?.startedIn, said.at(-1));
+				if (profiled === 1) sayProfile(PROFILED);
+				return { done: Promise.resolve() };
 			},
 		});
 		const open = (sessionId: string) =>
@@ -209,6 +213,12 @@ describe("hosted screens", () => {
 		await open("a");
 		await open("b");
 		expect(modes.map((mode) => mode.startedIn)).toEqual(["a", "b"]);
+		expect(inside).toEqual([
+			"a",
+			expect.stringMatching(/^Screen started in /),
+			"b",
+			expect.stringMatching(/^Screen started in /),
+		]);
 		expect(said).toEqual([
 			expect.stringMatching(/^Screen started in /),
 			PROFILED,

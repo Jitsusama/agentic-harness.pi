@@ -37,7 +37,7 @@ import {
 	stopScreen,
 	working,
 } from "./hosted-mode.ts";
-import { type StartParts, startLine, timeStart } from "./start-parts.ts";
+import { startLine, timeStart } from "./start-parts.ts";
 import type { StartProfiler } from "./start-profile.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
@@ -154,16 +154,14 @@ interface Early {
 export const PARKED_LINE =
 	"Parked while idle, holding no memory. A key or a message wakes it.";
 
-/** Say a started screen's start line, and its profile's when one was taken; a fault in the saying is reported, never the screen's. */
+/** Say a line of a screen's start; a fault in the saying is reported, never the screen's. */
 function sayStart(
-	parts: StartParts,
-	profiled: string | undefined,
+	line: string,
 	said: (line: string) => void,
 	report: (error: unknown) => void,
 ): void {
 	try {
-		said(startLine(parts));
-		if (profiled !== undefined) said(profiled);
+		said(line);
 	} catch (error) {
 		report(error);
 	}
@@ -405,14 +403,16 @@ export function hostScreens(options: {
 		try {
 			const { said, profile } = options;
 			if (said) {
-				let profiled: string | undefined;
-				const started = profile
-					? async () => {
-							profiled = (await profile(init)).line;
-						}
-					: init;
-				const parts = await timeStart(mode, view.runtime, started);
-				sayStart(parts, profiled, said, options.report);
+				// Said inside the profiled start, so it comes before the profile's
+				// line, which the profiler says once the start has settled; the
+				// profiler's own claim and stop lie outside what is timed.
+				const timed = async (): Promise<void> => {
+					const parts = await timeStart(mode, view.runtime, init);
+					sayStart(startLine(parts), said, options.report);
+				};
+				if (profile)
+					await profile(timed, (line) => sayStart(line, said, options.report));
+				else await timed();
 			} else await init();
 		} catch (error) {
 			// The engine fails the open itself, so the screen goes without closing.
