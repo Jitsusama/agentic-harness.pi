@@ -38,20 +38,28 @@ export interface HalfPark {
 
 /**
  * A park that failed and couldn't be wholly taken back: a part it left
- * may still read as parked until the session is restarted, and windows
- * it closed stay closed, though they read awake.
+ * may still read as parked until the session is restarted, and what it
+ * left that reads awake still stands.
  */
 export class ParkLeftHalfDone extends Error {
-	/** Each part it couldn't take back, which may read as parked, and why. */
+	/** Each part it couldn't take back that may read as parked, and why. */
 	readonly left: readonly string[];
-	/** The windows it closed, which can't be opened again from here. */
-	readonly closed: string | undefined;
+	/**
+	 * What it left that reads awake: a wake it couldn't remove, which
+	 * wakes its next park at once, and windows it closed, which can't be
+	 * opened again from here.
+	 */
+	readonly awake: readonly string[];
 
-	constructor(failed: unknown, left: readonly string[], closed?: string) {
+	constructor(
+		failed: unknown,
+		left: readonly string[],
+		awake: readonly string[] = [],
+	) {
 		super(messageOf(failed));
 		this.name = "ParkLeftHalfDone";
 		this.left = left;
-		this.closed = closed;
+		this.awake = awake;
 	}
 
 	/** Whether any part it left may read as parked. */
@@ -74,11 +82,12 @@ export class ParkLeftHalfDone extends Error {
  */
 export function undoPark(failed: unknown, half: HalfPark): never {
 	const left: string[] = [];
-	const tryTo = (part: string, step: () => void): void => {
+	const awake: string[] = [];
+	const tryTo = (part: string, step: () => void, said = left): void => {
 		try {
 			step();
 		} catch (error) {
-			left.push(`${part} is left: ${messageOf(error)}`);
+			said.push(`${part} is left: ${messageOf(error)}`);
 		}
 	};
 	// Its marker first, so fewer senders find it parked and write a wake.
@@ -97,15 +106,15 @@ export function undoPark(failed: unknown, half: HalfPark): never {
 	// next park one start.
 	if (half.wake !== "") {
 		const wake = half.wake;
-		tryTo("its wake", () => rmSync(wake, { force: true }));
+		// A wake left reads awake: it only wakes the next park at once.
+		tryTo("its wake", () => rmSync(wake, { force: true }), awake);
 	}
 	const count = half.windowsClosed === 1 ? "window is" : "windows are";
-	const closed =
-		half.windowsClosed > 0
-			? `its ${count} closed, and the launcher keeps its place asleep`
-			: undefined;
-	if (left.length > 0 || closed !== undefined) {
-		throw new ParkLeftHalfDone(failed, left, closed);
+	if (half.windowsClosed > 0) {
+		awake.push(`its ${count} closed, and the launcher keeps its place asleep`);
+	}
+	if (left.length > 0 || awake.length > 0) {
+		throw new ParkLeftHalfDone(failed, left, awake);
 	}
 	throw failed;
 }
@@ -127,21 +136,25 @@ export interface FailedPark {
  * Why the clock doesn't park again yet, after the park that `failed`;
  * nothing once it is long enough past, or where none failed. The
  * person's Park still tries, since they asked, and so does a host's
- * drain or roll, which waits on the park to restart.
+ * drain or roll, which waits on the park to restart; `moving` says one
+ * is under way, so the note says its next look tries again.
  */
 export function heldByFailure(
 	failed: FailedPark | undefined,
 	now: number,
+	moving = false,
 ): string | undefined {
 	if (failed === undefined || now - failed.at >= FAILED_PARK_HOLDS_MS) {
 		return undefined;
 	}
-	const why = `its last park failed, so it tries again half an hour on: ${messageOf(failed.error)}`;
+	// A drain or a roll parks past the hold, so its next look tries again.
+	const when = moving ? "at its next look" : "half an hour on";
+	const why = `its last park failed, so it tries again ${when}: ${messageOf(failed.error)}`;
 	// A take-back that left parts standing says them, as the person's
 	// Park would, since the clock parks most and nothing else says so.
 	if (failed.error instanceof ParkLeftHalfDone) {
-		const { left, closed } = failed.error;
-		return [why, ...left, ...(closed === undefined ? [] : [closed])].join("; ");
+		const { left, awake } = failed.error;
+		return [why, ...left, ...awake].join("; ");
 	}
 	return why;
 }

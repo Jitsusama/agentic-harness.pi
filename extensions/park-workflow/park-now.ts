@@ -40,16 +40,14 @@ export function answerParkNow(
 
 /**
  * What a take-back that couldn't put everything back says: that it may
- * read as parked only where a part it left does, then each part, and
- * the windows it closed last.
+ * read as parked only where a part it left does, then each part, those
+ * that read awake last.
  */
 function leftOf(error: ParkLeftHalfDone): string {
-	const parts = [
-		...error.left,
-		...(error.closed === undefined ? [] : [error.closed]),
-	];
+	const parts = [...error.left, ...error.awake];
 	const failed = error.readsParked
 		? "its park failed part-way, so it may read as parked until it is restarted"
 		: "its park failed";
-	return `${failed}: ${error.message}. And ${parts.join(", and ")}`;
+	const said = `${failed}: ${error.message}`;
+	return parts.length === 0 ? said : `${said}. And ${parts.join(", and ")}`;
 }
