@@ -27,12 +27,13 @@ import type { Transport } from "./transport.ts";
  * hold it in memory, in each conversation: the floor's whole day.
  * One written back at the top later is still never handed over, since
  * taking it finds it below the floor, though its answers and ends count.
+ * Listed off the thread, since a host's conversations all wait on it.
  */
-export function seenAtStart(
-	transport: Pick<Transport, "recentIds">,
+export async function seenAtStart(
+	transport: Pick<Transport, "listIds">,
 	floor: string,
-): string[] {
-	return transport.recentIds().filter((id) => id <= floor);
+): Promise<string[]> {
+	return (await transport.listIds()).filter((id) => id <= floor);
 }
 
 /** Where the marker may move as messages are taken and handed over. */

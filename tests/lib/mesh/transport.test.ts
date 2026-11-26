@@ -233,7 +233,7 @@ describe("the folder transport", () => {
 		}
 	});
 
-	it("lists from the day an id was stamped on, passing the days before", () => {
+	it("lists from the day an id was stamped on, passing the days before, on the thread or off it", async () => {
 		const transport = folderTransport(dir);
 		const day = 24 * 60 * 60 * 1000;
 		const at = (ms: number, tail: string) =>
@@ -262,6 +262,14 @@ describe("the folder transport", () => {
 		expect(transport.idsFromDayOf("no-time"), "no time, every day").toEqual(
 			transport.ids(),
 		);
+		expect(
+			await transport.listIdsFromDayOf(at(1, "dddddddd")),
+			"off the thread, as on it",
+		).toEqual(transport.idsFromDayOf(at(1, "dddddddd")));
+		expect(
+			await transport.listIdsFromDayOf("no-time"),
+			"off the thread, no time, every day",
+		).toEqual(transport.ids());
 	});
 
 	it("remembers the furthest a peer has read, under any of its addresses", () => {

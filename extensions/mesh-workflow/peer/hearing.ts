@@ -43,6 +43,7 @@ import {
 	roomToBringBack,
 	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
+import { seenAtStart } from "../../../lib/mesh/reading.ts";
 import {
 	readsAsReceptor,
 	type Unvouched,
@@ -60,7 +61,7 @@ import {
 	type Self,
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
-import { dayOf } from "../../../lib/mesh/transport.ts";
+import { dayOf, readEachOff } from "../../../lib/mesh/transport.ts";
 // How long a message heard may take to judge, as a send may: the same
 // classifier over the same network, so one bound serves both.
 import { JUDGE_MS } from "../../../lib/prose/claims.ts";
@@ -465,19 +466,78 @@ export function createHearing(m: MeshState, f: Handing) {
 		return original && mayReplace(message, original) ? original : undefined;
 	};
 
-	const take = (id: string): Message | undefined => {
-		if (m.seen.has(id) || !m.peer) return undefined;
+	/**
+	 * Whether this id is for this peer to read now, marked seen first so
+	 * that nothing else takes it meanwhile.
+	 */
+	const claim = (id: string): boolean => {
+		if (m.seen.has(id) || !m.peer) return false;
 		m.seen.add(id);
 		// From a day before the catch-up's, so only an old copy written back
 		// at the top: passed by unread, as the catch-up passes its day. A
 		// week written back, about 48,000 files on 14 November, would have
 		// every session read and parse each in one burst.
-		if (m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom)) {
-			return undefined;
-		}
+		return !(m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom));
+	};
+
+	/** A message as it lands, read on the thread, as one alone is. */
+	const take = (id: string): Message | undefined =>
 		// As it lies, since route asks the node to vouch for one under a
 		// receptor's name; until then it ends no hold and answers nothing.
-		const written = m.asWritten(id);
+		claim(id) ? taken(id, m.asWritten(id)) : undefined;
+
+	// What the start's catch-up has yet to take, which a message taken as
+	// it lands waits on before it is routed.
+	let catching: Promise<unknown> = Promise.resolve();
+
+	/**
+	 * What reaches this peer since `since`, listed and read off the
+	 * thread: on 26 November one start's catch-up, read a file at a time
+	 * on it, held its host's every conversation for 32 s. Nothing, when
+	 * the peer started again meanwhile and reads afresh.
+	 */
+	const catchUp = (since: string): Promise<Message[]> => {
+		const front = m.front;
+		const caught = (async () => {
+			const [top, ids] = await Promise.all([
+				seenAtStart(m.transport, since),
+				m.transport.listIdsFromDayOf(since),
+			]);
+			if (m.front !== front) return [];
+			for (const id of top) m.seen.add(id);
+			const claimed = ids.filter((id) => id > since && claim(id));
+			const written = await readEachOff({ readOff: m.asWrittenOff }, claimed);
+			if (m.front !== front) return [];
+			return claimed
+				.map((id, at) => taken(id, written[at]))
+				.filter((one): one is Message => one !== undefined);
+		})();
+		catching = caught.catch(() => {
+			// Nothing listed or read: what landed meanwhile is routed anyway.
+		});
+		return caught;
+	};
+
+	/**
+	 * Messages taken as they landed, routed once the start's catch-up has
+	 * taken its own. The read marker moves past what is handed over below
+	 * every message taken and still waiting, so one handed over sooner
+	 * would carry it past a message the catch-up was still reading.
+	 */
+	const routeTaken = (messages: Message[]) => {
+		if (messages.length === 0) return;
+		void catching.then(() => route(messages));
+	};
+
+	/**
+	 * A claimed message, as it was read: what it ends and answers counted,
+	 * and the message itself when it reaches this peer.
+	 */
+	const taken = (
+		id: string,
+		written: Message | undefined,
+	): Message | undefined => {
+		if (!m.peer) return undefined;
 		// A file caught half written reads as nothing: the next look takes
 		// it again rather than counting it seen and losing it for good.
 		if (!written) m.seen.delete(id);
@@ -693,7 +753,7 @@ export function createHearing(m: MeshState, f: Handing) {
 			.filter((id) => !m.seen.has(id))
 			.map(take)
 			.filter((one): one is Message => one !== undefined);
-		if (missed.length > 0) void route(missed);
+		routeTaken(missed);
 	};
 
 	// A tick that comes while the last look still reads is passed over:
@@ -724,6 +784,8 @@ export function createHearing(m: MeshState, f: Handing) {
 		route,
 		replacedBy,
 		take,
+		catchUp,
+		routeTaken,
 		reconsider,
 		addressesOf,
 		chase,

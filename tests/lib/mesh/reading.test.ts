@@ -26,7 +26,7 @@ describe("what a starting peer marks seen", () => {
 		pid: 1,
 	});
 
-	it("is only the top folder's messages at or below the floor", () => {
+	it("is only the top folder's messages at or below the floor", async () => {
 		// On 16 November each hosted conversation's seen set held every id
 		// of the store's 71,836 messages, about 9 MB a conversation, though
 		// it is only ever shown again what stays at the top. Catching up
@@ -40,7 +40,7 @@ describe("what a starting peer marks seen", () => {
 
 		expect(transport.ids(), "the moved one is still kept").toContain(moved.id);
 		expect(
-			[...seenAtStart(transport, floor.id)],
+			await seenAtStart(transport, floor.id),
 			"the top's ids up to the floor, and none past it or moved away",
 		).toEqual([lately.id, floor.id]);
 		expect(past.id > floor.id, "stamped after the floor").toBe(true);

@@ -68,6 +68,12 @@ export interface Transport {
 	 * reader on a host's thread, which every conversation it holds waits on.
 	 */
 	listAllIds(): Promise<string[]>;
+	/**
+	 * The ids from the day this id was stamped on, as {@link idsFromDayOf}
+	 * answers, read a little at a time, for a peer catching up as it
+	 * starts on a host's thread.
+	 */
+	listIdsFromDayOf(id: string): Promise<string[]>;
 	/** One message, or nothing when it will not read. */
 	read(id: string): Message | undefined;
 	/** One message, as {@link read} answers, read off the thread. */
@@ -253,12 +259,15 @@ async function listedIn(dir: string): Promise<Listed> {
 	}
 }
 
-/** Every day's ids and the top's, once each, oldest first, off the thread. */
-async function allListedIn(dir: string): Promise<string[]> {
+/**
+ * The ids at the top and in the day folders from `first` on, once each,
+ * oldest first, off the thread; from "" that is every day's.
+ */
+async function listedFrom(dir: string, first: string): Promise<string[]> {
 	const top = await listedIn(dir);
 	const found = new Set(top.ids);
 	// One day at a time, so a week of folders never opens all at once.
-	for (const day of top.days) {
+	for (const day of top.days.filter((one) => one >= first)) {
 		for (const id of (await listedIn(join(dir, day))).ids) found.add(id);
 	}
 	return [...found].sort();
@@ -334,7 +343,8 @@ export function folderTransport(dir: string): Transport {
 		idsFromDayOf: (id) => idsFrom(dir, dayOf(id) ?? ""),
 		recentIds: () => idsIn(dir).sort(),
 		listIds: async () => (await listedIn(dir)).ids.sort(),
-		listAllIds: () => allListedIn(dir),
+		listAllIds: () => listedFrom(dir, ""),
+		listIdsFromDayOf: (id) => listedFrom(dir, dayOf(id) ?? ""),
 		read(id) {
 			const day = dayOf(id);
 			return (
