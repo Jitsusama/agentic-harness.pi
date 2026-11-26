@@ -326,6 +326,62 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		});
 	});
 
+	it("refuses a file the head's own config faults, though main's would pass it", async () => {
+		const checkout = await harness();
+		// Main indents with tabs, so only the head's config faults this file.
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("lib/tabbed.ts");
+	});
+
+	it("names the files a change to the config lets through that main's would fault", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said).toContain("lib/spaced.ts");
+	});
+
+	it("says nothing of loosening when the config changes and the files pass both", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "tab", "lineWidth": 100 } }\n`,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).not.toContain("loosens a rule");
+	});
+
+	it("lets a change to the config alone through", async () => {
+		const checkout = await harness();
+		// No other file changes, so the list of others the gate builds is empty.
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "tab", "lineWidth": 100 } }\n`,
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain("Biome passes the 1 file(s)");
+	});
+
 	it("lets a change that only deletes a file through", async () => {
 		const checkout = await harness();
 		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
