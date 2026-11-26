@@ -20,6 +20,10 @@
  * (`ran`); one that can't be written wakes it as soon as it parks, and
  * a close for good stops the calls, which nobody would take up.
  *
+ * In a child, what the stop says it carried is not all a park watches:
+ * a call the conversation recorded as it ran whose end it hasn't said
+ * is watched too (recorded-calls.ts).
+ *
  * While the host drains for a restart, or its code is stale and no
  * window views the conversation (`holding`), a wake through the file or a
  * steer is held: the file stays on disk and the steer in its inbox, so a
@@ -45,6 +49,11 @@
  * whether one waits while held is known only once its read comes back:
  * the count `letThrough` answers is of the wakes and steers seen held,
  * and a wake written but not yet seen is still woken as it lifts.
+ *
+ * Long because a park, its wake, the holds on that wake and the calls it
+ * carries all read and change one set of maps per conversation, which a
+ * split would pass between modules on every step; what reads apart from
+ * that state lives beside it, in parked-calls.ts and recorded-calls.ts.
  */
 import { type FSWatcher, mkdirSync, rmSync, watch } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
@@ -66,6 +75,7 @@ import {
 	stopCarriedCalls,
 	watchCarriedCalls,
 } from "./parked-calls.ts";
+import { RECORDED_READ_MS, untoldCalls } from "./recorded-calls.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
@@ -281,6 +291,17 @@ export function parking(options: {
 	readonly carries?: () => boolean;
 	/** Whether a carried call still runs; its shell, read from the machine, by default. */
 	readonly callRuns?: (work: CarriedShell) => boolean | Promise<boolean>;
+	/**
+	 * The bash calls a conversation recorded as they ran, which a carrying
+	 * park watches beside those its stop said. Given only where the process
+	 * ends once it parks, as a child's does, since the conversation takes a
+	 * recorded call up only once the pi that recorded it has gone: in a
+	 * shared host that runs on, a wake for one would find nothing to take.
+	 * None are read where it isn't given.
+	 */
+	readonly recorded?: (sessionId: string) => Promise<readonly CarriedShell[]>;
+	/** How long a park waits on `recorded`; RECORDED_READ_MS by default. */
+	readonly recordedReadMs?: number;
 	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
 	readonly lookEveryMs?: number;
 	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
@@ -558,6 +579,7 @@ export function parking(options: {
 			} finally {
 				stopping.delete(sessionId);
 			}
+			if (carrying) await keepRecorded(sessionId);
 			const held = unrecorded.get(sessionId);
 			unrecorded.delete(sessionId);
 			options.parked?.(sessionId);
@@ -597,6 +619,49 @@ export function parking(options: {
 		return ranOn;
 	}
 
+	// Add to what its park carried each call it recorded as it ran that its
+	// stop never said, so the watch wakes it once they end: at once for one
+	// already ended, whose end it hasn't said. Never throws: records that
+	// can't be read in time park it on what its stop said.
+	async function keepRecorded(sessionId: string): Promise<void> {
+		const read = options.recorded;
+		if (!read) return;
+		const folder = folderOf(sessionId);
+		let untold: CarriedShell[];
+		try {
+			untold = await untoldCalls(read(sessionId), {
+				folder,
+				held: unrecorded.get(sessionId) ?? [],
+				ms: options.recordedReadMs ?? RECORDED_READ_MS,
+				report,
+			});
+		} catch (error) {
+			report(error);
+			return;
+		}
+		if (untold.length === 0) return;
+		told.add(sessionId);
+		try {
+			mkdirSync(folder, { recursive: true });
+			keepCarriedCalls(folder, untold);
+			options.said?.(
+				`${sessionId}: its park carries ${untold.length} bash call(s) it recorded but never said it carried`,
+			);
+		} catch (error) {
+			// Unwritten, nothing would wake it as they end: it wakes as soon as
+			// it parks and carries none for a while, as a told call's does.
+			unrecorded.set(sessionId, [
+				...(unrecorded.get(sessionId) ?? []),
+				...untold,
+			]);
+			uncarried.set(sessionId, now() + UNRECORDED_HOLDS_MS);
+			report(error);
+			options.said?.(
+				`${sessionId}: its park found ${untold.length} bash call(s) it recorded but never said it carried, and can't record them; waking it`,
+			);
+		}
+	}
+
 	// Rest one whose park's stop failed, owed that stop, answering whether
 	// its wake is watched.
 	function restOwed(sessionId: string, carrying: boolean): boolean {
@@ -634,8 +699,10 @@ export function parking(options: {
 		entry.trying = stop
 			.finally(() => stopping.delete(sessionId))
 			.then(
-				() => {
+				async () => {
 					// Run or closed meanwhile, nothing is owed it any more.
+					if (!ours()) return;
+					if (owing.carrying) await keepRecorded(sessionId);
 					if (!ours()) return;
 					owed.delete(sessionId);
 					parkedOnRetry(sessionId);

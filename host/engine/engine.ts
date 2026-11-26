@@ -83,6 +83,7 @@ import {
 	quietCollection,
 	runningTools,
 } from "./quiet-collection.ts";
+import { recordedCallsOf } from "./recorded-calls.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
@@ -172,6 +173,9 @@ export async function createEngine(
 		stateDir: options.stateDir,
 		stop: (sessionId, why, carrying) => host.stop(sessionId, why, carrying),
 		carries: parkCarries,
+		// A child's process ends once it parks, so its next one takes up
+		// what it recorded; a shared host runs on, holding its records.
+		...(kept ? { recorded: recordedCallsOf } : {}),
 		asking: () => watched?.wake,
 		report,
 		said: report,

@@ -289,7 +289,9 @@ Where a park keeps carried bash calls (a shared host with a jobs
 cgroup, or spawners in scopes of their own), it stops the conversation
 carrying them as a restart does; parked-calls.ts writes the calls the
 conversation's bus said it carried to `carried-calls.json` beside its
-wake file, and whoever watches that wake looks at them every five
+wake file. In a child, recorded-calls.ts adds each call the
+conversation recorded as it ran whose end it hasn't said and its stop
+never named, so a call a stop missed still wakes it. Whoever watches that wake looks at them every five
 seconds, rolling their output as the conversation would, and writing
 the wake file once none still runs. Any doubt wakes it, since a woken
 conversation takes its calls up again and holds them or times them

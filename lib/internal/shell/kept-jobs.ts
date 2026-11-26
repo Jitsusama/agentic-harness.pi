@@ -619,6 +619,17 @@ export function keptJobsOf(
 }
 
 /**
+ * Every record of a call `session` ran whose end isn't said yet,
+ * whoever holds it and however it stands, read off the thread.
+ */
+export async function recordedKeptJobs(
+	session: string,
+	folder: string = keptFolder(),
+): Promise<KeptJob[]> {
+	return (await recordsRead(folder)).filter((job) => job.session === session);
+}
+
+/**
  * The recorded calls whose pi has gone and whose end is not yet said:
  * the ones a host looks at to stop, once nobody takes them up in time.
  * Read off the thread, since a host looks on the loop its conversations
