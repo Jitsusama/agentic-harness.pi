@@ -41,7 +41,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
-import { moveFile } from "../files/move-file.ts";
+import { type MoveRoom, moveFile } from "../files/move-file.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf } from "./handover.ts";
@@ -242,7 +242,12 @@ function putBack(
 		// A copy cut off on its way aside is no earlier file, so it goes.
 		name.startsWith(".")
 			? !undo(() => rmSync(join(aside, name), { force: true }))
-			: !undo(() => movedThrough(into, join(aside, name), join(into, name))),
+			: !undo(() =>
+					// It held that room before, and outside the fence it can't grow.
+					movedThrough(into, join(aside, name), join(into, name), {
+						keepReserve: false,
+					}),
+				),
 	);
 	return { stuck, left };
 }
@@ -254,9 +259,14 @@ function putBack(
  * fenced command may swap the handover meanwhile, which would have the
  * next move read or write through it.
  */
-function movedThrough(into: string, from: string, to: string): void {
+function movedThrough(
+	into: string,
+	from: string,
+	to: string,
+	room?: MoveRoom,
+): void {
 	unlinked(into);
-	moveFile(from, to);
+	moveFile(from, to, room);
 }
 
 /**

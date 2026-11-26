@@ -16,15 +16,20 @@
  * The original is removed only while its path still names the file
  * copied, since a copy lasts as long as the file is long, and a folder on
  * its way swapped for a link meanwhile would have it remove another.
- * A copy takes no more room than the file had when opened, and no more
- * than half what its new volume has left, since a fenced command can
- * plant a file that grows as it is read, or a sparse one far larger than
- * the bytes it holds.
+ * A copy takes no more room than the file had when opened, and leaves
+ * its new volume a reserve free, since a fenced command can plant a file
+ * that grows as it is read, or a sparse one far larger than the bytes it
+ * holds. The reserve outlasts every copy of a carry, one after another,
+ * where a share of what is left would shrink with each. A file whose
+ * length, modification or change time moved while it was copied isn't
+ * moved, though a filesystem that stamps only whole seconds can hide a
+ * rewrite within one.
  */
 
 import { randomUUID } from "node:crypto";
 import {
 	type BigIntStats,
+	type BigIntStatsFs,
 	closeSync,
 	constants,
 	fchmodSync,
@@ -60,6 +65,18 @@ const MAKE =
 /** The bits of a file's mode its copy keeps: who may read, write and run it. */
 const MODE_BITS = 0o777;
 
+/** The most room a copy leaves free on its new volume: 1 GiB. */
+const RESERVE_MOST = 1024n ** 3n;
+
+/** How a move may spend its new volume's room. */
+export interface MoveRoom {
+	/**
+	 * Whether the copy must leave its volume's reserve free; false only
+	 * for a file put back where it was, which held that room before.
+	 */
+	readonly keepReserve?: boolean;
+}
+
 /**
  * Moves the file or link at `from` to `to`, replacing what stands there,
  * so `to` holds either what it held or the whole of `from`. Throws, with
@@ -68,7 +85,7 @@ const MODE_BITS = 0o777;
  * sync its new folder or remove `from` after its copy stands, or `from`
  * naming another file by then, leaves both.
  */
-export function moveFile(from: string, to: string): void {
+export function moveFile(from: string, to: string, room: MoveRoom = {}): void {
 	try {
 		renameSync(from, to);
 		return;
@@ -78,7 +95,7 @@ export function moveFile(from: string, to: string): void {
 	const beside = join(dirname(to), `.${basename(to)}.moving-${randomUUID()}`);
 	let moved: BigIntStats;
 	try {
-		moved = copied(from, beside);
+		moved = copied(from, beside, room.keepReserve ?? true);
 		renameSync(beside, to);
 	} catch (error) {
 		try {
@@ -114,10 +131,20 @@ function syncFolder(path: string): void {
 }
 
 /**
+ * The room a copy leaves free on a volume: a twentieth of it, and at
+ * most {@link RESERVE_MOST}.
+ */
+function reserveOf(volume: BigIntStatsFs): bigint {
+	const twentieth = (volume.blocks * volume.bsize) / 20n;
+	return twentieth < RESERVE_MOST ? twentieth : RESERVE_MOST;
+}
+
+/**
  * Copies the file or link at `from` to `to`, where nothing stands yet,
+ * leaving its volume's reserve free where `keepReserve` asks it,
  * answering what it copied.
  */
-function copied(from: string, to: string): BigIntStats {
+function copied(from: string, to: string, keepReserve: boolean): BigIntStats {
 	const found = lstatSync(from, { bigint: true });
 	if (found.isSymbolicLink()) {
 		symlinkSync(readlinkSync(from), to);
@@ -133,10 +160,11 @@ function copied(from: string, to: string): BigIntStats {
 		if (!opened.isFile()) {
 			throw new Error(`${from} isn't a file or a link, so it isn't moved.`);
 		}
-		const left = statfsSync(dirname(to), { bigint: true });
-		if (opened.size * 2n > left.bavail * left.bsize) {
+		const volume = statfsSync(dirname(to), { bigint: true });
+		const kept = keepReserve ? reserveOf(volume) : 0n;
+		if (opened.size + kept > volume.bavail * volume.bsize) {
 			throw new Error(
-				`${from} is ${opened.size} bytes, more than half the room left beside ${to}, so it isn't moved.`,
+				`${from} is ${opened.size} bytes, more than beside ${to} has room for while ${kept} bytes stay free, so it isn't moved.`,
 			);
 		}
 		const mode = Number(opened.mode) & MODE_BITS;
@@ -144,7 +172,10 @@ function copied(from: string, to: string): BigIntStats {
 		try {
 			// Set again, past the umask that clipped it at the open.
 			fchmodSync(target, mode);
-			if (!copyAll(source, target, Number(opened.size))) {
+			if (
+				!copyAll(source, target, Number(opened.size)) ||
+				changed(opened, fstatSync(source, { bigint: true }))
+			) {
 				throw new Error(
 					`${from} changed while it was copied, so it isn't moved.`,
 				);
@@ -157,6 +188,15 @@ function copied(from: string, to: string): BigIntStats {
 	} finally {
 		closeSync(source);
 	}
+}
+
+/** Whether a file's length, modification or change time moved. */
+function changed(before: BigIntStats, after: BigIntStats): boolean {
+	return (
+		before.size !== after.size ||
+		before.mtimeNs !== after.mtimeNs ||
+		before.ctimeNs !== after.ctimeNs
+	);
 }
 
 /**
