@@ -18,6 +18,7 @@ import {
 	type Heed,
 	mentions,
 	type Receiver,
+	settlesUnthreaded,
 } from "../../../lib/mesh/attention.ts";
 import { caughtUp, MOST_CAUGHT_UP } from "../../../lib/mesh/damping.ts";
 import { flowsAt } from "../../../lib/mesh/flow.ts";
@@ -325,6 +326,16 @@ export function createHearing(m: MeshState, f: Handing) {
 		const asked = messages.map((message) =>
 			answersQuestion(message, read, self),
 		);
+		// News sent here with no thread, from a peer a question of this
+		// peer's still waits on, is taken as that question's answer.
+		const settling = messages.map(
+			(message, at) =>
+				!stopped[at] &&
+				settlesUnthreaded(message, m.peer?.addresses ?? []) &&
+				!sentBy(message, self) &&
+				m.awaiting.settledBy(message.from, () => addressesOf(message.from)) !==
+					undefined,
+		);
 		const concerns = await Promise.all(
 			messages.map((message, at) =>
 				// A peer hearing only what is put to it glances at the rest
@@ -382,6 +393,7 @@ export function createHearing(m: MeshState, f: Handing) {
 				idle,
 				answers: answeringAt(answering, at),
 				asked: answeringAt(asked, at),
+				...(settling[at] ? { settles: true } : {}),
 				...(awaiting[at] ? { awaits: true } : {}),
 				askedEach: asksEach(message, listener),
 				now: Date.now(),

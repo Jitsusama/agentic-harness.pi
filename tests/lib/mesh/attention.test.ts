@@ -13,6 +13,7 @@ import {
 	FYI_MS,
 	mentions,
 	type Standing,
+	settlesUnthreaded,
 } from "../../../lib/mesh/attention.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import { MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
@@ -306,6 +307,60 @@ describe("attention", () => {
 			why: "answering this peer's question",
 			awaited: true,
 		});
+	});
+
+	it("gives a peer a turn for news that settles its open question, busy or not", () => {
+		const news = message({
+			to: ["@5GV2AH"],
+			text: "#6682 landed, #6678 can rebase",
+		});
+		const settled = { ...standing, settles: true, concern: "other" as const };
+		const turn = {
+			attention: "turn",
+			why: "from the peer this peer's open question waits on",
+			awaited: true,
+		};
+		expect(attend(news, settled)).toEqual(turn);
+		expect(attend(news, { ...settled, idle: true })).toEqual(turn);
+		expect(
+			attend(news, { ...settled, idle: true, settles: false }).attention,
+			"news settling nothing took a turn",
+		).not.toBe("turn");
+	});
+
+	it("glances at news past its hour though it would settle a question", () => {
+		const stale = message({ to: ["@5GV2AH"] });
+		const now = Date.parse(stale.at) + FYI_MS + 1;
+
+		expect(
+			attend(stale, { ...standing, settles: true, idle: true, now }).attention,
+		).toBe("glance");
+	});
+
+	it("takes as a possible answer only news sent to the peer with no thread", () => {
+		const at = ["5GV2AH", "24B025FE"];
+		const home = { to: ["@5GV2AH"] };
+
+		expect(settlesUnthreaded(message(home), at)).toBe(true);
+		expect(settlesUnthreaded(message({ ...home, intent: "finding" }), at)).toBe(
+			true,
+		);
+		expect(
+			settlesUnthreaded(message({ ...home, re: "0-5GV2AH-1-bbbb" }), at),
+			"news with a thread is judged by its thread",
+		).toBe(false);
+		expect(
+			settlesUnthreaded(message({ ...home, intent: "question" }), at),
+			"a question is heard as one put to the peer",
+		).toBe(false);
+		expect(
+			settlesUnthreaded(message({ to: ["#repo/core-nix"] }), at),
+			"news to a group names nobody waiting",
+		).toBe(false);
+		expect(
+			settlesUnthreaded(message({ ...home, fromRealm: "home" }), at),
+			"another realm's sender is another principal",
+		).toBe(false);
 	});
 
 	it("glances at an fyi past its hour, wherever it went", () => {

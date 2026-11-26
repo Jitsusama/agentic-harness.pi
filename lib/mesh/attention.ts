@@ -38,7 +38,9 @@
  * nothing but acknowledge. The exception is an answer to a question this
  * peer asked, which gets a turn however it was sent, since the peer is
  * waiting on it: an answer sent as an fyi would otherwise sit until
- * something else started a turn. An fyi more than {@link FYI_MS} old
+ * something else started a turn. So does news sent to it with no thread
+ * from a peer one of its open questions waits on, once a question, since
+ * an answer that names no question is still one. An fyi more than {@link FYI_MS} old
  * when it reaches the peer is a glance, and so is a hold older than the
  * longest a hold stands ({@link MOST_HOLD_MS}), which no longer holds
  * anything. Fresh news a peer sends to an idle peer whose
@@ -101,6 +103,12 @@ export interface Standing {
 	readonly answers?: boolean;
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
+	/**
+	 * The message is news sent to this peer with no thread, from a peer an
+	 * open question of this peer's waits on, and settles that question
+	 * (see owed.ts): an answer that named no question.
+	 */
+	readonly settles?: boolean;
 	/**
 	 * This peer is idle, its last run ended with a `Blocked:` line naming
 	 * the sender (see internal/session/ending.ts), and so it rests waiting
@@ -194,6 +202,16 @@ export function attend(message: Message, at: Standing): Heed {
 		at.now - Date.parse(message.at) > MOST_HOLD_MS
 	) {
 		return { attention: "glance", why: "a hold past the longest one stands" };
+	}
+	// An answer that named no question still answers it: on 26 November
+	// Y2YBTS's "#6682 landed" reached H2VYOB as an fyi with no re and sat
+	// about six hours. Only fresh news counts, held to its hour above.
+	if (at.settles) {
+		return {
+			attention: "turn",
+			why: "from the peer this peer's open question waits on",
+			awaited: true,
+		};
 	}
 	// On 7 November three orchestrators sat on their sessions' findings and
 	// landings, noted with no turn, until they parked, and Joel woke each
@@ -312,6 +330,24 @@ export function attend(message: Message, at: Standing): Heed {
 					? "about the whole machine"
 					: "not judged, so noted",
 	};
+}
+
+/**
+ * Whether a message could answer a question without naming it: news, an
+ * fyi or a finding, sent to this peer by one of its `addresses` with no
+ * `re`, from this realm. One to a group it is in names nobody waiting,
+ * and one from another realm is another principal (see unanswered.ts).
+ */
+export function settlesUnthreaded(
+	message: Message,
+	addresses: readonly string[],
+): boolean {
+	return (
+		(message.intent === "fyi" || message.intent === "finding") &&
+		message.re === undefined &&
+		message.fromRealm === undefined &&
+		isHomeTo(message, addresses)
+	);
 }
 
 /**

@@ -23,6 +23,14 @@
  * it) leaves both accounts: on 24 November two withdrawn questions were
  * still said to be stuck and put to their peers again.
  *
+ * An answer can come without naming its question, as news sent to the
+ * asker with no `re`. On 26 November Y2YBTS's "#6682 landed, #6678 can
+ * rebase" reached H2VYOB as an fyi and sat unread about six hours. So
+ * the asker keeps its questions for as long as one is owed
+ * ({@link OWED_FOR_MS}), stuck or not, and news from a peer one waits on
+ * settles it for that peer ({@link Awaiting.settledBy}), which takes the
+ * turn an answer would.
+ *
  * Both are kept in memory: a reload starts the account again, which
  * at worst asks once more or says once more.
  */
@@ -82,6 +90,18 @@ export interface Awaiting {
 	 * peer awaits.
 	 */
 	answered(re: string, from: () => readonly string[]): void;
+	/**
+	 * News came with no `re` from `sender`, going by the addresses
+	 * `aliases` looks up. The newest question still owed and waiting on it
+	 * is taken as answered by it and returned, so each question is settled
+	 * so once; nothing, when none waits on that peer. The sender is looked
+	 * up only while some question waits on someone.
+	 */
+	settledBy(
+		sender: string,
+		aliases: () => readonly string[],
+		now?: number,
+	): Message | undefined;
 	/** Questions stuck now, each said once, with who has not answered. */
 	stuck(now?: number): readonly Stuck[];
 }
@@ -144,8 +164,16 @@ export function createOwing(): Owing {
 export function createAwaiting(): Awaiting {
 	const awaited = new Map<
 		string,
-		{ message: Message; waitingOn: Set<string>; sent: number }
+		{
+			message: Message;
+			waitingOn: Set<string>;
+			sent: number;
+			said: boolean;
+		}
 	>();
+	const forget = (id: string, sent: number, now: number) => {
+		if (now - sent > OWED_FOR_MS) awaited.delete(id);
+	};
 	return {
 		asked(message, self, now = Date.now()) {
 			if (message.supersedes !== undefined) awaited.delete(message.supersedes);
@@ -159,6 +187,7 @@ export function createAwaiting(): Awaiting {
 				message,
 				waitingOn: new Set(named),
 				sent: now,
+				said: false,
 			});
 		},
 		answered(re, from) {
@@ -167,12 +196,27 @@ export function createAwaiting(): Awaiting {
 			for (const address of from()) one.waitingOn.delete(address);
 			if (one.waitingOn.size === 0) awaited.delete(re);
 		},
+		settledBy(sender, aliases, now = Date.now()) {
+			for (const [id, one] of awaited) forget(id, one.sent, now);
+			if (awaited.size === 0) return undefined;
+			const by = new Set([sender, ...aliases()]);
+			const waiting = [...awaited].filter(([, one]) =>
+				[...one.waitingOn].some((address) => by.has(address)),
+			);
+			const newest = waiting.at(-1);
+			if (newest === undefined) return undefined;
+			const [id, one] = newest;
+			for (const address of by) one.waitingOn.delete(address);
+			if (one.waitingOn.size === 0) awaited.delete(id);
+			return one.message;
+		},
 		stuck(now = Date.now()) {
 			const stuck: Stuck[] = [];
 			for (const [id, one] of awaited) {
-				if (now - one.sent < ASK_AGAIN_MS) continue;
+				forget(id, one.sent, now);
+				if (one.said || now - one.sent < ASK_AGAIN_MS) continue;
 				stuck.push({ message: one.message, waitingOn: [...one.waitingOn] });
-				awaited.delete(id);
+				one.said = true;
 			}
 			return stuck;
 		},

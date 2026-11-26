@@ -160,3 +160,69 @@ describe("answers awaited", () => {
 		expect(lookups, "didn't look up an answer it awaited").toBe(1);
 	});
 });
+
+// On 26 November Y2YBTS's "#6682 landed, #6678 can rebase" reached H2VYOB
+// as an fyi with no re, and sat unread about six hours.
+describe("answers that name no question", () => {
+	it("settle the newest question waiting on their sender, once", () => {
+		const awaiting = createAwaiting();
+		const older = question({ id: "1", to: ["@Y2YBTS"] });
+		const newer = question({ id: "2", to: ["@Y2YBTS", "@KP0L6A"] });
+		awaiting.asked(older, ["20KSI7"], asked);
+		awaiting.asked(newer, ["20KSI7"], asked + 1000);
+
+		expect(awaiting.settledBy("Y2YBTS", () => [], asked + 2000)).toBe(newer);
+		expect(awaiting.settledBy("Y2YBTS", () => [], asked + 3000)).toBe(older);
+		expect(
+			awaiting.settledBy("Y2YBTS", () => [], asked + 4000),
+			"a third word settled a question already settled",
+		).toBeUndefined();
+		expect(awaiting.stuck(asked + 1000 + ASK_AGAIN_MS)).toEqual([
+			{ message: newer, waitingOn: ["KP0L6A"] },
+		]);
+	});
+
+	it("settle one for a sender under another of its addresses", () => {
+		const awaiting = createAwaiting();
+		const one = question({ to: ["@5DF5FBE4"] });
+		awaiting.asked(one, ["20KSI7"], asked);
+
+		expect(
+			awaiting.settledBy("Y2YBTS", () => ["Y2YBTS", "5DF5FBE4"], asked),
+		).toBe(one);
+	});
+
+	it("settle nothing for a peer no question waits on", () => {
+		const awaiting = createAwaiting();
+		let lookups = 0;
+		const aliases = () => {
+			lookups += 1;
+			return [];
+		};
+		expect(awaiting.settledBy("Y2YBTS", aliases, asked)).toBeUndefined();
+		expect(lookups, "looked a sender up with nothing awaited").toBe(0);
+
+		awaiting.asked(question({ to: ["@KP0L6A"] }), ["20KSI7"], asked);
+		expect(awaiting.settledBy("Y2YBTS", aliases, asked)).toBeUndefined();
+	});
+
+	it("still settle a question already said to be stuck, within its hour", () => {
+		const awaiting = createAwaiting();
+		const one = question({ to: ["@Y2YBTS"] });
+		awaiting.asked(one, ["20KSI7"], asked);
+		expect(awaiting.stuck(asked + ASK_AGAIN_MS)).toHaveLength(1);
+
+		expect(awaiting.settledBy("Y2YBTS", () => [], asked + OWED_FOR_MS)).toBe(
+			one,
+		);
+	});
+
+	it("settle nothing past the hour a question is owed", () => {
+		const awaiting = createAwaiting();
+		awaiting.asked(question({ to: ["@Y2YBTS"] }), ["20KSI7"], asked);
+
+		expect(
+			awaiting.settledBy("Y2YBTS", () => [], asked + OWED_FOR_MS + 1),
+		).toBeUndefined();
+	});
+});
