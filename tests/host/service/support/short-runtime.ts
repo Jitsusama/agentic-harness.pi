@@ -20,18 +20,21 @@ const LONGEST_SLOT = "00000000-0000-4000-8000-000000000000";
 /**
  * A fresh runtime folder the children of the host keyed `key` fit in.
  * It goes under the run's temp folder when they fit there, which holds
- * only for a TMPDIR of 25 bytes or less, about as short as /tmp, since
- * the run's own folder adds 18. Everywhere else, every quest session's
- * TMPDIR included, it goes under the run's short folder in /tmp. The
- * run's teardown removes either, even after a killed worker; with no
- * short folder, as where /tmp can't be written, it goes under /tmp
- * itself. The caller removes it.
+ * only for a run folder of 25 bytes or less, so a session's TMPDIR of 7
+ * or less, as /tmp is, since the run's own folder adds 18. Everywhere
+ * else, every quest session's TMPDIR included, it goes under the run's
+ * short folder in /tmp. The run's teardown removes either, even after a
+ * killed worker. With no short folder, as where /tmp may not be written,
+ * it stays under the run's temp folder: the host there runs without
+ * children and says why, so only a test needing them fails. The caller
+ * removes it.
  */
 export async function shortRuntime(key: string): Promise<string> {
 	const near = await mkdtemp(join(tmpdir(), "rt-"));
-	if (childrenFit(near, key)) return near;
+	const sockets = process.env[SOCKET_ROOT];
+	if (sockets === undefined || childrenFit(near, key)) return near;
 	await rm(near, { recursive: true, force: true });
-	return mkdtemp(join(process.env[SOCKET_ROOT] ?? "/tmp", "rt-"));
+	return mkdtemp(join(sockets, "rt-"));
 }
 
 /** Whether every child's socket the host keyed `key` makes in `runtime` fits. */

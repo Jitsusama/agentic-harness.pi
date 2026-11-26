@@ -32,7 +32,9 @@ it before its engine loads. Its cases, and run.test.ts's realm host,
 take their runtime folder from support/short-runtime.ts: under the
 run's temp folder when a child's socket fits there, else under the
 run's short folder in /tmp, since a session's temp folder is too long
-for one. short-runtime.test.ts checks both at the limit's edge.
+for one. Where /tmp may not be written there is no short folder, so it
+stays under the temp folder and only the cases needing children fail.
+short-runtime.test.ts checks all three, two at the limit's edge.
 children.test.ts checks a host passing what names a conversation a
 child runs to the child's socket over real sockets with fake backends:
 an attach and the window's keys and frames both ways, a frame split

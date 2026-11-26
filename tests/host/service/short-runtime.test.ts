@@ -1,4 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_SOCKET_PATH_BYTES } from "../../../host/service/address.ts";
@@ -18,6 +20,22 @@ const FITTING = 25;
 
 /** The run's short folder, which the run's teardown removes. */
 const sockets = process.env[SOCKET_ROOT];
+
+/**
+ * Whether this run may write /tmp, probed rather than read from the
+ * setup, so a setup that stops naming its folder fails here rather than
+ * skipping. Only a refusal counts; any other error fails the file.
+ */
+function mayWriteTmp(): boolean {
+	try {
+		rmSync(mkdtempSync("/tmp/sr-probe-"), { recursive: true });
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code ?? "";
+		if (["EACCES", "EPERM", "EROFS"].includes(code)) return false;
+		throw error;
+	}
+}
 
 const made: string[] = [];
 afterEach(async () => {
@@ -41,9 +59,14 @@ function longestSlot(runtime: string) {
 }
 
 // Only the run's short folder is short enough to pad a TMPDIR to the
-// limit inside; a run where /tmp can't be written has none.
-describe.skipIf(sockets === undefined)("a short runtime folder", () => {
+// limit inside; a run that may not write /tmp, as under the sandbox, has
+// none.
+describe.skipIf(!mayWriteTmp())("a short runtime folder", () => {
 	const root = sockets ?? "";
+
+	it("is named by the run's setup wherever /tmp may be written", () => {
+		expect(sockets, "the run's short folder").toMatch(/^\/tmp\/vs-/);
+	});
 
 	it("stays under the run's temp folder when its longest child's socket just fits", async () => {
 		const temp = await tmpdirOf(root, FITTING);
@@ -63,7 +86,26 @@ describe.skipIf(sockets === undefined)("a short runtime folder", () => {
 		made.push(runtime);
 
 		expect(runtime.startsWith(`${root}/rt-`), runtime).toBe(true);
+		expect(
+			() => longestSlot(join(temp, "rt-XXXXXX")),
+			"the supervisor refuses the folder it passed over",
+		).toThrow();
 		expect(() => longestSlot(runtime), "its children fit").not.toThrow();
 		expect(await readdir(temp), "the folder it tried first").toEqual([]);
+	});
+});
+
+describe("a runtime folder with no short folder named", () => {
+	it("stays under the run's temp folder, however long, so only a test needing children fails", async () => {
+		const temp = join(tmpdir(), "x".repeat(40));
+		await mkdir(temp);
+		made.push(temp);
+		vi.stubEnv("TMPDIR", temp);
+		vi.stubEnv(SOCKET_ROOT, undefined);
+
+		const runtime = await shortRuntime(KEY);
+
+		expect(runtime.startsWith(`${temp}/rt-`), runtime).toBe(true);
+		expect(() => longestSlot(runtime), "too long for children").toThrow();
 	});
 });
