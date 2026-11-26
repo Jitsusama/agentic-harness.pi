@@ -17,10 +17,10 @@ import {
 	PARKED,
 	type Parking,
 	parking,
-	recordedCallsOf,
 	UNRECORDED_HOLDS_MS,
 	WATCH_STARTS_MS,
 } from "../../../host/engine/parking.ts";
+import { recordedCallsOf } from "../../../host/engine/recorded-calls.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";

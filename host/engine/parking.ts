@@ -20,16 +20,9 @@
  * (`ran`); one that can't be written wakes it as soon as it parks, and
  * a close for good stops the calls, which nobody would take up.
  *
- * In a child, what the stop says it carried is not all a park watches.
- * A call the conversation recorded as it ran (lib/internal/shell/
- * kept-jobs.ts) whose end it hasn't said is watched too, its park
- * waking it once the call ends, at once for one already ended: on 26
- * November at 00:25 a roll parked 15277F02 while its `devx ci drill`
- * ran, its stop saying no carry, and the call ran on unwatched, its
- * result waiting half an hour for the park's own wake. The child's
- * process ends as it parks, so its next one takes such a call up from
- * its record as it resumes, as after a kill. A shared host, running on,
- * holds its conversations' records, so it reads none here.
+ * In a child, what the stop says it carried is not all a park watches:
+ * a call the conversation recorded as it ran whose end it hasn't said
+ * is watched too (recorded-calls.ts).
  *
  * While the host drains for a restart, or its code is stale and no
  * window views the conversation (`holding`), a wake through the file or a
@@ -56,6 +49,11 @@
  * whether one waits while held is known only once its read comes back:
  * the count `letThrough` answers is of the wakes and steers seen held,
  * and a wake written but not yet seen is still woken as it lifts.
+ *
+ * Long because a park, its wake, the holds on that wake and the calls it
+ * carries all read and change one set of maps per conversation, which a
+ * split would pass between modules on every step; what reads apart from
+ * that state lives beside it, in parked-calls.ts and recorded-calls.ts.
  */
 import { type FSWatcher, mkdirSync, rmSync, watch } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
@@ -68,7 +66,6 @@ import {
 	writeRefusedWakeOff,
 } from "../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
-import { recordedKeptJobs } from "../../lib/internal/shell/kept-jobs.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
 import {
 	carriedCalls,
@@ -78,53 +75,10 @@ import {
 	stopCarriedCalls,
 	watchCarriedCalls,
 } from "./parked-calls.ts";
+import { RECORDED_READ_MS, untoldCalls } from "./recorded-calls.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
-
-/**
- * How long a park waits on the read of what its conversation recorded
- * before it parks on what its stop said: a few small files, which a
- * disk under load returns in seconds, never a park held for minutes.
- */
-export const RECORDED_READ_MS = 10_000;
-
-/**
- * The bash calls `sessionId` recorded as they ran and whose end isn't
- * said yet, from the kept folder (`folder` in a test), read off the
- * thread: what a child's park watches beside those its stop said.
- */
-export async function recordedCallsOf(
-	sessionId: string,
-	folder?: string,
-): Promise<readonly CarriedShell[]> {
-	const jobs = await (folder === undefined
-		? recordedKeptJobs(sessionId)
-		: recordedKeptJobs(sessionId, folder));
-	return jobs.map((job) => job.work);
-}
-
-/** `reading`, refused once it takes longer than `ms`. */
-async function withinRead<T>(reading: Promise<T>, ms: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<never>((_, reject) => {
-		timer = setTimeout(
-			() =>
-				reject(
-					new Error(
-						`the recorded calls took over ${ms} ms to read; parking on what its stop said`,
-					),
-				),
-			ms,
-		);
-		timer.unref?.();
-	});
-	try {
-		return await Promise.race([reading, late]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
 
 /**
  * What a wake file holds, read off the thread: nothing where there is
@@ -675,20 +629,11 @@ export function parking(options: {
 		const folder = folderOf(sessionId);
 		let untold: CarriedShell[];
 		try {
-			const recorded = await withinRead(
-				read(sessionId),
-				options.recordedReadMs ?? RECORDED_READ_MS,
-			);
-			if (recorded.length === 0) return;
-			const known = new Set(
-				[...toldOf(folder), ...(unrecorded.get(sessionId) ?? [])].map(
-					(work) => work.keep,
-				),
-			);
-			untold = recorded.filter((work) => {
-				if (known.has(work.keep)) return false;
-				known.add(work.keep);
-				return true;
+			untold = await untoldCalls(read(sessionId), {
+				folder,
+				held: unrecorded.get(sessionId) ?? [],
+				ms: options.recordedReadMs ?? RECORDED_READ_MS,
+				report,
 			});
 		} catch (error) {
 			report(error);
@@ -714,18 +659,6 @@ export function parking(options: {
 			options.said?.(
 				`${sessionId}: its park found ${untold.length} bash call(s) it recorded but never said it carried, and can't record them; waking it`,
 			);
-		}
-	}
-
-	// The calls its stop's carry recorded in `folder`; none where that
-	// record can't be read, so the write of the untold ones is still tried
-	// and, failing, wakes it and holds its calls awake for a while.
-	function toldOf(folder: string): readonly CarriedShell[] {
-		try {
-			return carriedCalls(folder);
-		} catch (error) {
-			report(error);
-			return [];
 		}
 	}
 

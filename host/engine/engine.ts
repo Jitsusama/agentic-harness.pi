@@ -68,7 +68,7 @@ import {
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
 import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
-import { parking, recordedCallsOf } from "./parking.ts";
+import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
 	piBuiltInExtensions,
@@ -83,6 +83,7 @@ import {
 	quietCollection,
 	runningTools,
 } from "./quiet-collection.ts";
+import { recordedCallsOf } from "./recorded-calls.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
