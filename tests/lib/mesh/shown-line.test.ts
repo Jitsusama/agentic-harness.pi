@@ -54,6 +54,12 @@ describe("shownLines", () => {
 			],
 			// A redraw of nothing that shows leaves the line as it was.
 			["refused\r\u001b[0m\r\n", 200, "refused"],
+			// A redrawn line cut to fit keeps its last drawing, as a quote
+			// keeps its last line.
+			["a".repeat(30) + "\rdone\n", 20, "aaaaaaaaaaaaa... / done"],
+			// A redraw's "..." kept last stands for the lines left out after
+			// it too, never doubled.
+			["cause\na\rb\rc\rd\nlonger line\nhint\n", 30, "cause / a / ... / hint"],
 		];
 		for (const [text, most, said] of cases) {
 			expect(shownLines(text, most), JSON.stringify(text)).toBe(said);
@@ -183,6 +189,25 @@ describe("replyIn", () => {
 		];
 		for (const [stdout, read] of cases) {
 			expect(replyIn(stdout), JSON.stringify(stdout)).toBe(read);
+		}
+	});
+
+	it("reads a line of many escapes or controls in a moment", () => {
+		// Read once from its start: an ESC ] each opens a string and is an ESC
+		// with the character it takes, and tried from every start as a
+		// repeated match anchored at the end, 26 of them took 3.4 s and each
+		// more doubled it, while a hundred thousand tabs took 9 s.
+		const reply = '{"Ok":{"Started":{"machine":"m","held":"h","attach":[]}}}';
+		const cases: [stdout: string, read: string | undefined][] = [
+			[`x${"\u001b]".repeat(200)}\u0007y\n`, undefined],
+			[`x${"\t".repeat(100_000)}y\n`, undefined],
+			[`${reply}${"\u001b]".repeat(200)}\u0007\n`, reply],
+			[`${"\t".repeat(100_000)}${reply}${"\t".repeat(100_000)}\n`, reply],
+		];
+		for (const [stdout, read] of cases) {
+			const started = performance.now();
+			expect(replyIn(stdout), JSON.stringify(stdout.slice(0, 20))).toBe(read);
+			expect(performance.now() - started).toBeLessThan(1000);
 		}
 	});
 });

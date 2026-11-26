@@ -86,11 +86,40 @@ const ESCAPES = new RegExp([...OPENED_BY_ESC, ...OPENED_8_BIT].join("|"), "gu");
  * can hold neither as written, so dropping them from its ends never
  * changes JSON there; one within stays, so a line JSON can't read is
  * never made to read as JSON. An 8-bit control, which a JSON string may
- * hold, is never dropped.
+ * hold, is never dropped. One at a time, matched where the line is read
+ * (sticky), never repeated with a `+` or anchored at the end, since
+ * there its overlapping alternatives (ESC ] opens a string and is an
+ * ESC with the character it takes) were tried from every start, and a
+ * line of a hundred bytes held the event loop for hours.
  */
-const AROUND = `(?:${[...OPENED_BY_ESC, "[\\u0000-\\u001F\\u007F]"].join("|")})+`;
-const BEFORE_JSON = new RegExp(`^${AROUND}`, "u");
-const AFTER_JSON = new RegExp(`${AROUND}$`, "u");
+const AROUND_ONE = new RegExp(
+	[...OPENED_BY_ESC, "[\\u0000-\\u001F\\u007F]"].join("|"),
+	"uy",
+);
+
+/**
+ * `line` with what's around JSON (AROUND_ONE) dropped from both its ends, read once
+ * from its start as a terminal reads it: each sequence or control is
+ * taken whole where it starts, and anything else is a character of what
+ * stays, so what's kept runs from the first such character to the last.
+ */
+function aroundDropped(line: string): string {
+	let at = 0;
+	let from = -1;
+	let to = 0;
+	while (at < line.length) {
+		AROUND_ONE.lastIndex = at;
+		const around = AROUND_ONE.exec(line)?.[0] ?? "";
+		if (around !== "") {
+			at += around.length;
+			continue;
+		}
+		if (from < 0) from = at;
+		at += (line.codePointAt(at) ?? 0) > 0xffff ? 2 : 1;
+		to = at;
+	}
+	return from < 0 ? "" : line.slice(from, to);
+}
 
 /** What a terminal reads past after an ESC, at the start of a sequence. */
 const WAITED_AT_START = new RegExp(`^${WAITED_PAST}`, "u");
@@ -117,7 +146,7 @@ const CONTROLS = /\p{Cc}/u;
  * escapes alone after it, a colour reset say, never hides it, nor does
  * an escape or a progress bar's redraw on its line: where the line as
  * written isn't JSON, its last redraw that shows is read with what an ESC opens and
- * controls dropped from its ends (AROUND), which can't change JSON.
+ * controls dropped from its ends (aroundDropped), which can't change JSON.
  * It's otherwise never
  * cleaned to be parsed, since cleaning rewrites what it keeps (a control
  * to a space, a backtick to a quote), so a reply that wasn't JSON could
@@ -132,10 +161,7 @@ export function replyIn(stdout: string): string | undefined {
 		const redraws = line
 			.split(REDRAW)
 			.filter((each) => shownLines(each, 1) !== "");
-		const drawn = (redraws.at(-1) ?? "")
-			.replace(BEFORE_JSON, "")
-			.replace(AFTER_JSON, "")
-			.trim();
+		const drawn = aroundDropped(redraws.at(-1) ?? "").trim();
 		return isJson(drawn) ? drawn : undefined;
 	}
 	return undefined;
@@ -179,10 +205,7 @@ const LEFT_OUT = "...";
  * left out unmarked, and neither end is lost to the other.
  */
 export function shownLines(text: string, most: number): string {
-	const lines = unescaped(text)
-		.split(LINE_ENDS)
-		.map(redrawn)
-		.filter((line) => line !== "");
+	const lines = unescaped(text).split(LINE_ENDS).flatMap(redrawn);
 	const whole = lines.join(BETWEEN_LINES);
 	const first = lines[0];
 	const last = lines.at(-1);
@@ -200,7 +223,9 @@ export function shownLines(text: string, most: number): string {
 		if (Array.from(tried).length > most) break;
 		kept.push(line);
 	}
-	return [...kept, LEFT_OUT, last].join(BETWEEN_LINES);
+	// A redraw's own "..." kept last already says drawings are left out.
+	const gapKept = kept.at(-1) === LEFT_OUT ? [] : [LEFT_OUT];
+	return [...kept, ...gapKept, last].join(BETWEEN_LINES);
 }
 
 /**
@@ -229,23 +254,25 @@ function bothCut(
 }
 
 /**
- * A line drawn again in place (REDRAW), as one: its first drawing and its
- * last with anything left once cleaned (shownLine), joined as lines are,
- * with "..." between where drawings between are left out. So a progress
- * bar never fills a quote's room or pushes a cause out, and neither words
- * a cause leads with nor words a peer relays after them are lost unmarked.
+ * A line drawn again in place (REDRAW), as the lines a quote keeps: its
+ * first drawing and its last with anything left once cleaned
+ * (shownLine), with "..." between where drawings between are left out,
+ * or none where nothing shows. Each is a line of its own to shownLines,
+ * so one cut to fit keeps the last drawing as it keeps a last line. So a
+ * progress bar never fills a quote's room or pushes a cause out, and
+ * neither words a cause leads with nor words a peer relays after them
+ * are lost unmarked.
  */
-function redrawn(line: string): string {
+function redrawn(line: string): string[] {
 	const drawn = line
 		.split(REDRAW)
 		.map(shownLine)
 		.filter((each) => each !== "");
 	const first = drawn[0];
 	const last = drawn.at(-1);
-	if (first === undefined || last === undefined) return "";
-	if (drawn.length === 1) return first;
-	const gap = drawn.length > 2 ? [LEFT_OUT] : [];
-	return [first, ...gap, last].join(BETWEEN_LINES);
+	if (first === undefined || last === undefined) return [];
+	if (drawn.length === 1) return [first];
+	return drawn.length > 2 ? [first, LEFT_OUT, last] : [first, last];
 }
 
 /** `line` cut to `most` whole characters, ended with "..." where cut. */
