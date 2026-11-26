@@ -283,7 +283,7 @@ export interface ChildSupervisor {
 	 * routes or begins on already runs from, so a caller is told an error
 	 * of the host's. Its time runs from `taken`, when the host took the
 	 * request (now, by default), so what the host did before, such as
-	 * the rollout gate's census, comes out of it rather than out of the
+	 * the gate a second conversation passes, comes out of it rather than out of the
 	 * caller's wait.
 	 */
 	begin(request: Beginning, taken?: number): Promise<ControlReply>;

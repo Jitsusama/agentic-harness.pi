@@ -5,11 +5,10 @@
  * is a module the process imports by path, exporting `engine`: the fake
  * one now, H1's createEngine once it lands.
  *
- * The host is given an open rollout gate, since it runs from a tree and
- * has no install to read one from; the gate has tests of its own. One
+ * The host admits every conversation, as one given no gate does. One
  * asked to admit a single conversation is given a gate that refuses
- * every other, as a gate over stale harnesses does, for a case that
- * needs a host to refuse an adopt (E22).
+ * every other, as a child's does, for a case that needs a host to
+ * refuse an adopt (E22).
  */
 
 import { type ChildProcess, spawn } from "node:child_process";

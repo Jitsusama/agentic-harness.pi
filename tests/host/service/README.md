@@ -12,8 +12,8 @@ backend.test.ts drives the backend over the real SessionHost, roster
 and socket with a fake engine: hold before registration, undo of an
 unregistered start, holds kept through stop and failed closes, resume
 at start with the launch environment held at open, refusal of one
-naming a credential, and two sessions each in its own environment. Its rollout
-gate tests check a second open, an adopt and a resume past the first
+naming a credential, and two sessions each in its own environment. Its gate
+tests check a second open, an adopt and a resume past the first
 are refused before anything is held, and that two opens at once can't
 both go first. Its start-order tests hold one resume back and check one
 asked for goes next, and that a window, wake and close asked meanwhile
@@ -23,11 +23,6 @@ moves resumes and wakes in a child, and a start's resume is hurried for
 whoever waits on it. backend-child-opens.test.ts has its opens and
 adopts in a child, and the refusals it passes on. Both share
 support/backend-children.ts.
-rollout.test.ts judges a `loaded/` folder with fake pid and dating
-facts, and dates roots against a throwaway git repository in a private
-folder: self, dead and malformed files, roots dated once, cleared roots
-kept and stale ones asked again, and a host run from a tree keeping to
-one conversation.
 serve.test.ts starts and stops whole hosts in a private folder: a second
 host of one key and a refused engine never listen, holds survive
 stop and resume at the next start, and a starting host answers a list

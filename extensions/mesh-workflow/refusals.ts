@@ -3,7 +3,7 @@
  * wake, as its host keeps it (lib/internal/session/refused-wake.ts).
  *
  * A sender wakes a parked hosted peer through its wake file, and a host
- * may refuse: at its rollout gate while an older pi runs, or as it stops.
+ * may refuse: at the gate a second conversation passes, or as it stops.
  * On 11 November H2 found that only the host's log said so, and the
  * sender, and every sender after, heard nothing of why the peer slept on.
  * So mesh_send says it of a peer it addresses, mesh_groups lists each

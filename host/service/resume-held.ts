@@ -243,7 +243,7 @@ export async function resumeHeld(options: {
 		options.roster.entries().map((entry) => entry.sessionId),
 	);
 	try {
-		// Alone until one resumes, so the rollout gate's first runs by itself.
+		// Alone until one resumes, so a gate's first ask runs by itself.
 		while (resumed.length === 0) {
 			const entry = order.next();
 			if (!entry) break;
