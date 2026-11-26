@@ -217,8 +217,16 @@ export function sysctlValues(text: string): Map<string, string> {
 
 /** `vm_stat`'s count of pages swapped out, or 0 when it names none. */
 export function swapoutsIn(vmStat: string): number {
+	return swapoutsReadIn(vmStat) ?? 0;
+}
+
+/**
+ * `vm_stat`'s count of pages swapped out, or undefined when no line
+ * names one, for a reader that must tell a lost count from none.
+ */
+export function swapoutsReadIn(vmStat: string): number | undefined {
 	const found = vmStat.match(/^Swapouts:\s+(\d+)\.?\s*$/m);
-	return found ? Number(found[1]) : 0;
+	return found ? Number(found[1]) : undefined;
 }
 
 /** How many VM guests a list of process names holds. */
@@ -273,6 +281,12 @@ export function darwinFactsNow(): DarwinFacts {
 	);
 }
 
+/** The figures {@link darwinShort} judges a Mac's memory by. */
+export type MemoryFigures = Pick<
+	DarwinFacts,
+	"availablePercent" | "pressureLevel" | "swapouts"
+>;
+
 /**
  * What holds work back on a Mac read as `read`, said for a person, or
  * nothing when it has room: the kernel's pressure at warning or worse,
@@ -281,7 +295,7 @@ export function darwinFactsNow(): DarwinFacts {
  * queue and a council's start read the one rule.
  */
 export function darwinShort(
-	read: DarwinFacts,
+	read: MemoryFigures,
 	seen: readonly Swapped[],
 ): string | undefined {
 	if (read.pressureLevel >= WARNING_LEVEL) {

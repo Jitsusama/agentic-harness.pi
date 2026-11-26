@@ -333,20 +333,26 @@ round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
 
 Rounds on one machine start in the order they were asked, each as
-soon as the machine has memory for it: while the kernel's memory
-`full avg60` is under 10, read from `/proc/pressure/memory`
-(`lib/core/review/ask/memory-room.ts`), and at most two a minute,
-so a long line drains no faster than that minute-long average can
-show what the rounds before took. A Linux machine that keeps no
-such reading has room. A Mac reads the rule the machine queue reads
-there: it is short at the kernel's warning pressure, after a
-swap-out within the last minute, or with under 35% of its memory
-available. It waits for a reading a minute old, from the swap
-history every session shares, and starts at most one round every
-two minutes, since a round's reviewers show in its swap-outs only
-once they have loaded. One reading serves a session's rounds for
-ten seconds. Figures it can't read hold a round for at most 15
-minutes, after which it starts and says why. On 25 November a Mac
+soon as the machine has memory for it, and at most two a minute, so
+a long line drains no faster than a minute-long average can show
+what the rounds before took (`lib/core/review/ask/memory-room.ts`).
+On Linux that is while the kernel's memory `full avg60`, read from
+`/proc/pressure/memory`, is under 5, and `MemAvailable` is at least
+16 GB or a quarter of the machine's memory, whichever is less, so a
+small machine can still start one. A figure Linux doesn't keep holds
+nothing back. A Mac reads the rule the machine queue reads there: it
+is short at the kernel's warning pressure, after a swap-out within
+the last minute, or with under 35% of its memory available. It reads
+only `sysctl` and `vm_stat`, without blocking, and waits for a
+reading a minute old, from the swap history every session shares. It
+starts at most one round every two minutes, since a round's
+reviewers show in its swap-outs only once they have loaded. One
+reading, or one failure to read, serves a session's rounds for 20
+seconds. A short reading holds a round for as long as it lasts, as
+on Linux. A wait with no verdict, for figures it can't read or a
+baseline not yet a minute old, lasts at most 10 minutes a session,
+under the 15 the velocity cell allows. After that the round starts
+and says why. On 25 November a Mac
 swapped hard while rounds still started on it, and Joel's window
 froze.
 Rounds with the same first ask, as two sessions' rounds on one

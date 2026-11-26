@@ -179,7 +179,7 @@ export async function awaitRosterStart(
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
-	const room = roundRoom();
+	const room = roundRoom(process.platform);
 	const spacingMs = (await configuredSpacing()) ?? room.spacingMs;
 	const line = councilStartsPath();
 	const start = await awaitCouncilStart(
@@ -196,10 +196,22 @@ export async function awaitRosterStart(
 		},
 		signal,
 	);
-	const unread = room.startedUnread();
-	return unread === undefined
-		? start
-		: { ...start, waited: [start.waited, unread].filter(Boolean).join(" ") };
+	return withUnjudged(start, room.startedUnjudged());
+}
+
+/**
+ * The start's answer, saying too that the round started though its
+ * room couldn't be judged, when `unjudged` says it did.
+ */
+export function withUnjudged(
+	start: CouncilStart,
+	unjudged: string | undefined,
+): CouncilStart {
+	if (unjudged === undefined) return start;
+	return {
+		...start,
+		waited: [start.waited, unjudged].filter(Boolean).join(" "),
+	};
 }
 
 /**
@@ -208,17 +220,20 @@ export async function awaitRosterStart(
  * minute or more after the start, so two a minute would start a third
  * before the first showed.
  */
-const MAC_SPACING_MS = 2 * 60_000;
+export const MAC_SPACING_MS = 2 * 60_000;
 
 /**
- * The room a round reads on this machine: a Mac reads the queue's rule
- * for a Mac, since it keeps no pressure file, and Linux its pressure.
+ * The room a round reads on `platform`: a Mac reads the queue's rule
+ * for a Mac, since it keeps no pressure file, and spaces its starts
+ * {@link MAC_SPACING_MS} apart unless config says otherwise; Linux
+ * reads its pressure and available memory.
  */
-function roundRoom(): RoundRoom & { readonly spacingMs?: number } {
-	if (process.platform === "darwin") {
-		return { ...macRoundRoom(), spacingMs: MAC_SPACING_MS };
-	}
-	return { short: () => memoryShort(), startedUnread: () => undefined };
+export function roundRoom(
+	platform: NodeJS.Platform,
+	mac: () => RoundRoom = macRoundRoom,
+): RoundRoom & { readonly spacingMs?: number } {
+	if (platform === "darwin") return { ...mac(), spacingMs: MAC_SPACING_MS };
+	return { short: () => memoryShort(), startedUnjudged: () => undefined };
 }
 
 /**
