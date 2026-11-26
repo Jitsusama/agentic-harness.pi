@@ -229,6 +229,12 @@ type Report = (said: unknown) => void;
 export class LightFellBack extends Error {}
 
 /**
+ * That pi's session layer is not what the light open reads, so every
+ * later open is left to pi's own: said once, whatever pi's open says.
+ */
+export class LightOpensOff extends Error {}
+
+/**
  * A report that holds what it is told until `sayTo` names where it goes,
  * then says it there, as it says all it is told after. Made apart from
  * any open, so what kept-history keeps of it keeps no open's log alive.
@@ -274,7 +280,7 @@ export function openKept(
 	const unlike = (why: string): undefined => {
 		toldUnlike.add(pi);
 		report(
-			new LightFellBack(
+			new LightOpensOff(
 				`Light opens are off, so every log is read whole first: ${why}`,
 			),
 		);
@@ -314,16 +320,34 @@ export function openKept(
 			return manager;
 		};
 		const standing = standingOpen(open, home);
-		holdKeptHistory(standing.manager, said.report, log.whole);
+		// The hold's own failure, kept back while it holds: where pi's open
+		// is left to read the log, that failure is why, not what it says.
+		let unheld: Error | undefined;
+		let holding = true;
+		holdKeptHistory(
+			standing.manager,
+			(what) => {
+				if (holding && !unheld && what instanceof Error) unheld = what;
+				else said.report(what);
+			},
+			log.whole,
+		);
+		holding = false;
 		// A log with nothing read light is held as pi's own open holds it,
 		// so it stands whether or not the view could be taken.
 		if (leftOutOf(standing.manager) || log.lightened === 0) {
+			if (unheld) said.report(unheld);
 			said.sayTo(report);
 			return standing;
 		}
-		// Said whether its view held them or couldn't be taken, which the
-		// hold has said already.
-		said.report(new Error("pi would hold entries it read light"));
+		const why = unheld?.cause instanceof Error ? unheld.cause : unheld;
+		said.report(
+			why
+				? new Error(`its kept view couldn't be built: ${why.message}`, {
+						cause: why,
+					})
+				: new Error("pi would hold entries it read light"),
+		);
 	} catch (error) {
 		if (error instanceof NotLikePi) return unlike(error.message);
 		said.report(error);
@@ -349,7 +373,8 @@ function fellBack(file: string, what: unknown): unknown {
  * otherwise by `openWhole`, pi's own open. Why a light open fell back is
  * said only when pi's own open says nothing of its own, since a cause
  * both meet (a view that can't be built) is told best by the open that
- * stands; anything that isn't an error is always said.
+ * stands; anything else, the notice that light opens are off among it,
+ * is always said.
  */
 export function openHeld(
 	pi: LightPi,

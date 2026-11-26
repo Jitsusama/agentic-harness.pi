@@ -25,6 +25,7 @@ import {
 } from "../../../host/engine/kept-history.ts";
 import {
 	LightFellBack,
+	LightOpensOff,
 	type LightPi,
 	openHeld,
 	openKept,
@@ -470,9 +471,14 @@ describe("pi's own open stands", () => {
 		expect(fallsBack(file)).toBe(true);
 	});
 
-	it("for a pi that doesn't say its log version", () => {
+	it("for a pi that doesn't say its log version, saying light opens are off", () => {
 		const pi = { SessionManager, version: undefined };
-		expect(fallsBack(compactedLog(), pi)).toBe(true);
+		const said: unknown[] = [];
+		expect(openKept(pi, compactedLog(), (what) => said.push(what))).toBe(
+			undefined,
+		);
+		expect(said).toEqual([expect.any(LightOpensOff)]);
+		expect(String(said[0])).toContain("log version");
 	});
 
 	it("for a log whose last line is unfinished, which pi ends itself", () => {
@@ -485,6 +491,21 @@ describe("pi's own open stands", () => {
 		const file = join(dir, "not-a-log.jsonl");
 		writeFileSync(file, '{"type":"message","id":"x"}\n');
 		expect(fallsBack(file)).toBe(true);
+	});
+
+	it("for a file whose first line isn't a session's, though it names the version", () => {
+		const file = join(dir, "not-a-log.jsonl");
+		const line = { type: "message", id: "x", version: CURRENT_SESSION_VERSION };
+		writeFileSync(file, `${JSON.stringify(line)}\n`);
+		expect(readLight(file)).toBeUndefined();
+	});
+
+	it("for a session header with no id", () => {
+		const file = compactedLog();
+		const [header = "", ...rest] = readFileSync(file, "utf8").split("\n");
+		const { id: _, ...unnamed } = JSON.parse(header);
+		writeFileSync(file, [JSON.stringify(unnamed), ...rest].join("\n"));
+		expect(readLight(file)).toBeUndefined();
 	});
 
 	it("for a pi whose session manager no longer takes entries as this expects", () => {
@@ -563,6 +584,56 @@ describe("a light open that falls back", () => {
 		expect(why).toEqual(new Error("pi would hold entries it read light"));
 	});
 
+	it("says once that the kept view couldn't be built, when pi's own open says nothing", () => {
+		const said: unknown[] = [];
+		const file = compactedLog();
+		// Once pi has built its manager, a blank line after the header moves
+		// every line the light read placed, which pi's own open skips.
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const moves = function (...args: unknown[]) {
+			const made: unknown = Reflect.construct(SessionManager, args);
+			const [header, ...rest] = readFileSync(file, "utf8").split("\n");
+			writeFileSync(file, [header, "", ...rest].join("\n"));
+			return made;
+		};
+		const pi = { SessionManager: moves, version: CURRENT_SESSION_VERSION };
+		openHeld(pi, file, (what) => said.push(what), whole([]));
+		expect(said).toEqual([expect.any(LightFellBack)]);
+		const why = said[0] instanceof Error ? said[0].cause : undefined;
+		expect(String(why)).toContain("its kept view couldn't be built");
+		expect(String(why)).toContain("changed as it opened");
+	});
+
+	it("says why its view couldn't be taken where the log stands as pi's own open holds it", () => {
+		const sessions = SessionManager.create(dir, dir);
+		toolTurn(sessions, "only");
+		const file = sessions.getSessionFile() ?? "";
+		// biome-ignore lint/complexity/useArrowFunction: the open constructs it, which an arrow refuses.
+		const unbranched = function (...args: unknown[]) {
+			const made: unknown = Reflect.construct(SessionManager, args);
+			if (isRecord(made))
+				made.getBranch = () => {
+					throw new Error("no branch");
+				};
+			return made;
+		};
+		const pi = { SessionManager: unbranched, version: CURRENT_SESSION_VERSION };
+		const said: unknown[] = [];
+		expect(openKept(pi, file, (what) => said.push(what))).toBeDefined();
+		expect(said).toHaveLength(1);
+		expect(said[0]).not.toBeInstanceOf(LightFellBack);
+		expect(String(said[0])).toContain("no branch");
+	});
+
+	it("says light opens are off even when pi's own open says something", () => {
+		const said: unknown[] = [];
+		class Other {}
+		const pi = { SessionManager: Other, version: CURRENT_SESSION_VERSION };
+		const failed = new Error("the view failed");
+		openHeld(pi, compactedLog(), (what) => said.push(what), whole([failed]));
+		expect(said).toEqual([expect.any(LightOpensOff), failed]);
+	});
+
 	it("leaves pi's own open to say it when it says something", () => {
 		const said: unknown[] = [];
 		const failed = new Error("the view failed");
@@ -582,7 +653,7 @@ describe("a light open that falls back", () => {
 		const file = compactedLog();
 		openKept(pi, file, (what) => said.push(what));
 		openKept(pi, file, (what) => said.push(what));
-		expect(said).toEqual([expect.any(LightFellBack)]);
+		expect(said).toEqual([expect.any(LightOpensOff)]);
 		expect(String(said[0])).toContain("Light opens are off");
 		expect(built).toBe(1);
 	});
