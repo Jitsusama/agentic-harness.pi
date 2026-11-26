@@ -539,11 +539,17 @@ export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
  * so the agent reads why `gcloud compute ssh` fails on `~/.ssh` beside
  * gcloud's own complaint, rather than taking the fence for one that never
  * made them. gsutil, bq and gcloud's other commands never write there, so
- * they aren't told.
+ * they aren't told. `unmade` says why, or nothing where they were made;
+ * `asked` is the command as the agent asked it, read for gcloud's ssh,
+ * since `text` may already carry other notes that name gcloud.
  */
-export function withGcloudSshNote(command: string, made: boolean): string {
-	if (made || !runsGcloudSsh(command)) return command;
-	return `printf 'pi: %s\\n' ${quoted(GCLOUD_SSH_UNMADE)} >&2\n${command}`;
+export function withGcloudSshNote(
+	text: string,
+	unmade: string | undefined,
+	asked: string = text,
+): string {
+	if (unmade === undefined || !runsGcloudSsh(asked)) return text;
+	return `printf 'pi: %s\\n' ${quoted(gcloudSshUnmade(unmade))} >&2\n${text}`;
 }
 
 /** Whether a command names gcloud and its ssh or scp, which write `~/.ssh`. */
@@ -554,9 +560,10 @@ function runsGcloudSsh(command: string): boolean {
 	);
 }
 
-/** What the note says when gcloud's ssh copies couldn't be made. */
-export const GCLOUD_SSH_UNMADE =
-	"gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts), so gcloud compute ssh fails on the read-only ~/.ssh here. The copies are made only where XDG_RUNTIME_DIR and each pi-fence folder under it are this account's own and private (mode 700); fix those, or run it from an unfenced session";
+/** What the note says when gcloud's ssh copies couldn't be made, for `why`. */
+export function gcloudSshUnmade(why: string): string {
+	return `gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts): ${why}. So gcloud compute ssh fails on the read-only ~/.ssh here; mend that, or run it from an unfenced session`;
+}
 
 /**
  * `command`, preceded by a note on stderr saying why gcloud has no token
@@ -843,12 +850,16 @@ export function wrapFor(
 			// private keys, so the session has copies (fence-gcloud-ssh.ts).
 			// Every caller wraps afresh for each command, so this brings them
 			// up to date just before the one command it wraps.
+			let gcloudUnmade: string | undefined;
 			const gcloudSsh = served
 				? undefined
 				: fenceGcloudSsh(
 						place.env.XDG_RUNTIME_DIR,
 						home,
 						sessionFolderName(place.env),
+						(why) => {
+							gcloudUnmade = why;
+						},
 					);
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
@@ -951,7 +962,8 @@ export function wrapFor(
 					fencedCommand(
 						withGcloudSshNote(
 							withCloudNote(withSecretNote(command), grant),
-							served || gcloudSsh !== undefined,
+							gcloudUnmade,
+							command,
 						),
 						cloud,
 					),

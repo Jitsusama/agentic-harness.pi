@@ -155,23 +155,43 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 	// gcloud's private key is bound over by a stand-in on purpose
 	// (fence-gcloud-ssh.ts), so inside it must read as that and nothing else,
 	// or not at all. Only its digest comes out, so a fence that let the real
-	// key through still never brings the key itself into pi. The probe says
-	// `unread` itself where the key can't be read, read as the files above
-	// are, so a run that fails (a refused wrap, a timeout, a missing
-	// sha256sum) proves nothing and fails the check.
+	// key through still never brings the key itself into pi. A run that
+	// fails (a refused wrap, a timeout, a missing tool) proves nothing and
+	// fails the check, saying it couldn't probe rather than that it read.
 	const gcloudKey = join(home, ".ssh", GCLOUD_KEY);
 	const checked = existsSync(gcloudKey) ? 1 : 0;
+	let unprobed: string | undefined;
 	if (checked) {
 		const ran = await fenced(
-			`if head -c1 '${gcloudKey}' > /dev/null 2>&1 && test -s '${gcloudKey}'; then sha256sum < '${gcloudKey}'; else echo unread; fi`,
+			gcloudKeyProbe(gcloudKey),
 			context.scratch,
 			context.session,
 		);
-		if (!readsAsStandIn(ran)) read.push(gcloudKey);
+		if (ran.code !== 0) {
+			unprobed = `couldn't probe ${gcloudKey} inside (exit ${ran.code ?? "stopped"}): ${tailOf(ran)}`;
+		} else if (!readsAsStandIn(ran)) read.push(gcloudKey);
 	}
-	return read.length === 0
+	const said = [
+		...(read.length > 0 ? [`readable inside: ${read.join(", ")}`] : []),
+		...(unprobed ? [unprobed] : []),
+	];
+	return said.length === 0
 		? passed(`${paths.length + checked} hidden files, none readable inside`)
-		: failed(`readable inside: ${read.join(", ")}`);
+		: failed(said.join("; "));
+}
+
+/**
+ * The shell that says, inside the fence, what gcloud's key at `path`
+ * reads as: `unread` where it can't be read, read as the other hidden
+ * files are, or else its digest. It exits 127 where `head` or
+ * `sha256sum` is missing, since a missing `head` would otherwise read
+ * as `unread`.
+ */
+export function gcloudKeyProbe(path: string): string {
+	return [
+		"command -v head sha256sum > /dev/null || exit 127",
+		`if head -c1 '${path}' > /dev/null 2>&1 && test -s '${path}'; then sha256sum < '${path}'; else echo unread; fi`,
+	].join("\n");
 }
 
 /**

@@ -4,8 +4,12 @@
  * passed.
  */
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KEY_STAND_IN } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 import {
 	type Check,
@@ -21,7 +25,10 @@ import {
 	summary,
 	type Verdict,
 } from "../../../../lib/internal/fence/fence-preflight.ts";
-import { readsAsStandIn } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
+import {
+	gcloudKeyProbe,
+	readsAsStandIn,
+} from "../../../../lib/internal/fence/fence-preflight-checks.ts";
 
 const CONTEXT: PreflightContext = {
 	session: "s",
@@ -129,5 +136,60 @@ describe("whether gcloud's key read inside as the stand-in", () => {
 		["a refused wrap", { code: 126, out: "" }, false],
 	])("takes %s as %s", (_, ran, standsIn) => {
 		expect(readsAsStandIn(ran)).toBe(standsIn);
+	});
+});
+
+describe("the probe of gcloud's key, run as the fence runs it", () => {
+	// bash by its own path, so a PATH without the probe's tools still finds it.
+	const BASH = spawnSync("bash", ["-c", 'printf %s "$BASH"'], {
+		encoding: "utf8",
+	}).stdout;
+	let folder = "";
+
+	beforeEach(() => {
+		folder = mkdtempSync(join(tmpdir(), "gcloud-probe-"));
+	});
+
+	afterEach(() => {
+		rmSync(folder, { recursive: true, force: true });
+	});
+
+	/** The probe's run over a key saying `text`, or none where it's undefined. */
+	function probed(
+		text: string | undefined,
+		path = process.env.PATH ?? "",
+	): { code: number | null; out: string } {
+		const key = join(folder, "google_compute_engine");
+		if (text !== undefined) writeFileSync(key, text);
+		// stdin from /dev/null: on a socket, as node gives it, bash takes
+		// itself for a remote shell and reads the system's bashrc, which
+		// sets PATH afresh.
+		const ran = spawnSync(BASH, ["-c", gcloudKeyProbe(key)], {
+			encoding: "utf8",
+			env: { PATH: path },
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return { code: ran.status, out: ran.stdout };
+	}
+
+	it("reads the stand-in as the stand-in", () => {
+		expect(readsAsStandIn(probed(KEY_STAND_IN))).toBe(true);
+	});
+
+	it("reads the person's real key as no stand-in", () => {
+		expect(
+			readsAsStandIn(probed("-----BEGIN OPENSSH PRIVATE KEY-----\n")),
+		).toBe(false);
+	});
+
+	it("reads an emptied or missing key as unread", () => {
+		expect(probed("").out.trim(), "emptied").toBe("unread");
+		expect(readsAsStandIn(probed(undefined)), "missing").toBe(true);
+	});
+
+	it("fails, rather than saying unread, where its tools are missing", () => {
+		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", folder);
+		expect(ran.code).toBe(127);
+		expect(readsAsStandIn(ran)).toBe(false);
 	});
 });

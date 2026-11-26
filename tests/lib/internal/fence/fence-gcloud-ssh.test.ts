@@ -9,8 +9,10 @@ import {
 	chmodSync,
 	existsSync,
 	lstatSync,
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	statSync,
@@ -154,6 +156,18 @@ describe("the session's copies for gcloud's ssh", () => {
 		writeFileSync(join(elsewhere, "kept"), "kept\n");
 		symlinkSync(elsewhere, join(sessions, "linked"));
 		utimesSync(elsewhere, daysOn(-2), daysOn(-2));
+		// The link itself day-old too, so only its being a link keeps it.
+		lutimesSync(join(sessions, "linked"), daysOn(-2), daysOn(-2));
+		// A day-old folder others can reach, and one no session's name
+		// takes, are no session's copies.
+		for (const [name, mode] of [
+			["reachable", 0o755],
+			["not.a.session", 0o700],
+		] as const) {
+			mkdirSync(join(sessions, name), { mode });
+			chmodSync(join(sessions, name), mode);
+			utimesSync(join(sessions, name), daysOn(-2), daysOn(-2));
+		}
 		// A new pi sweeps once, at its first ask.
 		vi.resetModules();
 		const fresh = await import(
@@ -164,6 +178,58 @@ describe("the session's copies for gcloud's ssh", () => {
 		expect(existsSync(join(sessions, "recent")), "recent").toBe(true);
 		expect(existsSync(join(sessions, "one")), "its own").toBe(true);
 		expect(readFileSync(join(elsewhere, "kept"), "utf8")).toBe("kept\n");
+		expect(lstatSync(join(sessions, "linked")).isSymbolicLink(), "linked").toBe(
+			true,
+		);
+		expect(existsSync(join(sessions, "reachable")), "reachable").toBe(true);
+		expect(existsSync(join(sessions, "not.a.session")), "not a session").toBe(
+			true,
+		);
+		expect(
+			readdirSync(sessions).filter((name) => name.startsWith(".ended-")),
+			"a folder left aside",
+		).toEqual([]);
+	});
+
+	it("sweeps again an hour on, not at every ask, in a pi that lives for days", async () => {
+		personHosts("compute.1 ssh-ed25519 AAAA\n");
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		vi.resetModules();
+		const fresh = await import(
+			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
+		);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			fresh.fenceGcloudSsh(runtime, home, "one");
+			fresh.fenceGcloudSsh(runtime, home, "ended");
+			utimesSync(join(sessions, "ended"), daysOn(-2), daysOn(-2));
+			fresh.fenceGcloudSsh(runtime, home, "one");
+			expect(existsSync(join(sessions, "ended")), "swept at every ask").toBe(
+				true,
+			);
+			vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+			fresh.fenceGcloudSsh(runtime, home, "one");
+			expect(existsSync(join(sessions, "ended")), "never swept again").toBe(
+				false,
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("says why it made no copies", () => {
+		const told: string[] = [];
+		const tell = (why: string) => told.push(why);
+		expect(fenceGcloudSsh(undefined, home, "one", tell)).toBeUndefined();
+		expect(fenceGcloudSsh(runtime, home, "a/b", tell)).toBeUndefined();
+		chmodSync(runtime, 0o755);
+		expect(fenceGcloudSsh(runtime, home, "one", tell)).toBeUndefined();
+		chmodSync(runtime, 0o700);
+		expect(told).toEqual([
+			"no XDG_RUNTIME_DIR is set",
+			`the session's name "a/b" can't name a folder`,
+			`${runtime} isn't this account's own private folder (mode 700)`,
+		]);
 	});
 
 	it("dates a session's folder afresh at each ask, so a long-lived session's copies outlast a day", () => {

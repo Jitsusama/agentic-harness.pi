@@ -43,6 +43,14 @@
  * never reached is refused until gcloud outside learns its host key, and
  * the proxy's journal says so ("a session with a host it isn't told
  * of"), where the fenced ssh says only that its key was denied.
+ *
+ * That holds while the fence has no cloud token (`NO_CLOUD_IN_THE_FENCE`).
+ * A fenced command holding one could have gcloud make a key of its own
+ * in a writable folder, add it to the instance or OS Login, and log in
+ * with it directly, past the proxy; a writable known-hosts copy takes
+ * away the last snag on that path. So the gate for a fenced token is its
+ * IAM role, which must not set metadata or import OS Login keys, not the
+ * proxy.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -64,7 +72,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { makeFolder } from "./fence-dev.ts";
+import { isPrivateFolder, makeFolder } from "./fence-dev.ts";
 
 /** gcloud's known-hosts file, in `~/.ssh`. */
 export const GCLOUD_KNOWN_HOSTS = "google_compute_known_hosts";
@@ -121,8 +129,14 @@ const copiedFrom = new Map<string, string>();
  */
 const UNUSED_FOR_MS = 24 * 60 * 60 * 1000;
 
-/** Whether this process has swept ended sessions' copies yet. */
-let swept = false;
+/**
+ * How often a pi sweeps ended sessions' copies, at an ask: a host that
+ * lives for days sweeps as it goes, not only at its first command.
+ */
+const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+/** When this process last swept ended sessions' copies, never at first. */
+let sweptAt = Number.NEGATIVE_INFINITY;
 
 /**
  * The person's known-hosts file, read as a plain file, with a digest of
@@ -202,39 +216,22 @@ function writeOver(path: string, text: Buffer | string): void {
 	}
 }
 
-/** Whether `path` is a folder of this process's account alone, not a link to one. */
-function isPrivateFolder(path: string): boolean {
-	try {
-		const stat = lstatSync(path);
-		const uid = process.getuid?.();
-		return (
-			stat.isDirectory() &&
-			(uid === undefined || stat.uid === uid) &&
-			(stat.mode & 0o077) === 0
-		);
-	} catch {
-		// Not there.
-		return false;
-	}
-}
-
 /**
  * Makes each folder from pi's own down, one at a time, never the runtime
  * folder itself: node's recursive mkdir spins for good where a parent
  * exists but refuses a child with ENOENT (`fence-copy.ts`). Each must be
  * the account's own private folder, not a link another left; the deepest
- * is answered, or nothing where one isn't.
+ * is answered, and where one isn't, what it is is thrown.
  */
-function privateFolders(
-	runtimeDir: string,
-	names: readonly string[],
-): string | undefined {
-	if (!isPrivateFolder(runtimeDir)) return undefined;
+function privateFolders(runtimeDir: string, names: readonly string[]): string {
+	const refused = (folder: string): Error =>
+		new Error(`${folder} isn't this account's own private folder (mode 700)`);
+	if (!isPrivateFolder(runtimeDir)) throw refused(runtimeDir);
 	let folder = runtimeDir;
 	for (const name of names) {
 		folder = join(folder, name);
 		if (!existsSync(folder)) makeFolder(folder);
-		if (!isPrivateFolder(folder)) return undefined;
+		if (!isPrivateFolder(folder)) throw refused(folder);
 	}
 	return folder;
 }
@@ -245,9 +242,12 @@ function privateFolders(
  * last use, half-written copies a killed pi left among them; never `session`'s
  * own folder, nor anything but this account's own plain files and the
  * folders holding them. Nothing is followed: each name is unlinked, never
- * walked. A session idle that long whose command starts in the instant
- * another pi sweeps can fail that one command's bind; its next makes the
- * copies anew.
+ * walked. Each is first renamed aside, under a name no session takes, and
+ * its date read again there: one its session dated afresh after it was
+ * judged is put back, and once aside its session makes a fresh folder
+ * rather than writing into the one being emptied. A session idle a day
+ * whose command is wrapped in the instant between the two renames can
+ * still fail that one command's bind; its next makes the copies anew.
  */
 function sweepEnded(sessions: string, session: string, now: number): void {
 	let names: string[];
@@ -265,12 +265,19 @@ function sweepEnded(sessions: string, session: string, now: number): void {
 			if (!isPrivateFolder(folder) || now - stat.mtimeMs < UNUSED_FOR_MS) {
 				continue;
 			}
-			for (const file of readdirSync(folder)) {
-				if (lstatSync(join(folder, file)).isFile()) {
-					unlinkSync(join(folder, file));
+			const aside = join(sessions, `.ended-${randomUUID()}`);
+			renameSync(folder, aside);
+			if (lstatSync(aside).mtimeMs !== stat.mtimeMs) {
+				// Its session dated it as it was judged: back where it was.
+				renameSync(aside, folder);
+				continue;
+			}
+			for (const file of readdirSync(aside)) {
+				if (lstatSync(join(aside, file)).isFile()) {
+					unlinkSync(join(aside, file));
 				}
 			}
-			rmdirSync(folder);
+			rmdirSync(aside);
 		} catch {
 			// In use again, or not this account's to remove: left as it is.
 		}
@@ -286,22 +293,29 @@ function sweepEnded(sessions: string, session: string, now: number): void {
  * before each command, so each finds the person's latest hosts. Nothing
  * where there is no runtime folder, where a folder on the way isn't the
  * account's own and private, or where a copy can't be written; the fence
- * then binds neither.
+ * then binds neither, and `unmade` is told why.
  */
 export function fenceGcloudSsh(
 	runtimeDir: string | undefined,
 	home: string,
 	session: string,
+	unmade: (why: string) => void = () => {},
 ): GcloudSsh | undefined {
-	if (!runtimeDir || !SESSION_NAME.test(session)) return undefined;
+	if (!runtimeDir) {
+		unmade("no XDG_RUNTIME_DIR is set");
+		return undefined;
+	}
+	if (!SESSION_NAME.test(session)) {
+		unmade(`the session's name ${JSON.stringify(session)} can't name a folder`);
+		return undefined;
+	}
 	try {
 		const folder = privateFolders(runtimeDir, [FOLDER, SESSIONS, session]);
-		if (folder === undefined) return undefined;
 		// Dated as used now, so no other pi sweeps it as an ended session's.
 		const now = new Date();
 		lutimesSync(folder, now, now);
-		if (!swept) {
-			swept = true;
+		if (now.getTime() - sweptAt >= SWEEP_EVERY_MS) {
+			sweptAt = now.getTime();
 			sweepEnded(join(runtimeDir, FOLDER, SESSIONS), session, now.getTime());
 		}
 		const knownHosts = join(folder, GCLOUD_KNOWN_HOSTS);
@@ -315,9 +329,11 @@ export function fenceGcloudSsh(
 		}
 		if (!holdsStandIn(key)) writeOver(key, KEY_STAND_IN);
 		return { knownHosts, key };
-	} catch {
+	} catch (error) {
 		// No copies, so the fence binds none, and gcloud's ssh fails inside
-		// as it did before they existed.
+		// as it did before they existed, with why told: a full runtime
+		// folder reads as one, not as a folder's mode.
+		unmade(error instanceof Error ? error.message : String(error));
 		return undefined;
 	}
 }

@@ -127,6 +127,18 @@ describe("what the fence binds for gcloud's ssh", () => {
 				wrapped(fence, "gcloud compute scp a one:b"),
 				"gcloud's scp wasn't told",
 			).toContain(UNMADE);
+			expect(after, "the note didn't say why").toContain(
+				"private folder (mode 700)",
+			);
+			// Each half alone runs no gcloud ssh, and the cloud's own note,
+			// which names gcloud, doesn't make a bq and an ssh one.
+			for (const command of [
+				"ssh box",
+				"gcloud compute instances list",
+				"bq ls && ssh box",
+			]) {
+				expect(wrapped(fence, command), command).not.toContain(UNMADE);
+			}
 			chmodSync(copies, 0o700);
 			expect(
 				argsReadIn(wrapped(fence, "true")),

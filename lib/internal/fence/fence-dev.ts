@@ -650,8 +650,8 @@ function isOwnFolder(path: string): boolean {
 	}
 }
 
-/** Whether `path` is this account's own folder, which no other may reach. */
-function isPrivateFolder(path: string): boolean {
+/** Whether `path` is this account's own folder, which no other may reach, not a link to one. */
+export function isPrivateFolder(path: string): boolean {
 	try {
 		return isOwnFolder(path) && (lstatSync(path).mode & 0o077) === 0;
 	} catch {
