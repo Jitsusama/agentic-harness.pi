@@ -104,7 +104,7 @@ it("asks an older pi's servers nothing for a fenced session, saying why", async 
 	const result = await call(lspTool().tool);
 
 	expect(diagnostics).not.toHaveBeenCalled();
-	expect(result.details.ok, "the older pool is not asked").toBe(false);
+	expect(result.details.ok, "the tool answers with a refusal").toBe(false);
 	expect(result.content[0]?.text).toContain("started by an older pi");
 });
 

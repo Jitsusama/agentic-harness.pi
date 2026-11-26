@@ -63,7 +63,10 @@ describe("a closed viewer's mark", () => {
 			viewerWasClosed("../escape"),
 			"an id with a path is never kept",
 		).toBe(false);
-		expect(viewerWasClosed("escape"), "a bare word is never kept").toBe(false);
+		expect(
+			viewerWasClosed("escape"),
+			"a refused path leaves no mark under its last part",
+		).toBe(false);
 		for (const folder of [".", ".."]) {
 			await keepViewerClosed(folder, true);
 			expect(viewerWasClosed(folder), `${folder} names a folder`).toBe(false);

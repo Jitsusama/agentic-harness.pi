@@ -729,7 +729,7 @@ describe("a held conversation and its whole log", () => {
 		]);
 		expect(texts(held.getEntries())).toContain("early one");
 		expect(held.getLeafId()).toBe(leaf);
-		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
 			false,
 		);
 	});
@@ -862,7 +862,7 @@ describe("a conversation the view leaves whole", () => {
 		sessions.appendCompaction("what happened early", kept.id, 1000);
 		const held = holdKeptHistory(sessions);
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
 			false,
 		);
 	});
@@ -882,7 +882,7 @@ describe("a conversation the view leaves whole", () => {
 		exchange(sessions, "after");
 		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
 			false,
 		);
 	});
@@ -902,7 +902,7 @@ describe("a conversation the view leaves whole", () => {
 		exchange(sessions, "after");
 		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
 		expect(texts(held.getEntries())).toContain("early one");
-		expect(Object.hasOwn(held, "getTree"), "the view's getTree is let go").toBe(
+		expect(Object.hasOwn(held, "getTree"), "no view is laid over the log").toBe(
 			false,
 		);
 	});

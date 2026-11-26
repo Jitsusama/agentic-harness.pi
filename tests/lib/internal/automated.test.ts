@@ -156,7 +156,7 @@ describe("the turns the harness starts itself", () => {
 		);
 		expect(
 			isSpawnedText(`${opening}.] Carry on.`),
-			"a header that never closes is no spawn",
+			"a header that names no quest is no spawn",
 		).toBe(false);
 	});
 

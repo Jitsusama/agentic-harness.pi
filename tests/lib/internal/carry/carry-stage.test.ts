@@ -585,7 +585,7 @@ describe("a carry staged before the handover", () => {
 			failing.clear();
 			expect(
 				existsSync(join(into, "s-k.done.json")),
-				"no done file is written for the earlier carry",
+				"the earlier carry's done file, which couldn't be put back, is not in the handover",
 			).toBe(false);
 			const [kept] = staging(into);
 			expect(kept, "its staging folder waits").toMatch(/^carrying-/);

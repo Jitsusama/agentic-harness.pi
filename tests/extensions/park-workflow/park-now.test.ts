@@ -267,7 +267,10 @@ describe("parking now, as the person asked", () => {
 		// This fake keeps each code it was told; pi's own exitWith is taken
 		// back as the park is (undo.test.ts).
 		expect(exits).toEqual([PARKED_EXIT, PARKED_EXIT]);
-		expect(existsSync(parked), `the park marker is kept: ${parked}`).toBe(true);
+		expect(
+			existsSync(parked),
+			`its holder is told by the retry: ${parked}`,
+		).toBe(true);
 	});
 
 	// A host parks the conversation alone, after its marker and its word
@@ -307,9 +310,10 @@ describe("parking now, as the person asked", () => {
 			expect(exits, "its process was never to exit").toEqual([]);
 
 			refuses = false;
-			expect(ask().parked, "the session stays parked in the asker's eyes").toBe(
-				true,
-			);
+			expect(
+				ask().parked,
+				"once its host takes parks, the next ask parks it",
+			).toBe(true);
 			expect(parks).toEqual([SESSION]);
 		} finally {
 			uninstall();

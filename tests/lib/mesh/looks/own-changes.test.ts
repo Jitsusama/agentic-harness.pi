@@ -63,8 +63,10 @@ describe("a session's own changes", () => {
 		expect(opensOneOf(`${PR}3`, [PR]), "a longer number doesn't open it").toBe(
 			false,
 		);
-		expect(opensOneOf(PR, []), "nothing opens nothing").toBe(false);
-		expect(opensOneOf(PR, [""]), "an empty target opens nothing").toBe(false);
+		expect(opensOneOf(PR, []), "no proposals, nothing it opens").toBe(false);
+		expect(opensOneOf(PR, [""]), "an empty proposal is opened by nothing").toBe(
+			false,
+		);
 	});
 
 	it("finds a change however its URL is spelled", () => {
@@ -82,7 +84,10 @@ describe("a session's own changes", () => {
 			opensOneOf(`${PR}3.diff`, [PR]),
 			"a longer number's diff doesn't open it",
 		).toBe(false);
-		expect(opensOneOf(PR, [`${PR}.diff`]), "its diff opens it").toBe(true);
+		expect(
+			opensOneOf(PR, [`${PR}.diff`]),
+			"its diff, proposed, is opened by it",
+		).toBe(true);
 	});
 
 	it("reads Graphite's view and GitHub's issue path of a pull request as the pull request", () => {

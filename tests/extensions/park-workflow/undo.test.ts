@@ -106,7 +106,7 @@ describe("taking back a half-done park", () => {
 		).toBe(false);
 		expect(
 			existsSync(join(folder, "held.parked")),
-			"the parked marker is taken back",
+			"its holder's word is taken back",
 		).toBe(false);
 		expect(said).toEqual([[PARK_UNDONE, { session: SESSION }]]);
 	});

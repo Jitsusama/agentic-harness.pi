@@ -59,7 +59,7 @@ describe("copyThroughHeldTerminal", () => {
 		async () => {
 			expect(
 				await copiedAsOsc52(undefined),
-				"nothing is copied without a value",
+				"an unheld pi copies locally, not through the terminal",
 			).toBe(false);
 		},
 	);
