@@ -17,9 +17,10 @@ import {
 	questSharesRoot,
 	questWorkspacesRoot,
 } from "../../../../lib/internal/quest/workspace/workspace-root.ts";
+import { questAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { repositoryName } from "../../../../lib/mesh/scope.ts";
-import { session, surroundingsAt } from "./support/presences.ts";
+import { presence, session, surroundingsAt } from "./support/presences.ts";
 
 let root: string;
 
@@ -453,6 +454,40 @@ describe("this session's peer", () => {
 			"#repo/agentic-harness-pi",
 		]);
 		expect(peer.joined).toEqual([]);
+	});
+
+	// A start that answered before needn't wait on every README: on 26
+	// November reading them on the thread held one start for 12.7 s.
+	it("answers at once to what it answered before, and to an old quest's address once read", async () => {
+		const before = questAddress("QEST-20261101-BEFORE");
+		const listing = "QEST-20261102-LISTED";
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", `${session}.json`),
+			JSON.stringify(
+				presence({
+					session,
+					addresses: [before],
+					at: new Date().toISOString(),
+				}),
+			),
+		);
+		mkdirSync(join(root, "quests", listing), { recursive: true });
+		writeFileSync(
+			join(root, "quests", listing, "README.md"),
+			`---\nid: ${listing}\n---\n# Listed\n\n## 🎭 Cast\n\n- session ${session}\n`,
+		);
+
+		const peer = localPeer(surroundings());
+
+		expect(peer.addresses, "its earlier address at once").toContain(before);
+		expect(peer.addresses, "no README read on the thread").not.toContain(
+			questAddress(listing),
+		);
+		await vi.waitFor(() =>
+			expect(peer.addresses).toContain(questAddress(listing)),
+		);
+		peer.dispose();
 	});
 
 	it("is in the repository it runs in, with no quest", () => {

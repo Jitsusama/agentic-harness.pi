@@ -52,6 +52,7 @@
  */
 
 import { readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Owner, sameProcess } from "../core/process/process.ts";
 import { isParked } from "../internal/session/park.ts";
@@ -414,6 +415,42 @@ export function loadedQuest(
 	} catch {
 		return undefined;
 	}
+}
+
+/** How many READMEs the reading off the thread holds open at once. */
+const READMES_AT_ONCE = 32;
+
+/**
+ * `olderAddresses`, read off the thread: the READMEs are read by
+ * libuv's pool, a few at a time, so a start that already knows what it
+ * answered to before needn't wait on hundreds of reads. One unreadable
+ * README, or no quest store, names nothing, as on the thread.
+ */
+export async function olderAddressesOff(
+	sessionId: string,
+	records: QuestRecords,
+): Promise<string[]> {
+	let ids: string[] = [];
+	try {
+		ids = await readdir(records.quests);
+	} catch {
+		// No quest store: the session id alone addresses the peer.
+	}
+	const listing: string[] = [];
+	for (let at = 0; at < ids.length; at += READMES_AT_ONCE) {
+		const batch = ids.slice(at, at + READMES_AT_ONCE);
+		const lists = await Promise.all(
+			batch.map((id) =>
+				readFile(join(records.quests, id, "README.md"), "utf8").then(
+					(text) => text.includes(sessionId),
+					// No README there, or none readable: that quest names nobody.
+					() => false,
+				),
+			),
+		);
+		listing.push(...batch.filter((_, index) => lists[index]));
+	}
+	return listing.map(questAddress);
 }
 
 /** Every quest whose README lists this session. */
