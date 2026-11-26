@@ -667,6 +667,9 @@ function guard(
 	const retake = (): void => {
 		const entries = manager.fileEntries;
 		const leaf = manager.leafId;
+		// pi indexes what it appends without taking its id, so what was
+		// appended since the open stays taken once the view leaves it out.
+		for (const id of manager.byId.keys()) taken.add(id);
 		try {
 			const next = heldEntries(
 				manager,

@@ -544,6 +544,35 @@ describe("a held conversation that compacts again", () => {
 		);
 	});
 
+	it("reads back what it appended since it opened and its new compaction left out", () => {
+		const file = compactedLog();
+		const report = vi.fn();
+		const held = hold(file, report);
+		compactsAgain(held);
+		const later = entryReading(SessionManager.open(file), "later one");
+		expect(held.getEntry(later.id)).toEqual(later);
+		expect(report).toHaveBeenCalledWith(
+			expect.stringContaining("whole log back into memory"),
+		);
+	});
+
+	it("gives what it holds in their place no id it appended since it opened", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		exchange(held, "later one", 0.75);
+		const later = entryReading(held, "later one");
+		drawn.push(later.id, later.id);
+		exchange(held, "later two", 0.25);
+		const kept = entryReading(held, "later two").id;
+		held.appendCompaction("what happened since", kept, 2000);
+		expect(drawn, "the view drew ids for what it holds").not.toHaveLength(2);
+		const ids = held.getEntries().map((entry) => entry.id);
+		expect(ids, "a stand-in took the id of an entry left out").not.toContain(
+			later.id,
+		);
+		expect(held.getEntry(later.id)).toEqual(later);
+	});
+
 	it("lets session_recall read what each compaction left on disk", () => {
 		const file = compactedLog();
 		const held = hold(file);
