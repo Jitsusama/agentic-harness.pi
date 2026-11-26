@@ -392,13 +392,22 @@ function subjectParts(subject: string): string[] {
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
  * `asks`, and `unstamped:agents.service` gives `agents`, since a
  * service unit's type is left out. A narrowest part with no word long
- * enough gives none, rather than a broader part's, and none past
- * `LONGEST_WORD`, which no need is routed by.
+ * enough gives none, rather than a broader part's. A word past
+ * `LONGEST_WORD` is kept, since a hub is matched by every word of its
+ * subject, and no need says that one: left out, the hub would take a
+ * need saying only the subject's shorter words.
  */
 export function subjectWords(subject: string): string[] {
-	return wordsOf(subjectParts(subject).at(-1) ?? "").filter(
-		(word) => word.length <= LONGEST_WORD,
-	);
+	return wordsOf(subjectParts(subject).at(-1) ?? "");
+}
+
+/**
+ * The words of a subject (`subjectWords`) a need can be routed by:
+ * none past `LONGEST_WORD`, which no need keeps. A subject giving none
+ * routes no need, and a word past the cap takes no cell's word slot.
+ */
+export function routingWords(subject: string): string[] {
+	return subjectWords(subject).filter((word) => word.length <= LONGEST_WORD);
 }
 
 /**
@@ -454,7 +463,7 @@ function wordsBeyond(
 	const beyond: string[] = [];
 	const taken = { words: 0, ids: 0 };
 	for (const subject of subjects) {
-		for (const word of subjectWords(subject)) {
+		for (const word of routingWords(subject)) {
 			const kind = isJoined(word) ? "ids" : "words";
 			if (seen.has(word) || taken[kind] === MOST_SUBJECT_WORDS) continue;
 			seen.add(word);

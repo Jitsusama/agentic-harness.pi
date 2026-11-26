@@ -23,7 +23,7 @@ import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/fro
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { stewards } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
-import { subjectWords } from "../../../lib/mesh/need-route.ts";
+import { routingWords } from "../../../lib/mesh/need-route.ts";
 import {
 	declaredSubjects,
 	LONGEST_SUBJECT,
@@ -189,7 +189,7 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
  * no need ever finds a cell by it.
  */
 function namesNoWork(subject: string): boolean {
-	return subjectWords(subject).length === 0;
+	return routingWords(subject).length === 0;
 }
 
 /**

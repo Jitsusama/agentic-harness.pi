@@ -423,6 +423,31 @@ describe("a lost need's refusal, by where this peer sits", () => {
 		expect(nodeAnswered).not.toHaveBeenCalled();
 	});
 
+	// The node answered the need, then gave the find no ties: its find
+	// for a hub above this peer's quest is left unsettled, which says
+	// nothing of the node, so the kept hub isn't told it is back.
+	it("tells the kept hub nothing when the node leaves its find unanswered", async () => {
+		const nodeAnswered = vi.fn();
+		const under: Presence = {
+			...ON_NO_QUEST,
+			quest: "QEST-20261022-8XK2PQ",
+			groups: ["#quest/5gv2ah/8xk2pq"],
+		};
+		const held = holding({}, () => [under], LOST_ON_WORDS, nodeAnswered);
+		const ties = vi.fn().mockResolvedValue(undefined);
+		const at = {
+			...held,
+			peer: { ...held.peer, ...under },
+			ties,
+		} as unknown as Local;
+
+		const said = await refusedAt(at);
+
+		expect(ties, "the find asked the node").toHaveBeenCalledOnce();
+		expect(said).toContain(FIND_NONE_FOUND);
+		expect(nodeAnswered).not.toHaveBeenCalled();
+	});
+
 	// A node that gave the need no answer is not back, so no find runs
 	// and the kept hub isn't told it is.
 	it("tells the kept hub nothing when the node gave the need no answer", async () => {

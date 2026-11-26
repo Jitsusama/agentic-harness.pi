@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	foragersFrom,
 	type Hub,
+	LONGEST_WORD,
 	MOST_SUBJECT_WORDS,
 	MOST_WORDS,
 	type NeedAsked,
@@ -174,6 +175,31 @@ describe("the words a cell's declared subjects give it", () => {
 			cell?.words,
 			"no id longer than a route keeps, as each joined run of words is",
 		).not.toContain(run(0).join("-"));
+	});
+
+	it("spends none of a cell's MOST_SUBJECT_WORDS on a word no need keeps", () => {
+		const long = "p".repeat(LONGEST_WORD + 1);
+		const run = Array.from(
+			{ length: MOST_SUBJECT_WORDS },
+			(_, at) => `word${at}`,
+		);
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "cell:XXXXXX",
+					title: "Placement",
+					subjects: [`x:${long}`, `x:${run.join("-")}`],
+				},
+			],
+		});
+
+		const [cell] = foragersFrom(line);
+
+		expect(cell?.words, "every short word, the long one left out").toEqual([
+			"placement",
+			...run,
+		]);
 	});
 
 	it("counts a subject's ids apart from its words, so an id pushes no word out", () => {
@@ -601,6 +627,28 @@ describe("a need routed by declared subjects", () => {
 			}),
 			ties: ties(["A", "C", 1]),
 			hubs: [{ subject: "x:pallet-lines", hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	// No need keeps a word past LONGEST_WORD, so a subject saying one is
+	// never said whole, and its hub can't take a need saying only its
+	// short part (#2220's third judge).
+	it("takes no hub whose subject says a word longer than any a need keeps", () => {
+		const long = "p".repeat(LONGEST_WORD + 1);
+		const found = routeNeed(asked("A", "easing", "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
 		});
 
 		expect(found, "easing carries it to C").toMatchObject({

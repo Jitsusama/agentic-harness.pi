@@ -14,7 +14,7 @@ import {
 	ledAreas,
 	ledAreasAt,
 } from "../../../lib/mesh/led-areas.ts";
-import { subjectWords } from "../../../lib/mesh/need-route.ts";
+import { routingWords } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 
 const NOW = Date.parse("2026-11-25T06:00:00Z");
@@ -196,7 +196,7 @@ describe("the areas each quest led in its landings", () => {
 	// #2224: lib/most led this file's ordering test until most became a
 	// function word, when it was left out as routing reads it.
 	it("leaves out an area named by a word routing passes over", () => {
-		expect(subjectWords("agentic-harness.pi:lib/most")).toEqual([]);
+		expect(routingWords("agentic-harness.pi:lib/most")).toEqual([]);
 		expect(
 			led([
 				merge("QEST-A", ["lib/most", "lib/mesh"]),
@@ -213,7 +213,7 @@ describe("the areas each quest led in its landings", () => {
 		// Each area must give routing a word, or it is left out and the
 		// test fails as an ordering fault rather than naming the cause.
 		for (const area of [...areas, "lib/mesh"]) {
-			expect(subjectWords(`agentic-harness.pi:${area}`)).not.toEqual([]);
+			expect(routingWords(`agentic-harness.pi:${area}`)).not.toEqual([]);
 		}
 		const landings = [
 			...[0, 1].map((d) => merge("QEST-A", areas, d)),

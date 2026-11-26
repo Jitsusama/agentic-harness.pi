@@ -50,7 +50,7 @@ import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { KeptLanding } from "./landing-history.ts";
-import { subjectWords } from "./need-route.ts";
+import { routingWords } from "./need-route.ts";
 import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** The led areas' file name, beside the landing history. */
@@ -119,7 +119,7 @@ export function ledAreas(
 		const weight = 2 ** (-age / HALF_LIFE_MS);
 		for (const area of new Set(areasNamed(landing.areas))) {
 			const subject = subjectOf(repo, area);
-			if (subjectWords(subject).length === 0) continue;
+			if (routingWords(subject).length === 0) continue;
 			const byQuest = shares.get(subject) ?? new Map<string, Share>();
 			const share = byQuest.get(quest) ?? { weight: 0, at: [] };
 			share.weight += weight;
