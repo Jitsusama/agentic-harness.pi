@@ -684,9 +684,11 @@ function heldIn(trees: readonly RecordedTree[], session: string): string[] {
  * reading it can't vouch for: when the folder can't be looked at, when
  * the reading fails, and when it doesn't land within `within`
  * milliseconds. A reading that ran late runs on to its end, so until
- * then a second ask for the same session refuses at once rather than
+ * then, or until it has run past the hung bound the shared reading
+ * keeps, a second ask for the same session refuses at once rather than
  * start another beside it: a carry asked again on a pool too busy to
- * answer would otherwise stack a reading on it at every try.
+ * answer would otherwise stack a reading on it at every try. Asks that
+ * overlap within their time each read.
  */
 export async function treesHeldByNow(
 	session: string,
@@ -694,27 +696,30 @@ export async function treesHeldByNow(
 	within: number = ASKED_ONCE_WITHIN_MS,
 ): Promise<string[]> {
 	const key = `${recordDirKey(dir)}\0${session}`;
-	if (readingsNow.has(key)) {
-		throw new Error(
-			`the tree records in ${dir} are still being read from an earlier ask that ran late`,
-		);
+	const earlier = runningLate.get(key);
+	if (earlier !== undefined) {
+		if (Date.now() - earlier.since <= HUNG_AFTER_MS) {
+			throw new Error(
+				`the tree records in ${dir} are still being read from an earlier ask that ran late`,
+			);
+		}
+		// Hung, as the shared reading is let go: this ask reads again.
+		runningLate.delete(key);
 	}
+	const mine: Late = { since: Date.now() };
 	const reading = readNow(session, dir);
-	readingsNow.add(key);
-	reading
-		.finally(() => readingsNow.delete(key))
-		.catch(() => {
-			// The race below says why it failed; this only lets the key go.
-		});
+	const ended = (): void => {
+		if (runningLate.get(key) === mine) runningLate.delete(key);
+	};
+	reading.then(ended, ended);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<never>((_, refuse) => {
-		timer = setTimeout(
-			() =>
-				refuse(
-					new Error(`the tree records in ${dir} weren't read in ${within} ms`),
-				),
-			within,
-		);
+		timer = setTimeout(() => {
+			runningLate.set(key, mine);
+			refuse(
+				new Error(`the tree records in ${dir} weren't read in ${within} ms`),
+			);
+		}, within);
 	});
 	try {
 		return await Promise.race([reading, late]);
@@ -723,8 +728,18 @@ export async function treesHeldByNow(
 	}
 }
 
-/** The folders and sessions a `treesHeldByNow` reading runs for now. */
-const readingsNow = new Set<string>();
+/** A `treesHeldByNow` reading that ran past its caller's wait, begun at `since`. */
+interface Late {
+	readonly since: number;
+}
+
+// The `treesHeldByNow` readings that ran late and run on, by folder and
+// session, for the process and every copy of this module, so a reload
+// can't stack a reading beside one an older copy left running.
+const runningLate = processGlobal(
+	"agentic-harness.internal/work-records/running-late.v1",
+	() => new Map<string, Late>(),
+);
 
 /** `treesHeldByNow`'s answer, however long its reading takes. */
 async function readNow(session: string, dir: string): Promise<string[]> {

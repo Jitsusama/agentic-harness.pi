@@ -37,6 +37,11 @@ const disk = vi.hoisted(() => {
 	let release = (): void => {};
 	let reach = (): void => {};
 	let reached: Promise<void> = Promise.resolve();
+	let heldList: string | undefined;
+	let listGate: Promise<void> = Promise.resolve();
+	let listRelease = (): void => {};
+	let listReach = (): void => {};
+	let listReached: Promise<void> = Promise.resolve();
 	return {
 		/**
 		 * Each folder of records listed off the thread, once a listing: an
@@ -82,6 +87,31 @@ const disk = vi.hoisted(() => {
 		},
 		/** Settles once a stopped reading has read its records. */
 		stopped: (): Promise<void> => reached,
+		/**
+		 * Stop the listings of `dir` off the thread before they list, so a
+		 * test can make one fail after its caller stopped waiting.
+		 */
+		holdListing(dir: string): void {
+			heldList = dir;
+			listGate = new Promise((done) => {
+				listRelease = done;
+			});
+			listReached = new Promise((done) => {
+				listReach = done;
+			});
+		},
+		/** Settles once a held listing has begun. */
+		listingHeld: (): Promise<void> => listReached,
+		/** Let held listings go on. */
+		letListingGo(): void {
+			heldList = undefined;
+			listRelease();
+		},
+		async passListing(dir: string): Promise<void> {
+			if (heldList === undefined || dir !== heldList) return;
+			listReach();
+			await listGate;
+		},
 		/** Let a stopped reading go on. */
 		go(): void {
 			held = undefined;
@@ -102,6 +132,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const readdir = (async (...args: Parameters<typeof real.readdir>) => {
 		disk.listed.push(String(args[0]));
 		disk.onList?.(String(args[0]));
+		await disk.passListing(String(args[0]));
 		if (disk.failing) throw new Error("EMFILE: too many open files");
 		const names = await real.readdir(...args);
 		return names.filter(
@@ -345,6 +376,7 @@ describe("the work broker's records", () => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 		disk.go();
+		disk.letListingGo();
 		disk.failing = false;
 		disk.unreadable = undefined;
 		disk.unreadableOnThread = undefined;
@@ -1327,9 +1359,103 @@ describe("the work broker's records", () => {
 		);
 		disk.go();
 		await whenRefreshed(dir);
-		await vi.waitFor(async () => {
-			expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
-		});
+		await vi.waitFor(
+			async () => {
+				expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
+			},
+			{ timeout: 10_000 },
+		);
+	});
+
+	// #2266 F5, F10: a key let go only on success would wedge a session
+	// after one failed reading.
+	it("read afresh once a reading that ran late fails", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		recordedElsewhere(dir, two, ["s-1"]);
+
+		disk.holdListing(dir);
+		const asked = treesHeldByNow("s-1", dir, 50);
+		await disk.listingHeld();
+		await expect(asked).rejects.toThrow(/in 50 ms/);
+		await expect(treesHeldByNow("s-1", dir, 5_000)).rejects.toThrow(
+			/still being read/,
+		);
+		disk.failing = true;
+		disk.letListingGo();
+
+		await vi.waitFor(
+			async () => {
+				disk.failing = false;
+				expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
+			},
+			{ timeout: 10_000 },
+		);
+	});
+
+	// #2266 F18, F23: a reading that never settles would refuse that
+	// session for the life of the process.
+	it("read again past a late reading that has hung as long as a shared one may", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		recordedElsewhere(dir, two, ["s-1"]);
+
+		disk.holdListing(dir);
+		const asked = treesHeldByNow("s-1", dir, 50);
+		await disk.listingHeld();
+		await expect(asked).rejects.toThrow(/in 50 ms/);
+		const real = Date.now;
+		const later = real() + 5 * 60_000 + 1;
+		vi.spyOn(Date, "now").mockImplementation(() => later);
+		try {
+			await expect(
+				treesHeldByNow("s-1", dir, 50),
+				"read again, though it too waits on the held listing",
+			).rejects.toThrow(/in 50 ms/);
+		} finally {
+			vi.mocked(Date.now).mockRestore();
+			disk.letListingGo();
+		}
+		await vi.waitFor(
+			async () => {
+				expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
+			},
+			{ timeout: 10_000 },
+		);
+	});
+
+	// #2266 F6, F11, F20, F25: only a reading that ran late refuses another.
+	it("answer asks that overlap within their time, each from its own reading", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		recordedElsewhere(dir, two, ["s-1"]);
+
+		disk.holdListing(dir);
+		const first = treesHeldByNow("s-1", dir, 10_000);
+		await disk.listingHeld();
+		const second = treesHeldByNow("s-1", dir, 10_000);
+		disk.letListingGo();
+
+		const answers = await Promise.all([first, second]);
+		expect(answers.map((trees) => [...trees].sort())).toEqual([
+			[one, two],
+			[one, two],
+		]);
 	});
 
 	it("list a folder that never holds still again by name, reading each record once and keeping all", async () => {
