@@ -40,6 +40,7 @@ import {
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
+	leaseSubject,
 	leaseWords,
 	MOST_HOLD_MS,
 	type OwnLeases,
@@ -287,7 +288,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							: "",
 						...rewrote.map(
 							(one) =>
-								`${holders([one])} ${changingText([one.lease])} in ${leaseWords(one.lease.subject)}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
+								`${holders([one])} ${changingText([one.lease])} in ${leaseSubject(one.lease.subject)}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
 						),
 					].filter(Boolean);
 					return {
@@ -602,7 +603,7 @@ function holders(
  */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
-	const shown = files.slice(0, 3).map((lease) => leaseWords(lease.subject));
+	const shown = files.slice(0, 3).map((lease) => leaseSubject(lease.subject));
 	const more = files.length - shown.length;
 	return [
 		files.length > 0

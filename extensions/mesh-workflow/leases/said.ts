@@ -10,6 +10,7 @@ import {
 	type Holding,
 	isCurrent,
 	type Lease,
+	leaseSubject,
 	leaseWords,
 	ownerOf,
 } from "../../../lib/mesh/lease.ts";
@@ -75,14 +76,14 @@ function describeAll(leases: readonly Lease[]): string {
 	);
 	// A holder writes its subjects and whys as it likes, so each is cut
 	// as a lease's words are, and none floods the listing.
-	const shown = changes.slice(0, 3).map((lease) => leaseWords(lease.subject));
+	const shown = changes.slice(0, 3).map((lease) => leaseSubject(lease.subject));
 	const more = changes.length - shown.length;
 	const changing = [
 		...leases
 			.filter(claimsCheckout)
 			.map(
 				(lease) =>
-					`rewrote the files of ${leaseWords(lease.subject)}${lease.why ? ` (${leaseWords(lease.why)})` : ""}`,
+					`rewrote the files of ${leaseSubject(lease.subject)}${lease.why ? ` (${leaseWords(lease.why)})` : ""}`,
 			),
 		...(changes.length > 0
 			? [`changing ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`]

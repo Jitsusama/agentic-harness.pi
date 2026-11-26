@@ -26,7 +26,7 @@ import {
 } from "../../../lib/internal/priority/queue.ts";
 import {
 	type LeaseEvent,
-	leaseWords,
+	leaseSubject,
 	MOST_HOLD_MS,
 } from "../../../lib/mesh/lease.ts";
 
@@ -69,7 +69,17 @@ function firstWords(command: string): string {
  * words are, since its holder wrote it as it liked.
  */
 export function heavySaid(subject: string): string {
-	return KIND_SAID[subject as Kind] ?? `heavy work on ${leaseWords(subject)}`;
+	return isKind(subject)
+		? KIND_SAID[subject]
+		: `heavy work on ${leaseSubject(subject)}`;
+}
+
+/**
+ * Whether a subject is a kind the queue names, as its own key: one
+ * named for what every object inherits, as `constructor`, is not.
+ */
+function isKind(subject: string): subject is Kind {
+	return Object.hasOwn(KIND_SAID, subject);
 }
 
 /**

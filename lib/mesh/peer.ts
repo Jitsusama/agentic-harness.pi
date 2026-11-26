@@ -60,6 +60,7 @@ import {
 	joinedWithin,
 	joinRefused,
 	type Lineage,
+	ownsWith,
 	type PeerState,
 	type Presence,
 	type PresenceLeases,
@@ -726,17 +727,13 @@ export function localPeer(at: Surroundings): Peer {
 			yieldedTo !== undefined,
 		);
 		signsSince = signingSince(signing, addresses, heldSince, now());
-		let work = workOf(at.session, joined, at.cwd, at.records);
+		const work = workOf(at.session, at.cwd, at.records);
 		scopes = [...work.scopes];
 		// A scope this refresh brought may leave no room for every joined
-		// group; what it owns is read again without those set aside, which
-		// stay joined to come back once there is room.
+		// group; it owns only those in force, and those set aside stay
+		// joined to come back once there is room.
 		const kept = joinedWithin(scopes, joined);
-		if (kept.length < joined.length) {
-			work = workOf(at.session, kept, at.cwd, at.records);
-			scopes = [...work.scopes];
-		}
-		const inForceNow = new Set(joinedWithin(scopes, joined));
+		const inForceNow = new Set(kept);
 		const nowAside = joined.filter((group) => !inForceNow.has(group));
 		const newly = aside
 			? nowAside.filter((group) => !aside?.has(group) && group !== joining)
@@ -745,7 +742,7 @@ export function localPeer(at: Surroundings): Peer {
 		receiver = {
 			addresses,
 			worksOn: work.worksOn,
-			owns: work.owns,
+			owns: ownsWith(work.owns, kept),
 			...(work.hears ? { hears: work.hears } : {}),
 		};
 		roles = withLiveSteward(

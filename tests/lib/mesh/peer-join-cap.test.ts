@@ -51,8 +51,11 @@ function aPeer(onSetAside?: (groups: readonly string[]) => void) {
 /**
  * Joins groups until the peer is in `MOST_GROUPS`, giving up after twice
  * as many tries, so a join that never counts fails here, not by hanging.
+ * Answers the joined group that sorts last, the first a scope sets
+ * aside, found rather than named, since a temporary folder inside a
+ * checkout brings a scope of its own (#2243's fourth council, F10).
  */
-function fill(peer: ReturnType<typeof aPeer>["peer"]): void {
+function fill(peer: ReturnType<typeof aPeer>["peer"]): string {
 	for (
 		let at = 0;
 		peer.groups.length < MOST_GROUPS && at < MOST_GROUPS * 2;
@@ -61,6 +64,9 @@ function fill(peer: ReturnType<typeof aPeer>["peer"]): void {
 		peer.join(`#group-${String(at).padStart(3, "0")}`);
 	}
 	expect(peer.groups, "the peer filled up").toHaveLength(MOST_GROUPS);
+	const last = peer.joined.at(-1);
+	if (last === undefined) throw new Error("the peer joined nothing");
+	return last;
 }
 
 /** Puts this session on a quest, whose scope its next refresh brings. */
@@ -137,7 +143,7 @@ describe("a peer joining past what a presence names", () => {
 	// back once the scope goes (#2243's first council, G).
 	it("keeps the scope a refresh brings a full peer, setting a joined group aside for it", () => {
 		const { peer, presences } = aPeer();
-		fill(peer);
+		const last = fill(peer);
 		const chosen = [...peer.joined];
 		loadQuest();
 
@@ -151,31 +157,51 @@ describe("a peer joining past what a presence names", () => {
 		expect(said?.groups, "as published").toEqual(peer.groups);
 		expect(peer.joined, "still its choice").toEqual(chosen);
 		expect(said?.joined, "as published").toEqual(chosen);
-		expect(peer.setAside, "the last set aside").toEqual(["#group-063"]);
-		expect(peer.groups).not.toContain("#group-063");
-		expect(aPeer().peer.setAside, "through a reload").toEqual(["#group-063"]);
+		expect(peer.setAside, "the last set aside").toEqual([last]);
+		expect(peer.groups).not.toContain(last);
+		expect(aPeer().peer.setAside, "through a reload").toEqual([last]);
 		const listed = groupsText(
 			{ present: [], gone: [], resuming: [] },
 			peer,
 			[],
 		);
 		expect(listed, "mesh_groups names it").toContain(
-			"It set aside #group-063, which it joined",
+			`It set aside ${last}, which it joined`,
 		);
-		expect(listed, "not as joined").not.toMatch(/has joined [^;]*#group-063/);
+		expect(listed, "not as joined").not.toMatch(
+			new RegExp(`has joined [^;]*${last}`),
+		);
 
 		rmSync(join(root, "sessions", `${session}.json`));
 		peer.refresh();
 
-		expect(peer.groups, "back once the scope goes").toContain("#group-063");
+		expect(peer.groups, "back once the scope goes").toContain(last);
 		expect(peer.setAside).toEqual([]);
+	});
+
+	// A need routed by what a peer owns would reach it for a group it no
+	// longer hears (#2243's fourth council, F20).
+	it("owns no joined group it set aside", () => {
+		const { peer, presences } = aPeer();
+		const last = fill(peer);
+		loadQuest();
+
+		peer.refresh();
+
+		const [first = ""] = peer.joined;
+		expect(peer.receiver.owns, "a group in force").toContain(first.slice(1));
+		expect(peer.receiver.owns, "not one set aside").not.toContain(
+			last.slice(1),
+		);
+		expect(presences.of(session)?.owns, "as published").toEqual(
+			peer.receiver.owns,
+		);
 	});
 
 	// A join's own refresh may bring a scope that leaves it no room.
 	it("says a join it had to set aside at once did not join", () => {
 		const { peer } = aPeer();
-		fill(peer);
-		peer.leave("#group-063");
+		peer.leave(fill(peer));
 		loadQuest();
 
 		expect(peer.join("#zzz-last"), "not in force").toBe(false);
@@ -215,13 +241,13 @@ describe("a peer joining past what a presence names", () => {
 	it("tells the session once of a group a refresh sets aside", () => {
 		const told: string[][] = [];
 		const { peer } = aPeer((groups) => told.push([...groups]));
-		fill(peer);
+		const last = fill(peer);
 		loadQuest();
 
 		peer.refresh();
 		peer.refresh();
 
-		expect(told, "told once, naming it").toEqual([["#group-063"]]);
+		expect(told, "told once, naming it").toEqual([[last]]);
 		const again: string[][] = [];
 		aPeer((groups) => again.push([...groups]));
 		expect(again, "not told again as a reload starts").toEqual([]);
@@ -230,8 +256,7 @@ describe("a peer joining past what a presence names", () => {
 	it("leaves the telling of a group its own join sets aside to the join", () => {
 		const told: string[][] = [];
 		const { peer } = aPeer((groups) => told.push([...groups]));
-		fill(peer);
-		peer.leave("#group-063");
+		peer.leave(fill(peer));
 		loadQuest();
 
 		expect(peer.join("#zzz-last"), "not in force").toBe(false);
@@ -242,8 +267,7 @@ describe("a peer joining past what a presence names", () => {
 	// two sets the join aside at once (#2243's fourth council, F1).
 	it("has mesh_join say a join it set aside at once is not heard yet", async () => {
 		const { peer, presences } = aPeer();
-		fill(peer);
-		peer.leave("#group-063");
+		peer.leave(fill(peer));
 		loadQuest();
 
 		const answer = await joinTool(

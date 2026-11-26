@@ -87,3 +87,17 @@ export function cutWhole(text: string, most: number): string {
 	const each = [...text];
 	return each.length > most ? `${each.slice(0, most).join("")}...` : text;
 }
+
+/**
+ * Text cut to `most` whole characters with `...` in the middle, keeping
+ * its head and its tail: for names such as paths, which share a long
+ * head and differ only at the end. Text at the bound or under is kept
+ * as it is.
+ */
+export function cutMiddle(text: string, most: number): string {
+	const each = [...text];
+	if (each.length <= most) return text;
+	const head = Math.ceil(most / 2);
+	const tail = each.slice(each.length - (most - head));
+	return `${each.slice(0, head).join("")}...${tail.join("")}`;
+}

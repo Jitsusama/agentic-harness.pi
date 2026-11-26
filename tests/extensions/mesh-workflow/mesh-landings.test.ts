@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { repositoryOf } from "../../../extensions/mesh-workflow/landing-notes.ts";
 import { SESSION_LANDED } from "../../../lib/internal/session/landings.ts";
+import { MOST_GROUP_CHARS } from "../../../lib/mesh/group.ts";
 import { scopesOf } from "../../../lib/mesh/scope.ts";
 import { sentOut, startSession } from "./support/mesh.ts";
 
@@ -57,8 +58,13 @@ describe("a session's landings", () => {
 		expect(repositoryOf(landing("notes#draft"))).toBeUndefined();
 		// A long name is cut as its sessions' scope is, or none would hear.
 		const long = `${"long-name-".repeat(12)}repo`;
-		expect(repositoryOf(landing(`${long}#5`))).toBe(
-			scopesOf({ questChain: [], repositories: [long] })[0],
-		);
+		const named = repositoryOf(landing(`${long}#5`)) ?? "";
+		expect(named).toBe(scopesOf({ questChain: [], repositories: [long] })[0]);
+		// Uncut, both would agree and still name a group nobody keeps
+		// (#2243's fourth council, F3).
+		expect(
+			named.length <= MOST_GROUP_CHARS,
+			`${named} runs past the most a group may`,
+		).toBe(true);
 	});
 });

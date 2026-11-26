@@ -153,6 +153,19 @@ describe("holdText", () => {
 		expect(text).toContain("carry on with other work");
 	});
 
+	// A stop's words are said as every peer's are: folded onto one line
+	// past whitespace alone, and cut whole (#2243's fourth council, F15).
+	it("quotes long words on one line, cut whole", () => {
+		const kept = `${"a".repeat(199)}\u{1F344}`;
+		const text = holdText(
+			stop("a", ["pr:example/shop#12"], {
+				words: `x\u2028y ${kept.slice(4)}\u{1F344}tail`,
+			}),
+		);
+		expect(text).toContain(`said "x y ${kept.slice(4)}..."`);
+		expect(text).not.toContain("tail");
+	});
+
 	it("says sessions are parked for anything wider than one change", () => {
 		expect(holdText(stop("a", ["quest:QEST-CHILD"]))).toContain(
 			"sessions in it are parked",

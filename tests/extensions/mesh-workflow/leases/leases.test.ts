@@ -395,7 +395,9 @@ describe("leases as listed", () => {
 	// A holder writes its subjects and whys as long as it likes, so each
 	// is cut as a lease's words are, whole characters each, and one at
 	// the bound is kept whole though a character past the basic plane
-	// is two UTF-16 units (#2217's third council).
+	// is two UTF-16 units (#2217's third council). A subject keeps its
+	// head and tail, since paths in one checkout share a long head
+	// (#2243's fourth council, F4 and F19).
 	it("say a peer's long subjects and reasons cut short, whole characters each", () => {
 		const now = Date.now();
 		const until = new Date(now + 60_000).toISOString();
@@ -427,8 +429,10 @@ describe("leases as listed", () => {
 			},
 		];
 
+		const half = LEASE_WORDS_CHARS / 2;
+		const ends = `${"a".repeat(half)}...${"b".repeat(half)}`;
 		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
-			`\nLeases:\nWCJQSG: rewrote the files of ${kept}... (${kept}...); changing ${kept}..., ${kept}; waiting on [aaaaaaaa] (${kept}...); running heavy work on ${kept}...`,
+			`\nLeases:\nWCJQSG: rewrote the files of ${ends} (${kept}...); changing ${ends}, ${kept}; waiting on [aaaaaaaa] (${kept}...); running heavy work on ${ends}`,
 		);
 	});
 

@@ -199,8 +199,10 @@ describe("a lease", () => {
 		);
 	});
 
-	// A holder names the files it changes as it likes, so each is cut as
-	// its why is, and none floods what the rewrite is refused with.
+	// A holder names the files it changes as it likes, so each is cut,
+	// and none floods what the rewrite is refused with. Files in one
+	// checkout share its long head, so the cut keeps each one's tail
+	// (#2243's fourth council, F4 and F19).
 	it("says a long file another peer changes cut short when a rewrite is stopped", async () => {
 		mkdirSync(join(fixture.root, ".git"));
 		peer("session-w", ["WCJQSG"], []);
@@ -219,8 +221,9 @@ describe("a lease", () => {
 			{ cwd: fixture.root },
 		)) as { reason?: string } | undefined;
 
+		const half = LEASE_WORDS_CHARS / 2;
 		expect(first?.reason).toContain(
-			`is changing ${subject.slice(0, LEASE_WORDS_CHARS)}...`,
+			`is changing ${subject.slice(0, half)}...${subject.slice(-half)}`,
 		);
 		expect(first?.reason).not.toContain(subject);
 	});

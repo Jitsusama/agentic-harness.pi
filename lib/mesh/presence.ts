@@ -497,16 +497,17 @@ function lineageSaid(splitFrom: string | undefined): { lineage?: Lineage } {
 /** How far up a quest's parents are followed, against a loop. */
 const MOST_PARENTS = 8;
 
-/** What this session's peer works on and owns, from its quest. */
+/**
+ * What this session's peer works on and owns, from its quest, before
+ * the groups it joined: those come after (`ownsWith`), once its scopes
+ * say how many of them it has room for.
+ */
 export function workOf(
 	sessionId: string,
-	groups: readonly string[],
 	cwd: string,
 	records: QuestRecords,
 ): PeerWork {
 	const here = cwd !== homedir() ? [basename(cwd)] : [];
-	// Owned as a message would mention them: harness, not #harness.
-	const named = groups.map((group) => group.slice(1));
 	const checkout = checkoutOf(cwd);
 	const runsIn = checkout ? [repositoryName(checkout)] : [];
 	const quest = loadedQuest(sessionId, records.sessions);
@@ -516,7 +517,7 @@ export function workOf(
 		return {
 			...(repo ? { repo } : {}),
 			worksOn: `the work in ${cwd}`,
-			owns: [...new Set([...runsIn, ...here, ...named])],
+			owns: [...new Set([...runsIn, ...here])],
 			scopes: scopesOf({ questChain: [], repositories: runsIn }),
 			orchestration: {},
 		};
@@ -545,7 +546,7 @@ export function workOf(
 		},
 		...(repo ? { repo } : {}),
 		worksOn: parsed.worksOn,
-		owns: [...new Set([quest, ...repositories, ...here, ...named])],
+		owns: [...new Set([quest, ...repositories, ...here])],
 		scopes: scopesOf({
 			questChain: questChain(quest, parsed.frontMatter.parent, read),
 			repositories,
@@ -568,6 +569,17 @@ export function workOf(
 			: servesSaid(servedFrom(parsed.frontMatter._extra?.serves))),
 		...lineageSaid(splitFromOf(parsed.frontMatter._extra?.[SPLIT_FROM])),
 	};
+}
+
+/**
+ * What a peer owns from its work and the joined `groups` in force, each
+ * owned as a message would mention it: harness, not #harness.
+ */
+export function ownsWith(
+	owns: readonly string[],
+	groups: readonly string[],
+): string[] {
+	return [...new Set([...owns, ...groups.map((group) => group.slice(1))])];
 }
 
 /** The needs taken as a presence or its work says them: left out when none. */

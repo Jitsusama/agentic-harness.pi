@@ -16,6 +16,7 @@
 
 import { ALL } from "../../mesh/group.ts";
 import { MOST_HOLD_MS } from "../../mesh/lease.ts";
+import { cutWhole, oneLine } from "../../mesh/one-line.ts";
 import { repositoryGroup, scopesOf } from "../../mesh/scope.ts";
 import { describeReach, type Reach, type Stop } from "./stops.ts";
 
@@ -148,7 +149,9 @@ function oneChange(stop: Stop): boolean {
 /** A hold's words: who stopped what, what that means, and what to say. */
 export function holdText(stop: Stop): string {
 	const who = stop.saidBy ? `${stop.saidBy} said` : "Someone said";
-	const words = stop.words ? ` "${oneLine(stop.words)}"` : "";
+	const words = stop.words
+		? ` "${cutWhole(oneLine(stop.words), WORDS_SHOWN)}"`
+		: "";
 	const where = stop.where ? ` (${stop.where})` : "";
 	const reaches = stop.reaches.map(describeReach).join(", ");
 	const meaning = oneChange(stop)
@@ -161,12 +164,8 @@ export function holdText(stop: Stop): string {
 export const END_TEXT =
 	"Joel resumed this safe-word stop: its writes may go again. Before writing where it stood, check what changed while it did.";
 
-/** How much of a stop's words a hold quotes. */
+/**
+ * How many whole characters of a stop's words a hold quotes, on one
+ * line, as every other peer's words are said.
+ */
 const WORDS_SHOWN = 200;
-
-function oneLine(text: string): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > WORDS_SHOWN
-		? `${flat.slice(0, WORDS_SHOWN - 3)}...`
-		: flat;
-}
