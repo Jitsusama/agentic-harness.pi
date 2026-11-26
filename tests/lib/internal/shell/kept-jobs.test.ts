@@ -2275,7 +2275,8 @@ describe("a stray recorded job", () => {
 describe("a session's recorded jobs", () => {
 	it("are each of its records, held or not, ended or not, and none of another's", async () => {
 		const where = folder();
-		await recorded(where, "s1", "held", 4242, { owner: 77 });
+		// Held by this very process, which runs on.
+		await recorded(where, "s1", "held", 4242, { owner: HERE });
 		const ended = await recorded(where, "s1", "ended", 4242, { owner: 88 });
 		writeFileSync(`${ended.work.keep}.end`, "0\n");
 		await recorded(where, "s2", "other", 4242, { owner: 88 });

@@ -619,9 +619,8 @@ export function keptJobsOf(
 }
 
 /**
- * Every call `session` recorded, whoever holds it and however it
- * stands, read off the thread: what a park reads for calls the
- * conversation ran that its stop never said it carried.
+ * Every record of a call `session` ran whose end isn't said yet,
+ * whoever holds it and however it stands, read off the thread.
  */
 export async function recordedKeptJobs(
 	session: string,

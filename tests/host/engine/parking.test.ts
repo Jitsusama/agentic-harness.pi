@@ -17,12 +17,14 @@ import {
 	PARKED,
 	type Parking,
 	parking,
+	recordedCallsOf,
 	UNRECORDED_HOLDS_MS,
 	WATCH_STARTS_MS,
 } from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
+import { recordKeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
 import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
@@ -796,6 +798,9 @@ function carrying(
 		recorded?: (sessionId: string) => Promise<readonly CarriedShell[]>;
 		/** Whether its stop says the carry; it does unless said. */
 		tells?: boolean;
+		/** How many of its first stops fail before they begin; none unless said. */
+		failsFirst?: number;
+		recordedReadMs?: number;
 	} = {},
 ) {
 	const bus = createEventBus();
@@ -803,8 +808,11 @@ function carrying(
 		more.asking ?? ((_sessionId: string) => Promise.resolve()),
 	);
 	const said: string[] = [];
+	const report = vi.fn();
+	let fails = more.failsFirst ?? 0;
 	const stop = vi.fn(
 		async (_sessionId: string, _why: string, carry: boolean) => {
+			if (fails-- > 0) throw new Error("the stop failed");
 			// A stop that doesn't carry cuts the calls off, saying nothing.
 			if (!carry || more.tells === false) return;
 			more.beforeCarry?.();
@@ -825,13 +833,16 @@ function carrying(
 		stateDir: dir,
 		stop,
 		asking: () => asking,
-		report: vi.fn(),
+		report,
 		...(more.holding ? { holding: more.holding } : {}),
 		...(more.now ? { now: more.now } : {}),
 		...(more.watch ? { watch: more.watch } : {}),
 		carries: () => keeps,
 		callRuns: (work) => runs.has(work.keep),
 		recorded: more.recorded ?? (() => Promise.resolve([])),
+		...(more.recordedReadMs === undefined
+			? {}
+			: { recordedReadMs: more.recordedReadMs }),
 		lookEveryMs: CALLS_LOOKED_AT_MS,
 		...(more.wakeAgainMs === undefined
 			? {}
@@ -839,11 +850,18 @@ function carrying(
 		said: (line) => said.push(line),
 	});
 	parked.hears("a", bus);
-	return { parked, stop, asking, bus, said };
+	return { parked, stop, asking, bus, said, report };
 }
 
 /** The record of the calls `a`'s park carried, where the test's parking keeps it. */
 const callsFile = () => join(dir, "a", "carried-calls.json");
+
+/** The keep of each call `a`'s park carried, as its record names them. */
+function keptIn(): string[] {
+	const kept: unknown = JSON.parse(readFileSync(callsFile(), "utf8"));
+	if (!Array.isArray(kept)) throw new Error("no list of carried calls");
+	return kept.map((work: { keep: string }) => work.keep);
+}
 
 // 22 November, 05:52: 26 of 78 background conversations on optimus, 8.8 GB,
 // stayed awake only because a bash call was out, most of them a loop
@@ -1071,10 +1089,9 @@ describe("a park that carries bash calls", () => {
 	it("watches the calls its conversation recorded that its stop never said it carried", async () => {
 		const told = call("told");
 		const untold = call("untold");
-		const ended = call("ended");
 		const runs = new Set([told.keep, untold.keep]);
 		const recorded = vi.fn((_sessionId: string) =>
-			Promise.resolve([told, untold, ended]),
+			Promise.resolve([told, untold]),
 		);
 		const { parked, asking, said } = carrying([told], runs, true, {
 			recorded,
@@ -1082,13 +1099,7 @@ describe("a park that carries bash calls", () => {
 		await parked.park("a");
 
 		expect(recorded).toHaveBeenCalledWith("a");
-		const kept = JSON.parse(readFileSync(callsFile(), "utf8")) as {
-			keep: string;
-		}[];
-		expect(
-			kept.map((work) => work.keep),
-			"each running call once, the ended one left to its resume",
-		).toEqual([told.keep, untold.keep]);
+		expect(keptIn(), "each call once").toEqual([told.keep, untold.keep]);
 		expect(said).toContain(
 			"a: its park carries 1 bash call(s) it recorded but never said it carried",
 		);
@@ -1117,25 +1128,133 @@ describe("a park that carries bash calls", () => {
 		parked.unwatch("a");
 	});
 
+	// Its record outlives the call until the conversation says its end, so
+	// one that ended unsaid as it parked is a result waiting to be read.
+	it("wakes it at once for a recorded call that ended before its end was said", async () => {
+		const ended = call("ended");
+		const { parked, asking } = carrying([], new Set(), true, {
+			recorded: () => Promise.resolve([ended]),
+			tells: false,
+		});
+		await parked.park("a");
+		expect(keptIn()).toEqual([ended.keep]);
+		await until(
+			"the ended call to wake it",
+			() => asking.mock.calls.length > 0,
+		);
+		parked.unwatch("a");
+	});
+
+	it("wakes it once parked, and carries none for an hour, when a recorded call can't be written", async () => {
+		const untold = call("untold");
+		const { parked, asking, report, said } = carrying(
+			[],
+			new Set([untold.keep]),
+			true,
+			{
+				recorded: () => {
+					// The record can't be renamed over a folder.
+					mkdirSync(callsFile(), { recursive: true });
+					return Promise.resolve([untold]);
+				},
+				tells: false,
+			},
+		);
+		await parked.park("a");
+		await until("a wake at once", () => asking.mock.calls.length > 0);
+		parked.unwatch("a");
+		// The write, and the watch's read of the folder in its record's place.
+		expect(report, "the failed write").toHaveBeenCalled();
+		expect(parked.mayCarry("a"), "carries none").toBe(false);
+		expect(said.join("\n"), "never said carried").not.toContain("carries");
+	});
+
+	it("watches the recorded calls of a park whose stop is tried again", async () => {
+		const untold = call("untold");
+		const runs = new Set([untold.keep]);
+		const recorded = vi.fn(() => Promise.resolve([untold]));
+		const { parked, stop, asking } = carrying([], runs, true, {
+			recorded,
+			tells: false,
+			failsFirst: 1,
+		});
+		await parked.park("a");
+		expect(recorded, "not read while its stop is owed").not.toHaveBeenCalled();
+		await parked.settled("a");
+		expect(stop, "carrying as the first try").toHaveBeenLastCalledWith(
+			"a",
+			PARKED,
+			true,
+		);
+		expect(keptIn()).toEqual([untold.keep]);
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "it still runs").not.toHaveBeenCalled();
+		runs.clear();
+		await until("its end to wake it", () => asking.mock.calls.length > 0);
+		parked.unwatch("a");
+	});
+
+	it("reads a conversation's recorded calls from the kept folder, held or not, and none of another's", async () => {
+		const held = call("held");
+		const gone = call("gone");
+		const other = call("other");
+		const job = (session: string, work: CarriedShell, owner: number) => ({
+			session,
+			id: work.mark,
+			kind: "shell",
+			label: work.mark,
+			owner,
+			work,
+		});
+		recordKeptJob(job("a", held, process.pid));
+		recordKeptJob(job("a", gone, 2 ** 22 + 1));
+		recordKeptJob(job("b", other, 2 ** 22 + 1));
+		expect(
+			(await recordedCallsOf("a", dir)).map((work) => work.keep).sort(),
+		).toEqual([gone.keep, held.keep]);
+	});
+
 	it("reads no record where its park carries nothing", async () => {
 		const recorded = vi.fn(() => Promise.resolve([call("cut")]));
-		const { parked } = carrying([call("cut")], new Set(), false, {
+		const { parked, stop } = carrying([call("cut")], new Set(), false, {
 			recorded,
 		});
 		await parked.park("a");
+		expect(stop, "a stop that carries nothing").toHaveBeenCalledWith(
+			"a",
+			PARKED,
+			false,
+		);
 		expect(recorded).not.toHaveBeenCalled();
-		expect(existsSync(callsFile())).toBe(false);
 		parked.unwatch("a");
+	});
+
+	it("parks on what its stop said when the recorded calls take too long to read", async () => {
+		const told = call("told");
+		const runs = new Set([told.keep]);
+		const { parked, asking, report } = carrying([told], runs, true, {
+			recorded: () => new Promise(() => undefined),
+			recordedReadMs: 50,
+		});
+		await parked.park("a");
+		expect(parked.watches("a"), "parked and watched").toBe(true);
+		expect(report, "the slow read").toHaveBeenCalledOnce();
+		expect(keptIn()).toEqual([told.keep]);
+		parked.unwatch("a");
+		expect(asking).not.toHaveBeenCalled();
 	});
 
 	it("parks on, waking as before, when the recorded calls can't be read", async () => {
 		const told = call("told");
 		const runs = new Set([told.keep]);
-		const { parked, asking } = carrying([told], runs, true, {
+		const { parked, asking, report } = carrying([told], runs, true, {
 			recorded: () => Promise.reject(new Error("EIO")),
 		});
 		await parked.park("a");
 		expect(parked.watches("a"), "parked and watched").toBe(true);
+		expect(report, "the failed read, once").toHaveBeenCalledOnce();
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "no wake while its told call runs").not.toHaveBeenCalled();
 		runs.clear();
 		await until(
 			"the told call's end to wake it",

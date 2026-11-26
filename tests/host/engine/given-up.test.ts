@@ -61,6 +61,9 @@ function hostParking(runs = false) {
 			parked.rests(held.sessionId);
 		},
 		folder: parks,
+		// A boot a second past the epoch, so a marker dated at the epoch is an
+		// earlier boot's on any machine, the Mac's too, which says no boot.
+		booted: () => 1000,
 		pid: 31337,
 	};
 	return { asking, parked, takenOn, parks, place };

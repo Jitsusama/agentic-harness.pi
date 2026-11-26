@@ -68,7 +68,7 @@ import {
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
 import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
-import { parking } from "./parking.ts";
+import { parking, recordedCallsOf } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
 	piBuiltInExtensions,
@@ -172,6 +172,9 @@ export async function createEngine(
 		stateDir: options.stateDir,
 		stop: (sessionId, why, carrying) => host.stop(sessionId, why, carrying),
 		carries: parkCarries,
+		// A child's process ends once it parks, so its next one takes up
+		// what it recorded; a shared host runs on, holding its records.
+		...(kept ? { recorded: recordedCallsOf } : {}),
 		asking: () => watched?.wake,
 		report,
 		said: report,
