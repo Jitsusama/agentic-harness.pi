@@ -515,19 +515,38 @@ export function localPeer(at: Surroundings): Peer {
 	// listed it after it began, or be signed for by another peer now, and
 	// it was still this cell's. Read once per loaded quest and split, not
 	// on each refresh: a quest loaded later is a new pair, so it's read.
+	// A peer that reads its older addresses off the thread reads these
+	// off it too, since every sprouted quest names a split: it says the
+	// split meanwhile, and takes it back if the reading finds it its own.
 	let splitJudged: { key: string; itself: boolean } | undefined;
 	const splitFromItself = (from: string, loaded?: string): boolean => {
 		if (isOwn(from, [...addresses, ...older, sessionAddress(at.session)])) {
 			return true;
 		}
 		const key = `${loaded ?? ""}\u0000${from.toUpperCase()}`;
-		if (splitJudged?.key !== key) {
+		if (splitJudged?.key === key) return splitJudged.itself;
+		if (!readOff) {
 			splitJudged = {
 				key,
 				itself: isOwn(from, olderAddresses(at.session, at.records)),
 			};
+			return splitJudged.itself;
 		}
-		return splitJudged.itself;
+		const judging = { key, itself: false };
+		splitJudged = judging;
+		olderAddressesOff(at.session, at.records)
+			.then((found) => {
+				if (disposed || splitJudged !== judging || !isOwn(from, found)) {
+					return;
+				}
+				judging.itself = true;
+				refresh();
+			})
+			.catch(() => {
+				// A refresh that threw has the judgement already made, so the
+				// peer's next refresh, at its next message or publish, says it.
+			});
+		return judging.itself;
 	};
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: Roles = {};
