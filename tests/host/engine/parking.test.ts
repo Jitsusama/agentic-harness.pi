@@ -1637,6 +1637,62 @@ describe("a park whose stop fails", () => {
 		expect(await Promise.race([woke, turn])).toBe("answered");
 	});
 
+	// #2254 F13, F16: a stop that throws as it is asked settles its park
+	// within the call, so a wake asked in that same turn waits on nothing.
+	it("answers a wake asked in the turn its stop threw as it was asked", async () => {
+		const stop = vi.fn<StopOf>(() => {
+			throw new Error("no such conversation");
+		});
+		const parked = stoppedBy(stop, vi.fn());
+
+		const parking = parked.park("a");
+		const woke = parked.wake("a").then(
+			() => "woke",
+			() => "answered",
+		);
+
+		const turn = new Promise((resolve) => setImmediate(resolve, "hung"));
+		expect(await Promise.race([woke, turn])).toBe("answered");
+		await parking;
+	});
+
+	// #2254 F3, F8, F12: only the park whose place it is takes it out, so
+	// a wake asked while a later park runs waits on that park.
+	it("keeps a later park's place when an earlier one settles under it", async () => {
+		const stops: (() => void)[] = [];
+		const stop = vi.fn<StopOf>(
+			() =>
+				new Promise<void>((resolve) => {
+					stops.push(resolve);
+				}),
+		);
+		const woken: string[] = [];
+		const parked = parking({
+			stateDir: dir,
+			stop,
+			asking: () => async (sessionId) => {
+				woken.push(sessionId);
+			},
+			report: vi.fn(),
+			parked: vi.fn(),
+			carries: () => false,
+		});
+		const earlier = parked.park("a");
+		const later = parked.park("a");
+		stops[0]?.();
+		await earlier;
+
+		const woke = parked.wake("a");
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(woken, "not woken while the later park runs").toEqual([]);
+
+		stops[1]?.();
+		await later;
+		await woke;
+		expect(woken, "woken once it settles").toEqual(["a"]);
+		parked.unwatch("a");
+	});
+
 	it("settles, still owed, a stop tried again that throws as it is asked", async () => {
 		const stop = vi
 			.fn<StopOf>()

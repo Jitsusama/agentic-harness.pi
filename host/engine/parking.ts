@@ -603,7 +603,8 @@ export function parking(options: {
 			wakeAtOnce = !watched && carriedSome(sessionId);
 			unrecorded.delete(sessionId);
 		} finally {
-			settling.delete(sessionId);
+			// Its own entry only: a later park's waits on that park.
+			if (settling.get(sessionId)?.asked === asked) settling.delete(sessionId);
 		}
 		// A key or a message while it parked asked for it before it could
 		// wake; calls carried with nobody watching would wake it never.
@@ -799,15 +800,19 @@ export function parking(options: {
 		},
 		park(sessionId) {
 			const asked: Settling["asked"] = [];
+			// Set before the park starts, so a stop that throws as it is asked
+			// still clears it, and a wake asked as it settles waits on this
+			// park, which answers it, rather than on an entry nobody settles.
+			let started: (done: Promise<unknown>) => void = () => undefined;
+			const until = new Promise<unknown>((resolve) => {
+				started = resolve;
+			});
+			// Its caller hears a failed park from `done`; a wait on `until`
+			// hears it from its own chain, so it isn't left unhandled here.
+			until.catch(() => undefined);
+			settling.set(sessionId, { done: until, asked });
 			const done = park(sessionId, asked);
-			settling.set(sessionId, { done, asked });
-			// A stop that throws as it is asked settles the park before it is
-			// set here, past its own clearing: it goes once the park settles,
-			// unless a later park took its place, lest a wake wait on it.
-			const cleared = (): void => {
-				if (settling.get(sessionId)?.done === done) settling.delete(sessionId);
-			};
-			void done.then(cleared, cleared);
+			started(done);
 			return done;
 		},
 		rests: watchWake,

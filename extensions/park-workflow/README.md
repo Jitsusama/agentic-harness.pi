@@ -234,15 +234,16 @@ wrote and its word to its holder go, and pi's bus says
 `session:park-undone:v1`, on which the mesh says it is awake again.
 What it couldn't take back is named in the window, since that part
 may still read as parked until the session restarts. Windows it
-closed stay closed, and are named apart, since a session whose
-windows closed reads awake. A host parks its conversation after the
+closed stay closed, and a wake it couldn't remove only wakes its next
+park at once; both are named apart, since they read awake. A host parks its conversation after the
 asking call returns, so the person's Park has answered by then; the
 host's own later failure comes on the bus
 (`agentic-harness:park-refused`), and is taken back the same way,
 its awake note saying why at once. A
 failed park then holds the clock's next try for half an hour, so one
 that fails every time isn't said and taken back each minute; the
-person's Park, and a host's drain or roll, still try at once.
+person's Park, and a host's drain or roll, still try at once, and a
+note written during a drain or roll says its next look tries again.
 
 Sessions that parked before this closed their windows keep them
 open. `scripts/park-windows.ts` lists, by the same checks, which of

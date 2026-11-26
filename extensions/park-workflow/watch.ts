@@ -811,7 +811,7 @@ export function watch(
 		} catch (error) {
 			// The person's Park answered parked, so its note says at once why
 			// it runs on, rather than at the clock's next look.
-			note(heldByFailure(failed, now()));
+			note(heldByFailure(failed, now(), moving()));
 			// Its host already said why it runs on; pi's bus says what a
 			// listener throws, so only what may still read parked goes there.
 			if (error instanceof ParkLeftHalfDone && error.readsParked) throw error;

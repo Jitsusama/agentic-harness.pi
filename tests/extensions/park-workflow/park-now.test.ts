@@ -6,6 +6,7 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -14,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FAILED_PARK_HOLDS_MS } from "../../../extensions/park-workflow/undo.ts";
 import {
 	type Parkable,
@@ -34,6 +35,7 @@ import {
 	PARK_UNDONE,
 	PARKED_EXIT,
 	type ParkNowAsk,
+	parkedPath,
 	parkSwitch,
 	readParked,
 } from "../../../lib/internal/session/park.ts";
@@ -396,6 +398,57 @@ describe("parking now, as the person asked", () => {
 			);
 			expect(parks).toEqual([SESSION, SESSION]);
 		} finally {
+			uninstall();
+		}
+	});
+
+	// #2254 F5, F6: the host already said why it runs on, so only a part
+	// that may still read parked is thrown for pi's bus to say.
+	it("says on the bus only a refused park's take-back that still reads parked", async () => {
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-park-now-refused-left",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("a park reads no host environment");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+			park: () => {},
+		});
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		const refusalsSaid = (): number =>
+			logged.mock.calls.filter((call) =>
+				String(call[0]).includes(PARK_REFUSED_EVENT),
+			).length;
+		try {
+			watching();
+			expect(ask().parked, "the host took the ask").toBe(true);
+			// A wake it can't remove reads awake.
+			mkdirSync(join(folder, "held.wake", "in-the-way"), { recursive: true });
+			events.emit(PARK_REFUSED_EVENT, {
+				session: SESSION,
+				why: "its stop threw",
+			} satisfies ParkRefused);
+			await new Promise((done) => setImmediate(done));
+			expect(refusalsSaid(), "a wake left reads awake").toBe(0);
+
+			rmSync(join(folder, "held.wake"), { recursive: true, force: true });
+			expect(ask().parked, "the person's Park parks it again").toBe(true);
+			// A marker it can't remove may still read parked.
+			const marker = parkedPath(SESSION, folder);
+			rmSync(marker);
+			mkdirSync(join(marker, "in-the-way"), { recursive: true });
+			events.emit(PARK_REFUSED_EVENT, {
+				session: SESSION,
+				why: "its stop threw again",
+			} satisfies ParkRefused);
+			await new Promise((done) => setImmediate(done));
+			expect(refusalsSaid(), "a marker left may read parked").toBe(1);
+		} finally {
+			logged.mockRestore();
 			uninstall();
 		}
 	});

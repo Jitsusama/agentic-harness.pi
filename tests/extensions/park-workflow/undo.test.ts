@@ -160,12 +160,15 @@ describe("taking back a half-done park", () => {
 		);
 
 		expect((one as ParkLeftHalfDone).left).toEqual([]);
-		expect((one as ParkLeftHalfDone).closed).toBe(
+		expect((one as ParkLeftHalfDone).readsParked, "closed reads awake").toBe(
+			false,
+		);
+		expect((one as ParkLeftHalfDone).awake).toEqual([
 			"its window is closed, and the launcher keeps its place asleep",
-		);
-		expect((two as ParkLeftHalfDone).closed).toBe(
+		]);
+		expect((two as ParkLeftHalfDone).awake).toEqual([
 			"its windows are closed, and the launcher keeps its place asleep",
-		);
+		]);
 		expect(
 			readParked(SESSION, folder),
 			"its marker still went",
@@ -200,6 +203,24 @@ describe("taking back a half-done park", () => {
 		expect(said, "the mesh still told").toEqual([
 			[PARK_UNDONE, { session: SESSION }],
 		]);
+	});
+
+	// #2254 F1: a wake left only wakes its next park at once; nothing
+	// reads parked by it, so it isn't said to.
+	it("says a wake it couldn't take back reads awake, not parked", () => {
+		const wake = join(folder, "held.wake");
+		mkdirSync(join(wake, "in-the-way"), { recursive: true });
+
+		const error = thrown(() =>
+			undoPark(new Error("its holder is gone"), half({ wake })),
+		);
+
+		expect(error).toBeInstanceOf(ParkLeftHalfDone);
+		const left = error as ParkLeftHalfDone;
+		expect(left.left, "nothing left reads parked").toEqual([]);
+		expect(left.readsParked, "so it isn't said to read parked").toBe(false);
+		expect(left.awake).toHaveLength(1);
+		expect(left.awake[0]).toMatch(/^its wake is left: \S/);
 	});
 
 	it("names each part it left, in the order it tried them", () => {
@@ -250,6 +271,16 @@ describe("the clock's hold after a failed park", () => {
 		);
 	});
 
+	// #2254 F2, F7, F17: a drain or a roll parks past the hold.
+	it("says its next look tries again while a drain or a roll moves it", () => {
+		expect(
+			heldByFailure(failed, 1_001, true),
+			"a drain or a roll under way",
+		).toBe(
+			"its last park failed, so it tries again at its next look: this context is stale",
+		);
+	});
+
 	it("lifts once half an hour has passed", () => {
 		expect(heldByFailure(failed, 1_000 + FAILED_PARK_HOLDS_MS)).toBeUndefined();
 	});
@@ -272,7 +303,7 @@ describe("the clock's hold after a failed park", () => {
 		const closed = new ParkLeftHalfDone(
 			new Error("this context is stale"),
 			[],
-			"its window is closed, and the launcher keeps its place asleep",
+			["its window is closed, and the launcher keeps its place asleep"],
 		);
 		expect(heldByFailure({ at: 1_000, error: closed }, 1_001)).toBe(
 			"its last park failed, so it tries again half an hour on: this context is stale; its window is closed, and the launcher keeps its place asleep",
@@ -320,7 +351,7 @@ describe("answering a park that failed", () => {
 				new ParkLeftHalfDone(
 					new Error("its holder is gone"),
 					[],
-					"its window is closed, and the launcher keeps its place asleep",
+					["its window is closed, and the launcher keeps its place asleep"],
 				),
 			).why,
 		).toBe(
@@ -334,12 +365,19 @@ describe("answering a park that failed", () => {
 				new ParkLeftHalfDone(
 					new Error("its holder is gone"),
 					["its parked marker is left: busy"],
-					"its window is closed, and the launcher keeps its place asleep",
+					["its window is closed, and the launcher keeps its place asleep"],
 				),
 			).why,
 		).toBe(
 			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone. And its parked marker is left: busy, and its window is closed, and the launcher keeps its place asleep",
 		);
+	});
+
+	// #2254 F11: with nothing left, no dangling "And".
+	it("says no more than its failure where nothing was left", () => {
+		expect(
+			answer(new ParkLeftHalfDone(new Error("its holder is gone"), [])).why,
+		).toBe("its park failed: its holder is gone");
 	});
 
 	it("says something of a failure that can't say itself", () => {
