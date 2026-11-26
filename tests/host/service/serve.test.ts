@@ -10,7 +10,7 @@ import type {
 	ConversationEngine,
 	ConversationEvents,
 } from "../../../host/service/backend.ts";
-import { slotFolder } from "../../../host/service/child-units.ts";
+import { slotFolder, slotOf } from "../../../host/service/child-units.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import {
 	parseListResult,
@@ -589,8 +589,26 @@ describe("serveHost", () => {
 	});
 });
 
+/**
+ * Refuse, saying why, a run whose TMPDIR leaves no room for a child's
+ * socket: the host then runs every conversation itself, as it should, and
+ * a test of its children would fail on what it never started. A run's
+ * folders all sit under its TMPDIR, and a quest's is about 80 bytes.
+ */
+function roomForChildren(): void {
+	try {
+		slotOf(slotFolder(run, "work-attended"), "work-attended", randomUUID());
+	} catch (error) {
+		throw new Error(
+			`No child's socket fits under ${run}: run with a shorter TMPDIR`,
+			{ cause: error },
+		);
+	}
+}
+
 describe("serveHost with children", () => {
 	it("resumes a moved conversation in a child, leaves it running through a stop, and takes it up again", async () => {
+		roomForChildren();
 		const first = await serveHost({
 			...places(),
 			engine: async (h) => engine(h),
@@ -652,6 +670,7 @@ describe("serveHost with children", () => {
 	});
 
 	it("names in a repeat of a child's open the conversation that child's became", async () => {
+		roomForChildren();
 		const folder = slotFolder(run, "work-attended");
 		const units = fakeUnits(folder, "work-attended", report);
 		const host = await serveHost({
