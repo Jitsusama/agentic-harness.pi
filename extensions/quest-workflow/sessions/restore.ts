@@ -48,7 +48,7 @@ import {
 import { isLiveStatus } from "../../../lib/internal/quest/status.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
 import { rosterHolds } from "../../../lib/internal/session/host-holds.ts";
-import { sessionLogHeader } from "../../../lib/internal/session/log-header.ts";
+import { logParents } from "../../../lib/internal/session/log-header.ts";
 import {
 	moveFolder,
 	readMoveNote,
@@ -96,7 +96,9 @@ export function restorableSessions(
 export function lastBootRestorable(
 	saved: (sessionId: string) => boolean = savedSessions(),
 	thisBoot: string | undefined = currentBootToken(),
-	parentOf: (sessionId: string) => string | undefined = logParents(),
+	parentOf: (sessionId: string) => string | undefined = logParents(
+		indexSessionFiles(sessionsDir()),
+	),
 ): LastBootSessions {
 	const lost = new Set(
 		restorableSessions(saved).map((record) => record.sessionId),
@@ -120,21 +122,6 @@ export function lastBootRestorable(
 		offered: uncarried(offered),
 		older: kept(found.older),
 		parked: uncarried(parked),
-	};
-}
-
-/**
- * Each saved session's parent, as its log's header names it: the session
- * a rollover or a fork carried on from. Logs are found once, when this
- * is made, and each header read when asked.
- */
-function logParents(
-	logs: ReadonlyMap<string, string> = indexSessionFiles(sessionsDir()),
-): (sessionId: string) => string | undefined {
-	return (sessionId) => {
-		const log = logs.get(sessionId);
-		const parentLog = log ? sessionLogHeader(log)?.parentSession : undefined;
-		return parentLog ? sessionLogHeader(parentLog)?.id : undefined;
 	};
 }
 
