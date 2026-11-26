@@ -11,13 +11,21 @@
  * the providers itself) is counted in the step that called it, so the
  * steps and "rest" sum to the whole; an extension's time is the part of
  * its step its handlers took.
+ *
+ * A handler's time runs to its promise's settling, so it counts waiting:
+ * on the disk, a child, or the other conversations a host runs on the
+ * same thread. Two readings tell waiting from work. How busy the thread
+ * was over the start says whether it was starved; what each extension
+ * held it, its handlers' synchronous runs, is the cost truly its own. That
+ * is a floor: what a handler runs after its first await isn't seen.
  */
 
 import { basename, dirname } from "node:path";
+import { performance } from "node:perf_hooks";
 import { isRecord } from "../../lib/internal/record.ts";
 
-/** How many of the slowest extensions the line names. */
-const SLOWEST = 5;
+/** How many of the extensions that held the thread most the line names. */
+const HOLDING_MOST = 5;
 const MS_PER_S = 1000;
 
 /** pi's InteractiveMode's start steps the line times, by the name it says them. */
@@ -34,6 +42,19 @@ export interface Part {
 	readonly ms: number;
 }
 
+/** An extension's time, and how much of it its handlers held the thread. */
+export interface Held extends Part {
+	readonly heldMs: number;
+	/** A handler of it was still running when the start ended, so `ms` is its time so far. */
+	readonly running?: true;
+}
+
+/** The thread's busy and idle time so far, as `performance.eventLoopUtilization` reads it. */
+export interface Utilization {
+	readonly active: number;
+	readonly idle: number;
+}
+
 /** One of pi's start steps: its time, or undefined where this pi had no such step to time. */
 export interface Step {
 	readonly name: string;
@@ -44,8 +65,10 @@ export interface Step {
 export interface StartParts {
 	readonly ms: number;
 	readonly steps: readonly Step[];
-	/** Each extension whose handlers ran during the start, slowest first. */
-	readonly extensions: readonly Part[];
+	/** Each extension whose handlers ran during the start, longest to settle first. */
+	readonly extensions: readonly Held[];
+	/** The share of the start the thread was busy, 0 to 1, or undefined where it couldn't be read. */
+	readonly busy?: number | undefined;
 }
 
 /** A screen's start, timed while `start` runs; each wrap is put back once it settles. */
@@ -54,10 +77,11 @@ export async function timeStart(
 	runtime: unknown,
 	start: () => Promise<void>,
 	now: () => number = () => performance.now(),
+	utilization: () => Utilization = () => performance.eventLoopUtilization(),
 ): Promise<StartParts> {
 	const steps: Steps = { took: new Map(), running: 0 };
 	const wrapped = new Set<string>();
-	const extensions = new Map<string, number>();
+	const extensions = new Map<string, Took>();
 	const restores: (() => void)[] = [];
 	const putBack = (): void => {
 		for (const restore of restores.splice(0).reverse()) restore();
@@ -80,6 +104,7 @@ export async function timeStart(
 		extensions.clear();
 	}
 	const began = now();
+	const before = readUtilization(utilization);
 	try {
 		await start();
 	} finally {
@@ -87,17 +112,52 @@ export async function timeStart(
 	}
 	return {
 		ms: now() - began,
+		busy: busyShare(before, readUtilization(utilization)),
 		steps: STEPS.map(([, , name]) => ({
 			name,
 			ms: wrapped.has(name) ? (steps.took.get(name) ?? 0) : undefined,
 		})),
 		extensions: [...extensions]
-			.map(([name, ms]) => ({ name, ms }))
+			.map(([name, took]) => heldSoFar(name, took, now()))
 			.sort((a, b) => b.ms - a.ms),
 	};
 }
 
-/** The line a screen's start says: its steps, what's left, and its slowest extensions. */
+/** An extension's time as the start ends, a handler still running counted up to `at`. */
+function heldSoFar(name: string, took: Took, at: number): Held {
+	const { ms, heldMs, running } = took;
+	if (running.size === 0) return { name, ms, heldMs };
+	const soFar = [...running.values()].reduce(
+		(sum, began) => sum + at - began,
+		0,
+	);
+	return { name, ms: ms + soFar, heldMs, running: true };
+}
+
+/** The thread's reading, or undefined where this Node can't give one. */
+function readUtilization(
+	utilization: () => Utilization,
+): Utilization | undefined {
+	try {
+		return utilization();
+	} catch {
+		// Only ever a reading: a start it can't take says no share.
+		return undefined;
+	}
+}
+
+/** The share of the time between two readings the thread was busy. */
+function busyShare(
+	before: Utilization | undefined,
+	after: Utilization | undefined,
+): number | undefined {
+	if (before === undefined || after === undefined) return undefined;
+	const active = after.active - before.active;
+	const whole = active + after.idle - before.idle;
+	return whole > 0 ? active / whole : undefined;
+}
+
+/** The line a screen's start says: its steps, what's left, and the extensions that held its thread most. */
 export function startLine(parts: StartParts): string {
 	const timed = parts.steps.reduce((sum, { ms }) => sum + (ms ?? 0), 0);
 	const steps = [
@@ -108,15 +168,28 @@ export function startLine(parts: StartParts): string {
 			`${name} ${ms === undefined ? UNTIMED_SAID : seconds(ms)}`,
 	);
 	const handlers = parts.extensions.reduce((sum, { ms }) => sum + ms, 0);
-	const slowest = parts.extensions
-		.slice(0, SLOWEST)
-		.map(({ name, ms }) => `${name} ${seconds(ms)}`);
+	const held = parts.extensions.reduce((sum, { heldMs }) => sum + heldMs, 0);
+	// What an extension held is its own cost; what it took to settle
+	// counts the other conversations on the thread too, so it only breaks ties.
+	const holding = [...parts.extensions]
+		.sort((a, b) => b.heldMs - a.heldMs || b.ms - a.ms)
+		.slice(0, HOLDING_MOST)
+		.map(
+			({ name, ms, heldMs, running }) =>
+				`${name} ${seconds(ms)}${running ? " so far, still running" : ""} (held ${seconds(heldMs)})`,
+		);
 	const named =
-		slowest.length === 0
+		holding.length === 0
 			? "no extension's handlers ran"
-			: `extensions' handlers ${seconds(handlers)}, slowest ${slowest.join(", ")}`;
-	return `Screen started in ${seconds(parts.ms)} (${steps.join(", ")}); ${named}`;
+			: `extensions' handlers ${seconds(handlers)} (held ${seconds(held)}), holding most ${holding.join(", ")}`;
+	const busy =
+		parts.busy === undefined
+			? ""
+			: `; the thread busy ${Math.round(parts.busy * PERCENT)}% of it`;
+	return `Screen started in ${seconds(parts.ms)} (${steps.join(", ")})${busy}; ${named}`;
 }
+
+const PERCENT = 100;
 
 /** What the line says of a step this pi lacks, so it never reads as a fast one. */
 const UNTIMED_SAID = "untimed";
@@ -160,7 +233,7 @@ function timeMethod(
 /** Wrap each of an extension's handlers, for every event, keeping the lists they're in. */
 function timeHandlers(
 	extension: Extension,
-	into: Map<string, number>,
+	into: Map<string, Took>,
 	now: () => number,
 ): () => void {
 	const wraps = new Map<unknown, unknown>();
@@ -203,10 +276,9 @@ function timeHandlers(
 		list.forEach((handler: unknown, at) => {
 			if (typeof handler !== "function") return;
 			const wrap = (...args: unknown[]): unknown =>
-				timed(
+				timedHandler(
 					() => Reflect.apply(handler, undefined, args),
-					extension.name,
-					into,
+					tookBy(into, extension.name),
 					now,
 				);
 			wraps.set(wrap, handler);
@@ -237,6 +309,54 @@ function timed(
 	if (answer instanceof Promise) return answer.finally(add);
 	add();
 	return answer;
+}
+
+/** An extension's time so far, what of it its handlers held the thread, and when each still running began. */
+interface Took {
+	ms: number;
+	heldMs: number;
+	readonly running: Map<object, number>;
+}
+
+/** `name`'s time in `into`, made at nothing where it has none yet. */
+function tookBy(into: Map<string, Took>, name: string): Took {
+	const had = into.get(name);
+	if (had !== undefined) return had;
+	const took = { ms: 0, heldMs: 0, running: new Map<object, number>() };
+	into.set(name, took);
+	return took;
+}
+
+/** Run a handler, adding to `took` how long it held the thread, and how long it took to settle. */
+function timedHandler(
+	work: () => unknown,
+	took: Took,
+	now: () => number,
+): unknown {
+	const began = now();
+	const add = (): void => {
+		took.ms += now() - began;
+	};
+	let answer: unknown;
+	try {
+		answer = work();
+	} catch (error) {
+		took.heldMs += now() - began;
+		add();
+		throw error;
+	}
+	took.heldMs += now() - began;
+	if (!(answer instanceof Promise)) {
+		add();
+		return answer;
+	}
+	// Two handlers can begin at the same instant, so each keeps a key of its own.
+	const key = {};
+	took.running.set(key, began);
+	return answer.finally(() => {
+		took.running.delete(key);
+		add();
+	});
 }
 
 /** Run `work`, then `done` once it settles, whether it answers a promise or not. */
