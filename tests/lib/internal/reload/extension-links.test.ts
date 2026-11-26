@@ -99,6 +99,17 @@ function remake(dir: string, target: string): void {
 /** Whether this process runs as root, which reads a file whatever its mode. */
 const asRoot = process.getuid?.() === 0;
 
+/** Whether `mkfifo` can be run here, to make a FIFO for a tree to hold. */
+const hasMkfifo = (() => {
+	try {
+		execFileSync("mkfifo", ["--version"], { stdio: "ignore" });
+		return true;
+	} catch (error) {
+		// Found but refusing the flag, as BSD's does, is still there.
+		return (error as NodeJS.ErrnoException).code !== "ENOENT";
+	}
+})();
+
 describe("extension links moved since a process started", () => {
 	it("names a link made since, and not one made before or a real folder", () => {
 		const dir = folder();
@@ -138,9 +149,10 @@ describe("extension links moved since a process started", () => {
 		).toEqual([]);
 	});
 
-	it.each([
+	it.each<[string, string, (first: string, second: string) => void]>([
 		[
 			"a file that differs by a byte",
+			"differs",
 			(_first: string, second: string) =>
 				writeFileSync(
 					join(second, "lib", "helper.ts"),
@@ -149,6 +161,7 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"a file with the same bytes under another name",
+			"differs",
 			(_first: string, second: string) =>
 				renameSync(
 					join(second, "lib", "helper.ts"),
@@ -157,10 +170,12 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"an empty folder more",
+			"differs",
 			(_first: string, second: string) => mkdirSync(join(second, "empty")),
 		],
 		[
 			"a link inside it that leads elsewhere",
+			"differs",
 			(first: string, second: string) => {
 				symlinkSync("lib/helper.ts", join(first, "alias.ts"));
 				symlinkSync("index.ts", join(second, "alias.ts"));
@@ -168,6 +183,7 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"a link inside it that leads out of it",
+			"inner link leads out",
 			(first: string, second: string) => {
 				symlinkSync("../shared", join(first, "shared"));
 				symlinkSync("../shared", join(second, "shared"));
@@ -175,6 +191,7 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"a link inside it that leads out through another",
+			"inner link leads out",
 			(first: string, second: string) => {
 				// `lib/q` is the tree itself, so `lib/q/..` is the folder above
 				// it, though the text reads as `lib/shared`.
@@ -187,6 +204,7 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"more entries than it reads",
+			"too big",
 			(first: string, second: string) => {
 				for (const at of [first, second]) {
 					mkdirSync(join(at, "many"));
@@ -197,6 +215,7 @@ describe("extension links moved since a process started", () => {
 		],
 		[
 			"more bytes than it reads",
+			"too big",
 			(first: string, second: string) => {
 				for (const at of [first, second]) {
 					writeFileSync(join(at, "big"), "");
@@ -204,13 +223,33 @@ describe("extension links moved since a process started", () => {
 				}
 			},
 		],
-	])("names a link made again onto a tree with %s", (_what, shape) => {
-		const { dir, startedAt } = remade(shape);
+	])(
+		"names a link made again onto a tree with %s, saying %s",
+		(_what, verdict, shape) => {
+			const { dir, startedAt } = remade(shape);
+
+			// The verdict, not only the move: a walk that followed links would
+			// still count most of these moved, for another reason.
+			expect(
+				linkChanges(dir, startedAt),
+				"it can't be shown to load the same code",
+			).toEqual([{ name: "the-proxy", verdict }]);
+		},
+	);
+
+	// 85PKB2's F47 on #2246: a move is read whole once, so the check a
+	// session makes at each look costs nothing after its first.
+	it("reads a move whole once, keeping its verdict for the next look", () => {
+		const { dir, second, startedAt } = remade();
+		expect(linksMovedSince(dir, startedAt), "the first look").toEqual([]);
+		// A store tree never changes once made; one that did here could
+		// only be seen by reading it again.
+		writeFileSync(join(second, "lib", "helper.ts"), "export const a = 2;\n");
 
 		expect(
 			linksMovedSince(dir, startedAt),
-			"it can't be shown to load the same code",
-		).toEqual(["the-proxy"]);
+			"the next look keeps the verdict read whole",
+		).toEqual([]);
 	});
 
 	it("names no link made again onto the same trees at their caps", () => {
@@ -369,17 +408,20 @@ describe("extension links moved since a process started", () => {
 		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
 	});
 
-	it("names a link made again onto a tree holding a FIFO, without opening it", () => {
-		const { dir, startedAt } = remade((first, second) => {
-			for (const at of [first, second])
-				execFileSync("mkfifo", [join(at, "pipe")]);
-		});
+	it.skipIf(!hasMkfifo)(
+		"names a link made again onto a tree holding a FIFO, without opening it",
+		() => {
+			const { dir, startedAt } = remade((first, second) => {
+				for (const at of [first, second])
+					execFileSync("mkfifo", [join(at, "pipe")]);
+			});
 
-		expect(
-			linkChanges(dir, startedAt),
-			"it holds for good, unlike a read that failed",
-		).toEqual([{ name: "the-proxy", verdict: "not a file" }]);
-	});
+			expect(
+				linkChanges(dir, startedAt),
+				"it holds for good, unlike a read that failed",
+			).toEqual([{ name: "the-proxy", verdict: "not a file" }]);
+		},
+	);
 
 	it("answers each start with the first targets found under it", () => {
 		const root = realpathSync(folder());

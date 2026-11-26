@@ -7,9 +7,11 @@
  */
 
 import {
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -28,10 +30,12 @@ import {
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
 import {
+	LINKS_MOVED_AS_IT_WAITED,
 	RELOAD_CALLED_OFF,
 	STILL_MS,
 } from "../../../extensions/reload-workflow/transitions.ts";
 import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
+import { linksMovedSince } from "../../../lib/internal/reload/extension-links.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	leaveSession,
@@ -492,8 +496,6 @@ describe("the agent asking for a reload", LANDS, () => {
 		});
 	});
 
-	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
-	// a landing, heard nothing when a carry called its reload off.
 	// The follower asks its own reload over links made again onto the same
 	// code; a switch while it waits for the run to be still can move one
 	// onto other code, which a reload would load half from its first target.
@@ -514,7 +516,7 @@ describe("the agent asking for a reload", LANDS, () => {
 			reloads = 0;
 		});
 
-		it("takes the follower's back quietly, for its next look to start the session again", async () => {
+		it("takes the follower's back quietly, logging why", async () => {
 			runningTheInstall();
 			const now = runtime();
 			await now.start("startup");
@@ -533,6 +535,61 @@ describe("the agent asking for a reload", LANDS, () => {
 				"its dispatch forgotten",
 			).toBeUndefined();
 			expect(now.notices.slice(said), "nothing is said").toEqual([]);
+			expect(
+				now.entries,
+				"the log says why the reload it was told of never came",
+			).toContainEqual({
+				type: "reload-waiting",
+				data: expect.objectContaining({
+					reason: LINKS_MOVED_AS_IT_WAITED,
+					moved: ["the-proxy"],
+				}),
+			});
+		});
+
+		// 85PKB2's round 4 on #2246 (F42, F44): the check after the wait must
+		// read the links under the start the follower noted them under, and
+		// pass over one made again onto the same code, or a refused session
+		// asks its own reload at each look and has it taken back each time.
+		it("lets the follower's go over a link made again onto the same code", async () => {
+			const store = realpathSync(dir);
+			vi.stubEnv("NIX_STORE_DIR", store);
+			const tree = (name: string) => {
+				const at = join(store, name);
+				mkdirSync(at, { recursive: true });
+				writeFileSync(join(at, "index.ts"), "export const a = 1;\n");
+				return at;
+			};
+			const first = tree("first");
+			const second = tree("second");
+			const extensions = join(agentDir, "extensions");
+			mkdirSync(extensions, { recursive: true });
+			const link = join(extensions, "the-proxy");
+			symlinkSync(first, link);
+			// Made an hour before this process, as a switch before pi started.
+			const hourBefore = (performance.timeOrigin - 3_600_000) / 1000;
+			lutimesSync(link, hourBefore, hourBefore);
+			// The follower's first look, which notes each link's first target.
+			expect(
+				linksMovedSince(extensions, performance.timeOrigin),
+				"nothing moved yet",
+			).toEqual([]);
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			const slot = reloadSlot();
+			slot.request = { reason: "the install moved", by: "self" };
+			slot.dispatched = true;
+			slot.dispatchedAt = Date.now();
+			await now.command("reload", next, false, () => {
+				rmSync(link);
+				symlinkSync(second, link);
+			});
+
+			expect(reloads, "the same code loads through either target").toBe(1);
+			expect(now.notices, "no link is said to have moved").not.toContainEqual(
+				expect.stringContaining("Extension links moved"),
+			);
 		});
 
 		it("lets a person's go, warning what loads from its first target", async () => {
@@ -550,6 +607,8 @@ describe("the agent asking for a reload", LANDS, () => {
 		});
 	});
 
+	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
+	// a landing, heard nothing when a carry called its reload off.
 	it("tells the agent its reload was called off by a carry, since no landing will come", async () => {
 		runningTheInstall();
 		const now = runtime();

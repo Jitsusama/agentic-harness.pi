@@ -352,6 +352,13 @@ export async function performReload(
  */
 export const RELOAD_CALLED_OFF = "harness-reload-called-off";
 
+/**
+ * Why the follower's own reload was taken back after its wait: a link
+ * moved onto other code meanwhile, so its next look asks for a restart.
+ */
+export const LINKS_MOVED_AS_IT_WAITED =
+	"links moved onto other code as the reload waited";
+
 /** What {@link performReload} reads of the session's runs, and tells. */
 export interface ReloadRun {
 	/** Whether a run has started since the last one settled. */
@@ -363,6 +370,12 @@ export interface ReloadRun {
 	 * for word of a landing that won't come.
 	 */
 	readonly toAgent?: (text: string) => void;
+	/**
+	 * Told why the follower's own reload was taken back after its wait,
+	 * for the session's log, since the follower's entry before it said a
+	 * reload was coming.
+	 */
+	readonly tookBack?: (reason: string, data: Record<string, unknown>) => void;
 }
 
 /** The session's id, or nothing from a context gone stale, which throws. */
@@ -445,6 +458,7 @@ async function reloadOnce(
 		slot.request = undefined;
 		slot.dispatched = false;
 		slot.dispatchedAt = undefined;
+		run.tookBack?.(LINKS_MOVED_AS_IT_WAITED, { moved });
 		return;
 	}
 	// Read after the wait: the session's own request says what came in,

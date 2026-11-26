@@ -83,7 +83,12 @@ import { isAbsolute, join, resolve, sep } from "node:path";
  */
 const KNOWN = Symbol.for("agentic-harness.reload.extension-links.v1");
 
-/** The most entries a tree is read to, past which it counts as moved. */
+/**
+ * The most entries a tree is read to, past which it counts as moved.
+ * Trees are read on pi's own thread, so the caps bound a look that
+ * never stops. The Mac's links on 26 November led to trees of 3 and 22
+ * entries, 52 and 360 KB on disk, and each move is read once.
+ */
 export const MOST_ENTRIES = 2_000;
 
 /** The most bytes a tree's files are read to, past which it counts as moved. */
