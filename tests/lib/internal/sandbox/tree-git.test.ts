@@ -61,10 +61,22 @@ describe("a path within a folder", () => {
 		const linked = join(home, "linked");
 		symlinkSync(folder, linked);
 		const missing = join(linked, "not-yet", "deeper");
-		expect(within(missing, linked)).toBe(true);
-		expect(within(missing, folder)).toBe(true);
-		expect(within(join(folder, "not-yet"), linked)).toBe(true);
-		expect(within(join(home, "beside", "not-yet"), linked)).toBe(false);
+		expect(
+			within(missing, linked),
+			"a path not made yet below the link is within the link",
+		).toBe(true);
+		expect(
+			within(missing, folder),
+			"a path not made yet below the link is within where it leads",
+		).toBe(true);
+		expect(
+			within(join(folder, "not-yet"), linked),
+			"a path not made yet in the real folder is within its link",
+		).toBe(true);
+		expect(
+			within(join(home, "beside", "not-yet"), linked),
+			"a path beside the real folder is not within its link",
+		).toBe(false);
 	});
 
 	it("is judged inside a folder not there yet below a linked one", () => {
@@ -72,8 +84,14 @@ describe("a path within a folder", () => {
 		mkdirSync(folder);
 		symlinkSync(folder, join(home, "linked"));
 		const missing = join(home, "linked", "not-yet");
-		expect(within(join(folder, "not-yet", "deeper"), missing)).toBe(true);
-		expect(within(join(home, "not-yet", "deeper"), missing)).toBe(false);
+		expect(
+			within(join(folder, "not-yet", "deeper"), missing),
+			"a path below where the missing folder would be is within it",
+		).toBe(true);
+		expect(
+			within(join(home, "not-yet", "deeper"), missing),
+			"the same name beside the link is not within the missing folder",
+		).toBe(false);
 	});
 
 	it("climbs from where a link leads, not from how its path is spelled", () => {
@@ -82,26 +100,50 @@ describe("a path within a folder", () => {
 		symlinkSync(join(home, "really"), join(home, "two", "linked"));
 		// Built as a string, since join would fold the `..` before within saw it.
 		const climbed = `${join(home, "two", "linked")}/../beside`;
-		expect(within(climbed, join(home, "two"))).toBe(false);
-		expect(within(climbed, home)).toBe(true);
+		expect(
+			within(climbed, join(home, "two")),
+			"`..` climbs from where the link leads, out of the folder spelled",
+		).toBe(false);
+		expect(
+			within(climbed, home),
+			"`..` from where the link leads stays within home",
+		).toBe(true);
 	});
 
 	it("is judged where a link to nothing would make its file", () => {
 		const folder = join(home, "really");
 		mkdirSync(folder);
 		symlinkSync(join(home, "outside", "file"), join(folder, "dangling"));
-		expect(within(join(folder, "dangling"), folder)).toBe(false);
-		expect(within(join(folder, "dangling"), join(home, "outside"))).toBe(true);
+		expect(
+			within(join(folder, "dangling"), folder),
+			"a link to nothing outside is not within the folder holding it",
+		).toBe(false);
+		expect(
+			within(join(folder, "dangling"), join(home, "outside")),
+			"a link to nothing is within where it would make its file",
+		).toBe(true);
 	});
 
 	it("is judged as spelled past where its links loop, in the folder holding it", () => {
 		// A check refusing a folder that meets the work must still meet one
 		// whose links loop, as a self-linked cache folder would.
 		symlinkSync(join(home, "loop"), join(home, "loop"));
-		expect(within(join(home, "loop"), home)).toBe(true);
-		expect(within(join(home, "loop", "x"), join(home, "loop"))).toBe(true);
-		expect(within(home, join(home, "loop"))).toBe(false);
-		expect(within(join(home, "loop"), join(home, "beside"))).toBe(false);
+		expect(
+			within(join(home, "loop"), home),
+			"a looping link is within the folder holding it",
+		).toBe(true);
+		expect(
+			within(join(home, "loop", "x"), join(home, "loop")),
+			"a path below a looping link is within it, as spelled",
+		).toBe(true);
+		expect(
+			within(home, join(home, "loop")),
+			"the folder holding a looping link is not within it",
+		).toBe(false);
+		expect(
+			within(join(home, "loop"), join(home, "beside")),
+			"a looping link is not within a folder beside it",
+		).toBe(false);
 	});
 
 	it("is judged past a linked folder above a loop", () => {
@@ -109,12 +151,21 @@ describe("a path within a folder", () => {
 		mkdirSync(folder);
 		symlinkSync(folder, join(home, "linked"));
 		symlinkSync(join(folder, "loop"), join(folder, "loop"));
-		expect(within(join(home, "linked", "loop"), folder)).toBe(true);
+		expect(
+			within(join(home, "linked", "loop"), folder),
+			"a loop below a linked folder is within where the link leads",
+		).toBe(true);
 	});
 
 	it("keeps a relative path's way out", () => {
-		expect(within(join("..", "x"), process.cwd())).toBe(false);
-		expect(within("x", process.cwd())).toBe(true);
+		expect(
+			within(join("..", "x"), process.cwd()),
+			"a relative path climbing out is not within the working folder",
+		).toBe(false);
+		expect(
+			within("x", process.cwd()),
+			"a relative name is within the working folder",
+		).toBe(true);
 	});
 });
 
