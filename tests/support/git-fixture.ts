@@ -66,10 +66,13 @@ async function buildTemplate(): Promise<string> {
 	// Committing needs an identity, and a developer's own global
 	// config must not decide whether the suite passes. gpgsign is
 	// disabled the same way: a machine with commit signing on by
-	// default must not make these commits hang on a signing prompt.
+	// default must not make these commits hang on a signing prompt. Tags
+	// too: with tag.gpgsign on, a plain `git tag` makes a signed tag and
+	// waits on an editor for its message, which ran a test out its clock.
 	await git(dir, "config", "user.email", "test@example.com");
 	await git(dir, "config", "user.name", "Test");
 	await git(dir, "config", "commit.gpgsign", "false");
+	await git(dir, "config", "tag.gpgsign", "false");
 	writeFileSync(join(dir, "README.md"), "scratch repo\n");
 	await git(dir, "add", "README.md");
 	await git(dir, "commit", "-qm", "initial");

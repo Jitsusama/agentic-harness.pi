@@ -1042,7 +1042,13 @@ export function createTreeMemory(
 			// the lane's next job away from it.
 			const names = (tree: HeldTree) =>
 				named(tree).some((owner) => owner.session === session);
-			const ours = this.recall().filter(names);
+			// Listed off the thread, and each record read again alone: every
+			// session starting in a host runs this. Read on the thread, the
+			// whole folder was read once and again for each of the session's
+			// own records, holding every conversation in the host meanwhile.
+			// On 25 November one reading of 2,958 took 1.7 to 3.3 s, and one
+			// session owned 175.
+			const ours = (await recallOff(dir)).filter(names);
 			if (ours.length === 0) return 0;
 			const us = await holderNow(facts, session);
 			// The machine won't say when we started: the records stay as they
@@ -1056,7 +1062,7 @@ export function createTreeMemory(
 				// Read again under the lock, so a holder that arrived since the
 				// listing is kept.
 				const reowned = underLock(found.identity.key, async () => {
-					const tree = this.recall().find((one) => one.path === found.path);
+					const tree = recordAgainAt(found.identity.key, found.path);
 					if (tree === undefined || !names(tree)) return;
 					const owners = named(tree);
 					const kept: Owner[] = [];
