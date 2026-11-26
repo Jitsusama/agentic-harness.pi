@@ -221,6 +221,8 @@ interface TrustAsked {
 const trustAsked: TrustAsked[] = [];
 const screensOpened = new Set<string>();
 const screensClosed: string[] = [];
+/** Each conversation a screen was told parks, where `closed` would be. */
+const screensParked: string[] = [];
 
 /** Screens that bind nothing, note what they are handed, and hold each trust question for the scenario to answer; a close settles it unanswered. */
 function trustScreens(): EngineScreens {
@@ -549,6 +551,46 @@ const scenarios: Record<string, Scenario> = {
 			await new Promise((later) => setImmediate(later));
 			await engine.parkSettled?.(id);
 			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/**
+	 * Park a conversation whose host can't say it parks, so its stop throws
+	 * before it begins, then close it: it runs on, its bus told why, and
+	 * its close is a close, not a park.
+	 */
+	"park-refused": {
+		responses: () => [say("hello there")],
+		screens: () => ({
+			opened: () => {},
+			rebound: () => {},
+			closed: (sessionId) => {
+				screensClosed.push(sessionId);
+			},
+			parked: (sessionId) => {
+				screensParked.push(sessionId);
+			},
+		}),
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "hi" });
+			await idle(engine, id);
+			// A folder where the host's registry goes, so saying it parks throws.
+			const saved = `${host.registryPath}.saved`;
+			renameSync(host.registryPath, saved);
+			mkdirSync(host.registryPath);
+			try {
+				await parkNow(engine, host, id);
+			} finally {
+				rmSync(host.registryPath, { recursive: true });
+				renameSync(saved, host.registryPath);
+			}
+			const runsOn = host.holds(id) ?? "let go";
+			await host.close(id);
+			return {
+				sessionId: id,
+				runsOn,
+				screensClosed: [...screensClosed],
+				screensParked: [...screensParked],
+			};
 		},
 	},
 	/** Start again on a conversation parked before, which rests parked and is still kept warm. */

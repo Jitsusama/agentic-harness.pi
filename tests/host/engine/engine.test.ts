@@ -145,6 +145,11 @@ interface Seen {
 	readonly firstId?: string;
 	readonly firstViewed?: boolean;
 	readonly held?: readonly string[];
+	/** How its host held a conversation whose park was refused, before its close. */
+	readonly runsOn?: string;
+	/** Each conversation a screen was told closed, and each told it parks. */
+	readonly screensClosed?: readonly string[];
+	readonly screensParked?: readonly string[];
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
@@ -826,6 +831,23 @@ describe("the host's engine", () => {
 				"first-key",
 			]);
 			expect(seen.pending, "the warm waits for its next start").toBe(1);
+		},
+		HOST_LIFE_MS,
+	);
+
+	// #2249 F8: the engine's half of a park its host refused after the ask.
+	it(
+		"tells a conversation its host refused its park, and closes it as one awake",
+		async () => {
+			const seen = await step(hostFolder(), "park-refused");
+			expect(
+				seen.probe.filter((line) => line.event === "park-refused"),
+				"its own bus heard why",
+			).toEqual([{ event: "park-refused", why: expect.stringMatching(/\S/) }]);
+			expect(seen.runsOn, "it runs on").not.toBe("let go");
+			expect(seen.runsOn).not.toBe("parked");
+			expect(seen.screensParked, "its close is no park").toEqual([]);
+			expect(seen.screensClosed).toEqual([seen.sessionId]);
 		},
 		HOST_LIFE_MS,
 	);
