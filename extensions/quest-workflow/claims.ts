@@ -97,7 +97,7 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		const stores = storesOf(questsRoot);
 		// A store this host never walked is signed only off the thread,
 		// below, for an asker that waits.
-		claimFrom(
+		const last = claimFrom(
 			stores.filter(questsWalked).map((store) => discoverQuests(store)),
 			into,
 			claims.idleMayTake,
@@ -105,7 +105,9 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		if (!hosted()) return;
 		claims.answering?.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
-				(walks) => claimFrom(walks, into, claims.idleMayTake),
+				(walks) => {
+					claimFrom(walks, into, claims.idleMayTake, last);
+				},
 			),
 		);
 	});
@@ -257,13 +259,18 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
  * repository isn't known, and a tree any live quest keeps is never
  * named, so one quest letting a tree go never overrides another's
  * hold. One an earlier walk named that this one keeps is taken back.
+ * A quest `before`, an earlier walk of the same ask, saw keeping a tree
+ * still keeps it when this walk couldn't read that quest, as when its
+ * README changes during the walk. Says what each quest walked keeps.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
 	into: string[],
 	mayTake?: string[],
-): void {
+	before?: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, Set<string>> {
 	const kept = new Set<string>();
+	const keeps = new Map<string, Set<string>>();
 	const older: string[] = [];
 	for (const entry of liveQuests(walks)) {
 		const trees = entry.doc.frontMatter.trees ?? [];
@@ -271,12 +278,19 @@ function claimFrom(
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
 		const letGo = olderInEachRepo(trees);
+		const own = new Set<string>();
 		for (const tree of trees) {
 			if (letGo.has(tree.path)) older.push(tree.path);
-			else kept.add(tree.path);
+			else own.add(tree.path);
 		}
+		keeps.set(entry.dir, own);
+		for (const path of own) kept.add(path);
 	}
-	if (mayTake === undefined) return;
+	for (const [dir, own] of before ?? []) {
+		if (keeps.has(dir)) continue;
+		for (const path of own) kept.add(path);
+	}
+	if (mayTake === undefined) return keeps;
 	for (const path of older) {
 		if (!kept.has(path) && !mayTake.includes(path)) mayTake.push(path);
 	}
@@ -284,6 +298,7 @@ function claimFrom(
 		const path = mayTake[at];
 		if (path !== undefined && kept.has(path)) mayTake.splice(at, 1);
 	}
+	return keeps;
 }
 
 /**
@@ -367,7 +382,10 @@ async function forgetTaken(
 	}
 	for (const entry of liveQuests(walks)) {
 		forgetTakenFrom(entry, taken, branchesGone);
-		if (branchesGone === undefined || branchesGone.size === 0) continue;
+		// Only a quest whose alias names a deleted branch is locked to drop it.
+		if (branchesGone === undefined || !aliasesAny(entry, branchesGone)) {
+			continue;
+		}
 		try {
 			const forgot = forgetBranchesFromQuest(entry.dir, branchesGone);
 			if (!forgot.ok) throw new Error(forgot.reason);
@@ -375,6 +393,16 @@ async function forgetTaken(
 			sayForgetFailed(entry.doc.frontMatter.id, error);
 		}
 	}
+}
+
+/**
+ * Whether the quest at `entry`, as its walk read it, has a `git-branch`
+ * alias for any of `branches`.
+ */
+function aliasesAny(entry: QuestEntry, branches: ReadonlySet<string>): boolean {
+	return entry.doc.frontMatter.aliases.some(
+		(alias) => alias.type === "git-branch" && branches.has(alias.value),
+	);
 }
 
 /**

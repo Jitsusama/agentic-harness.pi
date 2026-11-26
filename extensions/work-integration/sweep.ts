@@ -371,8 +371,12 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		} catch (error) {
 			// The trees are gone either way, and a holder that still lists
 			// one lists a path to nothing, which holds nothing; the line says
-			// how many it couldn't be told of.
-			logSweep({ unforgotten: taken.length, why: messageOf(error) });
+			// how many trees and deleted branches it couldn't be told of.
+			logSweep({
+				unforgotten: taken.length,
+				unforgottenBranches: branchesGone.length,
+				why: messageOf(error),
+			});
 		}
 	}
 	return end;

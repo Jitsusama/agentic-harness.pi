@@ -548,7 +548,7 @@ it("says how many it couldn't tell when forgetting fails later", async () => {
 
 	expect(end, "how the sweep said it ended").toBe("ran");
 	expect(readFileSync(sweepLog(), "utf8"), "the sweep's log").toContain(
-		'"unforgotten":2,"why":"a quest\'s folder was locked"',
+		'"unforgotten":2,"unforgottenBranches":2,"why":"a quest\'s folder was locked"',
 	);
 });
 

@@ -416,10 +416,13 @@ holder names it in `idleMayTake`, one list for them all: a live quest
 names there each tree it lists on this machine in a known repository
 but that repository's last whose folder stands, and never one any
 live quest keeps, so the tree its session reopens in stays. A run
-whose ended trees took one a holder kept from these rules lets them
-take none it claims, since the holder chose before that tree went. A
-taken tree leaves its quest's list, but its branch's alias stays while
-the branch does, so a change on that branch still finds the quest. One whose record names no
+whose ended trees took or refused one a holder kept from these rules
+asks the holders again, since they chose before that tree went, and
+the rules take only what both answers name; a holder that can't be
+asked again lets them take none it claims. A taken tree leaves its
+quest's list, but its branch's alias stays while the branch does, so
+a change on that branch still finds the quest, and goes once a sweep
+deletes the branch. One whose record names no
 session stays, as nothing could tell or keep its
 branch for it. Worktrees go first, with half the share, so a backlog
 of snapshots never starves them, and `idleWorktreesLeft` says how many

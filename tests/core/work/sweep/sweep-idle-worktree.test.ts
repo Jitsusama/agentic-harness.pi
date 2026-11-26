@@ -210,6 +210,29 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
 	});
 
+	it("takes none a holder kept when asking it again after a kept take fails", async () => {
+		const setup = await setUp();
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		const newest = await setup.cut("cut-last", ["-b", "cut-last", "@", "main"]);
+		let asked = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			// A holder that answers once, then can't, lets nothing more go.
+			claims: () => {
+				asked += 1;
+				if (asked > 1) throw new Error("the quests couldn't be read");
+				return {
+					held: [],
+					untilSpent: [older.tree, newest],
+					idleMayTake: [older.tree],
+				};
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+	});
+
 	it("still takes an older tree whose newest stands when another quest's kept tree went", async () => {
 		const setup = await setUp();
 		const older = await pushedAndLeft(setup, "cut-first", IDLE);
