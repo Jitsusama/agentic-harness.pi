@@ -57,6 +57,7 @@ import {
 } from "../../../lib/mesh/node.ts";
 import {
 	type Need,
+	namesOtherMachine,
 	needFrom,
 	needWords,
 	type PlaceAnswer,
@@ -365,9 +366,10 @@ export async function machineFor(
 		if (!read.ok) return { ok: false, refusal: `${read.reason}.` };
 		needs.push(read.need);
 	}
-	const other = needs.find(
-		(need) => need.kind === "machine" && need.value !== machine,
-	);
+	const other =
+		machine === undefined
+			? undefined
+			: needs.find((need) => namesOtherMachine(need, machine));
 	if (machine !== undefined && other !== undefined) {
 		return {
 			ok: false,

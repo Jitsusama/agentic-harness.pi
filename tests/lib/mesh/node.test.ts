@@ -304,13 +304,16 @@ describe("asking the node to start a session held", () => {
 			needs: [
 				{ kind: "reach", value: "home" },
 				{ kind: "machine", value: "equilibrius" },
+				{ kind: "cloud" },
 			],
 		});
 
 		expect(asked).toMatchObject([
 			{
 				Start: {
-					work: { needs: [{ reach: "home" }, { machine: "equilibrius" }] },
+					work: {
+						needs: [{ reach: "home" }, "cloud", { machine: "equilibrius" }],
+					},
 				},
 			},
 		]);

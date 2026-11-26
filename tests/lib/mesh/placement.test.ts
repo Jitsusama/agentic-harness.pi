@@ -20,6 +20,7 @@ describe("a need in the node's words", () => {
 			"arch=aarch64",
 			"reach=home",
 			"accelerator=npu",
+			"tool=gcloud",
 		]) {
 			const read = needFrom(word);
 			expect(read.ok && needWords(read.need), word).toBe(word);
@@ -28,6 +29,20 @@ describe("a need in the node's words", () => {
 		expect(reach.ok && needOnTheWire(reach.need)).toEqual({
 			reach: "shopify-services",
 		});
+		const tool = needFrom("tool=gcloud");
+		expect(tool.ok && needOnTheWire(tool.need)).toEqual({ tool: "gcloud" });
+	});
+
+	// Mycelium's need for any machine a provider made is a word with no
+	// value, which serde writes as the bare string "cloud".
+	it("reads cloud alone as the need for any machine a provider made", () => {
+		const cloud = needFrom("cloud");
+		expect(cloud).toEqual({ ok: true, need: { kind: "cloud" } });
+		expect(cloud.ok && needWords(cloud.need)).toBe("cloud");
+		expect(cloud.ok && needOnTheWire(cloud.need)).toBe("cloud");
+		for (const word of ["cloud=yes", "clouds", "tool="]) {
+			expect(needFrom(word).ok, word).toBe(false);
+		}
 	});
 
 	it("refuses words that aren't a need, naming the kinds it takes", () => {
@@ -37,7 +52,7 @@ describe("a need in the node's words", () => {
 		}
 		const read = needFrom("colour=blue");
 		expect(!read.ok && read.reason).toBe(
-			'"colour=blue" is not a need: kind=value, the kind one of machine, system, arch, reach, accelerator',
+			'"colour=blue" is not a need: cloud, or kind=value, the kind one of machine, system, arch, reach, accelerator, tool',
 		);
 	});
 });
@@ -99,6 +114,27 @@ describe("the node's placement read", () => {
 		);
 		expect(!refused.ok && refused.reason).toBe(
 			"no machine takes it: a refuses it (fleets); b would rather not (?)",
+		);
+	});
+
+	it("says a machine isn't in the cloud, leaves first, lives too short or went quiet", () => {
+		const refused = placedFrom(
+			placement({
+				refused: {
+					misses: [
+						{ machine: "optimus", because: [{ lacks: "cloud" }] },
+						{
+							machine: "vm",
+							because: [{ leaves_first: "2026-11-26T19:06:03Z" }],
+						},
+						{ machine: "made", because: [{ lives_only: "PT1H" }] },
+						{ machine: "mac", because: ["unheard"] },
+					],
+				},
+			}),
+		);
+		expect(!refused.ok && refused.reason).toBe(
+			"no machine takes it: optimus isn't a cloud machine; vm leaves at 2026-11-26T19:06:03Z, before the work ends; made would live only a while, ending before the work would; mac hasn't said its room lately",
 		);
 	});
 

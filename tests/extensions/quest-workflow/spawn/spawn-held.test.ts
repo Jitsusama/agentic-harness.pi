@@ -415,6 +415,22 @@ describe("the machine a spawn starts on", () => {
 		]);
 	});
 
+	it("asks the node for a cloud machine, or one holding a tool, as mycelium words them", async () => {
+		const { asked, place } = placing({
+			ok: true,
+			machine: "v2s-gcp-provider-a",
+		});
+		const chosen = await machineFor(undefined, ["cloud", "tool=gcloud"], place);
+		expect(chosen).toEqual({
+			ok: true,
+			machine: "v2s-gcp-provider-a",
+			needs: [{ kind: "cloud" }, { kind: "tool", value: "gcloud" }],
+		});
+		expect(asked).toEqual([
+			[{ kind: "cloud" }, { kind: "tool", value: "gcloud" }],
+		]);
+	});
+
 	it("tells the node the fence it declares, whatever is needed", async () => {
 		const fences: unknown[] = [];
 		const place: PlaceOnNode = async (_needs, fence) => {

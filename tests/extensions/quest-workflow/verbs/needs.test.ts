@@ -147,6 +147,14 @@ describe("a quest's needs of a machine", () => {
 		);
 	});
 
+	it("take cloud alone and a tool, as the node does", async () => {
+		const { dir, run } = await quest("Alpha");
+
+		succeeded(await run({ action: "need-add", ref: "cloud, tool=gcloud" }));
+
+		expect(needsIn(dir)).toEqual(["cloud", "tool=gcloud"]);
+	});
+
 	it("refuse a word the node would not take, writing nothing", async () => {
 		const { dir, run } = await quest("Alpha");
 		const before = readFileSync(join(dir, "README.md"), "utf8");

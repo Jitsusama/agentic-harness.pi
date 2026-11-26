@@ -144,7 +144,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, kind=value, e.g. reach=home; the node picks one.",
+				"spawn: what the machine must be, kind=value (e.g. reach=home, tool=gcloud), or cloud alone; the node picks one.",
 		}),
 	),
 	fence: Type.Optional(
