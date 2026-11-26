@@ -24,6 +24,7 @@ import {
 	derivedIn,
 	fakeUnits,
 } from "./support/fake-children.ts";
+import { shortRuntime } from "./support/short-runtime.ts";
 
 // The net is process-wide, so the worker running these tests keeps its
 // own handling; what is checked is that a host sets it, and where.
@@ -40,7 +41,7 @@ let run: string;
 let report: ReturnType<typeof vi.fn<(error: unknown) => void>>;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-serve-"));
-	run = await mkdtemp(join(tmpdir(), "r"));
+	run = await shortRuntime("work-attended");
 	report = vi.fn();
 });
 afterEach(async () => {
