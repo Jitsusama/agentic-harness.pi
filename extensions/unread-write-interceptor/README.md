@@ -1,8 +1,8 @@
 # Unread Write Interceptor
 
 Refuses a write that would replace a file its conversation hasn't
-read, or one that changed since the conversation last read or wrote
-it.
+read whole, or one that changed since the conversation last read or
+wrote it.
 
 ## What It Does
 
@@ -11,15 +11,25 @@ not. On 25 November a session wrote a state file of asks over the one
 already there, never having read it, and every ask in it was lost.
 
 Each conversation keeps the stamp each file had (its inode, size and
-modification time) when it last read, wrote or edited it. A write is
-refused when the file is there, holds something, and either has no
-stamp or no longer matches it. The refusal says to read it first, or
-to change it with edit.
+modification time) when it last saw all of it. A write is refused when
+the file is there, holds something, and either has no stamp or no
+longer matches it. The refusal says to read it first, or to change it
+with edit.
 
+- What counts as seeing all of it: a write; a read with no offset or
+  limit that came back whole, with the file the same at its end as at
+  its start; or an edit of a file already seen, as it was seen. A slice,
+  a truncated read or an edit alone shows a part, so it stamps nothing.
+  A file too long for one read is changed with edit.
 - A new file, or an empty one, has nothing to lose, so it is never
   refused.
-- The guard, `unread-write`, redirects: the same write sent again goes
-  through, since a file a command of the conversation made is one it
-  already knows.
-- A host serves several conversations from one load, so each keeps its
-  own stamps, dropped when it ends.
+- The guard, `unread-write`, redirects: a write sent again over the
+  file as it then was goes through, since the agent may know a file its
+  own command made. The override is for that file as it stands: once
+  the file changes, a write over it is refused anew.
+- A command that rewrites files the conversation wrote, as
+  `pnpm lint:fix` reformatting them, moves their stamps, so the next
+  write over each is refused once. Read the file again, or use edit.
+- The stamps live in a session slot: a reload keeps them, a new or
+  resumed conversation starts with none, and a host keeps each
+  conversation's apart, dropped when it closes.
