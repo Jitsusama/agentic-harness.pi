@@ -156,6 +156,24 @@ if [[ -n $changed ]]; then
     exit 1
   fi
   echo "merge-gate: Biome passes the ${#files[@]} file(s) $sha changes"
+
+  # A head judges itself by its own config, as pnpm lint at the head would,
+  # so a change that loosens a rule passes its own check. It may mean to,
+  # so it isn't refused, but the files the base's config would fault are
+  # named, for whoever merges to see what the change lets through.
+  if [[ ${#others[@]} -gt 0 && ${#others[@]} -lt ${#files[@]} ]] &&
+    unattributed cat-file -e "$base:biome.jsonc" 2>/dev/null; then
+    before="$scratch/before"
+    mkdir "$before"
+    gate_index checkout-index --prefix="$before/" -- "${others[@]}"
+    unattributed cat-file blob "$base:biome.jsonc" > "$before/biome.jsonc"
+    if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
+      --colors=off "${others[@]}" > "$scratch/before.said" 2>&1); then
+      echo "merge-gate: $sha changes biome.jsonc, and main's config faults what it lets through:" >&2
+      cat "$scratch/before.said" >&2
+      echo "merge-gate: so the change loosens a rule for these files; that passes, said here." >&2
+    fi
+  fi
 fi
 
 if [[ ! -x $vitest ]]; then
