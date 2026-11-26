@@ -25,6 +25,7 @@ import {
 	heldGit,
 	refusedIn,
 	treeGit,
+	within,
 	withoutFolders,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
@@ -49,6 +50,72 @@ beforeEach(async () => {
 afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 	disposeRepo(template);
+});
+
+describe("a path within a folder", () => {
+	it("is one not there yet below a linked folder, judged where the link leads", () => {
+		// A Mac's /tmp is a link, so a folder not yet made in its caches was
+		// judged outside them.
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		const linked = join(home, "linked");
+		symlinkSync(folder, linked);
+		const missing = join(linked, "not-yet", "deeper");
+		expect(within(missing, linked)).toBe(true);
+		expect(within(missing, folder)).toBe(true);
+		expect(within(join(folder, "not-yet"), linked)).toBe(true);
+		expect(within(join(home, "beside", "not-yet"), linked)).toBe(false);
+	});
+
+	it("is judged inside a folder not there yet below a linked one", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(folder, join(home, "linked"));
+		const missing = join(home, "linked", "not-yet");
+		expect(within(join(folder, "not-yet", "deeper"), missing)).toBe(true);
+		expect(within(join(home, "not-yet", "deeper"), missing)).toBe(false);
+	});
+
+	it("climbs from where a link leads, not from how its path is spelled", () => {
+		mkdirSync(join(home, "really"));
+		mkdirSync(join(home, "two"));
+		symlinkSync(join(home, "really"), join(home, "two", "linked"));
+		// Built as a string, since join would fold the `..` before within saw it.
+		const climbed = `${join(home, "two", "linked")}/../beside`;
+		expect(within(climbed, join(home, "two"))).toBe(false);
+		expect(within(climbed, home)).toBe(true);
+	});
+
+	it("is judged where a link to nothing would make its file", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(join(home, "outside", "file"), join(folder, "dangling"));
+		expect(within(join(folder, "dangling"), folder)).toBe(false);
+		expect(within(join(folder, "dangling"), join(home, "outside"))).toBe(true);
+	});
+
+	it("is judged as spelled past where its links loop, in the folder holding it", () => {
+		// A check refusing a folder that meets the work must still meet one
+		// whose links loop, as a self-linked cache folder would.
+		symlinkSync(join(home, "loop"), join(home, "loop"));
+		expect(within(join(home, "loop"), home)).toBe(true);
+		expect(within(join(home, "loop", "x"), join(home, "loop"))).toBe(true);
+		expect(within(home, join(home, "loop"))).toBe(false);
+		expect(within(join(home, "loop"), join(home, "beside"))).toBe(false);
+	});
+
+	it("is judged past a linked folder above a loop", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(folder, join(home, "linked"));
+		symlinkSync(join(folder, "loop"), join(folder, "loop"));
+		expect(within(join(home, "linked", "loop"), folder)).toBe(true);
+	});
+
+	it("keeps a relative path's way out", () => {
+		expect(within(join("..", "x"), process.cwd())).toBe(false);
+		expect(within("x", process.cwd())).toBe(true);
+	});
 });
 
 /** What every git pi runs outside the fence is given first. */

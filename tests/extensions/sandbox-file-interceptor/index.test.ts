@@ -156,7 +156,27 @@ describe("a strict session's reads", () => {
 	it("refuse a loop of links rather than chase it", () => {
 		symlinkSync(join(work, "b"), join(work, "a"));
 		symlinkSync(join(work, "a"), join(work, "b"));
-		expect(refusal("read", { path: "a" })).toContain("loop of links");
+		expect(refusal("read", { path: "a" })).toContain(
+			"where it couldn't be followed: a loop of links",
+		);
+	});
+});
+
+describe("a strict session's writes", () => {
+	it("never follow a link to nothing out of the work through a linked folder", () => {
+		// Named through a deep link back to the work, the link's `..` read
+		// from how its folder is spelled lands in the work; the system reads
+		// it from the work itself, and makes the person's startup file.
+		mkdirSync(join(work, "a/b/c"), { recursive: true });
+		symlinkSync(work, join(work, "a/b/c/back"));
+		symlinkSync(join("..", "home", ".bashrc"), join(work, "rc"));
+
+		expect(refusal("write", { path: "a/b/c/back/rc", content: "x" })).toContain(
+			join(home, ".bashrc"),
+		);
+		expect(
+			refusal("write", { path: "a/b/c/back/notes.md", content: "x" }),
+		).toBeUndefined();
 	});
 });
 

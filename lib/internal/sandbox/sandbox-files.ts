@@ -13,16 +13,8 @@
  * each path matched as its volume folds case.
  */
 
-import { existsSync, readlinkSync, realpathSync } from "node:fs";
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	relative,
-	resolve,
-	sep,
-} from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { FenceKind } from "../../mesh/presence.ts";
 import {
 	FENCE,
@@ -38,6 +30,7 @@ import {
 import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
+import { leadsTo } from "./leads-to.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -97,31 +90,9 @@ export function toolPaths(path: string, cwd: string, home: string): string[] {
 	];
 }
 
-/** How many links a path may pass through before it counts as a loop. */
-const MOST_LINKS = 40;
-
-/**
- * Where `path` really leads, through every link in it, a dangling one
- * too, since writing through a link to nothing makes the file it names;
- * nothing when its links loop.
- */
-export function leadsTo(path: string, links = 0): string | undefined {
-	if (links > MOST_LINKS) return undefined;
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not all there, or looping: follow what is, a step at a time.
-	}
-	try {
-		return leadsTo(resolve(dirname(path), readlinkSync(path)), links + 1);
-	} catch {
-		// Not a link either, so a name yet to be made.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	const above = leadsTo(parent, links);
-	return above === undefined ? undefined : join(above, basename(path));
-}
+/** Why a path's way can't be followed, as leads-to.ts gives up on it. */
+const CANT_FOLLOW =
+	"a loop of links, more links than the system follows, a link it couldn't read or whose target isn't UTF-8, or a name it couldn't look at";
 
 /** Whether `path` is `folder` or lies inside it, both already resolved. */
 function inside(path: string, folder: string): boolean {
@@ -278,7 +249,7 @@ function fenceRefusal(
 	for (const candidate of candidates) {
 		const reached = leadsTo(candidate);
 		if (reached === undefined) {
-			return `${SANDBOX_VARIABLE}=${FENCE} couldn't follow ${path} through its links, so ${toolName} didn't run.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} couldn't say where ${path} leads (${CANT_FOLLOW}), so ${toolName} didn't run.`;
 		}
 		// On a Mac each is judged as the lists spell it too, since its
 		// volumes open ~/.NPMRC as ~/.npmrc.
@@ -510,7 +481,9 @@ function strictRefusal(
 			continue;
 		}
 		const where =
-			real === undefined ? "through a loop of links" : `to ${real}, outside it`;
+			real === undefined
+				? `where it couldn't be followed: ${CANT_FOLLOW}`
+				: `to ${real}, outside it`;
 		const what =
 			use === "write"
 				? "may write only in the working folder and the sandbox's own cache and temporary folder"

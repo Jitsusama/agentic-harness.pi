@@ -17,8 +17,8 @@
  * node's and jiti's caches in the temporary folder are the fence's own
  * (fence-temp-caches.ts).
  */
-import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 import { runtimeCompileFolders } from "../fence/compile-cache-place.ts";
 import { lenderFolders } from "../fence/fence-builders.ts";
 import { DISK } from "../fence/fence-disk.ts";
@@ -38,7 +38,8 @@ import {
 import { tempCodeCaches } from "../fence/fence-temp-caches.ts";
 import { cacheDir, stateDir } from "../paths.ts";
 import { cutTreeDir } from "../work-records.ts";
-import { namedGitFolder, real, within } from "./tree-git.ts";
+import { landsAt, linksOn } from "./leads-to.ts";
+import { lies, namedGitFolder, real, within } from "./tree-git.ts";
 
 /**
  * What a session's own refusal of its folder names as refusing: the
@@ -140,30 +141,6 @@ function closedElsewhere(hidden: boolean): string[] {
 		...lenderFolders(DISK),
 		...[...(runtime ? [runtime] : []), ...sockets].filter(isThere),
 	];
-}
-
-/**
- * Where `path` leads, past its links, even where it isn't there yet: a
- * link whose target isn't written, or one in a linked folder, leads
- * where a command writing it would land, so a link can't walk round a
- * closed path by pointing at one still to be made.
- */
-function leadsTo(path: string, hops = 0): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not there; where it would be is judged below.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	const within = leadsTo(parent, hops);
-	try {
-		if (hops < 40 && lstatSync(path).isSymbolicLink())
-			return leadsTo(resolve(within, readlinkSync(path)), hops + 1);
-	} catch {
-		// Nothing there at all: it would be made where its folder leads.
-	}
-	return join(within, basename(path));
 }
 
 function unique(paths: string[]): string[] {
@@ -274,7 +251,13 @@ function closedHere(
 	const closed = closedPaths(home, mac, hidden, elsewhere).map((path) => ({
 		path,
 		as: spelled(path),
-		is: spelled(leadsTo(path)),
+		// One whose links can't be followed is matched where they lead and
+		// spelled past that, as within judges the trees.
+		is: spelled(landsAt(path)),
+		// Each link on the way decides where it leads, so a folder holding
+		// one may send it anywhere, a loop's links among them: one taken
+		// out leaves a name a command may write.
+		through: linksOn(path).map(spelled),
 	}));
 	const lies =
 		closed.find((each) => spelledWithin(at, each.as)) ??
@@ -284,11 +267,14 @@ function closedHere(
 	// one looking for a key this machine never had.
 	const there = (each: { readonly path: string }) => isThere(each.path);
 	const holds = (each: (typeof closed)[number]) =>
-		spelledWithin(each.as, at) || spelledWithin(each.is, really);
+		spelledWithin(each.as, at) ||
+		spelledWithin(each.is, really) ||
+		each.through.some((link) => spelledWithin(link, really));
 	const held =
 		closed.find((each) => holds(each) && there(each)) ??
 		closed.find((each) => spelledWithin(each.as, at)) ??
-		closed.find((each) => spelledWithin(each.is, really));
+		closed.find((each) => spelledWithin(each.is, really)) ??
+		closed.find(holds);
 	return held ? { path: held.path, within: false } : undefined;
 }
 
@@ -360,9 +346,17 @@ export function unfencedFolder(
 	// On a Mac, each also folded, as its volumes fold names.
 	const mac = place.mac ?? process.platform === "darwin";
 	const folded = (path: string) => reallyAt(path, mac).toLowerCase();
+	// A link on the way to a folder that lies in the working folder is one a
+	// command may take out and make again, leading the folder anywhere: one
+	// to nothing at the fence's homes becomes the folder its cargo runs from.
+	const landed = landsAt(cwd);
+	const holdsLink = (link: string) =>
+		lies(link, landed) ||
+		(mac && lies(link.toLowerCase(), landed.toLowerCase()));
 	const meets = (folder: string) =>
 		within(folder, cwd) ||
 		within(cwd, folder) ||
+		linksOn(folder).some(holdsLink) ||
 		(mac &&
 			(spelledWithin(folded(cwd), folded(folder)) ||
 				spelledWithin(folded(folder), folded(cwd))));

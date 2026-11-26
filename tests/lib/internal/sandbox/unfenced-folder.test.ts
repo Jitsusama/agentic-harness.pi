@@ -462,6 +462,54 @@ describe("a working folder the sandbox won't let commands write", () => {
 		);
 	});
 
+	it("names a closed path not made yet whose way runs through a link the folder holds", () => {
+		// The folder lies on no closed path and holds none, but a link in it
+		// decides where gsutil's credentials, not written yet, lead. A home
+		// of its own, holding nothing else.
+		const at = join(home, "through-home");
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		mkdirSync(join(at, "a"), { recursive: true });
+		mkdirSync(join(at, "b", "gsutil"), { recursive: true });
+		symlinkSync(join(at, "a", "gsutil"), join(at, ".gsutil"));
+		symlinkSync(join(at, "b", "gsutil"), join(at, "a", "gsutil"));
+		expect(unfencedFolder(join(at, "a"), at, ASKED, place)).toContain(
+			`which holds ${join(at, ".gsutil/credstore2")}, a path`,
+		);
+	});
+
+	it("is one holding a link a closed path's loop runs through", () => {
+		// Taking the link out of the loop leaves a name a command may write,
+		// which the shell then runs. A home of its own, since the shared one
+		// already has a startup file.
+		const at = join(home, "loop-home");
+		mkdirSync(at);
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		const dots = join(at, "looped");
+		mkdirSync(dots);
+		symlinkSync(join(dots, "bashrc"), join(at, ".bashrc"));
+		symlinkSync(join(at, ".bashrc"), join(dots, "bashrc"));
+		expect(unfencedFolder(dots, at, ASKED, place)).toContain(
+			`which holds ${join(at, ".bashrc")}, a path`,
+		);
+	});
+
+	it("is one holding a link a closed path leads through on its way elsewhere", () => {
+		// The link may be pointed anywhere, a file of the folder's own among them.
+		const at = join(home, "past-home");
+		mkdirSync(at);
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		const between = join(at, "between");
+		const dots = join(at, "dots-past");
+		mkdirSync(between);
+		mkdirSync(dots);
+		writeFileSync(join(dots, "bashrc"), "");
+		symlinkSync(join(between, "bashrc"), join(at, ".bashrc"));
+		symlinkSync(join(dots, "bashrc"), join(between, "bashrc"));
+		expect(unfencedFolder(between, at, ASKED, place)).toContain(
+			`which holds ${join(at, ".bashrc")}, a path`,
+		);
+	});
+
 	it("keeps pi's file tools from reading where a link to npm's or Docker's config leads", () => {
 		const at = realpathSync(home);
 		const place = { treesRoot: join(at, "trees"), mac: false };
@@ -559,6 +607,20 @@ describe("a working folder the sandbox won't let commands write", () => {
 		]) {
 			expect(unfencedFolder(join(home, at), home), at).toContain("fence");
 		}
+	});
+
+	it("is one holding links to nothing where the agent fence keeps its state", () => {
+		// A command there may take a link out and make the folder the fence's
+		// cargo runs from. A home of its own, holding nothing else.
+		const at = join(home, "gone-fence-home");
+		mkdirSync(join(at, ".cache/pi-fence"), { recursive: true });
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		for (const folder of ["homes", "gcloud"]) {
+			symlinkSync(join(at, "gone"), join(at, ".cache/pi-fence", folder));
+		}
+		expect(
+			unfencedFolder(join(at, ".cache/pi-fence"), at, ASKED, place),
+		).toContain("the agent fence's own state");
 	});
 
 	it("names the sandbox as the variable that asks for it", () => {
