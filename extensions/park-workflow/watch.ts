@@ -809,9 +809,12 @@ export function watch(
 		try {
 			takeBack(new Error(data.why));
 		} catch (error) {
+			// The person's Park answered parked, so its note says at once why
+			// it runs on, rather than at the clock's next look.
+			note(heldByFailure(failed, now()));
 			// Its host already said why it runs on; pi's bus says what a
-			// listener throws, so only what couldn't be taken back goes there.
-			if (error instanceof ParkLeftHalfDone) throw error;
+			// listener throws, so only what may still read parked goes there.
+			if (error instanceof ParkLeftHalfDone && error.readsParked) throw error;
 		}
 	});
 	const unasked = bus.on(RESTART_ASK, (data) => {

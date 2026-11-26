@@ -33,7 +33,23 @@ export function answerParkNow(
 	} catch (error) {
 		ask.why =
 			error instanceof ParkLeftHalfDone
-				? `its park failed part-way, so it may read as parked until it is restarted: ${error.message}. And ${error.left.join(", and ")}`
+				? leftOf(error)
 				: `its park failed: ${messageOf(error)}`;
 	}
+}
+
+/**
+ * What a take-back that couldn't put everything back says: that it may
+ * read as parked only where a part it left does, then each part, and
+ * the windows it closed last.
+ */
+function leftOf(error: ParkLeftHalfDone): string {
+	const parts = [
+		...error.left,
+		...(error.closed === undefined ? [] : [error.closed]),
+	];
+	const failed = error.readsParked
+		? "its park failed part-way, so it may read as parked until it is restarted"
+		: "its park failed";
+	return `${failed}: ${error.message}. And ${parts.join(", and ")}`;
 }

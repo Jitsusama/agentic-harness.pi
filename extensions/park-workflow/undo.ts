@@ -37,17 +37,26 @@ export interface HalfPark {
 }
 
 /**
- * A park that failed part-way and couldn't be wholly taken back: what it
- * left may still read as parked until the session is restarted.
+ * A park that failed and couldn't be wholly taken back: a part it left
+ * may still read as parked until the session is restarted, and windows
+ * it closed stay closed, though they read awake.
  */
 export class ParkLeftHalfDone extends Error {
-	/** Each part it couldn't take back, and why it stands. */
+	/** Each part it couldn't take back, which may read as parked, and why. */
 	readonly left: readonly string[];
+	/** The windows it closed, which can't be opened again from here. */
+	readonly closed: string | undefined;
 
-	constructor(failed: unknown, left: readonly string[]) {
+	constructor(failed: unknown, left: readonly string[], closed?: string) {
 		super(messageOf(failed));
 		this.name = "ParkLeftHalfDone";
 		this.left = left;
+		this.closed = closed;
+	}
+
+	/** Whether any part it left may read as parked. */
+	get readsParked(): boolean {
+		return this.left.length > 0;
 	}
 }
 
@@ -57,7 +66,8 @@ export class ParkLeftHalfDone extends Error {
  * the taking back failed too. Every part is tried, whichever fails.
  *
  * Windows it closed can't be opened again from here, and the launcher
- * still keeps their place asleep, so those are said as left too. An
+ * still keeps their place asleep, so those are said too, apart from
+ * what reads parked, since a session whose windows closed reads awake. An
  * ask to ease the park cleared isn't put back: it would lapse within
  * the half hour the failure holds the clock, and the node asks again
  * while its machine still reads over.
@@ -89,11 +99,14 @@ export function undoPark(failed: unknown, half: HalfPark): never {
 		const wake = half.wake;
 		tryTo("its wake", () => rmSync(wake, { force: true }));
 	}
-	if (half.windowsClosed > 0) {
-		const count = half.windowsClosed === 1 ? "window is" : "windows are";
-		left.push(`its ${count} closed, and the launcher keeps its place asleep`);
+	const count = half.windowsClosed === 1 ? "window is" : "windows are";
+	const closed =
+		half.windowsClosed > 0
+			? `its ${count} closed, and the launcher keeps its place asleep`
+			: undefined;
+	if (left.length > 0 || closed !== undefined) {
+		throw new ParkLeftHalfDone(failed, left, closed);
 	}
-	if (left.length > 0) throw new ParkLeftHalfDone(failed, left);
 	throw failed;
 }
 
@@ -127,7 +140,8 @@ export function heldByFailure(
 	// A take-back that left parts standing says them, as the person's
 	// Park would, since the clock parks most and nothing else says so.
 	if (failed.error instanceof ParkLeftHalfDone) {
-		return [why, ...failed.error.left].join("; ");
+		const { left, closed } = failed.error;
+		return [why, ...left, ...(closed === undefined ? [] : [closed])].join("; ");
 	}
 	return why;
 }
