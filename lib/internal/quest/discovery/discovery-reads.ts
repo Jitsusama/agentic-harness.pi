@@ -13,12 +13,14 @@ import { createHash } from "node:crypto";
 import {
 	type BigIntStats,
 	type Dirent,
+	lstatSync,
 	readdirSync,
 	readFileSync,
 	statSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
+import { errnoOf } from "../../files/errno.ts";
 import { isId, prefixOf } from "../creation/id.ts";
 import { splitFrontMatter } from "../documents/frontmatter.ts";
 import type { JournalMark } from "../write-journal.ts";
@@ -98,6 +100,22 @@ export const CANONICAL_DOCUMENT_DIRS = [
 	"briefs",
 	"reports",
 ] as const;
+
+/**
+ * How a quests root that won't list stands. "gone" when nothing is at
+ * it nor along it, as a fresh data folder's root is before its first
+ * quest (an empty store); "unreadable" when something is: a dangling
+ * link, a file, a folder that can't be listed, a file where a folder
+ * above should be, or a folder above that can't be searched (a fault).
+ */
+export function unlistedRoot(path: string): "gone" | "unreadable" {
+	try {
+		lstatSync(path);
+		return "unreadable";
+	} catch (error) {
+		return errnoOf(error) === "ENOENT" ? "gone" : "unreadable";
+	}
+}
 
 /** A directory's listing, read once a pass, or undefined when it has none. */
 export function readEntries(path: string, pass: Pass): Entry[] | undefined {
@@ -321,7 +339,9 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 			.sort()
 			.join(",");
 	const rootEntries = readEntries(questsRoot, pass);
-	if (!rootEntries) return "absent";
+	// Gone and unreadable sign apart, so a root that turns from one to the
+	// other is walked again rather than answered from the first.
+	if (!rootEntries) return `absent:${unlistedRoot(questsRoot)}`;
 	parts.push(`root:${layout(rootEntries)}`);
 	for (const entry of rootEntries) {
 		if (!entry.isDirectory()) continue;

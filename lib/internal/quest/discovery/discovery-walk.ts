@@ -17,7 +17,6 @@ import {
 	sep,
 } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
-import { isGone } from "../../files/errno.ts";
 import { isId, prefixOf } from "../creation/id.ts";
 import {
 	explainDocumentFrontMatter,
@@ -42,6 +41,7 @@ import {
 	type Pass,
 	parsedOnce,
 	readEntries,
+	unlistedRoot,
 	vouchQuestFiles,
 } from "./discovery-reads.ts";
 import { pendingStampOf } from "./off-thread.ts";
@@ -200,7 +200,8 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	if (!rootEntries) {
 		const empty = { quests: new Map(), children: new Map() };
 		// A fresh data folder has no quests yet: an empty store, not a fault.
-		if (!presentAt(questsRoot)) return { index: empty, errors: [] };
+		if (unlistedRoot(questsRoot) === "gone")
+			return { index: empty, errors: [] };
 		const errors = [
 			{ path: questsRoot, message: "Quests root is not a readable directory." },
 		];
@@ -210,20 +211,6 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	const rootReal = safeRealpath(questsRoot, pass);
 	if (rootReal) visited.add(rootReal);
 	return walkEntries(questsRoot, rootEntries, pass, visited);
-}
-
-/**
- * Whether anything, even a dangling link, is at `path`, or might be: a
- * folder above it that can't be searched still counts as present, so
- * the fault is said rather than read as an empty store.
- */
-function presentAt(path: string): boolean {
-	try {
-		lstatSync(path);
-		return true;
-	} catch (error) {
-		return !isGone(error);
-	}
 }
 
 /**
