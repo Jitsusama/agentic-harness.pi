@@ -25,7 +25,9 @@
  * expects, and a log whose view would hold an entry read light whole,
  * since a light entry must never reach the model. A log pi's own open
  * reads as it reads any, such as one whose leaf's branch passes no
- * compaction, is left to it with nothing said.
+ * compaction, is left to it with nothing said. Where a log's header
+ * alone leaves it to pi, only the header is read first, so the log is
+ * not parsed twice: once here and again whole by pi.
  */
 
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
@@ -43,6 +45,12 @@ import type { SessionManager } from "./pi-session.ts";
 
 /** How much of a log one read takes, as pi's own open reads it. */
 const READ_SIZE = 1024 * 1024;
+
+/**
+ * How much of a log one read takes in looking for its header, which
+ * takes a few hundred bytes; a longer one is read on until it ends.
+ */
+const HEADER_READ_SIZE = 4096;
 
 /** The byte that ends each of a log's lines. */
 const NEWLINE = 0x0a;
@@ -80,20 +88,11 @@ export function readLight(
 	// would hold them, so its log falls back to pi's own open.
 	let since: { entry: Record<string, unknown>; span: Span }[] = [];
 	let lightened = 0;
-	const take = (bytes: Buffer, start: number): void => {
-		const line = bytes.toString("utf8");
-		if (!line.trim()) return;
-		let entry: unknown;
-		try {
-			entry = JSON.parse(line);
-		} catch {
-			// pi's open skips a line that isn't JSON, so this does too.
-			return;
-		}
-		// pi's open keeps whatever a line parses to unless it is falsy.
-		if (!entry) return;
+	const unfinished = eachLine(file, size, (bytes, start) => {
+		const entry = lineValue(bytes);
+		if (entry === undefined) return true;
 		entries.push(entry);
-		if (!isRecord(entry)) return;
+		if (!isRecord(entry)) return true;
 		if (entry.type === "compaction") {
 			for (const read of since) {
 				if (!lighten(read.entry)) continue;
@@ -103,7 +102,30 @@ export function readLight(
 			since = [];
 		}
 		since.push({ entry, span: { start, length: bytes.length } });
+		return true;
+	});
+	if (unfinished) return undefined;
+	const header = entries[0];
+	if (!isRecord(header) || header.type !== "session") return undefined;
+	if (typeof header.id !== "string") return undefined;
+	return {
+		entries,
+		lightened,
+		whole: (light) => wholeEntries(file, light, spans),
 	};
+}
+
+/**
+ * Hand each of `file`'s lines to `take`, its newline left out, with the
+ * byte it starts at, reading `size` bytes at a time, until `take` answers
+ * false. Answers whether the file ended inside a line it never finished.
+ * A line's bytes are good only until `take` returns.
+ */
+function eachLine(
+	file: string,
+	size: number,
+	take: (bytes: Buffer, start: number) => boolean,
+): boolean {
 	const fd = openSync(file, "r");
 	try {
 		const buffer = Buffer.allocUnsafe(size);
@@ -112,7 +134,7 @@ export function readLight(
 		let lineStart = 0;
 		for (;;) {
 			const read = readSync(fd, buffer, 0, size, null);
-			if (read === 0) break;
+			if (read === 0) return begun.length > 0;
 			const chunk = buffer.subarray(0, read);
 			let from = 0;
 			for (
@@ -123,24 +145,65 @@ export function readLight(
 				const rest = chunk.subarray(from, end);
 				const bytes = begun.length > 0 ? Buffer.concat([...begun, rest]) : rest;
 				begun = [];
-				take(bytes, lineStart);
+				if (!take(bytes, lineStart)) return false;
 				lineStart += bytes.length + 1;
 				from = end + 1;
 			}
 			if (from < read) begun.push(Buffer.from(chunk.subarray(from)));
 		}
-		if (begun.length > 0) return undefined;
 	} finally {
 		closeSync(fd);
 	}
-	const header = entries[0];
-	if (!isRecord(header) || header.type !== "session") return undefined;
-	if (typeof header.id !== "string") return undefined;
-	return {
-		entries,
-		lightened,
-		whole: (light) => wholeEntries(file, light, spans),
-	};
+}
+
+/**
+ * What a line's `bytes` parse to as pi's open keeps them, or undefined
+ * for a line it skips: a blank one, one that isn't JSON, or one whose
+ * value is falsy.
+ */
+function lineValue(bytes: Buffer): unknown {
+	const line = bytes.toString("utf8");
+	if (!line.trim()) return undefined;
+	try {
+		return JSON.parse(line) || undefined;
+	} catch {
+		// pi's open skips a line that isn't JSON, so this does too.
+		return undefined;
+	}
+}
+
+/**
+ * The first entry pi's open would keep of `file`, its header, reading no
+ * further than the line that holds it; undefined when it keeps none.
+ */
+function firstEntry(file: string): unknown {
+	let first: unknown;
+	eachLine(file, HEADER_READ_SIZE, (bytes) => {
+		first = lineValue(bytes);
+		return first === undefined;
+	});
+	return first;
+}
+
+/** A log header the light open can stand on, as far as it reads one. */
+interface LightHeader {
+	readonly id: string;
+	readonly cwd: string;
+}
+
+/**
+ * `entry` as a header whose log the light open reads, or undefined for
+ * one it leaves to pi's own open: a header that isn't a session's, or
+ * names no id; a log pi would migrate and write back whole, over its
+ * light entries; and one naming no folder, which pi's own open fills in
+ * with the process's own.
+ */
+function lightHeader(entry: unknown, version: number): LightHeader | undefined {
+	if (!isRecord(entry) || entry.type !== "session") return undefined;
+	if (entry.version !== version) return undefined;
+	const { id, cwd } = entry;
+	if (typeof id !== "string" || typeof cwd !== "string") return undefined;
+	return { id, cwd };
 }
 
 /**
@@ -313,16 +376,15 @@ export function openKept(
 		);
 	const said = new HeldReport();
 	try {
+		// A log its header leaves to pi is read no further, since pi's own
+		// open parses the whole of it again.
+		if (!lightHeader(firstEntry(file), version)) return undefined;
 		const log = readLight(file);
 		if (!log) return undefined;
-		const header = log.entries[0];
-		// pi migrates an older log and writes it back whole, which would
-		// write the light entries over it.
-		if (!isRecord(header) || header.version !== version) return undefined;
+		// The header read again with the log, for one written over since.
+		const header = lightHeader(log.entries[0], version);
+		if (!header) return undefined;
 		const path = resolve(file);
-		// pi's own open takes the process's folder for a header naming none;
-		// that log is left to it rather than read light.
-		if (typeof header.cwd !== "string") return undefined;
 		const headerCwd = header.cwd;
 		const open = (cwd?: string): SessionManager => {
 			// What pi is given, to check it took it unchanged; a copy kept past
