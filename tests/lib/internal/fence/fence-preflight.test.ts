@@ -6,7 +6,13 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -193,6 +199,21 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 	it("fails, rather than saying unread, where its tools are missing", () => {
 		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", folder);
 		expect(ran.code).toBe(127);
+		expect(readsAsStandIn(ran)).toBe(false);
+	});
+
+	it("fails, rather than saying unread, where head alone is missing", () => {
+		// A folder holding sha256sum but not head: without the guard, head's
+		// failing to run would read as the key hidden, and say unread.
+		const tools = join(folder, "tools");
+		mkdirSync(tools);
+		const sum = spawnSync("bash", ["-c", "command -v sha256sum"], {
+			encoding: "utf8",
+		}).stdout.trim();
+		symlinkSync(sum, join(tools, "sha256sum"));
+		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", tools);
+		expect(ran.code).not.toBe(0);
+		expect(ran.out.trim()).not.toBe("unread");
 		expect(readsAsStandIn(ran)).toBe(false);
 	});
 

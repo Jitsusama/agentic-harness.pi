@@ -74,6 +74,7 @@ import {
 import { join } from "node:path";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { isPrivateFolder, makeFolder } from "./fence-folders.ts";
+import { codeOf } from "./fence-log.ts";
 
 /** gcloud's known-hosts file, in `~/.ssh`. */
 export const GCLOUD_KNOWN_HOSTS = "google_compute_known_hosts";
@@ -225,14 +226,21 @@ function writeOver(path: string, text: Buffer | string): void {
  * is answered, and where one isn't, what it is is thrown.
  */
 function privateFolders(runtimeDir: string, names: readonly string[]): string {
-	// A folder gone as it was asked for was most likely put aside by a
-	// sweep; that is its cause, not a folder of the wrong mode.
-	const refused = (folder: string): Error =>
-		new Error(
-			existsSync(folder) || isLink(folder)
-				? `${folder} isn't this account's own private folder (mode 700)`
+	// A folder below the runtime folder gone as it was asked for was most
+	// likely put aside by a sweep; that is its cause, not a folder of the
+	// wrong mode. No sweep takes the runtime folder, nor makes it again.
+	const refused = (folder: string): Error => {
+		if (existsSync(folder) || isLink(folder)) {
+			return new Error(
+				`${folder} isn't this account's own private folder (mode 700)`,
+			);
+		}
+		return new Error(
+			folder === runtimeDir
+				? `${folder}, the runtime folder, isn't there`
 				: `${folder} went as it was made, as a sweep of ended sessions takes one; the next command makes it again`,
 		);
+	};
 	if (!isPrivateFolder(runtimeDir)) throw refused(runtimeDir);
 	let folder = runtimeDir;
 	for (const name of names) {
@@ -418,7 +426,7 @@ export function fenceGcloudSsh(
 		// folder reads as one, not as a folder's mode.
 		const said = error instanceof Error ? error.message : String(error);
 		unmade(
-			(error as NodeJS.ErrnoException).code === "ENOENT"
+			codeOf(error) === "ENOENT"
 				? `${said}, most likely as a sweep of ended sessions took its folder; the next command makes it again`
 				: said,
 		);

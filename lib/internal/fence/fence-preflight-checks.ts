@@ -206,7 +206,9 @@ export function hiddenVerdict(
 export function gcloudKeyProbe(path: string): string {
 	const key = quoted(path);
 	return [
-		"command -v head sha256sum > /dev/null || exit 127",
+		// Each asked alone: `command -v` given both answers 0 where either
+		// is found.
+		"{ command -v head && command -v sha256sum; } > /dev/null || exit 127",
 		`if head -c1 ${key} > /dev/null 2>&1 && test -s ${key}; then sha256sum < ${key}; else echo unread; fi`,
 	].join("\n");
 }

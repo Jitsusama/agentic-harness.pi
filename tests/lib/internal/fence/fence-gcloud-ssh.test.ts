@@ -5,6 +5,7 @@
  * written through a link or into a folder that isn't the account's own.
  */
 
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -332,11 +333,37 @@ describe("the session's copies for gcloud's ssh", () => {
 		chmodSync(runtime, 0o755);
 		expect(fenceGcloudSsh(runtime, home, "one", tell)).toBeUndefined();
 		chmodSync(runtime, 0o700);
+		const gone = join(root, "gone");
+		expect(fenceGcloudSsh(gone, home, "one", tell)).toBeUndefined();
 		expect(told).toEqual([
 			"no XDG_RUNTIME_DIR is set",
 			`the session's name "a/b" can't name a folder`,
 			`${runtime} isn't this account's own private folder (mode 700)`,
+			// No sweep takes the runtime folder, so none is blamed.
+			`${gone}, the runtime folder, isn't there`,
 		]);
+	});
+
+	it("copies no hosts from a fifo in the person's place, rather than waiting on it", () => {
+		const fifo = join(home, ".ssh", GCLOUD_KNOWN_HOSTS);
+		const made = spawnSync("mkfifo", [fifo]);
+		expect(made.status, "mkfifo").toBe(0);
+		const copy = fenceGcloudSsh(runtime, home, "one")?.knownHosts ?? "";
+		expect(readFileSync(copy, "utf8")).toBe("");
+	});
+
+	it("never sweeps the asking session's own folder, however long unused", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		fenceGcloudSsh(runtime, home, "one");
+		utimesSync(sessionFolder(), daysOn(-2), daysOn(-2));
+		sweepEnded(sessions, "one", Date.now());
+		expect(readFileSync(join(sessionFolder(), GCLOUD_KEY), "utf8")).toBe(
+			KEY_STAND_IN,
+		);
+		expect(
+			readdirSync(sessions).filter((name) => name.startsWith(".ended-")),
+			"put aside",
+		).toEqual([]);
 	});
 
 	it("dates a session's folder afresh at each ask, so a long-lived session's copies outlast a day", () => {
