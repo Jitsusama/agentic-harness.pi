@@ -181,6 +181,41 @@ describe("hosted screens", () => {
 		]);
 	});
 
+	it("says a start's profile after its start line, the profile running the start", async () => {
+		const PROFILED = "Screen start profiled: the thread's time went to pi";
+		const said: string[] = [];
+		const modes: FakeMode[] = [];
+		let profiled = 0;
+		const screens = hostScreens({
+			create: (runtime, options) => {
+				const made = new FakeMode(runtime, options);
+				modes.push(made);
+				return made;
+			},
+			report: vi.fn(),
+			said: (line) => said.push(line),
+			profile: async (start) => {
+				profiled += 1;
+				await start();
+				return { line: profiled === 1 ? PROFILED : undefined };
+			},
+		});
+		const open = (sessionId: string) =>
+			screens.screens.opened({
+				sessionId,
+				runtime: {},
+				close: async () => undefined,
+			});
+		await open("a");
+		await open("b");
+		expect(modes.map((mode) => mode.startedIn)).toEqual(["a", "b"]);
+		expect(said).toEqual([
+			expect.stringMatching(/^Screen started in /),
+			PROFILED,
+			expect.stringMatching(/^Screen started in /),
+		]);
+	});
+
 	it("starts a screen whose start line can't be said, reporting why", async () => {
 		const report = vi.fn();
 		const screens = hostScreens({

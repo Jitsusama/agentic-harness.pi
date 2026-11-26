@@ -38,6 +38,7 @@ import {
 	working,
 } from "./hosted-mode.ts";
 import { type StartParts, startLine, timeStart } from "./start-parts.ts";
+import type { StartProfiler } from "./start-profile.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
 // The host's program builds its screens from here.
@@ -153,14 +154,16 @@ interface Early {
 export const PARKED_LINE =
 	"Parked while idle, holding no memory. A key or a message wakes it.";
 
-/** Say a started screen's start line; a fault in the saying is reported, never the screen's. */
+/** Say a started screen's start line, and its profile's when one was taken; a fault in the saying is reported, never the screen's. */
 function sayStart(
 	parts: StartParts,
+	profiled: string | undefined,
 	said: (line: string) => void,
 	report: (error: unknown) => void,
 ): void {
 	try {
 		said(startLine(parts));
+		if (profiled !== undefined) said(profiled);
 	} catch (error) {
 		report(error);
 	}
@@ -172,6 +175,8 @@ export function hostScreens(options: {
 	report: (error: unknown) => void;
 	/** Told, as each screen starts, what in its start took the time; without it nothing is timed. */
 	said?: (line: string) => void;
+	/** Profiles a start now and then, its line told to `said`; without it none is. */
+	profile?: StartProfiler;
 	/** Shows pi's startup questions; without it the screens offer none. */
 	ask?: StartupAsker;
 	/** Told how many windows view a conversation, each time one joins or leaves. */
@@ -398,14 +403,17 @@ export function hostScreens(options: {
 		const init = (): Promise<void> =>
 			withSession(view.sessionId, () => mode.init());
 		try {
-			const { said } = options;
-			if (said)
-				sayStart(
-					await timeStart(mode, view.runtime, init),
-					said,
-					options.report,
-				);
-			else await init();
+			const { said, profile } = options;
+			if (said) {
+				let profiled: string | undefined;
+				const started = profile
+					? async () => {
+							profiled = (await profile(init)).line;
+						}
+					: init;
+				const parts = await timeStart(mode, view.runtime, started);
+				sayStart(parts, profiled, said, options.report);
+			} else await init();
 		} catch (error) {
 			// The engine fails the open itself, so the screen goes without closing.
 			live.delete(view.sessionId);
