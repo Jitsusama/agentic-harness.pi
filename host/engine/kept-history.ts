@@ -49,6 +49,11 @@
  * first prompt and usage carry on into the new ones, and what was left
  * out before is still counted and listed. A failure leaves it holding
  * what it held, said each time.
+ *
+ * Long because the view, the guards that answer in its place and its
+ * retake at each compaction all reach into the same privates of pi's
+ * manager and share the ids it keeps taken, so splitting them would
+ * export what only the view should touch.
  */
 
 import { randomBytes } from "node:crypto";
