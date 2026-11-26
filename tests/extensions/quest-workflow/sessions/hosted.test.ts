@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import {
 	captureSessionIdentity,
 	releaseSessionOnShutdown,
@@ -27,6 +28,7 @@ import {
 import { followHostStamps } from "../../../../extensions/quest-workflow/sessions/signal-stamp.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { followSessionLife } from "../../../../extensions/quest-workflow/wiring/session.ts";
 import {
 	type Host,
 	type HostedState,
@@ -290,6 +292,35 @@ it("keeps a park as it was when another session's park is taken back", () => {
 
 	expect(readRecord("a")?.endReason).toBe("parked");
 	off();
+});
+
+// #2182 F31: a quit after a park taken back is a quit, not a wait for a wake.
+it("records a quit after its own park was taken back as a quit, and another's leaves its park", async () => {
+	for (const id of ["a", "b"])
+		withSession(id, () =>
+			trackSession({ sessionId: id, cwd: root, ...captureSessionIdentity() }),
+		);
+	const quitAfter = async (id: string, undone: string): Promise<void> => {
+		const pi = fakePi();
+		const state = createQuestState({ questsRoot: join(root, "quests") });
+		const budgets = { keep: async () => undefined, forget: () => undefined };
+		followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
+		pi.events.emit(PARKING, { session: id, addresses: [] });
+		pi.events.emit(PARK_UNDONE, { session: undone });
+		const [shutdown] = pi.recorded.handlers.get("session_shutdown") ?? [];
+		await withSession(id, async () => {
+			await shutdown?.(
+				{ type: "session_shutdown", reason: "quit" },
+				contexts(id),
+			);
+		});
+	};
+
+	await quitAfter("a", "a");
+	await quitAfter("b", "another");
+
+	expect(readRecord("a")?.endReason, "its park taken back").toBe("quit");
+	expect(readRecord("b")?.endReason, "another's taken back").toBe("parked");
 });
 
 it("checks the host list from another reader without treating a missing list as death", () => {

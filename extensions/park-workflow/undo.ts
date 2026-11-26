@@ -19,8 +19,13 @@ export interface HalfPark {
 	readonly session: string;
 	/** Its park folder, or the usual one where undefined. */
 	readonly folder: string | undefined;
-	/** The wake it wrote ahead of a park its run goes on from. */
-	readonly wakeWritten?: string;
+	/**
+	 * Its wake file, where a park its run goes on from wrote ahead and a
+	 * sender writes once it reads parked; empty where it has none.
+	 */
+	readonly wake: string;
+	/** How many of its windows the park closed, the launcher keeping their place asleep. */
+	readonly windowsClosed: number;
 	/**
 	 * Ended its process, as plain pi parks: told its holder it parked
 	 * (sayParked) and said the code it exits with (exitWith).
@@ -50,7 +55,12 @@ export class ParkLeftHalfDone extends Error {
  * Takes back what `half` says the park had said, then throws `failed`
  * again as it was, or a {@link ParkLeftHalfDone} where any part of
  * the taking back failed too. Every part is tried, whichever fails.
- * Windows it moved off the screen stay where they went.
+ *
+ * Windows it closed can't be opened again from here, and the launcher
+ * still keeps their place asleep, so those are said as left too. An
+ * ask to ease the park cleared isn't put back: it would lapse within
+ * the half hour the failure holds the clock, and the node asks again
+ * while its machine still reads over.
  */
 export function undoPark(failed: unknown, half: HalfPark): never {
 	const left: string[] = [];
@@ -61,14 +71,8 @@ export function undoPark(failed: unknown, half: HalfPark): never {
 			left.push(`${part} is left: ${messageOf(error)}`);
 		}
 	};
-	// Its marker first, so no sender finds it parked and writes a wake
-	// once its own is gone.
+	// Its marker first, so fewer senders find it parked and write a wake.
 	tryTo("its parked marker", () => clearParked(half.session, half.folder));
-	// Its next park would be woken at once by a wake left behind.
-	if (half.wakeWritten !== undefined) {
-		const wake = half.wakeWritten;
-		tryTo("its wake", () => rmSync(wake, { force: true }));
-	}
 	if (half.saidToHolder) {
 		tryTo("its word to its holder", () => unsayParked(half.env, half.pid));
 		takeBackExit();
@@ -77,6 +81,18 @@ export function undoPark(failed: unknown, half: HalfPark): never {
 	// a mesh left reading it as parked shows there, never in `left`.
 	const undone: ParkUndone = { session: half.session };
 	half.bus.emit(PARK_UNDONE, undone);
+	// Its wake last, whoever wrote it: awake, it needs none, and one left
+	// would wake its next park at once. A sender reading its presence
+	// before the mesh's write lands may still write one, which costs that
+	// next park one start.
+	if (half.wake !== "") {
+		const wake = half.wake;
+		tryTo("its wake", () => rmSync(wake, { force: true }));
+	}
+	if (half.windowsClosed > 0) {
+		const count = half.windowsClosed === 1 ? "window is" : "windows are";
+		left.push(`its ${count} closed, and the launcher keeps its place asleep`);
+	}
 	if (left.length > 0) throw new ParkLeftHalfDone(failed, left);
 	throw failed;
 }
@@ -107,5 +123,11 @@ export function heldByFailure(
 	if (failed === undefined || now - failed.at >= FAILED_PARK_HOLDS_MS) {
 		return undefined;
 	}
-	return `its last park failed, so it tries again half an hour on: ${messageOf(failed.error)}`;
+	const why = `its last park failed, so it tries again half an hour on: ${messageOf(failed.error)}`;
+	// A take-back that left parts standing says them, as the person's
+	// Park would, since the clock parks most and nothing else says so.
+	if (failed.error instanceof ParkLeftHalfDone) {
+		return [why, ...failed.error.left].join("; ");
+	}
+	return why;
 }

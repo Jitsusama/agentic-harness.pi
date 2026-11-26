@@ -66,6 +66,8 @@ afterEach(() => {
 const half = (over: Partial<HalfPark> = {}): HalfPark => ({
 	session: SESSION,
 	folder,
+	wake: "",
+	windowsClosed: 0,
 	saidToHolder: false,
 	env: {
 		MYCELIUM_WAKE: join(folder, "held.wake"),
@@ -94,7 +96,7 @@ describe("taking back a half-done park", () => {
 		const error = thrown(() =>
 			undoPark(
 				failed,
-				half({ wakeWritten: join(folder, "held.wake"), saidToHolder: true }),
+				half({ wake: join(folder, "held.wake"), saidToHolder: true }),
 			),
 		);
 
@@ -111,7 +113,7 @@ describe("taking back a half-done park", () => {
 		expect(said).toEqual([[PARK_UNDONE, { session: SESSION }]]);
 	});
 
-	it("leaves a holder's word it never gave, and a wake it never wrote", () => {
+	it("leaves a holder's word it never gave, and a wake file where it has none", () => {
 		writeFileSync(join(folder, "held.wake"), "{}");
 		writeFileSync(join(folder, "held.parked"), "");
 
@@ -119,12 +121,53 @@ describe("taking back a half-done park", () => {
 
 		expect(
 			existsSync(join(folder, "held.wake")),
-			"the wake it never wrote is left",
+			"a file it wasn't told of is left",
 		).toBe(true);
 		expect(
 			existsSync(join(folder, "held.parked")),
 			"the parked marker it never wrote is left",
 		).toBe(true);
+	});
+
+	// #2182 F36, F44: a sender writes a wake once it reads parked.
+	it("takes back a wake a sender wrote, once the mesh is told it is awake", () => {
+		const wake = join(folder, "held.wake");
+		writeFileSync(wake, "{}");
+		const wakeAtTelling: boolean[] = [];
+
+		thrown(() =>
+			undoPark(
+				new Error("no"),
+				half({
+					wake,
+					bus: { emit: () => wakeAtTelling.push(existsSync(wake)) },
+				}),
+			),
+		);
+
+		expect(existsSync(wake), "its next park isn't woken at once").toBe(false);
+		expect(wakeAtTelling, "taken back after the mesh's word").toEqual([true]);
+	});
+
+	// #2182 F43: the launcher keeps the place of windows a park closed.
+	it("says the windows it closed are left, and nothing else when the rest went", () => {
+		const one = thrown(() =>
+			undoPark(new Error("no"), half({ windowsClosed: 1 })),
+		);
+		const two = thrown(() =>
+			undoPark(new Error("no"), half({ windowsClosed: 2 })),
+		);
+
+		expect((one as ParkLeftHalfDone).left).toEqual([
+			"its window is closed, and the launcher keeps its place asleep",
+		]);
+		expect((two as ParkLeftHalfDone).left).toEqual([
+			"its windows are closed, and the launcher keeps its place asleep",
+		]);
+		expect(
+			readParked(SESSION, folder),
+			"its marker still went",
+		).toBeUndefined();
 	});
 
 	it("tries every part, saying which it left where its first fails", () => {
@@ -139,7 +182,7 @@ describe("taking back a half-done park", () => {
 		const error = thrown(() =>
 			undoPark(
 				new Error("its holder is gone"),
-				half({ wakeWritten: join(folder, "held.wake"), saidToHolder: true }),
+				half({ wake: join(folder, "held.wake"), saidToHolder: true }),
 			),
 		);
 
@@ -211,6 +254,16 @@ describe("the clock's hold after a failed park", () => {
 
 	it("holds nothing where no park failed", () => {
 		expect(heldByFailure(undefined, 1_000)).toBeUndefined();
+	});
+
+	// #2182 F41: the clock parks most, and nothing else says what was left.
+	it("names each part a take-back left standing", () => {
+		const left = new ParkLeftHalfDone(new Error("this context is stale"), [
+			"its parked marker is left: busy",
+		]);
+		expect(heldByFailure({ at: 1_000, error: left }, 1_001)).toBe(
+			"its last park failed, so it tries again half an hour on: this context is stale; its parked marker is left: busy",
+		);
 	});
 });
 
