@@ -993,7 +993,11 @@ export async function newestRosterStartIn(
 const ROSTER_RUN =
 	/^(?:council|stack|critique)-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})-\d+$/;
 
-function rosterStartOf(name: string): number | undefined {
+/**
+ * When the roster round a transcripts folder is named for started, in
+ * milliseconds, or nothing when the name is no roster round's.
+ */
+export function rosterStartOf(name: string): number | undefined {
 	const parts = ROSTER_RUN.exec(name);
 	if (parts === null) return undefined;
 	const [, y, mo, d, h, mi, s, ms] = parts;

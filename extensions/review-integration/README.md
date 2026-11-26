@@ -343,18 +343,23 @@ small machine can still start one. A figure Linux doesn't keep holds
 nothing back. A Mac reads the rule the machine queue reads there: it
 is short at the kernel's warning pressure, after a swap-out within
 the last minute, or with under 35% of its memory available. It reads
-only `sysctl` and `vm_stat`, without blocking, and waits for a
-reading a minute old, from the swap history every session shares. It
-starts at most one round every two minutes, since a round's
-reviewers show in its swap-outs only once they have loaded. One
-reading, or one failure to read, serves a session's rounds for 20
-seconds. A short reading holds a round for as long as it lasts, as
-on Linux. A wait with no verdict, for figures it can't read or a
-baseline not yet a minute old, lasts at most 10 minutes a session,
+only `/usr/sbin/sysctl` and `/usr/bin/vm_stat`, each apart and
+without blocking, and waits for a reading a minute old, from the
+swap history every session shares in the queue's lock folder. A
+program that takes past 5 seconds reads as short, as a Mac swapping
+hard makes it. A Mac starts one round at a time: while another
+round's reviewers are running or starting there, by the leases its
+rounds' folders keep, the next waits for it to end. It also starts
+at most one round every two minutes, since a round's reviewers show
+in its swap-outs only once they have loaded. One reading, or one
+failure to read, serves a session's rounds for 20 seconds. A short
+reading holds a round for as long as it lasts, as on Linux. A wait
+with no verdict, for a figure it can't read or a baseline not yet a
+minute old, lasts at most 10 minutes for each round that starts,
 under the 15 the velocity cell allows. After that the round starts
-and says why. On 25 November a Mac
-swapped hard while rounds still started on it, and Joel's window
-froze.
+and says why. On 25 November a Mac swapped hard while rounds still
+started on it, and Joel's window froze; on 26 November two rounds
+ran on it at once.
 Rounds with the same first ask, as two sessions' rounds on one
 change always have, take their turns by ticket id, so every look
 agrees which is ahead. A

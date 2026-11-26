@@ -168,6 +168,18 @@ export function machineQueueDir(
 	return runtime ? join(runtime, "jobs") : undefined;
 }
 
+/**
+ * The queue's lock folder, where every session on the machine keeps
+ * what it shares beside the locks, such as a Mac's swap history: the
+ * queue and a council's start read the one folder.
+ */
+export function machineLockDir(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	const queue = machineQueueDir(env);
+	return queue === undefined ? undefined : join(queue, LOCK_FOLDER);
+}
+
 /** Whether some session keeps the queue at `dir`, by queue.json's age. */
 export function isKept(dir: string, now: number = Date.now()): boolean {
 	try {

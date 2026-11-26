@@ -5,16 +5,19 @@
  * the swap history the machine shares.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	LEAST_AVAILABLE_BYTES,
 	type LinuxSources,
 	MAC_READING_SERVES_MS,
+	type MacFigures,
 	type MacSources,
 	macFiguresFrom,
 	macFiguresNow,
 	macRoundRoom,
 	memoryShort,
+	PROGRAM_TIMEOUT_MS,
+	runBounded,
 	sharedReading,
 	UNJUDGED_WAIT_MS,
 } from "../../../../lib/core/review/ask/memory-room.ts";
@@ -71,6 +74,16 @@ describe("whether a Linux machine has memory for a round", () => {
 		expect(await memoryShort(linux("8.23"))).toContain("8.23");
 	});
 
+	it("has room at exactly 16 GB available, and is short just under it", async () => {
+		// 16e9 bytes is a whole 15,625,000 kB, so the bar is met exactly.
+		const atBar = (bytes: number): LinuxSources => ({
+			pressure: async () => pressureAt("0.1"),
+			meminfo: async () => meminfoOf(128e9 / 1024, bytes / 1024),
+		});
+		expect(await memoryShort(atBar(16e9))).toBeUndefined();
+		expect(await memoryShort(atBar(16e9 - 1024))).toContain("under 16.0 GB");
+	});
+
 	it("is short under 16 GB available, saying how much was", async () => {
 		expect(await memoryShort(linux("0.37", 15))).toBe(
 			"15.0 GB of memory was available, under 16.0 GB",
@@ -113,7 +126,7 @@ const roomy: MemoryFigures = {
 };
 
 /** A Mac whose figures are `read`, at a time the test moves. */
-function mac(read: () => MemoryFigures | Error): MacSources & {
+function mac(read: () => MacFigures | Error): MacSources & {
 	advance(ms: number): void;
 	readonly history: ReturnType<typeof historyInMemory>;
 } {
@@ -198,15 +211,86 @@ describe("whether a Mac has memory for a round", () => {
 
 	it("counts the wait for a baseline toward the same cap", async () => {
 		// A history another writer keeps emptying never gives the swap rule
-		// a reading a minute old to compare against.
-		const sources = mac(() => roomy);
+		// a reading a minute old to compare against: each reading here
+		// finds the history emptied before it joins.
+		const sources = mac(() => {
+			sources.history.save([]);
+			return roomy;
+		});
 		const room = macRoundRoom(sources);
-		await room.short();
-		sources.history.save([]);
+		expect(await room.short()).toContain("a reading a minute old");
 		sources.advance(UNJUDGED_WAIT_MS);
-		sources.history.save([]);
 		expect(await room.short()).toBeUndefined();
 		expect(room.startedUnjudged()).toContain("a reading a minute old");
+	});
+
+	it("starts the wait again for the next round once the cap lets one start", async () => {
+		const sources = mac(() => new Error("gone"));
+		await macRoundRoom(sources).short();
+		sources.advance(UNJUDGED_WAIT_MS);
+		expect(await macRoundRoom(sources).short()).toBeUndefined();
+		sources.advance(MAC_READING_SERVES_MS);
+		const next = macRoundRoom(sources);
+		expect(await next.short(), "the next round waits its own").toContain(
+			"can't be read",
+		);
+		expect(next.startedUnjudged()).toBeUndefined();
+	});
+
+	it("stops saying it started unjudged once a later look gives a verdict", async () => {
+		let broken = true;
+		const sources = mac(() => (broken ? new Error("gone") : roomy));
+		const room = macRoundRoom(sources);
+		await room.short();
+		sources.advance(UNJUDGED_WAIT_MS);
+		expect(await room.short()).toBeUndefined();
+		expect(room.startedUnjudged()).toContain("gone");
+		broken = false;
+		sources.advance(MAC_READING_SERVES_MS);
+		await room.short();
+		sources.advance(SWAPPING_MS);
+		expect(await room.short()).toBeUndefined();
+		expect(room.startedUnjudged()).toBeUndefined();
+	});
+
+	it("is short when a program ran out of time, with no cap, as a Mac swapping hard makes it", async () => {
+		const sources = mac(() => ({
+			availablePercent: Number.NaN,
+			pressureLevel: Number.NaN,
+			swapouts: 1000,
+			slow: ["sysctl"],
+		}));
+		const room = macRoundRoom(sources);
+		expect(await room.short()).toBe(
+			"sysctl took past 5 s to answer, as on a Mac swapping hard",
+		);
+		sources.advance(UNJUDGED_WAIT_MS * 3);
+		expect(await room.short()).toContain("took past 5 s");
+		expect(room.startedUnjudged()).toBeUndefined();
+	});
+
+	it("is short on warning pressure though vm_stat failed", async () => {
+		const room = macRoundRoom(
+			mac(() => ({
+				availablePercent: 50,
+				pressureLevel: 4,
+				swapouts: Number.NaN,
+				failed: ["/usr/bin/vm_stat failed (1)"],
+			})),
+		);
+		expect(await room.short()).toContain("pressure level is 4");
+	});
+
+	it("counts figures sysctl didn't give as unread, not as 0, saying why", async () => {
+		const room = macRoundRoom(
+			mac(() => ({
+				...macFiguresFrom("", "Swapouts: 7.\n"),
+				failed: ["/usr/sbin/sysctl failed (ENOENT)"],
+			})),
+		);
+		expect(await room.short()).toBe(
+			"this Mac's memory can't be read (no figure for availablePercent, pressureLevel: /usr/sbin/sysctl failed (ENOENT))",
+		);
 	});
 
 	it("shares the wait between the rounds of a process", async () => {
@@ -324,8 +408,73 @@ describe("one reading of a Mac shared by its rounds", () => {
 	});
 });
 
+describe("a Mac's figures, each program read apart", () => {
+	const SYSCTL =
+		"kern.memorystatus_level: 41\nkern.memorystatus_vm_pressure_level: 1\n";
+
+	it("keeps what sysctl said when vm_stat failed, naming the failure", async () => {
+		const figures = await macFiguresNow(async (path) =>
+			path.endsWith("sysctl")
+				? { text: SYSCTL }
+				: { failed: `${path} failed (1)` },
+		);
+		expect(figures.availablePercent).toBe(41);
+		expect(figures.swapouts).toBeNaN();
+		expect(figures.failed).toEqual(["/usr/bin/vm_stat failed (1)"]);
+		expect(figures.slow).toBeUndefined();
+	});
+
+	it("names a program that ran out of time as slow", async () => {
+		const figures = await macFiguresNow(async (path) =>
+			path.endsWith("vm_stat") ? { slow: true } : { text: SYSCTL },
+		);
+		expect(figures.slow).toEqual(["vm_stat"]);
+	});
+
+	it("asks Apple's own programs by their paths", async () => {
+		const asked: string[] = [];
+		await macFiguresNow(async (path) => {
+			asked.push(path);
+			return { text: "" };
+		});
+		expect(asked.sort()).toEqual(["/usr/bin/vm_stat", "/usr/sbin/sysctl"]);
+	});
+});
+
+describe("a program run with a bound", () => {
+	it("gives what it printed", async () => {
+		expect(await runBounded("/bin/echo", ["hello"])).toEqual({
+			text: "hello\n",
+		});
+	});
+
+	it("names a program that couldn't run, without its raw error", async () => {
+		expect(await runBounded("/nonexistent/program", [])).toEqual({
+			failed: "/nonexistent/program failed (ENOENT)",
+		});
+	});
+
+	it("counts a child its timeout's kill never ends as slow, past the bound", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			// Ignores the timeout's SIGTERM, and exits on its own in 2 s, so
+			// only the bound can settle the answer before then.
+			const answer = runBounded("/bin/sh", [
+				"-c",
+				'trap "" TERM; exec /bin/sleep 2',
+			]);
+			await vi.advanceTimersByTimeAsync(PROGRAM_TIMEOUT_MS + 1_000);
+			expect(await answer).toEqual({ slow: true });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe.runIf(process.platform === "darwin")("this Mac's own figures", () => {
-	it("reads every figure the room needs", async () => {
+	// Past the programs' own 5 s timeout and its bound, so a slow Mac
+	// answers slow rather than failing the test's budget.
+	it("reads every figure the room needs", { timeout: 15_000 }, async () => {
 		const figures = await macFiguresNow();
 		expect(figures.availablePercent).toBeGreaterThanOrEqual(0);
 		expect(figures.pressureLevel).toBeGreaterThanOrEqual(0);

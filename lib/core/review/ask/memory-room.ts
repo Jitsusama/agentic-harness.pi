@@ -22,12 +22,9 @@
 
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { promisify } from "node:util";
-import {
-	LOCK_FOLDER,
-	machineQueueDir,
-} from "../../../internal/priority/folder.ts";
+import { SYSCTL_PATH } from "../../../internal/boot-token.ts";
+import { machineLockDir } from "../../../internal/priority/folder.ts";
 import {
 	darwinShort,
 	historyIn,
@@ -61,22 +58,37 @@ const LEAST_AVAILABLE_SHARE = 0.25;
 
 /**
  * How long the rounds of a process wait on a Mac whose room they can't
- * judge, unreadable or with no reading old enough, before they start
+ * judge, a figure unread or no reading old enough, before they start
  * anyway and say so. Velocity lets a round wait a quarter of an hour at
- * most (A210E4CA, 26 November), and a round starts a look and a spacing
- * after this, so it is well under that.
+ * most for a Mac that can't say (A210E4CA, 26 November), and a round
+ * starts a look and a spacing after this, so it is well under that. A
+ * Mac that reads short holds a round as long as it stays short, with no
+ * cap, as Linux does.
  */
 export const UNJUDGED_WAIT_MS = 10 * 60_000;
 
 /**
  * How long one reading of a Mac, or its failure, serves every round in
- * this process: longer than the 15 s a waiting round looks again, so a
- * process runs `sysctl` and `vm_stat` once a look, whatever its rounds.
+ * this process: longer than the 15 s a waiting round looks again, so
+ * however many rounds a process holds, it runs `sysctl` and `vm_stat`
+ * at most once a look, and a lone round every other look.
  */
 export const MAC_READING_SERVES_MS = 20_000;
 
-/** How long `sysctl` or `vm_stat` may take before the reading fails. */
-const PROGRAM_TIMEOUT_MS = 5_000;
+/**
+ * How long `sysctl` or `vm_stat` may take before it is stopped and read
+ * as a Mac too short to answer.
+ */
+export const PROGRAM_TIMEOUT_MS = 5_000;
+
+/**
+ * How long past its timeout a program's answer is waited for before it
+ * counts as timed out anyway, for a child the kill never ends.
+ */
+const PROGRAM_GRACE_MS = 1_000;
+
+/** Apple's own `vm_stat`, by its path, as {@link SYSCTL_PATH} is. */
+export const VM_STAT_PATH = "/usr/bin/vm_stat";
 
 const FULL_AVG60 = /^full\b.*\bavg60=(\d+(?:\.\d+)?)/m;
 const MEMINFO_KB = (name: string) => new RegExp(`^${name}:\\s+(\\d+) kB$`, "m");
@@ -146,10 +158,21 @@ export interface RoundRoom {
 	startedUnjudged(): string | undefined;
 }
 
+/**
+ * A Mac's figures as its programs gave them, a figure one didn't give
+ * read as NaN, with which programs ran out of time and which failed.
+ */
+export interface MacFigures extends MemoryFigures {
+	/** Programs stopped for taking too long, as a Mac swapping hard does. */
+	readonly slow?: readonly string[];
+	/** Programs that failed some other way, each with why. */
+	readonly failed?: readonly string[];
+}
+
 /** A Mac's figures, dated when read, with the swap history they joined. */
 export interface MacReading {
 	readonly at: number;
-	readonly figures: MemoryFigures;
+	readonly figures: MacFigures;
 	/** The readings the swap rule compares against, this one last. */
 	readonly seen: readonly Swapped[];
 }
@@ -169,10 +192,12 @@ export interface MacSources {
 /**
  * A round's room on a Mac, read by the queue's rule over the swap
  * history every session there shares. A Mac that reads short holds the
- * round as long as it stays short, as Linux does. One whose room can't
- * be judged, its figures unread or no reading a minute old, holds the
- * rounds of this process for {@link UNJUDGED_WAIT_MS} in all, after which
- * they start and say why; any verdict starts that wait again.
+ * round as long as it stays short, as Linux does, and so does one whose
+ * `sysctl` or `vm_stat` ran out of time, as a Mac swapping hard makes
+ * them. One whose room can't be judged, a figure unread or no reading a
+ * minute old, holds the rounds of this process for
+ * {@link UNJUDGED_WAIT_MS} in all, after which one starts and says why;
+ * a verdict, or a start the cap let through, starts that wait again.
  */
 export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
 	let startedUnjudged: string | undefined;
@@ -189,9 +214,11 @@ export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
 			const why =
 				typeof read === "string"
 					? `this Mac's memory can't be read (${read})`
-					: "this Mac waits for a reading a minute old, to see whether it swaps";
+					: unjudgedWhy(read);
 			sources.unjudged.since ??= now;
 			if (now - sources.unjudged.since < UNJUDGED_WAIT_MS) return why;
+			// The wait was this start's; the next round waits its own.
+			sources.unjudged.since = undefined;
 			startedUnjudged = `It started though this Mac's room couldn't be judged for ${UNJUDGED_WAIT_MS / 60_000} minutes: ${why}.`;
 			return undefined;
 		},
@@ -199,34 +226,55 @@ export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
 	};
 }
 
+const FIGURE_NAMES = ["availablePercent", "pressureLevel", "swapouts"] as const;
+
+/** The figures a reading lacks, by name. */
+function unread(figures: MemoryFigures): readonly string[] {
+	return FIGURE_NAMES.filter((name) => !Number.isFinite(figures[name]));
+}
+
 /**
- * The rule's verdict on a reading, or undefined when it can't give one:
- * the swap rule needs a reading a minute old to compare against, unless
- * pressure or a short share already says short.
+ * The rule's verdict on a reading, or undefined when it can't give one.
+ * A program out of time says short, and so does any figure read that
+ * says short alone, whatever the others; room needs every figure, and
+ * for the swap rule a reading a minute old to compare against.
  */
 function judged(read: MacReading): { short: string | undefined } | undefined {
+	const slow = read.figures.slow ?? [];
+	if (slow.length > 0) {
+		return {
+			short: `${slow.join(" and ")} took past ${PROGRAM_TIMEOUT_MS / 1000} s to answer, as on a Mac swapping hard`,
+		};
+	}
 	const short = darwinShort(read.figures, read.seen);
 	if (short !== undefined) return { short };
+	if (unread(read.figures).length > 0) return undefined;
 	const oldest = read.seen[0];
 	return oldest !== undefined && read.at - oldest.at >= SWAPPING_MS
 		? { short: undefined }
 		: undefined;
 }
 
+/** Why a reading that was had gives no verdict. */
+function unjudgedWhy(read: MacReading): string {
+	const lacking = unread(read.figures);
+	if (lacking.length === 0) {
+		return "this Mac waits for a reading a minute old, to see whether it swaps";
+	}
+	const failed = read.figures.failed ?? [];
+	const said = failed.length > 0 ? `: ${failed.join("; ")}` : "";
+	return `this Mac's memory can't be read (no figure for ${lacking.join(", ")}${said})`;
+}
+
 /** The reading, or why it can't be had. */
 async function readingOf(
 	reading: () => Promise<MacReading>,
 ): Promise<MacReading | string> {
-	let read: MacReading;
 	try {
-		read = await reading();
+		return await reading();
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);
 	}
-	const unread = (
-		["availablePercent", "pressureLevel", "swapouts"] as const
-	).filter((name) => !Number.isFinite(read.figures[name]));
-	return unread.length === 0 ? read : `no figure for ${unread.join(", ")}`;
 }
 
 /**
@@ -245,21 +293,89 @@ export function macFiguresFrom(sysctl: string, vmStat: string): MemoryFigures {
 
 const run = promisify(execFile);
 
+/** What one program answered, or how it failed to. */
+export type ProgramAnswer =
+	| { readonly text: string }
+	| { readonly slow: true }
+	| { readonly failed: string };
+
+/** Runs a program by its path, giving the text it prints. */
+export type ProgramRunner = (
+	path: string,
+	args: readonly string[],
+) => Promise<ProgramAnswer>;
+
+/**
+ * Runs `path` with a timeout, and with a bound past it for a child the
+ * timeout's kill never ends, so a reading always settles.
+ */
+export const runBounded: ProgramRunner = async (path, args) => {
+	let bound: NodeJS.Timeout | undefined;
+	const outOfTime = new Promise<ProgramAnswer>((settle) => {
+		bound = setTimeout(
+			() => settle({ slow: true }),
+			PROGRAM_TIMEOUT_MS + PROGRAM_GRACE_MS,
+		);
+		bound.unref();
+	});
+	const answered = run(path, [...args], {
+		encoding: "utf8",
+		timeout: PROGRAM_TIMEOUT_MS,
+	}).then(
+		({ stdout }): ProgramAnswer => ({ text: stdout }),
+		(error: unknown): ProgramAnswer => failureOf(path, error),
+	);
+	try {
+		return await Promise.race([answered, outOfTime]);
+	} finally {
+		clearTimeout(bound);
+	}
+};
+
+/** How a program failed: killed by its timeout, or why else. */
+function failureOf(path: string, error: unknown): ProgramAnswer {
+	if (typeof error === "object" && error !== null) {
+		if ("killed" in error && error.killed === true) return { slow: true };
+		if ("code" in error && error.code !== undefined) {
+			return { failed: `${path} failed (${String(error.code)})` };
+		}
+	}
+	return { failed: `${path} failed` };
+}
+
 /**
  * What this Mac's kernel says now, asked of `sysctl` and `vm_stat` at
- * once and off the main thread, as a Mac short of memory answers slowly.
+ * once, by their paths and off the main thread, as a Mac short of
+ * memory answers slowly. Each is read apart, so what one says still
+ * counts when the other fails.
  */
-export async function macFiguresNow(): Promise<MemoryFigures> {
-	const options = { encoding: "utf8", timeout: PROGRAM_TIMEOUT_MS } as const;
-	const [sysctl, vmStat] = await Promise.all([
-		run(
-			"sysctl",
-			["kern.memorystatus_level", "kern.memorystatus_vm_pressure_level"],
-			options,
-		),
-		run("vm_stat", [], options),
-	]);
-	return macFiguresFrom(sysctl.stdout, vmStat.stdout);
+export async function macFiguresNow(
+	runner: ProgramRunner = runBounded,
+): Promise<MacFigures> {
+	const programs = [
+		{
+			path: SYSCTL_PATH,
+			args: ["kern.memorystatus_level", "kern.memorystatus_vm_pressure_level"],
+		},
+		{ path: VM_STAT_PATH, args: [] },
+	] as const;
+	const answers = await Promise.all(
+		programs.map(({ path, args }) => runner(path, args)),
+	);
+	const slow: string[] = [];
+	const failed: string[] = [];
+	const texts = answers.map((answer, at) => {
+		const name = programs[at]?.path.split("/").at(-1) ?? "a program";
+		if ("text" in answer) return answer.text;
+		if ("slow" in answer) slow.push(name);
+		else failed.push(answer.failed);
+		return "";
+	});
+	return {
+		...macFiguresFrom(texts[0] ?? "", texts[1] ?? ""),
+		...(slow.length > 0 ? { slow } : {}),
+		...(failed.length > 0 ? { failed } : {}),
+	};
 }
 
 /**
@@ -270,7 +386,7 @@ export async function macFiguresNow(): Promise<MemoryFigures> {
  * every session there shares with the queue.
  */
 export function sharedReading(
-	figures: () => Promise<MemoryFigures>,
+	figures: () => Promise<MacFigures>,
 	clock: () => number,
 	history: SwapHistory,
 ): () => Promise<MacReading> {
@@ -308,10 +424,7 @@ export function sharedReading(
 }
 
 /** The history the queue keeps beside its locks, which every session reads. */
-const SHARED_HISTORY = historyIn(() => {
-	const queue = machineQueueDir();
-	return queue === undefined ? undefined : join(queue, LOCK_FOLDER);
-});
+const SHARED_HISTORY = historyIn(() => machineLockDir());
 
 const THIS_MAC = sharedReading(macFiguresNow, Date.now, SHARED_HISTORY);
 const THIS_MAC_UNJUDGED: UnjudgedSince = { since: undefined };

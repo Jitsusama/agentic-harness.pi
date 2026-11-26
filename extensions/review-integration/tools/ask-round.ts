@@ -46,6 +46,7 @@ import {
 } from "../engine.ts";
 import { rangeProposal } from "../range.ts";
 import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
+import { rosterRoundRunning, runningSaid } from "../round-running.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
@@ -174,12 +175,14 @@ export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
 	kind: RosterRound,
+	room: RoundRoom & { readonly spacingMs?: number } = roundRoom(
+		process.platform,
+	),
 ): Promise<CouncilStart> {
 	// A round a session on an older install started never joined the
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
-	const room = roundRoom(process.platform);
 	const spacingMs = (await configuredSpacing()) ?? room.spacingMs;
 	const line = councilStartsPath();
 	const start = await awaitCouncilStart(
@@ -223,17 +226,32 @@ export function withUnjudged(
 export const MAC_SPACING_MS = 2 * 60_000;
 
 /**
- * The room a round reads on `platform`: a Mac reads the queue's rule
- * for a Mac, since it keeps no pressure file, and spaces its starts
+ * The room a round reads on `platform`: a Mac waits while another
+ * roster round still runs there, then reads the queue's rule for a Mac,
+ * since it keeps no pressure file, and spaces its starts
  * {@link MAC_SPACING_MS} apart unless config says otherwise; Linux
- * reads its pressure and available memory.
+ * reads its pressure and available memory, and runs rounds side by side.
  */
 export function roundRoom(
 	platform: NodeJS.Platform,
 	mac: () => RoundRoom = macRoundRoom,
+	running: () => Promise<string | undefined> = macRoundRunning,
 ): RoundRoom & { readonly spacingMs?: number } {
-	if (platform === "darwin") return { ...mac(), spacingMs: MAC_SPACING_MS };
+	if (platform === "darwin") {
+		const room = mac();
+		return {
+			short: async () => (await running()) ?? (await room.short()),
+			startedUnjudged: () => room.startedUnjudged(),
+			spacingMs: MAC_SPACING_MS,
+		};
+	}
 	return { short: () => memoryShort(), startedUnjudged: () => undefined };
+}
+
+/** Why a Mac's round waits for another still running there, or nothing. */
+async function macRoundRunning(): Promise<string | undefined> {
+	const round = await rosterRoundRunning(runArtifactDir());
+	return round === undefined ? undefined : runningSaid(round);
 }
 
 /**

@@ -54,7 +54,7 @@ import {
 	probeCall,
 } from "../../lib/internal/priority/call.ts";
 import {
-	LOCK_FOLDER,
+	machineLockDir,
 	machineQueueDir,
 	type QueueFolder,
 	questsFirstIn,
@@ -400,10 +400,7 @@ function macMachine(cannotAsk: CallWarning["heard"]): Machine {
 	const room = darwinRoom(
 		darwinFactsNow,
 		Date.now,
-		historyIn(() => {
-			const dir = machineQueueDir();
-			return dir === undefined ? undefined : join(dir, LOCK_FOLDER);
-		}),
+		historyIn(() => machineLockDir()),
 	);
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.

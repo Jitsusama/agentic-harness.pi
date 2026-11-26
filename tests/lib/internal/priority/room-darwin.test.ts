@@ -20,7 +20,7 @@ import {
 	SWAP_FILE,
 	SWAPPING_MS,
 	type SwapHistory,
-	swapoutsIn,
+	swapoutsReadIn,
 } from "../../../../lib/internal/priority/room-darwin.ts";
 
 const SYSCTL = `hw.memsize: 51539607552
@@ -66,7 +66,35 @@ describe("what a Mac's kernel says", () => {
 				"qemu-img",
 			]),
 		).toBe(2);
-		expect(swapoutsIn("Pages free: 1.\n")).toBe(0);
+		expect(swapoutsReadIn("Pages free: 1.\n")).toBeUndefined();
+	});
+
+	it("reads a swap count vm_stat didn't give as unread, not as 0", () => {
+		expect(darwinFactsFrom(SYSCTL, "", []).swapouts).toBeNaN();
+	});
+});
+
+describe("a Mac's shared swap history", () => {
+	it("keeps no reading whose swap count was lost, so none reads as a swap", () => {
+		const history = historyInMemory();
+		const at = (swapouts: number, now: number) =>
+			darwinRoom(
+				() => ({
+					memsize: 48 * GIB,
+					cores: 12,
+					availablePercent: 95,
+					pressureLevel: 1,
+					load: 1.1,
+					swapouts,
+					guests: 0,
+				}),
+				() => now,
+				history,
+			)();
+		at(42, 0);
+		at(Number.NaN, 30_000);
+		expect(history.load().map(({ swapouts }) => swapouts)).toEqual([42]);
+		expect(at(42, 90_000).memoryPressure, "42 after 42 is no swap").toBe(0);
 	});
 });
 

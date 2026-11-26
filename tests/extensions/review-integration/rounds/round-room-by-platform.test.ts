@@ -20,7 +20,11 @@ const macRoom: RoundRoom = {
 
 describe("the room a round reads", () => {
 	it("is the Mac's rule on a Mac, spaced two minutes apart", async () => {
-		const room = roundRoom("darwin", () => macRoom);
+		const room = roundRoom(
+			"darwin",
+			() => macRoom,
+			async () => undefined,
+		);
 
 		expect(await room.short()).toBe("a Mac's own reason");
 		expect(room.startedUnjudged()).toBe("started without a verdict");
@@ -28,16 +32,46 @@ describe("the room a round reads", () => {
 		expect(MAC_SPACING_MS).toBe(2 * 60_000);
 	});
 
-	it("is Linux's own reading off a Mac, with no spacing of its own", () => {
+	// 26 November: two rounds started side by side on the work Mac twice
+	// in ten minutes, each on a reading the other had yet to spend.
+	it("waits on a Mac while another roster round still runs there, before reading its memory", async () => {
+		let read = false;
+		const room = roundRoom(
+			"darwin",
+			() => ({
+				...macRoom,
+				short: async () => {
+					read = true;
+					return undefined;
+				},
+			}),
+			async () => "council-x still runs on this Mac",
+		);
+
+		expect(await room.short()).toBe("council-x still runs on this Mac");
+		expect(read, "a round already running needs no reading").toBe(false);
+	});
+
+	it("is Linux's own reading off a Mac, with no spacing and no wait for other rounds", async () => {
 		let asked = false;
-		const room = roundRoom("linux", () => {
-			asked = true;
-			return macRoom;
-		});
+		let runningAsked = false;
+		const room = roundRoom(
+			"linux",
+			() => {
+				asked = true;
+				return macRoom;
+			},
+			async () => {
+				runningAsked = true;
+				return "another round";
+			},
+		);
 
 		expect(room.spacingMs).toBeUndefined();
 		expect(room.startedUnjudged()).toBeUndefined();
 		expect(asked, "a Linux round never builds the Mac's room").toBe(false);
+		await room.short();
+		expect(runningAsked, "Linux runs rounds side by side").toBe(false);
 	});
 });
 

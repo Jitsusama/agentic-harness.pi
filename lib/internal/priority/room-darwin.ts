@@ -215,14 +215,9 @@ export function sysctlValues(text: string): Map<string, string> {
 	return values;
 }
 
-/** `vm_stat`'s count of pages swapped out, or 0 when it names none. */
-export function swapoutsIn(vmStat: string): number {
-	return swapoutsReadIn(vmStat) ?? 0;
-}
-
 /**
  * `vm_stat`'s count of pages swapped out, or undefined when no line
- * names one, for a reader that must tell a lost count from none.
+ * names one, so a lost count is never read as none.
  */
 export function swapoutsReadIn(vmStat: string): number | undefined {
 	const found = vmStat.match(/^Swapouts:\s+(\d+)\.?\s*$/m);
@@ -255,7 +250,9 @@ export function darwinFactsFrom(
 		availablePercent: number("kern.memorystatus_level"),
 		pressureLevel: number("kern.memorystatus_vm_pressure_level"),
 		load,
-		swapouts: swapoutsIn(vmStat),
+		// NaN when vm_stat named none, so a lost count never joins the
+		// shared history as 0 and reads to a council's start as a swap.
+		swapouts: swapoutsReadIn(vmStat) ?? Number.NaN,
 		guests: guestsIn(processNames),
 	};
 }
@@ -327,8 +324,10 @@ export function darwinRoom(
 		// Dated once read, as vm_stat can take a while on a Mac that swaps.
 		const read = facts();
 		const now = clock();
-		const seen = keptAt(history.load(), { at: now, swapouts: read.swapouts });
-		history.save(seen);
+		const seen = Number.isFinite(read.swapouts)
+			? keptAt(history.load(), { at: now, swapouts: read.swapouts })
+			: history.load();
+		if (Number.isFinite(read.swapouts)) history.save(seen);
 		const memoryPressure =
 			darwinShort(read, seen) === undefined ? 0 : MOST_MEMORY_PRESSURE;
 		const waiting =
