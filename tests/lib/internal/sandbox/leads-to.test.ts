@@ -5,18 +5,38 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	type PathLike,
 	realpathSync,
 	rmSync,
 	symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leadsTo } from "../../../../lib/internal/sandbox/leads-to.ts";
+
+// The walk's look at each name, counted, and refused past a ceiling, so a
+// walk that runs away fails at once rather than hold the worker for ever.
+// A setup file loads the walk before this file's mock is made, so a case
+// counting its looks imports a fresh copy.
+const looks = vi.hoisted(() => ({ count: 0, most: Number.POSITIVE_INFINITY }));
+vi.mock("node:fs", async (original) => {
+	const fs = await original<typeof import("node:fs")>();
+	return {
+		...fs,
+		lstatSync: (path: PathLike) => {
+			looks.count += 1;
+			if (looks.count > looks.most) throw new Error("looked too often");
+			return fs.lstatSync(path);
+		},
+	};
+});
 
 let home: string;
 
 beforeEach(() => {
+	looks.count = 0;
+	looks.most = Number.POSITIVE_INFINITY;
 	home = realpathSync(mkdtempSync(join(tmpdir(), "leads-to-")));
 	mkdirSync(join(home, "really"));
 	mkdirSync(join(home, "two"));
@@ -77,5 +97,42 @@ describe("leadsTo", () => {
 		symlinkSync(join(home, "a"), join(home, "b"));
 		expect(leadsTo(join(home, "a"))).toBeUndefined();
 		expect(leadsTo(join(home, "a", "below"))).toBeUndefined();
+	});
+
+	it("counts links across the whole walk, so links that fan out end at once", async () => {
+		// Each level names the one below four times, so a count kept per
+		// chain would follow 4^20 of them before it gave up.
+		symlinkSync(".", join(home, "L0"));
+		for (let level = 1; level <= 20; level++) {
+			const below = `L${level - 1}`;
+			symlinkSync(
+				[below, below, below, below].join("/"),
+				join(home, `L${level}`),
+			);
+		}
+		vi.resetModules();
+		const counted = await import(
+			"../../../../lib/internal/sandbox/leads-to.ts"
+		);
+		looks.most = 5_000;
+
+		expect(counted.leadsTo(join(home, "L20"))).toBeUndefined();
+		expect(looks.count, "the walk's looks weren't counted").toBeGreaterThan(0);
+		expect(looks.count).toBeLessThan(5_000);
+	});
+
+	it("follows links that fan out as far as the system would", () => {
+		// Seven links in all, well inside the system's count.
+		symlinkSync(".", join(home, "L0"));
+		symlinkSync("L0/L0", join(home, "L1"));
+		symlinkSync("L1/L1", join(home, "L2"));
+
+		expect(leadsTo(join(home, "L2", "made"))).toBe(join(home, "made"));
+	});
+
+	it("keeps a relative path's leading `..`, as the system reads it", () => {
+		expect(leadsTo(join("..", "x"))).toBe(join("..", "x"));
+		expect(leadsTo("../../x")).toBe(join("..", "..", "x"));
+		expect(leadsTo("not-made/../../x")).toBe(join("..", "x"));
 	});
 });

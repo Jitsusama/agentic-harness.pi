@@ -61,19 +61,30 @@ export function real(path: string): string {
 /**
  * Whether `path` is `folder` or lies inside it, each where it leads past
  * its links, made yet or not, as a Mac's /tmp leads to /private/tmp
- * (leads-to.ts); neither, where either's links loop.
+ * (leads-to.ts). Where either's links loop it is judged as far as they
+ * lead and spelled past that, as a folder whose links loop still lies in
+ * the folder that holds it: a write through the loop fails anyway, and a
+ * check that refuses a folder meeting it still refuses.
  */
 export function within(path: string, folder: string): boolean {
-	const inner = leadsTo(path);
-	const outer = leadsTo(folder);
-	if (inner === undefined || outer === undefined) return false;
-	const between = relative(outer, inner);
+	const between = relative(landing(folder), landing(path));
 	// A child named `..x` lies inside; only `..` and what climbs past it don't.
 	return !(
 		between === ".." ||
 		between.startsWith(`..${sep}`) ||
 		isAbsolute(between)
 	);
+}
+
+/**
+ * Where `path` leads past its links, or where they loop, where its
+ * folder leads with its own name as spelled.
+ */
+function landing(path: string): string {
+	const led = leadsTo(path);
+	if (led !== undefined) return led;
+	const parent = dirname(path);
+	return parent === path ? path : join(landing(parent), basename(path));
 }
 
 /**

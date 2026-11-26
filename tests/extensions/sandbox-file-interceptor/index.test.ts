@@ -160,6 +160,24 @@ describe("a strict session's reads", () => {
 	});
 });
 
+describe("a strict session's writes", () => {
+	it("never follow a link to nothing out of the work through a linked folder", () => {
+		// Named through a deep link back to the work, the link's `..` read
+		// from how its folder is spelled lands in the work; the system reads
+		// it from the work itself, and makes the person's startup file.
+		mkdirSync(join(work, "a/b/c"), { recursive: true });
+		symlinkSync(work, join(work, "a/b/c/back"));
+		symlinkSync(join("..", "home", ".bashrc"), join(work, "rc"));
+
+		expect(refusal("write", { path: "a/b/c/back/rc", content: "x" })).toContain(
+			join(home, ".bashrc"),
+		);
+		expect(
+			refusal("write", { path: "a/b/c/back/notes.md", content: "x" }),
+		).toBeUndefined();
+	});
+});
+
 describe("a fenced session's reads of a hidden key", () => {
 	it("name the route for that file: secret_run for a key, the shell for ~/.npmrc", () => {
 		// On 15 November a read of a hidden credential named only the

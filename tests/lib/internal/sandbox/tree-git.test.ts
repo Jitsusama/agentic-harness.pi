@@ -94,10 +94,27 @@ describe("a path within a folder", () => {
 		expect(within(join(folder, "dangling"), join(home, "outside"))).toBe(true);
 	});
 
-	it("is neither inside nor outside where its links loop", () => {
+	it("is judged as spelled past where its links loop, in the folder holding it", () => {
+		// A check refusing a folder that meets the work must still meet one
+		// whose links loop, as a self-linked cache folder would.
 		symlinkSync(join(home, "loop"), join(home, "loop"));
-		expect(within(join(home, "loop"), home)).toBe(false);
+		expect(within(join(home, "loop"), home)).toBe(true);
+		expect(within(join(home, "loop", "x"), join(home, "loop"))).toBe(true);
 		expect(within(home, join(home, "loop"))).toBe(false);
+		expect(within(join(home, "loop"), join(home, "beside"))).toBe(false);
+	});
+
+	it("is judged past a linked folder above a loop", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(folder, join(home, "linked"));
+		symlinkSync(join(folder, "loop"), join(folder, "loop"));
+		expect(within(join(home, "linked", "loop"), folder)).toBe(true);
+	});
+
+	it("keeps a relative path's way out", () => {
+		expect(within(join("..", "x"), process.cwd())).toBe(false);
+		expect(within("x", process.cwd())).toBe(true);
 	});
 });
 
