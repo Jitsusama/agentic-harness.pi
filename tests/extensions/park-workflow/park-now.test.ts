@@ -14,6 +14,10 @@ import {
 	type Parkable,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
+import {
+	PARK_REFUSED_EVENT,
+	type ParkRefused,
+} from "../../../lib/core/session/host.ts";
 import { installHost } from "../../../lib/core/session/index.ts";
 import { RUN_UNDER_WAY } from "../../../lib/internal/session/free.ts";
 import {
@@ -315,6 +319,59 @@ describe("parking now, as the person asked", () => {
 				"once its host takes parks, the next ask parks it",
 			).toBe(true);
 			expect(parks).toEqual([SESSION]);
+		} finally {
+			uninstall();
+		}
+	});
+
+	// A host parks once the asking call returns, so its refusal comes later, on the bus.
+	it("takes back a park its host refuses after the asking call returned", () => {
+		const undone: unknown[] = [];
+		events.on(PARK_UNDONE, (data) => undone.push(data));
+		const parks: string[] = [];
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-park-now-background",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("a park reads no host environment");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+			park: (id) => {
+				parks.push(id);
+			},
+		});
+		try {
+			watching();
+			expect(ask().parked, "the host took the ask").toBe(true);
+			expect(readParked(SESSION, folder)).toBeDefined();
+
+			const other: ParkRefused = { session: "another", why: "not this one" };
+			events.emit(PARK_REFUSED_EVENT, other);
+			expect(
+				readParked(SESSION, folder),
+				"another conversation's refusal is not its own",
+			).toBeDefined();
+
+			const refused: ParkRefused = {
+				session: SESSION,
+				why: "its stop threw before it began",
+			};
+			events.emit(PARK_REFUSED_EVENT, refused);
+
+			expect(
+				readParked(SESSION, folder),
+				"its marker taken back",
+			).toBeUndefined();
+			expect(undone).toEqual([{ session: SESSION }]);
+			expect(exits, "its process was never to exit").toEqual([]);
+			expect(ask().parked, "awake again, the person's next Park parks it").toBe(
+				true,
+			);
+			expect(parks).toEqual([SESSION, SESSION]);
 		} finally {
 			uninstall();
 		}

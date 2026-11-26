@@ -165,7 +165,7 @@ describe("parking a conversation", () => {
 		expect(settled, "unsettled while it stops").toBe(false);
 		expect(asking, "no wake while it parks").not.toHaveBeenCalled();
 		letStop();
-		await parking;
+		expect(await parking, "parked, nothing refused it").toBeUndefined();
 		await settling;
 		await woke;
 
@@ -1269,7 +1269,10 @@ function failingStop(fails = 1) {
 describe("a park whose stop fails", () => {
 	it("rests owed its stop, tried again as it settles, carrying as the first try, and parked once that holds", async () => {
 		const { parked, stop, said, report } = failingStop();
-		await parked.park("a");
+		expect(
+			await parked.park("a"),
+			"stopped in part, it doesn't run on as it was",
+		).toBeUndefined();
 
 		expect(report, "the failure said").toHaveBeenCalledOnce();
 		expect(parked.watches("a"), "its wake watched").toBe(true);
@@ -1404,12 +1407,16 @@ describe("a park whose stop fails", () => {
 
 	// #2164 F1, F3, F15: a stop that throws as it is asked began nothing.
 	it("is owed nothing when its stop throws before it begins, since it was never stopped", async () => {
+		const refused = new Error("no such conversation");
 		const stop = vi.fn<StopOf>(() => {
-			throw new Error("no such conversation");
+			throw refused;
 		});
 		const said = vi.fn();
 		const parked = stoppedBy(stop, said);
-		await parked.park("a");
+		expect(
+			await parked.park("a"),
+			"it answers what refused it, as it runs on",
+		).toEqual({ error: refused });
 
 		expect(parked.watches("a"), "not watched as parked").toBe(false);
 		await parked.settled("a");

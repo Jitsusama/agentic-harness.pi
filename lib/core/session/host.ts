@@ -71,8 +71,9 @@ export interface Host {
 	 * viewers connected, and wakes it in place when its wake file is
 	 * written (MYCELIUM_WAKE in its environment), a viewer types or one
 	 * attaches. Asked by the conversation itself once its park rule holds;
-	 * the park happens after the asking call returns. A host that can't
-	 * park a conversation leaves it out.
+	 * the park happens after the asking call returns, and one that never
+	 * stopped the conversation is said with PARK_REFUSED_EVENT. A host
+	 * that can't park a conversation leaves it out.
 	 */
 	park?(sessionId: string): void;
 	/**
@@ -193,6 +194,34 @@ export function isHostRestarting(value: unknown): value is HostRestarting {
 		"session" in value &&
 		typeof value.session === "string" &&
 		value.session.length > 0
+	);
+}
+
+/**
+ * A host emits this on a conversation's bus, within withSession, when a
+ * park it was asked for never stopped the conversation: its stop threw
+ * before it began, so the conversation runs on as it was. The park ran
+ * after the asking call returned (Host.park), so whatever said the
+ * conversation parks hears it here and takes that back.
+ */
+export const PARK_REFUSED_EVENT = "agentic-harness:park-refused";
+
+/** What PARK_REFUSED_EVENT carries: the conversation, and why it runs on. */
+export interface ParkRefused {
+	session: string;
+	why: string;
+}
+
+/** Whether an event from the shared bus says a host refused a park. */
+export function isParkRefused(value: unknown): value is ParkRefused {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		"session" in value &&
+		typeof value.session === "string" &&
+		value.session.length > 0 &&
+		"why" in value &&
+		typeof value.why === "string"
 	);
 }
 
