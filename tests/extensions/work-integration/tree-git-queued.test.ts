@@ -137,7 +137,9 @@ describe("the work tool's git, when the queue takes it", () => {
 		expect(args[1], "the guard's look runs inside the turn").toContain(
 			`pi-unrooted-git ${realpathSync(tree)} git -c core.fsmonitor=false fetch --quiet origin ${commit}`,
 		);
-		// The queue cuts the long line it names a job by, as it cuts each.
+		// The queue cuts the long line it names a job by, as it cuts each,
+		// so a long temporary folder can cut the word fetch off the name:
+		// the queued line above, never cut, is where the fetch is checked.
 		expect(asked()[0]?.what, "the queue names the fetch as it was asked").toBe(
 			whatOf(`git -C ${tree} fetch --quiet origin ${commit}`),
 		);
