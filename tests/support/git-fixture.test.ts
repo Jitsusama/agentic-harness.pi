@@ -24,6 +24,19 @@ import {
 /** What git's trace says as a command starts background maintenance, of either kind. */
 const STARTS_MAINTENANCE = /run_command: git (maintenance|gc)\b/;
 
+/**
+ * Maintenance turned on for one commit, run in the foreground so it is
+ * done before the case removes the repo it works in.
+ */
+const MAINTENANCE_ON = [
+	"-c",
+	"maintenance.auto=true",
+	"-c",
+	"maintenance.autoDetach=false",
+	"-c",
+	"gc.autoDetach=false",
+];
+
 describe("the git fixture", () => {
 	let repo: string;
 	let person: string;
@@ -98,13 +111,13 @@ describe("the git fixture", () => {
 	it("turns maintenance off on its own git's command line", async () => {
 		expect(
 			await git(repo, "config", "--show-scope", "--get", "maintenance.auto"),
-			"git before 2.31 reads no settings from GIT_CONFIG_COUNT",
+			"the fixture's git lost its GIT_CONFIG_* settings, or git predates 2.31",
 		).toBe("command\tfalse");
 	});
 
 	it("hands out copies whose commits start no maintenance from git's own settings", async () => {
 		expect(
-			await tracedCommit(repo, "-c", "maintenance.auto=true"),
+			await tracedCommit(repo, ...MAINTENANCE_ON),
 			"this git's trace never shows a commit starting maintenance",
 		).toMatch(STARTS_MAINTENANCE);
 
@@ -116,10 +129,42 @@ describe("the git fixture", () => {
 		try {
 			await git(repo, "clone", "-q", repo, clone);
 
-			expect(await tracedCommit(clone)).not.toMatch(STARTS_MAINTENANCE);
 			expect(
-				await git(clone, "config", "--local", "--get", "core.fsmonitor"),
-			).toBe("false");
+				await tracedCommit(clone, ...MAINTENANCE_ON),
+				"this git's trace never shows a clone's commit starting maintenance",
+			).toMatch(STARTS_MAINTENANCE);
+			expect(await tracedCommit(clone)).not.toMatch(STARTS_MAINTENANCE);
+
+			const monitored = join(person, "monitored");
+			writeFileSync(monitored, "[core]\n\tfsmonitor = true\n");
+			const { stdout } = await promisify(execFile)(
+				"git",
+				["config", "--get", "core.fsmonitor"],
+				{
+					cwd: clone,
+					env: {
+						...withoutGitSettings(process.env),
+						GIT_CONFIG_GLOBAL: monitored,
+						GIT_CONFIG_NOSYSTEM: "1",
+					},
+				},
+			);
+			expect(stdout.trim(), "a person's monitor beats the clone's own").toBe(
+				"false",
+			);
+		} finally {
+			disposeRepo(clone);
+		}
+	});
+
+	it("makes repos holding git's own hooks and info folders, which tests write into", async () => {
+		const clone = `${repo}-clone`;
+		try {
+			await git(repo, "clone", "-q", repo, clone);
+			for (const dir of [repo, clone]) {
+				expect(existsSync(join(dir, ".git", "hooks")), dir).toBe(true);
+				expect(existsSync(join(dir, ".git", "info")), dir).toBe(true);
+			}
 		} finally {
 			disposeRepo(clone);
 		}

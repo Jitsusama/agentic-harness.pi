@@ -20,10 +20,12 @@
  * touched, and may commit to it, branch it or add worktrees to it.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import {
 	cpSync,
+	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
@@ -91,16 +93,39 @@ const GIT_ENV = {
 const REPO_SETTINGS =
 	"[maintenance]\n\tauto = false\n[core]\n\tfsmonitor = false\n";
 
+/** What `git init` writes of its own rather than copies from a template. */
+const MADE_BY_INIT = new Set(["HEAD", "config", "objects", "refs"]);
+
 /** The template folder git makes each repo from, written once per worker. */
 let repoTemplate: string | undefined;
 
-/** The folder whose `config` each new repo starts with, written on first use. */
+/**
+ * The folder each new repo starts from: git's own template, its hooks
+ * folder and the rest, which tests write into, with the settings above
+ * as its config. A template folder replaces git's own rather than adding
+ * to it, so git's is copied from a repo made with it. Written on first
+ * use, and removed as the worker exits.
+ */
 function repoTemplateDir(): string {
-	if (!repoTemplate) {
-		repoTemplate = mkdtempSync(join(tmpdir(), "git-fixture-settings-"));
-		writeFileSync(join(repoTemplate, "config"), REPO_SETTINGS);
+	if (repoTemplate) return repoTemplate;
+	const folder = mkdtempSync(join(tmpdir(), "git-fixture-settings-"));
+	process.once("exit", () => rmSync(folder, { recursive: true, force: true }));
+	const probe = join(folder, "probe");
+	execFileSync("git", ["init", "-q", probe], {
+		env: { ...withoutGitSettings(process.env), ...GIT_ENV },
+	});
+	const template = join(folder, "template");
+	mkdirSync(template);
+	for (const part of readdirSync(join(probe, ".git"))) {
+		if (MADE_BY_INIT.has(part)) continue;
+		cpSync(join(probe, ".git", part), join(template, part), {
+			recursive: true,
+		});
 	}
-	return repoTemplate;
+	writeFileSync(join(template, "config"), REPO_SETTINGS);
+	rmSync(probe, { recursive: true, force: true });
+	repoTemplate = template;
+	return template;
 }
 
 /** Run git in a directory, returning stdout, shielded from the person's settings. */
