@@ -184,21 +184,39 @@ export async function sprout(
 		if (answer && (answer.ok || (line && refusedByNode(line)))) return answer;
 		// Ended by a signal nobody here sent, as the OOM killer's: its ask
 		// may already be with the node.
+		// Words that hide alone are said to be there, as the tie says them.
+		const wrote = said
+			? ` (${said})`
+			: ran.stderr.trim()
+				? ` (it wrote ${NOTHING_SHOWN})`
+				: "";
 		return {
 			ok: false,
-			reason: `mycelium sprout was ended before it answered${said ? ` (${said})` : ""}, so ${LOOK_FIRST}`,
+			reason: `mycelium sprout was ended before it answered${wrote}, so ${LOOK_FIRST}`,
 			mayLand: true,
 		};
 	}
 	// Its JSON counts only where it says started or refused; any other,
-	// a bare number say, beats nothing stderr says of why it failed.
+	// a bare number say, is quoted below with every line beside it.
 	const answer = line ? startedFrom(line) : undefined;
-	if (answer && (answer.ok || (line && refusedByNode(line)) || !said)) {
-		return answer;
+	if (answer && (answer.ok || (line && refusedByNode(line)))) return answer;
+	// A failed run's stdout is mycelium's own, which may never have reached
+	// the node, so it's quoted as what mycelium wrote, not the node's answer.
+	// Where stderr says why, a stdout that shows is said beside it, so a
+	// peer's words relayed there are never dropped unmarked.
+	const wroteOut = shownLines(ran.stdout, MOST_SAID);
+	if (said && wroteOut) {
+		return {
+			ok: false,
+			reason: `${said} (it also wrote, unread: ${wroteOut})`,
+		};
 	}
-	// Quoted as written, since unreadAnswer cleans it, and cleaned twice
-	// its lines would read as one, cut where its last should show.
-	if (!said && shownLines(ran.stdout, 1)) return unreadAnswer(ran.stdout);
+	if (wroteOut) {
+		return {
+			ok: false,
+			reason: `mycelium sprout ended with ${ran.code} and wrote what this harness can't read: ${wroteOut}`,
+		};
+	}
 	return {
 		ok: false,
 		reason:
@@ -218,15 +236,17 @@ function startedOrMayLand(
 	line: string | undefined,
 	stdout: string,
 ): StartAnswer {
-	const answer = line
-		? startedFrom(line)
-		: shownLines(stdout, 1)
-			? unreadAnswer(stdout)
-			: {
-					ok: false as const,
-					reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
-				};
-	if (answer.ok || (line && refusedByNode(line))) return answer;
+	// A reply that is neither a start nor a refusal is quoted with every
+	// line above it, so none of what mycelium wrote goes unmarked.
+	const read = line ? startedFrom(line) : undefined;
+	if (read && (read.ok || (line && refusedByNode(line)))) return read;
+	const answer = shownLines(stdout, 1)
+		? unreadAnswer(stdout)
+		: {
+				ok: false as const,
+				reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
+			};
+	if (answer.ok) return answer;
 	return {
 		ok: false,
 		reason: `${answer.reason}, so ${LOOK_FIRST}`,
