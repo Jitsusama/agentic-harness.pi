@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../../lib/internal/fence/fence.ts";
+import { MOST_LINKS } from "../../../../lib/internal/sandbox/leads-to.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
@@ -122,6 +123,21 @@ describe("a program that runs outside the sandbox", () => {
 		const loop = disk({ "/": {}, "/a": { link: "/b" }, "/b": { link: "/a" } });
 
 		expect(sealedPath("/a", loop)).toBeUndefined();
+	});
+
+	it("follows as many links as the system does, and no more", () => {
+		// A chain of `links` links, /l1 to /l2 and on, the last to /made.
+		const chain = (links: number): Look => {
+			const nodes: Record<string, Partial<Node>> = { "/": {}, "/made": {} };
+			for (let link = 1; link <= links; link++)
+				nodes[`/l${link}`] = {
+					link: link === links ? "/made" : `/l${link + 1}`,
+				};
+			return disk(nodes);
+		};
+
+		expect(sealedPath("/l1", chain(MOST_LINKS))).toBe("/made");
+		expect(sealedPath("/l1", chain(MOST_LINKS + 1))).toBeUndefined();
 	});
 });
 
