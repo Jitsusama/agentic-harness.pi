@@ -380,7 +380,6 @@ describe("a lease", () => {
 				sent.some((one) =>
 					String(one.message.content).includes(withdrawal.text),
 				),
-				"the withdrawal reached the session",
 			).toBe(true),
 		);
 		const heard = sent.length;

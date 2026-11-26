@@ -112,8 +112,6 @@ describe("a peer joining past what a presence names", () => {
 		if (first === undefined) throw new Error("the peer joined nothing");
 		peer.leave(first);
 
-		expect(peer.join("#zzz-one-more"), "joined again after leaving one").toBe(
-			true,
-		);
+		expect(peer.join("#zzz-one-more")).toBe(true);
 	});
 });
