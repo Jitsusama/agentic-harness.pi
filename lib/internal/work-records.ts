@@ -683,13 +683,29 @@ function heldIn(trees: readonly RecordedTree[], session: string): string[] {
  * landing meanwhile can't let go of one it never saw. It refuses, throwing, rather than answer from a
  * reading it can't vouch for: when the folder can't be looked at, when
  * the reading fails, and when it doesn't land within `within`
- * milliseconds.
+ * milliseconds. A reading that ran late runs on to its end, so until
+ * then a second ask for the same session refuses at once rather than
+ * start another beside it: a carry asked again on a pool too busy to
+ * answer would otherwise stack a reading on it at every try.
  */
 export async function treesHeldByNow(
 	session: string,
 	dir: string = treeRecordDir(),
 	within: number = ASKED_ONCE_WITHIN_MS,
 ): Promise<string[]> {
+	const key = `${recordDirKey(dir)}\0${session}`;
+	if (readingsNow.has(key)) {
+		throw new Error(
+			`the tree records in ${dir} are still being read from an earlier ask that ran late`,
+		);
+	}
+	const reading = readNow(session, dir);
+	readingsNow.add(key);
+	reading
+		.finally(() => readingsNow.delete(key))
+		.catch(() => {
+			// The race below says why it failed; this only lets the key go.
+		});
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<never>((_, refuse) => {
 		timer = setTimeout(
@@ -701,11 +717,14 @@ export async function treesHeldByNow(
 		);
 	});
 	try {
-		return await Promise.race([readNow(session, dir), late]);
+		return await Promise.race([reading, late]);
 	} finally {
 		clearTimeout(timer);
 	}
 }
+
+/** The folders and sessions a `treesHeldByNow` reading runs for now. */
+const readingsNow = new Set<string>();
 
 /** `treesHeldByNow`'s answer, however long its reading takes. */
 async function readNow(session: string, dir: string): Promise<string[]> {

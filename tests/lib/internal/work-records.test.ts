@@ -1306,6 +1306,32 @@ describe("the work broker's records", () => {
 		await whenRefreshed(dir);
 	});
 
+	it("refuse a second ask while the reading that ran late still runs, then read afresh once it ends", async () => {
+		// #2247 F18: each try stacked another reading on a pool too busy.
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		await expect(treesHeldByNow("s-1", dir, 50)).rejects.toThrow(/in 50 ms/);
+
+		await expect(treesHeldByNow("s-1", dir, 5_000)).rejects.toThrow(
+			/still being read/,
+		);
+		disk.go();
+		await whenRefreshed(dir);
+		await vi.waitFor(async () => {
+			expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
+		});
+	});
+
 	it("list a folder that never holds still again by name, reading each record once and keeping all", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
