@@ -15,7 +15,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { leadsTo, linksOn } from "../../../../lib/internal/sandbox/leads-to.ts";
+import {
+	leadsTo,
+	linksOn,
+	MOST_LINKS,
+} from "../../../../lib/internal/sandbox/leads-to.ts";
 
 // The walk's look at each name, counted, and refused past a ceiling, so a
 // walk that runs away fails at once rather than hold the worker for ever.
@@ -133,23 +137,30 @@ describe("leadsTo", () => {
 	});
 
 	it("follows as many links as the system would, and gives up past them", () => {
-		// C0 is no link, so a chain from Cn follows n links.
+		// C0 is no link, so a chain from Cn follows n links: 40 on Linux, 32
+		// on a Mac.
+		const most = process.platform === "darwin" ? 32 : 40;
+		expect(MOST_LINKS).toBe(most);
 		mkdirSync(join(home, "C0"));
-		for (let link = 1; link <= 41; link++)
+		for (let link = 1; link <= most + 1; link++)
 			symlinkSync(`C${link - 1}`, join(home, `C${link}`));
 
-		expect(leadsTo(join(home, "C40", "made"))).toBe(join(home, "C0", "made"));
-		expect(leadsTo(join(home, "C41", "made"))).toBeUndefined();
+		expect(leadsTo(join(home, `C${most}`, "made"))).toBe(
+			join(home, "C0", "made"),
+		);
+		expect(leadsTo(join(home, `C${most + 1}`, "made"))).toBeUndefined();
 	});
 
 	it("follows the system's count of links whose targets each hold hundreds of names", () => {
 		// Each target is a thousand bytes, inside a Mac's limit and Linux's.
 		const padding = "./".repeat(495);
 		mkdirSync(join(home, "P0"));
-		for (let link = 1; link <= 40; link++)
+		for (let link = 1; link <= MOST_LINKS; link++)
 			symlinkSync(`${padding}P${link - 1}`, join(home, `P${link}`));
 
-		expect(leadsTo(join(home, "P40", "made"))).toBe(join(home, "P0", "made"));
+		expect(leadsTo(join(home, `P${MOST_LINKS}`, "made"))).toBe(
+			join(home, "P0", "made"),
+		);
 	});
 
 	// Root looks in any folder, so only another account meets the refusal.

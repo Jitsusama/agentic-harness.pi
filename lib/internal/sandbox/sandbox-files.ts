@@ -92,7 +92,7 @@ export function toolPaths(path: string, cwd: string, home: string): string[] {
 
 /** Why a path's way can't be followed, as leads-to.ts gives up on it. */
 const CANT_FOLLOW =
-	"a loop of links, more links than the system follows, a link whose target isn't UTF-8, or a name it couldn't look at";
+	"a loop of links, more links than the system follows, a link it couldn't read or whose target isn't UTF-8, or a name it couldn't look at";
 
 /** Whether `path` is `folder` or lies inside it, both already resolved. */
 function inside(path: string, folder: string): boolean {

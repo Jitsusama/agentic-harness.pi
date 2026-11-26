@@ -9,10 +9,10 @@ import { lstatSync, readlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 /**
- * How many links one walk may follow in all before it gives up, as
- * Linux counts them (a Mac allows 32).
+ * How many links one walk may follow in all before it gives up, as the
+ * system counts them: 40 on Linux, 32 on a Mac.
  */
-const MOST_LINKS = 40;
+export const MOST_LINKS = process.platform === "darwin" ? 32 : 40;
 
 /** What a look at a name says when nothing stands there to follow. */
 const NOTHING_THERE = new Set(["ENOENT", "ENOTDIR"]);
@@ -132,8 +132,9 @@ function linkAt(
 		const target = raw.toString("utf8");
 		return Buffer.from(target, "utf8").equals(raw) ? target : UNREADABLE_LINK;
 	} catch {
-		// Gone or changed since the look: still a link the walk met, whose
-		// target is not known.
+		// Gone or changed since the look, or one this process may not read,
+		// as /proc/1/root is to all but its owner: still a link the walk met,
+		// whose target is not known.
 		return UNREADABLE_LINK;
 	}
 }
