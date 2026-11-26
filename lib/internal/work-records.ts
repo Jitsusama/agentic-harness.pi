@@ -17,6 +17,7 @@ import { join, resolve, sep } from "node:path";
 import type { HeldTree } from "../core/work/broker.ts";
 import {
 	createTreeMemory,
+	holdRecordWrites,
 	recallOff,
 	recordDirKey,
 	recordWritesRead,
@@ -591,14 +592,16 @@ function heldIn(trees: readonly RecordedTree[], session: string): string[] {
 /**
  * `treesHeldBy`, read afresh off the thread: for a caller that asks once
  * and acts on the answer, such as a carry, which a tree cut a read ago
- * by another process would otherwise be left out of. Its reading is its
- * own, begun after it was asked, so it never waits on the shared one,
+ * by another process would otherwise be left out of. A kept listing
+ * the folder hasn't moved past answers at once; otherwise its reading
+ * is its own, begun after it was asked, so it never waits on the shared one,
  * which a busy machine's writes keep starting again, and it looks on
  * disk only for the trees `session` holds, not for every tree the
  * records name: with thousands of them, a look for each, through a
  * host's few threads under load, ran past a minute (A210E4CA, 25
  * November). This process's own writes since are laid over it, as the
- * kept listing's are. It refuses, throwing, rather than answer from a
+ * kept listing's are, and held while it reads, so a shared reading
+ * landing meanwhile can't let go of one it never saw. It refuses, throwing, rather than answer from a
  * reading it can't vouch for: when the folder can't be looked at, when
  * the reading fails, and when it doesn't land within `within`
  * milliseconds.
@@ -632,19 +635,31 @@ async function readNow(session: string, dir: string): Promise<string[]> {
 	if (folder === "unseen") {
 		throw new Error(`the tree records in ${dir} can't be looked at`);
 	}
+	// A kept listing the folder hasn't moved past, read late enough after
+	// the last write that none can share its stamp, is as fresh as a new one.
+	const known = listings.get(recordDirKey(dir));
+	if (
+		known !== undefined &&
+		!outOfDate(known.listing, folder) &&
+		known.listing.recheckAt === undefined
+	) {
+		return heldIn(laidOver(dir, known.listing), session);
+	}
 	const started = Date.now();
 	const through = recordWritesSoFar();
-	let trees: HeldTree[];
+	const letGo = holdRecordWrites(dir, through);
 	try {
-		trees = await recallOff(
+		const trees = await recallOff(
 			dir,
 			(held) => Array.isArray(held.sessions) && held.sessions.includes(session),
 		);
+		const listing = listingOf(trees, folder, through, started);
+		return heldIn(laidOver(dir, listing), session);
 	} catch (error) {
 		throw new Error(
 			`the tree records in ${dir} couldn't be read: ${whyOf(error)}`,
 		);
+	} finally {
+		letGo();
 	}
-	const listing = listingOf(trees, folder, through, started);
-	return heldIn(laidOver(dir, listing), session);
 }

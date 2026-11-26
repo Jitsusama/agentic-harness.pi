@@ -362,13 +362,44 @@ export function recordWritesSince(
 	return new Map([...paths].filter(([, write]) => write.seq > after));
 }
 
-/** Let go of the writes to `dir` up to `upTo`, which a reading now holds. */
+// The writes each reading under way still lays over, by directory, as
+// the last write before it began: a reading that lands meanwhile lets go
+// of none after it, since the other may have listed the folder before
+// they landed. Its own key, so a process holding the writes' older shape
+// still finds this.
+const heldWrites = processGlobal(
+	"agentic-harness.core/work/memory/held-writes.v1",
+	() => new Map<string, Map<symbol, number>>(),
+);
+
+/**
+ * Keep this process's writes to `dir` after its write `after` until the
+ * answer's call, for a reading that began then and lays them over once
+ * it lands, whatever another reading lets go of meanwhile.
+ */
+export function holdRecordWrites(dir: string, after: number): () => void {
+	const at = recordDirKey(dir);
+	const held = heldWrites.get(at) ?? new Map<symbol, number>();
+	heldWrites.set(at, held);
+	const reading = Symbol("reading");
+	held.set(reading, after);
+	return () => {
+		held.delete(reading);
+		if (held.size === 0 && heldWrites.get(at) === held) heldWrites.delete(at);
+	};
+}
+
+/**
+ * Let go of the writes to `dir` up to `upTo`, which a reading now holds,
+ * but for those a reading still under way holds (holdRecordWrites).
+ */
 export function recordWritesRead(dir: string, upTo: number): void {
 	const at = recordDirKey(dir);
 	const paths = ourWrites.byDir.get(at);
 	if (paths === undefined) return;
+	const through = Math.min(upTo, ...(heldWrites.get(at)?.values() ?? []));
 	for (const [path, write] of paths) {
-		if (write.seq <= upTo) paths.delete(path);
+		if (write.seq <= through) paths.delete(path);
 	}
 	if (paths.size === 0) ourWrites.byDir.delete(at);
 }
@@ -589,7 +620,8 @@ async function standsOff(path: string): Promise<boolean> {
  * reading to one pass of reads plus its listings. A record
  * rewritten while one reading runs is seen as it was when first read,
  * and as rewritten by the next, since the kept listing is stamped from
- * before this one began. Given `keep`, only the trees it keeps are
+ * before this one began; a caller reading once lays this process's own
+ * writes over it (holdRecordWrites). Given `keep`, only the trees it keeps are
  * looked for on disk: a caller that wants a session's few of thousands
  * waits on a look for each of those alone.
  */

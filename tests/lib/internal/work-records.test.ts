@@ -1068,7 +1068,7 @@ describe("the work broker's records", () => {
 		).toEqual([one, three, two]);
 	});
 
-	it("refuse a caller that asks once when the reading it waits on fails, rather than answer stale", async () => {
+	it("refuse a caller that asks once when its reading fails, saying why, rather than answer stale", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
 		const one = join(root, "trees", "one");
@@ -1081,7 +1081,7 @@ describe("the work broker's records", () => {
 		recordedElsewhere(dir, two, ["s-1"]);
 
 		await expect(treesHeldByNow("s-1", dir)).rejects.toThrow(
-			/couldn't be read/,
+			/couldn't be read: .*EMFILE/,
 		);
 	});
 
@@ -1124,6 +1124,65 @@ describe("the work broker's records", () => {
 		},
 	);
 
+	it("answer a caller that asks once this process's own cut made while it read, though another reading landed meanwhile", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+
+		disk.stop(one);
+		const asked = treesHeldByNow("s-1", dir, 2_000);
+		await disk.stopped();
+		recorded(dir, two, ["s-1"]);
+		expect(
+			treesHeldBy("s-1", dir).sort(),
+			"the shared reading landed, holding the cut",
+		).toEqual([one, two]);
+		disk.go();
+
+		expect(
+			(await asked).sort(),
+			"its listing predates the cut, so the cut is laid over it",
+		).toEqual([one, two]);
+	});
+
+	it("answer a caller that asks once from a kept listing the folder hasn't moved past, reading nothing", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		const listed = disk.listingsOf(dir);
+
+		expect(await treesHeldByNow("s-1", dir)).toEqual([one]);
+
+		expect(disk.listingsOf(dir), "no reading of its own").toBe(listed);
+	});
+
+	it("answer a caller that asks once beside a record whose sessions are malformed", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const odd = join(root, "trees", "odd");
+		recorded(dir, one, ["s-1"]);
+		mkdirSync(odd, { recursive: true });
+		writeFileSync(
+			join(dir, "odd.json"),
+			JSON.stringify({
+				identity: { key: "odd", shareable: false },
+				path: odd,
+				providerId: "git",
+				sessions: { "s-1": true },
+			}),
+		);
+		settled(dir);
+
+		expect(await treesHeldByNow("s-1", dir)).toEqual([one]);
+	});
+
 	it("look on disk only for the trees a caller that asks once holds", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
@@ -1164,7 +1223,7 @@ describe("the work broker's records", () => {
 		recordedElsewhere(dir, three, ["s-1"]);
 
 		expect(
-			(await treesHeldByNow("s-1", dir, 5_000)).sort(),
+			(await treesHeldByNow("s-1", dir, 2_000)).sort(),
 			"read afresh, not after the stuck one",
 		).toEqual([one, three]);
 		disk.go();
