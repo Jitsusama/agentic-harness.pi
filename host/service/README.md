@@ -316,7 +316,7 @@ input pipeline or screen. No unit or running host is installed yet.
   once, whichever thread runs it.
 - child-requests.ts: reaching a child's socket and reading the one
   answer a request gets; a child answering as another process, or not
-  at all, is said as `child_unreachable`. A begin the host's census
+  at all, is said as `child_unreachable`. A begin the host's own work
   left too little time for a child to start and answer (20 s for its
   first ask, `LEAST_FIRST_ASK_MS`, past the watch kept back after it)
   is refused as `begin_too_late` before any child starts, with words
