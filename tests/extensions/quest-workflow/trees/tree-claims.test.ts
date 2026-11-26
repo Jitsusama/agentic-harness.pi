@@ -325,6 +325,31 @@ describe("answering who holds a tree", () => {
 		expect(letGo(root), "another quest's newest").toEqual([]);
 	});
 
+	it("never lets idle rules take an older tree a quest's session started in, since its reopen looks there", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Its session started in the first tree and cut the last from there.
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: closed-one\n    cwd: ${join(`${first}`, "src")}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a host's answer, off a host").toEqual([]);
+		expect(
+			liveQuestClaims(root).idleMayTake,
+			"the outside sweep's answer",
+		).toEqual([]);
+	});
+
 	it("lets idle rules take nothing while a walk leaves a quest out, since it may hold any tree", () => {
 		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
 		const [first, last] = standing("a/first", "a/last");
