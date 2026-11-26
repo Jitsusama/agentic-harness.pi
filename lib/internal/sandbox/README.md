@@ -26,6 +26,9 @@ sandbox its hour-long tokens.
   the git folder a call outside the fence is held to there.
 - **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
   pi's own file tools to, under either sandbox.
+- **`leads-to.ts`**: where a path leads past its links, made yet or
+  not, as a write to it would land; the one walk `sandbox-files.ts`,
+  `tree-git.ts` and `unfenced-folder.ts` judge paths by.
 - **`tree-git.ts`**: where pi may run git outside the sandbox, and
   with which git folder: a tree only as its own files agree, and in a
   sandboxed session only in repositories the fence guards.

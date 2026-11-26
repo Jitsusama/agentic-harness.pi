@@ -17,8 +17,8 @@
  * node's and jiti's caches in the temporary folder are the fence's own
  * (fence-temp-caches.ts).
  */
-import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 import { runtimeCompileFolders } from "../fence/compile-cache-place.ts";
 import { lenderFolders } from "../fence/fence-builders.ts";
 import { DISK } from "../fence/fence-disk.ts";
@@ -38,6 +38,7 @@ import {
 import { tempCodeCaches } from "../fence/fence-temp-caches.ts";
 import { cacheDir, stateDir } from "../paths.ts";
 import { cutTreeDir } from "../work-records.ts";
+import { leadsTo } from "./leads-to.ts";
 import { namedGitFolder, real, within } from "./tree-git.ts";
 
 /**
@@ -140,30 +141,6 @@ function closedElsewhere(hidden: boolean): string[] {
 		...lenderFolders(DISK),
 		...[...(runtime ? [runtime] : []), ...sockets].filter(isThere),
 	];
-}
-
-/**
- * Where `path` leads, past its links, even where it isn't there yet: a
- * link whose target isn't written, or one in a linked folder, leads
- * where a command writing it would land, so a link can't walk round a
- * closed path by pointing at one still to be made.
- */
-function leadsTo(path: string, hops = 0): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not there; where it would be is judged below.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	const within = leadsTo(parent, hops);
-	try {
-		if (hops < 40 && lstatSync(path).isSymbolicLink())
-			return leadsTo(resolve(within, readlinkSync(path)), hops + 1);
-	} catch {
-		// Nothing there at all: it would be made where its folder leads.
-	}
-	return join(within, basename(path));
 }
 
 function unique(paths: string[]): string[] {
@@ -274,7 +251,9 @@ function closedHere(
 	const closed = closedPaths(home, mac, hidden, elsewhere).map((path) => ({
 		path,
 		as: spelled(path),
-		is: spelled(leadsTo(path)),
+		// One whose links loop holds nothing a command could write, so it is
+		// matched as named.
+		is: spelled(leadsTo(path) ?? path),
 	}));
 	const lies =
 		closed.find((each) => spelledWithin(at, each.as)) ??

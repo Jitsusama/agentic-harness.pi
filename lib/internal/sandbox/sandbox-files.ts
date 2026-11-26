@@ -13,16 +13,8 @@
  * each path matched as its volume folds case.
  */
 
-import { existsSync, readlinkSync, realpathSync } from "node:fs";
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	relative,
-	resolve,
-	sep,
-} from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { FenceKind } from "../../mesh/presence.ts";
 import {
 	FENCE,
@@ -38,6 +30,7 @@ import {
 import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
+import { leadsTo } from "./leads-to.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -95,32 +88,6 @@ export function toolPaths(path: string, cwd: string, home: string): string[] {
 			curly(decomposed),
 		]),
 	];
-}
-
-/** How many links a path may pass through before it counts as a loop. */
-const MOST_LINKS = 40;
-
-/**
- * Where `path` really leads, through every link in it, a dangling one
- * too, since writing through a link to nothing makes the file it names;
- * nothing when its links loop.
- */
-export function leadsTo(path: string, links = 0): string | undefined {
-	if (links > MOST_LINKS) return undefined;
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not all there, or looping: follow what is, a step at a time.
-	}
-	try {
-		return leadsTo(resolve(dirname(path), readlinkSync(path)), links + 1);
-	} catch {
-		// Not a link either, so a name yet to be made.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	const above = leadsTo(parent, links);
-	return above === undefined ? undefined : join(above, basename(path));
 }
 
 /** Whether `path` is `folder` or lies inside it, both already resolved. */

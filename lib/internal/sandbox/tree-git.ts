@@ -47,6 +47,7 @@ import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import { readPlain } from "../../core/work/plain-file.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
 import type { Disk } from "../fence/fence-disk.ts";
+import { leadsTo } from "./leads-to.ts";
 
 /** A path as it really is, or as given when it can't be resolved. */
 export function real(path: string): string {
@@ -58,24 +59,15 @@ export function real(path: string): string {
 }
 
 /**
- * A path as it really is as far as it is there, and as given past that:
- * one not made yet below a linked folder lies where the link leads, as a
- * Mac's /tmp does.
+ * Whether `path` is `folder` or lies inside it, each where it leads past
+ * its links, made yet or not, as a Mac's /tmp leads to /private/tmp
+ * (leads-to.ts); neither, where either's links loop.
  */
-function realAsFar(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not there: resolved as far as its folder is.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	return join(realAsFar(parent), basename(path));
-}
-
-/** Whether `path` is `folder` or lies inside it, as both really are. */
 export function within(path: string, folder: string): boolean {
-	const between = relative(realAsFar(folder), realAsFar(path));
+	const inner = leadsTo(path);
+	const outer = leadsTo(folder);
+	if (inner === undefined || outer === undefined) return false;
+	const between = relative(outer, inner);
 	// A child named `..x` lies inside; only `..` and what climbs past it don't.
 	return !(
 		between === ".." ||

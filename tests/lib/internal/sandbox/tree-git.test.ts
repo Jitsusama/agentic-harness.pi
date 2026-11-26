@@ -65,7 +65,39 @@ describe("a path within a folder", () => {
 		expect(within(missing, folder)).toBe(true);
 		expect(within(join(folder, "not-yet"), linked)).toBe(true);
 		expect(within(join(home, "beside", "not-yet"), linked)).toBe(false);
-		expect(within(join(linked, "..", "beside"), linked)).toBe(false);
+	});
+
+	it("is judged inside a folder not there yet below a linked one", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(folder, join(home, "linked"));
+		const missing = join(home, "linked", "not-yet");
+		expect(within(join(folder, "not-yet", "deeper"), missing)).toBe(true);
+		expect(within(join(home, "not-yet", "deeper"), missing)).toBe(false);
+	});
+
+	it("climbs from where a link leads, not from how its path is spelled", () => {
+		mkdirSync(join(home, "really"));
+		mkdirSync(join(home, "two"));
+		symlinkSync(join(home, "really"), join(home, "two", "linked"));
+		// Built as a string, since join would fold the `..` before within saw it.
+		const climbed = `${join(home, "two", "linked")}/../beside`;
+		expect(within(climbed, join(home, "two"))).toBe(false);
+		expect(within(climbed, home)).toBe(true);
+	});
+
+	it("is judged where a link to nothing would make its file", () => {
+		const folder = join(home, "really");
+		mkdirSync(folder);
+		symlinkSync(join(home, "outside", "file"), join(folder, "dangling"));
+		expect(within(join(folder, "dangling"), folder)).toBe(false);
+		expect(within(join(folder, "dangling"), join(home, "outside"))).toBe(true);
+	});
+
+	it("is neither inside nor outside where its links loop", () => {
+		symlinkSync(join(home, "loop"), join(home, "loop"));
+		expect(within(join(home, "loop"), home)).toBe(false);
+		expect(within(home, join(home, "loop"))).toBe(false);
 	});
 });
 

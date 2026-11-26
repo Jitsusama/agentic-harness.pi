@@ -24,10 +24,10 @@
  */
 
 import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
-import { real, within } from "../sandbox/tree-git.ts";
+import { within } from "../sandbox/tree-git.ts";
 import { cutTreeDir } from "../work-records.ts";
 import { andLeft, claimed, letGoOf } from "./clone-aside.ts";
 import { type Cut, cutFrom, holderOf, uncut } from "./cut.ts";
@@ -451,8 +451,8 @@ async function readyTree(
 ): Promise<Readied> {
 	const no = (why: string): Readied => ({ kind: "refused", why });
 	if (!existsSync(path)) {
-		// The tree isn't there yet, so it is found through its parent's real path.
-		if (within(join(real(dirname(path)), basename(path)), here.trees)) {
+		// The tree isn't there yet: within judges it where it would be made.
+		if (within(path, here.trees)) {
 			const checkout = await guardedCheckoutOf(
 				exec,
 				path,
