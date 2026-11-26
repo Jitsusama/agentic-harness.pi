@@ -20,6 +20,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
 import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
 import { FENCE, LET_THROUGH, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
@@ -160,20 +161,20 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 	// fails the check, saying it couldn't probe rather than that it read.
 	const gcloudKey = join(home, ".ssh", GCLOUD_KEY);
 	const checked = existsSync(gcloudKey) ? 1 : 0;
-	let unprobed: string | undefined;
-	if (checked) {
-		const ran = await fenced(
-			gcloudKeyProbe(gcloudKey),
-			context.scratch,
-			context.session,
-		);
-		if (ran.code !== 0) {
-			unprobed = `couldn't probe ${gcloudKey} inside (exit ${ran.code ?? "stopped"}): ${tailOf(ran)}`;
-		} else if (!readsAsStandIn(ran)) read.push(gcloudKey);
-	}
+	const probed = checked
+		? keyProbed(
+				gcloudKey,
+				await fenced(
+					gcloudKeyProbe(gcloudKey),
+					context.scratch,
+					context.session,
+				),
+			)
+		: {};
+	if (probed.read) read.push(probed.read);
 	const said = [
 		...(read.length > 0 ? [`readable inside: ${read.join(", ")}`] : []),
-		...(unprobed ? [unprobed] : []),
+		...(probed.unprobed ? [probed.unprobed] : []),
 	];
 	return said.length === 0
 		? passed(`${paths.length + checked} hidden files, none readable inside`)
@@ -188,10 +189,28 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
  * as `unread`.
  */
 export function gcloudKeyProbe(path: string): string {
+	const key = quoted(path);
 	return [
 		"command -v head sha256sum > /dev/null || exit 127",
-		`if head -c1 '${path}' > /dev/null 2>&1 && test -s '${path}'; then sha256sum < '${path}'; else echo unread; fi`,
+		`if head -c1 ${key} > /dev/null 2>&1 && test -s ${key}; then sha256sum < ${key}; else echo unread; fi`,
 	].join("\n");
+}
+
+/**
+ * What the probe of gcloud's key at `path` found, from its run `ran`:
+ * the key, where it read as anything but the stand-in or unread; why it
+ * proves nothing, where the probe failed; neither where the key held.
+ */
+export function keyProbed(
+	path: string,
+	ran: Ran,
+): { readonly read?: string; readonly unprobed?: string } {
+	if (ran.code !== 0) {
+		return {
+			unprobed: `couldn't probe ${path} inside (exit ${ran.code ?? "stopped"}): ${tailOf(ran)}`,
+		};
+	}
+	return readsAsStandIn(ran) ? {} : { read: path };
 }
 
 /**

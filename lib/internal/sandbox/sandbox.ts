@@ -58,7 +58,7 @@
  * from mint, which answers only outside (`delta-token.ts`).
  */
 
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import {
@@ -85,7 +85,7 @@ import {
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
-import { fenceGcloudSsh } from "../fence/fence-gcloud-ssh.ts";
+import { fenceGcloudSsh, GCLOUD_KEY } from "../fence/fence-gcloud-ssh.ts";
 import {
 	guardedFolders,
 	guardedIn,
@@ -560,9 +560,9 @@ function runsGcloudSsh(command: string): boolean {
 	);
 }
 
-/** What the note says when gcloud's ssh copies couldn't be made, for `why`. */
+/** What the note says when gcloud's ssh can't work in this session, for `why`. */
 export function gcloudSshUnmade(why: string): string {
-	return `gcloud's ssh files couldn't be copied for this session (fence-gcloud-ssh.ts): ${why}. So gcloud compute ssh fails on the read-only ~/.ssh here; mend that, or run it from an unfenced session`;
+	return `gcloud's ssh can't work in this session (fence-gcloud-ssh.ts): ${why}. So gcloud compute ssh fails on the read-only ~/.ssh here; mend that, or run it from an unfenced session`;
 }
 
 /**
@@ -858,9 +858,14 @@ export function wrapFor(
 						home,
 						sessionFolderName(place.env),
 						(why) => {
-							gcloudUnmade = why;
+							gcloudUnmade = `its files couldn't be copied: ${why}`;
 						},
 					);
+			// With no public half the fence binds no stand-in, so gcloud finds
+			// no key and makes one, which the read-only ~/.ssh refuses.
+			if (gcloudSsh && !existsSync(join(home, ".ssh", `${GCLOUD_KEY}.pub`))) {
+				gcloudUnmade = `~/.ssh/${GCLOUD_KEY}.pub is missing, so gcloud would make a new key, which it can't write here; make it once outside the fence`;
+			}
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
 				? undefined

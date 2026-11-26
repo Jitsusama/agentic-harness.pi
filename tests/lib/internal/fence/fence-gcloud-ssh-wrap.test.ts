@@ -78,7 +78,7 @@ describe("what the fence binds for gcloud's ssh", () => {
 		const knownHosts = `'--bind' '${join(copies, "google_compute_known_hosts")}' '${join(ssh, "google_compute_known_hosts")}'`;
 		const standIn = `'--ro-bind' '${join(copies, "google_compute_engine")}' '${join(ssh, "google_compute_engine")}'`;
 		// The note's words past its apostrophes, which the shell quotes apart.
-		const UNMADE = "be copied for this session (fence-gcloud-ssh.ts)";
+		const UNMADE = "work in this session (fence-gcloud-ssh.ts)";
 		// Wrapped afresh for each command, as every caller wraps.
 		const wrapped = (sandbox: Sandbox, command: string): string =>
 			wrapFor(
@@ -157,6 +157,49 @@ describe("what the fence binds for gcloud's ssh", () => {
 				existsSync(join(runtimeDir, "pi-fence", "gcloud-ssh")),
 				"a server made the copies' folder",
 			).toBe(false);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("tells gcloud's ssh, binding no stand-in, where its key has no public half", () => {
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			all,
+			undefined,
+			noCloud,
+			undefined,
+			undefined,
+			undefined,
+			noDelta,
+		);
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-gcloud-")));
+		const home = join(base, "home");
+		const runtimeDir = join(base, "run");
+		mkdirSync(join(home, ".ssh"), { recursive: true, mode: 0o700 });
+		mkdirSync(runtimeDir, { mode: 0o700 });
+		const session = basename(base);
+		const wrapped = (command: string): string =>
+			wrapFor(
+				fence,
+				{
+					cwd: home,
+					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
+				},
+				home,
+			)?.(command) ?? "";
+		try {
+			const text = wrapped("gcloud compute ssh one");
+			expect(text, "gcloud's ssh wasn't told").toContain(
+				"google_compute_engine.pub is missing",
+			);
+			expect(argsReadIn(text), "a stand-in with no public half").not.toContain(
+				join(home, ".ssh", "google_compute_engine"),
+			);
+			expect(wrapped("true"), "another command was told").not.toContain(
+				"is missing",
+			);
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}

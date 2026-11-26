@@ -18,6 +18,7 @@ import {
 	inSession,
 	type PreflightContext,
 	passed,
+	type Ran,
 	refusedAs,
 	reportLine,
 	runChecks,
@@ -27,6 +28,7 @@ import {
 } from "../../../../lib/internal/fence/fence-preflight.ts";
 import {
 	gcloudKeyProbe,
+	keyProbed,
 	readsAsStandIn,
 } from "../../../../lib/internal/fence/fence-preflight-checks.ts";
 
@@ -191,5 +193,46 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 		const ran = probed("-----BEGIN OPENSSH PRIVATE KEY-----\n", folder);
 		expect(ran.code).toBe(127);
 		expect(readsAsStandIn(ran)).toBe(false);
+	});
+
+	it("takes a path a shell would split or expand as one word", () => {
+		const odd = join(folder, "it's $HOME key");
+		writeFileSync(odd, KEY_STAND_IN);
+		const ran = spawnSync(BASH, ["-c", gcloudKeyProbe(odd)], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		expect(readsAsStandIn({ code: ran.status, out: ran.stdout })).toBe(true);
+	});
+});
+
+describe("what the preflight makes of the key's probe", () => {
+	const key = "/home/one/.ssh/google_compute_engine";
+	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	const ran = (code: number | null, out: string): Ran => ({
+		code,
+		out,
+		err: "bwrap: refused",
+		ms: 5,
+	});
+
+	it("finds nothing where the key reads as the stand-in or unread", () => {
+		expect(keyProbed(key, ran(0, `${standIn}  -\n`))).toEqual({});
+		expect(keyProbed(key, ran(0, "unread\n"))).toEqual({});
+	});
+
+	it("names the key where it read as anything else", () => {
+		expect(keyProbed(key, ran(0, `${"0".repeat(64)}  -\n`))).toEqual({
+			read: key,
+		});
+	});
+
+	it("says it couldn't probe, rather than that it read, where the probe failed", () => {
+		const failedRun = keyProbed(key, ran(127, ""));
+		expect(failedRun.read).toBeUndefined();
+		expect(failedRun.unprobed).toContain(
+			`couldn't probe ${key} inside (exit 127)`,
+		);
+		expect(keyProbed(key, ran(null, "")).unprobed).toContain("exit stopped");
 	});
 });

@@ -72,7 +72,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { isPrivateFolder, makeFolder } from "./fence-dev.ts";
+import { isPrivateFolder, makeFolder } from "./fence-folders.ts";
 
 /** gcloud's known-hosts file, in `~/.ssh`. */
 export const GCLOUD_KNOWN_HOSTS = "google_compute_known_hosts";
@@ -224,8 +224,14 @@ function writeOver(path: string, text: Buffer | string): void {
  * is answered, and where one isn't, what it is is thrown.
  */
 function privateFolders(runtimeDir: string, names: readonly string[]): string {
+	// A folder gone as it was asked for was most likely put aside by a
+	// sweep; that is its cause, not a folder of the wrong mode.
 	const refused = (folder: string): Error =>
-		new Error(`${folder} isn't this account's own private folder (mode 700)`);
+		new Error(
+			existsSync(folder) || isLink(folder)
+				? `${folder} isn't this account's own private folder (mode 700)`
+				: `${folder} went as it was made, as a sweep of ended sessions takes one; the next command makes it again`,
+		);
 	if (!isPrivateFolder(runtimeDir)) throw refused(runtimeDir);
 	let folder = runtimeDir;
 	for (const name of names) {
@@ -248,6 +254,8 @@ function privateFolders(runtimeDir: string, names: readonly string[]): string {
  * rather than writing into the one being emptied. A session idle a day
  * whose command is wrapped in the instant between the two renames can
  * still fail that one command's bind; its next makes the copies anew.
+ * One put aside and left, by a pi killed mid-sweep or a removal that
+ * failed, is taken by a later sweep, since no session uses its name.
  */
 function sweepEnded(sessions: string, session: string, now: number): void {
 	let names: string[];
@@ -258,29 +266,75 @@ function sweepEnded(sessions: string, session: string, now: number): void {
 		return;
 	}
 	for (const name of names) {
-		if (name === session || !SESSION_NAME.test(name)) continue;
 		const folder = join(sessions, name);
 		try {
+			if (ASIDE.test(name)) {
+				removeAside(folder);
+				continue;
+			}
+			if (name === session || !SESSION_NAME.test(name)) continue;
 			const stat = lstatSync(folder);
 			if (!isPrivateFolder(folder) || now - stat.mtimeMs < UNUSED_FOR_MS) {
 				continue;
 			}
 			const aside = join(sessions, `.ended-${randomUUID()}`);
 			renameSync(folder, aside);
-			if (lstatSync(aside).mtimeMs !== stat.mtimeMs) {
-				// Its session dated it as it was judged: back where it was.
-				renameSync(aside, folder);
-				continue;
-			}
-			for (const file of readdirSync(aside)) {
-				if (lstatSync(join(aside, file)).isFile()) {
-					unlinkSync(join(aside, file));
-				}
-			}
-			rmdirSync(aside);
+			endAside(aside, folder, stat.mtimeMs);
 		} catch {
 			// In use again, or not this account's to remove: left as it is.
 		}
+	}
+}
+
+/** A name the sweep puts a folder aside under, which no session's name takes. */
+const ASIDE = /^\.ended-[0-9a-f-]{36}$/;
+
+/**
+ * Ends the copies the sweep put aside at `aside` from `folder`, judged
+ * unused when dated `judgedMs`: put back where its session dated it
+ * since, and otherwise removed (`removeAside`). Throws where it can do
+ * neither, leaving it for a later sweep.
+ */
+export function endAside(
+	aside: string,
+	folder: string,
+	judgedMs: number,
+): void {
+	const stat = lstatSync(aside);
+	if (stat.isDirectory() && stat.mtimeMs !== judgedMs) {
+		// Its session dated it as it was judged: back where it was.
+		renameSync(aside, folder);
+		return;
+	}
+	removeAside(aside);
+}
+
+/**
+ * Removes `aside`, a folder the sweep put aside: its plain files, then
+ * itself, where it is this account's own private folder. Anything else
+ * there, a link swapped in as it was judged among them, is unlinked as a
+ * name, never walked; a folder within one is left, and so the folder.
+ */
+function removeAside(aside: string): void {
+	if (!isPrivateFolder(aside)) {
+		if (isLink(aside)) unlinkSync(aside);
+		return;
+	}
+	for (const file of readdirSync(aside)) {
+		const path = join(aside, file);
+		const stat = lstatSync(path);
+		if (stat.isFile() || stat.isSymbolicLink()) unlinkSync(path);
+	}
+	rmdirSync(aside);
+}
+
+/** Whether `path` is a link itself. */
+function isLink(path: string): boolean {
+	try {
+		return lstatSync(path).isSymbolicLink();
+	} catch {
+		// Not there.
+		return false;
 	}
 }
 

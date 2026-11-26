@@ -25,7 +25,6 @@ import {
 	type DevMaker,
 	fenceDevCopies,
 	gitGlobalIn,
-	makeFolder,
 	running,
 } from "../../../../lib/internal/fence/fence-dev.ts";
 
@@ -579,33 +578,4 @@ describe("the session's copies of dev's and git's settings", () => {
 			expect(copiesOf("s-1"), "the next pi tries afresh").toBeDefined();
 		},
 	);
-});
-
-describe("a folder made for this account alone", () => {
-	let base = "";
-
-	beforeEach(() => {
-		base = mkdtempSync(join(tmpdir(), "make-folder-"));
-	});
-
-	afterEach(() => {
-		rmSync(base, { recursive: true, force: true });
-	});
-
-	it("is made private to this account", () => {
-		makeFolder(join(base, "one"));
-		expect(statSync(join(base, "one")).mode & 0o777).toBe(0o700);
-	});
-
-	it("leaves one another pi made first as it found it, for the caller to judge", () => {
-		mkdirSync(join(base, "one"), { mode: 0o755 });
-		expect(() => makeFolder(join(base, "one"))).not.toThrow();
-		expect(statSync(join(base, "one")).mode & 0o777).toBe(0o755);
-	});
-
-	it("throws on any other failure, such as a missing parent", () => {
-		expect(() => makeFolder(join(base, "none", "one"))).toThrow(
-			expect.objectContaining({ code: "ENOENT" }),
-		);
-	});
 });

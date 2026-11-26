@@ -14,6 +14,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -24,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	endAside,
 	fenceGcloudSsh,
 	GCLOUD_KEY,
 	GCLOUD_KNOWN_HOSTS,
@@ -215,6 +217,68 @@ describe("the session's copies for gcloud's ssh", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("puts back a folder its session dated as the sweep put it aside, and ends one it didn't", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		const aside = (name: string) =>
+			join(sessions, `.ended-${name.padEnd(36, "0")}`);
+		fenceGcloudSsh(runtime, home, "one");
+		fenceGcloudSsh(runtime, home, "two");
+		const judged = daysOn(-2);
+		utimesSync(join(sessions, "two"), judged, judged);
+		const judgedMs = lstatSync(join(sessions, "two")).mtimeMs;
+		// "one" was dated afresh after the sweep judged it.
+		const oneAside = aside("1");
+		renameSync(join(sessions, "one"), oneAside);
+		endAside(oneAside, join(sessions, "one"), judgedMs);
+		expect(
+			readFileSync(join(sessions, "one", GCLOUD_KEY), "utf8"),
+			"the dated one wasn't put back whole",
+		).toBe(KEY_STAND_IN);
+		expect(existsSync(oneAside), "the dated one left aside").toBe(false);
+		const twoAside = aside("2");
+		renameSync(join(sessions, "two"), twoAside);
+		endAside(twoAside, join(sessions, "two"), judgedMs);
+		expect(existsSync(twoAside), "the undated one kept").toBe(false);
+		expect(existsSync(join(sessions, "two")), "the undated one put back").toBe(
+			false,
+		);
+	});
+
+	it("unlinks a link swapped in as the sweep judged, never walking it", () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		fenceGcloudSsh(runtime, home, "one");
+		const elsewhere = join(root, "elsewhere");
+		mkdirSync(elsewhere, { mode: 0o700 });
+		writeFileSync(join(elsewhere, "kept"), "kept\n");
+		const aside = join(sessions, `.ended-${"3".padEnd(36, "0")}`);
+		symlinkSync(elsewhere, aside);
+		endAside(aside, join(sessions, "three"), 0);
+		expect(existsSync(aside), "the link").toBe(false);
+		expect(readFileSync(join(elsewhere, "kept"), "utf8")).toBe("kept\n");
+		expect(existsSync(join(sessions, "three")), "the link put back").toBe(
+			false,
+		);
+	});
+
+	it("takes a folder an earlier sweep left aside, however fresh", async () => {
+		const sessions = join(runtime, "pi-fence/gcloud-ssh");
+		vi.resetModules();
+		const fresh = await import(
+			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
+		);
+		fresh.fenceGcloudSsh(runtime, home, "one");
+		const left = join(sessions, `.ended-${"4".padEnd(36, "0")}`);
+		mkdirSync(left, { mode: 0o700 });
+		writeFileSync(join(left, GCLOUD_KEY), KEY_STAND_IN);
+		vi.resetModules();
+		const next = await import(
+			"../../../../lib/internal/fence/fence-gcloud-ssh.ts"
+		);
+		next.fenceGcloudSsh(runtime, home, "one");
+		expect(existsSync(left), "left aside for good").toBe(false);
+		expect(existsSync(sessionFolder()), "its own").toBe(true);
 	});
 
 	it("says why it made no copies", () => {
