@@ -44,7 +44,10 @@ interface ProbeApi {
 	getAllTools(): readonly { name: string; exposure: string }[];
 	getActiveTools(): readonly string[];
 	readonly events: {
-		on(channel: string, handler: (data: { how?: string }) => void): void;
+		on(
+			channel: string,
+			handler: (data: { how?: string; why?: string }) => void,
+		): void;
 		emit(channel: string, data: unknown): void;
 	};
 }
@@ -174,6 +177,11 @@ export default function probeExtension(pi: ProbeApi): void {
 
 	pi.events.on("agentic-harness:session-stamp", (stamp) =>
 		note({ event: "stamp", how: stamp.how }),
+	);
+	// A park its host refused after the asking call returned, as the park
+	// watch hears it on this conversation's own bus.
+	pi.events.on("agentic-harness:park-refused", (refused) =>
+		note({ event: "park-refused", why: refused.why }),
 	);
 	// Background work as a producer hands it off, to the job host on this
 	// conversation's bus (job-workflow, where the harness loads), left running,
