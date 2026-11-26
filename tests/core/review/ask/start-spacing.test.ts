@@ -359,8 +359,45 @@ describe("spacing council starts on one machine", () => {
 				if (start.cancelled === undefined) started.push(by);
 			}),
 		);
-		// Two spacings and a margin: without a tie broken, neither starts.
-		const waited = setTimeout(() => giving.abort(), 4 * SPACING);
+		// Two spacings and a wide margin for a loaded machine: without a tie
+		// broken, neither ever starts, and with one, this waits no longer.
+		const waited = setTimeout(() => giving.abort(), 10 * SPACING);
+		await Promise.all(rounds);
+		clearTimeout(waited);
+
+		expect([...started].sort(), "both started").toEqual(["85PKB2", "ISXEG8"]);
+	});
+
+	it("starts both of two sessions' rounds on one change, which share its first ask", async () => {
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: {
+					at: new Date().toISOString(),
+					by: "A2VLJN",
+					change: "o/r#A2VLJN",
+				},
+				waiting: [],
+				firstAsked: {
+					"o/r#shared": new Date(Date.now() - 60_000).toISOString(),
+				},
+			}),
+		);
+		const giving = new AbortController();
+		const started: string[] = [];
+
+		const rounds = ["ISXEG8", "85PKB2"].map((by) =>
+			awaitCouncilStart(
+				path,
+				claim(by, { change: "o/r#shared" }),
+				giving.signal,
+			).then((start) => {
+				if (start.cancelled === undefined) started.push(by);
+			}),
+		);
+		// As above: without a tie broken, neither ever starts.
+		const waited = setTimeout(() => giving.abort(), 10 * SPACING);
 		await Promise.all(rounds);
 		clearTimeout(waited);
 
