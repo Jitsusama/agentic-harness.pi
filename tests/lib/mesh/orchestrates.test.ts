@@ -127,7 +127,7 @@ describe("telling the node", () => {
 		expect(
 			await tellOrchestrates("forget", "sess-42", "work", {}, run),
 			"one journal entry, never a second line someone else wrote",
-		).toEqual({ kind: "refused", why: "refused pi: a forged line" });
+		).toEqual({ kind: "refused", why: "refused / pi: a forged line" });
 	});
 
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {

@@ -16,6 +16,7 @@
  */
 
 import { isRecord } from "../internal/record.ts";
+import { shownLines } from "./shown-line.ts";
 import { type Ran, type RunProgram, runProgram } from "./sprout.ts";
 
 /** What a session orchestrates: the quest it heads and those below it. */
@@ -123,11 +124,12 @@ function toldBy(ran: Ran): ClaimTold {
 }
 
 /**
- * What mycelium or the node said, cut short and folded onto one line, so
- * it is one journal entry and the same trouble reads the same each time.
+ * What mycelium or the node said, as it shows (shownLines), cut short
+ * and folded onto one line, so it is one journal entry, the same trouble
+ * reads the same each time, and no escape a peer relayed is journalled.
  */
 function oneLine(said: string): string {
-	return said.replace(/\s+/gu, " ").trim().slice(0, MOST_SAID);
+	return shownLines(said, MOST_SAID);
 }
 
 /** A claim the node never had, and why. */

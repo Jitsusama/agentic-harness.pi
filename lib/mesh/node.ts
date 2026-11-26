@@ -37,7 +37,7 @@ import {
 	placedFrom,
 } from "./placement.ts";
 import type { Said } from "./receptor.ts";
-import { shownEnds } from "./shown-line.ts";
+import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
 
 /** What a `message` kind's record key opens with, before the id. */
 const MESSAGE_KEY = "message:";
@@ -271,15 +271,23 @@ export async function startAt(
 /**
  * The most characters of a start's answer quoted: the node's reason, or
  * a reply this harness can't read. Each is quoted as it shows
- * (shownEnds), since the node's words may relay a peer's, or as
+ * (shownLines), since the node's words may relay a peer's, or as
  * NOTHING_SHOWN where nothing of it shows, so a refusal never reads as
  * having no reason when one was withheld.
  */
 const MOST_REASON = 500;
 const MOST_UNREAD = 200;
 
-/** What's quoted of words of which nothing shows once cleaned. */
-export const NOTHING_SHOWN = "nothing that shows";
+/**
+ * The answer to a reply this harness can't read, `text` quoted as it
+ * shows, so it never reads as having no words when they were withheld.
+ */
+export function unreadAnswer(text: string): StartAnswer {
+	return {
+		ok: false,
+		reason: `the node answered what this harness can't read: ${shownLines(text, MOST_UNREAD) || NOTHING_SHOWN}`,
+	};
+}
 
 /** A start's answer read: started, or the node's reason it didn't. */
 export function startedFrom(line: string): StartAnswer {
@@ -290,7 +298,7 @@ export function startedFrom(line: string): StartAnswer {
 		// Fall through to the answer this reader can't read.
 	}
 	if (isRecord(reply) && typeof reply.Err === "string") {
-		const reason = shownEnds(reply.Err, MOST_REASON);
+		const reason = shownLines(reply.Err, MOST_REASON);
 		return {
 			ok: false,
 			reason: reason || `the node refused and said ${NOTHING_SHOWN}`,
@@ -315,10 +323,7 @@ export function startedFrom(line: string): StartAnswer {
 			},
 		};
 	}
-	return {
-		ok: false,
-		reason: `the node answered what this harness can't read: ${shownEnds(line, MOST_UNREAD) || NOTHING_SHOWN}`,
-	};
+	return unreadAnswer(line);
 }
 
 /**

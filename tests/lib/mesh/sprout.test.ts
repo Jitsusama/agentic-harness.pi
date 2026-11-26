@@ -168,7 +168,7 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("keeps the cause a parser writes above its hint", async () => {
+	it("keeps every line a parser writes, its cause first and its hint last", async () => {
 		const { run } = answering({
 			code: 2,
 			stdout: "",
@@ -178,8 +178,30 @@ describe("sprouting", () => {
 		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
 			ok: false,
 			reason:
-				"error: unexpected argument '--from' found / For more information, try '--help'.",
+				"error: unexpected argument '--from' found / tip: to pass '--from' as a value, use '-- --from' / Usage: mycelium sprout [OPTIONS] <WORDS> / For more information, try '--help'.",
 		});
+	});
+
+	it("says what stdout wrote as it shows where stderr held only escapes", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "judging\n",
+			stderr: "\u001b[0m\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "the node answered what this harness can't read: judging",
+		});
+	});
+
+	it("never parses a line that only reads as JSON once cleaned", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: '\u001b[0m{"Started":{"address":"X"}}\n',
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok).toBe(false);
 	});
 
 	it("says the node's refusal as it shows, never an escape's hidden string", async () => {

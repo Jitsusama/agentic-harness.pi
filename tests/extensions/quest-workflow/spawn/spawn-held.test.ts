@@ -493,7 +493,45 @@ describe("sharing a quest through mycelium", () => {
 		}));
 		expect(await share("QEST-1")).toEqual({
 			ok: false,
-			reason: "no link reaches it",
+			reason: "asking / no link reaches it",
+		});
+	});
+
+	it("keeps a parser's cause and its hint both", async () => {
+		const share = shareThrough(async () => ({
+			code: 2,
+			stdout: "",
+			stderr:
+				"error: unexpected argument '--x' found\n\nFor more information, try '--help'.\n",
+		}));
+		expect(await share("QEST-1")).toEqual({
+			ok: false,
+			reason:
+				"error: unexpected argument '--x' found / For more information, try '--help'.",
+		});
+	});
+
+	it("says stdout's words where stderr held only escapes", async () => {
+		const share = shareThrough(async () => ({
+			code: 1,
+			stdout: "no such quest\n",
+			stderr: "\u001b[0m\n",
+		}));
+		expect(await share("QEST-1")).toEqual({
+			ok: false,
+			reason: "no such quest",
+		});
+	});
+
+	it("says it wrote nothing that shows, never that it wrote nothing", async () => {
+		const share = shareThrough(async () => ({
+			code: 1,
+			stdout: "",
+			stderr: "\u001b[0m\n",
+		}));
+		expect(await share("QEST-1")).toEqual({
+			ok: false,
+			reason: "mycelium share exited 1 and said nothing that shows",
 		});
 	});
 });

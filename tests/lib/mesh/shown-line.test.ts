@@ -1,8 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { lastShownLine } from "../../../lib/mesh/shown-line.ts";
+import { lastShownLine, shownLines } from "../../../lib/mesh/shown-line.ts";
 
 // As sprout-start quotes mycelium's stderr: its last shown line, to 200.
 const MOST_QUOTED = 200;
+
+describe("shownLines", () => {
+	it("keeps every line that shows, marking the ones it leaves out", () => {
+		const cases: [text: string, most: number, said: string][] = [
+			["refused\n", 200, "refused"],
+			["", 200, ""],
+			["\u001b[0m\n", 200, ""],
+			// A first line of escapes alone isn't a line.
+			["\u001b[31m\u001b[0m\nrefused\nhint\n", 200, "refused / hint"],
+			// A Rust panic keeps its message, between where and the backtrace hint.
+			[
+				"thread 'main' panicked at src/main.rs:9:5:\nno realm\nnote: run with `RUST_BACKTRACE=1`\n",
+				200,
+				"thread 'main' panicked at src/main.rs:9:5: / no realm / note: run with 'RUST_BACKTRACE=1'",
+			],
+			// Many lines keep the first, the last and what fits between.
+			[
+				"cause\none\ntwo\nthree\nfour\nhint\n",
+				30,
+				"cause / one / two / ... / hint",
+			],
+			// One long line is cut to whole characters.
+			["\u{1F600}".repeat(5), 3, "\u{1F600}\u{1F600}\u{1F600}..."],
+		];
+		for (const [text, most, said] of cases) {
+			expect(shownLines(text, most), JSON.stringify(text)).toBe(said);
+		}
+	});
+});
 
 describe("lastShownLine", () => {
 	it("drops every mark no one sees from the last line, and ends it at every line end", () => {

@@ -8,9 +8,11 @@
  * words. A reply quoted unread is cleaned as written, so an escape
  * still written as JSON text (\u001b) is quoted as that text. One copy,
  * for a sprout's own refusal (sprout.ts), the node's refusal of a start
- * (node.ts) or a placement (the quest workflow's spawn), mycelium share's
- * and a sprouted session's tie (the quest workflow's sprout start), so
- * they can't drift apart.
+ * (node.ts) or a placement (placement.ts and the quest workflow's
+ * spawn), mycelium share's, a sprouted session's tie (the quest
+ * workflow's sprout start) and an orchestration claim's journal line
+ * (orchestrates.ts), so they can't drift apart. It cleans only what
+ * these quote; other mesh code quotes a peer's words its own way.
  */
 
 import { drawsAsNothing } from "../internal/unseen.ts";
@@ -108,23 +110,44 @@ export function lastShownLine(text: string, most: number): string {
 	return cut(lastShownFrom(lines, 0), most);
 }
 
+/** What's quoted of words of which nothing shows once cleaned. */
+export const NOTHING_SHOWN = "nothing that shows";
+
+/** What joins the lines of a quote that keeps several. */
+const BETWEEN_LINES = " / ";
+
+/** What stands for the lines a quote leaves out between two it keeps. */
+const LEFT_OUT = "...";
+
 /**
- * The first and the last line of `text` with anything left once cleaned,
- * as lastShownLine cleans them, joined by " / " where they're two, cut to
- * `most` as it cuts. A refusal is quoted so, since a program's parser
- * puts the cause first and a hint last (clap's "error: unexpected
- * argument" above "For more information, try '--help'."), and its own
- * reason is one line, quoted whole.
+ * Every line of `text` with anything left once cleaned, as lastShownLine
+ * cleans them, joined by " / ", cut to `most` as it cuts. Where they
+ * don't fit, the first and the last are kept and the lines between from
+ * the first on while they fit, the rest standing as "...", since a
+ * program puts its cause first and a hint last (clap's "error:
+ * unexpected argument" above "For more information, try '--help'."),
+ * and what's between can be its message (a Rust panic's below where it
+ * panicked) or a cause in a chain. So no line is left out unmarked.
  */
-export function shownEnds(text: string, most: number): string {
-	const lines = unescaped(text).split(LINE_ENDS);
-	let first = "";
-	let at = 0;
-	for (; at < lines.length && first === ""; at += 1) {
-		first = shownLine(lines[at] ?? "");
+export function shownLines(text: string, most: number): string {
+	const lines = unescaped(text)
+		.split(LINE_ENDS)
+		.map(shownLine)
+		.filter((line) => line !== "");
+	const whole = lines.join(BETWEEN_LINES);
+	const first = lines[0];
+	const last = lines.at(-1);
+	if (lines.length < 3 || first === undefined || last === undefined) {
+		return cut(whole, most);
 	}
-	const last = lastShownFrom(lines, at);
-	return cut(last === "" ? first : `${first} / ${last}`, most);
+	if (Array.from(whole).length <= most) return whole;
+	const kept = [first];
+	for (const line of lines.slice(1, -1)) {
+		const tried = [...kept, line, LEFT_OUT, last].join(BETWEEN_LINES);
+		if (Array.from(tried).length > most) break;
+		kept.push(line);
+	}
+	return cut([...kept, LEFT_OUT, last].join(BETWEEN_LINES), most);
 }
 
 /** The last of `lines` from `from` on with anything left once cleaned. */

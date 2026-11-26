@@ -62,7 +62,7 @@ import {
 	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { lastShownLine } from "../../../lib/mesh/shown-line.ts";
+import { lastShownLine, NOTHING_SHOWN } from "../../../lib/mesh/shown-line.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -874,7 +874,7 @@ async function tie(
 			!ran.noFolder &&
 			!ran.stopped)
 	) {
-		const said = lastLine(ran.stderr);
+		const said = stderrSaid(ran.stderr);
 		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
@@ -890,15 +890,19 @@ async function tie(
 			: "this session's folder is gone";
 		return { kind: "failed", from, why, retry: false };
 	}
-	const said = lastLine(ran.stderr);
+	const said = stderrSaid(ran.stderr);
 	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
 }
 
 /**
  * The last line mycelium wrote on stderr, as it shows (lastShownLine),
- * cut to MOST_QUOTED characters.
+ * cut to MOST_QUOTED characters, since a tie's earlier lines say how it
+ * went and its last says where it stopped; or NOTHING_SHOWN where it
+ * wrote only what a terminal hides, so withheld words never read as none.
  */
-function lastLine(stderr: string): string {
-	return lastShownLine(stderr, MOST_QUOTED);
+function stderrSaid(stderr: string): string {
+	return (
+		lastShownLine(stderr, MOST_QUOTED) || (stderr.trim() ? NOTHING_SHOWN : "")
+	);
 }

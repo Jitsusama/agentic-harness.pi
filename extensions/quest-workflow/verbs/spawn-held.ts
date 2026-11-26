@@ -47,7 +47,6 @@ import {
 import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	agentsAt,
-	NOTHING_SHOWN,
 	type NodeStart,
 	type NodeStarted,
 	nodeSocket,
@@ -63,7 +62,7 @@ import {
 	needWords,
 	type PlaceAnswer,
 } from "../../../lib/mesh/placement.ts";
-import { lastShownLine, shownEnds } from "../../../lib/mesh/shown-line.ts";
+import { NOTHING_SHOWN, shownLines } from "../../../lib/mesh/shown-line.ts";
 import {
 	describePlan,
 	type OpenedTerminal,
@@ -235,9 +234,20 @@ export function shareThrough(exec: Exec): ShareQuest {
 	return async (questId) => {
 		const { code, stdout, stderr } = await exec("mycelium", ["share", questId]);
 		if (code === 0) return { ok: true };
-		// Quoted as it shows, since what share relays may be a peer's.
-		const said = lastShownLine(stderr.trim() || stdout.trim(), MOST_SHARE_SAID);
-		return { ok: false, reason: said || `mycelium share exited ${code}` };
+		// Quoted as it shows, since what share relays may be a peer's: its
+		// stderr's lines, cause and hint both, else its stdout's, else that
+		// it said nothing that shows, so withheld words never read as none.
+		const said =
+			shownLines(stderr, MOST_SHARE_SAID) ||
+			shownLines(stdout, MOST_SHARE_SAID);
+		if (said) return { ok: false, reason: said };
+		const wrote = stderr.trim() || stdout.trim();
+		return {
+			ok: false,
+			reason: wrote
+				? `mycelium share exited ${code} and said ${NOTHING_SHOWN}`
+				: `mycelium share exited ${code}`,
+		};
 	};
 }
 
@@ -395,7 +405,7 @@ export async function machineFor(
 		return {
 			ok: false,
 			// Quoted as it shows, since the node's words may relay a peer's.
-			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${shownEnds(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN}.`,
+			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${shownLines(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN}.`,
 		};
 	}
 	return { ok: true, machine: answer.machine, needs };
