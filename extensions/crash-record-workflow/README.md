@@ -80,7 +80,12 @@ second, so the wait was on something only a real session reaches.
 - Restarts a held pi that quits at nobody's ask: it exits 79 rather
   than 0, which its holder answers by starting it again. A code
   something else set, as a park's 75 or one-writer's 78, stands, and a
-  pi no holder runs ends as it would have.
+  pi no holder runs ends as it would have. It names its own session's
+  command to the holder, so it comes back to the same conversation,
+  refusing what a park refuses (a log not yet written, a flag the
+  restart would drop), where the holder starts its own command. A
+  command a hand-over, park or rollover named since this pi started
+  stands.
 - Arms only in plain pi. A host runs many conversations in one
   process and installs what that process listens for itself.
 

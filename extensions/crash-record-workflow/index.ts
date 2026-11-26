@@ -60,18 +60,14 @@ import {
 	crashText,
 	recordCrashes,
 } from "../../lib/internal/session/crash-record.ts";
-import { nameRestart } from "../../lib/internal/session/hand-over.ts";
+import { restartAfterUnaskedQuit } from "../../lib/internal/session/hand-over.ts";
 import {
 	type JournalCommand,
 	journalCommand,
 	sayInJournal,
 	writeJournal,
 } from "../../lib/internal/session/journal.ts";
-import {
-	type HolderFiles,
-	holderCommand,
-	holderFiles,
-} from "../../lib/internal/session/park.ts";
+import { holderFiles } from "../../lib/internal/session/park.ts";
 import {
 	askQuit,
 	KEY_QUITS,
@@ -198,9 +194,20 @@ function sayQuit(session: string, log: string | undefined): void {
 	const asker = quitAsker();
 	const files = holderFiles(process.env, process.pid);
 	const held = files !== undefined;
-	const restarts = quitExit(asker, held, 0) === UNASKED_EXIT;
+	// An exit code set before the quit, as a hand-over's, decides as it will at exit.
+	const set = process.exitCode;
+	const restarts =
+		quitExit(asker, held, typeof set === "number" ? set : 0) === UNASKED_EXIT;
 	const untold =
-		restarts && files !== undefined ? restartUntold(files, log) : undefined;
+		restarts && files !== undefined
+			? restartAfterUnaskedQuit(files, {
+					args: process.argv.slice(2),
+					session,
+					sessionFile: log,
+					env: process.env,
+					startedAtMs: Date.now() - process.uptime() * MS_PER_SECOND,
+				})
+			: undefined;
 	if (restarts) {
 		// pi ends a quit with process.exit(0); an exit listener's code wins,
 		// and one an earlier listener set, as one-writer's, stands.
@@ -222,23 +229,8 @@ function sayQuit(session: string, log: string | undefined): void {
 	);
 }
 
-/**
- * Names to the holder the command that starts this session again, so a
- * pi it started bare comes back to this conversation, not a new one;
- * written before the exit code or the signal it restarts on. Answers
- * why it couldn't, or nothing once it has.
- */
-function restartUntold(
-	files: HolderFiles,
-	log: string | undefined,
-): string | undefined {
-	if (log === undefined) return "it has no log to open";
-	const told = nameRestart(
-		files,
-		holderCommand(log, process.argv.slice(2), process.env),
-	);
-	return told.told ? undefined : `its holder couldn't be told: ${told.why}`;
-}
+/** Milliseconds in a second, for the process's uptime. */
+const MS_PER_SECOND = 1000;
 
 /** What a pi ended past a pending lookup says held it. */
 const HELD_BY_LOOKUP =

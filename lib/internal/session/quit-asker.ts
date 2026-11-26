@@ -111,8 +111,8 @@ export const UNNAMED_QUIT =
 
 /**
  * The system log's line for a quit, naming who asked and what follows:
- * for a restart its holder couldn't be told the session of, that it
- * comes back as a new conversation, and why.
+ * for a restart its holder couldn't be told the session of, that the
+ * holder starts it with its own command, and why.
  */
 export function quitLine(
 	session: string,
@@ -123,7 +123,7 @@ export function quitLine(
 	const fresh =
 		untold === undefined
 			? ""
-			: `, as a new conversation, since ${untold.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")}`;
+			: `, with its own command, since ${untold.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")}`;
 	const then = restarts
 		? `; it exits ${UNASKED_EXIT} so its holder starts it again${fresh}`
 		: "";

@@ -7,14 +7,16 @@
  * draws over it.
  */
 
-import { rmSync, writeFileSync } from "node:fs";
+import { rmSync, statSync, writeFileSync } from "node:fs";
 import {
 	flagsLost,
 	type HolderFiles,
+	holderCommand,
 	holderFiles,
 	PARKED_EXIT,
 	sayParkedIn,
 } from "./park.ts";
+import { logWritten, restartRefused } from "./restart-checks.ts";
 
 /** What a pi needs before it may hand its window over. */
 export interface HandingFacts {
@@ -100,6 +102,57 @@ export function nameRestart(
 	} catch (error) {
 		forget(files.again);
 		return { told: false, why: whyWriting(files.again, error) };
+	}
+}
+
+/** What a pi that quit unasked knows of itself to name its restart. */
+export interface UnaskedQuit {
+	/** The arguments pi was started with. */
+	readonly args: readonly string[];
+	/** Its session's id. */
+	readonly session: string;
+	/** Its session's log, or nothing where it has none. */
+	readonly sessionFile: string | undefined;
+	/** The variables it runs with. */
+	readonly env: NodeJS.ProcessEnv;
+	/** When this process started, in epoch milliseconds. */
+	readonly startedAtMs: number;
+}
+
+/**
+ * Names to the holder of a pi that quit unasked the command that brings
+ * its conversation back, refusing what a park refuses: a log not yet
+ * written, or flags the restart would drop. A command another path
+ * wrote since this pi started (a hand-over, a park, a rollover) is that
+ * path's word and stands. Refused, a command left from before this pi
+ * started is taken away, so the holder starts its own command rather
+ * than an older word. Answers why it couldn't name the restart, or
+ * nothing.
+ */
+export function restartAfterUnaskedQuit(
+	files: HolderFiles,
+	quit: UnaskedQuit,
+): string | undefined {
+	if (writtenSince(files.again, quit.startedAtMs)) return undefined;
+	const log = quit.sessionFile ?? "";
+	const refused =
+		logWritten(log) ??
+		restartRefused(files.again, quit.args, quit.session, log);
+	if (refused !== undefined) {
+		forget(files.again);
+		return refused;
+	}
+	const told = nameRestart(files, holderCommand(log, quit.args, quit.env));
+	return told.told ? undefined : `its holder couldn't be told: ${told.why}`;
+}
+
+/** Whether the file at `path` was written at or after `sinceMs`. */
+function writtenSince(path: string, sinceMs: number): boolean {
+	try {
+		return statSync(path).mtimeMs >= sinceMs;
+	} catch {
+		// No file there, so nothing another path wrote.
+		return false;
 	}
 }
 
