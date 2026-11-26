@@ -93,6 +93,18 @@ it("says a quests root under a data folder linked to somewhere not there", () =>
 	expect(errors).toEqual([{ path: root, message: FAULT }]);
 });
 
+it("says a quests root named back out of a link to somewhere not there", () => {
+	// The kernel resolves `link/..` through the link, which leads nowhere;
+	// folded by text, the path would name a folder that is plainly there.
+	// Written out by hand, since join would fold it too.
+	const data = join(dir, "data");
+	mkdirSync(data);
+	symlinkSync(join(dir, "unmounted", "pi"), join(data, "link"));
+	const root = `${data}/link/../quests`;
+	const { errors } = discoverQuestsUncached(root, newPass());
+	expect(errors).toEqual([{ path: root, message: FAULT }]);
+});
+
 it("reads a quests root under a data folder linked to a folder as empty until made", () => {
 	const real = join(dir, "real");
 	mkdirSync(real);
@@ -143,8 +155,15 @@ it("has a signing's thread say how a root that won't list stands", async () => {
 	const [ofGone, ofFile] = await Promise.all(
 		[gone, file].map((root) => readTreeOffThread(root, THREAD_HANGS_AFTER_MS)),
 	);
-	expect(ofGone?.pass.unlisted.get(gone)).toBe("gone");
-	expect(ofFile?.pass.unlisted.get(file)).toBe("unreadable");
+	if (!(ofGone && ofFile))
+		throw new Error("a signing's thread answered nothing");
+	// Made after the thread found it missing, before the walk: the walk
+	// says the root as the thread found it, not as it stands now.
+	mkdirSync(gone);
+	expect(discoverQuestsUncached(gone, ofGone.pass).errors, "gone").toEqual([]);
+	expect(discoverQuestsUncached(file, ofFile.pass).errors, "a file").toEqual([
+		{ path: file, message: FAULT },
+	]);
 });
 
 it("keeps the root's fault through a merge until the root lists again", () => {

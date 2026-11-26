@@ -806,6 +806,34 @@ describe("discovery on a host", () => {
 		},
 	);
 
+	it.skipIf(process.getuid?.() === 0)(
+		"says the fault again of an empty root that breaks, lists, then breaks again",
+		async () => {
+			// An empty root: its repair reads no quest, and is the walk a
+			// signing that finds it broken again must not take for its own.
+			rmSync(join(root, ID), { recursive: true });
+			settle(root);
+			const fault = [
+				{ path: root, message: "Quests root is not a readable directory." },
+			];
+			const unreadable = async (when: string): Promise<void> => {
+				// Root reads a folder whatever its mode, so it never sees the fault.
+				chmodSync(root, 0o000);
+				try {
+					discoverQuests(root);
+					await discoverySettled(root);
+					expect(discoverQuests(root).errors, when).toEqual(fault);
+				} finally {
+					chmodSync(root, 0o755);
+				}
+			};
+			await unreadable("broken");
+			settle(root);
+			expect(discoverQuests(root).errors, "repaired").toEqual([]);
+			await unreadable("broken again");
+		},
+	);
+
 	it("reads a quest folder removed and put back under its name by the next signing", async () => {
 		settledOther();
 		discoverQuests(root);

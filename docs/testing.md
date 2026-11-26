@@ -253,11 +253,15 @@ them spawned. The round left no reviewer directories at all,
 which is how a crash in the parent is told from one in a
 child.
 
-Three files can do this, and they are the `.mjs` a running
+Six files can do this, and they are the `.mjs` a running
 pi imports a value out of: `runpi/journal.mjs`,
-`runpi/assistant.mjs` and `runpi/grace.mjs`. Any change to
-one under a live session sets it up, whether it arrived by
-merge, by rebase or by your own editor. `runpi/watchdog.mjs`
+`runpi/assistant.mjs` and `runpi/grace.mjs` under
+`lib/subagent/`, `push-hooks.mjs` and `fetched-git.mjs`
+under `lib/internal/priority/`, and
+`lib/internal/quest/discovery/root-standing.mjs`, which the
+tree's reading thread shares with the session. Any change
+to one under a live session sets it up, whether it arrived
+by merge, by rebase or by your own editor. `runpi/watchdog.mjs`
 and `runpi/supervisor.mjs` are not on the list, and the
 reason is the opposite one: nothing in this process imports
 them, because they run in a child that is spawned fresh and
@@ -265,10 +269,13 @@ reads them off disk every time. The hazard there is the
 mirror image, a parent that reloaded and a child that did
 not, disagreeing about a constant they share.
 
-Reads of those three are guarded, so the next occurrence
+Reads of the first three are guarded, so the next occurrence
 names itself instead of throwing arithmetic on `undefined`
 somewhere downstream: see `runpi/fresh.ts`. The guard cannot
-stop the staleness, only the mystery.
+stop the staleness, only the mystery. The other three are
+not guarded, so a reloaded session runs their old code and
+reads their old constants, with no fault to say so, until it
+restarts.
 
 The obvious fix is to stop having `.mjs` at all, since node
 has stripped types since 22.18 and this package demands

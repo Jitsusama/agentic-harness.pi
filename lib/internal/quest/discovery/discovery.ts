@@ -642,9 +642,11 @@ function caughtUp(
 	for (const name of named) read.set(name, at);
 	memo().cache.set(questsRoot, {
 		...slot,
-		// Never a tree's signature once a quest is read again, so the next
-		// signing builds its walk anew; kept while the walk is the same.
-		signature: found ? CAUGHT_UP : slot.signature,
+		// Never a tree's signature once the walk changed, by a quest read
+		// again or a root's fault shed, so the next signing builds its walk
+		// anew rather than taking this one for the tree it signed; kept
+		// while the walk is the same.
+		signature: result === slot.result ? slot.signature : CAUGHT_UP,
 		result,
 		writes,
 		rootStamp,
