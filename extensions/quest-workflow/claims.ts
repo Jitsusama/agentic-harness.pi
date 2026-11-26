@@ -23,7 +23,7 @@ import {
 	readdirSync,
 	statSync,
 } from "node:fs";
-import { basename, join, sep } from "node:path";
+import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -46,6 +46,7 @@ import {
 	README_MISSING,
 } from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
+import { isWithin } from "../../lib/internal/quest/workspace/git-signals.ts";
 import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	forgetBranchesFromQuest,
@@ -299,9 +300,12 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
  * A quest `before`, an earlier walk of the same ask, saw listing a tree
  * keeps it, the older ones it let go then included, when this walk
  * couldn't read that quest, as when its README changes during the walk:
- * what it would say now is unknown. A tree any of the quest's sessions
- * started in is kept too, newest or not, since reopening that session
- * finds its log only there. Says what each quest walked lists.
+ * what it would say now is unknown. A tree any live quest's session
+ * started in is kept too, newest or not and whichever quest that session
+ * is on, since reopening it finds its log only there; the two folders
+ * are compared as the disk resolves them, so a linked spelling still
+ * matches. A tree the quest adopted is kept, as adopting it promised.
+ * Says what each quest walked lists.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
@@ -312,20 +316,22 @@ function claimFrom(
 	const kept = new Set<string>();
 	const lists = new Map<string, Set<string>>();
 	const older: string[] = [];
-	for (const entry of liveQuests(walks)) {
+	const quests = [...liveQuests(walks)];
+	const startedIn = quests.flatMap((entry) =>
+		(entry.doc.frontMatter.sessions ?? []).flatMap((session) =>
+			session.cwd === undefined ? [] : [session.cwd],
+		),
+	);
+	for (const entry of quests) {
 		const trees = entry.doc.frontMatter.trees ?? [];
 		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
 		const letGo = olderInEachRepo(trees);
-		const startedIn = (entry.doc.frontMatter.sessions ?? []).flatMap(
-			(session) => (session.cwd === undefined ? [] : [session.cwd]),
-		);
 		for (const tree of trees) {
-			const opened = startedIn.some(
-				(cwd) => cwd === tree.path || cwd.startsWith(tree.path + sep),
-			);
-			if (letGo.has(tree.path) && !opened) older.push(tree.path);
+			const opened = startedIn.some((cwd) => isWithin(cwd, tree.path));
+			const mayGo = letGo.has(tree.path) && tree.origin !== "adopted";
+			if (mayGo && !opened) older.push(tree.path);
 			else kept.add(tree.path);
 		}
 		lists.set(entry.dir, new Set(trees.map((tree) => tree.path)));

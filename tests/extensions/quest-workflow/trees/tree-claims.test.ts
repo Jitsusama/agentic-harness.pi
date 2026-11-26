@@ -16,6 +16,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -348,6 +349,70 @@ describe("answering who holds a tree", () => {
 			liveQuestClaims(root).idleMayTake,
 			"the outside sweep's answer",
 		).toEqual([]);
+	});
+
+	it("keeps an older tree a session started at the top of, through a linked spelling, since the two folders are one", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const linked = join(mkdtempSync(join(tmpdir(), "claims-link-")), "first");
+		symlinkSync(`${first}`, linked);
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: closed-one\n    cwd: ${linked}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a tree started in, spelled through a link").toEqual(
+			[],
+		);
+	});
+
+	it("keeps an older tree a session on another quest started in, since that session reopens there", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		const other = questPlacing(root, "QEST-20260731-BBBBBB");
+		writeFileSync(
+			other,
+			readFileSync(other, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: moved-on\n    cwd: ${first}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a tree another quest's session started in").toEqual(
+			[],
+		);
+	});
+
+	it("keeps an older tree the quest adopted, as adopting it promised", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace("origin: cut", "origin: adopted"),
+		);
+
+		expect(letGo(root), "an adopted tree").toEqual([]);
 	});
 
 	it("lets idle rules take nothing while a walk leaves a quest out, since it may hold any tree", () => {
