@@ -52,17 +52,77 @@ async function repoWithRemote(): Promise<{ local: string; remote: string }> {
 	return { local, remote };
 }
 
-/** Whether this git was built with its own fsmonitor daemon. */
-async function gitHasTheDaemon(): Promise<boolean> {
-	const { stdout } = await exec("git", ["version", "--build-options"]);
-	return stdout.includes("feature: fsmonitor--daemon");
+/**
+ * Whether this git was built with its own fsmonitor daemon, which git
+ * on Linux and on a Mac can be, as the 265 daemons history.ts records
+ * were; a git built without it starts none.
+ */
+const gitHasTheDaemon = (
+	await exec("git", ["version", "--build-options"])
+).stdout.includes("feature: fsmonitor--daemon");
+
+/** The daemon's own word on `tree`, which says when none watches it. */
+async function daemonStatus(tree: string): Promise<string> {
+	const said = await exec("git", ["-C", tree, "fsmonitor--daemon", "status"]);
+	return `${said.stdout}${said.stderr}`;
 }
 
-/** The daemon's own word on `tree`: it exits 0 only while one watches. */
-function daemonStatus(
-	tree: string,
-): Promise<{ code: number; stdout: string; stderr: string }> {
-	return exec("git", ["-C", tree, "fsmonitor--daemon", "status"]);
+/**
+ * A repo and a worktree of it with core.fsmonitor set on, as dev sets
+ * it, and the status reads git history makes of both, each git command
+ * it ran with `status` in it kept in `statuses`.
+ */
+async function readUnderFsmonitor(): Promise<{
+	trees: string[];
+	statuses: string[][];
+}> {
+	const { local } = await repoWithRemote();
+	await git(local, "branch", "spent", "main");
+	const spent = `${local}/.wt/spent`;
+	await git(local, "worktree", "add", "-q", spent, "spent");
+	// Set once the setup's own git is done, so only the reads under test
+	// see the setting, and the setup starts no daemon to leave behind.
+	await git(local, "config", "core.fsmonitor", "true");
+	const statuses: string[][] = [];
+	const watched = (command: string, args: readonly string[]) => {
+		if (args.includes("status")) statuses.push([...args]);
+		return exec(command, args);
+	};
+	const history = createGitHistory({ exec: watched });
+	const trees = [local, spent];
+	try {
+		await history.worktrees(local, "main");
+		await history.status(local);
+	} catch (error) {
+		await stopDaemons(trees);
+		throw error;
+	}
+	return { trees, statuses };
+}
+
+/**
+ * Stop any daemon watching `trees`, so a failing run leaves none holding
+ * a folder a later test or the disk's sweep would remove, warning of one
+ * the stop left watching, which the case under test didn't start.
+ */
+async function stopDaemons(trees: readonly string[]): Promise<void> {
+	if (!gitHasTheDaemon) return;
+	for (const tree of trees) {
+		await exec("git", ["-C", tree, "fsmonitor--daemon", "stop"]);
+		const said = await daemonStatus(tree);
+		if (!said.includes("is not watching"))
+			process.stderr.write(
+				`a daemon still watches ${tree} once stopped: ${said}\n`,
+			);
+	}
+}
+
+/** Whether `args` turn the daemon off with a `-c` given before `status`. */
+function turnsTheDaemonOff(args: readonly string[]): boolean {
+	const before = args.slice(0, args.indexOf("status"));
+	return before.some(
+		(arg, at) => arg === "-c" && before[at + 1] === "core.fsmonitor=false",
+	);
 }
 
 /** Commit one file on a new branch off main, and publish it. */
@@ -207,47 +267,39 @@ describe("reading worktree state from a real repository", () => {
 	// 11-10: 265 fsmonitor daemons, 778 MiB, most started by one reclaim
 	// across World's trees, since dev sets core.fsmonitor=true and each
 	// status read started a daemon that never exits (2AF2DH [c9039904]).
-	it("reads each tree's status without starting git's fsmonitor daemon", async () => {
-		const { local } = await repoWithRemote();
-		await git(local, "branch", "spent", "main");
-		const spent = `${local}/.wt/spent`;
-		await git(local, "worktree", "add", "-q", spent, "spent");
-		// Set once the setup's own git is done, so only the reads under test
-		// see the setting, and the setup starts no daemon to leave behind.
-		await git(local, "config", "core.fsmonitor", "true");
-		const statuses: string[][] = [];
-		const watched = (command: string, args: readonly string[]) => {
-			if (args.includes("status")) statuses.push([...args]);
-			return exec(command, args);
-		};
-		const history = createGitHistory({ exec: watched });
-
+	it("reads each tree's status with git's fsmonitor daemon turned off", async () => {
+		const { trees, statuses } = await readUnderFsmonitor();
 		try {
-			await history.worktrees(local, "main");
-			await history.status(local);
-
 			expect(statuses.length).toBeGreaterThanOrEqual(2);
 			for (const args of statuses) {
-				expect(args.slice(2, 4)).toEqual(["-c", "core.fsmonitor=false"]);
-			}
-			// Where this git has the daemon at all (a Mac's does, Linux's
-			// doesn't), none may be watching either tree once the reads end.
-			if (await gitHasTheDaemon()) {
-				for (const tree of [local, spent]) {
-					const watching = await daemonStatus(tree);
-					expect(
-						watching.code,
-						`a daemon is left watching ${tree}: ${watching.stdout}`,
-					).not.toBe(0);
-				}
+				expect(
+					turnsTheDaemonOff(args),
+					`git ${args.join(" ")} leaves the daemon on`,
+				).toBe(true);
 			}
 		} finally {
-			// A failing run stops what it started, so it leaves no daemon
-			// holding the folder a later test or the disk's sweep would remove.
-			for (const tree of [local, spent])
-				await exec("git", ["-C", tree, "fsmonitor--daemon", "stop"]);
+			await stopDaemons(trees);
 		}
 	});
+
+	// Only a git built with the daemon can start one, so this case is
+	// skipped, and says so, where this git was built without it.
+	it.skipIf(!gitHasTheDaemon)(
+		"leaves no fsmonitor daemon watching a tree it read",
+		async () => {
+			const { trees } = await readUnderFsmonitor();
+			try {
+				for (const tree of trees) {
+					const said = await daemonStatus(tree);
+					expect(said, `a daemon is left watching ${tree}`).toContain(
+						"is not watching",
+					);
+				}
+			} finally {
+				await stopDaemons(trees);
+			}
+		},
+	);
 
 	it("offers a snapshot at a branch's commit, and keeps one at a lone commit", async () => {
 		const { local } = await repoWithRemote();

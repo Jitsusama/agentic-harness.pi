@@ -8,7 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../../lib/internal/fence/fence.ts";
-import { MOST_LINKS } from "../../../../lib/internal/sandbox/leads-to.ts";
+import {
+	MOST_LINKS,
+	mostLinksOn,
+} from "../../../../lib/internal/sandbox/leads-to.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
@@ -138,6 +141,22 @@ describe("a program that runs outside the sandbox", () => {
 
 		expect(sealedPath("/l1", chain(MOST_LINKS))).toBe("/made");
 		expect(sealedPath("/l1", chain(MOST_LINKS + 1))).toBeUndefined();
+		// Each system's count, whichever this one is.
+		for (const platform of ["linux", "darwin"] as const) {
+			const most = mostLinksOn(platform);
+			expect(sealedPath("/l1", chain(most), most), platform).toBe("/made");
+			expect(
+				sealedPath("/l1", chain(most + 1), most),
+				platform,
+			).toBeUndefined();
+		}
+	});
+
+	it("counts links as each system does, and a system it doesn't name as the lower", () => {
+		expect(mostLinksOn("linux")).toBe(40);
+		expect(mostLinksOn("darwin")).toBe(32);
+		expect(mostLinksOn("freebsd")).toBe(32);
+		expect(mostLinksOn("openbsd")).toBe(32);
 	});
 });
 
