@@ -149,8 +149,9 @@ describe("taking back a half-done park", () => {
 		expect(wakeAtTelling, "taken back after the mesh's word").toEqual([true]);
 	});
 
-	// #2182 F43: the launcher keeps the place of windows a park closed.
-	it("says the windows it closed are left, and nothing else when the rest went", () => {
+	// #2182 F43: the launcher keeps the place of windows a park closed;
+	// #2249 F2: closed, they read awake, so they aren't left reading parked.
+	it("says the windows it closed apart from what is left reading parked", () => {
 		const one = thrown(() =>
 			undoPark(new Error("no"), half({ windowsClosed: 1 })),
 		);
@@ -158,12 +159,13 @@ describe("taking back a half-done park", () => {
 			undoPark(new Error("no"), half({ windowsClosed: 2 })),
 		);
 
-		expect((one as ParkLeftHalfDone).left).toEqual([
+		expect((one as ParkLeftHalfDone).left).toEqual([]);
+		expect((one as ParkLeftHalfDone).closed).toBe(
 			"its window is closed, and the launcher keeps its place asleep",
-		]);
-		expect((two as ParkLeftHalfDone).left).toEqual([
+		);
+		expect((two as ParkLeftHalfDone).closed).toBe(
 			"its windows are closed, and the launcher keeps its place asleep",
-		]);
+		);
 		expect(
 			readParked(SESSION, folder),
 			"its marker still went",
@@ -265,6 +267,17 @@ describe("the clock's hold after a failed park", () => {
 			"its last park failed, so it tries again half an hour on: this context is stale; its parked marker is left: busy",
 		);
 	});
+
+	it("names the windows a take-back closed", () => {
+		const closed = new ParkLeftHalfDone(
+			new Error("this context is stale"),
+			[],
+			"its window is closed, and the launcher keeps its place asleep",
+		);
+		expect(heldByFailure({ at: 1_000, error: closed }, 1_001)).toBe(
+			"its last park failed, so it tries again half an hour on: this context is stale; its window is closed, and the launcher keeps its place asleep",
+		);
+	});
 });
 
 describe("answering a park that failed", () => {
@@ -296,6 +309,36 @@ describe("answering a park that failed", () => {
 			).why,
 		).toBe(
 			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone. And its parked marker is left: busy, and its wake is left: gone",
+		);
+	});
+
+	// #2249 F2: a take-back that closed windows but put the rest back reads
+	// awake, so it isn't said to read as parked.
+	it("says the windows it closed, but not that it reads parked, where only they are left", () => {
+		expect(
+			answer(
+				new ParkLeftHalfDone(
+					new Error("its holder is gone"),
+					[],
+					"its window is closed, and the launcher keeps its place asleep",
+				),
+			).why,
+		).toBe(
+			"its park failed: its holder is gone. And its window is closed, and the launcher keeps its place asleep",
+		);
+	});
+
+	it("names the windows it closed after what is left reading parked", () => {
+		expect(
+			answer(
+				new ParkLeftHalfDone(
+					new Error("its holder is gone"),
+					["its parked marker is left: busy"],
+					"its window is closed, and the launcher keeps its place asleep",
+				),
+			).why,
+		).toBe(
+			"its park failed part-way, so it may read as parked until it is restarted: its holder is gone. And its parked marker is left: busy, and its window is closed, and the launcher keeps its place asleep",
 		);
 	});
 

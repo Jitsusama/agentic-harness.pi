@@ -4,7 +4,13 @@
  * everything else that holds a park still does.
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -21,6 +27,7 @@ import {
 import { installHost } from "../../../lib/core/session/index.ts";
 import { RUN_UNDER_WAY } from "../../../lib/internal/session/free.ts";
 import {
+	awakePath,
 	isParkAsk,
 	PARK_ASK,
 	PARK_NOW_ASK,
@@ -345,7 +352,16 @@ describe("parking now, as the person asked", () => {
 			},
 		});
 		try {
-			watching();
+			const watched = watching();
+			// #2249 F3: a refusal while it isn't parking takes nothing back and
+			// holds no clock, as a late one from an earlier park would be.
+			const early: ParkRefused = { session: SESSION, why: "no park asked" };
+			events.emit(PARK_REFUSED_EVENT, early);
+			expect(undone, "nothing to take back").toEqual([]);
+			expect(watched.look(), "no failure holds its clock").toBe(
+				"not idle long enough",
+			);
+
 			expect(ask().parked, "the host took the ask").toBe(true);
 			expect(readParked(SESSION, folder)).toBeDefined();
 
@@ -368,6 +384,13 @@ describe("parking now, as the person asked", () => {
 			).toBeUndefined();
 			expect(undone).toEqual([{ session: SESSION }]);
 			expect(exits, "its process was never to exit").toEqual([]);
+			// #2249 F22: the person's Park said parked, so it says why it runs
+			// on at once, not at the clock's next look.
+			expect(
+				JSON.parse(readFileSync(awakePath(SESSION, folder), "utf8")).why,
+			).toBe(
+				"its last park failed, so it tries again half an hour on: its stop threw before it began",
+			);
 			expect(ask().parked, "awake again, the person's next Park parks it").toBe(
 				true,
 			);
