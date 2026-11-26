@@ -133,6 +133,23 @@ export function writableArgs(path: string): string[] {
 	return ["-R", "-P", "--", "u+w", path];
 }
 
+/**
+ * The arguments to try again with when chmod refused `-P` as an option it
+ * doesn't know, as GNU's did before coreutils 9.5 (Debian 12, Ubuntu 24.04
+ * and older); undefined when it said anything else. That chmod's `-R`
+ * already ignores every link it meets in the walk, and a link named as
+ * `path` was unlinked before any walk began, so plain `-R` follows none.
+ */
+export function writableArgsAfter(
+	said: string | undefined,
+	path: string,
+): string[] | undefined {
+	if (said === undefined || !/invalid option -- '?P'?/.test(said)) {
+		return undefined;
+	}
+	return ["-R", "--", "u+w", path];
+}
+
 /** Why `rm` left `at`, with why `chmod` couldn't help it where it failed too. */
 function leftBecause(
 	at: string,
@@ -235,7 +252,10 @@ export function removeTree(
 	let said = runSync(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		chmodSaid = runSync(systemTool("chmod", folders), writableArgs(at));
+		const chmod = systemTool("chmod", folders);
+		chmodSaid = runSync(chmod, writableArgs(at));
+		const older = writableArgsAfter(chmodSaid, at);
+		if (older !== undefined) chmodSaid = runSync(chmod, older);
 		said = runSync(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
@@ -273,7 +293,10 @@ export async function removeTreeOff(
 	let said = await runOff(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		chmodSaid = await runOff(systemTool("chmod", folders), writableArgs(at));
+		const chmod = systemTool("chmod", folders);
+		chmodSaid = await runOff(chmod, writableArgs(at));
+		const older = writableArgsAfter(chmodSaid, at);
+		if (older !== undefined) chmodSaid = await runOff(chmod, older);
 		said = await runOff(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
