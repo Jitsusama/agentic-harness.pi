@@ -801,6 +801,13 @@ export function parking(options: {
 			const asked: Settling["asked"] = [];
 			const done = park(sessionId, asked);
 			settling.set(sessionId, { done, asked });
+			// A stop that throws as it is asked settles the park before it is
+			// set here, past its own clearing: it goes once the park settles,
+			// unless a later park took its place, lest a wake wait on it.
+			const cleared = (): void => {
+				if (settling.get(sessionId)?.done === done) settling.delete(sessionId);
+			};
+			void done.then(cleared, cleared);
 			return done;
 		},
 		rests: watchWake,
