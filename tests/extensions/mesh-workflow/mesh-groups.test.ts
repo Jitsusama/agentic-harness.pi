@@ -1353,6 +1353,38 @@ describe("an invitation", () => {
 		expect(text).not.toContain("then join with mesh_join");
 	}, 30_000);
 
+	// An invite's own join refreshes first, so a quest loaded since the
+	// last refresh can leave it no room, and the join is set aside at
+	// once (#2243's fifth council, F10).
+	it("tells a peer whose invited join a quest set aside at once that it hears nothing there yet", async () => {
+		const { sent, tools } = await startSession();
+		for (let at = 0; at < MOST_GROUPS - 1; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+		onQuest();
+		const before = sent.length;
+
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@7M6JKG"],
+			text: "P9R1KI brings this peer into #zzz-last. It is in #zzz-last from now on.",
+			invite: "#zzz-last",
+		});
+
+		await vi.waitFor(() => expect(sent.length).toBeGreaterThan(before));
+		const text = String(sent.at(-1)?.message.content ?? "");
+		expect(text, "says it waits").toContain(
+			"It joined #zzz-last, but set it aside at once",
+		);
+		expect(text, "not refused as full").not.toContain("couldn't join");
+		expect(
+			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.groups,
+			"hears nothing there",
+		).not.toContain("#zzz-last");
+	}, 30_000);
+
 	// In #jobs/heavy it hears what is said in #jobs already.
 	it("tells a full peer nothing to make room for a group it hears through a part", async () => {
 		const { sent, tools } = await startSession();
