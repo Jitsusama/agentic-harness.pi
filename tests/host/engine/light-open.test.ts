@@ -626,7 +626,7 @@ describe("pi's own open stands", () => {
 			const first = JSON.stringify(changed(JSON.parse(header)));
 			writeFileSync(file, [first, long, ...rest].join("\n"));
 			reads.count = 0;
-			expect(fallsBack(file)).toBe(true);
+			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
 			expect(reads.count, "the log was read past its header").toBe(1);
 		}
 	});
