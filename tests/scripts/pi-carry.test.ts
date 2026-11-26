@@ -453,8 +453,12 @@ describe("pi-carry", () => {
 		}
 	});
 
-	it("stops the git it runs when it is itself stopped, though that git runs in a group of its own", async () => {
-		// #2209 F6: drop the signal from either spawnExec and this git runs on.
+	it("stops the git it runs when it is itself stopped, though that git runs in a group of its own", {
+		timeout: 60_000,
+	}, async () => {
+		// #2209 F6: drop the signal from the spawnExec that runs git and this
+		// git runs on. An arrival runs nothing but git, so the other spawnExec
+		// isn't reached here.
 		const cache = folder(made, "cache");
 		const from = await leaving(cache);
 		const to = machine("arriving", cache);
@@ -465,7 +469,8 @@ describe("pi-carry", () => {
 		const pidFile = join(bin, "git.pid");
 		writeFileSync(
 			join(bin, "git"),
-			`#!/bin/sh\necho $$ > '${pidFile}'\nexec sleep 60\n`,
+			// Moved into place whole, so a read never finds it empty.
+			`#!/bin/sh\necho $$ > '${pidFile}.new'\nmv '${pidFile}.new' '${pidFile}'\nexec sleep 60\n`,
 			{ mode: 0o755 },
 		);
 		const arriving = spawn(
@@ -482,16 +487,28 @@ describe("pi-carry", () => {
 			],
 			{
 				env: { ...to.env, PATH: `${bin}:${process.env.PATH}` },
-				stdio: "ignore",
+				stdio: ["ignore", "pipe", "pipe"],
 			},
 		);
+		let said = "";
+		arriving.stdout.on("data", (chunk) => {
+			said += String(chunk);
+		});
+		arriving.stderr.on("data", (chunk) => {
+			said += String(chunk);
+		});
 		const ended = new Promise((done) => arriving.once("exit", done));
-		const gitPid = await vi.waitFor(
-			() => Number(readFileSync(pidFile, "utf8").trim()),
-			{ timeout: 20_000, interval: 50 },
-		);
+		let gitPid = 0;
 
 		try {
+			gitPid = await vi.waitFor(
+				() => {
+					const pid = Number(readFileSync(pidFile, "utf8").trim());
+					if (!(pid > 0)) throw new Error(`no git ran yet; it said: ${said}`);
+					return pid;
+				},
+				{ timeout: 20_000, interval: 50 },
+			);
 			arriving.kill("SIGTERM");
 			await ended;
 			await vi.waitFor(
@@ -499,7 +516,8 @@ describe("pi-carry", () => {
 				{ timeout: 10_000, interval: 50 },
 			);
 		} finally {
-			if (running(gitPid)) process.kill(gitPid, "SIGKILL");
+			arriving.kill("SIGKILL");
+			if (gitPid > 0 && running(gitPid)) process.kill(gitPid, "SIGKILL");
 		}
 	});
 
