@@ -171,6 +171,21 @@ async function listedBesideOneMainTookOff(checkout: string): Promise<string> {
 	return sha;
 }
 
+/** Lands `files` on main, as a change merged before the head's cut. */
+async function landed(
+	checkout: string,
+	files: Record<string, string>,
+): Promise<void> {
+	await change(checkout, files);
+	await git(checkout, "push", "-q", "origin", "HEAD:main");
+	await git(checkout, "fetch", "-q", "origin");
+}
+
+/** A GritQL plugin that faults every call to `name`, saying `message`. */
+function plugin(name: string, message: string): string {
+	return `language js\n\n\`${name}($_)\` as $call where {\n\tregister_diagnostic(span=$call, message="${message}")\n}\n`;
+}
+
 /** Commits `files` on a branch of their own, answering the commit. */
 async function change(
 	checkout: string,
@@ -385,19 +400,13 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 	it("loads the plugins the head's config names, though the change leaves them be", async () => {
 		const checkout = await harness();
-		const plugin = "lib/no-debugger.grit";
-		const config = `{ "plugins": ["./${plugin}"] }\n`;
-		mkdirSync(join(checkout, "lib"), { recursive: true });
-		writeFileSync(
-			join(checkout, plugin),
-			'language js\n\n`debugger` as $d where {\n\tregister_diagnostic(span=$d, message="no debugger")\n}\n',
-		);
-		writeFileSync(join(checkout, "biome.jsonc"), config);
-		await git(checkout, "add", plugin, "biome.jsonc");
-		await git(checkout, "commit", "-q", "-m", "plugin");
-		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
 		const sha = await change(checkout, {
-			"biome.jsonc": `{ "plugins": ["./${plugin}"], "files": { "maxSize": 2097152 } }\n`,
+			"biome.jsonc": `{ "plugins": ["./${grit}"], "files": { "maxSize": 2097152 } }\n`,
 			"lib/tidy.ts": "export const tidy = 1;\n",
 		});
 
@@ -406,6 +415,65 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).not.toContain("Cannot read file");
 		expect(answered.said).not.toContain("main's config");
+	});
+
+	it("faults the head's files by the head's own plugin, though the change leaves it be", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, {
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("no alert");
+	});
+
+	it("names a file main's own plugin faults, once the head's config stops loading it", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		// Main's plugin faults the file on a path:line:col line, so it counts
+		// only if main's plugin went out beside main's config.
+		const sha = await change(checkout, {
+			"biome.jsonc": "{}\n",
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said).toContain("lib/loud.ts:1:1");
+	});
+
+	it("loads a plugin whose name git would quote", async () => {
+		const checkout = await harness();
+		const grit = "lib/no alert é.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, {
+			"biome.jsonc": "{}\n",
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).not.toContain("Cannot read file");
+		expect(answered.said).toContain("lib/loud.ts:1:1");
 	});
 
 	it("names a file by main's config as it is now, not as it was at the cut", async () => {
@@ -470,6 +538,28 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		const answered = await gate(checkout, sha);
 
 		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain(
+			"couldn't judge its files by main's config",
+		);
+		expect(answered.said).not.toContain("loosens a rule");
+	});
+
+	it("doesn't take a changed path quoted in main's config error for a fault", async () => {
+		const checkout = await harness();
+		// The bad value sits on the line that names the file, so Biome's frame
+		// around the config error quotes the path, indented, as text.
+		await landed(checkout, {
+			"biome.jsonc": `{ "files": { "includes": ["lib/tidy.ts"], "maxSize": "big" } }\n`,
+		});
+		const sha = await change(checkout, {
+			"biome.jsonc": CONFIG,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said).toContain("lib/tidy.ts");
 		expect(answered.said).toContain(
 			"couldn't judge its files by main's config",
 		);

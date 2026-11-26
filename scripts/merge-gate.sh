@@ -109,6 +109,10 @@ unattributed() {
 gate_index() {
   index="$scratch/index" unattributed -c core.symlinks=false "$@"
 }
+# Main's tree, for the files the run by main's config reads from main.
+main_index() {
+  index="$scratch/main-index" unattributed -c core.symlinks=false "$@"
+}
 gate_index read-tree "$head_id"
 base=$(unattributed merge-base "$main_id" "$head_id")
 
@@ -146,10 +150,13 @@ if [[ -n $changed ]]; then
   done
   gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${others[@]}"
   # Biome loads a config's GritQL plugins before it judges anything, so
-  # they go out too, changed or not; none is among the files above.
-  grits=$(gate_index ls-files -- '*.grit')
-  if [[ -n $grits ]]; then
-    mapfile -t plugins <<< "$grits"
+  # they go out too, changed or not; none is among the files above. Paths
+  # are read whole with -z, since git quotes an odd name without it. Other
+  # files a config can load, an extends target or a nested config, don't
+  # go out yet.
+  gate_index ls-files -z -- '*.grit' > "$scratch/grits"
+  mapfile -d '' -t plugins < "$scratch/grits"
+  if [[ ${#plugins[@]} -gt 0 ]]; then
     gate_index checkout-index --prefix="$tree/" -- "${plugins[@]}"
   fi
   set +e
@@ -176,13 +183,14 @@ if [[ -n $changed ]]; then
     mkdir "$before"
     gate_index checkout-index --prefix="$before/" -- "${others[@]}"
     unattributed cat-file blob "$main_id:biome.jsonc" > "$before/biome.jsonc"
-    # Main's config loads main's plugins, as the head's loads its own.
-    main_grits=$(unattributed ls-tree -r --name-only "$main_id")
-    while IFS= read -r grit; do
-      [[ $grit == *.grit ]] || continue
-      [[ $grit == */* ]] && mkdir -p "$before/${grit%/*}"
-      unattributed cat-file blob "$main_id:$grit" > "$before/$grit"
-    done <<< "$main_grits"
+    # Main's config loads main's plugins, as the head's loads its own, and
+    # they go out the same way, through an index of main's tree.
+    main_index read-tree "$main_id"
+    main_index ls-files -z -- '*.grit' > "$scratch/main-grits"
+    mapfile -d '' -t main_plugins < "$scratch/main-grits"
+    if [[ ${#main_plugins[@]} -gt 0 ]]; then
+      main_index checkout-index --prefix="$before/" -- "${main_plugins[@]}"
+    fi
     if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
       --colors=off "${others[@]}" > "$scratch/before.said" 2>&1); then
       # Biome fails the same way when it can't load the config at all, so
@@ -192,7 +200,10 @@ if [[ -n $changed ]]; then
       named=0
       while IFS= read -r line; do
         for file in "${others[@]}"; do
-          if [[ $line == "$file:"* || $line == "$file "* ]]; then named=1; fi
+          if [[ $line == "$file:"* || $line == "$file "* ]]; then
+            named=1
+            break 2
+          fi
         done
       done < "$scratch/before.said"
       if [[ $named == 1 ]]; then
