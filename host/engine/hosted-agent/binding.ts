@@ -20,6 +20,11 @@ export interface QueueShowingSession {
 	showQueued?: ShowQueued;
 }
 
+/** pi's session, as far as hearing it finish a compaction needs it. */
+export interface CompactingSession {
+	subscribe?(listener: (event: { readonly type: string }) => void): () => void;
+}
+
 /** What the agent needs of its conversation's durable side. */
 export interface DurableBinding {
 	readonly conversation: Conversation;

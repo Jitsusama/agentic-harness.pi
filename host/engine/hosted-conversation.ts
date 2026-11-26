@@ -140,6 +140,8 @@ export async function openHostedConversation(options: {
 		async close() {
 			// Checkpointed first, off the thread, so the store's own TRUNCATE as it closes finds nothing left to copy.
 			try {
+				// A compaction pi just finished is marked before the store closes, not refused by it.
+				await agent?.marked();
 				try {
 					await kept?.settle();
 				} catch (error) {

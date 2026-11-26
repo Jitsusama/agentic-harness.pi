@@ -12,6 +12,8 @@ function side(start: RecoverySide["runWithLifecycle"]) {
 		active: () => undefined,
 		parked: () => false,
 		transcript: { placeAtSession: async () => {} },
+		state: { messages: [] },
+		markCompaction: async () => {},
 		durable: { runFailure: async () => undefined },
 		holdPiRun: () => {
 			holds.taken += 1;
