@@ -88,7 +88,10 @@ import type { QuestTree } from "../../lib/quest/types.ts";
  * gives no answer in time, that wait rejects rather than pass an old
  * walk off as fresh: a sweep then takes nothing that round, since a
  * tree listed since would be in no claim. Plain pi walks every ask
- * afresh, so it offers the asker nothing more to wait on.
+ * afresh, so it offers the asker nothing more to wait on. A walk that
+ * leaves out a quest, as when its README changes during it, with no
+ * earlier walk to hold for it, lets idle rules take nothing: that quest
+ * may hold any tree as its newest.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
@@ -97,12 +100,13 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		const stores = storesOf(questsRoot);
 		// A store this host never walked is signed only off the thread,
 		// below, for an asker that waits.
-		const last = claimFrom(
-			stores.filter(questsWalked).map((store) => discoverQuests(store)),
-			into,
-			claims.idleMayTake,
-		);
-		if (!hosted()) return;
+		const walked = stores.filter(questsWalked);
+		const walks = walked.map((store) => discoverQuests(store));
+		const last = claimFrom(walks, into, claims.idleMayTake);
+		if (!hosted()) {
+			if (anyLeftOut(walked, walks)) claims.idleMayTake?.splice(0);
+			return;
+		}
 		claims.answering?.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
 				(walks) => {
@@ -135,12 +139,36 @@ export interface QuestTreeClaims {
  */
 export function liveQuestClaims(questsRoot: string): QuestTreeClaims {
 	const claims: QuestTreeClaims = { untilSpent: [], idleMayTake: [] };
-	claimFrom(
-		storesOf(questsRoot).map((store) => discoverQuests(store)),
-		claims.untilSpent,
-		claims.idleMayTake,
-	);
+	const stores = storesOf(questsRoot);
+	const walks = stores.map((store) => discoverQuests(store));
+	claimFrom(walks, claims.untilSpent, claims.idleMayTake);
+	// A quest the walk left out may hold any tree as its newest.
+	if (anyLeftOut(stores, walks)) claims.idleMayTake.length = 0;
 	return claims;
+}
+
+/**
+ * Whether any quest folder in `stores` is missing from its walk, the one
+ * at the same place in `walks` that the claims read, or a store that
+ * stands can't be listed, since it may hold any quest.
+ */
+function anyLeftOut(
+	stores: readonly string[],
+	walks: readonly DiscoveryResult[],
+): boolean {
+	return stores.some((store, at) => {
+		const walk = walks[at];
+		let names: string[];
+		try {
+			names = readdirSync(store);
+		} catch {
+			// A store that isn't there holds no quest to leave out.
+			return lstatSync(store, { throwIfNoEntry: false }) !== undefined;
+		}
+		return (
+			walk === undefined || whyQuestLeftOut(store, names, walk) !== undefined
+		);
+	});
 }
 
 /**

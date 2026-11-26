@@ -25,6 +25,7 @@ import {
 	answerTreeClaims,
 	forgetSweptTrees,
 	forgetTrees,
+	liveQuestClaims,
 } from "../../../../extensions/quest-workflow/claims.ts";
 import {
 	type SweptTrees,
@@ -322,6 +323,29 @@ describe("answering who holds a tree", () => {
 		questPlacing(root, "QEST-20260731-BBBBBB", shared);
 
 		expect(letGo(root), "another quest's newest").toEqual([]);
+	});
+
+	it("lets idle rules take nothing while a walk leaves a quest out, since it may hold any tree", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Another quest's README is mid-write as the walk reads it.
+		mkdirSync(join(root, "QEST-20260731-BBBBBB"));
+		writeFileSync(
+			join(root, "QEST-20260731-BBBBBB", "README.md"),
+			"---\nid: QEST-20260731-BBBBBB\n",
+		);
+
+		expect(letGo(root), "a host's answer, off a host").toEqual([]);
+		expect(
+			liveQuestClaims(root).idleMayTake,
+			"the outside sweep's answer",
+		).toEqual([]);
 	});
 
 	it("never lets idle rules take a tree another live quest lists with no repository", () => {
