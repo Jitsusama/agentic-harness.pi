@@ -37,7 +37,7 @@ import {
 	placedFrom,
 } from "./placement.ts";
 import type { Said } from "./receptor.ts";
-import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
+import { NOTHING_SHOWN, nothingShownOf, shownLines } from "./shown-line.ts";
 
 /** What a `message` kind's record key opens with, before the id. */
 const MESSAGE_KEY = "message:";
@@ -301,7 +301,10 @@ export function startedFrom(line: string): StartAnswer {
 		const reason = shownLines(reply.Err, MOST_REASON);
 		return {
 			ok: false,
-			reason: reason || `the node refused and said ${NOTHING_SHOWN}`,
+			// An empty refusal says nothing, never that its words were hidden,
+			// as the orchestration claim's reads it.
+			reason:
+				reason || `the node refused and said ${nothingShownOf(reply.Err)}`,
 		};
 	}
 	const started =

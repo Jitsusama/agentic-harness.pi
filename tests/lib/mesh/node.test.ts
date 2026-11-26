@@ -352,6 +352,30 @@ describe("asking the node to start a session held", () => {
 		});
 	});
 
+	it("keeps every line of a refusal, a second peer's reason in the middle too", () => {
+		expect(
+			startedFrom(
+				JSON.stringify({
+					Err: "refused\npeer kestrel: disk full\nretry later",
+				}),
+			),
+		).toEqual({
+			ok: false,
+			reason: "refused / peer kestrel: disk full / retry later",
+		});
+	});
+
+	it("says an empty refusal said nothing, and one of hidden words nothing that shows", () => {
+		expect(startedFrom('{"Err":""}')).toEqual({
+			ok: false,
+			reason: "the node refused and said nothing",
+		});
+		expect(startedFrom(JSON.stringify({ Err: "\u001b[0m" }))).toEqual({
+			ok: false,
+			reason: "the node refused and said nothing that shows",
+		});
+	});
+
 	it("sends the asker's name for the start, under which an ask again joins it", async () => {
 		const asked: unknown[] = [];
 		const socket = await serving((line) => {

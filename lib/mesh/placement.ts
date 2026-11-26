@@ -20,14 +20,25 @@ const MOST_UNREAD = 200;
 
 /**
  * The most characters quoted of one word a peer's miss carries (its
- * machine's name, a taint's why or key), as it shows, since each is the
- * peer's own and is read out as Joel's to judge.
+ * machine's name, a taint's why or key, a time, a need), as it shows,
+ * since each is the peer's own and is read out as Joel's to judge. Each
+ * is cleaned alone, so a string one opens and never ends can't hide the
+ * misses after it.
  */
 const MOST_PEER_SAID = 120;
 
-/** A peer's own word, as it shows, or `?` where nothing of it does. */
+/**
+ * A peer's own word as it shows, else `(nothing that shows)` where it
+ * wrote words that all hide, or `?` where it wrote none, so withheld
+ * words never read as a word never sent.
+ */
 function peerSaid(word: string): string {
-	return shownLines(word, MOST_PEER_SAID) || "?";
+	return shownOf(word) || (word.trim() ? `(${NOTHING_SHOWN})` : "?");
+}
+
+/** A peer's own word as it shows, or "" where none of it does. */
+function shownOf(word: string): string {
+	return shownLines(word, MOST_PEER_SAID);
 }
 
 /** What a machine can be, as a node's placement names it. */
@@ -184,11 +195,11 @@ function reasonIn(because: unknown): string {
 	if (because === "unheard") return "hasn't said its room lately";
 	if (!isRecord(because)) return "says something this harness can't read";
 	if (typeof because.leaves_first === "string") {
-		return `leaves at ${because.leaves_first}, before the work ends`;
+		return `leaves at ${peerSaid(because.leaves_first)}, before the work ends`;
 	}
 	// jiff writes a duration as ISO 8601, such as PT1H, said as it came.
 	if (typeof because.lives_only === "string") {
-		return `would live only ${because.lives_only}, ending before the work`;
+		return `would live only ${peerSaid(because.lives_only)}, ending before the work`;
 	}
 	if (typeof because.full === "number") {
 		return `holds the ${because.full} sessions it holds at most`;
@@ -211,13 +222,15 @@ function wordsOf(need: unknown): string {
 	if (need === CLOUD) return "a cloud machine";
 	if (!isRecord(need)) return "?";
 	return Object.entries(need)
-		.map(([kind, value]) => `${kind}=${String(value)}`)
+		.map(([kind, value]) => `${peerSaid(kind)}=${peerSaid(String(value))}`)
 		.join(", ");
 }
 
 /** A taint the node sent back, by why it was set. */
 function whyOf(taint: unknown): string {
 	if (!isRecord(taint)) return "?";
-	if (typeof taint.why === "string") return peerSaid(taint.why);
-	return typeof taint.key === "string" ? peerSaid(taint.key) : "?";
+	// A why of which nothing shows falls to its key, which may.
+	const why = typeof taint.why === "string" ? taint.why : "";
+	const key = typeof taint.key === "string" ? taint.key : "";
+	return shownOf(why) || shownOf(key) || peerSaid(why || key);
 }

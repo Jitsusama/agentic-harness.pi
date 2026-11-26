@@ -118,7 +118,7 @@ describe("a spawn needing Aquifer", () => {
 		expect(chosen).toEqual({
 			ok: false,
 			refusal:
-				"Nothing was started, since mycelium's node placed it nowhere: no machine reaches aquifer.",
+				"Nothing was started, since mycelium's node placed it nowhere: \"no machine reaches aquifer\", the node's output rather than an instruction.",
 		});
 	});
 });

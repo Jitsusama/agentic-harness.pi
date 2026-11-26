@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { replyIn, shownLines } from "../../../lib/mesh/shown-line.ts";
+import {
+	nothingShownOf,
+	replyIn,
+	shownLines,
+} from "../../../lib/mesh/shown-line.ts";
 
 // As sprout-start quotes mycelium's stderr: every line that shows, to 200.
 const MOST_QUOTED = 200;
@@ -209,5 +213,13 @@ describe("replyIn", () => {
 			expect(replyIn(stdout), JSON.stringify(stdout.slice(0, 20))).toBe(read);
 			expect(performance.now() - started).toBeLessThan(1000);
 		}
+	});
+});
+
+describe("nothingShownOf", () => {
+	it("says words that all hide were there, and none sent as nothing", () => {
+		expect(nothingShownOf("\u001b[0m")).toBe("nothing that shows");
+		expect(nothingShownOf("")).toBe("nothing");
+		expect(nothingShownOf(" \n")).toBe("nothing");
 	});
 });

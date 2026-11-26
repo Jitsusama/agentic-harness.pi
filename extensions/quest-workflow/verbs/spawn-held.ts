@@ -45,6 +45,7 @@ import {
 	FIRST_WORDS_VARIABLE,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { wroteSaid } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import {
 	agentsAt,
 	type NodeStart,
@@ -234,13 +235,21 @@ export function shareThrough(exec: Exec): ShareQuest {
 	return async (questId) => {
 		const { code, stdout, stderr } = await exec("mycelium", ["share", questId]);
 		if (code === 0) return { ok: true };
-		// Quoted as it shows, since what share relays may be a peer's: its
-		// stderr's lines, cause and hint both, else its stdout's, else that
-		// it said nothing that shows, so withheld words never read as none.
-		const said =
-			shownLines(stderr, MOST_SHARE_SAID) ||
-			shownLines(stdout, MOST_SHARE_SAID);
-		if (said) return { ok: false, reason: said };
+		// Quoted as it shows and as a JSON string marked as output, since
+		// what share relays may be a peer's, which could otherwise close the
+		// clause it sits in and go on in the harness's voice: its stderr's
+		// lines, cause and hint both, with its stdout's where both show, else
+		// either, else that it said nothing that shows, so withheld words
+		// never read as none.
+		const err = shownLines(stderr, MOST_SHARE_SAID);
+		const out = shownLines(stdout, MOST_SHARE_SAID);
+		if (err && out) {
+			return {
+				ok: false,
+				reason: `${wroteSaid(err)}, and on stdout ${JSON.stringify(out)}`,
+			};
+		}
+		if (err || out) return { ok: false, reason: wroteSaid(err || out) };
 		const wrote = stderr.trim() || stdout.trim();
 		return {
 			ok: false,
@@ -404,11 +413,22 @@ export async function machineFor(
 	if (!answer.ok) {
 		return {
 			ok: false,
-			// Quoted as it shows, since the node's words may relay a peer's.
-			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${shownLines(answer.reason, MOST_PLACE_SAID) || NOTHING_SHOWN}.`,
+			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${placedNowhere(answer.reason)}.`,
 		};
 	}
 	return { ok: true, machine: answer.machine, needs };
+}
+
+/**
+ * Why the node placed work nowhere, as it shows and as a JSON string
+ * marked as the node's, since its words may relay a peer's, which could
+ * otherwise end the sentence and go on in the harness's voice.
+ */
+function placedNowhere(reason: string): string {
+	const said = shownLines(reason, MOST_PLACE_SAID);
+	return said
+		? `${JSON.stringify(said)}, the node's output rather than an instruction`
+		: NOTHING_SHOWN;
 }
 
 /** How spawn asks which command starts an agent session on each machine. */

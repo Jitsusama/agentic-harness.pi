@@ -182,7 +182,9 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("says what stdout wrote as it shows where stderr held only escapes", async () => {
+	it("says what a failed run's stdout wrote as mycelium's, where stderr held only escapes", async () => {
+		// A failed run's stdout may never have reached the node, so it is
+		// never said to be the node's answer.
 		const { run } = answering({
 			code: 1,
 			stdout: "judging\n",
@@ -190,8 +192,38 @@ describe("sprouting", () => {
 		});
 		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
 			ok: false,
-			reason: "the node answered what this harness can't read: judging",
+			reason:
+				"mycelium sprout ended with 1 and wrote what this harness can't read: judging",
 		});
+	});
+
+	it("reads the node's start with an escape before it as started, failed exit or signal", async () => {
+		// The node's own start on stdout beats what stderr says of the run,
+		// since the cell is up whatever mycelium did after.
+		for (const code of [1, null]) {
+			const { run } = answering({
+				code,
+				stdout: `\u001b[0m${STARTED}\n`,
+				stderr: "refused\n",
+			});
+			expect(
+				await sprout({ words: "tea" }, "/", run),
+				String(code),
+			).toMatchObject({ ok: true });
+		}
+	});
+
+	it("says a run a signal ended after words that all hide wrote nothing that shows", async () => {
+		const { run } = answering({
+			code: null,
+			stdout: "",
+			stderr: "\u001b[0m\n",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(!answer.ok && answer.reason).toContain(
+			"was ended before it answered (it wrote nothing that shows), so",
+		);
 	});
 
 	it("never parses a start that only reads as JSON once cleaned, and says it may have landed", async () => {
@@ -265,7 +297,7 @@ describe("sprouting", () => {
 		});
 		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
 			ok: false,
-			reason: "connecting to the node: refused",
+			reason: "connecting to the node: refused (it also wrote, unread: 5)",
 		});
 	});
 
@@ -347,7 +379,8 @@ describe("sprouting", () => {
 		});
 		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
 			ok: false,
-			reason: "mycelium sprout: no such folder ~/src/nowhere",
+			reason:
+				"mycelium sprout: no such folder ~/src/nowhere (it also wrote, unread: judging the folder)",
 		});
 	});
 

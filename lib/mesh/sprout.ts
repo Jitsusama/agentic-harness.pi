@@ -184,9 +184,15 @@ export async function sprout(
 		if (answer && (answer.ok || (line && refusedByNode(line)))) return answer;
 		// Ended by a signal nobody here sent, as the OOM killer's: its ask
 		// may already be with the node.
+		// Words that hide alone are said to be there, as the tie says them.
+		const wrote = said
+			? ` (${said})`
+			: ran.stderr.trim()
+				? ` (it wrote ${NOTHING_SHOWN})`
+				: "";
 		return {
 			ok: false,
-			reason: `mycelium sprout was ended before it answered${said ? ` (${said})` : ""}, so ${LOOK_FIRST}`,
+			reason: `mycelium sprout was ended before it answered${wrote}, so ${LOOK_FIRST}`,
 			mayLand: true,
 		};
 	}
@@ -196,9 +202,23 @@ export async function sprout(
 	if (answer && (answer.ok || (line && refusedByNode(line)) || !said)) {
 		return answer;
 	}
-	// Quoted as written, since unreadAnswer cleans it, and cleaned twice
-	// its lines would read as one, cut where its last should show.
-	if (!said && shownLines(ran.stdout, 1)) return unreadAnswer(ran.stdout);
+	// A failed run's stdout is mycelium's own, which may never have reached
+	// the node, so it's quoted as what mycelium wrote, not the node's answer.
+	// Where stderr says why, a stdout that shows is said beside it, so a
+	// peer's words relayed there are never dropped unmarked.
+	const wroteOut = shownLines(ran.stdout, MOST_SAID);
+	if (said && wroteOut) {
+		return {
+			ok: false,
+			reason: `${said} (it also wrote, unread: ${wroteOut})`,
+		};
+	}
+	if (wroteOut) {
+		return {
+			ok: false,
+			reason: `mycelium sprout ended with ${ran.code} and wrote what this harness can't read: ${wroteOut}`,
+		};
+	}
 	return {
 		ok: false,
 		reason:

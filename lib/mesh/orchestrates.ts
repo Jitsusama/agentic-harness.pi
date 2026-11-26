@@ -16,7 +16,12 @@
  */
 
 import { isRecord } from "../internal/record.ts";
-import { NOTHING_SHOWN, replyIn, shownLines } from "./shown-line.ts";
+import {
+	NOTHING_SHOWN,
+	nothingShownOf,
+	replyIn,
+	shownLines,
+} from "./shown-line.ts";
 import { type Ran, type RunProgram, runProgram } from "./sprout.ts";
 
 /** What a session orchestrates: the quest it heads and those below it. */
@@ -110,7 +115,8 @@ function toldBy(ran: Ran): ClaimTold {
 	const reply = lastJson(ran.stdout);
 	if (isRecord(reply) && typeof reply.Err === "string") {
 		const why =
-			oneLine(reply.Err) || `the node refused and said ${hiddenOr(reply.Err)}`;
+			oneLine(reply.Err) ||
+			`the node refused and said ${nothingShownOf(reply.Err)}`;
 		return { kind: "refused", why };
 	}
 	if (ran.code === 0 && isRecord(reply) && "Ok" in reply)
@@ -130,11 +136,6 @@ function toldBy(ran: Ran): ClaimTold {
 			said || `mycelium ended well with no reply it reads${quiet}`,
 		);
 	return unasked(said || `mycelium ended with ${ran.code}${quiet}`);
-}
-
-/** "nothing that shows" where `said` holds words that all hide, else "nothing". */
-function hiddenOr(said: string): string {
-	return said.trim() ? NOTHING_SHOWN : "nothing";
 }
 
 /**

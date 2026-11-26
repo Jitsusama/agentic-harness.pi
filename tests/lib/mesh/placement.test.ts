@@ -155,7 +155,48 @@ describe("the node's placement read", () => {
 			}),
 		);
 		expect(!refused.ok && refused.reason).toBe(
-			"no machine takes it: a refuses it (busy / now 'rm'); ? refuses it (?)",
+			"no machine takes it: a refuses it (busy / now 'rm'); (nothing that shows) refuses it ((nothing that shows))",
+		);
+	});
+
+	it("names a taint by its key where nothing of its why shows", () => {
+		const refused = placedFrom(
+			placement({
+				refused: {
+					misses: [
+						{
+							machine: "a",
+							because: [{ refuses: { why: "\u001b[0m", key: "gpu-busy" } }],
+						},
+					],
+				},
+			}),
+		);
+		expect(!refused.ok && refused.reason).toBe(
+			"no machine takes it: a refuses it (gpu-busy)",
+		);
+	});
+
+	it("cleans each word a miss carries alone, so an unended one hides no later miss", () => {
+		const refused = placedFrom(
+			placement({
+				refused: {
+					misses: [
+						{
+							machine: "vm",
+							because: [{ leaves_first: "soon\u001b]0;hidden" }],
+						},
+						{ machine: "made", because: [{ lives_only: "\u001b[0mPT1H" }] },
+						{
+							machine: "optimus",
+							because: [{ lacks: { "re\u001b[0mach": "ho\nme" } }],
+						},
+					],
+				},
+			}),
+		);
+		expect(!refused.ok && refused.reason).toBe(
+			"no machine takes it: vm leaves at soon, before the work ends; made would live only PT1H, ending before the work; optimus lacks reach=ho / me",
 		);
 	});
 

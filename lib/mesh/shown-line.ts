@@ -182,6 +182,15 @@ function isJson(line: string): boolean {
 /** What's quoted of words of which nothing shows once cleaned. */
 export const NOTHING_SHOWN = "nothing that shows";
 
+/**
+ * What words of which nothing shows are said to be: NOTHING_SHOWN where
+ * any were written, since withheld words never read as none, else
+ * "nothing", since none sent never reads as withheld.
+ */
+export function nothingShownOf(said: string): string {
+	return said.trim() ? NOTHING_SHOWN : "nothing";
+}
+
 /** What joins the lines of a quote that keeps several. */
 const BETWEEN_LINES = " / ";
 
