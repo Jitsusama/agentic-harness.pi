@@ -102,18 +102,37 @@ export function doneNames(listing: readonly string[]): string[] {
 		.map((name) => name.slice(0, -DONE.length));
 }
 
-/** Writes `handover` as its done file in `dir`, whole, answering its path. */
+/**
+ * The largest file mycelium's share takes from a folder named for
+ * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
+ * since the machine it lands on holds each file whole. A long-lived
+ * session's log passes it. Every file a carry writes into its handover
+ * is held to it, so nothing larger there is a carry's.
+ */
+export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
+
+/**
+ * Writes `handover` as its done file in `dir`, whole, answering its path.
+ * Throws, writing nothing, where it would pass what the share takes.
+ */
 export function writeHandover(dir: string, handover: Handover): string {
 	const file = doneFileOf(dir, handover.session);
-	writeWhole(file, `${JSON.stringify(handover, null, 2)}\n`);
+	const text = `${JSON.stringify(handover, null, 2)}\n`;
+	const size = Buffer.byteLength(text, "utf8");
+	if (size > SHARE_LARGEST_FILE) {
+		throw new Error(
+			`The done file for ${handover.session} is ${size} bytes, more than the share takes (${SHARE_LARGEST_FILE}), so it isn't written.`,
+		);
+	}
+	writeWhole(file, text);
 	return file;
 }
 
 /**
- * The most of a done file read: far past any carry's, so one longer is
- * planted, and reads as no done file.
+ * The most of a done file read: what the share takes, so one longer
+ * can't have been carried, and reads as no done file.
  */
-const DONE_LIMIT = 1024 * 1024;
+const DONE_LIMIT = SHARE_LARGEST_FILE;
 
 /**
  * The done file at `file`, or undefined when it isn't there or doesn't

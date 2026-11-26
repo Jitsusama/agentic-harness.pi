@@ -25,9 +25,10 @@ import {
 const PLAIN_LIMIT = 4096;
 
 /**
- * The start of the plain file at `path`, at most `limit` bytes, or
- * nothing when no plain file stands there: none at all, a link, which
- * git never writes, or a fifo, a device or a folder.
+ * The start of the plain file at `path`, at most `limit` bytes and no
+ * more than it held when opened, so a large limit costs only what the
+ * file holds, or nothing when no plain file stands there: none at all, a
+ * link, which git never writes, or a fifo, a device or a folder.
  */
 export function readPlain(
 	path: string,
@@ -44,9 +45,11 @@ export function readPlain(
 		return undefined;
 	}
 	try {
-		if (!fstatSync(fd).isFile()) return undefined;
-		const buffer = Buffer.alloc(limit);
-		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, limit, 0));
+		const opened = fstatSync(fd);
+		if (!opened.isFile()) return undefined;
+		const most = Math.min(limit, opened.size);
+		const buffer = Buffer.alloc(most);
+		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, most, 0));
 	} catch {
 		// It went or changed as it was read: nothing plain to say.
 		return undefined;

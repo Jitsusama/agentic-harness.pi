@@ -4,7 +4,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,7 @@ import {
 	type Handover,
 	handoverOf,
 	readHandover,
+	SHARE_LARGEST_FILE,
 	underHome,
 	withinHome,
 	writeHandover,
@@ -101,6 +102,36 @@ describe("a handover", () => {
 		};
 
 		expect(readHandover(writeHandover(dir, moved))).toEqual(moved);
+	});
+
+	it("reads back a done file far longer than the files of git's read the same way", () => {
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const moved: Handover = {
+			...handover,
+			notes: Array.from({ length: 200 }, (_, at) => ({
+				text: `fact ${at}: the gate runs every check there is, on a lender`,
+				tags: ["gate"],
+			})),
+		};
+
+		const file = writeHandover(dir, moved);
+
+		expect(JSON.stringify(moved).length).toBeGreaterThan(8192);
+		expect(readHandover(file)).toEqual(moved);
+	});
+
+	it("writes no done file longer than the share takes, saying so", () => {
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const moved: Handover = {
+			...handover,
+			notes: [{ text: "x".repeat(SHARE_LARGEST_FILE), tags: [] }],
+		};
+
+		expect(() => writeHandover(dir, moved)).toThrow(
+			"more than the share takes",
+		);
+
+		expect(existsSync(doneFileOf(dir, "s-1"))).toBe(false);
 	});
 
 	it("trusts nothing in another machine's done file that could reach elsewhere", () => {

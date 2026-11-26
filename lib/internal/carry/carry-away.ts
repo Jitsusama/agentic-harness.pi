@@ -56,6 +56,7 @@ import {
 	type HandedTree,
 	type Handover,
 	readHandover,
+	SHARE_LARGEST_FILE,
 	underHome,
 	withinHome,
 	writeHandover,
@@ -113,14 +114,6 @@ export class CarryNotWhole extends Error {
 		this.trees = trees;
 	}
 }
-
-/**
- * The largest file mycelium's share takes from a folder named for
- * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
- * since the machine it lands on holds each file whole. A long-lived
- * session's log passes it.
- */
-export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
 
 /** What a gzipped session file's name ends in. */
 export const ZIPPED = ".gz";

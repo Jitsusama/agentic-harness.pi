@@ -38,10 +38,10 @@ const renames = vi.hoisted((): [string, string][] => []);
 const duringCopy = vi.hoisted((): (() => void)[] => []);
 
 /**
- * The bytes free on every volume and its whole size, each a multiple of
- * its block size, or the disk's own answer when unset.
+ * The bytes free on every volume, a multiple of its block size, or the
+ * disk's own answer when unset.
  */
-const room = vi.hoisted((): { free?: bigint; total?: bigint } => ({}));
+const room = vi.hoisted((): { free?: bigint } => ({}));
 
 /** What happens just before each open, in order, one each. */
 const atOpen = vi.hoisted((): (() => void)[] => []);
@@ -86,15 +86,9 @@ vi.mock("node:fs", async (importOriginal) => {
 		},
 		statfsSync: (path: string, options?: { bigint?: boolean }) => {
 			const found = real.statfsSync(path, { bigint: true });
-			const { free, total } = room;
+			const { free } = room;
 			const said =
-				free === undefined
-					? found
-					: {
-							...found,
-							bavail: free / found.bsize,
-							blocks: (total ?? free) / found.bsize,
-						};
+				free === undefined ? found : { ...found, bavail: free / found.bsize };
 			return options?.bigint
 				? said
 				: Object.fromEntries(
@@ -110,7 +104,6 @@ afterEach(() => {
 	renames.length = 0;
 	duringCopy.length = 0;
 	room.free = undefined;
-	room.total = undefined;
 	atOpen.length = 0;
 	durable.length = 0;
 	opened.clear();
@@ -129,6 +122,23 @@ function twoFolders(oneVolume = false): { here: string; there: string } {
 	mkdirSync(there);
 	if (!oneVolume) volumes.push(here, there);
 	return { here, there };
+}
+
+/**
+ * Waits until the clock the kernel stamps files with has passed `path`'s
+ * change time, which it reads only at each tick, so a change made now
+ * stamps another time.
+ */
+function untilChangeTimePasses(path: string): void {
+	const was = statSync(path, { bigint: true }).ctimeNs;
+	const probe = join(made[0] ?? "", "clock-probe");
+	writeFileSync(probe, "");
+	let mode = 0o600;
+	while (statSync(probe, { bigint: true }).ctimeNs <= was) {
+		mode ^= 0o040;
+		chmodSync(probe, mode);
+	}
+	rmSync(probe);
 }
 
 describe("moving a file whole", () => {
@@ -284,56 +294,94 @@ describe("moving a file whole", () => {
 		expect(readdirSync(there)).toEqual([]);
 	});
 
-	it("refuses a file that would leave less than a twentieth of its new volume free, as a planted sparse one would", () => {
+	it("refuses a file rewritten to the same length and stamped back during the copy", () => {
 		const { here, there } = twoFolders();
-		const block = BigInt(statfsSync(here).bsize);
-		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(Number(block * 2n)));
-		room.total = block * 20n * 64n;
-		room.free = block * 64n + block;
+		const path = join(here, "log.jsonl");
+		writeFileSync(path, "before\n");
+		// A whole second, so putting it back puts back every nanosecond.
+		utimesSync(path, 1_000_000, 1_000_000);
+		duringCopy.push(() => {
+			untilChangeTimePasses(path);
+			writeFileSync(path, "after!\n");
+			// Its modification time put back; only its change time still moves.
+			utimesSync(path, 1_000_000, 1_000_000);
+		});
 
-		expect(() =>
-			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
-		).toThrow(`while ${block * 64n} bytes stay free`);
+		expect(() => moveFile(path, join(there, "log.jsonl"))).toThrow(
+			"changed while it was copied",
+		);
 
 		expect(readdirSync(there)).toEqual([]);
 	});
 
-	it("copies a file that leaves just a twentieth of its new volume free", () => {
+	it("refuses a file longer than the most it is asked to copy, as a planted sparse one is, writing nothing", () => {
+		const { here, there } = twoFolders();
+		const path = join(here, "log.jsonl");
+		writeFileSync(path, "");
+		truncateSync(path, 1024 ** 3);
+
+		expect(() => moveFile(path, join(there, "log.jsonl"), 4096)).toThrow(
+			"more than the 4096 a move copies",
+		);
+
+		expect(readdirSync(there)).toEqual([]);
+		expect(statSync(path).size, "the original stays").toBe(1024 ** 3);
+	});
+
+	it("copies a file just as long as the most it is asked to copy", () => {
+		const { here, there } = twoFolders();
+		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(4096, "x"));
+
+		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"), 4096);
+
+		expect(statSync(join(there, "log.jsonl")).size).toBe(4096);
+	});
+
+	it("refuses a file longer than the room left on its new volume", () => {
 		const { here, there } = twoFolders();
 		const block = BigInt(statfsSync(here).bsize);
 		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(Number(block * 2n)));
-		room.total = block * 20n * 64n;
-		room.free = block * 64n + block * 2n;
+		room.free = block;
+
+		expect(() =>
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow("has room for");
+
+		expect(readdirSync(there)).toEqual([]);
+	});
+
+	it("copies a file just as long as the room left on its new volume", () => {
+		const { here, there } = twoFolders();
+		const block = BigInt(statfsSync(here).bsize);
+		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(Number(block * 2n)));
+		room.free = block * 2n;
 
 		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
 
 		expect(statSync(join(there, "log.jsonl")).size).toBe(Number(block * 2n));
 	});
 
-	it("leaves at most 1 GiB free on a large volume", () => {
+	it("refuses its new folder swapped for a pipe before the sync, without waiting on it, leaving the original", () => {
 		const { here, there } = twoFolders();
-		const block = BigInt(statfsSync(here).bsize);
-		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(Number(block)));
-		room.total = 1024n ** 4n;
-		room.free = 1024n ** 3n + block;
+		writeFileSync(join(here, "log.jsonl"), "carried\n");
+		// The source, then the copy beside its place, then the folder synced.
+		atOpen.push(
+			() => {},
+			() => {},
+			() => {
+				renameSync(there, `${there}-was`);
+				expect(spawnSync("mkfifo", [there]).status, "a pipe is made").toBe(0);
+			},
+		);
 
-		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"));
+		expect(() =>
+			moveFile(join(here, "log.jsonl"), join(there, "log.jsonl")),
+		).toThrow();
 
-		expect(statSync(join(there, "log.jsonl")).size).toBe(Number(block));
-	});
-
-	it("spends the reserve on a file put back where it was", () => {
-		const { here, there } = twoFolders();
-		const block = BigInt(statfsSync(here).bsize);
-		writeFileSync(join(here, "log.jsonl"), Buffer.alloc(Number(block)));
-		room.total = block * 20n * 64n;
-		room.free = block;
-
-		moveFile(join(here, "log.jsonl"), join(there, "log.jsonl"), {
-			keepReserve: false,
-		});
-
-		expect(statSync(join(there, "log.jsonl")).size).toBe(Number(block));
+		expect(readFileSync(join(here, "log.jsonl"), "utf8")).toBe("carried\n");
+		expect(readFileSync(join(`${there}-was`, "log.jsonl"), "utf8")).toBe(
+			"carried\n",
+		);
 	});
 
 	it("refuses a folder across volumes, leaving it and nothing beside its place", () => {

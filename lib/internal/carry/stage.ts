@@ -25,7 +25,11 @@
  * under the scratches' own folder, which the fence binds read-only, so
  * nothing a fenced command plants is read. The handover itself it can
  * write, so a carry refuses one that is a link or lies under one, before
- * sweeping and again before placing.
+ * sweeping and again before placing. Every file a carry writes there is
+ * held to what the share takes, so a move never copies more; and what
+ * stands at a name the carry places that is no link nor plain file it
+ * could have written, as a pipe or one larger, is planted, so it goes
+ * rather than wait aside, which no carry could then pass.
  */
 
 import { randomUUID } from "node:crypto";
@@ -41,10 +45,10 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
-import { type MoveRoom, moveFile } from "../files/move-file.ts";
+import { moveFile } from "../files/move-file.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
-import { doneFileOf } from "./handover.ts";
+import { doneFileOf, SHARE_LARGEST_FILE } from "./handover.ts";
 import { messageOf } from "./message.ts";
 
 /** The folder beside the quest scratches that carries stage in. */
@@ -180,7 +184,12 @@ export async function staged<T>(
 			}
 			for (const name of [...gone, ...names]) {
 				if (moved.includes(name) || !besideFolder(join(into, name))) continue;
-				movedThrough(into, join(into, name), join(aside, name));
+				if (carried(join(into, name))) {
+					movedThrough(into, join(into, name), join(aside, name));
+				} else {
+					unlinked(into);
+					rmSync(join(into, name), { force: true });
+				}
 				moved.push(name);
 			}
 			// Named only once nothing of its name is left in the handover, so
@@ -242,12 +251,7 @@ function putBack(
 		// A copy cut off on its way aside is no earlier file, so it goes.
 		name.startsWith(".")
 			? !undo(() => rmSync(join(aside, name), { force: true }))
-			: !undo(() =>
-					// It held that room before, and outside the fence it can't grow.
-					movedThrough(into, join(aside, name), join(into, name), {
-						keepReserve: false,
-					}),
-				),
+			: !undo(() => movedThrough(into, join(aside, name), join(into, name))),
 	);
 	return { stuck, left };
 }
@@ -257,16 +261,12 @@ function putBack(
  * is still no link: asked before each move, not once for all, since a
  * move across volumes copies for as long as its file is long, and a
  * fenced command may swap the handover meanwhile, which would have the
- * next move read or write through it.
+ * next move read or write through it. No file a carry writes passes
+ * what the share takes, so no move copies more.
  */
-function movedThrough(
-	into: string,
-	from: string,
-	to: string,
-	room?: MoveRoom,
-): void {
+function movedThrough(into: string, from: string, to: string): void {
 	unlinked(into);
-	moveFile(from, to, room);
+	moveFile(from, to, SHARE_LARGEST_FILE);
 }
 
 /**
@@ -462,6 +462,23 @@ function exists(path: string): boolean {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Whether what is at `path` could be a carry's: a link, or a plain file
+ * no larger than the share takes, not following a link.
+ */
+function carried(path: string): boolean {
+	try {
+		const found = lstatSync(path);
+		return (
+			found.isSymbolicLink() ||
+			(found.isFile() && found.size <= SHARE_LARGEST_FILE)
+		);
+	} catch {
+		// Gone since it was found: nothing to move, which the move says.
+		return true;
 	}
 }
 
