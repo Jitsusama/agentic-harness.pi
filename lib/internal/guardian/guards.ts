@@ -329,6 +329,20 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["files"],
 	}),
+	// A write over a file the conversation never read loses what it held
+	// unseen (25 November: a state file of asks), but the agent may know a
+	// file a command it ran made, which no stamp records, so this
+	// redirects: the agent hears why, and a write sent again over the file
+	// as it then was goes through. A file that changes after is refused
+	// anew.
+	unreadWrite: declare({
+		name: "unread-write",
+		class: "safety",
+		description:
+			"Refuses a write over a file the conversation hasn't read whole, or that changed since it did",
+		defaultMode: "redirect",
+		groups: ["files"],
+	}),
 	// A log-out, reboot or switch of users ends every session on the
 	// machine, and a run ended mid-way can't be brought back, so this
 	// blocks: on 18 November one ask for a log-out on equilibrius ended

@@ -21,7 +21,7 @@ export interface Stamped<T> {
 }
 
 /** What says a file is the one it was: its inode, mtime and size. */
-function stampOf(of: {
+export function stampOf(of: {
 	readonly ino: number;
 	readonly mtimeMs: number;
 	readonly size: number;

@@ -27,7 +27,7 @@ folder. All but `advisor`, `convention-context` and
   `read-after-write-interceptor`, `remote-check-interceptor`,
   `reply-cause-interceptor`, `sandbox-file-interceptor`,
   `secret-scrub-interceptor`, `session-ending-interceptor`,
-  `shell-habit-interceptor`
+  `shell-habit-interceptor`, `unread-write-interceptor`
 
   `reply-cause-interceptor` reads a reply rather than a tool's
   call, as `session-ending-interceptor` does, but changes

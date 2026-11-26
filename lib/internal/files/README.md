@@ -24,6 +24,10 @@ points; and moving a file whole across volumes.
   quest's scratch.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
-  the mesh's presence listings.
+  the mesh's presence listings, and the stamp that says so, which the
+  unread-write guard keeps too.
 - **`tool-path.ts`**: the file a read, write or edit names, as pi's
   file tools read its path, for the interceptors that look first.
+- **`unread-write.ts`**: whether a write would replace a file its
+  conversation never saw whole, and whether a write or an edit left
+  the file as it said, for `unread-write-interceptor`.
