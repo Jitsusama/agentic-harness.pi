@@ -195,13 +195,64 @@ describe("what a restart keeps of holding its quest's address", () => {
 		).toBeUndefined();
 	});
 
-	it("keeps the time across a park however long it slept", () => {
+	it("keeps the time across a park however long it slept, while its marker stands", () => {
+		const slept = {
+			...last,
+			session: "s",
+			at: "2026-11-24T16:00:00.000Z",
+			state: "parked",
+		};
+
+		expect(signedSince(slept, now, { parked: () => true })).toEqual(kept);
+		expect(
+			signedSince(slept, now, { parked: () => false }),
+			"nor once a reboot voided its marker",
+		).toBeUndefined();
+	});
+
+	it("bounds a park that ended by when it ended, not by its marker", () => {
 		expect(
 			signedSince(
-				{ ...last, at: "2026-11-24T16:00:00.000Z", state: "parked" },
+				{
+					...last,
+					session: "s",
+					state: "parked",
+					ended: "2026-11-25T15:00:00.000Z",
+				},
 				now,
+				{ parked: () => true },
 			),
+		).toBeUndefined();
+	});
+
+	it("keeps the time across a reload, which the same process starts however long it was quiet", () => {
+		const owner = { pid: 4242, startedAt: 1_000, bootId: "b" };
+		const quiet = { ...last, at: "2026-11-25T12:00:00.000Z", owner };
+
+		expect(signedSince(quiet, now, { owner })).toEqual(kept);
+		expect(
+			signedSince(quiet, now, { owner: { ...owner, startedAt: 9_000_000 } }),
+			"nor for a new process wearing its pid",
+		).toBeUndefined();
+		expect(
+			signedSince(quiet, now, { owner: { ...owner, bootId: "c" } }),
+			"nor for one in another boot",
+		).toBeUndefined();
+	});
+
+	it("keeps it up to ten minutes after its last word, and not a moment past", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:50:00.000Z" }, now),
 		).toEqual(kept);
+		expect(
+			signedSince({ ...last, at: "2026-11-25T15:49:59.999Z" }, now),
+		).toBeUndefined();
+	});
+
+	it("starts afresh after a last word dated far ahead, as a clock set wrong writes", () => {
+		expect(
+			signedSince({ ...last, at: "2026-11-26T16:00:00.000Z" }, now),
+		).toBeUndefined();
 	});
 
 	it("keeps it across one that ended moments before, as a rollover does", () => {

@@ -27,7 +27,12 @@ import {
 } from "./support/mesh.ts";
 
 /** A peer signing with the fixture's quest, as it has since `since`. */
-function holding(holder: string, since: string, ended?: string) {
+function holding(
+	holder: string,
+	since: string,
+	ended?: string,
+	at = new Date().toISOString(),
+) {
 	createPresences(join(fixture.paths.mesh, "presence")).publish({
 		session: holder,
 		addresses: ["7M6JKG"],
@@ -37,7 +42,7 @@ function holding(holder: string, since: string, ended?: string) {
 		worksOn: "",
 		owns: [],
 		busy: false,
-		at: new Date().toISOString(),
+		at,
 	});
 }
 
@@ -195,6 +200,18 @@ describe("sending", () => {
 
 	it("starts afresh, leaving its quest's address, when it ended an hour before", async () => {
 		holding(session, heldFrom, new Date(Date.now() - 3_600_000).toISOString());
+		holding(taker, takenAt);
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 24B025FE",
+		);
+	});
+
+	it("starts afresh, leaving its quest's address, when killed an hour after it last said anything", async () => {
+		const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+		holding(session, heldFrom, undefined, hourAgo);
 		holding(taker, takenAt);
 		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession();
