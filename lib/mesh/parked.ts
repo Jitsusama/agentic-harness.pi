@@ -54,9 +54,13 @@ function listenerOf(parked: Presence) {
 }
 
 /** Whether a message reaches a parked peer at all, judged on what its presence says. */
-function reachesParked(message: Message, parked: Presence): boolean {
+function reachesParked(
+	message: Message,
+	parked: Presence,
+	listener = listenerOf(parked),
+): boolean {
 	// Its process is gone, so no pid of a sender is its own.
-	return reaches(message, listenerOf(parked), -1);
+	return reaches(message, listener, -1);
 }
 
 /**
@@ -76,7 +80,7 @@ export function wakes(
 	now: number = Date.parse(message.at),
 ): boolean {
 	const listener = listenerOf(parked);
-	if (!reachesParked(message, parked)) return false;
+	if (!reachesParked(message, parked, listener)) return false;
 	if (message.intent === "pivot") return true;
 	const self = { addresses: parked.addresses, pid: -1 };
 	const led =

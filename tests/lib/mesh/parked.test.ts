@@ -204,16 +204,42 @@ describe("waking a parked peer", () => {
 	it("looks at the marker only of a parked peer the message reaches", () => {
 		// On 26 November one start's catch-up spent 1.4 s on its thread
 		// looking at every parked peer's marker for each message carried in.
-		const elsewhere: Presence = {
+		const unaddressed: Presence = {
 			...parked,
-			session: "s-elsewhere",
+			session: "s-unaddressed",
 			addresses: ["QQQQQQ"],
 			groups: [],
 		};
 		const looked: string[] = [];
 
-		wakeParked(
+		const woken = wakeParked(
 			message(),
+			[unaddressed, parked],
+			nothing,
+			(session) => {
+				looked.push(session);
+				return true;
+			},
+			() => {},
+		);
+
+		expect(looked, "a peer not addressed had its marker looked at").toEqual([
+			"s-parked",
+		]);
+		expect(woken, "the peer addressed wasn't woken").toEqual(["s-parked"]);
+	});
+
+	it("leaves the marker of a parked peer on another machine out of a hold to the machine", () => {
+		const elsewhere: Presence = {
+			...parked,
+			session: "s-elsewhere",
+			addresses: ["WWWWWW"],
+			machine: "equilibrius",
+		};
+		const looked: string[] = [];
+
+		wakeParked(
+			message({ to: ["#all"], intent: "hold" }),
 			[elsewhere, parked],
 			nothing,
 			(session) => {
@@ -223,7 +249,10 @@ describe("waking a parked peer", () => {
 			() => {},
 		);
 
-		expect(looked).toEqual(["s-parked"]);
+		expect(
+			looked,
+			"a peer on another machine had its marker looked at for this machine's hold",
+		).toEqual(["s-parked"]);
 	});
 });
 
