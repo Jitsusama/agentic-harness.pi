@@ -12,6 +12,7 @@
  * marker, which its pi's start may have cleared, is written back.
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import type { Booted } from "../../lib/internal/machine/booted.ts";
 import {
 	clearParked,
 	parkFolder,
@@ -31,6 +32,11 @@ export interface GivenUpPlace {
 	takeOn(entry: RosterEntry): void;
 	/** Where park markers are kept; park-workflow's by default. */
 	folder?: string;
+	/**
+	 * When the machine booted, which says a marker from an earlier boot;
+	 * the kernel's own by default, which a Mac doesn't say.
+	 */
+	booted?: Booted;
 	/** The host process that rests it, named as the parker. */
 	readonly pid: number;
 }
@@ -53,7 +59,7 @@ export function restGivenUp(
 	if (place.runs(sessionId)) return "this host runs it now";
 	const folder = place.folder ?? parkFolder();
 	const wake = place.wakeFile(sessionId);
-	const marker = readParked(sessionId, folder);
+	const marker = readParked(sessionId, folder, place.booted);
 	if (marker !== undefined && marker.wake !== wake)
 		return `its marker names another holder's wake, ${marker.wake}`;
 	if (marker === undefined)

@@ -158,10 +158,16 @@ describe("a given-up child's conversation", () => {
 			},
 			host.parks,
 		);
-		const longAgo = new Date(0);
-		await utimes(parkedPath(A, host.parks), longAgo, longAgo);
+		// The boot is named, after the marker but long after the machine's
+		// own, since a Mac's kernel says none and every marker would then
+		// stand as this boot's.
+		const written = new Date(Date.now() - 60_000);
+		await utimes(parkedPath(A, host.parks), written, written);
+		const bootedAt = Date.now() - 30_000;
 
-		expect(restGivenUp(entry(), host.place)).toBeUndefined();
+		expect(
+			restGivenUp(entry(), { ...host.place, booted: () => bootedAt }),
+		).toBeUndefined();
 
 		expect(readParked(A, host.parks)?.wake, "this host's wake").toBe(
 			host.parked.wakeFile(A),
