@@ -37,7 +37,8 @@ import {
 	stopScreen,
 	working,
 } from "./hosted-mode.ts";
-import { type StartParts, startLine, timeStart } from "./start-parts.ts";
+import { startLine, timeStart } from "./start-parts.ts";
+import type { StartProfiler } from "./start-profile.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
 // The host's program builds its screens from here.
@@ -153,14 +154,14 @@ interface Early {
 export const PARKED_LINE =
 	"Parked while idle, holding no memory. A key or a message wakes it.";
 
-/** Say a started screen's start line; a fault in the saying is reported, never the screen's. */
+/** Say a line of a screen's start; a fault in the saying is reported, never the screen's. */
 function sayStart(
-	parts: StartParts,
+	line: string,
 	said: (line: string) => void,
 	report: (error: unknown) => void,
 ): void {
 	try {
-		said(startLine(parts));
+		said(line);
 	} catch (error) {
 		report(error);
 	}
@@ -172,6 +173,8 @@ export function hostScreens(options: {
 	report: (error: unknown) => void;
 	/** Told, as each screen starts, what in its start took the time; without it nothing is timed. */
 	said?: (line: string) => void;
+	/** Profiles a start now and then, its line told to `said`; without it none is. */
+	profile?: StartProfiler;
 	/** Shows pi's startup questions; without it the screens offer none. */
 	ask?: StartupAsker;
 	/** Told how many windows view a conversation, each time one joins or leaves. */
@@ -398,14 +401,19 @@ export function hostScreens(options: {
 		const init = (): Promise<void> =>
 			withSession(view.sessionId, () => mode.init());
 		try {
-			const { said } = options;
-			if (said)
-				sayStart(
-					await timeStart(mode, view.runtime, init),
-					said,
-					options.report,
-				);
-			else await init();
+			const { said, profile } = options;
+			if (said) {
+				// Said inside the profiled start, so it comes before the profile's
+				// line, which the profiler says once the start has settled; the
+				// profiler's own claim and stop lie outside what is timed.
+				const timed = async (): Promise<void> => {
+					const parts = await timeStart(mode, view.runtime, init);
+					sayStart(startLine(parts), said, options.report);
+				};
+				if (profile)
+					await profile(timed, (line) => sayStart(line, said, options.report));
+				else await timed();
+			} else await init();
 		} catch (error) {
 			// The engine fails the open itself, so the screen goes without closing.
 			live.delete(view.sessionId);

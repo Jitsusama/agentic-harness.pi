@@ -86,6 +86,25 @@ and that share counts the start's own work too: a share near the whole
 with little held points at other conversations holding the thread,
 while one near the whole with as much held is the start's own work.
 
+Whose work that is, the held time can't say, so `start-profile.ts`
+samples the thread's CPU through one start now and then, when the host
+gives the screens `profile`. A second line follows the start's, naming
+whose code the samples fell in, busiest first: an extension or pack by
+its folder, the harness's library or host, pi, Node, a package, native
+code, garbage collection or idle. The samples count every conversation
+on the thread, which is the question when a start is slow for a busy
+thread. It profiles one start at a time, at most one in each
+ten-minute window across the realm's hosts of a kind, children
+included: the first start to make that window's claim file in the
+folder the profiles are kept in is profiled, and no other is. It
+samples for at most a minute. Only the sampling falls in the start:
+the claim waits at most 100 ms before it, and the stop, the keeping
+and the line come after it settles, so neither the start line nor a
+wake counts them. The newest five are kept under the host's state
+folder's `starts`, for a browser's profiler to open. Under an install,
+an extension read through `current` or another version is still named
+by its folder.
+
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host
 gives the screens an asker. `startup-ask.ts` shows it as pi's CLI shows

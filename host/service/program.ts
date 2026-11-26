@@ -28,7 +28,8 @@ import {
 	loadHostPi,
 	warmSessions,
 } from "../engine/index.ts";
-import { CHILD_FLAG, hostRealm } from "./address.ts";
+import { startProfiler } from "../screen/start-profile.ts";
+import { CHILD_FLAG, hostKey, hostRealm } from "./address.ts";
 import {
 	type ChildHost,
 	childHost,
@@ -55,6 +56,9 @@ import { installMovesFrom } from "./what-starts.ts";
  * pi lacks a patch waits for a fix rather than restarting every few seconds.
  */
 export const EXIT_MISCONFIGURED = 78;
+
+/** The folder, in a host's own state folder, keeping its screens' start profiles. */
+const STARTS = "starts";
 
 /**
  * The exit status of a host launchd runs that stopped to be started on
@@ -234,6 +238,17 @@ export async function startHostProgram(
 		),
 		report,
 		said: report,
+		// Shared by the realm's hosts of a kind, children too, so a child's
+		// one start is profiled only when none of theirs was lately.
+		profile: startProfiler({
+			folder: join(
+				stateDir("host-service"),
+				child
+					? hostKey(child.slot.realm, child.slot.kind)
+					: hostKey(hostRealm(env), hostKind(argv)),
+				STARTS,
+			),
+		}),
 	});
 	let engine: HostEngine | undefined;
 	let rollable: { roll(): void } | undefined;
