@@ -928,7 +928,12 @@ describe("a look list that keeps only what's useful", () => {
 		const shows = pointAt(dir, pr, who, t0);
 		const asks = pointAt(
 			dir,
-			{ ...pr, target: `${pr.target}1`, ask: "Say whether to merge." },
+			{
+				...pr,
+				target: `${pr.target}1`,
+				ask: "Say whether to merge.",
+				choices: ["Merge It", "Hold It"],
+			},
 			who,
 			t0,
 		);
@@ -941,7 +946,9 @@ describe("a look list that keeps only what's useful", () => {
 		expect(byId[asks.id]?.state, "the asking look stays opened").toBe("opened");
 	});
 
-	it("reads a look kept before it said whether it asks as asking", () => {
+	// A look offering no choices can't be answered in the launcher, so
+	// opening it is the read, however it was kept.
+	it("lets a look kept before it said whether it asks leave once opened", () => {
 		const look = pointAt(dir, pr, who, t0);
 		const file = join(dir, `${look.id}.json`);
 		const {
@@ -951,8 +958,7 @@ describe("a look list that keeps only what's useful", () => {
 		} = JSON.parse(readFileSync(file, "utf8"));
 		writeFileSync(file, JSON.stringify({ ...older, state: "opened" }));
 
-		expect(leaveSeenLooks(dir, later), "an older look stays").toBe(0);
-		expect(expireLooks(dir, () => true, new Date("2027-01-01"))).toEqual([]);
+		expect(leaveSeenLooks(dir, later), "an older look leaves").toBe(1);
 	});
 
 	// The clock reads the list once, off the thread, and only a step
@@ -961,7 +967,12 @@ describe("a look list that keeps only what's useful", () => {
 		const ownedHere = (look: { quest?: string }) => look.quest === "QEST-1";
 		const ended = (quest: string) => quest === "QEST-2";
 		const day = new Date(t0.getTime() + SHOWING_LASTS_MS);
-		const none = { seen: false, expired: false, ended: false };
+		const none = {
+			seen: false,
+			unstamped: false,
+			expired: false,
+			ended: false,
+		};
 		expect(looksDue([], ownedHere, ended, day), "an empty list").toEqual(none);
 
 		const shows = pointAt(dir, pr, who, t0);
@@ -993,6 +1004,7 @@ describe("a look list that keeps only what's useful", () => {
 		expect(due, "an opened showing look, and an ended quest's").toEqual({
 			...none,
 			seen: true,
+			unstamped: true,
 			ended: true,
 		});
 		expect(leaveSeenLooks(dir, t0), "as leaving finds").toBe(1);

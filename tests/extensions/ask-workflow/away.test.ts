@@ -22,6 +22,7 @@ let tool: Tool;
 beforeEach(() => {
 	resetAway();
 	const pi = {
+		on: () => undefined,
 		registerTool: (definition: Tool) => {
 			tool = definition;
 		},

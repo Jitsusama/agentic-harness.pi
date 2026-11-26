@@ -352,7 +352,7 @@ export function onSessionStart(
 				const clock = m.looksClock;
 				const stands = () => m.looksClock === clock;
 				keeping(looksDir, () =>
-					keepLooksFor(m.pi, looksDir, owner, ended, stands),
+					keepLooksFor(m.pi, looksDir, owner, ended, stands, m.presences),
 				).catch(() => {
 					// The looks unreadable now: kept again on the next tick.
 				});

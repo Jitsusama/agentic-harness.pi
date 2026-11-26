@@ -1,9 +1,10 @@
 /**
  * What the looks clock does each minute to the person's look list on
- * this session's behalf: looks he opened that asked nothing back leave,
- * and this session's or its quest's looks past their time expire, with
- * the agent told which, so it knows they are no longer in front of him
- * (WCJQSG, 12 November).
+ * this session's behalf: looks he opened that he can't answer in place
+ * leave, opened looks get the time they were opened, and this session's
+ * or its quest's looks past their time expire, with the agent told
+ * which, so it knows they are no longer in front of him (WCJQSG, 12 and
+ * 25 November).
  */
 
 import {
@@ -12,6 +13,7 @@ import {
 	type Look,
 	leaveSeenLooks,
 	type Pointer,
+	stampOpenedLooks,
 } from "../../lib/mesh/looks/looks.ts";
 
 /**
@@ -26,6 +28,7 @@ export function keepLooks(
 ): Look[] {
 	try {
 		leaveSeenLooks(dir, now);
+		stampOpenedLooks(dir, now);
 		return expireLooks(dir, (look) => heldBy(look, owner), now);
 	} catch {
 		// Unreadable or unwritable now: the next tick keeps it.
@@ -36,6 +39,17 @@ export function keepLooks(
 /** What the agent reads of its looks that expired, or nothing for none. */
 export function expiredText(looks: readonly Look[]): string | undefined {
 	if (looks.length === 0) return undefined;
-	const titles = looks.map((look) => `"${look.title}"`).join(", ");
-	return `[Off the person's look list, past its time: ${titles}. Each asked nothing back and went a day unopened. Point at one again only if it matters to them now.]`;
+	const titles = (some: readonly Look[]) =>
+		some.map((look) => `"${look.title}"`).join(", ");
+	const opened = looks.filter((look) => look.openedAt !== undefined);
+	const unopened = looks.filter((look) => look.openedAt === undefined);
+	const said = [
+		...(unopened.length > 0
+			? [`${titles(unopened)}: each asked nothing back and went a day unopened`]
+			: []),
+		...(opened.length > 0
+			? [`${titles(opened)}: each went a day unanswered after they opened it`]
+			: []),
+	];
+	return `[Off the person's look list, past its time: ${said.join("; ")}. Point at one again only if it matters to them now, with words true now.]`;
 }

@@ -18,7 +18,7 @@
  * A question never holds its turn for long: left unanswered five
  * minutes, or asked while the screen is locked or the person is away
  * from it, it parks on their look list and the session carries on
- * (see parking.ts).
+ * (see parking.ts), until the session takes up new work.
  */
 
 import { join } from "node:path";
@@ -45,6 +45,7 @@ import type {
 import {
 	ABSENCE_EVERY_MS,
 	absence,
+	leaveParked,
 	PARK_AFTER_MS,
 	type ParkReason,
 	parkedText,
@@ -88,12 +89,27 @@ interface AskResult {
 /** What a parked question's record and result say, past its mark. */
 const PARKED_SAID = "parked on the look list, unanswered";
 
+/** What begins a run a host carries on, which pi's runForHost names it. */
+const CARRIED_ON = "continue";
+
+/**
+ * Whether this session may have a question parked on the look list: so
+ * at first, since one may stand from before a restart, and again once it
+ * parks one. A run's start reads the list only then, rather than read
+ * the whole folder every turn.
+ */
+interface Parking {
+	mayHave: boolean;
+}
+
 /** Park `questions` on the person's look list, and say so to the asker. */
 function parked(
 	questions: Question[],
 	session: string,
 	reason: ParkReason,
+	parking: Parking,
 ): { content: { type: "text"; text: string }[]; details: AskResult } {
+	parking.mayHave = true;
 	const pointer = pointerOf(session, {
 		presences: join(stateDir("mesh-workflow"), "presence"),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
@@ -332,6 +348,16 @@ function answered(
 }
 
 export default function ask(pi: ExtensionAPI) {
+	// New work leaves what this session parked behind. A run a host
+	// carries on after a restart is the same run, not another turn.
+	const parking: Parking = { mayHave: true };
+	pi.on("before_agent_start", (event, ctx) => {
+		const trigger: string = event.messageType;
+		if (trigger === CARRIED_ON || !parking.mayHave) return;
+		leaveParked(stateDir("looks"), ctx.sessionManager.getSessionId());
+		parking.mayHave = false;
+	});
+
 	pi.registerTool({
 		name: "ask",
 		label: "Ask",
@@ -370,7 +396,7 @@ export default function ask(pi: ExtensionAPI) {
 			// Nobody there to answer: park at once rather than hold the turn.
 			const session = ctx.sessionManager.getSessionId();
 			const gone = absence(runtimeDir());
-			if (gone) return parked(questions, session, gone);
+			if (gone) return parked(questions, session, gone, parking);
 			const closing = new AbortController();
 			let parkedFor: ParkReason | undefined;
 			const stopWatching = watchToPark(
@@ -390,7 +416,9 @@ export default function ask(pi: ExtensionAPI) {
 			};
 			try {
 				const answers = await answersOnScreen(ctx, questions, closer);
-				if (parkedFor) return parked(questions, session, parkedFor);
+				if (parkedFor) {
+					return parked(questions, session, parkedFor, parking);
+				}
 				if (!answers) {
 					return {
 						content: [{ type: "text", text: "User cancelled" }],

@@ -26,6 +26,13 @@
  * takes it back whether he has opened it or not, and so can any later
  * session on its quest.
  *
+ * Joel, 25 November: "my for you list is messy with pi session stuff
+ * that by the time i get to it is out of date". So, as WCJQSG ruled: a
+ * look that offers no choices and takes none of his words leaves once
+ * opened, as one that only shows does; one with choices leaves a day
+ * after he opened it, unless its owner points at it again; and every
+ * look of a session that has ended leaves with it.
+ *
  * Joel, 11 November: "anything that is going to fight for my attention
  * is easy for me to engage with, even if i engage with it later. if it
  * is no longer applicable because i took too long and things have
@@ -73,6 +80,21 @@ const STANDING: readonly LookState[] = ["waiting", "opened"];
 /** How long a look that asks nothing back stays on the list. */
 export const SHOWING_LASTS_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How long a look with choices stays once the person has opened it,
+ * unless its owner points at it again with words true now (WCJQSG for
+ * Joel, 25 November: "my for you list is messy with pi session stuff
+ * that by the time i get to it is out of date").
+ */
+export const OPENED_LASTS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a look stands for a session the mesh has never heard of
+ * before it counts as ended: a session publishes its presence as it
+ * starts, so one with none this long after pointing is not on the mesh.
+ */
+export const UNHEARD_CELL_MS = 10 * 60 * 1000;
+
 /** An ask that wants nothing back: "Nothing, just to see". */
 const ONLY_TO_SEE =
 	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b/i;
@@ -98,6 +120,8 @@ export type LookResolution =
 	| "replaced"
 	| "seen"
 	| "its quest ended"
+	| "its session ended"
+	| "its session carried on"
 	| "cleared by you"
 	| `answered: ${string}`;
 
@@ -216,6 +240,12 @@ export interface Look {
 	readonly thread?: string;
 	/** Waiting until the launcher says the person opened or cleared it. */
 	readonly state: LookState;
+	/**
+	 * When it was first seen opened, as an ISO time: stamped by
+	 * {@link openLook}, or by the looks clock for one the launcher marked
+	 * opened in its file. A look pointed at again stands unopened.
+	 */
+	readonly openedAt?: string;
 	/** How it resolved, and when, once its change merged or closed. */
 	readonly how?: LookResolution;
 	readonly resolvedAt?: string;
@@ -323,6 +353,16 @@ export function heldBy(look: Look, pointer: Pointer): boolean {
 /** Whether `look` still stands on the person's list. */
 function stands(look: Look): boolean {
 	return STANDING.includes(look.state);
+}
+
+/**
+ * Whether the person's answer to `look` still reaches its session: one
+ * standing, or one its own session took back as it carried on, since a
+ * pick he made in the launcher may land just after the take-back, and
+ * his words are worth more than the order they came in.
+ */
+function answerable(look: Look): boolean {
+	return stands(look) || look.how === "its session carried on";
 }
 
 /**
@@ -666,15 +706,13 @@ export function resolveLooks(
 ): number {
 	const key = changeKey(url);
 	if (key === "") return 0;
-	let marked = 0;
-	for (const look of looksIn(dir)) {
-		if (!stands(look)) continue;
-		if (look.kind !== "pr" && look.kind !== "diff") continue;
-		if (changeKey(look.target) !== key) continue;
-		markResolvedLook(dir, look, how, now);
-		marked++;
-	}
-	return marked;
+	const atIt = looksIn(dir).filter(
+		(look) =>
+			stands(look) &&
+			(look.kind === "pr" || look.kind === "diff") &&
+			changeKey(look.target) === key,
+	);
+	return resolveEach(dir, atIt, how, now);
 }
 
 /**
@@ -697,14 +735,15 @@ export function withdrawLook(
 			heldBy(one, pointer) &&
 			foldOf(one.kind, one.target) === fold,
 	);
-	for (const one of taken) markResolvedLook(dir, one, "taken back", now);
-	return taken.length > 0;
+	return resolveEach(dir, taken, "taken back", now) > 0;
 }
 
 /**
  * Mark every standing look past its time that `owns` says is this
  * session's to expire, so what no longer needs the person leaves his
- * list; answers the looks it expired, for their owner to be told.
+ * list: one that only shows a day after it was pointed at, and one with
+ * choices a day after he opened it. Answers the looks it expired, for
+ * their owner to be told.
  */
 export function expireLooks(
 	dir: string,
@@ -712,26 +751,84 @@ export function expireLooks(
 	now: Date = new Date(),
 ): Look[] {
 	const due = looksIn(dir).filter((one) => isDue(one, owns, now));
-	return due.map((one) => {
-		const expired: Look = {
-			...one,
-			state: "expired",
-			resolvedAt: now.toISOString(),
-		};
-		writeLook(dir, expired);
-		return expired;
-	});
+	return due
+		.map((one) =>
+			rewriteLook(dir, one, (still) => ({
+				...still,
+				state: "expired",
+				resolvedAt: now.toISOString(),
+			})),
+		)
+		.filter((one): one is Look => one !== undefined);
 }
 
 /**
- * Mark every look the person has opened that asks nothing back resolved,
- * since opening it was all it wanted; answers how many it marked. A
- * look kept before looks said whether they ask stays, as asking.
+ * Mark every look the person has opened that he can't answer in place
+ * resolved, since opening it was all it could ask: one that asks
+ * nothing back, and one that asks in words but offers no choices and
+ * takes none of his own, a read like any other (WCJQSG, 25 November).
+ * Answers how many it marked.
  */
 export function leaveSeenLooks(dir: string, now: Date = new Date()): number {
-	const seen = looksIn(dir).filter(isSeen);
-	for (const one of seen) markResolvedLook(dir, one, "seen", now);
-	return seen.length;
+	return resolveEach(dir, looksIn(dir).filter(isSeen), "seen", now);
+}
+
+/**
+ * Stamp when it was opened on every look the launcher marked opened in
+ * its file without saying when, so a look with choices leaves
+ * {@link OPENED_LASTS_MS} after; answers how many it stamped.
+ */
+export function stampOpenedLooks(dir: string, now: Date = new Date()): number {
+	const stamped = looksIn(dir)
+		.filter(isUnstamped)
+		.map((one) =>
+			rewriteLook(dir, one, (still) => ({
+				...still,
+				openedAt: now.toISOString(),
+			})),
+		);
+	return stamped.filter((one) => one !== undefined).length;
+}
+
+/**
+ * The sessions whose looks still stand in `looks`, each once, for the
+ * looks clock to ask which of them have ended.
+ */
+export function sessionsHolding(looks: readonly Look[]): string[] {
+	return [...new Set(looks.filter(stands).map((look) => look.session))];
+}
+
+/**
+ * Mark every standing look whose session `ended` says has ended
+ * resolved, since nobody is left to hear his answer or to say it no
+ * longer applies (WCJQSG, 25 November). Answers how many it marked.
+ */
+export function resolveLooksOfEndedCells(
+	dir: string,
+	ended: (look: Look) => boolean,
+	now: Date = new Date(),
+): number {
+	const done = looksIn(dir).filter((look) => stands(look) && ended(look));
+	return resolveEach(dir, done, "its session ended", now);
+}
+
+/**
+ * Take back every standing look `session` itself keeps on `thread`, as
+ * it carries on past what the looks asked, opened or not; answers how
+ * many it took back. A look another session on its quest replaced on
+ * that thread is that session's, and stays.
+ */
+export function takeBackThread(
+	dir: string,
+	session: string,
+	thread: string,
+	now: Date = new Date(),
+): number {
+	const taken = looksIn(dir).filter(
+		(look) =>
+			stands(look) && look.session === session && look.thread === thread,
+	);
+	return resolveEach(dir, taken, "its session carried on", now);
 }
 
 /**
@@ -744,13 +841,8 @@ export function resolveLooksOfQuests(
 	ended: (quest: string) => boolean,
 	now: Date = new Date(),
 ): number {
-	let marked = 0;
-	for (const look of looksIn(dir)) {
-		if (!isOfEnded(look, ended)) continue;
-		markResolvedLook(dir, look, "its quest ended", now);
-		marked++;
-	}
-	return marked;
+	const over = looksIn(dir).filter((look) => isOfEnded(look, ended));
+	return resolveEach(dir, over, "its quest ended", now);
 }
 
 /** The most of his own words a look keeps as his answer. */
@@ -773,7 +865,7 @@ export function answerLook(
 	now: Date = new Date(),
 ): Look | undefined {
 	const look = looksIn(dir).find((one) => one.id === id);
-	if (!look || !stands(look)) return undefined;
+	if (!look || !answerable(look)) return undefined;
 	const answeredAt = now.toISOString();
 	if ("value" in given) {
 		const choice = look.choices?.find((one) => one.value === given.value);
@@ -831,32 +923,93 @@ export function clearLook(
  * opens there, so one that asks nothing back can leave. Answers the look
  * as it stands now, or nothing when it is gone or no longer stands.
  */
-export function openLook(dir: string, id: string): Look | undefined {
+export function openLook(
+	dir: string,
+	id: string,
+	now: Date = new Date(),
+): Look | undefined {
 	const look = looksIn(dir).find((one) => one.id === id);
 	if (!look || !stands(look)) return undefined;
 	if (look.state === "opened") return look;
-	const opened: Look = { ...look, state: "opened" };
+	const opened: Look = {
+		...look,
+		state: "opened",
+		openedAt: now.toISOString(),
+	};
 	writeLook(dir, opened);
 	return opened;
 }
 
-/** Write `look` back resolved, `how`, with what else it now says. */
+/**
+ * Write `look` back resolved, `how`, with what else it now says, while
+ * its file still holds it as read (see {@link rewriteLook}); answers it
+ * so written, or nothing when it had changed.
+ */
 function markResolvedLook(
 	dir: string,
 	look: Look,
 	how: LookResolution,
 	now: Date,
 	also: Partial<Pick<Look, "answer" | "answeredAt" | "answeredInWords">> = {},
-): Look {
-	const resolved: Look = {
-		...look,
+): Look | undefined {
+	return rewriteLook(dir, look, (still) => ({
+		...still,
 		...also,
 		state: "resolved",
 		how,
 		resolvedAt: now.toISOString(),
-	};
-	writeLook(dir, resolved);
-	return resolved;
+	}));
+}
+
+/**
+ * Resolve each of `looks`, `how`, that its file still holds as read;
+ * answers how many were.
+ */
+function resolveEach(
+	dir: string,
+	looks: readonly Look[],
+	how: LookResolution,
+	now: Date,
+): number {
+	return looks.filter(
+		(one) => markResolvedLook(dir, one, how, now) !== undefined,
+	).length;
+}
+
+/**
+ * Write `change` of `look` over its file, read again at once, only while
+ * the file still holds it as `look` was read: a clock reads the list off
+ * the thread and writes after, and the launcher or another session may
+ * have opened, answered or cleared it meanwhile, which a write from the
+ * old read would undo. Answers what it wrote, or nothing.
+ */
+function rewriteLook(
+	dir: string,
+	look: Look,
+	change: (still: Look) => Look,
+): Look | undefined {
+	const still = lookNow(dir, look.id);
+	if (
+		still === undefined ||
+		still.state !== look.state ||
+		still.openedAt !== look.openedAt ||
+		still.resolvedAt !== look.resolvedAt
+	) {
+		return undefined;
+	}
+	const changed = change(still);
+	writeLook(dir, changed);
+	return changed;
+}
+
+/** Look `id` as its file in `dir` holds it now, or nothing. */
+function lookNow(dir: string, id: string): Look | undefined {
+	try {
+		return lookFrom(readFileSync(join(dir, `${id}.json`), "utf8"));
+	} catch {
+		// Gone since it was listed: nothing is left to change.
+		return undefined;
+	}
 }
 
 /** Write `look` whole to its file in `dir`. */
@@ -944,8 +1097,10 @@ function newestFirst(read: (Look | undefined)[]): Look[] {
 
 /** Which of the looks clock's steps have something to do. */
 export interface LooksDue {
-	/** Some look was opened and asks nothing back: `leaveSeenLooks`. */
+	/** Some look was opened and can't be answered in place: `leaveSeenLooks`. */
 	readonly seen: boolean;
+	/** Some look was opened with no time said: `stampOpenedLooks`. */
+	readonly unstamped: boolean;
 	/** Some look `owns` holds is past its time: `expireLooks`. */
 	readonly expired: boolean;
 	/** Some look's quest has ended: `resolveLooksOfQuests`. */
@@ -965,24 +1120,47 @@ export function looksDue(
 ): LooksDue {
 	return {
 		seen: looks.some(isSeen),
+		unstamped: looks.some(isUnstamped),
 		expired: looks.some((look) => isDue(look, owns, now)),
 		ended: looks.some((look) => isOfEnded(look, ended)),
 	};
 }
 
-/** Whether `look` was opened and asks nothing back, so it may leave. */
+/**
+ * Whether `look` was opened and can't be answered in place, so it may
+ * leave: it offers no choices and takes none of his words.
+ */
 function isSeen(look: Look): boolean {
-	return look.state === "opened" && look.asks === false;
+	return (
+		look.state === "opened" &&
+		(look.choices?.length ?? 0) === 0 &&
+		look.wants?.words !== true
+	);
+}
+
+/** Whether `look` was marked opened without saying when. */
+function isUnstamped(look: Look): boolean {
+	return look.state === "opened" && look.openedAt === undefined;
 }
 
 /** Whether `look` stands past its time and is `owns`'s to expire. */
 function isDue(look: Look, owns: (look: Look) => boolean, now: Date): boolean {
-	return (
-		stands(look) &&
-		look.expiresAt !== undefined &&
-		Date.parse(look.expiresAt) <= now.getTime() &&
-		owns(look)
-	);
+	return stands(look) && isPast(look, now) && owns(look);
+}
+
+/**
+ * Whether `look` is past its time: pointed at to show a day ago, or
+ * opened a day ago.
+ */
+function isPast(look: Look, now: Date): boolean {
+	const shown = look.expiresAt
+		? Date.parse(look.expiresAt)
+		: Number.POSITIVE_INFINITY;
+	const opened =
+		look.state === "opened" && look.openedAt
+			? Date.parse(look.openedAt) + OPENED_LASTS_MS
+			: Number.POSITIVE_INFINITY;
+	return Math.min(shown, opened) <= now.getTime();
 }
 
 /** Whether `look` stands for a quest `ended` says has ended. */
