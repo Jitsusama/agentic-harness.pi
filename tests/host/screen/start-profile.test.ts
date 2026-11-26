@@ -143,6 +143,7 @@ describe("a profiled start", { timeout: PROFILED_MS }, () => {
 	it("samples no longer than its most, the start running on", async () => {
 		const [line] = await linesOf(
 			startProfiler({ folder, most: 100 }),
+			// A start that really runs past the sampler's most, which is the point.
 			() => new Promise((resolve) => setTimeout(resolve, 400)),
 		);
 		expect(line).toMatch(

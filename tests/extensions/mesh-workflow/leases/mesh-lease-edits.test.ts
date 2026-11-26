@@ -380,6 +380,7 @@ describe("a lease", () => {
 				sent.some((one) =>
 					String(one.message.content).includes(withdrawal.text),
 				),
+				"the withdrawal reaches the conversation",
 			).toBe(true),
 		);
 		const heard = sent.length;
