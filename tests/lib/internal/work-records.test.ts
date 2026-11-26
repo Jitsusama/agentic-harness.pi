@@ -63,6 +63,8 @@ const disk = vi.hoisted(() => {
 		unreadableOnThread: undefined as string | undefined,
 		/** Every record read off the thread, in order. */
 		reads: [] as string[],
+		/** Every tree looked for on disk off the thread, in order. */
+		looked: [] as string[],
 		/**
 		 * Stop the readings whose trees lie under `root` where they look for
 		 * them: only those, since an earlier test's reading may still run.
@@ -105,6 +107,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		);
 	}) as typeof real.readdir;
 	const access = async (...args: Parameters<typeof real.access>) => {
+		disk.looked.push(String(args[0]));
 		await disk.pass(String(args[0]));
 		return real.access(...args);
 	};
@@ -1114,6 +1117,50 @@ describe("the work broker's records", () => {
 			}
 		},
 	);
+
+	it("look on disk only for the trees a caller that asks once holds", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		recorded(dir, two, ["s-2"]);
+		recorded(dir, three, ["s-2", "s-3"]);
+		settled(dir);
+		disk.looked.length = 0;
+
+		expect(await treesHeldByNow("s-1", dir)).toEqual([one]);
+
+		expect(
+			disk.looked.filter((path) => path.startsWith(root)),
+			"no other session's tree is looked for",
+		).toEqual([one]);
+	});
+
+	it("answer a caller that asks once while the shared reading is stuck looking for another session's tree", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.stop(two);
+		recordedElsewhere(dir, two, ["s-2"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		recordedElsewhere(dir, three, ["s-1"]);
+
+		expect(
+			(await treesHeldByNow("s-1", dir, 5_000)).sort(),
+			"read afresh, not after the stuck one",
+		).toEqual([one, three]);
+		disk.go();
+		await whenRefreshed(dir);
+	});
 
 	it("refuse a caller that asks once when its reading doesn't land in time", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
