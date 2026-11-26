@@ -22,6 +22,25 @@ const GONE = { key: KEY, mark: "7:100" };
 const NOW = 10 * STRAY_FOR_MS;
 const NONE = { marks: new Set<string>(), groups: new Set<number>() };
 
+/** A listing of this folder to fail with this code, as the machine might. */
+const listFault = vi.hoisted(() => ({
+	folder: undefined as string | undefined,
+	code: "EMFILE",
+}));
+
+vi.mock("node:fs/promises", async (original) => {
+	const fs = await original<typeof import("node:fs/promises")>();
+	const readdir = ((...args: Parameters<typeof fs.readdir>) => {
+		const code = listFault.code;
+		if (listFault.folder !== undefined && String(args[0]) === listFault.folder)
+			return Promise.reject(
+				Object.assign(new Error(`${code}: as the test asked`), { code }),
+			);
+		return fs.readdir(...args);
+	}) as typeof fs.readdir;
+	return { ...fs, readdir };
+});
+
 interface Process {
 	readonly group: number;
 	readonly env: Record<string, string>;
@@ -78,6 +97,7 @@ beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "sweep-"));
 });
 afterEach(async () => {
+	listFault.folder = undefined;
 	await rm(root, { recursive: true, force: true });
 });
 
@@ -220,6 +240,34 @@ describe("sweeping a key for what no live host holds", () => {
 		expect(options.say, "a reap that waited is said").toHaveBeenCalledWith(
 			expect.stringMatching(/ended nothing/),
 		);
+	});
+
+	it("ends nothing, and says so, while the key's folder fails to list for the moment", async () => {
+		await mkdir(join(root, "one"));
+		await writeFile(
+			join(root, "one", LEFT_FILE),
+			JSON.stringify([{ session: "one", mark: "kept-one", at: NOW - 1 }]),
+		);
+		const { fake, killed } = table({
+			1: { group: 1, env: {} },
+			10: left("one", 10, "kept-one"),
+			20: left("two", 20),
+		});
+		listFault.folder = root;
+		const options = sweeping();
+		const swept = await sweepUnheld(KEY, new Set(), {
+			...options,
+			table: fake,
+		});
+		expect(killed, "whom to spare is not known").toEqual([]);
+		expect(swept.folders, "the key's own alone").toBe(1);
+		expect(options.say, "a reap that waited is said").toHaveBeenCalledWith(
+			expect.stringMatching(/ended nothing/),
+		);
+		expect(
+			options.report,
+			"tried again at the next sweep",
+		).not.toHaveBeenCalled();
 	});
 
 	it("looks only in conversation folders holding a note, and reads its cgroup once", async () => {

@@ -221,6 +221,23 @@ describe("a start's reaps", () => {
 		expect(table.killed, "only what no park kept").toEqual([20]);
 	});
 
+	it("spare at a conversation's own reap what a child parked in its conversation's folder", async () => {
+		const table = countingTable({
+			1: {},
+			10: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "k1" },
+			20: conversationMarker("a", HOST),
+		});
+		const stopping = keeping(table);
+		const stateDir = dirs.at(-1) ?? "";
+		mkdirSync(join(stateDir, "a"));
+		writeFileSync(
+			join(stateDir, "a", LEFT_FILE),
+			JSON.stringify([{ session: "a", mark: "k1", at: Date.now() }]),
+		);
+		await stopping.reap("a");
+		expect(table.killed, "only what no park kept").toEqual([20]);
+	});
+
 	it("read it for themselves outside a start", async () => {
 		const table = countingTable({ 1: {}, 10: conversationMarker("z", HOST) });
 		const stopping = keeping(table);

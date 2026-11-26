@@ -82,9 +82,9 @@ export function stopKeeping(options: {
 	readonly keptIn?: () => string;
 	readonly report: (error: unknown) => void;
 	/**
-	 * The process table a conversation's reaps read; Linux's /proc by
-	 * default. What an earlier host left and what ended calls left are
-	 * read from /proc as before; a Mac has none, so none is reaped there.
+	 * The process table every reap here reads, a conversation's, a
+	 * start's of what an earlier host left, and a close's alike; Linux's
+	 * /proc by default. A Mac has none, so none is reaped there.
 	 */
 	readonly table?: ProcessTable;
 }): StopKeeping {

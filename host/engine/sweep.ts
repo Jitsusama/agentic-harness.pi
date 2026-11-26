@@ -18,16 +18,16 @@
  *
  * The process table is read a few environments at a time without holding
  * the loop, as every reap reads it (tool-children.ts). The key's folder
- * holds every conversation it ever stored, so only those holding a note
- * are read, found without holding the loop, and the sweep's own cgroup
- * is read once for all of them.
+ * holds every conversation it ever stored, so it is listed once, for
+ * whom to spare and what to look over alike, only those holding a note
+ * are looked over, found without holding the loop, and the sweep's own
+ * cgroup is read once for all of them.
  */
 
-import { type Dirent, readFileSync } from "node:fs";
-import { access, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { isRecord } from "../../lib/internal/record.ts";
 import {
 	type CarriedCalls,
 	carriedCalls,
@@ -37,7 +37,7 @@ import {
 	carriedShells,
 	KEPT_FILE,
 } from "./carried-shells.ts";
-import { LEFT_FILE, sparedUnder } from "./left-running.ts";
+import { conversationsUnder, LEFT_FILE, sparedUnder } from "./left-running.ts";
 import {
 	linuxProcessTable,
 	type ProcessTable,
@@ -81,8 +81,9 @@ export async function sweepUnheld(
 	options: SweepOptions,
 ): Promise<Swept> {
 	const root = options.stateDir ?? join(stateDir("host-engine"), key);
-	const folders = [root, ...(await conversationFolders(root, options.report))];
 	const { report, say } = options;
+	const listed = await conversationsUnder(root, report);
+	const folders = [root, ...(await notedFolders(listed))];
 	const now = options.now ? { now: options.now } : {};
 	const held = (session: string) => spare.has(session);
 	const ownCgroup = onceRead(
@@ -94,7 +95,7 @@ export async function sweepUnheld(
 	const spared = await sparedUnder(
 		root,
 		await (options.carried ?? carriedCalls)(),
-		{ report, ...now },
+		{ report, listed, ...now },
 	);
 	const reaped = await reapLeftBehind(
 		key,
@@ -153,22 +154,15 @@ async function holdsNote(folder: string): Promise<boolean> {
 	return found.includes(true);
 }
 
-/** Each conversation's own folder under the key's engine folder that holds a note. */
-async function conversationFolders(
-	root: string,
-	report: (error: unknown) => void,
+/**
+ * Each of the listed conversations' folders that holds a note; none
+ * when the key's folder failed to list, as there is nothing to look over
+ * until it lists again.
+ */
+async function notedFolders(
+	listed: readonly string[] | "unread",
 ): Promise<string[]> {
-	let entries: Dirent[];
-	try {
-		entries = await readdir(root, { withFileTypes: true });
-	} catch (error) {
-		// No folder yet: no host under the key has kept anything.
-		if (!(isRecord(error) && error.code === "ENOENT")) report(error);
-		return [];
-	}
-	const folders = entries
-		.filter((entry) => entry.isDirectory())
-		.map((entry) => join(root, entry.name));
-	const noted = await Promise.all(folders.map(holdsNote));
-	return folders.filter((_, index) => noted[index]);
+	if (listed === "unread") return [];
+	const noted = await Promise.all(listed.map(holdsNote));
+	return listed.filter((_, index) => noted[index]);
 }

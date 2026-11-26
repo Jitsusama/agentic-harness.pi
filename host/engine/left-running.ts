@@ -145,10 +145,56 @@ function sparedFrom(
 	);
 }
 
+/** How many notes files a start reads at once, leaving room for the host's other file work, as reaping does (tool-children.ts). */
+const READ_AT_ONCE = 32;
+
+/**
+ * Each conversation's own folder under the key's engine folder, listed
+ * without holding the loop; none when the folder isn't there yet, or
+ * "unread" when it failed to list, so whom to spare is not known. Only a
+ * lasting fault is said; a fault of the moment is tried again at the
+ * next reap.
+ */
+export async function conversationsUnder(
+	stateDir: string,
+	report: (error: unknown) => void,
+): Promise<string[] | "unread"> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(stateDir, { withFileTypes: true });
+	} catch (error) {
+		// No folder yet: no host under the key has noted anything.
+		if (isRecord(error) && error.code === "ENOENT") return [];
+		if (!isPassingFault(error)) report(error);
+		return "unread";
+	}
+	return entries
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => join(stateDir, entry.name));
+}
+
+/** Each of `files`' texts, read a slice at a time so a large key can't run the process out of descriptors. */
+async function textsOf(files: readonly string[]): Promise<NoteText[]> {
+	const texts: NoteText[] = [];
+	for (let from = 0; from < files.length; from += READ_AT_ONCE)
+		texts.push(
+			...(await Promise.all(
+				// Most conversations' folders hold no note: nothing to spare there.
+				files
+					.slice(from, from + READ_AT_ONCE)
+					.map((file) => readFile(file, "utf8").catch(textOnFault)),
+			)),
+		);
+	return texts;
+}
+
 /**
  * What a host's start, reaping the whole key, spares beside `carried`:
  * what parks noted in the key's engine folder and in each conversation's
  * folder under it, which children keep, read without holding the loop.
+ * It waits while the key's folder fails to list. `listed` is the
+ * conversations' folders as a caller already listed them, so a sweep
+ * lists once.
  */
 export async function sparedUnder(
 	stateDir: string,
@@ -156,27 +202,16 @@ export async function sparedUnder(
 	options: {
 		readonly report: (error: unknown) => void;
 		readonly now?: () => number;
+		readonly listed?: string[] | "unread";
 	},
 ): Promise<CarriedCalls> {
-	let entries: Dirent[];
-	try {
-		entries = await readdir(stateDir, { withFileTypes: true });
-	} catch (error) {
-		if (isPassingFault(error)) return { ...carried, unread: true };
-		// No folder yet: no host under the key has noted anything.
-		if (!(isRecord(error) && error.code === "ENOENT")) options.report(error);
-		return carried;
-	}
-	const files = [
+	const listed =
+		options.listed ?? (await conversationsUnder(stateDir, options.report));
+	if (listed === "unread") return { ...carried, unread: true };
+	const texts = await textsOf([
 		join(stateDir, LEFT_FILE),
-		...entries
-			.filter((entry) => entry.isDirectory())
-			.map((entry) => join(stateDir, entry.name, LEFT_FILE)),
-	];
-	const texts = await Promise.all(
-		// Most conversations' folders hold no note: nothing to spare there.
-		files.map((file) => readFile(file, "utf8").catch(textOnFault)),
-	);
+		...listed.map((folder) => join(folder, LEFT_FILE)),
+	]);
 	return sparedFrom(carried, texts, (options.now ?? Date.now)() - STRAY_FOR_MS);
 }
 

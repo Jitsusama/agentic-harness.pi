@@ -27,10 +27,11 @@ import {
 
 const NONE = { marks: new Set<string>(), groups: new Set<number>() };
 
-/** A read of the notes to fail with this code, as the machine might, only in the folder named when one is. */
+/** A read of the notes to fail with this code, as the machine might, only in the folder named when one is; `listing` fails a folder's listing. */
 const readFault = vi.hoisted(() => ({
 	code: undefined as string | undefined,
 	only: undefined as string | undefined,
+	listing: undefined as string | undefined,
 }));
 
 /** Whether a read of `file` is to fail as the test asked. */
@@ -40,8 +41,8 @@ const faulted = vi.hoisted(
 		// LEFT_FILE's value: an import is not yet bound where a mock is made.
 		String(file).endsWith(
 			readFault.only === undefined
-				? "left-running.json"
-				: `${readFault.only}/left-running.json`,
+				? "/left-running.json"
+				: `/${readFault.only}/left-running.json`,
 		),
 );
 
@@ -66,7 +67,15 @@ vi.mock("node:fs/promises", async (original) => {
 			);
 		return fs.readFile(...args);
 	}) as typeof fs.readFile;
-	return { ...fs, readFile };
+	const readdir = ((...args: Parameters<typeof fs.readdir>) => {
+		const code = readFault.listing;
+		if (code !== undefined)
+			return Promise.reject(
+				Object.assign(new Error(`${code}: as the test asked`), { code }),
+			);
+		return fs.readdir(...args);
+	}) as typeof fs.readdir;
+	return { ...fs, readFile, readdir };
 });
 
 let stateDir: string;
@@ -102,6 +111,7 @@ beforeEach(() => {
 afterEach(() => {
 	readFault.code = undefined;
 	readFault.only = undefined;
+	readFault.listing = undefined;
 	rmSync(stateDir, { recursive: true, force: true });
 });
 
@@ -200,8 +210,8 @@ describe("what parks kept running", () => {
 	});
 
 	it("reads no folder outside the engine folder for a conversation named as a path", () => {
-		mkdirSync(join(stateDir, "outside"));
-		childKept("outside").note("x", ["outside-call"]);
+		childKept("outside").note("../outside", ["outside-call"]);
+		kept().note("..", ["parent-call"]);
 		const inner = join(stateDir, "inner");
 		mkdirSync(inner);
 		const left = leftRunning({
@@ -211,6 +221,12 @@ describe("what parks kept running", () => {
 		});
 		expect(left.spared(NONE, "../outside")).toBe(NONE);
 		expect(left.closed("../outside")).toBe(0);
+		expect(left.spared(NONE, ".."), "nor the folder above it").toBe(NONE);
+		expect(left.closed("..")).toBe(0);
+		expect(
+			[...childKept("outside").spared(NONE).marks].sort(),
+			"the notes outside are left as they were",
+		).toEqual(["outside-call", "parent-call"]);
 	});
 
 	it("drops, at a child's close, its conversation's notes from the engine folder too, keeping another's", () => {
@@ -281,6 +297,28 @@ describe("what parks kept running", () => {
 			now: () => at,
 		});
 		expect(spared.unread, "whom to spare is not known").toBe(true);
+	});
+
+	it("waits at a start, saying nothing, while the key's folder fails to list for the moment", async () => {
+		childKept("b").note("b", ["child-call"]);
+		readFault.listing = "EMFILE";
+		const spared = await sparedUnder(stateDir, NONE, {
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect(spared.unread, "whom to spare is not known").toBe(true);
+		expect(reported, "tried again at the next reap").toEqual([]);
+	});
+
+	it("waits at a start, and says so, while the key's folder fails to list for good", async () => {
+		childKept("b").note("b", ["child-call"]);
+		readFault.listing = "EACCES";
+		const spared = await sparedUnder(stateDir, NONE, {
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect(spared.unread, "whom to spare is not known").toBe(true);
+		expect(reported).toEqual([expect.objectContaining({ code: "EACCES" })]);
 	});
 
 	it("waits at a start while one conversation folder's notes alone fail to read for the moment", async () => {
