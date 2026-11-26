@@ -452,11 +452,14 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					if (left > 0) own.take("wait", message.id, left, wait.why);
 					return undefined;
 				}
+				// Quoted, a holder's words keep no quote of theirs that could
+				// close the quote and go on in the harness's own voice.
+				const words = plainQuotes(leaseWords(message.text));
 				return {
 					hold,
 					how: byPerson(ref)
-						? `the person said it is over: "${leaseWords(message.text)}"`
-						: `its holder said "${leaseWords(message.text)}"`,
+						? `the person said it is over: "${words}"`
+						: `its holder said "${words}"`,
 					said: true,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				};

@@ -16,7 +16,7 @@
 
 import { ALL } from "../../mesh/group.ts";
 import { MOST_HOLD_MS } from "../../mesh/lease.ts";
-import { cutWhole, oneLine } from "../../mesh/one-line.ts";
+import { cutWhole, oneLine, plainQuotes } from "../../mesh/one-line.ts";
 import { repositoryGroup, scopesOf } from "../../mesh/scope.ts";
 import { describeReach, type Reach, type Stop } from "./stops.ts";
 
@@ -149,8 +149,10 @@ function oneChange(stop: Stop): boolean {
 /** A hold's words: who stopped what, what that means, and what to say. */
 export function holdText(stop: Stop): string {
 	const who = stop.saidBy ? `${stop.saidBy} said` : "Someone said";
+	// Quoted, the words keep no quote of theirs that could close the
+	// quote and go on as the harness's own.
 	const words = stop.words
-		? ` "${cutWhole(oneLine(stop.words), WORDS_SHOWN)}"`
+		? ` "${plainQuotes(cutWhole(oneLine(stop.words), WORDS_SHOWN))}"`
 		: "";
 	const where = stop.where ? ` (${stop.where})` : "";
 	const reaches = stop.reaches.map(describeReach).join(", ");

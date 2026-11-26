@@ -40,6 +40,7 @@ import {
 	joinRefused,
 	MOST_GROUPS,
 	type Presence,
+	roomToBringBack,
 	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import {
@@ -526,7 +527,14 @@ export function createHearing(m: MeshState, f: Handing) {
 		) {
 			// Too full to join, it is told so beside an invite that says it
 			// is in the group now, which it then is not. One that hears the
-			// group already through a part of it is told nothing more.
+			// group already through a part of it is told nothing more, and one
+			// that joined it and set it aside is told it waits for room.
+			if (m.peer.setAside.includes(message.invite)) {
+				return {
+					...message,
+					text: `${message.text} It joined ${message.invite} before, but set it aside: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears nothing there yet. To hear it, ${roomToBringBack(m.peer.setAside, message.invite)}.`,
+				};
+			}
 			if (joinRefused(m.peer.groups, message.invite) === "full") {
 				return {
 					...message,

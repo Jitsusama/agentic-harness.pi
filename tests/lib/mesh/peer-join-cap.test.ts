@@ -19,6 +19,7 @@ import {
 	joinedWithin,
 	joinRefused,
 	MOST_GROUPS,
+	roomToBringBack,
 	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -318,5 +319,87 @@ describe("a peer joining past what a presence names", () => {
 		expect(roomToJoin([])).toBe(
 			"leave one it no longer works on with mesh_leave",
 		);
+	});
+
+	// The rest of #2243's fifth council.
+
+	// A join sorting before the groups it holds keeps its room, and the
+	// refresh it brings sets aside another, which nothing else says (F4).
+	it("tells the session of another group a join's own refresh sets aside", () => {
+		const told: string[][] = [];
+		const { peer } = aPeer((groups) => told.push([...groups]));
+		peer.leave(fill(peer));
+		const before = peer.joined.at(-1);
+		loadQuest();
+
+		expect(peer.join("#aaa"), "in force").toBe(true);
+		expect(peer.groups).toContain("#aaa");
+		expect(peer.setAside, "the last before it").toEqual([before]);
+		expect(told, "told of that one").toEqual([[before]]);
+	});
+
+	// A quest loaded while the session was down sets a group aside at its
+	// first refresh, which nothing told it of before (F13 and F21).
+	it("tells a session starting of a group set aside since its last presence", () => {
+		const last = fill(aPeer().peer);
+		loadQuest();
+
+		const told: string[][] = [];
+		aPeer((groups) => told.push([...groups]));
+
+		expect(told, "told as it starts").toEqual([[last]]);
+	});
+
+	// A stale pi throws as a reload replaces it (F1 and F20).
+	it("tells a group again at the next refresh when the telling threw", () => {
+		const told: string[][] = [];
+		let throws = true;
+		const { peer } = aPeer((groups) => {
+			if (throws) throw new Error("a stale pi");
+			told.push([...groups]);
+		});
+		const last = fill(peer);
+		loadQuest();
+
+		expect(() => peer.refresh(), "the refresh stands").not.toThrow();
+		expect(peer.groups, "and brought its scope").toContain("#quest/luq49e");
+		throws = false;
+		peer.refresh();
+
+		expect(told, "told at the next").toEqual([[last]]);
+	});
+
+	// Already joined, a set-aside group waits its turn: refused as full,
+	// it would be told to leave more than it needs (F14).
+	it("has mesh_join say a group it joined and set aside waits for room", async () => {
+		const { peer, presences } = aPeer();
+		const last = fill(peer);
+		loadQuest();
+		peer.refresh();
+
+		const answer = await joinTool(
+			{
+				peer,
+				presences,
+				transport: folderTransport(join(root, "messages")),
+				board: createBoard(join(root, "leases")),
+				sent: () => {},
+			},
+			{ group: last },
+		);
+
+		const text = answer.content[0]?.text ?? "";
+		expect(text).toContain(`Already joined ${last}, but set aside`);
+		expect(text, "one leave brings it back").toContain(
+			"leave one of the groups",
+		);
+		expect(text).not.toContain("Not in");
+	});
+
+	it("counts the leaves that bring a set-aside group back by its place", () => {
+		const aside = ["#a", "#b", "#c"];
+
+		expect(roomToBringBack(aside, "#a")).toContain("leave one of the groups");
+		expect(roomToBringBack(aside, "#c")).toContain("leave 3 of the groups");
 	});
 });

@@ -22,6 +22,7 @@ import {
 	joinRefused,
 	MOST_GROUPS,
 	type Presence,
+	roomToBringBack,
 	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -38,6 +39,14 @@ export async function join(
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
 			`${params.group} is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
+		);
+	}
+	// Joined already, it waits its turn for room rather than being
+	// refused as full, and is told what brings it back.
+	if (at.peer.setAside.includes(group)) {
+		return answer(
+			`Already joined ${group}, but set aside: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears nothing there yet. To hear it, ${roomToBringBack(at.peer.setAside, group)}. ${LISTED_IN_GROUPS}`,
+			{ groups: at.peer.groups },
 		);
 	}
 	const refused = joinRefused(at.peer.groups, group);
@@ -243,7 +252,7 @@ function standsText(peer: Peer): string {
 	// Set aside by a scope its work brought, they are heard by nobody
 	// here until there is room, so it is told rather than left to wonder.
 	return aside.size > 0
-		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Each group it joined and leaves with mesh_leave gives its room to the one set aside that sorts first.`
+		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Each group it hears and leaves with mesh_leave gives its room to the one set aside that sorts first; leaving one set aside gives none.`
 		: stands;
 }
 

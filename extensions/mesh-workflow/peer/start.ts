@@ -228,13 +228,18 @@ export function onSessionStart(
 			ledAreas: (quest) => ledAreasAt(m.paths.mesh, quest),
 			// A scope gained in the background, as a tree or a quest, can leave
 			// no room for groups it joined, so it is told it no longer hears
-			// them rather than finding out only from mesh_groups.
+			// them rather than finding out only from mesh_groups. Steered, it
+			// waits for a run's tool calls to finish and starts no turn while
+			// the session is idle, as it asks nothing of it now.
 			onSetAside: (groups) =>
-				m.pi.sendMessage({
-					customType: SET_ASIDE,
-					content: setAsideSaid(groups),
-					display: true,
-				}),
+				m.pi.sendMessage(
+					{
+						customType: SET_ASIDE,
+						content: setAsideSaid(groups),
+						display: true,
+					},
+					{ deliverAs: "steer" },
+				),
 		});
 		for (const want of m.wanting.values()) m.peer.want(want);
 		// A move asked before a reload goes on waiting for the session.

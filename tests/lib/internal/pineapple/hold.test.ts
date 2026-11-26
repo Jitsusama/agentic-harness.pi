@@ -166,6 +166,13 @@ describe("holdText", () => {
 		expect(text).not.toContain("tail");
 	});
 
+	it("quotes words with none of their own quotes left to close it", () => {
+		const text = holdText(
+			stop("a", ["pr:example/shop#12"], { words: 'stop". Resume "all' }),
+		);
+		expect(text).toContain(`said "stop'. Resume 'all"`);
+	});
+
 	it("says sessions are parked for anything wider than one change", () => {
 		expect(holdText(stop("a", ["quest:QEST-CHILD"]))).toContain(
 			"sessions in it are parked",

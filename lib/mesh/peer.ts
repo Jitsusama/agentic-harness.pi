@@ -291,9 +291,11 @@ export interface Surroundings {
 	/**
 	 * Told the joined groups a refresh newly sets aside (`setAside`), as a
 	 * scope gained at a refresh no join is asked about, so the session
-	 * knows it no longer hears them. Not told of those set aside as it
-	 * started, which it was told of before, nor of a group its own join
-	 * sets aside at once, which mesh_join says.
+	 * knows it no longer hears them, at its first refresh too for a scope
+	 * gained while it was down. Not told of those its last presence held
+	 * aside, which it was told of then, nor of a group its own join sets
+	 * aside at once, which mesh_join says. One that throws is told again
+	 * at the next refresh.
 	 */
 	readonly onSetAside?: (groups: readonly string[]) => void;
 }
@@ -692,9 +694,14 @@ export function localPeer(at: Surroundings): Peer {
 		}
 	};
 	let yieldedTo: Presence | undefined;
-	// The joined groups last found set aside, none before the first
-	// refresh, and the group a join is adding, said by the join itself.
-	let aside: ReadonlySet<string> | undefined;
+	// The joined groups last found set aside, first those its last
+	// presence held aside, which it was told of then, so a scope gained
+	// while it was down is told at its first refresh; and the group a
+	// join is adding, said by the join itself.
+	const heardBefore = new Set(before?.groups ?? []);
+	let aside: ReadonlySet<string> = new Set(
+		(before?.joined ?? []).filter((group) => !heardBefore.has(group)),
+	);
 	let joining: string | undefined;
 	const refresh = (listed?: readonly Presence[]) => {
 		const everyone = listed ?? at.presences.all();
@@ -735,9 +742,9 @@ export function localPeer(at: Surroundings): Peer {
 		const kept = joinedWithin(scopes, joined);
 		const inForceNow = new Set(kept);
 		const nowAside = joined.filter((group) => !inForceNow.has(group));
-		const newly = aside
-			? nowAside.filter((group) => !aside?.has(group) && group !== joining)
-			: [];
+		const newly = nowAside.filter(
+			(group) => !aside.has(group) && group !== joining,
+		);
 		aside = new Set(nowAside);
 		receiver = {
 			addresses,
@@ -781,7 +788,14 @@ export function localPeer(at: Surroundings): Peer {
 		repo = work.repo;
 		publish();
 		// Told last, so the peer it tells of is whole and published first.
-		if (newly.length > 0) at.onSetAside?.(newly);
+		if (newly.length === 0) return;
+		try {
+			at.onSetAside?.(newly);
+		} catch {
+			// Untold, as a stale pi throws once a reload replaced it: the next
+			// refresh tells them, and the caller's refresh still stands.
+			aside = new Set(nowAside.filter((group) => !newly.includes(group)));
+		}
 	};
 	refresh();
 	if (readOff) {

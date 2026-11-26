@@ -970,6 +970,21 @@ export function roomToJoin(setAside: readonly string[]): string {
 }
 
 /**
+ * What a peer holding `setAside` does to hear `group` again, one of
+ * them, as words after "so": set-aside groups come back in sort order,
+ * so each leave of a group it hears makes room for one, and each leave
+ * of one set aside before it takes one from the line ahead.
+ */
+export function roomToBringBack(
+	setAside: readonly string[],
+	group: string,
+): string {
+	const leaves = Math.max(setAside.indexOf(group), 0) + 1;
+	const which = leaves === 1 ? "one of the groups" : `${leaves} of the groups`;
+	return `leave ${which} it joined and no longer works on with mesh_leave, heard or set aside before it, and it comes back by itself`;
+}
+
+/**
  * Whether a group a presence names is one a group is named as, read
  * back to itself by `groupNamed` (`#harness`, `#quest/wcjqsg`,
  * `@5GV2AH`), so none starts a line or forges a field: the shape held
