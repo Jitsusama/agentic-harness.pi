@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	checkLoad,
 	describeLoad,
+	LOAD_STOPPED,
 	loadCheckArgs,
 	loadCheckEnvironment,
 	loadFailures,
@@ -181,6 +182,21 @@ describe("asking a pi", () => {
 			problem: "pi was still loading after 1s",
 		});
 	});
+
+	it("ends a load once whoever asked for it stops, and starts none once already stopped", async () => {
+		const pi = fakePi("setInterval(() => {}, 1000);");
+		const stop = new AbortController();
+		const began = Date.now();
+		const loading = checkLoad(pi, "/t", 60_000, stop.signal);
+		// Long enough for node to have started before the stop.
+		setTimeout(() => stop.abort(), 200);
+		expect(await loading).toMatchObject({ ok: false, problem: LOAD_STOPPED });
+		expect(Date.now() - began).toBeLessThan(10_000);
+		expect(await checkLoad(pi, "/t", 60_000, stop.signal)).toMatchObject({
+			ok: false,
+			problem: LOAD_STOPPED,
+		});
+	}, 15_000);
 
 	it("starts pi in a sandbox of its own, off the machine's state and this session's ties", async () => {
 		const seen = join(dir, "seen.json");

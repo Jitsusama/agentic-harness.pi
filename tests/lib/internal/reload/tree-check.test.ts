@@ -9,6 +9,7 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -17,7 +18,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	checkTree,
+	commandRunner,
 	describeTree,
+	MOST_LINE_CHARS,
 	MOST_NAMED,
 	type Ran,
 	type Runner,
@@ -64,6 +67,7 @@ interface Asked {
 	readonly cwd: string;
 	readonly env: Readonly<Record<string, string>>;
 	readonly timeoutMs: number;
+	readonly signal: AbortSignal | undefined;
 }
 
 /** How each stand-in program ends. */
@@ -76,8 +80,8 @@ interface Ends {
 /** A runner whose tsc, vitest and git end as told, recording what ran. */
 function standIn(ends: Ends = {}): { run: Runner; asked: Asked[] } {
 	const asked: Asked[] = [];
-	const run: Runner = (command, args, cwd, env, timeoutMs) => {
-		asked.push({ command, args, cwd, env, timeoutMs });
+	const run: Runner = (command, args, cwd, env, timeoutMs, signal) => {
+		asked.push({ command, args, cwd, env, timeoutMs, signal });
 		const end = { code: 0, stdout: "", stderr: "", hung: false };
 		if (command === "git") return Promise.resolve({ ...end, ...ends.git });
 		if (command.endsWith("tsc")) {
@@ -282,6 +286,70 @@ describe("putting a tree through its checks", () => {
 		);
 	});
 
+	it("says why git couldn't tell whether it has origin/main, rather than telling it to fetch", async () => {
+		install("tsc");
+		install("vitest");
+		const endings: Partial<Ran>[] = [
+			{ code: 128, stderr: "fatal: not a git repository\n" },
+			{ code: null, hung: true },
+			{ code: null, stopped: true },
+			{ code: null, unstarted: "spawn git ENOENT" },
+		];
+		const said = await Promise.all(
+			endings.map(async (git) => {
+				const { run, asked } = standIn({ git });
+				const report = await checkTree(tree, { run });
+				expect(names(asked)).toEqual(["tsc", "git"]);
+				return describeTree(report, "~/t");
+			}),
+		);
+		const lead =
+			"~/t fails a check. The tests its changes reach (vitest --changed origin/main) failed: git could not say whether it has origin/main: ";
+		expect(said).toEqual([
+			`${lead}it exited with 128: fatal: not a git repository.`,
+			`${lead}it was still running after 60s.`,
+			`${lead}it was stopped before it finished.`,
+			`${lead}it could not start: spawn git ENOENT.`,
+		]);
+	});
+
+	it("hands whoever asked's signal to every command it runs", async () => {
+		install("tsc");
+		install("vitest");
+		const stop = new AbortController();
+		const { run, asked } = standIn({
+			vitest: { report: vitestJson([], 1) },
+		});
+		await checkTree(tree, { run, signal: stop.signal });
+		expect(names(asked)).toEqual(["tsc", "git", "vitest"]);
+		for (const { signal } of asked) expect(signal).toBe(stop.signal);
+	});
+
+	it("cuts a failure or problem past its length, since the tree's own words go to the model", async () => {
+		install("tsc");
+		const long = "x".repeat(MOST_LINE_CHARS + 50);
+		const { run } = standIn({
+			tsc: {
+				code: 2,
+				stdout: `lib/a.ts(1,1): error TS2304: ${long}\n`,
+			},
+		});
+		const [, named] = describeTree(await checkTree(tree, { run }), "~/t").split(
+			"\n",
+		);
+		expect(named).toBe(
+			`- ${`lib/a.ts:1: TS2304 ${long}`.slice(0, MOST_LINE_CHARS)} [cut]`,
+		);
+		const { run: unstartable } = standIn({
+			tsc: { code: null, unstarted: long },
+		});
+		expect(
+			describeTree(await checkTree(tree, { run: unstartable }), "~/t"),
+		).toBe(
+			`~/t fails a check. Its typecheck failed: ${`it could not start: ${long}`.slice(0, MOST_LINE_CHARS)} [cut].`,
+		);
+	});
+
 	it("refuses a tree whose changed tests fail, naming the first of them and counting the rest", async () => {
 		install("tsc");
 		install("vitest");
@@ -342,7 +410,7 @@ describe("putting a tree through its checks", () => {
 		);
 	});
 
-	it("says a check stopped while it ran was, rather than a failure of the tree", async () => {
+	it("fails a tree whose check was stopped while it ran, saying it was stopped rather than blaming its code", async () => {
 		install("tsc");
 		const stop = new AbortController();
 		const { run } = standIn({
@@ -453,6 +521,105 @@ describe("running a check's command", () => {
 		const ran = await running;
 		expect(Date.now() - began).toBeLessThan(10_000);
 		expect(ran).toMatchObject({ stopped: true, hung: false });
+	}, 15_000);
+
+	/** Write `body` as an sh script in the tree, returning its path. */
+	function script(body: string): string {
+		const path = join(tree, "script");
+		writeFileSync(path, `#!/bin/sh\n${body}\n`);
+		chmodSync(path, 0o755);
+		return path;
+	}
+
+	const path = { PATH: process.env.PATH ?? "" };
+
+	it("asks a command to end before killing it, so its own teardown runs", async () => {
+		// The trap is what vitest's teardown stands for: it runs only if TERM
+		// comes before the kill. `wait` is what the trap interrupts.
+		const sh = script(
+			`trap 'echo ended > "${tree}/ended"; exit 0' TERM\nsleep 30 &\nwait`,
+		);
+		const run = commandRunner({ stopGraceMs: 10_000 });
+		const ran = await run(sh, [], tree, path, 500);
+		expect(ran).toMatchObject({ hung: true, code: 0 });
+		expect(readFileSync(join(tree, "ended"), "utf8")).toBe("ended\n");
+	}, 15_000);
+
+	it("kills a command that won't end on being asked once its grace has passed", async () => {
+		// An ignored TERM is inherited by the sleeper, so only the kill ends either.
+		const sh = script("trap '' TERM\nsleep 30 &\nwait");
+		const began = Date.now();
+		const ran = await commandRunner({ stopGraceMs: 300 })(
+			sh,
+			[],
+			tree,
+			path,
+			300,
+		);
+		expect(Date.now() - began).toBeLessThan(10_000);
+		expect(ran).toMatchObject({ hung: true, code: null });
+	}, 15_000);
+
+	it("ends with a command that exits, killing what it left running in its group", async () => {
+		// The sleeper holds the pipes for 30 s unless it goes with the exit;
+		// the long close grace leaves only that kill to end the run.
+		const sh = script("sleep 30 &\necho done");
+		const began = Date.now();
+		const ran = await commandRunner({ closeGraceMs: 60_000 })(
+			sh,
+			[],
+			tree,
+			path,
+			60_000,
+		);
+		expect(Date.now() - began).toBeLessThan(10_000);
+		expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
+	}, 15_000);
+
+	it("lets go of output held open from outside its group once the command has exited", async () => {
+		// setsid puts the sleeper in a session of its own, out of the group's
+		// kill, still holding the pipes; the test ends it by its pid. The
+		// script waits for it to have left, or the kill at its exit would
+		// catch it first.
+		const sh = script(
+			[
+				`setsid sh -c 'echo $$ > "${tree}/escaped"; exec sleep 30' &`,
+				`until [ -s "${tree}/escaped" ]; do sleep 0.05; done`,
+				"echo done",
+			].join("\n"),
+		);
+		const began = Date.now();
+		try {
+			const ran = await commandRunner({ closeGraceMs: 300 })(
+				sh,
+				[],
+				tree,
+				path,
+				60_000,
+			);
+			expect(Date.now() - began).toBeLessThan(10_000);
+			expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
+		} finally {
+			const escaped = Number(readFileSync(join(tree, "escaped"), "utf8"));
+			process.kill(escaped, "SIGKILL");
+		}
+	}, 15_000);
+
+	it("stops a command that says more than it holds, and says why", async () => {
+		const sh = script("head -c 5000 /dev/zero | tr '\\0' x\nsleep 30");
+		const began = Date.now();
+		const ran = await commandRunner({ mostHeldChars: 1000 })(
+			sh,
+			[],
+			tree,
+			path,
+			60_000,
+		);
+		expect(Date.now() - began).toBeLessThan(10_000);
+		expect(ran.stdout).toBe("x".repeat(1000));
+		expect(ran.stderr).toBe(
+			`\n${sh} was stopped: it said more than 1000 characters`,
+		);
 	}, 15_000);
 
 	it("runs nothing once already stopped, and says a program that isn't there could not start", async () => {

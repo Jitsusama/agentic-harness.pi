@@ -181,21 +181,36 @@ export function readLoad(
 	return { ok: true, failures, commands };
 }
 
-/** Load `packageRoot` in a pi of its own and report what happened. */
+/** The problem a load ends in when whoever asked for it stopped. */
+export const LOAD_STOPPED = "the load was stopped before pi answered";
+
+/**
+ * Load `packageRoot` in a pi of its own and report what happened. Once
+ * `signal` aborts, the pi is killed and the report says it was stopped.
+ */
 export function checkLoad(
 	pi: PiToRun,
 	packageRoot: string,
 	timeoutMs = LOAD_TIMEOUT_MS,
+	signal?: AbortSignal,
 ): Promise<LoadReport> {
+	if (signal?.aborted)
+		return Promise.resolve({ ok: false, failures: [], problem: LOAD_STOPPED });
 	return new Promise((resolve) => {
 		const sandbox = mkdtempSync(join(tmpdir(), "load-check-sandbox-"));
 		const env: NodeJS.ProcessEnv = loadCheckEnvironment(process.env, sandbox);
 		if (pi.packageDir) env.PI_PACKAGE_DIR = pi.packageDir;
 		const settle = (report: LoadReport) => {
+			signal?.removeEventListener("abort", stop);
 			// The report is the answer; a sandbox left in temp is not worth
 			// losing it, and a throw here, in a child's handler, would.
 			tidyTree(sandbox);
 			resolve(report);
+		};
+		let stopped = false;
+		const stop = (): void => {
+			stopped = true;
+			child.kill("SIGKILL");
 		};
 		// A directory with no project settings or context files of its own,
 		// so the load is the package's and nothing the cwd adds.
@@ -217,6 +232,7 @@ export function checkLoad(
 			hung = true;
 			child.kill("SIGKILL");
 		}, timeoutMs);
+		signal?.addEventListener("abort", stop, { once: true });
 		child.on("error", (error) => {
 			clearTimeout(timer);
 			settle({
@@ -227,6 +243,14 @@ export function checkLoad(
 		});
 		child.on("close", (code) => {
 			clearTimeout(timer);
+			if (stopped) {
+				settle({
+					ok: false,
+					failures: loadFailures(stderr),
+					problem: LOAD_STOPPED,
+				});
+				return;
+			}
 			if (hung) {
 				settle({
 					ok: false,

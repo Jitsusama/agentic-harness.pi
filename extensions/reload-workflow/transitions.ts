@@ -26,6 +26,7 @@ import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	checkLoad,
 	describeLoad,
+	LOAD_TIMEOUT_MS,
 	type LoadReport,
 } from "../../lib/internal/reload/load-check.ts";
 import {
@@ -212,7 +213,8 @@ export function fencedReloadRefusal(
 export interface ReloadChecks {
 	/** Stops the checks, and with them the reload, when the run is stopped. */
 	readonly signal?: AbortSignal;
-	readonly load?: (tree: string) => Promise<LoadReport>;
+	/** Loads the tree in a pi of its own, ending once `signal` aborts. */
+	readonly load?: (tree: string, signal?: AbortSignal) => Promise<LoadReport>;
 	readonly tree?: TreeCheckOptions;
 }
 
@@ -247,14 +249,21 @@ async function checkReloadTree(
 			`${why}\nNothing was reloaded. Fix what failed and ask again, or reload onto "${INSTALLED}".`,
 		);
 	onProgress(`Checking that ${homely(tree)} loads`);
-	const load = checks.load ?? ((at) => checkLoad(getParentPiInstall(), at));
-	const report = await load(tree);
+	const load =
+		checks.load ??
+		((at, stop) => checkLoad(getParentPiInstall(), at, LOAD_TIMEOUT_MS, stop));
+	const report = await load(tree, signal);
 	if (signal?.aborted) throw new Error(STOPPED_RELOAD);
 	if (!report.ok) throw refused(describeLoad(report, homely(tree)));
+	// The run's own signal and progress are laid last, so options given
+	// in place of the runner or budgets can't drop either.
 	const checked = await checkTree(tree, {
-		onStep: (step, budgetMs) => onProgress(stepSaid(step, tree, budgetMs)),
-		...(signal ? { signal } : {}),
 		...checks.tree,
+		onStep: (step, budgetMs) => {
+			checks.tree?.onStep?.(step, budgetMs);
+			onProgress(stepSaid(step, tree, budgetMs));
+		},
+		...(signal ? { signal } : {}),
 	});
 	if (signal?.aborted) throw new Error(STOPPED_RELOAD);
 	if (!checked.ok) throw refused(describeTree(checked, homely(tree)));
@@ -277,6 +286,9 @@ export async function requestReload(
 ): Promise<string> {
 	if (hosted()) throw new Error(HOSTED_RELOAD);
 	const slot = reloadSlot();
+	// A request queued now would be replaced by the checked one's when it
+	// ends, so even a reload onto the install waits for that answer.
+	if (slot.checking) throw new Error(ALREADY_CHECKING);
 	let checked = "";
 	if (tree !== undefined) {
 		if (entryFor(settings, settings.read(), PACKAGE_NAME) < 0) {
@@ -284,7 +296,6 @@ export async function requestReload(
 				`pi's settings name no package entry for ${PACKAGE_NAME}, so a reload cannot swap a tree in. Start pi with \`-e ${tree}\` instead.`,
 			);
 		}
-		if (slot.checking) throw new Error(ALREADY_CHECKING);
 		slot.checking = true;
 		try {
 			checked = await checkReloadTree(tree, onProgress, checks);

@@ -75,6 +75,16 @@ export const TREE_STEP_TIMEOUT_MS: Readonly<Record<TreeStep, number>> = {
 /** At most this many type errors or failing tests are named. */
 export const MOST_NAMED = 10;
 
+/** A named failure or problem longer than this is cut, since the tree's own text goes to the model as it is. */
+export const MOST_LINE_CHARS = 400;
+
+/** `line`, cut to MOST_LINE_CHARS with a mark that it was. */
+function clipped(line: string): string {
+	return line.length <= MOST_LINE_CHARS
+		? line
+		: `${line.slice(0, MOST_LINE_CHARS)} [cut]`;
+}
+
 /** What `--changed` measures a tree's change against. */
 export const CHANGED_SINCE = "origin/main";
 
@@ -156,83 +166,182 @@ export function testReport(
 	return { failures, passed: passedField };
 }
 
-/** Kill every process in the group `leader` leads. */
-function killGroup(leader: number | undefined): void {
+/**
+ * How long a stopped command's group has to end on SIGTERM before it is
+ * killed outright: long enough for vitest's teardown to remove the temp
+ * root its globalSetup made.
+ */
+const STOP_GRACE_MS = 5000;
+
+/**
+ * How long a command's output may stay open once it has exited, before
+ * whatever still holds its pipes is let go: a process that left the
+ * group, or one of the group's own the kill at its exit missed.
+ */
+const CLOSE_GRACE_MS = 5000;
+
+/**
+ * How much of each stream is held, in characters. A check that says
+ * more than this is stopped rather than grow the session's own memory.
+ */
+const MOST_HELD_CHARS = 32 * 1024 * 1024;
+
+/** The groups the checks are running, ended with this process. */
+const running = new Set<number>();
+
+let endsWithProcess = false;
+
+/** Kill whatever checks still run when this process exits, since they run in groups of their own that nothing else ends. */
+function endWithProcess(): void {
+	if (endsWithProcess) return;
+	endsWithProcess = true;
+	process.once("exit", () => {
+		for (const leader of running) signalGroup(leader, "SIGKILL");
+	});
+}
+
+/** Signal every process in the group `leader` leads. */
+function signalGroup(leader: number | undefined, how: NodeJS.Signals): void {
 	if (leader === undefined) return;
 	try {
-		process.kill(-leader, "SIGKILL");
+		process.kill(-leader, how);
 	} catch {
-		// The group has already gone, which is what the kill was for.
+		// The group has already gone, which is what the signal was for.
 	}
 }
 
+/** What a check's timers may be set to, in place of the defaults. */
+export interface RunTimings {
+	readonly stopGraceMs?: number;
+	readonly closeGraceMs?: number;
+	readonly mostHeldChars?: number;
+}
+
 /**
- * Runs a command in a process group of its own, collecting its output.
- * Past `timeoutMs`, or once `signal` aborts, the whole group is killed,
- * so a worker vitest started can't outlive it and hold the pipes open.
+ * Runs a command in a process group of its own, collecting its output
+ * as UTF-8. Past `timeoutMs`, once `signal` aborts, or once a stream
+ * passes `mostHeldChars`, the group is sent SIGTERM and, past
+ * `stopGraceMs`, SIGKILL. When the command exits, what it left in its
+ * group is killed, and once `closeGraceMs` passes with its output still
+ * held open by something outside the group, the run ends with what was
+ * read, so no process the check started can hold it open.
  */
-export const runCommand: Runner = (
-	command,
-	args,
-	cwd,
-	env,
-	timeoutMs,
-	signal,
-) =>
-	new Promise((resolve) => {
-		if (signal?.aborted) {
-			resolve({
-				code: null,
-				stdout: "",
-				stderr: "",
-				hung: false,
-				stopped: true,
+export function commandRunner(timings: RunTimings = {}): Runner {
+	const stopGrace = timings.stopGraceMs ?? STOP_GRACE_MS;
+	const closeGrace = timings.closeGraceMs ?? CLOSE_GRACE_MS;
+	const most = timings.mostHeldChars ?? MOST_HELD_CHARS;
+	return (command, args, cwd, env, timeoutMs, signal) =>
+		new Promise((resolve) => {
+			if (signal?.aborted) {
+				resolve({
+					code: null,
+					stdout: "",
+					stderr: "",
+					hung: false,
+					stopped: true,
+				});
+				return;
+			}
+			const child = spawn(command, [...args], {
+				cwd,
+				env,
+				detached: true,
+				stdio: ["ignore", "pipe", "pipe"],
 			});
-			return;
-		}
-		const child = spawn(command, [...args], {
-			cwd,
-			env,
-			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		let stdout = "";
-		let stderr = "";
-		let hung = false;
-		let stopped = false;
-		child.stdout.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString();
-		});
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr += chunk.toString();
-		});
-		const timer = setTimeout(() => {
-			hung = true;
-			killGroup(child.pid);
-		}, timeoutMs);
-		const stop = (): void => {
-			stopped = true;
-			killGroup(child.pid);
-		};
-		signal?.addEventListener("abort", stop, { once: true });
-		const settle = (ran: Ran): void => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", stop);
-			resolve(ran);
-		};
-		child.on("error", (error) => {
-			settle({
-				code: null,
+			const leader = child.pid;
+			if (leader !== undefined) {
+				endWithProcess();
+				running.add(leader);
+			}
+			let stdout = "";
+			let stderr = "";
+			let hung = false;
+			let stopped = false;
+			let tooMuch = false;
+			let exited: number | null | undefined;
+			let settled = false;
+			let ending = false;
+			const timers: NodeJS.Timeout[] = [];
+			const end = (): void => {
+				if (ending) return;
+				ending = true;
+				signalGroup(leader, "SIGTERM");
+				timers.push(
+					setTimeout(() => signalGroup(leader, "SIGKILL"), stopGrace),
+				);
+			};
+			const held = (said: string, chunk: string): string => {
+				if (said.length + chunk.length <= most) return said + chunk;
+				tooMuch = true;
+				end();
+				return said + chunk.slice(0, Math.max(0, most - said.length));
+			};
+			child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+				stdout = held(stdout, chunk);
+			});
+			child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+				stderr = held(stderr, chunk);
+			});
+			timers.push(
+				setTimeout(() => {
+					hung = true;
+					end();
+				}, timeoutMs),
+			);
+			const stop = (): void => {
+				stopped = true;
+				end();
+			};
+			signal?.addEventListener("abort", stop, { once: true });
+			const settle = (ran: Ran): void => {
+				if (settled) return;
+				settled = true;
+				for (const timer of timers) clearTimeout(timer);
+				signal?.removeEventListener("abort", stop);
+				// Whatever is left of the group goes with the run.
+				signalGroup(leader, "SIGKILL");
+				if (leader !== undefined) running.delete(leader);
+				child.stdout.destroy();
+				child.stderr.destroy();
+				resolve(ran);
+			};
+			const ended = (code: number | null): Ran => ({
+				code,
 				stdout,
-				stderr,
-				hung: false,
-				unstarted: error.message,
+				stderr: tooMuch
+					? `${stderr}\n${command} was stopped: it said more than ${most} characters`
+					: stderr,
+				hung,
+				stopped,
+			});
+			child.on("error", (error) => {
+				settle({
+					code: null,
+					stdout,
+					stderr,
+					hung: false,
+					unstarted: error.message,
+				});
+			});
+			child.on("exit", (code) => {
+				exited = code;
+				// What the command left running in its group, such as a
+				// worker, would hold its output open until the budget ran out.
+				signalGroup(leader, "SIGKILL");
+				timers.push(
+					setTimeout(() => settle(ended(exited ?? null)), closeGrace),
+				);
+			});
+			// `close` once the output is all read; the grace above ends the run
+			// when something outside the group keeps it from closing.
+			child.on("close", (code) => {
+				settle(ended(exited === undefined ? code : exited));
 			});
 		});
-		child.on("close", (code) => {
-			settle({ code, stdout, stderr, hung, stopped });
-		});
-	});
+}
+
+/** The runner the checks use unless given another. */
+export const runCommand: Runner = commandRunner();
 
 /** The first line of `text` that names an error, else its first line. */
 function causeIn(text: string): string {
@@ -305,23 +414,37 @@ async function typecheck({
 	};
 }
 
-/** Whether the tree has the ref `--changed` measures against. */
-async function hasBase({
+/** How long git may take to say whether the tree has its base. */
+const BASE_LOOK_MS = 60_000;
+
+/**
+ * Whether the tree has the ref `--changed` measures against: "has",
+ * "lacks" when git says it has no such commit (`--quiet` exits 1), or
+ * why git couldn't say, when it was stopped, hung, wouldn't start or
+ * failed some other way.
+ */
+async function baseOf({
 	tree,
 	env,
 	run,
 	timeoutMs,
 	signal,
-}: StepContext): Promise<boolean> {
+}: StepContext): Promise<"has" | "lacks" | { readonly problem: string }> {
+	const budget = Math.min(BASE_LOOK_MS, timeoutMs("tests"));
 	const ran = await run(
 		"git",
 		["rev-parse", "--verify", "--quiet", `${CHANGED_SINCE}^{commit}`],
 		tree,
 		env,
-		timeoutMs("tests"),
+		budget,
 		signal,
 	);
-	return ran.code === 0;
+	const cut = ran.hung || ran.stopped === true || ran.unstarted !== undefined;
+	if (!cut && ran.code === 0) return "has";
+	if (!cut && ran.code === 1) return "lacks";
+	return {
+		problem: `git could not say whether it has ${CHANGED_SINCE}: ${endedWithout(ran, budget)}`,
+	};
 }
 
 /** The tests the tree's changes reach, as `pnpm test:changed` runs them. */
@@ -341,12 +464,16 @@ async function changedTests(
 				"it has no node_modules/.bin/vitest, so install or link its node_modules",
 		};
 	}
-	if (!(await hasBase(context))) {
+	const base = await baseOf(context);
+	if (base !== "has") {
 		return {
 			step: "tests",
 			ok: false,
 			failures: [],
-			problem: `it has no ${CHANGED_SINCE} to measure its change against, so fetch origin in it`,
+			problem:
+				base === "lacks"
+					? `it has no ${CHANGED_SINCE} to measure its change against, so fetch origin in it`
+					: base.problem,
 		};
 	}
 	const out = join(sandbox, "tests.json");
@@ -455,9 +582,9 @@ export function describeTree(report: TreeReport, tree: string): string {
 		return `${tree} passes its typecheck and the ${tests?.passed ?? 0} tests its changes reach.`;
 	}
 	const lines = [`${tree} fails a check. ${STEP_NAMES[failed.step]} failed`];
-	lines[0] += failed.problem ? `: ${failed.problem}.` : ":";
+	lines[0] += failed.problem ? `: ${clipped(failed.problem)}.` : ":";
 	for (const failure of failed.failures.slice(0, MOST_NAMED)) {
-		lines.push(`- ${failure}`);
+		lines.push(`- ${clipped(failure)}`);
 	}
 	const more = failed.failures.length - MOST_NAMED;
 	if (more > 0) lines.push(`- and ${more} more`);

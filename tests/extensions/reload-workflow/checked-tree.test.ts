@@ -69,11 +69,15 @@ function runner(tsc: Partial<Ran>, during?: () => void): Runner {
 	};
 }
 
-/** Ask for a reload onto the tree, saying its progress into `said`. */
-function ask(checks: ReloadChecks, said: string[] = []): Promise<string> {
+/** Ask for a reload onto the tree, or the install given null, saying its progress into `said`. */
+function ask(
+	checks: ReloadChecks,
+	said: string[] = [],
+	onto: string | null = tree,
+): Promise<string> {
 	return requestReload(
 		"try it",
-		tree,
+		onto ?? undefined,
 		installed(),
 		(text) => said.push(text),
 		checks,
@@ -172,4 +176,48 @@ it("refuses a second request while a tree is being checked, and takes one again 
 	await expect(
 		ask({ load: loads, tree: { run: runner({}) } }),
 	).resolves.toContain("Reload queued");
+});
+
+it("refuses a reload onto the install while a tree is being checked, so the tree's answer can't replace it", async () => {
+	let release = (): void => undefined;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const load = async (): Promise<LoadReport> => {
+		await held;
+		return loads();
+	};
+	const first = ask({ load, tree: { run: runner({}) } });
+	await expect(ask({}, [], null)).rejects.toThrow(ALREADY_CHECKING);
+	release();
+	await first;
+	expect(reloadSlot().request?.tree).toBe(tree);
+});
+
+it("hands its run's signal to the load and every check, over any given in the checks' options, and keeps their progress", async () => {
+	const stop = new AbortController();
+	const other = new AbortController();
+	const heard: (AbortSignal | undefined)[] = [];
+	const load = (_at: string, signal?: AbortSignal): Promise<LoadReport> => {
+		heard.push(signal);
+		return loads();
+	};
+	const passing = runner({});
+	const run: Runner = (command, args, cwd, env, timeoutMs, signal) => {
+		heard.push(signal);
+		return passing(command, args, cwd, env, timeoutMs, signal);
+	};
+	const steps: string[] = [];
+	await ask({
+		signal: stop.signal,
+		load,
+		tree: {
+			run,
+			signal: other.signal,
+			onStep: (step) => steps.push(step),
+		},
+	});
+	expect(heard.length).toBeGreaterThanOrEqual(3);
+	for (const signal of heard) expect(signal).toBe(stop.signal);
+	expect(steps).toEqual(["typecheck", "tests"]);
 });
