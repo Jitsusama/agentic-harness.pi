@@ -462,6 +462,39 @@ describe("a working folder the sandbox won't let commands write", () => {
 		);
 	});
 
+	it("is one holding a link a closed path's loop runs through", () => {
+		// Taking the link out of the loop leaves a name a command may write,
+		// which the shell then runs. A home of its own, since the shared one
+		// already has a startup file.
+		const at = join(home, "loop-home");
+		mkdirSync(at);
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		const dots = join(at, "looped");
+		mkdirSync(dots);
+		symlinkSync(join(dots, "bashrc"), join(at, ".bashrc"));
+		symlinkSync(join(at, ".bashrc"), join(dots, "bashrc"));
+		expect(unfencedFolder(dots, at, ASKED, place)).toContain(
+			`which holds ${join(at, ".bashrc")}, a path`,
+		);
+	});
+
+	it("is one holding a link a closed path leads through on its way elsewhere", () => {
+		// The link may be pointed anywhere, a file of the folder's own among them.
+		const at = join(home, "past-home");
+		mkdirSync(at);
+		const place = { treesRoot: join(at, "trees"), mac: false };
+		const between = join(at, "between");
+		const dots = join(at, "dots-past");
+		mkdirSync(between);
+		mkdirSync(dots);
+		writeFileSync(join(dots, "bashrc"), "");
+		symlinkSync(join(between, "bashrc"), join(at, ".bashrc"));
+		symlinkSync(join(dots, "bashrc"), join(between, "bashrc"));
+		expect(unfencedFolder(between, at, ASKED, place)).toContain(
+			`which holds ${join(at, ".bashrc")}, a path`,
+		);
+	});
+
 	it("keeps pi's file tools from reading where a link to npm's or Docker's config leads", () => {
 		const at = realpathSync(home);
 		const place = { treesRoot: join(at, "trees"), mac: false };

@@ -156,7 +156,9 @@ describe("a strict session's reads", () => {
 	it("refuse a loop of links rather than chase it", () => {
 		symlinkSync(join(work, "b"), join(work, "a"));
 		symlinkSync(join(work, "a"), join(work, "b"));
-		expect(refusal("read", { path: "a" })).toContain("loop of links");
+		expect(refusal("read", { path: "a" })).toContain(
+			"through links it couldn't follow",
+		);
 	});
 });
 

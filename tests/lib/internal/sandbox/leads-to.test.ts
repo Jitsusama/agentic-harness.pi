@@ -3,6 +3,7 @@
  * would land a write to it.
  */
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	type PathLike,
@@ -130,9 +131,53 @@ describe("leadsTo", () => {
 		expect(leadsTo(join(home, "L2", "made"))).toBe(join(home, "made"));
 	});
 
+	it("follows as many links as the system would, and gives up past them", () => {
+		// C0 is no link, so a chain from Cn follows n links.
+		mkdirSync(join(home, "C0"));
+		for (let link = 1; link <= 41; link++)
+			symlinkSync(`C${link - 1}`, join(home, `C${link}`));
+
+		expect(leadsTo(join(home, "C40", "made"))).toBe(join(home, "C0", "made"));
+		expect(leadsTo(join(home, "C41", "made"))).toBeUndefined();
+	});
+
+	it("follows the system's count of links whose targets each hold hundreds of names", () => {
+		// Each target is a thousand bytes, inside a Mac's limit and Linux's.
+		const padding = "./".repeat(495);
+		mkdirSync(join(home, "P0"));
+		for (let link = 1; link <= 40; link++)
+			symlinkSync(`${padding}P${link - 1}`, join(home, `P${link}`));
+
+		expect(leadsTo(join(home, "P40", "made"))).toBe(join(home, "P0", "made"));
+	});
+
+	it("says nothing of a name it can't look at, rather than take it as not made", () => {
+		// A link here may lead anywhere, so judging the path as spelled
+		// would let a write land where no check looked.
+		const locked = join(home, "locked");
+		mkdirSync(locked);
+		chmodSync(locked, 0o000);
+		try {
+			expect(leadsTo(join(locked, "inside"))).toBeUndefined();
+		} finally {
+			chmodSync(locked, 0o700);
+		}
+	});
+
+	it("says nothing of a link whose target isn't UTF-8, rather than follow another name", () => {
+		symlinkSync(
+			Buffer.from([0x66, 0xff, 0x2f, 0x78]),
+			join(home, "really", "odd"),
+		);
+		expect(leadsTo(join(home, "two", "linked", "odd"))).toBeUndefined();
+	});
+
 	it("keeps a relative path's leading `..`, as the system reads it", () => {
-		expect(leadsTo(join("..", "x"))).toBe(join("..", "x"));
-		expect(leadsTo("../../x")).toBe(join("..", "..", "x"));
-		expect(leadsTo("not-made/../../x")).toBe(join("..", "x"));
+		// Names no checkout's surroundings hold, since these are read from
+		// wherever the run's folder lies.
+		const x = `leads-to-never-made-${process.pid}`;
+		expect(leadsTo(join("..", x))).toBe(join("..", x));
+		expect(leadsTo(`../../${x}`)).toBe(join("..", "..", x));
+		expect(leadsTo(`${x}/../../${x}`)).toBe(join("..", x));
 	});
 });

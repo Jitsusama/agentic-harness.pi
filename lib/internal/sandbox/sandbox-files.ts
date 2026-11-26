@@ -477,7 +477,9 @@ function strictRefusal(
 			continue;
 		}
 		const where =
-			real === undefined ? "through a loop of links" : `to ${real}, outside it`;
+			real === undefined
+				? "through links it couldn't follow: a loop, more than the system follows, or a name it couldn't look at"
+				: `to ${real}, outside it`;
 		const what =
 			use === "write"
 				? "may write only in the working folder and the sandbox's own cache and temporary folder"

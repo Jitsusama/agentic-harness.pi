@@ -47,7 +47,7 @@ import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import { readPlain } from "../../core/work/plain-file.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
 import type { Disk } from "../fence/fence-disk.ts";
-import { leadsTo } from "./leads-to.ts";
+import { landsAt } from "./leads-to.ts";
 
 /** A path as it really is, or as given when it can't be resolved. */
 export function real(path: string): string {
@@ -61,30 +61,20 @@ export function real(path: string): string {
 /**
  * Whether `path` is `folder` or lies inside it, each where it leads past
  * its links, made yet or not, as a Mac's /tmp leads to /private/tmp
- * (leads-to.ts). Where either's links loop it is judged as far as they
- * lead and spelled past that, as a folder whose links loop still lies in
- * the folder that holds it: a write through the loop fails anyway, and a
- * check that refuses a folder meeting it still refuses.
+ * (leads-to.ts). Where either's links can't be followed it is judged as
+ * far as they lead and spelled past that, as main judged a path realpath
+ * couldn't resolve: callers ask this both to let a path in and to refuse
+ * one, so no answer here would be the safe one for all of them, and the
+ * fence's own checks refuse such a path outright (sandbox-files.ts).
  */
 export function within(path: string, folder: string): boolean {
-	const between = relative(landing(folder), landing(path));
+	const between = relative(landsAt(folder), landsAt(path));
 	// A child named `..x` lies inside; only `..` and what climbs past it don't.
 	return !(
 		between === ".." ||
 		between.startsWith(`..${sep}`) ||
 		isAbsolute(between)
 	);
-}
-
-/**
- * Where `path` leads past its links, or where they loop, where its
- * folder leads with its own name as spelled.
- */
-function landing(path: string): string {
-	const led = leadsTo(path);
-	if (led !== undefined) return led;
-	const parent = dirname(path);
-	return parent === path ? path : join(landing(parent), basename(path));
 }
 
 /**

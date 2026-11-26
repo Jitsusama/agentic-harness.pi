@@ -38,7 +38,7 @@ import {
 import { tempCodeCaches } from "../fence/fence-temp-caches.ts";
 import { cacheDir, stateDir } from "../paths.ts";
 import { cutTreeDir } from "../work-records.ts";
-import { leadsTo } from "./leads-to.ts";
+import { landsAt, linksOn } from "./leads-to.ts";
 import { namedGitFolder, real, within } from "./tree-git.ts";
 
 /**
@@ -251,9 +251,13 @@ function closedHere(
 	const closed = closedPaths(home, mac, hidden, elsewhere).map((path) => ({
 		path,
 		as: spelled(path),
-		// One whose links loop holds nothing a command could write, so it is
-		// matched as named.
-		is: spelled(leadsTo(path) ?? path),
+		// One whose links can't be followed is matched where they lead and
+		// spelled past that, as within judges the trees.
+		is: spelled(landsAt(path)),
+		// Each link on the way decides where it leads, so a folder holding
+		// one may send it anywhere, a loop's links among them: one taken
+		// out leaves a name a command may write.
+		through: linksOn(path).map(spelled),
 	}));
 	const lies =
 		closed.find((each) => spelledWithin(at, each.as)) ??
@@ -263,11 +267,14 @@ function closedHere(
 	// one looking for a key this machine never had.
 	const there = (each: { readonly path: string }) => isThere(each.path);
 	const holds = (each: (typeof closed)[number]) =>
-		spelledWithin(each.as, at) || spelledWithin(each.is, really);
+		spelledWithin(each.as, at) ||
+		spelledWithin(each.is, really) ||
+		each.through.some((link) => spelledWithin(link, really));
 	const held =
 		closed.find((each) => holds(each) && there(each)) ??
 		closed.find((each) => spelledWithin(each.as, at)) ??
-		closed.find((each) => spelledWithin(each.is, really));
+		closed.find((each) => spelledWithin(each.is, really)) ??
+		closed.find(holds);
 	return held ? { path: held.path, within: false } : undefined;
 }
 
