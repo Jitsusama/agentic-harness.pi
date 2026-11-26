@@ -12,7 +12,7 @@ import { carriedCalls } from "../../lib/internal/shell/kept.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { CarriedShells } from "./carried-shells.ts";
 import { isHeavy } from "./heavy.ts";
-import { leftRunning } from "./left-running.ts";
+import { leftRunning, sparedUnder } from "./left-running.ts";
 import type { EventBus } from "./pi-session.ts";
 import {
 	callsLeftRunning,
@@ -82,9 +82,9 @@ export function stopKeeping(options: {
 	readonly keptIn?: () => string;
 	readonly report: (error: unknown) => void;
 	/**
-	 * The process table a conversation's reaps read; Linux's /proc by
-	 * default. What an earlier host left and what ended calls left are
-	 * read from /proc as before; a Mac has none, so none is reaped there.
+	 * The process table every reap here reads, a conversation's, a
+	 * start's of what an earlier host left, and a close's alike; Linux's
+	 * /proc by default. A Mac has none, so none is reaped there.
 	 */
 	readonly table?: ProcessTable;
 }): StopKeeping {
@@ -115,7 +115,7 @@ export function stopKeeping(options: {
 		const reaped = await reapToolChildren(
 			sessionId,
 			table,
-			left.spared(await carriedCalls()),
+			left.spared(await carriedCalls(), sessionId),
 			among,
 		);
 		// A close for good reaps its conversation's tools only this once.
@@ -182,11 +182,11 @@ export function stopKeeping(options: {
 
 	return {
 		async reapEarlier(hostKey) {
-			const reaped = await reapLeftBehind(
-				hostKey,
-				undefined,
-				left.spared(await carriedCalls()),
-			);
+			// The whole key's, so every child's notes too, not only this host's.
+			const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
+				report,
+			});
+			const reaped = await reapLeftBehind(hostKey, table, spared);
 			if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(
