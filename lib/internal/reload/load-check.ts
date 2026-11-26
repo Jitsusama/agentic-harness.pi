@@ -259,12 +259,11 @@ export function checkLoad(
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString();
 		});
-		timers.push(
-			setTimeout(() => {
-				hung = true;
-				killGroup(child.pid);
-			}, timeoutMs),
-		);
+		const budget = setTimeout(() => {
+			hung = true;
+			killGroup(child.pid);
+		}, timeoutMs);
+		timers.push(budget);
 		signal?.addEventListener("abort", stop, { once: true });
 		child.on("error", (error) => {
 			settle({
@@ -295,6 +294,9 @@ export function checkLoad(
 		};
 		child.on("exit", (code) => {
 			exited = code;
+			// A pi that has exited loaded within its time, whatever still
+			// holds its output through the grace below.
+			clearTimeout(budget);
 			// What an extension left running in pi's group would hold its
 			// output open until the timeout.
 			killGroup(child.pid);

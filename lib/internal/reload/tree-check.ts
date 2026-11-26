@@ -282,12 +282,11 @@ export function commandRunner(timings: RunTimings = {}): Runner {
 			child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
 				stderr = held(stderr, chunk);
 			});
-			timers.push(
-				setTimeout(() => {
-					hung = true;
-					end();
-				}, timeoutMs),
-			);
+			const budget = setTimeout(() => {
+				hung = true;
+				end();
+			}, timeoutMs);
+			timers.push(budget);
 			const stop = (): void => {
 				stopped = true;
 				end();
@@ -325,6 +324,9 @@ export function commandRunner(timings: RunTimings = {}): Runner {
 			});
 			child.on("exit", (code) => {
 				exited = code;
+				// A command that has exited ran within its time, whatever
+				// still holds its output through the grace below.
+				clearTimeout(budget);
 				// What the command left running in its group, such as a
 				// worker, would hold its output open until the budget ran out.
 				signalGroup(leader, "SIGKILL");

@@ -271,6 +271,25 @@ describe("asking a pi", () => {
 		}
 	}, 20_000);
 
+	it("doesn't call a load that ended in time hung, though its budget passes while its output is held", async () => {
+		const pids = join(dir, "sleeper");
+		const pi = piLeavingASleeper(
+			pids,
+			true,
+			`process.stdout.write(${JSON.stringify(ANSWER)}, () => process.exit(0));`,
+		);
+		try {
+			// The budget is shorter than the grace after pi's exit, so it
+			// passes while the sleeper still holds the pipes.
+			expect(await checkLoad(pi, "/t", 2000)).toMatchObject({
+				ok: true,
+				commands: 2,
+			});
+		} finally {
+			endSleeper(pids);
+		}
+	}, 20_000);
+
 	it("ends a stopped load with what pi started, not pi alone", async () => {
 		const pids = join(dir, "sleeper");
 		const pi = piLeavingASleeper(pids, false, "setInterval(() => {}, 1000);");

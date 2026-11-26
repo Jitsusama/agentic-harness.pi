@@ -624,6 +624,35 @@ describe("running a check's command", () => {
 		15_000,
 	);
 
+	it.skipIf(process.platform !== "linux")(
+		"doesn't call a command that exited in time cut off, though its budget passes while its output is held",
+		async () => {
+			// The grace outlasts the budget, so the budget passes while the
+			// escaped sleeper still holds the pipes after the command exited.
+			const sh = script(
+				[
+					`setsid sh -c 'echo $$ > "${tree}/escaped"; exec sleep 30' &`,
+					`until [ -s "${tree}/escaped" ]; do sleep 0.05; done`,
+					"echo done",
+				].join("\n"),
+			);
+			try {
+				const ran = await commandRunner({ closeGraceMs: 3000 })(
+					sh,
+					[],
+					tree,
+					path,
+					1500,
+				);
+				expect(ran).toMatchObject({ code: 0, stdout: "done\n", hung: false });
+			} finally {
+				const escaped = Number(readFileSync(join(tree, "escaped"), "utf8"));
+				process.kill(escaped, "SIGKILL");
+			}
+		},
+		15_000,
+	);
+
 	it("stops a command that says more than it holds, and says why", async () => {
 		const sh = script("head -c 5000 /dev/zero | tr '\\0' x\nsleep 30");
 		const began = Date.now();
