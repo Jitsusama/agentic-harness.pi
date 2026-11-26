@@ -574,6 +574,33 @@ describe("startStrippedSourceCache", () => {
 		expect(register).not.toBeCalled();
 	});
 
+	it("keeps under a home reached through a link, at the home's real path", async () => {
+		const real = join(root, "real-home");
+		await mkdir(real);
+		const linked = join(root, "home");
+		await symlink(real, linked);
+		for (const env of [
+			{},
+			{ XDG_STATE_HOME: join(linked, ".local", "state") },
+		]) {
+			const register = vi.fn();
+			const started = startStrippedSourceCache({
+				env,
+				home: linked,
+				packageRoot: "/install/one",
+				facts: STRIPPING,
+				register,
+			});
+			expect(started, JSON.stringify(env)).toEqual({
+				state: "on",
+				folder: join(
+					cacheRoot({}, real),
+					installKey("/install/one", "v22.23.5"),
+				),
+			});
+		}
+	});
+
 	it("registers nothing where it stands aside", () => {
 		const register = vi.fn();
 		const started = startStrippedSourceCache({

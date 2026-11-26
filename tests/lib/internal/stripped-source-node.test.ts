@@ -166,7 +166,7 @@ async function transpiledRecord(state: string): Promise<boolean> {
 
 describe("the stripped-source cache in a node", () => {
 	it(
-		"serves the package's own modules where no package is named, marking an entry read again once a day has passed",
+		"serves the package's own modules where no package is named, marking an entry read again once a day has passed and not before",
 		async () => {
 			const state = join(root, ".local", "state");
 
@@ -174,6 +174,14 @@ describe("the stripped-source cache in a node", () => {
 			const kept = await entriesUnder(state);
 			expect(kept.size, "an entry is kept").toBeGreaterThan(0);
 			expect(await transpiledRecord(state), "the next reads back").toBe(false);
+
+			// Read within the day, an entry is left as it was: a write per
+			// read would cost every start a write per module.
+			const hoursAgo = Math.floor((Date.now() - 2 * 60 * 60 * 1000) / 1000);
+			for (const path of kept.keys()) await utimes(path, hoursAgo, hoursAgo);
+			expect(await transpiledRecord(state)).toBe(false);
+			for (const [path, read] of await entriesUnder(state))
+				expect(read, `${path} is left as it was`).toBe(hoursAgo * 1000);
 
 			const dayAndMore = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
 			for (const path of kept.keys())
@@ -183,7 +191,7 @@ describe("the stripped-source cache in a node", () => {
 			for (const [path, read] of await entriesUnder(state))
 				expect(read, `${path} is marked read`).toBeGreaterThan(before);
 		},
-		3 * ONE_RUN,
+		4 * ONE_RUN,
 	);
 
 	it(

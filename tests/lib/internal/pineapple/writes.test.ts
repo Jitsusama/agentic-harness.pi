@@ -345,6 +345,14 @@ describe("writesInBash", () => {
 		held("node scripts/pi-host.mjs attended", "pi pi-host");
 		held("./scripts/pi-host.mjs --child", "pi pi-host");
 		held("tsx --env-file x scripts/pi-carry.ts", "pi pi-carry");
+		held(
+			"node --import ./lib/internal/stripped-source-start.mjs scripts/pi-host.ts",
+			"pi pi-host",
+		);
+		held(
+			"node -r ./preload.cjs --import x.mjs scripts/pi-host.mjs",
+			"pi pi-host",
+		);
 		held("./scripts/host-take-up.ts", "pi host-take-up");
 		held("systemd-run --user --unit=x -p RuntimeMaxSec=60 -- pi", "pi");
 		held("systemd-run --user --unit x --slice app.slice pi", "pi");
