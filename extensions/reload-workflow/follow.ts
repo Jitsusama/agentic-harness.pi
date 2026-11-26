@@ -392,7 +392,13 @@ export async function follow(
 		try {
 			const sessionFile = ctx.sessionManager.getSessionFile();
 			if (sessionFile === undefined) {
-				if (orReload) return false;
+				if (orReload) {
+					sayWhy(
+						`its extension links were made again onto the same code (${links.join(", ")}), and it has no log to start on, so it reloads`,
+						{ links, verdicts },
+					);
+					return false;
+				}
 				retryAt = Date.now() + HELD_MS;
 				sayWhy("its extension links moved, and it has no log to start on", {
 					links,

@@ -11,6 +11,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -493,6 +494,62 @@ describe("the agent asking for a reload", LANDS, () => {
 
 	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
 	// a landing, heard nothing when a carry called its reload off.
+	// The follower asks its own reload over links made again onto the same
+	// code; a switch while it waits for the run to be still can move one
+	// onto other code, which a reload would load half from its first target.
+	describe("an extension link moved while a reload waits for the run to be still", () => {
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const linkMoved = () => {
+			const extensions = join(agentDir, "extensions");
+			mkdirSync(join(dir, "elsewhere"), { recursive: true });
+			mkdirSync(extensions, { recursive: true });
+			symlinkSync(join(dir, "elsewhere"), join(extensions, "the-proxy"));
+		};
+		beforeEach(() => {
+			reloads = 0;
+		});
+
+		it("takes the follower's back quietly, for its next look to start the session again", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			const slot = reloadSlot();
+			slot.request = { reason: "the install moved", by: "self" };
+			slot.dispatched = true;
+			slot.dispatchedAt = Date.now();
+			const said = now.notices.length;
+			await now.command("reload", next, false, linkMoved);
+
+			expect(reloads, "nothing reloads onto the moved link").toBe(0);
+			expect(reloadSlot().request, "taken back").toBeUndefined();
+			expect(reloadSlot().dispatched, "not dispatched").toBe(false);
+			expect(
+				reloadSlot().dispatchedAt,
+				"its dispatch forgotten",
+			).toBeUndefined();
+			expect(now.notices.slice(said), "nothing is said").toEqual([]);
+		});
+
+		it("lets a person's go, warning what loads from its first target", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			await now.command("reload", next, false, linkMoved);
+
+			expect(reloads).toBe(1);
+			expect(now.notices).toContainEqual(
+				expect.stringContaining(
+					"Extension links moved since this pi started (the-proxy)",
+				),
+			);
+		});
+	});
+
 	it("tells the agent its reload was called off by a carry, since no landing will come", async () => {
 		runningTheInstall();
 		const now = runtime();

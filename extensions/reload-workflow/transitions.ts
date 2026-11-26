@@ -431,15 +431,28 @@ async function reloadOnce(
 		slot.dispatchedAt = undefined;
 		return;
 	}
-	// Read after the wait: the session's own request says what came in,
-	// and more can come in while it waits.
-	const request: ReloadRequest = slot.request;
-	// Asked for, it reloads anyway, but says what it can't load afresh;
-	// the follower's own reload starts a new process instead (follow.ts).
+	// Links that moved onto other code since this pi started, read after
+	// the wait, which can be long: a switch or a collection meanwhile can
+	// move a link the follower found made again onto the same code.
 	const moved = linksMovedSince(
 		join(getAgentDir(), "extensions"),
 		performance.timeOrigin,
 	);
+	// The follower asks its own reload only where none moved so; one that
+	// did meanwhile is taken back quietly, and its next look asks the
+	// session's holder to start it again (follow.ts).
+	if (slot.request.by === "self" && moved.length > 0) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
+		return;
+	}
+	// Read after the wait: the session's own request says what came in,
+	// and more can come in while it waits.
+	const request: ReloadRequest = slot.request;
+	// Asked for by a person or the agent, it reloads anyway, but says
+	// what it can't load afresh. A link made again onto the same code
+	// isn't said: what lies within it loads the same either way.
 	if (moved.length > 0) {
 		ctx.ui.notify(
 			`Extension links moved since this pi started (${moved.join(", ")}), and a reload still loads them through their first targets. Start the session again to load them afresh.`,

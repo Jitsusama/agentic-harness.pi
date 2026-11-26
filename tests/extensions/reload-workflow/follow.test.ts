@@ -80,8 +80,11 @@ async function behind({
 	answer,
 	// It already runs the version its install's link names.
 	current = false,
+	// It has no log, so nothing can start it again on one.
+	noLog = false,
 }: {
 	current?: boolean;
+	noLog?: boolean;
 	swapped?: boolean;
 	installUnread?: boolean;
 	spreadMs?: number;
@@ -116,7 +119,7 @@ async function behind({
 		isIdle: () => true,
 		sessionManager: {
 			getSessionId: () => "the-session",
-			getSessionFile: () => "/logs/the-session.jsonl",
+			getSessionFile: () => (noLog ? undefined : "/logs/the-session.jsonl"),
 		},
 		ui: { notify: (text: string) => notices.push(text) },
 	};
@@ -163,10 +166,15 @@ function movedLinks(): { extensions: string; startedAt: number } {
 /**
  * An extensions folder whose link was made onto a store tree an hour
  * before the process started; `remake` makes it again onto another store
- * tree holding the same file, as the Mac's switch does. The store is the
- * fixture's own root until `restore`.
+ * tree holding the same file, as the Mac's switch does; `alsoDiffering`,
+ * it also makes a second link again onto a tree whose file differs. The
+ * store is the fixture's own root until `restore`.
  */
-function remadeSame(): {
+function remadeSame({
+	alsoDiffering = false,
+}: {
+	alsoDiffering?: boolean;
+} = {}): {
 	extensions: string;
 	startedAt: number;
 	remake: () => void;
@@ -176,27 +184,38 @@ function remadeSame(): {
 	dirs.push(root);
 	const storeWas = process.env.NIX_STORE_DIR;
 	process.env.NIX_STORE_DIR = root;
-	const storeTree = (name: string): string => {
+	const storeTree = (name: string, code = "export const a = 1;\n"): string => {
 		const at = join(root, name);
 		mkdirSync(at);
-		writeFileSync(join(at, "index.ts"), "export const a = 1;\n");
+		writeFileSync(join(at, "index.ts"), code);
 		return at;
 	};
-	const first = storeTree("first");
-	const second = storeTree("second");
+	const moves: { name: string; was: string; now: string }[] = [
+		{ name: "the-proxy", was: storeTree("first"), now: storeTree("second") },
+	];
+	if (alsoDiffering) {
+		moves.push({
+			name: "the-gateway",
+			was: storeTree("gateway-first"),
+			now: storeTree("gateway-second", "export const a = 2;\n"),
+		});
+	}
 	const extensions = join(root, "extensions");
 	mkdirSync(extensions);
-	const link = join(extensions, "the-proxy");
-	symlinkSync(first, link);
 	const startedAt = Date.now() - 60_000;
 	const hourBefore = (startedAt - 3_600_000) / 1000;
-	lutimesSync(link, hourBefore, hourBefore);
+	for (const { name, was } of moves) {
+		symlinkSync(was, join(extensions, name));
+		lutimesSync(join(extensions, name), hourBefore, hourBefore);
+	}
 	return {
 		extensions,
 		startedAt,
 		remake: () => {
-			rmSync(link);
-			symlinkSync(second, link);
+			for (const { name, now } of moves) {
+				rmSync(join(extensions, name));
+				symlinkSync(now, join(extensions, name));
+			}
 		},
 		restore: () => {
 			if (storeWas === undefined) delete process.env.NIX_STORE_DIR;
@@ -568,7 +587,12 @@ describe("following the install", () => {
 			]);
 
 			// The runtime the reload brings up follows afresh over the same
-			// links, as the session's next runtime does.
+			// links, as the session's next runtime does, with the request
+			// cleared as a landed reload clears it.
+			const slot = reloadSlot();
+			slot.request = undefined;
+			slot.dispatched = false;
+			slot.dispatchedAt = undefined;
 			const reloaded = await behind({
 				extensions: links.extensions,
 				startedAt: links.startedAt,
@@ -580,6 +604,71 @@ describe("following the install", () => {
 			await quietFor(QUIET_MS, 4);
 			expect(reloaded.asks, "it came up on the same code").toEqual([]);
 			expect(reloaded.prompted, "nothing reloads it again").toEqual([]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("keeps its code, when its holder can't start it again, over one link made again the same and one onto other code", async () => {
+		const links = remadeSame({ alsoDiffering: true });
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: (ask) => {
+					ask.why = "a command is out";
+				},
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the restart is asked for", () => asks.length > 0);
+			await quietFor(QUIET_MS, 4);
+			expect(
+				prompted,
+				"a reload would load the changed one's new entry over its first helpers",
+			).toEqual([]);
+			expect(entries, "the log says why each link counts").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						links: ["the-gateway", "the-proxy"],
+						verdicts: { "the-gateway": "differs", "the-proxy": "same" },
+					},
+				},
+			]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("reloads a session with no log over a link made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				noLog: true,
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the reload is asked for", () => prompted.length > 0);
+			expect(prompted).toEqual(["/harness reload"]);
+			expect(asks, "with no log there is nothing to start it on").toEqual([]);
+			expect(entries, "the log says why it reloads").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						reason: expect.stringContaining(
+							"no log to start on, so it reloads",
+						),
+						verdicts: { "the-proxy": "same" },
+					},
+				},
+			]);
 		} finally {
 			links.restore();
 		}

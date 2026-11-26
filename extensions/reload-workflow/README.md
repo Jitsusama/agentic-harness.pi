@@ -176,16 +176,20 @@ kept 25 of its 125 sessions, each with a command out, on code up to two
 days old. An import reaching out of a link's folder isn't compared and
 keeps resolving against the first target, so the session still starts
 again where its holder can; where its holder refuses, it reloads rather
-than wait, saying why once. Each process notes its links' first targets
-once, and keeps each comparison it read whole; one whose read failed is
-read again at the next look. A link to a single file, a folder outside
-the store, or a link within the folder that resolves out of it always
-counts as moved, and the follower's log names why each link counted.
+than wait, saying why once. That reload reads the links again after
+waiting for the session to be still, and is taken back if one moved onto
+other code meanwhile. Each process notes its links' first targets once,
+and keeps each comparison it read whole; one whose read failed is read
+again at the next look. A link made again onto the real path it first
+led to is no move at all. A link to a single file, a folder outside the
+store, or a link within the folder that resolves out of it always counts
+as moved, and the follower's log names why each link counted.
 The restart waits for the session to be idle, keeps its fence and spawner,
 and opens or moves no window; a session its person may be looking at,
 or one nothing holds, keeps the code it runs, says why once, and asks
 again ten minutes later. A reload somebody asks for still reloads, and
-warns that the moved links load from their first targets. A runtime
+warns that links moved onto other code load from their first targets;
+one made again onto the same code isn't warned of. A runtime
 that starts with such links came up through a reload, so it asks for
 the same restart once idle, whether or not the install moved: that is
 how the first swap after this change reaches pis whose follower

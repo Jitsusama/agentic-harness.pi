@@ -26,7 +26,9 @@
  * code, and the follower can't start a session again while a command is
  * out; on 26 November 25 of the Mac's 125 live sessions had kept older
  * code that way for up to two days. So the first call in a process notes
- * each link's real target, and each move is compared once: store trees
+ * each link's real target, and each move is compared once. A link made
+ * again onto the real path it first led to is no move at all, since its
+ * resolver holds that very path. Store trees
  * never change, so a verdict read whole holds for good, while one that
  * failed to read is read again at the next check. A tree outside the
  * store can change after it is compared, so a move onto or from one
@@ -48,6 +50,14 @@
  * seconds between the check and the reload, or one later that a dynamic
  * import then meets, fails as on 11 November, and the next check counts
  * the link as moved again.
+ *
+ * The first target is the one found at the first call, not the one pi
+ * loaded. The follower makes that call as its runtime starts, just after
+ * pi loads its extensions, and a link moved between the two calls counts
+ * as moved, since its own modified time is past the start. A link
+ * reaching its target through others (a profile, a generation) could
+ * have moved further down meanwhile and been noted on the new target;
+ * the Mac's links lead straight into the store.
  */
 
 import { createHash } from "node:crypto";
@@ -94,6 +104,7 @@ export type LinkVerdict =
 	| "not a folder"
 	| "too big"
 	| "inner link leads out"
+	| "not a file"
 	| "unreadable";
 
 /** One link made since the process started, and what became of it. */
@@ -127,9 +138,10 @@ export function linksMovedSince(folder: string, startedAt: number): string[] {
 }
 
 /**
- * Each link in `folder` made after `startedAt` (epoch ms), in name
- * order, and what became of it. A folder that can't be read has none,
- * since nothing in it was loaded.
+ * Each link in `folder` made after `startedAt` (epoch ms) onto a real
+ * path other than the one it first led to, in name order, and what
+ * became of it. A folder that can't be read has none, since nothing in
+ * it was loaded.
  */
 export function linkChanges(folder: string, startedAt: number): LinkChange[] {
 	let names: string[];
@@ -151,15 +163,21 @@ export function linkChanges(folder: string, startedAt: number): LinkChange[] {
 			}
 		})
 		.sort()
-		.map((name) => ({ name, verdict: verdictOf(known, folder, name) }));
+		.flatMap((name) => {
+			const verdict = verdictOf(known, folder, name);
+			return verdict === undefined ? [] : [{ name, verdict }];
+		});
 }
 
 /**
  * What this process knows of `folder`, noting each link's real target
  * the first time it is asked. Only a link made before the process
  * started still points where its resolver first found it; one made since
- * has no first target known, and so counts as moved. Kept by folder and
- * start, so a caller giving another start is answered for that one.
+ * has no first target known, and so counts as moved, and so does one
+ * made again while its target was read: the link is looked at again
+ * after, and kept only where nothing made it again meanwhile. Kept by
+ * folder and start, so a caller giving another start is answered for
+ * that one.
  */
 function knownOf(folder: string, names: string[], startedAt: number): Known {
 	const folders = knownFolders();
@@ -174,9 +192,12 @@ function knownOf(folder: string, names: string[], startedAt: number): Known {
 	for (const name of names) {
 		const link = join(folder, name);
 		try {
-			const stat = lstatSync(link);
-			if (stat.isSymbolicLink() && stat.mtimeMs <= startedAt) {
-				known.first.set(name, realpathSync(link));
+			const before = lstatSync(link);
+			if (!before.isSymbolicLink() || before.mtimeMs > startedAt) continue;
+			const target = realpathSync(link);
+			const after = lstatSync(link);
+			if (after.ino === before.ino && after.mtimeMs === before.mtimeMs) {
+				known.first.set(name, target);
 			}
 		} catch {
 			// A link that leads nowhere loaded nothing to keep.
@@ -201,13 +222,18 @@ function isKnownFolders(held: unknown): held is Map<string, Known> {
 }
 
 /**
- * What became of `name`, made since the process started. Same only where
- * it now leads to a store folder the same as its first target, which
- * must still be there: a collected first target fails a reload's imports
+ * What became of `name`, made since the process started: nothing where
+ * it leads to the real path it first led to. Same only where it now
+ * leads to a store folder the same as its first target, which must
+ * still be there: a collected first target fails a reload's imports
  * whatever the new one holds. A verdict read whole is kept for the move;
  * a read that failed is tried again at the next check.
  */
-function verdictOf(known: Known, folder: string, name: string): LinkVerdict {
+function verdictOf(
+	known: Known,
+	folder: string,
+	name: string,
+): LinkVerdict | undefined {
 	const first = known.first.get(name);
 	if (first === undefined) return "first unknown";
 	let target: string;
@@ -217,8 +243,8 @@ function verdictOf(known: Known, folder: string, name: string): LinkVerdict {
 		// Made again onto nothing: nothing to load the same.
 		return "leads nowhere";
 	}
+	if (target === first) return undefined;
 	if (!existsSync(first)) return "first gone";
-	if (target === first) return "same";
 	const store = storeRoot();
 	if (!(inStore(first, store) && inStore(target, store))) {
 		return "outside the store";
@@ -250,15 +276,14 @@ function verdictOf(known: Known, folder: string, name: string): LinkVerdict {
 /**
  * The real path of the Nix store, whose trees never change once made:
  * where Nix itself is told it is, else `/nix/store`. A name that is
- * empty, relative or the root of the disk would take in paths that do
- * change, so it reads as the default.
+ * empty or relative would take in whatever folder pi runs in, so it
+ * reads as the default. The root of the disk holds nothing, since no
+ * real path begins with two separators.
  */
 function storeRoot(): string {
 	const named = process.env.NIX_STORE_DIR;
 	const store =
-		named !== undefined && isAbsolute(named) && resolve(named) !== sep
-			? resolve(named)
-			: "/nix/store";
+		named !== undefined && isAbsolute(named) ? resolve(named) : "/nix/store";
 	try {
 		return realpathSync(store);
 	} catch {
@@ -269,7 +294,7 @@ function storeRoot(): string {
 
 /** Whether `path` lies within the store at `store`. */
 function inStore(path: string, store: string): boolean {
-	return store !== sep && path.startsWith(`${store}${sep}`);
+	return path.startsWith(`${store}${sep}`);
 }
 
 /**
@@ -277,7 +302,8 @@ function inStore(path: string, store: string): boolean {
  * within it and kind, a file's bytes and a link's own text, in name
  * order. A verdict in its place for a root that isn't a folder, a tree
  * past {@link MOST_ENTRIES} entries or {@link MOST_BYTES} bytes, an
- * entry neither file, folder nor link, or a link that resolves outside
+ * entry neither file, folder nor link (`not a file`, never opened, so a
+ * FIFO can't block it), or a link that resolves outside
  * the tree or nowhere; each counts as moved and holds for good. A read
  * that fails throws, so it is tried again.
  */
@@ -307,7 +333,7 @@ function treeDigest(root: string): Digest {
 			}
 			return undefined;
 		}
-		if (!stat.isFile()) return "unreadable";
+		if (!stat.isFile()) return "not a file";
 		bytes += stat.size;
 		if (bytes > MOST_BYTES) return "too big";
 		const content = readFileSync(path);

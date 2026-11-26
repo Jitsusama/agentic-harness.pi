@@ -3,6 +3,7 @@
  * since onto other code, and nothing else in the folder.
  */
 
+import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
 	lutimesSync,
@@ -17,7 +18,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	linkChanges,
@@ -291,8 +292,8 @@ describe("extension links moved since a process started", () => {
 			remake(dir, first);
 
 			expect(
-				linksMovedSince(dir, startedAt),
-				"its resolver already holds that target",
+				linkChanges(dir, startedAt),
+				"its resolver already holds that target, so it is no move",
 			).toEqual([]);
 		},
 	);
@@ -332,18 +333,76 @@ describe("extension links moved since a process started", () => {
 		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
 	});
 
-	it.each([
-		["empty", ""],
-		["relative", "store"],
-		["the disk's root", "/"],
-	])("takes no tree for the store's when its name is %s", (_what, named) => {
-		const { dir, startedAt } = remade();
-		process.env.NIX_STORE_DIR = named;
+	it("takes no tree for the store's when its name is relative", () => {
+		const { dir, root, startedAt } = remade();
+		// Resolved from where pi runs, the name would be the trees' own root.
+		process.env.NIX_STORE_DIR = relative(process.cwd(), root);
 
 		expect(
 			linkChanges(dir, startedAt),
 			"the default store holds neither tree",
 		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
+	});
+
+	it("takes no tree for the store's when its name is empty", () => {
+		const { dir, root, startedAt } = remade();
+		process.env.NIX_STORE_DIR = "";
+		// Resolved, an empty name is wherever pi runs: here, the trees' root.
+		const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+		try {
+			expect(
+				linkChanges(dir, startedAt),
+				"the default store holds neither tree",
+			).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
+		} finally {
+			cwd.mockRestore();
+		}
+	});
+
+	it("takes no tree for the store's when its name is the disk's root", () => {
+		const { dir, startedAt } = remade();
+		process.env.NIX_STORE_DIR = "/";
+
+		expect(
+			linkChanges(dir, startedAt),
+			"no real path begins with two separators",
+		).toEqual([{ name: "the-proxy", verdict: "outside the store" }]);
+	});
+
+	it("names a link made again onto a tree holding a FIFO, without opening it", () => {
+		const { dir, startedAt } = remade((first, second) => {
+			for (const at of [first, second])
+				execFileSync("mkfifo", [join(at, "pipe")]);
+		});
+
+		expect(
+			linkChanges(dir, startedAt),
+			"it holds for good, unlike a read that failed",
+		).toEqual([{ name: "the-proxy", verdict: "not a file" }]);
+	});
+
+	it("answers each start with the first targets found under it", () => {
+		const root = realpathSync(folder());
+		process.env.NIX_STORE_DIR = root;
+		const first = tree(root, "first");
+		const second = tree(root, "second");
+		const dir = join(root, "extensions");
+		mkdirSync(dir);
+		const link = join(dir, "the-proxy");
+		symlinkSync(first, link);
+		const madeAt = Date.now() - 60_000;
+		lutimesSync(link, madeAt / 1000, madeAt / 1000);
+		expect(
+			linkChanges(dir, madeAt + 1_000),
+			"under a start after it was made, its first target is noted",
+		).toEqual([]);
+
+		remake(dir, second);
+
+		expect(
+			linkChanges(dir, madeAt - 1_000),
+			"under a start before it was made, nothing was noted",
+		).toEqual([{ name: "the-proxy", verdict: "first unknown" }]);
 	});
 
 	it("names no link made again onto a tree whose inner links are the same", () => {
