@@ -259,9 +259,10 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
  * repository isn't known, and a tree any live quest keeps is never
  * named, so one quest letting a tree go never overrides another's
  * hold. One an earlier walk named that this one keeps is taken back.
- * A quest `before`, an earlier walk of the same ask, saw keeping a tree
- * still keeps it when this walk couldn't read that quest, as when its
- * README changes during the walk. Says what each quest walked keeps.
+ * A quest `before`, an earlier walk of the same ask, saw listing a tree
+ * keeps it, the older ones it let go then included, when this walk
+ * couldn't read that quest, as when its README changes during the walk:
+ * what it would say now is unknown. Says what each quest walked lists.
  */
 function claimFrom(
 	walks: readonly DiscoveryResult[],
@@ -270,7 +271,7 @@ function claimFrom(
 	before?: ReadonlyMap<string, ReadonlySet<string>>,
 ): Map<string, Set<string>> {
 	const kept = new Set<string>();
-	const keeps = new Map<string, Set<string>>();
+	const lists = new Map<string, Set<string>>();
 	const older: string[] = [];
 	for (const entry of liveQuests(walks)) {
 		const trees = entry.doc.frontMatter.trees ?? [];
@@ -278,19 +279,17 @@ function claimFrom(
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
 		const letGo = olderInEachRepo(trees);
-		const own = new Set<string>();
 		for (const tree of trees) {
 			if (letGo.has(tree.path)) older.push(tree.path);
-			else own.add(tree.path);
+			else kept.add(tree.path);
 		}
-		keeps.set(entry.dir, own);
-		for (const path of own) kept.add(path);
+		lists.set(entry.dir, new Set(trees.map((tree) => tree.path)));
 	}
-	for (const [dir, own] of before ?? []) {
-		if (keeps.has(dir)) continue;
-		for (const path of own) kept.add(path);
+	for (const [dir, listed] of before ?? []) {
+		if (lists.has(dir)) continue;
+		for (const path of listed) kept.add(path);
 	}
-	if (mayTake === undefined) return keeps;
+	if (mayTake === undefined) return lists;
 	for (const path of older) {
 		if (!kept.has(path) && !mayTake.includes(path)) mayTake.push(path);
 	}
@@ -298,7 +297,7 @@ function claimFrom(
 		const path = mayTake[at];
 		if (path !== undefined && kept.has(path)) mayTake.splice(at, 1);
 	}
-	return keeps;
+	return lists;
 }
 
 /**

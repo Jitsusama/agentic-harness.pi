@@ -505,19 +505,21 @@ describe("answering who holds a tree on a host", () => {
 		);
 	});
 
-	it("keeps a tree another quest held in the last walk when a fresh walk can't read that quest", async () => {
+	it("keeps every tree a quest listed in the last walk when a fresh walk can't read that quest", async () => {
 		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
-		const [shared, newer] = standing("a/shared", "a/newer");
+		const [shared, newer, before] = standing("a/shared", "a/newer", "a/before");
 		const outgrown = questPlacing(
 			root,
 			"QEST-20260731-AAAAAA",
 			{ path: `${shared}`, repo: "/src/a" },
 			{ path: `${newer}`, repo: "/src/a" },
 		);
-		const holder = questPlacing(root, "QEST-20260731-BBBBBB", {
-			path: `${shared}`,
-			repo: "/src/a",
-		});
+		const holder = questPlacing(
+			root,
+			"QEST-20260731-BBBBBB",
+			{ path: `${before}`, repo: "/src/a" },
+			{ path: `${shared}`, repo: "/src/a" },
+		);
 		settle(outgrown);
 		settle(holder);
 		settle(join(root, "QEST-20260731-AAAAAA"));
@@ -537,7 +539,7 @@ describe("answering who holds a tree on a host", () => {
 			answering: [],
 		};
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.idleMayTake, "the last walk's holder").toEqual([]);
+		expect(claims.idleMayTake, "the last walk's holder").toEqual([before]);
 		await Promise.all(claims.answering ?? []);
 
 		expect(
