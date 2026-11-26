@@ -1,12 +1,16 @@
 /**
  * A session following its install: it reloads itself when the install
  * moves, at a moment that loses nothing, and a session that is not
- * somebody's to sit at never does.
+ * somebody's to sit at never does. Long because every case drives the
+ * one follower through the same git fixture, fake session and slot,
+ * built once above both groups, so a split would copy all of it.
  */
 
 import {
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -78,8 +82,11 @@ async function behind({
 	answer,
 	// It already runs the version its install's link names.
 	current = false,
+	// It has no log, so nothing can start it again on one.
+	noLog = false,
 }: {
 	current?: boolean;
+	noLog?: boolean;
 	swapped?: boolean;
 	installUnread?: boolean;
 	spreadMs?: number;
@@ -114,7 +121,7 @@ async function behind({
 		isIdle: () => true,
 		sessionManager: {
 			getSessionId: () => "the-session",
-			getSessionFile: () => "/logs/the-session.jsonl",
+			getSessionFile: () => (noLog ? undefined : "/logs/the-session.jsonl"),
 		},
 		ui: { notify: (text: string) => notices.push(text) },
 	};
@@ -156,6 +163,67 @@ function movedLinks(): { extensions: string; startedAt: number } {
 	symlinkSync(second, join(extensions, "the-proxy"));
 	rmSync(first, { recursive: true });
 	return { extensions, startedAt };
+}
+
+/**
+ * An extensions folder whose link was made onto a store tree an hour
+ * before the process started; `remake` makes it again onto another store
+ * tree holding the same file, as the Mac's switch does; `alsoDiffering`,
+ * it also makes a second link again onto a tree whose file differs. The
+ * store is the fixture's own root until `restore`.
+ */
+function remadeSame({
+	alsoDiffering = false,
+}: {
+	alsoDiffering?: boolean;
+} = {}): {
+	extensions: string;
+	startedAt: number;
+	remake: () => void;
+	restore: () => void;
+} {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "extensions-")));
+	dirs.push(root);
+	const storeWas = process.env.NIX_STORE_DIR;
+	process.env.NIX_STORE_DIR = root;
+	const storeTree = (name: string, code = "export const a = 1;\n"): string => {
+		const at = join(root, name);
+		mkdirSync(at);
+		writeFileSync(join(at, "index.ts"), code);
+		return at;
+	};
+	const moves: { name: string; was: string; now: string }[] = [
+		{ name: "the-proxy", was: storeTree("first"), now: storeTree("second") },
+	];
+	if (alsoDiffering) {
+		moves.push({
+			name: "the-gateway",
+			was: storeTree("gateway-first"),
+			now: storeTree("gateway-second", "export const a = 2;\n"),
+		});
+	}
+	const extensions = join(root, "extensions");
+	mkdirSync(extensions);
+	const startedAt = Date.now() - 60_000;
+	const hourBefore = (startedAt - 3_600_000) / 1000;
+	for (const { name, was } of moves) {
+		symlinkSync(was, join(extensions, name));
+		lutimesSync(join(extensions, name), hourBefore, hourBefore);
+	}
+	return {
+		extensions,
+		startedAt,
+		remake: () => {
+			for (const { name, now } of moves) {
+				rmSync(join(extensions, name));
+				symlinkSync(now, join(extensions, name));
+			}
+		},
+		restore: () => {
+			if (storeWas === undefined) delete process.env.NIX_STORE_DIR;
+			else process.env.NIX_STORE_DIR = storeWas;
+		},
+	};
 }
 
 function settingsFor(root: string): PackageSettings {
@@ -489,6 +557,154 @@ describe("following the install", () => {
 		expect(entries, "the log says why it starts again").toMatchObject([
 			{ type: RESTARTING_ENTRY, data: { links: ["the-proxy"] } },
 		]);
+	});
+
+	it("reloads, when its holder can't start it again, over a link made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const refuse = (ask: RestartAsk) => {
+				ask.why = "a command is out";
+			};
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: refuse,
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the reload is asked for", () => prompted.length > 0);
+			expect(prompted).toEqual(["/harness reload"]);
+			expect(asks, "its holder is asked first").toHaveLength(1);
+			expect(entries, "the log says why it reloads").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						reason: expect.stringContaining("made again onto the same code"),
+						links: ["the-proxy"],
+						verdicts: { "the-proxy": "same" },
+					},
+				},
+			]);
+
+			// The runtime the reload brings up follows afresh over the same
+			// links, as the session's next runtime does, with the request
+			// cleared as a landed reload clears it.
+			const slot = reloadSlot();
+			slot.request = undefined;
+			slot.dispatched = false;
+			slot.dispatchedAt = undefined;
+			const reloaded = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				current: true,
+				answer: refuse,
+			});
+			reloaded.follower?.consider();
+
+			await quietFor(QUIET_MS, 4);
+			expect(reloaded.asks, "it came up on the same code").toEqual([]);
+			expect(reloaded.prompted, "nothing reloads it again").toEqual([]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("keeps its code, when its holder can't start it again, over one link made again the same and one onto other code", async () => {
+		const links = remadeSame({ alsoDiffering: true });
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: (ask) => {
+					ask.why = "a command is out";
+				},
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the restart is asked for", () => asks.length > 0);
+			await quietFor(QUIET_MS, 4);
+			expect(
+				prompted,
+				"a reload would load the changed one's new entry over its first helpers",
+			).toEqual([]);
+			expect(entries, "the log says why each link counts").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						links: ["the-gateway", "the-proxy"],
+						verdicts: { "the-gateway": "differs", "the-proxy": "same" },
+					},
+				},
+			]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("reloads a session with no log over a link made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				noLog: true,
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the reload is asked for", () => prompted.length > 0);
+			expect(prompted).toEqual(["/harness reload"]);
+			expect(asks, "with no log there is nothing to start it on").toEqual([]);
+			expect(entries, "the log says why it reloads").toMatchObject([
+				{
+					type: WAITING_ENTRY,
+					data: {
+						reason: expect.stringContaining(
+							"no log to start on, so it reloads",
+						),
+						verdicts: { "the-proxy": "same" },
+					},
+				},
+			]);
+		} finally {
+			links.restore();
+		}
+	});
+
+	it("starts again, when its holder can, over a link made again onto the same tree", async () => {
+		const links = remadeSame();
+		try {
+			const { follower, prompted, entries, asks } = await behind({
+				extensions: links.extensions,
+				startedAt: links.startedAt,
+				answer: (ask) => {
+					ask.restarting = true;
+				},
+			});
+			links.remake();
+
+			follower?.consider();
+
+			await until("the restart is asked for", () => asks.length > 0);
+			await quietFor(QUIET_MS, 4);
+			expect(
+				prompted,
+				"a new process reads what the extension imports from outside its folder afresh",
+			).toEqual([]);
+			expect(entries, "the log says why it starts again").toMatchObject([
+				{
+					type: RESTARTING_ENTRY,
+					data: { links: ["the-proxy"], verdicts: { "the-proxy": "same" } },
+				},
+			]);
+		} finally {
+			links.restore();
+		}
 	});
 
 	it("keeps its code and says why when its holder can't start it again", async () => {

@@ -352,6 +352,13 @@ export async function performReload(
  */
 export const RELOAD_CALLED_OFF = "harness-reload-called-off";
 
+/**
+ * Why the follower's own reload was taken back after its wait: a link
+ * moved onto other code meanwhile, so its next look asks for a restart.
+ */
+export const LINKS_MOVED_AS_IT_WAITED =
+	"links moved onto other code as the reload waited";
+
 /** What {@link performReload} reads of the session's runs, and tells. */
 export interface ReloadRun {
 	/** Whether a run has started since the last one settled. */
@@ -363,6 +370,12 @@ export interface ReloadRun {
 	 * for word of a landing that won't come.
 	 */
 	readonly toAgent?: (text: string) => void;
+	/**
+	 * Told why the follower's own reload was taken back after its wait,
+	 * for the session's log, since the follower's entry before it said a
+	 * reload was coming.
+	 */
+	readonly tookBack?: (reason: string, data: Record<string, unknown>) => void;
 }
 
 /** The session's id, or nothing from a context gone stale, which throws. */
@@ -431,15 +444,29 @@ async function reloadOnce(
 		slot.dispatchedAt = undefined;
 		return;
 	}
-	// Read after the wait: the session's own request says what came in,
-	// and more can come in while it waits.
-	const request: ReloadRequest = slot.request;
-	// Asked for, it reloads anyway, but says what it can't load afresh;
-	// the follower's own reload starts a new process instead (follow.ts).
+	// Links that moved onto other code since this pi started, read after
+	// the wait, which can be long: a switch or a collection meanwhile can
+	// move a link the follower found made again onto the same code.
 	const moved = linksMovedSince(
 		join(getAgentDir(), "extensions"),
 		performance.timeOrigin,
 	);
+	// The follower asks its own reload only where none moved so; one that
+	// did meanwhile is taken back quietly, and its next look asks the
+	// session's holder to start it again (follow.ts).
+	if (slot.request.by === "self" && moved.length > 0) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
+		run.tookBack?.(LINKS_MOVED_AS_IT_WAITED, { moved });
+		return;
+	}
+	// Read after the wait: the session's own request says what came in,
+	// and more can come in while it waits.
+	const request: ReloadRequest = slot.request;
+	// Asked for by a person or the agent, it reloads anyway, but says
+	// what it can't load afresh. A link made again onto the same code
+	// isn't said: what lies within it loads the same either way.
 	if (moved.length > 0) {
 		ctx.ui.notify(
 			`Extension links moved since this pi started (${moved.join(", ")}), and a reload still loads them through their first targets. Start the session again to load them afresh.`,

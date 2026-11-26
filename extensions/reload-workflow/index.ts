@@ -52,7 +52,12 @@ import { SANDBOX_NAMES } from "../../lib/internal/sandbox/sandbox.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
-import { type Follower, follow, stopFollowing } from "./follow.ts";
+import {
+	type Follower,
+	follow,
+	stopFollowing,
+	WAITING_ENTRY,
+} from "./follow.ts";
 import {
 	hostReloads,
 	requestHostedReload,
@@ -135,6 +140,18 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 		overruled: (times: number) =>
 			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
 		toAgent,
+		// Beside the follower's own reasons, in the entry it writes them to.
+		tookBack: (reason: string, data: Record<string, unknown>) => {
+			try {
+				pi.appendEntry(WAITING_ENTRY, {
+					reason,
+					...data,
+					at: new Date().toISOString(),
+				});
+			} catch {
+				// A stale runtime has no log to write to.
+			}
+		},
 	};
 
 	// A closed conversation's slots go with it, so its follower stops
