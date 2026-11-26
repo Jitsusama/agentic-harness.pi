@@ -14,7 +14,11 @@ import {
 	ledAreas,
 	ledAreasAt,
 } from "../../../lib/mesh/led-areas.ts";
-import { LONGEST_WORD, routingWords } from "../../../lib/mesh/need-route.ts";
+import {
+	hubTakesNone,
+	LONGEST_WORD,
+	routingWords,
+} from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 
 const NOW = Date.parse("2026-11-25T06:00:00Z");
@@ -198,6 +202,10 @@ describe("the areas each quest led in its landings", () => {
 	it("leaves out an area named by a word routing passes over", () => {
 		expect(routingWords("agentic-harness.pi:lib/most")).toEqual([]);
 		expect(
+			hubTakesNone("agentic-harness.pi:lib/most"),
+			"its hub takes none",
+		).toBe(true);
+		expect(
 			led([
 				merge("QEST-A", ["lib/most", "lib/mesh"]),
 				merge("QEST-A", ["lib/most", "lib/mesh"], 1),
@@ -211,6 +219,10 @@ describe("the areas each quest led in its landings", () => {
 		const long = `lib/${"a".repeat(LONGEST_WORD + 1)}-lines`;
 		expect(routingWords(`agentic-harness.pi:${long}`)).toEqual(["lines"]);
 		expect(
+			hubTakesNone(`agentic-harness.pi:${long}`),
+			"its hub takes none, though it routes a word",
+		).toBe(true);
+		expect(
 			led([
 				merge("QEST-A", [long, "lib/mesh"]),
 				merge("QEST-A", [long, "lib/mesh"], 1),
@@ -223,10 +235,14 @@ describe("the areas each quest led in its landings", () => {
 			{ length: MOST_SUBJECTS + 3 },
 			(_, i) => `lib/area${i}`,
 		);
-		// Each area must give routing a word, or it is left out and the
-		// test fails as an ordering fault rather than naming the cause.
+		// Each area's hub must take a need, the rule an area is left out
+		// by, or the test fails as an ordering fault rather than naming
+		// the cause (#2220's sixth council, F48).
 		for (const area of [...areas, "lib/mesh"]) {
-			expect(routingWords(`agentic-harness.pi:${area}`)).not.toEqual([]);
+			expect(
+				hubTakesNone(`agentic-harness.pi:${area}`),
+				`the hub of ${area} takes a need`,
+			).toBe(false);
 		}
 		const landings = [
 			...[0, 1].map((d) => merge("QEST-A", areas, d)),

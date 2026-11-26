@@ -12,7 +12,10 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { questAddress } from "../../../../lib/mesh/address.ts";
 import { LONGEST_WORD } from "../../../../lib/mesh/need-route.ts";
-import { MOST_SUBJECTS } from "../../../../lib/mesh/subjects.ts";
+import {
+	LONGEST_SUBJECT,
+	MOST_SUBJECTS,
+} from "../../../../lib/mesh/subjects.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
@@ -124,7 +127,9 @@ describe("the subjects a quest's sessions declare", () => {
 		const tooLong = await run({
 			action: "config",
 			id,
-			ref: `subjects=${"x".repeat(121)}`,
+			// One that routes, so only the length refuses it (#2220's sixth
+			// council, F50).
+			ref: `subjects=x:${"lines-".repeat(20)}lines`,
 		});
 		expect(
 			[tooMany.ok, tooLong.ok, subjectsOf(id)],
@@ -132,6 +137,9 @@ describe("the subjects a quest's sessions declare", () => {
 		).toEqual([false, false, undefined]);
 		expect(said(tooMany)).toMatch(
 			new RegExp(`reads at most ${MOST_SUBJECTS} subjects`),
+		);
+		expect(said(tooLong), "refused for its length").toMatch(
+			new RegExp(`at most ${LONGEST_SUBJECT} characters`),
 		);
 	});
 
