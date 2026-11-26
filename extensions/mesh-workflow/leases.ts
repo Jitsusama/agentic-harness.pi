@@ -40,6 +40,8 @@ import {
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
+	leaseSubject,
+	leaseWords,
 	MOST_HOLD_MS,
 	type OwnLeases,
 	othersIn,
@@ -49,7 +51,7 @@ import {
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";
-import { oneLine, plainQuotes } from "../../lib/mesh/one-line.ts";
+import { plainQuotes } from "../../lib/mesh/one-line.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
@@ -82,9 +84,6 @@ export function queueJobs(
 	const dir = machineQueueDir(env);
 	return dir === undefined ? undefined : readQueue(dir)?.jobs;
 }
-
-/** How much of a message a lease keeps as what it is for. */
-const WHY_CHARS = 120;
 
 /** A hold this peer waited on that is over, and how it ended. */
 export interface HoldEnd {
@@ -289,7 +288,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							: "",
 						...rewrote.map(
 							(one) =>
-								`${holders([one])} ${changingText([one.lease])} in ${one.lease.subject}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
+								`${holders([one])} ${changingText([one.lease])} in ${leaseSubject(one.lease.subject)}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
 						),
 					].filter(Boolean);
 					return {
@@ -309,7 +308,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			if (!found) return undefined;
 			const now = Date.now();
 			const { checkout } = found;
-			const run = cut(found.command);
+			const run = leaseWords(found.command);
 			// Asked every time, not only before the first: what another peer
 			// changed since this peer last rewrote it is what a rewrite loses.
 			const overlapping = await untold(
@@ -355,7 +354,12 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					message.fromRealm === undefined &&
 					!sentBy(message, self)
 				) {
-					own.take("answer", message.id, RUN_LEASE_MS, cut(message.text));
+					own.take(
+						"answer",
+						message.id,
+						RUN_LEASE_MS,
+						leaseWords(message.text),
+					);
 				}
 			}
 		},
@@ -395,7 +399,13 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			if (!own || !peer) return;
 			const now = Date.now();
 			if (message.intent === "hold") {
-				own.take("hold", message.id, MOST_HOLD_MS, cut(message.text), now);
+				own.take(
+					"hold",
+					message.id,
+					MOST_HOLD_MS,
+					leaseWords(message.text),
+					now,
+				);
 			}
 			// Answering or replacing its own hold is how a holder ends it.
 			for (const ended of [message.re, message.supersedes]) {
@@ -409,7 +419,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const self = { addresses: peer.addresses, ...senderIdentity() };
 			if (hold?.intent !== "hold" || sentBy(hold, self)) return;
 			const left = standsUntil(hold) - now;
-			if (left > 0) own.take("wait", hold.id, left, cut(message.text), now);
+			if (left > 0) {
+				own.take("wait", hold.id, left, leaseWords(message.text), now);
+			}
 		},
 
 		ended(message) {
@@ -440,11 +452,14 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					if (left > 0) own.take("wait", message.id, left, wait.why);
 					return undefined;
 				}
+				// Quoted, a holder's words keep no quote of theirs that could
+				// close the quote and go on in the harness's own voice.
+				const words = plainQuotes(leaseWords(message.text));
 				return {
 					hold,
 					how: byPerson(ref)
-						? `the person said it is over: "${cut(message.text)}"`
-						: `its holder said "${cut(message.text)}"`,
+						? `the person said it is over: "${words}"`
+						: `its holder said "${words}"`,
 					said: true,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				};
@@ -578,7 +593,7 @@ function holders(
 ): string {
 	const each = held.map(
 		({ holder, lease }, at) =>
-			`${holder.addresses[0] ?? `${at === 0 && opens ? "A" : "a"} peer naming no address`} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${cut(holder.worksOn)}` : ""})`,
+			`${holder.addresses[0] ?? `${at === 0 && opens ? "A" : "a"} peer naming no address`} (since ${clock({ at: lease.since })}${holder.worksOn ? `, working on ${leaseWords(holder.worksOn)}` : ""})`,
 	);
 	return `${each.join(" and ")} ${each.length === 1 ? "is" : "are"}`;
 }
@@ -591,7 +606,7 @@ function holders(
  */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
-	const shown = files.slice(0, 3).map((lease) => oneLine(lease.subject));
+	const shown = files.slice(0, 3).map((lease) => leaseSubject(lease.subject));
 	const more = files.length - shown.length;
 	return [
 		files.length > 0
@@ -601,7 +616,7 @@ function changingText(leases: readonly Lease[]): string {
 			.filter(claimsCheckout)
 			.map((lease) =>
 				lease.why
-					? `working on what \`${plainQuotes(cut(lease.why))}\` left`
+					? `working on what \`${plainQuotes(leaseWords(lease.why))}\` left`
 					: "working on all of them",
 			),
 	]
@@ -650,15 +665,4 @@ export function createEditNotes(): EditNotes {
 			notes.delete(toolCallId);
 		},
 	};
-}
-
-/**
- * A message's words on one line, cut to what a lease keeps, counted
- * whole so a cut never splits a character in two.
- */
-function cut(text: string): string {
-	const each = [...oneLine(text)];
-	return each.length > WHY_CHARS
-		? `${each.slice(0, WHY_CHARS).join("")}...`
-		: each.join("");
 }

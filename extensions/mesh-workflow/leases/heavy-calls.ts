@@ -24,7 +24,11 @@ import {
 	kindOf,
 	whatOf,
 } from "../../../lib/internal/priority/queue.ts";
-import { type LeaseEvent, MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
+import {
+	type LeaseEvent,
+	leaseSubject,
+	MOST_HOLD_MS,
+} from "../../../lib/mesh/lease.ts";
 
 /**
  * How a bash call says it handed its command to the background, in
@@ -61,10 +65,21 @@ function firstWords(command: string): string {
 
 /**
  * Heavy work as a sentence names it: the queue's words for its kind, or
- * the subject itself for one claimed some other way.
+ * the subject itself for one claimed some other way, cut as a lease's
+ * words are, since its holder wrote it as it liked.
  */
 export function heavySaid(subject: string): string {
-	return KIND_SAID[subject as Kind] ?? `heavy work on ${subject}`;
+	return isKind(subject)
+		? KIND_SAID[subject]
+		: `heavy work on ${leaseSubject(subject)}`;
+}
+
+/**
+ * Whether a subject is a kind the queue names, as its own key: one
+ * named for what every object inherits, as `constructor`, is not.
+ */
+function isKind(subject: string): subject is Kind {
+	return Object.hasOwn(KIND_SAID, subject);
 }
 
 /**

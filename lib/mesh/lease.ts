@@ -50,6 +50,7 @@ import {
 	type WholeWritesOptions,
 	wholeWrites,
 } from "../internal/write-whole.ts";
+import { cutMiddle, cutWhole, oneLine } from "./one-line.ts";
 import { checkoutOf, repositoryName } from "./scope.ts";
 import {
 	removeQuietly,
@@ -82,6 +83,30 @@ export interface Lease {
 	readonly why?: string;
 	/** The checkout a change is in, by its path, when it is in one. */
 	readonly checkout?: string;
+}
+
+/**
+ * The most characters of a lease's subject or why said to another
+ * peer: a holder writes both as it likes, and each refused edit and
+ * listing says them, so none floods one.
+ */
+export const LEASE_WORDS_CHARS = 120;
+
+/**
+ * A lease's subject or why as said to another peer: on one line, cut
+ * to `LEASE_WORDS_CHARS` whole characters.
+ */
+export function leaseWords(text: string): string {
+	return cutWhole(oneLine(text), LEASE_WORDS_CHARS);
+}
+
+/**
+ * A lease's subject as said to another peer: on one line, cut in the
+ * middle to `LEASE_WORDS_CHARS` whole characters, since subjects are
+ * paths and checkouts that share a long head and differ at the end.
+ */
+export function leaseSubject(text: string): string {
+	return cutMiddle(oneLine(text), LEASE_WORDS_CHARS);
 }
 
 /** Whether a change lease claims its whole checkout, not one file. */

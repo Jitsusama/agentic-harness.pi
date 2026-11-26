@@ -10,6 +10,8 @@ import {
 	type Holding,
 	isCurrent,
 	type Lease,
+	leaseSubject,
+	leaseWords,
 	ownerOf,
 } from "../../../lib/mesh/lease.ts";
 import { clock, shortId } from "../../../lib/mesh/message.ts";
@@ -72,14 +74,16 @@ function describeAll(leases: readonly Lease[]): string {
 	const changes = leases.filter(
 		(lease) => lease.kind === "change" && !claimsCheckout(lease),
 	);
-	const shown = changes.slice(0, 3).map((lease) => lease.subject);
+	// A holder writes its subjects and whys as it likes, so each is cut
+	// as a lease's words are, and none floods the listing.
+	const shown = changes.slice(0, 3).map((lease) => leaseSubject(lease.subject));
 	const more = changes.length - shown.length;
 	const changing = [
 		...leases
 			.filter(claimsCheckout)
 			.map(
 				(lease) =>
-					`rewrote the files of ${lease.subject}${lease.why ? ` (${lease.why})` : ""}`,
+					`rewrote the files of ${leaseSubject(lease.subject)}${lease.why ? ` (${leaseWords(lease.why)})` : ""}`,
 			),
 		...(changes.length > 0
 			? [`changing ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`]
@@ -89,7 +93,7 @@ function describeAll(leases: readonly Lease[]): string {
 		.filter((lease) => lease.kind !== "change")
 		.map((lease) => {
 			const id = `[${shortId({ id: lease.subject })}]`;
-			const why = lease.why ? ` (${lease.why})` : "";
+			const why = lease.why ? ` (${leaseWords(lease.why)})` : "";
 			switch (lease.kind) {
 				case "answer":
 					return `answering ${id}${why}`;

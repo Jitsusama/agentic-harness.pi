@@ -497,16 +497,17 @@ function lineageSaid(splitFrom: string | undefined): { lineage?: Lineage } {
 /** How far up a quest's parents are followed, against a loop. */
 const MOST_PARENTS = 8;
 
-/** What this session's peer works on and owns, from its quest. */
+/**
+ * What this session's peer works on and owns, from its quest, before
+ * the groups it joined: those come after (`ownsWith`), once its scopes
+ * say how many of them it has room for.
+ */
 export function workOf(
 	sessionId: string,
-	groups: readonly string[],
 	cwd: string,
 	records: QuestRecords,
 ): PeerWork {
 	const here = cwd !== homedir() ? [basename(cwd)] : [];
-	// Owned as a message would mention them: harness, not #harness.
-	const named = groups.map((group) => group.slice(1));
 	const checkout = checkoutOf(cwd);
 	const runsIn = checkout ? [repositoryName(checkout)] : [];
 	const quest = loadedQuest(sessionId, records.sessions);
@@ -516,7 +517,7 @@ export function workOf(
 		return {
 			...(repo ? { repo } : {}),
 			worksOn: `the work in ${cwd}`,
-			owns: [...new Set([...runsIn, ...here, ...named])],
+			owns: [...new Set([...runsIn, ...here])],
 			scopes: scopesOf({ questChain: [], repositories: runsIn }),
 			orchestration: {},
 		};
@@ -545,7 +546,7 @@ export function workOf(
 		},
 		...(repo ? { repo } : {}),
 		worksOn: parsed.worksOn,
-		owns: [...new Set([quest, ...repositories, ...here, ...named])],
+		owns: [...new Set([quest, ...repositories, ...here])],
 		scopes: scopesOf({
 			questChain: questChain(quest, parsed.frontMatter.parent, read),
 			repositories,
@@ -568,6 +569,17 @@ export function workOf(
 			: servesSaid(servedFrom(parsed.frontMatter._extra?.serves))),
 		...lineageSaid(splitFromOf(parsed.frontMatter._extra?.[SPLIT_FROM])),
 	};
+}
+
+/**
+ * What a peer owns from its work and the joined `groups` in force, each
+ * owned as a message would mention it: harness, not #harness.
+ */
+export function ownsWith(
+	owns: readonly string[],
+	groups: readonly string[],
+): string[] {
+	return [...new Set([...owns, ...groups.map((group) => group.slice(1))])];
 }
 
 /** The needs taken as a presence or its work says them: left out when none. */
@@ -913,6 +925,63 @@ export function joinRefused(
 	if (!isJoinable(group)) return "unjoinable";
 	if (groups.includes(group) || groups.length < MOST_GROUPS) return undefined;
 	return hears(groups, group) ? "heard" : "full";
+}
+
+/**
+ * The groups of `joined` a peer in `scopes` keeps, so the two together
+ * name at most `MOST_GROUPS`. A scope comes of a quest loaded or a tree
+ * gained, at a refresh no join is asked about, so a full peer gaining
+ * one lets go of the joined groups that sort last rather than have its
+ * presence drop whatever sorts last, as often its quest's own scope.
+ * A joined group that is also a scope costs no room.
+ */
+export function joinedWithin(
+	scopes: readonly string[],
+	joined: readonly string[],
+): string[] {
+	const scoped = new Set(scopes);
+	const room = Math.max(0, MOST_GROUPS - scoped.size);
+	const kept = new Set(
+		[...joined]
+			.filter((group) => !scoped.has(group))
+			.sort()
+			.slice(0, room),
+	);
+	return joined.filter((group) => scoped.has(group) || kept.has(group));
+}
+
+/** The set-aside groups named in `roomToJoin`; the rest are counted. */
+const ROOM_NAMES = 3;
+
+/**
+ * What a peer in the most groups does to join one more, holding
+ * `setAside`, as words after "so": each leave gives its room to the
+ * set-aside group that sorts first (`joinedWithin`), so it leaves one
+ * more than it holds aside.
+ */
+export function roomToJoin(setAside: readonly string[]): string {
+	if (setAside.length === 0) {
+		return "leave one it no longer works on with mesh_leave";
+	}
+	const named = setAside.slice(0, ROOM_NAMES).join(", ");
+	const more = setAside.length - ROOM_NAMES;
+	const aside = more > 0 ? `${named} and ${more} more` : named;
+	return `leave ${setAside.length + 1} of the groups it joined and no longer works on with mesh_leave, set aside or not, since those it set aside (${aside}) take any room first`;
+}
+
+/**
+ * What a peer holding `setAside` does to hear `group` again, one of
+ * them, as words after "so": set-aside groups come back in sort order,
+ * so each leave of a group it hears makes room for one, and each leave
+ * of one set aside before it takes one from the line ahead.
+ */
+export function roomToBringBack(
+	setAside: readonly string[],
+	group: string,
+): string {
+	const leaves = Math.max(setAside.indexOf(group), 0) + 1;
+	const which = leaves === 1 ? "one of the groups" : `${leaves} of the groups`;
+	return `leave ${which} it joined and no longer works on with mesh_leave, heard or set aside before it, and it comes back by itself`;
 }
 
 /**

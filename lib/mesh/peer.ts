@@ -57,8 +57,10 @@ import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
 import {
 	type FenceKind,
+	joinedWithin,
 	joinRefused,
 	type Lineage,
+	ownsWith,
 	type PeerState,
 	type Presence,
 	type PresenceLeases,
@@ -88,12 +90,21 @@ export interface Peer {
 	readonly addresses: readonly string[];
 	/** The address it signs with. */
 	readonly signature: string;
-	/** Every group it is in, its scopes and those it joined, sorted. */
+	/**
+	 * Every group it is in, its scopes and those it joined, sorted, less
+	 * any joined group set aside (`setAside`).
+	 */
 	readonly groups: readonly string[];
 	/** The groups its work puts it in, sorted. */
 	readonly scopes: readonly string[];
-	/** The groups it joined itself, sorted. */
+	/** The groups it joined itself, sorted, set aside or not. */
 	readonly joined: readonly string[];
+	/**
+	 * The groups it joined that its scopes leave no room for, sorted: it
+	 * hears none of them, but they stay its choice and are in force again
+	 * once there is room (`joinedWithin`).
+	 */
+	readonly setAside: readonly string[];
 	/** The peers it has stopped reaching it (see stop.ts). */
 	readonly stops: readonly Stop[];
 	/** Who messages reach, as `reaches` asks. */
@@ -212,8 +223,9 @@ export interface Peer {
 	/** Keep this usage, said with the next presence written (usage.ts). */
 	setUsage(usage: SessionUsage): void;
 	/**
-	 * Join a canonical group; answers whether it was new. One it may not
-	 * join (`joinRefused`) is not joined, and answers false too.
+	 * Join a canonical group; answers whether it was new and is in force.
+	 * One it may not join (`joinRefused`) is not joined, and answers false
+	 * too, as does one the refresh after it must set aside at once.
 	 */
 	join(group: string): boolean;
 	/**
@@ -276,6 +288,16 @@ export interface Surroundings {
 	 * led-areas.ts). Left out, it says none.
 	 */
 	readonly ledAreas?: (quest: string) => readonly string[];
+	/**
+	 * Told the joined groups a refresh newly sets aside (`setAside`), as a
+	 * scope gained at a refresh no join is asked about, so the session
+	 * knows it no longer hears them, at its first refresh too for a scope
+	 * gained while it was down. Not told of those its last presence held
+	 * aside, which it was told of then, nor of a group its own join sets
+	 * aside at once, which mesh_join says. One that throws is told again
+	 * at the next refresh.
+	 */
+	readonly onSetAside?: (groups: readonly string[]) => void;
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -632,7 +654,10 @@ export function localPeer(at: Surroundings): Peer {
 		);
 	const personal = () => [...wanting.values()].filter(forPerson);
 	let usage = carriedUsage(before?.usage, new Date(now()));
-	const groups = () => [...new Set([...scopes, ...joined])].sort();
+	// The joined groups in force: its scopes go first, as its work puts
+	// it there, and those past the room are set aside, still its choice.
+	const inForce = () => joinedWithin(scopes, joined);
+	const groups = () => [...new Set([...scopes, ...inForce()])].sort();
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
 	let published: string | undefined;
@@ -705,6 +730,15 @@ export function localPeer(at: Surroundings): Peer {
 		}
 	};
 	let yieldedTo: Presence | undefined;
+	// The joined groups last found set aside, first those its last
+	// presence held aside, which it was told of then, so a scope gained
+	// while it was down is told at its first refresh; and the group a
+	// join is adding, said by the join itself.
+	const heardBefore = new Set(before?.groups ?? []);
+	let aside: ReadonlySet<string> = new Set(
+		(before?.joined ?? []).filter((group) => !heardBefore.has(group)),
+	);
+	let joining: string | undefined;
 	const refresh = (listed?: readonly Presence[]) => {
 		const everyone = listed ?? at.presences.all();
 		// Another process wrote this peer's file: on 10 November a plain pi
@@ -736,12 +770,22 @@ export function localPeer(at: Surroundings): Peer {
 			yieldedTo !== undefined,
 		);
 		signsSince = signingSince(signing, addresses, heldSince, now());
-		const work = workOf(at.session, joined, at.cwd, at.records);
+		const work = workOf(at.session, at.cwd, at.records);
 		scopes = [...work.scopes];
+		// A scope this refresh brought may leave no room for every joined
+		// group; it owns only those in force, and those set aside stay
+		// joined to come back once there is room.
+		const kept = joinedWithin(scopes, joined);
+		const inForceNow = new Set(kept);
+		const nowAside = joined.filter((group) => !inForceNow.has(group));
+		const newly = nowAside.filter(
+			(group) => !aside.has(group) && group !== joining,
+		);
+		aside = new Set(nowAside);
 		receiver = {
 			addresses,
 			worksOn: work.worksOn,
-			owns: work.owns,
+			owns: ownsWith(work.owns, kept),
 			...(work.hears ? { hears: work.hears } : {}),
 		};
 		roles = withLiveSteward(
@@ -779,6 +823,15 @@ export function localPeer(at: Surroundings): Peer {
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
+		// Told last, so the peer it tells of is whole and published first.
+		if (newly.length === 0) return;
+		try {
+			at.onSetAside?.(newly);
+		} catch {
+			// Untold, as a stale pi throws once a reload replaced it: the next
+			// refresh tells them, and the caller's refresh still stands.
+			aside = new Set(nowAside.filter((group) => !newly.includes(group)));
+		}
 	};
 	refresh();
 	if (readOff) {
@@ -810,6 +863,10 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get joined() {
 			return joined;
+		},
+		get setAside() {
+			const kept = new Set(inForce());
+			return joined.filter((group) => !kept.has(group));
 		},
 		get stops() {
 			return stops;
@@ -962,8 +1019,14 @@ export function localPeer(at: Surroundings): Peer {
 			if (joined.includes(group)) return false;
 			if (joinRefused(groups(), group) !== undefined) return false;
 			joined = [...joined, group].sort();
-			refresh();
-			return true;
+			joining = group;
+			try {
+				refresh();
+			} finally {
+				// Only this join's own refresh leaves its group untold.
+				joining = undefined;
+			}
+			return groups().includes(group);
 		},
 		leave(group) {
 			if (!joined.includes(group)) return false;

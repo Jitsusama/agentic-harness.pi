@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createBoard } from "../../../../lib/mesh/lease.ts";
+import { createBoard, LEASE_WORDS_CHARS } from "../../../../lib/mesh/lease.ts";
 import { endTurn } from "../../../support/turn-end.ts";
 import {
 	fixture,
@@ -197,6 +197,35 @@ describe("a lease", () => {
 		expect(told[0]?.text).toMatch(
 			/is about to run `git reset --hard` in .*, which rewrites its files while this peer is changing /,
 		);
+	});
+
+	// A holder names the files it changes as it likes, so each is cut,
+	// and none floods what the rewrite is refused with. Files in one
+	// checkout share its long head, so the cut keeps each one's tail
+	// (#2243's fourth council, F4 and F19).
+	it("says a long file another peer changes cut short when a rewrite is stopped", async () => {
+		mkdirSync(join(fixture.root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		const subject = join(fixture.root, `${"x".repeat(300)}.ts`);
+		leased("session-w", { checkout: fixture.root, subject });
+		const { fire } = await startSession();
+
+		const first = (await fire(
+			"tool_call",
+			{
+				type: "tool_call",
+				toolName: "bash",
+				toolCallId: "b",
+				input: { command: "git reset --hard" },
+			},
+			{ cwd: fixture.root },
+		)) as { reason?: string } | undefined;
+
+		const half = LEASE_WORDS_CHARS / 2;
+		expect(first?.reason).toContain(
+			`is changing ${subject.slice(0, half)}...${subject.slice(-half)}`,
+		);
+		expect(first?.reason).not.toContain(subject);
 	});
 
 	it("lets a rewrite go ahead beside a peer in another checkout, or one that has ended", async () => {

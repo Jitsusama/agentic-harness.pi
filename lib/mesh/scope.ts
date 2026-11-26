@@ -24,12 +24,14 @@
  * attention it gives.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { keptTreesHeldBy } from "../internal/work-records.ts";
 import { questAddress } from "./address.ts";
+import { MOST_GROUP_CHARS } from "./group.ts";
 
 /** What a peer's scopes are worked out from. */
 export interface Work {
@@ -47,6 +49,42 @@ export interface Work {
 /** The deepest quest group that is written out; deeper is very rare. */
 const MOST_QUEST_LEVELS = 6;
 
+/** What a repository's group is named after. */
+const REPO_GROUP = "#repo/";
+
+/** How many hex digits of a long name's hash its cut group ends with. */
+const MARK_CHARS = 6;
+
+/**
+ * A part cut so a group naming it after `before` characters runs no
+ * longer than `MOST_GROUP_CHARS`, with no dash left hanging. A longer
+ * group is dropped from every presence and refused as a send's
+ * recipient, so its peers would share none; cut, every peer in the
+ * same repository still names the same one. A cut part ends with a
+ * short hash of the whole, so two long names sharing their head still
+ * name two groups.
+ */
+function fitted(name: string, before: number): string {
+	const room = MOST_GROUP_CHARS - before;
+	if (name.length <= room) return name;
+	const mark = createHash("sha256")
+		.update(name)
+		.digest("hex")
+		.slice(0, MARK_CHARS);
+	const head = name.slice(0, room - MARK_CHARS - 1).replace(/-+$/, "");
+	return head ? `${head}-${mark}` : mark;
+}
+
+/**
+ * The group of the repository `name`, as `#repo/agentic-harness-pi`,
+ * cut to the most a group may run (`fitted`), so a scope, a landing
+ * note and a hold all name the same one; none for a name with no part.
+ */
+export function repositoryGroup(name: string): string | undefined {
+	const cut = fitted(part(name), REPO_GROUP.length);
+	return cut ? `${REPO_GROUP}${cut}` : undefined;
+}
+
 /** The groups this work puts a peer in, canonical and sorted. */
 export function scopesOf(work: Work): string[] {
 	const quest = [...work.questChain]
@@ -55,9 +93,8 @@ export function scopesOf(work: Work): string[] {
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean);
 	const repositories = work.repositories
-		.map(part)
-		.filter(Boolean)
-		.map((name) => `#repo/${name}`);
+		.map(repositoryGroup)
+		.filter((group) => group !== undefined);
 	const orchestrations = (work.orchestrations ?? [])
 		.map((id) => part(questAddress(id)))
 		.filter(Boolean)

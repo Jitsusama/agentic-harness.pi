@@ -16,7 +16,8 @@
 
 import { ALL } from "../../mesh/group.ts";
 import { MOST_HOLD_MS } from "../../mesh/lease.ts";
-import { part, scopesOf } from "../../mesh/scope.ts";
+import { cutWhole, oneLine, plainQuotes } from "../../mesh/one-line.ts";
+import { repositoryGroup, scopesOf } from "../../mesh/scope.ts";
 import { describeReach, type Reach, type Stop } from "./stops.ts";
 
 /** The address every stop's hold is sent from. */
@@ -120,8 +121,14 @@ function groupsOfReach(
 	}
 }
 
+/**
+ * The group of a repository, `owner/name` or `name`, as its sessions'
+ * scopes name it, cut as theirs is. A name with no letter or digit gives
+ * no group, and goes to everyone as any reach the stop can't read does
+ * (stops.ts), since a stop that parks nobody would fail without a word.
+ */
 function repoGroup(repo: string): string {
-	return `#repo/${part(repo.split("/").at(-1) ?? repo)}`;
+	return repositoryGroup(repo.split("/").at(-1) ?? repo) ?? ALL;
 }
 
 /** Whether a stop's hold is sent in `realm`'s mesh. */
@@ -142,7 +149,11 @@ function oneChange(stop: Stop): boolean {
 /** A hold's words: who stopped what, what that means, and what to say. */
 export function holdText(stop: Stop): string {
 	const who = stop.saidBy ? `${stop.saidBy} said` : "Someone said";
-	const words = stop.words ? ` "${oneLine(stop.words)}"` : "";
+	// Quoted, the words keep no quote of theirs that could close the
+	// quote and go on as the harness's own.
+	const words = stop.words
+		? ` "${plainQuotes(cutWhole(oneLine(stop.words), WORDS_SHOWN))}"`
+		: "";
 	const where = stop.where ? ` (${stop.where})` : "";
 	const reaches = stop.reaches.map(describeReach).join(", ");
 	const meaning = oneChange(stop)
@@ -155,12 +166,8 @@ export function holdText(stop: Stop): string {
 export const END_TEXT =
 	"Joel resumed this safe-word stop: its writes may go again. Before writing where it stood, check what changed while it did.";
 
-/** How much of a stop's words a hold quotes. */
+/**
+ * How many whole characters of a stop's words a hold quotes, on one
+ * line, as every other peer's words are said.
+ */
 const WORDS_SHOWN = 200;
-
-function oneLine(text: string): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > WORDS_SHOWN
-		? `${flat.slice(0, WORDS_SHOWN - 3)}...`
-		: flat;
-}

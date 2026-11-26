@@ -36,7 +36,11 @@ import {
 import type { Message } from "../../../lib/mesh/message.ts";
 import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
-import { questEnded, windowTitle } from "../../../lib/mesh/presence.ts";
+import {
+	MOST_GROUPS,
+	questEnded,
+	windowTitle,
+} from "../../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
 import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
 import { ownerLinesAt, ownersFile } from "../../../lib/mesh/subjects.ts";
@@ -75,6 +79,17 @@ const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
 
 /** The name the mesh carries its peer's session under across a rollover. */
 export const CARRY_NAME = "mesh";
+
+/** What a session is told when its work sets joined groups aside. */
+export const SET_ASIDE = "mesh-set-aside";
+
+/**
+ * What a session is told of the joined `groups` a refresh set aside: it
+ * hears none of them now, and why, and that they come back by themselves.
+ */
+export function setAsideSaid(groups: readonly string[]): string {
+	return `This peer set aside ${groups.join(", ")}, which it joined: its work's groups now leave no room among the ${MOST_GROUPS} a peer may be in, so it hears nothing there until there is room again, when the set-aside groups that sort first come back by themselves. mesh_groups says what it is in; mesh_leave lets go of a group it no longer works on.`;
+}
 
 /** The session a rolled-over log carried on from, as the mesh carried it. */
 /**
@@ -211,6 +226,20 @@ export function onSessionStart(
 			owners: () => ownerLinesAt(ownersFile(m.env)),
 			// The areas its quest led in the machine's landings, kept beside them.
 			ledAreas: (quest) => ledAreasAt(m.paths.mesh, quest),
+			// A scope gained in the background, as a tree or a quest, can leave
+			// no room for groups it joined, so it is told it no longer hears
+			// them rather than finding out only from mesh_groups. Steered, it
+			// waits for a run's tool calls to finish and starts no turn while
+			// the session is idle, as it asks nothing of it now.
+			onSetAside: (groups) =>
+				m.pi.sendMessage(
+					{
+						customType: SET_ASIDE,
+						content: setAsideSaid(groups),
+						display: true,
+					},
+					{ deliverAs: "steer" },
+				),
 		});
 		for (const want of m.wanting.values()) m.peer.want(want);
 		// A move asked before a reload goes on waiting for the session.

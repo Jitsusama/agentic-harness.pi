@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isName, oneLine, plainQuotes } from "../../../lib/mesh/one-line.ts";
+import {
+	cutMiddle,
+	isName,
+	oneLine,
+	plainQuotes,
+} from "../../../lib/mesh/one-line.ts";
 
 describe("oneLine", () => {
 	it.each([
@@ -93,5 +98,23 @@ describe("plainQuotes", () => {
 		expect(plainQuotes("caf\u00E9 na\u0303o (a, b; c)")).toBe(
 			"caf\u00E9 na\u0303o (a, b; c)",
 		);
+	});
+});
+
+// Paths in one checkout share a long head, so a cut keeps each one's
+// tail as well (#2243's fourth council, F4 and F19).
+describe("cutMiddle", () => {
+	it("keeps text at the bound whole", () => {
+		expect(cutMiddle("abcd", 4)).toBe("abcd");
+	});
+
+	it("keeps the head and the tail of longer text", () => {
+		expect(cutMiddle("abcdefg", 4)).toBe("ab...fg");
+		expect(cutMiddle("abcdefg", 3), "the odd one to the head").toBe("ab...g");
+	});
+
+	it("counts characters past the basic plane whole at either end", () => {
+		const cut = cutMiddle("a\u{1F344}xyz\u{1F344}b", 4);
+		expect(cut).toBe("a\u{1F344}...\u{1F344}b");
 	});
 });

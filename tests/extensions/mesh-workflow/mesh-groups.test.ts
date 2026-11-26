@@ -8,6 +8,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { SET_ASIDE } from "../../../extensions/mesh-workflow/peer/start.ts";
 import {
 	listable,
 	peersText,
@@ -1094,6 +1095,24 @@ describe("a peer reads what it writes to", () => {
 		);
 	}, 30_000);
 
+	// The part joined for the first recipient hears the second, so the
+	// second is not called unheard though it could not be joined.
+	it("says nothing is unheard that a part it just joined hears", async () => {
+		peer("session-p", ["P9R1KI"], ["#ops/power", "#ops"]);
+		const { tools } = await startSession();
+		for (let at = 0; at <= MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+		await tools.get("mesh_leave")?.execute("call-leave", { group: "#many-0" });
+
+		const answer = await send(tools, "#ops/power, #ops", "fyi", "rebooting");
+
+		expect(answer).toContain("This peer is in #ops/power now");
+		expect(answer).not.toContain("won't hear the answers");
+	}, 30_000);
+
 	// No peer can join a group that long, so nobody would ever read it.
 	it("refuses a send to a group longer than any peer may join", async () => {
 		const { tools } = await startSession();
@@ -1185,6 +1204,42 @@ describe("an invitation", () => {
 		).not.toContain("#jobs");
 	});
 
+	// A guard, passing before the home rule too: it hears the group
+	// already, so the inviter asks nothing of its room and invites it.
+	it("invites a full peer that hears the group through a part of it", async () => {
+		const many = Array.from(
+			{ length: MOST_GROUPS - 1 },
+			(_, at) => `#many-${at}`,
+		);
+		peer("session-p", ["P9R1KI"], [...many, "#jobs/night"]);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Invited P9R1KI.");
+		expect(text).not.toContain("Not invited");
+	});
+
+	// An invite to a home reaches every session that goes by it, so one
+	// full session there keeps none of the others from it.
+	it("invites a home that one session there is too full to join", async () => {
+		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
+		peer("session-p", ["P9R1KI"], many);
+		peer("session-q", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#jobs", invite: "p9r1ki" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("Invited P9R1KI.");
+		expect(text).not.toContain("Not invited");
+	});
+
 	it("invites a peer with room beside one already in the most groups", async () => {
 		const many = Array.from({ length: MOST_GROUPS }, (_, at) => `#many-${at}`);
 		peer("session-p", ["P9R1KI"], many);
@@ -1245,6 +1300,57 @@ describe("an invitation", () => {
 		expect(
 			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
 		).not.toContain("#jobs");
+	}, 30_000);
+
+	// A quest loaded in the background brings scopes no join is asked
+	// about, so the session is told what it set aside, steered past its
+	// run's tool calls (#2243's fifth council, F2, F9 and F22).
+	it("tells the session of the groups a quest loaded sets aside", async () => {
+		const { sent, tools } = await startSession();
+		for (let at = 0; at < MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+		const before = sent.length;
+		onQuest();
+
+		await tools.get("mesh_groups")?.execute("call-groups", {});
+
+		const told = sent
+			.slice(before)
+			.filter((one) => one.message.customType === SET_ASIDE);
+		expect(told, "told once").toHaveLength(1);
+		expect(told[0]?.message.content).toContain("This peer set aside #many-");
+		expect(told[0]?.message.display, "shown").toBe(true);
+		expect(told[0]?.options).toEqual({ deliverAs: "steer" });
+	}, 30_000);
+
+	// Joined already, a set-aside group waits for room, so the invite
+	// neither says it couldn't join nor asks it to join again (F8).
+	it("tells a peer brought into a group it set aside that it waits for room", async () => {
+		const { sent, tools } = await startSession();
+		for (let at = 0; at < MOST_GROUPS; at += 1) {
+			await tools
+				.get("mesh_join")
+				?.execute(`call-${at}`, { group: `#many-${at}` });
+		}
+		onQuest();
+		await tools.get("mesh_groups")?.execute("call-groups", {});
+		const before = sent.length;
+
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@7M6JKG"],
+			text: "P9R1KI brings this peer into #many-9. It is in #many-9 from now on.",
+			invite: "#many-9",
+		});
+
+		await vi.waitFor(() => expect(sent.length).toBeGreaterThan(before));
+		const text = String(sent.at(-1)?.message.content ?? "");
+		expect(text).toContain("It joined #many-9 before, but set it aside");
+		expect(text).not.toContain("couldn't join");
+		expect(text).not.toContain("then join with mesh_join");
 	}, 30_000);
 
 	// In #jobs/heavy it hears what is said in #jobs already.

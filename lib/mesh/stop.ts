@@ -25,6 +25,7 @@
  */
 
 import type { Message } from "./message.ts";
+import { cutWhole } from "./one-line.ts";
 import type { Presence } from "./presence.ts";
 
 /** One stop a peer has set. */
@@ -53,10 +54,7 @@ export const STOP_WHY_CHARS = 200;
  * a cut never splits one in two.
  */
 function whyCut(why: string): string {
-	const each = [...why];
-	return each.length > STOP_WHY_CHARS
-		? `${each.slice(0, STOP_WHY_CHARS).join("")}...`
-		: why;
+	return cutWhole(why, STOP_WHY_CHARS);
 }
 
 /** The stops in a presence as read from outside, keeping the valid. */

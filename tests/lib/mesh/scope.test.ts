@@ -12,9 +12,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { groupNamed, hears } from "../../../lib/mesh/group.ts";
+import {
+	groupNamed,
+	hears,
+	isJoinable,
+	MOST_GROUP_CHARS,
+} from "../../../lib/mesh/group.ts";
 import {
 	part,
+	repositoryGroup,
 	repositoryKey,
 	repositoryName,
 	scopesOf,
@@ -54,6 +60,39 @@ describe("a peer's scopes", () => {
 		})) {
 			expect(groupNamed(scope)).toBe(scope);
 		}
+	});
+
+	// A presence drops a group longer than one may run, and a send to
+	// one is refused, so a long repository name is cut to fit where its
+	// group is made, the same for every peer in it (#2217's third council).
+	// The head it keeps ends on a dash, which the cut lets go before the
+	// hash of the whole name (#2243's fourth council, F5, F13 and F21).
+	it("cut a long repository's group to the most a group may run", () => {
+		const name = `ab-${"long-name-".repeat(12)}repo`;
+		const [scope = ""] = scopesOf({ questChain: [], repositories: [name] });
+
+		expect(scope.length).toBeLessThanOrEqual(MOST_GROUP_CHARS);
+		expect(isJoinable(scope), "a peer can join it").toBe(true);
+		expect(groupNamed(scope), "it reads back as itself").toBe(scope);
+		expect(scope, "no dash left hanging, then its hash").toBe(
+			`#repo/ab-${"long-name-".repeat(8).slice(0, -1)}-53e94a`,
+		);
+		expect(repositoryGroup(name), "as every other site names it").toBe(scope);
+	});
+
+	// Cut to their head alone, two long names sharing it would name one
+	// group, and hear each other's landings and holds.
+	it("keep two long repositories sharing their head in two groups", () => {
+		const head = "long-name-".repeat(10);
+		const one = repositoryGroup(`${head}one`);
+		const other = repositoryGroup(`${head}other`);
+
+		expect(one, "cut to fit").toMatch(/^#repo\/long-name-/);
+		expect(other, "a group of its own").not.toBe(one);
+		expect((one ?? "").length <= MOST_GROUP_CHARS, `${one} fits`).toBe(true);
+		expect((other ?? "").length <= MOST_GROUP_CHARS, `${other} fits`).toBe(
+			true,
+		);
 	});
 
 	it("give each orchestration it is in its group, named by the orchestrator's address", () => {

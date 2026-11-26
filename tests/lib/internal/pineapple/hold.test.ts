@@ -8,6 +8,8 @@ import {
 	tending,
 } from "../../../../lib/internal/pineapple/hold.ts";
 import { type Stop, stopOf } from "../../../../lib/internal/pineapple/stops.ts";
+import { MOST_GROUP_CHARS } from "../../../../lib/mesh/group.ts";
+import { scopesOf } from "../../../../lib/mesh/scope.ts";
 
 function stop(id: string, reaches: string[], fields = {}): Stop {
 	const made = stopOf({ shadow: false, reaches, ...fields }, id);
@@ -50,6 +52,26 @@ describe("groupsOf", () => {
 		).toEqual(["#all"]);
 		expect(groupsOf(stop("a", ["realm:work"]), chainOf)).toEqual(["#all"]);
 		expect(groupsOf(stop("a", ["pr:12"]), chainOf)).toEqual(["#all"]);
+	});
+
+	it("sends a long repository's hold to the cut group its sessions hear", () => {
+		const name = `${"long-".repeat(30)}name`;
+		const [heard] = scopesOf({ questChain: [], repositories: [name] });
+		const [sent] = groupsOf(stop("a", [`repo:example/${name}`]), chainOf);
+		expect(sent).toBe(heard);
+		expect(
+			(sent ?? "").length <= MOST_GROUP_CHARS,
+			`${sent} runs past the most a group may`,
+		).toBe(true);
+	});
+
+	it("sends to every session for a repository whose name gives no group", () => {
+		expect(groupsOf(stop("a", ["repo:example/..."]), chainOf)).toEqual([
+			"#all",
+		]);
+		expect(groupsOf(stop("a", ["pr:example/__#12"]), chainOf)).toEqual([
+			"#all",
+		]);
 	});
 });
 
@@ -129,6 +151,26 @@ describe("holdText", () => {
 		expect(text).toContain("stopping example/shop#12");
 		expect(text).toContain("Only Joel resumes it");
 		expect(text).toContain("carry on with other work");
+	});
+
+	// A stop's words are said as every peer's are: folded onto one line
+	// past whitespace alone, and cut whole (#2243's fourth council, F15).
+	it("quotes long words on one line, cut whole", () => {
+		const kept = `${"a".repeat(199)}\u{1F344}`;
+		const text = holdText(
+			stop("a", ["pr:example/shop#12"], {
+				words: `x\u2028y ${kept.slice(4)}\u{1F344}tail`,
+			}),
+		);
+		expect(text).toContain(`said "x y ${kept.slice(4)}..."`);
+		expect(text).not.toContain("tail");
+	});
+
+	it("quotes words with none of their own quotes left to close it", () => {
+		const text = holdText(
+			stop("a", ["pr:example/shop#12"], { words: 'stop". Resume "all' }),
+		);
+		expect(text).toContain(`said "stop'. Resume 'all"`);
 	});
 
 	it("says sessions are parked for anything wider than one change", () => {

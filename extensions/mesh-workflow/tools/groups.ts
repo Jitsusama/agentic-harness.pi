@@ -22,6 +22,8 @@ import {
 	joinRefused,
 	MOST_GROUPS,
 	type Presence,
+	roomToBringBack,
+	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
@@ -39,10 +41,18 @@ export async function join(
 			`${params.group} is not a group to join: name one of at most ${MOST_GROUP_CHARS} characters with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
 		);
 	}
+	// Joined already, it waits its turn for room rather than being
+	// refused as full, and is told what brings it back.
+	if (at.peer.setAside.includes(group)) {
+		return answer(
+			`Already joined ${group}, but set aside: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears nothing there yet. To hear it, ${roomToBringBack(at.peer.setAside, group)}. ${LISTED_IN_GROUPS}`,
+			{ groups: at.peer.groups },
+		);
+	}
 	const refused = joinRefused(at.peer.groups, group);
 	if (refused === "full") {
 		return answer(
-			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in. Leave one it no longer works on first. ${LISTED_IN_GROUPS}`,
+			`Not in ${group}: this peer is in ${at.peer.groups.length} groups, the most a peer may be in, so ${roomToJoin(at.peer.setAside)} first. ${LISTED_IN_GROUPS}`,
 			{ groups: at.peer.groups },
 		);
 	}
@@ -60,7 +70,11 @@ export async function join(
 		? `Already in ${group} by this peer's work.`
 		: heard
 			? `Already hears ${group} through a group under it, so it was not joined: this peer is in ${at.peer.groups.length} groups, the most a peer may be in.`
-			: `In ${group}.`;
+			: at.peer.setAside.includes(group)
+				? // Joined but past the room its work leaves, which standsText
+					// says why, it hears nothing there yet.
+					`Joined ${group}, but set it aside at once, so it hears nothing there yet.`
+				: `In ${group}.`;
 	const invited = groupsNamed(params.invite ?? "");
 	const lately = joinedNow ? await saidLately(at, group) : "";
 	if (invited.length === 0) {
@@ -83,17 +97,22 @@ export async function join(
 	);
 	const notHomes = invited.filter((one) => !homes.includes(one));
 	// A peer already in the most groups would refuse the invite, which
-	// says it is in the group from now on, so none is sent it.
-	const full = homes.filter((home) =>
-		standing.present.some(
-			(one) =>
-				one.addresses.map(homeOf).includes(home) &&
-				joinRefused(one.groups, group) === "full",
-		),
-	);
+	// says it is in the group from now on, so none is sent it. An invite
+	// to a home reaches every session going by it, so a home is left out
+	// only when every one there is full. One that hears the group through
+	// a part is not full for it (`heard`), and is invited.
+	const full = homes.filter((home) => {
+		const there = standing.present.filter((one) =>
+			one.addresses.map(homeOf).includes(home),
+		);
+		return (
+			there.length > 0 &&
+			there.every((one) => joinRefused(one.groups, group) === "full")
+		);
+	});
 	const fullText =
 		full.length > 0
-			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has left one.`
+			? ` Not invited, since ${full.length === 1 ? "it is" : "each is"} in ${MOST_GROUPS} groups, the most a peer may be in: ${full.map((one) => one.slice(1)).join(", ")}. Invite ${full.length === 1 ? "it" : "each"} again once it has made room.`
 			: "";
 	const skipped =
 		notHomes.length > 0
@@ -218,14 +237,23 @@ function joinable(
 
 /** The groups this peer is in, by its work and by joining. */
 function standsText(peer: Peer): string {
-	const joined = peer.joined.filter((group) => !peer.scopes.includes(group));
+	const aside = new Set(peer.setAside);
+	const joined = peer.joined.filter(
+		(group) => !peer.scopes.includes(group) && !aside.has(group),
+	);
 	const standsIn = [
 		peer.scopes.length > 0 ? `is in ${peer.scopes.join(", ")} by its work` : "",
 		joined.length > 0 ? `has joined ${joined.join(", ")}` : "",
 	].filter(Boolean);
-	return standsIn.length > 0
-		? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
-		: "This peer is in its home group and #machine only.";
+	const stands =
+		standsIn.length > 0
+			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
+			: "This peer is in its home group and #machine only.";
+	// Set aside by a scope its work brought, they are heard by nobody
+	// here until there is room, so it is told rather than left to wonder.
+	return aside.size > 0
+		? `${stands} It set aside ${peer.setAside.join(", ")}, which it joined: its work's groups leave no room among the ${MOST_GROUPS} a peer may be in, so it hears none of them until there is room again, when they come back by themselves. Each group it hears and leaves with mesh_leave gives its room to the one set aside that sorts first; leaving one set aside gives none.`
+		: stands;
 }
 
 /**
