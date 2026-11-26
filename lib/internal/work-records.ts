@@ -625,13 +625,24 @@ function readFirstOff(dir: string, folder: Folder): void {
 	const at = recordDirKey(dir);
 	const under = firsts.get(at);
 	if (under !== undefined && Date.now() - under.since <= HUNG_AFTER_MS) return;
+	if (under !== undefined) {
+		tell(
+			at,
+			"first reading hung",
+			`the first reading of the tree records in ${dir} ran past ${HUNG_AFTER_MS} ms, so another is begun beside it`,
+		);
+	}
 	const started = Date.now();
 	const done = readOff(dir, folder, started).then(
 		(listing) => {
 			if (listings.has(at)) return;
 			listings.set(at, { listing, read: 0, failed: undefined });
 			recordWritesRead(dir, listing.through);
-			untell(at, (what) => what === "first reading failed");
+			untell(
+				at,
+				(what) =>
+					what === "first reading failed" || what === "first reading hung",
+			);
 		},
 		(error: unknown) => {
 			tell(

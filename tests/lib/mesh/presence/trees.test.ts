@@ -165,7 +165,9 @@ describe("a peer's trees", () => {
 		const now = Date.now();
 		const tick = new Date(now - 1_000);
 		utimesSync(cut, tick, tick);
-		const { presences, peer } = peerWithTrees();
+		// Its first reading landed before the record is replaced, so only the
+		// racy recheck reads it again.
+		const { presences, peer } = await peerHavingRead();
 		expect(presences.of(session)?.trees, "none yet").toBeUndefined();
 
 		// Taken up by this session too, renamed over, the folder's time as it was.
