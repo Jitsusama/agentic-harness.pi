@@ -1993,7 +1993,7 @@ describe("a sprouted session's start", () => {
 	// Every mark the cleaner drops is held in tests/lib/mesh/shown-line.test.ts;
 	// these three show a whole start quotes what it leaves: an isolate, a
 	// colour and a title hiding words.
-	it("drops every mark no one sees from mycelium's last line, and ends it at every line end", async () => {
+	it("drops every mark no one sees from mycelium's last line, a title's hidden words too", async () => {
 		const cases: [stderr: string, said: string][] = [
 			["refused \u2066here\u2069\n", "refused here"],
 			["\u001b[31mrefused\u001b[0m here\n", "refused here"],

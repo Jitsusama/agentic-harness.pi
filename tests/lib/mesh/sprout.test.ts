@@ -229,7 +229,7 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("reads the node's refusal past a stderr of escapes alone", async () => {
+	it("takes the node's refusal over a stderr of escapes alone", async () => {
 		const { run } = answering({
 			code: 1,
 			stdout: '{"Err":"no such machine"}\n',
