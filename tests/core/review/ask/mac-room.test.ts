@@ -16,6 +16,7 @@ import {
 	macFiguresNow,
 	macRoundRoom,
 	PROGRAM_TIMEOUT_MS,
+	ROUND_LEAST_AVAILABLE_PERCENT,
 	runBounded,
 	sharedReading,
 	UNJUDGED_LOOK_GAP_MS,
@@ -23,6 +24,7 @@ import {
 } from "../../../../lib/core/review/ask/mac-room.ts";
 import {
 	historyInMemory,
+	LEAST_AVAILABLE_PERCENT,
 	type MemoryFigures,
 	SWAPPING_MS,
 } from "../../../../lib/internal/priority/room-darwin.ts";
@@ -132,12 +134,36 @@ describe("whether a Mac has memory for a round", () => {
 		);
 	});
 
+	it.each([31, 33])(
+		"starts with %i percent available, which holds the queue but not a round",
+		async (availablePercent) => {
+			const sources = mac(() => ({ ...roomy, availablePercent }));
+			const room = macRoundRoom(sources);
+			await room.short();
+			sources.advance(SWAPPING_MS);
+			expect(await room.short()).toBeUndefined();
+			expect(availablePercent).toBeLessThan(LEAST_AVAILABLE_PERCENT);
+		},
+	);
+
+	it("is short under the round's own memory bar, saying it", async () => {
+		const room = macRoundRoom(
+			mac(() => ({
+				...roomy,
+				availablePercent: ROUND_LEAST_AVAILABLE_PERCENT - 1,
+			})),
+		);
+		expect(await room.short()).toBe(
+			"29% of its memory is available, under 30%",
+		);
+	});
+
 	it("holds a round as long as it reads short, with no cap", async () => {
-		const sources = mac(() => ({ ...roomy, availablePercent: 34 }));
+		const sources = mac(() => ({ ...roomy, availablePercent: 29 }));
 		const room = macRoundRoom(sources);
-		expect(await room.short()).toContain("34% of its memory is available");
+		expect(await room.short()).toContain("29% of its memory is available");
 		sources.advance(UNJUDGED_WAIT_MS * 3);
-		expect(await room.short()).toContain("34% of its memory is available");
+		expect(await room.short()).toContain("29% of its memory is available");
 		expect(room.startedUnjudged()).toBeUndefined();
 	});
 

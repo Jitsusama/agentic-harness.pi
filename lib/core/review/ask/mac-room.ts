@@ -67,6 +67,14 @@ export const PROGRAM_TIMEOUT_MS = 5_000;
  */
 const PROGRAM_GRACE_MS = 1_000;
 
+/**
+ * Under this share of memory available, a council's round waits on a
+ * Mac. It sits under room-darwin.ts's `LEAST_AVAILABLE_PERCENT`, which
+ * the queue keeps: velocity ruled that review rounds start at 30%
+ * available while the machine queue holds at 35% (A210E4CA, 2511ffa1).
+ */
+export const ROUND_LEAST_AVAILABLE_PERCENT = 30;
+
 /** Apple's own `vm_stat`, by its path, as {@link SYSCTL_PATH} is. */
 export const VM_STAT_PATH = "/usr/bin/vm_stat";
 
@@ -194,7 +202,11 @@ function judged(read: MacReading): { short: string | undefined } | undefined {
 			short: `${slow.join(" and ")} took past ${PROGRAM_TIMEOUT_MS / 1000} s to answer, as on a Mac swapping hard`,
 		};
 	}
-	const short = darwinShort(read.figures, read.seen);
+	const short = darwinShort(
+		read.figures,
+		read.seen,
+		ROUND_LEAST_AVAILABLE_PERCENT,
+	);
 	if (short !== undefined) return { short };
 	if (unread(read.figures).length > 0) return undefined;
 	const oldest = read.seen[0];

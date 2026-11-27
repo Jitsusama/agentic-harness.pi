@@ -288,12 +288,14 @@ export type MemoryFigures = Pick<
  * What holds work back on a Mac read as `read`, said for a person, or
  * nothing when it has room: the kernel's pressure at warning or worse,
  * a swap-out since the oldest of `seen`, the readings {@link keptAt}
- * keeps, or less available than {@link LEAST_AVAILABLE_PERCENT}. The
- * queue and a council's start read the one rule.
+ * keeps, or less available than `leastAvailablePercent`. The queue
+ * and a council's start read the one rule, each with its own memory
+ * bar: the queue keeps {@link LEAST_AVAILABLE_PERCENT}.
  */
 export function darwinShort(
 	read: MemoryFigures,
 	seen: readonly Swapped[],
+	leastAvailablePercent = LEAST_AVAILABLE_PERCENT,
 ): string | undefined {
 	if (read.pressureLevel >= WARNING_LEVEL) {
 		return `the kernel's memory pressure level is ${read.pressureLevel}, at or past warning`;
@@ -304,8 +306,8 @@ export function darwinShort(
 		const seconds = Math.round((newest - since.at) / 1000);
 		return `it swapped out ${read.swapouts - since.swapouts} pages in the last ${seconds} s`;
 	}
-	if (read.availablePercent < LEAST_AVAILABLE_PERCENT) {
-		return `${read.availablePercent}% of its memory is available, under ${LEAST_AVAILABLE_PERCENT}%`;
+	if (read.availablePercent < leastAvailablePercent) {
+		return `${read.availablePercent}% of its memory is available, under ${leastAvailablePercent}%`;
 	}
 	return undefined;
 }

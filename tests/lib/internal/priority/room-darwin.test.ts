@@ -13,6 +13,7 @@ import {
 	type DarwinFacts,
 	darwinFactsFrom,
 	darwinRoom,
+	darwinShort,
 	guestsIn,
 	historyIn,
 	historyInMemory,
@@ -98,6 +99,9 @@ describe("a Mac's shared swap history", () => {
 	});
 });
 
+/** A memory bar under the queue's, as a council's round keeps. */
+const LOWER_BAR = 30;
+
 describe("a Mac's room", () => {
 	const calm: DarwinFacts = {
 		memsize: 48 * GIB,
@@ -155,6 +159,19 @@ describe("a Mac's room", () => {
 			"the line itself is room",
 		).toBe(0);
 	});
+
+	it.each([31, 33])(
+		"holds work with %i percent available, where a council's round still starts",
+		(availablePercent) => {
+			expect(readingOf({ ...calm, availablePercent })().memoryPressure).toBe(
+				MOST_MEMORY_PRESSURE,
+			);
+			expect(
+				darwinShort({ ...calm, availablePercent }, [], LOWER_BAR),
+				"a caller's own lower bar lets it through",
+			).toBeUndefined();
+		},
+	);
 
 	it("holds work while it swaps out, and not once swapping has stopped", () => {
 		const read = readingOf(
