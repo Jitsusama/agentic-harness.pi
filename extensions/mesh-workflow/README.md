@@ -1189,8 +1189,11 @@ A steer may instead carry an `act`, with no text needed
   does. A run that starts from then on is ended. A carry with no
   machine, or one that isn't a hostname, is no act; one that
   fails, as with no quest loaded, leaves the session open and
-  says why. The work integration's README says what the handover
-  holds.
+  says why. A session still running a harness its install left
+  over 15 minutes ago refuses at once, naming both versions, so
+  it carries only once it has reloaded onto current code
+  ([`current-code.ts`](../../lib/internal/carry/current-code.ts)).
+  The work integration's README says what the handover holds.
 - `fill`, with `text`, puts the text in the session's prompt
   without sending it, for the person to read and send: what a
   to-do's act fills as it brings the session forward, as Joel

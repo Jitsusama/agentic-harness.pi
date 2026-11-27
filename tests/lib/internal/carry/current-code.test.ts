@@ -58,17 +58,13 @@ describe("a carry from code its install has left", () => {
 			LATEST,
 		);
 
-		expect(
-			behindItsInstall(join(root, "versions", OLD), NOW),
-		).toBeUndefined();
+		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBeUndefined();
 	});
 
 	it("goes on from the install's own version, however old", () => {
 		const root = install({ [OLD]: minutes(3000) }, OLD);
 
-		expect(
-			behindItsInstall(join(root, "versions", OLD), NOW),
-		).toBeUndefined();
+		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBeUndefined();
 	});
 
 	it("goes on from code outside an install of whole versions", () => {

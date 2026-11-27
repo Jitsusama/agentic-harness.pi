@@ -10,7 +10,9 @@
  * carried keeps it here, with what it wrote taken back and that tree
  * named, since mycelium closes it once its done file is there. A session
  * with no quest loaded has no handover to carry into, so it refuses, and
- * stays open.
+ * stays open. So does one still running a harness its install left long
+ * ago (lib/internal/carry/current-code.ts), refusing before its run is
+ * ended, so it reloads once idle and carries on current code.
  *
  * A carry under way holds the doors that would end the process it runs
  * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
@@ -27,6 +29,7 @@ import { homedir } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import { carryAway } from "../../lib/internal/carry/carry-away.ts";
+import { behindItsInstall } from "../../lib/internal/carry/current-code.ts";
 import { fenceKindOf } from "../../lib/internal/carry/fence.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
@@ -36,6 +39,7 @@ import {
 	type HoldTiming,
 	holdForCarry,
 } from "../../lib/internal/carry/under-way.ts";
+import { packageRoot } from "../../lib/internal/fence/installed-only.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
@@ -90,6 +94,10 @@ export async function carryThisSession(
 	if (other !== undefined) {
 		throw new Error(`a carry to ${other} is already under way.`);
 	}
+	// Before its run winds down or a hold is taken, so the follower may
+	// reload it as soon as it is idle.
+	const behind = behindItsInstall(places.root ?? packageRoot());
+	if (behind !== undefined) throw new Error(`${behind}.`);
 	if (places.hold !== undefined) return await carryOut(ctx, to, places);
 	const hold = holdForCarry(id, to, places.timing);
 	try {

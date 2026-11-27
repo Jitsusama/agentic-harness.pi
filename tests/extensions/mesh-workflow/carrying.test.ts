@@ -252,7 +252,10 @@ describe("carrying a steered session's work", () => {
 			utimesSync(at, when, when);
 			return at;
 		};
-		const running = ago("03c16f4cfe6b0b8ed5afba531da67409c1d6729c", 3 * 86_400_000);
+		const running = ago(
+			"03c16f4cfe6b0b8ed5afba531da67409c1d6729c",
+			3 * 86_400_000,
+		);
 		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
 		symlinkSync(
 			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),

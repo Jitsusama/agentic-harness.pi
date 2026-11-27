@@ -9,6 +9,16 @@
  * why.
  */
 
+import { readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { installOfVersion } from "../reload/loaded.ts";
+
+/** How many characters of a version's commit a refusal names. */
+const SHORT_SHA = 12;
+
+/** Milliseconds in a minute, for the refusal's count. */
+const MINUTE_MS = 60_000;
+
 /**
  * How long a session may run a version its install has left before a
  * carry from it waits on its reload: the follower's spread of idle
@@ -26,8 +36,58 @@ export const BEHIND_FOR_MS = 15 * 60_000;
  * store copy.
  */
 export function behindItsInstall(
-	_root: string,
-	_now: number = Date.now(),
+	root: string,
+	now: number = Date.now(),
 ): string | undefined {
-	return undefined;
+	const install = installOfVersion(root);
+	if (install === undefined) return undefined;
+	let current: string;
+	let running: string;
+	try {
+		current = realpathSync(join(install, "current"));
+		running = realpathSync(root);
+	} catch {
+		// A link onto nothing, or a version gone: nothing to come up to.
+		return undefined;
+	}
+	if (current === running) return undefined;
+	const left = leftAt(running);
+	if (left === undefined || now - left <= BEHIND_FOR_MS) return undefined;
+	const minutes = Math.floor((now - left) / MINUTE_MS);
+	return `it runs harness ${short(running)}, which its install left ${minutes} minutes ago for ${short(current)}, so it may lack a carry fix; it reloads once idle, and the carry can be asked again then`;
+}
+
+/**
+ * When the install left the version at `running`: when the first version
+ * beside it made after it was made, or nothing where none was. A version
+ * since let go makes this later than it was, which errs toward carrying.
+ */
+function leftAt(running: string): number | undefined {
+	const versions = dirname(running);
+	let made: number;
+	let names: string[];
+	try {
+		made = statSync(running).mtimeMs;
+		names = readdirSync(versions);
+	} catch {
+		// Versions that can't be read say nothing of when it was left.
+		return undefined;
+	}
+	let first: number | undefined;
+	for (const name of names) {
+		let at: number;
+		try {
+			at = statSync(join(versions, name)).mtimeMs;
+		} catch {
+			// One let go as it was read was not the one that left it.
+			continue;
+		}
+		if (at > made && (first === undefined || at < first)) first = at;
+	}
+	return first;
+}
+
+/** A version folder's commit, as a refusal names it. */
+function short(version: string): string {
+	return basename(version).slice(0, SHORT_SHA);
 }
