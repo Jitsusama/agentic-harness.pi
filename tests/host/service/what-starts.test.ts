@@ -333,6 +333,22 @@ describe("installStepsBackFrom", () => {
 		await rm(join(back, ".git"), { recursive: true, force: true });
 		expect(await steps(), "the first answer kept").toBe(true);
 	});
+
+	// 27 November (#2379's F1 to F4): a git that timed out once was kept
+	// as no step back for the child's whole life.
+	it("asks again after a git that answered nothing", async () => {
+		const own = await version(newer);
+		const steps = installStepsBackFrom(own);
+		await current(await version(older));
+		const path = process.env.PATH;
+		process.env.PATH = join(root, "no-git-here");
+		try {
+			expect(await steps(), "no git to ask").toBe(false);
+		} finally {
+			process.env.PATH = path;
+		}
+		expect(await steps(), "asked again").toBe(true);
+	});
 });
 
 describe("ownUnit", () => {

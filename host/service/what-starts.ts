@@ -113,40 +113,59 @@ export function installMovesOrThrowsFrom(
  * before it. A move forward, onto a commit beside its own history, or
  * onto a rebuild of its own commit is no step back, nor is what can't be
  * read: a link, a version's HEAD, or git's answer. Each version is asked
- * of once, since its commit never changes under its name.
+ * of once git answers, since its commit never changes under its name; a
+ * git that timed out or couldn't start answered nothing, so the next look
+ * asks again.
  */
 export function installStepsBackFrom(root: string): () => Promise<boolean> {
 	const install = installOfVersion(root);
 	if (install === undefined) return async () => false;
 	const link = join(install, "current");
-	const asked = new Map<string, Promise<boolean>>();
+	const asked = new Map<string, boolean>();
 	return async () => {
 		const now = await realpath(link).catch(() => undefined);
 		if (now === undefined) return false;
-		let back = asked.get(now);
-		if (!back) {
-			back = isBefore(now, root);
-			asked.set(now, back);
-		}
+		const settled = asked.get(now);
+		if (settled !== undefined) return settled;
+		const back = await isBefore(now, root);
+		if (back === undefined) return false;
+		asked.set(now, back);
 		return back;
 	};
 }
 
-/** Whether the commit `version` runs came before, and isn't, the one `root` runs, as `root`'s history says. */
-async function isBefore(version: string, root: string): Promise<boolean> {
+/**
+ * Whether the commit `version` runs came before, and isn't, the one `root`
+ * runs, as `root`'s history says; undefined when git gave no answer.
+ */
+async function isBefore(
+	version: string,
+	root: string,
+): Promise<boolean | undefined> {
 	const theirs = headFromFiles(version);
 	const own = headFromFiles(root);
 	if (theirs === undefined || own === undefined || theirs === own) return false;
-	return new Promise<boolean>((done) => {
+	return new Promise<boolean | undefined>((done) => {
 		execFile(
 			"git",
 			["-C", root, "merge-base", "--is-ancestor", theirs, own],
 			{ timeout: GIT_TIMEOUT_MS },
 			// It exits 0 for an ancestor, 1 for none, and fails for a commit
-			// its history lacks, as one after its own.
-			(error) => done(error === null),
+			// its history lacks, as one after its own. A git killed at its
+			// timeout, or one that never started, said neither.
+			(error) => done(error === null ? true : gitAnswered(error)),
 		);
 	});
+}
+
+/** false when git itself exited with a code, undefined when it was killed or never ran. */
+function gitAnswered(error: {
+	readonly code?: unknown;
+	readonly killed?: boolean;
+}): false | undefined {
+	return typeof error.code === "number" && error.killed !== true
+		? false
+		: undefined;
 }
 
 /** What one ask of an install found: why it moved, or why it can't tell. */
