@@ -78,6 +78,22 @@ describe("writesInBash", () => {
 		]);
 	});
 
+	it("reads a remote with a slash but no colon as one git names", () => {
+		// A remote may be named so, and git looks the name up before it
+		// reads the word as a path, which settle asks it about.
+		for (const remote of ["me/x", "../shop.git", "/srv/example/shop.git"]) {
+			expect(writesInBash(`git push ${remote} main`, HERE), remote).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote,
+					source: "main",
+				},
+			]);
+		}
+	});
+
 	it("reads a push naming several branches as a write to each", () => {
 		const branches = (command: string) =>
 			writesInBash(command, HERE).map((write) => write.branch ?? write.source);

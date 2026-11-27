@@ -1138,9 +1138,13 @@ function deletion(refspec: string, call: WriteCall): WriteCall {
 	return branch === undefined ? call : { ...call, branch };
 }
 
-/** A remote named by name stays for git; one given as a URL names its repo. */
+/**
+ * A remote named by name stays for git; one given as a URL names its
+ * repo. A word with a slash but no colon is a name git looks up first,
+ * or a path, and never owner/name, so it stays for git too.
+ */
 function remotePart(remote: string): { remote: string } | { repo: string } {
-	const repo = /[:/]/.test(remote) ? repoOfUrl(remote) : undefined;
+	const repo = remote.includes(":") ? repoOfUrl(remote) : undefined;
 	return repo ? { repo } : { remote };
 }
 
