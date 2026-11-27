@@ -13,7 +13,6 @@
  */
 
 import { join } from "node:path";
-import { hosted } from "../core/session/host.ts";
 import { sessionRealm } from "../internal/machine/realm.ts";
 import { stateDir } from "../internal/paths.ts";
 import type { Message } from "./message.ts";
@@ -46,20 +45,20 @@ function spread(ms: number): number {
 
 /**
  * The transport of the mesh kept at `mesh`: its messages folder, heard
- * through the home realm's node by a pi on a host, where `mesh` is the
- * home realm's own, and read from the folder alone anywhere else. A pi
- * outside a host is one process reading once, as presence's mirror
- * leaves it; a test's mesh, though it sits where its state dir says, is
- * no folder the machine's node follows; and another realm's node may
- * follow a folder of its own, so its sessions read theirs, as their
- * presence does. `PI_MESH_NODE=off` hears by the folder, should the
- * node's word ever be doubted, without stopping the node.
+ * through the home realm's node where `mesh` is the home realm's own,
+ * hosted or not, and read from the folder alone anywhere else. A pi in
+ * a terminal of its own lives as long as a hosted one, and a folder
+ * watch wakes it at every message any peer sends; a test's mesh, though
+ * it sits where its state dir says, is no folder the machine's node
+ * follows; and another realm's node may follow a folder of its own, so
+ * its sessions read theirs, as their presence does. `PI_MESH_NODE=off`
+ * hears by the folder, should the node's word ever be doubted, without
+ * stopping the node.
  */
 export function meshTransport(mesh: string): Transport {
 	const folder = folderTransport(join(mesh, "messages"));
 	return nodeTransport(folder, () => {
 		if (process.env.PI_MESH_NODE === "off") return undefined;
-		if (hosted() === undefined) return undefined;
 		if (sessionRealm().kind !== "home") return undefined;
 		if (mesh !== stateDir("mesh-workflow")) return undefined;
 		return homeNodeSocket();

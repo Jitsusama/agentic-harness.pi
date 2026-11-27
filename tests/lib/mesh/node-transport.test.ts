@@ -129,6 +129,16 @@ describe("a transport the node says arrivals to", () => {
 		);
 	});
 
+	// The everyday case for a pi in a terminal of its own where no node
+	// runs: the socket is named, and nothing listens there.
+	it("hears by the folder while the named socket has no node", async () => {
+		const { arrived } = watching(socketPath, { againMs: 100 });
+		const sent = folderTransport(dir).send(draft("on disk"));
+		await vi.waitFor(() =>
+			expect(arrived, "heard by the folder").toContain(sent.id),
+		);
+	});
+
 	it("hears by the folder once the node goes, and asks it again later", async () => {
 		await node();
 		const { arrived } = watching(socketPath, { againMs: 200 });

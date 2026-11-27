@@ -985,8 +985,12 @@ acknowledgements and thanks are not.
 Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
 
 - `messages/`: one JSON file per message, written to a
-  dot-file and renamed into place, and watched with
-  `fs.watch`. The envelope is
+  dot-file and renamed into place. A peer of the home realm
+  hears them through the machine's node, hosted or in a
+  terminal of its own, and watches the folder with `fs.watch`
+  only while no node answers (`lib/mesh/node-transport.ts`).
+  `PI_MESH_NODE=off` makes a pi hear by the folder alone,
+  leaving the node running. The envelope is
   `{ v, id, at, from, to, intent, text, pid }`, with `re`,
   `supersedes` and `invite` when they apply; a reader ignores
   fields it does not know. A `.read-<address>` marker

@@ -1,8 +1,8 @@
 /**
- * Which mesh asks the machine's node: a hosted session's, of the home
- * realm, at its own state dir, unless `PI_MESH_NODE=off` says not to.
- * Every other mesh hears by its folder and never dials a node, whether
- * the home realm's or the session's own.
+ * Which mesh asks the machine's node: a session's of the home realm, at
+ * its own state dir, hosted or not, unless `PI_MESH_NODE=off` says not
+ * to. Every other mesh hears by its folder and never dials a node,
+ * whether the home realm's or the session's own.
  */
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -44,7 +44,9 @@ beforeEach(() => {
 	vi.stubEnv("MYCELIUM_REALM", "home");
 	vi.stubEnv("PI_HOME_REALM", "home");
 	vi.stubEnv("PI_MESH_NODE", "");
-	uninstall = host();
+	// No host, as a pi in a terminal of its own runs: the gates below decide
+	// for it, and a hosted session passes the same ones.
+	uninstall = undefined;
 });
 
 afterEach(async () => {
@@ -100,17 +102,18 @@ async function noneDialled(): Promise<void> {
 
 describe("which mesh hears through the machine's node", () => {
 	it("asks the home realm's node for a hosted session's own mesh", async () => {
+		uninstall = host();
 		await nodes("home");
 		watched(stateDir("mesh-workflow"));
 		await vi.waitFor(() => expect(clients.length, "dialled").toBe(1));
 	});
 
-	it("asks no node outside a host", async () => {
-		uninstall?.();
-		uninstall = undefined;
+	// A pi in a terminal of its own runs as long as a hosted one, and a
+	// folder watch would wake it at every message any peer sends.
+	it("asks the home realm's node outside a host too", async () => {
 		await nodes("home");
 		watched(stateDir("mesh-workflow"));
-		await noneDialled();
+		await vi.waitFor(() => expect(clients.length, "dialled").toBe(1));
 	});
 
 	it("asks no node for a mesh other than the session's own", async () => {
