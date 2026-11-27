@@ -51,7 +51,7 @@ const HOST_UNIT = /^(?:pi-host|pi-conversation|mycelium-pi)[-*@]|^pi-\*/;
 
 /** The harness's scripts that start a host or move conversations into one. */
 const HOST_SCRIPT =
-	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts$/;
+	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.(?:ts|mjs)$/;
 
 /** Programs that start pi, a host of conversations, or a carried session. */
 const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
@@ -117,7 +117,11 @@ export function startIn(name: string, args: string[]): WriteCall | undefined {
 		return startsNoAgent(after) ? undefined : { action: "pi", kind: "start" };
 	}
 	if (script === undefined || !HOST_SCRIPT.test(script)) return undefined;
-	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
+	const moves =
+		script
+			.split("/")
+			.at(-1)
+			?.replace(/\.(?:ts|mjs)$/, "") ?? script;
 	return { action: `pi ${moves}`, kind: "start" };
 }
 
@@ -127,12 +131,30 @@ function startsNoAgent(args: string[]): boolean {
 }
 
 /**
+ * A runner's options whose value is the next word, which may itself be
+ * named as a script: `--import` loads a module before the one run.
+ */
+const RUNNER_VALUED = new Set([
+	"--import",
+	"--require",
+	"-r",
+	"--loader",
+	"--experimental-loader",
+	"--env-file",
+	"--env-file-if-exists",
+]);
+
+/**
  * The script a runner runs: its first word named as a script, so an
- * option's value (`--env-file x`) isn't taken for it.
+ * option's value (`--env-file x`) isn't taken for it, nor a module an
+ * option loads first (`--import start.mjs`).
  */
 function scriptRun(args: string[]): string | undefined {
 	return args.find(
-		(word) => !word.startsWith("-") && /\.[cm]?[jt]s$/.test(word),
+		(word, at) =>
+			!word.startsWith("-") &&
+			!RUNNER_VALUED.has(args[at - 1] ?? "") &&
+			/\.[cm]?[jt]s$/.test(word),
 	);
 }
 

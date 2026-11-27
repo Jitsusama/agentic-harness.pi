@@ -24,16 +24,23 @@ export const RERUN_EVERYTHING = [
 ].map((file) => join(import.meta.dirname, file));
 
 /**
- * The host's entry, whose change reruns this config's lanes in full,
+ * The host's entry and the program it runs, whose change reruns this config's lanes in full,
  * though not the browser lane's, which no host code reaches. No test
  * can import it without starting a host, so the tests that guard how it
  * loads (tests/scripts/pi-host.test.ts and
  * tests/host/service/program-binds-no-pi-at-load.test.ts) are
  * otherwise never picked for a change to it alone. A pi import slipped
  * in there leaves a host systemd restarts every few seconds, which is
- * worth a whole run on a file this seldom changed.
+ * worth a whole run on a file this seldom changed. The stripped-source
+ * cache's start module, which the entry and the supervisor load before
+ * anything else, is reached by the tests that run it only as a path, so
+ * it counts as one too.
  */
-const HOST_ENTRY = join(import.meta.dirname, "scripts", "pi-host.ts");
+const HOST_ENTRIES = [
+	join(import.meta.dirname, "scripts", "pi-host.mjs"),
+	join(import.meta.dirname, "scripts", "pi-host.ts"),
+	join(import.meta.dirname, "lib", "internal", "stripped-source-start.mjs"),
+];
 
 // Several suites spawn real OS processes: the reviewer supervisor
 // launches node two levels deep, and the LSP suite starts its own
@@ -72,6 +79,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/supervisor-room.test.ts",
 	"tests/lib/subagent/runpi/supervisor-parent.test.ts",
 	"tests/lib/subagent/runpi/supervisor-endings.test.ts",
+	"tests/lib/subagent/runpi/supervisor-wrap-up.test.ts",
 	"tests/lib/subagent/runpi/detached.test.ts",
 	"tests/lib/subagent/runpi/parent-exit.test.ts",
 	"tests/lib/subagent/runpi/handed-over.test.ts",
@@ -93,6 +101,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/fence/fence-quest-locks.test.ts",
 	"tests/lib/internal/files/remove-tree.test.ts",
 	"tests/lib/internal/fence/fence-text-arguments.test.ts",
+	"tests/lib/internal/stripped-source-node.test.ts",
 	"tests/host/service/own-threads.test.ts",
 	"tests/lib/internal/shell/spawner-register-sockets.test.ts",
 	"tests/lib/internal/shell/spawner-starts.test.ts",
@@ -198,7 +207,7 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		clearMocks: true,
-		forceRerunTriggers: [...RERUN_EVERYTHING, HOST_ENTRY],
+		forceRerunTriggers: [...RERUN_EVERYTHING, ...HOST_ENTRIES],
 		globalSetup: ["./tests/setup/temp-root.ts"],
 		// Only the ceiling is ours to set: vitest 4 dropped the floor
 		// option and sizes the pool itself underneath the cap. The

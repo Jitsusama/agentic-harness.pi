@@ -88,6 +88,7 @@ describe("a working folder the sandbox won't let commands write", () => {
 			".local/state/pi/agentic-harness.pi/host-compile",
 			".local/state/pi/agentic-harness.pi/host-compile/work-background-x",
 			".local/state/pi/agentic-harness.pi/node-compile-cache",
+			".local/state/pi/agentic-harness.pi/stripped-source/0123456789abcdef",
 		]) {
 			expect(unfencedFolder(join(home, at), home), at).toContain("compiled");
 		}

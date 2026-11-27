@@ -24,6 +24,7 @@ import {
 	DEFAULT_TIMEOUT_MS,
 	type SupervisorRunPiConfig,
 	type SupervisorSpawnFn,
+	supervisorArguments,
 	supervisorEnvironment,
 	told,
 } from "./supervisor-request.ts";
@@ -108,7 +109,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const supervisor = spawnFn(
 				nodeBinary,
-				[supervisorPath, paths.requestPath],
+				supervisorArguments(supervisorPath, paths.requestPath),
 				{
 					cwd,
 					env,

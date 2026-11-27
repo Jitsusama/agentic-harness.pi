@@ -19,8 +19,16 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 
-/** The host program, from a version's root. */
-export const HOST_ENTRY = "scripts/pi-host.ts";
+/**
+ * The host program, from a version's root: the entry a unit starts,
+ * which starts the stripped-source cache before it runs the program,
+ * and the program itself, which a unit written before that entry
+ * starts directly.
+ */
+export const HOST_ENTRIES = [
+	"scripts/pi-host.mjs",
+	"scripts/pi-host.ts",
+] as const;
 
 /**
  * What a host loads beside its own modules: the third-party packages it
@@ -154,7 +162,7 @@ export function versionsMove(): (root: string) => Promise<string | undefined> {
 /** Every module the host program under `root` reaches, in a stable order. */
 export async function hostModules(root: string): Promise<string[]> {
 	const seen = new Set<string>();
-	const waiting = [resolve(root, HOST_ENTRY)];
+	const waiting = HOST_ENTRIES.map((entry) => resolve(root, entry));
 	for (let file = waiting.pop(); file !== undefined; file = waiting.pop()) {
 		if (seen.has(file)) continue;
 		seen.add(file);

@@ -68,7 +68,8 @@ export function nodeRecords(home: string): string[] {
  * started outside every sandbox runs as its own (ISXEG8, 19 November):
  * the host's cache and node's in the login's runtime folder, where they
  * now lie on Linux, and in pi's state, where they lie on a Mac and lay
- * before, and in the cache folder, where an older install kept the
+ * before, with what node 22 stripped (stripped-source.mjs), and in the
+ * cache folder, where an older install kept the
  * host's, and node's and jiti's in the temporary folder, where a pi left
  * to itself keeps them. The fence holds each closed to its other
  * commands; strict would make one writable as a command's own folder.
@@ -81,8 +82,10 @@ export function compiledCode(
 		...runtimeCompileFolders(env),
 		join(home, ".local/state/pi/agentic-harness.pi/host-compile"),
 		join(home, ".local/state/pi/agentic-harness.pi/node-compile-cache"),
+		join(home, ".local/state/pi/agentic-harness.pi/stripped-source"),
 		stateDir("host-compile"),
 		stateDir("node-compile-cache"),
+		stateDir("stripped-source"),
 		join(home, ".cache/pi/agentic-harness.pi/host-compile"),
 		cacheDir("host-compile"),
 		...tempCodeCaches(),

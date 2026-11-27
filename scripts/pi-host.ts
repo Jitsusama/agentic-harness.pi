@@ -2,9 +2,10 @@
  * A shared pi host, as a systemd user unit starts it, one per realm and
  * kind:
  *
- *   node scripts/pi-host.ts attended|background
+ *   node scripts/pi-host.mjs attended|background
  *
- * PI_PACKAGE_DIR names the host's patched pi install, and MYCELIUM_REALM
+ * which starts the stripped-source cache and then runs this; a unit
+ * written before that entry runs this directly. PI_PACKAGE_DIR names the host's patched pi install, and MYCELIUM_REALM
  * or PI_HOME_REALM its realm. Node runs it as it stands, stripping the
  * types, so it needs no loader; every pi import the harness makes is
  * bound to that install before the host's code loads, and what node
@@ -20,7 +21,7 @@
  *
  * A supervisor starts a child host for one conversation the same way:
  *
- *   node scripts/pi-host.ts --child
+ *   node scripts/pi-host.mjs --child
  *
  * with PI_HOST_CHILD_KEY and PI_HOST_CHILD_SOCKET naming its slot
  * (host/service/child.ts). It exits once its conversation ends, 0 when

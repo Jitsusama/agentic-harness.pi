@@ -11,6 +11,7 @@ import {
 	systemFacts,
 } from "../../../../lib/subagent/lease.ts";
 import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
+import { supervisorArguments } from "../../../../lib/subagent/runpi/supervisor-request.ts";
 import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
 
 async function tempStateDir(): Promise<string> {
@@ -19,10 +20,14 @@ async function tempStateDir(): Promise<string> {
 
 /** A spawn that records how it was called and pretends nothing ran. */
 function noteSpawn() {
-	const calls: { options: SpawnOptions }[] = [];
+	const calls: { args: readonly string[]; options: SpawnOptions }[] = [];
 	let unrefs = 0;
-	const spawn = (_c: string, _a: readonly string[], options: SpawnOptions) => {
-		calls.push({ options });
+	const spawn = (
+		_c: string,
+		args: readonly string[],
+		options: SpawnOptions,
+	) => {
+		calls.push({ args, options });
 		return {
 			pid: 4321,
 			unref() {
@@ -57,6 +62,28 @@ describe("starting a reviewer that outlives the session", () => {
 			"ignore",
 		]);
 		expect(noted.unrefs()).toBe(1);
+	});
+
+	it("starts it keeping what node strips, as the waiting path does", async () => {
+		const noted = noteSpawn();
+		const stateDir = await tempStateDir();
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: "child.mjs" },
+			stateDir,
+			supervisorPath: "supervisor.mjs",
+			spawn: noted.spawn,
+		});
+
+		const started = await startPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "one",
+		});
+
+		expect(noted.calls[0]?.args).toEqual(
+			supervisorArguments("supervisor.mjs", started.requestPath),
+		);
 	});
 
 	it("gives it what the session offers its commands, such as the quest", async () => {

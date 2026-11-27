@@ -21,11 +21,12 @@
  * imports itself, the program and what loads before the hook alike,
  * and a change anywhere those reach picks both; the walk fails when
  * pi-host imports a module either file doesn't. A change to
- * scripts/pi-host.ts itself, which no test can import without starting
- * a host, picks every test outside the browser lane, since
- * vitest.config.ts names the entry among its rerun triggers.
+ * scripts/pi-host.ts itself, or to scripts/pi-host.mjs, which a unit
+ * starts and which runs it, neither of which a test can import without
+ * starting a host, picks every test outside the browser lane, since
+ * vitest.config.ts names both among its rerun triggers.
  *
- * It walks what loads from pi-host's entry as it loads. Each file is
+ * It walks what loads from the entry a unit starts as it loads. Each file is
  * read as node runs it, its types stripped by node's own
  * stripTypeScriptTypes, so a type-only import is let through exactly
  * when node erases it: `import type` is, but `import { type A }` is
@@ -87,8 +88,15 @@ import { isRecord } from "../../../lib/internal/record.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
-/** pi-host's entry. */
+/** pi-host's program. */
 const ENTRY = "scripts/pi-host.ts";
+
+/**
+ * What a unit starts: the stripped-source cache, then the program. The
+ * cache imports node's own modules alone, so the program's guards
+ * needn't import it, as importing its start would start it here.
+ */
+const UNIT_ENTRY = "scripts/pi-host.mjs";
 
 /** What pi-host loads once its hook is registered, which the walk must reach. */
 const LOADED_BY_ENTRY = ["host/service/program.ts", "host/service/run.ts"];
@@ -493,12 +501,14 @@ describe("loading the host program", () => {
 		"binds nothing from pi as it loads, so the configuration check comes first",
 		() => {
 			expect(EXIT_MISCONFIGURED).toBe(78);
-			const { peerBound, unfollowed, reached } = walkFrom(ROOT, ENTRY);
+			const { peerBound, unfollowed, reached } = walkFrom(ROOT, UNIT_ENTRY);
 			expect(
 				unfollowed,
 				"name each module by a plain string, as a file that is there, node's own or a dependency",
 			).toEqual([]);
-			expect(LOADED_BY_ENTRY.filter((file) => !reached.has(file))).toEqual([]);
+			expect(
+				[ENTRY, ...LOADED_BY_ENTRY].filter((file) => !reached.has(file)),
+			).toEqual([]);
 			expect(
 				peerBound,
 				"import these after loadHostPi, with import() in a function, as the engine does kept history",
