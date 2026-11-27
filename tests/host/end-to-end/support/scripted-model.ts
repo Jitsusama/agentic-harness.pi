@@ -176,7 +176,7 @@ const ANSWERS = 200;
 export const TOKEN_SIZE = { min: 2, max: 2 } as const;
 
 /** Fifty rows from SQLite alone, whatever the ledger holds. */
-const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
+export const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
 	Array.from({ length: 50 }, (_, at) => at + 1),
 )}')`;
 

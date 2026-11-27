@@ -12,16 +12,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { STEERED_RESULTS } from "../../../../extensions/job-workflow/outbox.ts";
 import { answeredLast } from "./hosted-case.ts";
 
-let folder: string | undefined;
+const folders: string[] = [];
 
 afterEach(() => {
-	if (folder) rmSync(folder, { recursive: true, force: true });
-	folder = undefined;
+	for (const folder of folders.splice(0))
+		rmSync(folder, { recursive: true, force: true });
 });
 
 /** A session file holding `entries`, one JSON line each, as pi writes. */
 function sessionOf(...entries: object[]): string {
-	folder = mkdtempSync(join(tmpdir(), "hosted-case-"));
+	const folder = mkdtempSync(join(tmpdir(), "hosted-case-"));
+	folders.push(folder);
 	const file = join(folder, "session.jsonl");
 	writeFileSync(
 		file,
@@ -46,6 +47,10 @@ const calling = said({
 	content: [{ type: "toolCall", id: "c", name: "bash", arguments: {} }],
 	stopReason: "toolUse",
 });
+/** The model's answer that stopped for `reason`, saying nothing. */
+function stoppedOn(reason: string): object {
+	return said({ role: "assistant", content: [], stopReason: reason });
+}
 const steered = {
 	type: "custom_message",
 	customType: STEERED_RESULTS,
@@ -92,12 +97,18 @@ describe("answeredLast", () => {
 	});
 
 	it("waits on an answer that stopped on an error, which may be retried", () => {
-		const failed = said({
-			role: "assistant",
-			content: [],
-			stopReason: "error",
-		});
-		expect(answeredLast(sessionOf(told, failed))).toBe(false);
+		expect(answeredLast(sessionOf(told, stoppedOn("error")))).toBe(false);
+	});
+
+	it("holds once a retry answers after an error", () => {
+		expect(answeredLast(sessionOf(told, stoppedOn("error"), answered))).toBe(
+			true,
+		);
+	});
+
+	it("waits on an answer cut off, whether aborted or out of room", () => {
+		expect(answeredLast(sessionOf(told, stoppedOn("aborted")))).toBe(false);
+		expect(answeredLast(sessionOf(told, stoppedOn("length")))).toBe(false);
 	});
 
 	it("waits on a file not written yet", () => {

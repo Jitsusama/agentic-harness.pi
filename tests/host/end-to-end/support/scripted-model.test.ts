@@ -15,6 +15,7 @@ import {
 	CARRIED_FLEET,
 	CARRY,
 	CARRYING,
+	FIFTY_ROWS,
 	fauxOf,
 	LONG_NAP,
 	NAP,
@@ -32,12 +33,18 @@ interface Call {
 	readonly arguments: unknown;
 }
 
+/** What the scripted model answered: how it stopped, and its calls. */
+interface Answer {
+	readonly stopReason: unknown;
+	readonly calls: Call[];
+}
+
 /**
- * The tool calls the scripted model answers `messages` with. An answer
- * that isn't a message, or one that stopped on an error, throws, so a
- * broken core can't pass for one that calls nothing.
+ * The answer the scripted model gives `messages`. An answer that isn't a
+ * message, or one that stopped on an error, throws, so a broken core
+ * can't pass for one that calls nothing.
  */
-async function callsTo(messages: readonly object[]): Promise<Call[]> {
+async function answerTo(messages: readonly object[]): Promise<Answer> {
 	const core = scriptedCore(await fauxOf(PACKAGE));
 	// The faux core is pi's JavaScript, which carries no types here.
 	const stream = core.streamSimple(
@@ -51,13 +58,19 @@ async function callsTo(messages: readonly object[]): Promise<Call[]> {
 		message.stopReason === "error"
 	)
 		throw new Error(`not an answer: ${JSON.stringify(message)}`);
-	return message.content
+	const calls = message.content
 		.filter(isRecord)
 		.flatMap((part) =>
 			part.type === "toolCall" && typeof part.name === "string"
 				? [{ name: part.name, arguments: part.arguments }]
 				: [],
 		);
+	return { stopReason: message.stopReason, calls };
+}
+
+/** The tool calls the scripted model answers `messages` with. */
+async function callsTo(messages: readonly object[]): Promise<Call[]> {
+	return (await answerTo(messages)).calls;
 }
 
 /** The names of the tools the scripted model answers `messages` with. */
@@ -133,6 +146,18 @@ describe("the scripted model", () => {
 		);
 	});
 
+	// The host cases wait on an answer that stopped, as hosted-case's
+	// answeredLast reads, so a script that ended another way fails here.
+	it("stops when it calls nothing", async () => {
+		expect(
+			(await answerTo([told, started, handedOff, answered])).stopReason,
+		).toBe("stop");
+	});
+
+	it("asks for a tool's result when it calls one", async () => {
+		expect((await answerTo([told])).stopReason).toBe("toolUse");
+	});
+
 	it("acts on words said after its answer", async () => {
 		expect(await callsTo([told, started, handedOff, answered, told])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING, background: true } },
@@ -141,9 +166,9 @@ describe("the scripted model", () => {
 
 	describe("after a tool's result, reads the words that started the turn", () => {
 		it("for store", async () => {
-			const calls = await callsTo(afterSearch(STORE));
-			expect(calls.map((call) => call.name)).toEqual(["spend"]);
-			expect(calls[0]?.arguments).toMatchObject({ limit: 2 });
+			expect(await callsTo(afterSearch(STORE))).toEqual([
+				{ name: "spend", arguments: { query: FIFTY_ROWS, limit: 2 } },
+			]);
 		});
 
 		it("for end", async () => {
