@@ -41,6 +41,7 @@ import {
 import {
 	answeredLast,
 	entriesOf,
+	erredLast,
 	onHostPi,
 	ROUND_TRIP_MS,
 	textOf,
@@ -76,16 +77,19 @@ const RECORD_MS = 5_000;
 const HOSTS_MS = 2 * LISTEN_WAIT_MS + OPEN_WAIT_MS;
 
 /**
- * How long a host's own restart may take to go. systemd kills a stop that
- * outruns 60 s, so a restart a round trip hasn't seen go is one the
- * machine wouldn't have waited out either.
+ * How long a host's own restart may take to go, a bound for a restart that
+ * hangs rather than the machine's limit: systemd kills a stop that
+ * outruns 60 s, but a loaded lender runs a stop slower than the machine,
+ * as its opens took 67 s (h2353c), so this leaves it half as long again.
  */
-const RESTART_MS = ROUND_TRIP_MS;
+const RESTART_MS = 90_000;
 
 /**
- * Restart `host` as its own restart does, and wait for it to go, bounded:
- * its exit isn't, and a hang would otherwise end in vitest's timeout with
- * nothing the hosts wrote.
+ * Restart `host` as its own restart does, and wait for it to go cleanly,
+ * bounded: its exit isn't, and a hang would otherwise end in vitest's
+ * timeout. A stop that throws exits other than 0, which the next host's
+ * resume could otherwise hide, so its code is held as the other host
+ * cases hold a restart's.
  */
 async function restarted(host: HostProcess): Promise<void> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -94,14 +98,17 @@ async function restarted(host: HostProcess): Promise<void> {
 			() =>
 				fail(
 					new Error(
-						`the host didn't go within ${RESTART_MS} ms of its restart\n${said()}`,
+						`the host didn't go within ${RESTART_MS} ms of its restart`,
 					),
 				),
 			RESTART_MS,
 		);
 	});
 	try {
-		await Promise.race([host.restart(), late]);
+		expect(
+			await Promise.race([host.restart(), late]),
+			"the host stops cleanly on its restart",
+		).toBe(0);
 	} finally {
 		clearTimeout(timer);
 	}
@@ -118,7 +125,11 @@ afterEach(async () => {
 	await sealed.dispose();
 });
 
-/** What every host started here wrote, for a failure. */
+/**
+ * What every host started here wrote, for a failure. Each case runs in
+ * onHostPi, which adds it to whatever fails, so the failures below leave
+ * it out rather than print every host's stderr twice.
+ */
 function said(): string {
 	return hosts
 		.map((host, at) => `Host ${at + 1} wrote:\n${host.errors()}`)
@@ -204,6 +215,21 @@ function entryLines(file: string): string {
 }
 
 /**
+ * Whether the turn a session file records is answered, throwing at once
+ * on an answer that stopped on an error: a sealed host turns pi's retry
+ * off, so that answer is the turn's last word, and a wait on it would
+ * spend its whole round trip before saying so.
+ */
+function answeredSoFar(file: string): boolean {
+	const erred = erredLast(file);
+	if (erred !== undefined)
+		throw new Error(
+			`the hosted turn stopped on an error, which a sealed host doesn't retry: ${erred}`,
+		);
+	return answeredLast(file);
+}
+
+/**
  * Wait for nothing the shell kept of the command to be left once its end
  * is said. The files go as the end's message is seen (job-workflow's
  * message_end), so ones still there say that sight never counted: in
@@ -220,7 +246,6 @@ async function keptGoes(file: string): Promise<void> {
 			[
 				`${String(failed)}; left: ${kept().join(", ")}`,
 				`the log's entries:\n${entryLines(file)}`,
-				said(),
 			].join("\n"),
 		);
 	});
@@ -234,14 +259,13 @@ async function keptGoes(file: string): Promise<void> {
 async function answeredOnce(file: string, when: string): Promise<void> {
 	await untilAnswered(
 		`the turn is answered ${when}`,
-		async () => answeredLast(file),
+		async () => answeredSoFar(file),
 		ROUND_TRIP_MS,
 	).catch((failed: unknown) => {
 		throw new Error(
 			[
 				`${String(failed)}; the model ran the carried command ${carriedCalls(file)} times`,
 				`the log's entries:\n${entryLines(file)}`,
-				said(),
 			].join("\n"),
 		);
 	});
@@ -261,7 +285,6 @@ function carriedOnce(file: string, when: string): void {
 		[
 			`${when}, the model ran the carried command ${calls} times, and the shell kept ${pids} pids`,
 			`the log's entries:\n${entryLines(file)}`,
-			said(),
 		].join("\n"),
 	);
 }
@@ -292,15 +315,12 @@ async function carrying(
 	const file = one.file ?? "";
 	await untilAnswered(
 		"the hosted turn that started the command to end",
-		async () => textOf(file).includes(CARRYING) && answeredLast(file),
+		async () => answeredSoFar(file) && textOf(file).includes(CARRYING),
 		ROUND_TRIP_MS,
 	).catch((failed: unknown) => {
-		// An answer that stopped on an error holds this wait, so its text is
-		// in the log's entries, said here rather than lost to the timeout.
+		// What the log holds says why the turn never ended as it should.
 		throw new Error(
-			[String(failed), `the log's entries:\n${entryLines(file)}`, said()].join(
-				"\n",
-			),
+			[String(failed), `the log's entries:\n${entryLines(file)}`].join("\n"),
 		);
 	});
 	// The call's .pid is made empty before its shell starts, and the stub
@@ -316,12 +336,10 @@ async function carrying(
 	carriedOnce(file, "as its pid was written");
 	const shell = keptShell();
 	if (shell === undefined)
-		throw new Error(
-			`the carried command's shell never wrote its pid; ${said()}`,
-		);
+		throw new Error("the carried command's shell never wrote its pid");
 	if (!alive(shell.pid))
 		throw new Error(
-			`the carried command's shell ${shell.pid} wrote its pid but isn't alive; ${said()}`,
+			`the carried command's shell ${shell.pid} wrote its pid but isn't alive`,
 		);
 	return {
 		file,
@@ -345,7 +363,6 @@ it(
 				[
 					"the restart let the command run on",
 					`the log records a carry: ${textOf(file).includes('"job-carried"')}`,
-					said(),
 				].join("\n"),
 			).toBe(true);
 
@@ -362,9 +379,7 @@ it(
 					return there.includes(CARRIED_END) && there.includes("[j1]");
 				},
 				CARRIED_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}\n${said()}`);
-			});
+			);
 			await answeredOnce(file, "once the next host said its end");
 			await keptGoes(file);
 		});
@@ -410,10 +425,9 @@ it(
 			// it resumes anything, so a command its record spared runs on here,
 			// unless it was already about to end of itself.
 			if (Date.now() - started < RUNS_MS - 2_000)
-				expect(
-					alive(shell),
-					`the next host's start spared the command; ${said()}`,
-				).toBe(true);
+				expect(alive(shell), "the next host's start spared the command").toBe(
+					true,
+				);
 			await untilAnswered(
 				"the command's end is said after the kill, under its job id",
 				async () => {
@@ -428,7 +442,6 @@ it(
 						`the command ran on: ${alive(shell)}`,
 						`kept: ${kept().join(", ")}`,
 						`said: ${saidAfter(file, held.length)}`,
-						said(),
 					].join("\n"),
 				);
 			});
@@ -471,7 +484,7 @@ it(
 				ROUND_TRIP_MS * 2,
 			).catch((failed: unknown) => {
 				throw new Error(
-					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}\n${said()}`,
+					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}`,
 				);
 			});
 			await answeredOnce(file, "once the next host said it was lost");

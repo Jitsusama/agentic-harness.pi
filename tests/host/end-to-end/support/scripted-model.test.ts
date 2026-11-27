@@ -204,6 +204,8 @@ describe("the scripted model", () => {
 			// More rows than the two shown, so the rest are stored under a
 			// handle, which is what the host case that reads them needs.
 			const rows = /json_each\('(\[[0-9,]*\])'\)/.exec(FIFTY_ROWS)?.[1];
+			// A rewrite of the query is said as one, not as a count of none.
+			expect(rows, `FIFTY_ROWS lists its rows: ${FIFTY_ROWS}`).toBeDefined();
 			expect(JSON.parse(rows ?? "[]")).toHaveLength(50);
 		});
 
