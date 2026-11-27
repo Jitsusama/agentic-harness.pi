@@ -9,7 +9,7 @@
  *
  * A name the caller chose for the run, not one describing their session,
  * stays: `MYCELIUM_BIN` names the mycelium the host's end-to-end tests
- * drive, as `scripts/host-run.sh` and the end-to-end README set it.
+ * drive, as the host's run script and the end-to-end README set it.
  */
 
 /** The MYCELIUM_ names a caller sets for the run, which stay. */
