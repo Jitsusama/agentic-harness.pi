@@ -10,8 +10,9 @@ booted, and whether it has room for heavy work now.
 - **`machine.ts`**: this machine's name as its realm's other
   machines say it, its hostname's short form, and what may be one.
 - **`room.ts`**: whether the machine has room now, read from its
-  pressure and memory counts: for a council's round, all three bars;
-  for a hosted conversation's roll, the CPU alone.
+  pressure and memory counts: for a council's round, all three bars,
+  its CPU read from the agents' and Joel's slices where they can be;
+  for a hosted conversation's roll, the machine's CPU alone.
 - **`realm.ts`**: which realm a session lives in, set by
   `MYCELIUM_REALM` as it starts, and where that realm keeps its own
   beside the machine's home realm.

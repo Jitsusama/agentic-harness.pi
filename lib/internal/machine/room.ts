@@ -31,6 +31,17 @@
  * never passed: a start that runs the machine out of it stalls
  * everything on it.
  *
+ * The CPU bar reads the user's slices rather than the machine where it
+ * can (A210E4CA, velocity, 27 November): at 18:43 that day the
+ * machine's CPU `some avg60` read 66.7, of which the jobs slice, which
+ * runs at the lowest weight and waits by design, was 60, the agents'
+ * slice 16 and Joel's own slices under 0.3. The machine-wide figure
+ * held every round on the jobs slice's designed stall. So CPU is short
+ * when the agents' slice's `some avg60` is at or past 20, or Joel's app
+ * or session slice's at or past 2; the machine's own figure, against
+ * 40, is read only where any of the three can't be, as on another
+ * layout.
+ *
  * A roll reads the CPU alone (`cpuShort`): on 27 November an install
  * move at 02:53 rolled conversations together and optimus's CPU `some
  * avg60` went from 20.6 to 64.7 (A210E4CA), and a roll held on memory
@@ -61,6 +72,22 @@ export const CPU_SOME_AVG60_AT_MOST = 40;
  */
 export const MEM_AVAILABLE_GIB_AT_LEAST = 16;
 
+/** The agents' slice's CPU `some avg60` at and past which a round waits. */
+export const AGENTS_CPU_SOME_AVG60_AT_MOST = 20;
+
+/** Joel's own slices' CPU `some avg60` at and past which a round waits. */
+export const PERSON_CPU_SOME_AVG60_AT_MOST = 2;
+
+/** The slices whose CPU pressure the bar reads, with each one's bar. */
+const SLICE_BARS = {
+	agents: AGENTS_CPU_SOME_AVG60_AT_MOST,
+	app: PERSON_CPU_SOME_AVG60_AT_MOST,
+	session: PERSON_CPU_SOME_AVG60_AT_MOST,
+} as const;
+
+/** A slice of the user's service manager whose CPU pressure is read. */
+export type Slice = keyof typeof SLICE_BARS;
+
 /** The CPU `some avg60` a quiet machine stays under. */
 export const QUIET_CPU_SOME_AVG60_UNDER = 25;
 
@@ -80,6 +107,16 @@ export interface MachineReads {
 	readonly memoryPressure: () => Promise<string>;
 	readonly cpuPressure: () => Promise<string>;
 	readonly meminfo: () => Promise<string>;
+	/**
+	 * One slice's CPU pressure; where it is missing, or any slice can't be
+	 * read, the machine's own is read instead.
+	 */
+	readonly sliceCpuPressure?: (slice: Slice) => Promise<string>;
+}
+
+/** Where this user's service manager keeps `slice`'s CPU pressure. */
+export function sliceCpuPressureFile(uid: number, slice: Slice): string {
+	return `/sys/fs/cgroup/user.slice/user-${uid}.slice/user@${uid}.service/${slice}.slice/cpu.pressure`;
 }
 
 /** Where Linux keeps each reading. */
@@ -87,6 +124,12 @@ const LINUX_READS: MachineReads = {
 	memoryPressure: () => readFile(MEMORY_PRESSURE_FILE, "utf8"),
 	cpuPressure: () => readFile(CPU_PRESSURE_FILE, "utf8"),
 	meminfo: () => readFile(MEMINFO_FILE, "utf8"),
+	sliceCpuPressure: (slice) => {
+		const uid = process.getuid?.();
+		return uid === undefined
+			? Promise.reject(new Error("no user id here"))
+			: readFile(sliceCpuPressureFile(uid, slice), "utf8");
+	},
 };
 
 /**
@@ -101,6 +144,7 @@ export async function machineShort(
 	reads: MachineReads = LINUX_READS,
 ): Promise<RoomHeld | undefined> {
 	const { memory, cpu, available, total } = await readings(reads);
+	const slices = await sliceReadings(reads);
 	const floor = Math.min(
 		MEM_AVAILABLE_GIB_AT_LEAST,
 		(total ?? Number.POSITIVE_INFINITY) * SMALL_MACHINE_SHARE,
@@ -118,12 +162,16 @@ export async function machineShort(
 					said: `MemAvailable was ${tenthsDown(available)} GiB, under ${tenthsUp(floor)}`,
 				}
 			: undefined,
-		cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
-			? {
-					reading: CPU_READING,
-					said: `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`,
-				}
-			: undefined,
+		...(slices === undefined
+			? [
+					cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
+						? {
+								reading: CPU_READING,
+								said: `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`,
+							}
+						: undefined,
+				]
+			: slicesShort(slices)),
 	].filter((each) => each !== undefined);
 	if (short.length === 0) return undefined;
 	const held = short.map((each) => each.reading);
@@ -189,6 +237,44 @@ async function readings(reads: MachineReads): Promise<Readings> {
 		available: meminfoGib(meminfo, "MemAvailable"),
 		total: meminfoGib(meminfo, "MemTotal"),
 	};
+}
+
+/** Each slice's CPU `some avg60`, or nothing where any can't be had. */
+async function sliceReadings(
+	reads: MachineReads,
+): Promise<Record<Slice, number> | undefined> {
+	const read = reads.sliceCpuPressure;
+	if (read === undefined) return undefined;
+	const [agents, app, session] = await Promise.all(
+		(["agents", "app", "session"] as const).map((slice) =>
+			pressureAvg60(() => read(slice), "some"),
+		),
+	);
+	return agents === undefined || app === undefined || session === undefined
+		? undefined
+		: { agents, app, session };
+}
+
+/** Whether `name` is a slice the bar reads. */
+function isSlice(name: string): name is Slice {
+	return name in SLICE_BARS;
+}
+
+/** Each slice at or past its bar, said as the CPU reading it holds a round on. */
+function slicesShort(
+	slices: Record<Slice, number>,
+): { reading: string; said: string }[] {
+	return Object.entries(SLICE_BARS).flatMap(([slice, bar]) => {
+		const value = isSlice(slice) ? slices[slice] : undefined;
+		return value !== undefined && value >= bar
+			? [
+					{
+						reading: CPU_READING,
+						said: `${slice}.slice CPU some avg60 was ${value}, at or past ${bar}`,
+					},
+				]
+			: [];
+	});
 }
 
 /** The readings a round can be held on, by the names the line shows. */

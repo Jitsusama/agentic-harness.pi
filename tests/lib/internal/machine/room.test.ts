@@ -11,6 +11,8 @@ import {
 	type MachineReads,
 	machineQuiet,
 	machineShort,
+	type Slice,
+	sliceCpuPressureFile,
 } from "../../../../lib/internal/machine/room.ts";
 
 const KIB_PER_GIB = 1024 * 1024;
@@ -240,5 +242,76 @@ describe("whether the machine has room for a round", () => {
 				}),
 			),
 		).toBeUndefined();
+	});
+});
+
+// A210E4CA, 27 November: the machine's CPU figure was the jobs slice's
+// designed stall, so the bar reads the agents' and Joel's slices.
+describe("the CPU bar where the user's slices can be read", () => {
+	/** Each slice's pressure file, with `avg60` on its some line. */
+	const slices =
+		(over: Partial<Record<Slice, string>> = {}) =>
+		(slice: Slice): Promise<string> =>
+			pressure("some", over[slice] ?? "0.10")();
+	const busyMachine = pressure("some", "66.7");
+
+	it("has room while the machine stalls on the jobs slice alone", async () => {
+		expect(
+			await machineShort(
+				reads({
+					cpuPressure: busyMachine,
+					sliceCpuPressure: slices({ agents: "16" }),
+				}),
+			),
+		).toBeUndefined();
+	});
+
+	it("is short at the agents' slice's 20 and past it, passably", async () => {
+		const short = await machineShort(
+			reads({
+				cpuPressure: pressure("some", "1"),
+				sliceCpuPressure: slices({ agents: "20.00" }),
+			}),
+		);
+
+		expect(short?.said).toBe(
+			"agents.slice CPU some avg60 was 20, at or past 20",
+		);
+		expect(short?.readings).toEqual(["CPU some avg60"]);
+		expect(short?.passable).toBe(true);
+		expect(
+			await machineShort(
+				reads({ sliceCpuPressure: slices({ agents: "19.99" }) }),
+			),
+		).toBeUndefined();
+	});
+
+	it("is short at 2 on Joel's app or session slice", async () => {
+		expect(
+			await saidOf(reads({ sliceCpuPressure: slices({ app: "2" }) })),
+		).toBe("app.slice CPU some avg60 was 2, at or past 2");
+		expect(
+			await saidOf(reads({ sliceCpuPressure: slices({ session: "3.5" }) })),
+		).toBe("session.slice CPU some avg60 was 3.5, at or past 2");
+		expect(
+			await saidOf(reads({ sliceCpuPressure: slices({ app: "1.99" }) })),
+		).toBeUndefined();
+	});
+
+	it("reads the machine's figure where any slice can't be read", async () => {
+		const oneGone = (slice: Slice) =>
+			slice === "session" ? missing() : slices()(slice);
+
+		expect(
+			await saidOf(
+				reads({ cpuPressure: busyMachine, sliceCpuPressure: oneGone }),
+			),
+		).toBe("CPU some avg60 was 66.7, at or past 40");
+	});
+
+	it("finds each slice under this user's service manager", () => {
+		expect(sliceCpuPressureFile(1000, "agents")).toBe(
+			"/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/agents.slice/cpu.pressure",
+		);
 	});
 });
