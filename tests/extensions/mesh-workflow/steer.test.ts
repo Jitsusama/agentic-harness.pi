@@ -457,6 +457,16 @@ describe("a steer as the session reads it", () => {
 		).toBe(false);
 	});
 
+	// F102: only the person's words or the launcher's talk steer a run, so
+	// a peer's ask is never framed for one at work, whatever it is handed.
+	it("asks a peer's question the same way whether or not the session works", () => {
+		const ask = { text: "where does it stand?", from: "wcjqsg", file: "f" };
+		expect(
+			steerText(ask, { busy: true }),
+			"a peer's ask told to carry on, as only the person's busy words are",
+		).toBe(steerText(ask, { busy: false }));
+	});
+
 	it("reads a machine's steer from before the header as not the person's", () => {
 		expect(
 			isPersonText(
