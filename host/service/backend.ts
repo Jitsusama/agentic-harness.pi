@@ -21,6 +21,7 @@ import {
 	type ControlReply,
 	hostRefusal,
 } from "./dispatch.ts";
+import { type SnapshotPlaces, snapshotHeap } from "./heap-snapshot.ts";
 import type { ControlRequest, Measured, SessionIdentity } from "./protocol.ts";
 import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
@@ -341,6 +342,8 @@ export function hostBackend(options: {
 	own?: () => Measured | Promise<Measured>;
 	/** How the host reads its own Pss, unless given as hostPss reads it. */
 	ownPss?: () => Promise<number | undefined>;
+	/** Where and how a heap snapshot is written, unless as heap-snapshot.ts writes one. */
+	snapshots?: Omit<SnapshotPlaces, "say">;
 }): HostBackend {
 	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
@@ -905,6 +908,23 @@ export function hostBackend(options: {
 							...stranded(),
 						].map(({ sessionId, state }) => ({ sessionId, state })),
 					};
+				case "heap-snapshot":
+					// Only the process a conversation runs in can write its heap. The
+					// server passes one a child runs to that child (server.ts), so
+					// one reaching here unheld runs nowhere, as a parked one.
+					if (host.holds(request.sessionId) === undefined)
+						throw hostRefusal(
+							"unsupported",
+							`Conversation ${request.sessionId} runs in no process here, so it has no heap to snapshot; resume it first`,
+						);
+					return snapshotHeap(
+						request.sessionId,
+						live(request.sessionId).state,
+						{
+							...options.snapshots,
+							...(options.say ? { say: options.say } : {}),
+						},
+					);
 				case "close":
 				case "release":
 					return end(request);

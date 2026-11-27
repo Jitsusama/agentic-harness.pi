@@ -20,6 +20,7 @@ import { conversationEvents } from "../../../host/service/conversation-events.ts
 import {
 	type ControlRequest,
 	parseDrainResult,
+	parseHeapSnapshotResult,
 	parseListResult,
 	parseMemoryResult,
 	parseOpenResult,
@@ -230,6 +231,48 @@ describe("hostBackend", () => {
 				{ sessionId: stranded, state: "parked" },
 			],
 		});
+	});
+
+	it("writes a heap snapshot of a conversation it runs, saying so, and refuses one busy or running nowhere", async () => {
+		const said: string[] = [];
+		const wrote: string[] = [];
+		const backend = backendWith(engine().fake, undefined, {
+			say: besideStarts(said),
+			snapshots: {
+				folder: join(dir, "heap-snapshots"),
+				write: (file) => wrote.push(file),
+			},
+		});
+		const running = parseOpenResult(await backend.execute(anOpen()));
+		const snapshot = (id: string) =>
+			backend.execute({
+				v: 1,
+				id: randomUUID(),
+				op: "heap-snapshot",
+				sessionId: id,
+			});
+
+		const answer = parseHeapSnapshotResult(await snapshot(running.sessionId));
+		expect(answer).toMatchObject({ sessionId: running.sessionId, bytes: 0 });
+		expect(wrote).toEqual([answer.file]);
+		expect(said).toEqual([
+			expect.stringContaining(
+				`Wrote a heap snapshot of conversation ${running.sessionId}'s process`,
+			),
+		]);
+
+		host.state(running.sessionId, "busy");
+		await expect(snapshot(running.sessionId)).rejects.toThrow("is busy");
+		// Held by the roster, but running nowhere.
+		const stranded = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o2" }),
+		).sessionId;
+		await host.stop(stranded);
+		await expect(snapshot(stranded)).rejects.toThrow("runs in no process here");
+		await expect(snapshot(randomUUID())).rejects.toThrow(
+			"runs in no process here",
+		);
+		expect(wrote, "nothing written for a refusal").toHaveLength(1);
 	});
 
 	it("reads its own heap from V8 unless told what to answer", async () => {

@@ -14,6 +14,7 @@ import {
 	childRunning,
 	describeChild,
 	describeMemory,
+	describeSnapshot,
 } from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
@@ -163,6 +164,24 @@ describe("a host's memory, described", () => {
 		expect(said).toBe(
 			"attended: host Pss 80 MiB, heap unread; no child's Pss read",
 		);
+	});
+});
+
+describe("a heap snapshot, described", () => {
+	it("says where it went, its size and how long the process stopped", () => {
+		const said = { sessionId: ONE, bytes: 412 * MIB, tookMs: 3100 };
+		expect(
+			describeSnapshot({
+				...said,
+				file: "/state/heap-snapshots/one.heapsnapshot",
+			}),
+		).toBe(
+			`${ONE}: a heap snapshot of 412 MiB, written in 3100 ms, to /state/heap-snapshots/one.heapsnapshot`,
+		);
+		expect(
+			describeSnapshot({ ...said, file: "/state/one\u001b[2J.heapsnapshot" }),
+			"nothing a terminal would act on",
+		).not.toContain("\u001b");
 	});
 });
 

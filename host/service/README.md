@@ -295,6 +295,17 @@ input pipeline or screen. No unit or running host is installed yet.
   so the quiet collection waits 30 s after one.
 - protocol.ts: strict v1 control requests, replies and viewer input.
   A close or release may name its caller (`by`), for the journal.
+- heap-snapshot.ts: `heap-snapshot`, which writes a V8 heap snapshot of
+  the process one conversation runs in, so what a long-lived child
+  holds can be named by what retains it; a child runs with SIGUSR1 off,
+  so no inspector can read it instead. The host passes the request to
+  the child that runs the conversation, as it passes any request naming
+  one. The write stops that thread for seconds, so a busy conversation
+  refuses it, and the journal says each one's size and pause. The file
+  holds every string the process does, secrets among them, so it is
+  made owner-only before V8 writes into it, in an owner-only folder
+  under the host service's state, and kept until its asker removes it.
+  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.
