@@ -453,6 +453,51 @@ describe("a host with conversations in children", () => {
 		]);
 		expect(asked).toEqual([]);
 	});
+	// The children's host reads a child that dies before it answers an end
+	// as ended by it, so the server notes each end it passes on.
+	it("notes each end it passes on to a child, settling it with the child's answer", async () => {
+		const noted: [string, unknown][] = [];
+		routes.asking = (request) => {
+			noted.push([request.op, "asked"]);
+			return (reply) => noted.push([request.op, reply]);
+		};
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: host,
+		});
+		await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: { ...host, owner: { pid: process.pid, startedAt: 9 } },
+		});
+		routes.hold(conversation(a), {
+			socket: join(dir, "gone.sock"),
+			identity: child,
+		});
+		const gone = await controlRequest(hostPath, {
+			v: 1,
+			id: "abort",
+			op: "abort",
+			sessionId: a,
+			expectedHost: host,
+		});
+
+		expect(
+			noted,
+			"one noted before each child heard, none for a stale host",
+		).toEqual([
+			["close", "asked"],
+			["close", reply],
+			["abort", "asked"],
+			["abort", gone],
+		]);
+		expect(gone).toMatchObject({ error: { code: "child_unreachable" } });
+	});
 	it("ends a child's conversation asked under the child's name, as the child lists it", async () => {
 		// The machine's host registry, and so a mesh presence, names the
 		// child's process for a conversation a child runs.

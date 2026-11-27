@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	END_ASKED_HOLDS_MS,
 	type HostedChildren,
 	hostChildren,
 	WAKES_A_DAY,
@@ -11,8 +12,12 @@ import {
 	WOKEN_AGAIN_AFTER_MS,
 } from "../../../host/service/child-hosting.ts";
 import type { ChildPolicy } from "../../../host/service/child-policy.ts";
-import { BEGIN_TOO_LATE } from "../../../host/service/child-requests.ts";
+import {
+	BEGIN_TOO_LATE,
+	childUnreachable,
+} from "../../../host/service/child-requests.ts";
 import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
+import type { ControlRequest } from "../../../host/service/protocol.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
 	conversationIn,
@@ -305,11 +310,133 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() =>
 				expect(said).toContain(
-					`${a}: its child failed mid-turn as it was asked to end, so it rests until it is asked for`,
+					`${a}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
 				),
 			);
 			expect(await refused, "the close failed with its child").toBe("refused");
 			expect(woken, "the close it was asked isn't undone").toEqual([]);
+		});
+
+		/** An end of `a`, as a person's window or the mesh asks one. */
+		function ending(op: "close" | "release" | "abort"): ControlRequest {
+			return { v: 1, id: op, op, sessionId: a };
+		}
+
+		// The server passes a person's close straight to the child, never
+		// through the backend, and notes it through the routes.
+		it("leaves one resting whose child died as a close the server passed on was asked", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"));
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
+				),
+			);
+			expect(woken, "the server's close isn't undone").toEqual([]);
+		});
+
+		it("leaves one resting whose child died as its abort was asked", async () => {
+			await busy();
+			const aborting = children.backend
+				.ask(a, ending("abort"))
+				.catch(() => "refused");
+			await vi.waitFor(() =>
+				expect(units.childOf(a).asked.map((one) => one.op)).toContain("abort"),
+			);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(await aborting).toBe("refused");
+			expect(woken, "the turn the person aborted isn't carried on").toEqual([]);
+		});
+
+		it("wakes one whose child took its abort and then died mid-turn", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.({
+				v: 1,
+				id: "abort",
+				ok: true,
+				result: null,
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "a later turn's death, not the abort's").toEqual([a]),
+			);
+		});
+
+		it("wakes one whose child died long after a close it never answered", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			clock += END_ASKED_HOLDS_MS;
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the close's hold has lapsed").toEqual([a]),
+			);
+		});
+
+		it("leaves one resting whose child died just after a close it never answered", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			clock += END_ASKED_HOLDS_MS - 1;
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "still the close's ending").toEqual([]);
+		});
+
+		it("keeps one end's mark when another asked beside it is refused", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"));
+			children.routes.asking?.(ending("release"))?.({
+				v: 1,
+				id: "release",
+				ok: false,
+				error: { code: "invalid_request", message: "refused" },
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the close still waits on its answer").toEqual([]);
+		});
+
+		it("takes every end's mark back with its child's ending", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.({
+				v: 1,
+				id: "close",
+				ok: true,
+				result: null,
+			});
+			await units.childOf(a).end("parked");
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "the next child's death is its own").toEqual([a]),
+			);
+		});
+
+		it("notes nothing for a request that ends no turn", () => {
+			expect(
+				children.routes.asking?.({ v: 1, id: "l", op: "list" }),
+				"no conversation",
+			).toBeUndefined();
+			expect(
+				children.routes.asking?.({
+					v: 1,
+					id: "v",
+					op: "attach",
+					sessionId: a,
+					rows: 20,
+					columns: 80,
+				}),
+				"a window's attach",
+			).toBeUndefined();
 		});
 
 		it("wakes one whose child refused its close and then died mid-turn", async () => {

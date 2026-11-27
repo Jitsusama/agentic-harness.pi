@@ -14,16 +14,23 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
-import { askOnce, CHILD_UNREACHABLE, reach } from "./child-requests.ts";
 import {
+	askOnce,
+	CHILD_UNREACHABLE,
+	childUnreachable,
+	reach,
+} from "./child-requests.ts";
+import {
+	ANSWERS_WITHIN_MS,
 	type ChildSupervisor,
 	childSupervisor,
+	EXITS_WITHIN_MS,
 	type KeptRoster,
 } from "./child-supervisor.ts";
 import type { Units } from "./child-units.ts";
 import type { ChildEnding } from "./child-watch.ts";
 import { type HeldChildren, heldChildren, passedOn } from "./children.ts";
-import { hostRefusal } from "./dispatch.ts";
+import { type ControlReply, hostRefusal } from "./dispatch.ts";
 import type { ControlRequest } from "./protocol.ts";
 import { versionsMove } from "./what-starts.ts";
 
@@ -44,6 +51,19 @@ export const WAKES_A_DAY = 3;
 
 /** How far back the wakes `WAKES_A_DAY` counts reach. */
 export const WAKES_COUNTED_OVER_MS = 24 * 60 * 60_000;
+
+/**
+ * How long an end its child agreed to, or gave no answer to, still owns
+ * the child's ending: past the supervisor's wait for an ended child to
+ * exit and for a stuck one to answer, so a close's own ending is the
+ * close's, while a child that lives on is woken for a later death.
+ */
+export const END_ASKED_HOLDS_MS = EXITS_WITHIN_MS + ANSWERS_WITHIN_MS;
+
+/** What ends a conversation's turn when its child takes it. */
+const ENDS_A_TURN: ReadonlySet<string> = new Set(
+	"close release abort".split(" "),
+);
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -101,13 +121,14 @@ export function hostChildren(options: {
 		spares: () => policy.spares?.() ?? false,
 		spareMoved: versionsMove(),
 		ended: (sessionId, why, busy) => {
-			const endAsked = endsAsked.delete(sessionId.toLowerCase());
+			const endAsked = endWasAsked(sessionId);
 			rest(sessionId, why);
 			if (why !== "failed" || !busy) return;
-			// Its close or release failed with it, so the person asks again.
+			// Its close, release or abort failed with it, so carrying the turn
+			// on would undo what the person asked; they ask again.
 			if (endAsked)
 				options.say?.(
-					`${sessionId}: its child failed mid-turn as it was asked to end, so it rests until it is asked for`,
+					`${sessionId}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
 				);
 			else wakeCutOff(sessionId);
 		},
@@ -152,11 +173,44 @@ export function hostChildren(options: {
 	// Each conversation's wakes are kept only for that day, by its id in
 	// either case, as the supervisor takes either case as one.
 	const wokenAt = new Map<string, number[]>();
-	// Each conversation, by its id in either case, whose close or release
-	// its child was asked and hasn't refused: its ending is that end's, so
-	// a child that dies as it is asked one wakes nothing.
-	const endsAsked = new Set<string>();
+	// Each conversation, by its id in either case, whose child was asked
+	// to end it or its turn: each ask's mark holds while it is unanswered,
+	// and for END_ASKED_HOLDS_MS once the child agreed to end it or gave no
+	// answer, so a child that dies as it is asked wakes nothing. A refusal,
+	// or an abort's answer, takes back only its own ask's mark, and the
+	// child's ending takes them all.
+	const endsAsked = new Map<string, Set<{ until: number }>>();
 	const now = options.now ?? Date.now;
+	function asking(
+		sessionId: string,
+		op: string,
+	): ((reply: ControlReply | undefined) => void) | undefined {
+		if (!ENDS_A_TURN.has(op)) return undefined;
+		const id = sessionId.toLowerCase();
+		const mark = { until: Number.POSITIVE_INFINITY };
+		const marks = endsAsked.get(id) ?? new Set();
+		marks.add(mark);
+		endsAsked.set(id, marks);
+		return (reply) => {
+			// An abort taken leaves the child running, its turn over.
+			const holds =
+				reply !== undefined &&
+				(reply.ok ? op !== "abort" : reply.error.code === CHILD_UNREACHABLE);
+			if (holds) {
+				mark.until = now() + END_ASKED_HOLDS_MS;
+				return;
+			}
+			marks.delete(mark);
+			if (marks.size === 0 && endsAsked.get(id) === marks) endsAsked.delete(id);
+		};
+	}
+	function endWasAsked(sessionId: string): boolean {
+		const id = sessionId.toLowerCase();
+		const marks = endsAsked.get(id);
+		endsAsked.delete(id);
+		const at = now();
+		return [...(marks ?? [])].some((mark) => mark.until > at);
+	}
 	function wakeCutOff(sessionId: string): void {
 		const { wake } = options;
 		if (!wake) return;
@@ -227,21 +281,22 @@ export function hostChildren(options: {
 	async function ask(sessionId: string, request: ControlRequest) {
 		const route = routes.routeOf(sessionId);
 		if (!route) throw new Error(`Conversation is not hosted: ${sessionId}`);
-		const ends = request.op === "close" || request.op === "release";
-		if (ends) endsAsked.add(sessionId.toLowerCase());
-		const reply = await askOnce(
-			await reach(route.socket),
-			`${JSON.stringify(passedOn(request, route))}\n`,
-			request.id,
-			report,
-		);
-		// Refused by a child that lives on, so its next ending is its own;
-		// one that didn't answer may have died as it was asked.
-		if (!reply.ok) {
-			if (ends && reply.error.code !== CHILD_UNREACHABLE)
-				endsAsked.delete(sessionId.toLowerCase());
-			throw hostRefusal(reply.error.code, reply.error.message);
+		const settle = asking(sessionId, request.op);
+		let reply: ControlReply;
+		try {
+			reply = await askOnce(
+				await reach(route.socket),
+				`${JSON.stringify(passedOn(request, route))}\n`,
+				request.id,
+				report,
+			);
+		} catch (error) {
+			// Not reached: it may have died as it was asked.
+			settle?.(childUnreachable(request.id));
+			throw error;
 		}
+		settle?.(reply);
+		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
 		return reply.result;
 	}
 
@@ -258,7 +313,13 @@ export function hostChildren(options: {
 			ask,
 			left: (sessionId) => supervisor.left(sessionId),
 		},
-		routes,
+		routes: {
+			...routes,
+			asking: (request) =>
+				"sessionId" in request
+					? asking(request.sessionId, request.op)
+					: undefined,
+		},
 		adopt: () => supervisor.adopt(),
 		close() {
 			supervisor.close();

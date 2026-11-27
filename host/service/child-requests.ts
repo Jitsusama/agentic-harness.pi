@@ -64,10 +64,10 @@ export function leftRunning(reply: ControlReply): string | undefined {
 	return leftRunningBy.get(reply);
 }
 
-/** The answer to `id` when the child can't give one. */
 /** The code a reply carries when its child didn't answer. */
 export const CHILD_UNREACHABLE = "child_unreachable";
 
+/** The answer to `id` when the child can't give one. */
 export function childUnreachable(id: string, message?: string): ControlReply {
 	const reply: ControlReply = {
 		v: 1,

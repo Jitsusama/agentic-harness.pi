@@ -24,7 +24,7 @@
 import { startTicksFromProc } from "../../lib/internal/process-ticks.ts";
 import { settledWithin } from "../../lib/internal/settled.ts";
 import { pssBytesOf } from "../engine/quiet-collection.ts";
-import type { ControlBackend, HostIdentity } from "./dispatch.ts";
+import type { ControlBackend, ControlReply, HostIdentity } from "./dispatch.ts";
 import type {
 	ControlRequest,
 	Measured,
@@ -64,6 +64,17 @@ export interface ChildRoutes {
 	held(): readonly HeldChild[];
 	/** The child running a conversation, with its last heap, or nothing. */
 	child(sessionId: string): HeldChild | undefined;
+	/**
+	 * Note that `request` is being passed on to its conversation's child,
+	 * answering what to call with the child's reply, or with nothing when
+	 * it was never sent; nothing for a request whose ending nothing reads.
+	 * Where children are hosted, a close, release or abort asked of a
+	 * child that dies before it answers ended that conversation's turn, so
+	 * nothing wakes it to carry the turn on.
+	 */
+	asking?(
+		request: ControlRequest,
+	): ((reply: ControlReply | undefined) => void) | undefined;
 }
 
 /** The routes, kept as children start, change and end. */

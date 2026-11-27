@@ -461,8 +461,11 @@ input pipeline or screen. No unit or running host is installed yet.
   `WAKES_A_DAY` (3) times in a day of one host's run, as the host
   keeps the count in memory, so a turn that kills its child each time
   asks the model again only so often; past either, it rests, and the
-  journal says so. One whose child dies as its close or release is
-  asked rests too. So killing a busy child by hand carries its turn
+  journal says so. One whose child dies as its close, release or
+  abort is asked, whether a window asked it through the server or the
+  host asked it itself, rests too, until `END_ASKED_HOLDS_MS` (90
+  seconds) after the child answers or can't be reached; an abort the
+  child took leaves its later death its own. So killing a busy child by hand carries its turn
   on; to stop one for good, close it, or kill it again within the 10
   minutes.
 - client.ts: one-shot control requests with strict reply correlation and
