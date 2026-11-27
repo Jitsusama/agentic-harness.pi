@@ -281,6 +281,18 @@ export function roundRoom(
 }
 
 /**
+ * The room a round whose reviewers run on a room waits on: none of this
+ * machine's, since its reviewers load and think there. It still takes
+ * its place in the line and keeps the spacing, so the rounds here keep
+ * their order. On 27 November optimus's line held 57 rounds behind its
+ * memory bar, which a round sent to a room would have waited behind too.
+ */
+export const ROOM_ROUND: RosterRoom = {
+	short: async () => undefined,
+	startedUnjudged: () => undefined,
+};
+
+/**
  * The room a roster round waits on: what keeps it from starting, the
  * spacing its machine keeps when the config sets none, and whether the
  * machine is quiet enough to start sooner, where it can tell.

@@ -66,6 +66,7 @@ import {
 	councilFindingsBehind,
 	material,
 	nextSeq,
+	ROOM_ROUND,
 	renderFindings,
 } from "./ask-round.ts";
 import { NARROWER_WEIGHING } from "./ask-weigh.ts";
@@ -82,10 +83,7 @@ export async function askCouncil(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
-	const { waited } = set;
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
+	const { waited, room } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -158,7 +156,18 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	const start = await awaitRosterStart(change.label, seat.signal, "council");
+	// Before the start, since a round whose reviewers run on a room
+	// doesn't wait on this machine's memory or CPU, only its place in
+	// the line and the spacing.
+	const room = await roomFor(change, proposal.headCommit, () =>
+		roomHarness(tree.path),
+	);
+	const start = await awaitRosterStart(
+		change.label,
+		seat.signal,
+		"council",
+		room === undefined ? undefined : ROOM_ROUND,
+	);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
 	// Asked again after the wait: a council on this head queued ahead of
@@ -180,6 +189,7 @@ async function councilRound(
 		charters,
 		conventions,
 		prompt,
+		room,
 		waited: start.waited,
 		...(start.release === undefined ? {} : { release: start.release }),
 	};
@@ -229,13 +239,11 @@ export async function startRound(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
+	const { room } = set;
 	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkills("council");
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
