@@ -109,7 +109,7 @@ describe("strippedSourceLoad", () => {
 			/^\/cache\//,
 		);
 		expect(text).toBe(entryText(`js(const a: number = 1;)@${URL_A}`));
-		expect(text).toMatch(/^module [0-9a-f]{64}\n/);
+		expect(text).toMatch(/^module bare [0-9a-f]{64}\n/);
 
 		files.set(file, text);
 		const second = hookOver(files);
@@ -185,7 +185,7 @@ describe("strippedSourceLoad", () => {
 		expect(read).not.toBeCalled();
 	});
 
-	it("reads an entry cut short or damaged as one not kept", () => {
+	it("reads an entry cut short, damaged or kept with its comments as one not kept", () => {
 		const files = new Map([[fileURLToPath(URL_A), "x"]]);
 		const first = hookOver(files);
 		first.load(URL_A, CONTEXT, first.nextLoad);
@@ -201,6 +201,8 @@ describe("strippedSourceLoad", () => {
 			`${head}\n`,
 			`${head}\njs(y)@${URL_A}`,
 			text.slice(0, -1),
+			// As kept before comments were taken out, its hash still sound.
+			text.replace(/^module bare /, "module "),
 		]) {
 			files.set(file, cut);
 			const again = hookOver(files);
