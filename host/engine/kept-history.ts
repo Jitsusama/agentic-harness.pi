@@ -257,8 +257,9 @@ interface Held {
  * when its log has nothing to leave out, or a rollover record the view
  * would hide. The ids it gives the record and usage entries are clear of
  * every id in `taken`, which is left as it was, so a view that fails
- * keeps none of them. A manager already holding a view takes it again
- * over what it holds, `prior`, adding to what that left out.
+ * keeps none of them, and of those `prior` held in their place. A manager
+ * already holding a view takes it again over what it holds, `prior`,
+ * adding to what that left out.
  */
 function heldEntries(
 	manager: HeldManager,
@@ -325,6 +326,9 @@ function heldEntries(
 		else if (entry.id === prior?.recordId) dropped += prior.dropped;
 	}
 	const minted = new Set<string>();
+	// What the record carries is read from the latest record on the branch,
+	// a lookalike included, as a whole open of the log reads it, so the view
+	// and the whole log carry the same spend and values.
 	const record: RolloverRecord = {
 		parentSession: file,
 		parentLeaf: before.id,
@@ -340,7 +344,7 @@ function heldEntries(
 	const usage = usageLeftOut(manager.fileEntries, keptIds).map(
 		(spent): Entry => ({
 			type: "usage",
-			id: freshId(taken, minted),
+			id: freshId(taken, minted, prior?.standIns),
 			parentId: null,
 			timestamp: before.timestamp,
 			kind: "kept-history",
@@ -350,7 +354,7 @@ function heldEntries(
 	);
 	const recordEntry: Entry = {
 		type: "custom",
-		id: freshId(taken, minted),
+		id: freshId(taken, minted, prior?.standIns),
 		parentId: null,
 		timestamp: before.timestamp,
 		customType: ROLLOVER_RECORD,
@@ -481,7 +485,12 @@ function forkPointOf(id: string, message: unknown): ForkPoint | undefined {
 	return text ? { entryId: id, text } : undefined;
 }
 
-/** Have `manager` hold `held`, every id its file holds still taken. */
+/**
+ * Have `manager` hold `held`, every id its file holds still taken. What
+ * the view holds in place of what it leaves out is never written, so its
+ * ids are held rather than taken: once a later view leaves them out, no
+ * entry has them, and looking one up reads nothing.
+ */
 function install(
 	manager: HeldManager,
 	file: string,
@@ -491,7 +500,7 @@ function install(
 	const taken = new Set(manager.byId.keys());
 	for (const entry of held.entries) {
 		const id = (entry as { id?: unknown }).id;
-		if (typeof id === "string") taken.add(id);
+		if (typeof id === "string" && !held.standIns.has(id)) taken.add(id);
 	}
 	manager.fileEntries = held.entries;
 	manager._buildIndex();
@@ -658,8 +667,11 @@ function guard(
 		const entries = manager.fileEntries;
 		const leaf = manager.leafId;
 		// pi indexes what it appends without taking its id, so what was
-		// appended since the open stays taken once the view leaves it out.
-		for (const id of manager.byId.keys()) taken.add(id);
+		// appended since the open stays taken once the view leaves it out;
+		// what the view held in place of what it left out was never written,
+		// so it is not.
+		for (const id of manager.byId.keys())
+			if (!current.standIns.has(id)) taken.add(id);
 		try {
 			const next = heldEntries(
 				manager,
@@ -671,9 +683,6 @@ function guard(
 			if (!next) return;
 			manager.fileEntries = next.entries;
 			manager._buildIndex();
-			// Only once it holds them, so a view that fails keeps no id taken
-			// that no entry has, whose lookup would read the whole log.
-			for (const id of next.standIns) taken.add(id);
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
 			current = next;
@@ -875,13 +884,17 @@ function isHeader(entry: unknown): boolean {
 }
 
 /**
- * An id in pi's eight-hex form that neither `taken` nor `minted` has,
- * added to `minted`.
+ * An id in pi's eight-hex form that none of `taken`, `held` and `minted`
+ * has, added to `minted`.
  */
-function freshId(taken: ReadonlySet<string>, minted: Set<string>): string {
+function freshId(
+	taken: ReadonlySet<string>,
+	minted: Set<string>,
+	held: ReadonlySet<string> = new Set(),
+): string {
 	for (;;) {
 		const id = randomBytes(4).toString("hex");
-		if (!taken.has(id) && !minted.has(id)) {
+		if (!taken.has(id) && !held.has(id) && !minted.has(id)) {
 			minted.add(id);
 			return id;
 		}

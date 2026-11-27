@@ -142,13 +142,13 @@ describe("a program that runs outside the sandbox", () => {
 
 		expect(sealedPath("/l1", chain(MOST_LINKS))).toBe("/made");
 		expect(sealedPath("/l1", chain(MOST_LINKS + 1))).toBeUndefined();
-		// Each system's count, whichever this one is.
-		for (const platform of ["linux", "darwin", "sunos"] as const) {
-			const most = mostLinksOn(platform);
-			expect(sealedPath("/l1", chain(most), most), platform).toBe("/made");
+		// Each count a system holds a walk to, whichever this one is, and
+		// whichever system holds it, which the case below pins.
+		for (const most of [40, 32, 20]) {
+			expect(sealedPath("/l1", chain(most), most), `${most}`).toBe("/made");
 			expect(
 				sealedPath("/l1", chain(most + 1), most),
-				platform,
+				`${most}`,
 			).toBeUndefined();
 		}
 	});
@@ -161,7 +161,8 @@ describe("a program that runs outside the sandbox", () => {
 			["darwin", 32],
 			["freebsd", 32],
 			["openbsd", 32],
-			// Named nowhere in the count's doc.
+			// Named nowhere in the count's doc, so held to 32 as it says,
+			// whatever the system's own count: these aren't checked counts.
 			["aix", 32],
 			["win32", 32],
 		];

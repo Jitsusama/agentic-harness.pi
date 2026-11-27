@@ -641,33 +641,82 @@ describe("pi's own open stands", () => {
 		expect(fallsBack(file), "it falls back to pi's own open").toBe(true);
 	});
 
+	/** A mebibyte, the most a look for a header reads, and a light read's read. */
+	const MIB = 1024 * 1024;
+
+	/**
+	 * Headers pi's own to open whatever follows them: a log pi would
+	 * migrate, one whose header names no folder, one whose first entry
+	 * isn't a session's, and one whose header names no id.
+	 */
+	const LEFT_TO_PI = [
+		(header: Record<string, unknown>) => ({ ...header, version: 2 }),
+		({ cwd: _, ...header }: Record<string, unknown>) => header,
+		(header: Record<string, unknown>) => ({ ...header, type: "message" }),
+		({ id: _, ...header }: Record<string, unknown>) => header,
+	];
+
+	/**
+	 * A compacted log whose header `changed` makes, after `skipped` (lines
+	 * pi's open skips) and before an entry three of the open's reads long,
+	 * so reading the whole log is told from a read up to its header; and
+	 * the header's line.
+	 */
+	function logLeftToPi(
+		changed: (header: Record<string, unknown>) => Record<string, unknown>,
+		skipped: string[] = [],
+	): { file: string; first: string } {
+		const file = compactedLog();
+		const [header = "", ...rest] = readFileSync(file, "utf8").split("\n");
+		const long = JSON.stringify({
+			type: "custom",
+			customType: "long",
+			data: "x".repeat(3 * MIB),
+		});
+		const first = JSON.stringify(changed(JSON.parse(header)));
+		writeFileSync(file, [...skipped, first, long, ...rest].join("\n"));
+		return { file, first };
+	}
+
 	it("for a log its header leaves to pi, reading no more of it than the header", () => {
-		// Each is pi's own to open whatever follows its header: a log pi
-		// would migrate, one whose header names no folder, one whose first
-		// entry isn't a session's, and one whose header names no id.
-		const headers = [
-			(header: Record<string, unknown>) => ({ ...header, version: 2 }),
-			({ cwd: _, ...header }: Record<string, unknown>) => header,
-			(header: Record<string, unknown>) => ({ ...header, type: "message" }),
-			({ id: _, ...header }: Record<string, unknown>) => header,
-		];
-		for (const changed of headers) {
-			const file = compactedLog();
-			const [header = "", ...rest] = readFileSync(file, "utf8").split("\n");
-			// Three of the open's reads long, so reading the whole log is told
-			// from a look at its header.
-			const long = JSON.stringify({
-				type: "custom",
-				customType: "long",
-				data: "x".repeat(3 * 1024 * 1024),
-			});
-			const first = JSON.stringify(changed(JSON.parse(header)));
-			writeFileSync(file, [first, long, ...rest].join("\n"));
+		for (const changed of LEFT_TO_PI) {
+			const { file, first } = logLeftToPi(changed);
 			reads.bytes = 0;
 			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
-			expect(reads.bytes, "the log was read past its header").toBeLessThan(
-				1024 * 1024,
-			);
+			// The header and what one look's read takes past it.
+			expect(
+				reads.bytes,
+				"the log was read past its header",
+			).toBeLessThanOrEqual(Buffer.byteLength(first) + 1 + 4096);
+		}
+	});
+
+	it("for a log its header leaves to pi just inside a look's limit, found by the look alone", () => {
+		for (const changed of LEFT_TO_PI) {
+			// Lines pi's open skips, ending a few kilobytes short of the limit.
+			const { file } = logLeftToPi(changed, ["x".repeat(MIB - 8 * 1024)]);
+			reads.bytes = 0;
+			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
+			expect(
+				reads.bytes,
+				"the look gave up short of the header, or the log was read on",
+			).toBeLessThanOrEqual(MIB);
+		}
+	});
+
+	it("for a log its header leaves to pi past a look's limit, reading no further than the header", () => {
+		for (const changed of LEFT_TO_PI) {
+			const skipped = "x".repeat(3 * MIB);
+			const { file } = logLeftToPi(changed, [skipped]);
+			reads.bytes = 0;
+			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
+			// The look's limit, then the light read up to the read holding the
+			// header, which ends a few hundred bytes into the read after the
+			// skipped line.
+			expect(
+				reads.bytes,
+				"the log was read past its header",
+			).toBeLessThanOrEqual(MIB + skipped.length + MIB);
 		}
 	});
 
