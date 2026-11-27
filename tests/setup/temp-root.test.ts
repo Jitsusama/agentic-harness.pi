@@ -8,6 +8,8 @@
 import { spawnSync } from "node:child_process";
 import type * as Fs from "node:fs";
 import {
+	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readlinkSync,
@@ -46,6 +48,7 @@ vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof Fs>();
 	return {
 		...fs,
+		mkdirSync: vi.fn(),
 		mkdtempSync: vi.fn((prefix: string) => `${prefix}XXXXXX`),
 		rmSync: vi.fn(),
 		rmdirSync: vi.fn(fs.rmdirSync),
@@ -197,21 +200,65 @@ describe("a test run's temp root", () => {
 	it("keeps its short folder fresh while the run lasts, and stops at its end", () => {
 		expect(FRESH_MS * 2, "fresh well inside the day").toBeLessThan(STALE_MS);
 		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		const timers = vi.spyOn(globalThis, "setInterval");
 		try {
 			inSession(() => {
 				vi.mocked(utimesSync).mockClear();
 				const teardown = setup();
+				const fresh = timers.mock.results[0]?.value as NodeJS.Timeout;
+				expect(fresh.hasRef(), "it never keeps a run going").toBe(false);
 				vi.advanceTimersByTime(FRESH_MS);
+				const [[path, atime, mtime] = []] = vi.mocked(utimesSync).mock.calls;
+				expect(path, "once a while has passed").toBe(SHORT);
 				expect(
-					vi.mocked(utimesSync).mock.calls.map(([path]) => path),
-					"once a while has passed",
-				).toEqual([SHORT]);
+					Math.abs(Number(mtime) - Date.now()),
+					"dated now, so it reads as fresh",
+				).toBeLessThan(60_000);
+				expect(atime).toEqual(mtime);
 				teardown();
 				vi.advanceTimersByTime(FRESH_MS);
 				expect(
 					vi.mocked(utimesSync),
 					"not after its end",
 				).toHaveBeenCalledTimes(1);
+			});
+		} finally {
+			timers.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	// A run asleep or stopped past STALE_MS fires no timer, so a sweep that
+	// can't judge its pid may take its folder before the next touch.
+	it("makes its short folder again, naming its run, where a sweep took it", () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			inSession(() => {
+				const teardown = setup();
+				vi.mocked(writeFileSync).mockClear();
+				vi.mocked(mkdirSync).mockClear();
+				vi.mocked(utimesSync).mockImplementationOnce(() => {
+					throw fsError("ENOENT");
+				});
+				vi.advanceTimersByTime(FRESH_MS);
+				expect(vi.mocked(mkdirSync).mock.calls).toEqual([
+					[SHORT, { mode: 0o700 }],
+				]);
+				expect(vi.mocked(writeFileSync)).toHaveBeenCalledWith(
+					`${SHORT}/run.pid`,
+					`${process.pid}\n${ownNamespace()}\n`,
+				);
+				// Another run's, made at the name in between, isn't this run's.
+				vi.mocked(writeFileSync).mockClear();
+				vi.mocked(utimesSync).mockImplementationOnce(() => {
+					throw fsError("ENOENT");
+				});
+				vi.mocked(mkdirSync).mockImplementationOnce(() => {
+					throw fsError("EEXIST");
+				});
+				vi.advanceTimersByTime(FRESH_MS);
+				expect(vi.mocked(writeFileSync)).not.toHaveBeenCalled();
+				teardown();
 			});
 		} finally {
 			vi.useRealTimers();
@@ -223,10 +270,24 @@ describe("a test run's temp root", () => {
 	it.each(["EACCES", "ENOENT", "ENOTDIR"])(
 		"names none where /tmp may not be written or isn't there (%s), dropping one it inherited, and still runs",
 		(code) => {
+			const warned = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
 			inSession(() => {
 				vi.stubEnv(SOCKET_ROOT, "/tmp/vs-outer-run");
 				refuseShortFolder(code);
 				const teardown = setup();
+				// The sandbox refuses /tmp on every fenced run, which is no fault;
+				// a /tmp that isn't there is the host's, and named.
+				expect(
+					warned.mock.calls.map(([said]) => String(said)),
+					"what's said of /tmp",
+				).toEqual(
+					code === "EACCES"
+						? []
+						: [`no short folder for sockets: /tmp gave ${code}\n`],
+				);
+				warned.mockRestore();
 				expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
 				expect(process.env.TMPDIR, "the run's TMPDIR").toBe(RUN_ROOT);
 				teardown();
@@ -346,6 +407,11 @@ describe("a sweep of short folders", () => {
 				await writeFile(join(torn, "run.pid"), "");
 				await age(torn, ageMs);
 			}
+			// Torn, with something else inside a sweep mustn't change.
+			const tornFull = await plant(parent, "vs-tornFl", {});
+			await writeFile(join(tornFull, "run.pid"), "");
+			await writeFile(join(tornFull, "notes"), "kept");
+			await age(tornFull, STARTING_MS + HOUR);
 			// No run's file, and something inside a sweep mustn't guess at.
 			const full = await plant(parent, "vs-fullOd", {});
 			await writeFile(join(full, "notes"), "kept");
@@ -371,6 +437,10 @@ describe("a sweep of short folders", () => {
 				"vs-tornOd",
 				"vs-unnamd",
 			]);
+			expect(
+				existsSync(join(tornFull, "run.pid")),
+				"a folder it keeps keeps its run file",
+			).toBe(true);
 		} finally {
 			await rm(parent, { recursive: true, force: true });
 			await rm(away, { recursive: true, force: true });
