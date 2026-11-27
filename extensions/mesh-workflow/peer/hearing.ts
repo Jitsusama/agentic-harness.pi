@@ -43,6 +43,7 @@ import {
 	roomToBringBack,
 	roomToJoin,
 } from "../../../lib/mesh/presence.ts";
+import { ANSWERED_KEPT_MS } from "../../../lib/mesh/reading.ts";
 import {
 	readsAsReceptor,
 	type Unvouched,
@@ -702,6 +703,9 @@ export function createHearing(m: MeshState, f: Handing) {
 		// What has settled out of the top is never listed again, so holding
 		// it would only grow the peer, by every id the machine sends.
 		m.seen.keepListed(listed);
+		// An answer is kept while its question could still reach this peer,
+		// a day; past that it would only grow the peer by every answer.
+		m.answered.keepStampedSince(Date.now() - ANSWERED_KEPT_MS);
 		const missed = listed
 			.filter((id) => !m.seen.has(id))
 			.map((id) => take(id))
