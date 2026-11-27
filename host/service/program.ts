@@ -48,7 +48,7 @@ import { hostSettings } from "./settings.ts";
 import { isSpareSlot, type SpareEnd, spareUntilTaken } from "./spare.ts";
 import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
-import { installMovesFrom } from "./what-starts.ts";
+import { installMovesFrom, installStepsBackFrom } from "./what-starts.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -302,6 +302,8 @@ export async function startHostProgram(
 	if (child) {
 		rollChildWhenStale({
 			version: hostRoot(),
+			// A step back to an older version, as off a bad release, rolls at once.
+			back: installStepsBackFrom(hostRoot()),
 			host: () => rollable,
 			stopped: run.stopped,
 			report,

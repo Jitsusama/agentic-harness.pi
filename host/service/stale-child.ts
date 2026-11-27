@@ -29,6 +29,15 @@
  * waiting, it rolls anyway, saying so: a child kept on stale code for
  * hours is the cost the roll exists to end.
  *
+ * A step back is the exception. An operator moves the install's
+ * `current` back to an older version to take a bad release off the
+ * machine, and held to the hour, the spread and the room, each child
+ * stayed on that release for one to two hours after (F33, 27 November).
+ * So a child that finds its install names a version older than its own
+ * rolls at that look, waiting for none of them; every other move keeps
+ * its pace. To find a step back within its hour, it looks each look
+ * then too, rather than once its hour is up.
+ *
  * Its hour and its wait are timed on a clock that only moves forward,
  * so a wall clock put back holds no roll longer, and one put forward
  * hurries none.
@@ -79,6 +88,11 @@ const realAfter: After = (ms, run) => {
  * `lookMs` and `spreadMs` again, rolling anyway once it has waited
  * `waitsForRoomAtMostMs`. A look finding the code current again, as
  * after a rollback, forgets the waiting, saying so when it was waiting.
+ * A look finding the code stale asks `back` too, and once it says the
+ * install stepped back to a version older than its own, it rolls at
+ * once, before its `rollsFrom`, its spread and its room; given `back`,
+ * it looks each `lookMs` before `rollsFrom` too, so it finds a step back
+ * at the next look. A `back` that throws is no step back.
  * Answers the function that stops
  * looking, which holds even over a look already under way.
  */
@@ -97,6 +111,8 @@ export function rollWhenStale(
 		/** Why the machine has no room for a roll now, or nothing when it has. */
 		roomShort?: () => Promise<string | undefined>;
 		waitsForRoomAtMostMs?: number;
+		/** Whether the install stepped back to a version older than this one's own. */
+		back?: () => Promise<boolean>;
 	} = {},
 ): () => void {
 	const lookMs = options.lookMs ?? LOOK_EVERY_MS;
@@ -137,6 +153,18 @@ export function rollWhenStale(
 				"It can tell again whether the install's host code moved on",
 			);
 		toldUnsure = undefined;
+		if (why !== undefined) {
+			const back = await steppedBack(options.back);
+			if (stopped) return;
+			if (back) {
+				options.report?.(
+					`${capitalised(why)}, a step back to a version older than its own, so it rolls now, waiting for neither its hour, its spread nor the machine's room`,
+				);
+				stopped = true;
+				roll(why);
+				return;
+			}
+		}
 		if (why === undefined) {
 			if (waitingSince !== undefined || toldTooSoon)
 				options.report?.(
@@ -150,12 +178,12 @@ export function rollWhenStale(
 		}
 		const early = rollsFrom - now();
 		if (early > 0) {
-			if (!toldTooSoon)
-				options.report?.(
-					`${capitalised(why)}, but it may not roll yet, so it looks again in ${minutes(early)}`,
-				);
+			if (!toldTooSoon) options.report?.(tooSoon(why, early, options.back));
 			toldTooSoon = true;
-			cancel = after(early, () => void look());
+			// Only a step back could end its hour early, so only one it may
+			// hear of has it look before its hour is up.
+			const next = options.back ? Math.min(early, lookMs) : early;
+			cancel = after(next, () => void look());
 			return;
 		}
 		if (!spread) {
@@ -212,6 +240,29 @@ async function shortOf(
 	}
 }
 
+/** Whether the install stepped back; a reading that fails says not, so the roll keeps its pace. */
+async function steppedBack(
+	back: (() => Promise<boolean>) | undefined,
+): Promise<boolean> {
+	try {
+		return (await back?.()) === true;
+	} catch {
+		// Not knowing of a step back is the pace every other move keeps.
+		return false;
+	}
+}
+
+/** What a child says, once, as it finds the code stale within its hour. */
+function tooSoon(
+	why: string,
+	early: number,
+	back: (() => Promise<boolean>) | undefined,
+): string {
+	if (back)
+		return `${capitalised(why)}, but it may not roll for ${minutes(early)} yet, unless the install steps back to a version older than its own`;
+	return `${capitalised(why)}, but it may not roll yet, so it looks again in ${minutes(early)}`;
+}
+
 function capitalised(words: string): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -245,14 +296,17 @@ export interface ChildRoll {
 	readonly spreadMs?: number;
 	/** Why the machine has no room for a roll; the CPU's pressure if left out. */
 	readonly roomShort?: () => Promise<string | undefined>;
+	/** Whether the install stepped back to a version older than the child's own; never, if left out. */
+	readonly back?: () => Promise<boolean>;
 }
 
 /**
  * Roll a child's conversation once its install's host code moves on:
  * say why, and roll the host holding it then, though never within an
  * hour of the child's start, and past that only after its spread and
- * while the machine has room. It looks until the child's host stops,
- * however that ends.
+ * while the machine has room, unless its install stepped back to a
+ * version older than its own, when it rolls at once. It looks until
+ * the child's host stops, however that ends.
  */
 export function rollChildWhenStale(wiring: ChildRoll): void {
 	const now = wiring.now ?? steadyNow;
@@ -274,6 +328,7 @@ export function rollChildWhenStale(wiring: ChildRoll): void {
 			roomShort: wiring.roomShort ?? (() => cpuShort()),
 			...(wiring.lookMs === undefined ? {} : { lookMs: wiring.lookMs }),
 			...(wiring.after ? { after: wiring.after } : {}),
+			...(wiring.back ? { back: wiring.back } : {}),
 		},
 	);
 	wiring.stopped.then(stop, stop);
