@@ -48,7 +48,7 @@ import {
 } from "../../lib/internal/pineapple/stops.ts";
 import {
 	type GitFacts,
-	repoOfUrl,
+	repoOfPushUrls,
 } from "../../lib/internal/pineapple/writes.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
@@ -240,9 +240,19 @@ function logBeside(
 }
 
 const gitFacts: GitFacts = {
+	// Where a push goes, which a remote's pushurl can send elsewhere than
+	// it fetches from.
 	async repoOf(dir, remote) {
-		const url = await quietly("git", ["-C", dir, "remote", "get-url", remote]);
-		return url === undefined ? undefined : repoOfUrl(url);
+		const urls = await quietly("git", [
+			"-C",
+			dir,
+			"remote",
+			"get-url",
+			"--push",
+			"--all",
+			remote,
+		]);
+		return urls === undefined ? undefined : repoOfPushUrls(urls);
 	},
 	branchOf: (dir) =>
 		quietly("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"]),

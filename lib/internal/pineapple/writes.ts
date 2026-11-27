@@ -70,7 +70,7 @@ export type Write = WriteCall;
 
 /** What {@link settle} asks git, so a test can answer instead. */
 export interface GitFacts {
-	/** The `owner/name` a remote of the checkout at `dir` points at. */
+	/** The `owner/name` a remote of the checkout at `dir` pushes to. */
 	repoOf(dir: string, remote: string): Promise<string | undefined>;
 	/** The branch checked out at `dir`. */
 	branchOf(dir: string): Promise<string | undefined>;
@@ -98,6 +98,25 @@ export function repoOfUrl(url: string): string | undefined {
 	const parts = path.split("/").filter(Boolean);
 	if (parts.length < 2) return undefined;
 	return parts.slice(-2).join("/").toLowerCase();
+}
+
+/**
+ * The one `owner/name` every URL a remote pushes to names, one URL a
+ * line as `git remote get-url --push --all` says them. A remote may push
+ * to several, so where they name more than one repository, or one can't
+ * be read, none is said: the guard then leans toward stopping rather
+ * than judging the push by one of them.
+ */
+export function repoOfPushUrls(urls: string): string | undefined {
+	const repos = new Set(
+		urls
+			.split("\n")
+			.map((url) => url.trim())
+			.filter(Boolean)
+			.map(repoOfUrl),
+	);
+	const [only] = repos;
+	return repos.size === 1 ? only : undefined;
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	changeOf,
 	type GitFacts,
+	repoOfPushUrls,
 	repoOfUrl,
 	settle,
 	writeInTool,
@@ -669,6 +670,26 @@ describe("references", () => {
 			"example/shop",
 		);
 		expect(repoOfUrl("shop")).toBeUndefined();
+	});
+
+	it("names where a remote pushes only when it pushes to one place", () => {
+		expect(repoOfPushUrls("git@github.com:example/shop.git")).toBe(
+			"example/shop",
+		);
+		expect(
+			repoOfPushUrls(
+				"git@github.com:example/shop.git\nhttps://github.com/Example/Shop\n",
+			),
+		).toBe("example/shop");
+		expect(
+			repoOfPushUrls(
+				"git@github.com:example/shop.git\ngit@github.com:example/other.git",
+			),
+		).toBeUndefined();
+		expect(
+			repoOfPushUrls("git@github.com:example/shop.git\nshop"),
+		).toBeUndefined();
+		expect(repoOfPushUrls("")).toBeUndefined();
 	});
 
 	it("reads a change from a link, owner/name#N, #N or N", () => {
