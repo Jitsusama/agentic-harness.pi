@@ -410,9 +410,7 @@ function heldSaid(
  * why rather than reading as none, since it may be meant to set a wide
  * spacing; one that isn't there says so.
  */
-export async function configuredSpacing(
-	path?: string,
-): Promise<SpacingRead> {
+export async function configuredSpacing(path?: string): Promise<SpacingRead> {
 	const loaded = await loadPackageConfig(path);
 	if (!loaded.ok) return { unread: loaded.error };
 	if (loaded.missing === true) return { missing: loaded.path };

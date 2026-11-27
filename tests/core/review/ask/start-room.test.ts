@@ -139,10 +139,9 @@ describe("starting council rounds on room alone", () => {
 		);
 		expect(gap, "not two looks").toBeLessThan(1.8 * look);
 		expect(start.waited).toMatch(/, or each .+ while it is quiet,/);
-		expect(
-			line().started.quiet,
-			"the start says it took the quiet pace",
-		).toBe(true);
+		expect(line().started.quiet, "the start says it took the quiet pace").toBe(
+			true,
+		);
 	});
 
 	// Round 2's blocker: the config's 0 or half a minute reaches the line
