@@ -126,6 +126,7 @@ if [[ -x $biome ]]; then
   elif [[ $probed != 0 ]]; then
     echo "merge-gate: Biome judges no file by its nested config in a copy under $room, so it can't judge files as pnpm lint would." >&2
     echo "Set XDG_STATE_HOME to a folder outside any .git or .cache folder and outside every folder the agent fence lets sessions write, then merge again." >&2
+    echo "It moves where host-gate looks for the hosts' runtime link too, so set PI_HOST_RUNTIME to the link the hosts run from." >&2
     exit 1
   fi
 fi
@@ -536,7 +537,9 @@ fi
 echo "merge-gate: no count that only falls has risen at $sha"
 
 # exec replaces this shell, so its EXIT trap would never run: the head's
-# copy goes first.
+# copy goes first. host-gate is given the commit judged here, not the
+# name it was asked by, so a branch that moves in between can't have it
+# read another head.
 rm -rf "$scratch"
 trap - EXIT
-exec bash "$here/host-gate.sh" "$sha"
+exec bash "$here/host-gate.sh" "$head_id"

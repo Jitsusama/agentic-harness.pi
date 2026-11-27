@@ -224,6 +224,20 @@ function gitSaying(version: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * A path whose git writes each fetch it's asked for to `log`, a line
+ * each, and hands every command to the git past it on the path.
+ */
+function fetchesLogged(log: string): NodeJS.ProcessEnv {
+	const standIn = folder(made, "git");
+	writeFileSync(
+		join(standIn, "git"),
+		`#!/bin/sh\ncase " $* " in *" fetch "*) echo "$*" >> "${log}" ;; esac\nPATH="\${PATH#*:}" exec git "$@"\n`,
+		{ mode: 0o755 },
+	);
+	return { PATH: `${standIn}:${process.env.PATH ?? ""}` };
+}
+
+/**
  * The folders Biome reads no nested config under, wherever on a path they
  * sit, as merge-gate.sh's probe names them.
  */
@@ -606,6 +620,47 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(passed.code, passed.said).toBe(0);
 		expect(refused.code, refused.said).toBe(1);
 		expect(refused.said).toContain("lib/untidy.ts");
+	});
+
+	it("asks origin for no main a first run left whole in the store", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const first = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+		expect(first.code, first.said).toBe(0);
+		const other = await change(checkout, {
+			"lib/other.ts": "export const other = 1;\n",
+		});
+
+		const log = join(folder(made, "fetches"), "log");
+		const answered = await gate(checkout, other, {
+			...fetchesLogged(log),
+			XDG_STATE_HOME: state,
+		});
+
+		expect(answered.code, answered.said).toBe(0);
+		const fetches = existsSync(log) ? readFileSync(log, "utf8") : "";
+		const fromOrigin = fetches
+			.split("\n")
+			.filter((line) => line.includes(origin));
+		expect(fromOrigin, "fetches asked of origin").toEqual([]);
+	});
+
+	it("judges the commit a branch name names, and hands host-gate that commit", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, "work");
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "host-gate reads the commit judged").toContain(
+			`host-gate: ${sha} touches nothing pi hosts run`,
+		);
 	});
 
 	it("judges a second change in the store a first run left, by refs of its own", async () => {

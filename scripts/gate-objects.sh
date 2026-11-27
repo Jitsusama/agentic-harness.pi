@@ -151,9 +151,14 @@ gate_objects() {
     echo "$gate: origin ($bare) didn't name its main, so nothing can be judged against it." >&2
     exit 1
   fi
-  # A fetch that fails because another gate is writing the same ref at
-  # once still leaves it whole, so the ref, not the fetch, decides.
-  said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
+  # A main an earlier gate fetched whole is held already, so origin is
+  # asked only for its name. A fetch that fails because another gate is
+  # writing the same ref at once still leaves it whole, so the ref, not
+  # the fetch, decides.
+  said=
+  if ! holds "$main_id" "refs/gate/commits/$main_id"; then
+    said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
+  fi
   if ! holds "$main_id" "refs/gate/commits/$main_id"; then
     shown <<< "$said" >&2
     echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2

@@ -136,7 +136,9 @@ wanted=$(host_test_ran)
 why=""
 clear="Clear it from a harness checkout of $sha: bash $runner, or inside the agent fence the command it prints"
 set +e
-ran=$(nix-offload passed ran "$sha")
+# The keeper keeps a run by the commit it ran at, so it's asked by the
+# commit, whatever name the head was given by.
+ran=$(nix-offload passed ran "$head_id")
 kept=$?
 set -e
 if [[ $kept == "$NO_KEEPER" ]]; then
