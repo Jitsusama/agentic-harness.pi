@@ -71,14 +71,23 @@ function leasing(booted: () => number | undefined = () => undefined) {
 	return { at, own, from, mine };
 }
 
+/**
+ * When a hold stops standing: two hours after its own stamp, which may
+ * run ahead of the clock, so a case never reads it from `Date.now()`.
+ */
+function standsUntil(hold: { at: string }): number {
+	return Date.parse(hold.at) + MOST_HOLD_MS;
+}
+
 describe("a wait on a hold", () => {
 	it("ends by the clock once the hold has stood two hours", async () => {
 		const { at, own, from, mine } = leasing();
 		const hold = from({ intent: "hold", text: "hold qemu" });
 		at.sent(mine({ re: hold.id, text: "my test waits" }));
+		const stood = standsUntil(hold);
 
-		expect(await at.lapsed(Date.now() + MOST_HOLD_MS - 60_000)).toEqual([]);
-		const ends = await at.lapsed(Date.now() + MOST_HOLD_MS);
+		expect(await at.lapsed(stood - 60_000)).toEqual([]);
+		const ends = await at.lapsed(stood);
 
 		expect(ends).toEqual([
 			{
@@ -129,9 +138,13 @@ describe("a wait on a hold", () => {
 		// both saw the wait before either released it, and the peer was
 		// told "[77d257a1] or [77d257a1] was over".
 		const { at, from, mine } = leasing();
+		// Sent in a burst, a process's ids run ahead of its clock, one
+		// millisecond a message, so the hold stands past now plus two hours.
+		// Read from the clock, this case failed about half its runs alone.
+		for (const _ of Array.from({ length: 50 })) from({ text: "busy" });
 		const hold = from({ intent: "hold", text: "hold qemu" });
 		at.sent(mine({ re: hold.id, text: "waiting" }));
-		const late = Date.now() + MOST_HOLD_MS;
+		const late = standsUntil(hold);
 
 		const looks = await Promise.all([at.lapsed(late), at.lapsed(late)]);
 
