@@ -160,6 +160,8 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** What each roll entry a parked conversation's log holds, in the order written. */
+	readonly rolled?: readonly unknown[];
 	/** Whether a close for good left the calls a park carried recorded. */
 	readonly recordLeft?: boolean;
 	/** The warms a parked conversation's host kept for its next start. */
@@ -856,6 +858,48 @@ describe("the host's engine", () => {
 			expect(seen.runsOn, "it runs on, idle as it was").toBe("idle");
 			expect(seen.screensParked, "its close is no park").toEqual([]);
 			expect(seen.screensClosed).toEqual([seen.sessionId]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	// The engine's half of saying a roll in the log, which rolled.test.ts holds alone.
+	it(
+		"says in a rolling conversation's log, as it parks, the code it rolls from and onto",
+		async () => {
+			const seen = await step(hostFolder(), "park-rolls");
+			expect(seen.held, "the park let it go").toBe("let go");
+			expect(seen.rolled, "one entry, naming the code").toEqual([
+				{ from: "code-before", onto: "code-after", at: expect.any(String) },
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"says once more, and only once, that the host wakes it, where its park carries a bash call",
+		async () => {
+			const seen = await step(hostFolder(), "park-rolls-carrying");
+			const [rolled] = seen.rolled ?? [];
+			expect(
+				seen.rolled,
+				"the roll, then its wake, though the carry was said twice",
+			).toEqual([
+				{ from: "code-before", onto: "code-after", at: expect.any(String) },
+				{ ...(rolled as object), wakes: true },
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it.each([
+		["a window views it", "park-rolls-viewed"],
+		["its host's roll names no code", "park-rolls-unnamed"],
+	])(
+		"says nothing of a roll in the log of a conversation that parks where %s",
+		async (_why, scenario) => {
+			const seen = await step(hostFolder(), scenario);
+			expect(seen.held, "the park let it go").toBe("let go");
+			expect(seen.rolled, "no roll entry").toEqual([]);
 		},
 		HOST_LIFE_MS,
 	);
