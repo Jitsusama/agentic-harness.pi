@@ -82,10 +82,7 @@ export async function askCouncil(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
-	const { waited } = set;
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
+	const { waited, room } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -158,7 +155,17 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	const start = await awaitRosterStart(change.label, seat.signal, "council");
+	// Before the wait, since a round whose reviewers go to a room waits
+	// in the room's line, on the room's pressure.
+	const room = await roomFor(change, proposal.headCommit, () =>
+		roomHarness(tree.path),
+	);
+	const start = await awaitRosterStart(
+		change.label,
+		seat.signal,
+		"council",
+		room?.place,
+	);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
 	// Asked again after the wait: a council on this head queued ahead of
@@ -180,6 +187,7 @@ async function councilRound(
 		charters,
 		conventions,
 		prompt,
+		room,
 		waited: start.waited,
 		...(start.release === undefined ? {} : { release: start.release }),
 	};
@@ -233,9 +241,7 @@ export async function startRound(
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkills("council");
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
+	const { room } = set;
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(

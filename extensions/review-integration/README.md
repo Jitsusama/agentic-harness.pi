@@ -335,8 +335,11 @@ default, is refused with the count and how to raise it.
 Rounds on one machine start in the order they were asked, each as
 soon as the machine has room for it: while the kernel's memory
 `full avg60` is under 5, `MemAvailable` is at least 16 GiB (half
-of all memory on a machine with less than 32 GiB) and CPU
-`some avg60` is under 40, read from `/proc/pressure` and
+of all memory on a machine with less than 32 GiB), CPU
+`some avg60` is under 40 and io `full avg60` is under 2 in each of
+the agents', apps' and session's slices with the machine's under 5
+(the machine's alone under 2 where the slices can't be read), read
+from `/proc/pressure`, the slices' `io.pressure` and
 `/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
 most two a minute, so a long line drains no faster than those
 minute-long averages can show what the rounds before took. While
@@ -363,6 +366,23 @@ show, such as a provider's limit. Each waiting round reads it again
 at each look, keeping the last good value while the config can't be
 read. Below half a minute two rounds could start before a round that
 lost track of the start it took looked again.
+
+A `room` in the `review` section sends a round's reviewers to a
+room through the node's `mycelium run`, for a change on a
+repository the room keeps: `{ "machine": "<vm>" }`, or
+`{ "from": "agent-rooms", "realm": "work" }` for the first machine
+in `~/.local/state/mycelium/agent-rooms`, read as each round
+starts. Such a round waits in the room's own line, kept beside this
+machine's, and on the room's own readings rather than this
+machine's: its CPU, memory and io on the same bars, with no
+`MemAvailable` floor, and at least 8 GiB free on its `/`. They are
+asked through the node once and kept ten seconds for every round
+here. A room that doesn't answer holds its round on this machine's
+bars, since its reviewers would run here. A reviewer the room gave
+nothing back to waits for this machine's bars before it starts
+here, and says how long it waited. Urgent marks are read from this
+machine's line for every line, and `runs` says where a change's
+rounds stand in each.
 
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,

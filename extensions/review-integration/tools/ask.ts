@@ -39,10 +39,15 @@ import {
 	runOrHandOff,
 } from "../../../lib/jobs/hand-off.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { councilStartsPath, liveBus, runDir } from "../engine.ts";
+import {
+	councilStartsPath,
+	liveBus,
+	roomStartsFolder,
+	runDir,
+} from "../engine.ts";
 import { answerWatching } from "../progress.ts";
 import { askCouncil, retryOne, startRound } from "./ask-council.ts";
-import { lineSaid } from "./ask-line.ts";
+import { everyLineSaid } from "./ask-line.ts";
 import { type RoundSeat, reportRoster } from "./ask-roster.ts";
 import { type AskParams, releaseIdentity } from "./ask-round.ts";
 import { collectOne, stopRound } from "./ask-settle.ts";
@@ -191,7 +196,11 @@ export async function runAsk(
  */
 async function reportRuns(change: ChangeRef): Promise<Answer> {
 	const runs = await createRunStore(runDir()).list(change);
-	const waiting = await lineSaid(councilStartsPath(), change.label);
+	const waiting = await everyLineSaid(
+		councilStartsPath(),
+		roomStartsFolder(),
+		change.label,
+	);
 	if (runs.length === 0 && waiting.length === 0) {
 		return say(
 			`Nothing has been asked about ${change.label} yet. Run a council to start.`,

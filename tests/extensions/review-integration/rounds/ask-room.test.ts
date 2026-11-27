@@ -129,6 +129,41 @@ describe("the room a round's reviewers run on", () => {
 		await roomFor(mine, head, counted, await config({}), found);
 		expect(asked).toBe(0);
 	});
+
+	it("is the node's first room when the config says to take it from there", async () => {
+		const path = await config({
+			room: { from: "agent-rooms", realm: "work" },
+		});
+		const rooms = join(await mkdtemp(join(tmpdir(), "ask-room-")), "rooms");
+		await writeFile(rooms, "# the node's rooms\n\n  room-2  \nroom-3\n");
+
+		const room = await roomFor(
+			change("github:Jitsusama/agentic-harness.pi"),
+			head,
+			harness,
+			path,
+			found,
+			rooms,
+		);
+
+		expect(room?.place.machine).toBe("room-2");
+		expect(room?.place.realm).toBe("work");
+	});
+
+	it("is none when the node's list is gone or names no room, so the round runs here", async () => {
+		const path = await config({ room: { from: "agent-rooms" } });
+		const dir = await mkdtemp(join(tmpdir(), "ask-room-"));
+		const empty = join(dir, "empty");
+		await writeFile(empty, "# none lent now\n");
+		const mine = change("github:Jitsusama/mycelium");
+
+		for (const rooms of [empty, join(dir, "gone")]) {
+			expect(
+				await roomFor(mine, head, harness, path, found, rooms),
+				rooms,
+			).toBeUndefined();
+		}
+	});
 });
 
 describe("the node's command a room is reached through", () => {
