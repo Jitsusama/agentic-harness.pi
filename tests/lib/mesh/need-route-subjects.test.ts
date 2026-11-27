@@ -146,6 +146,26 @@ describe("a need routed by declared subjects", () => {
 		}
 	});
 
+	// Config sets a joined id past LONGEST_WORD with no number in it, since
+	// its parts say it, so a need saying them must reach its hub (#2220's
+	// seventh council, F64).
+	it("puts a need saying its parts to the hub of a joined id past the longest kept", () => {
+		const long = "a".repeat(LONGEST_WORD - 5);
+		const found = routeNeed(asked("A", ...wordsOf(`${long} lines`)), {
+			foragers: cells({ A: [], H: [long, "lines"], N: [long, "lines"] }),
+			ties: ties(["A", "N", 3]),
+			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(`${long}-lines`.length, "past the cap").toBeGreaterThan(
+			LONGEST_WORD,
+		);
+		expect(found, "its hub, not the nearer tie").toMatchObject({
+			fit: "H",
+			path: ["H"],
+		});
+	});
+
 	it("ranks hubs by depth, never by the length of their subject", () => {
 		for (const need of numbered("A", "easing")) {
 			const found = routeNeed(need, {
