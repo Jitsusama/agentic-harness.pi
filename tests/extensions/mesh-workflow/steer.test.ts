@@ -438,16 +438,17 @@ describe("a steer as the session reads it", () => {
 		).toBe(false);
 	});
 
+	// A peer's ask waits for the run's end, so it is never read busy.
 	it("says a peer's ask isn't the person's, and still asks for an answer first", () => {
 		const said = steerText(
 			{ text: "where does it stand?", from: "wcjqsg", file: "f" },
-			{ busy: true },
+			{ busy: false },
 		);
 		expect(said).toMatch(
 			/^\[Automated message, no human input: asked by wcjqsg, not by the person/,
 		);
 		expect(said).toMatch(
-			/answer first, in a line or two, then do what is asked, or carry on if nothing is\./,
+			/Please answer first, in a line or two, then do what is asked\.\n/,
 		);
 		expect(said).toMatch(/where does it stand\?$/);
 		expect(

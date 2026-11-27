@@ -57,12 +57,15 @@ type Sent = [string, { deliverAs?: string } | undefined];
 type Emitted = [string, unknown];
 
 /** What pi tells the steerer of the session's life, by event name. */
-type Lives = Map<string, (() => void)[]>;
+type Lives = Map<string, ((event: unknown) => void)[]>;
 
-/** Tell the steerer pi's event `name`, as pi would. */
-function tell(lives: Lives, name: string): void {
-	for (const handler of lives.get(name) ?? []) handler();
+/** Tell the steerer pi's event `name`, as pi would, with its event. */
+function tell(lives: Lives, name: string, event: unknown = {}): void {
+	for (const handler of lives.get(name) ?? []) handler(event);
 }
+
+/** What pi says as it starts reading a message of `role`. */
+const reading = (role: string) => ({ message: { role } });
 
 /**
  * A peer's state as busy or idle, recording what reaches the session,
@@ -85,7 +88,7 @@ function sessionAt(
 		pi: {
 			sendUserMessage: (text: string, options?: { deliverAs?: string }) =>
 				sent.push([text, options]),
-			on: (name: string, handler: () => void) =>
+			on: (name: string, handler: (event: unknown) => void) =>
 				lives.set(name, [...(lives.get(name) ?? []), handler]),
 			events: {
 				emit: (name: string, data: unknown) => {
@@ -260,10 +263,36 @@ describe("a talk the steerer hands a session", () => {
 		expect(steerWaiting(bus), "once steered in").toBe(true);
 		tell(lives, "agent_settled");
 		expect(steerWaiting(bus), "once the run settles").toBe(false);
+	});
 
-		steerer.steered("look at X", false, joel);
+	// F72: a typed line stops waiting once pi reads it, and so does talk.
+	it("says Joel's talk no longer waits once pi reads it as his message", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
 		tell(lives, "session_start");
-		expect(steerWaiting(bus), "in a new session").toBe(false);
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+
+		tell(lives, "message_start", reading("assistant"));
+		expect(steerWaiting(bus), "while the reply streams").toBe(true);
+		tell(lives, "message_start", reading("user"));
+		expect(steerWaiting(bus), "once read").toBe(false);
+	});
+
+	// F76, F83: a reload builds a second steerer on the bus that outlives it.
+	it("leaves no answer behind once its session shuts down for a reload", () => {
+		const bus = createEventBus();
+		const before: Lives = new Map();
+		const old = createSteerer(sessionAt(false, [], [], before, bus));
+		tell(before, "session_start");
+		old.steered("look at X", false, { text: "look at X", from: "joel" });
+		tell(before, "session_shutdown");
+		expect(steerWaiting(bus), "once shut down").toBe(false);
+
+		const after: Lives = new Map();
+		createSteerer(sessionAt(false, [], [], after, bus));
+		tell(after, "session_start");
+		expect(steerWaiting(bus), "after the reload").toBe(false);
 	});
 
 	it("says nothing waits for words held for the run's end", () => {

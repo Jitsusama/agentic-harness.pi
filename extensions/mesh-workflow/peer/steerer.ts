@@ -51,16 +51,25 @@ function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
 export function createSteerer(m: MeshState) {
 	/**
 	 * Whether talk steered into the run under way still waits to be read:
-	 * from its steer until the run settles, as job-workflow holds a typed
-	 * line, so a call that starts after it moves to the background too.
+	 * from its steer until pi reads it as the person's message, or the run
+	 * settles, as job-workflow holds a typed line, so a call that starts
+	 * after it moves to the background too, and none once it is read.
 	 */
 	let talkWaits = false;
 	let answering: (() => void) | undefined;
-	// Answered afresh each session, so a reload leaves no stale answer.
-	m.pi.on("session_start", () => {
+	/** Stop answering, so a reload's next steerer answers alone. */
+	const stopAnswering = () => {
 		answering?.();
+		answering = undefined;
 		talkWaits = false;
+	};
+	m.pi.on("session_start", () => {
+		stopAnswering();
 		answering = answerSteerWaiting(m.pi.events, () => talkWaits);
+	});
+	m.pi.on("session_shutdown", stopAnswering);
+	m.pi.on("message_start", (event) => {
+		if (event.message.role === "user") talkWaits = false;
 	});
 	m.pi.on("agent_settled", () => {
 		talkWaits = false;
@@ -83,10 +92,10 @@ export function createSteerer(m: MeshState) {
 	) => {
 		const afterRun = idle ? undefined : "followUp";
 		const deliverAs = steer ? steerDelivery(steer, idle) : afterRun;
+		// Marked before it is sent, so pi's reading it, however soon, clears it.
+		if (deliverAs === "steer") talkWaits = true;
 		m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
-		if (deliverAs !== "steer") return;
-		talkWaits = true;
-		saySteered(m.pi.events);
+		if (deliverAs === "steer") saySteered(m.pi.events);
 	};
 
 	/**
