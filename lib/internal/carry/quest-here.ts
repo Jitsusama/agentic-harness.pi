@@ -14,7 +14,7 @@
  * session continued, whose work that one took up (KP0L6A [9301591f]).
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.ts";
 import { parseQuestDoc } from "../quest/documents/quest-doc.ts";
@@ -49,7 +49,10 @@ export interface QuestHere {
 	readonly sessions: ReadonlySet<string>;
 	/** Each tree the work broker cut, with the sessions holding it. */
 	readonly held: readonly RecordedTree[];
-	/** The trees its README lists on this machine. */
+	/**
+	 * The trees its README lists on this machine, each by the folder its
+	 * checkout stands in ({@link checkoutOf}).
+	 */
 	readonly trees: readonly string[];
 }
 
@@ -119,8 +122,21 @@ export function questHere(
 		resting,
 		sessions,
 		held: recordedTrees(stores.treeRecords),
-		trees: treesHere(readme?.trees ?? []).map((tree) => tree.path),
+		trees: treesHere(readme?.trees ?? []).map((tree) => checkoutOf(tree.path)),
 	};
+}
+
+/**
+ * The folder a tree's checkout stands in: the tree itself where it has a
+ * git of its own, else its `src` where that has one, as a World dev-tree
+ * stands as `trees/<name>/src` while tree-add names `trees/<name>`; else
+ * the tree as named, so one gone or unreadable is judged as it is.
+ */
+function checkoutOf(path: string): string {
+	const src = join(path, "src");
+	return !existsSync(join(path, ".git")) && existsSync(join(src, ".git"))
+		? src
+		: path;
 }
 
 /** Whether a record's pi runs now, asked of this machine's processes. */
