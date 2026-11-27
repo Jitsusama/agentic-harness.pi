@@ -444,6 +444,47 @@ describe("a peer resting blocked on the sender", () => {
 		).toBe("act");
 	});
 
+	it("wakes an orchestrator for a question re its pivot, never for news re it", () => {
+		// A session takes a pivot up unanswered and asks its orchestrator a
+		// question re the pivot only when it can't. News answering a pivot is
+		// an old session's ack, so it waits for the next turn however it was
+		// sent, and a burst of them wakes nobody.
+		const led = { ...blocked, led: true, answers: true };
+		const news = [
+			["#quest/5gv2ah", "fyi"],
+			["@5GV2AH", "fyi"],
+			["#quest/5gv2ah", "finding"],
+		] as const;
+		for (const [to, intent] of news) {
+			expect(
+				attend(message({ to: [to], re: "0-5GV2AH-1-pivot", intent }), led)
+					.attention,
+				`${intent} to ${to}`,
+			).toBe("note");
+		}
+		const asked = message({
+			to: ["#quest/5gv2ah"],
+			re: "0-5GV2AH-1-pivot",
+			intent: "question",
+		});
+		expect(attend(asked, led)).toEqual({
+			attention: "turn",
+			why: "answering this peer",
+		});
+		// Sent to its address, it is put to the peer: steered into a run
+		// under way, as a hold re the pivot is.
+		for (const intent of ["question", "hold"] as const) {
+			const put = message({ to: ["@5GV2AH"], re: "0-5GV2AH-1-pivot", intent });
+			for (const idle of [true, false]) {
+				expect(attend(put, { ...led, idle })).toEqual({
+					attention: "turn",
+					why: "answering this peer",
+					addressed: true,
+				});
+			}
+		}
+	});
+
 	it("wakes nothing for a busy peer, whose run reads it", () => {
 		expect(
 			attend(message({ to: ["@5GV2AH"] }), { ...blocked, idle: false })

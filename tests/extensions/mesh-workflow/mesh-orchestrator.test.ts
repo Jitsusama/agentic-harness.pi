@@ -150,6 +150,42 @@ describe("an orchestrator", () => {
 		expect(sent[0]?.message.content).toContain("landing's url");
 	});
 
+	// A session takes a pivot up unanswered, and one that can't asks its
+	// orchestrator a question re the pivot. Sessions still on the old ask
+	// ack each pivot with news, which waits for the next turn, so a burst
+	// of acks wakes nobody.
+	it("takes a turn, as an idle orchestrator, only for a session that can't take up its pivot", async () => {
+		leading();
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+		const about = (text: string) =>
+			sent.filter(({ message }) =>
+				JSON.stringify(message.content).includes(text),
+			);
+
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "85PKB2",
+			re: pivot?.id,
+			text: "Taken up: the cap.",
+		});
+		await vi.waitFor(() => expect(about("Taken up")).toHaveLength(1));
+		expect(about("Taken up")[0]?.options).toEqual({ triggerTurn: false });
+
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "4UHC5Q",
+			re: pivot?.id,
+			intent: "question",
+			text: "Can't take it up: the cap waits on a review. May it wait?",
+		});
+		await vi.waitFor(() => expect(about("waits on a review")).toHaveLength(1));
+		expect(about("waits on a review")[0]?.options).toEqual({
+			triggerTurn: true,
+		});
+	});
+
 	it("starts no turn for a finding from a session it does not lead", async () => {
 		leading();
 		const { sent } = await startSession({}, { isIdle: () => true });
@@ -280,6 +316,28 @@ describe("an orchestrator", () => {
 		expect(transport.ids()).toEqual([]);
 	});
 
+	// A session in a part of the pivot's group hears the pivot, so it is
+	// counted among those it reached (#2315's round, F9).
+	it("counts a session hearing a pivot's group through a part of it", async () => {
+		leading();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-p",
+			addresses: ["4UHC5Q"],
+			groups: ["#orchestration/7m6jkg/cap"],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+
+		expect(
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text,
+		).toMatch(/\n {2}not yet: [^\n]*4UHC5Q/);
+	});
+
 	// A paused session may name no address, and is still counted as one
 	// the pivot hasn't yet turned, so two such never read as nobody.
 	it("says who a pivot hasn't turned yet, counting the sessions naming no address", async () => {
@@ -311,11 +369,84 @@ describe("an orchestrator", () => {
 			from: "85PKB2",
 			to: ["@7M6JKG"],
 			re: pivot?.id,
-			text: "Taken up.",
+			intent: "question",
+			text: "Can't take it up: the cap waits on a review.",
 		});
-		expect(await readBack()).toContain(
-			"\n  changed course: 85PKB2; not yet: 2 peers naming no address",
+		const answered = await readBack();
+		expect(answered).toContain("\n  answered by 85PKB2, last in [");
+		expect(answered).toContain("]; not yet: 2 peers naming no address");
+	});
+
+	// A session on another machine keeps its read marker there, and no
+	// longer answers a pivot it takes up, so here it can't be told apart
+	// from one that hasn't had it (#2315's round j207, F21).
+	it("says a pivot's take-up on another machine is unknown, not yet to come", async () => {
+		leading();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-v",
+			addresses: ["VM0001"],
+			groups: ["#orchestration/7m6jkg"],
+			orchestratedBy: "7M6JKG",
+			machine: "cloud-1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const read =
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		expect(read).toContain(
+			"not yet: 85PKB2; unknown, on another machine: VM0001",
 		);
+	});
+
+	// From 08:00 on 26 November the four busiest hubs heard 391 answers to
+	// their pivots in a day; a read marker already says who has one, so a
+	// session takes a pivot up without answering it.
+	it("says who has a pivot by read marker, with no answer and no receipt line besides", async () => {
+		leading();
+		const { tools } = await startSession();
+		const readBack = async () =>
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+		folderTransport(join(fixture.paths.mesh, "messages")).markRead(
+			"85PKB2",
+			pivot?.id ?? "",
+		);
+
+		const read = await readBack();
+		expect(read, "has it, and is not waited on besides").toMatch(
+			/\n {2}has it: 85PKB2$/m,
+		);
+		expect(read, "the receipt line is left to the pivot's state").not.toContain(
+			"85PKB2 has it",
+		);
+		expect(read, "nobody answered it").not.toContain("answered by");
+
+		// A session asks about a pivot it can't take up only once it has
+		// read it, so its question comes with its marker past the pivot: it
+		// reads as answered, and as neither having it nor waiting on it.
+		fromElsewhere({
+			from: "85PKB2",
+			to: ["@7M6JKG"],
+			re: pivot?.id,
+			intent: "question",
+			text: "Can't take it up: the cap waits on a review.",
+		});
+		const refused = await readBack();
+		expect(refused).toContain("\n  answered by 85PKB2, last in [");
+		expect(refused, "an answerer has more than the pivot").not.toContain(
+			"has it",
+		);
+		expect(refused, "an answerer waits on nothing").not.toContain("not yet");
 	});
 
 	// The miss of 16 November at 22:26: the person said "I want it
