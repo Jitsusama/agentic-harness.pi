@@ -1,5 +1,6 @@
 /** How the subagent tool keeps a model from loading code past the fence. */
 
+import { realpathSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
@@ -9,7 +10,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	childSandbox,
@@ -221,15 +222,18 @@ describe("a fenced session's subagent keeps the fence", () => {
 		).toContain("pi's installed packages can't be found");
 	});
 
-	it("refuses an extension the job names in the Nix store, where anyone may add a path through the daemon", async () => {
-		// The node running this test lies in the store wherever Nix gave it,
-		// and is a file that is really there, so only the gate refuses it.
-		const stored = await realpath(process.execPath);
-		const job = { id: "a", extraExtensions: [stored] };
-		expect(refusal(keepFence([job], "fence", root))).toContain(
-			`${stored} lies outside pi's installed packages`,
-		);
-	});
+	it.skipIf(!realpathSync(process.execPath).startsWith("/nix/store/"))(
+		"refuses an extension the job names in the Nix store, where anyone may add a path through the daemon",
+		async () => {
+			// The node running this test lies in the store where Nix gave it,
+			// and is a file that is really there, so only the gate refuses it.
+			const stored = await realpath(process.execPath);
+			const job = { id: "a", extraExtensions: [stored] };
+			expect(refusal(keepFence([job], "fence", root))).toContain(
+				`${stored} lies outside pi's installed packages`,
+			);
+		},
+	);
 
 	it("lets a job that names no extension run", () => {
 		expect(keepFence([{ id: "a" }], "fence", null)).toMatchObject({ ok: true });
@@ -369,6 +373,24 @@ describe("the fence's own extensions", () => {
 		});
 	});
 
+	it("are refused from the session's own store copy when this account could change a pack in it, or a folder on the way to one", async () => {
+		const store = join(place, "store");
+		const harness = join(store, "abc-harness");
+		for (const pack of PACKS) {
+			await mkdir(join(harness, ...pack, ".."), { recursive: true });
+			await writeFile(join(harness, ...pack), "");
+		}
+		const pack = await realpath(join(harness, ...PACKS[0]));
+		for (const path of [pack, dirname(pack)]) {
+			const only = (at: string) => at === path;
+			expect(fencePacks(harness, null, store, harness, only)).toEqual({
+				why: expect.stringContaining(
+					`${pack} is one this account could change`,
+				),
+			});
+		}
+	});
+
 	it("are refused from a store copy whose pack links out of it, even into another store path", async () => {
 		const store = join(place, "store");
 		const harness = join(store, "abc-harness");
@@ -388,7 +410,9 @@ describe("the fence's own extensions", () => {
 		await rm(join(harness, ...PACKS[0]));
 		await symlink(join(outside, "planted.ts"), join(harness, ...PACKS[0]));
 		expect(fencePacks(harness, null, store, harness, fixed)).toEqual({
-			why: expect.stringContaining("shell-workflow"),
+			why: expect.stringContaining(
+				`lies outside this harness's copy in the Nix store, ${harness}`,
+			),
 		});
 	});
 

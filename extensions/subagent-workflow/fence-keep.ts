@@ -46,6 +46,7 @@ import {
 	NIX_STORE,
 	packageRoot,
 	settingsHarness,
+	unchangeable,
 } from "../../lib/internal/fence/installed-only.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import {
@@ -252,7 +253,7 @@ export function fencePacks(
 	const copy = stored ? heldStoreCopy(own, store, changeable) : undefined;
 	if (stored && copy === undefined) {
 		return {
-			why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions, and ${home} lies in the Nix store but not in a copy of this session's own harness this account can't change. Start the subagents unisolated.`,
+			why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions, and ${home} lies in the Nix store but not in a copy of this session's own harness this account can't change. Unisolated subagents need the install too, so start them from a session whose harness loads from pi's installed packages.`,
 		};
 	}
 	const within = copy ?? root;
@@ -263,12 +264,18 @@ export function fencePacks(
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {
 		const followed = follow(join(home, ...pack.split("/")), within, where);
-		if ("why" in followed) {
+		const why =
+			"why" in followed
+				? followed.why
+				: copy !== undefined && !unchangeable(followed.real, changeable)
+					? `${followed.real} is one this account could change`
+					: undefined;
+		if (why !== undefined) {
 			return {
-				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from ${where}, and ${followed.why}. ${stored ? "This copy of the harness lacks them" : "Reload onto the install"}, or start the subagents unisolated.`,
+				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from ${where}, and ${why}. ${copy === undefined ? "Reload onto the install, or start the subagents unisolated" : "This copy of the harness can't give them; start the subagents from a session whose harness loads from pi's installed packages"}.`,
 			};
 		}
-		packs.push(followed.real);
+		if ("real" in followed) packs.push(followed.real);
 	}
 	return { packs };
 }

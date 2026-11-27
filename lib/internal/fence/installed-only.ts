@@ -15,9 +15,10 @@
  * session on a tree reloads onto it first. A session whose own harness
  * was loaded from the Nix store, as a room's is, may start them too,
  * its children taking the fence's packs from that same copy (ISXEG8's
- * #2328). What a package registers or
- * the settings name may also lie in pi's agent folder, which the fence
- * holds read-only too, or in the Nix store, which nobody writes.
+ * #2328), but only while this account can't change that copy or any
+ * folder above it. What a package registers or the settings name may
+ * also lie in pi's agent folder, which the fence holds read-only too,
+ * or anywhere in the Nix store, which the fence doesn't hold itself.
  */
 
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
@@ -38,8 +39,9 @@ const PACKAGES = join(".local", "share", "pi-packages");
 const AGENT = join(".pi", "agent");
 
 /**
- * The Nix store, whose paths nobody changes once they are there: where a
- * room's image lays out the harness and the packages it loads.
+ * The Nix store: where a room's image lays out the harness and the
+ * packages it loads. Any user may add a path to it through the daemon,
+ * and whether this account can change one is canChange's to say.
  */
 export const NIX_STORE = "/nix/store";
 
@@ -80,12 +82,18 @@ export function inside(real: string, root: string | null): boolean {
 
 /**
  * Whether this account could change `path`: write it, or, owning it,
- * make it writable again. A read-only mount answers no even for root;
- * a store laid out by a single-user Nix, or written by root on a
+ * make it writable again. A read-only mount answers no even for root,
+ * since the fence leaves its commands no capabilities to remount it
+ * with; a store laid out by a single-user Nix, or written by root on a
  * writable mount, answers yes, since the fence doesn't bind the store
- * read-only itself.
+ * read-only itself. On a Mac every store path answers yes: the fence
+ * hands its commands Nix's own daemon, which takes the person as a
+ * trusted client that may delete a live path and add another in its
+ * place. A path it can't read answers yes too, since nothing shows it
+ * can't be changed.
  */
 export function canChange(path: string): boolean {
+	if (process.platform === "darwin" && inside(path, NIX_STORE)) return true;
 	try {
 		accessSync(path, constants.W_OK);
 		return true;
@@ -95,8 +103,8 @@ export function canChange(path: string): boolean {
 	try {
 		return statSync(path).uid === process.getuid?.();
 	} catch {
-		// Nothing there to change; the gate refuses it on other grounds.
-		return false;
+		// Nothing there, or nothing readable: it isn't shown unchangeable.
+		return true;
 	}
 }
 
@@ -111,8 +119,23 @@ function readOnlyMount(error: unknown): boolean {
 }
 
 /**
+ * Whether this account can change neither `path` nor any folder above
+ * it, through which it could move `path` aside and put its own in its
+ * place.
+ */
+export function unchangeable(
+	path: string,
+	changeable: (path: string) => boolean = canChange,
+): boolean {
+	for (let at = path; ; at = dirname(at)) {
+		if (changeable(at)) return false;
+		if (dirname(at) === at) return true;
+	}
+}
+
+/**
  * The store path `own` lies in, when it lies in `store` and this
- * account can't change it, or nothing.
+ * account can change neither `own` nor any folder above it, or nothing.
  */
 export function heldStoreCopy(
 	own: string,
@@ -123,7 +146,7 @@ export function heldStoreCopy(
 	const [entry] = own.slice(store.length + 1).split(sep);
 	if (entry === undefined || entry === "") return undefined;
 	const copy = join(store, entry);
-	return changeable(copy) || changeable(own) ? undefined : copy;
+	return unchangeable(own, changeable) ? copy : undefined;
 }
 
 /** This package's own folder, followed, as this process loaded it. */

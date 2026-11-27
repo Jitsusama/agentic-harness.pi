@@ -6,6 +6,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
@@ -14,12 +15,13 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	canChange,
 	fencedChildrenRefusal,
 	heldElsewhere,
+	heldStoreCopy,
 	inside,
 	installedPackages,
 	type Places,
@@ -76,8 +78,53 @@ describe("whether this account could change a path", () => {
 		expect(canChange(mine)).toBe(true);
 	});
 
-	it("is no for what isn't there", () => {
-		expect(canChange(join(home, "absent"))).toBe(false);
+	it("is yes for what isn't there, since nothing shows it can't be", () => {
+		expect(canChange(join(home, "absent"))).toBe(true);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"is no for a folder another account owns and this one can't write",
+		() => {
+			expect(canChange("/")).toBe(false);
+		},
+	);
+
+	it.skipIf(!existsSync("/nix/store") || process.getuid?.() === 0)(
+		"is no for the Nix store but on a Mac, whose fence hands its commands the daemon as a trusted client",
+		() => {
+			expect(canChange("/nix/store")).toBe(process.platform === "darwin");
+		},
+	);
+});
+
+describe("the store copy a session's own harness lies in", () => {
+	const store = "/s/store";
+	const own = join(store, "abc-harness", "versions", "v");
+	const only = (path: string) => (at: string) => at === path;
+
+	it("is held while nothing on its way up can be changed", () => {
+		expect(heldStoreCopy(own, store, () => false)).toBe(
+			join(store, "abc-harness"),
+		);
+	});
+
+	it("isn't held when this account could change the harness's own folder, the copy, the store or a folder above it", () => {
+		for (const path of [
+			own,
+			dirname(own),
+			join(store, "abc-harness"),
+			store,
+			dirname(store),
+			"/",
+		]) {
+			expect(heldStoreCopy(own, store, only(path)), path).toBeUndefined();
+		}
+	});
+
+	it("is held though another copy beside it could be changed", () => {
+		expect(heldStoreCopy(own, store, only(join(store, "def-other")))).toBe(
+			join(store, "abc-harness"),
+		);
 	});
 });
 
