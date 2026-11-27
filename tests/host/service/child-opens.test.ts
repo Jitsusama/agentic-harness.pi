@@ -57,6 +57,13 @@ vi.mock("../../../host/service/start-gate.ts", async (original) => {
 
 superviseEachTest();
 
+/** How each of several promises ended, in order. */
+function statusesOf(
+	outcomes: readonly PromiseSettledResult<unknown>[],
+): PromiseSettledResult<unknown>["status"][] {
+	return outcomes.map(({ status }) => status);
+}
+
 describe("a new conversation", () => {
 	it("is opened by its child, which the host then routes to under the id it answers", async () => {
 		const reply = await supervisor.begin({
@@ -429,6 +436,10 @@ describe("a new conversation", () => {
 		// Two starts that never listen keep the gate full for their listen time.
 		units.traitsOf = () => ({ neverListens: true });
 		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		// Watched from the start: a loaded machine reaches their listen time,
+		// which refuses them, before the case closes the host, and a refusal
+		// nothing watches yet is reported as unhandled.
+		const ended = Promise.allSettled(held);
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const asked = Date.now();
 
@@ -455,7 +466,7 @@ describe("a new conversation", () => {
 		);
 		expect(units.started, "no unit started for it").toHaveLength(2);
 		supervisor.close();
-		for (const one of held) await expect(one).rejects.toThrow();
+		expect(statusesOf(await ended)).toEqual(["rejected", "rejected"]);
 	});
 
 	// F103 on #2080: time spent weighing before the gate is no turn's wait.
@@ -468,7 +479,9 @@ describe("a new conversation", () => {
 			},
 		});
 		units.traitsOf = () => ({ neverListens: true });
-		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		const ended = Promise.allSettled(
+			[a, b].map((id) => supervisor.resume(entry(id))),
+		);
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 
 		// 3 s of its 10 s gone before it asks a turn, which then lapses with
@@ -493,7 +506,7 @@ describe("a new conversation", () => {
 			expect.stringMatching(new RegExp(`^Request open-25: ${said.source}`)),
 		);
 		supervisor.close();
-		for (const one of held) await expect(one).rejects.toThrow();
+		expect(statusesOf(await ended)).toEqual(["rejected", "rejected"]);
 	});
 
 	// F37: its caller waits on it, as a wake's writer does.
@@ -563,14 +576,18 @@ describe("a new conversation", () => {
 			if (unit === unitB) return { listensWhen: holdingB.promise };
 			return {};
 		};
+		gateAsks.length = 0;
 		const held = [a, b].map((id) => supervisor.resume(entry(id)));
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const beginning = supervisor.begin(opening("open-30"));
 		const all = [...held, beginning];
 		try {
-			// A tick for the begin to reach the gate; were it not held there it
-			// would start a third unit within it.
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await vi.waitFor(() => expect(gateAsks).toHaveLength(3));
+			expect(gateAsks[2], "the begin asked the gate, ahead").toEqual({
+				ahead: true,
+			});
+			// Long enough for a begin let past a full gate to reach its unit's start.
+			await new Promise((resolve) => setTimeout(resolve, 100));
 			expect(
 				units.started,
 				"the begin waits behind the two resumes",
@@ -604,7 +621,9 @@ describe("a new conversation", () => {
 			},
 		});
 		units.traitsOf = () => ({ neverListens: true });
-		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		const ended = Promise.allSettled(
+			[a, b].map((id) => supervisor.resume(entry(id))),
+		);
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const asked = Date.now();
 
@@ -626,7 +645,7 @@ describe("a new conversation", () => {
 		).toBeGreaterThanOrEqual(1_100);
 		expect(units.started, "no unit started for it").toHaveLength(2);
 		supervisor.close();
-		for (const one of held) await expect(one).rejects.toThrow();
+		expect(statusesOf(await ended)).toEqual(["rejected", "rejected"]);
 	});
 
 	it("ends a begin as soon as the host stops watching during its ask", async () => {

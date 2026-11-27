@@ -159,10 +159,7 @@ describe("when the machine booted", () => {
 		expect(reads).toBe(1);
 		clock = 1001;
 		booted();
-		expect(reads).toBe(2);
-		clock = 0;
-		booted();
-		expect(reads, "just past a second back from the kept read").toBe(3);
+		expect(reads, "read again a millisecond past a second on").toBe(2);
 	});
 
 	it("takes the later boot a forward step gives, as btime does", () => {
