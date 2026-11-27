@@ -395,18 +395,45 @@ describe("a repo's merge gate", () => {
 		// clock is told from an Escape with a signal there.
 		const marker = join(dir, "still-running");
 		const ran = await withCallSignal(new AbortController().signal, () =>
-			shell(`(sleep 2; touch ${JSON.stringify(marker)}) & wait`, dir, 200),
+			shell(
+				`echo 'gate: step 3' >&2; (sleep 2; touch ${JSON.stringify(marker)}) & wait`,
+				dir,
+				200,
+			),
 		);
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
 		expect(ran.aborted, "its own clock is no Escape").toBe(false);
 		expect(
 			ran.stderr,
-			"the exec layer's note, which names neither gate nor clock, is left out",
-		).not.toContain("bash aborted");
+			"the gate's own words, without the exec layer's note, which names neither gate nor clock",
+		).toBe("gate: step 3");
 		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
 		expect(
 			existsSync(marker),
 			"the gate's child went with it, rather than finishing after",
 		).toBe(false);
+	});
+
+	// A gate's own line reading as the exec layer's is the gate's to say.
+	it("leaves out only the exec layer's note when a call is stopped, whatever its reason", async () => {
+		const call = new AbortController();
+		setTimeout(() => call.abort(new Error("stopped by\nthe person")), 200);
+		const ran = await withCallSignal(call.signal, () =>
+			shell("echo 'bash aborted: by the gate' >&2; sleep 5", dir, 10_000),
+		);
+		expect(ran.aborted, "a stopped call is an Escape").toBe(true);
+		expect(ran.stderr, "what the gate said, and nothing after").toBe(
+			"bash aborted: by the gate",
+		);
+	});
+
+	it("leaves out the exec layer's note for a call stopped before the gate starts", async () => {
+		const call = new AbortController();
+		call.abort();
+		const ran = await withCallSignal(call.signal, () =>
+			shell("echo never", dir, 10_000),
+		);
+		expect(ran.aborted, "a stopped call is an Escape").toBe(true);
+		expect(ran.stderr, "nothing the gate said, as it never ran").toBe("");
 	});
 });
