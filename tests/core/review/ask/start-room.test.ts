@@ -102,10 +102,13 @@ describe("starting council rounds on room alone", () => {
 		// Looks long enough apart that one look and two can be told apart.
 		const look = 500;
 
+		// Set to as often as it can, as the config's 0 or half a minute is,
+		// which a quiet machine takes quicker still.
 		const start = await awaitCouncilStart(
 			path,
 			claim("ISXEG8", {
-				spacingMs: 10 * look,
+				spacingMs: undefined,
+				spacing: async () => 0,
 				lookAgainMs: look,
 				room: roomy,
 				quiet: async () => true,
@@ -127,7 +130,7 @@ describe("starting council rounds on room alone", () => {
 		// Ten minutes when asked; the config is then set to its floor.
 		const spacing = async () => {
 			looks += 1;
-			return looks <= 2 ? 600_000 : 0;
+			return looks === 1 ? 600_000 : 0;
 		};
 
 		await awaitCouncilStart(
@@ -135,7 +138,7 @@ describe("starting council rounds on room alone", () => {
 			claim("ISXEG8", { spacingMs: undefined, room: roomy, spacing }),
 		);
 
-		expect(looks, "it looked again").toBeGreaterThan(2);
+		expect(looks, "it looked again").toBeGreaterThan(1);
 		expect(Date.now() - before.getTime()).toBeLessThan(SPACING);
 	});
 
@@ -159,18 +162,39 @@ describe("starting council rounds on room alone", () => {
 		expect(start.waited).not.toMatch(/while it is quiet/);
 	});
 
-	it("reads quiet again at each look, keeping its spacing once the machine is busy", async () => {
+	it("keeps its spacing when it reads quiet but no room", async () => {
 		const before = new Date();
 		startedAt("A2VLJN", before);
-		let looks = 0;
+		const look = 300;
 
 		await awaitCouncilStart(
 			path,
 			claim("ISXEG8", {
+				spacingMs: 0,
+				lookAgainMs: look,
+				quiet: async () => true,
+			}),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			2 * look - TIMER_EARLY_MS,
+		);
+	});
+
+	it("reads quiet again at each look, keeping its spacing once the machine is busy", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		const look = 300;
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
 				room: roomy,
 				// A look long enough that the first, made as it asks, comes
 				// too soon to start even on a busy machine.
-				lookAgainMs: SPACING / 3,
+				lookAgainMs: look,
 				// Quiet only at that first look.
 				quiet: async () => {
 					looks += 1;
@@ -181,14 +205,18 @@ describe("starting council rounds on room alone", () => {
 
 		expect(looks, "it looked again").toBeGreaterThan(1);
 		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
-			SPACING - TIMER_EARLY_MS,
+			2 * look - TIMER_EARLY_MS,
 		);
 	});
 
 	it("names no quiet pace for a round that never reads quiet", async () => {
 		startedAt("A2VLJN", new Date());
 
-		const start = await awaitCouncilStart(path, onRoom("ISXEG8", roomy));
+		// A look long enough that the first comes too soon to start.
+		const start = await awaitCouncilStart(path, {
+			...onRoom("ISXEG8", roomy),
+			lookAgainMs: 300,
+		});
 
 		expect(start.waited).toMatch(
 			/one roster round starts on this machine each/,

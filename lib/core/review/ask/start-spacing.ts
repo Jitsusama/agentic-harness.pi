@@ -217,9 +217,9 @@ export interface StartClaim {
 	/**
 	 * Whether the machine is quiet enough that a round may start one look
 	 * after the last, rather than its own spacing. Read at each look, and
-	 * only while `spacing` answers nothing, since a spacing set by hand
-	 * may be for what pressure can't show, such as a provider's limit;
-	 * never quiet unless given.
+	 * only alongside `room` while the spacing is at its floor, since a
+	 * wider one set by hand may be for what pressure can't show, such as
+	 * a provider's limit; never quiet unless given.
 	 */
 	readonly quiet?: () => Promise<boolean>;
 	/**
@@ -286,7 +286,8 @@ export async function awaitCouncilStart(
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
-	let spacings = await spacingsNow(claim, lookAgain);
+	// Read at each look; this stands only for a first look that failed.
+	let spacings: Spacings = { spacing: 2 * lookAgain, quickest: 2 * lookAgain };
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -1048,24 +1049,24 @@ interface Spacings {
  * last instead, fifteen seconds in production (A210E4CA, 27 November):
  * its live MemAvailable still stops a burst the averages are slow to
  * show. A round that took a start and failed still finds it one start
- * back. Only while the config sets no spacing, and only for a claim
- * that reads quiet at all, so a wait never names a pace it can't take.
+ * back. Only while the spacing is at its floor, which a config setting
+ * none or as often as it can leaves it at, and only for a claim that
+ * reads quiet at all, so a wait never names a pace it can't take.
  */
 async function spacingsNow(
 	claim: StartClaim,
 	lookAgain: number,
 ): Promise<Spacings> {
-	const configured = await claim.spacing?.();
-	const given = configured ?? claim.spacingMs;
+	const given = (await claim.spacing?.()) ?? claim.spacingMs;
+	const floor = 2 * lookAgain;
 	const spacing = Math.max(
 		given ?? (claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
-		2 * lookAgain,
+		floor,
 	);
-	// Quiet is a pace inside the bars, never one without them.
+	// Quiet is a pace inside the bars, never one without them, and only
+	// for a spacing at the floor, which asks for as often as it can.
 	const mayHurry =
-		claim.quiet !== undefined &&
-		claim.room !== undefined &&
-		configured === undefined;
+		claim.quiet !== undefined && claim.room !== undefined && spacing <= floor;
 	return {
 		spacing,
 		quickest: mayHurry ? Math.min(spacing, lookAgain) : spacing,

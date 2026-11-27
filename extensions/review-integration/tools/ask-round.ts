@@ -16,6 +16,7 @@ import {
 } from "../../../lib/core/review/ask/machine-room.ts";
 import {
 	awaitCouncilStart,
+	COUNCIL_START_SPACING_MS,
 	type CouncilStart,
 	newestRosterStartIn,
 } from "../../../lib/core/review/ask/start-spacing.ts";
@@ -205,16 +206,17 @@ type SpacingRead = { readonly ms: number | undefined } | undefined;
 /**
  * A spacing reader that answers, when a read fails, what the last good
  * read said, so a config caught half-saved while rounds wait takes none
- * of them to the quickest pace. A first read that fails says none.
+ * of them to the quickest pace. A first read that fails answers the
+ * line's default, as though nothing were known, since the config may
+ * set a wide spacing for what pressure can't show.
  */
 export function spacingKeptAcrossFailedReads(
 	read: () => Promise<SpacingRead>,
 ): () => Promise<number | undefined> {
-	let kept: number | undefined;
+	let kept: { readonly ms: number | undefined } | undefined;
 	return async () => {
-		const now = await read();
-		if (now !== undefined) kept = now.ms;
-		return kept;
+		kept = (await read()) ?? kept;
+		return kept === undefined ? COUNCIL_START_SPACING_MS : kept.ms;
 	};
 }
 

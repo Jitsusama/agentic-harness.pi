@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { spacingKeptAcrossFailedReads } from "../../../../extensions/review-integration/tools/ask-round.ts";
+import { COUNCIL_START_SPACING_MS } from "../../../../lib/core/review/ask/start-spacing.ts";
 
 /** A reader answering each of `reads` in turn, undefined for a failed read. */
 function readsOf(reads: ({ ms: number | undefined } | undefined)[]) {
@@ -38,9 +39,14 @@ describe("the spacing a waiting round reads", () => {
 		expect(await spacing()).toBeUndefined();
 	});
 
-	it("says none when its first read fails", async () => {
-		const spacing = spacingKeptAcrossFailedReads(readsOf([undefined]));
+	// The config may set a wide spacing for a provider's limit, which a
+	// read of none would let the quiet pace pass.
+	it("keeps the line's default when its first read fails", async () => {
+		const spacing = spacingKeptAcrossFailedReads(
+			readsOf([undefined, { ms: undefined }]),
+		);
 
-		expect(await spacing()).toBeUndefined();
+		expect(await spacing()).toBe(COUNCIL_START_SPACING_MS);
+		expect(await spacing(), "once read").toBeUndefined();
 	});
 });
