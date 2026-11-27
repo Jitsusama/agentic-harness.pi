@@ -1914,4 +1914,23 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("no vitest installed");
 		expect(answered.said).toContain("pnpm install --frozen-lockfile");
 	});
+
+	// A test's own limit wins over the config's, so a rule setting a shorter
+	// one than the gate's fails the gate on a loaded machine, whatever the
+	// gate allows.
+	it("gives each count rule no shorter a limit than the gate's own", () => {
+		const script = readFileSync(join(ROOT, "scripts/merge-gate.sh"), "utf8");
+		const gates = Number(/testTimeout: (\d+)/.exec(script)?.[1]);
+		expect(gates, "the gate should set a test limit").toBeGreaterThan(0);
+		for (const rule of COUNT_RULES.filter((file) =>
+			file.endsWith(".test.ts"),
+		)) {
+			const text = readFileSync(join(ROOT, CODE_RULES, rule), "utf8");
+			const own = /timeout: ([\d_]+)/.exec(text)?.[1]?.replaceAll("_", "");
+			expect(
+				Number(own),
+				`${rule}'s own limit should be at least the gate's ${gates} ms`,
+			).toBeGreaterThanOrEqual(gates);
+		}
+	});
 });
