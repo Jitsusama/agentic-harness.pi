@@ -50,6 +50,12 @@
  * out before is still counted and listed. A failure leaves it holding
  * what it held, said each time.
  *
+ * A host holds a log before the conversation's extensions load, and a
+ * record type one names as staying behind (rollover.ts's
+ * `leaveInParentLog`) is known only once it has: `retakeKeptHistory`
+ * takes the view again then, the same way, when a load named one the
+ * view was taken without.
+ *
  * Long because the view, the guards that answer in its place and its
  * retake at each compaction all reach into the same privates of pi's
  * manager and share the ids it keeps taken, so splitting them would
@@ -71,6 +77,7 @@ import {
 	type RolloverRecord,
 	recordIndex,
 	rolledFrom,
+	typesLeftInParentLog,
 } from "../../lib/internal/session/rollover.ts";
 import {
 	SPEND_CARRY,
@@ -158,6 +165,12 @@ export interface LeftOut {
 /** What each manager holding a view left out, gone once it lets go. */
 const leftOutBy = new WeakMap<object, LeftOut>();
 
+/** Each held manager's retake when more is said to stay behind, gone once it lets go. */
+const retakes = new WeakMap<
+	object,
+	(leftBehind: ReadonlySet<string>) => void
+>();
+
 /**
  * The messages `manager` left on disk while it holds the kept view, or
  * undefined when it holds its whole log.
@@ -224,6 +237,21 @@ export function holdKeptHistory<M>(
 	return manager;
 }
 
+/**
+ * Have `manager`'s view taken again, over what it holds, when a load
+ * since it was taken said more custom types stay in the parent log
+ * (rollover.ts's `leaveInParentLog`). A host opens a conversation's log
+ * before that conversation's extensions load, and in a fresh process
+ * nothing has said them yet, so without this its first conversations
+ * held those records until they next compacted. Nothing happens while
+ * it holds its whole log or nothing more was said; a failure leaves it
+ * holding what it held, said as its open said things.
+ */
+export function retakeKeptHistory(manager: unknown): void {
+	if (typeof manager !== "object" || manager === null) return;
+	retakes.get(manager)?.(typesLeftInParentLog());
+}
+
 /** What the journal says when `error` left `manager` holding its whole log. */
 function heldWhole(manager: HeldManager, error: unknown): Error {
 	const why = error instanceof Error ? error.message : String(error);
@@ -250,6 +278,8 @@ interface Held {
 	readonly recordId: string;
 	/** How many entries of the log the record says are left out. */
 	readonly dropped: number;
+	/** The custom types it left in the parent log, as said when it was taken. */
+	readonly leftBehind: ReadonlySet<string>;
 }
 
 /**
@@ -269,7 +299,8 @@ function heldEntries(
 	prior?: Held,
 ): Held | undefined {
 	const branch = manager.getBranch() as Entry[];
-	const view = keptView(branch);
+	const leftBehind = typesLeftInParentLog();
+	const view = keptView(branch, leftBehind);
 	if (!view || view.from === 0) return undefined;
 	// A rolled log's own record after the first kept entry would be read
 	// in place of this one, its carried spend short of what lies between.
@@ -410,6 +441,7 @@ function heldEntries(
 		standIns: minted,
 		recordId: recordEntry.id,
 		dropped,
+		leftBehind,
 	};
 }
 
@@ -662,8 +694,9 @@ function guard(
 		release(manager);
 	};
 	// The view taken again over what it holds, leaving out what the
-	// compaction pi just appended does; held as it was when that fails.
-	const retake = (): void => {
+	// compaction pi just appended does, or what is now said to stay
+	// behind, `what`; held as it was when that fails.
+	const retake = (what: string): void => {
 		const entries = manager.fileEntries;
 		const leaf = manager.leafId;
 		// pi indexes what it appends without taking its id, so what was
@@ -691,7 +724,7 @@ function guard(
 			const why = error instanceof Error ? error.message : String(error);
 			report(
 				new Error(
-					`Kept history couldn't leave out what conversation ${manager.sessionId}'s new compaction did, so it holds that until it next opens: ${why}`,
+					`Kept history couldn't leave out ${what} of conversation ${manager.sessionId}, so it holds that until it next opens: ${why}`,
 					{ cause: error },
 				),
 			);
@@ -708,9 +741,17 @@ function guard(
 	};
 	own.appendCompaction = (...rest: unknown[]) => {
 		const id = pi.appendCompaction.call(manager, ...rest);
-		if (holding) retake();
+		if (holding) retake("what its new compaction did");
 		return id;
 	};
+	// Letting go deletes this, so it runs only while the view is held.
+	retakes.set(manager, (leftBehind) => {
+		const more = [...leftBehind].filter(
+			(type) => !current.leftBehind.has(type),
+		);
+		if (more.length > 0)
+			retake(`the ${more.join(", ")} records its extensions leave behind`);
+	});
 	own.getEntry = (id: string) => {
 		const entry = manager.byId.get(id);
 		if (entry !== undefined || !taken.has(id)) return entry;
@@ -750,6 +791,7 @@ function guard(
 /** Let go of the view's methods and taken ids, back to pi's own. */
 function release(manager: HeldManager): void {
 	leftOutBy.delete(manager);
+	retakes.delete(manager);
 	const own = manager as unknown as Record<string, unknown>;
 	for (const name of GUARDED) delete own[name];
 	if (manager.byId instanceof TakenIds) manager.byId = new Map(manager.byId);

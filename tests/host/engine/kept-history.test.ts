@@ -19,6 +19,7 @@ import {
 	holdKeptHistory,
 	holdsLikePi,
 	leftOutOf,
+	retakeKeptHistory,
 } from "../../../host/engine/kept-history.ts";
 import { compactionHistory } from "../../../lib/compaction/history.ts";
 import {
@@ -30,6 +31,7 @@ import { markedOnDisk } from "../../../lib/internal/logs/recall-on-disk.ts";
 import {
 	carriedBy,
 	type Entry,
+	leaveInParentLog,
 	messagesOnDisk,
 	ROLLOVER_RECORD,
 	rolledFrom,
@@ -136,6 +138,8 @@ interface LogShape {
 	 * -1000 entries dropped, or a usage entry of the view's kind.
 	 */
 	readonly lookalike?: "record" | "usage";
+	/** A custom entry of this type among the early state. */
+	readonly state?: string;
 }
 
 /** Append `entry` to `sessions` as pi appends its own, whatever its type. */
@@ -187,6 +191,7 @@ function compactedLog(shape: LogShape = {}): string {
 		sessions.branch(fork);
 	}
 	sessions.appendCustomEntry("away-state", { away: true });
+	if (shape.state) sessions.appendCustomEntry(shape.state, { early: true });
 	exchange(sessions, "early two", 2);
 	if (shape.before === "answer")
 		sessions.appendMessage(answer("zephyr has the last word", 0.25));
@@ -791,6 +796,79 @@ describe("what a held conversation holds in place of what it leaves out", () => 
 			texts(held.getEntries()),
 			"the log was read back whole",
 		).not.toContain("early one");
+	});
+});
+
+describe("a held conversation once its extensions say what stays behind", () => {
+	/** The custom types of what `held` holds. */
+	const customTypes = (held: SessionManager): string[] =>
+		held
+			.getEntries()
+			.flatMap((entry) => (entry.type === "custom" ? [entry.customType] : []));
+
+	it("leaves out the records they say stay behind, though it opened before", () => {
+		const type = "late-record-left";
+		const file = compactedLog({ state: type });
+		const before = readFileSync(file, "utf8");
+		const report = vi.fn();
+		const held = hold(file, report);
+		expect(customTypes(held), "the view holds it until told").toContain(type);
+		const messages = texts(held.getEntries());
+		const dropped = rolledFrom(held.getBranch())?.dropped ?? 0;
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		expect(customTypes(held)).not.toContain(type);
+		expect(customTypes(held)).toContain("away-state");
+		expect(rolledFrom(held.getBranch())?.dropped).toBe(dropped + 1);
+		expect(texts(held.getEntries())).toEqual(messages);
+		expect(readFileSync(file, "utf8")).toBe(before);
+		expect(report).not.toHaveBeenCalled();
+	});
+
+	it("takes nothing again when none said more stays behind since it opened", () => {
+		const held = hold(compactedLog());
+		const before = held.getEntries();
+		retakeKeptHistory(held);
+		const after = held.getEntries();
+		// What it holds in place of what it left out stays as it was.
+		expect(
+			after.filter((entry, at) => entry !== before[at]).map((e) => e.id),
+			"the view was taken again",
+		).toEqual([]);
+	});
+
+	it("leaves them out again when it compacts again", () => {
+		const type = "late-record-compacted";
+		const held = hold(compactedLog({ state: type }));
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		const dropped = rolledFrom(held.getBranch())?.dropped ?? 0;
+		compactsAgain(held);
+		expect(customTypes(held)).not.toContain(type);
+		expect(
+			rolledFrom(held.getBranch())?.dropped,
+			"what it left out before is still counted",
+		).toBeGreaterThan(dropped);
+	});
+
+	it("leaves a conversation holding its whole log as it is", () => {
+		const type = "late-record-whole";
+		const whole = SessionManager.open(compactedLog({ state: type }));
+		const count = whole.getEntries().length;
+		leaveInParentLog(type);
+		retakeKeptHistory(whole);
+		expect(whole.getEntries()).toHaveLength(count);
+	});
+
+	it("leaves one that read its whole log back as it is", () => {
+		const type = "late-record-read-back";
+		const held = hold(compactedLog({ state: type }));
+		held.getTree();
+		const count = held.getEntries().length;
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		expect(held.getEntries()).toHaveLength(count);
+		expect(customTypes(held)).toContain(type);
 	});
 });
 

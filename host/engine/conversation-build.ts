@@ -39,7 +39,7 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
-import type { holdKeptHistory } from "./kept-history.ts";
+import type { holdKeptHistory, retakeKeptHistory } from "./kept-history.ts";
 import type { countLeftOut } from "./kept-history-session.ts";
 import type { KeptRequests } from "./kept-requests.ts";
 import type { PiLibrary } from "./pi-library.ts";
@@ -109,6 +109,8 @@ export interface PiParts {
 	readonly library: PiLibrary;
 	/** Holds only a log's kept history; loaded once pi has, as it binds pi. */
 	readonly keptHistory: typeof holdKeptHistory;
+	/** Takes a held log's view again once its extensions have said what stays behind; loaded as keptHistory is. */
+	readonly keptRetake: typeof retakeKeptHistory;
 	/** Has a session count and list what its held log left; loaded as keptHistory is. */
 	readonly keptCounts: typeof countLeftOut;
 }
@@ -159,8 +161,16 @@ export interface ConversationBuilds {
 /** Build each conversation on the host's pi, for the engine this context names. */
 export function conversationBuilds(context: BuildContext): ConversationBuilds {
 	const { parts, options, report, logs, requests } = context;
-	const { pi, sessions, builtIns, trust, library, keptHistory, keptCounts } =
-		parts;
+	const {
+		pi,
+		sessions,
+		builtIns,
+		trust,
+		library,
+		keptHistory,
+		keptRetake,
+		keptCounts,
+	} = parts;
 	const { host } = options;
 
 	function view(sessionId: string, record: Live): HostedView {
@@ -316,6 +326,9 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			),
 		});
 		mark?.("services");
+		// Its log was held before its extensions loaded, so the records they
+		// say stay behind leave the view before pi builds a context from it.
+		keptRetake(sessionManager);
 		// What the CLI says as it starts: the screen shows it all, and the
 		// journal, read when no screen is, keeps the errors and warnings.
 		// Closed while its screen asked the person: nothing more is built for it.
