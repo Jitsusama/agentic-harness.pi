@@ -415,11 +415,13 @@ holder claims stays, unless it claims it only until spent and some
 holder names it in `idleMayTake`, one list for them all: a live quest
 names there each tree it lists on this machine in a known repository
 but that repository's last whose folder stands, and never one any
-live quest keeps, so the tree its session reopens in stays. A run
-whose ended trees took or refused one a holder kept from these rules
-asks the holders again, since they chose before that tree went, and
-the rules take only what both answers name; a holder that can't be
-asked again lets them take none it claims. A taken tree leaves its
+live quest keeps, so the tree its session reopens in stays. The
+holders are asked again as the idle phase begins, since a tree they
+kept may have gone since they chose, and the rules take only what
+both answers name; an ask that fails lets them take none. A list of
+claims, which can't be asked again, lets none go once the run took or
+refused a tree it kept. Once any tree the holders kept goes during
+the idle phase, the rest of the run takes none they let go. A taken tree leaves its
 quest's list, but its branch's alias stays while the branch does, so
 a change on that branch still finds the quest, and goes once a sweep
 deletes the branch. One whose record names no

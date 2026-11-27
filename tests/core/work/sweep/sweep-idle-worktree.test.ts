@@ -101,7 +101,10 @@ async function untouchedFor(tree: string, ago: number): Promise<void> {
 function sweepWhileOpen(
 	setup: Setup,
 	known: Partial<
-		Pick<SweepDeps, "busyAmong" | "claims" | "liveSessions" | "memory">
+		Pick<
+			SweepDeps,
+			"betweenIdleTakes" | "busyAmong" | "claims" | "liveSessions" | "memory"
+		>
 	> = {},
 ) {
 	return sweepEndedTrees({
@@ -237,7 +240,37 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
 	});
 
-	it("takes none a holder kept when asking it again after a kept take fails", async () => {
+	it("takes no older tree once its newest goes during the idle phase", async () => {
+		const setup = await setUp();
+		// Left longer, so the phase judges it first.
+		const bystander = await pushedAndLeft(setup, "nobody-s", 2 * IDLE);
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		const newest = await pushedAndLeft(setup, "cut-last", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: () => ({
+				held: [],
+				untilSpent: [older.tree, newest.tree],
+				idleMayTake: existsSync(newest.tree) ? [older.tree] : [],
+			}),
+			// The quest's own session releases its newest between two takes,
+			// after both asks named its older tree.
+			betweenIdleTakes: async () => {
+				if (existsSync(newest.tree)) {
+					await git(setup.main, "worktree", "remove", "--force", newest.tree);
+				}
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([bystander.tree]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+		expect(outcome.kept).toContainEqual({
+			path: older.tree,
+			why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
+		});
+	});
+
+	it("takes none its holder let go when asking it again fails", async () => {
 		const setup = await setUp();
 		const older = await pushedAndLeft(setup, "cut-first", IDLE);
 		const newest = await setup.cut("cut-last", ["-b", "cut-last", "@", "main"]);

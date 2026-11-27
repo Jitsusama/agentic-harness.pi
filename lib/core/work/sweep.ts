@@ -503,10 +503,22 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 					outcome.idleWorktreesLeft = count;
 				},
 			};
+			const letGoNow = new Set([...letGo].map(resolved));
+			const keptStood = keptStanding(untilSpent, letGo);
 			for await (const idle of eachIdleWorktree(live, worktrees)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
 				given += 1;
+				if (
+					letGoNow.has(resolved(idle.tree.path)) &&
+					keptStood.some((path) => !existsSync(path))
+				) {
+					outcome.kept.push({
+						path: idle.tree.path,
+						why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
+					});
+					continue;
+				}
 				await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
 			}
 			for await (const idle of eachIdleSnapshot(live, {
@@ -636,6 +648,22 @@ async function stillLetGo(
 		// Nobody answered again, so nobody let anything go again.
 		return new Set();
 	}
+}
+
+/**
+ * The trees holders claim and keep from idle rules that stand as the
+ * idle phase begins. Holders let an older tree go because its quest's
+ * newest stood; the phase takes one tree after another for minutes,
+ * and that newest may go meanwhile, released by its own session. So
+ * once any of these is gone, no tree a holder let go is taken in this
+ * run, and the next run asks the holders afresh.
+ */
+function keptStanding(
+	untilSpent: readonly string[],
+	letGo: ReadonlySet<string>,
+): string[] {
+	if (letGo.size === 0) return [];
+	return untilSpent.filter((path) => !letGo.has(path) && existsSync(path));
 }
 
 /**
