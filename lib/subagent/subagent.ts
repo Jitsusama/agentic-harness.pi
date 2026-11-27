@@ -235,6 +235,7 @@ export async function startReviewer(
 		}),
 		cwd: options.cwd,
 		...(options.env === undefined ? {} : { env: options.env }),
+		...(options.room === undefined ? {} : { room: options.room }),
 		runId,
 		reviewerId: options.reviewer.id,
 		// Always. A detached reviewer cannot be resumed by the parent
@@ -338,6 +339,7 @@ export async function runReviewer(
 			args,
 			cwd: options.cwd,
 			...(options.env === undefined ? {} : { env: options.env }),
+			...(options.room === undefined ? {} : { room: options.room }),
 			...(options.runId ? { runId: options.runId } : {}),
 			reviewerId: options.reviewer.id,
 			signal: options.signal,

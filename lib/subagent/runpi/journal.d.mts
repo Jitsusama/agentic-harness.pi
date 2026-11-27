@@ -43,3 +43,18 @@ export function parseJournal(raw: string): JournalCounts;
 
 /** What to say about the entries a parse could not carry. */
 export function journalWarnings(counts: JournalCounts, path: string): string[];
+
+/** The findings in what a reviewer sent the journal tool. */
+export function findingsIn(sent: unknown): {
+	kept: object[];
+	dropped: number;
+};
+
+/** Reads a reviewer's stream for the journal lines it recorded. */
+export interface StreamJournal {
+	/** The lines one event adds to the journal, if any. */
+	read(event: unknown): string | undefined;
+}
+
+/** The journal's lines as a reviewer's stream tells them. */
+export function journalFromStream(): StreamJournal;

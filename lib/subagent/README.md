@@ -190,6 +190,9 @@ companion skill.
     never answered, its post-mortem.
   - `runpi/supervisor-detached.ts`: the runner that starts
     a supervisor and walks away.
+  - `runpi/room-launch.ts`: the words that run a reviewer
+    on a cloud room through `mycelium run` and the room's
+    reviewer entry, or why it stays here.
 - `runpi/supervisor.mjs`: the supervisor process itself:
   it spawns pi, watches its clocks, cancel files and
   parent, stops it, and writes its lease, progress and

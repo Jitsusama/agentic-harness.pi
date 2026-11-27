@@ -69,6 +69,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/supervisor-runs.test.ts",
 	"tests/lib/subagent/runpi/supervisor-environment.test.ts",
 	"tests/lib/subagent/runpi/supervisor-records.test.ts",
+	"tests/lib/subagent/runpi/supervisor-room.test.ts",
 	"tests/lib/subagent/runpi/supervisor-parent.test.ts",
 	"tests/lib/subagent/runpi/supervisor-endings.test.ts",
 	"tests/lib/subagent/runpi/detached.test.ts",

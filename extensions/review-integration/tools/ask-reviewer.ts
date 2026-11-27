@@ -55,6 +55,7 @@ import {
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.ts";
+import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
 import { fromScript } from "../../../lib/subagent/runpi/fresh.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import {
@@ -371,6 +372,9 @@ export function deps(
 	// artifacts still go under the fresh id, because the transcript
 	// belongs to the attempt that produced it.
 	billTo?: string,
+	// The room each reviewer runs on first, when the round has one
+	// (ask-room.ts); each comes back here when the room gives nothing.
+	room?: RoomAsk,
 ) {
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
@@ -496,6 +500,7 @@ export function deps(
 			// running. It is derived from the round's, so Escape still
 			// reaches every one of them.
 			signal: watch.signalFor(participant.id),
+			...(room === undefined ? {} : { room }),
 			// Bounded twice, and the idle clock is the one doing the work:
 			// it catches a participant that has gone silent, while the wall
 			// clock only backstops one that nothing else will stop. Bounding
