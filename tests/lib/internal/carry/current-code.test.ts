@@ -200,6 +200,24 @@ describe("a carry from code its install has left", () => {
 		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBeUndefined();
 	});
 
+	// Review of #2403, F10 and F7: one commit can sit in two folders, in
+	// releases/ and versions/, or built again under its own name, so a
+	// session on the commit `current` names lacks no fix, whatever an old
+	// marker of that commit or the link's own time says.
+	it.each([
+		["in releases/", `releases/${LATEST}`, `versions/${LATEST}`],
+		["built again", `versions/${LATEST}`, `versions/${LATEST}+1795770000`],
+	])("goes on from the commit current names, %s", (_case, running, current) => {
+		const root = install({
+			versions: { [running]: minutes(3000), [current]: minutes(2000) },
+			current,
+			moved: BEHIND_FOR_MS + minutes(60),
+			retired: { [LATEST]: BEHIND_FOR_MS + minutes(60) },
+		});
+
+		expect(behindItsInstall(join(root, running), NOW)).toBeUndefined();
+	});
+
 	it("goes on from code outside an install of whole versions", () => {
 		const tree = folder(made, "tree");
 
