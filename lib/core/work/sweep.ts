@@ -190,9 +190,11 @@ export interface SweepDeps extends UseSigns {
 	 */
 	awake?: () => number;
 	/**
-	 * Waited on before each idle snapshot's take but the first, so a sweep
-	 * taking many leaves the disk's directory locks free between its
-	 * removals; nothing by default. Its time counts against `idleWithinMs`.
+	 * Waited on once between idle takes, so a sweep taking many leaves the
+	 * disk's directory locks free between its removals: before each
+	 * snapshot's take but the first, and after each worktree's take,
+	 * before the next is judged. Nothing by default. Its time counts
+	 * against `idleWithinMs`.
 	 */
 	betweenIdleTakes?: () => Promise<void>;
 	/**

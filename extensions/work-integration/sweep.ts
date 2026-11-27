@@ -246,7 +246,8 @@ export interface SweepAsks {
 	 */
 	idleWithinMs?: number;
 	/**
-	 * Waited on before each idle take but the first; nothing by default.
+	 * Waited on once between idle takes, before the next is judged or
+	 * taken; nothing by default.
 	 * Given, it marks a runner that paces its removals, the only one that
 	 * finishes removals stopped part way.
 	 */

@@ -109,14 +109,15 @@ export interface IdleChoice extends UseSigns {
 	left?(count: number): void;
 	/**
 	 * Whether to pass `tree` over now, asked of each before it is judged,
-	 * and again after any pause, so one passed over costs no git call and
-	 * none of `most`; whatever says so says why itself. None is, by
-	 * default.
+	 * again after any pause, and once more after it is judged, so one
+	 * passed over costs none of `most`, and one passed over before its
+	 * judging costs no git call; whatever says so says why itself. None
+	 * is, by default.
 	 */
 	heldBack?(tree: HeldTree): boolean;
 	/**
-	 * Waited on before judging each worktree once one was given, so takes
-	 * are spaced; none, by default.
+	 * Waited on once after each worktree given, before the next is judged,
+	 * so takes are spaced; none, by default.
 	 */
 	pause?(): Promise<void>;
 }
@@ -270,6 +271,10 @@ export async function* eachIdleWorktree(
 	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
 	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
 	let given = 0;
+	// One pause after each take, before the next tree is judged, so a run
+	// of trees judged and refused between two takes costs one pause, not
+	// one each.
+	let paused = true;
 	for (const [at, { tree, usedAt, path }] of aged.entries()) {
 		if (given >= most || (given >= floor && choice.spent?.() === true)) {
 			const left = aged.slice(at).filter((one) => !busy.has(one.path)).length;
@@ -277,14 +282,18 @@ export async function* eachIdleWorktree(
 			return;
 		}
 		if (busy.has(path) || choice.heldBack?.(tree) === true) continue;
-		if (given > 0 && choice.pause !== undefined) {
+		if (!paused && choice.pause !== undefined) {
 			await choice.pause();
+			paused = true;
 			// What holds a tree back may have changed in the pause.
 			if (choice.heldBack?.(tree) === true) continue;
 		}
 		const settled = await nothingOnlyHere(choice.exec, tree.path);
-		if (settled === undefined) continue;
+		// And in the judging, whose status may take a while on a large tree,
+		// so the last look comes just before the tree is given to be taken.
+		if (settled === undefined || choice.heldBack?.(tree) === true) continue;
 		given += 1;
+		paused = false;
 		yield { tree, usedAt, ...settled };
 	}
 }
