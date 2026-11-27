@@ -11,12 +11,13 @@
 # but for the browser lane, which needs a Chrome no lender has: lint,
 # typecheck, knip, the package rules, the tests the files reach
 # (`vitest related`, the files' own tests among them) and the load
-# check. node and pnpm come from nixpkgs and the dependencies from the
-# network, there.
+# check. node, pnpm and git come from nixpkgs and the dependencies from
+# the network, there: the work tool's tests need a git whose merge-file
+# takes --object-id, which a lender's own git may not.
 set -euo pipefail
 
 if [[ -z ${CHANGED_RUN_INSIDE:-} ]]; then
-  CHANGED_RUN_INSIDE=1 exec nix shell nixpkgs#nodejs_24 nixpkgs#pnpm nixpkgs#glibc.bin -c \
+  CHANGED_RUN_INSIDE=1 exec nix shell nixpkgs#nodejs_24 nixpkgs#pnpm nixpkgs#git nixpkgs#glibc.bin -c \
     bash "$0" "$@"
 fi
 
