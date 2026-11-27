@@ -101,9 +101,14 @@ function rootOwnersHere(): readonly number[] {
  * its programs are root's: a fenced command, running as the person,
  * can't make a file it owns.
  *
- * Once the map is read, root is never assumed to be 0: where the overflow
- * user can't be read, only the inner 0 that isn't this process is kept,
- * and nothing where this process is the inner 0, so no program is found.
+ * Once the map is read, no id this process holds is ever kept: in a
+ * namespace that maps nobody, as `unshare -U` leaves one, this process
+ * is the overflow user too, and its files would pass as root's. Nor is
+ * root assumed to be 0 there: where the overflow user can't be read,
+ * only the inner 0 that isn't this process is kept, so where it is, no
+ * program is found. Real root in a namespace mapping only 0 to the one
+ * above is refused for the same reason: from inside, it can't be told
+ * from the person under a nested `unshare -r`.
  */
 export function rootOwners(
 	read: (path: string) => string,
@@ -119,8 +124,8 @@ export function rootOwners(
 	const inner = innerRoot(map);
 	if (inner !== undefined && (inner !== uid || isMachines(map))) return [inner];
 	const overflow = overflowUser(read);
-	const others = uid === 0 ? [] : [0];
-	return overflow === undefined ? others : [overflow, ...others];
+	const owners = overflow === undefined ? [0] : [overflow, 0];
+	return owners.filter((owner) => owner !== uid);
 }
 
 /** The overflow user's id, or undefined where it can't be read whole. */

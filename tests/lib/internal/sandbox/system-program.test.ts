@@ -286,6 +286,14 @@ describe("root inside a user namespace", () => {
 		},
 	);
 
+	it("never counts this process's own files where it is the overflow user", () => {
+		// `unshare -U` with no map written: every file, the person's too,
+		// shows as the overflow user, and so does this process.
+		expect(rootOwners(proc(""), 65534), "a namespace that maps nobody").toEqual(
+			[0],
+		);
+	});
+
 	it("is root alone where there is no /proc, as on a Mac", () => {
 		expect(
 			rootOwners(() => {
@@ -306,7 +314,17 @@ describe("root inside a user namespace", () => {
 			rootOwners: () => owners,
 		});
 
-		expect(systemProgram("bwrap", PROFILE, seen([0]))).toBeUndefined();
-		expect(systemProgram("bwrap", PROFILE, seen([0, 65534]))).toBeDefined();
+		expect(
+			systemProgram("bwrap", PROFILE, seen([0])),
+			"the overflow user, standing for no root",
+		).toBeUndefined();
+		expect(
+			systemProgram("bwrap", PROFILE, seen([0, 65534])),
+			"the overflow user, standing for root",
+		).toBeDefined();
+		expect(
+			systemProgram("bwrap", PROFILE, seen([])),
+			"no owner trusted at all",
+		).toBeUndefined();
 	});
 });
