@@ -248,12 +248,16 @@ describe("a talk the steerer hands a session", () => {
 			{ deliverAs: "followUp" },
 		]);
 		expect(waits.steered).toBe(0);
-		expect(steerWaiting(waits.bus)).toBe(false);
+		expect(steerWaiting(waits.bus), "held words leave no steer waiting").toBe(
+			false,
+		);
 		expect(now.sent.map(([, options]) => options)).toEqual([
 			{ deliverAs: "steer" },
 		]);
 		expect(now.steered).toBe(1);
-		expect(steerWaiting(now.bus)).toBe(true);
+		expect(steerWaiting(now.bus), "words sent now leave a steer waiting").toBe(
+			true,
+		);
 	});
 
 	it("holds a peer's or the machine's words for the run's end, now or not", async () => {
@@ -283,7 +287,9 @@ describe("a talk the steerer hands a session", () => {
 		const [said] = sent[0] ?? [];
 		expect(said).not.toContain(BUSY_FRAMING);
 		expect(steered).toBe(0);
-		expect(steerWaiting(bus)).toBe(false);
+		expect(steerWaiting(bus), "an idle session's turn leaves no steer").toBe(
+			false,
+		);
 	});
 
 	it("holds words with no steer, as a look's answer, for a busy run's end", () => {
