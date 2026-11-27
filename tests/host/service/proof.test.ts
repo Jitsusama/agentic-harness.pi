@@ -176,6 +176,52 @@ describe("what a run proves", () => {
 		for (const [change, said] of cases)
 			expect(provenBy({ ...passed, ...change })).toBe(said);
 	});
+
+	/** A run of 14 files whose first holds `skips`, each a skipped case with that meta, the rest passing. */
+	function skipping(...skips: Record<string, unknown>[]): RunSummary {
+		const assertionResults = skips.map((meta) => ({ status: "skipped", meta }));
+		return {
+			...passed,
+			numPassedTests: passed.numTotalTests - skips.length,
+			numPendingTests: skips.length,
+			testResults: [{ assertionResults }, ...passed.testResults.slice(1)],
+		};
+	}
+
+	it("lets by a case that skipped naming another platform, counting the cases that ran", () => {
+		expect(
+			provenBy(skipping({ onlyOn: "linux" }, { onlyOn: "linux" })),
+		).toEqual({ files: 14, cases: 69 });
+	});
+
+	it("refuses every other skip beside one let by", () => {
+		const cases: [Record<string, unknown>, string][] = [
+			[{}, "no meta"],
+			[{ onlyOn: "never" }, "a word Node names no platform"],
+			[{ onlyOn: 1 }, "no word at all"],
+		];
+		for (const [meta, why] of cases)
+			expect(provenBy(skipping({ onlyOn: "linux" }, meta)), why).toBe(
+				"1 of 71 cases skipped",
+			);
+	});
+
+	it("refuses a todo, whatever its meta says", () => {
+		const todo: RunSummary = {
+			...passed,
+			numPassedTests: 70,
+			numTodoTests: 1,
+			testResults: [
+				{ assertionResults: [{ status: "todo", meta: { onlyOn: "linux" } }] },
+			],
+		};
+		expect(provenBy(todo)).toBe("1 of 71 cases skipped");
+	});
+
+	it("proves nothing when every case skipped for another platform", () => {
+		const all = Array.from({ length: 71 }, () => ({ onlyOn: "linux" }));
+		expect(provenBy(skipping(...all))).toBe("no case ran");
+	});
 });
 
 describe("a lent run's log", () => {

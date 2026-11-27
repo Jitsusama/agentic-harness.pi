@@ -1,6 +1,7 @@
 /**
  * A pi runtime's proof: what scripts/host-prove.ts writes once `pnpm
- * test:host` has passed on that runtime with no case skipped, and what a
+ * test:host` has passed on that runtime with no case skipped but one only
+ * another platform can run, and what a
  * host won't start without. World's bump writes it beside the runtime's
  * store path, core's host module refuses at evaluation a runtime the
  * proof doesn't name, and the host program checks it again as it starts.
@@ -37,6 +38,33 @@ export interface HostProof {
 	readonly cases: number;
 	/** When it passed, as an ISO time. */
 	readonly provenAt: string;
+}
+
+/**
+ * The key under which a host case's meta, in vitest's report, names the
+ * one platform it runs on, once it skipped for running on another
+ * (tests/host/end-to-end/support/only-on.mts writes it).
+ */
+export const ONLY_ON_KEY = "onlyOn";
+
+/** The platforms Node names: the only ones a case may say it runs on alone. */
+const PLATFORMS: ReadonlySet<string> = new Set<NodeJS.Platform>([
+	"aix",
+	"android",
+	"cygwin",
+	"darwin",
+	"freebsd",
+	"haiku",
+	"linux",
+	"netbsd",
+	"openbsd",
+	"sunos",
+	"win32",
+]);
+
+/** Whether `name` is a platform Node names, so no made-up word lets a skip by. */
+export function isPlatform(name: unknown): name is NodeJS.Platform {
+	return typeof name === "string" && PLATFORMS.has(name);
 }
 
 /** The part of vitest's JSON report a proof is judged from. */
@@ -124,21 +152,44 @@ export function proofRefusal(
 
 /**
  * Every case ran and passed, as a proof's counts, or why the run proves
- * nothing. A run with no case at all proves nothing either.
+ * nothing. The one skip let by is a case whose meta names another
+ * platform as the only one it runs on, as the Mac's run skips those
+ * reading Linux's /proc; the counts are of the cases that ran. Only
+ * test:host's reporter knows the run's own platform, and it fails the run
+ * for a case that skipped naming this one, so a failed run proves nothing
+ * before its report is read. A run with no case run proves nothing either.
  */
 export function provenBy(
 	summary: RunSummary,
 ): { files: number; cases: number } | string {
 	const skipped = summary.numPendingTests + summary.numTodoTests;
+	const elsewhere = onlyElsewhere(summary);
 	if (summary.numFailedTests > 0)
 		return `${summary.numFailedTests} of ${summary.numTotalTests} cases failed`;
-	if (skipped > 0)
-		return `${skipped} of ${summary.numTotalTests} cases skipped`;
+	if (skipped > elsewhere)
+		return `${skipped - elsewhere} of ${summary.numTotalTests} cases skipped`;
 	if (!summary.success) return "the run failed outside any case";
-	if (summary.numTotalTests === 0) return "no case ran";
-	if (summary.numPassedTests !== summary.numTotalTests)
+	if (summary.numPassedTests === 0) return "no case ran";
+	if (summary.numPassedTests + elsewhere !== summary.numTotalTests)
 		return `${summary.numPassedTests} of ${summary.numTotalTests} cases passed`;
-	return { files: summary.testResults.length, cases: summary.numTotalTests };
+	return { files: summary.testResults.length, cases: summary.numPassedTests };
+}
+
+/** How many of a report's cases skipped naming another platform as their own. */
+function onlyElsewhere(summary: RunSummary): number {
+	let count = 0;
+	for (const file of summary.testResults) {
+		if (!(isRecord(file) && Array.isArray(file.assertionResults))) continue;
+		for (const one of file.assertionResults)
+			if (
+				isRecord(one) &&
+				one.status === "skipped" &&
+				isRecord(one.meta) &&
+				isPlatform(one.meta[ONLY_ON_KEY])
+			)
+				count += 1;
+	}
+	return count;
 }
 
 /** The line scripts/host-run.sh prints before a whole run's JSON report. */

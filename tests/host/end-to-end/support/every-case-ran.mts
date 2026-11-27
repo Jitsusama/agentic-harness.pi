@@ -4,17 +4,20 @@
  * that skipped there is a check nobody made. An ordinary run skips a host
  * case saying which build to point it at; under this reporter any skip,
  * for want of a pi, a hook the pi lacks or a flag, fails the run and is
- * listed with its note. A case only another platform can run (only-on.mts)
- * is the one skip let by, listed as such, so the Mac's run proves the rest.
+ * listed with its note. A case whose meta names another platform as the
+ * only one it runs on (only-on.mts) is the one skip let by, listed as such,
+ * so the Mac's run proves the rest; one naming this platform, or a word
+ * that is none, is refused like any other.
  */
 import { relative } from "node:path";
 import type { Reporter, TestModule } from "vitest/node";
-import { onlyOnPlatform } from "./only-on.mts";
+import { isPlatform, ONLY_ON_KEY } from "../../../../host/service/proof.ts";
 
-/** A case as the reporter reads it: its name, and how it ended. */
+/** A case as the reporter reads it: its name, how it ended and its meta. */
 interface Ended {
 	readonly fullName: string;
 	result(): { readonly state: string; readonly note?: string | undefined };
+	meta(): { readonly [ONLY_ON_KEY]?: unknown };
 }
 
 /** A test file as the reporter reads it. */
@@ -48,8 +51,8 @@ export function skipsIn(
 			const result = test.result();
 			if (result.state !== "skipped") continue;
 			const line = `${root ? relative(root, module.moduleId) : module.moduleId}: ${test.fullName}: ${result.note ?? "skipped, saying nothing of why"}`;
-			const only = onlyOnPlatform(result.note);
-			if (only !== undefined && only !== platform) elsewhere.push(line);
+			const only = test.meta()[ONLY_ON_KEY];
+			if (isPlatform(only) && only !== platform) elsewhere.push(line);
 			else refused.push(line);
 		}
 	return { refused, elsewhere };
