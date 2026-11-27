@@ -96,12 +96,13 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		seen.treesDirs.push(deps.treesDir);
 		seen.execs.push(deps.exec);
 		if (seen.fails !== undefined) throw new Error(seen.fails);
-		// As the library does: each provider that can is asked about a tree
-		// of its own, and one that throws keeps it.
 		for (const provider of deps.providers()) {
 			for (let tree = 0; tree < seen.trees; tree++) {
+				// As the library does: each provider that can is asked about a
+				// tree of its own, and one that throws keeps it.
 				await provider.whyKept?.({} as never).catch(() => undefined);
 				if (seen.releasing) {
+					// A release that throws leaves the tree for the next sweep.
 					await provider.release({} as never).catch(() => undefined);
 				}
 			}

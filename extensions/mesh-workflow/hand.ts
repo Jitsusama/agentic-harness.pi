@@ -115,8 +115,9 @@ export function meshHand(
 					.then((said) => {
 						if (said) say(said);
 					})
-					// The lease only tells other peers; a board that can't be
-					// written must not fail the heavy call it announces.
+					// The lease and its notes only inform: one that can't be
+					// taken, told or said costs just its notice, and uncaught
+					// would end pi.
 					.catch(() => {}),
 			(command) => `${whatOf(command)}, by a subagent`,
 		);

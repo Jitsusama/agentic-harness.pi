@@ -1250,8 +1250,8 @@ async function cutThrough(
 
 /** Close `viewer`, if any, whose host may have gone already. */
 async function left(viewer: Viewer | undefined): Promise<void> {
-	// A viewer whose host restarted has no connection left to end.
-	await viewer?.leave().catch(() => undefined);
+	// One whose host restarted settles at once: leave never fails.
+	await viewer?.leave();
 }
 
 /**

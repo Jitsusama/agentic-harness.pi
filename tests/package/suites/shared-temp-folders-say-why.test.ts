@@ -11,9 +11,14 @@
  * folder carries a comment, on its line or just above, saying why it
  * must be there rather than under `tmpdir()`.
  *
- * A folder made there is a `mkdtemp` or `mkdir` whose path opens with
- * `/tmp` or `/var/tmp` written out, alone or as the first part of a
- * `join`.
+ * A folder made there is a `mkdtemp` or `mkdir` whose argument, read
+ * whole across however many lines biome wraps it over, holds a path
+ * opening with `/tmp`, `/var/tmp`, `/private/tmp` or `/dev/shm` written
+ * out, or names a constant the same file sets to one, by whatever call
+ * it is joined or resolved. Its reason sits on the call's first line or
+ * just above. Every TypeScript and JavaScript file under tests/ is read.
+ * A path that comes from elsewhere (an import, a helper, the environment)
+ * can't be read from the text, so the rule doesn't reach it.
  */
 
 import { readFileSync } from "node:fs";
@@ -23,19 +28,28 @@ import { packageFiles } from "../code/package-files.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
-/** A folder made in the machine's own temporary folder, by its written path. */
-const SHARED_FOLDER =
-	/\b(?:mkdtemp|mkdir)(?:Sync)?\(\s*(?:join\(\s*)?["'`]\/(?:var\/)?tmp\b/;
+/** The endings of the TypeScript and JavaScript files read. */
+const SOURCE = /\.(?:[mc]?[jt]s|tsx)$/;
+
+/** A call that makes a folder, up to its opening bracket. */
+const MAKES = /\b(?:mkdtemp|mkdir)(?:Sync)?\(/g;
+
+/** A path written out in one of the machine's shared temporary folders. */
+const SHARED_PATH = /["'`]\/(?:(?:var\/|private\/)?tmp|dev\/shm)\b/;
+
+/** A constant set to such a path, naming it. */
+const SHARED_CONSTANT =
+	/\b(?:const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*["'`]\/(?:(?:var\/|private\/)?tmp|dev\/shm)\b/g;
 
 /** How long a read of every test file may take on a busy machine. */
 const WALK = { timeout: 60_000 };
 
-/** Whether a line is a comment, or ends with one. */
+/** Whether a line is a comment, or ends with one, other than a doc comment's. */
 function says(line: string): boolean {
 	const trimmed = line.trim();
+	if (trimmed.startsWith("/**") || trimmed.startsWith("*")) return false;
 	return (
 		trimmed.startsWith("//") ||
-		trimmed.startsWith("*") ||
 		trimmed.startsWith("/*") ||
 		/\s\/\/\s/.test(line)
 	);
@@ -44,13 +58,28 @@ function says(line: string): boolean {
 /** The lines, counted from 1, that make a folder in /tmp saying nothing of why. */
 function unexplainedSharedFolders(text: string): number[] {
 	const lines = text.split("\n");
-	const found: number[] = [];
-	lines.forEach((line, at) => {
-		if (!SHARED_FOLDER.test(line) || says(line)) return;
-		if (at > 0 && says(lines[at - 1] ?? "")) return;
-		found.push(at + 1);
+	const constants = [...text.matchAll(SHARED_CONSTANT)].map(
+		(found) => new RegExp(`\\b${found[1]}\\b`),
+	);
+	return [...text.matchAll(MAKES)].flatMap((found) => {
+		const made = argumentOf(text, found.index + found[0].length);
+		const shared =
+			SHARED_PATH.test(made) || constants.some((name) => name.test(made));
+		if (!shared) return [];
+		const at = text.slice(0, found.index).split("\n").length - 1;
+		return says(lines[at] ?? "") || says(lines[at - 1] ?? "") ? [] : [at + 1];
 	});
-	return found;
+}
+
+/** The text of a call's argument, from just past its opening bracket to the one closing it. */
+function argumentOf(text: string, from: number): string {
+	let depth = 1;
+	for (let at = from; at < text.length; at++) {
+		if ("([{".includes(text[at] ?? "")) depth += 1;
+		if (")]}".includes(text[at] ?? "")) depth -= 1;
+		if (depth === 0) return text.slice(from, at);
+	}
+	return text.slice(from);
 }
 
 describe("the package's tests", () => {
@@ -79,11 +108,36 @@ describe("the package's tests", () => {
 			),
 			"a folder under the run's own, or a path only opening like /tmp, is no shared one",
 		).toEqual([]);
+		expect(
+			unexplainedSharedFolders(
+				'const dir = mkdtempSync(\n\tjoin("/var/tmp", "kept-out-of-every-profile-"),\n);\nfs.mkdirSync(path.join("/tmp", x));\nmkdtempSync(resolve("/private/tmp", "x-"));\nmkdirSync(`/dev/shm/` + x);\nmkdirSync(resolve(home(), "/tmp/x"));',
+			),
+			"a wrapped call, any join or resolve, a path past a nested call, and /private/tmp or /dev/shm are found",
+		).toEqual([1, 4, 5, 6, 7]);
+		expect(
+			unexplainedSharedFolders(
+				'const SHORT: string = "/tmp";\nconst LONG = tmpdir();\nmkdtempSync(join(SHORT, "x-"));\nmkdtempSync(join(LONG, "x-"));\nmkdtempSync(join(SHORTER, "x-"));',
+			),
+			"a constant this file sets to /tmp is found, and others aren't",
+		).toEqual([3]);
+		expect(
+			unexplainedSharedFolders(
+				'/**\n * Probes it.\n */\nmkdtempSync("/tmp/probe-");\n/** Probes it. */\nmkdtempSync("/tmp/probe-");',
+			),
+			"a doc comment above is no reason",
+		).toEqual([4, 6]);
+	});
+
+	it("are read in every TypeScript and JavaScript file", () => {
+		const names = ["a.ts", "b.mts", "c.cts", "d.tsx", "e.js", "f.mjs"];
+		expect(
+			[...names, "g.cjs", "h.json", "i.md"].filter((file) => SOURCE.test(file)),
+		).toEqual([...names, "g.cjs"]);
 	});
 
 	it("make a folder in /tmp only saying why", WALK, () => {
 		const unexplained = packageFiles(ROOT)
-			.filter((file) => file.startsWith("tests/") && file.endsWith(".ts"))
+			.filter((file) => file.startsWith("tests/") && SOURCE.test(file))
 			// This file's own examples are such folders on purpose.
 			.filter((file) => file !== relative(ROOT, import.meta.filename))
 			.flatMap((file) =>

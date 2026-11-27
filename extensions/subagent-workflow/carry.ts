@@ -262,6 +262,8 @@ export async function takeUpFleet(
 	let stopped = job.signal.aborted;
 	const stop = () => {
 		stopped = true;
+		// A cancellation that can't be asked for leaves the subagents to
+		// finish; the stop is kept in `stopped` either way.
 		store
 			.requestRunCancellation(
 				fleet.runId,
@@ -308,6 +310,8 @@ export async function takeUpFleet(
 		warnings: [],
 	});
 	const cutOff = stopped || ordered.some((one) => one.state === "cancelled");
+	// A ledger that can't be written must not keep the result below from
+	// being delivered.
 	await (cutOff
 		? ledger.cutOff(fleet.runId, "cancelled")
 		: ledger.settle(fleet.runId)

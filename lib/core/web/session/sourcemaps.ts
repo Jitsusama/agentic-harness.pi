@@ -131,6 +131,7 @@ export class SourceMapStore {
 		} else {
 			try {
 				const response = await this.wires.cdp().send("Runtime.evaluate", {
+					// A map the page can't fetch reads as none, as one never declared does.
 					expression: `fetch(${JSON.stringify(located.url)})
 						.then((r) => (r.ok ? r.text() : null))
 						.catch(() => null)`,
