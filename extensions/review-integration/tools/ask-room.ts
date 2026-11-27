@@ -9,13 +9,15 @@
  * Read once a round, like the round's clocks.
  */
 
-import { delimiter, isAbsolute } from "node:path";
-import { resolveBinary } from "../../../lib/core/internal/terminal/binary.ts";
 import type { ChangeRef } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { packageRoot } from "../../../lib/internal/fence/installed-only.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
+import {
+	systemFolders,
+	systemProgram,
+} from "../../../lib/internal/sandbox/system-program.ts";
 import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
 import { ROOM_REPOS } from "../../../lib/subagent/runpi/room-launch.ts";
 import { REVIEW_SLUG } from "../config.ts";
@@ -31,19 +33,16 @@ const DEFAULT_REALM = "work";
 const MYCELIUM = "mycelium";
 
 /**
- * The node's command as an absolute path, found along the absolute
- * folders of `path` only, or nothing. The supervisor starts it in the
- * snapshot under review, so a bare name or a relative folder on PATH
- * would let that tree's own `mycelium` run as the person.
+ * The node's command, found only in the system's profile folders with
+ * nothing on the way to it anyone's but root's, or nothing. The
+ * supervisor runs it unfenced, as the person, and PATH holds folders a
+ * fenced command may write, such as a tree's `.direnv/bin`, where one
+ * could plant a `mycelium` of its own.
  */
 export function myceliumAt(
-	path: string | undefined = process.env.PATH,
+	folders: readonly string[] = systemFolders(),
 ): string | undefined {
-	const absolute = (path ?? "")
-		.split(delimiter)
-		.filter((dir) => isAbsolute(dir))
-		.join(delimiter);
-	return resolveBinary(MYCELIUM, absolute);
+	return systemProgram(MYCELIUM, folders);
 }
 
 /** Where this package's code lies, and what the room's entry loads itself. */

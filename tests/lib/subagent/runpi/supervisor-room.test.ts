@@ -5,7 +5,7 @@
  * room that said nothing at all hands the reviewer back to run here.
  */
 
-import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { RoomAsk } from "../../../../lib/subagent/run-contract.ts";
@@ -41,19 +41,20 @@ async function script(path: string, lines: string[]): Promise<string> {
 
 /**
  * A run asked onto a room whose node is the script at `mycelium`, with
- * a local child that marks that it ran.
+ * a local child that marks each time it ran, then says `local`.
  */
 async function roomRun(
 	lines: string[],
 	more: Parameters<typeof runChild>[2] = {},
 	node?: string,
+	local: string[] = answered("here"),
 ) {
 	const stateDir = await tempStateDir();
 	const ranHere = join(stateDir, "ran-here");
 	const childPath = await script(join(stateDir, "child.mjs"), [
-		`import { writeFileSync } from "node:fs";`,
-		`writeFileSync(${JSON.stringify(ranHere)}, "");`,
-		...answered("here"),
+		`import { appendFileSync } from "node:fs";`,
+		`appendFileSync(${JSON.stringify(ranHere)}, \`\${Date.now()}\\n\`);`,
+		...local,
 	]);
 	const mycelium = node ?? (await script(join(stateDir, "mycelium"), lines));
 	await writeFile(join(stateDir, "brief.md"), "the brief");
@@ -72,11 +73,11 @@ async function roomRun(
 		reviewerId: "roomed",
 		room,
 	});
-	const here = await access(ranHere).then(
-		() => true,
-		() => false,
+	const starts = await readFile(ranHere, "utf8").then(
+		(text) => text.split("\n").filter(Boolean).map(Number),
+		() => [],
 	);
-	return { result, here, stateDir };
+	return { result, here: starts.length > 0, starts, stateDir };
 }
 
 describe("a reviewer asked to run on a room", () => {
@@ -123,6 +124,26 @@ describe("a reviewer asked to run on a room", () => {
 		expect(path.split(":")).not.toContain("bin");
 	});
 
+	it("gives the room's command only what the node's command reads, never the reviewer's keys", async () => {
+		const seen = join(await tempStateDir(), "env.json");
+		vi.stubEnv("A_GATEWAY_TOKEN", "not for the room");
+		vi.stubEnv("MYCELIUM_REALM", "work");
+		try {
+			const { result } = await roomRun([
+				`import { writeFileSync } from "node:fs";`,
+				`writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.env));`,
+				...answered("there"),
+			]);
+			expectRan(result);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+		const env = JSON.parse(await readFile(seen, "utf8"));
+		expect(env.A_GATEWAY_TOKEN).toBeUndefined();
+		expect(env.MYCELIUM_REALM).toBe("work");
+		expect(env.HOME).toBe(process.env.HOME);
+	});
+
 	it("runs here when no room took it and it said nothing", async () => {
 		const { result, here } = await roomRun([
 			`process.stderr.write("no machine has a slot");`,
@@ -151,6 +172,32 @@ describe("a reviewer asked to run on a room", () => {
 		expectRan(result);
 		expect(here, "it ran here").toBe(true);
 		expect(result.warnings?.join(" ")).toMatch(/No room ran this reviewer/);
+	});
+
+	it("runs here once when the room's command fails to start, whichever ending says so first", async () => {
+		const { result, starts } = await roomRun([], {}, "/nowhere/mycelium");
+
+		expectRan(result);
+		expect(starts, "it ran here once").toHaveLength(1);
+	});
+
+	it("stops a reviewer run here by the wall clock counted from the run's start, not the fallback's", async () => {
+		// The room is slow to say no; the reviewer here then never ends.
+		const roomSaysNo = 3000;
+		const timeoutMs = 4500;
+		const { result, starts } = await roomRun(
+			[`setTimeout(() => process.exit(255), ${roomSaysNo});`],
+			{ timeoutMs },
+			undefined,
+			["setInterval(() => {}, 1000);"],
+		);
+		const ended = Date.now();
+
+		expect(result.state).toBe("timeout");
+		expect(starts).toHaveLength(1);
+		// From its start here, a clock restarted at the fallback would give
+		// it the whole of timeoutMs, past the parent's backstop.
+		expect(ended - (starts[0] ?? 0)).toBeLessThan(timeoutMs - 1000);
 	});
 
 	it("ends idle when our clock stops a silent room, and never runs here after", async () => {

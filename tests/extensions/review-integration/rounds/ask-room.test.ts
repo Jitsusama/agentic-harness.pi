@@ -6,7 +6,7 @@
 
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	myceliumAt,
@@ -128,7 +128,7 @@ describe("the room a round's reviewers run on", () => {
 });
 
 describe("the node's command a room is reached through", () => {
-	it("is found on PATH's absolute folders only, never a relative one the snapshot could fill", async () => {
+	it("is never one in a folder this account could write, as a fenced command could plant", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "ask-room-bin-"));
 		const bin = join(dir, "bin");
 		await mkdir(bin);
@@ -136,11 +136,13 @@ describe("the node's command a room is reached through", () => {
 		await writeFile(command, "#!/bin/sh\n");
 		await chmod(command, 0o755);
 
-		// The same folder named relatively, as a tree's PATH entry would be.
-		const near = relative(process.cwd(), bin);
-
-		expect(myceliumAt(`${near}:${bin}`)).toBe(command);
-		expect(myceliumAt(near)).toBeUndefined();
-		expect(myceliumAt("")).toBeUndefined();
+		expect(myceliumAt([bin])).toBeUndefined();
 	});
+
+	it.skipIf(myceliumAt() === undefined)(
+		"is the system profile's, where this machine installs it",
+		() => {
+			expect(myceliumAt()).toMatch(/^\/nix\/store\/.+\/bin\/mycelium$/);
+		},
+	);
 });
