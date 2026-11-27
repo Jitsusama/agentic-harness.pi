@@ -21,6 +21,14 @@
 # clears it.
 set -euo pipefail
 
+# The changed paths are read whole with mapfile -d, which came in bash 4.4;
+# macOS's own bash is 3.2, and there it would fail on the list.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  echo "host-gate: bash $BASH_VERSION can't read the changed paths whole, which needs bash 4.4." >&2
+  echo "Run it with a newer bash, as the dev shell's, then merge again." >&2
+  exit 1
+fi
+
 sha=${1:?Name the commit to merge: host-gate.sh SHA}
 # The runner beside this gate, the install's when the install runs it: a
 # branch's own copy can predate the runner the gate's records come from.
@@ -83,12 +91,22 @@ base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing. A rename is listed as
 # the path it left and the path it took, so hosted code moved to a README
-# still counts by the path it left.
-changed=$(git diff --name-only --no-renames "$base" "$sha")
-# A grep finding nothing exits 1, which means nothing a host runs; any
-# other failure stops the gate rather than passing the change.
-touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose") || [[ $? == 1 ]]
-if [[ -z $touched ]]; then
+# still counts by the path it left. Paths are read whole with -z, since
+# git quotes an odd name without it, and a quoted name opens with a quote
+# that none of the patterns below match, so hosted code named oddly would
+# skip the run. Each is matched whole, so a newline in one can't split it
+# into a README and a path that isn't hosted.
+listed=$(mktemp)
+trap 'rm -f "$listed"' EXIT
+git diff -z --name-only --no-renames "$base" "$sha" > "$listed"
+mapfile -d '' -t changed < "$listed"
+touched=()
+for path in ${changed[@]+"${changed[@]}"}; do
+  if [[ $path =~ $hosted || $path =~ $driven ]] && [[ ! $path =~ $prose ]]; then
+    touched+=("$path")
+  fi
+done
+if [[ ${#touched[@]} == 0 ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0
 fi
@@ -141,8 +159,6 @@ else
   why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
 
-# Arithmetic drops the spaces macOS's wc pads its count with.
-count=$(($(echo "$touched" | wc -l)))
-echo "host-gate: $sha changes $count path(s) pi hosts run, such as $(echo "$touched" | head -n 1), and $why." >&2
+echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as ${touched[0]}, and $why." >&2
 echo "$clear." >&2
 exit 1

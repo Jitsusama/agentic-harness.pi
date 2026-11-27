@@ -398,6 +398,114 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).not.toContain("main's config");
 	});
 
+	it("names what a nested config the head adds lets through, judged by main's alone", async () => {
+		const checkout = await harness();
+		// The nested config rules lib/ alone, so only it lets these spaces
+		// through; main's run must leave it out to fault them.
+		const sha = await change(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "the file it lets through").toContain(
+			"lib/spaced.ts",
+		);
+	});
+
+	it("names what removing a nested config of main's lets through", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
+		await git(checkout, "rm", "-q", "lib/biome.jsonc");
+		const tabbed = "export function tabbed(): number {\n\treturn 1;\n}\n";
+		writeFileSync(join(checkout, "lib", "tabbed.ts"), tabbed);
+		await git(checkout, "add", "lib/tabbed.ts");
+		await git(checkout, "commit", "-q", "-m", "no nested config");
+		const sha = await git(checkout, "rev-parse", "HEAD");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "the file it lets through").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
+	it("judges by the head's nested config, though the change leaves it be", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		// Tabs pass the root's config, so only lib/'s own faults them.
+		const sha = await change(checkout, {
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the file lib/'s config faults").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
+	it.each([
+		["named like an option", "--spaced.ts"],
+		["whose name git would quote", "lib/odd é.ts"],
+	])("names a file %s on main's run", async (_, name) => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			[name]: "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run judged the file").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(
+			answered.said,
+			"Biome couldn't judge by main's config",
+		).not.toContain("couldn't judge");
+	});
+
+	it("judges main's run by main's plugin, not the head's edit of it", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		// The head's plugin, at the same path, faults another call, so only
+		// main's faults alert; the config changes so main's run fires.
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"], "files": { "maxSize": 2097152 } }\n`,
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's plugin faulted nothing").toContain(
+			"lib/loud.ts:1:1",
+		);
+		expect(answered.said, "main's plugin's words").toContain("no alert");
+	});
+
 	it("loads the plugins the head's config names, though the change leaves them be", async () => {
 		const checkout = await harness();
 		const grit = "lib/no-alert.grit";

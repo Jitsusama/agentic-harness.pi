@@ -357,6 +357,21 @@ describe("host-gate.sh", () => {
 	});
 
 	it.each([
+		["git would quote", "host/engine/odd é.ts"],
+		["holds a newline after a README's", "host/README.md\nengine.ts"],
+	])("refuses hosted code whose name %s, with no run", async (_, file) => {
+		const on = await harness();
+		const sha = await change(on, file);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the change counted as hosted").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it.each([
 		"extensions/subagent-workflow/index.ts",
 		"extensions/job-workflow/outbox.ts",
 		"lib/mesh/address.ts",
