@@ -20,6 +20,21 @@
  * own parameter, whose callers are the sleeps. A file that fakes
  * setTimeout sleeps on none of them, so it is skipped; one that fakes only
  * other timers still sleeps on real ones, so it is read.
+ *
+ * A test that stops something on a timer, `setTimeout(() => stop.abort(),
+ * 200)`, is a sleep by another name, and one any comment can't excuse.
+ * Most such stops are right: they end a wait that would otherwise last
+ * for good, and land the same whenever they fire. The rest lean on the
+ * timer to mean that what's under test got somewhere first, a child
+ * started or a request handed over. On a loaded machine it hasn't, so
+ * the stop lands early, and the test fails for nothing or passes down a
+ * path it never meant to prove. The comment that excused one, "long
+ * enough for bash to start the gate's child", named that very race. So a
+ * timed stop says why its moment can't matter, in a comment holding
+ * `any time:` on its line or in the comment just above. Where the moment
+ * matters, the test waits on the thing itself with `until` and stops it
+ * then. Every test is read, faked timers or not, since a file faking
+ * them in one case may race a real one in the next.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -45,6 +60,14 @@ const SLEEPS = [
 	),
 	/\bAtomics\.wait\(/,
 ];
+
+/** A callback that only stops something, given a fixed delay. */
+const TIMED_STOP = new RegExp(
+	String.raw`\bsetTimeout\(\s*\(\)\s*=>\s*(?:\{\s*)?[\w.?]+\.abort\([^)]*\)\s*;?\s*\}?\s*,\s*${DELAY}`,
+);
+
+/** What a timed stop's comment holds when it says its moment can't matter. */
+const ANY_TIME = "any time:";
 
 /** Whether a line sleeps a fixed time. */
 function sleeps(line: string): boolean {
@@ -98,6 +121,25 @@ function uncommentedSleeps(text: string): number {
 		count++;
 	});
 	return count;
+}
+
+/**
+ * The lines, counted from 1, that stop something on a timer without
+ * saying, on the line or in the comment just above, why any time will do.
+ */
+function unexcusedTimedStops(text: string): number[] {
+	const lines = text.split("\n");
+	const found: number[] = [];
+	lines.forEach((line, at) => {
+		if (!TIMED_STOP.test(line) || line.includes(ANY_TIME)) return;
+		let above = at - 1;
+		while (above >= 0 && says(lines[above] ?? "")) {
+			if ((lines[above] ?? "").includes(ANY_TIME)) return;
+			above--;
+		}
+		found.push(at + 1);
+	});
+	return found;
 }
 
 function sourcesUnder(dir: string): string[] {
@@ -202,6 +244,62 @@ describe("the package's tests", () => {
 		expect(
 			grown,
 			`these files sleep a fixed time with no comment saying why: wait on the event instead (a file, a message, a timer the test drives), or say on the line or above it why a real pause is the point:\n${grown.join("\n")}`,
+		).toEqual([]);
+	});
+
+	it("tell a timed stop that says any time will do from one that doesn't", () => {
+		const stop = "setTimeout(() => stop.abort(), 200);";
+		expect(unexcusedTimedStops(stop), "a bare timed stop is found").toEqual([
+			1,
+		]);
+		expect(
+			unexcusedTimedStops(
+				`${stop.slice(0, -1)} // long enough for bash to start the child`,
+			),
+			"a comment that leans on the timer is no excuse",
+		).toEqual([1]);
+		expect(
+			unexcusedTimedStops(`${stop} // any time: it ends a wait that never ends`),
+			"a reason on the line passes",
+		).toEqual([]);
+		expect(
+			unexcusedTimedStops(
+				`// any time: the gh never answers,\n// so the stop lands the same.\n${stop}`,
+			),
+			"a reason anywhere in the comment just above passes",
+		).toEqual([]);
+		expect(
+			unexcusedTimedStops(`// any time: an older reason.\nconst x = 1;\n${stop}`),
+			"a reason above some code is another line's",
+		).toEqual([3]);
+		expect(
+			unexcusedTimedStops(
+				"const waited = setTimeout(() => { giving.abort(); }, 10 * SPACING);\nsetTimeout(() => c?.abort(\"stopped\"), STOP_MS);",
+			),
+			"a braced body, a reason and a named or summed delay are found",
+		).toEqual([1, 2]);
+		expect(
+			unexcusedTimedStops("setTimeout(() => stop.abort(), 0);"),
+			"a turn of the event loop is no timed stop",
+		).toEqual([]);
+		expect(
+			unexcusedTimedStops(`vi.useFakeTimers();\n${stop}`),
+			"a file on fake timers is read too",
+		).toEqual([2]);
+	});
+
+	it("stop something on a timer only where any time will do", () => {
+		const unexcused: string[] = [];
+		for (const file of sourcesUnder(join(ROOT, "tests"))) {
+			// This file's own examples are timed stops on purpose.
+			if (file === relative(ROOT, import.meta.filename)) continue;
+			const text = readFileSync(join(ROOT, file), "utf8");
+			for (const line of unexcusedTimedStops(text))
+				unexcused.push(`${file}:${line}`);
+		}
+		expect(
+			unexcused,
+			`these tests stop something on a timer without saying why its moment can't matter: where the stop must land after something happened (a child started, a request handed over), wait for that with until() from tests/support/until.ts and stop it then; otherwise say why any time will do, in a comment holding "${ANY_TIME}" on the line or just above:\n${unexcused.join("\n")}`,
 		).toEqual([]);
 	});
 
