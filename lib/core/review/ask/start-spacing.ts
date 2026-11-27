@@ -435,8 +435,7 @@ export async function awaitCouncilStart(
 			// took again still says what it passed, even at its first look.
 			const passed =
 				started.passed === undefined ? "" : passSaid(claim, started.passed);
-			return firstSeen === undefined ||
-				(firstSeen.waitMs <= 0 && passed === "")
+			return firstSeen === undefined || (firstSeen.waitMs <= 0 && passed === "")
 				? { release }
 				: {
 						waited: `${waitSaid(firstSeen, spacings, waitedMs, lastShort)}${passed}`,
@@ -692,9 +691,7 @@ function look(line: Line, at: LookAt): Look {
 		now >= last + Math.max(at.spacing, at.pass.spacingMs)
 			? { heldMs: now - since, readings: at.held.readings }
 			: undefined;
-	const hold = leadsHold
-		? holdSeen(at.held, since, now)
-		: holdCarried(line);
+	const hold = leadsHold ? holdSeen(at.held, since, now) : holdCarried(line);
 	if (
 		(ahead === 0 && now >= free && at.held === undefined) ||
 		passed !== undefined

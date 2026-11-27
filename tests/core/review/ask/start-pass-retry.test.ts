@@ -57,17 +57,14 @@ const onCpu: RoomHeld = {
 // word of the pass that took it.
 describe("a pass whose look failed on its way out", () => {
 	it("still says it passed when the next look finds its start", async () => {
-		const start = await awaitCouncilStart(
-			join(folder, "starts", "last.json"),
-			{
-				by: "ISXEG8",
-				change: "o/r#ISXEG8",
-				lookAgainMs: 10,
-				alive: () => true,
-				room: async () => onCpu,
-				pass: { afterMs: 150, spacingMs: 300 },
-			},
-		);
+		const start = await awaitCouncilStart(join(folder, "starts", "last.json"), {
+			by: "ISXEG8",
+			change: "o/r#ISXEG8",
+			lookAgainMs: 10,
+			alive: () => true,
+			room: async () => onCpu,
+			pass: { afterMs: 150, spacingMs: 300 },
+		});
 
 		expect(passFault.thrown, "the passing look failed once").toBe(1);
 		expect(start.waited).toContain(

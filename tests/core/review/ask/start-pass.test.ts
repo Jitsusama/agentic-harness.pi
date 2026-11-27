@@ -288,8 +288,14 @@ const written = () => {
 describe("keeping the hold by the line's clock", () => {
 	it("lets one round past the bar each pass spacing, however many it holds", async () => {
 		await Promise.all([
-			awaitCouncilStart(path, held("ISXEG8", async () => onCpu)),
-			awaitCouncilStart(path, held("A2VLJN", async () => onCpu)),
+			awaitCouncilStart(
+				path,
+				held("ISXEG8", async () => onCpu),
+			),
+			awaitCouncilStart(
+				path,
+				held("A2VLJN", async () => onCpu),
+			),
 		]);
 
 		const { started } = line();

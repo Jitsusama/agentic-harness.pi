@@ -285,9 +285,7 @@ describe("where a change's rounds stand", () => {
 			}),
 		);
 
-		expect(
-			await lineSaid(join(home, "starts", "last.json"), "o/r#1"),
-		).toEqual([
+		expect(await lineSaid(join(home, "starts", "last.json"), "o/r#1")).toEqual([
 			`- waiting in the start line, position 1 of 1, asked ${now} by S1, held while the machine is short on CPU some avg60, since ${since}; a round so held for 20 minutes starts once none has started for 10`,
 		]);
 	});
