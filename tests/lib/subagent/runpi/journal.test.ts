@@ -10,7 +10,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	findingsIn,
 	JOURNAL_SAYS,
+	JOURNAL_TOOL_NAME,
+	journalFromStream,
 	journalWarnings,
 	MAX_JOURNAL_ENTRIES,
 	MAX_JOURNAL_ENTRY_BYTES,
@@ -98,5 +101,57 @@ describe("saying what could not be carried", () => {
 		expect(said.filter((one) => one.includes("journal.ndjson"))).toHaveLength(
 			2,
 		);
+	});
+});
+
+// A reviewer on a room writes its journal into a home that ends with
+// it, so its supervisor here reads the same calls off the stream.
+describe("reading a journal off a reviewer's stream", () => {
+	const start = (id: string, finding: unknown) => ({
+		type: "tool_execution_start",
+		toolCallId: id,
+		toolName: JOURNAL_TOOL_NAME,
+		args: { finding },
+	});
+	const end = (id: string, isError = false) => ({
+		type: "tool_execution_end",
+		toolCallId: id,
+		toolName: JOURNAL_TOOL_NAME,
+		isError,
+	});
+
+	it("says a recording call's findings as it ends, as the pack writes them", () => {
+		const stream = journalFromStream();
+
+		expect(stream.read(start("1", { subject: "a" }))).toBeUndefined();
+		expect(stream.read(end("1"))).toBe(`${line("a")}\n`);
+	});
+
+	it("says each finding of a batch, sent as an array or as text", () => {
+		const stream = journalFromStream();
+		stream.read(start("1", [{ subject: "a" }, { subject: "b" }]));
+		stream.read(start("2", JSON.stringify({ subject: "c" })));
+
+		expect(stream.read(end("2"))).toBe(`${line("c")}\n`);
+		expect(stream.read(end("1"))).toBe(`${line("a")}\n${line("b")}\n`);
+	});
+
+	it("says nothing of a call that failed, another tool's, or a sentence", () => {
+		const stream = journalFromStream();
+		stream.read(start("1", { subject: "a" }));
+		stream.read(start("2", "just words"));
+
+		expect(stream.read(end("1", true))).toBeUndefined();
+		expect(stream.read(end("2"))).toBeUndefined();
+		expect(stream.read({ ...end("3"), toolName: "bash" })).toBeUndefined();
+		expect(stream.read("not an event")).toBeUndefined();
+	});
+
+	it("reads one call's findings as the pack does", () => {
+		expect(findingsIn([{ subject: "a" }, "prose", [1]])).toEqual({
+			kept: [{ subject: "a" }],
+			dropped: 2,
+		});
+		expect(findingsIn("prose")).toEqual({ kept: [], dropped: 1 });
 	});
 });

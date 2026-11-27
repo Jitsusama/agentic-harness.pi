@@ -15,6 +15,7 @@ import type { ThinkingLevel } from "../thinking/index.ts";
 // result that reports it, and those are two files.
 import type { ReviewerTerminalState } from "./artifacts.ts";
 import type { ReviewerError } from "./reviewer-error.ts";
+import type { RoomCode, RoomPlace } from "./runpi/room-launch.ts";
 import type { StartPi } from "./runpi/supervisor.ts";
 
 /** File-backed artifacts emitted by a supervised reviewer run. */
@@ -274,7 +275,21 @@ export type RunPi = (opts: {
 	 * from whoever starts it again, not from what an earlier run saved.
 	 */
 	readonly env?: Readonly<Record<string, string>>;
+	/**
+	 * A room to run this reviewer on, and the code it reads there.
+	 * The supervisor starts it there first and here only when the room
+	 * gave nothing back; a run whose words the room's entry would
+	 * refuse stays here from the start. Only the supervised runners
+	 * read it.
+	 */
+	readonly room?: RoomAsk;
 }) => Promise<RunPiResult>;
+
+/** Where a reviewer would run on a room, and the commit it reads there. */
+export interface RoomAsk {
+	readonly place: RoomPlace;
+	readonly code: RoomCode;
+}
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
 /**
@@ -317,6 +332,12 @@ export interface RunReviewerOptions {
 	 * `PI_SANDBOX=strict` here, since a reviewer reads a stranger's change.
 	 */
 	readonly env?: Readonly<Record<string, string>>;
+	/**
+	 * A room to run the reviewer on first, and the commit it reads
+	 * there. Its first run only: a resume or wrap-up needs the session
+	 * a room run does not keep, so it runs here.
+	 */
+	readonly room?: RoomAsk;
 	/**
 	 * Optional system prompt forwarded to pi via
 	 * `--system-prompt`. Callers use this to set the

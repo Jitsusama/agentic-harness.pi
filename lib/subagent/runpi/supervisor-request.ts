@@ -9,6 +9,8 @@
  */
 
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hosted, sessionOwner } from "../../core/session/index.ts";
 import { withoutOff } from "../../internal/fence/fence-stage.ts";
@@ -18,6 +20,7 @@ import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { WrapUpRequest } from "../run-contract.ts";
 import type { RunPi } from "../subagent.ts";
+import { roomLaunch } from "./room-launch.ts";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -204,6 +207,7 @@ export async function told(
 	const reviewerId = options.reviewerId ?? "reviewer";
 	const paths = await store.ensureReviewerDir(runId, reviewerId);
 	const root = store.rootPaths(runId);
+	const room = await roomFor(options);
 	const request = await buildRequest(
 		config,
 		paths,
@@ -231,6 +235,7 @@ export async function told(
 					: options.args),
 			],
 			cwd: options.cwd,
+			...room,
 			...(orphaned ? { orphaned } : {}),
 			// Only for a run nobody waits for: a waiting caller sends its
 			// own, and a supervisor sending one as well would ask twice.
@@ -258,6 +263,38 @@ export async function told(
 	);
 	await store.writeJsonAtomic(paths.requestPath, request);
 	return { paths, runId, reviewerId };
+}
+
+/**
+ * The room words for a reviewer asked to run on a room, or why it
+ * runs here instead, read now so the supervisor is told one or the
+ * other and never has to read the brief itself.
+ */
+async function roomFor(
+	options: Parameters<RunPi>[0],
+): Promise<
+	| { room: { binary: string; args: readonly string[] } }
+	| { roomStays: string }
+	| Record<string, never>
+> {
+	if (options.room === undefined) return {};
+	const named = options.args.filter((word) => word.startsWith("@"));
+	let brief: string | undefined;
+	if (named.length === 1) {
+		try {
+			const path = resolve(options.cwd, (named[0] ?? "").slice(1));
+			brief = await readFile(path, "utf8");
+		} catch (error) {
+			return { roomStays: `its brief could not be read: ${String(error)}` };
+		}
+	}
+	const launch = roomLaunch(
+		options.room.place,
+		options.room.code,
+		options.args,
+		brief,
+	);
+	return "stays" in launch ? { roomStays: launch.stays } : { room: launch };
 }
 
 /**
@@ -300,6 +337,10 @@ async function buildRequest(
 		readonly piPackageDir?: string;
 		readonly args: readonly string[];
 		readonly cwd: string;
+		/** Where it runs first, when it goes to a room. */
+		readonly room?: { binary: string; args: readonly string[] };
+		/** Why a reviewer asked to run on a room runs here. */
+		readonly roomStays?: string;
 		/** Nobody is waiting, so the parent's death means nothing. */
 		readonly orphaned?: boolean;
 		/** What its supervisor asks it, should a clock stop it. */

@@ -56,6 +56,7 @@ import {
 	keepsItsOwnClocks,
 	substituting,
 } from "./ask-reviewer.ts";
+import { roomFor, roomHarness } from "./ask-room.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
@@ -82,6 +83,11 @@ export async function askCouncil(
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 	const { waited } = set;
+	const room = await roomFor(
+		change,
+		proposal.headCommit,
+		roomHarness(tree.path),
+	);
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -91,7 +97,7 @@ export async function askCouncil(
 			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
-		deps(change, tree.path, watch, charters),
+		deps(change, tree.path, watch, charters, undefined, room),
 	);
 
 	// The same call `opened` made, and guarded the same way. `keep`
@@ -229,6 +235,11 @@ export async function startRound(
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkills("council");
+	const room = await roomFor(
+		change,
+		proposal.headCommit,
+		roomHarness(tree.path),
+	);
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
@@ -278,6 +289,7 @@ export async function startRound(
 					// disk, so a finding it did not write down before it
 					// died is a finding nothing can recover.
 					extraExtensions: [journalPack(), ...fencePacks(tree.path)],
+					...(room === undefined ? {} : { room }),
 					...lensFor(charters.get(participant.id)),
 					runId,
 					stateDir: runArtifactDir(),
