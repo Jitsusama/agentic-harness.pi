@@ -192,6 +192,10 @@ export function getParentPiInstall(): PiInstall {
 	if (existing !== undefined) {
 		const healed = healedInstall(existing);
 		if (healed !== existing) store[STARTUP_INSTALL_KEY] = healed;
+		// A snapshot taken while the link stood holds the folder it named,
+		// which outlives the link: the variable is said from it once the
+		// link goes, as in the usual order of an upgrade.
+		sayFoundPackage(healed);
 		return healed;
 	}
 	if (hosted()) {
@@ -207,9 +211,10 @@ export function getParentPiInstall(): PiInstall {
 
 /**
  * Put `install`'s package folder in `PI_PACKAGE_DIR` when the folder
- * that variable names is gone and the install found its package
- * elsewhere, from its entry script, so pi itself reads its assets
- * from the package it runs. A folder that stands is left as named.
+ * that variable names is gone and the install's own stands, whether it
+ * found it from its entry script or took it as the link's target while
+ * the link stood, so pi itself, and whatever it starts, reads its
+ * assets from the package it runs. A folder that stands is left as named.
  */
 function sayFoundPackage(install: PiInstall): void {
 	const named = process.env.PI_PACKAGE_DIR;

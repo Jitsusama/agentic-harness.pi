@@ -2,12 +2,13 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
 	getParentPiInstall,
@@ -148,7 +149,17 @@ describe("resolveParentPiInstall", () => {
 // module-level constant would recompute against the mutated,
 // post-upgrade environment.
 describe("getParentPiInstall", () => {
-	beforeEach(() => clearStartupSnapshot());
+	// A read may say the snapshot's package in PI_PACKAGE_DIR, so each case
+	// leaves the variable as it found it.
+	let named: string | undefined;
+	beforeEach(() => {
+		clearStartupSnapshot();
+		named = process.env.PI_PACKAGE_DIR;
+	});
+	afterEach(() => {
+		if (named === undefined) delete process.env.PI_PACKAGE_DIR;
+		else process.env.PI_PACKAGE_DIR = named;
+	});
 
 	it("requires a real pi pin in a host and shares it across conversations", () => {
 		const { host } = sessionHost({ pid: 123, startedAt: 1000 });
@@ -244,6 +255,19 @@ describe("getParentPiInstall", () => {
 			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
 			else process.env.PI_PACKAGE_DIR = previous;
 		}
+	});
+
+	// The usual order of an upgrade: pi captured its install while the
+	// link stood, taking the link's target, and the link went after.
+	it("says the snapshot's package in PI_PACKAGE_DIR once the link it named goes", () => {
+		const target = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const link = join(mkdtempSync(join(tmpdir(), "pi-link-")), "pi-0.80.7");
+		symlinkSync(target, link);
+		process.env.PI_PACKAGE_DIR = link;
+		const first = getParentPiInstall();
+		rmSync(link);
+		expect(getParentPiInstall()).toBe(first);
+		expect(process.env.PI_PACKAGE_DIR).toBe(target);
 	});
 
 	// The entry sits in a package of its own, so a snapshot healed while
