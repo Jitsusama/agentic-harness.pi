@@ -78,6 +78,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
+		endGoing: async () => {},
 		whileUnusedSince: async () => undefined,
 		askedAt: () => undefined,
 		reownSession: async () => 0,
@@ -416,7 +417,10 @@ describe("createTreeBroker", () => {
 		const held = await broker.ensure(request);
 
 		expect(held.path).toBe("/trees/w-main/src");
-		expect(written).toEqual([{ ...old, path: "/trees/w-main/src" }]);
+		// Held where it was before the provider is asked, so a sweep can't
+		// take it meanwhile, then rewritten where it is now: one record
+		// under the tree's key, so the second write replaces the first.
+		expect(written).toEqual([old, { ...old, path: "/trees/w-main/src" }]);
 		expect((await broker.stillHeld()).map((tree) => tree.path)).toContain(
 			"/trees/w-main/src",
 		);

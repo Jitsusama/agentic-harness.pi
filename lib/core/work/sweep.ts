@@ -725,10 +725,13 @@ function unreadWhy(
  * Such a tree can't be moved aside first: its provider finds it by
  * where it stands, and may have more to undo than the folder, as World
  * resets a tree's processes and datastores. So instead this session
- * becomes its only holder under the record's lock, which makes the
- * broker hand it to nobody else, and the removal runs after. A
- * shareable tree is never taken that way, since another session may
- * join one whoever holds it.
+ * becomes its only holder under the record's lock and marks it as
+ * going, which makes the broker hand it to nobody else, a shareable one
+ * included: a session asking meanwhile waits for the record to go and
+ * cuts it afresh. The removal runs after. A shareable tree goes only
+ * once nobody has asked for it for {@link PUSHED_SETTLE_MS}, since a
+ * snapshot is read, which leaves its folder unmoved, and another round
+ * at the same commit reuses one left a moment ago.
  *
  * A tree that moved within {@link PUSHED_SETTLE_MS} is kept without
  * asking, as a pushed git worktree is: on 13 November a provider called
@@ -749,11 +752,16 @@ async function releaseThroughProvider(
 		keep("something still holds it");
 		return;
 	}
-	if (tree.identity.shareable) {
-		keep("it is shareable, so a session could join it while it is removed");
-		return;
-	}
 	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
+	if (tree.identity.shareable) {
+		const asked = deps.memory.askedAt(tree.path, tree.identity.key);
+		if (asked === undefined || asked > since) {
+			keep(
+				"it is shareable and was asked for within the last day, so a session may join it again",
+			);
+			return;
+		}
+	}
 	if (!treeStillSince(tree.path, since)) {
 		keep("it moved within the last day, so a session may come back to it");
 		return;
@@ -786,12 +794,12 @@ async function releaseThroughProvider(
 	}
 	try {
 		await provider.release(tree);
-		deps.memory.forget(tree.path);
+		await deps.memory.endGoing(tree);
 		outcome.taken.push({ path: tree.path });
 	} catch (error) {
 		// Whatever the provider left stands where it was, and goes back to
 		// the sessions that held it, for the next sweep to judge again.
-		deps.memory.remember(before);
+		await deps.memory.endGoing(tree, before);
 		outcome.refused.push({ path: tree.path, why: messageOf(error) });
 	}
 }

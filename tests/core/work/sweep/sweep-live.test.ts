@@ -21,6 +21,7 @@ import {
 	rmSync,
 	statSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,7 +31,10 @@ import type { Exec } from "../../../../lib/core/exec/index.ts";
 import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
-import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import {
+	PUSHED_SETTLE_MS,
+	sweepEndedTrees,
+} from "../../../../lib/core/work/sweep.ts";
 import { goneGitDir } from "../../../../lib/core/work/sweep-orphan.ts";
 import { guardedExec } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { git } from "../../../support/git-fixture.ts";
@@ -864,14 +868,40 @@ describe("trees another provider cut", () => {
 		});
 	});
 
-	it("keeps a shareable one, which a session could join mid-removal", async () => {
+	it("keeps a shareable one asked for within the day, which a session may join again", async () => {
 		const { elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
 
 		const outcome = await sweepWith(elsewhere(undefined));
 
 		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it is shareable and was asked for within the last day, so a session may join it again",
+		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("takes a spent shareable one nobody asked for in a day, marking it going as it goes", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const going: (number | undefined)[] = [];
+		const provider = elsewhere(undefined, async () => {
+			going.push(memory.recall().find((one) => one.path === tree)?.going);
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(going, "its record's mark as the provider removed it").toEqual([
+			expect.any(Number),
+		]);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {

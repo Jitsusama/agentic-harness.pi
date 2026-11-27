@@ -9,8 +9,9 @@
  * `provider.ts`, so what is left here is genuinely just custody.
  */
 
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Owner } from "../process/index.ts";
-import type { TreeMemory } from "./memory.ts";
+import { TreeGoing, type TreeMemory } from "./memory.ts";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.ts";
 import { StuckAside } from "./stranded.ts";
 import {
@@ -65,6 +66,15 @@ export interface HeldTree {
 	 * record's own file, rewritten on every ask, dates those.
 	 */
 	usedAt?: number;
+	/**
+	 * When a sweep began removing it, in milliseconds since the epoch.
+	 * While the sweep that wrote it runs, no session may take the tree up:
+	 * one asking waits for the record to go and cuts the tree afresh, so
+	 * a shareable tree is never handed out mid-removal. Absent from every
+	 * record nobody is removing, and from one put back after a removal
+	 * failed.
+	 */
+	going?: number;
 }
 
 /**
@@ -229,6 +239,57 @@ export interface BrokerDeps {
 	 * a broker over made-up paths in a test needs.
 	 */
 	stands?(path: string): boolean;
+	/**
+	 * How long to wait for a sweep to finish removing a tree asked for
+	 * meanwhile, in milliseconds, before saying so; {@link GOING_WAIT_MS}
+	 * when absent. Removing a World tree can take minutes.
+	 */
+	goingWaitMs?: number;
+}
+
+/** How long a session waits by default for a tree a sweep is removing. */
+export const GOING_WAIT_MS = 15 * 60 * 1000;
+
+/** How often a waiting session looks again, at most. */
+const GOING_LOOK_MS = 1000;
+
+/**
+ * Hold `tree`, unless a running sweep is removing it: then wait for its
+ * record to go, answering false so the tree is cut afresh, or to come
+ * back unmarked, as a removal that failed puts it back, and hold it
+ * then. Past `waitMs` it throws, saying the sweep is still at it.
+ */
+async function holdUnlessGoing(
+	memory: TreeMemory | undefined,
+	tree: HeldTree,
+	waitMs: number,
+): Promise<boolean> {
+	if (memory === undefined) return true;
+	const until = Date.now() + waitMs;
+	const look = Math.max(1, Math.min(GOING_LOOK_MS, waitMs / 10));
+	for (;;) {
+		try {
+			await memory.rememberHeldByUs(tree);
+			return true;
+		} catch (error) {
+			if (!(error instanceof TreeGoing)) throw error;
+		}
+		for (;;) {
+			if (Date.now() >= until) {
+				throw new Error(
+					`${tree.path} is still being removed by a sweep after ${Math.round(waitMs / 60_000)} minutes, so ask for it again once that ends`,
+				);
+			}
+			// Looked at again on a clock, since nothing tells a session when a
+			// sweep in another process ends a removal.
+			await sleep(look);
+			const now = memory
+				.recall()
+				.find((one) => one.identity.key === tree.identity.key);
+			if (now === undefined) return false;
+			if (now.going === undefined) break;
+		}
+	}
 }
 
 /**
@@ -427,8 +488,14 @@ export function createTreeBroker(
 				// loses it. Reusing on identity alone once handed one stream
 				// another's half-done change. A snapshot is shareable by design,
 				// and a tree whose holders have all stopped is free to take.
+				// A tree a sweep is removing names the sweep as its holder, and
+				// is waited out below rather than refused as another's.
 				const ours = trees.some((tree) => tree.path === reusable.path);
-				if (!reusable.identity.shareable && !ours) {
+				if (
+					!reusable.identity.shareable &&
+					!ours &&
+					reusable.going === undefined
+				) {
 					const others = (await memory?.otherHolders(reusable.path)) ?? [];
 					if (others.length > 0) {
 						const pids = others.map((owner) => `pid ${owner.pid}`).join(", ");
@@ -437,6 +504,22 @@ export function createTreeBroker(
 						);
 					}
 				}
+				// Taking a tree is holding it, however it was obtained. A
+				// reused tree still carries whoever cut it, and that session
+				// is usually gone: without this, the tree this session is
+				// working in reads as nobody's, and reclaiming it is exactly
+				// the thing that must never happen. Held before its provider is
+				// asked, so a sweep judging it after reads it held, and a sweep
+				// already removing it refuses the hold: no provider is asked to
+				// find a tree as it is removed, and none is handed out gone.
+				const holding = await holdUnlessGoing(
+					memory,
+					reusable,
+					deps.goingWaitMs ?? GOING_WAIT_MS,
+				);
+				if (!holding) again = reusable;
+			}
+			if (reusable && again !== reusable) {
 				const by = roster().find(
 					(provider) => provider.id === reusable.providerId,
 				);
@@ -454,22 +537,17 @@ export function createTreeBroker(
 					answer !== undefined && answer.path !== reusable.path
 						? { ...reusable, path: answer.path }
 						: reusable;
-				// Taking a tree is holding it, however it was obtained. A
-				// reused tree still carries whoever cut it, and that session
-				// is usually gone: without this, the tree this session is
-				// working in reads as nobody's, and reclaiming it is exactly
-				// the thing that must never happen. Held locally as well,
-				// since our own list is what makes this session's answer true
-				// whatever the record on disk says.
+				// Held locally as well, since our own list is what makes this
+				// session's answer true whatever the record on disk says.
 				const mine = trees.findIndex((tree) => tree.path === reusable.path);
 				if (mine >= 0) trees.splice(mine, 1, taken);
 				else if (!trees.some((tree) => tree.path === taken.path)) {
 					trees.push(taken);
 				}
-				await memory?.rememberHeldByUs(taken);
-				// A sweep may have taken the tree between the provider finding
-				// it and that write, since it judges under the record's lock and
-				// we only now dated our ask. That holds for a tree this session
+				if (taken !== reusable) await memory?.rememberHeldByUs(taken);
+				// A sweep may have taken the tree before the hold above was
+				// written, since it judges under the record's lock and only
+				// then did we date our ask. That holds for a tree this session
 				// cut as much as another's, since one left unused is taken while
 				// its session stays open. The record goes with the folder, so a
 				// tree whose record memory no longer recalls was taken, and is
