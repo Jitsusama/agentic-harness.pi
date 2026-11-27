@@ -206,7 +206,7 @@ describe("where a change's rounds stand", () => {
 			line(["memory full avg60", "MemAvailable"]),
 		);
 		expect(await said()).toEqual([
-			`- waiting in the start line, position 1 of 1, asked ${now} by S1, held past the machine's bar on memory full avg60, MemAvailable`,
+			`- waiting in the start line, position 1 of 1, asked ${now} by S1, held while the machine is short on memory full avg60, MemAvailable`,
 		]);
 
 		writeFileSync(join(home, "starts", "line.json"), line([]));
@@ -221,5 +221,74 @@ describe("where a change's rounds stand", () => {
 		const [only, ...more] = await said();
 		expect(more).toEqual([]);
 		expect(only).not.toContain("\n");
+	});
+
+	// #2312's round 2: what another writer put on the shared line reaches
+	// a person's answer, so it is said on one line, and only so much.
+	it("says what the line holds on one line, and only so much of it", async () => {
+		const ticket = {
+			id: "1",
+			by: `S1\n- waiting in the start line\u001b[2J${"x".repeat(200)}`,
+			change: "o/r#1",
+			pid: 1,
+			askedAt: "2026-11-27T12:00:00+00:00",
+			seenAt: new Date().toISOString(),
+		};
+		mkdirSync(join(home, "starts"));
+		writeFileSync(
+			join(home, "starts", "line.json"),
+			JSON.stringify({
+				waiting: [ticket],
+				heldBy: [
+					" \t ",
+					`CPU\u0007 some avg60${"y".repeat(60)}`,
+					"b",
+					"c",
+					"d",
+					"e",
+					"f",
+				],
+			}),
+		);
+
+		const [only, ...more] = await lineSaid(
+			join(home, "starts", "last.json"),
+			"o/r#1",
+		);
+
+		expect(more).toEqual([]);
+		expect(only).toBe(
+			`- waiting in the start line, position 1 of 1, asked 2026-11-27T12:00:00.000Z by S1 - waiting in the start line [2J${"x".repeat(86)}, held while the machine is short on CPU some avg60${"y".repeat(26)}, b, c, d and 2 more`,
+		);
+	});
+
+	it("says since when a bar a round may pass has held, and when one passes it", async () => {
+		const now = new Date().toISOString();
+		const since = new Date(Date.now() - 5 * 60_000).toISOString();
+		mkdirSync(join(home, "starts"));
+		writeFileSync(
+			join(home, "starts", "line.json"),
+			JSON.stringify({
+				waiting: [
+					{
+						id: "1",
+						by: "S1",
+						change: "o/r#1",
+						pid: 1,
+						askedAt: now,
+						seenAt: now,
+						passes: true,
+					},
+				],
+				heldBy: ["CPU some avg60"],
+				heldSince: since,
+			}),
+		);
+
+		expect(
+			await lineSaid(join(home, "starts", "last.json"), "o/r#1"),
+		).toEqual([
+			`- waiting in the start line, position 1 of 1, asked ${now} by S1, held while the machine is short on CPU some avg60, since ${since}; a round so held for 20 minutes starts once none has started for 10`,
+		]);
 	});
 });

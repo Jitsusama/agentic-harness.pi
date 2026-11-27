@@ -570,7 +570,9 @@ describe("spacing council starts on one machine", () => {
 				by: "ISXEG8",
 				change: "o/r#ahead",
 				pid: process.pid,
-				askedAt: now,
+				// Asked first, so a round asking in the same millisecond can't
+				// stand ahead of it by its random id.
+				askedAt: new Date(Date.now() - 1_000).toISOString(),
 				seenAt: now,
 			},
 		]);

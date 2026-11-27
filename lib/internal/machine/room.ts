@@ -227,17 +227,15 @@ function tenthsDown(gib: number): string {
 	return (Math.floor(gib * 10) / 10).toFixed(1);
 }
 
-/** What multiplying a GiB by ten may add in error, in tenths. */
-const FLOAT_SLACK = 1e-9;
-
 /**
  * A floor said to a tenth, rounded up, so a reading under it, rounded
- * down, never reads as the floor. Only a float's own error is let go
- * (`FLOAT_SLACK`, far under a kilobyte), so a floor a kilobyte past a
- * tenth says the tenth above.
+ * down, never reads as the floor, and a floor a kilobyte past a tenth
+ * says the tenth above. Ten times half MemTotal, in GiB, is five times
+ * its kilobytes over 2^20, which a double holds exactly, as it does the
+ * fixed floor, so no float error has to be let go here.
  */
 function tenthsUp(gib: number): string {
-	return (Math.ceil(gib * 10 - FLOAT_SLACK) / 10).toFixed(1);
+	return (Math.ceil(gib * 10) / 10).toFixed(1);
 }
 
 /** A reading's text, or nothing where the machine doesn't keep it. */

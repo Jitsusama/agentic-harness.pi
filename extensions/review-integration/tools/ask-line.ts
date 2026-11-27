@@ -15,6 +15,9 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
 	hostedByWorld,
+	type LinePlace,
+	PASS_AFTER_MS,
+	PASS_SPACING_MS,
 	placesInLine,
 } from "../../../lib/core/review/ask/start-spacing.ts";
 
@@ -153,22 +156,49 @@ function runtimeFolder(): string | undefined {
 }
 
 /**
- * The readings the machine holds rounds on, as a place's line ends:
- * each past its bar, since a pressure is too high where MemAvailable
- * is too low. Each goes on one line, whatever a writer of the shared
- * line put in it, so a name can't add a line of its own.
+ * Text from the shared line on one line, as a place says it: any run of
+ * space or control characters, which another writer of the line may
+ * have put there, reads as one space, and only `most` of it is said.
  */
-function heldSaid(heldBy: readonly string[] | undefined): string {
-	const named = (heldBy ?? [])
-		.map((each) => each.replace(/\s+/g, " ").trim().slice(0, NAME_AT_MOST))
+function oneLine(text: string, most: number): string {
+	return text
+		.replace(/[\s\p{Cc}]+/gu, " ")
+		.trim()
+		.slice(0, most);
+}
+
+/**
+ * The readings the machine holds rounds on, as a place's line ends: what
+ * it is short on, since a pressure is too high where MemAvailable is too
+ * low, and for a bar a round may pass, since when it has held and when a
+ * round passes it. Each name goes on one line and only so many are
+ * said, whatever a writer of the shared line put there.
+ */
+function heldSaid(place: LinePlace): string {
+	const named = (place.heldBy ?? [])
+		.map((each) => oneLine(each, NAME_AT_MOST))
 		.filter((each) => each !== "");
-	return named.length === 0
-		? ""
-		: `, held past the machine's bar on ${named.join(", ")}`;
+	if (named.length === 0) return "";
+	const shown = named.slice(0, NAMES_AT_MOST);
+	const more =
+		named.length > shown.length
+			? ` and ${named.length - shown.length} more`
+			: "";
+	const since =
+		place.heldSince === undefined
+			? ""
+			: `, since ${place.heldSince}; a round so held for ${PASS_AFTER_MS / 60_000} minutes starts once none has started for ${PASS_SPACING_MS / 60_000}`;
+	return `, held while the machine is short on ${shown.join(", ")}${more}${since}`;
 }
 
 /** The most of one reading's name a place says. */
 const NAME_AT_MOST = 40;
+
+/** The most readings a place names, more than a machine reads. */
+const NAMES_AT_MOST = 4;
+
+/** The most of who asked that a place says. */
+const BY_AT_MOST = 120;
 
 /**
  * Where the rounds waiting on `change` stand in the line kept beside
@@ -180,8 +210,10 @@ export async function lineSaid(
 	change: string,
 ): Promise<string[]> {
 	const places = await placesInLine(path, change);
-	return places.map(
-		(place) =>
-			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}${heldSaid(place.heldBy)}`,
-	);
+	return places.map((place) => {
+		// The line keeps any time Date can read; a place says it one way.
+		const asked = new Date(Date.parse(place.askedAt)).toISOString();
+		const by = oneLine(place.by, BY_AT_MOST);
+		return `- waiting in the start line, position ${place.position} of ${place.of}, asked ${asked} by ${by}${heldSaid(place)}`;
+	});
 }

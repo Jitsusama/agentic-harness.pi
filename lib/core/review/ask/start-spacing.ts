@@ -40,8 +40,16 @@
  * starts anyway once it has been held by it for twenty minutes and no
  * round has started for ten (A210E4CA, 26 November): at most one such
  * start each ten minutes, and memory, whose shortage stalls the whole
- * machine, is never passed. The line says what holds it, so a round's
- * place can be read with its reason before it starts.
+ * machine, is never passed. That spaces the starts a bar lets past; it
+ * doesn't bound how many rounds run at once, which the line can't, as
+ * it never learns when a round ends. The hold is timed by the line's
+ * clock, which only the first round able to pass keeps, from the
+ * moment a round's looks first found the bar alone, so a round that joins
+ * or moves up a line already held counts from then, and rounds behind
+ * it whose readings differ for a moment neither reset the count nor
+ * write over each other. A round on an older install, which can't
+ * pass, holds no round past it. The line says what holds it, so a
+ * round's place can be read with its reason before it starts.
  *
  * A place once lost was lost for good. A round looks at the line under
  * its lock, and a look that met the lock held past its wait said
@@ -187,6 +195,21 @@ interface Ticket {
 	 * install wrote has none, and replaces and is replaced by nothing.
 	 */
 	readonly kind?: string;
+	/**
+	 * Whether its round reads the machine's room and may start past a
+	 * bar that has held too long, which a round on an older install, or
+	 * one spaced by time alone, can't, so the hold is kept and passed by
+	 * the first round that can.
+	 */
+	readonly passes?: boolean;
+}
+
+/** What a start past a bar kept of the hold it passed. */
+interface Passed {
+	/** How long the bar alone had held the line, by the line's clock. */
+	readonly heldMs: number;
+	/** The readings past their bars as it started. */
+	readonly readings: readonly string[];
 }
 
 /** A start that happened, as kept on disk. */
@@ -209,6 +232,11 @@ interface Started {
 	 * so a pressure spike can be tied afterwards to the starts it took.
 	 */
 	readonly quiet?: true;
+	/**
+	 * The hold it started past, kept with the start so a look that took
+	 * it and failed on its way out still says what it passed.
+	 */
+	readonly passed?: Passed;
 }
 
 /** The machine's line, as kept on disk. */
@@ -221,6 +249,11 @@ interface Line {
 	readonly replaced?: Readonly<Record<string, string>>;
 	/** The readings the machine was short of at the last look, if any. */
 	readonly heldBy?: readonly string[];
+	/**
+	 * Since when a passable bar alone has held the line, in ISO form, by
+	 * the looks of the first round in it that may pass one.
+	 */
+	readonly heldSince?: string;
 }
 
 /** Who is starting a council now, and on what. */
@@ -342,13 +375,14 @@ export async function awaitCouncilStart(
 		seenAt: asked,
 		...(claim.leads === true ? { leads: true } : {}),
 		...(claim.kind === undefined ? {} : { kind: claim.kind }),
+		...(claim.room === undefined ? {} : { passes: true }),
 	};
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
 	let lastShort: string | undefined;
 	// Since when only a passable bar has held the machine, by this round's
-	// own looks, so a round that joins a line already held so counts from
-	// its own first look.
+	// own looks: the line's clock counts first, but an older install that
+	// writes the line keeps none of it.
 	let passableSince: number | undefined;
 	let failed = 0;
 	for (;;) {
@@ -397,15 +431,12 @@ export async function awaitCouncilStart(
 				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
+			// Read from the start itself, so a look that finds the start it
+			// took again still says what it passed, even at its first look.
 			const passed =
-				turn.passed === true
-					? passSaid(
-							claim,
-							(turn.lookedAt ?? Date.now()) -
-								(passableSince ?? turn.lookedAt ?? Date.now()),
-						)
-					: "";
-			return firstSeen === undefined || firstSeen.waitMs <= 0
+				started.passed === undefined ? "" : passSaid(claim, started.passed);
+			return firstSeen === undefined ||
+				(firstSeen.waitMs <= 0 && passed === "")
 				? { release }
 				: {
 						waited: `${waitSaid(firstSeen, spacings, waitedMs, lastShort)}${passed}`,
@@ -462,8 +493,6 @@ interface Turn {
 	readonly short?: string;
 	/** Whether what held it, if anything, was a passable bar alone. */
 	readonly passable?: boolean;
-	/** Whether it started past a passable bar it had been held by long enough. */
-	readonly passed?: boolean;
 	/** When the look was made, as a time. */
 	readonly lookedAt?: number;
 }
@@ -646,14 +675,30 @@ function look(line: Line, at: LookAt): Look {
 		Number.NEGATIVE_INFINITY,
 	);
 	const free = last + at.spacing;
+	// Only the first round that may pass a bar keeps the line's hold and
+	// passes it, so rounds whose readings differ for a moment don't write
+	// over each other, and an older install's round ahead, which can't
+	// pass, holds nobody behind it.
+	const leadsHold =
+		holding.find((each) => each.passes === true)?.id === ticket.id;
+	const since = earliestAt([heldSinceOf(line, now), at.pass.since]);
 	// Held by a passable bar alone for long enough, it starts once no
 	// round has started for the pass's spacing, as the head says.
-	const passes =
+	const passed: Passed | undefined =
+		leadsHold &&
 		at.held?.passable === true &&
-		at.pass.since !== undefined &&
-		now - at.pass.since >= at.pass.afterMs &&
-		now >= last + Math.max(at.spacing, at.pass.spacingMs);
-	if (ahead === 0 && now >= free && (at.held === undefined || passes)) {
+		since !== undefined &&
+		now - since >= at.pass.afterMs &&
+		now >= last + Math.max(at.spacing, at.pass.spacingMs)
+			? { heldMs: now - since, readings: at.held.readings }
+			: undefined;
+	const hold = leadsHold
+		? holdSeen(at.held, since, now)
+		: holdCarried(line);
+	if (
+		(ahead === 0 && now >= free && at.held === undefined) ||
+		passed !== undefined
+	) {
 		const before = withoutFollows(line.started);
 		const started: Started = {
 			at: new Date(now).toISOString(),
@@ -665,6 +710,7 @@ function look(line: Line, at: LookAt): Look {
 			...(at.unhurried !== undefined && now < last + at.unhurried
 				? { quiet: true }
 				: {}),
+			...(passed === undefined ? {} : { passed }),
 		};
 		const left = waiting.filter((each) => each.id !== ticket.id);
 		// Its change has had its start, so an ask after this one takes its
@@ -677,10 +723,12 @@ function look(line: Line, at: LookAt): Look {
 				ahead: 0,
 				waitMs: 0,
 				...seen,
-				...(passes ? { passed: true } : {}),
 			},
+			// A start on room ends the hold; one past the bar leaves it held,
+			// and timed, so the next round passes once the pass's spacing
+			// has run, rather than waiting a whole hold of its own.
 			next: remembering(
-				{ started, waiting: left, ...heldLine(at.held) },
+				{ started, waiting: left, ...(passed === undefined ? {} : hold) },
 				asked,
 				replaced,
 			),
@@ -690,7 +738,7 @@ function look(line: Line, at: LookAt): Look {
 		{
 			...(line.started === undefined ? {} : { started: line.started }),
 			waiting,
-			...heldLine(at.held),
+			...hold,
 		},
 		firstAsked,
 		replaced,
@@ -726,12 +774,59 @@ function heldTurn(
 		: { short: held.said, ...(held.passable ? { passable: true } : {}) };
 }
 
+/** What the line keeps of the machine's hold. */
+type Hold = Pick<Line, "heldBy" | "heldSince">;
+
 /**
- * What the line keeps of the machine's hold: the readings' names only,
- * which change seldom, so a look whose figures moved writes nothing.
+ * What the line keeps of the machine's hold as the round that keeps it
+ * found it: the readings' names only, which change seldom, so a look
+ * whose figures moved writes nothing, and for a passable bar since when
+ * it has held. A look with room, or held by memory, ends the count.
  */
-function heldLine(held: RoomHeld | undefined): Pick<Line, "heldBy"> {
-	return held === undefined ? {} : { heldBy: held.readings };
+function holdSeen(
+	held: RoomHeld | undefined,
+	since: number | undefined,
+	now: number,
+): Hold {
+	if (held === undefined) return {};
+	if (!held.passable) return { heldBy: held.readings };
+	return {
+		heldBy: held.readings,
+		heldSince: new Date(since ?? now).toISOString(),
+	};
+}
+
+/** The hold as the line keeps it, for a round that doesn't keep it. */
+function holdCarried(line: Line): Hold {
+	return {
+		...(line.heldBy === undefined ? {} : { heldBy: line.heldBy }),
+		...(line.heldSince === undefined ? {} : { heldSince: line.heldSince }),
+	};
+}
+
+/**
+ * Since when the line says a passable bar has held it, as a time, when
+ * a round that may pass one still looks at it: a hold kept by rounds
+ * that have all gone may have let go long since, unseen. One in the
+ * future is a clock moved back, and counts for nothing.
+ */
+function heldSinceOf(line: Line, now: number): number | undefined {
+	if (line.heldSince === undefined) return undefined;
+	const since = Date.parse(line.heldSince);
+	const watched = line.waiting.some(
+		(each) =>
+			each.passes === true &&
+			Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS,
+	);
+	return watched && since <= now ? since : undefined;
+}
+
+/** The earliest of some times, or nothing when none is given. */
+function earliestAt(
+	times: readonly (number | undefined)[],
+): number | undefined {
+	const given = times.filter((each): each is number => each !== undefined);
+	return given.length === 0 ? undefined : Math.min(...given);
 }
 
 /**
@@ -739,7 +834,7 @@ function heldLine(held: RoomHeld | undefined): Pick<Line, "heldBy"> {
  * folded into those remembered, and the tickets lately replaced.
  */
 function remembering(
-	line: Pick<Line, "started" | "waiting" | "heldBy">,
+	line: Pick<Line, "started" | "waiting" | "heldBy" | "heldSince">,
 	firstAsked: Record<string, string>,
 	replaced: Record<string, string>,
 ): Line {
@@ -838,6 +933,7 @@ function normal(line: Line): Line {
 		...(line.firstAsked === undefined ? {} : { firstAsked: line.firstAsked }),
 		...(line.replaced === undefined ? {} : { replaced: line.replaced }),
 		...(line.heldBy === undefined ? {} : { heldBy: line.heldBy }),
+		...(line.heldSince === undefined ? {} : { heldSince: line.heldSince }),
 	};
 }
 
@@ -990,12 +1086,19 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 			"heldBy" in parsed && Array.isArray(parsed.heldBy)
 				? parsed.heldBy.filter((each) => typeof each === "string")
 				: undefined;
+		const heldSince =
+			"heldSince" in parsed &&
+			typeof parsed.heldSince === "string" &&
+			Number.isFinite(Date.parse(parsed.heldSince))
+				? parsed.heldSince
+				: undefined;
 		return {
 			...(started === undefined ? {} : { started }),
 			waiting,
 			...(firstAsked === undefined ? {} : { firstAsked }),
 			...(replaced === undefined ? {} : { replaced }),
 			...(heldBy === undefined ? {} : { heldBy }),
+			...(heldSince === undefined ? {} : { heldSince }),
 		};
 	} catch {
 		// Cut short or overwritten by hand: spaced from now.
@@ -1067,7 +1170,22 @@ function isStarted(value: unknown): value is Started {
 		"change" in value &&
 		typeof value.change === "string" &&
 		(!("ticket" in value) || typeof value.ticket === "string") &&
-		(!("follows" in value) || isStarted(value.follows))
+		(!("follows" in value) || isStarted(value.follows)) &&
+		(!("passed" in value) || isPassed(value.passed))
+	);
+}
+
+/** Whether `value` is a pass kept with a start, as read from disk. */
+function isPassed(value: unknown): value is Passed {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"heldMs" in value &&
+		typeof value.heldMs === "number" &&
+		Number.isFinite(value.heldMs) &&
+		"readings" in value &&
+		Array.isArray(value.readings) &&
+		value.readings.every((each) => typeof each === "string")
 	);
 }
 
@@ -1090,7 +1208,8 @@ function isTicket(value: unknown): value is Ticket {
 		typeof value.seenAt === "string" &&
 		Number.isFinite(Date.parse(value.seenAt)) &&
 		(!("leads" in value) || typeof value.leads === "boolean") &&
-		(!("kind" in value) || typeof value.kind === "string")
+		(!("kind" in value) || typeof value.kind === "string") &&
+		(!("passes" in value) || typeof value.passes === "boolean")
 	);
 }
 
@@ -1256,16 +1375,27 @@ function waitSaid(
 }
 
 /**
- * What a round that passed a bar adds to what its wait says: how long
- * the CPU bar alone really held it, which can run well past the hold a
- * pass needs while it waits its place or the pass's spacing, and the
- * two rules it passed by.
+ * What a round that passed a bar adds to what its wait says: the bar,
+ * by the readings past it, how long it alone really held the line,
+ * which can run well past the hold a pass needs while a round waits its
+ * place or the pass's spacing, and the two rules it passed by.
  */
-function passSaid(claim: StartClaim, heldMs: number): string {
+function passSaid(claim: StartClaim, passed: Passed): string {
 	const after = claim.pass?.afterMs ?? PASS_AFTER_MS;
 	const spacing = claim.pass?.spacingMs ?? PASS_SPACING_MS;
-	return ` It started past the CPU bar, which alone had held it for ${minutesSaid(heldMs)}, since a round the CPU bar alone holds for ${spacingSaid(after)} starts once no round has started for ${spacingSaid(spacing)}.`;
+	const readings = passed.readings
+		.map((each) => bounded(each.replace(/[\s\p{Cc}]+/gu, " ").trim()))
+		.filter((each) => each !== "")
+		.slice(0, READINGS_SAID_AT_MOST);
+	const bar =
+		readings.length === 0
+			? "the machine's bar"
+			: `the machine's bar on ${readings.join(", ")}`;
+	return ` It started past ${bar}, which alone had held the line for ${minutesSaid(passed.heldMs)}, since a round such a bar alone holds for ${spacingSaid(after)} starts once no round has started for ${spacingSaid(spacing)}.`;
 }
+
+/** The most readings a pass names, more than a machine reads. */
+const READINGS_SAID_AT_MOST = 4;
 
 /** What a round replaced by a newer ask for its change answers. */
 const REPLACED_SAID =
@@ -1283,6 +1413,8 @@ export interface LinePlace {
 	readonly askedAt: string;
 	/** The readings the machine was short of at the line's last look. */
 	readonly heldBy?: readonly string[];
+	/** Since when a passable bar alone has held the line, in ISO form. */
+	readonly heldSince?: string;
 }
 
 /**
@@ -1305,6 +1437,8 @@ export async function placesInLine(
 	const holding = line.waiting.filter(
 		(each) => Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS,
 	);
+	// Only a hold a round that may pass still keeps, as a look reads it.
+	const since = heldSinceOf(line, now);
 	return holding.flatMap((each, place) =>
 		each.change === change
 			? [
@@ -1314,6 +1448,9 @@ export async function placesInLine(
 						by: each.by,
 						askedAt: each.askedAt,
 						...(line.heldBy === undefined ? {} : { heldBy: line.heldBy }),
+						...(since === undefined
+							? {}
+							: { heldSince: new Date(since).toISOString() }),
 					},
 				]
 			: [],

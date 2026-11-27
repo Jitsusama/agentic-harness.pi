@@ -10,6 +10,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -94,7 +95,9 @@ describe("starting past a bar that has held too long", () => {
 		);
 		expect(line().started.by).toBe("ISXEG8");
 		expect(start.waited).toContain("CPU some avg60 was 46");
-		expect(start.waited).toContain("It started past the CPU bar");
+		expect(start.waited).toContain(
+			"It started past the machine's bar on CPU some avg60, which alone had held the line for under a minute",
+		);
 	});
 
 	it("never lets a round past memory, however long it holds", async () => {
@@ -193,7 +196,7 @@ describe("starting past a bar that has held too long", () => {
 		).toBeGreaterThanOrEqual(AFTER - TIMER_EARLY_MS);
 	});
 
-	it("starts at once when the machine has room, with nothing said of a pass", async () => {
+	it("starts at once when the machine has room", async () => {
 		const start = await awaitCouncilStart(
 			path,
 			held("ISXEG8", async () => undefined),
@@ -201,6 +204,20 @@ describe("starting past a bar that has held too long", () => {
 
 		expect(start.waited).toBeUndefined();
 		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("says nothing of a pass for a round CPU held a while that started on room", async () => {
+		let looks = 0;
+		const room = async () => {
+			looks += 1;
+			return looks < 4 ? onCpu : undefined;
+		};
+
+		const start = await awaitCouncilStart(path, held("ISXEG8", room));
+
+		expect(start.waited, "it waited").toContain("CPU some avg60 was 46");
+		expect(start.waited).not.toContain("started past");
+		expect(line().started.passed, "no pass kept").toBeUndefined();
 	});
 });
 
@@ -240,5 +257,220 @@ describe("the line saying what holds it", () => {
 
 		expect(heldBy, "memory held it first").toEqual(["memory full avg60"]);
 		expect(line().heldBy).toBeUndefined();
+	});
+});
+
+/** A line holding `waiting`, with whatever else `rest` gives it. */
+function lineOf(waiting: object[], rest: object = {}): void {
+	mkdirSync(join(folder, "starts"), { recursive: true });
+	writeFileSync(linePath(), JSON.stringify({ waiting, ...rest }));
+}
+
+/** A ticket written by hand, looking now, asked a while before. */
+const handTicket = (id: string, extra: object = {}) => ({
+	id,
+	by: id,
+	change: `o/r#${id}`,
+	pid: process.pid,
+	askedAt: new Date(Date.now() - 60_000).toISOString(),
+	seenAt: new Date().toISOString(),
+	...extra,
+});
+
+/** Where the line's file stands, so a write can be told from none. */
+const written = () => {
+	const seen = statSync(linePath(), { bigint: true });
+	return `${seen.ino}@${seen.mtimeNs}`;
+};
+
+// #2312's round 2: each round counted the hold from its own first
+// look, and any round's reading wrote the line's hold.
+describe("keeping the hold by the line's clock", () => {
+	it("lets one round past the bar each pass spacing, however many it holds", async () => {
+		await Promise.all([
+			awaitCouncilStart(path, held("ISXEG8", async () => onCpu)),
+			awaitCouncilStart(path, held("A2VLJN", async () => onCpu)),
+		]);
+
+		const { started } = line();
+		expect(
+			Date.parse(started.at) - Date.parse(started.follows.at),
+			"the pass's spacing between the two",
+		).toBeGreaterThanOrEqual(SINCE - TIMER_EARLY_MS);
+	});
+
+	it("lets no round past a bar while the round ahead of it is held by memory", async () => {
+		const stop = new AbortController();
+		const head = awaitCouncilStart(
+			path,
+			held("A2VLJN", async () => onMemory),
+			stop.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(1);
+		const behind = awaitCouncilStart(
+			path,
+			held("ISXEG8", async () => onCpu),
+			stop.signal,
+		);
+		// A fixed wait, since what is tested is that nothing happens in it.
+		await new Promise((done) => setTimeout(done, 3 * AFTER));
+		stop.abort();
+		await Promise.all([head, behind]);
+
+		expect(line().started, "nothing started").toBeUndefined();
+	});
+
+	it("counts the hold from when it began for a round that moves up a held line", async () => {
+		const after = 600;
+		const since = 900;
+		const urgent: string[] = [];
+		const round = (by: string) => ({
+			...held(by, async () => onCpu),
+			pass: { afterMs: after, spacingMs: since },
+			urgent: async () => urgent,
+		});
+		const t0 = Date.now();
+		startedAt(new Date(t0));
+		const stop = new AbortController();
+		const first = awaitCouncilStart(path, round("A2VLJN"), stop.signal);
+		await new Promise((done) => setTimeout(done, after + 100));
+		urgent.push("o/r#ISXEG8");
+		const joined = Date.now();
+
+		await awaitCouncilStart(path, round("ISXEG8"));
+		const startedAfter = Date.now() - joined;
+		stop.abort();
+		await first;
+
+		expect(line().started.by).toBe("ISXEG8");
+		expect(
+			startedAfter,
+			"it passed on the line's hold, not one of its own",
+		).toBeLessThan(after);
+	});
+
+	it("passes a round ahead from an older install, which can't pass", async () => {
+		lineOf([handTicket("OLDER1")]);
+		const stop = new AbortController();
+		const timer = setTimeout(() => stop.abort(), 3_000);
+
+		const start = await awaitCouncilStart(
+			path,
+			held("ISXEG8", async () => onCpu),
+			stop.signal,
+		);
+		clearTimeout(timer);
+
+		expect(start.cancelled, "it was never stopped").toBeUndefined();
+		expect(line().started.by).toBe("ISXEG8");
+		expect(line().waiting.map((each: { id: string }) => each.id)).toEqual([
+			"OLDER1",
+		]);
+	});
+
+	it("keeps the line's hold behind a round from an older install, and takes it off", async () => {
+		lineOf([handTicket("OLDER1")]);
+		let looks = 0;
+		const room = async () => {
+			looks += 1;
+			return looks < 4 ? onMemory : undefined;
+		};
+		const stop = new AbortController();
+		const start = awaitCouncilStart(path, held("ISXEG8", room), stop.signal);
+
+		await expect
+			.poll(() => line().heldBy, { timeout: 4_000, interval: 2 })
+			.toEqual(["memory full avg60"]);
+		await expect
+			.poll(() => line().heldBy, { timeout: 4_000, interval: 5 })
+			.toBeUndefined();
+		const [place] = await placesInLine(path, "o/r#ISXEG8");
+		stop.abort();
+		await start;
+
+		expect(place, "still waiting").toEqual(
+			expect.objectContaining({ position: 2 }),
+		);
+		expect(place?.heldBy, "no hold said").toBeUndefined();
+	});
+
+	it("leaves the line's hold to the round ahead that keeps it", async () => {
+		lineOf([handTicket("AHEAD1", { passes: true })], {
+			heldBy: ["CPU some avg60"],
+			heldSince: new Date().toISOString(),
+		});
+		let looks = 0;
+		const room = async () => {
+			looks += 1;
+			return looks % 2 === 0 ? onMemory : undefined;
+		};
+		const stop = new AbortController();
+		const start = awaitCouncilStart(path, held("ISXEG8", room), stop.signal);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 5 })
+			.toBe(2);
+		const joined = written();
+		const looked = looks;
+
+		await expect
+			.poll(() => looks - looked, { timeout: 4_000, interval: 5 })
+			.toBeGreaterThan(10);
+		const after = written();
+		stop.abort();
+		await start;
+
+		expect(after, "its looks wrote nothing").toBe(joined);
+	});
+
+	it("counts nothing from a hold no round still looks at", async () => {
+		const gone = new Date(Date.now() - 5 * 60_000).toISOString();
+		lineOf([handTicket("AHEAD1", { passes: true, seenAt: gone })], {
+			heldBy: ["CPU some avg60"],
+			heldSince: new Date(Date.now() - 30 * 60_000).toISOString(),
+		});
+		const stop = new AbortController();
+		const start = awaitCouncilStart(
+			path,
+			{
+				...held("ISXEG8", async () => onCpu),
+				pass: { afterMs: 20 * 60_000, spacingMs: 10 * 60_000 },
+			},
+			stop.signal,
+		);
+		// A fixed wait, since what is tested is that nothing happens in it.
+		await new Promise((done) => setTimeout(done, 10 * LOOK));
+		stop.abort();
+		await start;
+
+		expect(line().started, "nothing started").toBeUndefined();
+	});
+
+	it("says how long the line was held for a round that passes at its first look", async () => {
+		lineOf([handTicket("AHEAD1", { passes: true })], {
+			heldBy: ["CPU some avg60"],
+			heldSince: new Date(Date.now() - 30 * 60_000).toISOString(),
+		});
+		const stop = new AbortController();
+		const timer = setTimeout(() => stop.abort(), 3_000);
+
+		const start = await awaitCouncilStart(
+			path,
+			{
+				by: "ISXEG8",
+				change: "shop/world#1",
+				lookAgainMs: LOOK,
+				alive: () => true,
+				room: async () => onCpu,
+				leads: true,
+			},
+			stop.signal,
+		);
+		clearTimeout(timer);
+
+		expect(start.waited).toContain(
+			"It started past the machine's bar on CPU some avg60, which alone had held the line for about 30 minutes, since a round such a bar alone holds for 20 minutes starts once no round has started for 10 minutes.",
+		);
 	});
 });
