@@ -1920,17 +1920,25 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 	// gate allows.
 	it("gives each count rule no shorter a limit than the gate's own", () => {
 		const script = readFileSync(join(ROOT, "scripts/merge-gate.sh"), "utf8");
-		const gates = Number(/testTimeout: (\d+)/.exec(script)?.[1]);
+		const ms = (written: string | undefined) =>
+			Number(written?.replaceAll("_", ""));
+		const gates = ms(/testTimeout: ([\d_]+)/.exec(script)?.[1]);
 		expect(gates, "the gate should set a test limit").toBeGreaterThan(0);
-		for (const rule of COUNT_RULES.filter((file) =>
-			file.endsWith(".test.ts"),
-		)) {
-			const text = readFileSync(join(ROOT, CODE_RULES, rule), "utf8");
-			const own = /timeout: ([\d_]+)/.exec(text)?.[1]?.replaceAll("_", "");
-			expect(
-				Number(own),
-				`${rule}'s own limit should be at least the gate's ${gates} ms`,
-			).toBeGreaterThanOrEqual(gates);
+		// The rules the gate runs, read from its own list, so a rule added
+		// there is held here too, with the helper they share.
+		const named = /^rules=\(\n([\s\S]*?)^\)/m.exec(script)?.[1] ?? "";
+		const rules = [...named.matchAll(/\$code\/(\S+\.test\.ts)/g)].map(
+			([, rule]) => `${rule}`,
+		);
+		expect(rules, "the gate should name its count rules").not.toEqual([]);
+		for (const file of [...rules, "package-files.ts"]) {
+			const text = readFileSync(join(ROOT, CODE_RULES, file), "utf8");
+			for (const [, own] of text.matchAll(/timeout: ([\d_]+)/g)) {
+				expect(
+					ms(own),
+					`${file}'s limit of ${own} ms should be at least the gate's ${gates}`,
+				).toBeGreaterThanOrEqual(gates);
+			}
 		}
 	});
 });

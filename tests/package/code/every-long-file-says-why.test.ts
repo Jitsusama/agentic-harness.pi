@@ -19,18 +19,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isCode, packageFiles } from "./package-files.ts";
+import { isCode, packageFiles, WALK } from "./package-files.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
 /** The shrink-only list of files and folders past their limit. */
 const LIST = join(import.meta.dirname, "long-files-waiting.txt");
-
-/**
- * How long a walk of the whole tree may take on a busy machine: as long
- * as merge-gate.sh gives it, since this limit wins over the gate's.
- */
-const WALK = { timeout: 300_000 };
 
 /** The most lines a code file holds before it says why. */
 const MOST_LINES = 800;
@@ -107,11 +101,20 @@ interface Over {
 	readonly reasoned: number;
 }
 
+/** The walk's answer, kept so both cases read one walk of the tree. */
+let walked: Over | undefined;
+
 /**
  * The package's files and folders past their limit, a folder's entries
  * being the files and folders right in it, as code-health counts them.
  */
 function over(): Over {
+	walked ??= walk();
+	return walked;
+}
+
+/** The files and folders past their limit, read from the tree as it stands. */
+function walk(): Over {
 	const files = packageFiles(ROOT).sort();
 	const entries = new Map<string, Set<string>>();
 	for (const file of files) {

@@ -11,6 +11,13 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
+ * How long a case walking the whole tree may take on a busy machine: as
+ * long as merge-gate.sh gives a case, since a case's own limit wins over
+ * the gate's. merge-gate.test.ts holds the two together.
+ */
+export const WALK = { timeout: 300_000 };
+
+/**
  * The files under `root`, by their path from it. Links are passed by, not
  * followed, so one to / can't walk the disk.
  */
