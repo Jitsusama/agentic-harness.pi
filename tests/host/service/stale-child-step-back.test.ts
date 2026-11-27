@@ -33,7 +33,7 @@ describe("rollWhenStale, once the install steps back to a version older than its
 		]);
 	});
 
-	it("rolls at its next look while it waits its spread", async () => {
+	it("rolls at the look that ends its spread, though the machine is busy", async () => {
 		const timers = manualTimers();
 		const roll = vi.fn();
 		let back = false;
@@ -42,7 +42,7 @@ describe("rollWhenStale, once the install steps back to a version older than its
 			after: timers.after,
 			report: () => undefined,
 			spreadMs: 120_000,
-			roomShort: async () => undefined,
+			roomShort: async () => "CPU some avg60 was 50, at or past 40",
 			back: async () => back,
 		});
 		await timers.fire();
