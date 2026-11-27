@@ -259,6 +259,33 @@ describe("root inside a user namespace", () => {
 		).toEqual([5000]);
 	});
 
+	it.each([
+		["can't be read", undefined],
+		["reads empty", "\n"],
+	])(
+		"never counts the person as root where the overflow user %s",
+		(_, said) => {
+			const read =
+				(map: string) =>
+				(path: string): string => {
+					if (path === "/proc/self/uid_map") return map;
+					if (said !== undefined && path === "/proc/sys/kernel/overflowuid") {
+						return said;
+					}
+					throw new Error(`EACCES ${path}`);
+				};
+
+			expect(
+				rootOwners(read("         0       1000          1\n"), 0),
+				"the person as inner root",
+			).toEqual([]);
+			expect(
+				rootOwners(read("      1000       1000          1\n"), 1000),
+				"the inner 0 this process isn't, where root is unmapped",
+			).toEqual([0]);
+		},
+	);
+
 	it("is root alone where there is no /proc, as on a Mac", () => {
 		expect(
 			rootOwners(() => {

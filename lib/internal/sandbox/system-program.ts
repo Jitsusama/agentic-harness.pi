@@ -100,21 +100,36 @@ function rootOwnersHere(): readonly number[] {
  * an unprivileged container, where it is the container's own root and
  * its programs are root's: a fenced command, running as the person,
  * can't make a file it owns.
+ *
+ * Once the map is read, root is never assumed to be 0: where the overflow
+ * user can't be read, only the inner 0 that isn't this process is kept,
+ * and nothing where this process is the inner 0, so no program is found.
  */
 export function rootOwners(
 	read: (path: string) => string,
 	uid: number = process.getuid?.() ?? 0,
 ): readonly number[] {
+	let map: string;
 	try {
-		const map = read("/proc/self/uid_map");
-		const inner = innerRoot(map);
-		if (inner !== undefined && (inner !== uid || isMachines(map)))
-			return [inner];
-		const overflow = Number(read("/proc/sys/kernel/overflowuid").trim());
-		return uid === 0 ? [overflow] : [overflow, 0];
+		map = read("/proc/self/uid_map");
 	} catch {
 		// No `/proc`: no user namespaces, so root is root.
 		return [0];
+	}
+	const inner = innerRoot(map);
+	if (inner !== undefined && (inner !== uid || isMachines(map))) return [inner];
+	const overflow = overflowUser(read);
+	const others = uid === 0 ? [] : [0];
+	return overflow === undefined ? others : [overflow, ...others];
+}
+
+/** The overflow user's id, or undefined where it can't be read whole. */
+function overflowUser(read: (path: string) => string): number | undefined {
+	try {
+		const said = read("/proc/sys/kernel/overflowuid").trim();
+		return /^\d+$/.test(said) ? Number(said) : undefined;
+	} catch {
+		return undefined;
 	}
 }
 
