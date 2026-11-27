@@ -1,6 +1,7 @@
 /**
  * The stripped-source cache in a node of its own: a module read back
- * runs as node ran it, and node loads no transpiler for it. Whatever
+ * runs as node ran it, each line and column where node put it and only
+ * its comments gone, and node loads no transpiler for it. Whatever
  * node runs this, the cache starts as it would on node 22, so the case
  * holds on the node the tests run on.
  */
@@ -59,6 +60,9 @@ function startingAs22(): string {
 	return `--import=data:text/javascript,${encodeURIComponent(code)}`;
 }
 
+/** A line of `add`'s that only comments, which the cache keeps out. */
+const SUM_COMMENT = "\t// The sum.";
+
 /**
  * A TypeScript module saying how it was loaded, in a package of its own
  * that names no type, as this one names none, so node tells its format
@@ -73,8 +77,12 @@ async function sayingModule(): Promise<string> {
 		entry,
 		[
 			"interface Pair { a: number; b: number }",
-			"export function add({ a, b }: Pair): number { return a + b; }",
-			'const where: string = new Error("here").stack?.split("\\n")[1] ?? "";',
+			"export function add({ a, b }: Pair): number {",
+			SUM_COMMENT,
+			"\treturn a + b;",
+			"}",
+			"/** Where this line runs, which a comment before it moves nowhere. */",
+			'const where: string = /* here */ new Error("here").stack?.split("\\n")[1] ?? "";',
 			"console.log(JSON.stringify({ fn: add.toString(), where,",
 			'\ttranspiler: process.moduleLoadList.some((m: string) => m.includes("amaro")) }));',
 		].join("\n"),
@@ -201,7 +209,7 @@ describe("the stripped-source cache in a node", () => {
 	);
 
 	it(
-		"runs a module read back as node ran it, with no transpiler loaded",
+		"runs a module read back as node ran it less its comments, with no transpiler loaded",
 		async () => {
 			const entry = await sayingModule();
 			const env = { XDG_STATE_HOME: join(root, ".local", "state") };
@@ -214,9 +222,11 @@ describe("the stripped-source cache in a node", () => {
 			expect(first.stderr, "the strip it keeps warns of nothing").not.toMatch(
 				/stripTypeScriptTypes/,
 			);
-			expect({ ...first, stderr: "" }).toEqual({ ...native, stderr: "" });
+			expect(native.fn, "node keeps the comment in add").toContain(SUM_COMMENT);
+			const bare = { ...native, fn: native.fn.replace(SUM_COMMENT, "") };
+			expect({ ...first, stderr: "" }).toEqual({ ...bare, stderr: "" });
 			expect({ ...second, stderr: "" }).toEqual({
-				...native,
+				...bare,
 				transpiler: false,
 				stderr: "",
 			});

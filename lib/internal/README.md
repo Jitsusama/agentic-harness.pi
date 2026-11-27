@@ -181,14 +181,17 @@ no caller reads by.
   afford, kept by a timer of its own: the claim check and the mesh's
   routing wait on a classifier no longer than that, and the reply
   check waits on finding its classifier no longer than that.
-- **`stripped-source.mjs`**, **`stripped-source-start.mjs`** and
-  **`stripped-source-sweep.mjs`**: what
+- **`stripped-source.mjs`**, **`stripped-source-start.mjs`**,
+  **`stripped-source-sweep.mjs`** and
+  **`stripped-source-comments.mjs`**: what
   node 22 strips of this package's TypeScript, kept in pi's state so a
   later start reads it back rather than loading node's transpiler,
   which stays resident for the life of the process. The host's entry
   and a reviewer's supervisor start it first; `PI_STRIPPED_SOURCE_CACHE=off`
   turns it off, and it stands aside on any other node. The sweep
-  decides how long what it kept stays.
+  decides how long what it kept stays. What it keeps leaves out each
+  comment with no code after it on its line, since V8 holds a
+  module's source for the module's life.
 - **`unseen.ts`**: which characters draw as nothing, as the node
   counts them, for the mesh's subjects and the words a sprout
   relays from mycelium.

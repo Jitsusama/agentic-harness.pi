@@ -518,6 +518,7 @@ describe("host-gate.sh", () => {
 		"lib/internal/stripped-source.mjs",
 		"lib/internal/stripped-source-start.mjs",
 		"lib/internal/stripped-source-sweep.mjs",
+		"lib/internal/stripped-source-comments.mjs",
 	])("counts %s, which the host or its tests load, as hosted", (file) => {
 		expect(hostedPattern().test(file), `${file} is hosted`).toBe(true);
 	});
