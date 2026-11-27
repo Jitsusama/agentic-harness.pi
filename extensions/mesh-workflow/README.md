@@ -319,7 +319,13 @@ and can answer a question or a gate left open on screen.
   gets SIGTERM, which pi takes as a closed window, and the window
   closes with it; the pid is signalled only while its start still
   matches the presence's. Anyone else is refused, as is a session
-  on another machine. Loaded on demand.
+  on another machine. With no address, a session a mycelium
+  holder keeps (`MYCELIUM_HELD`, as on a held worker machine) ends
+  itself: it says the node's own `End` request on the worker link's
+  presence connection, never one opened for it, and once the node
+  answers `Ok` the holder takes it down and its pi quits as it ends
+  itself. A session no holder keeps, or one whose link holds no
+  presence yet, ends nothing and says why. Loaded on demand.
 - `mesh_sprout`: start new work as a cell of its own, in one
   step, from words or a link (`lib/mesh/sprout.ts`). It runs
   `mycelium sprout` from the session's folder, as the launcher's

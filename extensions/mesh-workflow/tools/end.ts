@@ -1,6 +1,11 @@
-/** mesh_end: ending a session of this orchestration, and its process. */
+/**
+ * mesh_end: ending a session of this orchestration, and its process, or,
+ * with no address, this session itself through the holder keeping it.
+ */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { endSession } from "../../../lib/core/session/index.ts";
+import { endConversation } from "../../../lib/core/session/owner.ts";
 import {
 	type TickedOwner,
 	tickedStanding,
@@ -12,10 +17,16 @@ import { closeThroughHost, hostedHere } from "../../../lib/mesh/host-close.ts";
 import { heldOnce } from "../../../lib/mesh/liveness.ts";
 import { type Answer, answer, type EndProcess, type Local } from "./local.ts";
 
+/**
+ * End the session `params.peer` names, for its orchestrator; with none,
+ * this session itself, through the mycelium holder keeping it.
+ */
 export async function end(
 	at: Local,
-	params: { peer: string },
+	params: { peer?: string },
+	ctx?: ExtensionContext,
 ): Promise<Answer> {
+	if (params.peer === undefined) return endHeld(at, ctx);
 	const home = groupNamed(params.peer);
 	const address = home?.startsWith("@") ? home.slice(1) : params.peer.trim();
 	const target = endTarget(
@@ -56,6 +67,34 @@ export async function end(
 	return answer(
 		`Asked ${address}'s pi (pid ${target.owner.pid}) to quit; its window closes with it.`,
 	);
+}
+
+/**
+ * End this session through the holder keeping it (`MYCELIUM_HELD`): the
+ * node's own End, said on the presence's connection, has the holder take
+ * it down, and pi then quits as it ends itself.
+ */
+async function endHeld(at: Local, ctx?: ExtensionContext): Promise<Answer> {
+	if (at.holder === undefined) {
+		return answer(
+			"Nothing ended: this session isn't held by a mycelium holder, so there is nothing to end it through.",
+		);
+	}
+	if (at.endHeld === undefined) {
+		return answer(
+			"Nothing ended: this session keeps no link to the node's worker socket, so there is nothing to ask the holder through.",
+		);
+	}
+	const ended = await at.endHeld(at.holder);
+	if ("refused" in ended) {
+		return answer(`Nothing ended: the node said ${ended.refused}.`);
+	}
+	if (ctx) {
+		endConversation(ctx, `mesh_end from ${at.peer.signature}`, () => {
+			// A quit that failed leaves pi to the holder, which takes it down.
+		});
+	}
+	return answer("Ending: the holder takes this session down.");
 }
 
 /**

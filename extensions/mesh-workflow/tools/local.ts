@@ -22,6 +22,7 @@ import type { Presences } from "../../../lib/mesh/presence.ts";
 import type { Served } from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
+import type { Ended } from "../../../lib/mesh/worker-link.ts";
 import type { DoneProbes } from "../../../lib/orchestration/done-acts.ts";
 import type { Waiting } from "../wait.ts";
 
@@ -90,6 +91,13 @@ export interface Local {
 	readonly waiting?: Waiting;
 	/** Where what sessions point the person at is kept (lib/mesh/looks/looks.ts). */
 	readonly looks?: string;
+	/** The mycelium holder keeping this session (`MYCELIUM_HELD`), if any. */
+	readonly holder?: string;
+	/**
+	 * Ask the node to have `holder` take this session down, on the
+	 * worker link's presence connection; none where there is no link.
+	 */
+	readonly endHeld?: (holder: string) => Promise<Ended>;
 	/** Ask a session's process to end; pi's own SIGTERM by default. */
 	readonly endProcess?: EndProcess;
 	/** Ask a parked session's holder to wake it; whether it was parked. */
