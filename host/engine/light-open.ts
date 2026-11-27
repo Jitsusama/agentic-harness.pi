@@ -452,7 +452,7 @@ export function openKept(
 				"pi's session manager no longer takes a log's entries as the light open expects",
 			);
 		};
-		const standing = standingOpen(open, home);
+		const standing = standingOpen(open, home, headerCwd);
 		const unheld = holdQuietly(standing.manager, log.whole, said);
 		// A log with nothing read light is held as pi's own open holds it,
 		// so it stands whether or not the view could be taken.
