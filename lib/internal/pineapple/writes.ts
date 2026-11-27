@@ -63,6 +63,12 @@ export interface WriteCall {
 	readonly repo?: string;
 	readonly branch?: string;
 	readonly pr?: number;
+	/**
+	 * How a push naming no one branch chooses what it pushes: git's push
+	 * settings for one naming no refspec, or every branch, or tag, for
+	 * `--all`, `--mirror` and `--tags`.
+	 */
+	readonly unnamed?: "bare" | "every";
 }
 
 /** A write with what git could say about it filled in. */
@@ -76,13 +82,21 @@ export interface GitFacts {
 	branchOf(dir: string): Promise<string | undefined>;
 	/** The remote a push from `dir` naming none goes to. */
 	pushRemoteOf(dir: string): Promise<string>;
+	/**
+	 * The branch of `remote` a push from `dir` naming no refspec goes
+	 * to, as git's push settings choose it; none where they can't say one.
+	 */
+	pushedOf(dir: string, remote: string): Promise<string | undefined>;
 }
 
 /**
  * Fill in the repository and branch a call leaves to its checkout. A
  * git push naming no remote goes where git sends it, which a branch's
  * pushRemote or the checkout's remote.pushDefault can make another than
- * origin; any other write is taken to act on origin's repository.
+ * origin; any other write is taken to act on origin's repository. A
+ * push naming no refspec goes to the branch git's push settings choose,
+ * and one of every branch names none, so the guard holds it under a
+ * stop that needs the branch.
  */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
 	if (machineWide(call.kind) || call.dir === undefined) return call;
@@ -92,10 +106,21 @@ export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
 			? await git.pushRemoteOf(call.dir)
 			: "origin");
 	const repo = call.repo ?? (await git.repoOf(call.dir, remote));
-	const branch =
-		call.branch ??
-		(call.pr === undefined ? await git.branchOf(call.dir) : undefined);
+	const branch = await branchFor(call, call.dir, remote, git);
 	return { ...call, repo, branch };
+}
+
+/** The branch a call at `dir` touches, where it names none itself. */
+async function branchFor(
+	call: WriteCall,
+	dir: string,
+	remote: string,
+	git: GitFacts,
+): Promise<string | undefined> {
+	if (call.branch !== undefined) return call.branch;
+	if (call.pr !== undefined || call.unnamed === "every") return undefined;
+	if (call.unnamed === "bare") return git.pushedOf(dir, remote);
+	return git.branchOf(dir);
 }
 
 /** The `owner/name` a remote URL names, lowercased. */
@@ -129,6 +154,27 @@ export async function pushRemote(
 		(await ofBranch("remote")) ??
 		"origin"
 	);
+}
+
+/**
+ * The branch of `remote` a push of `branch` naming no refspec goes to,
+ * as git chooses it: none where the remote has push refspecs of its
+ * own, or push.default is `matching` or `nothing`; the branch's
+ * upstream under `upstream`; and its own name under `simple`, git's
+ * default, and `current`.
+ */
+export async function pushedBranch(
+	branch: string | undefined,
+	remote: string,
+	config: (key: string) => Promise<string | undefined>,
+): Promise<string | undefined> {
+	if (branch === undefined) return undefined;
+	if ((await config(`remote.${remote}.push`)) !== undefined) return undefined;
+	const mode = (await config("push.default")) ?? "simple";
+	if (mode === "simple" || mode === "current") return branch;
+	if (mode !== "upstream" && mode !== "tracking") return undefined;
+	const merge = await config(`branch.${branch}.merge`);
+	return merge?.replace(/^refs\/heads\//, "");
 }
 
 /**
@@ -512,8 +558,22 @@ function writeIn(argv: string[], dir: string | undefined): WriteCall[] {
 	// A launcher's own verb still counts when what it runs writes nothing,
 	// as `mycelium start ... -- program` does.
 	if (launched.length > 0) return launched;
+	if (name === "git") return gitPush(rest, dir);
+	const dtPush = name === "dt" ? pushVerb(rest) : undefined;
+	if (dtPush !== undefined) {
+		return pushOf(rest.slice(dtPush + 1), dir, "dt push");
+	}
 	const write = ownWrite(name, rest, dir);
 	return write === undefined ? [] : [write];
+}
+
+/** Where `dt`'s verb `push` stands among its words, if it's the verb. */
+function pushVerb(args: string[]): number | undefined {
+	let verbAt = 0;
+	while ((args[verbAt] ?? "").startsWith("-")) {
+		verbAt += VALUED.has(args[verbAt] ?? "") ? 2 : 1;
+	}
+	return args[verbAt] === "push" ? verbAt : undefined;
 }
 
 /** What a command writes itself, apart from any command it runs. */
@@ -522,7 +582,6 @@ function ownWrite(
 	rest: string[],
 	dir: string | undefined,
 ): WriteCall | undefined {
-	if (name === "git") return gitPush(rest, dir);
 	if (name === "gh") return ghWrite(rest, dir);
 	if (name === "dt") return dtWrite(rest, dir);
 	const start = startIn(name, rest);
@@ -563,10 +622,7 @@ function launchedBy(
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */
-function gitPush(
-	args: string[],
-	dir: string | undefined,
-): WriteCall | undefined {
+function gitPush(args: string[], dir: string | undefined): WriteCall[] {
 	let at = 0;
 	let where = dir;
 	while (at < args.length && (args[at] ?? "").startsWith("-")) {
@@ -580,15 +636,20 @@ function gitPush(
 		}
 		at += flag === "-c" ? 2 : 1;
 	}
-	if (args[at] !== "push") return undefined;
+	if (args[at] !== "push") return [];
 	return pushOf(args.slice(at + 1), where, "git push");
 }
 
+/**
+ * A push's writes, one for each branch its refspecs push to, so a
+ * stopped branch named after another is judged as itself. One naming
+ * no refspec, or every branch, is one write whose branch settle finds.
+ */
 function pushOf(
 	args: string[],
 	dir: string | undefined,
 	action: string,
-): WriteCall {
+): WriteCall[] {
 	const positional: string[] = [];
 	let every = false;
 	for (let at = 0; at < args.length; at += 1) {
@@ -599,14 +660,20 @@ function pushOf(
 		else if (!word.startsWith("-")) positional.push(word);
 	}
 	const [remote, ...refspecs] = positional;
-	const branch = every ? undefined : refspecs.map(destination).find(Boolean);
-	return {
+	const call: WriteCall = {
 		action,
 		kind: "change",
 		...(dir !== undefined ? { dir } : {}),
 		...(remote !== undefined ? remotePart(remote) : {}),
-		...(branch !== undefined ? { branch } : {}),
 	};
+	if (every) return [{ ...call, unnamed: "every" }];
+	if (refspecs.length === 0) return [{ ...call, unnamed: "bare" }];
+	// A refspec naming no branch of its own, as `HEAD`, pushes the one
+	// checked out, which settle finds.
+	const branches = [...new Set(refspecs.map(destination))];
+	return branches.map((branch) =>
+		branch === undefined ? call : { ...call, branch },
+	);
 }
 
 /** A remote named by name stays for git; one given as a URL names its repo. */
@@ -659,7 +726,6 @@ function dtWrite(
 			...repoOf(repoFlag),
 		};
 	}
-	if (verb === "push") return pushOf(rest, dir, "dt push");
 	return undefined;
 }
 

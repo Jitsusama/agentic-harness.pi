@@ -30,6 +30,7 @@ function machine(
 			repoOf: async () => "example/shop",
 			branchOf: async (dir) => (dir === TREE ? "fix-it" : "main"),
 			pushRemoteOf: async () => "origin",
+			pushedOf: async () => "fix-it",
 		},
 		headOf: async (repo, pr) => {
 			asked.push(`${repo}#${pr}`);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	changeOf,
 	type GitFacts,
+	pushedBranch,
 	pushRemote,
 	repoOfPushUrls,
 	repoOfUrl,
@@ -51,7 +52,7 @@ describe("writesInBash", () => {
 			},
 		]);
 		expect(writesInBash("git push", HERE)).toEqual([
-			{ action: "git push", kind: "change", dir: HERE },
+			{ action: "git push", kind: "change", dir: HERE, unnamed: "bare" },
 		]);
 		expect(
 			writesInBash("git push https://github.com/Example/Shop.git +b", HERE),
@@ -64,6 +65,47 @@ describe("writesInBash", () => {
 				branch: "b",
 			},
 		]);
+	});
+
+	it("reads a push naming several branches as a write to each", () => {
+		const branches = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.branch);
+		expect(branches("git push origin scratch drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		expect(branches("git push origin scratch:scratch HEAD:drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		expect(branches("git push origin a a")).toEqual(["a"]);
+		expect(branches("dt push origin scratch +drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		// HEAD pushes the branch checked out, which settle finds.
+		expect(branches("git push origin HEAD drill")).toEqual([
+			undefined,
+			"drill",
+		]);
+	});
+
+	it("reads a push of every branch as naming none", () => {
+		for (const command of [
+			"git push --all origin",
+			"git push --mirror origin",
+			"git push origin --tags",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					unnamed: "every",
+				},
+			]);
+		}
 	});
 
 	it("reads a pull request's writes through gh and dt", () => {
@@ -635,7 +677,23 @@ describe("settle", () => {
 			dir === HERE && remote === "origin" ? "example/shop" : undefined,
 		branchOf: async () => "fix-it",
 		pushRemoteOf: async () => "origin",
+		pushedOf: async (_, remote) =>
+			remote === "origin" ? "upstream-name" : undefined,
 	};
+
+	it("judges a push naming no refspec by the branch git's settings push to", async () => {
+		const bare = {
+			action: "git push",
+			kind: "change",
+			dir: HERE,
+			unnamed: "bare",
+		} as const;
+		expect((await settle(bare, git)).branch).toBe("upstream-name");
+		const every = { ...bare, unnamed: "every" } as const;
+		expect((await settle(every, git)).branch).toBeUndefined();
+		const head = { action: "git push", kind: "change", dir: HERE } as const;
+		expect((await settle(head, git)).branch).toBe("fix-it");
+	});
 
 	it("judges a push naming no remote by where git sends it", async () => {
 		const forked: GitFacts = {
@@ -687,6 +745,28 @@ describe("references", () => {
 			"example/shop",
 		);
 		expect(repoOfUrl("shop")).toBeUndefined();
+	});
+
+	it("finds the branch a bare push goes to as git does", async () => {
+		const config = (set: Record<string, string>) => async (key: string) =>
+			set[key];
+		const upstream = { "branch.fix.merge": "refs/heads/drill" };
+		expect(await pushedBranch("fix", "origin", config(upstream))).toBe("fix");
+		const current = { ...upstream, "push.default": "current" };
+		expect(await pushedBranch("fix", "origin", config(current))).toBe("fix");
+		const tracked = { ...upstream, "push.default": "upstream" };
+		expect(await pushedBranch("fix", "origin", config(tracked))).toBe("drill");
+		for (const mode of ["matching", "nothing"]) {
+			const set = { ...upstream, "push.default": mode };
+			expect(await pushedBranch("fix", "origin", config(set)), mode).toBe(
+				undefined,
+			);
+		}
+		const refspec = { ...upstream, "remote.origin.push": "fix:drill" };
+		expect(
+			await pushedBranch("fix", "origin", config(refspec)),
+		).toBeUndefined();
+		expect(await pushedBranch(undefined, "origin", config({}))).toBeUndefined();
 	});
 
 	it("finds the remote a bare push goes to as git does", async () => {
