@@ -120,7 +120,7 @@ export function registerTools(
 		// one a session reading it after a reload concluded it had no mesh
 		// tools and went through codemode; one line names the seven.
 		promptSnippet:
-			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, mesh_sprout starts new work as a cell of its own, and mesh_end lets an orchestrator end a session of its own.",
+			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, mesh_sprout starts new work as a cell of its own, and mesh_end lets an orchestrator end a session of its own, or a held session end itself.",
 		description: `Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. When you don't know who holds what you need, send to need with about saying what it is about: it goes to the one live cell that works on it, found by the node's hubs and ties, and is refused, passed to nobody in its place, when none is within reach. ${NEED_GRANTS_NOTHING} A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself with re and endsHold when work may resume; a reboot ends it too. Answering your own hold without endsHold leaves it held. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave \`to\` out and the mesh picks, saying where. mesh_groups lists the groups.`,
 		parameters: Type.Object({
 			to: Type.Optional(
@@ -264,15 +264,19 @@ export function registerTools(
 
 	pi.registerTool({
 		name: "mesh_end",
-		// For an orchestrator alone: loaded on demand.
+		// For an orchestrator, or a held session ending itself: loaded on
+		// demand.
 		exposure: "deferred",
 		label: "Mesh",
 		description:
-			"End a session of this orchestration, by its address, once it is no longer needed: its pi is asked to quit, as a closed window would, and the window it is shown in closes with it. Only the session playing an orchestrator's role may, only for sessions whose quests it orchestrates on this machine, and a turn running there ends with it. A session whose quest is concluded or retired ends itself, so this is for the rest.",
+			"End a session of this orchestration, by its address, once it is no longer needed: its pi is asked to quit, as a closed window would, and the window it is shown in closes with it. Only the session playing an orchestrator's role may, only for sessions whose quests it orchestrates on this machine, and a turn running there ends with it. A session whose quest is concluded or retired ends itself, so this is for the rest. With no address, a session a mycelium holder keeps on a worker machine ends itself: the holder takes it down and its pi quits; one no holder keeps ends nothing.",
 		parameters: Type.Object({
-			peer: Type.String({
-				description: "The address of the session to end, such as 5GV2AH",
-			}),
+			peer: Type.Optional(
+				Type.String({
+					description:
+						"The address of the session to end, such as 5GV2AH; left out, this session itself, when a mycelium holder keeps it",
+				}),
+			),
 		}),
 		execute: using(end),
 	});

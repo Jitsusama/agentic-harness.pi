@@ -15,6 +15,9 @@
  * or the link closes before it went, the session is told, naming it. A
  * connection that drops is opened again, a little later each time, and
  * the watch takes up from the last message it heard from someone else.
+ * A session a holder keeps (`MYCELIUM_HELD`) asks the node to end it
+ * on the presence's connection alone, since the node takes an End only
+ * from a connection whose presence it holds, never one opened for it.
  *
  * The node judges everything a worker says (who it may write to, as
  * whom, which intents), so nothing here decides what reaches it. What
@@ -136,16 +139,28 @@ export interface WorkerLink {
 	/** Carry a message this session sent, once it is stamped and kept. */
 	relay(message: Message): void;
 	/**
+	 * Ask the node to have `held`, the holder keeping this session, take
+	 * it down: said on the connection holding its presence once the node
+	 * took it, never on one opened for it, and settled by the node's
+	 * answer, or refused with why when there is no such connection or it
+	 * drops first.
+	 */
+	end(held: string): Promise<Ended>;
+	/**
 	 * Hang up both connections, for good, once what was written to the
 	 * node has gone; each message never written is told as unsent.
 	 */
 	close(): void;
 }
 
+/** What the node said to ending this session through its holder. */
+export type Ended = { readonly ok: true } | { readonly refused: string };
+
 /** A reply the presence connection waits on, in the order asked. */
 type Awaited =
 	| { readonly kind: "presence" }
-	| { readonly kind: "send"; readonly message: Message };
+	| { readonly kind: "send"; readonly message: Message }
+	| { readonly kind: "end"; readonly settle: (ended: Ended) => void };
 
 /** Opens a session's link to its node's worker socket. */
 export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
@@ -255,6 +270,14 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			}
 			return;
 		}
+		if (asked.kind === "end") {
+			asked.settle(
+				reply.ok
+					? { ok: true }
+					: { refused: oneLine(reply.why).slice(0, MOST_WHY) },
+			);
+			return;
+		}
 		// A send the node already holds, as one said again after a drop that
 		// came after the node took it, is refused as said: it went.
 		if (reply.ok || saidAlready(reply.why, asked.message.id)) taken("send");
@@ -314,9 +337,18 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			held = undefined;
 			holding = false;
 			watching?.destroy();
-			const unanswered = awaited
-				.splice(0)
-				.flatMap((one) => (one.kind === "send" ? [one.message] : []));
+			// A send goes again on the next connection; an end never does,
+			// since the node takes one only from the presence it was said on.
+			const unanswered: Message[] = [];
+			for (const one of awaited.splice(0)) {
+				if (one.kind === "send") unanswered.push(one.message);
+				else if (one.kind === "end") {
+					one.settle({
+						refused:
+							"the connection holding this session's presence closed before the node answered",
+					});
+				}
+			}
 			unsent.unshift(...unanswered);
 			// A retry presentAgain set gives way to this one, so close() always
 			// holds the one timer left to clear.
@@ -458,6 +490,24 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 				unsent.push(message);
 				if (held === undefined && again === undefined) openHold();
 			}
+		},
+		end(holder) {
+			if (closed) {
+				return Promise.resolve({
+					refused: "the session's link to the node had closed",
+				});
+			}
+			const on = held;
+			if (on === undefined || on.connecting || !holding) {
+				return Promise.resolve({
+					refused:
+						"the node holds no presence of this session yet, and an end goes only on the connection holding one",
+				});
+			}
+			return new Promise<Ended>((settle) => {
+				awaited.push({ kind: "end", settle });
+				write(on, { End: { held: holder } });
+			});
 		},
 		close() {
 			if (closed) return;

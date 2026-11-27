@@ -134,6 +134,8 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 							return [];
 						}
 					},
+					...(m.env.MYCELIUM_HELD ? { holder: m.env.MYCELIUM_HELD } : {}),
+					...(m.workerLink ? { endHeld: m.workerLink.end } : {}),
 					...(m.paths.looks ? { looks: m.paths.looks } : {}),
 					...(m.waiting ? { waiting: m.waiting } : {}),
 				}
