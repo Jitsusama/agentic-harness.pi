@@ -13,13 +13,13 @@
  *   node scripts/windows-elsewhere.ts
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../extensions/quest-workflow/sessions/restore.ts";
 import { currentBootToken } from "../lib/internal/boot-token.ts";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
+import { askJson } from "../lib/internal/quest/reopening/ask-json.ts";
 import { sessionsKittyDoor } from "../lib/internal/quest/reopening/sessions-kitty.ts";
 import {
 	nextNote,
@@ -28,24 +28,6 @@ import {
 	windowsNotePath,
 	writeWindowsNote,
 } from "../lib/internal/quest/reopening/windows-elsewhere.ts";
-
-/** How long one kitty or the node may take to answer. */
-const ASK_MS = 5000;
-
-/** The answer a program prints as JSON, or undefined when it gives none. */
-function asked(program: string, args: readonly string[]): unknown {
-	try {
-		const out = execFileSync(program, args, {
-			encoding: "utf8",
-			timeout: ASK_MS,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-		return JSON.parse(out);
-	} catch {
-		// Not installed, not running, or slow: nothing from it this minute.
-		return undefined;
-	}
-}
 
 /**
  * Each kitty's remote-control socket here: `@kitty-<pid>` in the abstract
@@ -65,9 +47,9 @@ function kittySockets(): string[] {
 }
 
 const boot = currentBootToken();
-const sessions = asked("mycelium", ["sessions"]);
+const sessions = askJson("mycelium", ["sessions"]);
 const kitties = kittySockets().map((socket) =>
-	asked("kitty", ["@", "--to", `unix:${socket}`, "ls"]),
+	askJson("kitty", ["@", "--to", `unix:${socket}`, "ls"]),
 );
 if (
 	boot !== undefined &&
