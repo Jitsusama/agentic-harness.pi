@@ -6,6 +6,7 @@
 
 import {
 	existsSync,
+	lutimesSync,
 	mkdirSync,
 	readdirSync,
 	symlinkSync,
@@ -257,10 +258,14 @@ describe("carrying a steered session's work", () => {
 			3 * 86_400_000,
 		);
 		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
+		const link = join(install, "current");
 		symlinkSync(
 			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			join(install, "current"),
+			link,
 		);
+		// The installer moves the link as it leaves the old version.
+		const moved = (Date.now() - 86_400_000) / 1000;
+		lutimesSync(link, moved, moved);
 
 		// A run that never ends, so only a refusal before winding down
 		// answers within the test.
@@ -289,10 +294,14 @@ describe("carrying a steered session's work", () => {
 			3 * 86_400_000,
 		);
 		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
+		const link = join(install, "current");
 		symlinkSync(
 			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			join(install, "current"),
+			link,
 		);
+		// The installer moves the link as it leaves the old version.
+		const moved = (Date.now() - 86_400_000) / 1000;
+		lutimesSync(link, moved, moved);
 		loaded("s-judged", QUEST);
 
 		const done = await carryThisSession(

@@ -6,6 +6,7 @@
  */
 
 import {
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -151,10 +152,14 @@ describe("what holds a session from an ordered carry, from code its install left
 		};
 		const old = made("03c16f4cfe6b0b8ed5afba531da67409c1d6729c", 50 * HOUR_MS);
 		made("9255f6d13012e75c85e1b7e9dab118755c1d7f94", HOUR_MS);
+		const link = join(install, "current");
 		symlinkSync(
 			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			join(install, "current"),
+			link,
 		);
+		// The installer moves the link as it leaves the old version.
+		const moved = (Date.now() - HOUR_MS) / 1000;
+		lutimesSync(link, moved, moved);
 		return { old, board: createBoard(join(install, "board")) };
 	}
 

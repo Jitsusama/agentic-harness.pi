@@ -7,11 +7,12 @@
  * November MZ5YL7 carried on a harness two days old, which lacked the
  * fix for the very failure its carry met. A carry it starts then fails
  * on a bug already mended, so it waits for the reload instead, saying
- * why.
+ * why. When the install left a version is read from the installer's own
+ * record of moving off it, never from when version folders were made.
  */
 
-import { readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { installOfVersion } from "../reload/loaded.ts";
 
 /** How many characters of a version's commit a refusal names. */
@@ -52,40 +53,35 @@ export function behindItsInstall(
 		return undefined;
 	}
 	if (current === running) return undefined;
-	const left = leftAt(running);
+	const left = leftAt(install, running);
 	if (left === undefined || now - left <= BEHIND_FOR_MS) return undefined;
 	const minutes = Math.floor((now - left) / MINUTE_MS);
 	return `it runs harness ${short(running)}, which its install left ${minutes} minutes ago for ${short(current)}, so it may lack a carry fix; ask the carry again once it reloads, which /reload does now and a session following its install does once idle`;
 }
 
 /**
- * When the install left the version at `running`: when the first version
- * beside it made after it was made, or nothing where none was. A version
- * since let go makes this later than it was, which errs toward carrying.
+ * When `install` left the version at `running`: the time of the empty
+ * marker its installer makes in `retired/` as it moves `current` off a
+ * version, named by that version's commit and dated to the move. With
+ * no marker, as for a session on the former `releases/`, it is the time
+ * of the `current` link itself, which moved no earlier than it left
+ * `running`, so it errs toward carrying. Nothing where neither can be
+ * read, so a doubt never refuses. When versions were made says nothing
+ * of it: one is built long before it is made current, if ever, and a
+ * copy keeps its times.
  */
-function leftAt(running: string): number | undefined {
-	const versions = dirname(running);
-	let made: number;
-	let names: string[];
+function leftAt(install: string, running: string): number | undefined {
 	try {
-		made = statSync(running).mtimeMs;
-		names = readdirSync(versions);
+		return statSync(join(install, "retired", basename(running))).mtimeMs;
 	} catch {
-		// Versions that can't be read say nothing of when it was left.
+		// No marker, as for a version left before markers were kept.
+	}
+	try {
+		return lstatSync(join(install, "current")).mtimeMs;
+	} catch {
+		// An install whose link can't be read says nothing of the move.
 		return undefined;
 	}
-	let first: number | undefined;
-	for (const name of names) {
-		let at: number;
-		try {
-			at = statSync(join(versions, name)).mtimeMs;
-		} catch {
-			// One let go as it was read was not the one that left it.
-			continue;
-		}
-		if (at > made && (first === undefined || at < first)) first = at;
-	}
-	return first;
 }
 
 /** A version folder's commit, as a refusal names it. */
