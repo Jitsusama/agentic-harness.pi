@@ -233,6 +233,27 @@ describe("the folder transport", () => {
 		}
 	});
 
+	it("reads no further batch once its reader is no longer going", async () => {
+		// An overtaken catch-up read on through its whole backlog, so a
+		// restart read the same week twice at once.
+		const ids = Array.from({ length: 70 }, (_, at) => `${at + 1}-X-1`);
+		const asked: string[] = [];
+		const reader = {
+			readOff: (id: string) => {
+				asked.push(id);
+				return Promise.resolve(undefined);
+			},
+		};
+		const read = await readEachOff(reader, ids, () => asked.length === 0);
+
+		expect(asked, "the first batch alone was read").toEqual(ids.slice(0, 32));
+		expect(read, "one answer for each read").toHaveLength(32);
+		await expect(
+			readEachOff(reader, ids),
+			"every batch, when nothing says stop",
+		).resolves.toHaveLength(70);
+	});
+
 	it("lists from the day an id was stamped on, passing the days before, on the thread or off it", async () => {
 		const transport = folderTransport(dir);
 		const day = 24 * 60 * 60 * 1000;

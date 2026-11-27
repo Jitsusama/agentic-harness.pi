@@ -280,14 +280,17 @@ const READING_AT_ONCE = 32;
  * The messages these ids name, in their order, read off the thread a
  * few at a time. A week's are thousands of files: opened all at once
  * they would fill the thread pool every conversation in a host shares,
- * and past the open-file limit each would read as no message.
+ * and past the open-file limit each would read as no message. Stops
+ * between batches once `going` answers false, answering only those read,
+ * so a reader no longer wanted doesn't read on through a week.
  */
 export async function readEachOff(
 	transport: Pick<Transport, "readOff">,
 	ids: readonly string[],
+	going: () => boolean = () => true,
 ): Promise<(Message | undefined)[]> {
 	const read: (Message | undefined)[] = [];
-	for (let from = 0; from < ids.length; from += READING_AT_ONCE) {
+	for (let from = 0; from < ids.length && going(); from += READING_AT_ONCE) {
 		const batch = ids.slice(from, from + READING_AT_ONCE);
 		read.push(...(await Promise.all(batch.map((id) => transport.readOff(id)))));
 	}

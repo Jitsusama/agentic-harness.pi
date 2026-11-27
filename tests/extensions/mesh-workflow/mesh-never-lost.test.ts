@@ -35,9 +35,11 @@ const listing = vi.hoisted(() => ({
 	dirs: undefined as string[] | undefined,
 	off: undefined as string[] | undefined,
 }));
-// The files read, while a test keeps a list of them.
+// The files read, on the thread and off it, while a test keeps a list
+// of them.
 const reading = vi.hoisted(() => ({
 	files: undefined as string[] | undefined,
+	off: undefined as string[] | undefined,
 }));
 // A read off the thread held until a test lets it on: the first of the
 // file named, which says so as it is held.
@@ -74,6 +76,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 			return fs.opendir(...args);
 		}) as typeof fs.opendir,
 		readFile: (async (...args: Parameters<typeof fs.readFile>) => {
+			reading.off?.push(String(args[0]));
 			if (holding.name && String(args[0]).endsWith(holding.name)) {
 				holding.name = undefined;
 				holding.held();
@@ -187,8 +190,8 @@ describe("a message never lost", () => {
 			new Date(at).toISOString().slice(0, 10),
 		);
 
-	/** A question to this peer stamped at this time, kept in its day's folder. */
-	const settled = (at: number, text: string): string => {
+	/** A question to this peer, or `to`, stamped at this time, kept in its day's folder. */
+	const settled = (at: number, text: string, to = ["@7M6JKG"]): string => {
 		const id = `${at}-WCJQSG-7-dddddddd`;
 		mkdirSync(dayFolder(at), { recursive: true });
 		writeFileSync(
@@ -198,7 +201,7 @@ describe("a message never lost", () => {
 				id,
 				at: new Date(at).toISOString(),
 				from: "WCJQSG",
-				to: ["@7M6JKG"],
+				to,
 				intent: "question",
 				text,
 				pid: 7,
@@ -263,14 +266,20 @@ describe("a message never lost", () => {
 		});
 		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
 		listing.dirs = [];
+		listing.off = [];
 		reading.files = [];
+		reading.off = [];
 
 		const { sent } = await startSession();
 		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
 		const listed = listing.dirs;
+		const listedOff = listing.off;
 		const read = reading.files;
+		const readOff = reading.off;
 		listing.dirs = undefined;
+		listing.off = undefined;
 		reading.files = undefined;
+		reading.off = undefined;
 
 		expect(handed(sent).sort()).toEqual([
 			"7M6JKG: lately?",
@@ -290,6 +299,16 @@ describe("a message never lost", () => {
 			),
 			"the folders caught up from, listed on the thread",
 		).toEqual([]);
+		// What wasn't done on the thread was done off it, so the absences
+		// above count only while these fakes are the ones the catch-up uses.
+		expect(
+			readOff.some((file) => file.endsWith(`${yesterday}.json`)),
+			"the message caught up on, read off the thread",
+		).toBe(true);
+		expect(
+			listedOff,
+			"the folders caught up from, listed off the thread",
+		).toEqual(expect.arrayContaining([dir, dayFolder(now - day)]));
 	});
 
 	it("is heard as it lands while the catch-up reads, the marker kept behind what is read", async () => {
@@ -322,6 +341,34 @@ describe("a message never lost", () => {
 		read.release();
 		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
 		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("moves the marker past what was heard meanwhile once the catch-up lets go what isn't its", async () => {
+		// Letting go of one read for another peer only forgot it, so one
+		// handed over behind it held the marker back until the next landed.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		const another = settled(now - day, "ZZZZZZ: yours?", ["@ZZZZZZ"]);
+		const read = holdRead(another);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+		await vi.waitFor(() => expect(handed(sent)).toEqual(["7M6JKG: lately?"]));
+		expect(marker(), "the marker, while another's is read").toBe(floor);
+
+		read.release();
+		await vi.waitFor(() =>
+			expect(marker(), "the marker once another's was let go").toBe(lately.id),
+		);
 	});
 
 	it("is caught up on once, by the start that overtook a catch-up still reading", async () => {

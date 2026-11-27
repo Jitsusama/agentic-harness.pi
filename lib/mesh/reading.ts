@@ -48,8 +48,10 @@ export interface ReadFront {
 	/**
 	 * These were taken before they were read, and once read are not to be
 	 * handed over: the marker passes them as it passes any id never taken.
+	 * Answers the id the marker may now move to, as `handed` does, since
+	 * those handed behind them meanwhile may now be passed.
 	 */
-	letGo(ids: readonly string[]): void;
+	letGo(ids: readonly string[]): string | undefined;
 }
 
 /** Where the marker may move, from nothing taken yet. */
@@ -57,6 +59,17 @@ export function createReadFront(): ReadFront {
 	const waiting = new Set<string>();
 	// Handed over, but behind one still waiting, so the marker cannot pass.
 	let behind: string[] = [];
+	// The newest handed over below every one still waiting, if any.
+	const passable = (): string | undefined => {
+		const oldest = [...waiting].sort()[0];
+		const front = behind
+			.filter((id) => oldest === undefined || id < oldest)
+			.sort()
+			.pop();
+		if (front === undefined) return undefined;
+		behind = behind.filter((id) => id > front);
+		return front;
+	};
 	return {
 		taken(id) {
 			waiting.add(id);
@@ -66,17 +79,11 @@ export function createReadFront(): ReadFront {
 				if (!waiting.delete(id)) continue;
 				behind.push(id);
 			}
-			const oldest = [...waiting].sort()[0];
-			const passable = behind
-				.filter((id) => oldest === undefined || id < oldest)
-				.sort();
-			const front = passable.pop();
-			if (front === undefined) return undefined;
-			behind = behind.filter((id) => id > front);
-			return front;
+			return passable();
 		},
 		letGo(ids) {
 			for (const id of ids) waiting.delete(id);
+			return passable();
 		},
 	};
 }

@@ -82,4 +82,13 @@ describe("the read front", () => {
 		front.letGo(["100-A"]);
 		expect(front.handed(["200-B"])).toBe("300-C");
 	});
+
+	it("moves as it lets go, past what was handed behind those let go", () => {
+		const front = createReadFront();
+		for (const id of ["100-A", "200-B"]) front.taken(id);
+
+		expect(front.handed(["200-B"])).toBeUndefined();
+		expect(front.letGo(["100-A"])).toBe("200-B");
+		expect(front.letGo(["100-A"])).toBeUndefined();
+	});
 });

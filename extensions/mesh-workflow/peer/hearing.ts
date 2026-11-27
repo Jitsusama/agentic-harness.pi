@@ -498,7 +498,9 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * Each id is taken on the front as it is claimed, before its read, so
 	 * a message heard meanwhile is routed at once without carrying the
 	 * marker past one still being read; those that turn out not to be
-	 * handed over are let go once read.
+	 * handed over are let go once read, and all of them when taking them
+	 * throws, since one left waiting would hold the marker for the rest of
+	 * the session.
 	 */
 	const catchUp = async (since: string): Promise<Message[]> => {
 		const front = m.front;
@@ -511,11 +513,31 @@ export function createHearing(m: MeshState, f: Handing) {
 		for (const id of top) m.seen.add(id);
 		const claimed = ids.filter((id) => id > since && claim(id));
 		for (const id of claimed) front.taken(id);
-		const written = await readEachOff({ readOff: m.asWrittenOff }, claimed);
-		if (m.front !== front) return [];
-		const caught = claimed.map((id, at) => taken(id, written[at]));
-		front.letGo(claimed.filter((_, at) => caught[at] === undefined));
-		return caught.filter((one): one is Message => one !== undefined);
+		try {
+			// Read no further once overtaken: a restart would else read the
+			// same backlog twice at once, the very load it spreads.
+			const written = await readEachOff(
+				{ readOff: m.asWrittenOff },
+				claimed,
+				() => m.front === front,
+			);
+			if (m.front !== front) return [];
+			const caught = claimed.map((id, at) => taken(id, written[at]));
+			letGo(claimed.filter((_, at) => caught[at] === undefined));
+			return caught.filter((one): one is Message => one !== undefined);
+		} catch (error) {
+			if (m.front === front) letGo(claimed);
+			throw error;
+		}
+	};
+
+	/**
+	 * These were taken but are not to be handed over, so the marker passes
+	 * them, and those handed behind them meanwhile.
+	 */
+	const letGo = (ids: readonly string[]) => {
+		const to = m.front.letGo(ids);
+		if (to !== undefined && m.peer) m.transport.markRead(m.peer.signature, to);
 	};
 
 	/**
@@ -789,6 +811,7 @@ export function createHearing(m: MeshState, f: Handing) {
 		replacedBy,
 		take,
 		catchUp,
+		letGo,
 		lookIfPassedOver,
 		reconsider,
 		addressesOf,
