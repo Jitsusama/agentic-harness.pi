@@ -57,6 +57,7 @@ const holding = vi.hoisted(() => ({
 	dir: undefined as string | undefined,
 	listed: () => {},
 	listOpen: Promise.resolve(),
+	closed: () => {},
 }));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
@@ -83,12 +84,24 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		...fs,
 		opendir: (async (...args: Parameters<typeof fs.opendir>) => {
 			listing.off?.push(String(args[0]));
-			if (holding.dir && String(args[0]) === holding.dir) {
-				holding.dir = undefined;
-				holding.listed();
-				await holding.listOpen;
+			if (!holding.dir || String(args[0]) !== holding.dir) {
+				return fs.opendir(...args);
 			}
-			return fs.opendir(...args);
+			holding.dir = undefined;
+			const closed = holding.closed;
+			holding.listed();
+			await holding.listOpen;
+			const folder = await fs.opendir(...args);
+			const close = folder.close.bind(folder);
+			// Said once the listing let on has ended, as its folder is closed.
+			folder.close = (async () => {
+				try {
+					await close();
+				} finally {
+					closed();
+				}
+			}) as typeof folder.close;
+			return folder;
 		}) as typeof fs.opendir,
 		readFile: (async (...args: Parameters<typeof fs.readFile>) => {
 			reading.off?.push(String(args[0]));
@@ -135,9 +148,13 @@ function holdRead(id: string): {
 	return { held, read, release };
 }
 
-/** Hold the first listing off the thread of this folder until `release`. */
+/**
+ * Hold the first listing off the thread of this folder until `release`;
+ * `closed` settles once, let go, it has listed the folder to its end.
+ */
 function holdListing(dir: string): {
 	held: Promise<void>;
+	closed: Promise<void>;
 	release: () => void;
 } {
 	let release = () => {};
@@ -147,8 +164,11 @@ function holdListing(dir: string): {
 	const held = new Promise<void>((resolve) => {
 		holding.listed = resolve;
 	});
+	const closed = new Promise<void>((resolve) => {
+		holding.closed = resolve;
+	});
 	holding.dir = dir;
-	return { held, release };
+	return { held, closed, release };
 }
 
 beforeEach(() => {
@@ -603,10 +623,12 @@ describe("a message never lost", () => {
 	it("counts the start caught up only once what it caught up on is routed", async () => {
 		// Routing went unawaited, so the start counted as caught up while
 		// its catch-up was still judged, and a look meanwhile ran beside it.
+		// Its looks a minute apart, as by default, so only a look asked for
+		// is one: the one owed once caught up is then the only look after.
 		deafen();
 		const asked: ((value: unknown) => void)[] = [];
 		fromElsewhere({ text: "merging core.nix#330 now" });
-		await startSession(
+		const { fire } = await startSession(
 			{},
 			{
 				isIdle: () => true,
@@ -620,18 +642,15 @@ describe("a message never lost", () => {
 						}),
 				},
 			},
-			[],
-			undefined,
-			undefined,
-			undefined,
-			20,
 		);
 		await vi.waitFor(() =>
 			expect(asked, "the catch-up judged").toHaveLength(1),
 		);
 		fromElsewhere({ text: "merging core.nix#331 now" });
-		// A real pause: the test is that a look, due every 20 ms, judges
-		// nothing while the catch-up is still judged.
+		// A look asked for as a run ends, while the catch-up is still judged.
+		await fire("agent_end");
+		// A real pause: the test is that the look asked for judges nothing
+		// while the catch-up is still judged.
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(asked, "judged by a look while the catch-up was").toHaveLength(1);
 
@@ -700,6 +719,56 @@ describe("a message never lost", () => {
 		expect(handed(sent), "handed over once, by the start that stands").toEqual([
 			"7M6JKG: yesterday?",
 		]);
+	});
+
+	it("is caught up on once, by the start that overtook a catch-up still listing", async () => {
+		// Let on once overtaken, a catch-up still listing claimed the backlog
+		// as seen, then, no longer standing, handed none of it over, so the
+		// start that overtook it found all of it seen already.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		// Swept just now, so the listings held are the catch-ups', not a sweep's.
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		// At the top, so a catch-up lists that one folder alone.
+		const backlog = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: before you started?",
+		});
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+		const first = holdListing(dir);
+		const { sent, fire, restart } = await startSession(
+			{},
+			{ isIdle: () => true },
+		);
+		await first.held;
+		await fire("session_shutdown");
+
+		// The same runtime starting again, its own listing held in turn, so
+		// the first catch-up is let on before the start that overtook it lists.
+		const second = holdListing(dir);
+		await restart();
+		await second.held;
+		first.release();
+		// Once its folder is closed and the thread has turned, the first
+		// start's catch-up has ended, however slow the machine.
+		await first.closed;
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(marker(), "the marker, before the backlog is handed over").toBe(
+			floor,
+		);
+
+		second.release();
+		await vi.waitFor(() =>
+			expect(
+				handed(sent),
+				"handed over once, by the start that stands",
+			).toEqual(["7M6JKG: before you started?"]),
+		);
+		await vi.waitFor(() => expect(marker()).toBe(backlog.id));
 	});
 
 	it("is heard once across a restart, whichever folder it rests in", async () => {
@@ -851,17 +920,31 @@ describe("a message never lost", () => {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
 		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		// Swept just now, so the listing held below is a look's, not a sweep's.
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
 		const read = holdRead(yesterday);
 
 		const { sent, fire } = await startSession();
 		await read.held;
 		fromElsewhere({ to: ["@7M6JKG"], text: "dropped by the kernel" });
+		// The catch-up has listed the top, so the next listing of it is a
+		// look's, which lists it before it waits on anything.
+		const look = holdListing(dir);
+		let looked = false;
+		void look.held.then(() => {
+			looked = true;
+		});
 		await fire("agent_end");
-		// A real pause: the test is that no look hands anything over in it.
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(looked, "a look listed the top while the catch-up read").toBe(false);
 		expect(handed(sent), "nothing, while the catch-up reads").toEqual([]);
 
 		read.release();
+		await look.held;
+		expect(handed(sent), "the catch-up, handed before the look owed").toEqual([
+			"7M6JKG: yesterday?",
+		]);
+		look.release();
 		await vi.waitFor(() =>
 			expect(handed(sent).sort()).toEqual([
 				"7M6JKG: yesterday?",
