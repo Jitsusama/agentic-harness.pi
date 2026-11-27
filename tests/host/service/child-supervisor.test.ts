@@ -939,9 +939,18 @@ describe("children starting at once", () => {
 		expect(line, "hurried before it asked, it was moved nowhere").not.toContain(
 			"going ahead",
 		);
+		expect(line, "someone waited on it from its first ask").toContain(
+			"with someone waiting on it",
+		);
 
 		holdingSecond.settle();
 		await Promise.all([...starting, ...later]);
+		const unwaited = said.find((one) =>
+			one.startsWith(`${unitOf(nth(3))}: waited`),
+		);
+		expect(unwaited, "a resume nobody woke says nobody waited").toContain(
+			"with nobody waiting on it",
+		);
 	});
 
 	// F102 on #2080: the case above hurries a start before it reaches the
@@ -1010,6 +1019,9 @@ describe("children starting at once", () => {
 		expect(line, "its wait is said").toBeDefined();
 		expect(line, "already ahead, it was moved nowhere").not.toContain(
 			"going ahead",
+		);
+		expect(line, "woken, someone waited on it").toContain(
+			"with someone waiting on it",
 		);
 
 		holdingSecond.settle();
