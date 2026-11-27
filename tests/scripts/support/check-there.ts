@@ -178,9 +178,9 @@ function hostWith(programs: readonly string[]): string {
  * A check's shell: the turn-taking, then `body`, on the host's PATH with
  * the host's folder as its home. It leads a process group of its own, as
  * a shell ssh starts does, so a stop it sends its group reaches only it.
- * It reads no startup file: bash given a socket as stdin, which node's
- * pipe is on the Mac, takes itself for sshd's and reads the system
- * bashrc, whose PATH on nix-darwin brings back every program the host
+ * It reads no startup file: bash given a socket as stdin, as node's
+ * pipes are, takes itself for sshd's and reads the system bashrc, whose
+ * PATH, on nix-darwin as on NixOS, brings back every program the host
  * leaves out.
  */
 function check(
