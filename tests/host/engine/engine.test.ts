@@ -26,6 +26,10 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Started } from "../../support/spawns.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
+import { itOnlyOn } from "../end-to-end/support/only-on.mts";
+
+/** A case that reads what a host holds open from /proc, which only Linux has. */
+const onLinux = itOnlyOn("linux", "it reads a host's open logs from /proc");
 
 const run = promisify(execFile);
 /** The host's pi, found again for each case, which skips or fails without one. */
@@ -922,8 +926,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	// Read from /proc, which only Linux has.
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"holds each conversation's log open to read for as long as it holds the conversation, parked or running",
 		async () => {
 			const seen = await step(hostFolder(), "logs-held");
@@ -976,7 +979,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"holds the log of one resting parked through the host's restart",
 		async () => {
 			const folder = hostFolder();
@@ -988,7 +991,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"lets go of the log of one resting parked once a child runs it",
 		async () => {
 			const folder = hostFolder();
