@@ -1,5 +1,7 @@
 /**
- * Whether the machine has the room to start a council's reviewers.
+ * Whether the machine has the room to start heavy work: a council's
+ * reviewers (review-integration's ask-round), or a hosted conversation's
+ * fresh process as it rolls onto new code (host/service/stale-child.ts).
  *
  * A council starts several pis at once, each holding a pi's worth of
  * memory and busy on the CPU for minutes. Rounds used to start a fixed
@@ -28,6 +30,11 @@
  * alone would have waited for hours (A210E4CA, 26 November). Memory is
  * never passed: a start that runs the machine out of it stalls
  * everything on it.
+ *
+ * A roll reads the CPU alone (`cpuShort`): on 27 November an install
+ * move at 02:53 rolled conversations together and optimus's CPU `some
+ * avg60` went from 20.6 to 64.7 (A210E4CA), and a roll held on memory
+ * too could keep a child on stale code for hours.
  */
 
 import { readFile } from "node:fs/promises";
@@ -145,6 +152,20 @@ export async function machineQuiet(
 		available !== undefined &&
 		available >= QUIET_MEM_AVAILABLE_GIB_AT_LEAST
 	);
+}
+
+/**
+ * What keeps a roll from starting now, or nothing when the CPU has
+ * room: its `some avg60` at or past the bar a council's round waits on.
+ * A machine that doesn't keep it, as a Mac, always has room.
+ */
+export async function cpuShort(
+	read: () => Promise<string> = LINUX_READS.cpuPressure,
+): Promise<string | undefined> {
+	const cpu = await pressureAvg60(read, "some");
+	return cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
+		? `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`
+		: undefined;
 }
 
 /** The readings a round's room is judged by, each nothing where it can't be had. */

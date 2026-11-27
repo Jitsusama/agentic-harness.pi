@@ -66,7 +66,8 @@ no caller reads by.
   entries as plain turns, and searching a session's own log so what
   a compaction dropped stays within reach.
 - **`machine/`**: this machine: its name as its realm's other
-  machines say it, the realm a session lives in, and when it booted.
+  machines say it, the realm a session lives in, when it booted, and
+  whether it has room for heavy work now.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
