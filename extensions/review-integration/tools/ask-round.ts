@@ -186,7 +186,10 @@ export async function awaitRosterStart(
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const line = councilStartsPath();
-	const spacing = spacingKeptAcrossFailedReads(configuredSpacing);
+	const spacing = spacingAtLeast(
+		spacingKeptAcrossFailedReads(configuredSpacing),
+		room.spacingMs,
+	);
 	const start = await awaitCouncilStart(
 		line,
 		{
@@ -199,9 +202,8 @@ export async function awaitRosterStart(
 			room: () => room.short(),
 			...(room.quiet === undefined ? {} : { quiet: room.quiet }),
 			// Read at each look, so a spacing set while rounds wait reaches
-			// them; the room's own spacing stands where the config sets none.
+			// them; never under the room's own, which a config can't narrow.
 			spacing,
-			...(room.spacingMs === undefined ? {} : { spacingMs: room.spacingMs }),
 		},
 		signal,
 	);
@@ -224,18 +226,30 @@ export function withUnjudged(
 }
 
 /**
- * How long a Mac leaves between round starts when its config sets none:
- * its swap-outs show a round's reviewers only once they have loaded, a
- * minute or more after the start, so two a minute would start a third
- * before the first showed.
+ * A spacing reader that never answers under `floor`, where one is
+ * given: a config may widen a machine's own spacing, never narrow it.
+ */
+export function spacingAtLeast(
+	read: () => Promise<number | undefined>,
+	floor: number | undefined,
+): () => Promise<number | undefined> {
+	if (floor === undefined) return read;
+	return async () => Math.max((await read()) ?? 0, floor);
+}
+
+/**
+ * The least a Mac leaves between round starts, whatever its config
+ * sets: its swap-outs show a round's reviewers only once they have
+ * loaded, a minute or more after the start, so two a minute would
+ * start a third before the first showed. A config may set it wider.
  */
 export const MAC_SPACING_MS = 2 * 60_000;
 
 /**
  * The room a round reads on `platform`: a Mac waits while another
  * roster round still runs there, then reads the queue's rule for a Mac,
- * since it keeps no pressure file, and spaces its starts
- * {@link MAC_SPACING_MS} apart unless config says otherwise; Linux
+ * since it keeps no pressure file, and spaces its starts at least
+ * {@link MAC_SPACING_MS} apart, wider where config says; Linux
  * reads its memory and CPU pressure and available memory, runs rounds
  * side by side, and alone keeps the readings a quiet machine is judged
  * on.
@@ -266,7 +280,7 @@ export function roundRoom(
  * machine is quiet enough to start sooner, where it can tell.
  */
 export interface RosterRoom extends RoundRoom {
-	/** The spacing between starts where the config sets none. */
+	/** The least spacing between starts, which the config may only widen. */
 	readonly spacingMs?: number;
 	/** Whether the machine is quiet; left out where it can't be read. */
 	readonly quiet?: () => Promise<boolean>;

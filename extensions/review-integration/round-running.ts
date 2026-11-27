@@ -14,12 +14,20 @@
  * transcripts' `runs`, judged by the same supervisor lease the collect
  * path reads, so a round counts as running exactly while a collect
  * would refuse it. A judge and an audit ask one participant each and
- * are not counted, as the start line doesn't count them.
+ * are not counted, as the start line doesn't count them. A retry asks
+ * one reviewer into a roster round's folder, and does count while it
+ * runs inside that round's look back, since its reviewer loads here like any other. So does a round
+ * whose reviewers run on another machine: its supervisors run here,
+ * and nothing on disk says where a reviewer's model ran.
  */
 
 import { readdir, stat } from "node:fs/promises";
 import { rosterStartOf } from "../../lib/core/review/ask/start-spacing.ts";
-import { type TickFacts, tickFacts } from "../../lib/internal/process-ticks.ts";
+import {
+	askedOnceWithTicks,
+	type TickFacts,
+	tickFacts,
+} from "../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
 	STARTING_FOR_MS,
@@ -27,17 +35,21 @@ import {
 } from "../../lib/subagent/lease.ts";
 
 /**
- * How far back a round's start is looked for. A reviewer's wall is an
- * hour on this machine's roster and a round's reviewers start together,
- * so a round older than this has ended or been given up on; reading
- * every round on disk would cost a look for nothing.
+ * How long a round may hold a Mac's starts, however its supervisors
+ * stand. A round's reviewers start together, and the longest wall on
+ * the work Mac's rosters is 90 minutes, so a round older than two hours
+ * has ended or wedged: a supervisor alive past its own wall would
+ * otherwise hold every Mac round behind it. Reading every round on
+ * disk would cost a look for nothing besides.
  */
-export const RUNNING_LOOK_BACK_MS = 3 * 60 * 60_000;
+export const RUNNING_LOOK_BACK_MS = 2 * 60 * 60_000;
 
 /** A round still running here, and how many of its reviewers are yet to answer. */
 export interface RunningRound {
 	readonly runId: string;
 	readonly reviewersRunning: number;
+	/** How long it has run, so a wait behind a wedged round shows as one. */
+	readonly runningMs?: number;
 }
 
 /**
@@ -52,6 +64,8 @@ export async function rosterRoundRunning(
 	now: number = Date.now(),
 ): Promise<RunningRound | undefined> {
 	const store = new ReviewerArtifactsStore(stateDir);
+	// One process listing for every reviewer this look reads, not one each.
+	const once = askedOnceWithTicks(facts);
 	const recent = (await namesIn(store.runsDir))
 		.map((name) => ({ name, at: rosterStartOf(name) }))
 		.filter(
@@ -64,7 +78,11 @@ export async function rosterRoundRunning(
 		const reviewers = await namesIn(reviewersDir);
 		if (reviewers.length === 0) {
 			if (await youngerThan(reviewersDir, run.at, STARTING_FOR_MS, now)) {
-				return { runId: run.name, reviewersRunning: 0 };
+				return {
+					runId: run.name,
+					reviewersRunning: 0,
+					runningMs: now - run.at,
+				};
 			}
 			continue;
 		}
@@ -74,14 +92,20 @@ export async function rosterRoundRunning(
 				store,
 				run.name,
 				reviewerId,
-				facts,
+				once,
 				now,
 			);
 			if (standing.kind === "running" || standing.kind === "starting") {
 				running += 1;
 			}
 		}
-		if (running > 0) return { runId: run.name, reviewersRunning: running };
+		if (running > 0) {
+			return {
+				runId: run.name,
+				reviewersRunning: running,
+				runningMs: now - run.at,
+			};
+		}
 	}
 	return undefined;
 }
@@ -92,7 +116,11 @@ export function runningSaid(round: RunningRound): string {
 		round.reviewersRunning === 0
 			? "its reviewers are still being handed out"
 			: `${round.reviewersRunning} of its reviewers ${round.reviewersRunning === 1 ? "is" : "are"} still running`;
-	return `${round.runId} still runs on this Mac (${who}), and a Mac starts one roster round at a time`;
+	const minutes =
+		round.runningMs === undefined
+			? ""
+			: `, ${Math.max(0, Math.floor(round.runningMs / 60_000))} minutes in`;
+	return `${round.runId} still runs on this Mac (${who}${minutes}), and a Mac starts one roster round at a time`;
 }
 
 /** The folder names in `folder`, or none when it can't be read. */

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
 	MAC_SPACING_MS,
 	roundRoom,
+	spacingAtLeast,
 	withUnjudged,
 } from "../../../../extensions/review-integration/tools/ask-round.ts";
 import type { RoundRoom } from "../../../../lib/core/review/ask/mac-room.ts";
@@ -72,6 +73,32 @@ describe("the room a round reads", () => {
 		expect(asked, "a Linux round never builds the Mac's room").toBe(false);
 		await room.short();
 		expect(runningAsked, "Linux runs rounds side by side").toBe(false);
+	});
+});
+
+// The council of 27 November: a startSpacingMinutes of one replaced the
+// Mac's two minutes, which the README said a config couldn't do.
+describe("the spacing a round keeps on a machine with its own", () => {
+	it("never goes under the machine's own, whatever the config sets", async () => {
+		const configured = async () => 60_000;
+		expect(await spacingAtLeast(configured, MAC_SPACING_MS)()).toBe(
+			MAC_SPACING_MS,
+		);
+	});
+
+	it("keeps the machine's own where the config sets none", async () => {
+		const none = async () => undefined;
+		expect(await spacingAtLeast(none, MAC_SPACING_MS)()).toBe(MAC_SPACING_MS);
+	});
+
+	it("takes a wider spacing the config sets", async () => {
+		const wide = async () => 10 * 60_000;
+		expect(await spacingAtLeast(wide, MAC_SPACING_MS)()).toBe(10 * 60_000);
+	});
+
+	it("is the config's alone on a machine with none of its own", async () => {
+		const none = async () => undefined;
+		expect(await spacingAtLeast(none, undefined)()).toBeUndefined();
 	});
 });
 

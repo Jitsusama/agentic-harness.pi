@@ -38,6 +38,16 @@ import {
 export const UNJUDGED_WAIT_MS = 10 * 60_000;
 
 /**
+ * How long a wait with no verdict may go unlooked at and still count
+ * toward {@link UNJUDGED_WAIT_MS}. A waiting round looks every 15 s, so
+ * a longer gap means no round of this process was asking the Mac's
+ * memory: none was waiting, or each waited behind a round still
+ * running. That wait starts over, so a round that comes or looks again
+ * later never starts on the cap at its first look, with no baseline.
+ */
+export const UNJUDGED_LOOK_GAP_MS = 60_000;
+
+/**
  * How long one reading of a Mac, or its failure, serves every round in
  * this process: longer than the 15 s a waiting round looks again, so
  * however many rounds a process holds, it runs `sysctl` and `vm_stat`
@@ -64,7 +74,12 @@ export const VM_STAT_PATH = "/usr/bin/vm_stat";
 export interface RoundRoom {
 	/** What keeps the round from starting now, or nothing. */
 	short(): Promise<string | undefined>;
-	/** Why the round started though its room couldn't be judged, if it did. */
+	/**
+	 * Why the round started though its room couldn't be judged, if it
+	 * did. Asked once the round has taken its start, so an unjudged start
+	 * spends its process's wait only then, never at a look that let it
+	 * through without its starting.
+	 */
 	startedUnjudged(): string | undefined;
 }
 
@@ -90,6 +105,8 @@ export interface MacReading {
 /** Since when the rounds of this process have had no verdict on the Mac. */
 export interface UnjudgedSince {
 	since: number | undefined;
+	/** When a round of this process last looked with no verdict. */
+	lastLook?: number | undefined;
 }
 
 /** Where a round's reading of a Mac, the time and its process's wait come from. */
@@ -106,33 +123,54 @@ export interface MacSources {
  * `sysctl` or `vm_stat` ran out of time, as a Mac swapping hard makes
  * them. One whose room can't be judged, a figure unread or no reading a
  * minute old, holds the rounds of this process for
- * {@link UNJUDGED_WAIT_MS} in all, after which one starts and says why;
- * a verdict, or a start the cap let through, starts that wait again.
+ * {@link UNJUDGED_WAIT_MS} of looks in all, after which the cap lets a
+ * round through and it says why once it starts. A verdict, a start the
+ * cap let through, or a gap past {@link UNJUDGED_LOOK_GAP_MS} with no
+ * round looking starts that wait again; a look the cap let through
+ * whose round didn't start spends nothing, so the next look may start.
  */
 export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
-	let startedUnjudged: string | undefined;
+	const wait = sources.unjudged;
+	let letThrough: string | undefined;
 	return {
 		short: async () => {
 			const read = await readingOf(sources.reading);
 			const now = sources.clock();
 			const verdict = typeof read === "string" ? undefined : judged(read);
 			if (verdict !== undefined) {
-				sources.unjudged.since = undefined;
-				startedUnjudged = undefined;
+				wait.since = undefined;
+				wait.lastLook = undefined;
+				letThrough = undefined;
 				return verdict.short;
 			}
 			const why =
 				typeof read === "string"
 					? `this Mac's memory can't be read (${read})`
 					: unjudgedWhy(read);
-			sources.unjudged.since ??= now;
-			if (now - sources.unjudged.since < UNJUDGED_WAIT_MS) return why;
-			// The wait was this start's; the next round waits its own.
-			sources.unjudged.since = undefined;
-			startedUnjudged = `It started though this Mac's room couldn't be judged for ${UNJUDGED_WAIT_MS / 60_000} minutes: ${why}.`;
+			const last = wait.lastLook;
+			if (
+				wait.since === undefined ||
+				last === undefined ||
+				now - last > UNJUDGED_LOOK_GAP_MS
+			) {
+				wait.since = now;
+			}
+			wait.lastLook = now;
+			if (now - wait.since < UNJUDGED_WAIT_MS) {
+				letThrough = undefined;
+				return why;
+			}
+			letThrough = `It started though this Mac's room couldn't be judged for ${UNJUDGED_WAIT_MS / 60_000} minutes: ${why}.`;
 			return undefined;
 		},
-		startedUnjudged: () => startedUnjudged,
+		startedUnjudged: () => {
+			// The wait was this start's; the next round waits its own.
+			if (letThrough !== undefined) {
+				wait.since = undefined;
+				wait.lastLook = undefined;
+			}
+			return letThrough;
+		},
 	};
 }
 
@@ -216,31 +254,44 @@ export type ProgramRunner = (
 ) => Promise<ProgramAnswer>;
 
 /**
- * Runs `path` with a timeout, and with a bound past it for a child the
- * timeout's kill never ends, so a reading always settles.
+ * A runner that gives `path` `timeoutMs` before it kills it, and
+ * answers slow `graceMs` past that for a child the kill can't end
+ * yet, as one stuck in the kernel on a swapping Mac, so a reading
+ * always settles.
  */
-export const runBounded: ProgramRunner = async (path, args) => {
-	let bound: NodeJS.Timeout | undefined;
-	const outOfTime = new Promise<ProgramAnswer>((settle) => {
-		bound = setTimeout(
-			() => settle({ slow: true }),
-			PROGRAM_TIMEOUT_MS + PROGRAM_GRACE_MS,
+export function boundedRunner(
+	timeoutMs: number,
+	graceMs: number,
+): ProgramRunner {
+	return async (path, args) => {
+		let bound: NodeJS.Timeout | undefined;
+		const outOfTime = new Promise<ProgramAnswer>((settle) => {
+			bound = setTimeout(() => settle({ slow: true }), timeoutMs + graceMs);
+			bound.unref();
+		});
+		const answered = run(path, [...args], {
+			encoding: "utf8",
+			timeout: timeoutMs,
+			// A reader stuck on a swapping Mac may sit out a TERM, and the next
+			// look would start another beside it; these only read, so KILL.
+			killSignal: "SIGKILL",
+		}).then(
+			({ stdout }): ProgramAnswer => ({ text: stdout }),
+			(error: unknown): ProgramAnswer => failureOf(path, error),
 		);
-		bound.unref();
-	});
-	const answered = run(path, [...args], {
-		encoding: "utf8",
-		timeout: PROGRAM_TIMEOUT_MS,
-	}).then(
-		({ stdout }): ProgramAnswer => ({ text: stdout }),
-		(error: unknown): ProgramAnswer => failureOf(path, error),
-	);
-	try {
-		return await Promise.race([answered, outOfTime]);
-	} finally {
-		clearTimeout(bound);
-	}
-};
+		try {
+			return await Promise.race([answered, outOfTime]);
+		} finally {
+			clearTimeout(bound);
+		}
+	};
+}
+
+/** Runs `path` with the Mac's own timeout and its bound. */
+export const runBounded: ProgramRunner = boundedRunner(
+	PROGRAM_TIMEOUT_MS,
+	PROGRAM_GRACE_MS,
+);
 
 /** How a program failed: killed by its timeout, or why else. */
 function failureOf(path: string, error: unknown): ProgramAnswer {

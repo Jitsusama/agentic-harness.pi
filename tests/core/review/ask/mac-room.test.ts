@@ -3,8 +3,12 @@
  * over the swap history the machine shares.
  */
 
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+	boundedRunner,
 	MAC_READING_SERVES_MS,
 	type MacFigures,
 	type MacSources,
@@ -14,6 +18,7 @@ import {
 	PROGRAM_TIMEOUT_MS,
 	runBounded,
 	sharedReading,
+	UNJUDGED_LOOK_GAP_MS,
 	UNJUDGED_WAIT_MS,
 } from "../../../../lib/core/review/ask/mac-room.ts";
 import {
@@ -54,6 +59,50 @@ function mac(read: () => MacFigures | Error): MacSources & {
 			now += ms;
 		},
 	};
+}
+
+/** How often a waiting round looks at its room. */
+const LOOK_EVERY_MS = 15_000;
+
+/**
+ * Moves the clock `ms` on with `room` looking every 15 s, as a waiting
+ * round does, answering what its last look said.
+ */
+async function lookFor(
+	room: ReturnType<typeof macRoundRoom>,
+	sources: ReturnType<typeof mac>,
+	ms: number,
+): Promise<string | undefined> {
+	let said: string | undefined;
+	for (let left = ms; left > 0; left -= LOOK_EVERY_MS) {
+		sources.advance(Math.min(left, LOOK_EVERY_MS));
+		said = await room.short();
+	}
+	return said;
+}
+
+/**
+ * What `found` gives once it gives anything, asking at each turn of the
+ * event loop for at most `ms`.
+ */
+async function within<T>(ms: number, found: () => T | undefined): Promise<T> {
+	const until = Date.now() + ms;
+	for (;;) {
+		const value = found();
+		if (value !== undefined) return value;
+		if (Date.now() > until) throw new Error(`nothing within ${ms} ms`);
+		await new Promise((settle) => setImmediate(settle));
+	}
+}
+
+/** Whether process `pid` still runs. */
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 describe("whether a Mac has memory for a round", () => {
@@ -104,8 +153,7 @@ describe("whether a Mac has memory for a round", () => {
 		expect(await room.short()).toBe(
 			"this Mac's memory can't be read (sysctl timed out)",
 		);
-		sources.advance(UNJUDGED_WAIT_MS - 1);
-		expect(await room.short()).toBeDefined();
+		expect(await lookFor(room, sources, UNJUDGED_WAIT_MS - 1)).toBeDefined();
 		sources.advance(1);
 		expect(await room.short()).toBeUndefined();
 		expect(room.startedUnjudged()).toBe(
@@ -123,16 +171,16 @@ describe("whether a Mac has memory for a round", () => {
 		});
 		const room = macRoundRoom(sources);
 		expect(await room.short()).toContain("a reading a minute old");
-		sources.advance(UNJUDGED_WAIT_MS);
-		expect(await room.short()).toBeUndefined();
+		expect(await lookFor(room, sources, UNJUDGED_WAIT_MS)).toBeUndefined();
 		expect(room.startedUnjudged()).toContain("a reading a minute old");
 	});
 
 	it("starts the wait again for the next round once the cap lets one start", async () => {
 		const sources = mac(() => new Error("gone"));
-		await macRoundRoom(sources).short();
-		sources.advance(UNJUDGED_WAIT_MS);
-		expect(await macRoundRoom(sources).short()).toBeUndefined();
+		const first = macRoundRoom(sources);
+		await first.short();
+		expect(await lookFor(first, sources, UNJUDGED_WAIT_MS)).toBeUndefined();
+		expect(first.startedUnjudged(), "the first round started").toBeDefined();
 		sources.advance(MAC_READING_SERVES_MS);
 		const next = macRoundRoom(sources);
 		expect(await next.short(), "the next round waits its own").toContain(
@@ -141,13 +189,42 @@ describe("whether a Mac has memory for a round", () => {
 		expect(next.startedUnjudged()).toBeUndefined();
 	});
 
+	// The council of 27 November: a look the cap let through, whose round
+	// then waited its turn behind another, spent the wait all the same,
+	// so the round first in line waited ten minutes more.
+	it("spends nothing at a look the cap let through whose round didn't start", async () => {
+		const sources = mac(() => new Error("gone"));
+		const behind = macRoundRoom(sources);
+		const first = macRoundRoom(sources);
+		await first.short();
+		expect(await lookFor(behind, sources, UNJUDGED_WAIT_MS)).toBeUndefined();
+		expect(await first.short(), "the round first in line may start").toBe(
+			undefined,
+		);
+		expect(first.startedUnjudged()).toContain("gone");
+	});
+
+	// A round that waited behind a running round, or came after none
+	// looked for a while, would otherwise start at its first look with
+	// no baseline, on a clock some earlier wait left running.
+	it("starts the wait over after a gap no round looked in", async () => {
+		const sources = mac(() => new Error("gone"));
+		const room = macRoundRoom(sources);
+		await lookFor(room, sources, UNJUDGED_WAIT_MS / 2);
+		sources.advance(UNJUDGED_LOOK_GAP_MS + 1);
+		expect(await room.short(), "the wait starts over").toContain("gone");
+		expect(
+			await lookFor(room, sources, UNJUDGED_WAIT_MS - LOOK_EVERY_MS),
+		).toContain("gone");
+		expect(await lookFor(room, sources, LOOK_EVERY_MS)).toBeUndefined();
+	});
+
 	it("stops saying it started unjudged once a later look gives a verdict", async () => {
 		let broken = true;
 		const sources = mac(() => (broken ? new Error("gone") : roomy));
 		const room = macRoundRoom(sources);
 		await room.short();
-		sources.advance(UNJUDGED_WAIT_MS);
-		expect(await room.short()).toBeUndefined();
+		expect(await lookFor(room, sources, UNJUDGED_WAIT_MS)).toBeUndefined();
 		expect(room.startedUnjudged()).toContain("gone");
 		broken = false;
 		sources.advance(MAC_READING_SERVES_MS);
@@ -199,8 +276,10 @@ describe("whether a Mac has memory for a round", () => {
 
 	it("shares the wait between the rounds of a process", async () => {
 		const sources = mac(() => new Error("gone"));
-		await macRoundRoom(sources).short();
-		sources.advance(UNJUDGED_WAIT_MS);
+		const earlier = macRoundRoom(sources);
+		await earlier.short();
+		await lookFor(earlier, sources, UNJUDGED_WAIT_MS - LOOK_EVERY_MS);
+		sources.advance(LOOK_EVERY_MS);
 		const later = macRoundRoom(sources);
 		expect(await later.short()).toBeUndefined();
 		expect(later.startedUnjudged()).toContain("gone");
@@ -352,25 +431,42 @@ describe("a program run with a bound", () => {
 		});
 	});
 
+	it("answers slow at its bound for a child the kill can't end yet", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			// The child's own timeout runs on Node's internal timers, which
+			// the test doesn't fake, so only the bound can answer here.
+			const answer = runBounded("/bin/sleep", ["2"]);
+			await vi.advanceTimersByTimeAsync(PROGRAM_TIMEOUT_MS + 1_000);
+			expect(await answer).toEqual({ slow: true });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("names a program that couldn't run, without its raw error", async () => {
 		expect(await runBounded("/nonexistent/program", [])).toEqual({
 			failed: "/nonexistent/program failed (ENOENT)",
 		});
 	});
 
-	it("counts a child its timeout's kill never ends as slow, past the bound", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	it("ends a child that sits out a TERM once its time is up, answering slow", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "run-bounded-"));
+		const pidFile = join(dir, "pid");
 		try {
-			// Ignores the timeout's SIGTERM, and exits on its own in 2 s, so
-			// only the bound can settle the answer before then.
-			const answer = runBounded("/bin/sh", [
+			// Ignores SIGTERM, as a reader stuck on a swapping Mac may, and
+			// would sleep 30 s: only a KILL at the timeout ends it sooner,
+			// and well inside the bound, so the kill is what answers.
+			const answer = boundedRunner(500, 10_000)("/bin/sh", [
 				"-c",
-				'trap "" TERM; exec /bin/sleep 2',
+				`echo $$ > ${pidFile}; trap "" TERM; exec /bin/sleep 30`,
 			]);
-			await vi.advanceTimersByTimeAsync(PROGRAM_TIMEOUT_MS + 1_000);
 			expect(await answer).toEqual({ slow: true });
+			const pid = Number(readFileSync(pidFile, "utf8").trim());
+			const ended = await within(3_000, () => (alive(pid) ? undefined : true));
+			expect(ended, `the child ${pid} still runs past its timeout`).toBe(true);
 		} finally {
-			vi.useRealTimers();
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

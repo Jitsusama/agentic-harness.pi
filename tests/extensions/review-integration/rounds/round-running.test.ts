@@ -15,7 +15,15 @@ import {
 	rosterRoundRunning,
 	runningSaid,
 } from "../../../../extensions/review-integration/round-running.ts";
-import type { ProcessFacts } from "../../../../lib/subagent/index.ts";
+import {
+	type AskRound,
+	newRunId,
+} from "../../../../lib/core/review/ask/run.ts";
+import {
+	HEARTBEAT_STALE_MS,
+	type ProcessFacts,
+} from "../../../../lib/subagent/index.ts";
+import { STARTING_FOR_MS } from "../../../../lib/subagent/lease.ts";
 
 let root: string;
 
@@ -38,13 +46,8 @@ const SUPERVISOR_LIVES: ProcessFacts = {
 };
 
 /** A run's folder name for a round started at `at`, as reviewers leave it. */
-function runNamed(kind: string, at: number, serial = 1): string {
-	const stamp = new Date(at)
-		.toISOString()
-		.replace(/[-:]/g, "")
-		.replace(".", "")
-		.replace("Z", "");
-	return `${kind}-${stamp}-${String(serial).padStart(6, "0")}`;
+function runNamed(kind: AskRound, at: number, serial = 1): string {
+	return newRunId(kind, new Date(at), serial);
 }
 
 /** A reviewer's folder in `run`, with the lease its supervisor wrote. */
@@ -90,7 +93,69 @@ describe("whether a roster round still runs here", () => {
 		expect(await rosterRoundRunning(root, SUPERVISOR_LIVES, now)).toEqual({
 			runId: run,
 			reviewersRunning: 2,
+			runningMs: 5 * 60_000,
 		});
+	});
+
+	it("lists the machine's processes once a look, however many reviewers it reads", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 5 * 60_000);
+		for (const id of ["hawk", "owl", "wren", "kite"]) {
+			reviewer(run, id, { ...held(now), supervisorStartTicks: undefined });
+		}
+		let listings = 0;
+		let asked = 0;
+		const listed: ProcessFacts = {
+			alive: (pid) => pid === SUPERVISOR,
+			startedAt: async () => {
+				asked += 1;
+				return SUPERVISOR_STARTED;
+			},
+			startTimes: async () => {
+				listings += 1;
+				return new Map([[SUPERVISOR, SUPERVISOR_STARTED]]);
+			},
+		};
+
+		const round = await rosterRoundRunning(root, listed, now);
+
+		expect(round?.reviewersRunning, "every reviewer read as running").toBe(4);
+		expect(listings, "one listing for the look").toBe(1);
+		expect(asked, "no program run per reviewer").toBe(0);
+	});
+
+	it("falls back to a lease's heartbeat where it names no start, running while it is fresh", async () => {
+		const now = Date.now();
+		const fresh = runNamed("council", now - 5 * 60_000, 1);
+		const { supervisorStartedAt: _, ...unnamed } = held(now);
+		reviewer(fresh, "hawk", unnamed);
+
+		expect((await rosterRoundRunning(root, SUPERVISOR_LIVES, now))?.runId).toBe(
+			fresh,
+		);
+	});
+
+	it("falls back to a lease's heartbeat where it names no start, gone once it is stale", async () => {
+		const now = Date.now();
+		const stale = runNamed("council", now - 5 * 60_000, 1);
+		const { supervisorStartedAt: _, ...unnamed } = held(
+			now - HEARTBEAT_STALE_MS - 1_000,
+		);
+		reviewer(stale, "hawk", unnamed);
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	it("stops counting a round that never handed out a reviewer once it is old", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - STARTING_FOR_MS - 60_000);
+		mkdirSync(join(root, "runs", run), { recursive: true });
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
 	});
 
 	it("finds none once every reviewer's lease says it completed", async () => {
@@ -114,7 +179,9 @@ describe("whether a roster round still runs here", () => {
 		).toBeUndefined();
 	});
 
-	it("leaves out a round started before the look back and a judge's", async () => {
+	// A supervisor alive past its own wall, as a wedged one is, would
+	// otherwise hold every Mac round behind it for as long as it lived.
+	it("leaves out a round started before the look back, though a live supervisor holds it, and a judge's", async () => {
 		const now = Date.now();
 		reviewer(
 			runNamed("council", now - RUNNING_LOOK_BACK_MS - 60_000),
@@ -147,7 +214,11 @@ describe("whether a roster round still runs here", () => {
 
 		const round = await rosterRoundRunning(root, SUPERVISOR_LIVES, now);
 
-		expect(round).toEqual({ runId: run, reviewersRunning: 0 });
+		expect(round).toEqual({
+			runId: run,
+			reviewersRunning: 0,
+			runningMs: 10_000,
+		});
 		expect(round === undefined ? "" : runningSaid(round)).toContain(
 			"its reviewers are still being handed out",
 		);
@@ -162,5 +233,15 @@ describe("what a start waiting on a running round says", () => {
 		expect(runningSaid({ runId: "council-x", reviewersRunning: 1 })).toContain(
 			"1 of its reviewers is still running",
 		);
+	});
+
+	it("says how long the round has run, so a wedged one shows as one", () => {
+		expect(
+			runningSaid({
+				runId: "council-x",
+				reviewersRunning: 2,
+				runningMs: 95 * 60_000 + 30_000,
+			}),
+		).toContain("2 of its reviewers are still running, 95 minutes in");
 	});
 });
