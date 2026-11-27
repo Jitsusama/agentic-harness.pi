@@ -13,13 +13,15 @@ chose for the run, such as `MYCELIUM_BIN`, which `held-session.test.ts`
 proves on an environment it plants.
 
 The run's end removes its temp root and short folder. Where /tmp may not
-be written there is no short folder. A run killed outright leaves its
-short folder in /tmp, so each run first sweeps this account's whose
-process is gone, reading only names as the setup makes them. A pid is
-judged only in the pid namespace that wrote it, since each fenced
-command on Linux has its own. A folder whose pid lives stays at any
-age, one whose pid can't be judged goes after a day, one with no run
-file goes after an hour if empty, and one whose run file isn't the
+be written, or isn't there, there is no short folder. A run killed
+outright leaves its short folder in /tmp, so each run first sweeps this
+account's whose process is gone, reading only names in the setup's
+shape. A pid is judged only in the pid namespace that wrote it, since
+each fenced command on Linux has its own. A folder whose pid lives stays
+at any age. One whose pid can't be judged goes after a day unchanged,
+and a live run touches its folder hourly, so only a gone run's is that
+stale. One with no run file, or an empty one, goes after an hour if
+nothing else is in it, whoever made it. One whose run file isn't the
 setup's stays. `temp-root.test.ts` proves the setup and the sweep.
 
 `scripts-as-text.ts` is a loader each project takes, so a test can

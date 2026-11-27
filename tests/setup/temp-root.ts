@@ -29,6 +29,8 @@ import {
 	readlinkSync,
 	rmdirSync,
 	rmSync,
+	unlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -56,7 +58,9 @@ const SHORT_PREFIX = "vs-";
 /**
  * A name as the setup's mkdtemp makes it, the prefix and six letters or
  * digits, so a sweep never reads a folder of the developer's that merely
- * starts with the prefix.
+ * starts with the prefix. It is the setup's shape, not proof the setup
+ * made it: an empty folder of this shape goes after `STARTING_MS`,
+ * whoever made it.
  */
 const SHORT_NAME = /^vs-[A-Za-z0-9]{6}$/;
 
@@ -70,22 +74,34 @@ const RUN_FILE = "run.pid";
 const RUN_RECORD = /^([1-9]\d*)\n([^\n]*)\n$/;
 
 /**
- * How long a folder with no run file may be a run's still starting: its
- * setup writes the file just after making the folder, so an hour on, its
- * run died between the two, and the folder, empty, is taken.
+ * How long a folder with no run file, or an empty one, may be a run's
+ * still starting: its setup writes the file just after making the
+ * folder, so an hour on, its run died between the two, and the folder,
+ * empty but for that file, is taken.
  */
 export const STARTING_MS = 60 * 60 * 1000;
 
 /**
  * How long before a short folder whose run this sweep can't judge is
- * taken: one whose pid another namespace wrote, or one no namespace was
- * named for on Linux. Past any run's length, so such a folder goes in
- * the end, while one whose pid this sweep can judge as live stays.
+ * taken: one whose pid another namespace wrote, as every other fenced
+ * command's on Linux, or one no namespace was named for on Linux. Its
+ * age is its last change, which a live run makes every `FRESH_MS`, so a
+ * folder this stale is a gone run's, however long a run lasts.
  */
 export const STALE_MS = 24 * 60 * 60 * 1000;
 
-/** The errors that mean /tmp may not be written, rather than a fault. */
-const REFUSED = new Set(["EACCES", "EPERM", "EROFS"]);
+/**
+ * How often a live run touches its short folder, so its age is never
+ * its run's length: well inside `STALE_MS`, and a timer an hour apart
+ * costs the run nothing.
+ */
+export const FRESH_MS = STARTING_MS;
+
+/**
+ * The errors that mean /tmp may not be written, or isn't there, rather
+ * than a fault.
+ */
+const REFUSED = new Set(["EACCES", "EPERM", "EROFS", "ENOENT", "ENOTDIR"]);
 
 /**
  * Point TMPDIR at the run's own directory, name a short one for sockets,
@@ -115,7 +131,9 @@ export default function setup(): () => void {
 	// One inherited from an outer run names a folder this run doesn't own.
 	if (sockets === undefined) delete process.env[SOCKET_ROOT];
 	else process.env[SOCKET_ROOT] = sockets;
+	const fresh = sockets === undefined ? undefined : keptFresh(sockets);
 	return () => {
+		clearInterval(fresh);
 		if (previous === undefined) delete process.env.TMPDIR;
 		else process.env.TMPDIR = previous;
 		if (previousSockets === undefined) delete process.env[SOCKET_ROOT];
@@ -132,9 +150,27 @@ export default function setup(): () => void {
 }
 
 /**
+ * Touch `folder` every `FRESH_MS` while the run lasts, so a sweep reads
+ * its age as the time since its run was last seen, not since a test last
+ * made a folder in it. Unheld, so it never keeps a run going.
+ */
+function keptFresh(folder: string): NodeJS.Timeout {
+	const fresh = setInterval(() => {
+		try {
+			const now = new Date();
+			utimesSync(folder, now, now);
+		} catch {
+			// Gone with /tmp's clearing: nothing left to keep fresh.
+		}
+	}, FRESH_MS);
+	fresh.unref();
+	return fresh;
+}
+
+/**
  * The run's short folder, 14 bytes under /tmp, naming the run that made
- * it; or none where /tmp may not be written, as under the sandbox, which
- * grants only TMPDIR. A test needing one then fails as it would have,
+ * it; or none where /tmp may not be written or isn't there, as under the
+ * sandbox, which grants only TMPDIR. A test needing one then fails as it would have,
  * while every other test still runs. Any other error is a fault, and
  * fails the run rather than quietly leaving it without one, removing the
  * folder if it was made.
@@ -175,12 +211,14 @@ export interface Sweeper {
  *   another, as each fenced command on Linux has, names nothing here, or
  *   someone else. An empty namespace on Linux means /proc wasn't there to
  *   name one, so it isn't judged either. Such a folder stays until
- *   `STALE_MS` has passed.
- * - A judged pid that lives keeps its folder at any age, as a watch run's
- *   must; a reused pid's folder then stays until the pid ends or the
- *   machine restarts, which costs a few bytes rather than a live run.
- * - A folder with no run file may be a run's starting now, and stays for
- *   `STARTING_MS`; after that it goes only if empty.
+ *   `STALE_MS` has passed; a live run keeps its folder fresh, so only a
+ *   gone run's grows that stale.
+ * - A judged pid that lives keeps its folder at any age; a reused pid's
+ *   folder then stays until the pid ends or the machine restarts, which
+ *   costs a few bytes rather than a live run.
+ * - A folder with no run file, or an empty one, as a run killed while
+ *   writing it leaves, may be a run's starting now, and stays for
+ *   `STARTING_MS`; after that it goes only if empty but for that file.
  * - A run file not as the setup writes it is no run's, and stays.
  */
 export function sweepShortFolders(
@@ -202,11 +240,23 @@ export function sweepShortFolders(
 			if (!stat.isDirectory() || stat.uid !== uid) continue;
 			const fate = fateOf(folder, sweeper.now - stat.mtimeMs, sweeper);
 			if (fate === "removed") rmSync(folder, { recursive: true, force: true });
-			// Fails on anything inside, which then stays.
-			else if (fate === "removed if empty") rmdirSync(folder);
+			else if (fate === "removed if empty") {
+				unlinkEmptyRunFile(folder);
+				// Fails on anything else inside, which then stays.
+				rmdirSync(folder);
+			}
 		} catch {
 			// Gone, unreadable or not empty: not this sweep's to take.
 		}
+	}
+}
+
+/** Take out `folder`'s run file, if it has one, which its fate found empty. */
+function unlinkEmptyRunFile(folder: string): void {
+	try {
+		unlinkSync(join(folder, RUN_FILE));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 	}
 }
 
@@ -220,8 +270,9 @@ function fateOf(folder: string, age: number, sweeper: Sweeper): Fate {
 		record = readFileSync(join(folder, RUN_FILE), "utf8");
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "kept";
-		return age > STARTING_MS ? "removed if empty" : "kept";
+		record = "";
 	}
+	if (record === "") return age > STARTING_MS ? "removed if empty" : "kept";
 	const run = RUN_RECORD.exec(record);
 	if (run === null) return "kept";
 	const [, pid, writer] = run;
