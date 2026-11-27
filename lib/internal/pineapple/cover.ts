@@ -15,7 +15,7 @@
  */
 
 import { describeReach, type Reach, type Stop } from "./stops.ts";
-import { machineWide, type Write } from "./writes.ts";
+import { isPush, machineWide, type Write } from "./writes.ts";
 
 /** What the session making the write is part of. */
 export interface Here {
@@ -105,7 +105,7 @@ async function prHeld(
 		reach.repo !== undefined &&
 		!sameRepo(reach.repo, write.repo)
 	) {
-		return undefined;
+		return forkHeld(reach, label, write, headOf);
 	}
 	if (write.pr !== undefined) {
 		return write.pr === reach.number ? `it is ${label}` : undefined;
@@ -119,6 +119,36 @@ async function prHeld(
 		return `the branch of ${label} couldn't be found to tell it apart`;
 	return head === write.branch
 		? `${write.branch} is the branch of ${label}`
+		: undefined;
+}
+
+/**
+ * A push to a repository of the same name as a stopped pull request's
+ * under another owner, of the branch it comes from: the request may
+ * come from that fork, so it's held, as it is where that branch can't
+ * be found or the push names none, as one of every branch does. A fork
+ * named otherwise isn't told apart.
+ */
+async function forkHeld(
+	reach: Extract<Reach, { kind: "pr" }>,
+	label: string,
+	write: Write,
+	headOf: HeadOf,
+): Promise<string | undefined> {
+	if (reach.repo === undefined || write.pr !== undefined) return undefined;
+	if (write.repo === undefined) return undefined;
+	const named = (repo: string) => repo.toLowerCase().split("/").pop();
+	if (named(write.repo) !== named(reach.repo)) return undefined;
+	if (write.branch === undefined) {
+		return isPush(write)
+			? `which branch of ${write.repo} this pushes couldn't be told`
+			: undefined;
+	}
+	const head = await headOf(reach.repo, reach.number);
+	if (head === undefined)
+		return `the branch of ${label} couldn't be found to tell a fork's push apart`;
+	return head === write.branch
+		? `${write.branch} is the branch of ${label}, which may come from ${write.repo}`
 		: undefined;
 }
 
@@ -152,7 +182,8 @@ async function branchHeld(
 
 /**
  * A bare name ("on aquifer") holds a write whose repository, branch or
- * folder carries it, or a session whose quest does.
+ * folder carries it, or a session whose quest does, and a push whose
+ * repository couldn't be told, as its folder needn't name where it goes.
  */
 function namedIn(name: string, write: Write, here: Here): string | undefined {
 	const places = [write.repo, write.branch, write.dir].filter(
@@ -165,6 +196,8 @@ function namedIn(name: string, write: Write, here: Here): string | undefined {
 	}
 	if (write.repo === undefined && write.dir === undefined)
 		return "where this goes couldn't be told";
+	if (write.repo === undefined && isPush(write))
+		return "where this push goes couldn't be told";
 	return undefined;
 }
 

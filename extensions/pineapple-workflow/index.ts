@@ -38,7 +38,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { keptHeads } from "../../lib/internal/pineapple/heads.ts";
+import { askedHead, keptHeads } from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -48,6 +48,9 @@ import {
 } from "../../lib/internal/pineapple/stops.ts";
 import {
 	type GitFacts,
+	pushedBranch,
+	pushRemote,
+	repoOfPushUrls,
 	repoOfUrl,
 } from "../../lib/internal/pineapple/writes.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
@@ -75,7 +78,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = keptHeads(headOfAsked);
+	const heads = keptHeads(askedHead(quietly));
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
@@ -244,58 +247,65 @@ const gitFacts: GitFacts = {
 		const url = await quietly("git", ["-C", dir, "remote", "get-url", remote]);
 		return url === undefined ? undefined : repoOfUrl(url);
 	},
+	// Where a push goes, which a remote's pushurl can send elsewhere than
+	// it fetches from.
+	async pushRepoOf(dir, remote) {
+		const urls = await quietly("git", [
+			"-C",
+			dir,
+			"remote",
+			"get-url",
+			"--push",
+			"--all",
+			remote,
+		]);
+		return urls === undefined ? undefined : repoOfPushUrls(urls);
+	},
 	branchOf: (dir) =>
 		quietly("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"]),
+	// A setting that couldn't be read names no remote or branch, so the
+	// stop holds the push rather than judging it by git's defaults.
+	async pushRemoteOf(dir) {
+		const branch = await gitFacts.branchOf(dir);
+		return pushRemote(branch, config(dir)).catch(() => undefined);
+	},
+	async pushedOf(dir, remote, source) {
+		const branch =
+			source === undefined || source === "HEAD"
+				? await gitFacts.branchOf(dir)
+				: source;
+		const named = source !== undefined;
+		const head = source === "HEAD";
+		return pushedBranch(branch, remote, config(dir), named, head).catch(
+			() => undefined,
+		);
+	},
 };
 
 /**
- * A pull request's branch, asked of GitHub and Delta at once and taken
- * from GitHub where it answers, so a write waits for the slower only
- * when GitHub tells nothing; `keptHeads` keeps each one found for the
- * session.
+ * One key of the git config of the checkout at `dir`: none where git
+ * says it isn't set, and a throw where it couldn't be read at all. A
+ * remote's mirror is read as git reads it, a boolean, so any way of
+ * saying true, a bare key included, answers `true`.
  */
-const headOfAsked: HeadOf = async (repo, pr) => {
-	if (repo === undefined) return undefined;
-	const delta = deltaHead(repo, pr);
-	return (
-		(await quietly("gh", [
-			"pr",
-			"view",
-			String(pr),
-			"-R",
-			repo,
-			"--json",
-			"headRefName",
-			"-q",
-			".headRefName",
-		])) ?? (await delta)
-	);
-};
-
-async function deltaHead(
-	repo: string,
-	pr: number,
-): Promise<string | undefined> {
-	const json = await quietly("dt", [
-		"pr",
-		"view",
-		String(pr),
-		"-R",
-		repo,
-		"--json",
-	]);
-	if (json === undefined) return undefined;
-	try {
-		const view = JSON.parse(json) as {
-			head?: { ref?: unknown };
-			headRefName?: unknown;
-		} | null;
-		const ref = view?.head?.ref ?? view?.headRefName;
-		return typeof ref === "string" ? ref : undefined;
-	} catch {
-		// Not JSON: Delta didn't say, and the stop holds the write.
-		return undefined;
-	}
+function config(dir: string): (key: string) => Promise<string | undefined> {
+	return async (key) => {
+		const bool = /^remote\..+\.mirror$/i.test(key) ? ["--type=bool"] : [];
+		const { code, stdout, stderr } = await LOOKUPS("git", [
+			"-C",
+			dir,
+			"config",
+			...bool,
+			"--get",
+			key,
+		]);
+		const value = stdout.trim();
+		if (code === 0) return value === "" ? undefined : value;
+		// git says a key isn't set with 1 and nothing more; a git that
+		// couldn't start says 1 too, but with why.
+		if (code === 1 && value === "" && stderr.trim() === "") return undefined;
+		throw new Error(`git couldn't read ${key} at ${dir}`);
+	};
 }
 
 /**
