@@ -210,6 +210,12 @@ export interface StartClaim {
 	 */
 	readonly room?: () => Promise<string | undefined>;
 	/**
+	 * Whether the machine is quiet enough that a round may start the
+	 * line's shortest spacing after the last, rather than its own. Read
+	 * at each look; never quiet unless given.
+	 */
+	readonly quiet?: () => Promise<boolean>;
+	/**
 	 * The latest start made outside the line, such as a round started by
 	 * a session on an older install, read again each time the line is.
 	 */
@@ -285,6 +291,10 @@ export async function awaitCouncilStart(
 			(claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
 		2 * lookAgain,
 	);
+	// A quiet machine takes that floor itself: half a minute, as the line
+	// looks every fifteen seconds (A210E4CA, 27 November).
+	const quickest = Math.min(spacing, 2 * lookAgain);
+	const spacings = { spacing, quickest };
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -305,7 +315,7 @@ export async function awaitCouncilStart(
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
-			turn = await takeTurn(at, path, ticket, claim, spacing);
+			turn = await takeTurn(at, path, ticket, claim, spacings);
 			failed = 0;
 		} catch (error) {
 			// A lock another live round holds past the wait is a busy line,
@@ -339,13 +349,13 @@ export async function awaitCouncilStart(
 				// Given up during the look that took the start: nothing is
 				// started in its name, so the start goes back.
 				await release();
-				return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
+				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
 			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
 				: {
-						waited: waitSaid(firstSeen, spacing, waitedMs, lastShort),
+						waited: waitSaid(firstSeen, spacings, waitedMs, lastShort),
 						release,
 					};
 		}
@@ -366,7 +376,7 @@ export async function awaitCouncilStart(
 			await leave(at, ticket).catch(() => {
 				// The ticket stops being looked at, so the next reader drops it.
 			});
-			return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
+			return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 		}
 	}
 }
@@ -404,12 +414,16 @@ async function takeTurn(
 	path: string,
 	ticket: Ticket,
 	claim: StartClaim,
-	spacing: number,
+	spacings: Spacings,
 ): Promise<Turn> {
 	const elsewhere = await claim.startedElsewhere?.();
 	// Read before the lock, as they may be slow; a round that reads room
 	// and then finds another first in line waits its turn all the same.
 	const short = await claim.room?.();
+	const spacing =
+		short === undefined && (await claim.quiet?.()) === true
+			? spacings.quickest
+			: spacings.spacing;
 	const urgent = new Set(await claim.urgent?.());
 	const seenFrom = async (line: Line, now: number): Promise<Look> =>
 		look(line, {
@@ -1011,9 +1025,15 @@ function bounded(name: string): string {
 		: `${name.slice(0, NAME_SAID_AT_MOST)}...`;
 }
 
+/** A round's spacing, and the quicker one it takes while the machine is quiet. */
+interface Spacings {
+	readonly spacing: number;
+	readonly quickest: number;
+}
+
 function waitSaid(
 	turn: Turn,
-	spacing: number,
+	spacing: Spacings,
 	waitedMs: number,
 	short: string | undefined,
 ): string {
@@ -1091,7 +1111,7 @@ function minutesSaid(ms: number): string {
 
 function stoppedSaid(
 	turn: Turn | undefined,
-	spacing: number,
+	spacing: Spacings,
 	short: string | undefined,
 ): string {
 	const where = turn === undefined ? "" : `, ${placeSaid(turn)},`;
@@ -1099,8 +1119,15 @@ function stoppedSaid(
 }
 
 /** When a round starts here, and what held it, as its answer says. */
-function startRuleSaid(spacing: number, short: string | undefined): string {
-	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}, while the machine has room`;
+function startRuleSaid(
+	{ spacing, quickest }: Spacings,
+	short: string | undefined,
+): string {
+	const quiet =
+		quickest < spacing
+			? `, or each ${spacingSaid(quickest)} while it is quiet`
+			: "";
+	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}${quiet}, while the machine has room`;
 	return short === undefined ? rule : `${rule}, and while it waited ${short}`;
 }
 

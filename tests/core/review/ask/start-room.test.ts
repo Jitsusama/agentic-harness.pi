@@ -95,6 +95,37 @@ describe("starting council rounds on room alone", () => {
 		expect(line().started.by).toBe("ISXEG8");
 	});
 
+	it("starts two looks after another round's start, not its spacing, while the machine is quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { room: roomy, quiet: async () => true }),
+		);
+
+		const gap = Date.now() - before.getTime();
+		expect(gap, "the floor held it").toBeGreaterThanOrEqual(
+			2 * LOOK - TIMER_EARLY_MS,
+		);
+		expect(gap, "its spacing didn't").toBeLessThan(SPACING);
+		expect(start.waited).toMatch(/, or each .+ while it is quiet,/);
+	});
+
+	it("keeps its spacing when the machine isn't quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { room: roomy, quiet: async () => false }),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			SPACING - TIMER_EARLY_MS,
+		);
+	});
+
 	it("waits while the machine is short, then starts, saying what it was short of", async () => {
 		let looks = 0;
 		const room = async () => {
