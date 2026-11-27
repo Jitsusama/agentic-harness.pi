@@ -28,7 +28,10 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
-import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
+import type {
+	HeldTree,
+	TreeProvider,
+} from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
@@ -889,7 +892,7 @@ describe("trees another provider cut", () => {
 		settleFolder(tree);
 		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
 		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
-		const going: (number | undefined)[] = [];
+		const going: unknown[] = [];
 		const provider = elsewhere(undefined, async () => {
 			going.push(memory.recall().find((one) => one.path === tree)?.going);
 			rmSync(tree, { recursive: true, force: true });
@@ -899,9 +902,31 @@ describe("trees another provider cut", () => {
 
 		expect(outcome.taken).toEqual([{ path: tree }]);
 		expect(going, "its record's mark as the provider removed it").toEqual([
-			expect.any(Number),
+			expect.objectContaining({ at: expect.any(Number) }),
 		]);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("counts a shareable one taken when ending its mark fails after it went", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const ends: (HeldTree | undefined)[] = [];
+		memory.endGoing = async (_, restore) => {
+			ends.push(restore);
+			throw new Error("the record's lock is held");
+		};
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(outcome.refused, "what it refused").toEqual([]);
+		expect(ends, "each end, with what it would put back").toEqual([undefined]);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {

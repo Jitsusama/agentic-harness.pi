@@ -22,6 +22,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
 import {
 	type Owner,
+	ownerNow,
 	type ProcessFacts,
 	systemFacts,
 } from "../../../lib/core/process/index.ts";
@@ -907,7 +909,58 @@ describe("a tree a sweep is removing", () => {
 		const before = await memory.holdWhileUnheld(tree.path, sweeping());
 
 		expect(before).toEqual(tree);
-		expect(memory.recall()[0]?.going, "the record's mark").toBeTypeOf("number");
+		expect(memory.recall()[0]?.going, "the record's mark").toEqual(
+			expect.objectContaining({
+				at: expect.any(Number),
+				by: expect.objectContaining({ pid: process.pid }),
+			}),
+		);
+		expect(await memory.goingState(tree, sweeping()), "its state").toBe(
+			"going",
+		);
+	});
+
+	it("stays going while the process that marked it runs, whoever its record names", async () => {
+		// In a host the record names the conversation the sweep runs in,
+		// which may close while the removal goes on; the mark is the
+		// process's, so the tree is handed to nobody meanwhile.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		memory.remember({
+			...tree,
+			owners: [ENDED],
+			going: { at: Date.now(), by: us },
+		});
+
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeGoing,
+		);
+		expect(await memory.goingState(tree, sweeping())).toBe("going");
+	});
+
+	it("reads a mark past a sweep's longest run, or one this code never wrote, as stopped", async () => {
+		const memory = memoryAt();
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		const sixHours = 6 * 60 * 60 * 1000;
+		const marks: unknown[] = [
+			{ at: Date.now() - sixHours - 1000, by: us },
+			{ at: 0, by: us },
+			{ at: Date.now() + 60_000, by: us },
+			{ at: Date.now(), by: "a sweep" },
+			Date.now(),
+		];
+
+		for (const [index, going] of marks.entries()) {
+			const tree = ended(`snapshot-${index}`);
+			memory.remember({ ...tree, going } as HeldTree);
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)}`,
+			).toBe("standing");
+			rmSync(tree.path, { recursive: true, force: true });
+		}
+		expect(memory.recall(), "records whose folders went").toEqual([]);
 	});
 
 	it("refuses a session joining it while its sweep runs, writing nothing", async () => {
@@ -926,7 +979,11 @@ describe("a tree a sweep is removing", () => {
 	it("lets a session take it up once the sweep that marked it has stopped", async () => {
 		const memory = memoryAt();
 		const tree = ended("snapshot");
-		memory.remember({ ...tree, owners: [ENDED], going: Date.now() });
+		memory.remember({
+			...tree,
+			owners: [ENDED],
+			going: { at: Date.now(), by: ENDED },
+		});
 		const us: Owner = { pid: process.pid, startedAt: 5000 };
 
 		await memory.rememberHeldByUs(tree, sweeping());
@@ -957,6 +1014,35 @@ describe("a tree a sweep is removing", () => {
 		await memory.endGoing(tree, before);
 
 		expect(memory.recall()).toEqual([tree]);
+	});
+
+	it("keeps when it was last asked for when the removal fails", async () => {
+		// The record's file time is the shareable rule's clock; the mark and
+		// the restore aren't asks, so neither may start its day again.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		const [file] = readdirSync(join(root, "cut")).filter((name) =>
+			name.endsWith(".json"),
+		);
+		if (file === undefined) throw new Error("no record was written");
+		const asked = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+		asked.setMilliseconds(0);
+		utimesSync(join(root, "cut", file), asked, asked);
+		const before = await memory.holdWhileUnheld(tree.path, sweeping());
+
+		await memory.endGoing(tree, before);
+
+		expect(memory.askedAt(tree.path, tree.identity.key)).toBe(asked.getTime());
+	});
+
+	it("reads a record that never was as gone", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+
+		expect(await memory.goingState(tree, sweeping())).toBe("gone");
+		memory.remember(tree);
+		expect(await memory.goingState(tree, sweeping())).toBe("standing");
 	});
 
 	it("leaves the record of a tree cut afresh where the removed one stood", async () => {
@@ -1027,6 +1113,7 @@ describe("a session asking for a tree a sweep is removing", () => {
 	it("waits for the removal, then cuts the tree afresh, asking nothing while it goes", async () => {
 		const request = asked("joined");
 		const { memory, broker, asks, tree } = await removing(request, 5000);
+		const started = Date.now();
 
 		const [held] = await Promise.all([
 			broker.ensure(request),
@@ -1036,6 +1123,9 @@ describe("a session asking for a tree a sweep is removing", () => {
 			}),
 		]);
 
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
 		expect(held.path).toBe(tree.path);
 		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
 		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
@@ -1051,12 +1141,16 @@ describe("a session asking for a tree a sweep is removing", () => {
 			request,
 			5000,
 		);
+		const started = Date.now();
 
 		const [held] = await Promise.all([
 			broker.ensure(request),
 			later(100, () => memory.endGoing(tree, before)),
 		]);
 
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
 		expect(held.path).toBe(tree.path);
 		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
 		const found = memory.recall()[0];
@@ -1071,6 +1165,61 @@ describe("a session asking for a tree a sweep is removing", () => {
 		await expect(broker.ensure(request)).rejects.toThrow(
 			`${tree.path} is still being removed by a sweep`,
 		);
+		expect(asks, "the provider's asks").toEqual([]);
+	});
+
+	it("takes the tree up at once when the sweep that marked it has stopped", async () => {
+		const request = asked("stopped");
+		const { memory, broker, asks, tree } = await removing(request, 60_000);
+		const marked = memory.recall()[0];
+		if (marked === undefined) throw new Error("no record was marked");
+		memory.remember({ ...marked, going: { at: Date.now(), by: GONE } });
+		const started = Date.now();
+
+		const held = await broker.ensure(request);
+
+		expect(Date.now() - started, "how long it waited").toBeLessThan(5000);
+		expect(held.path).toBe(tree.path);
+		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
+		expect(memory.recall()[0]?.going, "the stopped mark").toBeUndefined();
+	});
+
+	it("refuses a worktree another running session took up while it waited", async () => {
+		// A worktree is one session's at a time; the wait doesn't excuse the
+		// look at who else holds it.
+		const request = asked("taken-meanwhile");
+		const { memory, broker, asks, tree, before } = await removing(
+			request,
+			5000,
+		);
+		const theirs = await ownerNow(systemFacts, process.ppid);
+		if (theirs === undefined)
+			throw new Error("the parent process can't be read");
+
+		await Promise.all([
+			expect(broker.ensure(request)).rejects.toThrow("another running session"),
+			later(100, async () => {
+				await memory.endGoing(tree, before);
+				memory.remember({ ...tree, owners: [theirs] });
+			}),
+		]);
+		expect(asks, "the provider's asks").toEqual([]);
+		expect(memory.recall()[0]?.owners, "its holders").toEqual([theirs]);
+	});
+
+	it("stops waiting when its call is called off", async () => {
+		const request = asked("called-off");
+		const { broker, asks } = await removing(request, 60_000);
+		const stop = new AbortController();
+		const started = Date.now();
+
+		await Promise.all([
+			expect(broker.ensure(request, { signal: stop.signal })).rejects.toThrow(),
+			later(100, async () => {
+				stop.abort();
+			}),
+		]);
+		expect(Date.now() - started, "how long it waited").toBeLessThan(5000);
 		expect(asks, "the provider's asks").toEqual([]);
 	});
 });

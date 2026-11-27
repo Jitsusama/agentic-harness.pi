@@ -792,16 +792,32 @@ async function releaseThroughProvider(
 		keep("a session took it up again");
 		return;
 	}
+	let failed: unknown;
 	try {
 		await provider.release(tree);
-		await deps.memory.endGoing(tree);
-		outcome.taken.push({ path: tree.path });
 	} catch (error) {
+		failed = error;
+	}
+	// Ended apart from the release, so a removal that went is taken however
+	// its record's end goes. An end that fails, its lock held or the disk
+	// out of descriptors, leaves the mark, which stands only while this
+	// process runs and the mark is young, and the run goes on.
+	let unended: string | undefined;
+	try {
 		// Whatever the provider left stands where it was, and goes back to
 		// the sessions that held it, for the next sweep to judge again.
-		await deps.memory.endGoing(tree, before);
-		outcome.refused.push({ path: tree.path, why: messageOf(error) });
+		await deps.memory.endGoing(tree, failed === undefined ? undefined : before);
+	} catch (error) {
+		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
 	}
+	if (failed === undefined) {
+		outcome.taken.push({ path: tree.path });
+		return;
+	}
+	outcome.refused.push({
+		path: tree.path,
+		why: `${messageOf(failed)}${unended ?? ""}`,
+	});
 }
 
 /**

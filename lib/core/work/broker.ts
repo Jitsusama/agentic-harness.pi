@@ -67,14 +67,13 @@ export interface HeldTree {
 	 */
 	usedAt?: number;
 	/**
-	 * When a sweep began removing it, in milliseconds since the epoch.
-	 * While the sweep that wrote it runs, no session may take the tree up:
-	 * one asking waits for the record to go and cuts the tree afresh, so
-	 * a shareable tree is never handed out mid-removal. Absent from every
-	 * record nobody is removing, and from one put back after a removal
-	 * failed.
+	 * A sweep removing it. While the sweep that wrote it runs, no session
+	 * may take the tree up: one asking waits for the record to go and cuts
+	 * the tree afresh, so a shareable tree is never handed out
+	 * mid-removal. Absent from every record nobody is removing, and from
+	 * one put back after a removal failed.
 	 */
-	going?: number;
+	going?: GoingMark;
 }
 
 /**
@@ -247,6 +246,24 @@ export interface BrokerDeps {
 	goingWaitMs?: number;
 }
 
+/** A sweep's mark on a tree it is removing. */
+export interface GoingMark {
+	/** When the removal began, in milliseconds since the epoch. */
+	readonly at: number;
+	/**
+	 * The process removing it. A process rather than a conversation, since
+	 * in a host the conversation a sweep runs in may close while the
+	 * removal goes on.
+	 */
+	readonly by: Owner;
+	/**
+	 * When the record was last written before the mark, in milliseconds
+	 * since the epoch, so a removal that fails puts back when it was last
+	 * asked for, not when the sweep marked it.
+	 */
+	readonly asked?: number;
+}
+
 /** How long a session waits by default for a tree a sweep is removing. */
 export const GOING_WAIT_MS = 15 * 60 * 1000;
 
@@ -254,41 +271,32 @@ export const GOING_WAIT_MS = 15 * 60 * 1000;
 const GOING_LOOK_MS = 1000;
 
 /**
- * Hold `tree`, unless a running sweep is removing it: then wait for its
- * record to go, answering false so the tree is cut afresh, or to come
- * back unmarked, as a removal that failed puts it back, and hold it
- * then. Past `waitMs` it throws, saying the sweep is still at it.
+ * Wait while a running sweep removes `tree`: until its record goes, comes
+ * back unmarked, as a removal that failed puts it back, or the sweep that
+ * marked it stops. Looked at on a clock through the record's own file
+ * alone, since nothing tells a session when a sweep in another process
+ * ends a removal, and reading every record each time held a host's
+ * thread for seconds. Past `until` it throws, saying the sweep is still
+ * at it; an aborted `signal` ends the wait with the call.
  */
-async function holdUnlessGoing(
-	memory: TreeMemory | undefined,
+async function waitWhileGoing(
+	memory: TreeMemory,
 	tree: HeldTree,
-	waitMs: number,
-): Promise<boolean> {
-	if (memory === undefined) return true;
-	const until = Date.now() + waitMs;
-	const look = Math.max(1, Math.min(GOING_LOOK_MS, waitMs / 10));
-	for (;;) {
-		try {
-			await memory.rememberHeldByUs(tree);
-			return true;
-		} catch (error) {
-			if (!(error instanceof TreeGoing)) throw error;
+	wait: { readonly until: number; readonly ms: number },
+	signal?: AbortSignal,
+): Promise<void> {
+	const look = Math.max(1, Math.min(GOING_LOOK_MS, wait.ms / 10));
+	while ((await memory.goingState(tree)) === "going") {
+		if (Date.now() >= wait.until) {
+			const span =
+				wait.ms < 60_000
+					? `${Math.round(wait.ms / 1000)} seconds`
+					: `${Math.round(wait.ms / 60_000)} minutes`;
+			throw new Error(
+				`${tree.path} is still being removed by a sweep after ${span}, so ask for it again once that ends`,
+			);
 		}
-		for (;;) {
-			if (Date.now() >= until) {
-				throw new Error(
-					`${tree.path} is still being removed by a sweep after ${Math.round(waitMs / 60_000)} minutes, so ask for it again once that ends`,
-				);
-			}
-			// Looked at again on a clock, since nothing tells a session when a
-			// sweep in another process ends a removal.
-			await sleep(look);
-			const now = memory
-				.recall()
-				.find((one) => one.identity.key === tree.identity.key);
-			if (now === undefined) return false;
-			if (now.going === undefined) break;
-		}
+		await sleep(look, undefined, signal === undefined ? {} : { signal });
 	}
 }
 
@@ -479,28 +487,38 @@ export function createTreeBroker(
 			// Said only once it is cut afresh, since a tree caught mid-move
 			// by a sweep that put it back is found again below.
 			let again = askedAgain(request);
-			const reusable = everything().find((tree) =>
-				satisfies(tree.identity, request),
-			);
-			if (reusable) {
+			const waitMs = deps.goingWaitMs ?? GOING_WAIT_MS;
+			const wait = { until: Date.now() + waitMs, ms: waitMs };
+			let reusable: HeldTree | undefined;
+			// The tree last waited for while a sweep removed it, cut afresh
+			// below when its record went meanwhile.
+			let waitedFor: HeldTree | undefined;
+			// Every check below is made again after a wait, on the record as it
+			// stands then, since the removal may have failed and another session
+			// taken the tree up meanwhile.
+			for (;;) {
+				reusable = everything().find((tree) =>
+					satisfies(tree.identity, request),
+				);
+				if (reusable === undefined || memory === undefined) break;
+				if ((await memory.goingState(reusable)) === "going") {
+					waitedFor = reusable;
+					await waitWhileGoing(memory, reusable, wait, options?.signal);
+					continue;
+				}
 				// A worktree is one session's at a time: what is uncommitted in
 				// it is that session's work, and a second session writing there
 				// loses it. Reusing on identity alone once handed one stream
 				// another's half-done change. A snapshot is shareable by design,
 				// and a tree whose holders have all stopped is free to take.
-				// A tree a sweep is removing names the sweep as its holder, and
-				// is waited out below rather than refused as another's.
-				const ours = trees.some((tree) => tree.path === reusable.path);
-				if (
-					!reusable.identity.shareable &&
-					!ours &&
-					reusable.going === undefined
-				) {
-					const others = (await memory?.otherHolders(reusable.path)) ?? [];
+				const found = reusable;
+				const ours = trees.some((tree) => tree.path === found.path);
+				if (!found.identity.shareable && !ours) {
+					const others = await memory.otherHolders(found.path);
 					if (others.length > 0) {
 						const pids = others.map((owner) => `pid ${owner.pid}`).join(", ");
 						throw new Error(
-							`${reusable.path} is the worktree for this branch, and another running session (${pids}) is working in it. A worktree is one session's at a time, so name a different branch for this work.`,
+							`${found.path} is the worktree for this branch, and another running session (${pids}) is working in it. A worktree is one session's at a time, so name a different branch for this work.`,
 						);
 					}
 				}
@@ -510,41 +528,55 @@ export function createTreeBroker(
 				// working in reads as nobody's, and reclaiming it is exactly
 				// the thing that must never happen. Held before its provider is
 				// asked, so a sweep judging it after reads it held, and a sweep
-				// already removing it refuses the hold: no provider is asked to
-				// find a tree as it is removed, and none is handed out gone.
-				const holding = await holdUnlessGoing(
-					memory,
-					reusable,
-					deps.goingWaitMs ?? GOING_WAIT_MS,
-				);
-				if (!holding) again = reusable;
+				// that began removing it since refuses the hold: no provider is
+				// asked to find a tree as it is removed, and none is handed out
+				// gone.
+				try {
+					await memory.rememberHeldByUs(found);
+					break;
+				} catch (error) {
+					if (!(error instanceof TreeGoing)) throw error;
+				}
+				waitedFor = found;
+				await waitWhileGoing(memory, found, wait, options?.signal);
 			}
+			if (reusable === undefined && waitedFor !== undefined) again = waitedFor;
 			if (reusable && again !== reusable) {
+				const found = reusable;
+				const ours = trees.some((tree) => tree.path === found.path);
 				const by = roster().find(
-					(provider) => provider.id === reusable.providerId,
+					(provider) => provider.id === found.providerId,
 				);
 				// Nothing to ask when whoever cut it is not loaded. The
 				// directory is still there and still the right one to hand
 				// back; only the check goes missing, which is where this
 				// stood for every tree until now.
-				const answer = await by?.ensure(request, options);
+				let answer: Awaited<ReturnType<TreeProvider["ensure"]>> | undefined;
+				try {
+					answer = await by?.ensure(request, options);
+				} catch (error) {
+					// The hold above names this session on a tree it never got,
+					// which would refuse every other session the worktree.
+					if (!ours) await memory?.forgetUsAsHolder(found.path);
+					throw error;
+				}
 				// Where the provider says the tree is now wins over the record.
 				// World's provider once handed back a tree's container and now
 				// hands back the checkout inside it, and a record from before
 				// kept every later status, record and release running git in
 				// the container, where it is not a repository (2026-10-26).
 				const taken =
-					answer !== undefined && answer.path !== reusable.path
-						? { ...reusable, path: answer.path }
-						: reusable;
+					answer !== undefined && answer.path !== found.path
+						? { ...found, path: answer.path }
+						: found;
 				// Held locally as well, since our own list is what makes this
 				// session's answer true whatever the record on disk says.
-				const mine = trees.findIndex((tree) => tree.path === reusable.path);
+				const mine = trees.findIndex((tree) => tree.path === found.path);
 				if (mine >= 0) trees.splice(mine, 1, taken);
 				else if (!trees.some((tree) => tree.path === taken.path)) {
 					trees.push(taken);
 				}
-				if (taken !== reusable) await memory?.rememberHeldByUs(taken);
+				if (taken !== found) await memory?.rememberHeldByUs(taken);
 				// A sweep may have taken the tree before the hold above was
 				// written, since it judges under the record's lock and only
 				// then did we date our ask. That holds for a tree this session

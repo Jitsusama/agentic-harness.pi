@@ -60,7 +60,8 @@ import {
 	systemFacts,
 } from "../process/index.ts";
 import { hosted, sessionOwner } from "../session/index.ts";
-import type { HeldTree } from "./broker.ts";
+import type { GoingMark, HeldTree } from "./broker.ts";
+import { LOCK_FRESH_FOR_MS, SWEEP_STALE_MS } from "./sweep-lock.ts";
 
 /** Somewhere to write down what was cut. */
 export interface TreeMemory {
@@ -187,11 +188,23 @@ export interface TreeMemory {
 	/**
 	 * End a removal {@link holdWhileUnheld} began: forget the tree's record,
 	 * or with `restore`, the record it answered, put it back for a removal
-	 * that failed. Only a record still marked as going is touched, under
-	 * its lock, since once the folder went a session may have cut the tree
-	 * afresh at the same path, and that record is the new cut's.
+	 * that failed, dated as last asked for when it was before the mark.
+	 * Only a record still marked as going is touched, under its lock, since
+	 * once the folder went a session may have cut the tree afresh at the
+	 * same path, and that record is the new cut's.
 	 */
 	endGoing(tree: HeldTree, restore?: HeldTree): Promise<void>;
+	/**
+	 * Whether `tree`'s record is gone, marked as going by a sweep still
+	 * removing it, or standing otherwise, read from its own file alone, so
+	 * a session waiting out a removal can look every second without reading
+	 * every record on the thread. A mark whose sweep stopped reads as
+	 * standing.
+	 */
+	goingState(
+		tree: HeldTree,
+		facts?: ProcessFacts,
+	): Promise<"gone" | "going" | "standing">;
 	/**
 	 * Run `take` on a tree whatever sessions hold it, but only while none
 	 * has asked for it since `since`, in milliseconds since the epoch, and
@@ -288,22 +301,42 @@ export class TreeGoing extends Error {
 }
 
 /**
- * Whether a record is marked as going by a sweep still running. A mark
- * whose sweep has ended was left by a removal that stopped partway.
+ * How long a mark stands at most: as long as a sweep may run, keeping
+ * its lock fresh and then holding it stale, so a mark older than that
+ * was left by one that stopped, or by a removal whose end failed in a
+ * process that outlives it, such as a host.
+ */
+const GOING_MARK_MS = LOCK_FRESH_FOR_MS + SWEEP_STALE_MS;
+
+/**
+ * Whether a record's mark, read off disk, where anybody may write, is
+ * one this code wrote and young enough to stand.
+ */
+function markStands(going: unknown): going is GoingMark {
+	if (typeof going !== "object" || going === null) return false;
+	const at = "at" in going ? going.at : undefined;
+	const by = "by" in going ? going.by : undefined;
+	if (typeof at !== "number" || !Number.isFinite(at) || !isOwner(by)) {
+		return false;
+	}
+	const age = Date.now() - at;
+	return age >= 0 && age < GOING_MARK_MS;
+}
+
+/**
+ * Whether a record is marked as going by a sweep still running, judged
+ * by the process that marked it. A mark whose process has ended was left
+ * by a removal that stopped partway.
  */
 async function goingNow(
 	tree: HeldTree | undefined,
 	facts: ProcessFacts,
 ): Promise<boolean> {
-	return tree?.going !== undefined && !(await spent(tree, facts));
+	const going: unknown = tree?.going;
+	if (!markStands(going)) return false;
+	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
+	return (await tickedStanding(going.by, once)) !== "gone";
 }
-
-/**
- * How long a record marked as going outlives its folder: a sweep runs
- * for at most two hours, so a mark older than that was left by one that
- * stopped, and the record goes with its folder as any other does.
- */
-const GOING_OUTLIVES_FOLDER_MS = 2 * 60 * 60 * 1000;
 
 /** What changes about a directory when an entry in it does. */
 function stamp(dir: string): string | undefined {
@@ -931,10 +964,7 @@ export function createTreeMemory(
 				// it forever. A record marked as going stays until its sweep
 				// ends the removal, so a session asking meanwhile still waits
 				// rather than cutting afresh where the removal still runs.
-				const removing =
-					held.going !== undefined &&
-					Date.now() - held.going < GOING_OUTLIVES_FOLDER_MS;
-				if (existsSync(held.path) || removing) {
+				if (existsSync(held.path) || markStands(held.going)) {
 					found.push(held);
 					continue;
 				}
@@ -1088,14 +1118,22 @@ export function createTreeMemory(
 			const found = this.recall().find((one) => one.path === path);
 			if (found === undefined) return undefined;
 			const us = await holderNow(facts);
-			if (us === undefined) return undefined;
+			// The process marks it, not the conversation: in a host the
+			// conversation a sweep runs in may close while it removes the tree.
+			const by = await ownerNow(facts);
+			if (us === undefined || by === undefined) return undefined;
 			let before: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
 				if (tree === undefined || !(await spent(tree, facts))) return;
 				const { going: _, ...unmarked } = tree;
 				const { sessions: __, ...rest } = unmarked;
-				this.remember({ ...rest, owners: [us], going: Date.now() });
+				const asked = this.askedAt(path, tree.identity.key);
+				const going: GoingMark =
+					asked === undefined
+						? { at: Date.now(), by }
+						: { at: Date.now(), by, asked };
+				this.remember({ ...rest, owners: [us], going });
 				before = unmarked;
 			});
 			return before;
@@ -1105,9 +1143,35 @@ export function createTreeMemory(
 			await underLock(tree.identity.key, async () => {
 				const found = this.recall().find((one) => one.path === tree.path);
 				if (found === undefined || found.going === undefined) return;
-				if (restore === undefined) this.forget(tree.path);
-				else this.remember(restore);
+				if (restore === undefined) {
+					this.forget(tree.path);
+					return;
+				}
+				this.remember(restore);
+				// Its file's time is when it was last asked for, and the mark and
+				// this write aren't asks: left as written, a failed removal would
+				// keep a tree a day as if a session had just asked for it.
+				const { asked } = found.going;
+				if (typeof asked === "number" && Number.isFinite(asked)) {
+					const when = new Date(asked);
+					utimesSync(fileFor(tree.identity.key), when, when);
+				}
 			});
+		},
+
+		async goingState(tree, facts = systemFacts) {
+			let written: Written;
+			try {
+				written = JSON.parse(readFileSync(fileFor(tree.identity.key), "utf8"));
+			} catch (error) {
+				// No record, or one half-written, is gone; a passing fault throws.
+				unreadRecord(error);
+				return "gone";
+			}
+			if (!usable(written) || written.path !== tree.path) return "gone";
+			const found = written as unknown as HeldTree;
+			if (await goingNow(found, facts)) return "going";
+			return existsSync(tree.path) ? "standing" : "gone";
 		},
 
 		async heldNow(facts = systemFacts) {
