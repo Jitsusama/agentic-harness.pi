@@ -10,6 +10,7 @@
 
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -491,6 +492,37 @@ describe("a tree cut on btrfs", () => {
 		expect(made).toBeLessThan(
 			calls.findIndex((call) => call.args.includes("add")),
 		);
+	});
+
+	it("is a subvolume on the first cut too, before the state directory is", async () => {
+		// btrfs makes a subvolume only inside a folder that stands, so a first
+		// cut made before the trees' folder did came out plain, and unseeded.
+		const home = mkdtempSync(join(tmpdir(), "git-provider-first-"));
+		const stateDir = join(home, "trees");
+		const { exec: answer } = fakeExec([
+			...ok,
+			{ when: ["subvolume", "create"], stdout: "" },
+		]);
+		const parents: boolean[] = [];
+		const exec: typeof answer = async (command, args) => {
+			if (command === "btrfs") parents.push(existsSync(stateDir));
+			return answer(command, args);
+		};
+		try {
+			const provider = createGitTreeProvider({
+				exec,
+				stateDir,
+				subvolumes: onBtrfs,
+			});
+
+			await provider.ensure(worktree());
+
+			expect(parents, "the trees' folder should stand for the create").toEqual([
+				true,
+			]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 
 	it("is a plain directory where the state directory isn't on btrfs", async () => {

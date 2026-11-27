@@ -16,7 +16,7 @@
  */
 
 import { readdirSync } from "node:fs";
-import { statfs } from "node:fs/promises";
+import { mkdir, statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { displayPath } from "../../../ui/path.ts";
 import { type Exec, run } from "../../exec/index.ts";
@@ -456,6 +456,12 @@ export function createGitTreeProvider(deps: {
 			// make a plain one, as it always did.
 			const onDisk = await subvolumes(deps.stateDir);
 			const seed = onDisk ? seeds.current(source.path) : undefined;
+			// btrfs makes a subvolume only in a folder that stands, so the trees'
+			// folder is made first.
+			if (seed === undefined && onDisk) {
+				// A folder that can't be made fails the create, which cuts plain.
+				await mkdir(deps.stateDir, { recursive: true }).catch(() => undefined);
+			}
 			const apart =
 				seed === undefined &&
 				onDisk &&
