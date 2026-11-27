@@ -16,6 +16,7 @@ import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
 import {
 	askOnce,
+	childRefused,
 	childUnreachable,
 	madeByHost,
 	reach,
@@ -134,8 +135,10 @@ export function hostChildren(options: {
 		...(options.say ? { say: options.say } : {}),
 		spares: () => policy.spares?.() ?? false,
 		spareMoved: versionsMove(),
-		ended: (sessionId, why, busy) => {
-			const endAsked = endWasAsked(sessionId);
+		ended: (sessionId, why, busy, elsewhere) => {
+			// A stale child's ending leaves the marks of the child that runs
+			// its conversation now, which were asked of that one.
+			const endAsked = !elsewhere && endWasAsked(sessionId);
 			const cutOff = why === "failed" && busy;
 			// Its close, release or abort failed with it, so carrying the turn
 			// on would undo what the person asked; they ask again.
@@ -155,6 +158,8 @@ export function hostChildren(options: {
 			forgetEnds(sessionId);
 			restGivenUp(sessionId);
 		},
+		// No ending of a forsaken child is heard, so none reads these.
+		forsook: (sessionId) => forgetEnds(sessionId),
 		// Its child ends as what it became, so no ending reads these again.
 		became: (previousId, nextId) => {
 			forgetEnds(previousId);
@@ -236,8 +241,15 @@ export function hostChildren(options: {
 			// Taken back since, by the child's ending or its turn's.
 			if (endsAsked.get(id) !== marks || marks.get(op) !== mark) return;
 			// Not reached, or its asker gone first: the child may hold it still.
-			// A child's own refusal may carry the same code, and is a refusal.
-			if (reply !== undefined && !reply.ok && madeByHost(reply)) return;
+			// A child's own refusal may carry the same code, and is a refusal,
+			// as is one the host passes on as not reached.
+			if (
+				reply !== undefined &&
+				!reply.ok &&
+				madeByHost(reply) &&
+				!childRefused(reply)
+			)
+				return;
 			mark.unanswered -= 1;
 			const at = now();
 			if (reply?.ok) mark.until = Math.max(mark.until, at + END_ASKED_HOLDS_MS);

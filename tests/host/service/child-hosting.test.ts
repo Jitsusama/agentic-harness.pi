@@ -20,6 +20,7 @@ import type { ChildPolicy } from "../../../host/service/child-policy.ts";
 import {
 	BEGIN_TOO_LATE,
 	childUnreachable,
+	fromChild,
 } from "../../../host/service/child-requests.ts";
 import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
@@ -676,6 +677,137 @@ describe("a host's children", () => {
 			await vi.waitFor(() =>
 				expect(woken, "the close was of what it became from").toEqual([a]),
 			);
+		});
+
+		// F117, F120: no ending of a forsaken child is heard, so what was
+		// asked of it goes with it, not to the next child of its conversation.
+		it("forgets an end asked of one whose child was forsaken", async () => {
+			held = [...held, entryIn(folder, b)];
+			await busy();
+			const first = units.childOf(a);
+			children.routes.asking?.(ending("close"));
+			// Onto one the roster holds already, so it is forsaken and stopped.
+			first.say({
+				type: "became",
+				previousId: a,
+				conversation: conversationIn(folder, b),
+				entry: entryIn(folder, b),
+			});
+			await vi.waitFor(() => expect(units.children.size).toBe(0));
+
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the close went with the child forsaken").toEqual([a]),
+			);
+		});
+
+		// F123: a stale child's ending leaves what was asked of the child
+		// that runs its conversation now.
+		it("keeps an end asked of one as a stale child of it ends", async () => {
+			held = [...held, entryIn(folder, b)];
+			await children.backend.resume(entryIn(folder, a), true);
+			await children.backend.resume(entryIn(folder, b), true);
+			const stale = units.childOf(a);
+			const newer = children.routes.routeOf(b);
+			if (!newer) throw new Error("b's child holds no route");
+			// The child in b's slot runs a now, as a newer child of it would.
+			children.routes.hold(
+				{ ...conversationIn(folder, a), state: "busy" },
+				newer,
+			);
+			children.routes.asking?.(ending("close"));
+			await stale.exit();
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+
+			// A child of a that dies busy while the close still waits.
+			children.routes.drop(a);
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(2));
+			expect(woken, "the close is still asked").toEqual([]);
+		});
+
+		// F124: a release ends a conversation as a close does.
+		it("leaves one resting whose child died just after it agreed to a release", async () => {
+			await busy();
+			children.routes.asking?.(ending("release"))?.({
+				v: 1,
+				id: "release",
+				ok: true,
+				result: null,
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the release it took").toEqual([]);
+		});
+
+		// F107, F109: a child the host can't reach may be dying as it is
+		// asked, so the close holds as one asked, not as one never sent.
+		it("leaves one resting whose child died as a close the host asked couldn't reach it", async () => {
+			await busy();
+			const route = children.routes.routeOf(a);
+			if (!route) throw new Error("a holds no route");
+			// Its socket gone, as a dying child's goes, while its watch runs on.
+			await rm(route.socket);
+			await expect(
+				children.backend.ask(a, { v: 1, id: "c", op: "close", sessionId: a }),
+			).rejects.toThrow();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the close may have been its end").toEqual([]);
+		});
+
+		// F114: the server passes an id as it was typed; the child says its own.
+		it("leaves one resting whose child died as a close asked in capitals was", async () => {
+			await busy();
+			children.routes.asking?.({
+				v: 1,
+				id: "close",
+				op: "close",
+				sessionId: a.toUpperCase(),
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the same conversation").toEqual([]);
+		});
+
+		// F104: the host tells a child's refusal of the host it names as one
+		// not reached, but the child heard the close and turned it down.
+		it("wakes one whose child refused its close as asked of another host and then died mid-turn", async () => {
+			await busy();
+			const refused = fromChild(
+				Buffer.from(
+					JSON.stringify({
+						v: 1,
+						id: "close",
+						ok: false,
+						error: { code: "stale_host", message: "another host" },
+					}),
+				),
+				"close",
+			);
+			children.routes.asking?.(ending("close"))?.(refused);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "it turned the close down").toEqual([a]),
+			);
+		});
+
+		it("leaves one resting whose child died after an answer to its close it couldn't read", async () => {
+			await busy();
+			const unread = fromChild(Buffer.from("not a reply"), "close");
+			children.routes.asking?.(ending("close"))?.(unread);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "it may have taken the close").toEqual([]);
 		});
 
 		it("takes every end's mark back with its child's ending", async () => {

@@ -39,6 +39,18 @@ export function madeByHost(reply: ControlReply): boolean {
 	return madeHere.has(reply);
 }
 
+// Each answer the host made in place of a child's own refusal.
+const refusedThere = new WeakSet<ControlReply>();
+
+/**
+ * Whether the host made `reply` in place of a refusal the child gave,
+ * which the caller is told as one not reached: the child heard the
+ * request and turned it down, so it holds nothing.
+ */
+export function childRefused(reply: ControlReply): boolean {
+	return refusedThere.has(reply);
+}
+
 // Each refusal the host made for a child that runs a conversation all
 // the same, by that conversation: the reply crosses the wire as it is.
 const leftRunningBy = new WeakMap<ControlReply, string>();
@@ -196,11 +208,14 @@ export function fromChild(line: Buffer, id: string): ControlReply {
 			id,
 			"The process running this conversation answered another request",
 		);
-	if (!reply.ok && reply.error.code === "stale_host")
-		return childUnreachable(
+	if (!reply.ok && reply.error.code === "stale_host") {
+		const told = childUnreachable(
 			id,
 			"The process running this conversation has changed; ask again",
 		);
+		refusedThere.add(told);
+		return told;
+	}
 	return reply;
 }
 

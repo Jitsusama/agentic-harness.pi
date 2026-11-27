@@ -484,9 +484,17 @@ export function childSupervisor(options: {
 	/**
 	 * A child's conversation ended, as it said, its route already gone;
 	 * `busy` when the last state its child said of it was busy, as one
-	 * killed mid-turn leaves it.
+	 * killed mid-turn leaves it; `elsewhere` when another slot's child
+	 * holds its route, so this child was stale and the other runs it.
 	 */
-	ended?: (sessionId: string, why: ChildEnding, busy: boolean) => void;
+	ended?: (
+		sessionId: string,
+		why: ChildEnding,
+		busy: boolean,
+		elsewhere: boolean,
+	) => void;
+	/** A child forsaken as it ran `sessionId`, whose ending isn't heard. */
+	forsook?: (sessionId: string) => void;
 	/** A child said its conversation is not busy, its turn over. */
 	atRest?: (sessionId: string) => void;
 	/**
@@ -1372,6 +1380,8 @@ export function childSupervisor(options: {
 			if (forsaken) return;
 			forsaken = true;
 			options.say?.(`${slot.unit}: stopped, since it ${why}`);
+			if (current && routes.routeOf(current)?.socket === slot.socket)
+				options.forsook?.(current);
 			if (current) dropOwn(current);
 			current = undefined;
 			markRunning(running);
@@ -1549,6 +1559,10 @@ export function childSupervisor(options: {
 									current !== undefined &&
 									routes.routeOf(current)?.socket === slot.socket &&
 									routes.child(current)?.conversation.state === "busy";
+								const routed =
+									current !== undefined ? routes.routeOf(current) : undefined;
+								const elsewhere =
+									routed !== undefined && routed.socket !== slot.socket;
 								if (current) dropOwn(current);
 								// One refused as it ended may run on: it is stopped.
 								const left = leave(
@@ -1567,7 +1581,7 @@ export function childSupervisor(options: {
 								options.say?.(
 									`${sessionAddress(current)} (${current}): its process ended, ${why}`,
 								);
-								options.ended?.(current, why, busy);
+								options.ended?.(current, why, busy, elsewhere);
 							},
 							misread: (error) =>
 								options.report(new Error(`${slot.unit} ${error.message}`)),
