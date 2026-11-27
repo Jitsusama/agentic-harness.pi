@@ -43,6 +43,18 @@ describe("the test suite's XDG sandbox", () => {
 		).toBe(true);
 	});
 
+	it("carries none of the developer's mycelium session", () => {
+		// A pi the node holds names its held session, realm and wake in
+		// MYCELIUM_ variables. A test inheriting MYCELIUM_HELD asked a node
+		// it stood up for its own held window, an ask on the developer's
+		// behalf no clean run makes, so needs.test.ts failed only there.
+		const inherited = Object.keys(process.env).filter((name) =>
+			name.startsWith("MYCELIUM_"),
+		);
+
+		expect(inherited).toEqual([]);
+	});
+
 	it("keeps credentials out of the developer's keyring", () => {
 		// The Google and Slack sign-ins keep their tokens in the keyring; a
 		// test signing in must not replace the developer's own.

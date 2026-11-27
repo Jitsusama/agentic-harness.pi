@@ -63,6 +63,14 @@ process.env.PI_SETTLE = "off";
 // Nor may the sandbox the developer's session runs in reach what a
 // test spawns, whose environment a strict parent's would change.
 delete process.env.PI_SANDBOX;
+// Nor is a test's session one the developer's node holds: a held pi's
+// MYCELIUM_ variables name its held session, realm and wake, and a test
+// inheriting them asks on the developer's behalf, as an open asking the
+// node for its held window did. Every one goes, so a new one does too;
+// a test wanting one sets it itself.
+for (const name of Object.keys(process.env)) {
+	if (name.startsWith("MYCELIUM_")) delete process.env[name];
+}
 // Nor may a test read or write the developer's keyring: credentials
 // go to a keyring in memory, fresh for each test file.
 useSecretStore(memorySecretStore());

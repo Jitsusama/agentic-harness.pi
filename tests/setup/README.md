@@ -1,7 +1,9 @@
 # Test Setup
 
 What vitest runs around every unit test, named in `vitest.config.ts`: every
-XDG directory pointed at a throwaway tree, one temp root per run with a
+XDG directory pointed at a throwaway tree, none of the developer's
+session left in its environment (its sandbox, desktop and `MYCELIUM_`
+variables), one temp root per run with a
 short folder for sockets in /tmp (`PI_TEST_SOCKET_ROOT`), the quest
 workflow's signal listeners taken back out, the quest lock pointed at an
 empty runtime folder rather than the machine's own, and a note of which
