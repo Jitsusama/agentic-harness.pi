@@ -18,6 +18,7 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -1003,6 +1004,27 @@ describe("trees another provider cut", () => {
 		expect(outcome.taken).toEqual([{ path: tree }]);
 		expect(outcome.refused, "what it refused").toEqual([]);
 		expect(ends, "each end, whether its removal failed").toEqual([false]);
+	});
+
+	it("takes no more once another sweep has taken its lock over", async () => {
+		// The sweep that took it over reads this one's marks as stopped and
+		// finishes them, so marking on would race it.
+		const { lockPath, elsewhereTree, sweepWith } = await setUp();
+		const trees = [elsewhereTree("dev-one"), elsewhereTree("dev-two")];
+		for (const tree of trees) settleFolder(tree);
+		const provider = elsewhere(undefined, async (held) => {
+			writeFileSync(`${lockPath}.theirs`, String(process.pid));
+			renameSync(`${lockPath}.theirs`, lockPath);
+			rmSync(held.path, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken, "what it took").toHaveLength(1);
+		expect(
+			trees.filter((tree) => existsSync(tree)),
+			"a sweep went on taking trees under another sweep's lock",
+		).toHaveLength(1);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {

@@ -1138,6 +1138,25 @@ describe("a tree a sweep is removing", () => {
 		expect(memory.recall()).toEqual([]);
 	});
 
+	it("leaves a mark another removal made since to that removal to end", async () => {
+		// A sweep whose lock was taken over after a long stop ends what it
+		// began; the sweep that took over may have marked the tree anew.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		const first = running().lock;
+		const second = running().lock;
+		const marked = { ...tree, going: { at: Date.now(), by: us, lock: second } };
+		memory.remember(marked);
+
+		await memory.endGoing(tree, false, first);
+		await memory.endGoing(tree, true, first);
+
+		expect(memory.recall(), "the second removal's record").toEqual([
+			expect.objectContaining({ path: tree.path, going: marked.going }),
+		]);
+	});
+
 	it("leaves the record marked as stopped when the removal fails", async () => {
 		const memory = memoryAt();
 		const tree = ended("snapshot");

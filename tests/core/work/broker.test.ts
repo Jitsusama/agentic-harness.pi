@@ -490,6 +490,46 @@ describe("createTreeBroker", () => {
 		expect(letGo, "the records let go").toEqual([old.path]);
 	});
 
+	it("keeps a hold its record already named when its provider fails to hand the tree back", async () => {
+		// After a reload, or a host resuming the conversation, the broker's
+		// own list starts empty, though the record still names this session
+		// and the session is working in the tree: dropping its share would
+		// leave the tree to the sweep.
+		const request = worktree("main");
+		const old: HeldTree = {
+			identity: treeIdentity(request),
+			path: "/trees/w-main",
+			providerId: "world-dev-tree",
+		};
+		const { provider } = fakeProvider("world-dev-tree");
+		const letGo: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider,
+					ensure: async () => {
+						throw new Error("the provider fell over");
+					},
+				},
+			],
+			memory: {
+				...remembering(old, []),
+				heldByUs: async (trees) =>
+					new Set(
+						trees.map((tree) => tree.path).filter((path) => path === old.path),
+					),
+				forgetUsAsHolder: async (path) => {
+					letGo.push(path);
+				},
+			},
+		});
+
+		await expect(broker.ensure(request)).rejects.toThrow(
+			"the provider fell over",
+		);
+		expect(letGo, "the records let go").toEqual([]);
+	});
+
 	it("cuts a second tree for a different request", async () => {
 		const { provider, cuts } = fakeProvider("git-worktree");
 		const broker = createTreeBroker([provider]);

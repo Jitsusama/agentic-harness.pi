@@ -194,8 +194,15 @@ export interface TreeMemory {
 	 * up what the failure left. Only records still marked are touched,
 	 * under their locks, since once the folder went a session may have cut
 	 * the tree afresh at the same path, and that record is the new cut's.
+	 * Given the lock the removal ran `under`, only the marks made under it:
+	 * a mark another removal made since, after this one's lock was taken
+	 * over, is that removal's to end.
 	 */
-	endGoing(tree: HeldTree, failed?: boolean): Promise<void>;
+	endGoing(
+		tree: HeldTree,
+		failed?: boolean,
+		under?: RemovalLock,
+	): Promise<void>;
 	/**
 	 * Finish a removal that stopped partway, through `release`, so `tree`
 	 * can be cut afresh: its records are marked as going under a lock this
@@ -1275,13 +1282,16 @@ export function createTreeMemory(
 			return before;
 		},
 
-		async endGoing(tree, failed = false) {
+		async endGoing(tree, failed = false, under = undefined) {
 			const keys = this.recall()
 				.filter((one) => one.path === tree.path)
 				.map((one) => one.identity.key);
 			await underLocks([tree.identity.key, ...keys], async () => {
 				const trees = this.recall().filter(
-					(one) => one.path === tree.path && one.going !== undefined,
+					(one) =>
+						one.path === tree.path &&
+						one.going !== undefined &&
+						(under === undefined || one.going.lock?.id === under.id),
 				);
 				if (trees.length === 0) return;
 				if (!failed) {
@@ -1325,6 +1335,7 @@ export function createTreeMemory(
 				.filter((one) => one.path === tree.path)
 				.map((one) => one.identity.key);
 			let ending: (() => void) | undefined;
+			let marked: RemovalLock | undefined;
 			await underLocks([tree.identity.key, ...keys], async () => {
 				const trees = this.recall().filter((one) => one.path === tree.path);
 				const stopped = trees.filter((one) => one.going !== undefined);
@@ -1342,13 +1353,14 @@ export function createTreeMemory(
 					this.remember(markedGoing(one, us, by, made.lock, asked));
 				}
 				ending = made.end;
+				marked = made.lock;
 			});
 			if (ending === undefined) return;
 			try {
 				await release();
-				await this.endGoing(tree);
+				await this.endGoing(tree, false, marked);
 			} catch (error) {
-				await this.endGoing(tree, true);
+				await this.endGoing(tree, true, marked);
 				throw error;
 			} finally {
 				ending();

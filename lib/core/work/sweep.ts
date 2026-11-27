@@ -565,6 +565,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		// left and report the tree taken as kept too.
 		const judged = new Set<string>();
 		for (const tree of others) {
+			// A lock taken over, after a long sleep or past its touching, is
+			// another sweep's, which reads this one's marks as stopped: marking
+			// on would race it, so the sweep holding the lock takes what's left.
+			if (!release.ours()) break;
 			if (judged.has(tree.path)) continue;
 			judged.add(tree.path);
 			// Other providers' rules know nothing of a quest's claim, so it
@@ -838,7 +842,7 @@ async function releaseThroughProvider(
 	try {
 		// What a failed removal left may be half a tree, so its mark stays,
 		// stopped, and whoever asks for it next finishes the removal first.
-		await deps.memory.endGoing(tree, failed !== undefined);
+		await deps.memory.endGoing(tree, failed !== undefined, lock);
 	} catch (error) {
 		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
 	}

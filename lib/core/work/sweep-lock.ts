@@ -30,6 +30,7 @@ import {
 	rmSync,
 	type Stats,
 	utimesSync,
+	writeFileSync,
 	writeSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -75,25 +76,80 @@ export interface RemovalLock {
 	readonly id: string;
 }
 
-/** A held sweep lock: called to let it go, and naming the file it is. */
-export type HeldSweepLock = (() => void) & { readonly lock: RemovalLock };
+/**
+ * A held sweep lock: called to let it go, naming the file it is, and
+ * saying whether it is still ours, read at the moment asked: one taken
+ * over, after a long sleep or past its touching, is another sweep's,
+ * and a sweep that goes on marking trees under it races that one.
+ */
+export type HeldSweepLock = (() => void) & {
+	readonly lock: RemovalLock;
+	readonly ours: () => boolean;
+};
+
+/** How many takeovers a lock's notes keep, the newest last. */
+const TAKEN_KEPT = 64;
 
 /**
  * Whether `lock` still stands as the file that was made, holding `pid`,
- * a process that runs. Gone, another file, or another pid's, it doesn't.
- * A lock that can't be read for another reason is taken to stand, since
- * a removal read as stopped while it runs is one a session would race.
+ * a process that runs. Gone, another file, or another pid's, it doesn't,
+ * unless it was taken over from `pid` while that still ran: a sweep
+ * taken over after a long stop goes on with the removal it was in, which
+ * a session finishing it beside would race. A lock that can't be read
+ * for another reason is taken to stand, for the same reason.
  */
 export function lockRuns(lock: RemovalLock, pid: number): boolean {
 	let stats: Stats;
 	try {
 		stats = lstatSync(lock.path);
 	} catch (error) {
-		if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) return false;
+		if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
+			return takenOver(lock, pid) && isAlive(pid);
+		}
 		return true;
 	}
-	if (!stats.isFile() || identity(stats) !== lock.id) return false;
+	if (!stats.isFile() || identity(stats) !== lock.id) {
+		return takenOver(lock, pid) && isAlive(pid);
+	}
 	return holderOf(lock.path) === pid && isAlive(pid);
+}
+
+/** Whether `lock` was noted as taken over from `pid` while it ran. */
+function takenOver(lock: RemovalLock, pid: number): boolean {
+	try {
+		return readFileSync(takenPath(lock.path), "utf8")
+			.split("\n")
+			.includes(`${lock.id} ${pid}`);
+	} catch (error) {
+		// None noted, or no folder to note in, is none taken over; any other
+		// failure can't say, and a removal read as stopped while it runs is
+		// one a session would race.
+		return !hasCode(error, "ENOENT") && !hasCode(error, "ENOTDIR");
+	}
+}
+
+function takenPath(lockPath: string): string {
+	return `${lockPath}.taken`;
+}
+
+/**
+ * Note that the lock `id` at `lockPath` is taken over from `pid`, which
+ * still runs, keeping the newest {@link TAKEN_KEPT}. Written whole and
+ * renamed in, so a reader never sees half of it.
+ */
+function noteTaken(lockPath: string, id: string, pid: number): void {
+	let noted: string[] = [];
+	try {
+		noted = readFileSync(takenPath(lockPath), "utf8")
+			.split("\n")
+			.filter(Boolean);
+	} catch (error) {
+		if (!hasCode(error, "ENOENT")) throw error;
+	}
+	const kept = [...noted, `${id} ${pid}`].slice(-TAKEN_KEPT);
+	const next = `${takenPath(lockPath)}.${process.pid}-${randomBytes(4).toString("hex")}`;
+	writeFileSync(next, `${kept.join("\n")}\n`);
+	renameSync(next, takenPath(lockPath));
 }
 
 /**
@@ -251,7 +307,17 @@ function keptFresh(
 			// the hour, and the sweep's own outcome is never thrown over.
 		}
 	};
-	return Object.assign(release, { lock: { path: lockPath, id: mine } });
+	const ours = () => {
+		if (lost) return false;
+		try {
+			return identityOf(lockPath) === mine;
+		} catch {
+			// Unreadable for now says nothing of whose it is, as the beat
+			// judges it, so the sweep goes on until it reads another's.
+			return true;
+		}
+	};
+	return Object.assign(release, { lock: { path: lockPath, id: mine }, ours });
 }
 
 /**
@@ -284,6 +350,16 @@ function heldBy(lockPath: string, asides: string[]): string | undefined {
 		return holder === undefined
 			? "another sweep is starting"
 			: `another sweep is running, pid ${holder}`;
+	}
+	if (!gone && holder !== undefined) {
+		// Stale while its holder runs: stopped, frozen or past its touching,
+		// it may wake mid-removal, so its marks must go on standing. Noted
+		// before the move, and not taken over at all when the note fails.
+		try {
+			noteTaken(lockPath, identity(judged), holder);
+		} catch (error) {
+			return `another sweep's lock is stale, pid ${holder}, and noting its takeover failed: ${error instanceof Error ? error.message : String(error)}`;
+		}
 	}
 	const aside = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
 	try {

@@ -576,7 +576,13 @@ export function createTreeBroker(
 			if (reusable === undefined && waitedFor !== undefined) again = waitedFor;
 			if (reusable && again !== reusable) {
 				const found = reusable;
-				const ours = trees.some((tree) => tree.path === found.path);
+				// Ours already when this process cut it, or when its record, read
+				// before the hold above, named this session: after a reload or a
+				// host resuming the conversation, the list here starts empty.
+				const named = (await memory?.heldByUs([found])) ?? new Set<string>();
+				const ours =
+					trees.some((tree) => tree.path === found.path) ||
+					named.has(found.path);
 				const by = roster().find(
 					(provider) => provider.id === found.providerId,
 				);
