@@ -157,17 +157,25 @@ describe("whether the machine has room for a round", () => {
 		const passable = async (over: Partial<MachineReads>) =>
 			(await machineShort(reads(over)))?.passable;
 
-		expect(await passable({ cpuPressure: cpu })).toBe(true);
+		expect(
+			await passable({ cpuPressure: cpu }),
+			"CPU alone short, not passable",
+		).toBe(true);
 		expect(
 			await passable({
 				cpuPressure: cpu,
 				memoryPressure: pressure("full", "6"),
 			}),
+			"memory pressure short too, passable",
 		).toBe(false);
-		expect(await passable({ cpuPressure: cpu, meminfo: meminfo(4) })).toBe(
-			false,
-		);
-		expect(await passable({ meminfo: meminfo(4) })).toBe(false);
+		expect(
+			await passable({ cpuPressure: cpu, meminfo: meminfo(4) }),
+			"available memory short too, passable",
+		).toBe(false);
+		expect(
+			await passable({ meminfo: meminfo(4) }),
+			"available memory alone short, passable",
+		).toBe(false);
 	});
 
 	it("has room where no reading is kept, as on a Mac", async () => {

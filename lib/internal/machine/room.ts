@@ -38,7 +38,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import type { RoomHeld } from "./start-spacing.ts";
+import type { RoomHeld } from "../../core/review/ask/start-spacing.ts";
 
 /** The kernel's memory pressure, where Linux keeps it. */
 export const MEMORY_PRESSURE_FILE = "/proc/pressure/memory";
