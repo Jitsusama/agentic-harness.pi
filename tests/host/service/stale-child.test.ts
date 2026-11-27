@@ -168,6 +168,105 @@ describe("rollWhenStale", () => {
 		expect(timers.due).toEqual([]);
 	});
 
+	it("says once that it may not roll yet, though it looks again early", async () => {
+		const timers = manualTimers();
+		const reported: unknown[] = [];
+		rollWhenStale(async () => "moved", vi.fn(), {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			rollsFrom: 3_600_000,
+			// A clock that hasn't moved when its timer fires, as one put back.
+			now: () => 0,
+		});
+		await timers.fire();
+		await timers.fire();
+		expect(reported).toEqual([
+			"Moved, but it may not roll yet, so it looks again in 60 minutes",
+		]);
+	});
+
+	it("waits its spread after its hour, not within it", async () => {
+		const timers = manualTimers();
+		let now = 0;
+		const roll = vi.fn();
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 60_000,
+			after: timers.after,
+			report: () => undefined,
+			rollsFrom: 3_600_000,
+			now: () => now,
+			spreadMs: 120_000,
+			roomShort: async () => undefined,
+		});
+		now = 60_000;
+		await timers.fire();
+		expect(timers.due.map(({ ms }) => ms)).toEqual([3_540_000]);
+		now = 3_600_000;
+		await timers.fire();
+		expect(roll, "its hour is up, but not its spread").not.toHaveBeenCalled();
+		expect(timers.due.map(({ ms }) => ms)).toEqual([120_000]);
+		now += 120_000;
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+	});
+
+	it("waits its spread again after the machine was busy, so the children held go out apart", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		let short: string | undefined = "CPU some avg60 was 64.7, at or past 40";
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 300_000,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => 0,
+			spreadMs: 120_000,
+			roomShort: async () => short,
+		});
+		await timers.fire();
+		await timers.fire();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"busy: it looks again",
+		).toEqual([300_000]);
+		expect(reported).toEqual([
+			"Moved, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 7 minutes until it has room, rolling anyway after 60 minutes",
+		]);
+		short = undefined;
+		await timers.fire();
+		expect(roll, "room now, but its spread comes first").not.toHaveBeenCalled();
+		expect(timers.due.map(({ ms }) => ms)).toEqual([120_000]);
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+	});
+
+	it("forgets its wait for room once the install's code is current again", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		let now = 0;
+		let moved: string | undefined = "moved";
+		rollWhenStale(async () => moved, roll, {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => now,
+			roomShort: async () => "CPU some avg60 was 50, at or past 40",
+			waitsForRoomAtMostMs: 600_000,
+		});
+		await timers.fire();
+		now = 500_000;
+		moved = undefined;
+		await timers.fire();
+		now = 600_000;
+		moved = "moved again";
+		await timers.fire();
+		expect(roll, "its wait began again").not.toHaveBeenCalled();
+		expect(reported).toHaveLength(2);
+		expect(reported[1]).toMatch(/^Moved again, but the machine is busy/);
+	});
+
 	it("rolls at once when the install moves on after it may roll", async () => {
 		const timers = manualTimers();
 		const roll = vi.fn();
@@ -390,7 +489,9 @@ describe("rollChildWhenStale", () => {
 	it("takes its start as the wiring's moment when it isn't told one", async () => {
 		const timers = manualTimers();
 		const rolled: string[] = [];
-		let now = 50_000;
+		// Long past an hour since the epoch, so a start taken as 0 would roll.
+		const wiredAt = 10 * ROLL_ONLY_AFTER_MS;
+		let now = wiredAt;
 		rollChildWhenStale({
 			moved: async () => "moved",
 			host: () => ({ roll: () => rolled.push("rolled") }),
@@ -405,7 +506,7 @@ describe("rollChildWhenStale", () => {
 		now += 1;
 		await timers.fire();
 		expect(rolled, "just started").toEqual([]);
-		now = 50_000 + ROLL_ONLY_AFTER_MS;
+		now = wiredAt + ROLL_ONLY_AFTER_MS;
 		await timers.fire();
 		expect(rolled).toEqual(["rolled"]);
 	});
@@ -465,6 +566,7 @@ describe("rollChildWhenStale", () => {
 				roomShort: async () => undefined,
 			});
 			await timers.fire();
+			expect(ROLL_SPREAD_MS, "ten minutes").toBe(10 * 60_000);
 			expect(timers.due.map(({ ms }) => ms)).toEqual([ROLL_SPREAD_MS / 2]);
 		} finally {
 			random.mockRestore();

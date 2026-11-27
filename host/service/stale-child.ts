@@ -23,9 +23,11 @@
  * 18 fresh processes starting in ten minutes (A210E4CA). So each child
  * waits a share of ten minutes of its own, drawn at random, and then
  * rolls only while the CPU's `some avg60` is under the bar a council's
- * round waits on. Busy past an hour of waiting, it rolls anyway, saying
- * so: a child kept on stale code for hours is the cost the roll exists
- * to end.
+ * round waits on. Found busy, it waits its share again before it next
+ * asks, so the children held for room go out spread as the CPU falls
+ * rather than at their next looks together. Busy past an hour of
+ * waiting, it rolls anyway, saying so: a child kept on stale code for
+ * hours is the cost the roll exists to end.
  */
 
 import { cpuShort } from "../../lib/internal/machine/room.ts";
@@ -59,11 +61,12 @@ const realAfter: After = (ms, run) => {
  * stale code stays stale. A look that throws is reported, saying what
  * it was looking for, and looks again. Stale before `rollsFrom`, it says
  * so and looks again then, rolling with what the install says at that
- * look. Past that, it waits `spreadMs` once, and then rolls only while
- * `roomShort` says nothing, looking again each `lookMs` while it says
- * why not, and rolling anyway once it has waited
- * `waitsForRoomAtMostMs`. Answers the function that stops looking, which
- * holds even over a look already under way.
+ * look. Past that, it waits `spreadMs`, and then rolls only while
+ * `roomShort` says nothing; while it says why not, it looks again after
+ * `lookMs` and `spreadMs` again, rolling anyway once it has waited
+ * `waitsForRoomAtMostMs`. A look finding the code current again, as
+ * after a rollback, forgets the waiting. Answers the function that stops
+ * looking, which holds even over a look already under way.
  */
 export function rollWhenStale(
 	moved: () => Promise<string | undefined>,
@@ -107,6 +110,9 @@ export function rollWhenStale(
 		}
 		if (stopped) return;
 		if (why === undefined) {
+			toldTooSoon = false;
+			spread = false;
+			waitingSince = undefined;
 			cancel = after(lookMs, () => void look());
 			return;
 		}
@@ -136,8 +142,11 @@ export function rollWhenStale(
 			if (waited < waitsAtMost) {
 				if (first)
 					options.report?.(
-						`${capitalised(why)}, but the machine is busy (${short}), so it looks again each ${minutes(lookMs)} until it has room, rolling anyway after ${minutes(waitsAtMost)}`,
+						`${capitalised(why)}, but the machine is busy (${short}), so it looks again each ${minutes(lookMs + spreadMs)} until it has room, rolling anyway after ${minutes(waitsAtMost)}`,
 					);
+				// Its share again before it next asks, so the children held
+				// for room don't all go at the first look the CPU allows.
+				spread = false;
 				cancel = after(lookMs, () => void look());
 				return;
 			}
