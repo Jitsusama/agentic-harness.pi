@@ -281,7 +281,7 @@ describe("the subjects a quest's sessions declare", () => {
 			id,
 			ref: "subjects=x:ab.service",
 		});
-		expect(result.ok, "the unit refused").toBe(false);
+		expect(result.ok, "a service unit's name taken as a subject").toBe(false);
 		expect(said(result), "its type set aside").toMatch(
 			/a \.service ending set aside/,
 		);
