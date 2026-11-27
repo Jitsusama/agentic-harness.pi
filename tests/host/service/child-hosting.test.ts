@@ -46,6 +46,8 @@ let woken: string[];
 // Each rest and wake, in the order they came.
 let order: string[];
 let waking: () => Promise<void>;
+// Whether the host is stopping, as a refused wake is read by.
+let stopping: boolean;
 let clock: number;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
 let children: HostedChildren;
@@ -81,6 +83,7 @@ beforeEach(async () => {
 	woken = [];
 	order = [];
 	waking = async () => undefined;
+	stopping = false;
 	clock = 0;
 	const moving = new Set<string>();
 	policy = {
@@ -122,6 +125,7 @@ function hosting(restsGivenUp: boolean): HostedChildren {
 			order.push(`woken ${sessionId}`);
 			return waking();
 		},
+		stopping: () => stopping,
 		now: () => clock,
 		timings: {
 			listensWithinMs: 5_000,
@@ -179,15 +183,15 @@ describe("a host's children", () => {
 	});
 
 	describe("one whose child failed mid-turn", () => {
-		/** Resume `a` in a child that says it is busy, as one mid-turn does. */
-		async function busy() {
-			await children.backend.resume(entryIn(folder, a), true);
-			units.childOf(a).say({
+		/** Resume one in a child that says it is busy, as one mid-turn does. */
+		async function busy(id = a) {
+			await children.backend.resume(entryIn(folder, id), true);
+			units.childOf(id).say({
 				type: "state",
-				conversation: { ...conversationIn(folder, a), state: "busy" },
+				conversation: { ...conversationIn(folder, id), state: "busy" },
 			});
 			await vi.waitFor(() =>
-				expect(children.backend.running(a)?.state).toBe("busy"),
+				expect(children.backend.running(id)?.state).toBe("busy"),
 			);
 		}
 
@@ -204,6 +208,44 @@ describe("a host's children", () => {
 			]);
 			expect(said).toContain(
 				`${a}: its child failed mid-turn, so it is woken to carry the turn on`,
+			);
+		});
+
+		it("wakes one whose busy child said it failed", async () => {
+			await busy();
+			await units.childOf(a).end("failed");
+
+			await vi.waitFor(() =>
+				expect(woken, "no word says which turn it left").toEqual([a]),
+			);
+		});
+
+		it("says it is woken, not left unwatched, when the engine can't rest it", async () => {
+			resting = false;
+			givingUp = "it has no marker";
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(woken).toEqual([a]));
+			expect(said).toContain(
+				`${a}: its child ended failed, and nothing watches its wake, as it has no marker, so it is woken now instead`,
+			);
+			expect(
+				said.some((line) => line.includes("until it is asked for")),
+				"never said to wait for a window",
+			).toBe(false);
+		});
+
+		it("spaces each conversation's wakes on its own", async () => {
+			held = [...held, entryIn(folder, b)];
+			await busy(a);
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(woken).toEqual([a]));
+
+			await busy(b);
+			await units.childOf(b).exit();
+			await vi.waitFor(() =>
+				expect(woken, "a's wake leaves b's spacing alone").toEqual([a, b]),
 			);
 		});
 
@@ -231,14 +273,16 @@ describe("a host's children", () => {
 		});
 
 		it("rests it once it was woken so as often as a day allows, however far apart", async () => {
+			// Hours apart, so a window much shorter than a day would let more in.
+			const apart = 2 * 60 * 60_000;
 			for (const wake of Array.from({ length: WAKES_A_DAY }, (_, n) => n)) {
-				clock = wake * WOKEN_AGAIN_AFTER_MS;
+				clock = wake * apart;
 				await busy();
 				await units.childOf(a).exit();
 				await vi.waitFor(() => expect(woken).toHaveLength(wake + 1));
 			}
 
-			clock = WAKES_A_DAY * WOKEN_AGAIN_AFTER_MS;
+			clock = WAKES_A_DAY * apart;
 			await busy();
 			await units.childOf(a).exit();
 			await vi.waitFor(() =>
@@ -476,7 +520,20 @@ describe("a host's children", () => {
 			);
 		});
 
-		it("says a wake that didn't land, rather than reporting it", async () => {
+		it("reports a wake that didn't land while the host runs on", async () => {
+			const refusal = new Error("its slot won't free");
+			waking = () => Promise.reject(refusal);
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(reported).toEqual([refusal]));
+			expect(said).toContain(
+				`${a}: its wake after its child failed mid-turn didn't land: its slot won't free`,
+			);
+		});
+
+		it("says a wake a stopping host refused, rather than reporting it", async () => {
+			stopping = true;
 			waking = () => Promise.reject(new Error("the host is stopping"));
 			await busy();
 			await units.childOf(a).exit();

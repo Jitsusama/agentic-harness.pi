@@ -98,6 +98,11 @@ export function hostChildren(options: {
 	say?: (line: string) => void;
 	/** Wake a held conversation, as a message to it does: the backend's. */
 	wake?: (sessionId: string) => Promise<void>;
+	/**
+	 * Whether the host is stopping, when a wake it refuses is as it should
+	 * be; any other wake that doesn't land is reported.
+	 */
+	stopping?: () => boolean;
 	/** For tests: the clock a wake's spacing is read by. */
 	now?: () => number;
 	/** A child's conversation became another, as its supervisor heard. */
@@ -122,15 +127,16 @@ export function hostChildren(options: {
 		spareMoved: versionsMove(),
 		ended: (sessionId, why, busy) => {
 			const endAsked = endWasAsked(sessionId);
-			rest(sessionId, why);
-			if (why !== "failed" || !busy) return;
+			const cutOff = why === "failed" && busy;
 			// Its close, release or abort failed with it, so carrying the turn
 			// on would undo what the person asked; they ask again.
-			if (endAsked)
+			if (cutOff && endAsked)
 				options.say?.(
 					`${sessionId}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
 				);
-			else wakeCutOff(sessionId);
+			const waking = cutOff && !endAsked && mayWake(sessionId);
+			rest(sessionId, why, waking);
+			if (waking) wakeCutOff(sessionId);
 		},
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),
@@ -145,7 +151,7 @@ export function hostChildren(options: {
 	// why it can't: on 23 November two children ended parked that
 	// restsParked declined, and a hub slept unwatched for 19 minutes
 	// until a window came.
-	function rest(sessionId: string, why: ChildEnding): void {
+	function rest(sessionId: string, why: ChildEnding, waking: boolean): void {
 		if (why !== "parked" && why !== "failed") return;
 		const entry = roster.entries().find((held) => held.sessionId === sessionId);
 		if (!entry) return;
@@ -154,10 +160,12 @@ export function hostChildren(options: {
 			const refused = options.restGivenUp
 				? options.restGivenUp(entry)
 				: "this engine rests none given up";
-			if (refused !== undefined)
-				options.say?.(
-					`${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for, as ${refused}`,
-				);
+			if (refused === undefined) return;
+			options.say?.(
+				waking
+					? `${sessionId}: its child ended ${why}, and nothing watches its wake, as ${refused}, so it is woken now instead`
+					: `${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for, as ${refused}`,
+			);
 		} catch (error) {
 			report(error);
 		}
@@ -217,9 +225,10 @@ export function hostChildren(options: {
 		const at = now();
 		return [...(marks ?? [])].some((mark) => mark.until > at);
 	}
-	function wakeCutOff(sessionId: string): void {
-		const { wake } = options;
-		if (!wake) return;
+	// Whether one whose child failed mid-turn is woken, saying why not, and
+	// counting the wake as it is decided, so two endings never both wake.
+	function mayWake(sessionId: string): boolean {
+		if (!options.wake) return false;
 		const at = now();
 		const id = sessionId.toLowerCase();
 		const recent = (wokenAt.get(id) ?? []).filter(
@@ -232,24 +241,33 @@ export function hostChildren(options: {
 			options.say?.(
 				`${sessionId}: its child failed mid-turn again within ${WOKEN_AGAIN_AFTER_MS / 60_000} minutes of its last wake, so it rests until it is asked for`,
 			);
-			return;
+			return false;
 		}
 		if (recent.length >= WAKES_A_DAY) {
 			options.say?.(
 				`${sessionId}: its child failed mid-turn after ${WAKES_A_DAY} wakes for that in a day, so it rests until it is asked for`,
 			);
-			return;
+			return false;
 		}
 		wokenAt.set(id, [...recent, at]);
+		return true;
+	}
+
+	// Wakes one mayWake let wake, once it rests, so its wake stays watched.
+	function wakeCutOff(sessionId: string): void {
+		const { wake } = options;
+		if (!wake) return;
 		options.say?.(
 			`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
 		);
-		// Said, not reported: a host stopping refuses every wake, as it should.
-		wake(sessionId).catch((error: unknown) =>
+		// A host stopping refuses every wake, as it should, so that is only
+		// said; any other, as a slot that won't free, is a fault reported too.
+		wake(sessionId).catch((error: unknown) => {
 			options.say?.(
 				`${sessionId}: its wake after its child failed mid-turn didn't land: ${error instanceof Error ? error.message : String(error)}`,
-			),
-		);
+			);
+			if (!options.stopping?.()) report(error);
+		});
 	}
 
 	// One whose child was given up never parked, so restsParked would

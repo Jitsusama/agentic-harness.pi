@@ -470,7 +470,9 @@ input pipeline or screen. No unit or running host is installed yet.
   (`systemctl --user stop` on its unit) parks, and stays parked; only
   one killed outright (SIGKILL, the kernel's out-of-memory killer) or
   crashed mid-turn is woken, so to stop a busy one for good, close it
-  or stop its unit, not `kill -9` it.
+  or stop its unit, not `kill -9` it. A wake that doesn't land is
+  said, and reported too unless the host is stopping, which refuses
+  every wake as it should.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place
