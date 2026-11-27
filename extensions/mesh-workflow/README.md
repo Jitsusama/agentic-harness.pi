@@ -1097,8 +1097,16 @@ unless they hold `"now": true` (swarm `say now`). A peer's or
 the machine's words wait whatever they hold, so an agent that
 names itself never breaks into another's task; the inbox can't
 tell who wrote a file, so a writer naming nobody, or naming
-Joel, is taken at its word. Either
-way it reads as the person asking from outside the window, to
+Joel, is taken at its word. Only what runs as the person outside
+every sandbox can write one: pi itself, the launcher and the
+machine's node. No sandboxed command can, since the agent fence
+keeps pi's state folder, the steer folder within it, read-only
+(a Mac's fence hides it), and the strict sandbox reaches only the
+command's own folder and its own cache and temporary folder, and
+refuses a command's folder lying in or holding pi's state. So a
+forged `from` is the work of something the person runs unfenced,
+which could act as them anyway. Either way it reads as the
+person asking from outside the window, to
 be answered first in a line or two, since the launcher shows
 that first answer; a machine's steer says it isn't the person's.
 It isn't a mesh message, since peers read those as
