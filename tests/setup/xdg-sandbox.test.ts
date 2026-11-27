@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { secretStore } from "../../lib/core/internal/keyring/secrets.ts";
 import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { machineQueueDir } from "../../lib/internal/priority/folder.ts";
+import { CHOSEN_FOR_THE_RUN } from "./held-session.ts";
 
 describe("the test suite's XDG sandbox", () => {
 	it("resolves every directory outside the developer's home", () => {
@@ -48,8 +49,10 @@ describe("the test suite's XDG sandbox", () => {
 		// MYCELIUM_ variables. A test inheriting MYCELIUM_HELD asked a node
 		// it stood up for its own held window, an ask on the developer's
 		// behalf no clean run makes, so needs.test.ts failed only there.
-		const inherited = Object.keys(process.env).filter((name) =>
-			name.startsWith("MYCELIUM_"),
+		// This reads the setup's work on this runner's own environment;
+		// held-session.test.ts plants one, so it fails anywhere.
+		const inherited = Object.keys(process.env).filter(
+			(name) => name.startsWith("MYCELIUM_") && !CHOSEN_FOR_THE_RUN.has(name),
 		);
 
 		expect(inherited).toEqual([]);
