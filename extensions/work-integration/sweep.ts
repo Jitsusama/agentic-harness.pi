@@ -246,7 +246,8 @@ export interface SweepAsks {
 	 */
 	idleWithinMs?: number;
 	/**
-	 * Waited on before each idle take but the first; nothing by default.
+	 * Waited on once between idle takes, before the next is judged or
+	 * taken; nothing by default.
 	 * Given, it marks a runner that paces its removals, the only one that
 	 * finishes removals stopped part way.
 	 */
@@ -778,6 +779,11 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		...(outcome.idleWorktreesLeft === undefined
 			? {}
 			: { idleWorktreesLeft: outcome.idleWorktreesLeft }),
+		// A run whose holders' let-go trees came to none says why, so eight
+		// runs taking none of them can't pass unexplained again.
+		...(outcome.idleLetGoNone === undefined
+			? {}
+			: { idleLetGoNone: outcome.idleLetGoNone }),
 		// The idle phase's own time, so a slow run says whether its snapshots
 		// or the ended trees before them took it.
 		...(outcome.idleMs === undefined ? {} : { idleMs: outcome.idleMs }),
