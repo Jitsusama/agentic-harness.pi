@@ -16,13 +16,16 @@
 
 import { execFile } from "node:child_process";
 import {
+	chmodSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,6 +38,7 @@ import {
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
 import { plantParentByGraph } from "./support/commit-graph.ts";
+import { forgeAsMerged } from "./support/forged-object.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone: merge-gate.sh, from its path below, and the
 // host-gate.sh it runs in turn.
@@ -218,6 +222,20 @@ function gitSaying(version: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * A state folder for the gate, which makes its copies there, whose real
+ * path passes through no folder Biome reads no nested config under. A pi
+ * session's temp folder is under ~/.cache, one of them, so there the
+ * folder goes under /tmp, as ~/.local/state passes on a machine.
+ */
+function stateHome(): string {
+	const temp = realpathSync(tmpdir());
+	const base = /(^|\/)\.(cache|git)(\/|$)/.test(temp) ? "/tmp" : temp;
+	const dir = realpathSync(mkdtempSync(join(base, "merge-gate-state-")));
+	made.push(dir);
+	return dir;
+}
+
+/**
  * What the gate answers for `sha` in `checkout`, with a proven runtime
  * host-gate.sh can resolve, as on a machine that runs hosts.
  */
@@ -229,6 +247,7 @@ async function gate(
 	const env = {
 		...process.env,
 		PI_HOST_RUNTIME: folder(made, "runtime"),
+		XDG_STATE_HOME: stateHome(),
 		...given,
 	};
 	try {
@@ -319,6 +338,40 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain("lib/untidy.ts");
+	});
+
+	it("judges the head origin holds, though the checkout forges it as merged", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+		await git(checkout, "push", "-q", "origin", "HEAD:work");
+		// Read from the checkout, the head would hold main's tree and name
+		// main as its parent, and so change nothing.
+		const main = await git(checkout, "rev-parse", "origin/main");
+		await forgeAsMerged(checkout, sha, main);
+		const forged = await git(checkout, "diff", "--name-only", main, sha);
+		expect(forged, "the forged head reads as no change").toBe("");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("lib/untidy.ts");
+	});
+
+	it("refuses a head the checkout forges and origin doesn't hold", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+		const main = await git(checkout, "rev-parse", "origin/main");
+		await forgeAsMerged(checkout, sha, main);
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("couldn't be fetched whole");
+		expect(answered.said, "judged as no change").not.toContain("host-gate:");
 	});
 
 	it("refuses a change Biome's linter faults", async () => {
@@ -718,7 +771,7 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		);
 	});
 
-	it("refuses where no copy reads a nested config, naming TMPDIR", async () => {
+	it("refuses where no copy reads a nested config, naming XDG_STATE_HOME", async () => {
 		const checkout = await harness();
 		// A Biome that reads only the root's config in the probe's copy, as
 		// one under a .cache folder does, wherever the copy is made.
@@ -737,7 +790,7 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said).toContain("judges no file by its nested config");
-		expect(answered.said).toContain("Set TMPDIR");
+		expect(answered.said).toContain("Set XDG_STATE_HOME");
 	});
 
 	it("refuses where Biome fails in the probe without faulting its files", async () => {
@@ -761,7 +814,61 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "the probe took a failing run for a fault").toContain(
 			"faulted not even a file it should",
 		);
-		expect(answered.said, "blamed on TMPDIR").not.toContain("Set TMPDIR");
+		expect(answered.said, "blamed on the folder").not.toContain(
+			"Set XDG_STATE_HOME",
+		);
+	});
+
+	it("makes its copies in pi's state folder, never under TMPDIR", async () => {
+		const checkout = await harness();
+		// A Biome that says where each check runs, as the copies it judges
+		// are, which a fenced session on the quest could write under TMPDIR.
+		// Asking its version judges nothing, so it runs in the checkout.
+		const ran = join(folder(made, "ran"), "ran");
+		const stand = join(checkout, "node_modules", ".bin", "biome");
+		rmSync(stand);
+		writeFileSync(
+			stand,
+			`#!/bin/sh\n[ "$1" = check ] && echo "$PWD" >> "${ran}"\nexec "${BIOME}" "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const temp = folder(made, "tmp");
+		const state = stateHome();
+
+		const answered = await gate(checkout, sha, {
+			TMPDIR: temp,
+			XDG_STATE_HOME: state,
+		});
+
+		expect(answered.code, answered.said).toBe(0);
+		const places = readFileSync(ran, "utf8").trim().split("\n");
+		expect(places.length, "the probe's runs and the change's").toBeGreaterThan(
+			1,
+		);
+		for (const place of places) {
+			expect(place, "a copy beside the gate's store").toContain(
+				join(state, "pi", "agentic-harness.pi", "merge-gate", "scratch"),
+			);
+		}
+	});
+
+	it("refuses where pi's state folder can't be written, naming the fence", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// As inside the agent fence, which keeps pi's state folder read-only.
+		const state = stateHome();
+		chmodSync(state, 0o555);
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+		chmodSync(state, 0o755);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("outside the agent fence");
 	});
 
 	it("loads a plugin whose name git would quote", async () => {
@@ -1030,6 +1137,30 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		const answered = await gate(checkout, sha);
 
 		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("scripts/loose.sh 1, main has 0");
+	});
+
+	it("judges against origin's main, though the checkout's origin/main moves after each fetch", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"scripts/loose.sh": LOOSE,
+			[SUPPRESSION_LIST]: suppressionList(`${OLD} 1`, "scripts/loose.sh 1"),
+		});
+		// A git that, as a session racing the gate could, sets the checkout's
+		// origin/main at the head once any fetch lands, so main read back
+		// from it would be the head, whose list would judge its own.
+		const standIn = folder(made, "git");
+		writeFileSync(
+			join(standIn, "git"),
+			`#!/bin/sh\nreal="\${PATH#*:}"\nPATH="$real" git "$@"\nsaid=$?\nfor word in "$@"; do\n  if [ "$word" = fetch ]; then PATH="$real" git -C "${checkout}" update-ref refs/remotes/origin/main ${sha}; fi\ndone\nexit $said\n`,
+			{ mode: 0o755 },
+		);
+
+		const answered = await gate(checkout, sha, {
+			PATH: `${standIn}:${process.env.PATH ?? ""}`,
+		});
+
+		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said).toContain("scripts/loose.sh 1, main has 0");
 	});
 
