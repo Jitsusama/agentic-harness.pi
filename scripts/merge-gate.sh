@@ -236,6 +236,21 @@ is_config() {
   [[ ${1##*/} == biome.json || ${1##*/} == biome.jsonc ||
     ${1##*/} == .biome.json || ${1##*/} == .biome.jsonc ]]
 }
+# Whether Biome's output ($1) faults one of the configs after it by a rule
+# lint:fix mends: its formatting, a lint or an assist. A config that won't
+# load is named by its absolute path, under deserialize, so it never
+# matches here.
+config_faulted() {
+  local said=$1 line file
+  shift
+  while IFS= read -r line; do
+    for file in "$@"; do
+      if [[ $line == "$file format "* || $line == "$file:"*" lint/"* ||
+        $line == "$file:"*" assist/"* ]]; then return 0; fi
+    done
+  done <<< "$said"
+  return 1
+}
 # Whether the change touches a config, one it removes included, since
 # removing a nested config loosens its folder as surely as editing it. A
 # GritQL plugin counts too: a config loads its rules, so editing one
@@ -244,20 +259,44 @@ unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" '*.g
   > "$scratch/changed-configs"
 config_changed=0
 if [[ -s $scratch/changed-configs ]]; then config_changed=1; fi
-# The changed files that aren't configs, which a plugin-only change leaves empty.
+# The changed files that aren't configs, which a plugin-only change leaves
+# empty, and the configs the run checks.
 others=()
-if [[ ${#files[@]} -gt 0 ]]; then
+configs=()
+for file in ${files[@]+"${files[@]}"}; do
+  if is_config "$file"; then configs+=("$file"); else others+=("$file"); fi
+done
+gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
+mapfile -d '' -t head_configs < "$scratch/head-configs"
+# A change to a config or a plugin has Biome load every config the head
+# holds, and so every plugin they name, by checking each config too: a
+# plugin is no file it judges, so a plugin that won't compile would
+# otherwise pass unloaded, and fail every lint after it on main.
+judged=(${files[@]+"${files[@]}"})
+# Whether $1 is among the paths after it, each compared whole.
+among() {
+  local want=$1 path
+  shift
+  for path in "$@"; do
+    if [[ $path == "$want" ]]; then return 0; fi
+  done
+  return 1
+}
+if [[ $config_changed == 1 ]]; then
+  for file in ${head_configs[@]+"${head_configs[@]}"}; do
+    if ! among "$file" ${configs[@]+"${configs[@]}"}; then
+      judged+=("$file")
+      configs+=("$file")
+    fi
+  done
+fi
+if [[ ${#judged[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
   # Every config the head holds goes out, so its run reads each folder's as
   # pnpm lint at the head would. Each goes out once: named again as a
   # changed file, checkout-index would find the copy it just wrote and
   # refuse the whole checkout.
-  gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
-  mapfile -d '' -t head_configs < "$scratch/head-configs"
-  for file in "${files[@]}"; do
-    is_config "$file" || others+=("$file")
-  done
   gate_index checkout-index --prefix="$tree/" -- \
     ${head_configs[@]+"${head_configs[@]}"} ${others[@]+"${others[@]}"}
   # Biome loads a config's GritQL plugins before it judges anything, so
@@ -272,24 +311,26 @@ if [[ ${#files[@]} -gt 0 ]]; then
   set +e
   # The paths follow --, so a file named like an option is read as a file.
   said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off \
-    -- "${files[@]}" 2>&1)
+    -- "${judged[@]}" 2>&1)
   checked=$?
   set -e
   if [[ $checked != 0 ]]; then
-    echo "$said" >&2
-    # Biome fails the same way where the head's config won't load, which
-    # lint:fix can't mend, and names the config as it says why; so only a
-    # file that isn't a config, named, is a fault lint:fix can mend.
-    if names_any "$said" ${others[@]+"${others[@]}"}; then
-      echo "merge-gate: Biome faults ${#files[@]} changed file(s) at $sha, as pnpm lint would." >&2
+    shown <<< "$said" >&2
+    # Biome fails the same way where the head's config or a plugin won't
+    # load, which lint:fix can't mend, and names the config as it says
+    # why; so only a file that isn't a config, named, or a config's own
+    # formatting or lint, is a fault lint:fix can mend.
+    if names_any "$said" ${others[@]+"${others[@]}"} ||
+      config_faulted "$said" ${configs[@]+"${configs[@]}"}; then
+      echo "merge-gate: Biome faults ${#judged[@]} file(s) at $sha, as pnpm lint would." >&2
       echo "Run pnpm lint:fix in a checkout of the branch, commit what it changes, push, and merge the new head." >&2
     else
-      echo "merge-gate: Biome couldn't judge the ${#files[@]} file(s) $sha changes by its own config; above says why." >&2
+      echo "merge-gate: Biome couldn't judge the ${#judged[@]} file(s) at $sha by its own config and plugins; above says why." >&2
       echo "Fix what it names in a checkout of the branch, run pnpm lint, push, and merge the new head." >&2
     fi
     exit 1
   fi
-  echo "merge-gate: Biome passes the ${#files[@]} file(s) $sha changes"
+  echo "merge-gate: Biome passes the ${#judged[@]} file(s) it judges at $sha"
 
   # A head judges itself by its own config, as pnpm lint at the head would,
   # so a change that loosens a rule passes its own check. It may mean to,
@@ -321,23 +362,25 @@ if [[ ${#files[@]} -gt 0 ]]; then
       # only a run that faults a changed file is called a loosening.
       if names_any "$(< "$scratch/before.said")" "${others[@]}"; then
         echo "merge-gate: $sha changes Biome's config, and main's config faults what it lets through:" >&2
-        cat "$scratch/before.said" >&2
+        shown < "$scratch/before.said" >&2
         echo "merge-gate: so the change loosens a rule for these files, or main tightened one since the cut; that passes, said here." >&2
       else
         echo "merge-gate: $sha changes Biome's config, and Biome couldn't judge its files by main's config:" >&2
-        cat "$scratch/before.said" >&2
+        shown < "$scratch/before.said" >&2
         echo "merge-gate: so what the change lets through goes unnamed; that passes, said here." >&2
       fi
     fi
   fi
 fi
-# A change to the config or a plugin alone leaves every file it judges as
-# main has it, and main's config passes those, so nothing it lets through
-# can be named yet: a later change brings that, and passes by the rule this
-# one loosened. So the config it changes is named, for whoever merges.
+# A change to the config or a plugin alone leaves every file the gate
+# judges as main has it, and main's config passes those, so nothing it
+# lets through can be named yet: a later change brings that, and passes by
+# the rule this one loosened. So the config it changes is named, for
+# whoever merges. pnpm lint judges more kinds of file than the gate does,
+# so the notice speaks only for the gate's.
 if [[ $config_changed == 1 && ${#others[@]} -eq 0 ]]; then
   mapfile -d '' -t configs_changed < "$scratch/changed-configs"
-  echo "merge-gate: $sha changes Biome's config or plugins and no file they judge, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
+  echo "merge-gate: $sha changes Biome's config or plugins, which load, and no file the gate judges, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
   printf '  %q\n' "${configs_changed[@]}" >&2
 fi
 
@@ -374,12 +417,12 @@ merging=$?
 set -e
 if [[ $merging == 1 ]]; then
   # Past the tree's id, each file that conflicts, quoted as git quotes it.
-  if [[ $merged == *$'\n'* ]]; then echo "${merged#*$'\n'}" >&2; fi
+  if [[ $merged == *$'\n'* ]]; then shown <<< "${merged#*$'\n'}" >&2; fi
   echo "merge-gate: $sha doesn't merge cleanly with main, so what it would land can't be judged." >&2
   echo "Rebase the branch on origin/main, push, and merge the new head." >&2
   exit 1
 elif [[ $merging != 0 ]]; then
-  cat "$scratch/merging" >&2
+  shown < "$scratch/merging" >&2
   echo "merge-gate: git can't write the tree $sha's merge with main would make; above says why." >&2
   exit 1
 fi
@@ -441,7 +484,7 @@ for each in "${rules[@]}"; do
 done
 raised=$(sed '/^$/d' <<< "$raised")
 if [[ -n $raised ]]; then
-  echo "$raised" >&2
+  shown <<< "$raised" >&2
   echo "merge-gate: $sha raises a list that only shrinks, above main's." >&2
   echo "Fix the code the line names rather than listing it, push, and merge the new head." >&2
   exit 1
@@ -463,7 +506,7 @@ said=$(clean "$vitest" run --config "$config" --root "$whole" --color=false 2>&1
 counted=$?
 set -e
 if [[ $counted != 0 ]]; then
-  echo "$said" >&2
+  shown <<< "$said" >&2
   echo "merge-gate: main's count rules refuse $sha merged with main, or couldn't run on it; above says which." >&2
   echo "Do what it says in a checkout of the branch rebased on origin/main, run pnpm exec vitest run ${counts[*]}, push, and merge the new head." >&2
   echo "Where main alone fails them, main is fixed first." >&2
