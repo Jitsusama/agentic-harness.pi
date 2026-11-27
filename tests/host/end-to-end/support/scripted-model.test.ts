@@ -4,49 +4,65 @@
  * continue or a background command's end may ask it, would otherwise
  * read the old words once more: in h2353 on 27 November E24's host ran
  * `carry`'s bash twice, and the case killed the second command's shell
- * while the first ran on.
+ * while the first ran on. Within a turn still running, it reads the
+ * words that started it, so a second step after tool_search still works.
  */
 
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { isRecord } from "../../../../lib/internal/record.ts";
 import {
+	CARRIED_FLEET,
 	CARRY,
 	CARRYING,
 	fauxOf,
+	LONG_NAP,
+	NAP,
 	SCRIPTED,
 	STORE,
 	scriptedCore,
+	WHOAMI,
 } from "./scripted-model.ts";
 
 const PACKAGE = resolve(import.meta.dirname, "../../../..");
 
-/** What the scripted model answers to `messages`, as its tool calls and words. */
-async function answerTo(messages: readonly object[]): Promise<{
-	calls: { name: string; arguments: unknown }[];
-	text: string;
-}> {
+/** A tool call the scripted model answered with. */
+interface Call {
+	readonly name: string;
+	readonly arguments: unknown;
+}
+
+/**
+ * The tool calls the scripted model answers `messages` with. An answer
+ * that isn't a message, or one that stopped on an error, throws, so a
+ * broken core can't pass for one that calls nothing.
+ */
+async function callsTo(messages: readonly object[]): Promise<Call[]> {
 	const core = scriptedCore(await fauxOf(PACKAGE));
+	// The faux core is pi's JavaScript, which carries no types here.
 	const stream = core.streamSimple(
 		{ ...SCRIPTED, api: core.api } as never,
 		{ messages } as never,
 	);
-	const message = (await stream.result()) as {
-		content: {
-			type: string;
-			name?: string;
-			arguments?: unknown;
-			text?: string;
-		}[];
-	};
-	return {
-		calls: message.content
-			.filter((part) => part.type === "toolCall")
-			.map((part) => ({ name: part.name ?? "", arguments: part.arguments })),
-		text: message.content
-			.filter((part) => part.type === "text")
-			.map((part) => part.text ?? "")
-			.join(""),
-	};
+	const message: unknown = await stream.result();
+	if (
+		!isRecord(message) ||
+		!Array.isArray(message.content) ||
+		message.stopReason === "error"
+	)
+		throw new Error(`not an answer: ${JSON.stringify(message)}`);
+	return message.content
+		.filter(isRecord)
+		.flatMap((part) =>
+			part.type === "toolCall" && typeof part.name === "string"
+				? [{ name: part.name, arguments: part.arguments }]
+				: [],
+		);
+}
+
+/** The names of the tools the scripted model answers `messages` with. */
+async function namesTo(messages: readonly object[]): Promise<string[]> {
+	return (await callsTo(messages)).map((call) => call.name);
 }
 
 const told = { role: "user", content: CARRY };
@@ -71,49 +87,118 @@ const answered = {
 	role: "assistant",
 	content: [{ type: "text", text: "sent" }],
 };
+const searched = {
+	role: "assistant",
+	content: [
+		{
+			type: "toolCall",
+			id: "call-2",
+			name: "tool_search",
+			arguments: { query: "anything" },
+		},
+	],
+};
+const found = {
+	role: "toolResult",
+	toolCallId: "call-2",
+	toolName: "tool_search",
+	content: [{ type: "text", text: "Loaded it." }],
+};
+// The harness says the tool list changed after tool_search, as its own.
+const listed = { role: "system", content: "The tools changed." };
+
+/** A transcript asking `words`, then searching tools, then the result. */
+function afterSearch(words: string): object[] {
+	return [{ role: "user", content: words }, searched, found];
+}
 
 describe("the scripted model", () => {
 	it("runs the carried command when told to carry", async () => {
-		expect((await answerTo([told])).calls).toEqual([
+		expect(await callsTo([told])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING, background: true } },
 		]);
 	});
 
 	it("runs nothing again when asked once more on a turn it answered", async () => {
-		expect(
-			(await answerTo([told, started, handedOff, answered])).calls,
-		).toEqual([]);
+		expect(await callsTo([told, started, handedOff, answered])).toEqual([]);
+	});
+
+	it("runs nothing again when a job's end comes after its answer", async () => {
+		const ended = {
+			role: "user",
+			content: "[j1] the command exited 0 after 46 seconds.",
+		};
+		expect(await callsTo([told, started, handedOff, answered, ended])).toEqual(
+			[],
+		);
 	});
 
 	it("acts on words said after its answer", async () => {
-		expect(
-			(await answerTo([told, started, handedOff, answered, told])).calls,
-		).toEqual([
+		expect(await callsTo([told, started, handedOff, answered, told])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING, background: true } },
 		]);
 	});
 
-	it("still reads the turn's words after a tool's result", async () => {
-		const searched = {
-			role: "assistant",
-			content: [
+	describe("after a tool's result, reads the words that started the turn", () => {
+		it("for store", async () => {
+			const calls = await callsTo(afterSearch(STORE));
+			expect(calls.map((call) => call.name)).toEqual(["spend"]);
+			expect(calls[0]?.arguments).toMatchObject({ limit: 2 });
+		});
+
+		it("for end", async () => {
+			expect(await callsTo(afterSearch("end ABC123"))).toEqual([
+				{ name: "mesh_end", arguments: { peer: "ABC123" } },
+			]);
+		});
+
+		it("for fleet, run in the foreground", async () => {
+			const job = (id: string) => ({
+				id,
+				cwd: "/tmp/x",
+				userPrompt: WHOAMI,
+				extraExtensions: ["/tmp/y.ts"],
+			});
+			expect(await callsTo(afterSearch("fleet /tmp/x /tmp/y.ts"))).toEqual([
+				{ name: "subagent", arguments: { jobs: [job("one"), job("two")] } },
+			]);
+		});
+
+		it("for fleet-carry, run in the background", async () => {
+			const job = (id: string, userPrompt: string) => ({
+				id,
+				userPrompt,
+				cwd: "/tmp/x",
+				extraExtensions: ["/tmp/y.ts"],
+			});
+			expect(
+				await callsTo(afterSearch("fleet-carry /tmp/x /tmp/y.ts")),
+			).toEqual([
 				{
-					type: "toolCall",
-					id: "call-2",
-					name: "tool_search",
-					arguments: { query: "spend" },
+					name: "subagent",
+					arguments: {
+						runId: CARRIED_FLEET,
+						background: true,
+						jobs: [job("one", NAP), job("two", LONG_NAP)],
+					},
 				},
-			],
-		};
-		const found = {
-			role: "toolResult",
-			toolCallId: "call-2",
-			toolName: "tool_search",
-			content: [{ type: "text", text: "Loaded spend." }],
-		};
-		const calls = (
-			await answerTo([{ role: "user", content: STORE }, searched, found])
-		).calls;
-		expect(calls.map((call) => call.name)).toEqual(["spend"]);
+			]);
+		});
+
+		it("past the system message the harness puts after it", async () => {
+			expect(await namesTo([...afterSearch(STORE), listed])).toEqual(["spend"]);
+		});
+
+		// Store is matched before end, so an earlier turn's store read back
+		// would answer spend here.
+		it("and not an earlier turn's", async () => {
+			expect(
+				await namesTo([
+					{ role: "user", content: STORE },
+					answered,
+					...afterSearch("end ABC123"),
+				]),
+			).toEqual(["mesh_end"]);
+		});
 	});
 });

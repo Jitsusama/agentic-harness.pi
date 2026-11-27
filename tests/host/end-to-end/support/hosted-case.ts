@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
+import { STEERED_RESULTS } from "../../../../extensions/job-workflow/outbox.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { inboxOf, type SteerAct } from "../../../../lib/mesh/steer.ts";
 import { until } from "../../../support/until.ts";
@@ -110,13 +111,47 @@ export function turnEnded(file: string | undefined): boolean {
 	return last?.role === "assistant" && last.stopReason !== "toolUse";
 }
 
+/**
+ * Whether the last thing said in a session file is the model's answer
+ * that calls no tool and ended of itself, not on an error a retry may
+ * answer again. A job's end said into a run under way is a custom message
+ * (job-workflow's steered results), which `turnEnded` passes over, so it
+ * is read here too: until the model answers after it, the turn it joined
+ * hasn't ended. Other custom messages needn't start a turn, so they're
+ * passed over, as a note written after the answer would hold it open.
+ */
+export function answeredLast(file: string | undefined): boolean {
+	const last = entriesOf(file)
+		.filter(
+			(entry) =>
+				entry.type === "message" ||
+				(entry.type === "custom_message" &&
+					entry.customType === STEERED_RESULTS),
+		)
+		.at(-1);
+	const message = isRecord(last?.message) ? last.message : undefined;
+	return message?.role === "assistant" && message.stopReason === "stop";
+}
+
+/** Every entry a session file records, each as its parsed record. */
+export function entriesOf(file: string | undefined): Record<string, unknown>[] {
+	return textOf(file)
+		.split("\n")
+		.map(entryOf)
+		.filter((entry) => entry !== undefined);
+}
+
 /** The message a session file's line records, if it records one. */
 function entryMessage(line: string): Record<string, unknown> | undefined {
+	const entry = entryOf(line);
+	return isRecord(entry?.message) ? entry.message : undefined;
+}
+
+/** The entry a session file's line records, if it parses as one. */
+function entryOf(line: string): Record<string, unknown> | undefined {
 	try {
 		const entry: unknown = JSON.parse(line);
-		return isRecord(entry) && isRecord(entry.message)
-			? entry.message
-			: undefined;
+		return isRecord(entry) ? entry : undefined;
 	} catch {
 		// A line still being written, or the blank one after the last: none.
 		return undefined;
