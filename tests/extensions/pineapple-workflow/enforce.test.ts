@@ -30,7 +30,12 @@ function machine(
 			repoOf: async () => "example/shop",
 			branchOf: async (dir) => (dir === TREE ? "fix-it" : "main"),
 			pushRemoteOf: async () => "origin",
-			pushedOf: async () => "fix-it",
+			pushedOf: async (dir, _, source) =>
+				source === undefined || source === "HEAD"
+					? dir === TREE
+						? "fix-it"
+						: "main"
+					: source,
 		},
 		headOf: async (repo, pr) => {
 			asked.push(`${repo}#${pr}`);
@@ -141,6 +146,19 @@ describe("the write guard", () => {
 				judging,
 			),
 		).toBeUndefined();
+	});
+
+	it("refuses a push of the stopped branch however it's named", async () => {
+		const judging = machine([live]);
+		for (const command of [
+			"git push origin main fix-it",
+			"git push --all origin",
+			"git push origin :",
+			"git -c push.default=matching push",
+		]) {
+			const verdict = await judge(call("bash", { command }), judging);
+			expect(verdict?.refuse, command).toContain("pineapple override");
+		}
 	});
 
 	it("asks for a change's branch once it needs to tell a push apart", async () => {

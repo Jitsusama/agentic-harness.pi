@@ -258,19 +258,44 @@ const gitFacts: GitFacts = {
 	},
 	branchOf: (dir) =>
 		quietly("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"]),
+	// A setting that couldn't be read names no remote or branch, so the
+	// stop holds the push rather than judging it by git's defaults.
 	async pushRemoteOf(dir) {
 		const branch = await gitFacts.branchOf(dir);
-		return pushRemote(branch, config(dir));
+		return pushRemote(branch, config(dir)).catch(() => undefined);
 	},
-	async pushedOf(dir, remote) {
-		const branch = await gitFacts.branchOf(dir);
-		return pushedBranch(branch, remote, config(dir));
+	async pushedOf(dir, remote, source) {
+		const branch =
+			source === undefined || source === "HEAD"
+				? await gitFacts.branchOf(dir)
+				: source;
+		const named = source !== undefined;
+		return pushedBranch(branch, remote, config(dir), named).catch(
+			() => undefined,
+		);
 	},
 };
 
-/** One key of the git config of the checkout at `dir`, if it's set. */
+/**
+ * One key of the git config of the checkout at `dir`: none where git
+ * says it isn't set, and a throw where it couldn't be read at all.
+ */
 function config(dir: string): (key: string) => Promise<string | undefined> {
-	return (key) => quietly("git", ["-C", dir, "config", "--get", key]);
+	return async (key) => {
+		const { code, stdout, stderr } = await LOOKUPS("git", [
+			"-C",
+			dir,
+			"config",
+			"--get",
+			key,
+		]);
+		const value = stdout.trim();
+		if (code === 0) return value === "" ? undefined : value;
+		// git says a key isn't set with 1 and nothing more; a git that
+		// couldn't start says 1 too, but with why.
+		if (code === 1 && value === "" && stderr.trim() === "") return undefined;
+		throw new Error(`git couldn't read ${key} at ${dir}`);
+	};
 }
 
 /**

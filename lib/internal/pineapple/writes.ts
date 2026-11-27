@@ -69,6 +69,18 @@ export interface WriteCall {
 	 * `--all`, `--mirror` and `--tags`.
 	 */
 	readonly unnamed?: "bare" | "every";
+	/**
+	 * The local branch a refspec naming no destination pushes, as
+	 * `scratch` in `git push origin scratch`, or `HEAD` for the one
+	 * checked out: git sends it where the remote's push refspecs or an
+	 * upstream push setting map it, which settle finds.
+	 */
+	readonly source?: string;
+	/**
+	 * A push whose own `-c` sets git's push settings, so where it goes
+	 * can't be read from the checkout's: it names no repository or branch.
+	 */
+	readonly overridden?: true;
 }
 
 /** A write with what git could say about it filled in. */
@@ -80,13 +92,23 @@ export interface GitFacts {
 	repoOf(dir: string, remote: string): Promise<string | undefined>;
 	/** The branch checked out at `dir`. */
 	branchOf(dir: string): Promise<string | undefined>;
-	/** The remote a push from `dir` naming none goes to. */
-	pushRemoteOf(dir: string): Promise<string>;
 	/**
-	 * The branch of `remote` a push from `dir` naming no refspec goes
-	 * to, as git's push settings choose it; none where they can't say one.
+	 * The remote a push from `dir` naming none goes to; none where git's
+	 * settings for it couldn't be read.
 	 */
-	pushedOf(dir: string, remote: string): Promise<string | undefined>;
+	pushRemoteOf(dir: string): Promise<string | undefined>;
+	/**
+	 * The branch of `remote` a push from `dir` goes to, as git's push
+	 * settings choose it: of the branch checked out where it names no
+	 * refspec, or of `source` where a refspec names only that (`HEAD` for
+	 * the one checked out); none where they can't say one, or couldn't be
+	 * read.
+	 */
+	pushedOf(
+		dir: string,
+		remote: string,
+		source?: string,
+	): Promise<string | undefined>;
 }
 
 /**
@@ -96,16 +118,21 @@ export interface GitFacts {
  * origin; any other write is taken to act on origin's repository. A
  * push naming no refspec goes to the branch git's push settings choose,
  * and one of every branch names none, so the guard holds it under a
- * stop that needs the branch.
+ * stop that needs the branch. A push whose remote or branch git's
+ * settings choose, where those couldn't be read or its own `-c` sets
+ * them, names neither.
  */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
 	if (machineWide(call.kind) || call.dir === undefined) return call;
+	if (call.overridden) return call;
 	const remote =
 		call.remote ??
 		(/\b(?:git|dt) push$/.test(call.action)
 			? await git.pushRemoteOf(call.dir)
 			: "origin");
-	const repo = call.repo ?? (await git.repoOf(call.dir, remote));
+	const repo =
+		call.repo ??
+		(remote === undefined ? undefined : await git.repoOf(call.dir, remote));
 	const branch = await branchFor(call, call.dir, remote, git);
 	return { ...call, repo, branch };
 }
@@ -114,12 +141,16 @@ export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
 async function branchFor(
 	call: WriteCall,
 	dir: string,
-	remote: string,
+	remote: string | undefined,
 	git: GitFacts,
 ): Promise<string | undefined> {
 	if (call.branch !== undefined) return call.branch;
 	if (call.pr !== undefined || call.unnamed === "every") return undefined;
-	if (call.unnamed === "bare") return git.pushedOf(dir, remote);
+	if (call.source !== undefined || call.unnamed === "bare") {
+		return remote === undefined
+			? undefined
+			: git.pushedOf(dir, remote, call.source);
+	}
 	return git.branchOf(dir);
 }
 
@@ -157,24 +188,32 @@ export async function pushRemote(
 }
 
 /**
- * The branch of `remote` a push of `branch` naming no refspec goes to,
- * as git chooses it: none where the remote has push refspecs of its
- * own, or push.default is `matching` or `nothing`; the branch's
- * upstream under `upstream`; and its own name under `simple`, git's
- * default, and `current`.
+ * The branch of `remote` a push of `branch` goes to, as git chooses it:
+ * none where the remote has push refspecs of its own or mirrors, as
+ * every ref then goes; the branch's upstream under push.default
+ * `upstream`. Else a refspec naming only the branch (`named`) pushes
+ * it to its own name, and a push naming none does so under `simple`,
+ * git's default, and `current`, but names none under `matching`,
+ * `nothing` or a mode git doesn't know. `config` answers one key, none
+ * where it isn't set, and throws where it couldn't be read.
  */
 export async function pushedBranch(
 	branch: string | undefined,
 	remote: string,
 	config: (key: string) => Promise<string | undefined>,
+	named = false,
 ): Promise<string | undefined> {
 	if (branch === undefined) return undefined;
 	if ((await config(`remote.${remote}.push`)) !== undefined) return undefined;
+	if ((await config(`remote.${remote}.mirror`)) === "true") return undefined;
 	const mode = (await config("push.default")) ?? "simple";
-	if (mode === "simple" || mode === "current") return branch;
-	if (mode !== "upstream" && mode !== "tracking") return undefined;
-	const merge = await config(`branch.${branch}.merge`);
-	return merge?.replace(/^refs\/heads\//, "");
+	if (mode === "upstream" || mode === "tracking") {
+		const merge = await config(`branch.${branch}.merge`);
+		const upstream = merge?.replace(/^refs\/heads\//, "");
+		return upstream ?? (named ? branch : undefined);
+	}
+	if (named || mode === "simple" || mode === "current") return branch;
+	return undefined;
 }
 
 /**
@@ -621,23 +660,73 @@ function launchedBy(
 	};
 }
 
-/** `git [-C dir] push [options] [remote [refspec...]]`. */
+/** git's options before its verb that take the next word as their value. */
+const GIT_VALUED = new Set([
+	"-c",
+	"--git-dir",
+	"--work-tree",
+	"--namespace",
+	"--config-env",
+	"--super-prefix",
+	"--exec-path",
+]);
+
+/** The keys of git's config that choose where a push goes. */
+const PUSH_SETTINGS = /^(?:push|remote|branch|url)\./i;
+
+/**
+ * `git [-C dir] push [options] [remote [refspec...]]`. One whose own
+ * `-c` or `--config-env` sets where pushes go names no repository or
+ * branch, as the checkout's settings no longer say.
+ */
 function gitPush(args: string[], dir: string | undefined): WriteCall[] {
 	let at = 0;
 	let where = dir;
+	let overridden = false;
 	while (at < args.length && (args[at] ?? "").startsWith("-")) {
 		const flag = args[at] ?? "";
+		const value = args[at + 1] ?? "";
 		if (flag === "-C") {
-			const target = args[at + 1];
-			if (target !== undefined && where !== undefined)
-				where = resolve(where, target);
+			if (where !== undefined) where = resolve(where, value);
 			at += 2;
 			continue;
 		}
-		at += flag === "-c" ? 2 : 1;
+		const set = flag.startsWith("--config-env=")
+			? flag.slice("--config-env=".length)
+			: flag === "-c" || flag === "--config-env"
+				? value
+				: "";
+		if (PUSH_SETTINGS.test(set)) overridden = true;
+		at += GIT_VALUED.has(flag) ? 2 : 1;
 	}
 	if (args[at] !== "push") return [];
-	return pushOf(args.slice(at + 1), where, "git push");
+	const writes = pushOf(args.slice(at + 1), where, "git push");
+	if (!overridden) return writes;
+	const { action, kind } = writes[0] ?? { action: "git push", kind: "change" };
+	return [
+		{
+			action,
+			kind,
+			...(where !== undefined ? { dir: where } : {}),
+			unnamed: "every",
+			overridden: true,
+		},
+	];
+}
+
+/** The options of git push that set it to push every branch, or tag. */
+const PUSHES_EVERY = ["--all", "--branches", "--mirror", "--tags"];
+
+/**
+ * Whether an option of git push pushes every branch or tag. git takes
+ * any long option by a prefix only it begins, so `--al` is `--all`.
+ */
+function pushesEvery(word: string): boolean {
+	return (
+		word.startsWith("--") &&
+		word.length >= 4 &&
+		PUSHES_EVERY.some((every) => every.startsWith(word))
+	);
 }
 
 /**
@@ -652,28 +741,54 @@ function pushOf(
 ): WriteCall[] {
 	const positional: string[] = [];
 	let every = false;
+	let repoFlag: string | undefined;
 	for (let at = 0; at < args.length; at += 1) {
 		const word = args[at] ?? "";
-		if (word === "--all" || word === "--mirror" || word === "--tags")
-			every = true;
+		if (pushesEvery(word)) every = true;
+		if (word.startsWith("--repo=")) repoFlag = word.slice("--repo=".length);
+		if (word === "--repo") repoFlag = args[at + 1];
 		if (word === "-o" || word === "--push-option" || word === "--repo") at += 1;
 		else if (!word.startsWith("-")) positional.push(word);
 	}
-	const [remote, ...refspecs] = positional;
+	// --repo names the remote where no word after the options does.
+	const [remote = repoFlag, ...refspecs] = positional;
 	const call: WriteCall = {
 		action,
 		kind: "change",
 		...(dir !== undefined ? { dir } : {}),
 		...(remote !== undefined ? remotePart(remote) : {}),
 	};
-	if (every) return [{ ...call, unnamed: "every" }];
+	if (every || refspecs.some(pushesMany))
+		return [{ ...call, unnamed: "every" }];
 	if (refspecs.length === 0) return [{ ...call, unnamed: "bare" }];
-	// A refspec naming no branch of its own, as `HEAD`, pushes the one
-	// checked out, which settle finds.
-	const branches = [...new Set(refspecs.map(destination))];
-	return branches.map((branch) =>
-		branch === undefined ? call : { ...call, branch },
-	);
+	const writes = new Map<string, WriteCall>();
+	for (const refspec of refspecs) {
+		const write = refspecWrite(refspec, call);
+		writes.set(JSON.stringify(write), write);
+	}
+	return [...writes.values()];
+}
+
+/**
+ * Whether a refspec pushes more than one branch: git's matching `:`,
+ * or a pattern.
+ */
+function pushesMany(refspec: string): boolean {
+	const bare = refspec.replace(/^\+/, "");
+	return bare === ":" || bare.includes("*");
+}
+
+/**
+ * The write one refspec makes: to the branch it names after a colon;
+ * to the one checked out for `HEAD` or `@`, which settle finds; and for
+ * a lone local branch, to wherever git maps it, which settle finds too.
+ */
+function refspecWrite(refspec: string, call: WriteCall): WriteCall {
+	const bare = refspec.replace(/^\+/, "");
+	if (!bare.includes(":"))
+		return { ...call, source: branchName(bare) ?? "HEAD" };
+	const branch = branchName(bare.slice(bare.indexOf(":") + 1));
+	return branch === undefined ? call : { ...call, branch };
 }
 
 /** A remote named by name stays for git; one given as a URL names its repo. */
@@ -682,12 +797,15 @@ function remotePart(remote: string): { remote: string } | { repo: string } {
 	return repo ? { repo } : { remote };
 }
 
-/** The branch a refspec pushes to: after the colon, else the whole. */
-function destination(refspec: string): string | undefined {
-	const bare = refspec.replace(/^\+/, "");
-	const target = bare.includes(":") ? bare.slice(bare.indexOf(":") + 1) : bare;
-	const branch = target.replace(/^refs\/heads\//, "");
-	return branch === "" || branch === "HEAD" ? undefined : branch;
+/**
+ * The branch one side of a refspec names, as git reads a short name:
+ * none for `HEAD` or `@`, the branch checked out.
+ */
+function branchName(side: string): string | undefined {
+	const branch = side.replace(/^(?:refs\/)?heads\//, "");
+	return branch === "" || branch === "HEAD" || branch === "@"
+		? undefined
+		: branch;
 }
 
 /** `gh pr <write>` and `gh api` calls that change a pull request or issue. */

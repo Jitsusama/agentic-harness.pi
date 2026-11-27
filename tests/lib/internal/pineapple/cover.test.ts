@@ -79,6 +79,24 @@ describe("a stop on one pull request", () => {
 		).toBe("held");
 	});
 
+	it("holds a push of its branch to a fork, which it may come from", async () => {
+		const forked = { ...pushFix, repo: "someone/shop" };
+		expect(await held(forked, "pr:example/shop#12")).toBe("held");
+		expect(
+			await held({ ...forked, branch: "other" }, "pr:example/shop#12"),
+		).toBe("goes");
+		expect(
+			await held({ ...forked, repo: "someone/other" }, "pr:example/shop#12"),
+		).toBe("goes");
+		const [found] = await covering(
+			forked,
+			[stop("pr:example/shop#99")],
+			HERE,
+			heads,
+		);
+		expect(found?.because).toMatch(/couldn't be found/);
+	});
+
 	it("whose repository wasn't named holds that number in any", async () => {
 		expect(await held({ ...merge12, repo: "example/other" }, "pr:#12")).toBe(
 			"held",
