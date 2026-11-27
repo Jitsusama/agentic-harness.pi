@@ -333,10 +333,12 @@ async function questionStates(
 
 /**
  * Who of the sessions a pivot reached has it, by their read markers,
- * who answered it, which a session does only when it can't take it up,
- * and who has not had it yet. A session is reached as any message
- * reaches it, so one hearing the pivot's group through a part of it
- * counts.
+ * who can't take it up, which a session says by a question re it, and
+ * who has not had it yet. A session is reached as any message reaches
+ * it, so one hearing the pivot's group through a part of it counts.
+ * Anything else re the pivot shows its sender has it, wherever it runs:
+ * sessions still on the old ask ack every pivot with an fyi until they
+ * reload, and a landing may answer one, so neither reads as a refusal.
  */
 function pivotState(
 	pivot: Message,
@@ -345,34 +347,40 @@ function pivotState(
 	self: { addresses: readonly string[]; pid: number },
 	hasRead: (one: Presence, id: string) => boolean,
 ): string {
-	const by = new Set(given.map((one) => one.from));
+	const asks = given.filter((one) => one.intent === "question");
+	const by = new Set(asks.map((one) => one.from));
+	const said = new Set(
+		given.filter((one) => one.intent !== "question").map((one) => one.from),
+	);
 	const reached = present.filter(
 		(one) =>
 			!one.addresses.some((address) => self.addresses.includes(address)) &&
 			reaches(pivot, one, -1),
 	);
-	const answeredBy = (one: Presence) =>
-		one.addresses.some((address) => by.has(address));
+	const named = (one: Presence, senders: ReadonlySet<string>) =>
+		one.addresses.some((address) => senders.has(address));
+	const unasked = reached.filter((one) => !named(one, by));
+	const sent = unasked.filter((one) => named(one, said));
 	// A session on another machine keeps its read marker there, so here it
 	// would read as not yet for good, though it took the pivot up unanswered.
-	const unanswered = reached.filter((one) => !answeredBy(one));
-	const elsewhere = unanswered
+	const unsaid = unasked.filter((one) => !named(one, said));
+	const elsewhere = unsaid
 		.filter((one) => one.machine !== undefined)
 		.map((one) => one.addresses[0]);
-	const here = unanswered.filter((one) => one.machine === undefined);
-	const has = here
-		.filter((one) => hasRead(one, pivot.id))
-		.map((one) => one.addresses[0]);
+	const here = unsaid.filter((one) => one.machine === undefined);
+	const has = [...sent, ...here.filter((one) => hasRead(one, pivot.id))].map(
+		(one) => one.addresses[0],
+	);
 	const waiting = here
 		.filter((one) => !hasRead(one, pivot.id))
 		// A paused presence may name no address, and is counted unnamed
 		// rather than dropped, so a pivot that reached only such never
 		// reads as having reached nobody.
 		.map((one) => one.addresses[0]);
-	const last = given.at(-1);
+	const last = asks.at(-1);
 	const answered =
 		last !== undefined
-			? `answered by ${[...by].join(", ")}, last in [${shortId(last)}]`
+			? `can't take it up: ${[...by].join(", ")}, last in [${shortId(last)}]`
 			: "";
 	const had = has.length > 0 ? `has it: ${peersNamed(has, false)}` : "";
 	const yet =

@@ -206,7 +206,7 @@ describe("the mesh on screen", () => {
 			"Anything waiting on the person goes to your orchestrator as a question. Anything stuck goes to the owner of what it waits on, by address, or to need (mesh_send to: need, about: what it is about).",
 		);
 		expect(content).toContain(
-			"Send no answer: your orchestrator sees that you have it.",
+			"Send no answer: on its machine your orchestrator sees that you have it, and on another it reads you as unknown, which asks nothing of you.",
 		);
 		expect(content).toContain(
 			"only when neither finds an owner, ask WCJQSG who owns it.",

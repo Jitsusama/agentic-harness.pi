@@ -373,7 +373,7 @@ describe("an orchestrator", () => {
 			text: "Can't take it up: the cap waits on a review.",
 		});
 		const answered = await readBack();
-		expect(answered).toContain("\n  answered by 85PKB2, last in [");
+		expect(answered).toContain("\n  can't take it up: 85PKB2, last in [");
 		expect(answered).toContain("]; not yet: 2 peers naming no address");
 	});
 
@@ -405,6 +405,44 @@ describe("an orchestrator", () => {
 		);
 	});
 
+	// Sessions still on the old ask ack every pivot with an fyi until they
+	// reload, and a landing may answer one: either shows its sender has the
+	// pivot, even on another machine, and neither says it can't take it up
+	// (#2315's stack round, F12 and F10).
+	it("counts an fyi re a pivot as having it, wherever its sender runs, never as a refusal", async () => {
+		leading();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-v",
+			addresses: ["VM0001"],
+			groups: ["#orchestration/7m6jkg"],
+			orchestratedBy: "7M6JKG",
+			machine: "cloud-1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+		for (const from of ["85PKB2", "VM0001"]) {
+			fromElsewhere({
+				from,
+				to: ["@7M6JKG"],
+				re: pivot?.id,
+				intent: "fyi",
+				text: "Taken up.",
+			});
+		}
+		const read =
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		expect(read, "both have it").toMatch(/\n {2}has it: 85PKB2, VM0001$/m);
+		expect(read, "an ack is no refusal").not.toContain("can't take it up");
+	});
+
 	// From 08:00 on 26 November the four busiest hubs heard 391 answers to
 	// their pivots in a day; a read marker already says who has one, so a
 	// session takes a pivot up without answering it.
@@ -429,11 +467,11 @@ describe("an orchestrator", () => {
 		expect(read, "the receipt line is left to the pivot's state").not.toContain(
 			"85PKB2 has it",
 		);
-		expect(read, "nobody answered it").not.toContain("answered by");
+		expect(read, "nobody refused it").not.toContain("can't take it up");
 
 		// A session asks about a pivot it can't take up only once it has
 		// read it, so its question comes with its marker past the pivot: it
-		// reads as answered, and as neither having it nor waiting on it.
+		// reads as refused, and as neither having it nor waiting on it.
 		fromElsewhere({
 			from: "85PKB2",
 			to: ["@7M6JKG"],
@@ -442,7 +480,7 @@ describe("an orchestrator", () => {
 			text: "Can't take it up: the cap waits on a review.",
 		});
 		const refused = await readBack();
-		expect(refused).toContain("\n  answered by 85PKB2, last in [");
+		expect(refused).toContain("\n  can't take it up: 85PKB2, last in [");
 		expect(refused, "an answerer has more than the pivot").not.toContain(
 			"has it",
 		);

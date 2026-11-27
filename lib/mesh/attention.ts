@@ -210,8 +210,10 @@ export function attend(message: Message, at: Standing): Heed {
 	// any question answering it is: a turn, steered into a run under way
 	// when sent to its address, and never damped. An fyi answering a pivot
 	// stays a note, so sessions still on the old ask, which ack every pivot
-	// until they reload, wake nobody. A landing that answers one still
-	// acts, and an answer to its question still takes a turn above.
+	// until they reload, wake no idle orchestrator; a parked one still wakes
+	// on any news from a session it leads (parked.ts), since it can't tell a
+	// landing from an ack. A landing that answers one still acts, and an
+	// answer to its question still takes a turn above.
 	const answerOnly =
 		message.intent === "fyi" && at.answers === true && !at.restates;
 	if (

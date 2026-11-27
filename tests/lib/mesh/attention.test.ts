@@ -471,6 +471,12 @@ describe("a peer resting blocked on the sender", () => {
 			attention: "turn",
 			why: "answering this peer",
 		});
+		// To a group, a busy orchestrator's run reads it at its next step
+		// (#2315's stack round, F3).
+		expect(attend(asked, { ...led, idle: false })).toEqual({
+			attention: "note",
+			why: "answering this peer",
+		});
 		// Sent to its address, it is put to the peer: steered into a run
 		// under way, as a hold re the pivot is.
 		for (const intent of ["question", "hold"] as const) {
