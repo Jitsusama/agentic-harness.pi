@@ -359,7 +359,14 @@ input pipeline or screen. No unit or running host is installed yet.
   sooner than an hour after it started (`ROLL_ONLY_AFTER_MS`): stale
   before then, it says when it will roll and looks again at that
   moment, so a conversation rolls at most once an hour however often
-  the install moves.
+  the install moves. Past the hour it first waits a random share of
+  ten minutes (`ROLL_SPREAD_MS`), so a machine's children roll apart,
+  and then rolls only while the CPU's `some avg60` is under 40, the
+  bar a council's round waits on (lib/internal/machine/room.ts
+  `cpuShort`), looking again every five minutes while it isn't. After
+  an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`) it
+  rolls anyway and says so, since a child left on stale code for hours
+  is what the roll exists to end.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

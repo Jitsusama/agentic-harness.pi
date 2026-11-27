@@ -2,9 +2,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	ROLL_ONLY_AFTER_MS,
+	ROLL_SPREAD_MS,
 	rollChildWhenStale,
 	rollWhenStale,
 } from "../../../host/service/stale-child.ts";
+
+// The CPU's pressure as a child reads it by default, set by a case.
+const cpu = vi.hoisted(() => ({ short: undefined as string | undefined }));
+vi.mock("../../../lib/internal/machine/room.ts", () => ({
+	cpuShort: async () => cpu.short,
+}));
 
 // Timers the test fires by hand, each run once.
 function manualTimers() {
@@ -174,6 +181,114 @@ describe("rollWhenStale", () => {
 		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
 	});
 
+	it("waits its spread once it may roll, then rolls", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 60_000,
+			after: timers.after,
+			spreadMs: 120_000,
+			roomShort: async () => undefined,
+		});
+		await timers.fire();
+		expect(
+			roll,
+			"spread, so a machine's children roll apart",
+		).not.toHaveBeenCalled();
+		expect(timers.due.map(({ ms }) => ms)).toEqual([120_000]);
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+		expect(timers.due, "it spreads once, not at each look").toEqual([]);
+	});
+
+	it("rolls only while the machine has room, saying once why it waits", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		let short: string | undefined = "CPU some avg60 was 64.7, at or past 40";
+		let now = 0;
+		rollWhenStale(async () => "the host's code differs", roll, {
+			lookMs: 300_000,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => now,
+			roomShort: async () => short,
+		});
+		await timers.fire();
+		now += 300_000;
+		await timers.fire();
+		expect(roll, "busy").not.toHaveBeenCalled();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"it looks again each look",
+		).toEqual([300_000]);
+		expect(reported).toEqual([
+			"The host's code differs, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 5 minutes until it has room, rolling anyway after 60 minutes",
+		]);
+
+		short = undefined;
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("the host's code differs");
+		expect(timers.due).toEqual([]);
+	});
+
+	it("rolls anyway once it has waited its most for room, saying so", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		let now = 0;
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => now,
+			roomShort: async () => "CPU some avg60 was 50, at or past 40",
+			waitsForRoomAtMostMs: 600_000,
+		});
+		await timers.fire();
+		now += 599_999;
+		await timers.fire();
+		expect(roll, "a moment short of its most").not.toHaveBeenCalled();
+		now += 1;
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+		expect(reported.at(-1)).toBe(
+			"It waited 10 minutes for the machine's room, so it rolls though the machine is busy (CPU some avg60 was 50, at or past 40)",
+		);
+	});
+
+	it("takes a room it can't read as room, and rolls", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 1,
+			after: timers.after,
+			roomShort: () => Promise.reject(new Error("no pressure file")),
+		});
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+	});
+
+	it("rolls not once stopped while it asks for room", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let answer = (_short: string | undefined): void => undefined;
+		const stop = rollWhenStale(async () => "moved", roll, {
+			lookMs: 1,
+			after: timers.after,
+			roomShort: () =>
+				new Promise<string | undefined>((resolve) => {
+					answer = resolve;
+				}),
+		});
+		await timers.fire();
+		stop();
+		answer(undefined);
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(roll).not.toHaveBeenCalled();
+		expect(timers.due).toEqual([]);
+	});
+
 	it("says nothing of looking again when a look throws after the child stopped", async () => {
 		const timers = manualTimers();
 		let fail = (_error: Error): void => undefined;
@@ -202,7 +317,11 @@ describe("rollChildWhenStale", () => {
 	/** A child's wiring, its host stopping when `stop` is called. */
 	function wired(
 		moved: () => Promise<string | undefined>,
-		clock: { bornAt?: number; now?: () => number } = {},
+		clock: {
+			bornAt?: number;
+			now?: () => number;
+			roomShort?: () => Promise<string | undefined>;
+		} = {},
 	) {
 		const timers = manualTimers();
 		const reported: unknown[] = [];
@@ -224,6 +343,9 @@ describe("rollChildWhenStale", () => {
 			// A child an hour old unless a case says otherwise.
 			bornAt: clock.bornAt ?? 0,
 			now: clock.now ?? (() => ROLL_ONLY_AFTER_MS),
+			// No spread, and room, unless a case says otherwise.
+			spreadMs: 0,
+			roomShort: clock.roomShort ?? (async () => undefined),
 		});
 		return {
 			timers,
@@ -277,6 +399,8 @@ describe("rollChildWhenStale", () => {
 			lookMs: 1,
 			after: timers.after,
 			now: () => now,
+			spreadMs: 0,
+			roomShort: async () => undefined,
 		});
 		now += 1;
 		await timers.fire();
@@ -284,6 +408,67 @@ describe("rollChildWhenStale", () => {
 		now = 50_000 + ROLL_ONLY_AFTER_MS;
 		await timers.fire();
 		expect(rolled).toEqual(["rolled"]);
+	});
+
+	it("holds its roll while the machine it is told of is busy", async () => {
+		let short: string | undefined = "CPU some avg60 was 61.7, at or past 40";
+		const child = wired(async () => "the host's code differs", {
+			roomShort: async () => short,
+		});
+		child.holds("busy");
+		await child.timers.fire();
+		expect(child.rolled).toEqual([]);
+		short = undefined;
+		await child.timers.fire();
+		expect(child.rolled).toEqual(["busy"]);
+	});
+
+	it("holds its roll on the CPU's pressure when it isn't told how to read the machine", async () => {
+		const timers = manualTimers();
+		const rolled: string[] = [];
+		cpu.short = "CPU some avg60 was 64.7, at or past 40";
+		try {
+			rollChildWhenStale({
+				moved: async () => "moved",
+				host: () => ({ roll: () => rolled.push("rolled") }),
+				stopped: new Promise(() => undefined),
+				report: () => undefined,
+				lookMs: 1,
+				after: timers.after,
+				bornAt: 0,
+				now: () => ROLL_ONLY_AFTER_MS,
+				spreadMs: 0,
+			});
+			await timers.fire();
+			expect(rolled, "busy").toEqual([]);
+			cpu.short = undefined;
+			await timers.fire();
+			expect(rolled).toEqual(["rolled"]);
+		} finally {
+			cpu.short = undefined;
+		}
+	});
+
+	it("draws its spread at random across ten minutes when it isn't told one", async () => {
+		const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+		try {
+			const timers = manualTimers();
+			rollChildWhenStale({
+				moved: async () => "moved",
+				host: () => undefined,
+				stopped: new Promise(() => undefined),
+				report: () => undefined,
+				lookMs: 1,
+				after: timers.after,
+				bornAt: 0,
+				now: () => ROLL_ONLY_AFTER_MS,
+				roomShort: async () => undefined,
+			});
+			await timers.fire();
+			expect(timers.due.map(({ ms }) => ms)).toEqual([ROLL_SPREAD_MS / 2]);
+		} finally {
+			random.mockRestore();
+		}
 	});
 
 	for (const how of ["resolve", "reject"] as const)

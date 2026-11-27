@@ -16,13 +16,31 @@
  * cells counted several cuts that day as merges moved the install. Held
  * to an hour, a conversation rolls at most once an hour however often
  * the install moves.
+ *
+ * Past the hour a child rolls neither at once nor while the machine is
+ * busy. On 27 November one install move at 02:53 rolled conversations
+ * together, and optimus's CPU `some avg60` went from 20.6 to 64.7 with
+ * 18 fresh processes starting in ten minutes (A210E4CA). So each child
+ * waits a share of ten minutes of its own, drawn at random, and then
+ * rolls only while the CPU's `some avg60` is under the bar a council's
+ * round waits on. Busy past an hour of waiting, it rolls anyway, saying
+ * so: a child kept on stale code for hours is the cost the roll exists
+ * to end.
  */
+
+import { cpuShort } from "../../lib/internal/machine/room.ts";
 
 /** How often a child looks at its install: often enough that a roll waits minutes, not hours. */
 export const LOOK_EVERY_MS = 5 * 60_000;
 
 /** How long a child runs before it may roll: a conversation rolls at most once in this. */
 export const ROLL_ONLY_AFTER_MS = 60 * 60_000;
+
+/** The span a machine's children spread their rolls across, each a random share of it. */
+export const ROLL_SPREAD_MS = 10 * 60_000;
+
+/** How long a child waits for the machine's room before it rolls anyway. */
+export const ROLL_WAITS_FOR_ROOM_AT_MOST_MS = 60 * 60_000;
 
 const MINUTE_MS = 60_000;
 
@@ -41,8 +59,11 @@ const realAfter: After = (ms, run) => {
  * stale code stays stale. A look that throws is reported, saying what
  * it was looking for, and looks again. Stale before `rollsFrom`, it says
  * so and looks again then, rolling with what the install says at that
- * look. Answers the function that stops looking, which holds even over
- * a look already under way.
+ * look. Past that, it waits `spreadMs` once, and then rolls only while
+ * `roomShort` says nothing, looking again each `lookMs` while it says
+ * why not, and rolling anyway once it has waited
+ * `waitsForRoomAtMostMs`. Answers the function that stops looking, which
+ * holds even over a look already under way.
  */
 export function rollWhenStale(
 	moved: () => Promise<string | undefined>,
@@ -54,13 +75,23 @@ export function rollWhenStale(
 		/** The moment, in epoch milliseconds, before which it never rolls. */
 		rollsFrom?: number;
 		now?: () => number;
+		/** How long it waits, once it may roll, before it first asks for room. */
+		spreadMs?: number;
+		/** Why the machine has no room for a roll now, or nothing when it has. */
+		roomShort?: () => Promise<string | undefined>;
+		waitsForRoomAtMostMs?: number;
 	} = {},
 ): () => void {
 	const lookMs = options.lookMs ?? LOOK_EVERY_MS;
 	const after = options.after ?? realAfter;
 	const now = options.now ?? Date.now;
 	const rollsFrom = options.rollsFrom ?? 0;
+	const spreadMs = options.spreadMs ?? 0;
+	const waitsAtMost =
+		options.waitsForRoomAtMostMs ?? ROLL_WAITS_FOR_ROOM_AT_MOST_MS;
 	let toldTooSoon = false;
+	let spread = false;
+	let waitingSince: number | undefined;
 	let stopped = false;
 	let cancel = (): void => undefined;
 	const look = async () => {
@@ -89,6 +120,31 @@ export function rollWhenStale(
 			cancel = after(early, () => void look());
 			return;
 		}
+		if (!spread) {
+			spread = true;
+			if (spreadMs > 0) {
+				cancel = after(spreadMs, () => void look());
+				return;
+			}
+		}
+		const short = await shortOf(options.roomShort);
+		if (stopped) return;
+		if (short !== undefined) {
+			const first = waitingSince === undefined;
+			waitingSince ??= now();
+			const waited = now() - waitingSince;
+			if (waited < waitsAtMost) {
+				if (first)
+					options.report?.(
+						`${capitalised(why)}, but the machine is busy (${short}), so it looks again each ${minutes(lookMs)} until it has room, rolling anyway after ${minutes(waitsAtMost)}`,
+					);
+				cancel = after(lookMs, () => void look());
+				return;
+			}
+			options.report?.(
+				`It waited ${minutes(waited)} for the machine's room, so it rolls though the machine is busy (${short})`,
+			);
+		}
 		stopped = true;
 		roll(why);
 	};
@@ -97,6 +153,22 @@ export function rollWhenStale(
 		stopped = true;
 		cancel();
 	};
+}
+
+/**
+ * Why the machine has no room, or nothing; a reading that fails says
+ * nothing, since a roll held on a reading that never comes would never
+ * happen.
+ */
+async function shortOf(
+	roomShort: (() => Promise<string | undefined>) | undefined,
+): Promise<string | undefined> {
+	try {
+		return await roomShort?.();
+	} catch {
+		// An unreadable machine is taken as having room, as a Mac does.
+		return undefined;
+	}
 }
 
 function capitalised(words: string): string {
@@ -122,12 +194,17 @@ export interface ChildRoll {
 	/** When the child started, in epoch milliseconds; the wiring's moment if left out. */
 	readonly bornAt?: number;
 	readonly now?: () => number;
+	/** How long past its hour it waits before asking for room; a random share of `ROLL_SPREAD_MS` if left out. */
+	readonly spreadMs?: number;
+	/** Why the machine has no room for a roll; the CPU's pressure if left out. */
+	readonly roomShort?: () => Promise<string | undefined>;
 }
 
 /**
  * Roll a child's conversation once its install's host code moves on:
  * say why, and roll the host holding it then, though never within an
- * hour of the child's start. It looks until the child's host stops,
+ * hour of the child's start, and past that only after its spread and
+ * while the machine has room. It looks until the child's host stops,
  * however that ends.
  */
 export function rollChildWhenStale(wiring: ChildRoll): void {
@@ -145,6 +222,8 @@ export function rollChildWhenStale(wiring: ChildRoll): void {
 			report: wiring.report,
 			rollsFrom: bornAt + ROLL_ONLY_AFTER_MS,
 			now,
+			spreadMs: wiring.spreadMs ?? Math.floor(Math.random() * ROLL_SPREAD_MS),
+			roomShort: wiring.roomShort ?? (() => cpuShort()),
 			...(wiring.lookMs === undefined ? {} : { lookMs: wiring.lookMs }),
 			...(wiring.after ? { after: wiring.after } : {}),
 		},
