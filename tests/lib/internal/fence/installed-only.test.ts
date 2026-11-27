@@ -96,17 +96,17 @@ describe("whether this account could change a path", () => {
 	it("is yes for a folder it owns, though its mode refuses writing", () => {
 		const mine = join(home, "mine");
 		mkdirSync(mine, { mode: 0o555 });
-		expect(canChange(mine)).toBe(true);
+		expect(canChange(mine), "a folder it owns, mode 0555").toBe(true);
 	});
 
 	it("is yes for what isn't there, since nothing shows it can't be", () => {
-		expect(canChange(join(home, "absent"))).toBe(true);
+		expect(canChange(join(home, "absent")), "a path not there").toBe(true);
 	});
 
 	it.skipIf(process.getuid?.() === 0)(
 		"is no for a folder another account owns and this one can't write",
 		() => {
-			expect(canChange("/")).toBe(false);
+			expect(canChange("/"), "root's own /").toBe(false);
 		},
 	);
 
