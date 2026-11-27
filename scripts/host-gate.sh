@@ -84,9 +84,12 @@ prose='(^|/)README\.md$'
 # refspec might leave origin/main where it was, and read by its full ref,
 # since a tag or branch of the checkout's named origin/main would outrank
 # it under the short name: either could set main at the head, so that
-# nothing reads as changed.
-git fetch -q origin +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
+# nothing reads as changed. No hook runs as it lands, so none the checkout
+# holds can move the ref after; the remote and the GIT_ variables given
+# still reach the fetch, as merge-gate.sh says why.
+fetching() { git -c core.hooksPath=/dev/null fetch -q origin "$@"; }
+fetching +refs/heads/main:refs/remotes/origin/main
+if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then fetching "$sha"; fi
 # What changed is read past the checkout's replacements, grafts and
 # commit-graph, any of which could make the head's commit read as main's,
 # so that nothing reads as changed. Every GIT_ variable the gate was given
@@ -174,6 +177,8 @@ else
   why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
 
-echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as ${touched[0]}, and $why." >&2
+# The path is the head's to name, so it's quoted as bash would, and no
+# newline or terminal escape in it reaches the screen raw.
+echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as $(printf '%q' "${touched[0]}"), and $why." >&2
 echo "$clear." >&2
 exit 1

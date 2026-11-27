@@ -675,6 +675,20 @@ describe("host-gate.sh", () => {
 		expect(answered.said).toContain(`such as ${code}`);
 	});
 
+	it("quotes a path the head names, so no newline or escape in it reaches the screen raw", async () => {
+		const on = await harness();
+		const code = "host/a\nb\u001b[2J.ts";
+		const sha = await change(on, code);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the path, quoted as bash would").toContain(
+			"such as $'host/a\\nb\\E[2J.ts'",
+		);
+		expect(answered.said, "the escape, raw").not.toContain("\u001b");
+	});
+
 	it("lets a change to the host merge once the keeper kept test:host passing at it", async () => {
 		const on = await harness();
 		const sha = await change(on, "lib/ui/panel/panel-screen.ts");
