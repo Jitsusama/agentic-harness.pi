@@ -24,17 +24,21 @@ const sockets = process.env[SOCKET_ROOT];
 /**
  * Whether this run may write /tmp, probed rather than read from the
  * setup, so a setup that stops naming its folder fails here rather than
- * skipping. Only a refusal counts; any other error fails the file.
+ * skipping. Only a refusal counts; any other error fails the file. Its
+ * folder takes the short folders' prefix, so one a killed worker left
+ * goes with the next run's sweep.
  */
 function mayWriteTmp(): boolean {
+	let probe: string;
 	try {
-		rmSync(mkdtempSync("/tmp/sr-probe-"), { recursive: true });
-		return true;
+		probe = mkdtempSync("/tmp/vs-probe-");
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code ?? "";
 		if (["EACCES", "EPERM", "EROFS"].includes(code)) return false;
 		throw error;
 	}
+	rmSync(probe, { recursive: true, force: true });
+	return true;
 }
 
 const made: string[] = [];
