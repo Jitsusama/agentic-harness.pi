@@ -142,6 +142,11 @@ export async function serveHost(options: {
 	 */
 	rollout?: AdmitAnother;
 	/**
+	 * Whether this process is one conversation's own, a child's, so a heap
+	 * snapshot of it stops nothing else (backend.ts).
+	 */
+	ownProcess?: boolean;
+	/**
 	 * Whether a held conversation was woken from a rest someone else kept,
 	 * so the start resumes it as woken rather than resting it again.
 	 */
@@ -282,6 +287,7 @@ export async function serveHost(options: {
 			engine,
 			admitAnother,
 			held: order,
+			...(options.ownProcess === true ? { ownProcess: true } : {}),
 			...(children ? { children: children.backend } : {}),
 			...(options.say ? { say: options.say } : {}),
 			...(options.changes ? { changes: options.changes } : {}),

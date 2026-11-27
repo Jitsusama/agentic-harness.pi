@@ -74,6 +74,9 @@ const request = z.discriminatedUnion("op", [
 	// What memory the host and each conversation's child take: an op of its
 	// own, since a client reading list strictly would refuse its new fields.
 	z.strictObject({ ...envelope, op: z.literal("memory") }),
+	// A heap snapshot of the process running one conversation, asked of
+	// that process itself, as a child on its own socket (heap-snapshot.ts).
+	z.strictObject({ ...session, op: z.literal("heap-snapshot") }),
 	// A child host's one conversation, followed for as long as the
 	// connection lasts (child.ts): what the supervisor that started it
 	// hears it by.
@@ -188,6 +191,13 @@ const memory = z.object({
 	),
 });
 
+const snapshot = z.strictObject({
+	sessionId,
+	file: path,
+	bytes: count,
+	tookMs: count,
+});
+
 /** A hosted conversation as open, adopt and list report it. */
 export type SessionIdentity = z.infer<typeof identity>;
 
@@ -273,6 +283,13 @@ export function parseListResult(value: unknown): z.infer<typeof listed> {
 /** Memory's result: the host's heap and Pss, and each child's beside its conversation. */
 export function parseMemoryResult(value: unknown): MemoryAnswer {
 	return result(memory, value);
+}
+
+/** A heap snapshot's result: where it was written, its size and how long its thread stopped. */
+export function parseHeapSnapshotResult(
+	value: unknown,
+): z.infer<typeof snapshot> {
+	return result(snapshot, value);
 }
 
 /** Release, close, abort and attach answer with the session they acted on. */
