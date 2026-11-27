@@ -5,7 +5,7 @@
  * room that said nothing at all hands the reviewer back to run here.
  */
 
-import { access, chmod, writeFile } from "node:fs/promises";
+import { access, chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { RoomAsk } from "../../../../lib/subagent/run-contract.ts";
@@ -76,7 +76,7 @@ async function roomRun(
 		() => true,
 		() => false,
 	);
-	return { result, here };
+	return { result, here, stateDir };
 }
 
 describe("a reviewer asked to run on a room", () => {
@@ -101,6 +101,26 @@ describe("a reviewer asked to run on a room", () => {
 		expect(here, "nothing ran here").toBe(false);
 		expect(result.finalAssistantText).toBe("there");
 		expect(result.journal).toEqual([{ subject: "found on the room" }]);
+	});
+
+	it("starts the room's command outside the tree under review, with no relative PATH folder", async () => {
+		const seen = join(await tempStateDir(), "seen.json");
+		vi.stubEnv("PATH", `bin:${process.env.PATH ?? ""}`);
+		let tree = "";
+		try {
+			const { result, stateDir } = await roomRun([
+				`import { writeFileSync } from "node:fs";`,
+				`writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ cwd: process.cwd(), path: process.env.PATH }));`,
+				...answered("there"),
+			]);
+			expectRan(result);
+			tree = stateDir;
+		} finally {
+			vi.unstubAllEnvs();
+		}
+		const { cwd, path } = JSON.parse(await readFile(seen, "utf8"));
+		expect(cwd).not.toBe(tree);
+		expect(path.split(":")).not.toContain("bin");
 	});
 
 	it("runs here when no room took it and it said nothing", async () => {

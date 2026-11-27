@@ -67,7 +67,7 @@ export function roomHarness(folder: string): RoomHarness {
 export async function roomFor(
 	change: ChangeRef,
 	head: string | undefined,
-	harness: RoomHarness,
+	harnessOf: () => RoomHarness,
 	path: string = packageConfigPath(),
 	mycelium: () => string | undefined = myceliumAt,
 ): Promise<RoomAsk | undefined> {
@@ -77,6 +77,8 @@ export async function roomFor(
 	if (named === undefined) return undefined;
 	const command = mycelium();
 	if (command === undefined) return undefined;
+	const harness = harnessHere(harnessOf);
+	if (harness === undefined) return undefined;
 	return {
 		place: {
 			mycelium: command,
@@ -87,6 +89,19 @@ export async function roomFor(
 		},
 		code: { repo, commit: head },
 	};
+}
+
+/**
+ * The harness a room's reviewers read, or nothing when the fence refuses
+ * this round's folder, which the round itself then says as it starts.
+ */
+function harnessHere(harnessOf: () => RoomHarness): RoomHarness | undefined {
+	try {
+		return harnessOf();
+	} catch {
+		// The same refusal is thrown again where each reviewer starts.
+		return undefined;
+	}
 }
 
 /** The room's name for a repository it keeps, or nothing. */

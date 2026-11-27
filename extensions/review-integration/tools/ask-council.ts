@@ -83,9 +83,7 @@ export async function askCouncil(
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 	const { waited } = set;
-	const room = await roomFor(
-		change,
-		proposal.headCommit,
+	const room = await roomFor(change, proposal.headCommit, () =>
 		roomHarness(tree.path),
 	);
 
@@ -235,9 +233,7 @@ export async function startRound(
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkills("council");
-	const room = await roomFor(
-		change,
-		proposal.headCommit,
+	const room = await roomFor(change, proposal.headCommit, () =>
 		roomHarness(tree.path),
 	);
 

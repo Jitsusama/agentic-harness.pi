@@ -14,7 +14,7 @@ import {
 } from "../../../../extensions/review-integration/tools/ask-room.ts";
 import type { ChangeRef } from "../../../../lib/core/review/index.ts";
 
-const harness = { root: "/pkg", entryLoads: ["/pkg/fence.ts"] };
+const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
 const head = "b".repeat(40);
 
 /** Where the node's command lies, as PATH finds it. */
@@ -102,6 +102,28 @@ describe("the room a round's reviewers run on", () => {
 		expect(
 			await roomFor(mine, head, harness, named, () => undefined),
 		).toBeUndefined();
+	});
+
+	it("is none when the fence refuses the round's folder, which each reviewer then says as it starts", async () => {
+		const named = await config({ room: { machine: "room-1" } });
+		const mine = change("github:Jitsusama/mycelium");
+		const refused = () => {
+			throw new Error("the folder holds the fence's own code");
+		};
+
+		expect(await roomFor(mine, head, refused, named, found)).toBeUndefined();
+	});
+
+	it("asks for the harness only once a room is named, so a round with none never meets the fence's refusal there", async () => {
+		const mine = change("github:Jitsusama/mycelium");
+		let asked = 0;
+		const counted = () => {
+			asked += 1;
+			return harness();
+		};
+
+		await roomFor(mine, head, counted, await config({}), found);
+		expect(asked).toBe(0);
 	});
 });
 
