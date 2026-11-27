@@ -271,6 +271,14 @@ describe("writesInBash", () => {
 			"git branch --set-upstream-to=origin/stopped x; git push origin x",
 			"git branch --unset-upstream; git push origin x",
 			"git branch --track x origin/stopped; git push origin x",
+			"git branch -m stopped x; git push origin x",
+			"git branch -M stopped x; git push origin x",
+			"git branch -fm stopped x; git push origin x",
+			"git branch --move stopped x; git push origin x",
+			"git branch --mov stopped x; git push origin x",
+			"git branch -c stopped x; git push origin x",
+			"git branch -C stopped x; git push origin x",
+			"git branch --copy stopped x; git push origin x",
 			"sudo git config push.default upstream; git push origin x",
 			"flock /tmp/l git config push.default upstream; git push origin x",
 		]) {
@@ -298,7 +306,11 @@ describe("writesInBash", () => {
 			"git remote -v; git push origin x",
 			"git remote get-url origin; git push origin x",
 			"git branch -d old; git push origin x",
+			"git branch -D old; git push origin x",
 			"git branch --list; git push origin x",
+			"git branch -vv; git push origin x",
+			"git branch --contains HEAD; git push origin x",
+			"git branch --merged; git push origin x",
 			"git status; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([

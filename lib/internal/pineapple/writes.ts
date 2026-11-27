@@ -866,14 +866,18 @@ const REMOTE_MOVES = new Set([
 /**
  * Whether an option of git branch sets or unsets a branch's upstream,
  * which a push goes to when `push.default` is upstream: `-u` or `-t`
- * among other short options, or their long names by a prefix.
+ * among other short options, or their long names by a prefix. Moving or
+ * copying a branch (`-m`, `-M`, `-c`, `-C`) takes its settings, its
+ * upstream among them, to the name it is given.
  */
 function movesUpstream(word: string): boolean {
-	if (/^-[^-]/.test(word)) return /^-[A-Za-z]*[tu]/.test(word);
+	if (/^-[^-]/.test(word)) return /^-[A-Za-z]*[tuMmCc]/.test(word);
 	return (
 		isOption(word, "--set-upstream-to", 3) ||
 		isOption(word, "--unset-upstream", 3) ||
-		isOption(word, "--track", 4)
+		isOption(word, "--track", 4) ||
+		isOption(word, "--move", 3) ||
+		isOption(word, "--copy", 3)
 	);
 }
 
