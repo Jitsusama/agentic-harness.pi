@@ -51,6 +51,7 @@ import {
 	pushedBranch,
 	pushRemote,
 	repoOfPushUrls,
+	repoOfUrl,
 } from "../../lib/internal/pineapple/writes.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
@@ -242,9 +243,13 @@ function logBeside(
 }
 
 const gitFacts: GitFacts = {
+	async repoOf(dir, remote) {
+		const url = await quietly("git", ["-C", dir, "remote", "get-url", remote]);
+		return url === undefined ? undefined : repoOfUrl(url);
+	},
 	// Where a push goes, which a remote's pushurl can send elsewhere than
 	// it fetches from.
-	async repoOf(dir, remote) {
+	async pushRepoOf(dir, remote) {
 		const urls = await quietly("git", [
 			"-C",
 			dir,
@@ -278,14 +283,18 @@ const gitFacts: GitFacts = {
 
 /**
  * One key of the git config of the checkout at `dir`: none where git
- * says it isn't set, and a throw where it couldn't be read at all.
+ * says it isn't set, and a throw where it couldn't be read at all. A
+ * remote's mirror is read as git reads it, a boolean, so any way of
+ * saying true, a bare key included, answers `true`.
  */
 function config(dir: string): (key: string) => Promise<string | undefined> {
 	return async (key) => {
+		const bool = /^remote\..+\.mirror$/i.test(key) ? ["--type=bool"] : [];
 		const { code, stdout, stderr } = await LOOKUPS("git", [
 			"-C",
 			dir,
 			"config",
+			...bool,
 			"--get",
 			key,
 		]);

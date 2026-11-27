@@ -88,6 +88,15 @@ describe("a stop on one pull request", () => {
 		expect(
 			await held({ ...forked, repo: "someone/other" }, "pr:example/shop#12"),
 		).toBe("goes");
+		// One naming no branch, as a push of every branch, may push its branch.
+		expect(
+			await held({ ...forked, branch: undefined }, "pr:example/shop#12"),
+		).toBe("held");
+		// Another write there naming no branch touches no branch of it.
+		const release = { action: "gh release create", kind: "change" } as const;
+		expect(
+			await held({ ...release, repo: "someone/shop" }, "pr:example/shop#12"),
+		).toBe("goes");
 		const [found] = await covering(
 			forked,
 			[stop("pr:example/shop#99")],
@@ -142,6 +151,22 @@ describe("wider stops", () => {
 		expect(
 			await held({ ...pushOther, dir: "/trees/aquifer-demo" }, "named:aquifer"),
 		).toBe("held");
+		// A push whose repository couldn't be told, as one its own settings
+		// send elsewhere, may go to one carrying the name.
+		const overridden: Write = {
+			action: "git push",
+			kind: "change",
+			dir: "/w",
+			unnamed: "every",
+			overridden: true,
+		};
+		expect(await held(overridden, "named:aquifer")).toBe("held");
+		expect(
+			await held(
+				{ ...merge12, repo: undefined, pr: undefined },
+				"named:aquifer",
+			),
+		).toBe("goes");
 	});
 
 	it("everything holds every write", async () => {

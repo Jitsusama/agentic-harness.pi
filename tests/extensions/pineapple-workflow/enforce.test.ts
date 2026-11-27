@@ -28,6 +28,7 @@ function machine(
 		standing: () => standingStops(folder),
 		git: {
 			repoOf: async () => "example/shop",
+			pushRepoOf: async () => "example/shop",
 			branchOf: async (dir) => (dir === TREE ? "fix-it" : "main"),
 			pushRemoteOf: async () => "origin",
 			pushedOf: async (dir, _, source) =>
