@@ -212,11 +212,19 @@ export function attend(message: Message, at: Standing): Heed {
 	// at 14:41. Sessions now answer a pivot only when they can't take it
 	// up, and who has it shows beside the pivot by read marker, so an
 	// answer to a pivot is a refusal its orchestrator must act on, and an
-	// idle one takes a turn for it, as for the answer to a question. A
-	// landing that answers one still acts, and an answer to its question
-	// still takes a turn above.
-	if (at.refuses && at.idle && message.intent !== "hold") {
-		return { attention: "turn", why: "a session can't take up its pivot" };
+	// idle one acts on it. It is held until the mesh settles, as news is,
+	// since sessions still on the old ask ack every pivot until they
+	// reload, and a turn for each would wake an orchestrator as WM4KSZ was
+	// woken. A landing that answers one still acts, an answer to its
+	// question still takes a turn above, and a question sent re a pivot is
+	// heard below as one put to the peer, so its answer is owed.
+	if (
+		at.refuses &&
+		at.idle &&
+		message.intent !== "hold" &&
+		message.intent !== "question"
+	) {
+		return { attention: "act", why: "a session can't take up its pivot" };
 	}
 	const answerOnly =
 		message.intent === "fyi" && at.answers === true && !at.restates;

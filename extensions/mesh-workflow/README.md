@@ -517,11 +517,12 @@ and its groups.
   for an orchestrator a finding or fyi sent to it by a session
   it leads, since passing those on to the person is its work
   (on 2026-11-07 three orchestrators sat on theirs until they
-  parked). An fyi that only answers what the orchestrator sent,
-  such as a pivot a session can't take up, is a note for its next
-  turn, unless it
-  names a landing or the orchestrator is parked: on 2026-11-17,
-  532 of 1,097 such fyis to four orchestrators were answers. It
+  parked), and a session's answer to its pivot, sent only when
+  it can't take the pivot up. Any other fyi that only answers
+  what the orchestrator sent is a note for its next turn, unless
+  it names a landing or the orchestrator is parked: on
+  2026-11-17, 532 of 1,097 such fyis to four orchestrators were
+  answers, 322 of them a pivot taken up. It
   waits 30 seconds and up to 30 more, the extra different for
   each session so peers hearing one message do not start at
   once, and what arrives meanwhile goes in the same turn. A

@@ -444,19 +444,31 @@ describe("a peer resting blocked on the sender", () => {
 		).toBe("act");
 	});
 
-	it("takes an idle orchestrator's turn for a session that can't take up its pivot", () => {
+	it("has an idle orchestrator act on a session that can't take up its pivot", () => {
 		// A session answers a pivot only to refuse it, so the refusal is
 		// work for its orchestrator, however it was sent, and not a quiet
-		// ack left for whatever starts its next turn.
+		// ack left for whatever starts its next turn. It waits for the mesh
+		// to settle, so the acks of sessions still on the old ask cost one
+		// turn a burst.
 		const refusal = message({ to: ["#quest/5gv2ah"], re: "0-5GV2AH-1-pivot" });
 		const led = { ...blocked, led: true, answers: true, refuses: true };
 		for (const intent of ["fyi", "finding"] as const) {
 			expect(attend({ ...refusal, intent }, led)).toEqual({
-				attention: "turn",
+				attention: "act",
 				why: "a session can't take up its pivot",
 			});
 		}
 		expect(attend(refusal, { ...led, idle: false }).attention).toBe("note");
+		// A hold or a question re the pivot is one put to the peer: its
+		// answer is owed, and a hold is steered into a run under way.
+		const put = message({ to: ["@5GV2AH"], re: "0-5GV2AH-1-pivot" });
+		for (const intent of ["question", "hold"] as const) {
+			expect(attend({ ...put, intent }, led)).toEqual({
+				attention: "turn",
+				why: "answering this peer",
+				addressed: true,
+			});
+		}
 	});
 
 	it("wakes nothing for a busy peer, whose run reads it", () => {

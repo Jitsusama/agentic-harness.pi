@@ -152,8 +152,9 @@ describe("an orchestrator", () => {
 
 	// A session answers a pivot only when it can't take it up, so an idle
 	// orchestrator left with that answer as a note would sit on the
-	// refusal until something else started its turn.
-	it("takes a turn, as an idle orchestrator, for a session that can't take up its pivot", async () => {
+	// refusal until something else started its turn. Sessions still on the
+	// old ask ack each pivot, so a burst of answers costs one turn.
+	it("takes one turn, as an idle orchestrator, for sessions that can't take up its pivot", async () => {
 		leading();
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
@@ -163,14 +164,29 @@ describe("an orchestrator", () => {
 			to: ["@7M6JKG"],
 			from: "85PKB2",
 			re: pivot?.id,
+			text: "Taken up: the cap.",
+		});
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "4UHC5Q",
+			re: pivot?.id,
 			text: "Can't take it up: the cap waits on a review.",
 		});
 
 		await vi.waitFor(() =>
 			expect(
-				sent.find(({ message }) => message.content.includes("the cap waits"))
-					?.options,
-			).toEqual({ triggerTurn: true }),
+				sent.filter(({ message }) =>
+					JSON.stringify(message.content).includes("the cap"),
+				),
+			).toHaveLength(1),
+		);
+		const [turn] = sent.filter(({ message }) =>
+			JSON.stringify(message.content).includes("the cap"),
+		);
+		expect(turn?.options).toEqual({ triggerTurn: true });
+		expect(JSON.stringify(turn?.message.content)).toContain("Taken up");
+		expect(JSON.stringify(turn?.message.content)).toContain(
+			"waits on a review",
 		);
 	});
 

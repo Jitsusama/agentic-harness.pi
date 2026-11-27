@@ -125,6 +125,7 @@ function wakesOnceReached(
 	const led =
 		sender?.orchestratedBy !== undefined &&
 		parked.addresses.includes(sender.orchestratedBy);
+	const refuses = answersPivot(message, read, self);
 	const heed = attend(message, {
 		receiver: {
 			addresses: parked.addresses,
@@ -138,12 +139,16 @@ function wakesOnceReached(
 		// landing, so any of it wakes it, answering its pivot or not.
 		answers: !(led && message.intent === "fyi") && answers(message, read, self),
 		asked: answersQuestion(message, read, self),
-		...(answersPivot(message, read, self) ? { refuses: true } : {}),
+		...(refuses ? { refuses: true } : {}),
 		askedEach: asksEach(message, listener),
 		now,
 	});
-	// What it leads acts on once the mesh settles: a turn all the same.
-	return heed.attention === "turn" || (led && heed.attention === "act");
+	// What it leads acts on once the mesh settles: a turn all the same. So
+	// does a refusal of its pivot, from a session whose presence here may
+	// not name who leads it, as one on another machine's.
+	return (
+		heed.attention === "turn" || ((led || refuses) && heed.attention === "act")
+	);
 }
 
 /**
