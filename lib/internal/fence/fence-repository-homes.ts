@@ -10,9 +10,18 @@
  * or a project's settings, either of which a command could point at a
  * file naming `/` (ISXEG8 6bc32d5e). Each home is judged and followed
  * once, when first read, and the answer stands for the process.
+ *
+ * A named home is never missing while a fenced command runs: pi makes
+ * one that is missing, at the first read and before each command, since
+ * its parent stays writable to a command, which could otherwise make
+ * the home and plant a repository there for git outside the fence to
+ * trust. A home pi can't make, no command, running as the same person
+ * with less, can make either. And the git guard trusts a named home
+ * only while it is the folder the first read found, so one replaced
+ * since is kept read-only but trusted no more.
  */
 
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isRecord } from "../record.ts";
 import { packageRoot } from "./installed-only.ts";
@@ -35,6 +44,10 @@ export interface NamedHomeDisk {
 	kind(path: string): "folder" | "link" | "other" | undefined;
 	/** The path with every link followed. */
 	real(path: string): string;
+	/** Make a missing folder and those above it, saying whether it could. */
+	make(path: string): boolean;
+	/** Which folder `path` is, as its device and inode, or nothing for no folder. */
+	identity(path: string): string | undefined;
 }
 
 const LIVE: NamedHomeDisk = {
@@ -52,6 +65,27 @@ const LIVE: NamedHomeDisk = {
 		return found.isDirectory() ? "folder" : "other";
 	},
 	real: (path) => realpathSync(path),
+	make(path) {
+		try {
+			mkdirSync(path, { recursive: true });
+			return true;
+		} catch {
+			// A folder pi can't make, no fenced command can make either; the
+			// caller says so and leaves the home out.
+			return false;
+		}
+	},
+	identity(path) {
+		try {
+			const found = lstatSync(path, { throwIfNoEntry: false, bigint: true });
+			return found?.isDirectory() === true
+				? `${found.dev}:${found.ino}`
+				: undefined;
+		} catch {
+			// A folder pi can't look at is no folder it can vouch for.
+			return undefined;
+		}
+	},
 };
 
 /** Whether `path` is `folder` or lies in it. */
@@ -114,9 +148,9 @@ function refusal(
 
 /**
  * The repository homes the settings under `home` name, judged. A home
- * not on this machine is skipped, never made; one on a machine other
- * than Linux is refused, since only Linux's fence keeps a folder outside
- * the home folder read-only.
+ * that passes but is missing is made, judged again as made, and refused
+ * where it can't be; one on a machine other than Linux is refused, since
+ * only Linux's fence keeps a folder outside the home folder read-only.
  */
 export function readNamedHomes(
 	home: string,
@@ -135,35 +169,94 @@ export function readNamedHomes(
 	for (const path of named(home)) {
 		const why =
 			platform === "linux"
-				? refusal(path, home, install, disk)
+				? (refusal(path, home, install, disk) ??
+					madeOrWhyNot(path, home, install, disk))
 				: `${String(path)} is outside the home folder, which only Linux's fence keeps read-only`;
 		if (why) refused.push(why);
-		else if (
-			typeof path === "string" &&
-			disk.kind(path) === "folder" &&
-			!homes.includes(path)
-		)
+		else if (typeof path === "string" && !homes.includes(path)) {
 			homes.push(path);
+		}
 	}
 	return { homes, refused };
 }
 
-const READ = new Map<string, readonly string[]>();
-
 /**
- * The repository homes the person's settings name for `home`, read and
- * followed once a process. What is refused is said once, as a warning,
- * and left out. A home not there at that first read stays left out for
- * the whole process, as unguarded as one never named, so a home must be
- * made before pi starts.
+ * Why a home that passed its judging is still no home, once a missing
+ * one is made and judged again, or nothing where it stands.
  */
-export function namedRepositoryHomes(home: string): readonly string[] {
+function madeOrWhyNot(
+	path: unknown,
+	home: string,
+	install: string,
+	disk: NamedHomeDisk,
+): string | undefined {
+	if (typeof path !== "string" || disk.kind(path) !== undefined) return;
+	if (!disk.make(path)) return `${path} is missing, and pi can't make it`;
+	return (
+		refusal(path, home, install, disk) ??
+		(disk.kind(path) === "folder"
+			? undefined
+			: `${path} is no folder pi can read`)
+	);
+}
+
+/** A process's first read: the homes kept, and which folder each was. */
+interface FirstRead {
+	readonly homes: readonly string[];
+	readonly identities: ReadonlyMap<string, string | undefined>;
+}
+
+const READ = new Map<string, FirstRead>();
+
+/** The first read of the homes named for `home`, made once a process. */
+function firstRead(home: string): FirstRead {
 	const known = READ.get(home);
 	if (known) return known;
 	const { homes, refused } = readNamedHomes(home);
 	for (const why of refused) {
 		process.emitWarning(`pi's fence keeps no repository home here: ${why}.`);
 	}
-	READ.set(home, homes);
-	return homes;
+	const read = {
+		homes,
+		identities: new Map(homes.map((top) => [top, LIVE.identity(top)])),
+	};
+	READ.set(home, read);
+	return read;
+}
+
+/**
+ * The repository homes the person's settings name for `home`, read and
+ * followed once a process. What is refused is said once, as a warning,
+ * and left out; a missing home is made, or refused where pi can't.
+ */
+export function namedRepositoryHomes(home: string): readonly string[] {
+	return firstRead(home).homes;
+}
+
+/**
+ * Make again each named home gone since the first read, before a
+ * fenced command starts, so no command ever runs while one is missing.
+ * One pi can't make again stays missing, which no command can make.
+ */
+export function remakeNamedHomes(
+	home: string,
+	disk: NamedHomeDisk = LIVE,
+): void {
+	for (const top of firstRead(home).homes) {
+		if (disk.kind(top) === undefined) disk.make(top);
+	}
+}
+
+/**
+ * Whether the named home `top` is still the folder the first read
+ * found, which alone the git guard trusts: one made again since, or put
+ * in its place, may hold what a command wrote while it was gone.
+ */
+export function namedHomeHolds(
+	home: string,
+	top: string,
+	disk: NamedHomeDisk = LIVE,
+): boolean {
+	const first = firstRead(home).identities.get(top);
+	return first !== undefined && disk.identity(top) === first;
 }

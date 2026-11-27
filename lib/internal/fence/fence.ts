@@ -108,6 +108,7 @@ import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { pinnedAbove } from "./fence-pins.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
 import { pastQuestTempLink, questTempArgs } from "./fence-quest-temp.ts";
+import { namedHomeHolds, remakeNamedHomes } from "./fence-repository-homes.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
 import { workerSocketRule } from "./fence-worker-socket.ts";
 
@@ -422,6 +423,9 @@ function systemSshConfig(disk: Disk): string | undefined {
  */
 export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	const exists = (path: string) => disk.kind(path) !== undefined;
+	// Made before the command starts: a named home's parent stays writable
+	// to it, so one missing while it runs could be made and filled by it.
+	remakeNamedHomes(place.home);
 	const named = namedHomesKept(place.home, disk);
 	// A /dev of its own, with only what any program needs (null, zero,
 	// random, a tty), and the GPU's render nodes, never its card nodes
@@ -721,6 +725,11 @@ export function guardsGitFolder(
 	if (gitFolderOf(repository, disk) !== git) return false;
 	return repositoryHomes(home).some(({ top, depth, kept }) => {
 		if (!kept) return false;
+		// A named home trusted only while it is the folder pi first read: one
+		// made again or put in its place may hold what a command wrote.
+		if (!top.startsWith(`${home}/`) && !namedHomeHolds(home, top)) {
+			return false;
+		}
 		const parts = relative(top, repository).split(sep);
 		const first = parts[0] ?? "";
 		if (first === "" || first === ".." || parts.length > depth) return false;

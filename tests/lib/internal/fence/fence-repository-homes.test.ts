@@ -66,20 +66,31 @@ function workingBwrap(): string | undefined {
 	return tried.status === 0 ? found : undefined;
 }
 
-/** A disk holding these folders and links, every path its own real one. */
+/**
+ * A disk holding these folders and links, every path its own real one,
+ * where a folder can be made only in `makeable`.
+ */
 function standIn(
 	folders: readonly string[],
 	links: readonly string[] = [],
 	real: Record<string, string> = {},
+	makeable: readonly string[] = [],
 ): NamedHomeDisk {
+	const there = [...folders];
 	return {
 		kind: (path) =>
-			folders.includes(path)
+			there.includes(path)
 				? "folder"
 				: links.includes(path)
 					? "link"
 					: undefined,
 		real: (path) => real[path] ?? path,
+		make: (path) => {
+			if (!makeable.includes(path)) return false;
+			there.push(path);
+			return true;
+		},
+		identity: (path) => (there.includes(path) ? path : undefined),
 	};
 }
 
@@ -121,12 +132,23 @@ describe("the repository homes the person's settings name", () => {
 		).toEqual({ homes: [], refused: [] });
 	});
 
-	it("skips a home not on this machine rather than refusing or making it", () => {
-		naming(home, ["/world/runs/gone"]);
-		expect(read(standIn([home])), "a missing home is skipped").toEqual({
-			homes: [],
-			refused: [],
+	// A missing home's parent is writable to a fenced command, which could
+	// make the home and fill it for git outside the fence to trust.
+	it("makes a missing home, and refuses one pi can't make", () => {
+		naming(home, ["/world/runs/new", "/world/runs/gone"]);
+		const disk = standIn([home], [], {}, ["/world/runs/new"]);
+		expect(read(disk), "the one made is kept").toEqual({
+			homes: ["/world/runs/new"],
+			refused: ["/world/runs/gone is missing, and pi can't make it"],
 		});
+		expect(disk.kind("/world/runs/new"), "it was made").toBe("folder");
+	});
+
+	it("makes no home it refuses", () => {
+		naming(home, [join(home, "src", "new")]);
+		const disk = standIn([home], [], {}, [join(home, "src", "new")]);
+		read(disk);
+		expect(disk.kind(join(home, "src", "new")), "nothing made").toBe(undefined);
 	});
 
 	it("refuses the disk, the home folder, a folder above or in it, and the harness's install", () => {
@@ -237,6 +259,30 @@ describe.skipIf(process.platform !== "linux")(
 			expect(gitFolders(home), "the walk passes it by").not.toContain(git);
 		});
 
+		// F25, F29, F34, F41: gone and made again, by a command while it was
+		// gone or by anyone, it may hold a repository nobody vouches for.
+		it("guards nothing in a named home put back since pi first read it", () => {
+			const named = join(runs, "src");
+			const git = repository(join(named, "o", "r"));
+			naming(home, [named]);
+			expect(guardsGitFolder(git, home), "guarded as first read").toBe(true);
+			rmSync(named, { recursive: true });
+			repository(join(named, "o", "r"));
+			expect(guardsGitFolder(git, home), "the one put back is unguarded").toBe(
+				false,
+			);
+		});
+
+		it("makes a named home gone since the first read before a command starts", () => {
+			const named = join(runs, "src");
+			mkdirSync(named);
+			naming(home, [named]);
+			guardsGitFolder(join(named, ".git"), home);
+			rmSync(named, { recursive: true });
+			fenceArgs({ home, runtimeDir: undefined });
+			expect(existsSync(named), "made again").toBe(true);
+		});
+
 		it("guards nothing deeper than ~/src's own depth", () => {
 			const git = repository(join(runs, "a", "b", "c", "d", "e"));
 			naming(home, [runs]);
@@ -287,6 +333,17 @@ describe.skipIf(bwrap === undefined)(
 			const made = join(runs, "made");
 			expect(fenced(`mkdir ${made}`), "a folder was made").toBe(false);
 			expect(existsSync(made), `${made} is there`).toBe(false);
+		});
+
+		// F41: its parent is writable, so the home must stand before it runs.
+		it("makes no repository in a named home missing when pi first read it", () => {
+			const named = join(runs, "later");
+			naming(home, [named]);
+			expect(
+				fenced(`mkdir -p ${named}/o/r/.git/hooks`),
+				"a repository was made",
+			).toBe(false);
+			expect(existsSync(join(named, "o")), "something is in it").toBe(false);
 		});
 
 		it("keeps a clone's hooks and settings read-only, and writes what a commit writes", () => {
