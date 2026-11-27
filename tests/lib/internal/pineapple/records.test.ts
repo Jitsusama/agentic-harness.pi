@@ -48,6 +48,32 @@ describe("changesRecords", () => {
 		expect(bash("pineapple stops")).toBe("goes");
 	});
 
+	it("lets looking at where the records are go on", () => {
+		const looked = [
+			"readlink ~/.local/state/pineapple/stops; ls -la /var/lib/pineapple/stops; id",
+			`realpath ${RECORDS}/stops`,
+			`test -e ${RECORDS}/stops/a.json; echo $?`,
+			`[ -L ${RECORDS}/stops ] && echo linked`,
+			`sha256sum ${RECORDS}/stops/a.json`,
+			`diff ${RECORDS}/stops/a.json /tmp/a.json`,
+		];
+		expect(looked.map((command) => [command, bash(command)])).toEqual(
+			looked.map((command) => [command, "goes"]),
+		);
+	});
+
+	it("still refuses a program that may write beside what it reads", () => {
+		const writing = [
+			`xxd ${RECORDS}/stops/a.json ${RECORDS}/stops/b.json`,
+			`sort -o ${RECORDS}/judged.json ${RECORDS}/judged.json`,
+			`cp /tmp/a.json ${RECORDS}/stops/a.json`,
+			`readlink ${RECORDS}/stops > ${RECORDS}/where`,
+		];
+		expect(writing.map((command) => [command, bash(command)])).toEqual(
+			writing.map((command) => [command, "refused"]),
+		);
+	});
+
 	it("leaves everything else alone", () => {
 		expect(bash("git push origin main")).toBe("goes");
 		expect(said("read", { path: `${RECORDS}/stops/a.json` })).toBe("goes");
