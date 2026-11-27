@@ -135,7 +135,7 @@ describe("reading a page always lets go", () => {
 		const before = new Set(browser.browserContexts());
 		const controller = new AbortController();
 		const reading = readPage(fixture.url("/never"), controller.signal);
-		setTimeout(() => controller.abort(), 300);
+		setTimeout(() => controller.abort(), 300); // any time: /never never answers, so the stop is what ends the read whenever it lands
 		const started = Date.now();
 
 		const outcome = await within(

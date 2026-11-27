@@ -90,11 +90,14 @@ describe("extractArticle", { timeout: ARTICLE_WALL_MS + 10_000 }, () => {
 
 	it("gives up when stopped, finding no article", async () => {
 		const stop = new AbortController();
-		setTimeout(() => stop.abort(), 300);
 		const started = performance.now();
-		const found = await extractArticle(heavyPage(), "https://example.com/", {
+		const reading = extractArticle(heavyPage(), "https://example.com/", {
 			signal: stop.signal,
 		});
+		// Its thread is under way once the call returns, so the stop lands
+		// mid-read; one on a timer could come after a quick machine's read.
+		stop.abort();
+		const found = await reading;
 		expect(found).toBeNull();
 		expect(performance.now() - started).toBeLessThan(1_500);
 	}, 60_000);

@@ -60,7 +60,7 @@ describe("a URL fetch through a gh that never answers", () => {
 		fakeGh("sleep 30");
 		const controller = new AbortController();
 		const call = fetchUrlHints(PR, { signal: controller.signal });
-		setTimeout(() => controller.abort(), 300);
+		setTimeout(() => controller.abort(), 300); // any time: gh sleeps 30 s, so the stop is what ends the call whenever it lands
 		expect(await outcome(call)).toBe(undefined);
 	}, 15_000);
 

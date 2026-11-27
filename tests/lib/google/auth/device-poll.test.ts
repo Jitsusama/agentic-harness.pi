@@ -52,7 +52,7 @@ describe("polling for a device code's approval", () => {
 		const stop = new AbortController();
 		const started = Date.now();
 		const waiting = pollForDeviceAuthorization(CONFIG, "dc", 5, stop.signal);
-		setTimeout(() => stop.abort(), 50);
+		stop.abort();
 
 		await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
 		expect(Date.now() - started).toBeLessThan(1000);
