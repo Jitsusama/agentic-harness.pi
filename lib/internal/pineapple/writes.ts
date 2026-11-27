@@ -731,8 +731,8 @@ const GIT_ELSEWHERE = /^--(?:git-dir|work-tree)(?:=|$)|^--exec-path=/;
 const GIT_NAMES =
 	"GIT_(?:DIR|WORK_TREE|COMMON_DIR|CONFIG\\w*|SSH\\w*|EXEC_PATH|PROXY_COMMAND)|HOME|XDG_CONFIG_HOME|PATH";
 
-/** One of {@link GIT_NAMES} given a value. */
-const GIT_ENV = new RegExp(`^(?:${GIT_NAMES})=`);
+/** One of {@link GIT_NAMES} given a value, or appended to as `+=` does. */
+const GIT_ENV = new RegExp(`^(?:${GIT_NAMES})\\+?=`);
 
 /** One of {@link GIT_NAMES} alone, as `export` names one already set. */
 const GIT_NAME = new RegExp(`^(?:${GIT_NAMES})$`);

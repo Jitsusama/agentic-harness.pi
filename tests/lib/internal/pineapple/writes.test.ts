@@ -180,6 +180,40 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads NAME+=value before a push as an assignment, as bash does", () => {
+		// bash appends to the name, so git's names move git as = does.
+		for (const command of [
+			"HOME+=/elsewhere git push origin x",
+			"env GIT_CONFIG_GLOBAL+=/elsewhere git push origin x",
+			"export PATH+=:/elsewhere; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Any other name appended to leaves the push to read as it is.
+		for (const command of [
+			"X+=1 git push origin x",
+			"env X+=1 git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push fed to a shell given its own environment as naming nothing", () => {
 		for (const command of [
 			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",

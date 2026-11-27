@@ -509,9 +509,10 @@ function skipQuoted(word: string, at: number): number {
 /**
  * The variables a command assigns to itself, last assignment winning.
  *
- * Only the literal `NAME=value` form, which is what a command writing to
- * a long path actually uses. A value built from an earlier variable is
- * expanded against what is known so far, so `A=/tmp; B=$A/x` resolves.
+ * Only the literal `NAME=value` form, and `NAME+=value` appending to it,
+ * which is what a command writing to a long path actually uses. A value
+ * built from an earlier variable is expanded against what is known so
+ * far, so `A=/tmp; B=$A/x` resolves.
  *
  * An assignment counts only where the shell keeps it: standing alone, or
  * after `export` and its kin. A prefix, as in `NAME=value cmd`, sets NAME
@@ -521,10 +522,22 @@ function skipQuoted(word: string, at: number): number {
  */
 function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 	const known = new Map<string, string>();
-	const record = (name: string | undefined, raw: string): void => {
+	const record = (
+		name: string | undefined,
+		raw: string,
+		appends: boolean,
+	): void => {
 		if (!name) return;
 		const value = expand(unquote(raw), known);
-		if (value !== undefined) known.set(name, value);
+		if (!appends) {
+			if (value !== undefined) known.set(name, value);
+			return;
+		}
+		// `NAME+=value` appends, so NAME is known only while what it appends
+		// to is, and otherwise holds what this command never said.
+		const before = known.get(name);
+		if (before === undefined || value === undefined) known.delete(name);
+		else known.set(name, before + value);
 	};
 
 	// The model first, because it keeps a quoted value. `Q="/tmp/q"` reaches
@@ -534,15 +547,31 @@ function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 		for (const word of keptAssignments(simple)) {
 			const at = word.text.indexOf("=");
 			if (at < 0) continue;
-			record(word.text.slice(0, at), word.text.slice(at + 1));
+			const name = word.text.slice(0, at);
+			const appends = name.endsWith("+");
+			record(
+				appends ? name.slice(0, -1) : name,
+				word.text.slice(at + 1),
+				appends,
+			);
 		}
 	}
 
+	const replayed = new Set<string>();
 	for (const match of skeleton.matchAll(STANDING_ASSIGNMENT)) {
+		const name = match[1] ?? "";
+		const appends = match[2] === "+";
+		const value = match[3] ?? "";
 		// A quoted value reaches the skeleton blanked, as `""` or `''`; the
 		// model has read it, and taking the blank would overwrite what it read.
-		if (match[2] === '""' || match[2] === "''") continue;
-		record(match[1], match[2] ?? "");
+		// A blank appended to a value this pass set again would leave that
+		// value without what was appended, so the name is no longer known.
+		if (value === '""' || value === "''") {
+			if (appends && replayed.has(name)) known.delete(name);
+			continue;
+		}
+		record(name, value, appends);
+		replayed.add(name);
 	}
 
 	return known;
@@ -558,11 +587,12 @@ const DECLARERS = new Set([
 ]);
 
 /**
- * A `NAME=value` in a skeleton that nothing but more assignments follows
- * before the command ends, so it is no prefix of a command.
+ * A `NAME=value`, or `NAME+=value`, in a skeleton that nothing but more
+ * assignments follows before the command ends, so it is no prefix of a
+ * command.
  */
 const STANDING_ASSIGNMENT =
-	/(?:^|[;&|]|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|<>]*)(?=(?:[ \t]+[A-Za-z_][A-Za-z0-9_]*=[^\s;&|<>]*)*[ \t]*(?:$|[;&|\n)]))/g;
+	/(?:^|[;&|]|\s)([A-Za-z_][A-Za-z0-9_]*)(\+?)=([^\s;&|<>]*)(?=(?:[ \t]+[A-Za-z_][A-Za-z0-9_]*\+?=[^\s;&|<>]*)*[ \t]*(?:$|[;&|\n)]))/g;
 
 /**
  * The assignments of a simple command that outlast it: all of them when

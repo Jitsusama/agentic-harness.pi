@@ -371,6 +371,22 @@ describe("a target the command names through a variable", () => {
 		).toEqual(["/tmp/two/f.txt"]);
 	});
 
+	it("appends NAME+=value to what the command set it to", () => {
+		expect(bashWriteTargets("Q=/tmp/q; Q+=/plans; echo hi > $Q/P.md")).toEqual([
+			"/tmp/q/plans/P.md",
+		]);
+		expect(
+			bashWriteTargets('Q="/tmp/a b"; Q+="/c"; echo hi > "$Q/f.txt"'),
+		).toEqual(["/tmp/a b/c/f.txt"]);
+		// The quoted append reaches the data-stripped pass blanked, which
+		// can't say what it added to the value it read.
+		expect(bashWriteTargets('Q=/tmp/q; Q+="/c"; echo hi > "$Q/f.txt"')).toEqual(
+			[],
+		);
+		// Appending to what the command never said leaves it unknown.
+		expect(bashWriteTargets("Q+=/plans; echo hi > $Q/P.md")).toEqual([]);
+	});
+
 	it("keeps a prefix assignment to the command it prefixes", () => {
 		// `NAME=value cmd` sets NAME in cmd's environment alone, and bash
 		// expands cmd's own redirects before assigning it, so the write lands

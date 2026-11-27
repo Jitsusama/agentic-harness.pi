@@ -352,7 +352,7 @@ export function unwrapped(argv: string[]): string[] {
 					break;
 				}
 				if (next.startsWith("-")) at += takesNext(next, ENV) ? 2 : 1;
-				else if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(next)) at += 1;
+				else if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(next)) at += 1;
 				else break;
 			}
 			continue;
