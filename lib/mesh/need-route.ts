@@ -356,11 +356,28 @@ export function wordsOf(text: string): string[] {
 }
 
 /**
+ * The words of a cell's title and repository: as `wordsOf` reads them,
+ * but with no phrase. A title is free prose, where a particle is most
+ * often a preposition, so "Sync over SSH" names no sync-over work and
+ * must not outweigh a cell on sync for a need saying sync over wifi
+ * (#2220's round 7b, F79). A cell doing hand-over work says so in a
+ * subject, which keeps its phrase.
+ */
+function titleWordsOf(text: string): string[] {
+	return wordsAndIdsOf(text, (id) => id.length <= LONGEST_WORD, false);
+}
+
+/**
  * The words `wordsOf` reads, keeping of the ids only those `keep`
  * holds to: `wordsOf` keeps none past `LONGEST_WORD`, and a subject's
  * words keep every one, so a subject saying one is seen to say it.
+ * Without `phrases`, a word and its particle make no id.
  */
-function wordsAndIdsOf(text: string, keep: (id: string) => boolean): string[] {
+function wordsAndIdsOf(
+	text: string,
+	keep: (id: string) => boolean,
+	phrases = true,
+): string[] {
 	const lower = text.toLowerCase().replace(APOSTROPHE_LIKE, "'");
 	const words = lower.split(/[^\p{L}\p{N}]+/u).filter(isWorkWord);
 	const ids = [...lower.matchAll(JOINED_ID)].map(([id]) => id).filter(keep);
@@ -370,11 +387,13 @@ function wordsAndIdsOf(text: string, keep: (id: string) => boolean): string[] {
 		.filter(([, word]) => word !== undefined && !COMMON.has(word))
 		.map(([, word, n]) => `${word}-${n}`)
 		.filter(keep);
-	const phrases = [...lower.matchAll(PARTICLE_IN_PROSE)]
-		.filter(([, word]) => isWorkWord(word))
-		.map(([, word, particle]) => `${word}-${particle}`)
-		.filter(keep);
-	return [...new Set([...words, ...ids, ...numbered, ...phrases])];
+	const phrased = phrases
+		? [...lower.matchAll(PARTICLE_IN_PROSE)]
+				.filter(([, word]) => isWorkWord(word))
+				.map(([, word, particle]) => `${word}-${particle}`)
+				.filter(keep)
+		: [];
+	return [...new Set([...words, ...ids, ...numbered, ...phrased])];
 }
 
 /** What a cell says it works on, as the node lists each one. */
@@ -490,7 +509,7 @@ export function foragersFrom(line: string): Forager[] {
 		if (!isAddress(key.slice("cell:".length))) return [];
 		const declared = firstSubjects(subjects);
 		const said = [title, repo].filter((one) => typeof one === "string");
-		const titled = wordsOf(said.join(" "));
+		const titled = titleWordsOf(said.join(" "));
 		return [
 			{
 				address: key.slice("cell:".length),
@@ -812,58 +831,80 @@ function routeAs(
 				!worksOnWord(address, head)
 			);
 		}).length;
-	// How many of the phrases the asker lacks one cell works on whose
-	// first word the other works on too: of cells covering as much, it
-	// tells the hand-over cell from the hand-off one for a need saying
-	// hand over, which each covers by hand alone. Against a cell that
-	// doesn't work on hand, the phrase says nothing it lacks, so a cell
-	// whose title says find out never outranks one holding the need's
-	// subject (#2220's seventh round, F61).
-	const phrasesOver = (one: string, than: string) =>
-		lacking.filter((word) => {
-			const head = phraseHead(word);
-			return (
-				head !== undefined && worksOnWord(one, word) && worksOnWord(than, head)
-			);
-		}).length;
 	// How much of the need a cell works on.
 	const most = (address: string) => covers(address, asked.words);
 	// How much of what the asker lacks a cell works on: the words its
 	// owner is judged by, since a word the asker holds routes nowhere and
 	// an ended sibling holding it owns nothing the live fit can't take.
 	const needed = (address: string) => covers(address, lacking);
+	// How a lot of cells weigh as fits, each by one key, so whichever
+	// order they are found in the same one wins and none beats another
+	// that beats it (#2220's round 7b, F78): what the asker lacks first,
+	// since a word it holds routes nowhere; then the phrases it lacks
+	// that tell the cell from one of the lot on the same first word
+	// lacking them, as hand-over tells the hand-over cell from the
+	// hand-off one, each covering hand over by hand alone; then the
+	// whole need, so of cells as useful the one nearer the asker's own
+	// work. A phrase counts only against a cell of the lot on its first
+	// word that lacks it: against a cell not on find, find out says
+	// nothing it lacks (#2220's seventh round, F61), and against one
+	// holding the phrase too, nothing either (round 7b, F81). Positive
+	// where `one` is the better.
+	const weighedAmong = (lot: readonly string[]) => {
+		const phrases = (address: string) =>
+			lacking.filter((word) => {
+				const head = phraseHead(word);
+				return (
+					head !== undefined &&
+					worksOnWord(address, word) &&
+					lot.some(
+						(other) => worksOnWord(other, head) && !worksOnWord(other, word),
+					)
+				);
+			}).length;
+		const keys = new Map<string, readonly number[]>();
+		const key = (address: string) => {
+			const known = keys.get(address);
+			if (known !== undefined) return known;
+			const made = [needed(address), phrases(address), most(address)];
+			keys.set(address, made);
+			return made;
+		};
+		return (one: string, than: string, depth = 3) => {
+			const [mine, theirs] = [key(one), key(than)];
+			for (let at = 0; at < depth; at++) {
+				const by = (mine[at] ?? 0) - (theirs[at] ?? 0);
+				if (by !== 0) return by;
+			}
+			return 0;
+		};
+	};
 	// Whether a cell works on more of what the asker lacks, or as much
-	// and more of its phrases whose first word the other works on: what
-	// an ended owner must outdo the fit by.
+	// and more of its phrases the other lacks: what an ended owner must
+	// outdo the fit by, the whole need left out.
 	const outranks = (one: string, than: string) =>
-		needed(one) > needed(than) ||
-		(needed(one) === needed(than) &&
-			phrasesOver(one, than) > phrasesOver(than, one));
-	// A fit is weighed by what the asker lacks first, since a word it
-	// holds routes nowhere, then by its phrases, then by the whole need,
-	// so of cells as useful the one nearer the asker's own work.
-	const better = (one: string, than: string) =>
-		outranks(one, than) ||
-		(needed(one) === needed(than) &&
-			phrasesOver(one, than) === phrasesOver(than, one) &&
-			most(one) > most(than));
-	const best = (candidates: readonly string[]) =>
-		candidates.reduce<string | undefined>(
+		weighedAmong([one, than])(one, than, 2) > 0;
+	// The first of a lot that none after it outweighs.
+	const best = (lot: readonly string[]) => {
+		const weigh = weighedAmong(lot);
+		return lot.reduce<string | undefined>(
 			(chosen, one) =>
-				chosen === undefined || better(one, chosen) ? one : chosen,
+				chosen === undefined || weigh(one, chosen) > 0 ? one : chosen,
 			undefined,
 		);
+	};
 	const finds: {
 		readonly word: string;
 		readonly path: string[];
 		readonly fit: string;
 	}[] = [];
 	for (const { word } of within) {
-		// Among hubs that rank the same, the one whose fit works on most of
-		// the need; among those, the first the lot drew.
-		let chosen: { ranked: RankedHub; fit: string } | undefined;
+		// Among hubs that rank the same, the one whose fit weighs most;
+		// among those, the first the lot drew.
+		const level: { ranked: RankedHub; fit: string }[] = [];
 		for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
-			if (chosen !== undefined && !rankSame(chosen.ranked, ranked)) break;
+			const first = level[0];
+			if (first !== undefined && !rankSame(first.ranked, ranked)) break;
 			const { hub } = ranked;
 			// A cell counted back may be a hub, as it is once really back:
 			// one naming a cell sharing less for a narrower subject leaves
@@ -873,10 +914,10 @@ function routeAs(
 				hub.fits.filter((one) => !endedHolder(one, word) && fitsOn(one, word)),
 			);
 			if (fit === undefined) continue;
-			if (chosen === undefined || better(fit, chosen.fit)) {
-				chosen = { ranked, fit };
-			}
+			level.push({ ranked, fit });
 		}
+		const bestFit = best(level.map(({ fit }) => fit));
+		const chosen = level.find(({ fit }) => fit === bestFit);
 		if (chosen !== undefined) {
 			const { ranked, fit } = chosen;
 			const direct = ranked.hub.hub === fit || selves.has(ranked.hub.hub);
@@ -891,11 +932,8 @@ function routeAs(
 	}
 	// Hubs' finds first, then walks', each rarest word first, so of fits
 	// working on as much of the need the first found wins, as before.
-	const found = finds.reduce<(typeof finds)[number] | undefined>(
-		(chosen, one) =>
-			chosen === undefined || better(one.fit, chosen.fit) ? one : chosen,
-		undefined,
-	);
+	const foundFit = best(finds.map(({ fit }) => fit));
+	const found = finds.find(({ fit }) => fit === foundFit);
 	if (found === undefined) return lost();
 	if (back !== undefined) return record(found.path, found.fit, new Set());
 	// Routed again as if each cell heard from lately that works on more of
@@ -910,17 +948,17 @@ function routeAs(
 	// Tried best first, stopping at the first that owns it, and at most
 	// MOST_OWNER_TRIES of them, so many cells crashing at once, none of
 	// them owning it, costs no more than that many routes.
-	const owner = reach.foragers
+	const outranking = reach.foragers
 		.map(({ address }) => address)
 		.filter(
 			(address) =>
 				ended(address) &&
 				outranks(address, found.fit) &&
 				heardWithin(reach.ties, address, said.at),
-		)
-		.sort((one, other) =>
-			better(one, other) ? -1 : better(other, one) ? 1 : 0,
-		)
+		);
+	const weighOwners = weighedAmong([...outranking, found.fit]);
+	const owner = outranking
+		.sort((one, other) => weighOwners(other, one))
 		.slice(0, MOST_OWNER_TRIES)
 		.find((address) => routeAs(said, reach, address).fit === address);
 	// Words only ended cells work on are said, whenever those were heard

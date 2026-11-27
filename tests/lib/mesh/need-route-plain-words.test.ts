@@ -203,6 +203,72 @@ describe("the plain words a need is not matched by", () => {
 		});
 	});
 
+	// The live cell holds all the ended one does, and hand besides, so
+	// the phrase tells them apart in nothing (#2220's round 7b, F81).
+	it("names no ended owner by a phrase the live fit holds too", () => {
+		const found = routeNeed(asked("A", ...wordsOf("hand over the notes")), {
+			foragers: cells({ A: [], E: ["hand-over"], L: ["hand", "hand-over"] }),
+			ties: ties(["A", "L", 1], ["A", "E", 1]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found, "delivered to the live cell, not lost to E").toMatchObject({
+			fit: "L",
+		});
+		expect(found.ended, "no ended owner named").toBeUndefined();
+	});
+
+	// Each fit of the pallets hub covers two words the asker lacks. H's
+	// phrase tells it from B, N holds more of the whole need than H, and
+	// B more than N: weighed pair by pair they went round, so which took
+	// it hung on the order the hub listed them in (#2220's round 7b, F78).
+	// Weighed as one lot, H's phrase counts against B, and H takes it.
+	it("finds the same fit whatever order a hub lists its fits in", () => {
+		const need = asked("A", ...wordsOf("hand over the notes, foo bar pallets"));
+		const foragers = cells({
+			A: ["foo", "bar"],
+			P: ["pallets"],
+			H: ["hand", "hand-over", "pallets"],
+			B: ["hand", "foo", "bar", "pallets"],
+			N: ["notes", "foo", "pallets"],
+		});
+		const fits = [
+			["H", "B", "N"],
+			["B", "N", "H"],
+			["N", "H", "B"],
+		].map(
+			(order) =>
+				routeNeed(need, {
+					foragers,
+					ties: ties(),
+					hubs: [{ subject: "x:pallets", hub: "P", fits: order }],
+				}).fit,
+		);
+
+		expect(fits, "H in every order").toEqual(["H", "H", "H"]);
+	});
+
+	it("reads no phrase from a cell's title, but keeps a subject's", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{ key: "cell:SSHSYN", title: "Sync over SSH" },
+				{ key: "cell:HANDOV", title: "Notes", subjects: ["x:hand-over"] },
+			],
+		});
+		const [titled, declared] = foragersFrom(line);
+
+		// Over in a title is most often a preposition, so Sync over SSH
+		// outweighs no cell on sync for a need saying sync over wifi
+		// (#2220's round 7b, F79).
+		expect(titled?.words, "the title's words, no phrase").toEqual([
+			"sync",
+			"ssh",
+		]);
+		expect(declared?.words, "the subject's phrase kept").toContain("hand-over");
+	});
+
 	it("keeps an id as long as LONGEST_WORD, and none longer", () => {
 		const id = `leg-${"p".repeat(LONGEST_WORD - 4)}`;
 
