@@ -543,17 +543,16 @@ function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 	// The model first, because it keeps a quoted value. `Q="/tmp/q"` reaches
 	// the skeleton as `Q=""`, so reading only that lost exactly the paths
 	// long enough to be worth a variable.
+	const modelled = new Set<string>();
 	for (const simple of tokenize(command).commands) {
 		for (const word of keptAssignments(simple)) {
 			const at = word.text.indexOf("=");
 			if (at < 0) continue;
 			const name = word.text.slice(0, at);
 			const appends = name.endsWith("+");
-			record(
-				appends ? name.slice(0, -1) : name,
-				word.text.slice(at + 1),
-				appends,
-			);
+			const bare = appends ? name.slice(0, -1) : name;
+			record(bare, word.text.slice(at + 1), appends);
+			modelled.add(bare);
 		}
 	}
 
@@ -562,6 +561,10 @@ function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 		const name = match[1] ?? "";
 		const appends = match[2] === "+";
 		const value = match[3] ?? "";
+		// The model read every assignment to a name it saw in order, so
+		// replaying one of them here would set it back to an earlier
+		// value, as `Q=/a; Q="/b"` would leave Q at /a.
+		if (modelled.has(name)) continue;
 		// A quoted value reaches the skeleton blanked, as `""` or `''`; the
 		// model has read it, and taking the blank would overwrite what it read.
 		// A blank appended to a value this pass set again would leave that

@@ -370,6 +370,8 @@ describe("a target the command names through a variable", () => {
 		expect(
 			bashWriteTargets("P=/tmp/one; P=/tmp/two; echo hi > $P/f.txt"),
 		).toEqual(["/tmp/two/f.txt"]);
+		// A quoted value later than a bare one still wins.
+		expect(bashWriteTargets('Q=/a; Q="/b"; echo hi > $Q/f')).toEqual(["/b/f"]);
 	});
 
 	it("appends NAME+=value to what the command set it to", () => {
@@ -379,10 +381,8 @@ describe("a target the command names through a variable", () => {
 		expect(
 			bashWriteTargets('Q="/tmp/a b"; Q+="/c"; echo hi > "$Q/f.txt"'),
 		).toEqual(["/tmp/a b/c/f.txt"]);
-		// The quoted append reaches the data-stripped pass blanked, which
-		// can't say what it added to the value it read.
 		expect(bashWriteTargets('Q=/tmp/q; Q+="/c"; echo hi > "$Q/f.txt"')).toEqual(
-			[],
+			["/tmp/q/c/f.txt"],
 		);
 		// Appending to what the command never said leaves it unknown.
 		expect(bashWriteTargets("Q+=/plans; echo hi > $Q/P.md")).toEqual([]);
