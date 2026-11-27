@@ -22,7 +22,17 @@
  * again after something outside took it away) is trusted by no process
  * after. A home pi makes again, or that turns up where pi found none, is
  * still kept read-only but trusted no more, until the person, having
- * checked what it holds, removes its record.
+ * checked what it holds, removes its record. So is a home a read keeps
+ * no bind for (taken out of the settings, refused, or named in a file
+ * that doesn't parse, by a process with no good read before it), since
+ * a command started then may write in it and the folder keeps its
+ * identity through that; a process that read good settings keeps
+ * binding what they named while the file doesn't parse.
+ *
+ * Not closed: a fenced command already running when a home is first
+ * named, or one from a session on code before named homes, never had
+ * it bound, and the record can't tell. Name a home before starting the
+ * sessions that will use it.
  *
  * A named home is made before each fenced command where it is missing,
  * since its parent stays writable to a command, which could otherwise
@@ -34,8 +44,10 @@ import {
 	linkSync,
 	lstatSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
@@ -132,21 +144,26 @@ function within(path: string, folder: string): boolean {
 	);
 }
 
-/** What the settings file names, or nothing where it names none. */
-function named(home: string): unknown[] {
+/**
+ * What the settings file names: none where there is no file, and
+ * nothing at all where the file is there but can't be read or parsed,
+ * which says nothing of what it meant to name.
+ */
+function named(home: string): unknown[] | undefined {
 	let text: string;
 	try {
 		text = readFileSync(join(home, ...SETTINGS), "utf8");
-	} catch {
+	} catch (error) {
 		// No settings file names no home: the fence keeps only its own.
-		return [];
+		return isRecord(error) && error.code === "ENOENT" ? [] : undefined;
 	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
 	} catch {
-		// A file that doesn't parse names no home; the config loader says why.
-		return [];
+		// A file half written, or mistyped, says nothing of what it names;
+		// the config loader says why.
+		return undefined;
 	}
 	const sections = isRecord(parsed) ? parsed.sections : undefined;
 	const fence = isRecord(sections) ? sections.fence : undefined;
@@ -221,7 +238,7 @@ export function readNamedHomes(
 ): NamedHomes {
 	const homes: string[] = [];
 	const refused: string[] = [];
-	for (const path of named(home)) {
+	for (const path of named(home) ?? []) {
 		const why =
 			platform === "linux"
 				? (refusal(path, home, install, own, disk) ??
@@ -314,6 +331,65 @@ function recordFirst(home: string, top: string, seen: string | null): void {
 	}
 }
 
+/**
+ * Write down that pi found no folder it could keep at `top`, over any
+ * record there: whole or not at all, since another process may be
+ * reading it at once.
+ */
+function recordDoubt(home: string, top: string): void {
+	const record = recordOf(home, top);
+	const draft = `${record}.${process.pid}.${Date.now()}`;
+	try {
+		writeFileSync(
+			draft,
+			`${JSON.stringify({ home: top, folder: null, at: new Date().toISOString() })}\n`,
+			{ flag: "wx" },
+		);
+		renameSync(draft, record);
+	} catch {
+		// pi can't write its state, so it can't doubt the home either; the
+		// draft is taken away below where it was written.
+	}
+	try {
+		unlinkSync(draft);
+	} catch {
+		// Renamed into place, or never written: nothing to take away.
+	}
+}
+
+/**
+ * Doubt every home pi recorded a folder for that this read keeps no
+ * bind for: no longer named, refused, or named in settings that don't
+ * parse. Every fenced command started from now until it is bound
+ * again can write in it, and the folder keeps its identity through
+ * that, so only the person, removing its record, trusts it again.
+ */
+function doubtUnbound(home: string, kept: readonly string[]): void {
+	const folder = join(home, ...RECORDS);
+	let files: string[];
+	try {
+		files = readdirSync(folder).filter((file) => file.endsWith(".json"));
+	} catch {
+		// No records yet vouch for any home, so there is none to doubt.
+		return;
+	}
+	for (const file of files) {
+		let record: unknown;
+		try {
+			record = JSON.parse(readFileSync(join(folder, file), "utf8"));
+		} catch {
+			// A record that doesn't parse vouches for no folder already.
+			continue;
+		}
+		if (!isRecord(record) || typeof record.home !== "string") continue;
+		if (typeof record.folder !== "string" || kept.includes(record.home)) {
+			continue;
+		}
+		if (recordOf(home, record.home) !== join(folder, file)) continue;
+		recordDoubt(home, record.home);
+	}
+}
+
 /** The settings file as it stands, to tell when it changed. */
 function settingsStamp(home: string): string {
 	try {
@@ -354,17 +430,26 @@ function currentRead(home: string): Read {
 	const stamp = settingsStamp(home);
 	const known = READ.get(home);
 	if (known?.stamp === stamp) return known;
+	const naming = named(home);
+	// Settings that don't parse name nothing anyone meant, so a process
+	// that read good ones keeps binding what they named until they parse.
+	if (naming === undefined && known !== undefined) {
+		const kept = { stamp, homes: known.homes };
+		READ.set(home, kept);
+		return kept;
+	}
 	const { homes, refused } = readNamedHomes(home);
 	for (const why of refused) {
 		if (SAID.has(why)) continue;
 		SAID.add(why);
 		process.emitWarning(`pi's fence keeps no repository home here: ${why}.`);
 	}
-	for (const path of named(home)) {
+	for (const path of naming ?? []) {
 		if (typeof path !== "string" || !isAbsolute(path)) continue;
 		const kept = homes.includes(path) ? LIVE.identity(path) : undefined;
 		recordFirst(home, path, kept ?? null);
 	}
+	doubtUnbound(home, homes);
 	const read = { stamp, homes };
 	READ.set(home, read);
 	return read;

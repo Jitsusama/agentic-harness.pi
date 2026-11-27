@@ -37,7 +37,13 @@ import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder
 async function anotherProcess() {
 	vi.resetModules();
 	const fence = await import("../../../../lib/internal/fence/fence.ts");
-	return { guardsGitFolder: fence.guardsGitFolder };
+	const homes = await import(
+		"../../../../lib/internal/fence/fence-repository-homes.ts"
+	);
+	return {
+		guardsGitFolder: fence.guardsGitFolder,
+		namedRepositoryHomes: homes.namedRepositoryHomes,
+	};
 }
 
 /** Where pi records which folder each named home first was, under `home`. */
@@ -379,6 +385,49 @@ describe.skipIf(process.platform !== "linux")(
 			expect(guardsGitFolder(git, home), "unguarded until then").toBe(false);
 			rmSync(records(home), { recursive: true });
 			expect(guardsGitFolder(git, home), "guarded as it now stands").toBe(true);
+		});
+
+		// F85, F91: while a home went unbound, a command started then could
+		// write in it, and the folder kept its identity through that.
+		it("guards nothing in a home taken out of the settings and named again", () => {
+			const git = repository(join(runs, "o", "r"));
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "guarded as first read").toBe(true);
+			naming(home, []);
+			expect(namedRepositoryHomes(home), "unbound meanwhile").toEqual([]);
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "unguarded once named again").toBe(
+				false,
+			);
+		});
+
+		it("guards nothing in a home a fresh process found named in settings that don't parse", async () => {
+			const git = repository(join(runs, "o", "r"));
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "guarded as first read").toBe(true);
+			const settings = join(home, ".config", "pi", "agentic-harness.pi");
+			writeFileSync(join(settings, "config.json"), "{ half written");
+			const fresh = await anotherProcess();
+			expect(
+				fresh.namedRepositoryHomes(home),
+				"a process with no good read binds nothing",
+			).toEqual([]);
+			naming(home, [runs]);
+			expect(
+				fresh.guardsGitFolder(git, home),
+				"unguarded once it parses again",
+			).toBe(false);
+		});
+
+		it("keeps binding what good settings named while the file doesn't parse", () => {
+			const git = repository(join(runs, "o", "r"));
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "guarded as first read").toBe(true);
+			const settings = join(home, ".config", "pi", "agentic-harness.pi");
+			writeFileSync(join(settings, "config.json"), "{ half written");
+			expect(namedRepositoryHomes(home), "still bound").toEqual([runs]);
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "still guarded").toBe(true);
 		});
 
 		// F57: a strict session there could write every clone in it.
