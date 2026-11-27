@@ -146,7 +146,9 @@ const READ = new Map<string, readonly string[]>();
 /**
  * The repository homes the person's settings name for `home`, read and
  * followed once a process. What is refused is said once, as a warning,
- * and left out.
+ * and left out. A home not there at that first read stays left out for
+ * the whole process, as unguarded as one never named, so a home must be
+ * made before pi starts.
  */
 export function namedRepositoryHomes(home: string): readonly string[] {
 	const known = READ.get(home);
