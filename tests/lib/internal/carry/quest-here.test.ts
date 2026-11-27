@@ -268,4 +268,46 @@ describe("what a quest has on this machine", () => {
 		expect(found.trees).toEqual([here]);
 		expect(found.held).toEqual([{ path: held, sessions: ["s-moved-on"] }]);
 	});
+
+	it("names a World tree by the src its checkout stands in", () => {
+		const at = stores();
+		// A World dev-tree stands as trees/<name>/src, its git in src, while
+		// the quest's README names trees/<name>, as tree-add writes it
+		// (0FX11G's and MZ5YL7's carries, 27 November).
+		const world = join(at.root, "world", "trees", "dev");
+		mkdirSync(join(world, "src", ".git"), { recursive: true });
+		const own = join(at.root, "trees", "own");
+		mkdirSync(join(own, ".git"), { recursive: true });
+		mkdirSync(join(own, "src", ".git"), { recursive: true });
+		mkdirSync(join(at.quests, QUEST));
+		writeFileSync(
+			join(at.quests, QUEST, "README.md"),
+			`${serializeQuestFrontMatter({
+				id: QUEST,
+				kind: "quest",
+				parent: null,
+				status: "active",
+				priority: "active",
+				rank: 1,
+				started: "2026-11-27",
+				updated: "2026-11-27",
+				aliases: [],
+				sessions: [],
+				trees: [
+					{ path: world, providerId: "dev-tree", host: hostname() },
+					{ path: own, providerId: "git", host: hostname() },
+				],
+			})}\n# Carry\n`,
+		);
+
+		const found = questHere(QUEST, at, {
+			runs: () => false,
+			parked: () => false,
+		});
+
+		expect(
+			found.trees,
+			"a tree with a git of its own is named as it is",
+		).toEqual([join(world, "src"), own]);
+	});
 });
