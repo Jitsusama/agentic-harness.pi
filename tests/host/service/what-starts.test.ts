@@ -309,4 +309,40 @@ describe("unitDefinition", () => {
 			"a unit with no file",
 		).toBeUndefined();
 	});
+
+	it("leaves out what set-property wrote, which changes nothing the unit starts", async () => {
+		await put("unit.service", "[Service]\n");
+		await put("unit.service.d/env.conf", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const dropIn = join(root, "unit.service.d/env.conf");
+		const controlled =
+			(...settings: string[]) =>
+			async () =>
+				[
+					"NeedDaemonReload=no",
+					`FragmentPath=${fragment}`,
+					`DropInPaths=${[
+						dropIn,
+						...settings.map(
+							(one) =>
+								`/run/user/1000/systemd/user.control/unit.service.d/50-${one}.conf`,
+						),
+						`/run/systemd/system.control/unit.service.d/50-${settings[0] ?? "none"}.conf`,
+					].join(" ")}`,
+					"",
+				].join("\n");
+		const before = await unitDefinition(
+			"unit.service",
+			controlled("CPUWeight"),
+		);
+		expect(before).toBe(`${fragment}\n${dropIn}`);
+		expect(
+			await unitDefinition("unit.service", controlled("CPUWeight", "IOWeight")),
+			"a jobs sorter setting one more control",
+		).toBe(before);
+		expect(
+			await unitDefinition("unit.service", controlled()),
+			"a jobs sorter taking its controls back as it stops",
+		).toBe(before);
+	});
 });
