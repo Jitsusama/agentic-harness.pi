@@ -353,11 +353,18 @@ function pivotState(
 	);
 	const answeredBy = (one: Presence) =>
 		one.addresses.some((address) => by.has(address));
-	const has = reached
-		.filter((one) => !answeredBy(one) && hasRead(one, pivot.id))
+	// A session on another machine keeps its read marker there, so here it
+	// would read as not yet for good, though it took the pivot up unanswered.
+	const unanswered = reached.filter((one) => !answeredBy(one));
+	const elsewhere = unanswered
+		.filter((one) => one.machine !== undefined)
 		.map((one) => one.addresses[0]);
-	const waiting = reached
-		.filter((one) => !answeredBy(one) && !hasRead(one, pivot.id))
+	const here = unanswered.filter((one) => one.machine === undefined);
+	const has = here
+		.filter((one) => hasRead(one, pivot.id))
+		.map((one) => one.addresses[0]);
+	const waiting = here
+		.filter((one) => !hasRead(one, pivot.id))
 		// A paused presence may name no address, and is counted unnamed
 		// rather than dropped, so a pivot that reached only such never
 		// reads as having reached nobody.
@@ -370,8 +377,13 @@ function pivotState(
 	const had = has.length > 0 ? `has it: ${peersNamed(has, false)}` : "";
 	const yet =
 		waiting.length > 0 ? `not yet: ${peersNamed(waiting, false)}` : "";
+	const away =
+		elsewhere.length > 0
+			? `unknown, on another machine: ${peersNamed(elsewhere, false)}`
+			: "";
 	return (
-		[answered, had, yet].filter(Boolean).join("; ") || "reached nobody present"
+		[answered, had, yet, away].filter(Boolean).join("; ") ||
+		"reached nobody present"
 	);
 }
 

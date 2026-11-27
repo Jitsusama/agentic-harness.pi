@@ -358,6 +358,34 @@ describe("an orchestrator", () => {
 		expect(answered).toContain("]; not yet: 2 peers naming no address");
 	});
 
+	// A session on another machine keeps its read marker there, and no
+	// longer answers a pivot it takes up, so here it can't be told apart
+	// from one that hasn't had it (#2315's round j207, F21).
+	it("says a pivot's take-up on another machine is unknown, not yet to come", async () => {
+		leading();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-v",
+			addresses: ["VM0001"],
+			groups: ["#orchestration/7m6jkg"],
+			orchestratedBy: "7M6JKG",
+			machine: "cloud-1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const read =
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		expect(read).toContain(
+			"not yet: 85PKB2; unknown, on another machine: VM0001",
+		);
+	});
+
 	// From 08:00 on 26 November the four busiest hubs heard 391 answers to
 	// their pivots in a day; a read marker already says who has one, so a
 	// session takes a pivot up without answering it.
