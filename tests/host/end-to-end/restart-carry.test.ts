@@ -183,16 +183,34 @@ async function keptGoes(file: string): Promise<void> {
 async function answeredOnce(file: string, when: string): Promise<void> {
 	await untilAnswered(
 		`the turn is answered ${when}`,
-		async () => turnEnded(file),
+		async () => answeredLast(file),
 		ROUND_TRIP_MS,
 	).catch((failed: unknown) => {
 		throw new Error(
-			[String(failed), `the log's entries:\n${entryLines(file)}`, said()].join(
-				"\n",
-			),
+			[
+				`${String(failed)}; the model ran the carried command ${carriedCalls(file)} times`,
+				`the log's entries:\n${entryLines(file)}`,
+				said(),
+			].join("\n"),
 		);
 	});
 	carriedOnce(file, when);
+}
+
+/**
+ * Whether the last thing said in a session file is the model's answer
+ * that calls no tool. A job's end said into a run under way is a custom
+ * message, which `turnEnded` passes over, so it is read here too: until
+ * the model answers after it, the turn it joined hasn't ended.
+ */
+function answeredLast(file: string): boolean {
+	const last = entriesOf(file)
+		.filter(
+			(entry) => entry.type === "message" || entry.type === "custom_message",
+		)
+		.at(-1);
+	const message = isRecord(last?.message) ? last.message : undefined;
+	return message?.role === "assistant" && message.stopReason !== "toolUse";
 }
 
 /**
@@ -308,8 +326,9 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// A round trip more than its waits, for the answer to the end's turn.
-	ROUND_TRIP_MS * 5 + CARRIED_MS,
+	// A round trip spare beyond its waits, so a wait's own failure, which
+	// says what it saw, comes before vitest's bare timeout.
+	ROUND_TRIP_MS * 6 + CARRIED_MS,
 );
 
 it(
@@ -380,7 +399,8 @@ it(
 			await keptGoes(file);
 		});
 	},
-	ROUND_TRIP_MS * 6 + CARRIED_MS,
+	// A round trip spare beyond its waits, as E23's.
+	ROUND_TRIP_MS * 7 + CARRIED_MS,
 );
 
 it(
@@ -422,5 +442,6 @@ it(
 			);
 		});
 	},
-	ROUND_TRIP_MS * 6,
+	// A round trip spare beyond its waits, as E23's.
+	ROUND_TRIP_MS * 7,
 );
