@@ -152,9 +152,17 @@ function runtimeFolder(): string | undefined {
 	return uid === undefined ? undefined : join("/run/user", String(uid));
 }
 
+/** The readings the machine holds rounds on, as a place's line ends. */
+function heldSaid(heldBy: readonly string[] | undefined): string {
+	return heldBy === undefined || heldBy.length === 0
+		? ""
+		: `, held while the machine is short on ${heldBy.join(", ")}`;
+}
+
 /**
  * Where the rounds waiting on `change` stand in the line kept beside
- * `path`, said one a line, or nothing when none waits.
+ * `path`, said one a line, with what holds the machine, or nothing
+ * when none waits.
  */
 export async function lineSaid(
 	path: string,
@@ -163,6 +171,6 @@ export async function lineSaid(
 	const places = await placesInLine(path, change);
 	return places.map(
 		(place) =>
-			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}`,
+			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}${heldSaid(place.heldBy)}`,
 	);
 }

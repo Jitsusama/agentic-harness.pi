@@ -19,6 +19,7 @@ import { newRunId } from "../../../../lib/core/review/ask/run.ts";
 import {
 	awaitCouncilStart,
 	newestRosterStartIn,
+	type RoomHeld,
 } from "../../../../lib/core/review/ask/start-spacing.ts";
 
 /** A spacing no start on room should wait for. */
@@ -73,9 +74,25 @@ function startedAt(by: string, at: Date, waiting: object[] = []): void {
 	);
 }
 
-/** A claim that starts on room alone, with no spacing asked for. */
+/** A hold on memory, which no wait lets a round past, said as `said`. */
+const onMemory = (said: string): RoomHeld => ({
+	said,
+	readings: ["memory full avg60"],
+	passable: false,
+});
+
+/**
+ * A claim that starts on room alone, with no spacing asked for, held
+ * on memory whenever `room` says what it is short of.
+ */
 const onRoom = (by: string, room: () => Promise<string | undefined>) =>
-	claim(by, { spacingMs: undefined, room });
+	claim(by, {
+		spacingMs: undefined,
+		room: async () => {
+			const said = await room();
+			return said === undefined ? undefined : onMemory(said);
+		},
+	});
 const roomy = async (): Promise<string | undefined> => undefined;
 
 // 24 November: a round waited about 30 minutes behind ten others, three
@@ -316,7 +333,7 @@ describe("starting council rounds on room alone", () => {
 			claim("ISXEG8", {
 				room: async () => {
 					looks += 1;
-					return "memory full avg60 was 12";
+					return onMemory("memory full avg60 was 12");
 				},
 			}),
 			stop.signal,
@@ -380,7 +397,9 @@ describe("a busy line's lock", () => {
 	// 25 November, A2VLJN: seventy rounds each rewriting the line every
 	// look, only to refresh when they were seen, kept its lock changing hands.
 	it("leaves the line unwritten by a look that changes nothing in it", async () => {
-		const now = new Date().toISOString();
+		// Asked a second before the round, since two asks in one millisecond
+		// fall to their ids, and a round's id sorts before "ahead".
+		const now = new Date(Date.now() - 1_000).toISOString();
 		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
 			{
 				id: "ahead",

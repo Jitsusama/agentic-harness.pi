@@ -1,7 +1,8 @@
 /**
  * Whether the machine has room to start a council: memory `full avg60`
  * under 5, at least 16 GiB of `MemAvailable` and CPU `some avg60` under
- * 40, with any reading the machine doesn't keep saying nothing.
+ * 40, with any reading the machine doesn't keep saying nothing, and CPU
+ * alone the bar a round may pass in time.
  */
 
 import { describe, expect, it } from "vitest";
@@ -54,6 +55,10 @@ const quiet = (over: Partial<MachineReads> = {}) =>
 		...over,
 	});
 
+/** What the machine says it is short of, or nothing when it has room. */
+const saidOf = async (machine: MachineReads) =>
+	(await machineShort(machine))?.said;
+
 describe("whether the machine has room for a round", () => {
 	it("has room while every reading is inside its bar", async () => {
 		expect(await machineShort(reads())).toBeUndefined();
@@ -61,21 +66,21 @@ describe("whether the machine has room for a round", () => {
 
 	it("is short at memory full avg60 5 and past it, whatever some reads", async () => {
 		expect(
-			await machineShort(reads({ memoryPressure: pressure("full", "5.00") })),
+			await saidOf(reads({ memoryPressure: pressure("full", "5.00") })),
 		).toBe("memory full avg60 was 5, at or past 5");
 		expect(
-			await machineShort(reads({ memoryPressure: pressure("some", "90") })),
+			await saidOf(reads({ memoryPressure: pressure("some", "90") })),
 		).toBeUndefined();
 	});
 
 	it("is short under 16 GiB available, saying how much there was", async () => {
-		expect(await machineShort(reads({ meminfo: meminfo(15.94) }))).toBe(
+		expect(await saidOf(reads({ meminfo: meminfo(15.94) }))).toBe(
 			"MemAvailable was 15.9 GiB, under 16.0",
 		);
 	});
 
 	it("never says a reading just under the floor as the floor", async () => {
-		expect(await machineShort(reads({ meminfo: meminfo(15.96) }))).toBe(
+		expect(await saidOf(reads({ meminfo: meminfo(15.96) }))).toBe(
 			"MemAvailable was 15.9 GiB, under 16.0",
 		);
 	});
@@ -83,36 +88,69 @@ describe("whether the machine has room for a round", () => {
 	// 16 GiB free never comes on a 16 GiB laptop or an 8 GiB VM, so its
 	// rounds would never start.
 	it("wants half of a machine smaller than 32 GiB free", async () => {
-		expect(
-			await machineShort(reads({ meminfo: meminfo(8, 15.4) })),
-		).toBeUndefined();
-		expect(await machineShort(reads({ meminfo: meminfo(7.5, 15.4) }))).toBe(
+		expect(await saidOf(reads({ meminfo: meminfo(8, 15.4) }))).toBeUndefined();
+		expect(await saidOf(reads({ meminfo: meminfo(7.5, 15.4) }))).toBe(
 			"MemAvailable was 7.5 GiB, under 7.7",
+		);
+	});
+
+	// The council of 26 November: a floor rounded one way and a reading
+	// the other could say 7.7 GiB was under 7.7.
+	it("says a small machine's floor above any reading held under it", async () => {
+		expect(await saidOf(reads({ meminfo: meminfo(7.69, 15.4) }))).toBe(
+			"MemAvailable was 7.6 GiB, under 7.7",
+		);
+		expect(await saidOf(reads({ meminfo: meminfo(7.74, 15.5) }))).toBe(
+			"MemAvailable was 7.7 GiB, under 7.8",
 		);
 	});
 
 	it("is short at CPU some avg60 40 and past it, whatever full reads", async () => {
 		expect(
-			await machineShort(reads({ cpuPressure: pressure("some", "40.00") })),
+			await saidOf(reads({ cpuPressure: pressure("some", "40.00") })),
 		).toBe("CPU some avg60 was 40, at or past 40");
+		expect(await saidOf(reads({ cpuPressure: pressure("some", "46.5") }))).toBe(
+			"CPU some avg60 was 46.5, at or past 40",
+		);
 		expect(
-			await machineShort(reads({ cpuPressure: pressure("some", "46.5") })),
-		).toBe("CPU some avg60 was 46.5, at or past 40");
-		expect(
-			await machineShort(reads({ cpuPressure: pressure("full", "90") })),
+			await saidOf(reads({ cpuPressure: pressure("full", "90") })),
 		).toBeUndefined();
 	});
 
-	it("says every reading that is short", async () => {
-		expect(
-			await machineShort({
-				memoryPressure: pressure("full", "12"),
-				cpuPressure: pressure("some", "54"),
-				meminfo: meminfo(8),
-			}),
-		).toBe(
+	it("says every reading that is short, and names each", async () => {
+		const short = await machineShort({
+			memoryPressure: pressure("full", "12"),
+			cpuPressure: pressure("some", "54"),
+			meminfo: meminfo(8),
+		});
+
+		expect(short?.said).toBe(
 			"memory full avg60 was 12, at or past 5; MemAvailable was 8.0 GiB, under 16.0; CPU some avg60 was 54, at or past 40",
 		);
+		expect(short?.readings).toEqual([
+			"memory full avg60",
+			"MemAvailable",
+			"CPU some avg60",
+		]);
+	});
+
+	// A210E4CA, 26 November: optimus sat past the CPU bar for hours.
+	it("calls a hold passable only when CPU alone is short", async () => {
+		const cpu = pressure("some", "46");
+		const passable = async (over: Partial<MachineReads>) =>
+			(await machineShort(reads(over)))?.passable;
+
+		expect(await passable({ cpuPressure: cpu })).toBe(true);
+		expect(
+			await passable({
+				cpuPressure: cpu,
+				memoryPressure: pressure("full", "6"),
+			}),
+		).toBe(false);
+		expect(await passable({ cpuPressure: cpu, meminfo: meminfo(4) })).toBe(
+			false,
+		);
+		expect(await passable({ meminfo: meminfo(4) })).toBe(false);
 	});
 
 	it("has room where no reading is kept, as on a Mac", async () => {
@@ -127,7 +165,7 @@ describe("whether the machine has room for a round", () => {
 
 	it("judges by the readings it has when one is missing", async () => {
 		expect(
-			await machineShort(
+			await saidOf(
 				reads({ meminfo: missing, cpuPressure: pressure("some", "41") }),
 			),
 		).toBe("CPU some avg60 was 41, at or past 40");

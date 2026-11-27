@@ -22,9 +22,16 @@
  * the bars. So while CPU `some avg60` is under 25, memory `full avg60`
  * under 2 and at least 20 GiB is available (A210E4CA, velocity), the
  * line may use its shortest spacing.
+ *
+ * CPU alone is a bar a round may pass in time, since optimus sat at
+ * CPU `some` 40 to 54 from 17:45 that day and every round held by it
+ * alone would have waited for hours (A210E4CA, 26 November). Memory is
+ * never passed: a start that runs the machine out of it stalls
+ * everything on it.
  */
 
 import { readFile } from "node:fs/promises";
+import type { RoomHeld } from "./start-spacing.ts";
 
 /** The kernel's memory pressure, where Linux keeps it. */
 export const MEMORY_PRESSURE_FILE = "/proc/pressure/memory";
@@ -77,14 +84,15 @@ const LINUX_READS: MachineReads = {
 
 /**
  * What keeps a round from starting now, said for its answer, or nothing
- * when the machine has room. Every reading that is short is said. A
- * reading the machine doesn't keep, as on an old kernel, or can't give,
- * says nothing: a round held on a reading that never comes would never
- * start. A Mac keeps none of these, so it reads mac-room.ts instead.
+ * when the machine has room; passable when only CPU is short. Every
+ * reading that is short is said. A reading the machine doesn't keep, as
+ * on an old kernel, or can't give, says nothing: a round held on a
+ * reading that never comes would never start. A Mac keeps none of
+ * these, so it reads mac-room.ts instead.
  */
 export async function machineShort(
 	reads: MachineReads = LINUX_READS,
-): Promise<string | undefined> {
+): Promise<RoomHeld | undefined> {
 	const { memory, cpu, available, total } = await readings(reads);
 	const floor = Math.min(
 		MEM_AVAILABLE_GIB_AT_LEAST,
@@ -92,16 +100,31 @@ export async function machineShort(
 	);
 	const short = [
 		memory !== undefined && memory >= MEMORY_FULL_AVG60_AT_MOST
-			? `memory full avg60 was ${memory}, at or past ${MEMORY_FULL_AVG60_AT_MOST}`
+			? {
+					reading: MEMORY_READING,
+					said: `memory full avg60 was ${memory}, at or past ${MEMORY_FULL_AVG60_AT_MOST}`,
+				}
 			: undefined,
 		available !== undefined && available < floor
-			? `MemAvailable was ${tenthsDown(available)} GiB, under ${floor.toFixed(1)}`
+			? {
+					reading: AVAILABLE_READING,
+					said: `MemAvailable was ${tenthsDown(available)} GiB, under ${tenthsUp(floor)}`,
+				}
 			: undefined,
 		cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
-			? `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`
+			? {
+					reading: CPU_READING,
+					said: `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`,
+				}
 			: undefined,
-	].filter((said) => said !== undefined);
-	return short.length === 0 ? undefined : short.join("; ");
+	].filter((each) => each !== undefined);
+	if (short.length === 0) return undefined;
+	const held = short.map((each) => each.reading);
+	return {
+		said: short.map((each) => each.said).join("; "),
+		readings: held,
+		passable: held.every((reading) => reading === CPU_READING),
+	};
 }
 
 /**
@@ -147,6 +170,11 @@ async function readings(reads: MachineReads): Promise<Readings> {
 	};
 }
 
+/** The readings a round can be held on, by the names the line shows. */
+const MEMORY_READING = "memory full avg60";
+const AVAILABLE_READING = "MemAvailable";
+const CPU_READING = "CPU some avg60";
+
 /** One pressure line's `avg60`, or nothing where it can't be had. */
 async function pressureAvg60(
 	read: () => Promise<string>,
@@ -176,6 +204,14 @@ function meminfoGib(
  */
 function tenthsDown(gib: number): string {
 	return (Math.floor(gib * 10) / 10).toFixed(1);
+}
+
+/**
+ * A floor said to a tenth, rounded up past what a kilobyte count can
+ * blur, so a reading under it, rounded down, never reads as the floor.
+ */
+function tenthsUp(gib: number): string {
+	return (Math.ceil(Math.round(gib * 100) / 10) / 10).toFixed(1);
 }
 
 /** A reading's text, or nothing where the machine doesn't keep it. */
