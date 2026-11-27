@@ -41,18 +41,34 @@ export interface Running {
 	readonly bus: EventBus;
 }
 
+/**
+ * How many times a start's reap that waited is tried again before it
+ * gives up until the next start: an hour of STRAY_LOOK_MS, long enough
+ * for a fault of the moment to pass, while one that lasts, such as a
+ * folder this account can't read, says itself six times rather than
+ * for the host's whole life.
+ */
+export const REAP_RETRIES = 6;
+
 /** What a conversation's stop keeps and its close ends. */
 export interface StopKeeping {
 	/**
 	 * End what this host's dead predecessors' tools left running, held or
 	 * not. One that waits, since what it spares failed to read, is tried
-	 * again each STRAY_LOOK_MS until one doesn't: nothing else reaps the
+	 * again each STRAY_LOOK_MS until one doesn't, or REAP_RETRIES have
+	 * waited, when it gives up until the next start: nothing else reaps the
 	 * key whole while this host runs, so what a dead host left for a
 	 * conversation this one never resumes would run on until the next
 	 * start. Only a dead host's are ended, so a later try spares this
-	 * host's own as the first did.
+	 * host's own as the first did. A later try also spares every
+	 * conversation `holds` names, since by then the start has resumed
+	 * them, and a call carried through the restart still bears the dead
+	 * host's mark; the first comes before anything is resumed.
 	 */
-	reapEarlier(hostKey: string): Promise<void>;
+	reapEarlier(
+		hostKey: string,
+		holds?: (sessionId: string) => boolean,
+	): Promise<void>;
 	/**
 	 * End what a conversation's tools left running, sparing what is carried
 	 * or kept. Between `resuming` and `resumed`, the first reap of each
@@ -191,12 +207,15 @@ export function stopKeeping(options: {
 	}
 
 	/** One reap of what dead hosts under the key left, answering whether it waited. */
-	async function reapEarlierOnce(hostKey: string): Promise<boolean> {
+	async function reapEarlierOnce(
+		hostKey: string,
+		holds: (sessionId: string) => boolean,
+	): Promise<boolean> {
 		// The whole key's, so every child's notes too, not only this host's.
 		const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
 			report,
 		});
-		const reaped = await reapLeftBehind(hostKey, table, spared);
+		const reaped = await reapLeftBehind(hostKey, table, spared, holds);
 		if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
 		if (reaped.groups.length > 0 || reaped.pids.length > 0)
 			report(
@@ -205,8 +224,14 @@ export function stopKeeping(options: {
 		return reaped.waited === true;
 	}
 
-	/** Try a start's reap that waited again each STRAY_LOOK_MS, one at a time, until one doesn't wait. */
-	function retryEarlier(hostKey: string): void {
+	/**
+	 * Try a start's reap that waited again each STRAY_LOOK_MS, one at a
+	 * time, until one doesn't wait or REAP_RETRIES have, saying which.
+	 */
+	function retryEarlier(
+		hostKey: string,
+		holds: (sessionId: string) => boolean,
+	): void {
 		const every =
 			options.every ??
 			((ms: number, run: () => void) => {
@@ -215,15 +240,32 @@ export function stopKeeping(options: {
 				return () => clearInterval(timer);
 			});
 		let trying = false;
+		let tries = 0;
+		// A try that failed outright counts as one that waited.
+		const after = (waited: boolean): void => {
+			if (!waited) {
+				stop();
+				report(
+					`The start's reap under ${hostKey} got through at retry ${tries}`,
+				);
+			} else if (tries >= REAP_RETRIES) {
+				stop();
+				report(
+					`The start's reap under ${hostKey} gave up after ${tries} retries that waited; the next start reaps the key again`,
+				);
+			}
+		};
 		const stop = every(STRAY_LOOK_MS, () => {
 			// A try still out when the next tick comes is let finish first.
 			if (trying) return;
 			trying = true;
-			reapEarlierOnce(hostKey)
-				.then((waited) => {
-					if (!waited) stop();
+			tries += 1;
+			reapEarlierOnce(hostKey, holds)
+				.catch((error: unknown) => {
+					report(error);
+					return true;
 				})
-				.catch(report)
+				.then(after)
 				.finally(() => {
 					trying = false;
 				});
@@ -231,8 +273,9 @@ export function stopKeeping(options: {
 	}
 
 	return {
-		async reapEarlier(hostKey) {
-			if (await reapEarlierOnce(hostKey)) retryEarlier(hostKey);
+		async reapEarlier(hostKey, holds = () => false) {
+			if (await reapEarlierOnce(hostKey, () => false))
+				retryEarlier(hostKey, holds);
 		},
 
 		reap,

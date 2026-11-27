@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STRAY_LOOK_MS } from "../../../host/engine/carried-shells.ts";
 import { LEFT_FILE } from "../../../host/engine/left-running.ts";
-import { carryEnds, stopKeeping } from "../../../host/engine/stopping.ts";
+import {
+	carryEnds,
+	REAP_RETRIES,
+	stopKeeping,
+} from "../../../host/engine/stopping.ts";
 import {
 	conversationMarker,
 	type ProcessTable,
@@ -280,6 +284,91 @@ describe("a start's reaps", () => {
 		);
 		expect(table.killed, "once the folder lists").toEqual([20]);
 		expect(waits(), "no wait more").toBe(2);
+	});
+
+	it("spare at a later try of the start's reap what a conversation this host now holds runs, though a dead host's mark is on it", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		// a's process came through a restart still carrying the dead host's
+		// mark; b's belongs to a conversation nobody holds.
+		const table = countingTable({
+			1: {},
+			10: conversationMarker("a", gone),
+			20: conversationMarker("b", gone),
+		});
+		const ticks: { run: () => void; stopped: boolean }[] = [];
+		const stopping = keeping(table, [], [], (_ms, run) => {
+			const tick = { run, stopped: false };
+			ticks.push(tick);
+			return () => {
+				tick.stopped = true;
+			};
+		});
+		const held = new Set<string>();
+		listFault.folder = dirs.at(-1);
+		await stopping.reapEarlier(HOST.key, (session) => held.has(session));
+		const [tick] = ticks;
+		if (tick === undefined) throw new Error("no retry was set");
+		// The start resumes a before the next try.
+		held.add("a");
+		listFault.folder = undefined;
+		tick.run();
+		await vi.waitFor(() => expect(tick.stopped).toBe(true));
+		expect(table.killed, "only what nobody holds").toEqual([20]);
+	});
+
+	it("give up the start's retries while its folder still won't list after the last, saying so, and say a try that got through", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({ 1: {}, 20: conversationMarker("b", gone) });
+		const reported: unknown[] = [];
+		const ticks: { run: () => void; stopped: boolean }[] = [];
+		const stopping = keeping(table, reported, [], (_ms, run) => {
+			const tick = { run, stopped: false };
+			ticks.push(tick);
+			return () => {
+				tick.stopped = true;
+			};
+		});
+		const said = (words: string) =>
+			reported.filter((line) => String(line).includes(words)).length;
+		listFault.folder = dirs.at(-1);
+		await stopping.reapEarlier(HOST.key);
+		const [tick] = ticks;
+		if (tick === undefined) throw new Error("no retry was set");
+		for (let tried = 1; tried <= REAP_RETRIES; tried++) {
+			expect(tick.stopped, `still trying before try ${tried}`).toBe(false);
+			tick.run();
+			await vi.waitFor(() => expect(said("ended nothing")).toBe(tried + 1));
+		}
+		await vi.waitFor(() => expect(tick.stopped).toBe(true));
+		expect(said("gave up"), "the give-up is said").toBe(1);
+		expect(table.killed).toEqual([]);
+
+		// Another start whose second try gets through says so.
+		const second = keeping(table, reported, [], (_ms, run) => {
+			const again = { run, stopped: false };
+			ticks.push(again);
+			return () => {
+				again.stopped = true;
+			};
+		});
+		// Each keeping has a state folder of its own.
+		listFault.folder = dirs.at(-1);
+		await second.reapEarlier(HOST.key);
+		const retry = ticks.at(-1);
+		if (retry === undefined || retry === tick) throw new Error("no retry");
+		listFault.folder = undefined;
+		retry.run();
+		await vi.waitFor(() => expect(retry.stopped).toBe(true));
+		expect(said("got through"), "the end of the retries is said").toBe(1);
+		expect(table.killed).toEqual([20]);
+	});
+
+	it("end at the start's first reap of the key what a dead host left, held or not", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({ 1: {}, 10: conversationMarker("a", gone) });
+		const stopping = keeping(table);
+		await stopping.reapEarlier(HOST.key, () => true);
+		expect(table.killed, "nothing of a held one runs here yet").toEqual([10]);
 	});
 
 	it("set no retry for a start's reap of the key that didn't wait", async () => {
