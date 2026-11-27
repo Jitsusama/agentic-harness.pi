@@ -501,13 +501,17 @@ input pipeline or screen. No unit or running host is installed yet.
   journal says so. One whose child dies as its close, release or
   abort is asked, whether a window asked it through the server or the
   host asked it itself, rests too: until `END_ASKED_HOLDS_MS` (90
-  seconds) after the child agrees, and until the child ends when it
-  can't be reached or its asker hangs up first; an abort the child
-  took leaves its later death its own. A child stopped with SIGTERM
+  seconds) after the child agrees, and, when it can't be reached or
+  its asker hangs up first, until the child ends, or for an abort
+  until the child says its turn is over; an abort the child took
+  leaves its later death its own. A child stopped with SIGTERM
   (`systemctl --user stop` on its unit) parks, and stays parked; only
   one killed outright (SIGKILL, the kernel's out-of-memory killer) or
-  crashed mid-turn is woken, so to stop a busy one for good, close it
-  or stop its unit, not `kill -9` it.
+  crashed mid-turn is woken. A child whose thread is held when the
+  stop comes can't park, and systemd kills it outright at its stop
+  timeout, so it is woken too. To stop a busy one for good, close it,
+  or stop its unit and then stop the woken one again, which the
+  spacing then leaves resting; never `kill -9` it.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

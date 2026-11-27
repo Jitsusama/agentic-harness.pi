@@ -367,6 +367,57 @@ describe("a host's children", () => {
 			);
 		});
 
+		it("leaves one resting whose child died in the turn of an abort it never answered, however late", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.(childUnreachable("abort"));
+			clock += 10 * END_ASKED_HOLDS_MS;
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "still the aborted turn").toEqual([]);
+		});
+
+		it("wakes one whose child, past an abort it never answered, died in a later turn", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.(childUnreachable("abort"));
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state: "idle" },
+			});
+			await vi.waitFor(() =>
+				expect(children.backend.running(a)?.state).toBe("idle"),
+			);
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state: "busy" },
+			});
+			await vi.waitFor(() =>
+				expect(children.backend.running(a)?.state).toBe("busy"),
+			);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(
+					woken,
+					"the aborted turn ended, so this death is its own",
+				).toEqual([a]),
+			);
+		});
+
+		it("keeps a close it never answered past its turn's end, as a close ends the child", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state: "idle" },
+			});
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the close may still be held").toEqual([]);
+		});
+
 		it("wakes one whose child died long after it agreed to a close", async () => {
 			await busy();
 			children.routes.asking?.(ending("close"))?.({

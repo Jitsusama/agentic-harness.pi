@@ -487,6 +487,8 @@ export function childSupervisor(options: {
 	 * killed mid-turn leaves it.
 	 */
 	ended?: (sessionId: string, why: ChildEnding, busy: boolean) => void;
+	/** A child said its conversation is not busy, its turn over. */
+	atRest?: (sessionId: string) => void;
 	/**
 	 * A resume's child was given up and stopped, as a bounded one is at
 	 * its listen or answer time, before any ending could be heard: its
@@ -1477,8 +1479,10 @@ export function childSupervisor(options: {
 								kept = first.catch(() => undefined);
 							},
 							state: (conversation, heap) => {
-								if (conversation.sessionId === current)
-									routes.update(conversation, heap);
+								if (conversation.sessionId !== current) return;
+								routes.update(conversation, heap);
+								if (conversation.state !== "busy")
+									options.atRest?.(conversation.sessionId);
 							},
 							became(previousId, conversation, entry) {
 								const next = conversation.sessionId;

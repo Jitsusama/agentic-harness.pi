@@ -132,6 +132,8 @@ export function hostChildren(options: {
 				);
 			else wakeCutOff(sessionId);
 		},
+		// An abort's turn is over, whether or not its answer came.
+		atRest: (sessionId) => abortsAnswered(sessionId),
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),
 		...(options.became ? { became: options.became } : {}),
@@ -178,11 +180,13 @@ export function hostChildren(options: {
 	// and for END_ASKED_HOLDS_MS once the child agreed to end it, so a child
 	// that dies as it is asked wakes nothing. One that couldn't be reached,
 	// or whose asker hung up first, may still hold the ask, so its mark holds
-	// until the child ends: a child that lives on then rests at a later
-	// death rather than carry on a turn the person may have closed. A
-	// refusal, or an abort's answer, takes back only its own ask's mark, and
-	// the child's ending takes them all.
-	const endsAsked = new Map<string, Set<{ until: number }>>();
+	// until the child ends, or for an abort, which never ends the child,
+	// until the child says the turn is over: a child that lives on then
+	// rests at a death in that turn rather than carry on a turn the person
+	// may have closed, and is woken at a death in a later one. A refusal,
+	// or an abort's answer, takes back only its own ask's mark, and the
+	// child's ending takes them all.
+	const endsAsked = new Map<string, Set<{ until: number; abort: boolean }>>();
 	const now = options.now ?? Date.now;
 	function asking(
 		sessionId: string,
@@ -190,7 +194,7 @@ export function hostChildren(options: {
 	): ((reply: ControlReply | undefined) => void) | undefined {
 		if (!ENDS_A_TURN.has(op)) return undefined;
 		const id = sessionId.toLowerCase();
-		const mark = { until: Number.POSITIVE_INFINITY };
+		const mark = { until: Number.POSITIVE_INFINITY, abort: op === "abort" };
 		const marks = endsAsked.get(id) ?? new Set();
 		marks.add(mark);
 		endsAsked.set(id, marks);
@@ -209,6 +213,13 @@ export function hostChildren(options: {
 			marks.delete(mark);
 			if (marks.size === 0 && endsAsked.get(id) === marks) endsAsked.delete(id);
 		};
+	}
+	function abortsAnswered(sessionId: string): void {
+		const id = sessionId.toLowerCase();
+		const marks = endsAsked.get(id);
+		if (!marks) return;
+		for (const mark of marks) if (mark.abort) marks.delete(mark);
+		if (marks.size === 0) endsAsked.delete(id);
 	}
 	function endWasAsked(sessionId: string): boolean {
 		const id = sessionId.toLowerCase();
