@@ -6,6 +6,10 @@
  * `nix-offload passed ran` does, or say it runs no keeper. The tools the
  * words name come from a profile of the test's own, as from the
  * account's and the system's on a machine.
+ *
+ * Long because every case drives the one gate through the same harness,
+ * stand-in keeper and profiles, and a second file would have to copy
+ * them and keep them in step, as merge-gate.test.ts says of its own.
  */
 
 import { execFile } from "node:child_process";
