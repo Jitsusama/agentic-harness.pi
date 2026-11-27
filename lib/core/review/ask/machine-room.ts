@@ -78,8 +78,9 @@ const LINUX_READS: MachineReads = {
 /**
  * What keeps a round from starting now, said for its answer, or nothing
  * when the machine has room. Every reading that is short is said. A
- * reading the machine doesn't keep, as on a Mac, or can't give, says
- * nothing: a round held on a reading that never comes would never start.
+ * reading the machine doesn't keep, as on an old kernel, or can't give,
+ * says nothing: a round held on a reading that never comes would never
+ * start. A Mac keeps none of these, so it reads mac-room.ts instead.
  */
 export async function machineShort(
 	reads: MachineReads = LINUX_READS,

@@ -1,0 +1,247 @@
+/**
+ * A Mac starts one roster round at a time, so a start reads whether
+ * another round still runs there, from the leases its reviewers' own
+ * supervisors keep. These pin which rounds count: one a live
+ * supervisor holds, or one still handing its reviewers out, and never
+ * one that finished, an old one, or a judge.
+ */
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	RUNNING_LOOK_BACK_MS,
+	rosterRoundRunning,
+	runningSaid,
+} from "../../../../extensions/review-integration/round-running.ts";
+import {
+	type AskRound,
+	newRunId,
+} from "../../../../lib/core/review/ask/run.ts";
+import {
+	HEARTBEAT_STALE_MS,
+	type ProcessFacts,
+} from "../../../../lib/subagent/index.ts";
+import { STARTING_FOR_MS } from "../../../../lib/subagent/lease.ts";
+
+let root: string;
+
+beforeEach(() => {
+	root = mkdtempSync(join(tmpdir(), "round-running-"));
+});
+
+afterEach(() => {
+	rmSync(root, { recursive: true, force: true });
+});
+
+const SUPERVISOR = 4242;
+const SUPERVISOR_STARTED = 1_795_724_446_000;
+
+/** A machine where only the supervisor the leases name still runs. */
+const SUPERVISOR_LIVES: ProcessFacts = {
+	alive: (pid) => pid === SUPERVISOR,
+	startedAt: async (pid) =>
+		pid === SUPERVISOR ? SUPERVISOR_STARTED : undefined,
+};
+
+/** A run's folder name for a round started at `at`, as reviewers leave it. */
+function runNamed(kind: AskRound, at: number, serial = 1): string {
+	return newRunId(kind, new Date(at), serial);
+}
+
+/** A reviewer's folder in `run`, with the lease its supervisor wrote. */
+function reviewer(
+	run: string,
+	id: string,
+	lease: Record<string, unknown> | undefined,
+): void {
+	const dir = join(root, "runs", run, "reviewers", id);
+	mkdirSync(dir, { recursive: true });
+	if (lease !== undefined) {
+		writeFileSync(join(dir, "lease.json"), JSON.stringify(lease));
+	}
+}
+
+const held = (now: number) => ({
+	supervisorPid: SUPERVISOR,
+	supervisorStartedAt: SUPERVISOR_STARTED,
+	updatedAt: new Date(now).toISOString(),
+	state: "running",
+});
+
+const done = (now: number) => ({
+	...held(now),
+	state: "complete",
+	completedAt: new Date(now).toISOString(),
+});
+
+describe("whether a roster round still runs here", () => {
+	it("finds none where no round has left a folder", async () => {
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, Date.now()),
+		).toBeUndefined();
+	});
+
+	it("finds a round whose reviewer a live supervisor holds, counting who still runs", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 5 * 60_000);
+		reviewer(run, "hawk", held(now));
+		reviewer(run, "owl", held(now));
+		reviewer(run, "wren", done(now));
+
+		expect(await rosterRoundRunning(root, SUPERVISOR_LIVES, now)).toEqual({
+			runId: run,
+			reviewersRunning: 2,
+			runningMs: 5 * 60_000,
+		});
+	});
+
+	it("lists the machine's processes once a look, however many reviewers it reads", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 5 * 60_000);
+		for (const id of ["hawk", "owl", "wren", "kite"]) {
+			reviewer(run, id, { ...held(now), supervisorStartTicks: undefined });
+		}
+		let listings = 0;
+		let asked = 0;
+		const listed: ProcessFacts = {
+			alive: (pid) => pid === SUPERVISOR,
+			startedAt: async () => {
+				asked += 1;
+				return SUPERVISOR_STARTED;
+			},
+			startTimes: async () => {
+				listings += 1;
+				return new Map([[SUPERVISOR, SUPERVISOR_STARTED]]);
+			},
+		};
+
+		const round = await rosterRoundRunning(root, listed, now);
+
+		expect(round?.reviewersRunning, "every reviewer read as running").toBe(4);
+		expect(listings, "one listing for the look").toBe(1);
+		expect(asked, "no program run per reviewer").toBe(0);
+	});
+
+	it("falls back to a lease's heartbeat where it names no start, running while it is fresh", async () => {
+		const now = Date.now();
+		const fresh = runNamed("council", now - 5 * 60_000, 1);
+		const { supervisorStartedAt: _, ...unnamed } = held(now);
+		reviewer(fresh, "hawk", unnamed);
+
+		expect((await rosterRoundRunning(root, SUPERVISOR_LIVES, now))?.runId).toBe(
+			fresh,
+		);
+	});
+
+	it("falls back to a lease's heartbeat where it names no start, gone once it is stale", async () => {
+		const now = Date.now();
+		const stale = runNamed("council", now - 5 * 60_000, 1);
+		const { supervisorStartedAt: _, ...unnamed } = held(
+			now - HEARTBEAT_STALE_MS - 1_000,
+		);
+		reviewer(stale, "hawk", unnamed);
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	it("stops counting a round that never handed out a reviewer once it is old", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - STARTING_FOR_MS - 60_000);
+		mkdirSync(join(root, "runs", run), { recursive: true });
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	it("finds none once every reviewer's lease says it completed", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 5 * 60_000);
+		reviewer(run, "hawk", done(now));
+		reviewer(run, "owl", done(now));
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	it("finds none whose supervisor is gone, though its lease never closed", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 5 * 60_000);
+		reviewer(run, "hawk", { ...held(now), supervisorPid: SUPERVISOR + 1 });
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	// A supervisor alive past its own wall, as a wedged one is, would
+	// otherwise hold every Mac round behind it for as long as it lived.
+	it("leaves out a round started before the look back, though a live supervisor holds it, and a judge's", async () => {
+		const now = Date.now();
+		reviewer(
+			runNamed("council", now - RUNNING_LOOK_BACK_MS - 60_000),
+			"hawk",
+			held(now),
+		);
+		reviewer(runNamed("judge", now - 60_000), "judge", held(now));
+
+		expect(
+			await rosterRoundRunning(root, SUPERVISOR_LIVES, now),
+		).toBeUndefined();
+	});
+
+	it("names the newest round that still runs, past a newer one that finished", async () => {
+		const now = Date.now();
+		const older = runNamed("stack", now - 20 * 60_000, 1);
+		const newer = runNamed("council", now - 2 * 60_000, 2);
+		reviewer(older, "hawk", held(now));
+		reviewer(newer, "hawk", done(now));
+
+		expect((await rosterRoundRunning(root, SUPERVISOR_LIVES, now))?.runId).toBe(
+			older,
+		);
+	});
+
+	it("counts a young round still handing out its reviewers", async () => {
+		const now = Date.now();
+		const run = runNamed("council", now - 10_000);
+		mkdirSync(join(root, "runs", run, "reviewers"), { recursive: true });
+
+		const round = await rosterRoundRunning(root, SUPERVISOR_LIVES, now);
+
+		expect(round).toEqual({
+			runId: run,
+			reviewersRunning: 0,
+			runningMs: 10_000,
+		});
+		expect(round === undefined ? "" : runningSaid(round)).toContain(
+			"its reviewers are still being handed out",
+		);
+	});
+});
+
+describe("what a start waiting on a running round says", () => {
+	it("names the round and how many of its reviewers still run", () => {
+		expect(runningSaid({ runId: "council-x", reviewersRunning: 3 })).toBe(
+			"council-x still runs on this Mac (3 of its reviewers are still running), and a Mac starts one roster round at a time",
+		);
+		expect(runningSaid({ runId: "council-x", reviewersRunning: 1 })).toContain(
+			"1 of its reviewers is still running",
+		);
+	});
+
+	it("says how long the round has run, so a wedged one shows as one", () => {
+		expect(
+			runningSaid({
+				runId: "council-x",
+				reviewersRunning: 2,
+				runningMs: 95 * 60_000 + 30_000,
+			}),
+		).toContain("2 of its reviewers are still running, 95 minutes in");
+	});
+});

@@ -333,10 +333,10 @@ round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
 
 Rounds on one machine start in the order they were asked, each as
-soon as the machine has room for it: while the kernel's memory
-`full avg60` is under 5, `MemAvailable` is at least 16 GiB (half
-of all memory on a machine with less than 32 GiB) and CPU
-`some avg60` is under 40, read from `/proc/pressure` and
+soon as the machine has room for it. On Linux that is while the
+kernel's memory `full avg60` is under 5, `MemAvailable` is at least
+16 GiB (half of all memory on a machine with less than 32 GiB) and
+CPU `some avg60` is under 40, read from `/proc/pressure` and
 `/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
 most two a minute, so a long line drains no faster than those
 minute-long averages can show what the rounds before took. While
@@ -344,11 +344,40 @@ the machine is quiet, well inside every bar (memory `full avg60`
 under 2, CPU `some avg60` under 25 and at least 20 GiB
 available), a round starts one look, fifteen seconds, after the
 last, and the live `MemAvailable` stops a burst the averages are
-slow to show (27 November). A reading the machine doesn't keep, as
-on a Mac, says nothing, so a Mac always has room, is never quiet
-and keeps the two a minute. The CPU bar came
-on 26 November, when optimus sat over 40 for an hour with 24
-councils running, since only memory was read.
+slow to show (27 November). A figure Linux doesn't keep holds
+nothing back. The CPU bar came on 26 November, when optimus sat
+over 40 for an hour with 24 councils running, since only memory
+was read. A Mac is never quiet, and keeps none of those
+figures, so it reads the rule the machine queue reads there
+(`lib/core/review/ask/mac-room.ts`): it is short at the kernel's warning pressure, after a swap-out within
+the last minute, or with under 35% of its memory available. It reads
+only `/usr/sbin/sysctl` and `/usr/bin/vm_stat`, each apart and
+without blocking, and waits for a reading a minute old, from the
+swap history every session shares in the queue's lock folder. A
+program that takes past 5 seconds reads as short, as a Mac swapping
+hard makes it. A Mac starts one round at a time: while another
+round's reviewers are running or starting there, by the leases its
+rounds' folders keep, the next waits for it to end, saying how long
+that round has run. A round past two hours holds no start, however
+its supervisors stand, since the longest reviewer wall here is 90
+minutes and a wedged supervisor would otherwise hold every round
+behind it. A retry's reviewer counts while it runs, and so does a
+reviewer whose model runs elsewhere, since its supervisor runs here.
+It also starts at most one round every two minutes, which a
+`startSpacingMinutes` may widen but never narrow, since a round's
+reviewers show in its swap-outs only once they have loaded. The same
+gap covers the moment between a round taking its start and leaving
+its folder. One reading, or one failure to read, serves a session's
+rounds for 20 seconds, and a program that sits out its timeout is
+killed. A short reading holds a round for as long as it lasts, as on
+Linux. A wait with no verdict, for a figure it can't read or a
+baseline not yet a minute old, lasts at most 10 minutes of looks for
+the session's rounds, under the 15 the velocity cell allows. After
+that the next round to start starts and says why, and the next round
+waits its own 10 minutes. The wait starts over after a minute with
+no round looking, as while each waits behind a running round. On 25 November a Mac swapped hard while rounds still
+started on it, and Joel's window froze; on 26 November two rounds
+ran on it at once.
 Rounds with the same first ask, as two sessions' rounds on one
 change always have, take their turns by ticket id, so every look
 agrees which is ahead. A

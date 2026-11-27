@@ -11,6 +11,10 @@
 
 import { join } from "node:path";
 import {
+	macRoundRoom,
+	type RoundRoom,
+} from "../../../lib/core/review/ask/mac-room.ts";
+import {
 	machineQuiet,
 	machineShort,
 } from "../../../lib/core/review/ask/machine-room.ts";
@@ -46,6 +50,7 @@ import {
 } from "../engine.ts";
 import { rangeProposal } from "../range.ts";
 import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
+import { rosterRoundRunning, runningSaid } from "../round-running.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
@@ -174,14 +179,18 @@ export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
 	kind: RosterRound,
+	room: RosterRoom = roundRoom(process.platform),
 ): Promise<CouncilStart> {
 	// A round a session on an older install started never joined the
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const line = councilStartsPath();
-	const spacing = spacingKeptAcrossFailedReads(configuredSpacing);
-	return await awaitCouncilStart(
+	const spacing = spacingAtLeast(
+		spacingKeptAcrossFailedReads(configuredSpacing),
+		room.spacingMs,
+	);
+	const start = await awaitCouncilStart(
 		line,
 		{
 			by: sessionKey(),
@@ -190,14 +199,97 @@ export async function awaitRosterStart(
 			leads: await isWorldWork(change),
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
-			room: () => machineShort(),
-			// Only Linux keeps the readings quiet is judged on.
-			...(process.platform === "linux" ? { quiet: () => machineQuiet() } : {}),
-			// Read at each look, so a spacing set while rounds wait reaches them.
+			room: () => room.short(),
+			...(room.quiet === undefined ? {} : { quiet: room.quiet }),
+			// Read at each look, so a spacing set while rounds wait reaches
+			// them; never under the room's own, which a config can't narrow.
 			spacing,
 		},
 		signal,
 	);
+	return withUnjudged(start, room.startedUnjudged());
+}
+
+/**
+ * The start's answer, saying too that the round started though its
+ * room couldn't be judged, when `unjudged` says it did.
+ */
+export function withUnjudged(
+	start: CouncilStart,
+	unjudged: string | undefined,
+): CouncilStart {
+	if (unjudged === undefined) return start;
+	return {
+		...start,
+		waited: [start.waited, unjudged].filter(Boolean).join(" "),
+	};
+}
+
+/**
+ * A spacing reader that never answers under `floor`, where one is
+ * given: a config may widen a machine's own spacing, never narrow it.
+ */
+export function spacingAtLeast(
+	read: () => Promise<number | undefined>,
+	floor: number | undefined,
+): () => Promise<number | undefined> {
+	if (floor === undefined) return read;
+	return async () => Math.max((await read()) ?? 0, floor);
+}
+
+/**
+ * The least a Mac leaves between round starts, whatever its config
+ * sets: its swap-outs show a round's reviewers only once they have
+ * loaded, a minute or more after the start, so two a minute would
+ * start a third before the first showed. A config may set it wider.
+ */
+export const MAC_SPACING_MS = 2 * 60_000;
+
+/**
+ * The room a round reads on `platform`: a Mac waits while another
+ * roster round still runs there, then reads the queue's rule for a Mac,
+ * since it keeps no pressure file, and spaces its starts at least
+ * {@link MAC_SPACING_MS} apart, wider where config says; Linux
+ * reads its memory and CPU pressure and available memory, runs rounds
+ * side by side, and alone keeps the readings a quiet machine is judged
+ * on.
+ */
+export function roundRoom(
+	platform: NodeJS.Platform,
+	mac: () => RoundRoom = macRoundRoom,
+	running: () => Promise<string | undefined> = macRoundRunning,
+): RosterRoom {
+	if (platform === "darwin") {
+		const room = mac();
+		return {
+			short: async () => (await running()) ?? (await room.short()),
+			startedUnjudged: () => room.startedUnjudged(),
+			spacingMs: MAC_SPACING_MS,
+		};
+	}
+	return {
+		short: () => machineShort(),
+		startedUnjudged: () => undefined,
+		quiet: () => machineQuiet(),
+	};
+}
+
+/**
+ * The room a roster round waits on: what keeps it from starting, the
+ * spacing its machine keeps when the config sets none, and whether the
+ * machine is quiet enough to start sooner, where it can tell.
+ */
+export interface RosterRoom extends RoundRoom {
+	/** The least spacing between starts, which the config may only widen. */
+	readonly spacingMs?: number;
+	/** Whether the machine is quiet; left out where it can't be read. */
+	readonly quiet?: () => Promise<boolean>;
+}
+
+/** Why a Mac's round waits for another still running there, or nothing. */
+async function macRoundRunning(): Promise<string | undefined> {
+	const round = await rosterRoundRunning(runArtifactDir());
+	return round === undefined ? undefined : runningSaid(round);
 }
 
 /** A config read: what it set, or that it couldn't be read. */
