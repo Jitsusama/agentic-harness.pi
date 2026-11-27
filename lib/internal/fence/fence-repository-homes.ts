@@ -39,7 +39,14 @@ export interface NamedHomeDisk {
 
 const LIVE: NamedHomeDisk = {
 	kind(path) {
-		const found = lstatSync(path, { throwIfNoEntry: false });
+		let found: ReturnType<typeof lstatSync>;
+		try {
+			found = lstatSync(path, { throwIfNoEntry: false });
+		} catch {
+			// A path pi can't search is refused as no folder rather than left
+			// to throw, which would fail every fenced command with it.
+			return "other";
+		}
 		if (!found) return undefined;
 		if (found.isSymbolicLink()) return "link";
 		return found.isDirectory() ? "folder" : "other";
@@ -100,7 +107,7 @@ function refusal(
 	const kind = disk.kind(path);
 	if (kind === undefined) return undefined;
 	if (kind === "link") return `${path} is a link`;
-	if (kind !== "folder") return `${path} is no folder`;
+	if (kind !== "folder") return `${path} is no folder pi can read`;
 	if (disk.real(path) !== path) return `${path} lies past a link`;
 	return undefined;
 }

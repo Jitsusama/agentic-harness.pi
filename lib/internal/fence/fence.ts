@@ -422,6 +422,7 @@ function systemSshConfig(disk: Disk): string | undefined {
  */
 export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	const exists = (path: string) => disk.kind(path) !== undefined;
+	const named = namedHomesKept(place.home, disk);
 	// A /dev of its own, with only what any program needs (null, zero,
 	// random, a tty), and the GPU's render nodes, never its card nodes
 	// (fence-gpu.ts): the TPM, the camera, the microphone and the security
@@ -433,6 +434,10 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		"--bind",
 		"/",
 		"/",
+		// Before anything else, so every mount of the fence's own goes over
+		// a named home that holds where it lays it: a named `/run` would
+		// otherwise lay the host's sockets back over the runtime folder.
+		...named.flatMap((top) => ["--ro-bind", top, top]),
 		"--dev",
 		"/dev",
 		"--tmpfs",
@@ -487,7 +492,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
-	return pinnedAbove(laid, place.home, disk);
+	return pinnedAbove(laid, place.home, disk, named);
 }
 
 /**
@@ -655,6 +660,15 @@ function keptHomes(home: string, disk: Disk): string[] {
 		.filter((top) => disk.kind(top) === "folder");
 }
 
+/**
+ * The kept repository homes outside the home folder, the ones the
+ * person's settings name, which `fenceArgs` binds read-only before its
+ * own mounts and pins the folders above.
+ */
+function namedHomesKept(home: string, disk: Disk): string[] {
+	return keptHomes(home, disk).filter((top) => !top.startsWith(`${home}/`));
+}
+
 /** A repository's git folder, working or bare, or nothing when `path` holds none. */
 function gitFolderOf(path: string, disk: Disk): string | undefined {
 	if (disk.kind(join(path, ".git")) === "folder") return join(path, ".git");
@@ -769,8 +783,10 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 		join(gitFolder, "gitdir"),
 		join(gitFolder, "config.worktree"),
 	]);
+	// A named home is bound already, before the fence's own mounts.
+	const inHome = homes.filter((top) => top.startsWith(`${place.home}/`));
 	return [
-		...homes.flatMap((top) => ["--ro-bind", top, top]),
+		...inHome.flatMap((top) => ["--ro-bind", top, top]),
 		...bound("--bind", written),
 		...bound("--ro-bind", kept),
 		...bound("--bind", treeBack),

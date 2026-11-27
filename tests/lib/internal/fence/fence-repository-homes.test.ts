@@ -111,6 +111,14 @@ describe("the repository homes the person's settings name", () => {
 		expect(read(standIn([home])).homes, "no fence section names none").toEqual(
 			[],
 		);
+		writeFileSync(
+			join(home, ".config", "pi", "agentic-harness.pi", "config.json"),
+			'{"sections": {"fence": {"repositoryHomes": ["/world/runs"]',
+		);
+		expect(
+			read(standIn([home, "/world/runs"])),
+			"a file that doesn't parse names none",
+		).toEqual({ homes: [], refused: [] });
 	});
 
 	it("skips a home not on this machine rather than refusing or making it", () => {
@@ -291,7 +299,40 @@ describe.skipIf(bwrap === undefined)(
 			expect(fenced(`touch ${git}/objects/made`), "an object").toBe(true);
 		});
 
-		it("keeps a repository cloned there while a command runs read-only to it, hooks and all", async () => {
+		it("moves no folder above a named home, so no repository stands in its place", () => {
+			const named = join(runs, "parent", "home");
+			repository(join(named, "o", "r"));
+			naming(home, [named]);
+			for (const folder of [join(runs, "parent"), runs]) {
+				expect(fenced(`mv ${folder} ${folder}-moved`), `${folder} moved`).toBe(
+					false,
+				);
+			}
+			expect(
+				existsSync(join(named, "o", "r", ".git", "HEAD")),
+				"the named home's clone is gone",
+			).toBe(true);
+		});
+
+		it("lays the fence's own mounts over a named home that holds where it lays them", () => {
+			const runtime = join(runs, "runtime");
+			mkdirSync(runtime);
+			writeFileSync(join(runtime, "host-socket"), "");
+			const words = [
+				"--unshare-user",
+				...fenceArgs({ home, runtimeDir: runtime }),
+				"sh",
+				"-c",
+				`test ! -e ${runtime}/host-socket`,
+			];
+			const ran = spawnSync(bwrap ?? "bwrap", words, { encoding: "utf8" });
+			expect(ran.status, `the host's socket shows: ${ran.stderr}`).toBe(0);
+		});
+
+		// Up to 10 s for the fence to start under load, past vitest's 5 s.
+		it("keeps a repository cloned there while a command runs read-only to it, hooks and all", {
+			timeout: 20_000,
+		}, async () => {
 			const ready = join(home, ".cache", "ready");
 			const go = join(temp, "go");
 			const late = join(runs, "github.com", "o", "late", ".git");
@@ -302,13 +343,18 @@ describe.skipIf(bwrap === undefined)(
 			const ended = new Promise<number | null>((done) =>
 				child.on("exit", (code) => done(code)),
 			);
-			await vi.waitFor(() => expect(existsSync(ready), "fenced").toBe(true), {
-				timeout: 10_000,
-				interval: 20,
-			});
-			repository(dirname(late));
-			writeFileSync(go, "");
-			expect(await ended, "the hook's write succeeded").not.toBe(0);
+			try {
+				await vi.waitFor(() => expect(existsSync(ready), "fenced").toBe(true), {
+					timeout: 10_000,
+					interval: 20,
+				});
+				repository(dirname(late));
+				writeFileSync(go, "");
+				expect(await ended, "the hook's write succeeded").not.toBe(0);
+			} finally {
+				// A command still looping, when the fence never started, is ended.
+				child.kill("SIGKILL");
+			}
 			expect(
 				existsSync(join(late, "hooks", "pre-commit")),
 				"the hook is there",

@@ -7,7 +7,9 @@
  * with it, the host's record of each session's fence among it (ISXEG8,
  * 19 November). A mount can't be renamed or replaced ("Device or
  * resource busy"), so each such folder is bound over itself, writable
- * as it was, before anything is bound inside it.
+ * as it was, before anything is bound inside it. The folders above a
+ * repository home named outside the home folder are pinned the same
+ * way, up to the disk's top.
  *
  * A folder that is a link can't be pinned: bubblewrap binds where it
  * leads, which may lie outside the home folder in ground bound writable,
@@ -124,14 +126,19 @@ function writableOutside(mount: Mount): boolean {
 /**
  * `args` with each folder in the home folder above a path they close
  * pinned, where a command could move it: one lying in a folder bound
- * writable, not already a mount, and no link. Each pin goes before the
- * first mount within its folder laid after the one holding it, so it
- * hides none of them.
+ * writable, not already a mount, and no link. So is each folder above a
+ * repository home the person's settings name outside the home folder
+ * (`named`), up to the disk's top: moved aside, it would take the home's
+ * read-only bind with it and leave a path a command could fill with a
+ * repository that git outside the fence trusts. Each pin goes before
+ * the first mount within its folder laid after the one holding it, so
+ * it hides none of them.
  */
 export function pinnedAbove(
 	args: readonly string[],
 	home: string,
 	disk: Disk,
+	named: readonly string[] = [],
 ): string[] {
 	const mounts = mountsOf(args);
 	// Keyed on the folder each binds, so one is never bound twice.
@@ -146,18 +153,30 @@ export function pinnedAbove(
 			)
 			.at(-1);
 	// The first mount within `folder` laid after its holder, which a pin
-	// goes before.
-	const firstWithin = (folder: string, after: number) =>
-		mounts.find(
-			(mount) =>
-				mount.at > after && mount.to !== undefined && below(mount.to, folder),
-		)?.at ?? args.length;
+	// goes before, and before the `--perms` that mount takes, which
+	// bubblewrap wants straight before it.
+	const firstWithin = (folder: string, after: number) => {
+		const at =
+			mounts.find(
+				(mount) =>
+					mount.at > after && mount.to !== undefined && below(mount.to, folder),
+			)?.at ?? args.length;
+		return args[at - 2] === "--perms" ? at - 2 : at;
+	};
+	// Where the walk above a closed path stops: the home folder for one in
+	// it, the disk's top for one in a named home.
+	const rootOf = (path: string) => {
+		if (below(path, home)) return home;
+		const inNamed = named.some((top) => path === top || below(path, top));
+		return inNamed ? sep : undefined;
+	};
 	for (const mount of mounts) {
 		if (!closes(mount) || mount.to === undefined) continue;
-		if (!below(mount.to, home)) continue;
+		const root = rootOf(mount.to);
+		if (root === undefined) continue;
 		for (
 			let folder = dirname(mount.to);
-			below(folder, home);
+			below(folder, root);
 			folder = dirname(folder)
 		) {
 			if (mountedBefore(folder, mount.at)) continue;
