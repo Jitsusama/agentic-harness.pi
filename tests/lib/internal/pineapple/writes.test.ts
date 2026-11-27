@@ -378,6 +378,27 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads a push option ending a cluster as taking the next word", () => {
+		for (const command of [
+			"git push -o ci.skip origin x",
+			"git push -fo ci.skip origin x",
+			"git push -vfo ci.skip origin x",
+			// What follows a cluster's first o is its value.
+			"git push -oo origin x",
+			"git push -fov origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push of every branch as naming none", () => {
 		for (const command of [
 			"git push --all origin",

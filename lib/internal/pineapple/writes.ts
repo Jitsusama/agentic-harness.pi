@@ -1029,11 +1029,15 @@ function pushesElsewhere(word: string, next: string | undefined): boolean {
 	return value !== "no" && value !== "check";
 }
 
-/** git push's options that take the next word as their value. */
+/**
+ * git push's options that take the next word as their value: `-o`, alone
+ * or ending a cluster of short options, as `-fo` does, since the rest of
+ * a cluster after its first `o` is that `o`'s value.
+ */
 function takesValue(word: string): boolean {
 	if (word.includes("=")) return false;
 	return (
-		word === "-o" ||
+		/^-[^-o]*o$/.test(word) ||
 		isOption(word, "--push-option", 3) ||
 		isOption(word, "--repo", 5) ||
 		isOption(word, "--receive-pack", 6) ||
