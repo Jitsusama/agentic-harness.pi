@@ -421,6 +421,61 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).toContain("Biome passes the 1 file(s)");
 		expect(answered.said).not.toContain("main's config");
+		expect(answered.said, "the config it changes, named").toMatch(
+			/changes Biome's config or plugins and no file they judge.*\n {2}biome\.jsonc\n/,
+		);
+	});
+
+	it("names a plugin a change edits alone, though no file it judges changes", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "the plugin it changes, named").toMatch(
+			/changes Biome's config or plugins and no file they judge.*\n {2}lib\/no-alert\.grit\n/,
+		);
+	});
+
+	it("says a head's config that won't load is the config's to fix, not lint:fix's", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "sideways" } }\n`,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("couldn't judge the 2 file(s)");
+		expect(answered.said).not.toContain("pnpm lint:fix");
+	});
+
+	it("names what a change lets through by main's root biome.json, as by a biome.jsonc", async () => {
+		const checkout = await harness();
+		await git(checkout, "mv", "biome.jsonc", "biome.json");
+		await git(checkout, "commit", "-q", "-m", "plain json");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.json": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said).toContain("lib/spaced.ts");
 	});
 
 	it("names what a nested config the head adds lets through, judged by main's alone", async () => {
@@ -517,7 +572,8 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
 		});
 		// The head's plugin, at the same path, faults another call, so only
-		// main's faults alert; the config changes so main's run fires.
+		// main's faults alert; the config changes beside it, as an edit
+		// to both would.
 		const sha = await change(checkout, {
 			[grit]: plugin("confirm", "no confirm"),
 			"biome.jsonc": `{ "plugins": ["./${grit}"], "files": { "maxSize": 2097152 } }\n`,
@@ -662,6 +718,28 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		);
 	});
 
+	it("refuses where no copy reads a nested config, naming TMPDIR", async () => {
+		const checkout = await harness();
+		// A Biome that reads only the root's config in the probe's copy, as
+		// one under a .cache folder does, wherever the copy is made.
+		const stand = join(checkout, "node_modules", ".bin", "biome");
+		rmSync(stand);
+		writeFileSync(
+			stand,
+			`#!/bin/sh\ncase $PWD in */probe) rm -f lib/biome.jsonc;; esac\nexec "${BIOME}" "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("judges no file by its nested config");
+		expect(answered.said).toContain("Set TMPDIR");
+	});
+
 	it("refuses where Biome fails in the probe without faulting its files", async () => {
 		const checkout = await harness();
 		// A Biome that processes nothing in the probe's copy, as one ignoring
@@ -681,8 +759,9 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said, "the probe took a failing run for a fault").toContain(
-			"judges no file by its nested config",
+			"faulted not even a file it should",
 		);
+		expect(answered.said, "blamed on TMPDIR").not.toContain("Set TMPDIR");
 	});
 
 	it("loads a plugin whose name git would quote", async () => {

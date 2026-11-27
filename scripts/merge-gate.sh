@@ -64,6 +64,8 @@ helpers=(tests/package/code/package-files.ts)
 # unmatched files, would judge nothing. So each place must show both: a
 # file the root config faults is named as faulted, and so is one only
 # lib/'s config faults. Each run is the real runs' own, flags and all.
+# A Biome that faults not even the root's file judges nothing anywhere,
+# which no other folder mends, so it's told apart.
 faults() {
   local said
   if said=$(cd "$1" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
@@ -80,30 +82,60 @@ reads_nested() {
     > "$probe/lib/biome.jsonc"
   printf 'export function spaced(): number {\n  return 1;\n}\n' > "$probe/spaced.ts"
   printf 'export function tabbed(): number {\n\treturn 1;\n}\n' > "$probe/lib/tabbed.ts"
-  if faults "$probe" spaced.ts && faults "$probe" lib/tabbed.ts; then read=0; fi
+  if ! faults "$probe" spaced.ts; then
+    read=2
+  elif faults "$probe" lib/tabbed.ts; then
+    read=0
+  fi
   rm -rf "$probe"
   return "$read"
 }
+# The trap is set before the first copy, so an interrupt mid-probe leaves
+# none behind, and /tmp is tried once, though TMPDIR names it too.
 scratch=""
-for room in "${TMPDIR:-/tmp}" /tmp; do
+trap 'rm -rf "$scratch"' EXIT
+rooms=("${TMPDIR:-/tmp}")
+if [[ ! ${TMPDIR:-/tmp} -ef /tmp ]]; then rooms+=(/tmp); fi
+written=0 judged=0
+for room in "${rooms[@]}"; do
   [[ -d $room ]] || continue
-  scratch=$(mktemp -d "$room/merge-gate.XXXXXX")
+  scratch=$(mktemp -d "$room/merge-gate.XXXXXX" 2> /dev/null) || {
+    scratch=""
+    continue
+  }
+  written=1
   # A checkout with no Biome is refused below, saying so.
-  if [[ ! -x $biome ]] || reads_nested "$scratch"; then break; fi
+  if [[ ! -x $biome ]]; then break; fi
+  probed=0
+  reads_nested "$scratch" || probed=$?
+  if [[ $probed == 0 ]]; then break; fi
+  if [[ $probed == 1 ]]; then judged=1; fi
   rm -rf "$scratch"
   scratch=""
 done
 if [[ -z $scratch ]]; then
-  echo "merge-gate: Biome judges no file by its nested config in a copy under ${TMPDIR:-/tmp} or /tmp, so it can't judge files as pnpm lint would." >&2
-  echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
+  if [[ $written == 0 ]]; then
+    echo "merge-gate: no folder could be made under ${rooms[*]}, so nothing can be copied out to judge." >&2
+    echo "Set TMPDIR to a folder this account can write, then merge again." >&2
+  elif [[ $judged == 0 ]]; then
+    echo "merge-gate: Biome faulted not even a file it should in a copy under ${rooms[*]}, so it can't be trusted to judge any." >&2
+    echo "Check that $biome runs here, as security software can stop it while it exits 0, then merge again." >&2
+  else
+    echo "merge-gate: Biome judges no file by its nested config in a copy under ${rooms[*]}, so it can't judge files as pnpm lint would." >&2
+    echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
+  fi
   exit 1
 fi
-trap 'rm -rf "$scratch"' EXIT
 
 # Main is fetched to its remote branch by name, since the checkout's own
-# refspec might leave origin/main where it was.
-git fetch -q origin +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
+# refspec might leave origin/main where it was. No hook runs as it lands,
+# so none the checkout holds can move the ref after. The checkout's remote
+# and the GIT_ variables the gate was given still reach the fetch: they
+# find the repository and sign in, they're the merging person's and not
+# the head's, and the fence keeps the checkout's config from a session.
+fetching() { git -c core.hooksPath=/dev/null fetch -q origin "$@"; }
+fetching +refs/heads/main:refs/remotes/origin/main
+if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then fetching "$sha"; fi
 
 # GIT_ATTR_SOURCE, which keeps the tree's attributes out of what's judged
 # below, came in git 2.42, and an older git would ignore it unsaid.
@@ -204,6 +236,30 @@ mapfile -d '' -t files < "$scratch/changed-files"
 # those; a dotted one nested, which Biome doesn't read, goes out unread.
 config_names=(biome.json biome.jsonc .biome.json .biome.jsonc
   '*/biome.json' '*/biome.jsonc' '*/.biome.json' '*/.biome.jsonc')
+# Whether main holds a root config, by any name Biome reads, so a run by
+# main's configs judges by main's rules rather than Biome's defaults.
+main_configured() {
+  local name
+  for name in biome.json biome.jsonc .biome.json .biome.jsonc; do
+    if unattributed cat-file -e "$main_id:$name" 2> /dev/null; then return 0; fi
+  done
+  return 1
+}
+# Whether Biome's output ($1) faults one of the files after it, on a line
+# that opens with the file's path as Biome's diagnostics do: "path:line"
+# or "path lint". A path quoted inside a config error's frame is indented,
+# so it doesn't count. Each file is matched whole as a prefix, since a
+# path may hold a space or a colon of its own.
+names_any() {
+  local said=$1 line file
+  shift
+  while IFS= read -r line; do
+    for file in "$@"; do
+      if [[ $line == "$file:"* || $line == "$file "* ]]; then return 0; fi
+    done
+  done <<< "$said"
+  return 1
+}
 is_config() {
   [[ ${1##*/} == biome.json || ${1##*/} == biome.jsonc ||
     ${1##*/} == .biome.json || ${1##*/} == .biome.jsonc ]]
@@ -216,6 +272,8 @@ unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" '*.g
   > "$scratch/changed-configs"
 config_changed=0
 if [[ -s $scratch/changed-configs ]]; then config_changed=1; fi
+# The changed files that aren't configs, which a plugin-only change leaves empty.
+others=()
 if [[ ${#files[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
@@ -225,7 +283,6 @@ if [[ ${#files[@]} -gt 0 ]]; then
   # refuse the whole checkout.
   gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
   mapfile -d '' -t head_configs < "$scratch/head-configs"
-  others=()
   for file in "${files[@]}"; do
     is_config "$file" || others+=("$file")
   done
@@ -248,8 +305,16 @@ if [[ ${#files[@]} -gt 0 ]]; then
   set -e
   if [[ $checked != 0 ]]; then
     echo "$said" >&2
-    echo "merge-gate: Biome faults ${#files[@]} changed file(s) at $sha, as pnpm lint would." >&2
-    echo "Run pnpm lint:fix in a checkout of the branch, commit what it changes, push, and merge the new head." >&2
+    # Biome fails the same way where the head's config won't load, which
+    # lint:fix can't mend, and names the config as it says why; so only a
+    # file that isn't a config, named, is a fault lint:fix can mend.
+    if names_any "$said" ${others[@]+"${others[@]}"}; then
+      echo "merge-gate: Biome faults ${#files[@]} changed file(s) at $sha, as pnpm lint would." >&2
+      echo "Run pnpm lint:fix in a checkout of the branch, commit what it changes, push, and merge the new head." >&2
+    else
+      echo "merge-gate: Biome couldn't judge the ${#files[@]} file(s) $sha changes by its own config; above says why." >&2
+      echo "Fix what it names in a checkout of the branch, run pnpm lint, push, and merge the new head." >&2
+    fi
     exit 1
   fi
   echo "merge-gate: Biome passes the ${#files[@]} file(s) $sha changes"
@@ -263,8 +328,7 @@ if [[ ${#files[@]} -gt 0 ]]; then
   # Every config there is main's, nested ones too, and none of the head's,
   # so a config the head adds or edits in a folder can't stand in for
   # main's there.
-  if [[ $config_changed == 1 && ${#others[@]} -gt 0 ]] &&
-    unattributed cat-file -e "$main_id:biome.jsonc" 2>/dev/null; then
+  if [[ $config_changed == 1 && ${#others[@]} -gt 0 ]] && main_configured; then
     before="$scratch/before"
     mkdir "$before"
     gate_index checkout-index --prefix="$before/" -- "${others[@]}"
@@ -282,19 +346,8 @@ if [[ ${#files[@]} -gt 0 ]]; then
     if ! (cd "$before" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
       --colors=off -- "${others[@]}" > "$scratch/before.said" 2>&1); then
       # Biome fails the same way when it can't load the config at all, so
-      # only a run that faults a changed file, on a line that opens with its
-      # path as Biome's diagnostics do, is called a loosening; a path quoted
-      # inside a config error's frame doesn't count.
-      named=0
-      while IFS= read -r line; do
-        for file in "${others[@]}"; do
-          if [[ $line == "$file:"* || $line == "$file "* ]]; then
-            named=1
-            break 2
-          fi
-        done
-      done < "$scratch/before.said"
-      if [[ $named == 1 ]]; then
+      # only a run that faults a changed file is called a loosening.
+      if names_any "$(< "$scratch/before.said")" "${others[@]}"; then
         echo "merge-gate: $sha changes Biome's config, and main's config faults what it lets through:" >&2
         cat "$scratch/before.said" >&2
         echo "merge-gate: so the change loosens a rule for these files, or main tightened one since the cut; that passes, said here." >&2
@@ -305,6 +358,15 @@ if [[ ${#files[@]} -gt 0 ]]; then
       fi
     fi
   fi
+fi
+# A change to the config or a plugin alone leaves every file it judges as
+# main has it, and main's config passes those, so nothing it lets through
+# can be named yet: a later change brings that, and passes by the rule this
+# one loosened. So the config it changes is named, for whoever merges.
+if [[ $config_changed == 1 && ${#others[@]} -eq 0 ]]; then
+  mapfile -d '' -t configs_changed < "$scratch/changed-configs"
+  echo "merge-gate: $sha changes Biome's config or plugins and no file they judge, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
+  printf '  %q\n' "${configs_changed[@]}" >&2
 fi
 
 if [[ ! -x $vitest ]]; then
