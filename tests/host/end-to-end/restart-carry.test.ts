@@ -298,6 +298,8 @@ it(
 			).catch((failed: unknown) => {
 				throw new Error(`${String(failed)}\n${said()}`);
 			});
+			// The next host's continue is what may ask the model again.
+			carriedOnce(file, "once the next host said its end");
 			await keptGoes(file);
 		});
 	},
@@ -368,6 +370,7 @@ it(
 				endedAfter >= RUNS_MS,
 				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms into it`,
 			).toBe(true);
+			carriedOnce(file, "once the next host said its end");
 			await keptGoes(file);
 		});
 	},
@@ -400,6 +403,7 @@ it(
 					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}\n${said()}`,
 				);
 			});
+			carriedOnce(file, "once the next host said it was lost");
 			// The lost line quotes the command, its echo included, so only a
 			// line of the echo's own output would say it ran again.
 			const there = saidAfter(file, held.length);
