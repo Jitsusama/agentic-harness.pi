@@ -26,8 +26,11 @@ const ROOT = join(import.meta.dirname, "..", "..", "..");
 /** The shrink-only list of files and folders past their limit. */
 const LIST = join(import.meta.dirname, "long-files-waiting.txt");
 
-/** How long a walk of the whole tree may take on a busy machine. */
-const WALK = { timeout: 60_000 };
+/**
+ * How long a walk of the whole tree may take on a busy machine: as long
+ * as merge-gate.sh gives it, since this limit wins over the gate's.
+ */
+const WALK = { timeout: 300_000 };
 
 /** The most lines a code file holds before it says why. */
 const MOST_LINES = 800;
