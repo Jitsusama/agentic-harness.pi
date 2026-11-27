@@ -104,6 +104,33 @@ describe("the plain words a need is not matched by", () => {
 		});
 	});
 
+	// Each covers one word the need lacks, and R doesn't work on find, so
+	// T's find out says nothing more against it: neither outranks the
+	// other, and the first found takes it (#2220's seventh round, F61).
+	const findOut = (live: (address: string) => boolean) =>
+		routeNeed(asked("A", ...wordsOf("find out who keeps the docs")), {
+			foragers: cells({ A: [], T: ["find", "find-out"], R: ["docs"] }),
+			ties: ties(["A", "T", 1], ["A", "R", 1]),
+			hubs: [],
+			live,
+		});
+
+	it("lets no phrase outrank a cell holding none of its first word", () => {
+		expect(
+			findOut(() => true),
+			"the cell on the docs",
+		).toMatchObject({
+			fit: "R",
+		});
+	});
+
+	it("names no ended owner by a phrase whose first word the fit doesn't work on", () => {
+		expect(
+			findOut((address) => address !== "T"),
+			"the live cell on the docs, not lost to T",
+		).toMatchObject({ fit: "R" });
+	});
+
 	it("sends a need saying hand over to hand-over's hub, not hand-off's", () => {
 		// over and off name no work alone, so without the phrase both hubs
 		// say all the need does. No ties, so only a hub carries it.

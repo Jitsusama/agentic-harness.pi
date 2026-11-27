@@ -299,6 +299,30 @@ describe("sending to a need", () => {
 		expect(said).not.toContain("No cell works on mesh-workflow");
 	});
 
+	// The asker wrote check out, so check says it; check-out is an id it
+	// never wrote (#2220's seventh round, F69).
+	it("names a phrase no cell works on by its first word alone", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Lease Files" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who can look at the lease files?",
+			about: "check out the lease files",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "check alone, as written").toContain(
+			"No cell works on check, so it found nobody",
+		);
+		expect(said, "no id the asker never wrote").not.toContain("check-out");
+	});
+
 	it("says nothing of a joined id whose short part could never be a word, but names a numbered one", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(

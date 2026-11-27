@@ -32,6 +32,7 @@ import {
 	type NeedRecord,
 	needId,
 	partOfNumbered,
+	phraseOfSaid,
 	saysWord,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
@@ -214,16 +215,20 @@ export async function needRead(
 	// ended cells work on, which routing says, is said whatever was dropped.
 	const kept = new Set(found.words);
 	const saying = new Set(words);
+	const unworked = words.filter(
+		(word) =>
+			word.length <= LONGEST_WORD &&
+			!saysWord(word, kept) &&
+			!partOfNumbered(word, saying),
+	);
+	// A phrase's id goes unsaid where its first word is said: check says
+	// it, and the asker wrote check out, never check-out.
+	const unworkedSaying = new Set(unworked);
 	const unasked = (went: Went) =>
 		unaskedText(
 			fromText || found.words.length >= MOST_WORDS
 				? []
-				: words.filter(
-						(word) =>
-							word.length <= LONGEST_WORD &&
-							!saysWord(word, kept) &&
-							!partOfNumbered(word, saying),
-					),
+				: unworked.filter((word) => !phraseOfSaid(word, unworkedSaying)),
 			found.unheld ?? [],
 			found.by ?? [],
 			went,

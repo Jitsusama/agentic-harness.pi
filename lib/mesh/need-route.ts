@@ -812,13 +812,20 @@ function routeAs(
 				!worksOnWord(address, head)
 			);
 		}).length;
-	// How many of the phrases the asker lacks a cell works on: of cells
-	// covering as much, it tells the hand-over cell from the hand-off one
-	// for a need saying hand over, which each covers by hand alone.
-	const phrases = (address: string) =>
-		lacking.filter(
-			(word) => phraseHead(word) !== undefined && worksOnWord(address, word),
-		).length;
+	// How many of the phrases the asker lacks one cell works on whose
+	// first word the other works on too: of cells covering as much, it
+	// tells the hand-over cell from the hand-off one for a need saying
+	// hand over, which each covers by hand alone. Against a cell that
+	// doesn't work on hand, the phrase says nothing it lacks, so a cell
+	// whose title says find out never outranks one holding the need's
+	// subject (#2220's seventh round, F61).
+	const phrasesOver = (one: string, than: string) =>
+		lacking.filter((word) => {
+			const head = phraseHead(word);
+			return (
+				head !== undefined && worksOnWord(one, word) && worksOnWord(than, head)
+			);
+		}).length;
 	// How much of the need a cell works on.
 	const most = (address: string) => covers(address, asked.words);
 	// How much of what the asker lacks a cell works on: the words its
@@ -826,17 +833,19 @@ function routeAs(
 	// an ended sibling holding it owns nothing the live fit can't take.
 	const needed = (address: string) => covers(address, lacking);
 	// Whether a cell works on more of what the asker lacks, or as much
-	// and more of its phrases: what an ended owner must outdo the fit by.
+	// and more of its phrases whose first word the other works on: what
+	// an ended owner must outdo the fit by.
 	const outranks = (one: string, than: string) =>
 		needed(one) > needed(than) ||
-		(needed(one) === needed(than) && phrases(one) > phrases(than));
+		(needed(one) === needed(than) &&
+			phrasesOver(one, than) > phrasesOver(than, one));
 	// A fit is weighed by what the asker lacks first, since a word it
 	// holds routes nowhere, then by its phrases, then by the whole need,
 	// so of cells as useful the one nearer the asker's own work.
 	const better = (one: string, than: string) =>
 		outranks(one, than) ||
 		(needed(one) === needed(than) &&
-			phrases(one) === phrases(than) &&
+			phrasesOver(one, than) === phrasesOver(than, one) &&
 			most(one) > most(than));
 	const best = (candidates: readonly string[]) =>
 		candidates.reduce<string | undefined>(
@@ -1137,6 +1146,20 @@ export function partOfNumbered(
 			return true;
 	}
 	return false;
+}
+
+/**
+ * Whether `word` is a phrase's id whose first word is among `saying`,
+ * as check-out is when check is: said of a need, the first word already
+ * says that no cell works on it, and the asker never wrote the phrase's
+ * id (#2220's seventh round, F69).
+ */
+export function phraseOfSaid(
+	word: string,
+	saying: ReadonlySet<string>,
+): boolean {
+	const head = phraseHead(word);
+	return head !== undefined && saying.has(head);
 }
 
 /** Whether joined id `word` is said inside a longer id the need says. */
