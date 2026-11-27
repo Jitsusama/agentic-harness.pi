@@ -253,6 +253,20 @@ export function councilStartsPath(): string {
 	return join(stateDir("review"), "council-starts", "last.json");
 }
 
+/** Where each room's own start lines are kept, a folder a room. */
+export function roomStartsFolder(): string {
+	return join(stateDir("review"), "council-starts", "rooms");
+}
+
+/**
+ * Where a room's rounds keep their own start slot, with their line
+ * beside it: apart from this machine's, since what holds them is the
+ * room's pressure, not this machine's (A210E4CA, d8565ffd).
+ */
+export function roomStartsPath(machine: string): string {
+	return join(roomStartsFolder(), encodeURIComponent(machine), "last.json");
+}
+
 /** Where the rounds asked about a change live. */
 export function runDir(): string {
 	return join(stateDir("review"), "runs");

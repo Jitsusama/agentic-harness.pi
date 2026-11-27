@@ -41,6 +41,7 @@ import {
 	councilStartsPath,
 	findingDir,
 	personaDir,
+	roomStartsPath,
 	runArtifactDir,
 	sessionKey,
 } from "../engine.ts";
@@ -50,6 +51,7 @@ import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
 import type { RoundAsks } from "./ask-roster.ts";
+import { type RoomAt, roomReadings } from "./room-readings.ts";
 import {
 	type Answer,
 	type boundFor,
@@ -169,17 +171,20 @@ export type RosterRound = "council" | "stack" | "critique";
  * Called last, once nothing else refuses the round, so only a round
  * about to start its reviewers holds the slot. A judge, an audit and a
  * retry each ask one participant, so they start whenever they are asked.
+ *
+ * A round whose reviewers all go to a room waits in that room's own
+ * line, on the room's pressure rather than this machine's, with the
+ * same spacing rule (A210E4CA, d8565ffd): what such a round costs here
+ * is a supervisor apiece, not a pi.
  */
 export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
 	kind: RosterRound,
+	room?: RoomAt,
 ): Promise<CouncilStart> {
-	// A round a session on an older install started never joined the
-	// line, but its reviewers' folder says when it began, read again at
-	// each look since such rounds start while this one waits.
-	const runs = join(runArtifactDir(), "runs");
-	const line = councilStartsPath();
+	const here = councilStartsPath();
+	const line = room === undefined ? here : roomStartsPath(room.machine);
 	const spacing = spacingKeptAcrossFailedReads(configuredSpacing);
 	return await awaitCouncilStart(
 		line,
@@ -188,16 +193,37 @@ export async function awaitRosterStart(
 			change,
 			kind,
 			leads: await isWorldWork(change),
-			urgent: () => urgentMarks(line),
-			startedElsewhere: () => newestRosterStartIn(runs),
-			room: () => machineShort(),
-			// Only Linux keeps the readings quiet is judged on.
-			...(process.platform === "linux" ? { quiet: () => machineQuiet() } : {}),
+			// Marked urgent beside this machine's line, whichever a round is in.
+			urgent: () => urgentMarks(here),
+			...(room === undefined ? roomHere() : roomThere(room)),
 			// Read at each look, so a spacing set while rounds wait reaches them.
 			spacing,
 		},
 		signal,
 	);
+}
+
+/** What judges a round whose reviewers run on this machine. */
+function roomHere() {
+	// A round a session on an older install started never joined the
+	// line, but its reviewers' folder says when it began, read again at
+	// each look since such rounds start while this one waits.
+	const runs = join(runArtifactDir(), "runs");
+	return {
+		startedElsewhere: () => newestRosterStartIn(runs),
+		room: () => machineShort(),
+		// Only Linux keeps the readings quiet is judged on.
+		...(process.platform === "linux" ? { quiet: () => machineQuiet() } : {}),
+	};
+}
+
+/**
+ * What judges a round whose reviewers run on a room: the room's own
+ * readings, which an older install's rounds never started on.
+ */
+function roomThere(room: RoomAt) {
+	const readings = roomReadings(room);
+	return { room: readings.short, quiet: readings.quiet };
 }
 
 /** A config read: what it set, or that it couldn't be read. */

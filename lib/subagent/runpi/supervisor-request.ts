@@ -65,6 +65,13 @@ export interface SupervisorRunPiConfig {
 	 * with. Left out, the child keeps the session's.
 	 */
 	readonly cacheRetention?: "short" | "long";
+	/**
+	 * Where a reviewer the room gave nothing back to reads this machine's
+	 * pressure before it starts here, as a folder standing in for `/`,
+	 * and how often it looks again. Left out, the machine's own, every
+	 * 15 s, as a round waiting in the start line looks.
+	 */
+	readonly here?: { readonly root?: string; readonly looksAgainMs?: number };
 }
 
 /** The wall clock a run gets when neither it nor the config names one. */
@@ -388,5 +395,8 @@ async function buildRequest(
 		maxAssistantTextBytes:
 			config.maxAssistantTextBytes ?? DEFAULT_MAX_ASSISTANT_TEXT_BYTES,
 		maxWarnings: config.maxWarnings ?? DEFAULT_MAX_WARNINGS,
+		...(input.room !== undefined && config.here !== undefined
+			? { here: config.here }
+			: {}),
 	};
 }

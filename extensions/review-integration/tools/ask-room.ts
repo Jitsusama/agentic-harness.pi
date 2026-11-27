@@ -1,6 +1,9 @@
 /**
  * The room a round's reviewers run on, when the package config names
- * one: `sections.review.room`, `{ "machine": "<room>", "realm": "work" }`.
+ * one: `sections.review.room`, `{ "machine": "<room>", "realm": "work" }`,
+ * or `{ "from": "agent-rooms", "realm": "work" }` for the first room in
+ * the node's list of machines made for agent sessions, read at each
+ * round, since a room there is made and taken down by the hour.
  *
  * Only a change on one of the repositories a room keeps a checkout of
  * goes there, and only with its head commit known, since the room's
@@ -9,6 +12,9 @@
  * Read once a round, like the round's clocks.
  */
 
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ChangeRef } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { packageRoot } from "../../../lib/internal/fence/installed-only.ts";
@@ -28,6 +34,19 @@ const ROOM_OWNER = "github:Jitsusama/";
 
 /** The realm a room is in, when the config names none. */
 const DEFAULT_REALM = "work";
+
+/** The config's word for the first room in the node's list. */
+const FROM_AGENT_ROOMS = "agent-rooms";
+
+/**
+ * The node's list of cloud machines made for agent sessions, one name
+ * a line under `#` comments, kept by the room slots' owner (S99IA2).
+ */
+export function agentRoomsPath(): string {
+	const state =
+		process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+	return join(state, "mycelium", FROM_AGENT_ROOMS);
+}
 
 /** The node's own command, by name, as every other caller asks it. */
 const MYCELIUM = "mycelium";
@@ -69,10 +88,11 @@ export async function roomFor(
 	harnessOf: () => RoomHarness,
 	path: string = packageConfigPath(),
 	mycelium: () => string | undefined = myceliumAt,
+	rooms: string = agentRoomsPath(),
 ): Promise<RoomAsk | undefined> {
 	const repo = roomRepo(change.repo.key);
 	if (repo === undefined || head === undefined) return undefined;
-	const named = await roomNamed(path);
+	const named = await roomNamed(path, rooms);
 	if (named === undefined) return undefined;
 	const command = mycelium();
 	if (command === undefined) return undefined;
@@ -113,16 +133,35 @@ function roomRepo(key: string): string | undefined {
 /** The room the config names, or nothing when it names none or misnames one. */
 async function roomNamed(
 	path: string,
+	rooms: string,
 ): Promise<{ machine: string; realm: string } | undefined> {
 	const loaded = await loadPackageConfig(path);
 	if (!loaded.ok) return undefined;
 	const review = loaded.config.sections[REVIEW_SLUG];
 	const room = isRecord(review) ? review.room : undefined;
 	if (!isRecord(room)) return undefined;
-	const { machine, realm } = room;
+	const { realm } = room;
+	const machine =
+		room.from === FROM_AGENT_ROOMS ? await firstRoom(rooms) : room.machine;
 	if (typeof machine !== "string" || machine === "") return undefined;
 	return {
 		machine,
 		realm: typeof realm === "string" && realm !== "" ? realm : DEFAULT_REALM,
 	};
+}
+
+/**
+ * The first room in the node's list, or nothing when the list is gone or
+ * names none, so the round runs here.
+ */
+async function firstRoom(rooms: string): Promise<string | undefined> {
+	try {
+		return (await readFile(rooms, "utf8"))
+			.split("\n")
+			.map((line) => line.trim())
+			.find((line) => line !== "" && !line.startsWith("#"));
+	} catch {
+		// No list on this machine, or none now: no room, so the round runs here.
+		return undefined;
+	}
 }

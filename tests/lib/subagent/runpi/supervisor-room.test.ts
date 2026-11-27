@@ -5,9 +5,17 @@
  * room that said nothing at all hands the reviewer back to run here.
  */
 
-import { chmod, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import {
+	CPU_PRESSURE_FILE,
+	IO_PRESSURE_FILE,
+	IO_SLICES,
+	MEMINFO_FILE,
+	MEMORY_PRESSURE_FILE,
+	sliceIoPressureFile,
+} from "../../../../lib/core/review/ask/machine-room.ts";
 import type { RoomAsk } from "../../../../lib/subagent/run-contract.ts";
 import {
 	expectRan,
@@ -39,9 +47,37 @@ async function script(path: string, lines: string[]): Promise<string> {
 	return path;
 }
 
+/** A pressure file whose avg60 is `memory` on both lines. */
+const pressure = (avg60: number) =>
+	["some", "full"]
+		.map((kind) => `${kind} avg10=0.00 avg60=${avg60} avg300=0.00 total=0`)
+		.join("\n");
+
+/**
+ * Lays this machine's readings out under `root`, as a fallback reads
+ * them: quiet on every one, or with memory full avg60 at `memory`.
+ */
+async function machineAt(root: string, memory = 0): Promise<void> {
+	const files: [string, string][] = [
+		[MEMORY_PRESSURE_FILE, pressure(memory)],
+		[CPU_PRESSURE_FILE, pressure(0)],
+		[IO_PRESSURE_FILE, pressure(0)],
+		[MEMINFO_FILE, "MemTotal: 67108864 kB\nMemAvailable: 50331648 kB\n"],
+		...IO_SLICES.map((slice): [string, string] => [
+			sliceIoPressureFile(slice),
+			pressure(0),
+		]),
+	];
+	for (const [file, text] of files) {
+		await mkdir(dirname(join(root, file)), { recursive: true });
+		await writeFile(join(root, file), text);
+	}
+}
+
 /**
  * A run asked onto a room whose node is the script at `mycelium`, with
- * a local child that marks each time it ran, then says `local`.
+ * a local child that marks each time it ran, then says `local`. This
+ * machine reads as quiet unless `more.here` says where else to read.
  */
 async function roomRun(
 	lines: string[],
@@ -51,6 +87,9 @@ async function roomRun(
 	options: { wrapUpReserveMs?: number } = {},
 ) {
 	const stateDir = await tempStateDir();
+	const quiet = join(stateDir, "machine");
+	await machineAt(quiet);
+	more = { here: { root: quiet }, ...more };
 	const ranHere = join(stateDir, "ran-here");
 	const childPath = await script(join(stateDir, "child.mjs"), [
 		`import { appendFileSync } from "node:fs";`,
@@ -161,6 +200,39 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.warnings?.join(" ")).toMatch(
 			/No room ran this reviewer \(it ended 255: no machine has a slot\)/,
 		);
+	});
+
+	it("waits for this machine's bars before it runs here", async () => {
+		const root = join(await tempStateDir(), "machine");
+		await machineAt(root, 50);
+		// The room says no at once; this machine has room a second on.
+		const quietens = setTimeout(() => void machineAt(root), 1000);
+		const began = Date.now();
+		const { result, starts } = await roomRun(["process.exit(255);"], {
+			here: { root, looksAgainMs: 100 },
+		}).finally(() => clearTimeout(quietens));
+
+		expectRan(result);
+		expect(starts, "it ran here once").toHaveLength(1);
+		expect(
+			(starts[0] ?? 0) - began,
+			"it started here only once memory had room",
+		).toBeGreaterThanOrEqual(1000);
+		expect(result.warnings?.join(" ")).toMatch(
+			/waited \d+ s for room here first, since memory full avg60 was 50/,
+		);
+	});
+
+	it("starts nothing here when its wall clock ends while this machine is short", async () => {
+		const root = join(await tempStateDir(), "machine");
+		await machineAt(root, 50);
+		const { result, starts } = await roomRun(["process.exit(255);"], {
+			timeoutMs: 3000,
+			here: { root, looksAgainMs: 100 },
+		});
+
+		expect(starts, "nothing ran here").toHaveLength(0);
+		expect(result.state).toBe("timeout");
 	});
 
 	it("runs here when the room ended cleanly having said nothing", async () => {

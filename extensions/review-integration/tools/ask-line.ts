@@ -9,7 +9,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { readdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -159,10 +159,50 @@ function runtimeFolder(): string | undefined {
 export async function lineSaid(
 	path: string,
 	change: string,
+	line = "the start line",
 ): Promise<string[]> {
 	const places = await placesInLine(path, change);
 	return places.map(
 		(place) =>
-			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}`,
+			`- waiting in ${line}, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}`,
 	);
+}
+
+/**
+ * Where the rounds waiting on `change` stand in this machine's line,
+ * kept beside `here`, and in each room's, kept a folder a room under
+ * `rooms` with the room's name as the folder's.
+ */
+export async function everyLineSaid(
+	here: string,
+	rooms: string,
+	change: string,
+): Promise<string[]> {
+	let folders: string[];
+	try {
+		folders = await readdir(rooms);
+	} catch {
+		// No round has waited on a room here yet.
+		folders = [];
+	}
+	const inRooms = await Promise.all(
+		folders.map((folder) =>
+			lineSaid(
+				join(rooms, folder, "last.json"),
+				change,
+				`the room ${roomOf(folder)}'s start line`,
+			),
+		),
+	);
+	return [...(await lineSaid(here, change)), ...inRooms.flat()];
+}
+
+/** The room a line's folder is named for, or the folder's own name. */
+function roomOf(folder: string): string {
+	try {
+		return decodeURIComponent(folder);
+	} catch {
+		// Named by hand, not for a room: said as it is.
+		return folder;
+	}
 }

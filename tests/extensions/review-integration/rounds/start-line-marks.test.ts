@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	everyLineSaid,
 	isWorldWork,
 	lineSaid,
 	urgentMarks,
@@ -178,5 +179,49 @@ describe("where a change's rounds stand", () => {
 		expect(await lineSaid(join(home, "starts", "last.json"), "o/r#2")).toEqual([
 			`- waiting in the start line, position 2 of 2, asked ${now} by S2`,
 		]);
+	});
+
+	it("says each room's line beside this machine's, by the room's name", async () => {
+		const now = new Date().toISOString();
+		const waiting = (folder: string, by: string) => {
+			mkdirSync(folder, { recursive: true });
+			writeFileSync(
+				join(folder, "line.json"),
+				JSON.stringify({
+					waiting: [
+						{ id: by, by, change: "o/r#1", pid: 1, askedAt: now, seenAt: now },
+					],
+				}),
+			);
+		};
+		const rooms = join(home, "starts", "rooms");
+		waiting(join(home, "starts"), "S1");
+		waiting(join(rooms, encodeURIComponent("room/1")), "S2");
+		// A folder named by hand, not for a room, is said as it is.
+		waiting(join(rooms, "100%"), "S3");
+
+		const said = await everyLineSaid(
+			join(home, "starts", "last.json"),
+			rooms,
+			"o/r#1",
+		);
+
+		expect([...said].sort()).toEqual(
+			[
+				`- waiting in the start line, position 1 of 1, asked ${now} by S1`,
+				`- waiting in the room room/1's start line, position 1 of 1, asked ${now} by S2`,
+				`- waiting in the room 100%'s start line, position 1 of 1, asked ${now} by S3`,
+			].sort(),
+		);
+	});
+
+	it("says only this machine's line while no round has waited on a room", async () => {
+		expect(
+			await everyLineSaid(
+				join(home, "starts", "last.json"),
+				join(home, "starts", "rooms"),
+				"o/r#1",
+			),
+		).toEqual([]);
 	});
 });
