@@ -16,6 +16,7 @@ import {
 	hostCodeOf,
 	hostModules,
 	installMovesFrom,
+	installMovesOrThrowsFrom,
 	isUnitMain,
 	ownLaunchdJob,
 	ownUnit,
@@ -194,6 +195,58 @@ describe("installMovesFrom", () => {
 	it("never moves for a version outside an install, such as a tree", async () => {
 		await put("tree/scripts/pi-host.ts", "export {};\n");
 		const moved = installMovesFrom(join(root, "tree"));
+		expect(await moved()).toBeUndefined();
+	});
+
+	// 27 November (#2320's F25): a child's roll read an unreadable link as
+	// its code found current again, and dropped its hour's wait for room.
+	describe("asked as a child's roll asks", () => {
+		it("throws, rather than answering nothing, when the install's link can't be read", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			const moved = installMovesOrThrowsFrom(one);
+			await expect(moved()).rejects.toThrow("can't be read");
+		});
+
+		it("throws while the version it names is still installing, then says why it moved", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			await version("two", "export const a = 2;\n");
+			await put(
+				"install/versions/two/pnpm-lock.yaml",
+				"lockfileVersion: '9.0'\n",
+			);
+			await symlink(one, join(root, "install", "current"));
+			const moved = installMovesOrThrowsFrom(one);
+			await moveTo("two");
+
+			await expect(moved(), "still installing").rejects.toThrow(
+				"the install's two hasn't finished installing",
+			);
+			await put("install/versions/two/node_modules/.modules.yaml", "{}\n");
+			expect(await moved(), "installed").toBe(
+				"the install's two changes the host's own code",
+			);
+		});
+
+		it("answers nothing while the install names its own version or the same host code", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			await version("same", "export const a = 1;\n");
+			await symlink(one, join(root, "install", "current"));
+			const moved = installMovesOrThrowsFrom(one);
+			expect(await moved(), "its own version").toBeUndefined();
+			await moveTo("same");
+			expect(await moved(), "the same host code").toBeUndefined();
+		});
+
+		it("never moves, nor throws, for a version outside an install", async () => {
+			await put("tree/scripts/pi-host.ts", "export {};\n");
+			const moved = installMovesOrThrowsFrom(join(root, "tree"));
+			expect(await moved()).toBeUndefined();
+		});
+	});
+
+	it("answers nothing when the install's link can't be read, as a host's restart asks", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		const moved = installMovesFrom(one);
 		expect(await moved()).toBeUndefined();
 	});
 });

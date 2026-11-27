@@ -7,10 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	cpuShort,
 	type MachineReads,
 	machineQuiet,
 	machineShort,
-} from "../../../../lib/core/review/ask/machine-room.ts";
+} from "../../../../lib/internal/machine/room.ts";
 
 const KIB_PER_GIB = 1024 * 1024;
 
@@ -156,17 +157,25 @@ describe("whether the machine has room for a round", () => {
 		const passable = async (over: Partial<MachineReads>) =>
 			(await machineShort(reads(over)))?.passable;
 
-		expect(await passable({ cpuPressure: cpu })).toBe(true);
+		expect(
+			await passable({ cpuPressure: cpu }),
+			"CPU alone short, not passable",
+		).toBe(true);
 		expect(
 			await passable({
 				cpuPressure: cpu,
 				memoryPressure: pressure("full", "6"),
 			}),
+			"memory pressure short too, passable",
 		).toBe(false);
-		expect(await passable({ cpuPressure: cpu, meminfo: meminfo(4) })).toBe(
-			false,
-		);
-		expect(await passable({ meminfo: meminfo(4) })).toBe(false);
+		expect(
+			await passable({ cpuPressure: cpu, meminfo: meminfo(4) }),
+			"available memory short too, passable",
+		).toBe(false);
+		expect(
+			await passable({ meminfo: meminfo(4) }),
+			"available memory alone short, passable",
+		).toBe(false);
 	});
 
 	it("has room where no reading is kept, as on a Mac", async () => {
@@ -177,6 +186,18 @@ describe("whether the machine has room for a round", () => {
 				meminfo: missing,
 			}),
 		).toBeUndefined();
+	});
+
+	it("reads a roll's room from the CPU alone, short at the bar and past it", async () => {
+		expect(await cpuShort(pressure("some", "40"))).toBe(
+			"CPU some avg60 was 40, at or past 40",
+		);
+		expect(await cpuShort(pressure("some", "39.99"))).toBeUndefined();
+		expect(
+			await cpuShort(pressure("full", "90")),
+			"the full line is memory's bar, not the CPU's",
+		).toBeUndefined();
+		expect(await cpuShort(missing), "as on a Mac").toBeUndefined();
 	});
 
 	it("judges by the readings it has when one is missing", async () => {

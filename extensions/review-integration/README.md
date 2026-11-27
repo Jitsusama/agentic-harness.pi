@@ -337,7 +337,7 @@ soon as the machine has room for it. On Linux that is while the
 kernel's memory `full avg60` is under 5, `MemAvailable` is at least
 16 GiB (half of all memory on a machine with less than 32 GiB) and
 CPU `some avg60` is under 40, read from `/proc/pressure` and
-`/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
+`/proc/meminfo` (`lib/internal/machine/room.ts`), and at
 most two a minute, so a long line drains no faster than those
 minute-long averages can show what the rounds before took. While
 the machine is quiet, well inside every bar (memory `full avg60`

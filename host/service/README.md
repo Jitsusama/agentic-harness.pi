@@ -347,15 +347,32 @@ input pipeline or screen. No unit or running host is installed yet.
 - stale-child.ts: a child rolling onto new code. A child never
   restarts itself, so it keeps the host code it started with; on 22
   November 15 children ran host code 34 hours old. Every five
-  minutes it asks its install (what-starts.ts `installMovesFrom`, as
-  restart.ts does) whether the host code there differs, and once it
+  minutes it asks its install (what-starts.ts
+  `installMovesOrThrowsFrom`, as restart.ts asks `installMovesFrom`)
+  whether the host code there differs, and once it
   does, says so in the journal and marks its host stale for good
   (`SessionHost.roll`). Its conversation then parks at its next quiet
   moment, idle time aside, unless a window views it
   (`Host.rolling`), and the next wake starts a fresh child on current
   code. Its wakes are held as a drain's are (`SessionHost.holdsWakes`),
   so a woken one waits for that fresh child, but only while no window
-  views it, since a window keeps the child running.
+  views it, since a window keeps the child running. A child rolls no
+  sooner than an hour after it started (`ROLL_ONLY_AFTER_MS`): stale
+  before then, it says when it will roll and looks again at that
+  moment, so a conversation rolls at most once an hour however often
+  the install moves. Past the hour it first waits a random share of
+  ten minutes (`ROLL_SPREAD_MS`), so a machine's children roll apart,
+  and then rolls only while the CPU's `some avg60` is under 40, the
+  bar a council's round waits on (lib/internal/machine/room.ts
+  `cpuShort`). While it isn't, it looks again after five minutes and
+  its share again, so the children held go out apart as the CPU falls.
+  After an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`)
+  it rolls anyway and says so, since a child left on stale code for
+  hours is what the roll exists to end. A look that can't tell, since
+  the install's `current` can't be read or names a version not done
+  installing, keeps the wait; one finding the code current again
+  forgets it, saying so.
+  The hour and the wait run on a clock a wall clock's steps don't move.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

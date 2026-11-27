@@ -15,10 +15,6 @@ import {
 	type RoundRoom,
 } from "../../../lib/core/review/ask/mac-room.ts";
 import {
-	machineQuiet,
-	machineShort,
-} from "../../../lib/core/review/ask/machine-room.ts";
-import {
 	awaitCouncilStart,
 	COUNCIL_START_SPACING_MS,
 	type CouncilStart,
@@ -40,6 +36,10 @@ import {
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import {
+	machineQuiet,
+	machineShort,
+} from "../../../lib/internal/machine/room.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import {

@@ -2,7 +2,7 @@
  * Whether a Mac has the memory to start a council's reviewers.
  *
  * Linux judges a round's room by its pressure files and `meminfo`
- * (machine-room.ts). A Mac keeps no such figure, so it reads the rule
+ * (lib/internal/machine/room.ts). A Mac keeps no such figure, so it reads the rule
  * the machine queue reads there (room-darwin.ts): the kernel's pressure
  * level, a swap-out within the last minute, or too little memory
  * available. On 25 November a Mac swapped hard while rounds still
