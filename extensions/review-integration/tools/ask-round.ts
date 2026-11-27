@@ -10,7 +10,7 @@
  */
 
 import { join } from "node:path";
-import { memoryShort } from "../../../lib/core/review/ask/memory-room.ts";
+import { machineShort } from "../../../lib/core/review/ask/machine-room.ts";
 import {
 	awaitCouncilStart,
 	type CouncilStart,
@@ -186,7 +186,7 @@ export async function awaitRosterStart(
 			leads: await isWorldWork(change),
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
-			room: () => memoryShort(),
+			room: () => machineShort(),
 			...(spacingMs === undefined ? {} : { spacingMs }),
 		},
 		signal,

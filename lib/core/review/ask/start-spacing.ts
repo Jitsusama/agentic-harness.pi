@@ -1100,7 +1100,7 @@ function stoppedSaid(
 
 /** When a round starts here, and what held it, as its answer says. */
 function startRuleSaid(spacing: number, short: string | undefined): string {
-	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}, while memory has room`;
+	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}, while the machine has room`;
 	return short === undefined ? rule : `${rule}, and while it waited ${short}`;
 }
 

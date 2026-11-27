@@ -105,7 +105,7 @@ describe("starting council rounds on room alone", () => {
 		const start = await awaitCouncilStart(path, onRoom("ISXEG8", room));
 
 		expect(looks, "it looked until there was room").toBe(4);
-		expect(start.waited).toContain("while memory has room");
+		expect(start.waited).toContain("while the machine has room");
 		expect(start.waited).toContain("memory full avg60 was 14");
 		expect(line().started.by).toBe("ISXEG8");
 	});
@@ -199,7 +199,7 @@ describe("starting council rounds on room alone", () => {
 		stop.abort();
 
 		const stopped = await start;
-		expect(stopped.cancelled).toContain("while memory has room");
+		expect(stopped.cancelled).toContain("while the machine has room");
 		expect(stopped.cancelled, "and what it was short of").toContain(
 			"memory full avg60 was 20",
 		);
