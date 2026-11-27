@@ -253,13 +253,17 @@ export async function isUnitMain(
 }
 
 /**
- * Where `systemctl set-property` keeps what it sets, for the user manager
- * and the system's: a resource control systemd applies to the running
- * unit at once, which never changes what the unit starts. A jobs sorter
- * writes and takes back such drop-ins as it starts and stops, so counting
- * them restarted every host at a switch that added one (03:00, 27 Nov).
+ * Where `systemctl --user set-property` keeps what it sets: a resource
+ * control systemd applies to the running unit at once, which never changes
+ * what the unit starts. A jobs sorter writes and takes back such drop-ins
+ * as it starts and stops, so counting them restarted every host at a
+ * switch that added one (03:00, 27 Nov). The host asks the user manager,
+ * which never reads the system's system.control, so only user.control is
+ * left out. It trusts the folder, not what is in it: a drop-in put there
+ * by hand, an ExecStart= or Environment= one too, goes unfollowed, as
+ * systemd keeps that folder for set-property and nothing here writes to it.
  */
-const SET_PROPERTY_FOLDERS = /\/systemd\/(?:user|system)\.control\//;
+const SET_PROPERTY_FOLDER = /\/systemd\/user\.control\//;
 
 /**
  * The fingerprint of the unit as systemd would start it now: where its
@@ -294,8 +298,27 @@ export async function unitDefinition(
 	const files = [fragment, ...(properties.get("DropInPaths") ?? "").split(" ")];
 	const resolved = await Promise.all(
 		files
-			.filter((file) => file !== "" && !SET_PROPERTY_FOLDERS.test(file))
+			.filter((file) => file !== "" && !SET_PROPERTY_FOLDER.test(file))
 			.map((file) => realpath(file).catch(() => file)),
 	);
 	return resolved.join("\n");
+}
+
+/**
+ * What moved between two of a unit's definitions, as the files systemd now
+ * reads and those it no longer reads, so a restart says which file changed
+ * rather than leaving it to be pieced together from the journal.
+ */
+export function definitionMoves(before: string, now: string): string {
+	const was = new Set(before.split("\n"));
+	const is = new Set(now.split("\n"));
+	const came = [...is].filter((file) => !was.has(file));
+	const went = [...was].filter((file) => !is.has(file));
+	const moves = [
+		...(came.length > 0 ? [`it now reads ${came.join(", ")}`] : []),
+		...(went.length > 0 ? [`it no longer reads ${went.join(", ")}`] : []),
+	];
+	return moves.length > 0
+		? moves.join(", and ")
+		: "it reads the same files in a new order";
 }

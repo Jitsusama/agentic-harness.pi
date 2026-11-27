@@ -1526,14 +1526,18 @@ describe("followWhatStarts", () => {
 
 	it("restarts once systemd has read a new unit file", async () => {
 		const { systemctl, calls } = systemd();
-		const { timers, serving } = await follow(systemctl);
+		const { timers, serving, report } = await follow(systemctl);
 		const next = join(dir, "next.service");
 		await writeFile(next, "[Service]\n");
+		const was = await realpath(unitFile);
 		await rename(unitFile, join(dir, "old.service"));
 		await symlink(next, unitFile);
 		await timers.fire(() => calls.at(-1)?.[1] === "restart");
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+		expect(String(report.mock.calls.at(-1)?.[0]), "which file moved").toContain(
+			`systemd has a new ${unit}: it now reads ${await realpath(next)}, and it no longer reads ${was}`,
+		);
 	});
 
 	it("follows nothing where it isn't the unit's main process", async () => {
