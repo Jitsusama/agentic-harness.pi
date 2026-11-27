@@ -6,11 +6,14 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { installCommitHook } from "../../../../lib/internal/guardian/commit-hook.ts";
+import {
+	ensureCommitHook,
+	installCommitHook,
+} from "../../../../lib/internal/guardian/commit-hook.ts";
 // Imported only to be named, so `--changed` runs this file when the hook's
 // script changes alone; the hook it installs and runs is that script.
 import "../../../../lib/core/attribution/prepare-commit-msg.sh";
@@ -59,5 +62,30 @@ describe("pi's installed commit hook", () => {
 			encoding: "utf8",
 		});
 		expect(log).not.toContain("Co-Authored-By");
+	});
+});
+
+// A strict sandbox keeps PI_CO_AUTHOR from every command, so a hook
+// there could attribute nothing and only give a commit a way to fail.
+describe("where pi writes its commit hook", () => {
+	const hook = (repo: string) =>
+		existsSync(join(repo, ".git", "hooks", "prepare-commit-msg"));
+
+	it("writes none for a pi whose commands run strict", async () => {
+		const repo = initRepo();
+
+		await ensureCommitHook(repo, new Set(), { PI_SANDBOX: "strict" });
+
+		expect(hook(repo), "no hook in a strict session's repo").toBe(false);
+	});
+
+	it("writes one for a pi whose commands carry the trailer", async () => {
+		for (const sandbox of ["off", "fence"]) {
+			const repo = initRepo();
+
+			await ensureCommitHook(repo, new Set(), { PI_SANDBOX: sandbox });
+
+			expect(hook(repo), `a hook under PI_SANDBOX=${sandbox}`).toBe(true);
+		}
 	});
 });

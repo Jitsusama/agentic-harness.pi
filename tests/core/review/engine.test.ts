@@ -82,6 +82,22 @@ describe("probing a checkout", () => {
 		]);
 		const probe = await engine.probe("/tmp/elsewhere");
 		expect(probe.repoRoot).toBeUndefined();
+		expect(probe.refused).toBeUndefined();
+	});
+
+	it("says why when a guard refused git in the checkout, which may well be a repo", async () => {
+		const { engine } = engineWith([
+			{
+				when: ["--show-toplevel"],
+				code: 126,
+				stderr: "git refused: the tree's hooks run outside the fence\n",
+			},
+		]);
+		const probe = await engine.probe("/src/world");
+		expect(probe.repoRoot).toBeUndefined();
+		expect(probe.refused).toBe(
+			"git refused: the tree's hooks run outside the fence",
+		);
 	});
 });
 
