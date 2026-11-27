@@ -102,11 +102,6 @@ export interface Standing {
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
 	/**
-	 * The message answers a pivot this peer sent, which a session does
-	 * only when it can't take the pivot up (see thread.ts).
-	 */
-	readonly refuses?: boolean;
-	/**
 	 * This peer is idle, its last run ended with a `Blocked:` line naming
 	 * the sender (see internal/session/ending.ts), and so it rests waiting
 	 * on that peer's next word, however that is sent.
@@ -209,23 +204,14 @@ export function attend(message: Message, at: Standing): Heed {
 	// or a checkpoint on it, is noted for its next turn instead: from 10:00
 	// to 22:00 on 17 November 532 of 1,097 led fyis to four orchestrators
 	// answered them, 322 of those a pivot, and one pivot woke WM4KSZ for 29
-	// at 14:41. Sessions now answer a pivot only when they can't take it
-	// up, and who has it shows beside the pivot by read marker, so an
-	// answer to a pivot is a refusal its orchestrator must act on, and an
-	// idle one acts on it. It is held until the mesh settles, as news is,
-	// since sessions still on the old ask ack every pivot until they
-	// reload, and a turn for each would wake an orchestrator as WM4KSZ was
-	// woken. A landing that answers one still acts, an answer to its
-	// question still takes a turn above, and a question sent re a pivot is
-	// heard below as one put to the peer, so its answer is owed.
-	if (
-		at.refuses &&
-		at.idle &&
-		message.intent !== "hold" &&
-		message.intent !== "question"
-	) {
-		return { attention: "act", why: "a session can't take up its pivot" };
-	}
+	// at 14:41. Sessions now take a pivot up unanswered, since who has it
+	// shows beside the pivot by read marker, and one that can't take it up
+	// asks its orchestrator a question re the pivot. That is heard below as
+	// any question answering it is: a turn, steered into a run under way
+	// when sent to its address, and never damped. An fyi answering a pivot
+	// stays a note, so sessions still on the old ask, which ack every pivot
+	// until they reload, wake nobody. A landing that answers one still
+	// acts, and an answer to its question still takes a turn above.
 	const answerOnly =
 		message.intent === "fyi" && at.answers === true && !at.restates;
 	if (

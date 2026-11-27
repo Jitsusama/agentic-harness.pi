@@ -286,7 +286,11 @@ and can answer a question or a gate left open on screen.
   says which peers have it and which not yet, and under each
   one withdrawn, what replaced it. Under each question it
   asked, it says who answered and in which message, who is
-  answering, or for how long it has gone unanswered. It keeps
+  answering, or for how long it has gone unanswered. Under each
+  pivot it sent, it says who answered it (a session that can't
+  take it up asks), who has it by read marker, who not yet, and
+  whose take-up is unknown, being on another machine, whose
+  marker stays there. It keeps
   the newest that fit in 12 KB, at most 50, and names the
   oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
@@ -517,12 +521,14 @@ and its groups.
   for an orchestrator a finding or fyi sent to it by a session
   it leads, since passing those on to the person is its work
   (on 2026-11-07 three orchestrators sat on theirs until they
-  parked), and a session's answer to its pivot, sent only when
-  it can't take the pivot up. Any other fyi that only answers
-  what the orchestrator sent is a note for its next turn, unless
-  it names a landing or the orchestrator is parked: on
+  parked). Any other fyi that only answers what the
+  orchestrator sent is a note for its next turn, unless it
+  names a landing or the orchestrator is parked: on
   2026-11-17, 532 of 1,097 such fyis to four orchestrators were
-  answers, 322 of them a pivot taken up. It
+  answers, 322 of them a pivot taken up. Sessions now take a
+  pivot up unanswered, since `mesh_read` shows who has it, and
+  one that can't asks its orchestrator a question re the pivot,
+  which takes a turn as any question answering it does. It
   waits 30 seconds and up to 30 more, the extra different for
   each session so peers hearing one message do not start at
   once, and what arrives meanwhile goes in the same turn. A

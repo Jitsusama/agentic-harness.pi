@@ -3,7 +3,6 @@
  * every question still waiting on a peer it was put to.
  */
 
-import { homeOf } from "../../../lib/mesh/group.ts";
 import { othersOn } from "../../../lib/mesh/lease.ts";
 import {
 	clock,
@@ -263,7 +262,7 @@ const OPEN_CHARS = 100;
  * and for how long. A question nobody answers otherwise reads the same
  * as one answered in a group the asker never looked at. A pivot names
  * who it reached has it and who has not yet, by read markers, since a
- * session answers one only when it can't take it up.
+ * session asks about one only when it can't take it up.
  */
 async function questionStates(
 	at: Local,
@@ -335,7 +334,9 @@ async function questionStates(
 /**
  * Who of the sessions a pivot reached has it, by their read markers,
  * who answered it, which a session does only when it can't take it up,
- * and who has not had it yet.
+ * and who has not had it yet. A session is reached as any message
+ * reaches it, so one hearing the pivot's group through a part of it
+ * counts.
  */
 function pivotState(
 	pivot: Message,
@@ -348,8 +349,7 @@ function pivotState(
 	const reached = present.filter(
 		(one) =>
 			!one.addresses.some((address) => self.addresses.includes(address)) &&
-			(one.addresses.some((address) => pivot.to.includes(homeOf(address))) ||
-				one.groups.some((group) => pivot.to.includes(group))),
+			reaches(pivot, one, -1),
 	);
 	const answeredBy = (one: Presence) =>
 		one.addresses.some((address) => by.has(address));

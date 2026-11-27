@@ -22,8 +22,8 @@ import { ALL, hears, homeOf } from "./group.ts";
  * - fyi: context only.
  * - pivot: change what you are doing. Only an orchestrator sends one, to
  *   the sessions it orchestrates. Each takes it up without answering,
- *   since its read marker shows it has it, and answers only when it
- *   can't take it up.
+ *   since its read marker shows it has it, and asks its orchestrator a
+ *   question re the pivot only when it can't take it up.
  */
 export const INTENTS = ["hold", "question", "finding", "fyi", "pivot"] as const;
 

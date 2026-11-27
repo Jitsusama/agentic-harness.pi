@@ -150,15 +150,19 @@ describe("an orchestrator", () => {
 		expect(sent[0]?.message.content).toContain("landing's url");
 	});
 
-	// A session answers a pivot only when it can't take it up, so an idle
-	// orchestrator left with that answer as a note would sit on the
-	// refusal until something else started its turn. Sessions still on the
-	// old ask ack each pivot, so a burst of answers costs one turn.
-	it("takes one turn, as an idle orchestrator, for sessions that can't take up its pivot", async () => {
+	// A session takes a pivot up unanswered, and one that can't asks its
+	// orchestrator a question re the pivot. Sessions still on the old ask
+	// ack each pivot with news, which waits for the next turn, so a burst
+	// of acks wakes nobody.
+	it("takes a turn, as an idle orchestrator, only for a session that can't take up its pivot", async () => {
 		leading();
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
 		const [pivot] = sentOut();
+		const about = (text: string) =>
+			sent.filter(({ message }) =>
+				JSON.stringify(message.content).includes(text),
+			);
 
 		fromElsewhere({
 			to: ["@7M6JKG"],
@@ -166,28 +170,20 @@ describe("an orchestrator", () => {
 			re: pivot?.id,
 			text: "Taken up: the cap.",
 		});
+		await vi.waitFor(() => expect(about("Taken up")).toHaveLength(1));
+		expect(about("Taken up")[0]?.options).toEqual({ triggerTurn: false });
+
 		fromElsewhere({
 			to: ["@7M6JKG"],
 			from: "4UHC5Q",
 			re: pivot?.id,
-			text: "Can't take it up: the cap waits on a review.",
+			intent: "question",
+			text: "Can't take it up: the cap waits on a review. May it wait?",
 		});
-
-		await vi.waitFor(() =>
-			expect(
-				sent.filter(({ message }) =>
-					JSON.stringify(message.content).includes("the cap"),
-				),
-			).toHaveLength(1),
-		);
-		const [turn] = sent.filter(({ message }) =>
-			JSON.stringify(message.content).includes("the cap"),
-		);
-		expect(turn?.options).toEqual({ triggerTurn: true });
-		expect(JSON.stringify(turn?.message.content)).toContain("Taken up");
-		expect(JSON.stringify(turn?.message.content)).toContain(
-			"waits on a review",
-		);
+		await vi.waitFor(() => expect(about("waits on a review")).toHaveLength(1));
+		expect(about("waits on a review")[0]?.options).toEqual({
+			triggerTurn: true,
+		});
 	});
 
 	it("starts no turn for a finding from a session it does not lead", async () => {
@@ -320,6 +316,28 @@ describe("an orchestrator", () => {
 		expect(transport.ids()).toEqual([]);
 	});
 
+	// A session in a part of the pivot's group hears the pivot, so it is
+	// counted among those it reached (#2315's round, F9).
+	it("counts a session hearing a pivot's group through a part of it", async () => {
+		leading();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-p",
+			addresses: ["4UHC5Q"],
+			groups: ["#orchestration/7m6jkg/cap"],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+
+		expect(
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text,
+		).toMatch(/\n {2}not yet: [^\n]*4UHC5Q/);
+	});
+
 	// A paused session may name no address, and is still counted as one
 	// the pivot hasn't yet turned, so two such never read as nobody.
 	it("says who a pivot hasn't turned yet, counting the sessions naming no address", async () => {
@@ -351,6 +369,7 @@ describe("an orchestrator", () => {
 			from: "85PKB2",
 			to: ["@7M6JKG"],
 			re: pivot?.id,
+			intent: "question",
 			text: "Can't take it up: the cap waits on a review.",
 		});
 		const answered = await readBack();
@@ -412,13 +431,14 @@ describe("an orchestrator", () => {
 		);
 		expect(read, "nobody answered it").not.toContain("answered by");
 
-		// A session refuses a pivot only once it has read it, so its answer
-		// comes with its marker past the pivot: it reads as answered, and
-		// as neither having it nor waiting on it.
+		// A session asks about a pivot it can't take up only once it has
+		// read it, so its question comes with its marker past the pivot: it
+		// reads as answered, and as neither having it nor waiting on it.
 		fromElsewhere({
 			from: "85PKB2",
 			to: ["@7M6JKG"],
 			re: pivot?.id,
+			intent: "question",
 			text: "Can't take it up: the cap waits on a review.",
 		});
 		const refused = await readBack();

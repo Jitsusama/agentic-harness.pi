@@ -444,30 +444,44 @@ describe("a peer resting blocked on the sender", () => {
 		).toBe("act");
 	});
 
-	it("has an idle orchestrator act on a session that can't take up its pivot", () => {
-		// A session answers a pivot only to refuse it, so the refusal is
-		// work for its orchestrator, however it was sent, and not a quiet
-		// ack left for whatever starts its next turn. It waits for the mesh
-		// to settle, so the acks of sessions still on the old ask cost one
-		// turn a burst.
-		const refusal = message({ to: ["#quest/5gv2ah"], re: "0-5GV2AH-1-pivot" });
-		const led = { ...blocked, led: true, answers: true, refuses: true };
-		for (const intent of ["fyi", "finding"] as const) {
-			expect(attend({ ...refusal, intent }, led)).toEqual({
-				attention: "act",
-				why: "a session can't take up its pivot",
-			});
+	it("wakes an orchestrator for a question re its pivot, never for news re it", () => {
+		// A session takes a pivot up unanswered and asks its orchestrator a
+		// question re the pivot only when it can't. News answering a pivot is
+		// an old session's ack, so it waits for the next turn however it was
+		// sent, and a burst of them wakes nobody.
+		const led = { ...blocked, led: true, answers: true };
+		const news = [
+			["#quest/5gv2ah", "fyi"],
+			["@5GV2AH", "fyi"],
+			["#quest/5gv2ah", "finding"],
+		] as const;
+		for (const [to, intent] of news) {
+			expect(
+				attend(message({ to: [to], re: "0-5GV2AH-1-pivot", intent }), led)
+					.attention,
+				`${intent} to ${to}`,
+			).toBe("note");
 		}
-		expect(attend(refusal, { ...led, idle: false }).attention).toBe("note");
-		// A hold or a question re the pivot is one put to the peer: its
-		// answer is owed, and a hold is steered into a run under way.
-		const put = message({ to: ["@5GV2AH"], re: "0-5GV2AH-1-pivot" });
+		const asked = message({
+			to: ["#quest/5gv2ah"],
+			re: "0-5GV2AH-1-pivot",
+			intent: "question",
+		});
+		expect(attend(asked, led)).toEqual({
+			attention: "turn",
+			why: "answering this peer",
+		});
+		// Sent to its address, it is put to the peer: steered into a run
+		// under way, as a hold re the pivot is.
 		for (const intent of ["question", "hold"] as const) {
-			expect(attend({ ...put, intent }, led)).toEqual({
-				attention: "turn",
-				why: "answering this peer",
-				addressed: true,
-			});
+			const put = message({ to: ["@5GV2AH"], re: "0-5GV2AH-1-pivot", intent });
+			for (const idle of [true, false]) {
+				expect(attend(put, { ...led, idle })).toEqual({
+					attention: "turn",
+					why: "answering this peer",
+					addressed: true,
+				});
+			}
 		}
 	});
 

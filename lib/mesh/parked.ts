@@ -37,12 +37,7 @@ import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
 import { inboxOf, type Steer, waitingSteers } from "./steer.ts";
 import { ORDERED_CARRY } from "./steer-who.ts";
-import {
-	answers,
-	answersPivot,
-	answersQuestion,
-	type Reader,
-} from "./thread.ts";
+import { answers, answersQuestion, type Reader } from "./thread.ts";
 
 /** Whether a presence says its session is parked. */
 export function saysParked(presence: Pick<Presence, "state">): boolean {
@@ -125,7 +120,6 @@ function wakesOnceReached(
 	const led =
 		sender?.orchestratedBy !== undefined &&
 		parked.addresses.includes(sender.orchestratedBy);
-	const refuses = answersPivot(message, read, self);
 	const heed = attend(message, {
 		receiver: {
 			addresses: parked.addresses,
@@ -139,16 +133,14 @@ function wakesOnceReached(
 		// landing, so any of it wakes it, answering its pivot or not.
 		answers: !(led && message.intent === "fyi") && answers(message, read, self),
 		asked: answersQuestion(message, read, self),
-		...(refuses ? { refuses: true } : {}),
 		askedEach: asksEach(message, listener),
 		now,
 	});
-	// What it leads acts on once the mesh settles: a turn all the same. So
-	// does a refusal of its pivot, from a session whose presence here may
-	// not name who leads it, as one on another machine's.
-	return (
-		heed.attention === "turn" || ((led || refuses) && heed.attention === "act")
-	);
+	// What it leads acts on once the mesh settles: a turn all the same. A
+	// session that can't take up its pivot asks it a question re the pivot,
+	// which is a turn however the asker's presence here names who leads it,
+	// as one on another machine's may not.
+	return heed.attention === "turn" || (led && heed.attention === "act");
 }
 
 /**

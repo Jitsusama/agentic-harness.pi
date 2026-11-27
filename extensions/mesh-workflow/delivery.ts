@@ -172,7 +172,7 @@ export const ASKS: Readonly<Record<Intent, string>> = {
 	finding:
 		"A finding: it waited for this turn rather than starting one. If you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it as your work allows; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only, which waited for this turn rather than starting one. No reply and no action.",
-	pivot: `A pivot: your orchestrator changes what you are doing. Put down what it names and take up what it says. Send no answer: your orchestrator sees that you have it. Answer it with mesh_send, re set to its id, only when you can't take it up, saying why. Anything waiting on the person goes to your orchestrator as a question. Anything stuck goes to the owner of what it waits on, by address, or to ${NEED_CALL}.`,
+	pivot: `A pivot: your orchestrator changes what you are doing. Put down what it names and take up what it says. Send no answer: your orchestrator sees that you have it. Only when you can't take it up, ask your orchestrator with mesh_send (to: orchestrator, intent: question, re set to its id), saying why and what you need. Anything waiting on the person goes to your orchestrator as a question. Anything stuck goes to the owner of what it waits on, by address, or to ${NEED_CALL}.`,
 };
 
 /**

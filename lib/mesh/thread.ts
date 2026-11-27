@@ -55,21 +55,6 @@ export function answers(message: Message, read: Reader, self: Self): boolean {
 }
 
 /**
- * Whether this message answers a pivot this peer sent. A session answers
- * a pivot only when it can't take it up, so the answer is a refusal its
- * orchestrator has to act on, whatever intent it was sent with.
- */
-export function answersPivot(
-	message: Message,
-	read: Reader,
-	self: Self,
-): boolean {
-	if (message.re === undefined) return false;
-	const pivot = read(message.re);
-	return pivot?.intent === "pivot" && sentBy(pivot, self);
-}
-
-/**
  * Whether this message answers a question this peer asked, which the
  * peer is waiting on whatever intent the answer was sent with.
  */

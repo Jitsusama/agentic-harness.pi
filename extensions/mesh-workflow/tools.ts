@@ -131,7 +131,7 @@ export function registerTools(
 			),
 			intent: StringEnum(INTENTS, {
 				description:
-					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only; pivot: an orchestrator changing what its sessions do, each taking it up unanswered, answering only when it can't",
+					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only; pivot: an orchestrator changing what its sessions do, each taking it up unanswered, and asking it a question re the pivot only when it can't",
 			}),
 			text: Type.String({
 				description: "The message, plain and short, standing on its own",

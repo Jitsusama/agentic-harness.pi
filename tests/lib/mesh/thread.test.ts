@@ -6,7 +6,6 @@ import { ALL } from "../../../lib/mesh/group.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import {
 	answers,
-	answersPivot,
 	answersQuestion,
 	depthOf,
 	idNamed,
@@ -110,41 +109,6 @@ describe("an answer", () => {
 			answersQuestion(asked, read, self),
 			"the question itself answers nothing",
 		).toBe(false);
-	});
-
-	it("refuses this peer's pivot only when what it answers was one this peer sent", () => {
-		const self = { addresses: ["7M6JKG"], pid: 1 };
-		const pivot = message("1-7M6JKG-8-aaaaaaaa", {
-			from: "7M6JKG",
-			pid: 8,
-			intent: "pivot",
-		});
-		const asked = message("2-7M6JKG-8-cccccccc", { from: "7M6JKG", pid: 8 });
-		const refusal = message("3-85PKB2-7-bbbbbbbb", {
-			from: "85PKB2",
-			re: pivot.id,
-			intent: "fyi",
-		});
-		const answer = message("4-85PKB2-7-dddddddd", {
-			from: "85PKB2",
-			re: asked.id,
-			intent: "fyi",
-		});
-		const read = holding(pivot, asked, refusal, answer);
-
-		expect(
-			answersPivot(refusal, read, self),
-			"an answer to the peer's pivot refuses it",
-		).toBe(true);
-		expect(
-			answersPivot(answer, read, self),
-			"an answer to the peer's question refuses no pivot",
-		).toBe(false);
-		expect(
-			answersPivot(refusal, read, { addresses: ["P9R1KI"], pid: 1 }),
-			"an answer to another peer's pivot refuses none of this one's",
-		).toBe(false);
-		expect(answersPivot(pivot, read, self), "the pivot itself").toBe(false);
 	});
 });
 
