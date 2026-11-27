@@ -152,12 +152,23 @@ function runtimeFolder(): string | undefined {
 	return uid === undefined ? undefined : join("/run/user", String(uid));
 }
 
-/** The readings the machine holds rounds on, as a place's line ends. */
+/**
+ * The readings the machine holds rounds on, as a place's line ends:
+ * each past its bar, since a pressure is too high where MemAvailable
+ * is too low. Each goes on one line, whatever a writer of the shared
+ * line put in it, so a name can't add a line of its own.
+ */
 function heldSaid(heldBy: readonly string[] | undefined): string {
-	return heldBy === undefined || heldBy.length === 0
+	const named = (heldBy ?? [])
+		.map((each) => each.replace(/\s+/g, " ").trim().slice(0, NAME_AT_MOST))
+		.filter((each) => each !== "");
+	return named.length === 0
 		? ""
-		: `, held while the machine is short on ${heldBy.join(", ")}`;
+		: `, held past the machine's bar on ${named.join(", ")}`;
 }
+
+/** The most of one reading's name a place says. */
+const NAME_AT_MOST = 40;
 
 /**
  * Where the rounds waiting on `change` stand in the line kept beside

@@ -105,6 +105,22 @@ describe("whether the machine has room for a round", () => {
 		);
 	});
 
+	// Its second council: a floor a couple of hundred kilobytes past 7.7 GiB,
+	// and a reading under it but past 7.7, which rounding the floor to
+	// the nearest tenth, or to a hundredth first, says as 7.7 under 7.7.
+	it("says a floor just past a tenth as the tenth above", async () => {
+		const kib = (total: number, available: number) => async () =>
+			`MemTotal: ${total} kB\nMemAvailable: ${available} kB\n`;
+
+		expect(await saidOf(reads({ meminfo: kib(16148480, 8074200) }))).toBe(
+			"MemAvailable was 7.7 GiB, under 7.8",
+		);
+		// A floor two kilobytes past 7.7 GiB, and a reading one under it.
+		expect(await saidOf(reads({ meminfo: kib(16148076, 8074037) }))).toBe(
+			"MemAvailable was 7.7 GiB, under 7.8",
+		);
+	});
+
 	it("is short at CPU some avg60 40 and past it, whatever full reads", async () => {
 		expect(
 			await saidOf(reads({ cpuPressure: pressure("some", "40.00") })),

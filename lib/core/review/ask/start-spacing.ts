@@ -387,7 +387,14 @@ export async function awaitCouncilStart(
 				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
-			const passed = turn.passed === true ? passSaid(claim) : "";
+			const passed =
+				turn.passed === true
+					? passSaid(
+							claim,
+							(turn.lookedAt ?? Date.now()) -
+								(passableSince ?? turn.lookedAt ?? Date.now()),
+						)
+					: "";
 			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
 				: {
@@ -1191,11 +1198,16 @@ function waitSaid(
 	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round stops looking is passed over after ${UNSEEN_TICKET_MS / 60_000} minutes and keeps its place.`;
 }
 
-/** What a round that passed a bar adds to what its wait says. */
-function passSaid(claim: StartClaim): string {
+/**
+ * What a round that passed a bar adds to what its wait says: how long
+ * the CPU bar alone really held it, which can run well past the hold a
+ * pass needs while it waits its place or the pass's spacing, and the
+ * two rules it passed by.
+ */
+function passSaid(claim: StartClaim, heldMs: number): string {
 	const after = claim.pass?.afterMs ?? PASS_AFTER_MS;
 	const spacing = claim.pass?.spacingMs ?? PASS_SPACING_MS;
-	return ` It started past the CPU bar, which alone had held it for ${spacingSaid(after)}, with no round started for ${spacingSaid(spacing)}.`;
+	return ` It started past the CPU bar, which alone had held it for ${minutesSaid(heldMs)}, since a round the CPU bar alone holds for ${spacingSaid(after)} starts once no round has started for ${spacingSaid(spacing)}.`;
 }
 
 /** What a round replaced by a newer ask for its change answers. */

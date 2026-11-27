@@ -104,6 +104,8 @@ describe("starting past a bar that has held too long", () => {
 			held("ISXEG8", async () => onMemory),
 			stop.signal,
 		);
+		// A fixed wait, since what is tested is that nothing happens in it:
+		// three whole holds, any one of which would pass a CPU bar.
 		await new Promise((done) => setTimeout(done, 3 * AFTER));
 		stop.abort();
 
@@ -131,12 +133,17 @@ describe("starting past a bar that has held too long", () => {
 	it("counts the hold again from when memory let go", async () => {
 		// By the clock, not by looks, so a slow machine's looks can't let
 		// the first CPU hold run its whole length.
+		// Memory holds until a look has seen it, however slow the looks.
 		const asked = Date.now();
+		let memoryLooks = 0;
 		let memoryLetGo: number | undefined;
 		const room = async () => {
 			const since = Date.now() - asked;
 			if (since < AFTER / 2) return onCpu;
-			if (since < AFTER) return onMemory;
+			if (since < AFTER || memoryLooks === 0) {
+				memoryLooks += 1;
+				return onMemory;
+			}
 			memoryLetGo ??= Date.now();
 			return onCpu;
 		};
@@ -144,6 +151,42 @@ describe("starting past a bar that has held too long", () => {
 		await awaitCouncilStart(path, held("ISXEG8", room));
 
 		expect(memoryLetGo, "memory held it a while").toBeDefined();
+		expect(
+			Date.now() - (memoryLetGo ?? 0),
+			"a whole hold after memory let go",
+		).toBeGreaterThanOrEqual(AFTER - TIMER_EARLY_MS);
+	});
+
+	// Its second council: a look short on memory still carries the count
+	// the looks before it left, and only its own reading keeps it held.
+	it("holds a round whose CPU hold ran its length once memory is short", async () => {
+		const last = Date.now();
+		startedAt(new Date(last));
+		let memoryLooks = 0;
+		let memoryLetGo: number | undefined;
+		// CPU alone past a whole hold, while the pass's spacing still holds
+		// it. The first look short on memory is read slowly, so it lands
+		// once the spacing has passed with the CPU count still running,
+		// and memory holds a while after it; then CPU alone again.
+		const room = async () => {
+			const since = Date.now() - last;
+			if (memoryLooks === 0 && since < SINCE - 4 * LOOK) return onCpu;
+			if (memoryLooks === 0) {
+				// A slow reading, as /proc can be under load: it ends past the
+				// spacing, which is what this look has to meet.
+				await new Promise((done) => setTimeout(done, 6 * LOOK));
+			}
+			if (memoryLooks === 0 || since < SINCE + AFTER / 2) {
+				memoryLooks += 1;
+				return onMemory;
+			}
+			memoryLetGo ??= Date.now();
+			return onCpu;
+		};
+
+		await awaitCouncilStart(path, held("ISXEG8", room));
+
+		expect(memoryLetGo, "memory held it past the spacing").toBeDefined();
 		expect(
 			Date.now() - (memoryLetGo ?? 0),
 			"a whole hold after memory let go",
@@ -183,12 +226,19 @@ describe("the line saying what holds it", () => {
 		await start;
 	});
 
-	it("leaves the hold off the line once the machine has room", async () => {
-		await awaitCouncilStart(
-			path,
-			held("ISXEG8", async () => undefined),
-		);
+	it("takes the hold off the line once the machine has room", async () => {
+		let looks = 0;
+		let heldBy: unknown;
+		const room = async () => {
+			looks += 1;
+			if (looks < 4) return onMemory;
+			heldBy ??= line().heldBy;
+			return undefined;
+		};
 
+		await awaitCouncilStart(path, held("ISXEG8", room));
+
+		expect(heldBy, "memory held it first").toEqual(["memory full avg60"]);
 		expect(line().heldBy).toBeUndefined();
 	});
 });
