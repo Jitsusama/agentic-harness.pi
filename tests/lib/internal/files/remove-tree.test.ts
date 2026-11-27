@@ -241,7 +241,7 @@ describe("removing a tree", () => {
 		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
 		expect(() => removeTree(join(folder, "tree"), [folder])).toThrow(
-			/no rm found where only root can put one/,
+			/no rm found: none is kept where only root can put one/,
 		);
 		await expect(removeTreeOff(join(folder, "tree"), [folder])).rejects.toThrow(
 			/no rm found/,

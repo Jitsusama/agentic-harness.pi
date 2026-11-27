@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { secretStore } from "../../lib/core/internal/keyring/secrets.ts";
 import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { machineQueueDir } from "../../lib/internal/priority/folder.ts";
+import { CHOSEN_FOR_THE_RUN } from "./held-session.ts";
 
 describe("the test suite's XDG sandbox", () => {
 	it("resolves every directory outside the developer's home", () => {
@@ -41,6 +42,20 @@ describe("the test suite's XDG sandbox", () => {
 			queue.startsWith(tmpdir()),
 			`${queue} lies under the temporary directory, ${tmpdir()}`,
 		).toBe(true);
+	});
+
+	it("carries none of the developer's mycelium session", () => {
+		// A pi the node holds names its held session, realm and wake in
+		// MYCELIUM_ variables. A test inheriting MYCELIUM_HELD asked a node
+		// it stood up for its own held window, an ask on the developer's
+		// behalf no clean run makes, so needs.test.ts failed only there.
+		// The unit project's config plants MYCELIUM_HELD before the setup
+		// runs, so this fails on any runner whose setup stops dropping it.
+		const inherited = Object.keys(process.env).filter(
+			(name) => name.startsWith("MYCELIUM_") && !CHOSEN_FOR_THE_RUN.has(name),
+		);
+
+		expect(inherited).toEqual([]);
 	});
 
 	it("keeps credentials out of the developer's keyring", () => {

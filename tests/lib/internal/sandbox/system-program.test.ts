@@ -18,6 +18,7 @@ import {
 	rootOwners,
 	sealedPath,
 	systemProgram,
+	trustsNoOwner,
 } from "../../../../lib/internal/sandbox/system-program.ts";
 
 interface Node {
@@ -315,6 +316,39 @@ describe("root inside a user namespace", () => {
 			rootOwners(proc("         0       1000          1\n"), 0),
 			"the overflow id left out",
 		).toEqual([65534]);
+		// Read on every line, its range's last id in and the one past out.
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n         1     100000      65534\n",
+				),
+				0,
+			),
+			"the overflow id last in a later line's range",
+		).toEqual([]);
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n         1     100000      65533\n",
+				),
+				0,
+			),
+			"the overflow id just past a later line's range",
+		).toEqual([65534]);
+	});
+
+	it("keeps no outer root an inner root can give its files to", () => {
+		// Inner 0 can chown a file to any id the map names, the outer
+		// root's among them, so a planted program would pass as root's.
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n      5000          0          1\n",
+				),
+				0,
+			),
+			"the outer root mapped beside this process as inner 0",
+		).toEqual([]);
 	});
 
 	it("is root alone where there is no /proc, as on a Mac", () => {
@@ -378,5 +412,16 @@ describe("root inside a user namespace", () => {
 			systemProgram("bwrap", PROFILE, rooted([])),
 			"no owner trusted at all",
 		).toBeUndefined();
+	});
+
+	it("says when no owner is trusted, so a caller can say why nothing was found", () => {
+		const owning = (owners: readonly number[]): Look => ({
+			...disk(NIXOS),
+			rootOwners: () => owners,
+		});
+
+		expect(trustsNoOwner(owning([])), "no owner").toBe(true);
+		expect(trustsNoOwner(owning([65534])), "the overflow user").toBe(false);
+		expect(trustsNoOwner(disk(NIXOS)), "root, where none says").toBe(false);
 	});
 });

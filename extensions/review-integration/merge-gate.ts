@@ -220,9 +220,9 @@ export function gateRunner(): RunGate {
 				ran.code === EXIT_ABORTED &&
 				(clock.signal.aborted || call?.aborted === true);
 			if (!stoppedHere) return { ...ran, killed: false };
-			// spawnExec's own last line, "bash aborted", names neither the
-			// gate nor why; the refusal says both.
-			const stderr = ran.stderr.replace(/(^|\n)bash aborted$/, "");
+			// spawnExec's own last line, "bash aborted: " and the signal's
+			// reason, names neither the gate nor its clock; the refusal says both.
+			const stderr = ran.stderr.replace(/(^|\n)bash aborted(: [^\n]*)?$/, "");
 			const killed = clock.signal.aborted && call?.aborted !== true;
 			return { ...ran, stderr, killed, aborted: !killed };
 		} finally {

@@ -58,14 +58,19 @@ function wallAtMonotonicZero(): number {
  * a passing fault, such as a process out of file handles, mustn't leave
  * every marker unjudged.
  *
- * A forward step still misjudges a little of what came before it: the
- * boot read after it is later by the step, so whatever this boot wrote
- * less than the step after it began reads as an earlier boot's. A park
- * marker written then is cleared, and a mesh hold sent then stops
- * standing, as a reboot ends it; nothing says so. Keeping the earlier boot instead would leave a peer or a restore
- * record from a boot that is over read as this one's, for every
- * reader of this time at once, so the later one is taken, as `btime`
- * itself gives.
+ * A forward step still misjudges what came before it: the boot read
+ * after it is later by the step, so whatever this boot wrote less than
+ * the step after it began reads as an earlier boot's, and a step longer
+ * than the boot's age reaches everything before it. A park marker
+ * written then is cleared. A mesh hold sent then stops standing, as a
+ * reboot ends it: each hand is told it is over, and a peer waiting on
+ * it is told the machine has restarted, though it hasn't. A peer's own
+ * claims from then are let go when it next starts, and the boot the
+ * restore file pinned as the last one is no longer kept, so the
+ * records decide. Keeping the earlier boot instead would leave a peer
+ * or a restore record from a boot that is over read as this one's, for
+ * every reader of this time at once, so the later one is taken, as
+ * `btime` itself gives.
  */
 export function bootReadOnce(
 	read: () => string,

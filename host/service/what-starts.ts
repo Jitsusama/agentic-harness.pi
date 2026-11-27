@@ -253,11 +253,20 @@ export async function isUnitMain(
 }
 
 /**
+ * Where `systemctl set-property` keeps what it sets, for the user manager
+ * and the system's: a resource control systemd applies to the running
+ * unit at once, which never changes what the unit starts. A jobs sorter
+ * writes and takes back such drop-ins as it starts and stops, so counting
+ * them restarted every host at a switch that added one (03:00, 27 Nov).
+ */
+const SET_PROPERTY_FOLDERS = /\/systemd\/(?:user|system)\.control\//;
+
+/**
  * The fingerprint of the unit as systemd would start it now: where its
  * file and drop-ins resolve, which a switch moves to new store paths as it
- * rewrites them. Nothing while systemd hasn't read a changed file yet,
- * since a restart then would start the old unit again; nor when systemd
- * can't be asked.
+ * rewrites them, leaving out what `systemctl set-property` wrote. Nothing
+ * while systemd hasn't read a changed file yet, since a restart then would
+ * start the old unit again; nor when systemd can't be asked.
  */
 export async function unitDefinition(
 	unit: string,
@@ -285,7 +294,7 @@ export async function unitDefinition(
 	const files = [fragment, ...(properties.get("DropInPaths") ?? "").split(" ")];
 	const resolved = await Promise.all(
 		files
-			.filter((file) => file !== "")
+			.filter((file) => file !== "" && !SET_PROPERTY_FOLDERS.test(file))
 			.map((file) => realpath(file).catch(() => file)),
 	);
 	return resolved.join("\n");
