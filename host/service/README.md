@@ -311,8 +311,9 @@ input pipeline or screen. No unit or running host is installed yet.
   it, as the request's `by` names its caller, or says the asker didn't
   name itself. A child is asked without `by`, since one still running
   code from before the field refuses the request; the host's own
-  journal names the asker as it passes the request on. The next snapshot removes any there
-  over 2 hours old, and a write that fails removes its partial file.
+  journal names the asker as it passes the request on. The next
+  snapshot removes any there over 2 hours old, and a write that fails
+  removes its partial file.
   `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one,
   naming itself, and waits up to 10 minutes; past that, the file may
   still come. A host still running code from before `by` refuses it,
