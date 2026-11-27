@@ -21,8 +21,9 @@ import { ALL, hears, homeOf } from "./group.ts";
  * - finding: something learned about what another peer owns.
  * - fyi: context only.
  * - pivot: change what you are doing. Only an orchestrator sends one, to
- *   the sessions it orchestrates, and each answers once it has changed
- *   course.
+ *   the sessions it orchestrates. Each takes it up without answering,
+ *   since its read marker shows it has it, and answers only when it
+ *   can't take it up.
  */
 export const INTENTS = ["hold", "question", "finding", "fyi", "pivot"] as const;
 

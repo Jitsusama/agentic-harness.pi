@@ -518,7 +518,8 @@ and its groups.
   it leads, since passing those on to the person is its work
   (on 2026-11-07 three orchestrators sat on theirs until they
   parked). An fyi that only answers what the orchestrator sent,
-  such as a pivot taken, is a note for its next turn, unless it
+  such as a pivot a session can't take up, is a note for its next
+  turn, unless it
   names a landing or the orchestrator is parked: on 2026-11-17,
   532 of 1,097 such fyis to four orchestrators were answers. It
   waits 30 seconds and up to 30 more, the extra different for

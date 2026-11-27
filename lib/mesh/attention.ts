@@ -204,9 +204,10 @@ export function attend(message: Message, at: Standing): Heed {
 	// or a checkpoint on it, is noted for its next turn instead: from 10:00
 	// to 22:00 on 17 November 532 of 1,097 led fyis to four orchestrators
 	// answered them, 322 of those a pivot, and one pivot woke WM4KSZ for 29
-	// at 14:41. Who changed course is still shown beside the pivot, a
-	// landing that answers one still acts, and an answer to its question
-	// still takes a turn above.
+	// at 14:41. Sessions now answer a pivot only when they can't take it
+	// up, and who has it shows beside the pivot by read marker. A landing
+	// that answers one still acts, and an answer to its question still
+	// takes a turn above.
 	const answerOnly =
 		message.intent === "fyi" && at.answers === true && !at.restates;
 	if (

@@ -113,7 +113,7 @@ first in the queue and conclude.
 | turn | a mesh message that starts a peer's turn at once, the mesh's loudest attention level | | |
 | glance | a mesh message given to a peer as one line, since it's another peer's own business | | |
 | hold | a peer asking every other to put something off, such as a switch, until it says it's over | | `intent: hold` |
-| pivot | an orchestrator changing what a session it orchestrates is doing, each answering once it has changed course | | `intent: pivot` |
+| pivot | an orchestrator changing what a session it orchestrates is doing, each taking it up unanswered and answering only when it can't | | `intent: pivot` |
 | fyi | a mesh message given as context only, asking nothing | | `intent: fyi` |
 | hand | a subagent, seen on the mesh as its parent's hands | | `hand.ts` |
 | tree | a folder holding a repository's files to work in: a worktree or a snapshot | working tree | the `work` tool |

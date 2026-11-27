@@ -311,11 +311,36 @@ describe("an orchestrator", () => {
 			from: "85PKB2",
 			to: ["@7M6JKG"],
 			re: pivot?.id,
-			text: "Taken up.",
+			text: "Can't take it up: the cap waits on a review.",
 		});
-		expect(await readBack()).toContain(
-			"\n  changed course: 85PKB2; not yet: 2 peers naming no address",
+		const answered = await readBack();
+		expect(answered).toContain("\n  answered by 85PKB2, last in [");
+		expect(answered).toContain("]; not yet: 2 peers naming no address");
+	});
+
+	// From 08:00 on 26 November the four busiest hubs heard 391 answers to
+	// their pivots in a day; a read marker already says who has one, so a
+	// session takes a pivot up without answering it.
+	it("says who has a pivot by read marker, with no answer and no receipt line besides", async () => {
+		leading();
+		const { tools } = await startSession();
+		const readBack = async () =>
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+		folderTransport(join(fixture.paths.mesh, "messages")).markRead(
+			"85PKB2",
+			pivot?.id ?? "",
 		);
+
+		const read = await readBack();
+		expect(read).toContain("\n  has it: 85PKB2");
+		expect(read, "the receipt line is left to the pivot's state").not.toContain(
+			"85PKB2 has it",
+		);
+		expect(read, "nobody answered it").not.toContain("answered by");
 	});
 
 	// The miss of 16 November at 22:26: the person said "I want it

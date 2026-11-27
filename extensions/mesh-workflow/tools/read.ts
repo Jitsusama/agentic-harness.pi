@@ -131,9 +131,17 @@ export async function read(
 			? `\nRead ${named} messages under a receptor's name without finding ${wanted} to show; mesh_read with before ${shortId({ id: readTo })} reads on.`
 			: "";
 	const present = (await peers(at)).present;
-	const receipt = receipts(at, present);
+	const hasRead = readMarks(at);
+	const receipt = receipts(at, present, hasRead);
 	const withdrawn = withdrawals(latest);
-	const state = await questionStates(at, latest, ids, present, withdrawn);
+	const state = await questionStates(
+		at,
+		latest,
+		ids,
+		present,
+		withdrawn,
+		hasRead,
+	);
 	const shown = withinBudget(
 		latest.map((message) =>
 			[
@@ -253,9 +261,9 @@ const OPEN_CHARS = 100;
  * Where each of this peer's own questions among these stands: answered,
  * and by whom; being answered, by a peer that took it up; or unanswered,
  * and for how long. A question nobody answers otherwise reads the same
- * as one answered in a group the asker never looked at. A pivot is
- * answered like a question, by each session once it has changed course,
- * and also names those it reached that have not, so one ignored shows.
+ * as one answered in a group the asker never looked at. A pivot names
+ * who it reached has it and who has not yet, by read markers, since a
+ * session answers one only when it can't take it up.
  */
 async function questionStates(
 	at: Local,
@@ -263,6 +271,7 @@ async function questionStates(
 	ids: readonly string[],
 	present: readonly Presence[],
 	withdrawn: ReadonlyMap<string, string>,
+	hasRead: (one: Presence, id: string) => boolean,
 ): Promise<Map<string, string>> {
 	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	const asked = shown.filter(
@@ -289,7 +298,10 @@ async function questionStates(
 	for (const question of asked) {
 		const given = answers.get(question.id) ?? [];
 		if (question.intent === "pivot") {
-			states.set(question.id, pivotState(question, given, present, self));
+			states.set(
+				question.id,
+				pivotState(question, given, present, self, hasRead),
+			);
 			continue;
 		}
 		if (given.length > 0) {
@@ -321,14 +333,16 @@ async function questionStates(
 }
 
 /**
- * Who of the sessions a pivot reached has answered it, having changed
- * course, and who has not yet.
+ * Who of the sessions a pivot reached has it, by their read markers,
+ * who answered it, which a session does only when it can't take it up,
+ * and who has not had it yet.
  */
 function pivotState(
 	pivot: Message,
 	given: readonly Message[],
 	present: readonly Presence[],
 	self: { addresses: readonly string[]; pid: number },
+	hasRead: (one: Presence, id: string) => boolean,
 ): string {
 	const by = new Set(given.map((one) => one.from));
 	const reached = present.filter(
@@ -337,16 +351,28 @@ function pivotState(
 			(one.addresses.some((address) => pivot.to.includes(homeOf(address))) ||
 				one.groups.some((group) => pivot.to.includes(group))),
 	);
+	const answeredBy = (one: Presence) =>
+		one.addresses.some((address) => by.has(address));
+	const has = reached
+		.filter((one) => !answeredBy(one) && hasRead(one, pivot.id))
+		.map((one) => one.addresses[0]);
 	const waiting = reached
-		.filter((one) => !one.addresses.some((address) => by.has(address)))
+		.filter((one) => !answeredBy(one) && !hasRead(one, pivot.id))
 		// A paused presence may name no address, and is counted unnamed
 		// rather than dropped, so a pivot that reached only such never
 		// reads as having reached nobody.
 		.map((one) => one.addresses[0]);
-	const answered = by.size > 0 ? `changed course: ${[...by].join(", ")}` : "";
+	const last = given.at(-1);
+	const answered =
+		last !== undefined
+			? `answered by ${[...by].join(", ")}, last in [${shortId(last)}]`
+			: "";
+	const had = has.length > 0 ? `has it: ${peersNamed(has, false)}` : "";
 	const yet =
 		waiting.length > 0 ? `not yet: ${peersNamed(waiting, false)}` : "";
-	return [answered, yet].filter(Boolean).join("; ") || "reached nobody present";
+	return (
+		[answered, had, yet].filter(Boolean).join("; ") || "reached nobody present"
+	);
 }
 
 /**
@@ -369,6 +395,27 @@ function withdrawals(messages: readonly Message[]): Map<string, string> {
 }
 
 /**
+ * Whether a peer has had a message: its read marker has passed it,
+ * which happens when the message is handed to its model, at whatever
+ * attention. Each peer's marker is read once per call to mesh_read. A
+ * presence naming no address has no marker, so it has had none.
+ */
+function readMarks(at: Local): (one: Presence, id: string) => boolean {
+	const marks = new Map<string, string | undefined>();
+	return (one, id) => {
+		if (!marks.has(one.session)) {
+			marks.set(
+				one.session,
+				one.addresses.length > 0
+					? at.transport.lastRead(one.addresses)
+					: undefined,
+			);
+		}
+		return (marks.get(one.session) ?? "") >= id;
+	};
+}
+
+/**
  * Who has a message this peer sent, and who it is still on its way to,
  * among the peers still there. A peer has it once its read marker has
  * passed it, which happens when the message is handed to its model,
@@ -377,20 +424,15 @@ function withdrawals(messages: readonly Message[]): Map<string, string> {
 function receipts(
 	at: Local,
 	present: readonly Presence[],
+	hasRead: (one: Presence, id: string) => boolean,
 ): (message: Message) => string {
-	const marks = new Map<string, string | undefined>();
-	const markOf = (one: Presence) => {
-		if (!marks.has(one.session)) {
-			marks.set(one.session, at.transport.lastRead(one.addresses));
-		}
-		return marks.get(one.session);
-	};
 	return (message) => {
 		const own = sentBy(message, {
 			addresses: at.peer.addresses,
 			...senderIdentity(),
 		});
-		if (!own) return "";
+		// A pivot's state says who has it, beside who answered it.
+		if (!own || message.intent === "pivot") return "";
 		const meant = present.filter(
 			(one) =>
 				one.session !== at.peer.session &&
@@ -400,7 +442,7 @@ function receipts(
 		if (meant.length === 0) return "reached no peer";
 		const signed = (list: readonly Presence[]) =>
 			list.map((one) => one.addresses[0]).join(", ");
-		const has = meant.filter((one) => (markOf(one) ?? "") >= message.id);
+		const has = meant.filter((one) => hasRead(one, message.id));
 		const waiting = meant.filter((one) => !has.includes(one));
 		return [
 			has.length > 0
