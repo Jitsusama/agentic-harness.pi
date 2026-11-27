@@ -275,7 +275,8 @@ const gitFacts: GitFacts = {
 				? await gitFacts.branchOf(dir)
 				: source;
 		const named = source !== undefined;
-		return pushedBranch(branch, remote, config(dir), named).catch(
+		const head = source === "HEAD";
+		return pushedBranch(branch, remote, config(dir), named, head).catch(
 			() => undefined,
 		);
 	},

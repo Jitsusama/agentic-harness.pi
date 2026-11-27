@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	changeOf,
 	type GitFacts,
+	isPush,
 	pushedBranch,
 	pushRemote,
 	repoOfPushUrls,
@@ -114,6 +115,9 @@ describe("writesInBash", () => {
 			"git -c include.path=/elsewhere push origin x",
 			"git -c includeIf.onbranch:x.path=/elsewhere push origin x",
 			"git -c core.sshCommand=ssh-elsewhere push origin x",
+			"git -c core.gitProxy=elsewhere push origin x",
+			"git -c core.hooksPath=/elsewhere push origin x",
+			"git --exec-path=/elsewhere push origin x",
 			"git --git-dir .git push origin x",
 			"git --work-tree=/elsewhere push origin x",
 			"git push --receive-pack=elsewhere origin x",
@@ -123,6 +127,14 @@ describe("writesInBash", () => {
 			"GIT_DIR=/elsewhere git push origin x",
 			"env GIT_CONFIG_GLOBAL=/elsewhere git push origin x",
 			"GIT_SSH_COMMAND=ssh-elsewhere git push origin x",
+			"HOME=/elsewhere git push origin x",
+			"XDG_CONFIG_HOME=/elsewhere git push origin x",
+			"PATH=/elsewhere git push origin x",
+			"export GIT_DIR=/elsewhere; git push origin x",
+			"export GIT_CONFIG_GLOBAL=/elsewhere && git push origin x",
+			"GIT_DIR=/elsewhere; export GIT_DIR; git push origin x",
+			"declare -x HOME=/elsewhere; git push origin x",
+			"set -a; GIT_SSH_COMMAND=ssh-elsewhere; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([
 				{
@@ -142,6 +154,10 @@ describe("writesInBash", () => {
 			"git push --recurse-submodules no origin x",
 			"GIT_TERMINAL_PROMPT=0 git push origin x",
 			"git push --push-option ci.skip origin x",
+			"git --attr-source HEAD push origin x",
+			"export FOO=1; git push origin x",
+			"set -eu; git push origin x",
+			"GIT_DIR=/elsewhere git status; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([
 				{
@@ -152,6 +168,31 @@ describe("writesInBash", () => {
 					source: "x",
 				},
 			]);
+		}
+	});
+
+	it("reads a push fed to a shell given its own environment as naming nothing", () => {
+		for (const command of [
+			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",
+			"echo 'git push origin x' | GIT_CONFIG_GLOBAL=/elsewhere sh",
+			"env GIT_SSH_COMMAND=ssh-elsewhere sh <<< 'git push origin x'",
+		]) {
+			const pushes = writesInBash(command, HERE).filter(isPush);
+			expect(pushes.length, command).toBeGreaterThan(0);
+			for (const push of pushes) {
+				expect(push, command).toMatchObject({
+					unnamed: "every",
+					overridden: true,
+				});
+			}
+		}
+		// Fed with nothing moved, it reads as it is.
+		const plain = writesInBash("bash <<< 'git push origin x'", HERE).filter(
+			isPush,
+		);
+		expect(plain.length).toBeGreaterThan(0);
+		for (const push of plain) {
+			expect(push).toMatchObject({ remote: "origin", source: "x" });
 		}
 	});
 
@@ -954,6 +995,17 @@ describe("references", () => {
 		expect(await named({ "push.default": "upstream" })).toBe("scratch");
 		expect(
 			await named({ "remote.origin.push": "refs/heads/scratch:drill" }),
+		).toBeUndefined();
+		// HEAD names no local branch git maps, so it goes to its own name.
+		const head = (set: Record<string, string>) =>
+			pushedBranch("scratch", "origin", config(set), true, true);
+		for (const mode of ["upstream", "tracking", "matching", "simple"]) {
+			expect(await head({ ...upstream, "push.default": mode }), mode).toBe(
+				"scratch",
+			);
+		}
+		expect(
+			await head({ "remote.origin.push": "refs/heads/scratch:drill" }),
 		).toBeUndefined();
 	});
 

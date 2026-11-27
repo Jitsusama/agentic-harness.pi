@@ -207,19 +207,23 @@ const FALSE = /^(?:false|no|off|0)$/i;
  * `upstream`. Else a refspec naming only the branch (`named`) pushes
  * it to its own name, and a push naming none does so under `simple`,
  * git's default, and `current`, but names none under `matching`,
- * `nothing` or a mode git doesn't know. `config` answers one key, none
- * where it isn't set, and throws where it couldn't be read.
+ * `nothing` or a mode git doesn't know. A refspec of `HEAD` (`head`)
+ * names no local branch for git to map through its upstream, so it
+ * goes to the branch's own name under every mode. `config` answers one
+ * key, none where it isn't set, and throws where it couldn't be read.
  */
 export async function pushedBranch(
 	branch: string | undefined,
 	remote: string,
 	config: (key: string) => Promise<string | undefined>,
 	named = false,
+	head = false,
 ): Promise<string | undefined> {
 	if (branch === undefined) return undefined;
 	if ((await config(`remote.${remote}.push`)) !== undefined) return undefined;
 	const mirror = await config(`remote.${remote}.mirror`);
 	if (mirror !== undefined && !FALSE.test(mirror)) return undefined;
+	if (head) return branch;
 	const mode = (await config("push.default")) ?? "simple";
 	if (mode === "upstream" || mode === "tracking") {
 		const merge = await config(`branch.${branch}.merge`);
@@ -489,6 +493,7 @@ function defusedLine(source: string): CommandLine {
 /** The writes of each command a readable line holds, in order. */
 function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 	const writes: WriteCall[] = [];
+	let moved = false;
 	for (const simple of line.commands) {
 		const here =
 			cwd === undefined
@@ -503,11 +508,21 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// What it's given to run with, its assignments and env's among its
 		// words, may move where its pushes go.
 		const env = [...simple.assignments.map((word) => unquote(word.text))];
-		writes.push(...pushesGiven(writeIn(own, dir), [...env, ...given.own]));
+		// An environment moved earlier in the line is inherited by every
+		// git after it.
+		moved ||= movesGit(own, env);
+		const moving = moved
+			? [...env, ...given.own, MOVED]
+			: [...env, ...given.own];
+		writes.push(...pushesGiven(writeIn(own, dir), moving));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;
-		const read = fed.lines.flatMap((one) =>
-			writesInLine(one, fed.runner === undefined ? dir : undefined),
+		// A shell fed its commands hands them its own environment too.
+		const read = pushesGiven(
+			fed.lines.flatMap((one) =>
+				writesInLine(one, fed.runner === undefined ? dir : undefined),
+			),
+			moving,
 		);
 		writes.push(
 			...(fed.runner === undefined ? read : startsBy(fed.runner, read)),
@@ -685,7 +700,7 @@ const GIT_VALUED = new Set([
 	"--namespace",
 	"--config-env",
 	"--super-prefix",
-	"--exec-path",
+	"--attr-source",
 ]);
 
 /**
@@ -693,17 +708,51 @@ const GIT_VALUED = new Set([
  * in more settings which may: an include, and the ssh program run.
  */
 const PUSH_SETTINGS =
-	/^(?:push|remote|branch|url|include|includeif)\.|^core\.sshcommand(?:=|$)/i;
-
-/** git's options before its verb that move the repository it reads. */
-const GIT_ELSEWHERE = /^--(?:git-dir|work-tree)(?:=|$)/;
+	/^(?:push|remote|branch|url|include|includeif)\.|^core\.(?:sshcommand|gitproxy|hookspath)(?:=|$)/i;
 
 /**
- * The environment that moves the repository git reads, the settings it
- * reads, or the program it reaches a remote by.
+ * git's options before its verb that move the repository it reads, or
+ * where it finds the programs that reach a remote.
  */
-const GIT_ENV =
-	/^GIT_(?:DIR|WORK_TREE|COMMON_DIR|CONFIG\w*|SSH\w*|EXEC_PATH|PROXY_COMMAND)=/;
+const GIT_ELSEWHERE = /^--(?:git-dir|work-tree)(?:=|$)|^--exec-path=/;
+
+/**
+ * The names in the environment that move the repository git reads, the
+ * settings it reads, its own home's included, or the programs it reaches
+ * a remote by.
+ */
+const GIT_NAMES =
+	"GIT_(?:DIR|WORK_TREE|COMMON_DIR|CONFIG\\w*|SSH\\w*|EXEC_PATH|PROXY_COMMAND)|HOME|XDG_CONFIG_HOME|PATH";
+
+/** One of {@link GIT_NAMES} given a value. */
+const GIT_ENV = new RegExp(`^(?:${GIT_NAMES})=`);
+
+/** One of {@link GIT_NAMES} alone, as `export` names one already set. */
+const GIT_NAME = new RegExp(`^(?:${GIT_NAMES})$`);
+
+/** What stands for an environment an earlier command in the line moved. */
+const MOVED = "GIT_DIR=(moved earlier in the line)";
+
+/** The shell's commands that export what they name, or set. */
+const EXPORTS = new Set(["export", "declare", "typeset", "readonly", "local"]);
+
+/**
+ * Whether a command, its words `own` and assignments `env`, moves the
+ * environment the gits after it in the line inherit: one setting or
+ * exporting one of {@link GIT_NAMES}, or `set -a`, after which every such
+ * setting is exported.
+ */
+function movesGit(own: string[], env: string[]): boolean {
+	const [verb, ...rest] = own;
+	if (verb === undefined) return env.some((word) => GIT_ENV.test(word));
+	if (EXPORTS.has(verb)) {
+		return rest.some((word) => GIT_ENV.test(word) || GIT_NAME.test(word));
+	}
+	return (
+		verb === "set" &&
+		rest.some((word) => /^-\w*a/.test(word) || word === "allexport")
+	);
+}
 
 /**
  * `git [-C dir] push [options] [remote [refspec...]]`. One whose own
