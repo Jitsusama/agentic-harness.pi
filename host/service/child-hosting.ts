@@ -7,6 +7,8 @@
  * A child that ends parked leaves its conversation held and resting, so
  * the host watches its wake again (the engine's restsParked) and a wake
  * starts a child for it anew. No process runs for a parked conversation.
+ * One whose child went mid-turn is woken at once instead, so a turn its
+ * child was killed in carries on as a host's restart carries one on.
  */
 
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
@@ -24,6 +26,13 @@ import { type HeldChildren, heldChildren, passedOn } from "./children.ts";
 import { hostRefusal } from "./dispatch.ts";
 import type { ControlRequest } from "./protocol.ts";
 import { versionsMove } from "./what-starts.ts";
+
+/**
+ * How long after one whose child went mid-turn is woken a second such
+ * ending leaves it resting, so a turn that kills its child each time
+ * starts no child after child.
+ */
+export const WOKEN_AGAIN_AFTER_MS = 10 * 60_000;
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -56,6 +65,10 @@ export function hostChildren(options: {
 	restGivenUp?: (entry: RosterEntry) => string | undefined;
 	report: (error: unknown) => void;
 	say?: (line: string) => void;
+	/** Wake a held conversation, as a message to it does: the backend's. */
+	wake?: (sessionId: string) => Promise<void>;
+	/** For tests: the clock a wake's spacing is read by. */
+	now?: () => number;
 	/** A child's conversation became another, as its supervisor heard. */
 	became?: (previousId: string, nextId: string) => void;
 	/** For tests: the supervisor's own timings. */
@@ -76,7 +89,10 @@ export function hostChildren(options: {
 		...(options.say ? { say: options.say } : {}),
 		spares: () => policy.spares?.() ?? false,
 		spareMoved: versionsMove(),
-		ended: (sessionId, why) => rest(sessionId, why),
+		ended: (sessionId, why, busy) => {
+			rest(sessionId, why);
+			if (why === "failed" && busy) wakeCutOff(sessionId);
+		},
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),
 		...(options.became ? { became: options.became } : {}),
@@ -106,6 +122,37 @@ export function hostChildren(options: {
 		} catch (error) {
 			report(error);
 		}
+	}
+
+	// A child that failed while busy, as one killed mid-turn does, left
+	// words or a run nobody answered. Rested, it waited for a window or a
+	// message, though a host's own restart carries every such run on. It
+	// is woken at once, as a message wakes one, unless one woken so within
+	// WOKEN_AGAIN_AFTER_MS failed the same way. A child that says it failed
+	// while busy is woken too, since no word says which turn it left.
+	const wokenAt = new Map<string, number>();
+	const now = options.now ?? Date.now;
+	function wakeCutOff(sessionId: string): void {
+		const { wake } = options;
+		if (!wake) return;
+		const at = now();
+		const last = wokenAt.get(sessionId);
+		if (last !== undefined && at - last < WOKEN_AGAIN_AFTER_MS) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn again within ${WOKEN_AGAIN_AFTER_MS / 60_000} minutes of its last wake, so it rests until it is asked for`,
+			);
+			return;
+		}
+		wokenAt.set(sessionId, at);
+		options.say?.(
+			`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
+		);
+		// Said, not reported: a host stopping refuses every wake, as it should.
+		wake(sessionId).catch((error: unknown) =>
+			options.say?.(
+				`${sessionId}: its wake after its child failed mid-turn didn't land: ${error instanceof Error ? error.message : String(error)}`,
+			),
+		);
 	}
 
 	// One whose child was given up never parked, so restsParked would
