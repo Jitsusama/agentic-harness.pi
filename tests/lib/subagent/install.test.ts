@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
@@ -79,11 +82,31 @@ describe("resolveParentPiInstall", () => {
 		expect(install.packageDir).toBeUndefined();
 	});
 
-	it("keeps the raw PI_PACKAGE_DIR when it cannot be dereferenced", () => {
+	// Shopify's pi wrapper deletes ~/.pi/pkg/pi-<version> on an upgrade,
+	// while every pi started through it still names that link. The entry
+	// script the parent runs sits inside the very package the link named.
+	it("finds the package from the entry script when PI_PACKAGE_DIR is gone", () => {
+		const install = resolveParentPiInstall({
+			execPath: "/usr/bin/node",
+			argv: ["/usr/bin/node", "/home/x/.pi/pkg/pi-0.80.7/dist/cli.js"],
+			piPackageDir: "/home/x/.pi/pkg/pi-0.80.7",
+			realpath: (p) => {
+				if (p === "/home/x/.pi/pkg/pi-0.80.7/dist/cli.js") {
+					return "/nix/store/pi-0.80.7/pi-monorepo/dist/cli.js";
+				}
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			},
+			holdsPackage: (dir) => dir === "/nix/store/pi-0.80.7/pi-monorepo",
+		});
+		expect(install.packageDir).toBe("/nix/store/pi-0.80.7/pi-monorepo");
+	});
+
+	it("keeps the raw PI_PACKAGE_DIR when neither it nor the entry's package resolves", () => {
 		const install = resolveParentPiInstall({
 			execPath: "/usr/bin/node",
 			argv: ["/usr/bin/node", "/usr/lib/pi/cli.js"],
 			piPackageDir: "/home/x/.pi/pkg/pi-0.80.7",
+			holdsPackage: () => false,
 			realpath: (p) => {
 				if (p === "/home/x/.pi/pkg/pi-0.80.7") {
 					throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -125,9 +148,48 @@ describe("getParentPiInstall", () => {
 		}
 	});
 
+	// A pi that captured its install while the link was already gone, or
+	// under code that kept the dead link, still holds that reading after a
+	// reload; it heals from the entry, for its children and for pi itself.
+	it("heals a snapshot whose package went, and says so in PI_PACKAGE_DIR", () => {
+		const previous = process.env.PI_PACKAGE_DIR;
+		const root = mkdtempSync(join(tmpdir(), "pi-pkg-"));
+		mkdirSync(join(root, "dist"));
+		writeFileSync(join(root, "package.json"), "{}");
+		writeFileSync(join(root, "dist", "cli.js"), "");
+		const gone = join(root, "gone-link");
+		process.env.PI_PACKAGE_DIR = gone;
+		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = {
+			node: process.execPath,
+			entry: join(root, "dist", "cli.js"),
+			packageDir: gone,
+		};
+		try {
+			const healed = getParentPiInstall();
+			expect(healed.packageDir).toBe(realpathSync(root));
+			expect(process.env.PI_PACKAGE_DIR).toBe(realpathSync(root));
+			expect(getParentPiInstall()).toBe(healed);
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
+	});
+
+	it("leaves a snapshot whose package stands as it is", () => {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const install = {
+			node: process.execPath,
+			entry: "/gone/cli.js",
+			packageDir: root,
+		};
+		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = install;
+		expect(getParentPiInstall()).toBe(install);
+	});
+
 	it("captures once and ignores later environment changes", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-at-startup";
+		const atStartup = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		process.env.PI_PACKAGE_DIR = atStartup;
 		try {
 			const first = getParentPiInstall();
 			// A mid-session upgrade mutates the environment and, in
@@ -135,7 +197,7 @@ describe("getParentPiInstall", () => {
 			// the pre-upgrade reading rather than re-probe.
 			process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-after-upgrade-deleted";
 			expect(getParentPiInstall()).toBe(first);
-			expect(first.packageDir).toBe("/tmp/pi-pkg-at-startup");
+			expect(first.packageDir).toBe(atStartup);
 		} finally {
 			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
 			else process.env.PI_PACKAGE_DIR = previous;
@@ -144,7 +206,8 @@ describe("getParentPiInstall", () => {
 
 	it("survives a reload: a fresh module instance reuses the first snapshot", async () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-reload-startup";
+		const atStartup = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		process.env.PI_PACKAGE_DIR = atStartup;
 		try {
 			const first = getParentPiInstall();
 			// Simulate pi's /reload: re-evaluate the module (jiti runs
@@ -155,7 +218,7 @@ describe("getParentPiInstall", () => {
 			const { getParentPiInstall: reloaded } = await import(
 				"../../../lib/subagent/install.ts"
 			);
-			expect(reloaded().packageDir).toBe("/tmp/pi-pkg-reload-startup");
+			expect(reloaded().packageDir).toBe(atStartup);
 			expect(reloaded()).toEqual(first);
 		} finally {
 			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
