@@ -1259,7 +1259,13 @@ export function createTreeMemory(
 						if (!(await spent(tree, facts))) return;
 					}
 					for (const tree of trees) {
-						const asked = this.askedAt(path, tree.identity.key);
+						// A stopped mark's file was rewritten by the mark, which is no
+						// ask, so the time it kept stands; read off the file, each
+						// interrupted removal would date the tree's last ask later.
+						const asked =
+							tree.going === undefined
+								? this.askedAt(path, tree.identity.key)
+								: tree.going.asked;
 						this.remember(markedGoing(tree, us, by, lock, asked));
 					}
 					const { going: _, ...unmarked } = first;
@@ -1383,6 +1389,13 @@ export function createTreeMemory(
 			);
 
 			for (const tree of this.recall()) {
+				// A marked record is its remover's while the removal runs, and
+				// nobody's once it stopped: a failed removal leaves it naming
+				// nobody, and read as held below, no sweep would finish it.
+				if (tree.going !== undefined) {
+					if (await goingNow(tree, facts)) held.push(tree);
+					continue;
+				}
 				const owners = named(tree);
 				// Nobody recorded means nobody can say, and every record
 				// written before owners existed is one of these. Reading it as

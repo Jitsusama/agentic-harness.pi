@@ -560,7 +560,13 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			.filter(
 				(tree) => tree.providerId !== GIT_WORKTREE && !heldPaths.has(tree.path),
 			);
+		// One turn a folder: a turn judges and takes every record there, as
+		// World files one tree under two keys, and a second would find none
+		// left and report the tree taken as kept too.
+		const judged = new Set<string>();
 		for (const tree of others) {
+			if (judged.has(tree.path)) continue;
+			judged.add(tree.path);
 			// Other providers' rules know nothing of a quest's claim, so it
 			// holds their trees for good.
 			await releaseThroughProvider(

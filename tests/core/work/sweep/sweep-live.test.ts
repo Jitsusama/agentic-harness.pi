@@ -928,6 +928,36 @@ describe("trees another provider cut", () => {
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
+	it("takes a shareable one filed under two keys once, and says only that it took it", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
+		});
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		for (const key of ["dev-snapshot", "dev-snapshot-by-name"]) {
+			utimesSync(join(state, "cut", `${key}.json`), then, then);
+		}
+		let releases = 0;
+		const provider = elsewhere(undefined, async () => {
+			releases += 1;
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(
+			outcome.kept.filter((one) => one.path === tree),
+			"what it says it kept there",
+		).toEqual([]);
+		expect(releases, "releases").toBe(1);
+	});
+
 	it("takes a shareable one a killed run left marked, by when it was asked for before", async () => {
 		// The mark rewrote its file, which is no ask: read by its file's
 		// time, the half-removed tree would be kept a day.
@@ -1016,6 +1046,51 @@ describe("trees another provider cut", () => {
 		expect(found?.going?.lock, "its mark's lock").toBeUndefined();
 		if (found === undefined) throw new Error("its record went");
 		expect(await memory.goingState(found), "its state").toBe("standing");
+	});
+
+	it("finishes a removal that failed at the next sweep", async () => {
+		// The failed end leaves the record naming nobody, which mustn't read
+		// as held, or nothing but an ask would ever finish it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		await sweepWith(
+			elsewhere(undefined, async () => {
+				throw new Error("dev refused");
+			}),
+		);
+
+		const outcome = await sweepWith(
+			elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+			}),
+		);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("keeps a killed run's ask time through a removal that fails again", async () => {
+		// Dated by its file, rewritten by the killed run's mark, the tree
+		// would read as asked for when that run marked it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		const asked = Date.now() - 2 * PUSHED_SETTLE_MS;
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED, asked } });
+
+		await sweepWith(
+			elsewhere(undefined, async () => {
+				throw new Error("dev refused");
+			}),
+		);
+
+		const found = memory.recall().find((one) => one.path === tree);
+		expect(found?.going?.asked, "when its mark says it was asked for").toBe(
+			asked,
+		);
 	});
 });
 
