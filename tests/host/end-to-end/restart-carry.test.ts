@@ -33,6 +33,7 @@ import { isRecord } from "../../../lib/internal/record.ts";
 import { saidAfter } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
+	answeredLast,
 	entriesOf,
 	onHostPi,
 	ROUND_TRIP_MS,
@@ -198,22 +199,6 @@ async function answeredOnce(file: string, when: string): Promise<void> {
 }
 
 /**
- * Whether the last thing said in a session file is the model's answer
- * that calls no tool. A job's end said into a run under way is a custom
- * message, which `turnEnded` passes over, so it is read here too: until
- * the model answers after it, the turn it joined hasn't ended.
- */
-function answeredLast(file: string): boolean {
-	const last = entriesOf(file)
-		.filter(
-			(entry) => entry.type === "message" || entry.type === "custom_message",
-		)
-		.at(-1);
-	const message = isRecord(last?.message) ? last.message : undefined;
-	return message?.role === "assistant" && message.stopReason !== "toolUse";
-}
-
-/**
  * Throw unless the conversation ran the carried command once: a second
  * run leaves two shells, of which a case may kill the wrong one, as E24's
  * did in h2353 on 27 November, and is itself a model asked twice.
@@ -326,8 +311,10 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// A round trip spare beyond its waits, so a wait's own failure, which
-	// says what it saw, comes before vitest's bare timeout.
+	// Its polled waits' bounds (five round trips and CARRIED_MS) with one
+	// spare, so a wait's own failure, which says what it saw, comes first;
+	// the hosts' own start waits come on top, so on a very slow host
+	// vitest's may still win.
 	ROUND_TRIP_MS * 6 + CARRIED_MS,
 );
 
@@ -399,7 +386,8 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// A round trip spare beyond its waits, as E23's.
+	// Its polled waits' bounds (five round trips, CARRIED_MS and
+	// RECORD_MS) with nearly two round trips spare, as E23's reasons.
 	ROUND_TRIP_MS * 7 + CARRIED_MS,
 );
 
@@ -442,6 +430,7 @@ it(
 			);
 		});
 	},
-	// A round trip spare beyond its waits, as E23's.
+	// Its polled waits' bounds (five round trips) with two spare, as
+	// E23's reasons.
 	ROUND_TRIP_MS * 7,
 );

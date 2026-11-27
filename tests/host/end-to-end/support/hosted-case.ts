@@ -110,6 +110,25 @@ export function turnEnded(file: string | undefined): boolean {
 	return last?.role === "assistant" && last.stopReason !== "toolUse";
 }
 
+/**
+ * Whether the last thing said in a session file is the model's answer
+ * that calls no tool and ended of itself, not on an error a retry may
+ * answer again. A job's end said into a run under way is a custom message
+ * (job-workflow's steered results), which `turnEnded` passes over, so it
+ * is read here too: until the model answers after it, the turn it joined
+ * hasn't ended. Other custom messages needn't start a turn, so they're
+ * passed over, as a note written after the answer would hold it open.
+ */
+export function answeredLast(file: string | undefined): boolean {
+	const last = entriesOf(file)
+		.filter(
+			(entry) => entry.type === "message" || entry.type === "custom_message",
+		)
+		.at(-1);
+	const message = isRecord(last?.message) ? last.message : undefined;
+	return message?.role === "assistant" && message.stopReason !== "toolUse";
+}
+
 /** Every entry a session file records, each as its parsed record. */
 export function entriesOf(file: string | undefined): Record<string, unknown>[] {
 	return textOf(file)
