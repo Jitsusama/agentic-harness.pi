@@ -43,7 +43,11 @@ async function script(path: string, lines: string[]): Promise<string> {
  * A run asked onto a room whose node is the script at `mycelium`, with
  * a local child that marks that it ran.
  */
-async function roomRun(lines: string[]) {
+async function roomRun(
+	lines: string[],
+	more: Parameters<typeof runChild>[2] = {},
+	node?: string,
+) {
 	const stateDir = await tempStateDir();
 	const ranHere = join(stateDir, "ran-here");
 	const childPath = await script(join(stateDir, "child.mjs"), [
@@ -51,7 +55,7 @@ async function roomRun(lines: string[]) {
 		`writeFileSync(${JSON.stringify(ranHere)}, "");`,
 		...answered("here"),
 	]);
-	const mycelium = await script(join(stateDir, "mycelium"), lines);
+	const mycelium = node ?? (await script(join(stateDir, "mycelium"), lines));
 	await writeFile(join(stateDir, "brief.md"), "the brief");
 	const room: RoomAsk = {
 		place: { mycelium, realm: "work", machine: "room-1", harnessRoot: "/pkg" },
@@ -60,6 +64,7 @@ async function roomRun(lines: string[]) {
 	const result = await runChild(
 		childPath,
 		stateDir,
+		more,
 	)({
 		args: ["--mode", "json", "--no-session", "-p", "@brief.md"],
 		cwd: stateDir,
@@ -110,6 +115,31 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.warnings?.join(" ")).toMatch(
 			/No room ran this reviewer \(it ended 255: no machine has a slot\)/,
 		);
+	});
+
+	it("runs here when the room ended cleanly having said nothing", async () => {
+		const { result, here } = await roomRun(["process.exit(0);"]);
+
+		expectRan(result);
+		expect(here, "it ran here").toBe(true);
+		expect(result.warnings?.join(" ")).toMatch(/it ended 0/);
+	});
+
+	it("runs here when the node's command isn't there to start", async () => {
+		const { result, here } = await roomRun([], {}, "/nowhere/mycelium");
+
+		expectRan(result);
+		expect(here, "it ran here").toBe(true);
+		expect(result.warnings?.join(" ")).toMatch(/No room ran this reviewer/);
+	});
+
+	it("ends idle when our clock stops a silent room, and never runs here after", async () => {
+		const { result, here } = await roomRun(["setInterval(() => {}, 1000);"], {
+			idleTimeoutMs: 1500,
+		});
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("idle-timeout");
 	});
 
 	it("is reported as it ended once the room said anything, never run twice", async () => {

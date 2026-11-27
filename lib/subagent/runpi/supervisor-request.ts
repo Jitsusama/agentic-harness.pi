@@ -366,9 +366,11 @@ async function buildRequest(
 		...(input.orphaned ? {} : { parentPid: process.pid }),
 		paths,
 		runCancelPath,
+		// A reviewer on a room can't read the wrap-up asked of it here, so
+		// it keeps its whole wall clock rather than a deadline it never hears.
 		...softDeadline(
 			overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-			overrides.wrapUpReserveMs,
+			input.room === undefined ? overrides.wrapUpReserveMs : undefined,
 		),
 		idleTimeoutMs:
 			overrides.idleTimeoutMs ??

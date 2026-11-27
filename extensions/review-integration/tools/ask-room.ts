@@ -9,6 +9,8 @@
  * Read once a round, like the round's clocks.
  */
 
+import { delimiter, isAbsolute } from "node:path";
+import { resolveBinary } from "../../../lib/core/internal/terminal/binary.ts";
 import type { ChangeRef } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { packageRoot } from "../../../lib/internal/fence/installed-only.ts";
@@ -27,6 +29,22 @@ const DEFAULT_REALM = "work";
 
 /** The node's own command, by name, as every other caller asks it. */
 const MYCELIUM = "mycelium";
+
+/**
+ * The node's command as an absolute path, found along the absolute
+ * folders of `path` only, or nothing. The supervisor starts it in the
+ * snapshot under review, so a bare name or a relative folder on PATH
+ * would let that tree's own `mycelium` run as the person.
+ */
+export function myceliumAt(
+	path: string | undefined = process.env.PATH,
+): string | undefined {
+	const absolute = (path ?? "")
+		.split(delimiter)
+		.filter((dir) => isAbsolute(dir))
+		.join(delimiter);
+	return resolveBinary(MYCELIUM, absolute);
+}
 
 /** Where this package's code lies, and what the room's entry loads itself. */
 export interface RoomHarness {
@@ -51,14 +69,17 @@ export async function roomFor(
 	head: string | undefined,
 	harness: RoomHarness,
 	path: string = packageConfigPath(),
+	mycelium: () => string | undefined = myceliumAt,
 ): Promise<RoomAsk | undefined> {
 	const repo = roomRepo(change.repo.key);
 	if (repo === undefined || head === undefined) return undefined;
 	const named = await roomNamed(path);
 	if (named === undefined) return undefined;
+	const command = mycelium();
+	if (command === undefined) return undefined;
 	return {
 		place: {
-			mycelium: MYCELIUM,
+			mycelium: command,
 			realm: named.realm,
 			machine: named.machine,
 			harnessRoot: harness.root,
