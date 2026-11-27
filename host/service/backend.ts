@@ -344,6 +344,13 @@ export function hostBackend(options: {
 	ownPss?: () => Promise<number | undefined>;
 	/** Where and how a heap snapshot is written, unless as heap-snapshot.ts writes one. */
 	snapshots?: Omit<SnapshotPlaces, "say">;
+	/**
+	 * Whether this process is one conversation's own, a child's, so a heap
+	 * snapshot stops nothing else. Without it, a snapshot is refused: on the
+	 * host's own thread it would stop every conversation there and the
+	 * watchdog's pings, and hold all their memory in its file.
+	 */
+	ownProcess?: boolean;
 }): HostBackend {
 	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
@@ -916,6 +923,11 @@ export function hostBackend(options: {
 						throw hostRefusal(
 							"unsupported",
 							`Conversation ${request.sessionId} runs in no process here, so it has no heap to snapshot; resume it first`,
+						);
+					if (options.ownProcess !== true)
+						throw hostRefusal(
+							"unsupported",
+							`Conversation ${request.sessionId} runs on the host's own thread, beside every other conversation there and the watchdog, so a snapshot would stop them all; only one in a child of its own can be snapshot`,
 						);
 					return snapshotHeap(
 						request.sessionId,

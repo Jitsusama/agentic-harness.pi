@@ -237,6 +237,7 @@ describe("hostBackend", () => {
 		const said: string[] = [];
 		const wrote: string[] = [];
 		const backend = backendWith(engine().fake, undefined, {
+			ownProcess: true,
 			say: besideStarts(said),
 			snapshots: {
 				folder: join(dir, "heap-snapshots"),
@@ -273,6 +274,27 @@ describe("hostBackend", () => {
 			"runs in no process here",
 		);
 		expect(wrote, "nothing written for a refusal").toHaveLength(1);
+	});
+
+	it("refuses a heap snapshot of a conversation on the host's own thread, which would stop every other", async () => {
+		const wrote: string[] = [];
+		const backend = backendWith(engine().fake, undefined, {
+			snapshots: {
+				folder: join(dir, "heap-snapshots"),
+				write: (file) => wrote.push(file),
+			},
+		});
+		const running = parseOpenResult(await backend.execute(anOpen()));
+
+		await expect(
+			backend.execute({
+				v: 1,
+				id: randomUUID(),
+				op: "heap-snapshot",
+				sessionId: running.sessionId,
+			}),
+		).rejects.toThrow("runs on the host's own thread");
+		expect(wrote, "nothing written for a refusal").toEqual([]);
 	});
 
 	it("reads its own heap from V8 unless told what to answer", async () => {
