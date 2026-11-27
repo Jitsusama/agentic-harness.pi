@@ -27,6 +27,17 @@ import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
 const REPO = "github:Shopify/world";
 
+/** How many remote branches a range asks about, as the gate has it. */
+const BRANCHES_ASKED = 300;
+
+/** Names for `count` remote branches, sorting in the order made. */
+function named(prefix: string, count: number): string[] {
+	return Array.from(
+		{ length: count },
+		(_, at) => `${prefix}-${String(at).padStart(3, "0")}`,
+	);
+}
+
 const exec: Exec = async (command, args) =>
 	new Promise((done) =>
 		execFile(command, [...args], (error, stdout, stderr) =>
@@ -229,18 +240,13 @@ describe("holding a change until our own council has read it", () => {
 		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
 	});
 
-	it("leaves out reviewed work however many branches the clone has", async () => {
-		// Five hundred branches off `first` hold none of what the council
-		// read, and sort first; the one holding `fix` comes after them, so
-		// only a second batch of branches leaves it out.
+	it("leaves out reviewed work among as many branches as it asks about", async () => {
+		// Branches off `first` hold none of what the council read, and sort
+		// first; the one holding `fix` comes last, the bound's own.
 		writeFileSync(join(repo, "three"), "three\n");
 		await git(repo, "add", "three");
 		await git(repo, "commit", "-qm", "three");
-		const stale = Array.from(
-			{ length: 500 },
-			(_, at) => `stale-${String(at).padStart(3, "0")}`,
-		);
-		await branchesOn(repo, first, stale);
+		await branchesOn(repo, first, named("stale", BRANCHES_ASKED - 1));
 		await git(repo, "update-ref", "refs/remotes/origin/zz-reviewed", fix);
 		await councilRead(fix);
 
@@ -249,13 +255,42 @@ describe("holding a change until our own council has read it", () => {
 		expect(said).toContain("stale-000, stale-001, stale-002 and others");
 	});
 
-	it("lets a reviewed change through beside hundreds of unrelated branches", async () => {
+	it("lets a reviewed change through beside as many unrelated branches as it asks about", async () => {
 		// Branches off the trunk hold nothing the change does.
-		const beside = Array.from({ length: 600 }, (_, at) => `beside-${at}`);
-		await branchesOn(repo, trunk, beside);
+		await branchesOn(repo, trunk, named("beside", BRANCHES_ASKED));
 		await councilRead(first);
 
 		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("can't read a change below its head beside more branches than it asks about", async () => {
+		// The council read `first`, which a branch among them could hold.
+		await branchesOn(repo, trunk, named("beside", BRANCHES_ASKED + 1));
+		await councilRead(first);
+
+		const said = await councilFirst(exec, topic(), "proposed");
+
+		expect(said).toContain(
+			`has more than ${BRANCHES_ASKED} remote branches, too many to ask`,
+		);
+		expect(said).not.toContain("Push the branch");
+	});
+
+	it("lets a change through at its reviewed head beside more branches than it asks about", async () => {
+		await branchesOn(repo, trunk, named("beside", BRANCHES_ASKED + 1));
+		await councilRead(fix);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("lends nothing across a rebase beside more branches than it asks about", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		await branchesOn(repo, trunk, named("beside", BRANCHES_ASKED + 1));
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"too many to ask",
+		);
 	});
 
 	it("keeps a lower change's commits its own, though the branch above holds them", async () => {
