@@ -83,17 +83,16 @@ const LOOK_AGAIN_MS = 15_000;
 /**
  * The shortest spacing a machine may set. A look that took a start and
  * failed finds it again by its ticket at the next look, at most
- * {@link LOOK_AGAIN_MS} later, which only works while no other round
- * may yet start after it; twice that leaves room for a slow look. It
- * also keeps a round waiting behind tickets that never start from
- * reading the line in a tight loop.
+ * {@link LOOK_AGAIN_MS} later, as the latest start or the one the latest
+ * followed; twice that keeps a second start from coming between, even
+ * after a slow look. It also keeps a round waiting behind tickets that
+ * never start from reading the line in a tight loop.
  */
 export const FEWEST_SPACING_MS = 2 * LOOK_AGAIN_MS;
 
 /**
- * The longest spacing a machine may set. A round reads the spacing once,
- * when it asks, so a mistyped hour would hold it for that hour even
- * after the config was put right.
+ * The longest spacing a machine may set, so a mistyped hour holds no
+ * round for that hour, even read again at each look as the spacing is.
  */
 export const MOST_SPACING_MS = 30 * 60_000;
 
@@ -217,7 +216,9 @@ export interface StartClaim {
 	readonly room?: () => Promise<string | undefined>;
 	/**
 	 * Whether the machine is quiet enough that a round may start one look
-	 * after the last, rather than its own spacing. Read at each look;
+	 * after the last, rather than its own spacing. Read at each look, and
+	 * only while `spacing` answers nothing, since a spacing set by hand
+	 * may be for what pressure can't show, such as a provider's limit;
 	 * never quiet unless given.
 	 */
 	readonly quiet?: () => Promise<boolean>;
@@ -412,10 +413,11 @@ async function takeTurn(
 	// Read before the lock, as they may be slow; a round that reads room
 	// and then finds another first in line waits its turn all the same.
 	const short = await claim.room?.();
-	const spacing =
-		short === undefined && (await claim.quiet?.()) === true
-			? spacings.quickest
-			: spacings.spacing;
+	const hurry =
+		spacings.quickest < spacings.spacing &&
+		short === undefined &&
+		(await claim.quiet?.()) === true;
+	const spacing = hurry ? spacings.quickest : spacings.spacing;
 	const urgent = new Set(await claim.urgent?.());
 	const seenFrom = async (line: Line, now: number): Promise<Look> =>
 		look(line, {
@@ -468,6 +470,14 @@ interface Look {
  */
 function look(line: Line, at: LookAt): Look {
 	const { ticket, now } = at;
+	if (line.started?.follows?.ticket === ticket.id) {
+		// An earlier look took the start and failed on its way out, and a
+		// quiet machine's next round started one look later: it is
+		// started all the same, though no longer the start to give back.
+		return {
+			turn: { started: line.started.follows, ahead: 0, waitMs: 0 },
+		};
+	}
 	if (line.started?.ticket === ticket.id) {
 		// An earlier look took the start and then failed on its way out:
 		// it is started, not owed another.
@@ -1037,18 +1047,29 @@ interface Spacings {
  * A quiet machine, well inside every bar, may start one look after the
  * last instead, fifteen seconds in production (A210E4CA, 27 November):
  * its live MemAvailable still stops a burst the averages are slow to
- * show.
+ * show. A round that took a start and failed still finds it one start
+ * back. Only while the config sets no spacing, and only for a claim
+ * that reads quiet at all, so a wait never names a pace it can't take.
  */
 async function spacingsNow(
 	claim: StartClaim,
 	lookAgain: number,
 ): Promise<Spacings> {
-	const given = (await claim.spacing?.()) ?? claim.spacingMs;
+	const configured = await claim.spacing?.();
+	const given = configured ?? claim.spacingMs;
 	const spacing = Math.max(
 		given ?? (claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
 		2 * lookAgain,
 	);
-	return { spacing, quickest: Math.min(spacing, lookAgain) };
+	// Quiet is a pace inside the bars, never one without them.
+	const mayHurry =
+		claim.quiet !== undefined &&
+		claim.room !== undefined &&
+		configured === undefined;
+	return {
+		spacing,
+		quickest: mayHurry ? Math.min(spacing, lookAgain) : spacing,
+	};
 }
 
 function waitSaid(

@@ -179,6 +179,7 @@ export async function awaitRosterStart(
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const line = councilStartsPath();
+	const spacing = spacingKeptAcrossFailedReads(configuredSpacing);
 	return await awaitCouncilStart(
 		line,
 		{
@@ -189,25 +190,45 @@ export async function awaitRosterStart(
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => machineShort(),
-			quiet: () => machineQuiet(),
+			// Only Linux keeps the readings quiet is judged on.
+			...(process.platform === "linux" ? { quiet: () => machineQuiet() } : {}),
 			// Read at each look, so a spacing set while rounds wait reaches them.
-			spacing: () => configuredSpacing(),
+			spacing,
 		},
 		signal,
 	);
 }
 
+/** A config read: what it set, or that it couldn't be read. */
+type SpacingRead = { readonly ms: number | undefined } | undefined;
+
 /**
- * The spacing this machine's config sets between round starts, or
- * undefined for none, so rounds start on room, two a minute at most. A
- * config that can't be read is read as setting none, rather than
- * stopping a round over a setting it may not even hold.
+ * A spacing reader that answers, when a read fails, what the last good
+ * read said, so a config caught half-saved while rounds wait takes none
+ * of them to the quickest pace. A first read that fails says none.
  */
-async function configuredSpacing(): Promise<number | undefined> {
+export function spacingKeptAcrossFailedReads(
+	read: () => Promise<SpacingRead>,
+): () => Promise<number | undefined> {
+	let kept: number | undefined;
+	return async () => {
+		const now = await read();
+		if (now !== undefined) kept = now.ms;
+		return kept;
+	};
+}
+
+/**
+ * The spacing this machine's config sets between round starts, with ms
+ * undefined for none, so rounds start on room, two a minute at most, or
+ * quicker while the machine is quiet. Undefined when the config can't be
+ * read, rather than stopping a round over a setting it may not even hold.
+ */
+async function configuredSpacing(): Promise<SpacingRead> {
 	const loaded = await loadPackageConfig();
 	if (!loaded.ok) return undefined;
 	const review = loaded.config.sections[REVIEW_SLUG];
-	return startSpacingMs(isRecord(review) ? review.ask : undefined);
+	return { ms: startSpacingMs(isRecord(review) ? review.ask : undefined) };
 }
 
 /**

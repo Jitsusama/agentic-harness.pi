@@ -759,6 +759,47 @@ describe("spacing council starts on one machine", () => {
 		expect(line().started).toEqual(before);
 	});
 
+	// A quiet machine starts the next round one look after a start, so a
+	// look that took one and failed may find another's start on top of it.
+	it("is started when the start it took and lost track of was followed by another", async () => {
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		const mine = {
+			at: new Date(Date.now() - 20).toISOString(),
+			by: "ISXEG8",
+			change: "o/r#ISXEG8",
+			ticket: "mine",
+		};
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: {
+					at: new Date().toISOString(),
+					by: "A2VLJN",
+					change: "o/r#A2VLJN",
+					ticket: "theirs",
+					follows: mine,
+				},
+				waiting: [],
+			}),
+		);
+		nextTicket.id = "mine";
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000, lookAgainMs: 60_000 }),
+			giving.signal,
+		);
+		const stopping = setTimeout(() => giving.abort(), 2_000);
+		const start = await waiting;
+		clearTimeout(stopping);
+
+		expect(start.cancelled, "started, not owed another").toBeUndefined();
+		await start.release?.();
+		expect(line().started.ticket, "the later start stands").toBe("theirs");
+		expect(line().waiting).toEqual([]);
+	});
+
 	it("gives back a start taken in its name when stopped before it looks again", async () => {
 		const first = new Date();
 		const before = {
