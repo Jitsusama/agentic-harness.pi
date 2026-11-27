@@ -49,8 +49,8 @@ describe("the test suite's XDG sandbox", () => {
 		// MYCELIUM_ variables. A test inheriting MYCELIUM_HELD asked a node
 		// it stood up for its own held window, an ask on the developer's
 		// behalf no clean run makes, so needs.test.ts failed only there.
-		// This reads the setup's work on this runner's own environment;
-		// held-session.test.ts plants one, so it fails anywhere.
+		// The unit project's config plants MYCELIUM_HELD before the setup
+		// runs, so this fails on any runner whose setup stops dropping it.
 		const inherited = Object.keys(process.env).filter(
 			(name) => name.startsWith("MYCELIUM_") && !CHOSEN_FOR_THE_RUN.has(name),
 		);
