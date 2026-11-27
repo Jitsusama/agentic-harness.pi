@@ -77,6 +77,8 @@ export interface ChildTraits {
 	refuses?: boolean;
 	/** Take every request and answer none. */
 	silent?: boolean;
+	/** Refuse every request past its open and watch, as one that lives on. */
+	refusesAsks?: boolean;
 }
 
 /** Units that start fake children, and what they were asked. */
@@ -101,7 +103,7 @@ async function runChild(
 	folder: string,
 	key: string,
 	slot: Slot,
-	{ refuses, silent }: ChildTraits,
+	{ refuses, silent, refusesAsks }: ChildTraits,
 	pid: number,
 ): Promise<FakeChild> {
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
@@ -174,6 +176,15 @@ async function runChild(
 								conversation: child.conversation,
 								entry: child.entry,
 							},
+						}),
+					);
+				} else if (refusesAsks) {
+					socket.write(
+						line({
+							v: 1,
+							id,
+							ok: false,
+							error: { code: "invalid_request", message: "refused" },
 						}),
 					);
 				}

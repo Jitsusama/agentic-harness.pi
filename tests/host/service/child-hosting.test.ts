@@ -284,6 +284,48 @@ describe("a host's children", () => {
 			);
 		});
 
+		it("leaves one whose busy child died as its close was asked resting", async () => {
+			// The fake takes a close and answers none, as a child stuck mid-turn
+			// does.
+			await busy();
+			const closing = children.backend.ask(a, {
+				v: 1,
+				id: "c",
+				op: "close",
+				sessionId: a,
+			});
+			const refused = closing.then(
+				() => "answered",
+				() => "refused",
+			);
+			await vi.waitFor(() =>
+				expect(units.childOf(a).asked.map((one) => one.op)).toContain("close"),
+			);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn as it was asked to end, so it rests until it is asked for`,
+				),
+			);
+			expect(await refused, "the close failed with its child").toBe("refused");
+			expect(woken, "the close it was asked isn't undone").toEqual([]);
+		});
+
+		it("wakes one whose child refused its close and then died mid-turn", async () => {
+			units.next = { refusesAsks: true };
+			await busy();
+			await expect(
+				children.backend.ask(a, { v: 1, id: "c", op: "close", sessionId: a }),
+				"refused by a child that lives on",
+			).rejects.toThrow("refused");
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "its own death, not the close's").toEqual([a]),
+			);
+		});
+
 		it("says a wake that didn't land, rather than reporting it", async () => {
 			waking = () => Promise.reject(new Error("the host is stopping"));
 			await busy();
