@@ -47,6 +47,9 @@ const holding = vi.hoisted(() => ({
 	name: undefined as string | undefined,
 	held: () => {},
 	open: Promise.resolve(),
+	dir: undefined as string | undefined,
+	listed: () => {},
+	listOpen: Promise.resolve(),
 }));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
@@ -71,8 +74,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs/promises")>();
 	return {
 		...fs,
-		opendir: ((...args: Parameters<typeof fs.opendir>) => {
+		opendir: (async (...args: Parameters<typeof fs.opendir>) => {
 			listing.off?.push(String(args[0]));
+			if (holding.dir && String(args[0]) === holding.dir) {
+				holding.dir = undefined;
+				holding.listed();
+				await holding.listOpen;
+			}
 			return fs.opendir(...args);
 		}) as typeof fs.opendir,
 		readFile: (async (...args: Parameters<typeof fs.readFile>) => {
@@ -100,7 +108,24 @@ function holdRead(id: string): { held: Promise<void>; release: () => void } {
 	return { held, release };
 }
 
+/** Hold the first listing off the thread of this folder until `release`. */
+function holdListing(dir: string): {
+	held: Promise<void>;
+	release: () => void;
+} {
+	let release = () => {};
+	holding.listOpen = new Promise((resolve) => {
+		release = resolve;
+	});
+	const held = new Promise<void>((resolve) => {
+		holding.listed = resolve;
+	});
+	holding.dir = dir;
+	return { held, release };
+}
+
 beforeEach(() => {
+	holding.dir = undefined;
 	watching.deaf = false;
 	watching.armed = undefined;
 	watching.messages = 0;
@@ -341,6 +366,84 @@ describe("a message never lost", () => {
 		read.release();
 		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
 		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("is heard as it lands while the catch-up lists, the marker kept behind the backlog", async () => {
+		// Listed off the thread, the catch-up had claimed nothing yet, so a
+		// message handed over meanwhile carried the marker past the backlog,
+		// which a restart then never caught up on.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		// Swept just now, so the listing held is the catch-up's, not a sweep's.
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		settled(now - day, "7M6JKG: yesterday?");
+		const listed = holdListing(dir);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await listed.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+
+		await vi.waitFor(() =>
+			expect(handed(sent), "heard while the catch-up listed").toEqual([
+				"7M6JKG: lately?",
+			]),
+		);
+		expect(marker(), "the marker, while the backlog is listed").toBe(floor);
+		listed.release();
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("counts the start caught up only once what it caught up on is routed", async () => {
+		// Routing went unawaited, so the start counted as caught up while
+		// its catch-up was still judged, and a look meanwhile ran beside it.
+		deafen();
+		const asked: ((value: unknown) => void)[] = [];
+		fromElsewhere({ text: "merging core.nix#330 now" });
+		await startSession(
+			{},
+			{
+				isIdle: () => true,
+				modelRegistry: {
+					getAvailableOfType: async () => [
+						{ provider: "typesafe", id: "jev-latest" },
+					],
+					classify: () =>
+						new Promise((resolve) => {
+							asked.push(resolve);
+						}),
+				},
+			},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		await vi.waitFor(() =>
+			expect(asked, "the catch-up judged").toHaveLength(1),
+		);
+		fromElsewhere({ text: "merging core.nix#331 now" });
+		// A real pause: the test is that a look, due every 20 ms, judges
+		// nothing while the catch-up is still judged.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(asked, "judged by a look while the catch-up was").toHaveLength(1);
+
+		for (const answer of asked)
+			answer({ stopReason: "stop", answers: { about: notYours } });
+		await vi.waitFor(() =>
+			expect(asked, "judged by the look owed once caught up").toHaveLength(2),
+		);
+		for (const answer of asked)
+			answer({ stopReason: "stop", answers: { about: notYours } });
 	});
 
 	it("moves the marker past what was heard meanwhile once the catch-up lets go what isn't its", async () => {

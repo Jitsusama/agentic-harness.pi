@@ -172,11 +172,17 @@ function isDay(name: string): boolean {
 
 /**
  * The folder of the day an id was stamped on, in UTC, or nothing for an
- * id with no time. Ids from a day before another's sort before its day.
+ * id with no time, or one past what a date holds: anyone on the account
+ * can name a file so, and a throw here stopped a start's whole catch-up.
+ * Ids from a day before another's sort before its day.
  */
 export function dayOf(id: string): string | undefined {
 	const at = stampedAt(id);
-	return at === undefined ? undefined : new Date(at).toISOString().slice(0, 10);
+	if (at === undefined) return undefined;
+	const day = new Date(at);
+	return Number.isNaN(day.getTime())
+		? undefined
+		: day.toISOString().slice(0, 10);
 }
 
 /** The message ids in one folder, unsorted, or none when it won't list. */

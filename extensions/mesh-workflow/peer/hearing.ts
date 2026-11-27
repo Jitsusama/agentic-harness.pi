@@ -98,6 +98,12 @@ function askWakeOnce(session: string, messageId: string): void {
 	askedWakes.add(asked);
 }
 
+/**
+ * What a start's catch-up holds the read front with while it lists, an
+ * id below every message's, so nothing handed over meanwhile is passed.
+ */
+const LISTING = "";
+
 /** Whether an id was stamped on a day before another's, both in time. */
 function dayBefore(id: string, other: string): boolean {
 	const day = dayOf(id);
@@ -505,14 +511,24 @@ export function createHearing(m: MeshState, f: Handing) {
 	const catchUp = async (since: string): Promise<Message[]> => {
 		const front = m.front;
 		lookPassedOver = false;
-		const [top, ids] = await Promise.all([
-			seenAtStart(m.transport, since),
-			m.transport.listIdsFromDayOf(since),
-		]);
-		if (m.front !== front) return [];
-		for (const id of top) m.seen.add(id);
-		const claimed = ids.filter((id) => id > since && claim(id));
-		for (const id of claimed) front.taken(id);
+		// Held, before anything here waits, until what it lists is taken:
+		// a message the watcher handed over while it listed would else carry
+		// the marker past the backlog not yet claimed, which a restart then
+		// never caught up on.
+		front.taken(LISTING);
+		let claimed: string[];
+		try {
+			const [top, ids] = await Promise.all([
+				seenAtStart(m.transport, since),
+				m.transport.listIdsFromDayOf(since),
+			]);
+			if (m.front !== front) return [];
+			for (const id of top) m.seen.add(id);
+			claimed = ids.filter((id) => id > since && claim(id));
+			for (const id of claimed) front.taken(id);
+		} finally {
+			if (m.front === front) letGo([LISTING]);
+		}
 		try {
 			// Read no further once overtaken: a restart would else read the
 			// same backlog twice at once, the very load it spreads.

@@ -16,7 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
-import { folderTransport, readEachOff } from "../../../lib/mesh/transport.ts";
+import {
+	dayOf,
+	folderTransport,
+	readEachOff,
+} from "../../../lib/mesh/transport.ts";
 
 let dir: string;
 
@@ -342,5 +346,14 @@ describe("the folder transport", () => {
 			"the move was told as an arrival",
 		).toHaveLength(1);
 		expect(transport.read(first.id)).toMatchObject({ id: first.id });
+	});
+});
+
+describe("the day a message rests in", () => {
+	it("is none for a stamp past what a date holds, rather than a throw", () => {
+		// Anyone on the account can name a file so, and one throw here
+		// stopped every start's catch-up from taking its backlog.
+		expect(dayOf("99999999999999999-X-1-aaaaaaaa")).toBeUndefined();
+		expect(dayOf("1795790482057-X-1-aaaaaaaa")).toBe("2026-11-27");
 	});
 });

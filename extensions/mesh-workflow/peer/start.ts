@@ -404,16 +404,16 @@ export function onSessionStart(
 		const front = m.front;
 		void f
 			.catchUp(since)
-			.then((missed) => {
-				try {
-					f.route(missed, true);
-				} catch (error) {
+			// Routed whole before the start counts as caught up, as on the
+			// thread before, so what waited and the look passed over come after.
+			.then((missed) =>
+				f.route(missed, true).catch((error: unknown) => {
 					// Left waiting, what wasn't handed over would hold the marker
 					// for the rest of the session; the warning below says so.
 					if (m.front === front) f.letGo(missed.map((one) => one.id));
 					throw error;
-				}
-			})
+				}),
+			)
 			.catch((error: unknown) => {
 				// Only a throw taking or routing what was caught up on: a folder
 				// that won't list or a file that won't read is none, as on the
