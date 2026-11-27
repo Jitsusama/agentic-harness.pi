@@ -35,6 +35,7 @@ describe("the room a round reads", () => {
 		expect(room.startedUnjudged()).toBe("started without a verdict");
 		expect(room.spacingMs).toBe(MAC_SPACING_MS);
 		expect(MAC_SPACING_MS).toBe(2 * 60_000);
+		expect(room.quiet, "a Mac reads no quiet").toBeUndefined();
 	});
 
 	// 26 November: two rounds started side by side on the work Mac twice
@@ -77,6 +78,7 @@ describe("the room a round reads", () => {
 		);
 
 		expect(room.spacingMs).toBeUndefined();
+		expect(room.quiet, "Linux reads whether it is quiet").toBeDefined();
 		expect(room.startedUnjudged()).toBeUndefined();
 		expect(asked, "a Linux round never builds the Mac's room").toBe(false);
 		await room.short();

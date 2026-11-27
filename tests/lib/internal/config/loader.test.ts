@@ -15,13 +15,14 @@ describe("loadPackageConfig", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	it("treats a missing file as an empty config", async () => {
+	it("treats a missing file as an empty config, saying it is missing", async () => {
 		const path = join(dir, "config.json");
 		const result = await loadPackageConfig(path);
 		expect(result).toEqual({
 			ok: true,
 			path,
 			config: { version: 1, sections: {} },
+			missing: true,
 		});
 	});
 

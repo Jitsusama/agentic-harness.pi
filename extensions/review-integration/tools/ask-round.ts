@@ -187,10 +187,8 @@ export async function awaitRosterStart(
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
 	const line = councilStartsPath();
-	const spacing = spacingAtLeast(
-		spacingKeptAcrossFailedReads(configuredSpacing),
-		room.spacingMs,
-	);
+	const kept = spacingKeptAcrossFailedReads(() => configuredSpacing());
+	const spacing = spacingAtLeast(kept.read, room.spacingMs);
 	const start = await awaitCouncilStart(
 		line,
 		{
@@ -208,7 +206,32 @@ export async function awaitRosterStart(
 		},
 		signal,
 	);
-	return withUnjudged(start, room.startedUnjudged());
+	return withUnjudged(
+		withSpacingHeld(start, kept.held()),
+		room.startedUnjudged(),
+	);
+}
+
+/**
+ * The start's answer, saying too why the spacing it waited under was
+ * held rather than read, when `held` says it was: a slow line whose
+ * config can't be read otherwise looks like one set slow on purpose.
+ * A round that started at once waited under no spacing, so says none.
+ */
+export function withSpacingHeld(
+	start: CouncilStart,
+	held: string | undefined,
+): CouncilStart {
+	if (held === undefined) return start;
+	return {
+		...start,
+		...(start.waited === undefined
+			? {}
+			: { waited: `${start.waited} ${held}` }),
+		...(start.cancelled === undefined
+			? {}
+			: { cancelled: `${start.cancelled} ${held}` }),
+	};
 }
 
 /**
@@ -313,37 +336,99 @@ async function macRoundRunning(): Promise<string | undefined> {
 	return round === undefined ? undefined : runningSaid(round);
 }
 
-/** A config read: what it set, or that it couldn't be read. */
-type SpacingRead = { readonly ms: number | undefined } | undefined;
+/**
+ * A config read: the spacing it set, ms undefined for none; that no
+ * config is there, at the path named; or why it couldn't be read.
+ */
+export type SpacingRead =
+	| { readonly ms: number | undefined }
+	| { readonly missing: string }
+	| { readonly unread: string };
+
+/** A spacing read at each look, and why the last look held one instead. */
+export interface KeptSpacing {
+	/** The spacing to go by now, undefined for none set. */
+	readonly read: () => Promise<number | undefined>;
+	/** Why the last read held a spacing rather than reading one, if it did. */
+	readonly held: () => string | undefined;
+}
 
 /**
  * A spacing reader that answers, when a read fails, what the last good
  * read said, so a config caught half-saved while rounds wait takes none
  * of them to the quickest pace. A first read that fails answers the
  * line's default, as though nothing were known, since the config may
- * set a wide spacing for what pressure can't show.
+ * set a wide spacing for what pressure can't show. A config gone once a
+ * read found it holds what it set too, since a save that renames the
+ * old file aside leaves the path empty for a moment. One gone at the
+ * first read is a machine with no config, which must not wait for one.
  */
 export function spacingKeptAcrossFailedReads(
 	read: () => Promise<SpacingRead>,
-): () => Promise<number | undefined> {
-	let kept: { readonly ms: number | undefined } | undefined;
-	return async () => {
-		kept = (await read()) ?? kept;
-		return kept === undefined ? COUNCIL_START_SPACING_MS : kept.ms;
+): KeptSpacing {
+	let kept:
+		| { readonly ms: number | undefined; readonly found: boolean }
+		| undefined;
+	let held: string | undefined;
+	return {
+		read: async () => {
+			const now = await read();
+			held = undefined;
+			if ("ms" in now) {
+				kept = { ms: now.ms, found: true };
+			} else if ("unread" in now || kept?.found === true) {
+				held = heldSaid(now, kept !== undefined);
+			} else {
+				kept = { ms: undefined, found: false };
+			}
+			return kept === undefined ? COUNCIL_START_SPACING_MS : kept.ms;
+		},
+		held: () => held,
 	};
 }
 
+/** Why a read that found no spacing held one, as a round's answer says. */
+function heldSaid(
+	read: { readonly missing: string } | { readonly unread: string },
+	known: boolean,
+): string {
+	const why =
+		"missing" in read
+			? `The config at ${read.missing} was gone at the last look`
+			: `The config couldn't be read at the last look (${read.unread})`;
+	const what = known
+		? "the spacing it last set held"
+		: `the line's default of ${COUNCIL_START_SPACING_MS / 60_000} minutes held`;
+	return `${why}, so ${what}.`;
+}
+
 /**
- * The spacing this machine's config sets between round starts, with ms
+ * The spacing the config at `path` sets between round starts, with ms
  * undefined for none, so rounds start on room, two a minute at most, or
- * quicker while the machine is quiet. Undefined when the config can't be
- * read, rather than stopping a round over a setting it may not even hold.
+ * quicker while the machine is quiet. A config that can't be read, or
+ * sets `startSpacingMinutes` to what isn't a number of minutes, says
+ * why rather than reading as none, since it may be meant to set a wide
+ * spacing; one that isn't there says so.
  */
-async function configuredSpacing(): Promise<SpacingRead> {
-	const loaded = await loadPackageConfig();
-	if (!loaded.ok) return undefined;
+export async function configuredSpacing(
+	path?: string,
+): Promise<SpacingRead> {
+	const loaded = await loadPackageConfig(path);
+	if (!loaded.ok) return { unread: loaded.error };
+	if (loaded.missing === true) return { missing: loaded.path };
 	const review = loaded.config.sections[REVIEW_SLUG];
-	return { ms: startSpacingMs(isRecord(review) ? review.ask : undefined) };
+	const ask = isRecord(review) ? review.ask : undefined;
+	const ms = startSpacingMs(ask);
+	if (
+		ms === undefined &&
+		isRecord(ask) &&
+		ask.startSpacingMinutes !== undefined
+	) {
+		return {
+			unread: `startSpacingMinutes in ${loaded.path} is ${JSON.stringify(ask.startSpacingMinutes)}, not a number of minutes`,
+		};
+	}
+	return { ms };
 }
 
 /**

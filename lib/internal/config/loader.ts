@@ -23,9 +23,13 @@ export type SectionParse<T> = (
 	value: unknown,
 ) => { ok: true; value: T } | { ok: false; error: string };
 
-/** Result of loading the package configuration file. */
+/**
+ * Result of loading the package configuration file. A file that isn't
+ * there loads as the empty config, marked `missing`, for a reader that
+ * must tell a config gone for a moment from one that sets nothing.
+ */
 export type ConfigLoadResult =
-	| { ok: true; path: string; config: PackageConfig }
+	| { ok: true; path: string; config: PackageConfig; missing?: true }
 	| { ok: false; path: string; error: string };
 
 /** Load and validate the package configuration file. */
@@ -37,7 +41,7 @@ export async function loadPackageConfig(
 		text = await readFile(path, "utf8");
 	} catch (error) {
 		if (isNodeError(error) && error.code === "ENOENT") {
-			return { ok: true, path, config: { ...EMPTY_CONFIG } };
+			return { ok: true, path, config: { ...EMPTY_CONFIG }, missing: true };
 		}
 		return {
 			ok: false,

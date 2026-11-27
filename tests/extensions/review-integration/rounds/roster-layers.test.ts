@@ -20,6 +20,7 @@ import {
 	startSpacingMs,
 	tooMany,
 } from "../../../../extensions/review-integration/roster.ts";
+import { FEWEST_SPACING_MS } from "../../../../lib/core/review/ask/start-spacing.ts";
 
 const PATH = "/config/pi/agentic-harness.pi/config.json";
 
@@ -182,6 +183,10 @@ describe("how far apart rounds start on this machine", () => {
 		expect(startSpacingMs({ startSpacingMinutes: 0 })).toBe(30_000);
 		expect(startSpacingMs({ startSpacingMinutes: -1 })).toBe(30_000);
 		expect(startSpacingMs({ startSpacingMinutes: 0.1 })).toBe(30_000);
+		expect(
+			startSpacingMs({ startSpacingMinutes: 0.5 }),
+			"half a minute is the line's floor, which a quiet machine passes",
+		).toBe(FEWEST_SPACING_MS);
 		expect(startSpacingMs({ startSpacingMinutes: 600 })).toBe(30 * 60_000);
 		expect(
 			startSpacingMs({ startSpacingMinutes: Number.MAX_VALUE }),

@@ -204,6 +204,11 @@ interface Started {
 	 * again can still give it back, rather than leave the line unspaced.
 	 */
 	readonly follows?: Omit<Started, "follows">;
+	/**
+	 * Whether it took the quiet pace, one look after the start before,
+	 * so a pressure spike can be tied afterwards to the starts it took.
+	 */
+	readonly quiet?: true;
 }
 
 /** The machine's line, as kept on disk. */
@@ -232,8 +237,9 @@ export interface StartClaim {
 	readonly spacingMs?: number;
 	/**
 	 * The spacing as configured now, read at each look, so a change to the
-	 * config reaches rounds already waiting; `spacingMs` where it says
-	 * nothing.
+	 * config reaches rounds already waiting. The wider of it and
+	 * `spacingMs` holds; a read that fails keeps the last one, or before
+	 * any the line's default, {@link COUNCIL_START_SPACING_MS}.
 	 */
 	readonly spacing?: () => Promise<number | undefined>;
 	/**
@@ -319,8 +325,11 @@ export async function awaitCouncilStart(
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
-	// Read at each look; this stands only for a first look that failed.
-	let spacings: Spacings = { spacing: 2 * lookAgain, quickest: 2 * lookAgain };
+	// The spacing as last read, kept through a read that fails, so a
+	// reader that throws neither ends the round nor narrows its spacing.
+	let read: SpacingRead | undefined =
+		claim.spacing === undefined ? { ms: undefined } : undefined;
+	let spacings = spacingsOf(claim, lookAgain, read);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -345,7 +354,8 @@ export async function awaitCouncilStart(
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
-			spacings = await spacingsNow(claim, lookAgain);
+			read = (await spacingRead(claim)) ?? read;
+			spacings = spacingsOf(claim, lookAgain, read);
 			turn = await takeTurn(at, path, ticket, claim, spacings, passableSince);
 			failed = 0;
 		} catch (error) {
@@ -483,6 +493,7 @@ async function takeTurn(
 			alive: claim.alive ?? isAlive,
 			urgent,
 			spacing,
+			...(hurry ? { unhurried: spacings.spacing } : {}),
 			held,
 			pass: {
 				since: passableSince,
@@ -514,6 +525,11 @@ interface LookAt {
 	/** Tickets and changes marked urgent. */
 	readonly urgent: ReadonlySet<string>;
 	readonly spacing: number;
+	/**
+	 * The spacing a machine that isn't quiet keeps, when this look took
+	 * the quiet pace instead, so a start it let come sooner records so.
+	 */
+	readonly unhurried?: number;
 	readonly held: RoomHeld | undefined;
 	/** When a passable bar alone began to hold this round, and how long it may. */
 	readonly pass: {
@@ -645,6 +661,10 @@ function look(line: Line, at: LookAt): Look {
 			change: ticket.change,
 			ticket: ticket.id,
 			...(before === undefined ? {} : { follows: before }),
+			// Only a start the quiet pace let come sooner than the spacing.
+			...(at.unhurried !== undefined && now < last + at.unhurried
+				? { quiet: true }
+				: {}),
 		};
 		const left = waiting.filter((each) => each.id !== ticket.id);
 		// Its change has had its start, so an ask after this one takes its
@@ -1150,8 +1170,35 @@ interface Spacings {
 	readonly quickest: number;
 }
 
+/** A spacing as read from the claim's reader: undefined for none set. */
+interface SpacingRead {
+	readonly ms: number | undefined;
+}
+
 /**
- * The spacings a look goes by, the config read as it stands now.
+ * The claim's spacing as configured now, or nothing when its reader
+ * failed, so the look keeps the last it read rather than giving up the
+ * round over a reader that may answer at the next.
+ */
+async function spacingRead(
+	claim: StartClaim,
+): Promise<SpacingRead | undefined> {
+	if (claim.spacing === undefined) return { ms: undefined };
+	try {
+		return { ms: await claim.spacing() };
+	} catch {
+		// A reader that failed may set a wide spacing; the last read, or
+		// the line's default before any, holds until it answers again.
+		return undefined;
+	}
+}
+
+/**
+ * The spacings a look goes by, from the config as last `read`, or the
+ * line's default where it never could be, since a config that may set
+ * a wide spacing must never read as setting none. The wider of what
+ * the config and the caller ask for holds: either may be for a
+ * provider's limit, which a narrower other must not undo.
  *
  * Never under two looks, whoever asks: the line's own guard against a
  * failed look losing its start, and against a tight loop, holds here
@@ -1166,14 +1213,24 @@ interface Spacings {
  * its live MemAvailable still stops a burst the averages are slow to
  * show. A round that took a start and failed still finds it one start
  * back. Only while the spacing is at its floor, which a config setting
- * none or as often as it can leaves it at, and only for a claim that
- * reads quiet at all, so a wait never names a pace it can't take.
+ * none, zero or half a minute leaves it at, half a minute being the
+ * floor itself, and only for a claim that reads quiet at all, so a
+ * wait never names a pace it can't take.
  */
-async function spacingsNow(
+function spacingsOf(
 	claim: StartClaim,
 	lookAgain: number,
-): Promise<Spacings> {
-	const given = (await claim.spacing?.()) ?? claim.spacingMs;
+	read: SpacingRead | undefined,
+): Spacings {
+	const asked = [read?.ms, claim.spacingMs].filter(
+		(each): each is number => each !== undefined,
+	);
+	const given =
+		read === undefined
+			? Math.max(COUNCIL_START_SPACING_MS, ...asked)
+			: asked.length === 0
+				? undefined
+				: Math.max(...asked);
 	const floor = 2 * lookAgain;
 	const spacing = Math.max(
 		given ?? (claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),

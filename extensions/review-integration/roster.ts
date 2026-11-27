@@ -235,8 +235,10 @@ export function maxReviewers(section: unknown): number {
  * 22 November while optimus thrashed, has no stampede to space against,
  * and its rounds waited 3 minutes each behind a line four deep. A value
  * is held between half a minute and half an hour, the bounds the line
- * can keep, so a zero or a negative both mean as often as it can; one
- * that is not a number of minutes at all is ignored.
+ * can keep, so a zero, a negative and half a minute all mean as often
+ * as it can, which a quiet machine takes quicker still; one that is
+ * not a number of minutes at all is undefined here, and the round's
+ * reader of the config takes it as a config it couldn't read.
  */
 export function startSpacingMs(section: unknown): number | undefined {
 	const said = isRecord(section) ? section.startSpacingMinutes : undefined;

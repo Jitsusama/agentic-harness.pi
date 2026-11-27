@@ -386,12 +386,19 @@ was short of. On 24 November a round waited half an hour behind ten
 others under the fixed three-minute gap this replaced, on a machine
 with room for all of them. `startSpacingMinutes` under `ask` sets a
 gap between starts for a machine that wants one, held between half
-a minute and thirty minutes, and while it is set the quiet pace is
-not taken, since a gap set by hand may be for what pressure can't
-show, such as a provider's limit. Each waiting round reads it again
-at each look, keeping the last good value while the config can't be
-read. Below half a minute two rounds could start before a round that
-lost track of the start it took looked again.
+a minute and thirty minutes, and while it is set wider than half a
+minute the quiet pace is not taken, since a gap set by hand may be
+for what pressure can't show, such as a provider's limit. Half a
+minute or less is the line's own floor, as often as it can, which a
+quiet machine takes quicker still; a provider's limit of two starts a
+minute wants a value just over it, such as `0.6`. Each waiting round
+reads it again at each look, keeping the last good value while the
+config can't be read or is gone for a moment, as a save that renames
+the old file aside leaves it. A config that has never been read, or
+sets the minutes to what isn't a number, holds the line's default of
+three minutes, and a round that waited says why. A quicker pace stays
+safe because a round that lost track of the start it took finds it
+again one start back.
 
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,
