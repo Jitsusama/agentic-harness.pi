@@ -592,13 +592,13 @@ describe("writesInBash", () => {
 				kind: "change",
 				dir: HERE,
 				remote: "origin",
-				branch: "fix",
+				source: "fix",
 			},
 		]);
 		expect(
 			writesInBash('cd "$REPO" && bash -c "git push origin fix"', HERE),
 		).toEqual([
-			{ action: "git push", kind: "change", remote: "origin", branch: "fix" },
+			{ action: "git push", kind: "change", remote: "origin", source: "fix" },
 		]);
 	});
 
