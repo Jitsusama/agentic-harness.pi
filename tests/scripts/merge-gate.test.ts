@@ -20,6 +20,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
@@ -283,6 +284,35 @@ function stateHome(): string {
 	);
 }
 
+/** Where the gate makes its copies, under the state folder `state`. */
+function roomOf(state: string): string {
+	return join(state, "pi", "agentic-harness.pi", "merge-gate", "scratch");
+}
+
+/**
+ * The room under `state`, made and then kept from being written, so the
+ * gate finds it there but can make no folder in it, as on a full disk.
+ */
+function unwritableRoom(state: string): string {
+	const room = roomOf(state);
+	mkdirSync(room, { recursive: true });
+	chmodSync(room, 0o555);
+	return room;
+}
+
+/** The gate's copies left in `room`, which a run should take with it. */
+function copiesIn(room: string): string[] {
+	return readdirSync(room).filter((name) => name.startsWith("merge-gate."));
+}
+
+/** The characters in `text` a terminal would act on rather than show. */
+function controlsIn(text: string): string[] {
+	return [...text].filter((character) => {
+		const code = character.charCodeAt(0);
+		return (code < 32 && code !== 9 && code !== 10) || code === 127;
+	});
+}
+
 /**
  * What the gate answers for `sha` in `checkout`, with a proven runtime
  * host-gate.sh can resolve, as on a machine that runs hosts.
@@ -430,7 +460,10 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 	it("takes origin's main though another ref's name ends in it", async () => {
 		const checkout = await harness();
-		// ls-remote lists every ref whose name ends in refs/heads/main.
+		// ls-remote lists every ref whose name ends in refs/heads/main. This
+		// one adds the head's file otherwise, so a gate that took it as main
+		// would refuse the head as not merging cleanly.
+		await change(checkout, { "lib/tidy.ts": "export const tidy = 2;\n" });
 		const tail = "refs/heads/x/refs/heads/main";
 		await git(checkout, "push", "-q", "origin", `HEAD:${tail}`);
 		const sha = await change(checkout, {
@@ -554,6 +587,27 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		);
 	});
 
+	it("judges two changes at once in one new store, each rightly", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const untidy = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+
+		// Both make the store, and fetch the same main into it, at once.
+		const [passed, refused] = await Promise.all([
+			gate(checkout, tidy, { XDG_STATE_HOME: state }),
+			gate(checkout, untidy, { XDG_STATE_HOME: state }),
+		]);
+
+		expect(passed.code, passed.said).toBe(0);
+		expect(refused.code, refused.said).toBe(1);
+		expect(refused.said).toContain("lib/untidy.ts");
+	});
+
 	it("judges a second change in the store a first run left, by refs of its own", async () => {
 		const checkout = await harness();
 		const state = stateHome();
@@ -668,6 +722,9 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).not.toContain("loosens a rule");
+		expect(answered.said, "a file it judges changed too").not.toContain(
+			"no file the gate judges",
+		);
 	});
 
 	it("lets a change to the config alone through", async () => {
@@ -683,7 +740,7 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("Biome passes the 1 file(s)");
 		expect(answered.said).not.toContain("main's config");
 		expect(answered.said, "the config it changes, named").toMatch(
-			/changes Biome's config or plugins and no file they judge.*\n {2}biome\.jsonc\n/,
+			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}biome\.jsonc\n/,
 		);
 	});
 
@@ -702,8 +759,48 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said, "the plugin it changes, named").toMatch(
-			/changes Biome's config or plugins and no file they judge.*\n {2}lib\/no-alert\.grit\n/,
+			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}lib\/no-alert\.grit\n/,
 		);
+	});
+
+	// A plugin is no file Biome judges, so a change to one alone ran no
+	// Biome at all, and a plugin that won't compile merged, failing every
+	// lint on main after it (27 November round, F21).
+	it("refuses a plugin a change edits alone that won't compile", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, { [grit]: "this is ( not grit\n" });
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "Biome's own words on the plugin").toContain(
+			"Failed to compile the Grit plugin",
+		);
+		expect(answered.said, "the plugin's to fix, not lint:fix's").toContain(
+			"couldn't judge",
+		);
+		expect(answered.said, "lint:fix can't mend a plugin").not.toContain(
+			"pnpm lint:fix",
+		);
+	});
+
+	it("refuses a config a change only misformats, sending it to lint:fix", async () => {
+		const checkout = await harness();
+		// It loads, and only Biome's formatter faults it, which lint:fix mends.
+		const sha = await change(checkout, {
+			"biome.jsonc": `{"formatter":{"indentStyle":"tab"}}\n`,
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "a fault lint:fix mends").toContain("pnpm lint:fix");
+		expect(answered.said, "the config loads").not.toContain("couldn't judge");
 	});
 
 	it("says a head's config that won't load is the config's to fix, not lint:fix's", async () => {
@@ -1056,10 +1153,31 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 			1,
 		);
 		for (const place of places) {
-			expect(place, "a copy beside the gate's store").toContain(
-				join(state, "pi", "agentic-harness.pi", "merge-gate", "scratch"),
-			);
+			expect(place, "a copy beside the gate's store").toContain(roomOf(state));
 		}
+	});
+
+	it("leaves no copy in its room after a run, passed or refused", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const passed = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+
+		expect(passed.code, passed.said).toBe(0);
+		expect(copiesIn(roomOf(state)), "the copies of a run that passed").toEqual(
+			[],
+		);
+		const untidy = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+
+		const refused = await gate(checkout, untidy, { XDG_STATE_HOME: state });
+
+		expect(refused.code, refused.said).toBe(1);
+		expect(copiesIn(roomOf(state)), "the copies of a run refused").toEqual([]);
 	});
 
 	it("refuses where pi's state folder can't be written, naming the fence", async () => {
@@ -1075,7 +1193,51 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		chmodSync(state, 0o755);
 
 		expect(answered.code, answered.said).toBe(1);
-		expect(answered.said).toContain("outside the agent fence");
+		expect(answered.said, "the room refused").toContain(
+			`no folder could be made under ${roomOf(state)}`,
+		);
+		expect(answered.said, "the fence named").toContain(
+			"outside the agent fence",
+		);
+	});
+
+	it("refuses where its room is there but takes no folder, naming the room", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const state = stateHome();
+		const room = unwritableRoom(state);
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+		chmodSync(room, 0o755);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the room mktemp failed in").toContain(
+			`no folder could be made under ${room}`,
+		);
+	});
+
+	it("says what mktemp said with the refusal, off the terminal's controls", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// A state folder whose name retitles the window, which the refusal
+		// names twice: in mktemp's words, and in its own.
+		const state = join(stateHome(), "\u001b]0;owned\u0007");
+		const room = unwritableRoom(state);
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+		chmodSync(room, 0o755);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "mktemp's own words, as a full disk's").toContain(
+			"mktemp:",
+		);
+		expect(controlsIn(answered.said), "no escape reaches the terminal").toEqual(
+			[],
+		);
 	});
 
 	it("loads a plugin whose name git would quote", async () => {
@@ -1109,6 +1271,98 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "the file wasn't judged").toContain(
 			"Biome passes the 1 file(s)",
 		);
+	});
+
+	it("keeps control characters a head's file name holds off the terminal", async () => {
+		const checkout = await harness();
+		// An escape that retitles the window, in a script's name the count then
+		// prints as the head lists it. Biome escapes what it prints itself.
+		const owned = "scripts/\u001b]0;owned\u0007.sh";
+		const sha = await change(checkout, {
+			[owned]: LOOSE,
+			[SUPPRESSION_LIST]: suppressionList(`${OLD} 1`, `${owned} 1`),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the count named it").toContain("]0;owned");
+		expect(controlsIn(answered.said), "no escape reaches the terminal").toEqual(
+			[],
+		);
+	});
+
+	it("keeps bidi and C1 characters a head's file name holds off the terminal", async () => {
+		const checkout = await harness();
+		// A right-to-left override, which shows the rest of the name reversed,
+		// a C1 escape and a bidi isolate, in a script's name the count then
+		// prints as the head lists it.
+		const owned = "scripts/\u202e\u009b\u2066hs.sh";
+		const sha = await change(checkout, {
+			[owned]: LOOSE,
+			[SUPPRESSION_LIST]: suppressionList(`${OLD} 1`, `${owned} 1`),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the count named it, past what went").toContain(
+			"scripts/hs.sh 1",
+		);
+		for (const character of ["\u202e", "\u009b", "\u2066"]) {
+			expect(
+				answered.said.includes(character),
+				`U+${character.charCodeAt(0).toString(16)} reaches the terminal`,
+			).toBe(false);
+		}
+	});
+
+	it("refuses a changed file whose name holds a newline, quoting it", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/two\nlines.ts": "export const two = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the refusal").toContain(
+			"whose name holds a newline",
+		);
+		expect(answered.said, "the name as printf quotes it").toContain(
+			"$'lib/two\\nlines.ts'",
+		);
+	});
+
+	it("runs none of the checkout's hooks", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// Each hook a fetch, a ref's move or an index could run, which a strict
+		// session could write to move a ref the gate then reads.
+		const ran = join(folder(made, "hooks"), "ran");
+		const hooks = join(checkout, ".git", "hooks");
+		mkdirSync(hooks, { recursive: true });
+		for (const hook of [
+			"reference-transaction",
+			"post-index-change",
+			"post-checkout",
+			"post-merge",
+		]) {
+			writeFileSync(
+				join(hooks, hook),
+				`#!/bin/sh\necho ${hook} >> "${ran}"\n`,
+				{
+					mode: 0o755,
+				},
+			);
+		}
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(existsSync(ran), "a hook of the checkout's ran").toBe(false);
 	});
 
 	it("reads a changed file named like an option as a file", async () => {

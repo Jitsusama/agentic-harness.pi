@@ -47,6 +47,19 @@ clean() {
     GIT_NO_REPLACE_OBJECTS=1 "$@"
 }
 
+# Text a head chose (its file names, and what Biome, vitest or git say of
+# them) as it may reach the terminal: every control character but a tab
+# and a newline goes, escape included, so none can move the cursor,
+# retitle the window or hide a line before it. The C1 controls go too, as
+# a terminal may take U+009B for an escape and a bracket, and so do the
+# bidi formatting characters, which can show a name's text reversed and
+# hide what it says. What's said is UTF-8, so those are matched as their
+# bytes, which no other character's encoding holds.
+shown() {
+  LC_ALL=C tr -d '\000-\010\013-\037\177' |
+    LC_ALL=C awk '{ gsub(/\302[\200-\237]|\342\200[\252-\256]|\342\201[\246-\251]/, ""); print }'
+}
+
 # Git on the gate's own store, which holds no replacement or graft, and
 # no ref but those its own fetches write.
 stored() { clean git --git-dir="$gate_store" -c core.hooksPath=/dev/null "$@"; }
@@ -79,7 +92,11 @@ signing_in() {
 # the variables that turn them off for it, so its command names them.
 fetched() {
   local by=$1 from=$2 id=$3 ref=$4 own=()
-  if [[ -d $from ]]; then
+  # Only an absolute path is a repository here: a URL such as
+  # git@github.com:o/r.git reads as a relative path too, and a folder a
+  # session made under that name in the checkout would have the gate name
+  # its own upload-pack to the server.
+  if [[ $from == /* && -d $from ]]; then
     own=("--upload-pack=env GIT_GRAFT_FILE=/dev/null GIT_NO_REPLACE_OBJECTS=1 git -c core.commitGraph=false upload-pack")
   fi
   "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${own[@]+"${own[@]}"} \
@@ -93,15 +110,20 @@ holds() {
   named=$(stored rev-parse --verify --quiet "$ref^{commit}") && [[ $named == "$id" ]]
 }
 
+# Whether the store is a repository git can read.
+made() { stored rev-parse --git-dir > /dev/null 2>&1; }
+
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
-  local gate=$1 sha=$2 url listed line checkout said
-  # git init again on a store that's there only makes what's missing, so a
-  # store a first run left half-made is mended, and two first runs at once
-  # both end with a whole one.
+  local gate=$1 sha=$2 url bare listed line checkout said
+  # The store is made only where it isn't yet, since git init rewrites its
+  # config under config.lock, and two gates at once would refuse each
+  # other. A store a first run left half-made is mended by making it
+  # again, and an init that fails because another gate was making it at
+  # the same moment is judged by whether the store is there after.
   if ! (umask 077 && mkdir -p "$gate_home") ||
-    ! clean git init -q --bare --template= "$gate_store"; then
+    ! { made || clean git init -q --bare --template= "$gate_store" || made; }; then
     echo "$gate: can't keep the objects it judges in $gate_home, so none can be read as hashed." >&2
     echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does." >&2
     exit 1
@@ -109,6 +131,11 @@ gate_objects() {
   # The checkout's own config names origin, which the fence keeps from a
   # session.
   url=$(git remote get-url origin)
+  # What the gate prints of it, without a sign-in an https URL may hold.
+  bare=$url
+  if [[ $url =~ ^([A-Za-z][A-Za-z0-9+.-]*://)[^/]*@(.*)$ ]]; then
+    bare=${BASH_REMATCH[1]}${BASH_REMATCH[2]}
+  fi
   # ls-remote matches its pattern as a path's tail, so a ref such as
   # refs/heads/x/refs/heads/main is listed too, and only the line naming
   # refs/heads/main itself is main.
@@ -121,14 +148,14 @@ gate_objects() {
     done <<< "$listed"
   fi
   if [[ -z $main_id ]]; then
-    echo "$gate: origin ($url) didn't name its main, so nothing can be judged against it." >&2
+    echo "$gate: origin ($bare) didn't name its main, so nothing can be judged against it." >&2
     exit 1
   fi
   # A fetch that fails because another gate is writing the same ref at
   # once still leaves it whole, so the ref, not the fetch, decides.
   said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
   if ! holds "$main_id" "refs/gate/commits/$main_id"; then
-    echo "$said" >&2
+    shown <<< "$said" >&2
     echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
     exit 1
   fi
@@ -152,7 +179,7 @@ gate_objects() {
     said=$(fetched stored "$checkout" "$head_id" "$held" 2>&1) ||
       said+=$'\n'$(fetched signing_in "$url" "$head_id" "$held" 2>&1) || true
     if ! holds "$head_id" "$held"; then
-      echo "$said" >&2
+      shown <<< "$said" >&2
       echo "$gate: $sha couldn't be fetched whole, from this checkout or from origin, so what it holds can't be read as hashed." >&2
       echo "A forged object in the checkout does this. Push the branch, so origin holds the head, and merge again." >&2
       exit 1
