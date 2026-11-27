@@ -24,6 +24,7 @@
  * rest.
  */
 
+import { type Exec, withCallSignal } from "../../core/exec/index.ts";
 import type { HeadOf } from "./cover.ts";
 
 /** How long a lookup that found nothing stands before it's asked again. */
@@ -65,23 +66,45 @@ export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 
 /**
  * What a program prints, trimmed, or nothing where it failed, timed out
- * or said nothing, so an unknown answer never names a branch.
+ * or said nothing, so an unknown answer never names a branch. The
+ * program is stopped once `signal` fires, and its answer is then
+ * nothing too.
  */
 export type Look = (
 	program: string,
 	args: string[],
+	signal?: AbortSignal,
 ) => Promise<string | undefined>;
+
+/**
+ * A look through `exec`, each program run under its own `signal`
+ * alone, or none, rather than the signal of whichever call it runs in.
+ */
+export function lookThrough(exec: Exec): Look {
+	return async (program, args, signal) => {
+		const { code, stdout } = await withCallSignal(signal, () =>
+			exec(program, args),
+		);
+		const out = stdout.trim();
+		return code === 0 && out !== "" ? out : undefined;
+	};
+}
 
 /**
  * A pull request's branch, asked of GitHub and Delta at once and taken
  * from GitHub where it answers, so a write waits for the slower only
- * when GitHub tells nothing. A blank answer, or one Delta gives as a
- * whole ref, is read as the short name a push is judged by, or none.
+ * when GitHub tells nothing. Delta's lookup is stopped once GitHub
+ * names the branch, as nothing waits on it then, and runs on where
+ * GitHub tells nothing. A blank answer, or one Delta gives as a whole
+ * ref, is read as the short name a push is judged by, or none.
  */
 export function askedHead(look: Look): HeadOf {
 	return async (repo, pr) => {
 		if (repo === undefined) return undefined;
-		const delta = deltaHead(look, repo, pr).catch(() => undefined);
+		const deltaNeeded = new AbortController();
+		const delta = deltaHead(look, repo, pr, deltaNeeded.signal).catch(
+			() => undefined,
+		);
 		const github = await look("gh", [
 			"pr",
 			"view",
@@ -93,7 +116,10 @@ export function askedHead(look: Look): HeadOf {
 			"-q",
 			".headRefName",
 		]).catch(() => undefined);
-		return shortName(github) ?? (await delta);
+		const named = shortName(github);
+		if (named === undefined) return await delta;
+		deltaNeeded.abort();
+		return named;
 	};
 }
 
@@ -101,15 +127,13 @@ async function deltaHead(
 	look: Look,
 	repo: string,
 	pr: number,
+	signal: AbortSignal,
 ): Promise<string | undefined> {
-	const json = await look("dt", [
-		"pr",
-		"view",
-		String(pr),
-		"-R",
-		repo,
-		"--json",
-	]);
+	const json = await look(
+		"dt",
+		["pr", "view", String(pr), "-R", repo, "--json"],
+		signal,
+	);
 	if (json === undefined) return undefined;
 	try {
 		const view = JSON.parse(json) as {

@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+	callSignal,
+	type Exec,
+	withCallSignal,
+} from "../../../../lib/core/exec/index.ts";
+import {
 	askedHead,
 	FAILED_FOR_MS,
 	keptHeads,
 	type Look,
+	lookThrough,
 } from "../../../../lib/internal/pineapple/heads.ts";
 
 /** A lookup giving each answer in turn, counting how often it's asked. */
@@ -182,6 +188,29 @@ describe("askedHead", () => {
 		expect(await askedHead(looking("  ", view(" ")))("o/r", 1)).toBeUndefined();
 	});
 
+	it("stops Delta's lookup once GitHub names the branch", async () => {
+		let delta: AbortSignal | undefined;
+		const look: Look = async (program, _args, signal) => {
+			if (program === "gh") return "drill";
+			delta = signal;
+			return await new Promise<undefined>(() => {
+				// Delta never answers, as a hung one doesn't.
+			});
+		};
+		expect(await askedHead(look)("o/r", 1)).toBe("drill");
+		expect(delta).toHaveProperty("aborted", true);
+	});
+
+	it("leaves Delta's lookup running where GitHub tells nothing", async () => {
+		const look: Look = async (program, _args, signal) => {
+			if (program === "gh") return undefined;
+			// GitHub has answered by now, telling nothing.
+			await Promise.resolve();
+			return signal?.aborted ? undefined : view("drill");
+		};
+		expect(await askedHead(look)("o/r", 1)).toBe("drill");
+	});
+
 	it("tells nothing where neither says, Delta throwing included", async () => {
 		const thrown = () => {
 			throw new Error("door down");
@@ -195,5 +224,40 @@ describe("askedHead", () => {
 		expect(await askedHead(looking("drill", view("x")))(undefined, 1)).toBe(
 			undefined,
 		);
+	});
+});
+
+describe("lookThrough", () => {
+	/** An exec printing `stdout` with `code`, keeping each signal it ran under. */
+	function printing(code: number, stdout: string) {
+		const signals: (AbortSignal | undefined)[] = [];
+		const exec: Exec = async () => {
+			signals.push(callSignal());
+			return { code, stdout, stderr: "" };
+		};
+		return { exec, signals };
+	}
+
+	it("reads what a program printed, trimmed, and nothing where it failed", async () => {
+		expect(await lookThrough(printing(0, " drill\n").exec)("gh", [])).toBe(
+			"drill",
+		);
+		expect(await lookThrough(printing(0, " \n").exec)("gh", [])).toBe(
+			undefined,
+		);
+		expect(await lookThrough(printing(1, "drill").exec)("gh", [])).toBe(
+			undefined,
+		);
+	});
+
+	it("runs a program under its own signal, never its call's", async () => {
+		const { exec, signals } = printing(0, "drill");
+		const own = new AbortController().signal;
+		const call = new AbortController().signal;
+		await withCallSignal(call, async () => {
+			await lookThrough(exec)("dt", [], own);
+			await lookThrough(exec)("gh", []);
+		});
+		expect(signals).toEqual([own, undefined]);
 	});
 });

@@ -38,7 +38,11 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { askedHead, keptHeads } from "../../lib/internal/pineapple/heads.ts";
+import {
+	askedHead,
+	keptHeads,
+	lookThrough,
+} from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -68,6 +72,12 @@ import { createWhereabouts, reposOf } from "./whereabouts.ts";
  * started after ten seconds, when the guard goes on without it.
  */
 const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
+
+/**
+ * What a lookup prints, or nothing where it failed or said nothing: an
+ * unknown answer makes the stop hold the write.
+ */
+const quietly = lookThrough(LOOKUPS);
 
 /**
  * How often a session looks for a stop or a resume, and holds are
@@ -306,17 +316,4 @@ function config(dir: string): (key: string) => Promise<string | undefined> {
 		if (code === 1 && value === "" && stderr.trim() === "") return undefined;
 		throw new Error(`git couldn't read ${key} at ${dir}`);
 	};
-}
-
-/**
- * What `program` prints, or nothing where it failed or said nothing: an
- * unknown answer makes the stop hold the write.
- */
-async function quietly(
-	program: string,
-	args: string[],
-): Promise<string | undefined> {
-	const { code, stdout } = await LOOKUPS(program, args);
-	const out = stdout.trim();
-	return code === 0 && out !== "" ? out : undefined;
 }
