@@ -239,20 +239,24 @@ function runOff(program: Program, args: string[]): Promise<string | undefined> {
 
 /**
  * Removes `path` and everything under it, as `rmSync` with `recursive`
- * and `force` would, but by descriptor. Nothing there is no error.
+ * and `force` would, but by descriptor. Nothing there is no error. The
+ * folders are looked up only once a walk is needed, since that asks for
+ * the account's name, which a uid with none can't give, and a lock or a
+ * claim needs no walk.
  */
 export function removeTree(
 	path: string,
-	folders: readonly string[] = removerFolders(),
+	folders?: readonly string[],
 	way: RemovalWay = {},
 ): void {
 	const at = untrailed(path);
 	if (removedWithoutWalk(at)) return;
-	const rm = systemTool("rm", folders);
+	const kept = folders ?? removerFolders();
+	const rm = systemTool("rm", kept);
 	let said = runSync(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		const chmod = systemTool("chmod", folders);
+		const chmod = systemTool("chmod", kept);
 		chmodSaid = runSync(chmod, writableArgs(at));
 		const older = writableArgsAfter(chmodSaid, at);
 		if (older !== undefined) chmodSaid = runSync(chmod, older);
@@ -274,7 +278,7 @@ export function tidyTree(
 	folders?: readonly string[],
 ): string | undefined {
 	try {
-		removeTree(path, folders ?? removerFolders());
+		removeTree(path, folders);
 		return undefined;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);
@@ -284,16 +288,17 @@ export function tidyTree(
 /** `removeTree`, off the thread, for a caller that shares it. */
 export async function removeTreeOff(
 	path: string,
-	folders: readonly string[] = removerFolders(),
+	folders?: readonly string[],
 	way: RemovalWay = {},
 ): Promise<void> {
 	const at = untrailed(path);
 	if (await removedWithoutWalkOff(at)) return;
-	const rm = systemTool("rm", folders);
+	const kept = folders ?? removerFolders();
+	const rm = systemTool("rm", kept);
 	let said = await runOff(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		const chmod = systemTool("chmod", folders);
+		const chmod = systemTool("chmod", kept);
 		chmodSaid = await runOff(chmod, writableArgs(at));
 		const older = writableArgsAfter(chmodSaid, at);
 		if (older !== undefined) chmodSaid = await runOff(chmod, older);
