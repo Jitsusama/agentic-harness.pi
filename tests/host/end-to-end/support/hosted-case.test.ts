@@ -58,27 +58,37 @@ const steered = {
 	display: true,
 };
 
+/**
+ * Expect answeredLast to read a session file of `entries` as answered, or
+ * as still waiting, saying which it should have read and what the file
+ * held when it doesn't.
+ */
+function expectAnswered(holds: boolean, ...entries: object[]): void {
+	expect(
+		answeredLast(sessionOf(...entries)),
+		`${holds ? "answered" : "still waiting"}: ${JSON.stringify(entries)}`,
+	).toBe(holds);
+}
+
 describe("answeredLast", () => {
 	it("holds once the model's last answer calls no tool", () => {
-		expect(answeredLast(sessionOf(told, answered))).toBe(true);
+		expectAnswered(true, told, answered);
 	});
 
 	it("waits while the model's last message calls a tool", () => {
-		expect(answeredLast(sessionOf(told, calling))).toBe(false);
+		expectAnswered(false, told, calling);
 	});
 
 	it("waits while words wait for the model", () => {
-		expect(answeredLast(sessionOf(answered, told))).toBe(false);
+		expectAnswered(false, answered, told);
 	});
 
 	it("waits on a job's end steered into the run after its answer", () => {
-		expect(answeredLast(sessionOf(told, answered, steered))).toBe(false);
+		expectAnswered(false, told, answered, steered);
 	});
 
 	it("holds once the model answers after the steered end", () => {
-		expect(answeredLast(sessionOf(told, answered, steered, answered))).toBe(
-			true,
-		);
+		expectAnswered(true, told, answered, steered, answered);
 	});
 
 	it("passes over another extension's custom message", () => {
@@ -88,31 +98,31 @@ describe("answeredLast", () => {
 			content: "noted",
 			display: true,
 		};
-		expect(answeredLast(sessionOf(told, answered, note))).toBe(true);
+		expectAnswered(true, told, answered, note);
 	});
 
 	it("passes over entries that aren't said, such as a mark", () => {
 		const mark = { type: "custom", customType: "job-carried", data: {} };
-		expect(answeredLast(sessionOf(told, answered, mark))).toBe(true);
+		expectAnswered(true, told, answered, mark);
 	});
 
 	it("waits on an answer that stopped on an error, which may be retried", () => {
-		expect(answeredLast(sessionOf(told, stoppedOn("error")))).toBe(false);
+		expectAnswered(false, told, stoppedOn("error"));
 	});
 
 	it("holds once a retry answers after an error", () => {
-		expect(answeredLast(sessionOf(told, stoppedOn("error"), answered))).toBe(
-			true,
-		);
+		expectAnswered(true, told, stoppedOn("error"), answered);
 	});
 
 	it("waits on an answer cut off, whether aborted or out of room", () => {
-		expect(answeredLast(sessionOf(told, stoppedOn("aborted")))).toBe(false);
-		expect(answeredLast(sessionOf(told, stoppedOn("length")))).toBe(false);
+		expectAnswered(false, told, stoppedOn("aborted"));
+		expectAnswered(false, told, stoppedOn("length"));
 	});
 
 	it("waits on a file not written yet", () => {
-		expect(answeredLast(undefined)).toBe(false);
+		expect(answeredLast(undefined), "a file not written is still waiting").toBe(
+			false,
+		);
 	});
 });
 
