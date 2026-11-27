@@ -40,7 +40,7 @@ import {
 	WORK_REQUEST,
 	type WorkApi,
 } from "../../lib/core/work/events.ts";
-import { TreeStillGoing } from "../../lib/core/work/memory.ts";
+import { isTreeStillGoing } from "../../lib/core/work/memory.ts";
 import { satisfies } from "../../lib/core/work/tree.ts";
 import { REVIEW_COMMANDS } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
@@ -752,7 +752,7 @@ export async function treeForRound(
 		if (
 			asked.request.intent !== "snapshot" ||
 			files.length === 0 ||
-			error instanceof TreeStillGoing
+			isTreeStillGoing(error)
 		) {
 			return fallbackAt(choice, commit, why);
 		}

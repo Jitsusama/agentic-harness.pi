@@ -907,6 +907,52 @@ describe("trees another provider cut", () => {
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
+	it("keeps a shareable one its twin record says was asked for within the day", async () => {
+		// World files one tree under two keys, and the removal takes both,
+		// so either's ask keeps it.
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
+		});
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("takes a shareable one a killed run left marked, by when it was asked for before", async () => {
+		// The mark rewrote its file, which is no ask: read by its file's
+		// time, the half-removed tree would be kept a day.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			going: {
+				at: Date.now(),
+				by: ENDED,
+				asked: Date.now() - 2 * PUSHED_SETTLE_MS,
+			},
+		});
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+	});
+
 	it("counts a shareable one taken when ending its mark fails after it went", async () => {
 		const { state, memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-snapshot", { shareable: true });

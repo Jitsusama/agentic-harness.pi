@@ -29,12 +29,23 @@ import {
 	type TreeRequest,
 	treeIdentity,
 } from "../../../../lib/core/work/index.ts";
-import { TreeStillGoing } from "../../../../lib/core/work/memory.ts";
 import { OFF } from "../../../../lib/internal/fence/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
 
 const KEY = "github:Jitsusama/agentic-harness.pi";
+
+/**
+ * The broker's TreeStillGoing as another copy of the work layer throws it:
+ * the broker reaches an extension over the event bus from the work
+ * extension's own module copy, so only its name is the same class's.
+ */
+class TreeStillGoing extends Error {
+	constructor(path: string) {
+		super(`${path} is still being removed by a sweep after 15 minutes`);
+		this.name = "TreeStillGoing";
+	}
+}
 
 let home: string;
 
@@ -211,7 +222,7 @@ describe("the files a round's tree must hold", () => {
 		const checkout = await checkoutAt();
 		const asked = announceLayer(
 			undefined,
-			new TreeStillGoing("/trees/snapshot", 15 * 60 * 1000),
+			new TreeStillGoing("/trees/snapshot"),
 		);
 		const tree = await treeForRound(
 			{ key: KEY, localPath: checkout.path },

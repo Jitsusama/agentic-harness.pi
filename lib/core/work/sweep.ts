@@ -720,6 +720,27 @@ function unreadWhy(
 }
 
 /**
+ * When the tree at `path` was last asked for, by any record there, since
+ * the removal marks and takes them all: World files one tree under two
+ * keys. A marked record's file was rewritten by the mark, which is no
+ * ask, so it counts the time its mark kept, or none; a run killed
+ * mid-removal would otherwise leave its tree kept a day as just asked
+ * for. Nothing when no record is there any more.
+ */
+function lastAsked(memory: TreeMemory, path: string): number | undefined {
+	const times = memory
+		.recall()
+		.filter((one) => one.path === path)
+		.map((one) =>
+			one.going === undefined
+				? memory.askedAt(path, one.identity.key)
+				: (one.going.asked ?? 0),
+		)
+		.filter((at) => at !== undefined);
+	return times.length === 0 ? undefined : Math.max(...times);
+}
+
+/**
  * Take a tree another provider cut, through that provider, once it says
  * nothing would be lost.
  *
@@ -759,7 +780,7 @@ async function releaseThroughProvider(
 	}
 	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
 	if (tree.identity.shareable) {
-		const asked = deps.memory.askedAt(tree.path, tree.identity.key);
+		const asked = lastAsked(deps.memory, tree.path);
 		if (asked === undefined || asked > since) {
 			keep(
 				"it is shareable and was asked for within the last day, so a session may join it again",

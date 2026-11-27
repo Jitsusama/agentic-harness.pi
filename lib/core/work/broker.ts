@@ -559,11 +559,16 @@ export function createTreeBroker(
 								`${found.path} was left part-removed by a sweep that stopped, and ${found.providerId}, which could finish removing it, isn't loaded here`,
 							);
 						}
-						await memory.finishGoing(found, () => by.release(found, options));
-						waitedFor = found;
-						continue;
-					}
-					if (!(error instanceof TreeGoing)) throw error;
+						try {
+							await memory.finishGoing(found, () => by.release(found, options));
+							waitedFor = found;
+							continue;
+						} catch (finishing) {
+							// Another session finishes the removal now, or holds its
+							// lock: waited for as any removal is, rather than refused.
+							if (!(finishing instanceof TreeGoing)) throw finishing;
+						}
+					} else if (!(error instanceof TreeGoing)) throw error;
 				}
 				waitedFor = found;
 				await waitWhileGoing(memory, found, wait, options?.signal, true);

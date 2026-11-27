@@ -357,6 +357,15 @@ export class TreeStillGoing extends Error {
 	}
 }
 
+/**
+ * Whether `error` is a {@link TreeStillGoing}, told by its name. An
+ * extension holds its own copy of this module while the broker that throws
+ * comes over the event bus from another, so `instanceof` would miss it.
+ */
+export function isTreeStillGoing(error: unknown): boolean {
+	return error instanceof Error && error.name === "TreeStillGoing";
+}
+
 /** Whether a value read off disk names a removal's lock. */
 function isRemovalLock(lock: unknown): lock is RemovalLock {
 	return (
@@ -1270,13 +1279,22 @@ export function createTreeMemory(
 				);
 				if (trees.length === 0) return;
 				if (!failed) {
-					this.forget(tree.path);
+					// The marked ones alone: a twin under another key may already
+					// be a fresh cut's.
+					for (const one of trees) {
+						rmSync(fileFor(one.identity.key), { force: true });
+					}
+					noteWrite(dir, tree.path);
 					return;
 				}
 				for (const one of trees) {
 					if (one.going === undefined) continue;
 					const { lock: _, ...going } = one.going;
-					this.remember({ ...one, going });
+					// The mark made the removing session its only holder. Kept, a
+					// live sweep or host would read as another session working in
+					// it, and the tree be refused rather than finished.
+					const { owners: __, ...left } = one;
+					this.remember({ ...left, going });
 					// Its file's time is when it was last asked for, and the mark
 					// and this write aren't asks: left as written, a failed
 					// removal would keep a tree a day as if just asked for.
