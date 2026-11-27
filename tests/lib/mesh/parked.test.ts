@@ -256,8 +256,9 @@ describe("waking a parked peer", () => {
 		).toEqual(["s-parked"]);
 	});
 
-	it("judges a message at its own time unless told when", () => {
+	it("wakeParked judges each message at its own time unless told when", () => {
 		const hold = lapsedHold();
+		const whileItHeld = Date.parse(hold.at) + HOUR_MS;
 		const woken = (judged?: { now: number }) =>
 			wakeParked(
 				hold,
@@ -272,17 +273,26 @@ describe("waking a parked peer", () => {
 			"s-parked",
 		]);
 		expect(
+			woken({ now: whileItHeld }),
+			"a hold judged while it held didn't wake, so the time given wasn't used",
+		).toEqual(["s-parked"]);
+		expect(
 			woken({ now: Date.now() }),
 			"a hold that had lapsed by the time it was judged woke",
 		).toEqual([]);
 	});
 
-	it("judges one message at its own time unless told when", () => {
+	it("wakes judges a message at its own time unless told when", () => {
 		const hold = lapsedHold();
+		const whileItHeld = Date.parse(hold.at) + HOUR_MS;
 
 		expect(
 			wakes(hold, parked, nothing),
 			"a hold judged at its own time didn't wake",
+		).toBe(true);
+		expect(
+			wakes(hold, parked, nothing, undefined, whileItHeld),
+			"a hold judged while it held didn't wake, so the time given wasn't used",
 		).toBe(true);
 		expect(
 			wakes(hold, parked, nothing, undefined, Date.now()),
@@ -291,13 +301,15 @@ describe("waking a parked peer", () => {
 	});
 });
 
+/** An hour, in milliseconds. */
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * A hold sent an hour past the longest a hold lasts, so it is live at
  * its own time and lapsed now.
  */
 function lapsedHold(): Message {
-	const hourMs = 60 * 60 * 1000;
-	const sent = new Date(Date.now() - MOST_HOLD_MS - hourMs);
+	const sent = new Date(Date.now() - MOST_HOLD_MS - HOUR_MS);
 	return message({ intent: "hold", at: sent.toISOString() });
 }
 
@@ -382,8 +394,10 @@ describe("waking a parked peer for a message carried in", () => {
 			);
 			return asked;
 		};
-		const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-		expect(judged(threeHoursAgo.toISOString())).toEqual([]);
+		expect(
+			judged(lapsedHold().at),
+			"a hold that lapsed on the way woke",
+		).toEqual([]);
 		expect(judged(new Date().toISOString())).toEqual(["s-parked"]);
 	});
 
