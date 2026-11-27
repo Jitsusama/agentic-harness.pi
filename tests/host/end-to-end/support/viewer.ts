@@ -68,7 +68,7 @@ export interface Viewer {
 	readonly edits: readonly string[];
 	/** Settles once the host tells it to suspend itself. */
 	readonly suspended: Promise<void>;
-	/** Close the window: end the connection without a word. */
+	/** Close the window: end the connection without a word. It never fails, and settles once the connection is closed. */
 	leave(): Promise<void>;
 }
 

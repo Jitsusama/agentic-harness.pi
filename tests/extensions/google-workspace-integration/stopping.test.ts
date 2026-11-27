@@ -175,6 +175,8 @@ describe("a google call Google never answers", () => {
 			undefined,
 			ctx,
 		);
+		// Handled now, so a rejection after the stop is not reported as
+		// unhandled before outcome listens.
 		call.catch(() => {});
 		// Stopped once the write is sent, so it's one in flight that runs on.
 		await until("the write to be sent", () => sent.writes > 0);
