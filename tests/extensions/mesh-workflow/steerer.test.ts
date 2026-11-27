@@ -7,10 +7,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MeshState } from "../../../extensions/mesh-workflow/peer/mesh.ts";
 import { createSteerer } from "../../../extensions/mesh-workflow/peer/steerer.ts";
 import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
+import { steerWaiting } from "../../../lib/jobs/steer.ts";
 import { giveSteer } from "../../../lib/mesh/steer.ts";
 
 const ADDRESS = "A1B2C3";
@@ -35,7 +37,11 @@ function peerHearing(heard: Heard[]) {
 		},
 		moving: { cancel: () => undefined },
 		talks: { opened: () => undefined },
-		pi: { sendUserMessage: () => undefined, events: { emit: () => undefined } },
+		pi: {
+			sendUserMessage: () => undefined,
+			on: () => undefined,
+			events: { emit: () => undefined },
+		},
 		steering: undefined,
 		steerRoot: undefined,
 	};
@@ -50,8 +56,26 @@ type Sent = [string, { deliverAs?: string } | undefined];
 /** What the session's bus heard: each event's name and its payload. */
 type Emitted = [string, unknown];
 
-/** A peer's state as busy or idle, recording what reaches the session. */
-function sessionAt(idle: boolean, sent: Sent[], emitted: Emitted[]) {
+/** What pi tells the steerer of the session's life, by event name. */
+type Lives = Map<string, (() => void)[]>;
+
+/** Tell the steerer pi's event `name`, as pi would. */
+function tell(lives: Lives, name: string): void {
+	for (const handler of lives.get(name) ?? []) handler();
+}
+
+/**
+ * A peer's state as busy or idle, recording what reaches the session,
+ * on a real bus so what the steerer answers on it can be asked, and
+ * with pi's session events kept in `lives` to tell it.
+ */
+function sessionAt(
+	idle: boolean,
+	sent: Sent[],
+	emitted: Emitted[],
+	lives: Lives = new Map(),
+	bus = createEventBus(),
+) {
 	const state = {
 		peer: { addresses: [ADDRESS] },
 		pausing: { act: () => undefined, talked: () => undefined },
@@ -61,8 +85,15 @@ function sessionAt(idle: boolean, sent: Sent[], emitted: Emitted[]) {
 		pi: {
 			sendUserMessage: (text: string, options?: { deliverAs?: string }) =>
 				sent.push([text, options]),
+			on: (name: string, handler: () => void) =>
+				lives.set(name, [...(lives.get(name) ?? []), handler]),
 			events: {
-				emit: (name: string, data: unknown) => emitted.push([name, data]),
+				emit: (name: string, data: unknown) => {
+					emitted.push([name, data]);
+					bus.emit(name, data);
+				},
+				on: (name: string, handler: (data: unknown) => void) =>
+					bus.on(name, handler),
 			},
 		},
 		steering: undefined,
@@ -143,6 +174,16 @@ describe("a talk the steerer hands a session", () => {
 		expect(names(emitted)).toContain(JOBS_STEERED);
 	});
 
+	it("steers Joel's talk however his name is written", async () => {
+		for (const from of ["Joel", "JOEL"]) {
+			const { sent } = await handed({ text: "look at X", from }, false);
+			expect(
+				sent.map(([, options]) => options),
+				from,
+			).toEqual([{ deliverAs: "steer" }]);
+		}
+	});
+
 	it("holds the node's words on his word for the run's end unless they say now", async () => {
 		const waits = await handed({ text: "look at X", from: "person" }, false);
 		const now = await handed(
@@ -204,5 +245,38 @@ describe("a talk the steerer hands a session", () => {
 			["the look's answer", undefined],
 		]);
 		expect(names(emitted)).not.toContain(JOBS_STEERED);
+	});
+
+	// F64: a call that starts after the talk asks whether a line waits.
+	it("says Joel's steered talk waits until the run settles, as a typed line does", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		const joel = { text: "look at X", from: "joel" };
+
+		expect(steerWaiting(bus), "before any talk").toBe(false);
+		steerer.steered("look at X", false, joel);
+		expect(steerWaiting(bus), "once steered in").toBe(true);
+		tell(lives, "agent_settled");
+		expect(steerWaiting(bus), "once the run settles").toBe(false);
+
+		steerer.steered("look at X", false, joel);
+		tell(lives, "session_start");
+		expect(steerWaiting(bus), "in a new session").toBe(false);
+	});
+
+	it("says nothing waits for words held for the run's end", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+
+		steerer.steered("look at X", false, { text: "look at X", from: "person" });
+		steerer.steered("look at X", false, { text: "look at X", from: "ABC123" });
+		steerer.steered("the look's answer", false);
+		steerer.steered("look at X", true, { text: "look at X", from: "joel" });
+
+		expect(steerWaiting(bus)).toBe(false);
 	});
 });

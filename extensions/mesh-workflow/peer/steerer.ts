@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
 import { isMoveTarget } from "../../../lib/internal/session/move.ts";
-import { saySteered } from "../../../lib/jobs/steer.ts";
+import { answerSteerWaiting, saySteered } from "../../../lib/jobs/steer.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { isPersonsTalk, type Steer } from "../../../lib/mesh/steer.ts";
 import {
@@ -50,12 +50,31 @@ function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
 /** Steering for this peer, from the person's inboxes. */
 export function createSteerer(m: MeshState) {
 	/**
+	 * Whether talk steered into the run under way still waits to be read:
+	 * from its steer until the run settles, as job-workflow holds a typed
+	 * line, so a call that starts after it moves to the background too.
+	 */
+	let talkWaits = false;
+	let answering: (() => void) | undefined;
+	// Answered afresh each session, so a reload leaves no stale answer.
+	m.pi.on("session_start", () => {
+		answering?.();
+		talkWaits = false;
+		answering = answerSteerWaiting(m.pi.events, () => talkWaits);
+	});
+	m.pi.on("agent_settled", () => {
+		talkWaits = false;
+	});
+
+	/**
 	 * The person's words from outside the window, as their own message:
 	 * a turn when idle, otherwise as steerDelivery says for a steer: into
 	 * the run under way for the person's talk, else once that run ends. A
 	 * look's answer comes with no steer, and waits for the run to end.
-	 * Talk read into the run is said as a typed line is, so a call that
-	 * can move to the background moves rather than hold it (lib/jobs).
+	 * Talk read into the run is said as a typed line is, and waits as one
+	 * does until the run settles, so a call that can move to the
+	 * background moves rather than hold it, running or started since
+	 * (lib/jobs).
 	 */
 	const steered = (
 		text: string,
@@ -65,7 +84,9 @@ export function createSteerer(m: MeshState) {
 		const afterRun = idle ? undefined : "followUp";
 		const deliverAs = steer ? steerDelivery(steer, idle) : afterRun;
 		m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
-		if (deliverAs === "steer") saySteered(m.pi.events);
+		if (deliverAs !== "steer") return;
+		talkWaits = true;
+		saySteered(m.pi.events);
 	};
 
 	/**
