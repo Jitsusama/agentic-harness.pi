@@ -939,8 +939,8 @@ describe("children starting at once", () => {
 		expect(line, "hurried before it asked, it was moved nowhere").not.toContain(
 			"going ahead",
 		);
-		expect(line, "someone waited on it from its first ask").toContain(
-			"with someone waiting on it",
+		expect(line, "someone waited on it from its first ask").toMatch(
+			/, with someone waiting on it$/,
 		);
 
 		holdingSecond.settle();
@@ -948,8 +948,10 @@ describe("children starting at once", () => {
 		const unwaited = said.find((one) =>
 			one.startsWith(`${unitOf(nth(3))}: waited`),
 		);
-		expect(unwaited, "a resume nobody woke says nobody waited").toContain(
-			"with nobody waiting on it",
+		// The start-wait probe skips lines by this ending, so the ending is
+		// what is pinned, not only the phrase.
+		expect(unwaited, "a resume nobody woke says nobody waited").toMatch(
+			/, with nobody waiting on it$/,
 		);
 	});
 
@@ -1020,8 +1022,8 @@ describe("children starting at once", () => {
 		expect(line, "already ahead, it was moved nowhere").not.toContain(
 			"going ahead",
 		);
-		expect(line, "woken, someone waited on it").toContain(
-			"with someone waiting on it",
+		expect(line, "woken, someone waited on it").toMatch(
+			/, with someone waiting on it$/,
 		);
 
 		holdingSecond.settle();

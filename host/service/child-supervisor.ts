@@ -376,9 +376,10 @@ function inSeconds(ms: number): string {
  * first ask, someone who came `hurriedAfter` ms in and moved it ahead,
  * or nobody, whose wait no person felt. Someone from its first ask is
  * the gate's `ahead`: every begin and every wake, whose caller waits on
- * it, whether a person or a peer. The start-wait probe outside this
- * repository (new-session-answers.sh) skips the lines ending "with
- * nobody waiting on it", so that phrase is its contract.
+ * it, whether a person or a peer, and a resume a wake hurried before it
+ * reached the gate. The start-wait probe outside this repository
+ * (new-session-answers.sh) skips the lines ending "with nobody waiting
+ * on it", so that phrase, as the line's end, is its contract.
  */
 function whoWaited(
 	fromFirstAsk: boolean,
