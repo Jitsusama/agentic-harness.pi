@@ -39,6 +39,8 @@ import {
 	spawnsJoin,
 } from "../../lib/internal/fence/fence-stage.ts";
 import {
+	canChange,
+	heldStoreCopy,
 	inside,
 	installedPackages,
 	NIX_STORE,
@@ -243,12 +245,21 @@ export function fencePacks(
 	home: string = packsHome(),
 	root: string | null = installedPackages(),
 	store: string = NIX_STORE,
+	own: string = packageRoot(),
+	changeable: (path: string) => boolean = canChange,
 ): { readonly packs: string[] } | { readonly why: string } {
 	const stored = inside(home, store);
-	const within = stored ? home : root;
-	const where = stored
-		? `this harness's copy in the Nix store, ${home}`
-		: "pi's installed packages";
+	const copy = stored ? heldStoreCopy(own, store, changeable) : undefined;
+	if (stored && copy === undefined) {
+		return {
+			why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions, and ${home} lies in the Nix store but not in a copy of this session's own harness this account can't change. Start the subagents unisolated.`,
+		};
+	}
+	const within = copy ?? root;
+	const where =
+		copy === undefined
+			? "pi's installed packages"
+			: `this harness's copy in the Nix store, ${copy}`;
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {
 		const followed = follow(join(home, ...pack.split("/")), within, where);

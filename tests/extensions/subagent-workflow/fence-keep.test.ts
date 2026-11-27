@@ -33,6 +33,9 @@ const PACKS = [
 	["extensions", "secret-scrub-interceptor", "index.ts"],
 ] as const;
 
+/** A store whose copies this account can't change, as a read-only mount's. */
+const fixed = () => false;
+
 let place: string;
 let root: string;
 let outside: string;
@@ -321,8 +324,48 @@ describe("the fence's own extensions", () => {
 			await mkdir(join(harness, ...pack, ".."), { recursive: true });
 			await writeFile(join(harness, ...pack), "");
 		}
-		expect(fencePacks(harness, null, store)).toEqual({
+		expect(fencePacks(harness, null, store, harness, fixed)).toEqual({
 			packs: PACKS.map((pack) => join(harness, ...pack)),
+		});
+	});
+
+	it("come from a store copy laid out as an install, its current link followed", async () => {
+		const store = join(place, "store");
+		const copy = join(store, "abc-harness");
+		const version = join(copy, "versions", "v");
+		for (const pack of PACKS) {
+			await mkdir(join(version, ...pack, ".."), { recursive: true });
+			await writeFile(join(version, ...pack), "");
+		}
+		await symlink(join("versions", "v"), join(copy, "current"));
+		expect(
+			fencePacks(join(copy, "current"), null, store, version, fixed),
+		).toEqual({ packs: PACKS.map((pack) => join(version, ...pack)) });
+	});
+
+	it("are refused from another store copy than the session's own, as the settings might name", async () => {
+		const store = join(place, "store");
+		const own = join(store, "abc-harness");
+		const other = join(store, "def-harness");
+		for (const pack of PACKS) {
+			await mkdir(join(other, ...pack, ".."), { recursive: true });
+			await writeFile(join(other, ...pack), "");
+		}
+		await mkdir(own, { recursive: true });
+		expect(fencePacks(other, null, store, own, fixed)).toEqual({
+			why: expect.stringContaining(`lies outside this harness's copy`),
+		});
+	});
+
+	it("are refused from the session's own store copy when this account could change it", async () => {
+		const store = join(place, "store");
+		const harness = join(store, "abc-harness");
+		for (const pack of PACKS) {
+			await mkdir(join(harness, ...pack, ".."), { recursive: true });
+			await writeFile(join(harness, ...pack), "");
+		}
+		expect(fencePacks(harness, null, store, harness, () => true)).toEqual({
+			why: expect.stringContaining("this account can't change"),
 		});
 	});
 
@@ -337,14 +380,14 @@ describe("the fence's own extensions", () => {
 			if (index === 0) await symlink(other, join(harness, ...pack));
 			else await writeFile(join(harness, ...pack), "");
 		}
-		expect(fencePacks(harness, null, store)).toEqual({
+		expect(fencePacks(harness, null, store, harness, fixed)).toEqual({
 			why: expect.stringContaining(
 				`lies outside this harness's copy in the Nix store, ${harness}`,
 			),
 		});
 		await rm(join(harness, ...PACKS[0]));
 		await symlink(join(outside, "planted.ts"), join(harness, ...PACKS[0]));
-		expect(fencePacks(harness, null, store)).toEqual({
+		expect(fencePacks(harness, null, store, harness, fixed)).toEqual({
 			why: expect.stringContaining("shell-workflow"),
 		});
 	});

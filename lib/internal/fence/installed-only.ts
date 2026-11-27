@@ -20,7 +20,7 @@
  * holds read-only too, or in the Nix store, which nobody writes.
  */
 
-import { realpathSync } from "node:fs";
+import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +76,54 @@ export function heldElsewhere(home: string = homedir()): string[] {
 /** Whether `real`, a path already followed, lies inside `root`. */
 export function inside(real: string, root: string | null): boolean {
 	return root !== null && (real === root || real.startsWith(root + sep));
+}
+
+/**
+ * Whether this account could change `path`: write it, or, owning it,
+ * make it writable again. A read-only mount answers no even for root;
+ * a store laid out by a single-user Nix, or written by root on a
+ * writable mount, answers yes, since the fence doesn't bind the store
+ * read-only itself.
+ */
+export function canChange(path: string): boolean {
+	try {
+		accessSync(path, constants.W_OK);
+		return true;
+	} catch (error) {
+		if (readOnlyMount(error)) return false;
+	}
+	try {
+		return statSync(path).uid === process.getuid?.();
+	} catch {
+		// Nothing there to change; the gate refuses it on other grounds.
+		return false;
+	}
+}
+
+/** Whether a write was refused because the whole mount is read-only. */
+function readOnlyMount(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "EROFS"
+	);
+}
+
+/**
+ * The store path `own` lies in, when it lies in `store` and this
+ * account can't change it, or nothing.
+ */
+export function heldStoreCopy(
+	own: string,
+	store: string = NIX_STORE,
+	changeable: (path: string) => boolean = canChange,
+): string | undefined {
+	if (!inside(own, store) || own === store) return undefined;
+	const [entry] = own.slice(store.length + 1).split(sep);
+	if (entry === undefined || entry === "") return undefined;
+	const copy = join(store, entry);
+	return changeable(copy) || changeable(own) ? undefined : copy;
 }
 
 /** This package's own folder, followed, as this process loaded it. */
@@ -158,6 +206,8 @@ export interface Places {
 	readonly held?: readonly string[];
 	/** The Nix store, where this session's own harness may lie too. */
 	readonly store?: string;
+	/** Whether this account could change a path, as `canChange` asks. */
+	readonly changeable?: (path: string) => boolean;
 }
 
 /** Where things lie on this machine, read as the gate asks. */
@@ -182,13 +232,22 @@ export function fencedChildrenRefusal(
 	defaults: readonly string[],
 	places: Places = placesHere(),
 ): string | undefined {
-	const { root, own, harness, held = [], store = NIX_STORE } = places;
-	// A room runs the harness from the Nix store. Its own copy is held: no
-	// fenced command changes a store path, and which copy this session
+	const {
+		root,
+		own,
+		harness,
+		held = [],
+		store = NIX_STORE,
+		changeable = canChange,
+	} = places;
+	// A room runs the harness from the Nix store. Its own copy is held
+	// while this account can't change it, and which copy this session
 	// loaded is no command's choice. Children take their packs from that
 	// same copy (fence-keep's fencePacks), not from anywhere in the store.
-	if (!(inside(own, root) || inside(own, store))) {
-		return `This session runs the harness from ${own}, outside ${INSTALL} and the Nix store, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
+	if (
+		!(inside(own, root) || heldStoreCopy(own, store, changeable) !== undefined)
+	) {
+		return `This session runs the harness from ${own}, outside ${INSTALL} and any Nix store copy this account can't change, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
 	}
 	const strays = outsideOf(defaults, [root, ...held]);
 	if (strays.length > 0) {

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	canChange,
 	fencedChildrenRefusal,
 	heldElsewhere,
 	inside,
@@ -58,14 +59,27 @@ function places(
 	root: string | null = packages,
 	held: readonly string[] = [],
 	store: string = join(home, "store"),
+	changeable: (path: string) => boolean = () => false,
 ): Places {
-	return { root, own, harness: () => harness, held, store };
+	return { root, own, harness: () => harness, held, store, changeable };
 }
 
 /** The fence's bash, as the installed harness holds it. */
 function fencedBash(): string {
 	return planted(join(installed, "extensions", "shell-workflow", "index.ts"));
 }
+
+describe("whether this account could change a path", () => {
+	it("is yes for a folder it owns, though its mode refuses writing", () => {
+		const mine = join(home, "mine");
+		mkdirSync(mine, { mode: 0o555 });
+		expect(canChange(mine)).toBe(true);
+	});
+
+	it("is no for what isn't there", () => {
+		expect(canChange(join(home, "absent"))).toBe(false);
+	});
+});
 
 describe("where pi's packages are installed", () => {
 	it("is the folder under the home folder they lie in", () => {
@@ -151,6 +165,19 @@ describe("a fenced session's children", () => {
 				places(harness, undefined, null, [store], store),
 			),
 		).toBeUndefined();
+	});
+
+	it("don't start from a store copy this account could change, as a single-user Nix or root on a writable store could", () => {
+		const store = join(home, "store");
+		const harness = join(store, "abc-harness");
+		mkdirSync(harness, { recursive: true });
+		expect(
+			fencedChildrenRefusal(
+				false,
+				[],
+				places(harness, undefined, null, [store], store, () => true),
+			),
+		).toContain(`runs the harness from ${harness}`);
 	});
 
 	it("don't start from a tree, or from pi's agent folder, though both the store and that folder hold defaults", () => {
