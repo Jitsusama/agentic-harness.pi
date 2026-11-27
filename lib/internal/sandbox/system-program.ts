@@ -83,27 +83,43 @@ function rootOwnersHere(): readonly number[] {
 }
 
 /**
- * The owner root's files show as in this process's user namespace, as
+ * The owners root's files show as in this process's user namespace, as
  * `/proc/self/uid_map` says: the inner id the outer root maps to, or the
- * overflow user where the namespace maps no root. Never the inner 0 of a
- * namespace that maps someone else there, as `unshare -r` maps the
- * person, since their own files would then pass as root's. Root alone
- * where there is no `/proc`, as on a Mac.
+ * overflow user where the namespace maps no root. Root alone where there
+ * is no `/proc`, as on a Mac.
+ *
+ * The map names ids of the namespace above, not the machine's, so the
+ * one its 0 maps to is root only in the machine's own namespace, or
+ * where it isn't this process: under `unshare -r`, nested or not, it is
+ * the person, whose own files would then pass as root's.
  *
  * Where root is unmapped, the overflow user also stands for every other
  * account the namespace leaves out. That trusts their files too, which
  * a fenced command can't make: it runs as the person, whom the
- * namespace maps.
+ * namespace maps. So does the inner 0 when this process isn't it, as in
+ * an unprivileged container, where it is the container's own root and
+ * its programs are root's: a fenced command, running as the person,
+ * can't make a file it owns.
  */
-export function rootOwners(read: (path: string) => string): readonly number[] {
+export function rootOwners(
+	read: (path: string) => string,
+	uid: number = process.getuid?.() ?? 0,
+): readonly number[] {
 	try {
-		const inner = innerRoot(read("/proc/self/uid_map"));
-		if (inner !== undefined) return [inner];
-		return [Number(read("/proc/sys/kernel/overflowuid").trim())];
+		const map = read("/proc/self/uid_map");
+		const inner = innerRoot(map);
+		if (inner !== undefined && (inner !== uid || isMachines(map))) return [inner];
+		const overflow = Number(read("/proc/sys/kernel/overflowuid").trim());
+		return uid === 0 ? [overflow] : [overflow, 0];
 	} catch {
 		// No `/proc`: no user namespaces, so root is root.
 		return [0];
 	}
+}
+
+/** Whether a `uid_map` is the machine's own namespace's, mapping every id to itself. */
+function isMachines(map: string): boolean {
+	return map.trim().split(/\s+/).join(" ") === "0 0 4294967295";
 }
 
 /** The inner id a `uid_map` maps the outer root to, if it maps it. */

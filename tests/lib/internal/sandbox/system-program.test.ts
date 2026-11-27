@@ -201,20 +201,44 @@ describe("root inside a user namespace", () => {
 			throw new Error(`ENOENT ${path}`);
 		};
 
-	it("is root alone where the namespace maps root", () => {
-		expect(rootOwners(proc("         0          0 4294967295\n"))).toEqual([0]);
+	const machines = "         0          0 4294967295\n";
+
+	it("is root alone where the namespace is the machine's", () => {
+		expect(rootOwners(proc(machines), 1000), "as the person").toEqual([0]);
+		expect(rootOwners(proc(machines), 0), "as root").toEqual([0]);
 	});
 
-	it("is the overflow user alone where it maps only the person, as the fence's", () => {
-		expect(rootOwners(proc("      1000       1000          1\n"))).toEqual([
-			65534,
+	it("is the overflow user where it maps only the person, as the fence's", () => {
+		// The inner 0 beside it is unmapped there, so no file shows as it.
+		expect(rootOwners(proc("      1000       1000          1\n"), 1000)).toEqual([
+			65534, 0,
 		]);
 	});
 
 	it("never counts the person mapped as inner root, as `unshare -r` does", () => {
-		expect(rootOwners(proc("         0       1000          1\n"))).toEqual([
+		expect(rootOwners(proc("         0       1000          1\n"), 0)).toEqual([
 			65534,
 		]);
+	});
+
+	it("never counts the person as root under a nested `unshare -r`", () => {
+		// The map names the namespace above's ids, where the person is 0.
+		expect(rootOwners(proc("         0          0          1\n"), 0)).toEqual([
+			65534,
+		]);
+	});
+
+	it("counts an unprivileged container's own root, whom pi isn't", () => {
+		expect(rootOwners(proc("         0     100000      65536\n"), 1000)).toEqual([
+			65534, 0,
+		]);
+	});
+
+	it("counts a toolbox's own root, not the person its map names as the root above", () => {
+		const toolbox =
+			"         0          1       1000\n      1000          0          1\n      1001       1001      64536\n";
+
+		expect(rootOwners(proc(toolbox), 1000)).toEqual([65534, 0]);
 	});
 
 	it("is the inner id the outer root maps to, wherever that is", () => {
@@ -223,6 +247,7 @@ describe("root inside a user namespace", () => {
 				proc(
 					"         0       1000          1\n      5000          0          1\n",
 				),
+				1000,
 			),
 		).toEqual([5000]);
 	});
