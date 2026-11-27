@@ -515,12 +515,13 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// What it's given to run with, its assignments and env's among its
 		// words, may move where its pushes go.
 		const env = [...simple.assignments.map((word) => unquote(word.text))];
-		// An environment moved earlier in the line is inherited by every
-		// git after it, and a setting written earlier is read by it.
-		moved ||= movesGit(own, env) || setsPushes(own);
 		const moving = moved
 			? [...env, ...given.own, MOVED]
 			: [...env, ...given.own];
+		// An environment moved earlier in the line is inherited by every
+		// git after it, and a setting written earlier is read by it. What
+		// a command runs itself, as eval does, is read where it runs.
+		moved ||= movesGit(own, env) || setsPushes(own);
 		writes.push(...pushesGiven(writeIn(own, dir), moving));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;
@@ -743,11 +744,16 @@ const MOVED = "GIT_DIR=(moved earlier in the line)";
 /** The shell's commands that export what they name, or set. */
 const EXPORTS = new Set(["export", "declare", "typeset", "readonly", "local"]);
 
+/** The shell's commands that set, or unset, the names they're given. */
+const SETS_NAMED = new Set(["read", "mapfile", "readarray", "unset"]);
+
 /**
  * Whether a command, its words `own` and assignments `env`, moves the
  * environment the gits after it in the line inherit: one setting or
  * exporting one of {@link GIT_NAMES}, or `set -a`, after which every such
- * setting is exported.
+ * setting is exported. `eval`, and a script sourced from anywhere but
+ * stdin (whose lines are read where it is fed), may set any of them, and
+ * what they run isn't known.
  */
 function movesGit(own: string[], env: string[]): boolean {
 	const [verb, ...rest] = own;
@@ -755,6 +761,15 @@ function movesGit(own: string[], env: string[]): boolean {
 	if (EXPORTS.has(verb)) {
 		return rest.some((word) => GIT_ENV.test(word) || GIT_NAME.test(word));
 	}
+	if (verb === "eval") return true;
+	if (verb === "source" || verb === ".") return !sourcesStdin(verb, rest);
+	if (verb === "printf") {
+		const [flag = "", next] = rest;
+		const name =
+			flag === "-v" ? next : flag.startsWith("-v") ? flag.slice(2) : undefined;
+		return name !== undefined && namesGit(name);
+	}
+	if (SETS_NAMED.has(verb)) return rest.some(namesGit);
 	return (
 		verb === "set" &&
 		rest.some((word) => /^-\w*a/.test(word) || word === "allexport")
@@ -886,6 +901,15 @@ function writesPushSetting(args: string[]): boolean {
 		PUSH_SETTINGS.test(`${key}.`) ||
 		/^core$/i.test(key)
 	);
+}
+
+/**
+ * Whether a word a builtin sets may be one of {@link GIT_NAMES}: one of
+ * them, or one named by a variable. An option's value read as a name
+ * holds more than it need, never less.
+ */
+function namesGit(word: string): boolean {
+	return GIT_NAME.test(word) || word.includes("$");
 }
 
 /**

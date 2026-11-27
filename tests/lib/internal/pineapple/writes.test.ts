@@ -274,6 +274,50 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads a push after what may set git's environment as naming nothing", () => {
+		for (const command of [
+			'eval "$SETUP"; git push origin x',
+			"source ./elsewhere.sh && git push origin x",
+			". ~/.elsewhere; git push origin x",
+			"printf -v HOME %s /elsewhere; git push origin x",
+			"printf -vPATH %s /elsewhere; git push origin x",
+			'printf -v "$name" %s /elsewhere; git push origin x',
+			"read -r GIT_SSH_COMMAND < elsewhere; git push origin x",
+			"mapfile -t PATH < elsewhere; git push origin x",
+			"readarray XDG_CONFIG_HOME < elsewhere; git push origin x",
+			"unset GIT_DIR; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Other names set, and what eval runs itself, read as they are.
+		for (const command of [
+			"eval 'git push origin x'",
+			"printf -v message %s hi; git push origin x",
+			"printf '%s' HOME; git push origin x",
+			"read -r answer; git push origin x",
+			"mapfile -t lines < list; git push origin x",
+			"unset message; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push fed to a shell given its own environment as naming nothing", () => {
 		for (const command of [
 			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",
