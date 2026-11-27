@@ -38,6 +38,7 @@ import {
 	strandedWhy,
 } from "../stranded.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
+import { type Seeds, seedsAt } from "./seeds.ts";
 
 /**
  * The exit code the fence's guard answers a git it won't run with, as a
@@ -307,8 +308,14 @@ export function createGitTreeProvider(deps: {
 	 * filesystem unless told.
 	 */
 	subvolumes?: (stateDir: string) => Promise<boolean>;
+	/**
+	 * The seeds a tree on btrfs is cut from rather than filled file by
+	 * file (`seeds.ts`); kept beside the state directory by default.
+	 */
+	seeds?: Seeds;
 }): TreeProvider {
 	const subvolumes = deps.subvolumes ?? onBtrfs;
+	const seeds = deps.seeds ?? seedsAt(join(dirname(deps.stateDir), "seeds"));
 	const execOf = (signal: AbortSignal | undefined): Exec =>
 		signal !== undefined && deps.execFor !== undefined
 			? deps.execFor(signal)
@@ -442,14 +449,26 @@ export function createGitTreeProvider(deps: {
 					options?.signal,
 				);
 			}
-			// git fills an empty directory as readily as it makes one. A
-			// subvolume that can't be made, `btrfs` missing say, leaves git
-			// to make a plain one, as it always did.
+			// A tree cut from its checkout's seed is a snapshot of it, made
+			// once git has the tree's entry, so git checks nothing out. Else
+			// git fills an empty directory as readily as it makes one, and a
+			// subvolume that can't be made, `btrfs` missing say, leaves git to
+			// make a plain one, as it always did.
+			const onDisk = await subvolumes(deps.stateDir);
+			const seed = onDisk ? seeds.current(source.path) : undefined;
 			const apart =
-				(await subvolumes(deps.stateDir)) &&
+				seed === undefined &&
+				onDisk &&
 				(await exec("btrfs", ["subvolume", "create", path])).code === 0;
 			const add = () =>
-				exec("git", ["-C", source.path, "worktree", "add", ...at]);
+				exec("git", [
+					"-C",
+					source.path,
+					"worktree",
+					"add",
+					...(seed === undefined ? [] : ["--no-checkout"]),
+					...at,
+				]);
 			let cut = await add();
 			// A tree set aside from under this checkout leaves git's entry for
 			// it naming a folder that is no longer there, locked too when a
@@ -475,6 +494,27 @@ export function createGitTreeProvider(deps: {
 				if (apart) await exec("rmdir", [path]);
 				throw new Error(cutFailure(cut.stderr || cut.stdout, request));
 			}
+			if (seed !== undefined) {
+				try {
+					await seeds.fill(exec, seed, path);
+				} catch (error) {
+					// A tree git couldn't fill goes whole, entry and all, so the
+					// next ask cuts afresh rather than finding it half made.
+					await exec("git", [
+						"-C",
+						source.path,
+						"worktree",
+						"remove",
+						"--force",
+						path,
+					]);
+					const why = error instanceof Error ? error.message : String(error);
+					throw new Error(cutFailure(why, request));
+				}
+			}
+			// Kept before anyone has it, so the seed is the tree as cut.
+			if (apart || seed !== undefined)
+				await seeds.keep(exec, source.path, path);
 			return { path };
 		},
 
