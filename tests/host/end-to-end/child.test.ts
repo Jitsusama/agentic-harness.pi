@@ -57,6 +57,12 @@ const CHILD_RSS_MB = 512;
  * generation, which the reads around it could set off with no collection
  * at all, took 29 MB off (24 November), and passed when any fall did (F11
  * on #2129); this fails it, with room to spare.
+ *
+ * The fall is of what the heap used or of its size, whichever is more. A
+ * collection V8 ran by itself while the open settled can leave the quiet
+ * one little to free: on 27 November it took 17 MB off what the heap used,
+ * 132 to 115, yet its size fell from 541 MB to 139. A scavenge can shrink
+ * neither by this much, nor can a collection that frees nothing.
  */
 const HEAP_FALL_MB = 64;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
@@ -237,24 +243,28 @@ async function saying(
 
 /**
  * The heap a child's collection says it went from and to, as `900 of
- * 950 MB to 112 of 300 MB`, and the MB it used each side, read from its
- * own line rather than a state line, which may have been sent before the
+ * 950 MB to 112 of 300 MB`, the MB it used after, and the MB it fell by,
+ * of what it used or of its size, whichever is more, read from its own
+ * line rather than a state line, which may have been sent before the
  * collection (F2 on #2104).
  */
 function collectedHeap(said: string): {
 	readonly words: string;
-	readonly usedBefore?: number;
 	readonly usedAfter?: number;
+	readonly fall?: number;
 } {
-	const [, before, usedBefore, after, usedAfter] =
-		/Collected while quiet[^\n]*?, heap ((\d+) of \d+ MB) to ((\d+) of \d+ MB)/.exec(
+	const [, before, usedBefore, sizeBefore, after, usedAfter, sizeAfter] =
+		/Collected while quiet[^\n]*?, heap ((\d+) of (\d+) MB) to ((\d+) of (\d+) MB)/.exec(
 			said,
 		) ?? [];
 	if (before === undefined) return { words: "unread" };
 	return {
 		words: `${before} to ${after}`,
-		usedBefore: Number(usedBefore),
 		usedAfter: Number(usedAfter),
+		fall: Math.max(
+			Number(usedBefore) - Number(usedAfter),
+			Number(sizeBefore) - Number(sizeAfter),
+		),
 	};
 }
 
@@ -382,15 +392,16 @@ it(
 					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
 				);
 				// F6 on #2104: the collection itself freed the open's load, from a
-				// heap of 208 MB or more to 121 MB or less; one that frees nothing,
-				// or only what a scavenge would, fails.
+				// heap of 208 MB or more to 121 MB or less, or shrank a heap an
+				// earlier collection had emptied; one that frees nothing, or only
+				// what a scavenge would, fails.
 				expect(heap.words, "the collection's line reads a heap").not.toBe(
 					"unread",
 				);
 				expect(heap.usedAfter, "MB the heap uses once collected").toBeDefined();
 				expect(
-					(heap.usedBefore ?? 0) - (heap.usedAfter ?? Number.POSITIVE_INFINITY),
-					`MB the collection took off a heap of ${heap.words}`,
+					heap.fall ?? 0,
+					`MB the collection took off a heap of ${heap.words}, used or in size`,
 				).toBeGreaterThanOrEqual(HEAP_FALL_MB);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {
