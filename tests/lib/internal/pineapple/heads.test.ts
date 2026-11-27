@@ -86,11 +86,22 @@ describe("keptHeads", () => {
 		expect(asked).toEqual(["o/r#1", "o/r#2"]);
 	});
 
-	it("guesses only where the lookup tells nothing", async () => {
+	it("takes the lookup's branch over a guess asked beside it", async () => {
 		const { ask } = answering(["drill"]);
 		const { ask: guess, asked: guessed } = answering(["copy"]);
-		expect(await keptHeads(ask, guess)("o/r", 1)).toBe("drill");
-		expect(guessed).toEqual([]);
+		const headOf = keptHeads(ask, guess);
+		expect(await headOf("o/r", 1)).toBe("drill");
+		expect(await headOf("o/r", 1)).toBe("drill");
+		expect(guessed).toEqual(["o/r#1"]);
+	});
+
+	it("asks the guess beside the lookup, not after it", async () => {
+		const lookup = waiting();
+		const { ask: guess, asked: guessed } = answering(["copy"]);
+		const head = keptHeads(lookup.ask, guess)("o/r", 1);
+		expect(guessed).toEqual(["o/r#1"]);
+		lookup.settle(undefined);
+		expect(await head).toBe("copy");
 	});
 
 	it("never keeps a guess, asking it again at each write", async () => {
@@ -111,7 +122,7 @@ describe("keptHeads", () => {
 		expect(await headOf("o/r", 1)).toBe("drill");
 		expect(await headOf("o/r", 1)).toBe("drill");
 		expect(asked).toEqual(["o/r#1", "o/r#1"]);
-		expect(guessed).toEqual(["o/r#1"]);
+		expect(guessed).toEqual(["o/r#1", "o/r#1"]);
 	});
 
 	it("shares a guess under way with every write asking meanwhile", async () => {
@@ -119,8 +130,6 @@ describe("keptHeads", () => {
 		const headOf = keptHeads(async () => undefined, guess.ask);
 		const first = headOf("o/r", 1);
 		const second = headOf("o/r", 1);
-		// Each write's lookup settles before it asks for the guess.
-		await new Promise((resolve) => setImmediate(resolve));
 		guess.settle("drill");
 		expect(await Promise.all([first, second])).toEqual(["drill", "drill"]);
 		expect(guess.asked).toEqual(["o/r#1"]);

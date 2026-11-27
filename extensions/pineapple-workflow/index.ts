@@ -258,11 +258,14 @@ const gitFacts: GitFacts = {
 };
 
 /**
- * A pull request's branch, asked of GitHub, then Delta; `keptHeads`
- * keeps each one found for the session.
+ * A pull request's branch, asked of GitHub and Delta at once and taken
+ * from GitHub where it answers, so a write waits for the slower only
+ * when GitHub tells nothing; `keptHeads` keeps each one found for the
+ * session.
  */
 const headOfAsked: HeadOf = async (repo, pr) => {
 	if (repo === undefined) return undefined;
+	const delta = deltaHead(repo, pr);
 	return (
 		(await quietly("gh", [
 			"pr",
@@ -274,7 +277,7 @@ const headOfAsked: HeadOf = async (repo, pr) => {
 			"headRefName",
 			"-q",
 			".headRefName",
-		])) ?? (await deltaHead(repo, pr))
+		])) ?? (await delta)
 	);
 };
 

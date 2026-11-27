@@ -17,6 +17,10 @@
  * change's own. Kept, that guess would let the stopped branch's pushes
  * through for the rest of the session; asked each time, it can be wrong
  * only for a write made in that moment.
+ *
+ * Until a branch is found, the guess is asked beside the lookup rather
+ * than after it, so a write held while every answer is slow waits for
+ * the slowest, not for each in turn.
  */
 
 import type { Exec } from "../../core/exec/index.ts";
@@ -24,10 +28,12 @@ import type { HeadOf } from "./cover.ts";
 
 /**
  * Each pull request's branch as `ask` tells it, kept once found, and
- * `guess` asked afresh wherever `ask` finds none. A lookup still under
- * way is shared by every write that asks for it meanwhile.
+ * otherwise as `guess`, asked afresh beside `ask` until a branch is
+ * found. A lookup or guess still under way is shared by every write that
+ * asks for it meanwhile.
  */
 export function keptHeads(ask: HeadOf, guess?: HeadOf): HeadOf {
+	const found = new Map<string, string>();
 	const told = new Map<string, Promise<string | undefined>>();
 	const guessing = new Map<string, Promise<string | undefined>>();
 	const guessed = (key: string, repo: string, pr: number) => {
@@ -51,13 +57,18 @@ export function keptHeads(ask: HeadOf, guess?: HeadOf): HeadOf {
 		};
 		void asked.then((head) => {
 			if (head === undefined) forget();
+			else found.set(key, head);
 		}, forget);
 		return asked;
 	};
 	return (repo, pr) => {
 		if (repo === undefined) return Promise.resolve(undefined);
 		const key = `${repo}#${pr}`;
-		return tellOf(key, repo, pr).then((head) => head ?? guessed(key, repo, pr));
+		const known = found.get(key);
+		if (known !== undefined) return Promise.resolve(known);
+		const telling = tellOf(key, repo, pr);
+		const guessing = guessed(key, repo, pr);
+		return telling.then((head) => head ?? guessing);
 	};
 }
 
