@@ -54,10 +54,12 @@ clean() {
 # a terminal may take U+009B for an escape and a bracket, and so do the
 # bidi formatting characters, which can show a name's text reversed and
 # hide what it says. What's said is UTF-8, so those are matched as their
-# bytes, which no other character's encoding holds.
+# bytes, which no other character's encoding holds. Taking one out can
+# join the bytes either side of it into another, as \302 then \302\200
+# then \233 leaves \302\233, so each line is gone over until none is left.
 shown() {
   LC_ALL=C tr -d '\000-\010\013-\037\177' |
-    LC_ALL=C awk '{ gsub(/\302[\200-\237]|\342\200[\252-\256]|\342\201[\246-\251]/, ""); print }'
+    LC_ALL=C awk '{ while (gsub(/\302[\200-\237]|\342\200[\252-\256]|\342\201[\246-\251]/, "")) {} print }'
 }
 
 # Git on the gate's own store, which holds no replacement or graft, and
@@ -113,6 +115,17 @@ holds() {
 # Whether the store is a repository git can read.
 made() { stored rev-parse --git-dir > /dev/null 2>&1; }
 
+# Whether the store is made once another gate's init, which this one's
+# lost the race to, has had time to finish: about two seconds.
+made_by_another() {
+  local _
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    made && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
@@ -121,9 +134,10 @@ gate_objects() {
   # config under config.lock, and two gates at once would refuse each
   # other. A store a first run left half-made is mended by making it
   # again, and an init that fails because another gate was making it at
-  # the same moment is judged by whether the store is there after.
+  # the same moment is judged by whether the store is there once that
+  # gate's init has had time to finish.
   if ! (umask 077 && mkdir -p "$gate_home") ||
-    ! { made || clean git init -q --bare --template= "$gate_store" || made; }; then
+    ! { made || clean git init -q --bare --template= "$gate_store" || made_by_another; }; then
     echo "$gate: can't keep the objects it judges in $gate_home, so none can be read as hashed." >&2
     echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does." >&2
     exit 1

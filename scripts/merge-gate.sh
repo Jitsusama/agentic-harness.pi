@@ -188,8 +188,9 @@ base=$(unattributed merge-base "$main_id" "$head_id")
 
 # The Biome this checkout installed must be the one the head pins, or it
 # could pass what the pinned one faults.
+# The version is the head's to write, so it's printed through shown.
 pinned=$(unattributed cat-file blob "$head_id:package.json" |
-  jq -r '.devDependencies["@biomejs/biome"] // empty')
+  jq -r '.devDependencies["@biomejs/biome"] // empty' | shown)
 if [[ ! -x $biome ]]; then
   echo "merge-gate: $PWD has no Biome installed, so $sha's formatting and lint can't be judged." >&2
   echo "Run pnpm install --frozen-lockfile in that checkout, then merge again." >&2
@@ -403,7 +404,9 @@ fi
 if [[ $config_changed == 1 && ${#others[@]} -eq 0 ]]; then
   mapfile -d '' -t configs_changed < "$scratch/changed-configs"
   echo "merge-gate: $sha changes Biome's config or plugins, which load, and no file the gate judges, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
-  printf '  %q\n' "${configs_changed[@]}" >&2
+  # printf %q escapes control characters but not the bidi ones, so the
+  # names go through shown too.
+  printf '  %q\n' "${configs_changed[@]}" | shown >&2
 fi
 
 if [[ ! -x $vitest ]]; then

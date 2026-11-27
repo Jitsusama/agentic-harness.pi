@@ -43,13 +43,16 @@ import { plantParentByGraph } from "./support/commit-graph.ts";
 import { forgeAsMerged } from "./support/forged-object.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone: merge-gate.sh, from its path below, and the
-// host-gate.sh it runs in turn.
+// host-gate.sh it runs in turn, and the gate-objects.sh both source.
+import "../../scripts/gate-objects.sh";
 import "../../scripts/host-gate.sh";
 import "../../scripts/merge-gate.sh";
 
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, "..", "..");
 const GATE = join(ROOT, "scripts", "merge-gate.sh");
+/** The fetching and printing both gates source. */
+const OBJECTS = join(ROOT, "scripts", "gate-objects.sh");
 /** Biome's own launcher, as this checkout installed it. */
 const BIOME = realpathSync(
 	join(ROOT, "node_modules", "@biomejs", "biome", "bin", "biome"),
@@ -2222,5 +2225,30 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain("no vitest installed");
 		expect(answered.said).toContain("pnpm install --frozen-lockfile");
+	});
+});
+
+describe("what the gates print of a head's text", () => {
+	// Bytes a file name can hold but a JavaScript string can't write, so
+	// shown is run on them as merge-gate.sh sources it.
+	const shown = async (bytes: string): Promise<Buffer> => {
+		const { stdout } = await run(
+			"bash",
+			["-c", 'source "$1"; printf "$2" | shown', "shown", OBJECTS, bytes],
+			{ encoding: "buffer" },
+		);
+		return stdout;
+	};
+
+	it("leaves no C1 or bidi character that taking another out rejoins", async () => {
+		// \302 then U+0080 then \233: taking U+0080 out leaves \302\233, U+009B.
+		// \342 then U+202E then \200\256: taking U+202E out leaves U+202E.
+		const said = await shown(
+			"\\302\\302\\200\\233x\\342\\342\\200\\256\\200\\256y\\n",
+		);
+
+		expect([...said], "only the letters and the newline are left").toEqual([
+			...Buffer.from("xy\n"),
+		]);
 	});
 });

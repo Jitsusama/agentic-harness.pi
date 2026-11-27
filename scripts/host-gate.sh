@@ -168,7 +168,8 @@ else
 fi
 
 # The path is the head's to name, so it's quoted as bash would, and no
-# newline or terminal escape in it reaches the screen raw.
-echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as $(printf '%q' "${touched[0]}"), and $why." >&2
+# newline or terminal escape in it reaches the screen raw; shown takes
+# the bidi characters, which printf %q leaves.
+echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as $(printf '%q' "${touched[0]}" | shown), and $why." >&2
 echo "$clear." >&2
 exit 1
