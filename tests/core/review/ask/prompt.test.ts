@@ -129,6 +129,23 @@ describe("what a discovery reviewer is told", () => {
 		);
 	});
 
+	// A fix on one path, not its twin, was found after merge three times
+	// in one week, each where the reviewer read only the fixed path.
+	for (const [round, prompt] of Object.entries({
+		council: councilPrompt({ proposal: proposal(), diff }),
+		stack: stackPrompt({
+			changes: [{ ref: "refs/heads/tip", proposal: proposal(), diff }],
+		}),
+	})) {
+		it(`asks a ${round} round for each fix's twin paths and whether each is fixed`, () => {
+			expect(prompt).toContain("find the other paths that do the same");
+			expect(prompt).toContain("say whether the change fixes it too");
+			expect(prompt).toContain(
+				"A fix on one path left undone on its twin is a finding.",
+			);
+		});
+	}
+
 	it("says where an anchor may land", () => {
 		// Without this a reviewer names a line it read in the file and
 		// the anchor degrades for nothing.
