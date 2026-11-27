@@ -505,6 +505,21 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
+	it("keeps an idle one its holder claims until spent, though it lets idle rules take it", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "let-go", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: { held: [], untilSpent: [tree], idleMayTake: [tree] },
+		});
+
+		expect(
+			outcome.taken.map((one) => one.path),
+			"a snapshot was taken as idle because its holder lets worktrees go",
+		).toEqual([]);
+		expect(existsSync(tree), `${tree} went`).toBe(true);
+	});
+
 	it("keeps an idle one a process came to work in while the sweep chose, leaving its index alone", async () => {
 		const setup = await setUp();
 		const worked = (await leftAlone(setup, "worked", IDLE)).tree;

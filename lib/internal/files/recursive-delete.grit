@@ -1,0 +1,40 @@
+// A recursive delete goes through remove-tree.ts, never Node's own walk.
+//
+// Node's rm and rmSync walk a tree by path, so a process that can write
+// inside it swaps a subfolder for a link mid-walk and the delete carries
+// on in whatever the link names, with pi's rights (remove-tree.ts says
+// how it was shown). Biome runs this over every file it lints, so a new
+// one fails pnpm lint on the change that writes it. Tests are left out:
+// they remove the folders they made themselves, with nothing else in them.
+// Options written inline are refused when they name recursive at all,
+// as recursive: flag or a shorthand recursive, unless they say
+// recursive: false; any others (a variable, a call, a literal with a spread) are refused too,
+// since what they hold can't be read here. A callback written in place
+// holds no options and passes; one named by a variable is refused, so it
+// goes in place. tests/package/recursive-deletes-are-refused.test.ts shows
+// each form it refuses and lets pass.
+
+language js
+
+`$fn($path, $opts, $...)` where {
+	$fn <: or {
+		`rmSync`,
+		`rm`,
+		`rmdirSync`,
+		`rmdir`,
+		`$_.rmSync`,
+		`$_.rm`,
+		`$_.rmdirSync`,
+		`$_.rmdir`
+	},
+	or {
+		and {
+			$opts <: r"(?s).*\brecursive\b.*",
+			$opts <: not contains `recursive: false`
+		},
+		$opts <: contains `...$_`,
+		$opts <: not r"(?s)(?:[{(]|async |function).*"
+	},
+	$filename <: not r"(?s)(?:.*/)?tests/.*",
+	register_diagnostic(span=$fn, message="A recursive delete walks by path and follows a link swapped in mid-walk; use removeTree or removeTreeOff from lib/internal/files/remove-tree.ts.")
+}

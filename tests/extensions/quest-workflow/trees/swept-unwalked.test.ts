@@ -46,7 +46,7 @@ beforeEach(() => {
 		`---\nid: ${ID}\nkind: quest\nstatus: active\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			`trees:\n  - path: ${SPENT}\n    providerId: git-worktree\n` +
-			`    repoRoot: ${SPENT}\n    origin: cut\n` +
+			`    repoRoot: ${SPENT}\n    origin: scaffolded\n` +
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with a tree.\n",
 	);
 	vi.mocked(discovery.discoverQuests).mockClear();

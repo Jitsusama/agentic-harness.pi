@@ -15,6 +15,11 @@
  * from a timer, a host's sweeps stand down for two hours after each of
  * its runs that judged every provider the host has, so a host's one
  * thread never carries a sweep's work.
+ *
+ * Long because a host's sweep is one run from its timer to its log line:
+ * the claims it asks, the stand-down beside the outside sweep, and what
+ * it tells quests it took all read the same run's state, which split
+ * files would pass back and forth.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -153,15 +158,27 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// Asked only by a sweep that runs, as the sweep says why, and
 		// waited on, so a quest answers from its tree as it stands now.
 		claimed: async () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
+			const claims: TreeClaims = {
+				paths: [],
+				untilSpent: [],
+				idleMayTake: [],
+				answering: [],
+			};
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
 			await Promise.all(claims.answering ?? []);
-			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
+			return {
+				held: claims.paths,
+				untilSpent: claims.untilSpent ?? [],
+				idleMayTake: claims.idleMayTake ?? [],
+			};
 		},
 		// Whoever listed a tree it took stops listing a folder that is gone.
 		// pi's bus reports a listener's error itself, never to the emitter.
-		swept: (paths) => {
-			const swept: SweptTrees = { paths: [...paths] };
+		swept: (paths, branchesGone) => {
+			const swept: SweptTrees = {
+				paths: [...paths],
+				branchesGone: [...branchesGone],
+			};
 			pi.events.emit(WORK_TREES_SWEPT, swept);
 		},
 		restMs: SWEEP_REST_MS,
@@ -193,10 +210,14 @@ export function judgedProviders(): string[] {
  */
 export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
 
-/** The trees held for good, and those held only until spent. */
+/**
+ * The trees held for good, those held only until spent, and of those
+ * the ones their holders let idle rules take while they live.
+ */
 export interface SweepHolds {
 	held: string[];
 	untilSpent: string[];
+	idleMayTake?: string[];
 }
 
 /** What a sweep asks of whoever runs it. */
@@ -204,10 +225,14 @@ export interface SweepAsks {
 	/** The trees held for good, and those held only until spent. */
 	claimed(): SweepHolds | Promise<SweepHolds>;
 	/**
-	 * Told the trees a sweep took, when it took any, and waited on, so a
-	 * process of its own doesn't end before its holders have forgotten them.
+	 * Told the trees a sweep took, when it took any, and the branches it
+	 * deleted, and waited on, so a process of its own doesn't end before
+	 * its holders have forgotten them.
 	 */
-	swept(paths: readonly string[]): void | Promise<void>;
+	swept(
+		paths: readonly string[],
+		branchesGone: readonly string[],
+	): void | Promise<void>;
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
 	/**
@@ -255,6 +280,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
+	let branchesGone: string[] = [];
 	let end: SweepEnd = "failed";
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
@@ -315,6 +341,14 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		if (outcome.rested !== undefined) return "rested";
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
+		branchesGone = [
+			...outcome.taken.flatMap((tree) =>
+				tree.branchGone && tree.branch !== undefined ? [tree.branch] : [],
+			),
+			...outcome.branches.flatMap((checkout) =>
+				checkout.went.map((went) => went.branch),
+			),
+		];
 		end =
 			outcome.skipped !== undefined
 				? "skipped"
@@ -334,14 +368,20 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		{ ms: Math.max(0, Date.now() - started - waited), ...line },
 		started + waited,
 	);
-	if (taken.length > 0) {
+	// A branch deleted with no tree taken is said too: a holder still
+	// keeping its alias from an earlier take lets it go.
+	if (taken.length > 0 || branchesGone.length > 0) {
 		try {
-			await asks.swept(taken);
+			await asks.swept(taken, branchesGone);
 		} catch (error) {
 			// The trees are gone either way, and a holder that still lists
 			// one lists a path to nothing, which holds nothing; the line says
-			// how many it couldn't be told of.
-			logSweep({ unforgotten: taken.length, why: messageOf(error) });
+			// how many trees and deleted branches it couldn't be told of.
+			logSweep({
+				unforgotten: taken.length,
+				unforgottenBranches: branchesGone.length,
+				why: messageOf(error),
+			});
 		}
 	}
 	return end;

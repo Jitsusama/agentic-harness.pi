@@ -111,11 +111,14 @@ export function addTreeToQuest(
 
 /**
  * Remove this machine's tree at `path` from the quest's `trees:` list,
- * leaving any other machine's tree that reads as the same path.
+ * leaving any other machine's tree that reads as the same path. With
+ * `keepBranch`, its branch's alias stays, for a tree taken whose branch
+ * lives on, so a change on that branch still finds its quest.
  */
 export function removeTreeFromQuest(
 	questDir: string,
 	path: string,
+	options: { keepBranch?: boolean } = {},
 ): { ok: true; removed: boolean } | { ok: false; reason: string } {
 	let removedFlag = false;
 	const outcome = changeQuestFrontMatter(
@@ -132,13 +135,45 @@ export function removeTreeFromQuest(
 			const nextTrees = trees.filter((t) => t !== target);
 			const nextAliases = [...fm.aliases];
 			removeAlias(nextAliases, { type: "git-worktree", value: path });
-			if (target.branch) {
+			if (target.branch && options.keepBranch !== true) {
 				removeAlias(nextAliases, { type: "git-branch", value: target.branch });
 			}
 			const next = { ...fm, aliases: nextAliases } as typeof fm;
 			if (nextTrees.length > 0) next.trees = nextTrees;
 			else delete (next as { trees?: QuestTree[] }).trees;
 			return next;
+		},
+		"tree-remove",
+	);
+	if (!outcome.ok) return outcome;
+	return { ok: true, removed: removedFlag };
+}
+
+/**
+ * Drop the quest's `git-branch` alias for each of `branches`, branches a
+ * sweep deleted, that no tree it still lists is on: a tree taken earlier
+ * may have left the alias while its branch stood. A branch a listed tree
+ * is on keeps its alias, as removing a tree would. Says whether any went.
+ */
+export function forgetBranchesFromQuest(
+	questDir: string,
+	branches: ReadonlySet<string>,
+): { ok: true; removed: boolean } | { ok: false; reason: string } {
+	let removedFlag = false;
+	const outcome = changeQuestFrontMatter(
+		questDir,
+		(fm) => {
+			const onTrees = new Set((fm.trees ?? []).map((tree) => tree.branch));
+			const nextAliases = [...fm.aliases];
+			removedFlag = false;
+			for (const branch of branches) {
+				if (onTrees.has(branch)) continue;
+				if (removeAlias(nextAliases, { type: "git-branch", value: branch })) {
+					removedFlag = true;
+				}
+			}
+			if (!removedFlag) return undefined;
+			return { ...fm, aliases: nextAliases } as typeof fm;
 		},
 		"tree-remove",
 	);

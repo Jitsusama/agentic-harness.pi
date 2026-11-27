@@ -25,20 +25,20 @@
  * empty folder, and the clock one more each tick.
  */
 
-import { execFile } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
+import { keptHeads } from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -60,10 +60,11 @@ import { tendHolds } from "./holding.ts";
 import { createParking } from "./parking.ts";
 import { createWhereabouts, reposOf } from "./whereabouts.ts";
 
-const run = promisify(execFile);
-
-/** How long a lookup may take before the guard goes on without it. */
-const LOOKUP_MS = 10_000;
+/**
+ * How a lookup runs: never asking on a screen, and stopped with all it
+ * started after ten seconds, when the guard goes on without it.
+ */
+const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
 
 /**
  * How often a session looks for a stop or a resume, and holds are
@@ -74,7 +75,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = new Map<string, Promise<string | undefined>>();
+	const heads = keptHeads(headOfAsked);
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
@@ -187,15 +188,12 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 	});
 }
 
-function judging(
-	session: string,
-	heads: Map<string, Promise<string | undefined>>,
-): Judging {
+function judging(session: string, heads: HeadOf): Judging {
 	const folder = stopsFolder();
 	return {
 		standing: () => standingStops(folder),
 		git: gitFacts,
-		headOf: cachedHead(heads),
+		headOf: heads,
 		here: () => ({
 			realm: sessionRealmName(),
 			quests: questsOf(
@@ -251,31 +249,28 @@ const gitFacts: GitFacts = {
 };
 
 /**
- * A pull request's branch, asked of GitHub and then Delta, once a
- * session: a branch a change comes from doesn't move while it is open.
+ * A pull request's branch, asked of GitHub and Delta at once and taken
+ * from GitHub where it answers, so a write waits for the slower only
+ * when GitHub tells nothing; `keptHeads` keeps each one found for the
+ * session.
  */
-function cachedHead(heads: Map<string, Promise<string | undefined>>): HeadOf {
-	return (repo, pr) => {
-		if (repo === undefined) return Promise.resolve(undefined);
-		const key = `${repo}#${pr}`;
-		const known = heads.get(key);
-		if (known) return known;
-		const asked = (async () =>
-			(await quietly("gh", [
-				"pr",
-				"view",
-				String(pr),
-				"-R",
-				repo,
-				"--json",
-				"headRefName",
-				"-q",
-				".headRefName",
-			])) ?? (await deltaHead(repo, pr)))();
-		heads.set(key, asked);
-		return asked;
-	};
-}
+const headOfAsked: HeadOf = async (repo, pr) => {
+	if (repo === undefined) return undefined;
+	const delta = deltaHead(repo, pr);
+	return (
+		(await quietly("gh", [
+			"pr",
+			"view",
+			String(pr),
+			"-R",
+			repo,
+			"--json",
+			"headRefName",
+			"-q",
+			".headRefName",
+		])) ?? (await delta)
+	);
+};
 
 async function deltaHead(
 	repo: string,
@@ -303,16 +298,15 @@ async function deltaHead(
 	}
 }
 
+/**
+ * What `program` prints, or nothing where it failed or said nothing: an
+ * unknown answer makes the stop hold the write.
+ */
 async function quietly(
 	program: string,
 	args: string[],
 ): Promise<string | undefined> {
-	try {
-		const { stdout } = await run(program, args, { timeout: LOOKUP_MS });
-		const out = stdout.trim();
-		return out === "" ? undefined : out;
-	} catch {
-		// Nothing to say: an unknown answer makes the stop hold the write.
-		return undefined;
-	}
+	const { code, stdout } = await LOOKUPS(program, args);
+	const out = stdout.trim();
+	return code === 0 && out !== "" ? out : undefined;
 }

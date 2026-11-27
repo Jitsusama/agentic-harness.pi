@@ -8,10 +8,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../../lib/internal/fence/fence.ts";
-import { MOST_LINKS } from "../../../../lib/internal/sandbox/leads-to.ts";
+import {
+	MOST_LINKS,
+	mostLinksOn,
+} from "../../../../lib/internal/sandbox/leads-to.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
+	rootOwners,
 	sealedPath,
 	systemProgram,
 } from "../../../../lib/internal/sandbox/system-program.ts";
@@ -138,6 +142,32 @@ describe("a program that runs outside the sandbox", () => {
 
 		expect(sealedPath("/l1", chain(MOST_LINKS))).toBe("/made");
 		expect(sealedPath("/l1", chain(MOST_LINKS + 1))).toBeUndefined();
+		// Each count a system holds a walk to, whichever this one is, and
+		// whichever system holds it, which the case below pins.
+		for (const most of [40, 32, 20]) {
+			expect(sealedPath("/l1", chain(most), most), `${most}`).toBe("/made");
+			expect(
+				sealedPath("/l1", chain(most + 1), most),
+				`${most}`,
+			).toBeUndefined();
+		}
+	});
+
+	it("counts links as each system does, and a system it doesn't name as 32", () => {
+		const counts: [NodeJS.Platform, number][] = [
+			["linux", 40],
+			["android", 40],
+			["sunos", 20],
+			["darwin", 32],
+			["freebsd", 32],
+			["openbsd", 32],
+			// Named nowhere in the count's doc, so held to 32 as it says,
+			// whatever the system's own count: these aren't checked counts.
+			["aix", 32],
+			["win32", 32],
+		];
+		for (const [platform, most] of counts)
+			expect(mostLinksOn(platform), platform).toBe(most);
 	});
 });
 
@@ -168,5 +198,66 @@ describe("on this machine's own disk", () => {
 		);
 
 		expect(sandbox.kind).toBe("refused");
+	});
+});
+
+describe("root inside a user namespace", () => {
+	/** `/proc` as a process sees it with `map` as its uid_map. */
+	const proc =
+		(map: string) =>
+		(path: string): string => {
+			if (path === "/proc/self/uid_map") return map;
+			if (path === "/proc/sys/kernel/overflowuid") return "65534\n";
+			throw new Error(`ENOENT ${path}`);
+		};
+
+	it("is root alone where the namespace maps root", () => {
+		expect(rootOwners(proc("         0          0 4294967295\n"))).toEqual([0]);
+	});
+
+	it("is the overflow user alone where it maps only the person, as the fence's", () => {
+		expect(rootOwners(proc("      1000       1000          1\n"))).toEqual([
+			65534,
+		]);
+	});
+
+	it("never counts the person mapped as inner root, as `unshare -r` does", () => {
+		expect(rootOwners(proc("         0       1000          1\n"))).toEqual([
+			65534,
+		]);
+	});
+
+	it("is the inner id the outer root maps to, wherever that is", () => {
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n      5000          0          1\n",
+				),
+			),
+		).toEqual([5000]);
+	});
+
+	it("is root alone where there is no /proc, as on a Mac", () => {
+		expect(
+			rootOwners(() => {
+				throw new Error("ENOENT");
+			}),
+		).toEqual([0]);
+	});
+
+	it("takes a program the overflow user holds only where it stands for root", () => {
+		const overflowed: Record<string, Partial<Node>> = Object.fromEntries(
+			Object.entries(NIXOS).map(([path, node]) => [
+				path,
+				{ ...node, uid: 65534 },
+			]),
+		);
+		const seen = (owners: readonly number[]): Look => ({
+			...disk(overflowed),
+			rootOwners: () => owners,
+		});
+
+		expect(systemProgram("bwrap", PROFILE, seen([0]))).toBeUndefined();
+		expect(systemProgram("bwrap", PROFILE, seen([0, 65534]))).toBeDefined();
 	});
 });

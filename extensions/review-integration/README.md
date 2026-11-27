@@ -333,15 +333,18 @@ round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
 
 Rounds on one machine start in the order they were asked, each as
-soon as the machine has memory for it, and at most two a minute, so
-a long line drains no faster than a minute-long average can show
-what the rounds before took (`lib/core/review/ask/memory-room.ts`).
-On Linux that is while the kernel's memory `full avg60`, read from
-`/proc/pressure/memory`, is under 5, and `MemAvailable` is at least
-16 GB or a quarter of the machine's memory, whichever is less, so a
-small machine can still start one. A figure Linux doesn't keep holds
-nothing back. A Mac reads the rule the machine queue reads there: it
-is short at the kernel's warning pressure, after a swap-out within
+soon as the machine has room for it. On Linux that is while the
+kernel's memory `full avg60` is under 5, `MemAvailable` is at least
+16 GiB (half of all memory on a machine with less than 32 GiB) and
+CPU `some avg60` is under 40, read from `/proc/pressure` and
+`/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
+most two a minute, so a long line drains no faster than those
+minute-long averages can show what the rounds before took. A
+figure Linux doesn't keep holds nothing back. The CPU bar came on
+26 November, when optimus sat over 40 for an hour with 24 councils
+running, since only memory was read. A Mac keeps none of those
+figures, so it reads the rule the machine queue reads there
+(`lib/core/review/ask/mac-room.ts`): it is short at the kernel's warning pressure, after a swap-out within
 the last minute, or with under 35% of its memory available. It reads
 only `/usr/sbin/sysctl` and `/usr/bin/vm_stat`, each apart and
 without blocking, and waits for a reading a minute old, from the

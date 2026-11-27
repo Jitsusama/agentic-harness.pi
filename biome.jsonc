@@ -11,6 +11,8 @@
 	"files": {
 		"ignoreUnknown": false
 	},
+	// Rules Biome has no rule for, each saying why beside its pattern.
+	"plugins": ["./lib/internal/files/recursive-delete.grit"],
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab"

@@ -376,6 +376,11 @@ export function leaveInParentLog(customType: string): void {
 	typesLeftBehind().add(customType);
 }
 
+/** The custom types every load in this process has said so far stay in the parent log. */
+export function typesLeftInParentLog(): ReadonlySet<string> {
+	return new Set(typesLeftBehind());
+}
+
 /** An id no entry in `taken` has, in pi's eight-hex form. */
 function freshId(taken: ReadonlySet<string>): string {
 	for (;;) {

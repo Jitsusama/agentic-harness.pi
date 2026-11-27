@@ -22,10 +22,10 @@ import {
 	mkdirSync,
 	readdirSync,
 	renameSync,
-	rmSync,
 	statSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { removeTree } from "../../internal/files/remove-tree.ts";
 import { resolvedPath } from "./in-use.ts";
 import { readPlain } from "./plain-file.ts";
 import { goneGitDir } from "./sweep-orphan.ts";
@@ -383,8 +383,7 @@ export function forgetGoneEntry(
 		return false;
 	}
 	try {
-		for (const entry of entries)
-			rmSync(entry, { recursive: true, force: true });
+		for (const entry of entries) removeTree(entry);
 		return true;
 	} catch {
 		// One going as it is forgotten: git's to finish.

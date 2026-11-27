@@ -157,6 +157,10 @@ const BUILD_HOLD = Symbol.for("test-host.build-hold");
 const linkedLoads = join(folder, "linked.jsonl");
 const agentDir = join(folder, "home", ".pi", "agent");
 const entryFile = join(folder, "entry.json");
+/** The roster entry of a compacted log one step leaves for the next to resume first. */
+const comeBack = join(folder, "come-back.json");
+/** The probe's own record, which its load says stays behind (probe-extension.mts). */
+const PROBE_RECORD = "probe-record";
 const effects = join(folder, "effects");
 /** The pids of what the crashing tool left running, one in its group and one that left it. */
 const children = join(folder, "children");
@@ -725,6 +729,38 @@ const scenarios: Record<string, Scenario> = {
 					lightOpens: reported.filter((said) =>
 						/light open|Light opens/.test(said),
 					),
+				},
+			};
+		},
+	},
+	/** Leave a compacted log holding the probe's record, for a fresh host to resume first. */
+	"compacted-to-come-back": {
+		responses: () => ["early", "kept", "after"].map((word) => say(word)),
+		run: async (engine, host) => {
+			const { entry } = await compacted(engine, host, PROBE_RECORD);
+			writeFileSync(comeBack, JSON.stringify(entry));
+			return {};
+		},
+	},
+	/**
+	 * Resume that log as a fresh host's first act, so it is held before any
+	 * load in the process says the probe's record stays behind: whether the
+	 * view holds that record once the conversation is built, and its own.
+	 */
+	"resumed-first": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const entry: RosterEntry = JSON.parse(readFileSync(comeBack, "utf8"));
+			await engine.resume(entry);
+			await idle(engine, entry.sessionId);
+			const types = (logOf(engine, entry.sessionId)?.fileEntries ?? []).map(
+				(each) => each.customType,
+			);
+			await host.close(entry.sessionId);
+			return {
+				resumedFirst: {
+					record: types.includes(ROLLOVER_RECORD),
+					probeRecord: types.includes(PROBE_RECORD),
 				},
 			};
 		},
@@ -1982,6 +2018,7 @@ interface HeldLog {
 		firstKeptEntryId: string,
 		tokens: number,
 	): string;
+	appendCustomEntry(customType: string, data?: unknown): string;
 }
 
 /** The parts of a conversation's session /session and /fork read. */
@@ -2008,14 +2045,17 @@ function logOf(engine: HostEngine, id: string): HeldLog | undefined {
 /**
  * Open a conversation, talk three turns, compact it from its second
  * user message on, and close it: its roster entry, the first entry the
- * compaction keeps, and that entry's parent.
+ * compaction keeps, and that entry's parent. A `record` of the custom type
+ * given follows the first turn, among the state the compaction keeps.
  */
 async function compacted(
 	engine: HostEngine,
 	host: SessionHost,
+	record?: string,
 ): Promise<{ entry: RosterEntry; kept: string; parent: string | null }> {
 	const id = await open(engine, { first: "early" });
 	await idle(engine, id);
+	if (record) logOf(engine, id)?.appendCustomEntry(record, { early: true });
 	await prompt(engine, id, "kept");
 	await idle(engine, id);
 	await prompt(engine, id, "after");

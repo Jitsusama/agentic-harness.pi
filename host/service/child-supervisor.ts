@@ -371,6 +371,24 @@ function inSeconds(ms: number): string {
 	return (ms / MS_PER_SECOND).toFixed(1);
 }
 
+/**
+ * Who waited on a start through its wait for its turn: someone from its
+ * first ask, someone who came `hurriedAfter` ms in and moved it ahead,
+ * or nobody, whose wait no person felt. Someone from its first ask is
+ * the gate's `ahead`: every begin and every wake, whose caller waits on
+ * it, whether a person or a peer. The start-wait probe outside this
+ * repository (new-session-answers.sh) skips the lines ending "with
+ * nobody waiting on it", so that phrase is its contract.
+ */
+function whoWaited(
+	fromFirstAsk: boolean,
+	hurriedAfter: number | undefined,
+): string {
+	if (fromFirstAsk) return ", with someone waiting on it";
+	if (hurriedAfter === undefined) return ", with nobody waiting on it";
+	return `, going ahead of those nobody waits on ${inSeconds(hurriedAfter)} s in, once someone came to wait on it`;
+}
+
 /** The supervisor stopped watching while a child was being set up. */
 class StoppedWatching extends Error {
 	constructor() {
@@ -1613,6 +1631,8 @@ export function childSupervisor(options: {
 		const hurried = () => {
 			hurriedAfter = Date.now() - asked;
 		};
+		// Whether someone waited on it from its first ask, as the gate reads it.
+		const waitedOnAlready = turn.ahead || turn.hurry?.aborted === true;
 		if (!turn.ahead && turn.hurry && !turn.hurry.aborted)
 			turn.hurry.addEventListener("abort", hurried, { once: true });
 		try {
@@ -1633,15 +1653,12 @@ export function childSupervisor(options: {
 				turn.hurry?.removeEventListener("abort", hurried);
 			}
 			// A wait the journal can see, so a slow start reads as queued, not
-			// stuck, and one a wake hurried reads as moved ahead (F106).
+			// stuck, one a wake hurried reads as moved ahead (F106), and a
+			// probe can tell a wait someone felt from one nobody did.
 			const waited = Date.now() - asked;
-			const moved =
-				hurriedAfter === undefined
-					? ""
-					: `, going ahead of those nobody waits on ${inSeconds(hurriedAfter)} s in, once someone came to wait on it`;
 			if (waited >= turnWaitSaidMs)
 				options.say?.(
-					`${slot.unit}: waited ${inSeconds(waited)} s for its turn to start, behind the children already starting${moved}`,
+					`${slot.unit}: waited ${inSeconds(waited)} s for its turn to start, behind the children already starting${whoWaited(waitedOnAlready, hurriedAfter)}`,
 				);
 			// Given back once held its time, whatever its child does by then.
 			lapse = setTimeout(() => {

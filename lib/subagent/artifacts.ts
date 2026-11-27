@@ -9,6 +9,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { removeTreeOff } from "../internal/files/remove-tree.ts";
 import { isNotFound, safeSegment } from "./errno.ts";
 import type { ReviewerRunArtifacts } from "./subagent.ts";
 
@@ -418,7 +419,7 @@ export class ReviewerArtifactsStore {
 			const place = why === "spendable" ? spendable++ : NOT_IN_THE_RUNNING;
 			if (isSpent(policy, { age, place, keeping: why })) {
 				try {
-					await rm(run.runDir, { recursive: true, force: true });
+					await removeTreeOff(run.runDir);
 					removed++;
 				} catch (error) {
 					warnings.push(

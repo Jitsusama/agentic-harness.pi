@@ -12,9 +12,9 @@
 import { join } from "node:path";
 import {
 	macRoundRoom,
-	memoryShort,
 	type RoundRoom,
-} from "../../../lib/core/review/ask/memory-room.ts";
+} from "../../../lib/core/review/ask/mac-room.ts";
+import { machineShort } from "../../../lib/core/review/ask/machine-room.ts";
 import {
 	awaitCouncilStart,
 	type CouncilStart,
@@ -230,7 +230,8 @@ export const MAC_SPACING_MS = 2 * 60_000;
  * roster round still runs there, then reads the queue's rule for a Mac,
  * since it keeps no pressure file, and spaces its starts
  * {@link MAC_SPACING_MS} apart unless config says otherwise; Linux
- * reads its pressure and available memory, and runs rounds side by side.
+ * reads its memory and CPU pressure and available memory, and runs
+ * rounds side by side.
  */
 export function roundRoom(
 	platform: NodeJS.Platform,
@@ -245,7 +246,7 @@ export function roundRoom(
 			spacingMs: MAC_SPACING_MS,
 		};
 	}
-	return { short: () => memoryShort(), startedUnjudged: () => undefined };
+	return { short: () => machineShort(), startedUnjudged: () => undefined };
 }
 
 /** Why a Mac's round waits for another still running there, or nothing. */

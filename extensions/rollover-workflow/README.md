@@ -69,7 +69,8 @@ on where it was.
   with `leaveInParentLog` (`lib/internal/session/rollover.ts`) stays
   in the parent instead: guard reports, compaction-selection holds
   and `model-not-set-back`, none of which is read from before the last
-  compaction. Every roll copied them again until 7 November, so one
+  compaction. A host's held view of a log leaves them out too, taken
+  again once the conversation's extensions have named them. Every roll copied them again until 7 November, so one
   fresh log started with 4.45 MB from before its first message.
 - Before that too, the system messages folded into one, which
   declares the tools they left declared and removes the ones they took

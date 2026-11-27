@@ -1,122 +1,26 @@
 /**
- * Whether the machine has memory to start a council: on Linux the
- * kernel's memory `full avg60` under 5 and enough available, a figure
- * it can't read holding nothing back; on a Mac the queue's own rule over
- * the swap history the machine shares.
+ * Whether a Mac has memory to start a council: the queue's own rule
+ * over the swap history the machine shares.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import {
-	LEAST_AVAILABLE_BYTES,
-	type LinuxSources,
 	MAC_READING_SERVES_MS,
 	type MacFigures,
 	type MacSources,
 	macFiguresFrom,
 	macFiguresNow,
 	macRoundRoom,
-	memoryShort,
 	PROGRAM_TIMEOUT_MS,
 	runBounded,
 	sharedReading,
 	UNJUDGED_WAIT_MS,
-} from "../../../../lib/core/review/ask/memory-room.ts";
+} from "../../../../lib/core/review/ask/mac-room.ts";
 import {
 	historyInMemory,
 	type MemoryFigures,
 	SWAPPING_MS,
 } from "../../../../lib/internal/priority/room-darwin.ts";
-
-/** A pressure file as Linux writes it, with `full avg60` at `avg60`. */
-const pressureAt = (avg60: string) =>
-	[
-		"some avg10=23.19 avg60=16.16 avg300=17.63 total=56294624829",
-		`full avg10=8.79 avg60=${avg60} avg300=6.91 total=29952573033`,
-		"",
-	].join("\n");
-
-/** A meminfo file as Linux writes it, in kB. */
-const meminfoOf = (totalKb: number, availableKb: number) =>
-	[
-		`MemTotal:       ${totalKb} kB`,
-		"MemFree:         1000000 kB",
-		`MemAvailable:   ${availableKb} kB`,
-		"",
-	].join("\n");
-
-const GB_IN_KB = 1e9 / 1024;
-
-/** A machine of `totalGb` with `availableGb` free and `avg60` in its pressure. */
-function linux(avg60: string, availableGb = 30, totalGb = 64): LinuxSources {
-	return {
-		pressure: async () => pressureAt(avg60),
-		meminfo: async () =>
-			meminfoOf(
-				Math.round(totalGb * GB_IN_KB),
-				Math.round(availableGb * GB_IN_KB),
-			),
-	};
-}
-
-const missing = async (): Promise<string> => {
-	throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-};
-
-describe("whether a Linux machine has memory for a round", () => {
-	it("has room while full avg60 is under 5 and 16 GB is available", async () => {
-		expect(await memoryShort(linux("4.99", 16.1))).toBeUndefined();
-	});
-
-	it("is short at 5 and past it, saying the reading", async () => {
-		expect(await memoryShort(linux("5.00"))).toBe(
-			"memory full avg60 was 5, at or past 5",
-		);
-		expect(await memoryShort(linux("8.23"))).toContain("8.23");
-	});
-
-	it("has room at exactly 16 GB available, and is short just under it", async () => {
-		// 16e9 bytes is a whole 15,625,000 kB, so the bar is met exactly.
-		const atBar = (bytes: number): LinuxSources => ({
-			pressure: async () => pressureAt("0.1"),
-			meminfo: async () => meminfoOf(128e9 / 1024, bytes / 1024),
-		});
-		expect(await memoryShort(atBar(16e9))).toBeUndefined();
-		expect(await memoryShort(atBar(16e9 - 1024))).toContain("under 16.0 GB");
-	});
-
-	it("is short under 16 GB available, saying how much was", async () => {
-		expect(await memoryShort(linux("0.37", 15))).toBe(
-			"15.0 GB of memory was available, under 16.0 GB",
-		);
-		expect(LEAST_AVAILABLE_BYTES).toBe(16e9);
-	});
-
-	it("wants only a quarter of a machine too small for 16 GB", async () => {
-		expect(await memoryShort(linux("0.1", 8.1, 32))).toBeUndefined();
-		expect(await memoryShort(linux("0.1", 7.9, 32))).toContain("under 8.0 GB");
-	});
-
-	it("judges by what is available where no pressure is kept", async () => {
-		expect(
-			await memoryShort({ ...linux("0"), pressure: missing }),
-		).toBeUndefined();
-		expect(
-			await memoryShort({ ...linux("0", 2), pressure: missing }),
-		).toContain("2.0 GB");
-	});
-
-	it("holds nothing back on a figure it can't read", async () => {
-		expect(
-			await memoryShort({ pressure: missing, meminfo: missing }),
-		).toBeUndefined();
-		expect(
-			await memoryShort({
-				pressure: async () => "some avg10=1 avg60=50 avg300=1 total=1\n",
-				meminfo: async () => "MemTotal: 1 kB\n",
-			}),
-		).toBeUndefined();
-	});
-});
 
 /** A Mac with room: normal pressure, half its memory available. */
 const roomy: MemoryFigures = {

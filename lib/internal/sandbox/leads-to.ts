@@ -9,10 +9,22 @@ import { lstatSync, readlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 /**
- * How many links one walk may follow in all before it gives up, as the
- * system counts them: 40 on Linux, 32 on a Mac.
+ * How many links one walk may follow in all on `platform` before it
+ * gives up, as that system counts them: 40 on Linux and Android, whose
+ * kernel is Linux's, 20 on Solaris, and 32 on a Mac and the BSDs. A
+ * system not named is held to 32, as most named ones are, though that
+ * may not be its own count: Windows's isn't checked here. A count that
+ * isn't the system's errs both ways: past it, a walk takes a path the
+ * system can't open, and short of it, landsAt places a path it gave up
+ * on in the folder holding it rather than where it leads.
  */
-export const MOST_LINKS = process.platform === "darwin" ? 32 : 40;
+export function mostLinksOn(platform: NodeJS.Platform): number {
+	if (platform === "linux" || platform === "android") return 40;
+	return platform === "sunos" ? 20 : 32;
+}
+
+/** How many links one walk may follow in all on this system. */
+export const MOST_LINKS = mostLinksOn(process.platform);
 
 /** What a look at a name says when nothing stands there to follow. */
 const NOTHING_THERE = new Set(["ENOENT", "ENOTDIR"]);

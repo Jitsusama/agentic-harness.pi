@@ -52,17 +52,145 @@ async function repoWithRemote(): Promise<{ local: string; remote: string }> {
 	return { local, remote };
 }
 
-/** Whether this git was built with its own fsmonitor daemon. */
-async function gitHasTheDaemon(): Promise<boolean> {
-	const { stdout } = await exec("git", ["version", "--build-options"]);
-	return stdout.includes("feature: fsmonitor--daemon");
+/**
+ * Whether this git was built with its own fsmonitor daemon, which git
+ * on Linux and on a Mac can be, as the 265 daemons history.ts records
+ * were; a git built without it starts none.
+ */
+const gitHasTheDaemon = (
+	await exec("git", ["version", "--build-options"])
+).stdout.includes("feature: fsmonitor--daemon");
+
+/** A translated locale, which a git built with gettext speaks in. */
+const GERMAN = { LANGUAGE: "de", LC_ALL: "de_DE.UTF-8" };
+
+/**
+ * What git says, out and error together, run with `env`, and why it
+ * failed where it did: git's word that no daemon watches a tree comes
+ * with a failure, so a failure alone isn't taken as an answer, but one
+ * that says nothing names its cause rather than reading as a daemon.
+ */
+async function gitSays(
+	args: readonly string[],
+	env: NodeJS.ProcessEnv,
+): Promise<string> {
+	const said = await new Promise<string>((done) =>
+		execFile("git", [...args], { env, timeout: 30_000 }, (error, out, err) =>
+			done(`${out}${err}${error && !out && !err ? error.message : ""}`),
+		),
+	);
+	return said;
 }
 
-/** The daemon's own word on `tree`: it exits 0 only while one watches. */
+/**
+ * Whether this git, built with the daemon, says what it says in German
+ * under a German locale, as one built with gettext does.
+ */
+const gitTranslates =
+	gitHasTheDaemon &&
+	(await (async () => {
+		const tree = await freshRepo("tidy-translates");
+		try {
+			const said = await gitSays(["-C", tree, "fsmonitor--daemon", "status"], {
+				...process.env,
+				...GERMAN,
+			});
+			return !said.includes("is not watching");
+		} finally {
+			disposeRepo(tree);
+		}
+	})());
+
+/**
+ * The daemon's own word on `tree`, which says when none watches it, in
+ * git's own words: git translates them under a locale such as `env`'s,
+ * so it is asked in the C locale, which no LANGUAGE overrides.
+ */
 function daemonStatus(
 	tree: string,
-): Promise<{ code: number; stdout: string; stderr: string }> {
-	return exec("git", ["-C", tree, "fsmonitor--daemon", "status"]);
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+	return gitSays(["-C", tree, "fsmonitor--daemon", "status"], {
+		...env,
+		LC_ALL: "C",
+	});
+}
+
+/**
+ * A repo and a worktree of it with core.fsmonitor set on, as dev sets
+ * it, and the status reads git history makes of both, each git command
+ * it ran with `status` in it kept in `statuses`.
+ */
+async function readUnderFsmonitor(): Promise<{
+	trees: string[];
+	statuses: string[][];
+}> {
+	const { local } = await repoWithRemote();
+	await git(local, "branch", "spent", "main");
+	const spent = `${local}/.wt/spent`;
+	await git(local, "worktree", "add", "-q", spent, "spent");
+	// Set once the setup's own git is done, so only the reads under test
+	// see the setting, and the setup starts no daemon to leave behind.
+	await git(local, "config", "core.fsmonitor", "true");
+	const statuses: string[][] = [];
+	const watched = (command: string, args: readonly string[]) => {
+		if (args.includes("status")) statuses.push([...args]);
+		return exec(command, args);
+	};
+	const history = createGitHistory({ exec: watched });
+	const trees = [local, spent];
+	try {
+		await history.worktrees(local, "main");
+		await history.status(local);
+	} catch (error) {
+		await stopDaemons(trees);
+		throw error;
+	}
+	return { trees, statuses };
+}
+
+/**
+ * Stop any daemon watching `trees`, so a failing run leaves none holding
+ * a folder a later test or the disk's sweep would remove, warning of one
+ * the stop left watching, which the case under test didn't start.
+ */
+async function stopDaemons(trees: readonly string[]): Promise<void> {
+	if (!gitHasTheDaemon) return;
+	for (const tree of trees) {
+		await exec("git", ["-C", tree, "fsmonitor--daemon", "stop"]);
+		const said = await daemonStatus(tree);
+		if (!said.includes("is not watching"))
+			process.stderr.write(
+				`a daemon still watches ${tree} once stopped: ${said}\n`,
+			);
+	}
+}
+
+/**
+ * Whether `args` turn the daemon off with a `-c` given before `status`:
+ * the last `core.fsmonitor` set there, since git takes the last, its
+ * name in any case, as git reads names; a bare `-c core.fsmonitor`, which
+ * git reads as true; and any `--config-env` of it, whose value no args
+ * say, as on. Only a plain false is off, so a value git also reads as
+ * false fails as on, never the other way. GIT_CONFIG_PARAMETERS and the
+ * repository's own config are out of an args check's reach.
+ */
+function turnsTheDaemonOff(args: readonly string[]): boolean {
+	const before = args.slice(0, args.indexOf("status"));
+	const values: string[] = [];
+	for (const [at, arg] of before.entries()) {
+		const flag = before[at - 1];
+		const inline = /^--config-env=(.*)$/.exec(arg)?.[1];
+		const setting =
+			flag === "-c" ? arg : flag === "--config-env" ? arg : inline;
+		if (setting === undefined) continue;
+		const equals = setting.indexOf("=");
+		const name = equals === -1 ? setting : setting.slice(0, equals);
+		if (name.toLowerCase() !== "core.fsmonitor") continue;
+		const fromArgs = flag === "-c" && equals !== -1;
+		values.push(fromArgs ? setting.slice(equals + 1).toLowerCase() : "on");
+	}
+	return values.at(-1) === "false";
 }
 
 /** Commit one file on a new branch off main, and publish it. */
@@ -207,47 +335,51 @@ describe("reading worktree state from a real repository", () => {
 	// 11-10: 265 fsmonitor daemons, 778 MiB, most started by one reclaim
 	// across World's trees, since dev sets core.fsmonitor=true and each
 	// status read started a daemon that never exits (2AF2DH [c9039904]).
-	it("reads each tree's status without starting git's fsmonitor daemon", async () => {
-		const { local } = await repoWithRemote();
-		await git(local, "branch", "spent", "main");
-		const spent = `${local}/.wt/spent`;
-		await git(local, "worktree", "add", "-q", spent, "spent");
-		// Set once the setup's own git is done, so only the reads under test
-		// see the setting, and the setup starts no daemon to leave behind.
-		await git(local, "config", "core.fsmonitor", "true");
-		const statuses: string[][] = [];
-		const watched = (command: string, args: readonly string[]) => {
-			if (args.includes("status")) statuses.push([...args]);
-			return exec(command, args);
-		};
-		const history = createGitHistory({ exec: watched });
-
+	it("reads each tree's status with git's fsmonitor daemon turned off", async () => {
+		const { trees, statuses } = await readUnderFsmonitor();
 		try {
-			await history.worktrees(local, "main");
-			await history.status(local);
-
 			expect(statuses.length).toBeGreaterThanOrEqual(2);
 			for (const args of statuses) {
-				expect(args.slice(2, 4)).toEqual(["-c", "core.fsmonitor=false"]);
-			}
-			// Where this git has the daemon at all (a Mac's does, Linux's
-			// doesn't), none may be watching either tree once the reads end.
-			if (await gitHasTheDaemon()) {
-				for (const tree of [local, spent]) {
-					const watching = await daemonStatus(tree);
-					expect(
-						watching.code,
-						`a daemon is left watching ${tree}: ${watching.stdout}`,
-					).not.toBe(0);
-				}
+				expect(
+					turnsTheDaemonOff(args),
+					`git ${args.join(" ")} leaves the daemon on`,
+				).toBe(true);
 			}
 		} finally {
-			// A failing run stops what it started, so it leaves no daemon
-			// holding the folder a later test or the disk's sweep would remove.
-			for (const tree of [local, spent])
-				await exec("git", ["-C", tree, "fsmonitor--daemon", "stop"]);
+			await stopDaemons(trees);
 		}
 	});
+
+	// Only where git translates what it says can leaving out the C locale
+	// show, so this case is skipped, and says so, where it doesn't.
+	it.skipIf(!gitTranslates)(
+		"reads the daemon's word in git's own words under a translated locale",
+		async () => {
+			const tree = await freshRepo("tidy-locale");
+			dirs.push(tree);
+			const said = await daemonStatus(tree, { ...process.env, ...GERMAN });
+			expect(said).toContain("is not watching");
+		},
+	);
+
+	// Only a git built with the daemon can start one, so this case is
+	// skipped, and says so, where this git was built without it.
+	it.skipIf(!gitHasTheDaemon)(
+		"leaves no fsmonitor daemon watching a tree it read",
+		async () => {
+			const { trees } = await readUnderFsmonitor();
+			try {
+				for (const tree of trees) {
+					const said = await daemonStatus(tree);
+					expect(said, `a daemon is left watching ${tree}`).toContain(
+						"is not watching",
+					);
+				}
+			} finally {
+				await stopDaemons(trees);
+			}
+		},
+	);
 
 	it("offers a snapshot at a branch's commit, and keeps one at a lone commit", async () => {
 		const { local } = await repoWithRemote();
@@ -357,6 +489,44 @@ function recording(): {
 // git how far each branch is from its upstream took 476 s there, and
 // asking per detached tree whether a ref holds its commit took 14 s to
 // 102 s a tree. The counts below are what keeps those from coming back.
+describe("the check the fsmonitor cases judge git's commands by", () => {
+	const off = ["-c", "core.fsmonitor=false"];
+
+	it("judges the daemon off by the last setting git takes", () => {
+		const on = ["-c", "core.fsmonitor=true"];
+		expect(turnsTheDaemonOff([...on, ...off, "status"]), "off set last").toBe(
+			true,
+		);
+		expect(turnsTheDaemonOff([...off, ...on, "status"]), "on set last").toBe(
+			false,
+		);
+		expect(turnsTheDaemonOff(["status", ...off]), "off after status").toBe(
+			false,
+		);
+	});
+
+	it("takes every way git sets it back on after an off as on", () => {
+		const after = {
+			"a bare name": ["-c", "core.fsmonitor"],
+			"a name in another case": ["-c", "core.fsMonitor=true"],
+			"a value from the environment": ["--config-env=core.fsmonitor=ON"],
+			"a value from the environment, apart": [
+				"--config-env",
+				"core.fsmonitor=ON",
+			],
+		};
+		for (const [how, on] of Object.entries(after))
+			expect(turnsTheDaemonOff([...off, ...on, "status"]), how).toBe(false);
+	});
+
+	it("takes an off named in another case as off", () => {
+		expect(
+			turnsTheDaemonOff(["-c", "Core.FSMonitor=FALSE", "status"]),
+			"git reads names and booleans in any case",
+		).toBe(true);
+	});
+});
+
 describe("reading a repository with many branches and trees", () => {
 	it("tells a gone upstream without counting how far each branch has moved", async () => {
 		const { local, remote } = await repoWithRemote();

@@ -47,12 +47,12 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
-	rmSync,
 	statSync,
 	unlinkSync,
 } from "node:fs";
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { removeTree } from "../internal/files/remove-tree.ts";
 import { isMachineName } from "../internal/machine/machine.ts";
 import { isMoveTarget } from "../internal/session/move.ts";
 import { type GivenAnswer, givenFrom } from "../internal/session/wants.ts";
@@ -367,7 +367,7 @@ export function forgetInboxes(
 		if (last === undefined) continue;
 		if (last.at >= (last.empty ? quietSince : keptSince)) continue;
 		try {
-			rmSync(inbox, { recursive: true, force: true });
+			removeTree(inbox);
 			forgotten.push(name);
 		} catch {
 			// Left for the next sweep, which tries again.

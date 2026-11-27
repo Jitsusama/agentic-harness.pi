@@ -11,8 +11,8 @@
  * take change with the readers that open them.
  */
 
-import * as fs from "node:fs";
 import type { Browser, Target } from "puppeteer-core";
+import { removeTree } from "../../../internal/files/remove-tree.ts";
 import { processGlobal } from "../../../internal/process/process-global.ts";
 import { CookieJar } from "../jar.ts";
 import { verifyBrowser } from "../procs.ts";
@@ -323,7 +323,7 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 		const gone = closedGracefully || !pid || !verifyBrowser(pid, dir);
 		if (gone) {
 			try {
-				fs.rmSync(dir, { recursive: true, force: true });
+				removeTree(dir);
 			} catch {
 				// Best-effort cleanup; the next launch sweeps leftovers.
 			}
@@ -352,7 +352,7 @@ export function killBrowserSync(): void {
 	if (pid && verifyBrowser(pid, dir)) {
 		killTree(proc);
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTree(dir);
 		} catch {
 			// Best-effort; a later run's reaper removes whatever remains.
 		}

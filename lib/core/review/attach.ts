@@ -23,6 +23,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { removeTreeOff } from "../../internal/files/remove-tree.ts";
 import type { ChangeRef } from "./change.ts";
 import { changeKey } from "./keys.ts";
 
@@ -195,7 +196,7 @@ export async function pruneAttachments(
 		const path = join(root, entry.name);
 		try {
 			if ((await newestWithin(path)) > cutoff) continue;
-			await rm(path, { recursive: true, force: true });
+			await removeTreeOff(path);
 			taken += 1;
 		} catch {
 			// Another session may be writing here, or may have removed it

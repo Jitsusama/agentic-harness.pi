@@ -1,7 +1,7 @@
 /**
  * A round reads the room its platform has: a Mac the queue's swap rule,
- * spaced two minutes apart, and Linux its pressure and available memory
- * with no spacing of its own. A start that waited past an unread Mac
+ * spaced two minutes apart, and Linux its memory and CPU pressure and
+ * available memory with no spacing of its own. A start that waited past an unread Mac
  * says so in what the round answers.
  */
 
@@ -11,7 +11,7 @@ import {
 	roundRoom,
 	withUnjudged,
 } from "../../../../extensions/review-integration/tools/ask-round.ts";
-import type { RoundRoom } from "../../../../lib/core/review/ask/memory-room.ts";
+import type { RoundRoom } from "../../../../lib/core/review/ask/mac-room.ts";
 
 const macRoom: RoundRoom = {
 	short: async () => "a Mac's own reason",

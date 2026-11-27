@@ -13,8 +13,9 @@
  * a keep.
  */
 
-import { mkdirSync, rmdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, rmdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 
 /**
  * How old a claim is before it is taken as left by a session that died
@@ -45,7 +46,7 @@ export function claimReading(
 			return undefined;
 		}
 	}
-	return () => rmSync(claim, { recursive: true, force: true });
+	return () => removeTree(claim);
 }
 
 /** Whether a claim is old enough to be a dead session's. */

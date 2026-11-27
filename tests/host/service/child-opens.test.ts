@@ -26,6 +26,7 @@ import {
 	reported,
 	roster,
 	routes,
+	said,
 	slotNamed,
 	superviseAgain,
 	superviseEachTest,
@@ -543,6 +544,42 @@ describe("a new conversation", () => {
 			expect(units.started[3]).toBe(slotOf(folder, key, queued).unit);
 		} finally {
 			// A failed check leaves none of them pending past the case.
+			holdingA.settle();
+			holdingB.settle();
+			await Promise.allSettled(all);
+		}
+	});
+
+	// F3 on #2306: a begin is the new session the start-wait probe counts,
+	// and its caller waits on it from its first ask, so its wait says so
+	// and never that it was moved.
+	it("says someone waited on a begin's wait for its turn, and no move", async () => {
+		superviseAgain({ clocks: { turnWaitSaidMs: 0 } });
+		const holdingA = deferred();
+		const holdingB = deferred();
+		const [unitA, unitB] = [a, b].map((id) => slotOf(folder, key, id).unit);
+		units.traitsOf = (unit) => {
+			if (unit === unitA) return { listensWhen: holdingA.promise };
+			if (unit === unitB) return { listensWhen: holdingB.promise };
+			return {};
+		};
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const beginning = supervisor.begin(opening("open-30"));
+		const all = [...held, beginning];
+		try {
+			holdingA.settle();
+			await beginning;
+			const begun = units.started[2] ?? "";
+			const line = said.find((one) => one.startsWith(`${begun}: waited`));
+			expect(line, "its wait is said").toBeDefined();
+			expect(line, "someone waited on it from its first ask").toContain(
+				"with someone waiting on it",
+			);
+			expect(line, "ahead from its first ask, moved nowhere").not.toContain(
+				"going ahead",
+			);
+		} finally {
 			holdingA.settle();
 			holdingB.settle();
 			await Promise.allSettled(all);

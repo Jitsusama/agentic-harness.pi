@@ -1,27 +1,16 @@
 /**
- * Whether the machine has the memory to start a council's reviewers.
+ * Whether a Mac has the memory to start a council's reviewers.
  *
- * A council starts several pis at once, each holding a pi's worth of
- * memory for minutes. Rounds used to start a fixed three minutes apart
- * whatever the machine had to spare, so on 24 November one waited about
- * 30 minutes behind ten others on a machine with room for all of them,
- * and on a starved one three minutes was no guard at all. The rule now
- * is room alone. On Linux a round starts while the share of the last
- * minute every task spent stalled on memory, the kernel's `full avg60`,
- * is under 5, and while 16 GB is available, or a quarter of a smaller
- * machine's memory. On 26 November 24 rounds ran at once at an avg60
- * of 8.23 under the old bar of 10, with Joel at the machine, and
- * velocity set this one (A210E4CA).
- *
- * A Mac keeps no such figure, so it reads the rule the machine queue
- * reads there (room-darwin.ts): the kernel's pressure level, a swap-out
- * within the last minute, or too little memory available. On 25
- * November a Mac swapped hard while rounds still started on it, as the
- * Linux rule read a missing file as room, and Joel's window froze.
+ * Linux judges a round's room by its pressure files and `meminfo`
+ * (machine-room.ts). A Mac keeps no such figure, so it reads the rule
+ * the machine queue reads there (room-darwin.ts): the kernel's pressure
+ * level, a swap-out within the last minute, or too little memory
+ * available. On 25 November a Mac swapped hard while rounds still
+ * started on it, as the Linux rule read a missing file as room, and
+ * Joel's window froze.
  */
 
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { SYSCTL_PATH } from "../../../internal/boot-token.ts";
 import { machineLockDir } from "../../../internal/priority/folder.ts";
@@ -36,25 +25,6 @@ import {
 	swapoutsReadIn,
 	sysctlValues,
 } from "../../../internal/priority/room-darwin.ts";
-
-/** The kernel's memory pressure, where Linux keeps it. */
-export const MEMORY_PRESSURE_FILE = "/proc/pressure/memory";
-
-/** Where Linux says how much memory it has and how much is available. */
-export const MEMINFO_FILE = "/proc/meminfo";
-
-/** The `full avg60` at and past which a round waits for room. */
-export const FULL_AVG60_AT_MOST = 5;
-
-/**
- * The memory a round wants available before it starts, in bytes: 16 GB,
- * or a quarter of a machine with less than 64 GB, which could otherwise
- * never start one.
- */
-export const LEAST_AVAILABLE_BYTES = 16e9;
-
-/** The share of a machine's memory {@link LEAST_AVAILABLE_BYTES} gives way to. */
-const LEAST_AVAILABLE_SHARE = 0.25;
 
 /**
  * How long the rounds of a process wait on a Mac whose room they can't
@@ -89,66 +59,6 @@ const PROGRAM_GRACE_MS = 1_000;
 
 /** Apple's own `vm_stat`, by its path, as {@link SYSCTL_PATH} is. */
 export const VM_STAT_PATH = "/usr/bin/vm_stat";
-
-const FULL_AVG60 = /^full\b.*\bavg60=(\d+(?:\.\d+)?)/m;
-const MEMINFO_KB = (name: string) => new RegExp(`^${name}:\\s+(\\d+) kB$`, "m");
-
-/** Where Linux's figures come from, each read again at every look. */
-export interface LinuxSources {
-	readonly pressure: () => Promise<string>;
-	readonly meminfo: () => Promise<string>;
-}
-
-const THIS_LINUX: LinuxSources = {
-	pressure: () => readFile(MEMORY_PRESSURE_FILE, "utf8"),
-	meminfo: () => readFile(MEMINFO_FILE, "utf8"),
-};
-
-/**
- * What keeps a round from starting now, said for its answer, or nothing
- * when the machine has room. A figure that can't be had holds nothing
- * back, as on an old kernel: a Mac reads {@link macRoundRoom} instead.
- */
-export async function memoryShort(
-	sources: LinuxSources = THIS_LINUX,
-): Promise<string | undefined> {
-	const [pressure, meminfo] = await Promise.all([
-		textOf(sources.pressure),
-		textOf(sources.meminfo),
-	]);
-	const said = pressure === undefined ? undefined : FULL_AVG60.exec(pressure);
-	if (said?.[1] !== undefined && Number(said[1]) >= FULL_AVG60_AT_MOST) {
-		return `memory full avg60 was ${Number(said[1])}, at or past ${FULL_AVG60_AT_MOST}`;
-	}
-	return meminfo === undefined ? undefined : availableShort(meminfo);
-}
-
-/** The text a source gives, or undefined when it can't be read. */
-async function textOf(
-	read: () => Promise<string>,
-): Promise<string | undefined> {
-	try {
-		return await read();
-	} catch {
-		// A file the kernel doesn't keep says nothing about room.
-		return undefined;
-	}
-}
-
-/** Why too little memory is available by `meminfo`, or nothing. */
-function availableShort(meminfo: string): string | undefined {
-	const kb = (name: string) => {
-		const found = MEMINFO_KB(name).exec(meminfo)?.[1];
-		return found === undefined ? undefined : Number(found) * 1024;
-	};
-	const available = kb("MemAvailable");
-	const total = kb("MemTotal");
-	if (available === undefined || total === undefined) return undefined;
-	const least = Math.min(LEAST_AVAILABLE_BYTES, total * LEAST_AVAILABLE_SHARE);
-	if (available >= least) return undefined;
-	const gb = (bytes: number) => (bytes / 1e9).toFixed(1);
-	return `${gb(available)} GB of memory was available, under ${gb(least)} GB`;
-}
 
 /** One round's reading of its machine's room, asked at each look. */
 export interface RoundRoom {

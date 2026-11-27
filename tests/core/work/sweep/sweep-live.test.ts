@@ -583,7 +583,8 @@ describe("trees whose repository is gone", () => {
 
 				expect(outcome.taken).toEqual([]);
 				expect(outcome.refused).toEqual([
-					{ path: tree, why: expect.stringContaining("EACCES") },
+					// The system's `rm` says why, as coreutils' and BSD's both put it.
+					{ path: tree, why: expect.stringContaining("Permission denied") },
 				]);
 				// What the read-only folder holds is what can't go.
 				expect(existsSync(join(readOnly, "deep")), "back home").toBe(true);
