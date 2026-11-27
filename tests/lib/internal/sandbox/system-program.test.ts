@@ -15,6 +15,7 @@ import {
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
+	notKept,
 	rootOwners,
 	sealedPath,
 	systemProgram,
@@ -349,6 +350,17 @@ describe("root inside a user namespace", () => {
 			),
 			"the outer root mapped beside this process as inner 0",
 		).toEqual([]);
+		// A rootless toolbox entered as its root: the person is inner 0 and
+		// the subordinate ids cover the overflow id, so either can be forged.
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n         1     100000      65536\n",
+				),
+				0,
+			),
+			"a rootless toolbox, as its root",
+		).toEqual([]);
 	});
 
 	it("is root alone where there is no /proc, as on a Mac", () => {
@@ -423,5 +435,16 @@ describe("root inside a user namespace", () => {
 		expect(trustsNoOwner(owning([])), "no owner").toBe(true);
 		expect(trustsNoOwner(owning([65534])), "the overflow user").toBe(false);
 		expect(trustsNoOwner(disk(NIXOS)), "root, where none says").toBe(false);
+	});
+
+	it("refuses by the folders where an owner is trusted, and by the namespace where none is", () => {
+		const none: Look = { ...disk(NIXOS), rootOwners: () => [] };
+
+		expect(notKept("landrun", disk(NIXOS)), "an owner trusted").toBe(
+			"landrun isn't in the system's own profile, where only root puts programs",
+		);
+		expect(notKept("bwrap", none), "no owner trusted").toMatch(
+			/^bwrap can't be trusted: no owner here can be told from pi's own, .*run pi as an id other than 0/,
+		);
 	});
 });

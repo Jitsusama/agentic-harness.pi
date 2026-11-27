@@ -117,14 +117,24 @@ interface Program {
 function systemTool(name: string, folders: readonly string[]): Program {
 	const path = systemProgram(name, folders);
 	if (path !== undefined) return { path, name };
-	const where = trustsNoOwner()
+	throw new Error(noneFound(name, folders, trustsNoOwner()));
+}
+
+/**
+ * What a removal says when no `name` could be trusted: that no owner here
+ * can be, where `noOwner` says so, rather than blaming the folders, which
+ * may well hold root's.
+ */
+export function noneFound(
+	name: string,
+	folders: readonly string[],
+	noOwner: boolean,
+): string {
+	const where = noOwner
 		? "no owner here can be told from pi's own, as in a user namespace " +
-			"whose ids pi can give its files to"
+			"whose ids pi can give its files to, so run pi as an id other than 0 there"
 		: `none is kept where only root can put one (${folders.join(", ")})`;
-	throw new Error(
-		`no ${name} found: ${where}, ` +
-			"so the tree is left in place rather than walked by path",
-	);
+	return `no ${name} found: ${where}, so the tree is left in place rather than walked by path`;
 }
 
 /** The arguments that remove `path` and all under it, never following it. */
