@@ -47,7 +47,10 @@ export interface QuestHere {
 	readonly resting: readonly RestingSession[];
 	/** Every session it has had here, whose trees are its own. */
 	readonly sessions: ReadonlySet<string>;
-	/** Each tree the work broker cut, with the sessions holding it. */
+	/**
+	 * Each tree the work broker cut, with the sessions holding it, each by
+	 * the folder its checkout stands in ({@link checkoutOf}).
+	 */
 	readonly held: readonly RecordedTree[];
 	/**
 	 * The trees its README lists on this machine, each by the folder its
@@ -121,7 +124,10 @@ export function questHere(
 		quest,
 		resting,
 		sessions,
-		held: recordedTrees(stores.treeRecords),
+		held: recordedTrees(stores.treeRecords).map((tree) => ({
+			...tree,
+			path: checkoutOf(tree.path),
+		})),
 		trees: treesHere(readme?.trees ?? []).map((tree) => checkoutOf(tree.path)),
 	};
 }
