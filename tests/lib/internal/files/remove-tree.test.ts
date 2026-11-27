@@ -33,7 +33,6 @@ import {
 	systemRmCommand,
 	tidyTree,
 	writableArgs,
-	writableArgsAfter,
 } from "../../../../lib/internal/files/remove-tree.ts";
 import {
 	systemFolders,
@@ -373,49 +372,6 @@ describe("removing a tree", () => {
 			}
 		} finally {
 			for (const read of reads) chmodSync(read, 0o755);
-		}
-	});
-
-	it("tries chmod again without -P only when it refused -P, as GNU's before 9.5 does", () => {
-		const at = join(folder, "cache");
-		// What coreutils 9.4's chmod says, under LC_ALL=C, to `-R -P`.
-		const refused =
-			"chmod: invalid option -- 'P'\nTry 'chmod --help' for more information.";
-
-		expect(writableArgsAfter(refused, at)).toEqual(["-R", "--", "u+w", at]);
-		expect(writableArgsAfter(undefined, at), "it did all").toBeUndefined();
-		expect(
-			writableArgsAfter("chmod: cannot access 'x': Permission denied", at),
-			"another failure",
-		).toBeUndefined();
-	});
-
-	it("makes the tree writable with the older arguments, through no link inside it", () => {
-		const chmod = systemProgram("chmod", removerFolders());
-		expect(chmod, "no chmod root keeps").toBeDefined();
-		const outside = readOnlyCache();
-		const tree = join(folder, "tree");
-		mkdirSync(join(tree, "inner"), { recursive: true });
-		symlinkSync(join(outside, "mod@v1"), join(tree, "inner", "link"));
-		chmodSync(join(tree, "inner"), 0o555);
-		const older = writableArgsAfter("chmod: invalid option -- 'P'", tree);
-		try {
-			const ran = spawnSync(chmod ?? "chmod", older ?? [], {
-				argv0: "chmod",
-				encoding: "utf8",
-			});
-			expect(ran.status, ran.stderr).toBe(0);
-			expect(lstatSync(join(tree, "inner")).mode & 0o200, "inner").toBe(0o200);
-			for (const read of [
-				join(outside, "mod@v1"),
-				join(outside, "mod@v1", "pkg"),
-			]) {
-				expect(lstatSync(read).mode & 0o777, read).toBe(0o555);
-			}
-		} finally {
-			chmodSync(join(tree, "inner"), 0o755);
-			chmodSync(join(outside, "mod@v1"), 0o755);
-			chmodSync(join(outside, "mod@v1", "pkg"), 0o755);
 		}
 	});
 

@@ -128,26 +128,15 @@ function rmArgs(path: string): string[] {
  * chmod and BSD's alike. `-h` isn't used: BSD's refuses it beside `-R`,
  * and GNU's, given it, follows a link named as `path`. Options end
  * before the mode, as BSD's reads anything after it as a file.
+ *
+ * GNU's chmod before coreutils 9.5 (Debian 12, Ubuntu 24.04 and older)
+ * refuses `-P`, and isn't asked again without it: its plain `-R` follows
+ * a link swapped in for a folder mid-walk, the race 9.5 fixed, so a
+ * fenced command could have it make a folder outside the tree writable.
+ * There the read-only tree is left, and the error says chmod's refusal.
  */
 export function writableArgs(path: string): string[] {
 	return ["-R", "-P", "--", "u+w", path];
-}
-
-/**
- * The arguments to try again with when chmod refused `-P` as an option it
- * doesn't know, as GNU's did before coreutils 9.5 (Debian 12, Ubuntu 24.04
- * and older); undefined when it said anything else. That chmod's `-R`
- * already ignores every link it meets in the walk, and a link named as
- * `path` was unlinked before any walk began, so plain `-R` follows none.
- */
-export function writableArgsAfter(
-	said: string | undefined,
-	path: string,
-): string[] | undefined {
-	if (said === undefined || !/invalid option -- '?P'?/.test(said)) {
-		return undefined;
-	}
-	return ["-R", "--", "u+w", path];
 }
 
 /** Why `rm` left `at`, with why `chmod` couldn't help it where it failed too. */
@@ -258,8 +247,6 @@ export function removeTree(
 	if (said !== undefined && way.evenReadOnly === true) {
 		const chmod = systemTool("chmod", kept);
 		chmodSaid = runSync(chmod, writableArgs(at));
-		const older = writableArgsAfter(chmodSaid, at);
-		if (older !== undefined) chmodSaid = runSync(chmod, older);
 		said = runSync(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
@@ -300,8 +287,6 @@ export async function removeTreeOff(
 	if (said !== undefined && way.evenReadOnly === true) {
 		const chmod = systemTool("chmod", kept);
 		chmodSaid = await runOff(chmod, writableArgs(at));
-		const older = writableArgsAfter(chmodSaid, at);
-		if (older !== undefined) chmodSaid = await runOff(chmod, older);
 		said = await runOff(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
