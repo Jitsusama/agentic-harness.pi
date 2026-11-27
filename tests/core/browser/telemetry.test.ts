@@ -28,9 +28,10 @@ const NOISY = page(
 console.log("a plain log");
 console.warn("a warning");
 console.error("an error happened");
-fetch("/data.json").catch(() => {});
-fetch("/missing").catch(() => {});
-fetch("http://127.0.0.1:1/unreachable").catch(() => {});
+for (const url of ["/data.json", "/missing", "http://127.0.0.1:1/unreachable"]) {
+  // The page drops each fetch's failure: only the network log is read.
+  fetch(url).catch(() => {});
+}
 </script>`,
 );
 
@@ -477,6 +478,7 @@ describe("a session whose tab crashed", () => {
 		process.on("unhandledRejection", listen);
 		try {
 			await session.navigate(fixture.url("/offers"));
+			// The tab dies under this navigation, so its goto fails by design.
 			await inner.page.goto("chrome://kill").catch(() => {});
 			await until(
 				"a replacement tab to be asked for",

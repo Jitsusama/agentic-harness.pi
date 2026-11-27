@@ -134,6 +134,8 @@ describe("the fast layer at the end of a turn", () => {
 		serve(() => new Promise(() => {}));
 		const h = harness();
 		const turn = await endTurnAfterAnEdit(h, new AbortController());
+		// Handled now, so a rejection while the clock is wound on is not
+		// reported as unhandled; the turn is judged by settled() below.
 		turn.done.catch(() => {});
 
 		await vi.advanceTimersByTimeAsync(FAST_LAYER_WALL_MS + 100);

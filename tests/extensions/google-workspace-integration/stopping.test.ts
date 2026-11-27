@@ -168,6 +168,8 @@ describe("a google call Google never answers", () => {
 			undefined,
 			ctx,
 		);
+		// Handled now, so a rejection after the stop is not reported as
+		// unhandled before outcome listens.
 		call.catch(() => {});
 		setTimeout(() => controller.abort(), 50);
 		expect(await outcome(call)).toBe("still running");

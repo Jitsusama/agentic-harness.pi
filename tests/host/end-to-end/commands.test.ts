@@ -53,7 +53,7 @@ describe.skipIf(!packageDir)(
 			host = await startScreenHost(sealed, packageDir);
 		}, CASE_MS);
 		afterAll(async () => {
-			for (const viewer of viewers) await viewer.leave().catch(() => {});
+			for (const viewer of viewers) await viewer.leave();
 			await host?.stop();
 			await sealed?.dispose();
 		}, CASE_MS);

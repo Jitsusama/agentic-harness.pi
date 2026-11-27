@@ -108,6 +108,8 @@ describe("a supervisor whose session has gone", () => {
 						signal: controller.signal,
 					}),
 				);
+				// The runs end as their hosts close below, and are awaited there;
+				// caught now, so a rejection before then isn't reported unhandled.
 				result.catch(() => {});
 				running.push(result);
 			}
@@ -268,16 +270,16 @@ describe("a supervisor whose session has gone", () => {
 			spawn: (() => ({ pid: 1, unref() {}, on() {}, once() {} })) as never,
 		});
 
-		// Caught rather than voided. Nothing here finishes the run, so
-		// this promise never settles happily, and a void would surface
-		// whatever it does as an unhandled rejection that the assertion
-		// below cannot see and a later test reports instead.
 		const running = runPi({
 			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "one",
 		});
+		// Caught rather than voided. Nothing here finishes the run, so
+		// this promise never settles happily, and a void would surface
+		// whatever it does as an unhandled rejection that the assertion
+		// below cannot see and a later test reports instead.
 		running.catch(() => {});
 
 		const store = new ReviewerArtifactsStore(stateDir);

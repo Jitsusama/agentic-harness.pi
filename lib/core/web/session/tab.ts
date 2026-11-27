@@ -114,6 +114,7 @@ export class SessionTab {
 			await this.wires
 				.page()
 				.close()
+				// The dead page may never answer its close, which still frees it.
 				.catch(() => {});
 			await this.bindTo(await this.wires.context().newPage());
 		});

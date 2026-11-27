@@ -186,7 +186,7 @@ describe.skipIf(!packageDir)(
 			writeFileSync(join(parkFolder, "switch"), `${named().join("\n")}\n`);
 		}, CASE_MS);
 		afterAll(async () => {
-			for (const viewer of viewers) await viewer.leave().catch(() => {});
+			for (const viewer of viewers) await viewer.leave();
 			await host?.stop();
 			await sealed?.dispose();
 			// The record of this run, for its pull request and the parity table.

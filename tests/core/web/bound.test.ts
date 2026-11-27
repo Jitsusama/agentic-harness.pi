@@ -103,11 +103,13 @@ describe("bounded", () => {
 			const controller = new AbortController();
 			controller.abort();
 			const work = deferred<number>();
-			await bounded(work.promise, {
+			const refused = bounded(work.promise, {
 				signal: controller.signal,
 				wallMs: 60_000,
 				what: "w",
-			}).catch(() => {});
+			});
+			// Refused for the stop given first; what's checked is the work's later end.
+			await refused.catch(() => {});
 
 			work.reject(new Error("target closed"));
 			await new Promise((wake) => setTimeout(wake, 10));

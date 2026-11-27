@@ -51,6 +51,8 @@ export function watchHeavyWork(m: MeshState) {
 					{ triggerTurn: false },
 				);
 			})
+			// The lease only tells other peers; a board that can't be written
+			// must not fail the heavy call it announces.
 			.catch(() => {});
 
 	// The calls a reload carried over from the runtime before this one.

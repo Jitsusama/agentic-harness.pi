@@ -265,6 +265,8 @@ export class StandaloneServer {
 		);
 		connection
 			.sendNotification(InitializedNotification.type, {})
+			// Nothing answers a notification; a server gone before it hears
+			// this fails the first request sent to it, which reports it.
 			.catch(() => {});
 		return server;
 	}
@@ -493,6 +495,7 @@ export class StandaloneServer {
 	private notify(send: () => Promise<void>): void {
 		if (this.gone) return;
 		try {
+			// A send that rejects is a server gone, with nothing to be told.
 			send().catch(() => {});
 		} catch {
 			// Closed between the check and the send: the server is going, and
@@ -581,6 +584,8 @@ export class StandaloneServer {
 		if (alreadyOpen) return;
 		// Drive the program build and use its completion as the gate.
 		if (this.pullSupported) {
+			// Only its end is the gate: a failed pull lets the request go on to
+			// the server, which answers for itself.
 			await this.pullDiagnostics(path, signal).catch(() => {});
 		} else await this.settleDiagnostics(uri);
 	}
