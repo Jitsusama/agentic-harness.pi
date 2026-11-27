@@ -8,8 +8,11 @@
  * never starts, and with the caller's a terminal would differ from one
  * account to the next.
  *
- * The folder is kept short: a host's socket lives under XDG_RUNTIME_DIR,
- * and a Unix socket's path can't pass 107 bytes.
+ * The folder is kept short: a host's socket, and each of its children's
+ * slot sockets, live under XDG_RUNTIME_DIR, and a Unix socket's path
+ * can't pass 103 bytes on a Mac. Where the longest child socket wouldn't
+ * fit under the run's temp folder, as under a quest session's TMPDIR or
+ * a Mac's own, the seal goes under the run's short folder in /tmp.
  *
  * Everything is reached through a link to the folder, as a loaded quest's
  * TMPDIR is on Joel's machine: a link into the quest's scratch folder.
@@ -26,10 +29,21 @@ import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hostSocketPath } from "../../../../host/service/address.ts";
+import {
+	hostKey,
+	MAX_SOCKET_PATH_BYTES,
+} from "../../../../host/service/address.ts";
+import { slotFolder } from "../../../../host/service/child-units.ts";
+import { SOCKET_ROOT } from "../../../setup/temp-root.ts";
 
-/** The longest path a Unix socket takes, less its closing zero. */
-const SOCKET_PATH_LIMIT = 107;
+/** A conversation's id, the longest name a child's slot takes. */
+const LONGEST_SLOT = "00000000-0000-4000-8000-000000000000";
+
+/** What mkdtemp adds to a seal's folder name: its prefix and six letters. */
+const SEAL_FOLDER = "e-XXXXXX";
+
+/** How many hex digits name a seal's realm after its prefix. */
+const REALM_BYTES = 3;
 
 /**
  * How often, and how far apart, a seal's removal tries again on a folder
@@ -71,9 +85,48 @@ export interface Seal {
 	dispose(): Promise<void>;
 }
 
-/** Make a sealed home, refusing one whose host socket would be too long. */
+/**
+ * The socket path of the longest child a host sealed under `parent`
+ * would make: its slot folder under the seal's XDG_RUNTIME_DIR, named
+ * by a conversation's id. The host's own socket is shorter.
+ */
+export function longestChildSocket(parent: string, realm: string): string {
+	const runtime = join(
+		`${join(parent, SEAL_FOLDER)}${LINK_SUFFIX}`,
+		SEALED_FOLDERS.XDG_RUNTIME_DIR,
+	);
+	return join(
+		slotFolder(runtime, hostKey(realm, "background")),
+		`${LONGEST_SLOT}.sock`,
+	);
+}
+
+/**
+ * The folder a seal goes in: the run's temp folder when every socket fits
+ * there, else the run's short folder, else none.
+ */
+export function sealParent(
+	realm: string,
+	near: string,
+	short: string | undefined,
+): string | undefined {
+	for (const parent of [near, short]) {
+		if (parent === undefined) continue;
+		const socket = longestChildSocket(parent, realm);
+		if (Buffer.byteLength(socket) <= MAX_SOCKET_PATH_BYTES) return parent;
+	}
+	return undefined;
+}
+
+/** Make a sealed home, refusing one whose children's sockets would be too long. */
 export async function seal(): Promise<Seal> {
-	const real = await mkdtemp(join(tmpdir(), "e-"));
+	const realm = `sealed-${randomBytes(REALM_BYTES).toString("hex")}`;
+	const parent = sealParent(realm, tmpdir(), process.env[SOCKET_ROOT]);
+	if (parent === undefined)
+		throw new Error(
+			`A sealed host's child socket would be ${longestChildSocket(tmpdir(), realm)}, past ${MAX_SOCKET_PATH_BYTES} bytes: run with a shorter TMPDIR`,
+		);
+	const real = await mkdtemp(join(parent, "e-"));
 	const root = `${real}${LINK_SUFFIX}`;
 	await symlink(real, root);
 	const dispose = async () => {
@@ -85,7 +138,6 @@ export async function seal(): Promise<Seal> {
 		});
 		await rm(root, { force: true });
 	};
-	const realm = `sealed-${randomBytes(3).toString("hex")}`;
 	const env: NodeJS.ProcessEnv = {
 		PATH: process.env.PATH ?? "",
 		SHELL: "/bin/sh",
@@ -96,13 +148,6 @@ export async function seal(): Promise<Seal> {
 		const path = join(root, folder);
 		await mkdir(path, { mode: 0o700 });
 		env[name] = path;
-	}
-	const socket = hostSocketPath(realm, "background", env.XDG_RUNTIME_DIR);
-	if (Buffer.byteLength(socket) > SOCKET_PATH_LIMIT) {
-		await dispose();
-		throw new Error(
-			`A sealed host's socket would be ${socket}, past ${SOCKET_PATH_LIMIT} bytes: run with a shorter TMPDIR`,
-		);
 	}
 	return {
 		root,

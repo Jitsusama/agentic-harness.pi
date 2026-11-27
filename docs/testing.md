@@ -141,7 +141,10 @@ screens), the engine's and the parity tests (`tests/host/engine`,
 `tests/host/parity`), on a pi built with the host's patches, which an ordinary check can't build:
 elsewhere they skip, saying how to get one, and here they fail
 without one, since no CI runs them; any case that skips under it, for
-whatever reason, fails the run. A host's rollout runs it first;
+whatever reason, fails the run, but for one written with `itOnlyOn`
+that only another platform can run, as the engine's /proc reaps on a
+Mac. Merges are gated on optimus, where every case runs. A host's
+rollout runs it first;
 `tests/host/end-to-end/README.md` says where the pi is found.
 
 A new pi reaches the hosts only through that gate.
