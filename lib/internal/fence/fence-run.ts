@@ -65,7 +65,7 @@ import { BWRAP_MOST_ARGS, bwrapArgsFile } from "./fence-args-file.ts";
 import { ARGS_FD } from "./fence-command.ts";
 import type { Disk } from "./fence-disk.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
-import { REPOSITORY_HOMES } from "./fence-home.ts";
+import { repositoryHomes } from "./fence-home.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
@@ -374,9 +374,9 @@ function strictText(
 	}: { home: string; runtimeDir: string | undefined; folder: string },
 ): FenceRunMade {
 	const listed = bwrapArgsFile(runtimeDir, root);
-	const homes = REPOSITORY_HOMES.map(({ where }) => join(home, where)).join(
-		", ",
-	);
+	const homes = repositoryHomes(home)
+		.map(({ top }) => top)
+		.join(", ");
 	// Every word after bubblewrap's name counts, the file's and the
 	// command's after `--` alike.
 	const counted =

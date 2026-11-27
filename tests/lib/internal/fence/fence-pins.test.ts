@@ -209,6 +209,66 @@ describe("where the fence pins a folder", () => {
 		]);
 	});
 
+	it("pins each folder above a named home outside the home folder, up to the disk's top", () => {
+		const named = {
+			kind: (path: string) =>
+				["/w", "/w/runs", "/w/runs/a"].includes(path)
+					? ("folder" as const)
+					: undefined,
+			entries: () => [],
+		};
+		expect(
+			pinnedAbove(
+				["--bind", "/", "/", "--ro-bind", "/w/runs/a", "/w/runs/a"],
+				"/h",
+				named,
+				["/w/runs/a"],
+			),
+		).toEqual([
+			"--bind",
+			"/",
+			"/",
+			"--bind",
+			"/w",
+			"/w",
+			"--bind",
+			"/w/runs",
+			"/w/runs",
+			"--ro-bind",
+			"/w/runs/a",
+			"/w/runs/a",
+		]);
+		expect(
+			pinnedAbove(
+				["--bind", "/", "/", "--ro-bind", "/w/runs/a", "/w/runs/a"],
+				"/h",
+				named,
+			),
+			"a folder outside the home folder no setting names is left as it was",
+		).toEqual(["--bind", "/", "/", "--ro-bind", "/w/runs/a", "/w/runs/a"]);
+	});
+
+	it("pins before the --perms a mount takes, never between them", () => {
+		expect(
+			pinnedAbove(
+				["--bind", "/h", "/h", "--perms", "0700", "--tmpfs", "/h/.a/b"],
+				"/h",
+				disk,
+			),
+		).toEqual([
+			"--bind",
+			"/h",
+			"/h",
+			"--bind",
+			"/h/.a",
+			"/h/.a",
+			"--perms",
+			"0700",
+			"--tmpfs",
+			"/h/.a/b",
+		]);
+	});
+
 	it("pins nothing inside a read-only folder, where nothing moves", () => {
 		const args = [
 			"--ro-bind",

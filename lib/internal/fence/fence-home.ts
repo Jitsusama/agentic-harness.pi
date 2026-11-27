@@ -9,6 +9,10 @@
  */
 
 import { isAbsolute, join, relative, sep } from "node:path";
+import {
+	NAMED_HOME_DEPTH,
+	namedRepositoryHomes,
+} from "./fence-repository-homes.ts";
 
 /**
  * The person's files that run code as them later, or say what does,
@@ -214,6 +218,32 @@ export const REPOSITORY_HOMES = [
 	{ where: "world", depth: 1, kept: true },
 ] as const;
 
+/** A folder that may hold repositories, how deep, and whether it is kept read-only. */
+export interface RepositoryHome {
+	readonly top: string;
+	readonly depth: number;
+	readonly kept: boolean;
+}
+
+/**
+ * Every repository home for the home folder `home`: its own, then each
+ * the person's settings name outside it (`fence-repository-homes.ts`),
+ * laid out as `src` is and kept read-only as it is.
+ */
+export function repositoryHomes(
+	home: string,
+	named: readonly string[] = namedRepositoryHomes(home),
+): RepositoryHome[] {
+	return [
+		...REPOSITORY_HOMES.map(({ where, depth, kept }) => ({
+			top: join(home, where),
+			depth,
+			kept,
+		})),
+		...named.map((top) => ({ top, depth: NAMED_HOME_DEPTH, kept: true })),
+	];
+}
+
 /**
  * The repository home kept read-only that `folder` lies in outside any
  * repository's work, as `src`, `src/github.com/org` or a plain folder
@@ -231,9 +261,8 @@ export function keptHomeAbove(
 	isRepository: (folder: string) => boolean,
 	fold: (path: string) => string = (path) => path,
 ): string | undefined {
-	for (const { where, kept } of REPOSITORY_HOMES) {
+	for (const { top, kept } of repositoryHomes(home)) {
 		if (!kept) continue;
-		const top = join(home, where);
 		const at = relative(fold(top), fold(folder));
 		if (at.startsWith(`..${sep}`) || at === ".." || isAbsolute(at)) continue;
 		const depth = at === "" ? 0 : at.split(sep).length;

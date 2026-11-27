@@ -101,12 +101,14 @@ import {
 	REPOSITORY_HOMES,
 	readOnlyEntry,
 	readOnlyPaths,
+	repositoryHomes,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { pinnedAbove } from "./fence-pins.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
 import { pastQuestTempLink, questTempArgs } from "./fence-quest-temp.ts";
+import { namedHomeHolds, remakeNamedHomes } from "./fence-repository-homes.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
 import { workerSocketRule } from "./fence-worker-socket.ts";
 
@@ -421,6 +423,10 @@ function systemSshConfig(disk: Disk): string | undefined {
  */
 export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	const exists = (path: string) => disk.kind(path) !== undefined;
+	// Made before the command starts: a named home's parent stays writable
+	// to it, so one missing while it runs could be made and filled by it.
+	remakeNamedHomes(place.home);
+	const named = namedHomesKept(place.home, disk);
 	// A /dev of its own, with only what any program needs (null, zero,
 	// random, a tty), and the GPU's render nodes, never its card nodes
 	// (fence-gpu.ts): the TPM, the camera, the microphone and the security
@@ -432,6 +438,10 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		"--bind",
 		"/",
 		"/",
+		// Before anything else, so every mount of the fence's own goes over
+		// a named home that holds where it lays it: a named `/run` would
+		// otherwise lay the host's sockets back over the runtime folder.
+		...named.flatMap((top) => ["--ro-bind", top, top]),
 		"--dev",
 		"/dev",
 		"--tmpfs",
@@ -486,7 +496,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
-	return pinnedAbove(laid, place.home, disk);
+	return pinnedAbove(laid, place.home, disk, named);
 }
 
 /**
@@ -648,9 +658,19 @@ const GIT_WRITTEN = ["objects", "refs", "logs", "lfs", "rr-cache"] as const;
 
 /** The repository homes the fence keeps read-only, that are folders here. */
 function keptHomes(home: string, disk: Disk): string[] {
-	return REPOSITORY_HOMES.filter(({ kept }) => kept)
-		.map(({ where }) => join(home, where))
+	return repositoryHomes(home)
+		.filter(({ kept }) => kept)
+		.map(({ top }) => top)
 		.filter((top) => disk.kind(top) === "folder");
+}
+
+/**
+ * The kept repository homes outside the home folder, the ones the
+ * person's settings name, which `fenceArgs` binds read-only before its
+ * own mounts and pins the folders above.
+ */
+function namedHomesKept(home: string, disk: Disk): string[] {
+	return keptHomes(home, disk).filter((top) => !top.startsWith(`${home}/`));
 }
 
 /** A repository's git folder, working or bare, or nothing when `path` holds none. */
@@ -663,8 +683,9 @@ function gitFolderOf(path: string, disk: Disk): string | undefined {
 }
 
 /**
- * The git folders in the home folder's repositories, working and bare.
- * A walk stops at a repository, and below the top goes only into plain
+ * The git folders in the home folder's repositories, working and bare,
+ * and in each repository home the person's settings name outside it
+ * (`fence-repository-homes.ts`). A walk stops at a repository, and below the top goes only into plain
  * folders, never a hidden one or a link.
  */
 export function gitFolders(home: string, disk: Disk = DISK): string[] {
@@ -684,8 +705,7 @@ export function gitFolders(home: string, disk: Disk = DISK): string[] {
 			}
 		}
 	};
-	for (const { where, depth } of REPOSITORY_HOMES)
-		walk(join(home, where), depth);
+	for (const { top, depth } of repositoryHomes(home)) walk(top, depth);
 	return [...found].sort();
 }
 
@@ -703,9 +723,13 @@ export function guardsGitFolder(
 	const working = basename(git) === ".git" && disk.kind(git) === "folder";
 	const repository = working ? dirname(git) : git;
 	if (gitFolderOf(repository, disk) !== git) return false;
-	return REPOSITORY_HOMES.some(({ where, depth, kept }) => {
+	return repositoryHomes(home).some(({ top, depth, kept }) => {
 		if (!kept) return false;
-		const top = join(home, where);
+		// A named home trusted only while it is the folder pi first read: one
+		// made again or put in its place may hold what a command wrote.
+		if (!top.startsWith(`${home}/`) && !namedHomeHolds(home, top)) {
+			return false;
+		}
 		const parts = relative(top, repository).split(sep);
 		const first = parts[0] ?? "";
 		if (first === "" || first === ".." || parts.length > depth) return false;
@@ -723,8 +747,9 @@ export function guardsGitFolder(
 
 /**
  * bubblewrap's arguments for git, since git runs outside the fence in
- * each repository (the person, pi's work tool). `src` and `world` are
- * read-only, so no command makes a repository there, and so is each
+ * each repository (the person, pi's work tool). `src`, `world` and each
+ * repository home the person's settings name are read-only, so no
+ * command makes a repository there, not even after it starts, and so is each
  * git folder in them but what a commit writes (`GIT_WRITTEN`). In a
  * repository elsewhere, what runs code is read-only (`GIT_CODE`). A
  * repository's whole `worktrees` folder is read-only too, one mount
@@ -767,8 +792,10 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 		join(gitFolder, "gitdir"),
 		join(gitFolder, "config.worktree"),
 	]);
+	// A named home is bound already, before the fence's own mounts.
+	const inHome = homes.filter((top) => top.startsWith(`${place.home}/`));
 	return [
-		...homes.flatMap((top) => ["--ro-bind", top, top]),
+		...inHome.flatMap((top) => ["--ro-bind", top, top]),
 		...bound("--bind", written),
 		...bound("--ro-bind", kept),
 		...bound("--bind", treeBack),
