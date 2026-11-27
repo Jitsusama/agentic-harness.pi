@@ -67,7 +67,9 @@ const realAfter: After = (ms, run) => {
  * host's code is stale, roll with that reason and stop looking, since
  * stale code stays stale. A look that throws is reported, saying what
  * it was looking for, and looks again, keeping whatever it was waiting
- * for, since it couldn't tell. Stale before `rollsFrom`, it says
+ * for, since it couldn't tell: a child's wiring asks
+ * `installMovesOrThrowsFrom`, which throws for an install it can't
+ * read or one not done installing. Stale before `rollsFrom`, it says
  * so and looks again then, rolling with what the install says at that
  * look. Past that, it waits `spreadMs`, and then rolls only while
  * `roomShort` says nothing; while it says why not, it looks again after

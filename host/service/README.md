@@ -347,8 +347,9 @@ input pipeline or screen. No unit or running host is installed yet.
 - stale-child.ts: a child rolling onto new code. A child never
   restarts itself, so it keeps the host code it started with; on 22
   November 15 children ran host code 34 hours old. Every five
-  minutes it asks its install (what-starts.ts `installMovesFrom`, as
-  restart.ts does) whether the host code there differs, and once it
+  minutes it asks its install (what-starts.ts
+  `installMovesOrThrowsFrom`, as restart.ts asks `installMovesFrom`)
+  whether the host code there differs, and once it
   does, says so in the journal and marks its host stale for good
   (`SessionHost.roll`). Its conversation then parks at its next quiet
   moment, idle time aside, unless a window views it
@@ -367,8 +368,10 @@ input pipeline or screen. No unit or running host is installed yet.
   its share again, so the children held go out apart as the CPU falls.
   After an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`)
   it rolls anyway and says so, since a child left on stale code for
-  hours is what the roll exists to end. A look that can't tell keeps
-  the wait; one finding the code current again forgets it, saying so.
+  hours is what the roll exists to end. A look that can't tell, since
+  the install's `current` can't be read or names a version not done
+  installing, keeps the wait; one finding the code current again
+  forgets it, saying so.
   The hour and the wait run on a clock a wall clock's steps don't move.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for

@@ -186,6 +186,48 @@ describe("rollWhenStale", () => {
 		]);
 	});
 
+	it("says once that it may not roll yet, though a look between couldn't tell", async () => {
+		const timers = manualTimers();
+		const reported: unknown[] = [];
+		const answers = ["moved", new Error("link can't be read"), "moved"];
+		rollWhenStale(
+			async () => {
+				const answer = answers.shift();
+				if (answer instanceof Error) throw answer;
+				return answer;
+			},
+			vi.fn(),
+			{
+				lookMs: 1,
+				after: timers.after,
+				report: (message) => reported.push(message),
+				rollsFrom: 3_600_000,
+				now: () => 0,
+			},
+		);
+		await timers.fire();
+		await timers.fire();
+		await timers.fire();
+		expect(reported).toEqual([
+			"Moved, but it may not roll yet, so it looks again in 60 minutes",
+			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+		]);
+	});
+
+	it("says nothing of the code being current when it waited for nothing", async () => {
+		const timers = manualTimers();
+		const reported: unknown[] = [];
+		rollWhenStale(async () => undefined, vi.fn(), {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => 0,
+		});
+		await timers.fire();
+		await timers.fire();
+		expect(reported).toEqual([]);
+	});
+
 	it("waits its spread after its hour, not within it", async () => {
 		const timers = manualTimers();
 		let now = 0;
