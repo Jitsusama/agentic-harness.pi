@@ -352,7 +352,9 @@ export function unwrapped(argv: string[]): string[] {
 					break;
 				}
 				if (next.startsWith("-")) at += takesNext(next, ENV) ? 2 : 1;
-				else if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(next)) at += 1;
+				// env sets any word holding `=` before its program, as
+				// `a.b=1`, which no shell would take for an assignment.
+				else if (next.includes("=")) at += 1;
 				else break;
 			}
 			continue;

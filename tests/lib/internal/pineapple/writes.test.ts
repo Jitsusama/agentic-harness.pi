@@ -232,6 +232,25 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads every word holding = before env's program as env does", () => {
+		// GNU env sets any of them, a name no shell would take among them.
+		for (const command of [
+			"env a.b=1 git push origin x",
+			"env -i a-b=1 =2 git push origin x",
+			"/usr/bin/env 1x=y git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push after a command that wrote where pushes go as naming nothing", () => {
 		for (const command of [
 			"git config remote.origin.pushurl git@github.com:example/stopped.git && git push origin x",
@@ -537,6 +556,7 @@ describe("writesInBash", () => {
 		held("sh -ec pi", "pi");
 		held("env -i pi", "pi");
 		held("env -u HOME -C /tmp pi", "pi");
+		held("env a.b=1 pi", "pi");
 		held("systemd-run --user --on-active 30 pi", "pi");
 		held("stdbuf -o L pi -p go", "pi");
 		held("mycelium start --need machine=mac -- worker", "mycelium start");

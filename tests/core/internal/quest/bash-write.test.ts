@@ -155,6 +155,7 @@ describe("resolveBashWrites", () => {
 			["unzip -q in.zip -d lab", ["/session/lab"]],
 			["nohup cp a.txt b.txt &", ["/session/b.txt"]],
 			["time env X=1 nice -n 5 command mkdir d", ["/session/d"]],
+			["env a.b=1 -u X mkdir e", ["/session/e"]],
 		];
 		for (const [command, paths] of cases) {
 			expect(resolveBashWrites(command, where).paths, command).toEqual(paths);
