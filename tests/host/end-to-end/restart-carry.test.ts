@@ -30,6 +30,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { alive } from "../../support/processes.ts";
 import { saidAfter } from "./support/held-pi.ts";
 import {
 	HOST_WAIT_MS,
@@ -167,11 +168,6 @@ function keptShell(): { pid: number; started: number } | undefined {
 	return Number.isInteger(pid) && pid > 0
 		? { pid, started: statSync(path).mtimeMs }
 		: undefined;
-}
-
-/** Whether a process is still there. */
-function alive(pid: number): boolean {
-	return existsSync(`/proc/${pid}`);
 }
 
 /** How many times the conversation's model called bash to run CARRYING. */

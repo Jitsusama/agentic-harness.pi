@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { until } from "../../../support/until.ts";
 import { type Drawn, drawn, SHOWN_MS } from "./drawn.ts";
+import { scriptArgs } from "./script.ts";
 import type { Seal } from "./seal.ts";
 
 /** The prompt bash shows. */
@@ -78,12 +79,12 @@ async function close(
 /** Open a shell in a terminal of `rows` by `columns`, under `seal`. */
 export async function openTty(seal: Seal, options: TtyOptions): Promise<Tty> {
 	const drawing = drawn(options.rows, options.columns);
-	// script(1) runs its command through `$SHELL -c`, and a bash run that
+	// script(1) runs its command through a shell's -c, and a bash run that
 	// way drops PS1 from its environment, so the prompt is handed to the
 	// interactive bash by env(1), past whichever shell script(1) runs.
 	const child = spawn(
 		"script",
-		["-qfec", `env PS1='${PROMPT}' bash --norc --noprofile -i`, "/dev/null"],
+		scriptArgs(`env PS1='${PROMPT}' bash --norc --noprofile -i`),
 		{
 			env: {
 				...seal.env,
