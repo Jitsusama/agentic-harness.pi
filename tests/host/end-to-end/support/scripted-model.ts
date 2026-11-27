@@ -57,6 +57,7 @@ import type {
 	ProviderConfig,
 	ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** The api the scripted provider answers under, in every pi. */
 export const SCRIPTED_API = "sealed-faux";
@@ -324,6 +325,33 @@ function latestWords(heard: readonly Said[]): string {
 }
 
 /**
+ * The words of the turn still running: `latestWords` before the tool
+ * calls and results the model has made since, so a second step after
+ * tool_search reads what started the turn. A turn the model ended with
+ * an answer holds none, as `latestWords` says.
+ */
+function turnWords(heard: readonly Said[]): string {
+	let end = heard.length;
+	while (end > 0) {
+		const one = heard[end - 1];
+		if (one?.role !== "toolResult" && !callsTool(one)) break;
+		end -= 1;
+	}
+	return latestWords(heard.slice(0, end));
+}
+
+/** Whether `one` is the model's message calling a tool. */
+function callsTool(one: Said | undefined): boolean {
+	return (
+		one?.role === "assistant" &&
+		Array.isArray(one.content) &&
+		one.content.some(
+			(part: unknown) => isRecord(part) && part.type === "toolCall",
+		)
+	);
+}
+
+/**
  * The scripted model's answer to a transcript. System messages are passed
  * over: the harness appends one when the tool list changes, after
  * tool_search, and a model answers what was said, not that.
@@ -332,7 +360,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	const heard = messages.filter((one) => one.role !== "system");
 	const last = heard.at(-1);
 	if (last?.role === "toolResult") {
-		const told = latestWords(heard);
+		const told = turnWords(heard);
 		const ending = ENDING.exec(told)?.[1];
 		if (last.toolName === "tool_search" && toldTo(told, STORE))
 			return toolCall(faux, "spend", { query: FIFTY_ROWS, limit: 2 });
