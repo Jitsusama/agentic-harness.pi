@@ -195,11 +195,13 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 		expect(readsAsStandIn(ran), "the stand-in").toBe(true);
 	});
 
+	// A probe that fails outright reads as no stand-in too, so the key's
+	// own digest is what shows it was read.
 	it("reads the person's real key as no stand-in", () => {
-		expect(
-			readsAsStandIn(probed("-----BEGIN OPENSSH PRIVATE KEY-----\n")),
-			"the person's real key",
-		).toBe(false);
+		const real = "-----BEGIN OPENSSH PRIVATE KEY-----\n";
+		const ran = probed(real);
+		expect(ran.out).toContain(createHash("sha256").update(real).digest("hex"));
+		expect(readsAsStandIn(ran), "the person's real key").toBe(false);
 	});
 
 	it("reads an emptied or missing key as unread", () => {
