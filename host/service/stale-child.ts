@@ -9,10 +9,22 @@
  * rolls: its conversation parks at its next quiet moment, the parked
  * child with no window exits as it always does, and the next wake starts
  * a fresh child on current code.
+ *
+ * A child rolls no sooner than an hour after it started. Each roll ends
+ * a conversation's process, and it reads as a cut to the cell in it: on
+ * 26 November one install move at 15:06 rolled 42 conversations, and
+ * cells counted several cuts that day as merges moved the install. Held
+ * to an hour, a conversation rolls at most once an hour however often
+ * the install moves.
  */
 
 /** How often a child looks at its install: often enough that a roll waits minutes, not hours. */
 export const LOOK_EVERY_MS = 5 * 60_000;
+
+/** How long a child runs before it may roll: a conversation rolls at most once in this. */
+export const ROLL_ONLY_AFTER_MS = 60 * 60_000;
+
+const MINUTE_MS = 60_000;
 
 /** How a roll looks again after a wait; a test passes its own timers. */
 export type After = (ms: number, run: () => void) => () => void;
@@ -27,8 +39,10 @@ const realAfter: After = (ms, run) => {
  * Look at `moved` each `lookMs` and, the first time it says why the
  * host's code is stale, roll with that reason and stop looking, since
  * stale code stays stale. A look that throws is reported, saying what
- * it was looking for, and looks again. Answers the function that stops
- * looking, which holds even over a look already under way.
+ * it was looking for, and looks again. Stale before `rollsFrom`, it says
+ * so and looks again then, rolling with what the install says at that
+ * look. Answers the function that stops looking, which holds even over
+ * a look already under way.
  */
 export function rollWhenStale(
 	moved: () => Promise<string | undefined>,
@@ -37,10 +51,16 @@ export function rollWhenStale(
 		lookMs?: number;
 		after?: After;
 		report?: (message: unknown) => void;
+		/** The moment, in epoch milliseconds, before which it never rolls. */
+		rollsFrom?: number;
+		now?: () => number;
 	} = {},
 ): () => void {
 	const lookMs = options.lookMs ?? LOOK_EVERY_MS;
 	const after = options.after ?? realAfter;
+	const now = options.now ?? Date.now;
+	const rollsFrom = options.rollsFrom ?? 0;
+	let toldTooSoon = false;
 	let stopped = false;
 	let cancel = (): void => undefined;
 	const look = async () => {
@@ -59,6 +79,16 @@ export function rollWhenStale(
 			cancel = after(lookMs, () => void look());
 			return;
 		}
+		const early = rollsFrom - now();
+		if (early > 0) {
+			if (!toldTooSoon)
+				options.report?.(
+					`${capitalised(why)}, but it may not roll yet, so it looks again in ${minutes(early)}`,
+				);
+			toldTooSoon = true;
+			cancel = after(early, () => void look());
+			return;
+		}
 		stopped = true;
 		roll(why);
 	};
@@ -67,6 +97,15 @@ export function rollWhenStale(
 		stopped = true;
 		cancel();
 	};
+}
+
+function capitalised(words: string): string {
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function minutes(ms: number): string {
+	const count = Math.ceil(ms / MINUTE_MS);
+	return count === 1 ? "a minute" : `${count} minutes`;
 }
 
 /** What a child's roll is wired to: its install, its host and its life. */
@@ -80,14 +119,20 @@ export interface ChildRoll {
 	readonly report: (message: unknown) => void;
 	readonly lookMs?: number;
 	readonly after?: After;
+	/** When the child started, in epoch milliseconds; the wiring's moment if left out. */
+	readonly bornAt?: number;
+	readonly now?: () => number;
 }
 
 /**
  * Roll a child's conversation once its install's host code moves on:
- * say why, and roll the host holding it then. It looks until the
- * child's host stops, however that ends.
+ * say why, and roll the host holding it then, though never within an
+ * hour of the child's start. It looks until the child's host stops,
+ * however that ends.
  */
 export function rollChildWhenStale(wiring: ChildRoll): void {
+	const now = wiring.now ?? Date.now;
+	const bornAt = wiring.bornAt ?? now();
 	const stop = rollWhenStale(
 		wiring.moved,
 		(why) => {
@@ -98,6 +143,8 @@ export function rollChildWhenStale(wiring: ChildRoll): void {
 		},
 		{
 			report: wiring.report,
+			rollsFrom: bornAt + ROLL_ONLY_AFTER_MS,
+			now,
 			...(wiring.lookMs === undefined ? {} : { lookMs: wiring.lookMs }),
 			...(wiring.after ? { after: wiring.after } : {}),
 		},

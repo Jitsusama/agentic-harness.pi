@@ -1,6 +1,7 @@
 /** A child host rolls its conversation onto new code once its install moves on. */
 import { describe, expect, it, vi } from "vitest";
 import {
+	ROLL_ONLY_AFTER_MS,
 	rollChildWhenStale,
 	rollWhenStale,
 } from "../../../host/service/stale-child.ts";
@@ -125,6 +126,54 @@ describe("rollWhenStale", () => {
 		expect(timers.due, "nor does it look again").toEqual([]);
 	});
 
+	it("puts a roll off until it may roll, then looks again before it rolls", async () => {
+		const timers = manualTimers();
+		let now = 1_000;
+		let moved: string | undefined = "the install's two changes the host's code";
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		rollWhenStale(async () => moved, roll, {
+			lookMs: 60_000,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			rollsFrom: 1_000 + 3_600_000,
+			now: () => now,
+		});
+
+		now += 60_000;
+		await timers.fire();
+		expect(roll, "too young to roll").not.toHaveBeenCalled();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"it looks again once it may roll, not before",
+		).toEqual([3_540_000]);
+		expect(reported).toEqual([
+			"The install's two changes the host's code, but it may not roll yet, so it looks again in 59 minutes",
+		]);
+
+		now += 3_540_000;
+		moved = "the install's three changes the host's code";
+		await timers.fire();
+		expect(
+			roll,
+			"with what the install says then",
+		).toHaveBeenCalledExactlyOnceWith(moved);
+		expect(timers.due).toEqual([]);
+	});
+
+	it("rolls at once when the install moves on after it may roll", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		rollWhenStale(async () => "moved", roll, {
+			lookMs: 1,
+			after: timers.after,
+			rollsFrom: 5_000,
+			now: () => 5_000,
+		});
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+	});
+
 	it("says nothing of looking again when a look throws after the child stopped", async () => {
 		const timers = manualTimers();
 		let fail = (_error: Error): void => undefined;
@@ -151,7 +200,10 @@ describe("rollWhenStale", () => {
 
 describe("rollChildWhenStale", () => {
 	/** A child's wiring, its host stopping when `stop` is called. */
-	function wired(moved: () => Promise<string | undefined>) {
+	function wired(
+		moved: () => Promise<string | undefined>,
+		clock: { bornAt?: number; now?: () => number } = {},
+	) {
 		const timers = manualTimers();
 		const reported: unknown[] = [];
 		const rolled: string[] = [];
@@ -169,6 +221,9 @@ describe("rollChildWhenStale", () => {
 			report: (message) => reported.push(message),
 			lookMs: 1,
 			after: timers.after,
+			// A child an hour old unless a case says otherwise.
+			bornAt: clock.bornAt ?? 0,
+			now: clock.now ?? (() => ROLL_ONLY_AFTER_MS),
 		});
 		return {
 			timers,
@@ -189,6 +244,46 @@ describe("rollChildWhenStale", () => {
 		expect(child.reported).toEqual([
 			"Rolling onto new code, as the host's code differs: the conversation parks at its next quiet moment unless a window views it",
 		]);
+	});
+
+	it("rolls a child no sooner than an hour after it started, so a conversation rolls at most once an hour", async () => {
+		let now = 10_000;
+		const child = wired(async () => "the host's code differs", {
+			bornAt: 10_000,
+			now: () => now,
+		});
+		child.holds("young");
+		now += 6 * 60_000;
+		await child.timers.fire();
+		expect(child.rolled, "six minutes old").toEqual([]);
+		expect(child.timers.due.map(({ ms }) => ms)).toEqual([
+			ROLL_ONLY_AFTER_MS - 6 * 60_000,
+		]);
+
+		now = 10_000 + ROLL_ONLY_AFTER_MS;
+		await child.timers.fire();
+		expect(child.rolled).toEqual(["young"]);
+	});
+
+	it("takes its start as the wiring's moment when it isn't told one", async () => {
+		const timers = manualTimers();
+		const rolled: string[] = [];
+		let now = 50_000;
+		rollChildWhenStale({
+			moved: async () => "moved",
+			host: () => ({ roll: () => rolled.push("rolled") }),
+			stopped: new Promise(() => undefined),
+			report: () => undefined,
+			lookMs: 1,
+			after: timers.after,
+			now: () => now,
+		});
+		now += 1;
+		await timers.fire();
+		expect(rolled, "just started").toEqual([]);
+		now = 50_000 + ROLL_ONLY_AFTER_MS;
+		await timers.fire();
+		expect(rolled).toEqual(["rolled"]);
 	});
 
 	for (const how of ["resolve", "reject"] as const)
