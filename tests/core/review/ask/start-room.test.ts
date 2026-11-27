@@ -95,21 +95,48 @@ describe("starting council rounds on room alone", () => {
 		expect(line().started.by).toBe("ISXEG8");
 	});
 
-	it("starts two looks after another round's start, not its spacing, while the machine is quiet", async () => {
+	it("starts one look after another round's start, not its spacing, while the machine is quiet", async () => {
 		const before = new Date();
 		startedAt("A2VLJN", before);
 
+		// Looks long enough apart that one look and two can be told apart.
+		const look = 500;
+
 		const start = await awaitCouncilStart(
 			path,
-			claim("ISXEG8", { room: roomy, quiet: async () => true }),
+			claim("ISXEG8", {
+				spacingMs: 10 * look,
+				lookAgainMs: look,
+				room: roomy,
+				quiet: async () => true,
+			}),
 		);
 
 		const gap = Date.now() - before.getTime();
 		expect(gap, "the floor held it").toBeGreaterThanOrEqual(
-			2 * LOOK - TIMER_EARLY_MS,
+			look - TIMER_EARLY_MS,
 		);
-		expect(gap, "its spacing didn't").toBeLessThan(SPACING);
+		expect(gap, "not two looks").toBeLessThan(1.8 * look);
 		expect(start.waited).toMatch(/, or each .+ while it is quiet,/);
+	});
+
+	it("goes by the spacing as configured at each look, not as it was when asked", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		// Ten minutes when asked; the config is then set to its floor.
+		const spacing = async () => {
+			looks += 1;
+			return looks <= 2 ? 600_000 : 0;
+		};
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: undefined, room: roomy, spacing }),
+		);
+
+		expect(looks, "it looked again").toBeGreaterThan(2);
+		expect(Date.now() - before.getTime()).toBeLessThan(SPACING);
 	});
 
 	it("keeps its spacing when the machine isn't quiet", async () => {

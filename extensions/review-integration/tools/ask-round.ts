@@ -178,7 +178,6 @@ export async function awaitRosterStart(
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
-	const spacingMs = await configuredSpacing();
 	const line = councilStartsPath();
 	return await awaitCouncilStart(
 		line,
@@ -191,7 +190,8 @@ export async function awaitRosterStart(
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => machineShort(),
 			quiet: () => machineQuiet(),
-			...(spacingMs === undefined ? {} : { spacingMs }),
+			// Read at each look, so a spacing set while rounds wait reaches them.
+			spacing: () => configuredSpacing(),
 		},
 		signal,
 	);

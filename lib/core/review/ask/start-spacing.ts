@@ -205,14 +205,20 @@ export interface StartClaim {
 	 */
 	readonly spacingMs?: number;
 	/**
+	 * The spacing as configured now, read at each look, so a change to the
+	 * config reaches rounds already waiting; `spacingMs` where it says
+	 * nothing.
+	 */
+	readonly spacing?: () => Promise<number | undefined>;
+	/**
 	 * What keeps a round from starting now, such as memory or CPU, said for its
 	 * answer, or nothing when the machine has room. Read at each look.
 	 */
 	readonly room?: () => Promise<string | undefined>;
 	/**
-	 * Whether the machine is quiet enough that a round may start the
-	 * line's shortest spacing after the last, rather than its own. Read
-	 * at each look; never quiet unless given.
+	 * Whether the machine is quiet enough that a round may start one look
+	 * after the last, rather than its own spacing. Read at each look;
+	 * never quiet unless given.
 	 */
 	readonly quiet?: () => Promise<boolean>;
 	/**
@@ -279,22 +285,7 @@ export async function awaitCouncilStart(
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
-	// Never under two looks, whoever asks: the line's own guard against a
-	// failed look losing its start, and against a tight loop, holds here
-	// rather than only in whichever reader of a config remembered it.
-	// Started on room, that floor is the spacing: two starts a minute, so
-	// a long line drains no faster than the minute-long averages of
-	// memory and CPU pressure can show what the rounds before took, and a
-	// machine with no reading of pressure still starts no burst.
-	const spacing = Math.max(
-		claim.spacingMs ??
-			(claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
-		2 * lookAgain,
-	);
-	// A quiet machine takes that floor itself: half a minute, as the line
-	// looks every fifteen seconds (A210E4CA, 27 November).
-	const quickest = Math.min(spacing, 2 * lookAgain);
-	const spacings = { spacing, quickest };
+	let spacings = await spacingsNow(claim, lookAgain);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -315,6 +306,7 @@ export async function awaitCouncilStart(
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
+			spacings = await spacingsNow(claim, lookAgain);
 			turn = await takeTurn(at, path, ticket, claim, spacings);
 			failed = 0;
 		} catch (error) {
@@ -1029,6 +1021,34 @@ function bounded(name: string): string {
 interface Spacings {
 	readonly spacing: number;
 	readonly quickest: number;
+}
+
+/**
+ * The spacings a look goes by, the config read as it stands now.
+ *
+ * Never under two looks, whoever asks: the line's own guard against a
+ * failed look losing its start, and against a tight loop, holds here
+ * rather than only in whichever reader of a config remembered it.
+ * Started on room, that floor is the spacing: two starts a minute, so a
+ * long line drains no faster than the minute-long averages of memory
+ * and CPU pressure can show what the rounds before took, and a machine
+ * with no reading of pressure still starts no burst.
+ *
+ * A quiet machine, well inside every bar, may start one look after the
+ * last instead, fifteen seconds in production (A210E4CA, 27 November):
+ * its live MemAvailable still stops a burst the averages are slow to
+ * show.
+ */
+async function spacingsNow(
+	claim: StartClaim,
+	lookAgain: number,
+): Promise<Spacings> {
+	const given = (await claim.spacing?.()) ?? claim.spacingMs;
+	const spacing = Math.max(
+		given ?? (claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
+		2 * lookAgain,
+	);
+	return { spacing, quickest: Math.min(spacing, lookAgain) };
 }
 
 function waitSaid(
