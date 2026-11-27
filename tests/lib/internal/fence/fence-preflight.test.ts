@@ -122,8 +122,16 @@ describe("judging a command's run", () => {
 	});
 });
 
+/**
+ * The stand-in's digest, as sha256sum prints it. A probe that read the
+ * stand-in says it; one that found no key says only `unread`, which
+ * readsAsStandIn takes too, so a test meaning the key was read checks for
+ * this as well.
+ */
+const STAND_IN_DIGEST = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+
 describe("whether gcloud's key read inside as the stand-in", () => {
-	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	const standIn = STAND_IN_DIGEST;
 	const real = createHash("sha256").update("PRIVATE\n").digest("hex");
 
 	it.each([
@@ -182,7 +190,9 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 	}
 
 	it("reads the stand-in as the stand-in", () => {
-		expect(readsAsStandIn(probed(KEY_STAND_IN)), "the stand-in").toBe(true);
+		const ran = probed(KEY_STAND_IN);
+		expect(ran.out).toContain(STAND_IN_DIGEST);
+		expect(readsAsStandIn(ran), "the stand-in").toBe(true);
 	});
 
 	it("reads the person's real key as no stand-in", () => {
@@ -225,6 +235,7 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
+		expect(ran.stdout).toContain(STAND_IN_DIGEST);
 		expect(
 			readsAsStandIn({ code: ran.status, out: ran.stdout }),
 			"an odd path read as one word",
@@ -234,7 +245,7 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 
 describe("what the preflight makes of the key's probe", () => {
 	const key = "/home/one/.ssh/google_compute_engine";
-	const standIn = createHash("sha256").update(KEY_STAND_IN).digest("hex");
+	const standIn = STAND_IN_DIGEST;
 	const ran = (code: number | null, out: string): Ran => ({
 		code,
 		out,
