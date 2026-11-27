@@ -417,20 +417,20 @@ describe("unitDefinition", () => {
 	it("still counts a drop-in in the folders beside set-property's", async () => {
 		await put("unit.service", "[Service]\n");
 		const fragment = join(root, "unit.service");
-		// Real files under the test's own folder, so each resolves as a
-		// drop-in on the machine would rather than falling back to its name.
+		// Named where a machine keeps them, so a filter anchored at the root
+		// is tested as it would match there; none exists here, so each is
+		// kept under its own name, as a drop-in systemd names but which is
+		// gone by the time it is resolved.
 		const beside = [
-			"run/user/1000/systemd/user/unit.service.d/50-env.conf",
-			"run/user/1000/systemd/transient/unit.service.d/50-env.conf",
-			"home/joel/.config/systemd/user/unit.service.d/override.conf",
-			"run/user/1000/systemd/user.control.d/unit.service.d/50-env.conf",
+			"/run/user/4242/systemd/user/unit.service.d/50-env.conf",
+			"/run/user/4242/systemd/transient/unit.service.d/50-env.conf",
+			"/home/nobody-here/.config/systemd/user/unit.service.d/override.conf",
+			"/run/user/4242/systemd/user.control.d/unit.service.d/50-env.conf",
 			// The system's set-property folder, which the user manager the host
 			// asks never reads, so a drop-in named there is no set-property's.
-			"etc/systemd/system.control/unit.service.d/50-env.conf",
+			"/etc/systemd/system.control/unit.service.d/50-env.conf",
 		];
-		for (const place of beside) {
-			await put(place, "[Service]\n");
-			const dropIn = join(root, place);
+		for (const dropIn of beside) {
 			expect(
 				await unitDefinition(
 					"unit.service",
@@ -440,6 +440,45 @@ describe("unitDefinition", () => {
 				dropIn,
 			).toBe(`${fragment}\n${dropIn}`);
 		}
+	});
+
+	it("keeps a drop-in that can't be resolved under its own name, beside one that can", async () => {
+		await put("unit.service", "[Service]\n");
+		await put("store/env.conf", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const linked = join(root, "unit.service.d/env.conf");
+		await mkdir(dirname(linked), { recursive: true });
+		await symlink(join(root, "store/env.conf"), linked);
+		const gone = join(root, "unit.service.d/gone.conf");
+		expect(
+			await unitDefinition(
+				"unit.service",
+				async () =>
+					`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${linked} ${gone}\n`,
+			),
+		).toBe(`${fragment}\n${join(root, "store/env.conf")}\n${gone}`);
+	});
+
+	it("says a file two drop-ins now resolve to is read twice, as a switch that links both to one store path", async () => {
+		await put("unit.service", "[Service]\n");
+		await put("store/env.conf", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const store = join(root, "store/env.conf");
+		const first = join(root, "unit.service.d/10-env.conf");
+		const second = join(root, "unit.service.d/20-env.conf");
+		await mkdir(dirname(first), { recursive: true });
+		await symlink(store, first);
+		await symlink(store, second);
+		const reading =
+			(...dropIns: string[]) =>
+			async () =>
+				`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${dropIns.join(" ")}\n`;
+
+		const before = await unitDefinition("unit.service", reading(first));
+		const now = await unitDefinition("unit.service", reading(first, second));
+		expect(definitionMoves(String(before), String(now))).toBe(
+			`it reads ${store} twice, not once`,
+		);
 	});
 });
 
@@ -466,11 +505,34 @@ describe("definitionMoves", () => {
 	it("lists every file on each side, in the order systemd reads them", () => {
 		expect(
 			definitionMoves(
-				"/a.service\n/old-1.conf\n/old-2.conf",
-				"/a.service\n/new-1.conf\n/new-2.conf",
+				"/a.service\n/old-2.conf\n/old-1.conf",
+				"/a.service\n/new-2.conf\n/new-1.conf",
+			),
+			"in systemd's order, not sorted",
+		).toBe(
+			"it now reads /new-2.conf, /new-1.conf; it no longer reads /old-2.conf, /old-1.conf",
+		);
+	});
+
+	it("says how many times a file that comes or goes is read, where it is more than once", () => {
+		expect(
+			definitionMoves(
+				"/a.service\n/old.conf\n/old.conf",
+				"/a.service\n/new.conf\n/new.conf\n/new.conf\n/one.conf",
 			),
 		).toBe(
-			"it now reads /new-1.conf, /new-2.conf; it no longer reads /old-1.conf, /old-2.conf",
+			"it now reads /new.conf 3 times, /one.conf; it no longer reads /old.conf twice",
+		);
+	});
+
+	it("gives each file read a new number of times a clause of its own", () => {
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/c.conf\n/c.conf",
+				"/a.service\n/b.conf\n/b.conf\n/c.conf",
+			),
+		).toBe(
+			"it reads /b.conf twice, not once; it reads /c.conf once, not twice",
 		);
 	});
 

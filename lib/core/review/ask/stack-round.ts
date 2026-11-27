@@ -36,7 +36,12 @@ import {
 	whatItGave,
 	whatItRead,
 } from "./run.ts";
-import { alsoRecordedInStack, harvestStackFindings, saidAt } from "./span.ts";
+import {
+	alsoRecordedInStack,
+	harvestStackFindings,
+	type StackAliases,
+	saidAt,
+} from "./span.ts";
 
 /** The impure things a stack round needs. */
 export interface StackCouncilDeps {
@@ -64,6 +69,8 @@ export interface StackCouncilRequest {
 	seq: number;
 	/** Every change in the stack, roots before children. */
 	stackRefs: string[];
+	/** Other names reviewers give the changes, each to its ref. */
+	aliases?: StackAliases;
 	/**
 	 * The commit one change's anchors are formed against.
 	 *
@@ -163,11 +170,18 @@ async function fileReply(
 	const formedAt =
 		request.unpinned === undefined ? request.witnessFor : undefined;
 	const harvest = alsoRecordedInStack(
-		harvestStackFindings(answer.text, origin, request.stackRefs, formedAt),
+		harvestStackFindings(
+			answer.text,
+			origin,
+			request.stackRefs,
+			formedAt,
+			request.aliases,
+		),
 		answer.recorded,
 		origin,
 		request.stackRefs,
 		formedAt,
+		request.aliases,
 	);
 	// The same rule the single-change round follows, and this round
 	// needs it most: it holds every change at once, so it is the one

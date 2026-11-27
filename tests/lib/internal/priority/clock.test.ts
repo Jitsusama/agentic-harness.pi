@@ -120,7 +120,7 @@ describe("a time limit on work that waits for its turn", () => {
 		writeFileSync(join(dir, "j3.job"), "{}\n");
 		const stop = new AbortController();
 		const ran = run(bash(), queued("j3", "echo ran"), 1, stop.signal);
-		setTimeout(() => stop.abort(), 300);
+		setTimeout(() => stop.abort(), 300); // any time: j3's turn never comes, so the stop is what ends its wait
 		expect(await ran).toEqual({ out: "", threw: "aborted" });
 	});
 });

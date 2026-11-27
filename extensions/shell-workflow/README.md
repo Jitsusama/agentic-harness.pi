@@ -101,7 +101,18 @@ through landrun:
   read-only. The tree's `.git` file and its links back are read-only
   too. Other quests' scratch folders
   are read-only, the session's own quest's bound back, since clones
-  there run git outside the fence for their own sessions.
+  there run git outside the fence for their own sessions. On Linux,
+  a folder outside the home folder that the person's settings file
+  (`~/.config/pi/agentic-harness.pi/config.json`) names in
+  `sections.fence.repositoryHomes` is kept as `~/src` is, read again
+  whenever the settings change; one that is the disk, the home
+  folder or above it, the harness's install, pi's own cache or state
+  folder, or a link is refused with a warning, and a missing one is
+  made. pi records which folder each first was, in its state, and git
+  outside the fence trusts a home only while it is that folder.
+  Removing a home's record, once its contents are checked, trusts it
+  again as it stands, and a session isn't let write a folder that
+  holds a named home.
 - **No git of its making run outside.** pi runs git outside the fence
   (the work and review tools, the write classifier, verification), so
   it runs it only where a command couldn't have set what git runs
@@ -110,7 +121,8 @@ through landrun:
   and git is then told both folders outright. A tree where the work
   tool cuts them must come from a repository the fence guards, in every
   session; a fenced session's git runs only in such repositories, which
-  are those under `~/src` and `~/world`. Cut a tree from a checkout
+  are those under `~/src` and `~/world` and in the repository homes
+  the settings name. Cut a tree from a checkout
   there, not from a clone in a scratch folder. Every such git runs
   with `core.fsmonitor=false`, and refuses a git folder holding a
   `commondir`, which would have git read another folder's settings.

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	askedHead,
 	FAILED_FOR_MS,
 	keptHeads,
+	type Look,
 } from "../../../../lib/internal/pineapple/heads.ts";
 
 /** A lookup giving each answer in turn, counting how often it's asked. */
@@ -43,12 +45,37 @@ function clock() {
 }
 
 describe("keptHeads", () => {
-	it("keeps a branch found, asking once", async () => {
+	it("keeps a branch found for good, asking once", async () => {
+		const time = clock();
 		const { ask, asked } = answering(["drill"]);
-		const headOf = keptHeads(ask);
+		const headOf = keptHeads(ask, time.now);
 		expect(await headOf("o/r", 1)).toBe("drill");
+		time.pass(FAILED_FOR_MS * 10);
 		expect(await headOf("o/r", 1)).toBe("drill");
 		expect(asked).toEqual(["o/r#1"]);
+	});
+
+	it("counts a failed lookup's seconds from when it settled", async () => {
+		const time = clock();
+		const lookup = waiting();
+		const headOf = keptHeads(lookup.ask, time.now);
+		const first = headOf("o/r", 1);
+		time.pass(10_000);
+		lookup.settle();
+		expect(await first).toBeUndefined();
+		time.pass(FAILED_FOR_MS - 1);
+		void headOf("o/r", 1);
+		expect(lookup.asked).toEqual(["o/r#1"]);
+	});
+
+	it("asks again after a clock stepped back rather than holding", async () => {
+		const time = clock();
+		const { ask, asked } = answering([undefined, "drill"]);
+		const headOf = keptHeads(ask, time.now);
+		expect(await headOf("o/r", 1)).toBeUndefined();
+		time.pass(-60 * 60 * 1000);
+		expect(await headOf("o/r", 1)).toBe("drill");
+		expect(asked).toEqual(["o/r#1", "o/r#1"]);
 	});
 
 	it("asks again once a lookup that found nothing is old enough", async () => {
@@ -73,7 +100,10 @@ describe("keptHeads", () => {
 			return "drill";
 		}, time.now);
 		expect(await headOf("o/r", 1)).toBeUndefined();
-		time.pass(FAILED_FOR_MS);
+		time.pass(FAILED_FOR_MS - 1);
+		expect(await headOf("o/r", 1)).toBeUndefined();
+		expect(calls).toBe(1);
+		time.pass(1);
 		expect(await headOf("o/r", 1)).toBe("drill");
 	});
 
@@ -108,5 +138,62 @@ describe("keptHeads", () => {
 		expect(await headOf("o/r", 1)).toBe("drill");
 		expect(await headOf("o/x", 1)).toBe("other");
 		expect(asked).toEqual(["o/r#1", "o/x#1"]);
+	});
+});
+
+/** A look answering gh and dt as given, a function to throw. */
+function looking(gh: unknown, dt: unknown): Look {
+	return async (program) => {
+		const answer = program === "gh" ? gh : dt;
+		if (typeof answer === "function") return answer();
+		return answer === undefined ? undefined : String(answer);
+	};
+}
+
+describe("askedHead", () => {
+	const view = (ref: string) => JSON.stringify({ head: { ref } });
+
+	it("takes GitHub's answer over Delta's", async () => {
+		expect(await askedHead(looking("drill", view("other")))("o/r", 1)).toBe(
+			"drill",
+		);
+	});
+
+	it("takes Delta's where GitHub tells nothing or throws", async () => {
+		expect(await askedHead(looking(undefined, view("drill")))("o/r", 1)).toBe(
+			"drill",
+		);
+		const thrown = () => {
+			throw new Error("door down");
+		};
+		expect(await askedHead(looking(thrown, view("drill")))("o/r", 1)).toBe(
+			"drill",
+		);
+		const named = JSON.stringify({ headRefName: "drill" });
+		expect(await askedHead(looking(undefined, named))("o/r", 1)).toBe("drill");
+	});
+
+	it("reads a whole ref as its short name, and a blank as none", async () => {
+		const whole = view("refs/heads/drill");
+		expect(await askedHead(looking(undefined, whole))("o/r", 1)).toBe("drill");
+		expect(
+			await askedHead(looking(undefined, view("")))("o/r", 1),
+		).toBeUndefined();
+		expect(await askedHead(looking("  ", view(" ")))("o/r", 1)).toBeUndefined();
+	});
+
+	it("tells nothing where neither says, Delta throwing included", async () => {
+		const thrown = () => {
+			throw new Error("door down");
+		};
+		expect(await askedHead(looking(undefined, thrown))("o/r", 1)).toBe(
+			undefined,
+		);
+		expect(
+			await askedHead(looking(undefined, "not json"))("o/r", 1),
+		).toBeUndefined();
+		expect(await askedHead(looking("drill", view("x")))(undefined, 1)).toBe(
+			undefined,
+		);
 	});
 });

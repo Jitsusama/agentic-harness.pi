@@ -169,10 +169,13 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	mkdirSync(cwd, { recursive: true });
 	let placed: string | undefined;
 	try {
+		// pi finds a session in the folder it derives from where it runs, as
+		// its real path, though the node's shell enters `cwd` through any
+		// link in it, as a home under /home linked to /var/home is.
 		placed = await placeSession(
 			handover.session,
 			join(from, handover.sessionFile),
-			cwd,
+			realpathSync(cwd),
 			arriving,
 		);
 	} catch (error) {

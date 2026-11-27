@@ -5,6 +5,7 @@ import {
 	sessionResultDir,
 } from "../../../lib/core/result/index.ts";
 import { resultSession } from "../../support/result-session.ts";
+import { until } from "../../support/until.ts";
 
 /**
  * What the google tool does when Google will not answer.
@@ -16,13 +17,19 @@ import { resultSession } from "../../support/result-session.ts";
  * it runs to Google's answer, which the request clock still bounds.
  */
 
+/** How many writes have reached Google, so a stop can land on one. */
+const sent = vi.hoisted(() => ({ writes: 0 }));
+
 vi.mock("../../../lib/google/auth/ensure-auth.ts", () => ({
 	ensureAuthenticated: async () => ({}),
 }));
 vi.mock("../../../lib/google/index.ts", async (original) => ({
 	...(await original<object>()),
 	searchEmails: () => new Promise(() => {}),
-	archiveEmail: () => new Promise(() => {}),
+	archiveEmail: () => {
+		sent.writes++;
+		return new Promise(() => {});
+	},
 	listFiles: async () => ({
 		files: Array.from({ length: 2_000 }, (_, i) => ({
 			id: `file-${i}`,
@@ -137,7 +144,7 @@ describe("a google call Google never answers", () => {
 			undefined,
 			ctx,
 		);
-		setTimeout(() => controller.abort(), 50);
+		setTimeout(() => controller.abort(), 50); // any time: Google never answers the read, so the stop is what ends it whenever it lands
 		expect(await outcome(call)).toBe("failed: AbortError");
 	});
 
@@ -169,7 +176,9 @@ describe("a google call Google never answers", () => {
 			ctx,
 		);
 		call.catch(() => {});
-		setTimeout(() => controller.abort(), 50);
+		// Stopped once the write is sent, so it's one in flight that runs on.
+		await until("the write to be sent", () => sent.writes > 0);
+		controller.abort();
 		expect(await outcome(call)).toBe("still running");
 	});
 });

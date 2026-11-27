@@ -37,6 +37,14 @@ export interface RoomPlace {
 	 * entry's copies are from its own store and pi would load both.
 	 */
 	readonly entryLoads?: readonly string[];
+	/**
+	 * The session's default extensions and skills from outside the
+	 * harness, which packages outside it register for this machine's own
+	 * model access and credentials: left out of the words, since a room
+	 * reaches its model through its own provider. Any other path outside
+	 * the harness still keeps its reviewer here.
+	 */
+	readonly hereOnly?: readonly string[];
 }
 
 /** The code a reviewer reads, as the room can find it. */
@@ -110,6 +118,7 @@ export function roomLaunch(
 		return { stays: `a room keeps no checkout of ${code.repo}` };
 	}
 	const loaded = new Set(place.entryLoads ?? []);
+	const hereOnly = new Set(place.hereOnly ?? []);
 	const words: string[] = [];
 	let briefs = 0;
 	for (let at = 0; at < args.length; at += 1) {
@@ -135,6 +144,10 @@ export function roomLaunch(
 		}
 		if (VALUED.has(word)) {
 			const within = harnessRelative(place.harnessRoot, args[at + 1] ?? "");
+			if (within === undefined && hereOnly.has(args[at + 1] ?? "")) {
+				at += 1;
+				continue;
+			}
 			if (within === undefined) {
 				return { stays: `${args[at + 1]} is not in the harness` };
 			}

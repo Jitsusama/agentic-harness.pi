@@ -1,7 +1,20 @@
+/**
+ * Which of a session's calls are writes a safe-word stop can hold, and
+ * what each is a write to.
+ *
+ * Long because each case is one more form of a command line the guard
+ * reads in one walk, and the cases share its fixtures (a checkout, its
+ * trees, a git whose settings each case sets): a stop holds only the
+ * pushes every form of the line is read alike for.
+ */
 import { describe, expect, it } from "vitest";
 import {
 	changeOf,
 	type GitFacts,
+	isPush,
+	pushedBranch,
+	pushRemote,
+	repoOfPushUrls,
 	repoOfUrl,
 	settle,
 	writeInTool,
@@ -28,13 +41,14 @@ describe("writesInBash", () => {
 	});
 
 	it("reads a push's remote and branch, and where it runs", () => {
+		// A lone branch is pushed wherever git maps it, which settle finds.
 		expect(writesInBash("cd /other && git push origin fix-it", HERE)).toEqual([
 			{
 				action: "git push",
 				kind: "change",
 				dir: "/other",
 				remote: "origin",
-				branch: "fix-it",
+				source: "fix-it",
 			},
 		]);
 		expect(
@@ -49,7 +63,7 @@ describe("writesInBash", () => {
 			},
 		]);
 		expect(writesInBash("git push", HERE)).toEqual([
-			{ action: "git push", kind: "change", dir: HERE },
+			{ action: "git push", kind: "change", dir: HERE, unnamed: "bare" },
 		]);
 		expect(
 			writesInBash("git push https://github.com/Example/Shop.git +b", HERE),
@@ -59,9 +73,196 @@ describe("writesInBash", () => {
 				kind: "change",
 				dir: HERE,
 				repo: "example/shop",
-				branch: "b",
+				source: "b",
 			},
 		]);
+	});
+
+	it("reads a push naming several branches as a write to each", () => {
+		const branches = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.branch ?? write.source);
+		expect(branches("git push origin scratch drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		expect(branches("git push origin scratch:scratch HEAD:drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		expect(branches("git push origin a a")).toEqual(["a"]);
+		expect(branches("dt push origin scratch +drill")).toEqual([
+			"scratch",
+			"drill",
+		]);
+		// HEAD, or @, pushes the branch checked out, which settle finds.
+		expect(branches("git push origin HEAD drill @")).toEqual(["HEAD", "drill"]);
+		// A short destination is a branch, as git reads it.
+		expect(branches("git push origin HEAD:heads/drill")).toEqual(["drill"]);
+	});
+
+	it("reads the remote --repo names where no word after the options does", () => {
+		const remotes = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.remote ?? write.repo);
+		expect(remotes("git push --repo=fork")).toEqual(["fork"]);
+		expect(remotes("git push --repo fork")).toEqual(["fork"]);
+		expect(
+			remotes("git push --repo https://github.com/example/stopped.git"),
+		).toEqual(["example/stopped"]);
+		// The word after the options wins, as with git.
+		expect(remotes("git push --repo=fork origin")).toEqual(["origin"]);
+		// git takes --repo by its prefix, past --re, which others begin.
+		expect(remotes("git push --rep fork")).toEqual(["fork"]);
+		expect(remotes("git push --rep=fork")).toEqual(["fork"]);
+	});
+
+	it("reads a push whose own -c sets where pushes go as naming nothing", () => {
+		for (const command of [
+			"git -c push.default=matching push",
+			"git -c remote.origin.pushurl=git@github.com:example/stopped.git push origin x",
+			"git --config-env=branch.main.pushRemote=WHERE push",
+			"git -c url.x.pushInsteadOf=y push origin x",
+			"git -c include.path=/elsewhere push origin x",
+			"git -c includeIf.onbranch:x.path=/elsewhere push origin x",
+			"git -c core.sshCommand=ssh-elsewhere push origin x",
+			"git -c core.gitProxy=elsewhere push origin x",
+			"git -c core.hooksPath=/elsewhere push origin x",
+			"git --exec-path=/elsewhere push origin x",
+			"git --git-dir .git push origin x",
+			"git --work-tree=/elsewhere push origin x",
+			"git push --receive-pack=elsewhere origin x",
+			"git push --exec elsewhere origin x",
+			"git push --recurse-submodules=on-demand origin x",
+			"git push --recurse-submodules only origin x",
+			"GIT_DIR=/elsewhere git push origin x",
+			"env GIT_CONFIG_GLOBAL=/elsewhere git push origin x",
+			"GIT_SSH_COMMAND=ssh-elsewhere git push origin x",
+			"HOME=/elsewhere git push origin x",
+			"XDG_CONFIG_HOME=/elsewhere git push origin x",
+			"PATH=/elsewhere git push origin x",
+			"export GIT_DIR=/elsewhere; git push origin x",
+			"export GIT_CONFIG_GLOBAL=/elsewhere && git push origin x",
+			"GIT_DIR=/elsewhere; export GIT_DIR; git push origin x",
+			"declare -x HOME=/elsewhere; git push origin x",
+			"set -a; GIT_SSH_COMMAND=ssh-elsewhere; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Other settings, options and environment leave the push as it reads.
+		for (const command of [
+			"git -c core.fsmonitor=false push origin x",
+			"git --namespace there push origin x",
+			"git push --recurse-submodules=check origin x",
+			"git push --recurse-submodules no origin x",
+			"GIT_TERMINAL_PROMPT=0 git push origin x",
+			"git push --push-option ci.skip origin x",
+			"git --attr-source HEAD push origin x",
+			"export FOO=1; git push origin x",
+			"set -eu; git push origin x",
+			"GIT_DIR=/elsewhere git status; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push fed to a shell given its own environment as naming nothing", () => {
+		for (const command of [
+			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",
+			"echo 'git push origin x' | GIT_CONFIG_GLOBAL=/elsewhere sh",
+			"env GIT_SSH_COMMAND=ssh-elsewhere sh <<< 'git push origin x'",
+		]) {
+			const pushes = writesInBash(command, HERE).filter(isPush);
+			expect(pushes.length, command).toBeGreaterThan(0);
+			for (const push of pushes) {
+				expect(push, command).toMatchObject({
+					unnamed: "every",
+					overridden: true,
+				});
+			}
+		}
+		// Fed with nothing moved, it reads as it is.
+		const plain = writesInBash("bash <<< 'git push origin x'", HERE).filter(
+			isPush,
+		);
+		expect(plain.length).toBeGreaterThan(0);
+		for (const push of plain) {
+			expect(push).toMatchObject({ remote: "origin", source: "x" });
+		}
+	});
+
+	it("reads a deleting push as the branch it deletes there", () => {
+		for (const command of [
+			"git push origin --delete drill",
+			"git push -d origin drill",
+			"git push -fd origin drill",
+			"git push --del origin drill",
+			"git push origin :drill",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					branch: "drill",
+				},
+			]);
+		}
+		// --d is --dry-run's prefix too, and -o's value is its own.
+		for (const command of [
+			"git push --d origin drill",
+			"git push -od origin drill",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "drill",
+				},
+			]);
+		}
+	});
+
+	it("reads a push of every branch as naming none", () => {
+		for (const command of [
+			"git push --all origin",
+			"git push --mirror origin",
+			"git push origin --tags",
+			"git push --branches origin",
+			"git push --al origin",
+			"git push --m origin",
+			"git push --b origin",
+			"git push origin :",
+			"git push origin +: drill",
+			"git push origin 'refs/heads/*:refs/heads/*'",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					unnamed: "every",
+				},
+			]);
+		}
 	});
 
 	it("reads a pull request's writes through gh and dt", () => {
@@ -496,13 +697,13 @@ describe("writesInBash", () => {
 				kind: "change",
 				dir: HERE,
 				remote: "origin",
-				branch: "fix",
+				source: "fix",
 			},
 		]);
 		expect(
 			writesInBash('cd "$REPO" && bash -c "git push origin fix"', HERE),
 		).toEqual([
-			{ action: "git push", kind: "change", remote: "origin", branch: "fix" },
+			{ action: "git push", kind: "change", remote: "origin", source: "fix" },
 		]);
 	});
 
@@ -631,8 +832,80 @@ describe("settle", () => {
 	const git: GitFacts = {
 		repoOf: async (dir, remote) =>
 			dir === HERE && remote === "origin" ? "example/shop" : undefined,
+		pushRepoOf: async (dir, remote) =>
+			dir === HERE && remote === "origin" ? "example/shop" : undefined,
 		branchOf: async () => "fix-it",
+		pushRemoteOf: async () => "origin",
+		pushedOf: async (_, remote, source) =>
+			remote !== "origin"
+				? undefined
+				: source === undefined
+					? "upstream-name"
+					: `${source}-mapped`,
 	};
+
+	it("judges a push naming no refspec by the branch git's settings push to", async () => {
+		const bare = {
+			action: "git push",
+			kind: "change",
+			dir: HERE,
+			unnamed: "bare",
+		} as const;
+		expect((await settle(bare, git)).branch).toBe("upstream-name");
+		const every = { ...bare, unnamed: "every" } as const;
+		expect((await settle(every, git)).branch).toBeUndefined();
+		const head = { action: "git push", kind: "change", dir: HERE } as const;
+		expect((await settle(head, git)).branch).toBe("fix-it");
+		const lone = { ...head, remote: "origin", source: "scratch" };
+		expect((await settle(lone, git)).branch).toBe("scratch-mapped");
+		// A deletion goes to the branch it names, never where git maps it.
+		const [deleting] = writesInBash("git push origin --delete scratch", HERE);
+		expect(deleting && (await settle(deleting, git)).branch).toBe("scratch");
+	});
+
+	it("names nothing for a push whose settings couldn't be read or were set by its own -c", async () => {
+		const unread: GitFacts = { ...git, pushRemoteOf: async () => undefined };
+		const bare = {
+			action: "git push",
+			kind: "change",
+			dir: HERE,
+			unnamed: "bare",
+		} as const;
+		const settled = await settle(bare, unread);
+		expect([settled.repo, settled.branch]).toEqual([undefined, undefined]);
+		const overridden = { ...bare, unnamed: "every", overridden: true } as const;
+		expect(await settle(overridden, git)).toEqual(overridden);
+	});
+
+	it("judges a push naming no remote by where git sends it", async () => {
+		const forked: GitFacts = {
+			...git,
+			repoOf: async (_, remote) =>
+				remote === "fork" ? "someone/shop" : "example/shop",
+			pushRepoOf: async (_, remote) =>
+				remote === "fork" ? "someone/shop" : "example/shop",
+			pushRemoteOf: async () => "fork",
+		};
+		const push = { action: "git push", kind: "change", dir: HERE } as const;
+		expect((await settle(push, forked)).repo).toBe("someone/shop");
+		const named = { ...push, remote: "origin" };
+		expect((await settle(named, forked)).repo).toBe("example/shop");
+		const merge = { action: "gh pr merge", kind: "change", dir: HERE } as const;
+		expect((await settle(merge, forked)).repo).toBe("example/shop");
+	});
+
+	it("judges a push by where origin pushes, and gh by where it fetches", async () => {
+		// origin's pushurl names a fork, while gh acts on what it fetches.
+		const split: GitFacts = {
+			...git,
+			repoOf: async () => "example/shop",
+			pushRepoOf: async () => "someone/shop",
+		};
+		const push = { action: "git push", kind: "change", dir: HERE } as const;
+		expect((await settle(push, split)).repo).toBe("someone/shop");
+		const merge = { action: "gh pr merge", kind: "change", dir: HERE } as const;
+		expect((await settle(merge, split)).repo).toBe("example/shop");
+	});
 
 	it("fills in the repository and branch the call left to its checkout", async () => {
 		expect(
@@ -669,6 +942,131 @@ describe("references", () => {
 			"example/shop",
 		);
 		expect(repoOfUrl("shop")).toBeUndefined();
+	});
+
+	it("finds the branch a bare push goes to as git does", async () => {
+		const config = (set: Record<string, string>) => async (key: string) =>
+			set[key];
+		const upstream = { "branch.fix.merge": "refs/heads/drill" };
+		expect(await pushedBranch("fix", "origin", config(upstream))).toBe("fix");
+		const current = { ...upstream, "push.default": "current" };
+		expect(await pushedBranch("fix", "origin", config(current))).toBe("fix");
+		const tracked = { ...upstream, "push.default": "upstream" };
+		expect(await pushedBranch("fix", "origin", config(tracked))).toBe("drill");
+		for (const mode of ["matching", "nothing"]) {
+			const set = { ...upstream, "push.default": mode };
+			expect(await pushedBranch("fix", "origin", config(set)), mode).toBe(
+				undefined,
+			);
+		}
+		const refspec = { ...upstream, "remote.origin.push": "fix:drill" };
+		expect(
+			await pushedBranch("fix", "origin", config(refspec)),
+		).toBeUndefined();
+		// A mirror is any way git says true, and only false's ways aren't.
+		for (const said of ["true", "yes", "1", "on", ""]) {
+			const mirror = { ...upstream, "remote.origin.mirror": said };
+			expect(
+				await pushedBranch("fix", "origin", config(mirror)),
+				said,
+			).toBeUndefined();
+		}
+		for (const said of ["false", "no", "0", "off"]) {
+			const plain = { ...upstream, "remote.origin.mirror": said };
+			expect(await pushedBranch("fix", "origin", config(plain)), said).toBe(
+				"fix",
+			);
+		}
+		expect(await pushedBranch(undefined, "origin", config({}))).toBeUndefined();
+		const tracking = { ...upstream, "push.default": "tracking" };
+		expect(await pushedBranch("fix", "origin", config(tracking))).toBe("drill");
+		const unset = { "push.default": "upstream" };
+		expect(await pushedBranch("fix", "origin", config(unset))).toBeUndefined();
+		const unknown = { "push.default": "everything" };
+		expect(
+			await pushedBranch("fix", "origin", config(unknown)),
+		).toBeUndefined();
+	});
+
+	it("finds the branch a refspec naming only a local branch goes to as git does", async () => {
+		const config = (set: Record<string, string>) => async (key: string) =>
+			set[key];
+		const named = (set: Record<string, string>) =>
+			pushedBranch("scratch", "origin", config(set), true);
+		const upstream = { "branch.scratch.merge": "refs/heads/drill" };
+		expect(await named(upstream)).toBe("scratch");
+		expect(await named({ ...upstream, "push.default": "matching" })).toBe(
+			"scratch",
+		);
+		expect(await named({ ...upstream, "push.default": "upstream" })).toBe(
+			"drill",
+		);
+		expect(await named({ "push.default": "upstream" })).toBe("scratch");
+		expect(
+			await named({ "remote.origin.push": "refs/heads/scratch:drill" }),
+		).toBeUndefined();
+		// HEAD names no local branch git maps, so it goes to its own name.
+		const head = (set: Record<string, string>) =>
+			pushedBranch("scratch", "origin", config(set), true, true);
+		for (const mode of ["upstream", "tracking", "matching", "simple"]) {
+			expect(await head({ ...upstream, "push.default": mode }), mode).toBe(
+				"scratch",
+			);
+		}
+		expect(
+			await head({ "remote.origin.push": "refs/heads/scratch:drill" }),
+		).toBeUndefined();
+	});
+
+	it("lets a setting that couldn't be read name nothing", async () => {
+		const unreadable = async (key: string) => {
+			if (key === "push.default") throw new Error("couldn't read");
+			return undefined;
+		};
+		await expect(pushedBranch("fix", "origin", unreadable)).rejects.toThrow();
+		await expect(
+			pushRemote("fix", async (key) => {
+				if (key === "branch.fix.pushRemote") throw new Error("couldn't read");
+				return undefined;
+			}),
+		).rejects.toThrow();
+	});
+
+	it("finds the remote a bare push goes to as git does", async () => {
+		const config = (set: Record<string, string>) => async (key: string) =>
+			set[key];
+		const defaults = {
+			"remote.pushDefault": "fork",
+			"branch.fix.remote": "upstream",
+		};
+		const all = { ...defaults, "branch.fix.pushRemote": "mine" };
+		expect(await pushRemote("fix", config(all))).toBe("mine");
+		expect(await pushRemote("fix", config(defaults))).toBe("fork");
+		expect(
+			await pushRemote("fix", config({ "branch.fix.remote": "upstream" })),
+		).toBe("upstream");
+		expect(await pushRemote(undefined, config(all))).toBe("fork");
+		expect(await pushRemote("fix", config({}))).toBe("origin");
+	});
+
+	it("names where a remote pushes only when it pushes to one place", () => {
+		expect(repoOfPushUrls("git@github.com:example/shop.git")).toBe(
+			"example/shop",
+		);
+		expect(
+			repoOfPushUrls(
+				"git@github.com:example/shop.git\nhttps://github.com/Example/Shop\n",
+			),
+		).toBe("example/shop");
+		expect(
+			repoOfPushUrls(
+				"git@github.com:example/shop.git\ngit@github.com:example/other.git",
+			),
+		).toBeUndefined();
+		expect(
+			repoOfPushUrls("git@github.com:example/shop.git\nshop"),
+		).toBeUndefined();
+		expect(repoOfPushUrls("")).toBeUndefined();
 	});
 
 	it("reads a change from a link, owner/name#N, #N or N", () => {

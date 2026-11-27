@@ -208,10 +208,11 @@ describe("refusing to run where the fence can't hold", () => {
 		}
 	});
 
-	it("grants a folder holding the runtime folder whose compiled code lies elsewhere, which strict refuses for the runtime folder alone", () => {
-		// Its compile root a link out of the holder, with both caches there,
-		// so the holder holds no compiled code and only the runtime folder
-		// itself is left for strict to refuse it by.
+	it("grants a folder holding the runtime folder whose compiled code lies elsewhere, which strict refuses for the link that leads there", () => {
+		// Its compile root a link out of the holder, with both caches there.
+		// The holder holds no compiled code, but it holds the link, which a
+		// command there could take out and make again to lead anywhere, so
+		// strict still refuses it for the compiled code (f58f851b6).
 		const holder = join(base, "runtime-only-holder");
 		const runtime = join(holder, "runtime");
 		const compiled = join(base, "compiled-elsewhere");
@@ -230,10 +231,9 @@ describe("refusing to run where the fence can't hold", () => {
 			expect(made, JSON.stringify(made)).toHaveProperty("text");
 			const strict =
 				unfencedFolder(holder, home, "strict", { mac: false }) ?? "granted";
-			expect(strict).toContain(
-				`which holds ${runtime}, a path the fence hides or keeps read-only`,
+			expect(strict, "strict refuses for the link to compiled code").toContain(
+				"which holds or lies in the code pi and its host compiled",
 			);
-			expect(strict).not.toContain("compiled");
 		} finally {
 			vi.unstubAllEnvs();
 		}

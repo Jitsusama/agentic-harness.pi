@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { stackAliases } from "../../../../lib/core/review/ask/span.ts";
 import type { FindingOrigin } from "../../../../lib/core/review/index.ts";
 import {
 	harvestStackFindings,
@@ -66,6 +67,58 @@ describe("a finding that belongs to one change", () => {
 
 		expect(findings).toEqual([]);
 		expect(warnings[0]).toMatch(/no change|names nothing/i);
+	});
+});
+
+describe("a finding that names a change by its number", () => {
+	/** Each change as the pull request it went up as. */
+	const aliases = stackAliases(
+		stack.map((ref, index) => ({
+			ref,
+			change: {
+				provider: "github",
+				repo: { key: "github:Jitsusama/core.nix" },
+				id: String(7030 + index),
+				label: `Jitsusama/core.nix#${7030 + index}`,
+			},
+		})),
+	);
+
+	it("places it at the change its number, id or label names", () => {
+		const { findings, warnings } = harvestStackFindings(
+			answer(
+				one({ refs: ["#7031"] }),
+				one({ refs: ["7032"], subject: "the tip forgets the close" }),
+				one({
+					refs: ["Jitsusama/core.nix#7030", "refs/heads/tip"],
+					subject: "the base's shape is used wrongly at the tip",
+				}),
+			),
+			origin,
+			stack,
+			undefined,
+			aliases,
+		);
+
+		expect(warnings).toEqual([]);
+		expect(findings.map((found) => found.span.refs)).toEqual([
+			["refs/heads/middle"],
+			["refs/heads/tip"],
+			["refs/heads/base", "refs/heads/tip"],
+		]);
+	});
+
+	it("still drops a number no change in the stack has", () => {
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: ["#9999"] })),
+			origin,
+			stack,
+			undefined,
+			aliases,
+		);
+
+		expect(findings).toEqual([]);
+		expect(warnings[0]).toContain("#9999");
 	});
 });
 

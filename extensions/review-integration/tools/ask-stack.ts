@@ -8,7 +8,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
+import { stackAliases } from "../../../lib/core/review/ask/span.ts";
+import { stackWitnesses } from "../../../lib/core/review/ask/stack-witness.ts";
 import {
 	createFindingStore,
 	createRunStore,
@@ -123,8 +126,14 @@ export async function askStack(
 	);
 
 	const stackRefs = changes.map((one) => one.ref);
-	const witnesses = new Map(
-		changes.map((one) => [one.ref, one.proposal.headCommit]),
+	// Only a head the tip's tree holds was read, so only that one is
+	// recorded; a member pushed past the tip, or a fanned-out sibling,
+	// is said as unread.
+	const { held: witnesses, unheld } = await stackWitnesses(
+		spawnExec({ signal: seat.signal }),
+		tree.path,
+		tip.proposal.headCommit,
+		new Map(changes.map((one) => [one.ref, one.proposal.headCommit])),
 	);
 	const changeFor = new Map(changes.map((one) => [one.ref, one.change]));
 	const findings = createFindingStore(findingDir());
@@ -161,10 +170,11 @@ export async function askStack(
 			prompt,
 			seq: nextSeq(),
 			stackRefs,
+			// A reviewer reads each change's title and body, which name it
+			// by its number, so a finding said at that number is placed.
+			aliases: stackAliases(changes),
 			witnessFor: (ref) => witnesses.get(ref),
-			witnesses: [...witnesses.values()].filter(
-				(sha): sha is string => sha !== undefined,
-			),
+			witnesses: [...witnesses.values()],
 			// Per-change witnesses, but one tree, so the caveat is about
 			// the round exactly as it is for every other kind.
 			...(unpinnedOf(tree) === undefined ? {} : { unpinned: unpinnedOf(tree) }),
@@ -192,6 +202,11 @@ export async function askStack(
 		[
 			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
 			...(start.waited === undefined ? [] : [start.waited]),
+			...(unheld.length === 0
+				? []
+				: [
+						`Not recorded as read: ${unheld.join(", ")}, whose head the tip's tree doesn't hold. Restack onto it and ask again to have it count.`,
+					]),
 			answerFor(run, warnings, saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },

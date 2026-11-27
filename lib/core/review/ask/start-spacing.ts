@@ -78,6 +78,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isLockHeld, withFileLock } from "../../internal/file-lock.ts";
+import { recordStart } from "./start-history.ts";
 
 /** How long after one council starts on a machine before another may. */
 export const COUNCIL_START_SPACING_MS = 3 * 60_000;
@@ -387,6 +388,22 @@ export async function awaitCouncilStart(
 				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
+			// Not waited for: a round's start is spaced from the moment it is
+			// taken, and the history is only ever read afterwards.
+			void recordStart(dirname(at), {
+				ticket: ticket.id,
+				by: ticket.by,
+				change: ticket.change,
+				...(ticket.kind === undefined ? {} : { kind: ticket.kind }),
+				askedAt: asked,
+				startAt: started.at,
+				// From the start's own stamp, so the line reads as its two times.
+				waitedMs: Date.parse(started.at) - Date.parse(asked),
+				...(lastShort === undefined ? {} : { heldBy: lastShort }),
+			}).catch(() => {
+				// The history is for reading waits back afterwards; a round whose
+				// line can't be appended to still starts, and its wait is lost.
+			});
 			const passed =
 				turn.passed === true
 					? passSaid(

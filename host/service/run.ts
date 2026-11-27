@@ -269,8 +269,9 @@ const ENDED_AS: Record<ResumeEnd, string> = {
  * What serveHost is given for a child: the slot's socket and folder, the
  * roster its slot names, written under the roster's lock, the
  * life that hears its changes and becomings and answers its watch, a
- * gate that keeps it to one conversation, and whether its supervisor
- * woke the conversation it resumes.
+ * gate that keeps it to one conversation, so its process is that
+ * conversation's own, and whether its supervisor woke the conversation
+ * it resumes.
  */
 function childPlaces(
 	slot: ChildSlot,
@@ -281,6 +282,7 @@ function childPlaces(
 		rosterDir: slot.folder,
 		rosterSeed: childRosterSeed(slot),
 		rollout: oneConversation,
+		ownProcess: true,
 		changes: life,
 		watch: life.watch,
 		becoming: life.becoming,
