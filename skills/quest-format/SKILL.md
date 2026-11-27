@@ -190,7 +190,7 @@ Field semantics:
   hear in full only what the mesh puts to them, glancing at
   the rest. Set with the quest tool's `config` (`ref`
   `hears=addressed`, cleared with `hears=all`), never by hand.
-- `subjects`: optional list, at most 12, such as
+- `subjects`: optional list, at most 24, such as
   `[mycelium:hubs, needs]`: what the quest's sessions say they
   work on, after any owner prefixes Joel's config names them
   for, so a need on the mesh finds them by those. Each names

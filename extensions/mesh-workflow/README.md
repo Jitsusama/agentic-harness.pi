@@ -598,7 +598,8 @@ takes as `--owner`, read at each refresh from
 `subjects`, set with the quest tool's `config` (`ref`
 `subjects=a,b`). At most 24, each plain text of at most 120
 characters, as the node reads them; presence leaves the key out
-while there are none. A need finds a cell by the words of a
+while there are none. A node before mycelium 22d57885 keeps only
+the first 12, and says nothing of the rest. A need finds a cell by the words of a
 subject's narrowest part, after its last colon, dot or slash, so
 `config` refuses one whose narrowest part holds no word routing
 reads (each too short, past 32 letters or as common as can or

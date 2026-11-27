@@ -86,6 +86,12 @@ describe("a cell's subjects", () => {
 		).toEqual(["health.agents.", "unit:pi-host-", "needs"]);
 	});
 
+	it("says as many as mycelium's node keeps a cell, 24 from 22d57885", () => {
+		// The node's networks::MOST_SUBJECTS; a cap past it is dropped there
+		// without a word, and one short of it leaves places unsaid.
+		expect(MOST_SUBJECTS).toBe(24);
+	});
+
 	it(`holds at most ${MOST_SUBJECTS}, as the node reads no more`, () => {
 		const many = Array.from(
 			{ length: MOST_SUBJECTS + 8 },

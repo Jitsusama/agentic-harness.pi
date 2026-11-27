@@ -289,13 +289,11 @@ describe("the subjects a quest's sessions declare", () => {
 	it(`refuse what the owner prefixes would crowd out of the ${MOST_SUBJECTS} places, changing nothing`, async () => {
 		const id = await made();
 		const address = questAddress(id);
-		owners(
-			...[0, 1, 2, 3].map((at) => `owned${at}.=${address}`),
-			"else.=80ECO2",
-		);
+		const owned = [0, 1, 2, 3].map((at) => `owned${at}.=${address}`);
+		owners(...owned, "else.=80ECO2");
 		const list = (count: number) =>
 			Array.from({ length: count }, (_, at) => `area${at}`).join(",");
-		const places = MOST_SUBJECTS - 4;
+		const places = MOST_SUBJECTS - owned.length;
 		const crowded = await run({
 			action: "config",
 			id,
