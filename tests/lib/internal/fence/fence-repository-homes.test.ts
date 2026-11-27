@@ -6,6 +6,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -23,8 +24,26 @@ import {
 } from "../../../../lib/internal/fence/fence.ts";
 import {
 	type NamedHomeDisk,
+	namedHomeDoubt,
+	namedRepositoryHomes,
 	readNamedHomes,
 } from "../../../../lib/internal/fence/fence-repository-homes.ts";
+import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
+
+/**
+ * The fence and its named homes as a new pi process loads them, with no
+ * read of its own yet: what one process read, another doesn't know.
+ */
+async function anotherProcess() {
+	vi.resetModules();
+	const fence = await import("../../../../lib/internal/fence/fence.ts");
+	return { guardsGitFolder: fence.guardsGitFolder };
+}
+
+/** Where pi records which folder each named home first was, under `home`. */
+function records(home: string): string {
+	return join(home, ".local", "state", "pi", "agentic-harness.pi", "fence");
+}
 
 /** Write the person's settings under `home`, naming `homes`. */
 function naming(home: string, homes: unknown): void {
@@ -102,7 +121,24 @@ describe("the repository homes the person's settings name", () => {
 	afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 	const read = (disk: NamedHomeDisk, platform: NodeJS.Platform = "linux") =>
-		readNamedHomes(home, { platform, install: "/opt/harness", disk });
+		readNamedHomes(home, {
+			platform,
+			install: "/opt/harness",
+			own: ["/world/cache/pi"],
+			disk,
+		});
+
+	// F48, F60: the fence binds a quest's scratch and the session's trees
+	// back writable there, a writable spot in a home the guard trusts.
+	it("refuses a home holding or lying in pi's own cache and state", () => {
+		naming(home, ["/world", "/world/cache/pi/trees"]);
+		const disk = standIn([home, "/world", "/world/cache/pi/trees"]);
+		expect(read(disk).homes, "no home is kept").toEqual([]);
+		expect(read(disk).refused, "each is said").toEqual([
+			"/world holds or lies in /world/cache/pi, pi's own folder, where the fence lets commands write",
+			"/world/cache/pi/trees holds or lies in /world/cache/pi, pi's own folder, where the fence lets commands write",
+		]);
+	});
 
 	it("keeps a plain folder outside the home folder, once however often it's named", () => {
 		naming(home, ["/world/runs/a/src", "/world/runs/a/src"]);
@@ -273,14 +309,94 @@ describe.skipIf(process.platform !== "linux")(
 			);
 		});
 
+		// F50: the first read made before the folder goes, so fenceArgs's own
+		// read can't be what makes it.
 		it("makes a named home gone since the first read before a command starts", () => {
 			const named = join(runs, "src");
 			mkdirSync(named);
 			naming(home, [named]);
-			guardsGitFolder(join(named, ".git"), home);
+			expect(namedRepositoryHomes(home), "read first").toEqual([named]);
 			rmSync(named, { recursive: true });
 			fenceArgs({ home, runtimeDir: undefined });
 			expect(existsSync(named), "made again").toBe(true);
+		});
+
+		// F46, F53, F58, F63: each process once trusted what it saw first.
+		it("guards nothing in a named home put back, in a process that never read it before", async () => {
+			const named = join(runs, "src");
+			const git = repository(join(named, "o", "r"));
+			naming(home, [named]);
+			expect(guardsGitFolder(git, home), "guarded as first read").toBe(true);
+			rmSync(named, { recursive: true });
+			repository(join(named, "o", "r"));
+			const later = await anotherProcess();
+			expect(
+				later.guardsGitFolder(git, home),
+				"a later process trusts the one put back",
+			).toBe(false);
+		});
+
+		// F63, F64: a home pi couldn't make was left unbound, and its parent
+		// writable, so whatever made it later may be a command.
+		it("guards nothing in a named home that turned up where pi found none", async () => {
+			const parent = join(runs, "parent");
+			const named = join(parent, "src");
+			mkdirSync(parent, { mode: 0o555 });
+			naming(home, [named]);
+			try {
+				expect(namedRepositoryHomes(home), "pi can't make it").toEqual([]);
+			} finally {
+				chmodSync(parent, 0o755);
+			}
+			const git = repository(join(named, "o", "r"));
+			const later = await anotherProcess();
+			expect(
+				later.guardsGitFolder(git, home),
+				"a later process trusts what turned up",
+			).toBe(false);
+		});
+
+		// F63: a process read the settings once, so a home named after went
+		// unbound for as long as it lived.
+		it("reads a home named after the first read", () => {
+			naming(home, []);
+			expect(namedRepositoryHomes(home), "none named yet").toEqual([]);
+			naming(home, [runs]);
+			expect(namedRepositoryHomes(home), "named since").toEqual([runs]);
+		});
+
+		// F67: refused for good, with a way back the person can take.
+		it("says how to trust a home put back again, and trusts it once its record is gone", () => {
+			const named = join(runs, "src");
+			const git = repository(join(named, "o", "r"));
+			naming(home, [named]);
+			expect(namedHomeDoubt(home, named), "no doubt at first").toBeUndefined();
+			rmSync(named, { recursive: true });
+			repository(join(named, "o", "r"));
+			expect(namedHomeDoubt(home, named), "the way back").toContain(
+				records(home),
+			);
+			expect(guardsGitFolder(git, home), "unguarded until then").toBe(false);
+			rmSync(records(home), { recursive: true });
+			expect(guardsGitFolder(git, home), "guarded as it now stands").toBe(true);
+		});
+
+		// F57: a strict session there could write every clone in it.
+		it("lets no unfenced session write a folder holding a named home", () => {
+			const named = join(runs, "src");
+			mkdirSync(named);
+			expect(unfencedFolder(runs, home), "unnamed, it may").toBeUndefined();
+			naming(home, [named]);
+			expect(unfencedFolder(runs, home), "named, it may not").toContain(
+				`${named}, a repository home the person's settings name`,
+			);
+		});
+
+		// F32, F55: the bound itself, as `~/src` has it.
+		it("guards a clone at ~/src's own depth", () => {
+			const git = repository(join(runs, "a", "b", "c", "d"));
+			naming(home, [runs]);
+			expect(guardsGitFolder(git, home), "a clone four deep").toBe(true);
 		});
 
 		it("guards nothing deeper than ~/src's own depth", () => {

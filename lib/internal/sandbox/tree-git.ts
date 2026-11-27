@@ -47,6 +47,10 @@ import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import { readPlain } from "../../core/work/plain-file.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
 import type { Disk } from "../fence/fence-disk.ts";
+import {
+	namedHomeDoubt,
+	namedRepositoryHomes,
+} from "../fence/fence-repository-homes.ts";
 import { landsAt } from "./leads-to.ts";
 
 /** A path as it really is, or as given when it can't be resolved. */
@@ -267,6 +271,17 @@ const CUT_ELSEWHERE =
 	"Cut the tree from a checkout under ~/src, or under a repository home the person's settings name in sections.fence.repositoryHomes, whose settings the fence keeps read-only (`work tree`).";
 
 /**
+ * What to do about the unguarded git folder `git`: where it lies in a
+ * named home pi trusts no more, why and how it may be trusted again,
+ * since cutting the tree there again would be refused the same way.
+ */
+function whatToDo(git: string, home: string): string {
+	const top = namedRepositoryHomes(home).find((each) => lies(git, each));
+	const doubt = top === undefined ? undefined : namedHomeDoubt(home, top);
+	return doubt === undefined ? CUT_ELSEWHERE : `${doubt}.`;
+}
+
+/**
  * How git may run `args` in `folder` for pi, outside the fence: as
  * asked, with a tree's own git folder and working folder named
  * outright, or not at all, saying why. A caller that names the git
@@ -314,7 +329,7 @@ export function gitRun(
 		) {
 			return {
 				top: found.top,
-				refused: `${found.top} is a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
+				refused: `${found.top} is a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${whatToDo(real(found.git), rules.home)}`,
 			};
 		}
 		return outside(args);
@@ -339,7 +354,7 @@ export function gitRun(
 	) {
 		return {
 			top: found.top,
-			refused: `${found.top} is a worktree of ${tree.common}, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
+			refused: `${found.top} is a worktree of ${tree.common}, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${whatToDo(real(tree.common), rules.home)}`,
 		};
 	}
 	return outside([

@@ -30,6 +30,7 @@ import {
 	readOnlyPaths,
 } from "../fence/fence-home.ts";
 import { NPMRC } from "../fence/fence-npmrc.ts";
+import { namedRepositoryHomes } from "../fence/fence-repository-homes.ts";
 import {
 	MAC_HIDDEN,
 	MAC_PROGRAMS,
@@ -363,6 +364,14 @@ export function unfencedFolder(
 	if (within(home, cwd) || (mac && spelledWithin(folded(home), folded(cwd)))) {
 		return refusing(
 			"the home folder and the startup files that run outside the sandbox",
+		);
+	}
+	// A repository home the settings name holds clones git outside the
+	// sandbox trusts, so a folder holding one is refused as the home is.
+	const named = namedRepositoryHomes(home).find((top) => within(top, cwd));
+	if (named !== undefined) {
+		return refusing(
+			`${named}, a repository home the person's settings name, whose hooks and settings git runs outside the sandbox`,
 		);
 	}
 	const records = nodeRecords(home);

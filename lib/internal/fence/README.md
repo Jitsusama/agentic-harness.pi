@@ -137,9 +137,12 @@ would miss what another binds over it.
   their own in the sandbox's cache.
 - **`fence-repository-homes.ts`**: the folders outside the home folder
   the person's settings name in `sections.fence.repositoryHomes`, read
-  once a process from the settings file in the home folder, which the
-  fence keeps read-only as it keeps `~/src`; on Linux only, and never
-  the disk, the home folder, the harness's install or a link.
+  from the settings file in the home folder whenever it changes, which
+  the fence keeps read-only as it keeps `~/src`; on Linux only, and
+  never the disk, the home folder, the harness's install, pi's own
+  cache or state folder, or a link. The git guard trusts a home only
+  while it is the folder pi's record, written by the first pi to read
+  it, says it first was.
 - **`fence-seed.ts`**: those own homes seeded from what the person's
   programs already downloaded (cargo's crates, index and git clones),
   copied one way by reflink, again at most every ten minutes.

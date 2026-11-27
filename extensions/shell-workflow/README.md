@@ -104,10 +104,15 @@ through landrun:
   there run git outside the fence for their own sessions. On Linux,
   a folder outside the home folder that the person's settings file
   (`~/.config/pi/agentic-harness.pi/config.json`) names in
-  `sections.fence.repositoryHomes` is kept as `~/src` is, read once
-  a process; one that is the disk, the home folder or above it, the
-  harness's install or a link is refused with a warning, and a
-  missing one is skipped.
+  `sections.fence.repositoryHomes` is kept as `~/src` is, read again
+  whenever the settings change; one that is the disk, the home
+  folder or above it, the harness's install, pi's own cache or state
+  folder, or a link is refused with a warning, and a missing one is
+  made. pi records which folder each first was, in its state, and git
+  outside the fence trusts a home only while it is that folder.
+  Removing a home's record, once its contents are checked, trusts it
+  again as it stands, and a session isn't let write a folder that
+  holds a named home.
 - **No git of its making run outside.** pi runs git outside the fence
   (the work and review tools, the write classifier, verification), so
   it runs it only where a command couldn't have set what git runs
