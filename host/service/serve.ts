@@ -256,6 +256,9 @@ export async function serveHost(options: {
 					// A child's conversation that became another is told the backend
 					// as one the host runs is, so a repeat names the one now.
 					became: (previousId, nextId) => succeeded?.(previousId, nextId),
+					// One whose child failed mid-turn is woken as a message wakes it.
+					wake: (sessionId) =>
+						wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 					report: options.report,
 					...(options.say ? { say: options.say } : {}),
 				});

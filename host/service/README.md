@@ -453,7 +453,12 @@ input pipeline or screen. No unit or running host is installed yet.
   runs for a parked conversation. That needs a child's park marker to
   name the host's own wake file, as `parked.wakeFile` gives it under
   the host's key; one naming another is woken by nothing until a
-  window attaches.
+  window attaches. One whose child failed while its last state was
+  busy, as a child killed mid-turn leaves it, is then woken at once,
+  as a message wakes it, so the turn carries on as a host's restart
+  carries one on, rather than waiting for a window. It is woken so at
+  most once in `WOKEN_AGAIN_AFTER_MS` (10 minutes); failing so again
+  sooner, it rests, and the journal says so.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

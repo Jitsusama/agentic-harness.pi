@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type HostedChildren,
 	hostChildren,
+	WOKEN_AGAIN_AFTER_MS,
 } from "../../../host/service/child-hosting.ts";
 import type { ChildPolicy } from "../../../host/service/child-policy.ts";
 import { BEGIN_TOO_LATE } from "../../../host/service/child-requests.ts";
@@ -33,6 +34,10 @@ let givenUp: RosterEntry[];
 let resting: boolean;
 // Why the engine can't rest one given up, or nothing once it rests.
 let givingUp: string | undefined;
+// Each conversation woken, in order, and how its wake goes.
+let woken: string[];
+let waking: () => Promise<void>;
+let clock: number;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
 let children: HostedChildren;
 
@@ -64,6 +69,9 @@ beforeEach(async () => {
 	givenUp = [];
 	resting = true;
 	givingUp = undefined;
+	woken = [];
+	waking = async () => undefined;
+	clock = 0;
 	const moving = new Set<string>();
 	policy = {
 		moving,
@@ -98,6 +106,11 @@ function hosting(restsGivenUp: boolean): HostedChildren {
 		report: (error) => reported.push(error),
 		say: (line) => said.push(line),
 		became: (previousId, nextId) => told.push([previousId, nextId]),
+		wake(sessionId) {
+			woken.push(sessionId);
+			return waking();
+		},
+		now: () => clock,
 		timings: {
 			listensWithinMs: 5_000,
 			answersWithinMs: 500,
@@ -151,6 +164,88 @@ describe("a host's children", () => {
 		await vi.waitFor(() =>
 			expect(rested.map(({ sessionId }) => sessionId)).toEqual([a]),
 		);
+	});
+
+	describe("one whose child failed mid-turn", () => {
+		/** Resume `a` in a child that says it is busy, as one mid-turn does. */
+		async function busy() {
+			await children.backend.resume(entryIn(folder, a), true);
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state: "busy" },
+			});
+			await vi.waitFor(() =>
+				expect(children.backend.running(a)?.state).toBe("busy"),
+			);
+		}
+
+		// Item 7: rested, a turn its child was killed in waited for a window or
+		// a message, though a host's own restart carries every such turn on.
+		it("wakes it at once, once rested", async () => {
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(woken, "woken").toEqual([a]));
+			expect(
+				rested.map(({ sessionId }) => sessionId),
+				"rested first, so its wake stays watched",
+			).toEqual([a]);
+			expect(said).toContain(
+				`${a}: its child failed mid-turn, so it is woken to carry the turn on`,
+			);
+		});
+
+		it("leaves one idle as its child failed resting", async () => {
+			await children.backend.resume(entryIn(folder, a), true);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "nothing left unanswered").toEqual([]);
+		});
+
+		it("leaves one whose busy child said it parked resting", async () => {
+			await busy();
+			await units.childOf(a).end("parked");
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "a park keeps its turn for the next wake").toEqual([]);
+		});
+
+		it("rests it when it fails so again within the spacing of its last wake, and wakes it past it", async () => {
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(woken).toEqual([a]));
+
+			clock += WOKEN_AGAIN_AFTER_MS - 1;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn again within 10 minutes of its last wake, so it rests until it is asked for`,
+				),
+			);
+			expect(woken, "not woken a second time").toEqual([a]);
+
+			clock += 1;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "woken once the spacing has passed").toEqual([a, a]),
+			);
+		});
+
+		it("says a wake that didn't land, rather than reporting it", async () => {
+			waking = () => Promise.reject(new Error("the host is stopping"));
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its wake after its child failed mid-turn didn't land: the host is stopping`,
+				),
+			);
+			expect(reported).toEqual([]);
+		});
 	});
 
 	// F167: a bounded resume, as a start's, that gives its child up before
