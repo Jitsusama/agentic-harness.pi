@@ -430,7 +430,10 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 	it("takes origin's main though another ref's name ends in it", async () => {
 		const checkout = await harness();
-		// ls-remote lists every ref whose name ends in refs/heads/main.
+		// ls-remote lists every ref whose name ends in refs/heads/main. This
+		// one adds the head's file otherwise, so a gate that took it as main
+		// would refuse the head as not merging cleanly.
+		await change(checkout, { "lib/tidy.ts": "export const tidy = 2;\n" });
 		const tail = "refs/heads/x/refs/heads/main";
 		await git(checkout, "push", "-q", "origin", `HEAD:${tail}`);
 		const sha = await change(checkout, {
@@ -552,6 +555,27 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "the fetch of main refused").toContain(
 			`main's ${main} couldn't be fetched whole from origin`,
 		);
+	});
+
+	it("judges two changes at once in one new store, each rightly", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const untidy = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+
+		// Both make the store, and fetch the same main into it, at once.
+		const [passed, refused] = await Promise.all([
+			gate(checkout, tidy, { XDG_STATE_HOME: state }),
+			gate(checkout, untidy, { XDG_STATE_HOME: state }),
+		]);
+
+		expect(passed.code, passed.said).toBe(0);
+		expect(refused.code, refused.said).toBe(1);
+		expect(refused.said).toContain("lib/untidy.ts");
 	});
 
 	it("judges a second change in the store a first run left, by refs of its own", async () => {

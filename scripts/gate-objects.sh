@@ -79,7 +79,11 @@ signing_in() {
 # the variables that turn them off for it, so its command names them.
 fetched() {
   local by=$1 from=$2 id=$3 ref=$4 own=()
-  if [[ -d $from ]]; then
+  # Only an absolute path is a repository here: a URL such as
+  # git@github.com:o/r.git reads as a relative path too, and a folder a
+  # session made under that name in the checkout would have the gate name
+  # its own upload-pack to the server.
+  if [[ $from == /* && -d $from ]]; then
     own=("--upload-pack=env GIT_GRAFT_FILE=/dev/null GIT_NO_REPLACE_OBJECTS=1 git -c core.commitGraph=false upload-pack")
   fi
   "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${own[@]+"${own[@]}"} \
@@ -93,15 +97,20 @@ holds() {
   named=$(stored rev-parse --verify --quiet "$ref^{commit}") && [[ $named == "$id" ]]
 }
 
+# Whether the store is a repository git can read.
+made() { stored rev-parse --git-dir > /dev/null 2>&1; }
+
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
-  local gate=$1 sha=$2 url listed line checkout said
-  # git init again on a store that's there only makes what's missing, so a
-  # store a first run left half-made is mended, and two first runs at once
-  # both end with a whole one.
+  local gate=$1 sha=$2 url shown listed line checkout said
+  # The store is made only where it isn't yet, since git init rewrites its
+  # config under config.lock, and two gates at once would refuse each
+  # other. A store a first run left half-made is mended by making it
+  # again, and an init that fails because another gate was making it at
+  # the same moment is judged by whether the store is there after.
   if ! (umask 077 && mkdir -p "$gate_home") ||
-    ! clean git init -q --bare --template= "$gate_store"; then
+    ! { made || clean git init -q --bare --template= "$gate_store" || made; }; then
     echo "$gate: can't keep the objects it judges in $gate_home, so none can be read as hashed." >&2
     echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does." >&2
     exit 1
@@ -109,6 +118,11 @@ gate_objects() {
   # The checkout's own config names origin, which the fence keeps from a
   # session.
   url=$(git remote get-url origin)
+  # What the gate prints of it, without a sign-in an https URL may hold.
+  shown=$url
+  if [[ $url =~ ^([A-Za-z][A-Za-z0-9+.-]*://)[^/]*@(.*)$ ]]; then
+    shown=${BASH_REMATCH[1]}${BASH_REMATCH[2]}
+  fi
   # ls-remote matches its pattern as a path's tail, so a ref such as
   # refs/heads/x/refs/heads/main is listed too, and only the line naming
   # refs/heads/main itself is main.
@@ -121,7 +135,7 @@ gate_objects() {
     done <<< "$listed"
   fi
   if [[ -z $main_id ]]; then
-    echo "$gate: origin ($url) didn't name its main, so nothing can be judged against it." >&2
+    echo "$gate: origin ($shown) didn't name its main, so nothing can be judged against it." >&2
     exit 1
   fi
   # A fetch that fails because another gate is writing the same ref at
