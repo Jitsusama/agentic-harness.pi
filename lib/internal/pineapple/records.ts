@@ -18,9 +18,28 @@ import { effectiveCwd, tokenize } from "../../command/index.ts";
 import { unquote } from "../../shell/index.ts";
 import { words } from "./writes.ts";
 
-/** Programs that only read what they are pointed at. */
+/**
+ * Programs that only read what they are pointed at, or only look at it:
+ * where a link leads, whether a path is there, a sum of what it holds.
+ * None writes a file named after the path it reads (`xxd`, `sort -o` and
+ * `cp` can, so they aren't here).
+ */
 const READS = new Set([
 	"cat",
+	"readlink",
+	"realpath",
+	"namei",
+	"test",
+	"[",
+	"cmp",
+	"diff",
+	"md5sum",
+	"sha1sum",
+	"sha256sum",
+	"shasum",
+	"b2sum",
+	"od",
+	"hexdump",
 	"less",
 	"more",
 	"head",

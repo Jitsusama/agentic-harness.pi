@@ -321,9 +321,10 @@ function extractRedirects(words: Word[]): {
 	return { argv, redirects };
 }
 
-const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/** `NAME=value`, or `NAME+=value`, which bash reads as appending. */
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 
-/** Whether a word is a leading NAME=value env assignment. */
+/** Whether a word is a leading NAME=value or NAME+=value assignment. */
 function isAssignment(text: string): boolean {
 	return ASSIGNMENT.test(text);
 }

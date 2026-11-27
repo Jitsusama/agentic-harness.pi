@@ -451,8 +451,9 @@ const WRAPPERS: Record<string, Grammar> = {
 /**
  * The command a wrapper runs, with the wrapper and its options removed.
  *
- * `env` also takes the assignments before the command, and `nice -5` is
- * the old spelling of an adjustment, so neither is read as the command.
+ * `env` also takes the settings before the command, any word holding `=`
+ * as `a.b=1`, and `nice -5` is the old spelling of an adjustment, so
+ * neither is read as the command.
  */
 export function unwrap(argv: readonly string[]): string[] {
 	let words = [...argv];
@@ -462,7 +463,7 @@ export function unwrap(argv: readonly string[]): string[] {
 		let at = 1;
 		while (at < words.length) {
 			const word = words[at] ?? "";
-			if (words[0] === "env" && /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
+			if (words[0] === "env" && word.includes("=")) {
 				at++;
 				continue;
 			}

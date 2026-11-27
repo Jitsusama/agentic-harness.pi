@@ -155,6 +155,7 @@ describe("resolveBashWrites", () => {
 			["unzip -q in.zip -d lab", ["/session/lab"]],
 			["nohup cp a.txt b.txt &", ["/session/b.txt"]],
 			["time env X=1 nice -n 5 command mkdir d", ["/session/d"]],
+			["env a.b=1 -u X mkdir e", ["/session/e"]],
 		];
 		for (const [command, paths] of cases) {
 			expect(resolveBashWrites(command, where).paths, command).toEqual(paths);
@@ -369,6 +370,22 @@ describe("a target the command names through a variable", () => {
 		expect(
 			bashWriteTargets("P=/tmp/one; P=/tmp/two; echo hi > $P/f.txt"),
 		).toEqual(["/tmp/two/f.txt"]);
+		// A quoted value later than a bare one still wins.
+		expect(bashWriteTargets('Q=/a; Q="/b"; echo hi > $Q/f')).toEqual(["/b/f"]);
+	});
+
+	it("appends NAME+=value to what the command set it to", () => {
+		expect(bashWriteTargets("Q=/tmp/q; Q+=/plans; echo hi > $Q/P.md")).toEqual([
+			"/tmp/q/plans/P.md",
+		]);
+		expect(
+			bashWriteTargets('Q="/tmp/a b"; Q+="/c"; echo hi > "$Q/f.txt"'),
+		).toEqual(["/tmp/a b/c/f.txt"]);
+		expect(bashWriteTargets('Q=/tmp/q; Q+="/c"; echo hi > "$Q/f.txt"')).toEqual(
+			["/tmp/q/c/f.txt"],
+		);
+		// Appending to what the command never said leaves it unknown.
+		expect(bashWriteTargets("Q+=/plans; echo hi > $Q/P.md")).toEqual([]);
 	});
 
 	it("keeps a prefix assignment to the command it prefixes", () => {

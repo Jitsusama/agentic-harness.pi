@@ -78,6 +78,22 @@ describe("writesInBash", () => {
 		]);
 	});
 
+	it("reads a remote with a slash but no colon as one git names", () => {
+		// A remote may be named so, and git looks the name up before it
+		// reads the word as a path, which settle asks it about.
+		for (const remote of ["me/x", "../shop.git", "/srv/example/shop.git"]) {
+			expect(writesInBash(`git push ${remote} main`, HERE), remote).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote,
+					source: "main",
+				},
+			]);
+		}
+	});
+
 	it("reads a push naming several branches as a write to each", () => {
 		const branches = (command: string) =>
 			writesInBash(command, HERE).map((write) => write.branch ?? write.source);
@@ -126,6 +142,8 @@ describe("writesInBash", () => {
 			"git -c core.sshCommand=ssh-elsewhere push origin x",
 			"git -c core.gitProxy=elsewhere push origin x",
 			"git -c core.hooksPath=/elsewhere push origin x",
+			"git -c submodule.recurse=true push origin x",
+			"git -c submodule.shop.url=elsewhere push origin x",
 			"git --exec-path=/elsewhere push origin x",
 			"git --git-dir .git push origin x",
 			"git --work-tree=/elsewhere push origin x",
@@ -167,6 +185,255 @@ describe("writesInBash", () => {
 			"export FOO=1; git push origin x",
 			"set -eu; git push origin x",
 			"GIT_DIR=/elsewhere git status; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads NAME+=value before a push as an assignment, as bash does", () => {
+		// bash appends to the name, so git's names move git as = does.
+		for (const command of [
+			"HOME+=/elsewhere git push origin x",
+			"env GIT_CONFIG_GLOBAL+=/elsewhere git push origin x",
+			"export PATH+=:/elsewhere; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Any other name appended to leaves the push to read as it is.
+		for (const command of [
+			"X+=1 git push origin x",
+			"env X+=1 git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads every word holding = before env's program as env does", () => {
+		// GNU env sets any of them, a name no shell would take among them.
+		for (const command of [
+			"env a.b=1 git push origin x",
+			"env -i a-b=1 =2 git push origin x",
+			"/usr/bin/env 1x=y git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push after a command that wrote where pushes go as naming nothing", () => {
+		for (const command of [
+			"git config remote.origin.pushurl git@github.com:example/stopped.git && git push origin x",
+			"git config --global push.default upstream; git push origin x",
+			"git config set branch.x.merge refs/heads/stopped; git push origin x",
+			"git config --unset remote.origin.push; git push origin x",
+			"git config --remove-section url.elsewhere; git push origin x",
+			"git config --file .git/config core.sshCommand ssh-elsewhere; git push origin x",
+			"git config --edit; git push origin x",
+			"git config submodule.recurse true; git push origin x",
+			"git -C . config include.path /elsewhere; git push origin x",
+			"git remote set-url --push origin git@github.com:example/stopped.git; git push origin x",
+			"git remote add elsewhere git@github.com:example/stopped.git; git push origin x",
+			"git remote -v rename origin old; git push origin x",
+			"git remote rm origin; git push origin x",
+			"git remote set-branches origin x; git push origin x",
+			"git branch -u origin/stopped; git push origin x",
+			"git branch --set-upstream-to=origin/stopped x; git push origin x",
+			"git branch --unset-upstream; git push origin x",
+			"git branch --track x origin/stopped; git push origin x",
+			"git branch -m stopped x; git push origin x",
+			"git branch -M stopped x; git push origin x",
+			"git branch -fm stopped x; git push origin x",
+			"git branch --move stopped x; git push origin x",
+			"git branch --mov stopped x; git push origin x",
+			"git branch -c stopped x; git push origin x",
+			"git branch -C stopped x; git push origin x",
+			"git branch --copy stopped x; git push origin x",
+			"sudo git config push.default upstream; git push origin x",
+			"flock /tmp/l git config push.default upstream; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Reading git's settings, or writing others, moves nothing.
+		for (const command of [
+			"git config remote.origin.pushurl; git push origin x",
+			"git config --get push.default; git push origin x",
+			"git config --get-all remote.origin.push; git push origin x",
+			"git config --get-regexp remote; git push origin x",
+			"git config --list; git push origin x",
+			"git config -l; git push origin x",
+			"git config get push.default; git push origin x",
+			"git config user.name Someone; git push origin x",
+			"git config --type bool core.fsmonitor false; git push origin x",
+			"git remote -v; git push origin x",
+			"git remote get-url origin; git push origin x",
+			"git branch -d old; git push origin x",
+			"git branch -D old; git push origin x",
+			"git branch --list; git push origin x",
+			"git branch -vv; git push origin x",
+			"git branch --contains HEAD; git push origin x",
+			"git branch --merged; git push origin x",
+			"git status; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push after what may set git's environment as naming nothing", () => {
+		for (const command of [
+			'eval "$SETUP"; git push origin x',
+			"source ./elsewhere.sh && git push origin x",
+			". ~/.elsewhere; git push origin x",
+			"printf -v HOME %s /elsewhere; git push origin x",
+			"printf -vPATH %s /elsewhere; git push origin x",
+			'printf -v "$name" %s /elsewhere; git push origin x',
+			"read -r GIT_SSH_COMMAND < elsewhere; git push origin x",
+			"mapfile -t PATH < elsewhere; git push origin x",
+			"readarray XDG_CONFIG_HOME < elsewhere; git push origin x",
+			"unset GIT_DIR; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Other names set, and what eval runs itself, read as they are.
+		for (const command of [
+			"eval 'git push origin x'",
+			"printf -v message %s hi; git push origin x",
+			"printf '%s' HOME; git push origin x",
+			"read -r answer; git push origin x",
+			"mapfile -t lines < list; git push origin x",
+			"unset message; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push after a sourced stdin that moved git's environment as naming nothing", () => {
+		// Sourcing runs the lines in this shell, so what they set stays.
+		for (const command of [
+			"source /dev/stdin <<< 'export GIT_DIR=x'; git push origin x",
+			"echo 'export HOME=/elsewhere' | . /dev/stdin; git push origin x",
+			"source /dev/stdin <<< 'eval \"$SETUP\"' && git push origin x",
+			"source /dev/stdin <<< 'true; unset PATH'; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// A child shell's environment dies with it, as one sourcing does.
+		for (const command of [
+			"source /dev/stdin <<< 'export message=hi'; git push origin x",
+			"bash <<< 'export GIT_DIR=x'; git push origin x",
+			"echo 'export GIT_DIR=x' | sh; git push origin x",
+			"sh -c 'export GIT_DIR=x'; git push origin x",
+			"bash -c 'source /dev/stdin <<< \"export HOME=/x\"'; git push origin x",
+			"ssh host 'git config push.default upstream'; git push origin x",
+			"echo 'git config push.default upstream' | ssh host; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push after a child shell that wrote where pushes go as naming nothing", () => {
+		// What it writes to the repository outlives it.
+		for (const command of [
+			"sh -c 'git config remote.origin.pushurl y'; git push origin x",
+			"bash -c 'git remote add elsewhere y' && git push origin x",
+			"bash <<< 'git branch -u origin/stopped'; git push origin x",
+			"echo 'git config push.default upstream' | sh; git push origin x",
+			"source /dev/stdin <<< 'git config push.default upstream'; git push origin x",
+			"sh -c \"bash -c 'git config push.default upstream'\"; git push origin x",
+			"flock /tmp/l -c 'git config push.default upstream'; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Reading the settings there moves nothing.
+		for (const command of [
+			"sh -c 'git config --get push.default'; git push origin x",
+			"bash <<< 'git remote -v'; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([
 				{
@@ -235,6 +502,27 @@ describe("writesInBash", () => {
 					dir: HERE,
 					remote: "origin",
 					source: "drill",
+				},
+			]);
+		}
+	});
+
+	it("reads a push option ending a cluster as taking the next word", () => {
+		for (const command of [
+			"git push -o ci.skip origin x",
+			"git push -fo ci.skip origin x",
+			"git push -vfo ci.skip origin x",
+			// What follows a cluster's first o is its value.
+			"git push -oo origin x",
+			"git push -fov origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
 				},
 			]);
 		}
@@ -359,6 +647,7 @@ describe("writesInBash", () => {
 		held("sh -ec pi", "pi");
 		held("env -i pi", "pi");
 		held("env -u HOME -C /tmp pi", "pi");
+		held("env a.b=1 pi", "pi");
 		held("systemd-run --user --on-active 30 pi", "pi");
 		held("stdbuf -o L pi -p go", "pi");
 		held("mycelium start --need machine=mac -- worker", "mycelium start");
@@ -941,7 +1230,19 @@ describe("references", () => {
 		expect(repoOfUrl("ssh://git@code.example.com/example/shop.git")).toBe(
 			"example/shop",
 		);
+		expect(repoOfUrl("github.com:Example/Shop.git")).toBe("example/shop");
 		expect(repoOfUrl("shop")).toBeUndefined();
+		expect(
+			writesInBash("git push github.com:Example/Shop.git x", HERE),
+		).toEqual([
+			{
+				action: "git push",
+				kind: "change",
+				dir: HERE,
+				repo: "example/shop",
+				source: "x",
+			},
+		]);
 	});
 
 	it("finds the branch a bare push goes to as git does", async () => {

@@ -177,6 +177,9 @@ export function repoOfUrl(url: string): string | undefined {
 		.trim()
 		.replace(/^[a-z+]+:\/\/[^/]+\//i, "")
 		.replace(/^[^@/]+@[^:]+:/, "")
+		// scp-style with no user, as `github.com:owner/name`, which git
+		// reads so for any host before a colon with no slash ahead of it.
+		.replace(/^[^@/:]+:/, "")
 		.replace(/\.git\/?$/, "")
 		.replace(/\/$/, "");
 	const parts = path.split("/").filter(Boolean);
@@ -515,12 +518,13 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// What it's given to run with, its assignments and env's among its
 		// words, may move where its pushes go.
 		const env = [...simple.assignments.map((word) => unquote(word.text))];
-		// An environment moved earlier in the line is inherited by every
-		// git after it.
-		moved ||= movesGit(own, env);
 		const moving = moved
 			? [...env, ...given.own, MOVED]
 			: [...env, ...given.own];
+		// An environment moved earlier in the line is inherited by every
+		// git after it, and a setting written earlier is read by it. What
+		// a command runs itself, as eval does, is read where it runs.
+		moved ||= movesLater(line, simple, false);
 		writes.push(...pushesGiven(writeIn(own, dir), moving));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;
@@ -563,6 +567,51 @@ function fedTo(
 		lines.push(...fed.own.slice(1), ...fed.strings);
 	}
 	return shell ? { lines } : { lines, runner: name };
+}
+
+/**
+ * Whether a command moves where the pushes after it in its line go, by
+ * its own words ({@link movesGit}, {@link setsPushes}) or by what it
+ * runs or is fed. What a sourced stdin runs moves this shell's own
+ * environment. A child shell's, as `sh -c` or `bash <<<` runs, dies
+ * with it (`child`), but a setting, a remote or an upstream it writes
+ * stays in the repository. What an opaque runner runs, as ssh does on
+ * another host, moves nothing here.
+ */
+function movesLater(
+	line: CommandLine,
+	simple: SimpleCommand,
+	child: boolean,
+): boolean {
+	const given = hereStrings(simple.argv.map((word) => unquote(word.text)));
+	const own = unwrapped(given.own);
+	const env = simple.assignments.map((word) => unquote(word.text));
+	if (!child && movesGit(own, env)) return true;
+	const last = ranAtLast(own);
+	if (setsPushes(last)) return true;
+	const [program = "", ...args] = last;
+	const name = program.split("/").at(-1) ?? "";
+	// A line handed on runs in a child, eval's apart, which movesGit
+	// already counts as moving anything.
+	const ran = runs(name, args);
+	if (ran?.opaque === undefined && ran !== undefined && "line" in ran)
+		return movesInLine(ran.line, true);
+	const fed = fedTo(line, simple, own, given.strings);
+	if (fed === undefined || fed.runner !== undefined) return false;
+	const sourced = sourcesStdin(name, args);
+	return fed.lines.some((one) => movesInLine(one, child || !sourced));
+}
+
+/**
+ * Whether a line run as {@link movesLater} reads it moves the pushes
+ * after it. One the command model can't read may move anything.
+ */
+function movesInLine(command: string, child: boolean): boolean {
+	const source = inlined(ansiUnquoted(uncommented(command)));
+	const read = defusedLine(source);
+	const line = read.supported ? read : defusedLine(flatten(source).line);
+	if (!line.supported) return true;
+	return line.commands.some((simple) => movesLater(line, simple, child));
 }
 
 /**
@@ -712,10 +761,11 @@ const GIT_VALUED = new Set([
 
 /**
  * The keys of git's config that choose where a push goes, or that read
- * in more settings which may: an include, and the ssh program run.
+ * in more settings which may: an include, and the ssh program run. A
+ * submodule's, as `submodule.recurse`, may push its submodules too.
  */
 const PUSH_SETTINGS =
-	/^(?:push|remote|branch|url|include|includeif)\.|^core\.(?:sshcommand|gitproxy|hookspath)(?:=|$)/i;
+	/^(?:push|remote|branch|url|include|includeif|submodule)\.|^core\.(?:sshcommand|gitproxy|hookspath)(?:=|$)/i;
 
 /**
  * git's options before its verb that move the repository it reads, or
@@ -731,8 +781,8 @@ const GIT_ELSEWHERE = /^--(?:git-dir|work-tree)(?:=|$)|^--exec-path=/;
 const GIT_NAMES =
 	"GIT_(?:DIR|WORK_TREE|COMMON_DIR|CONFIG\\w*|SSH\\w*|EXEC_PATH|PROXY_COMMAND)|HOME|XDG_CONFIG_HOME|PATH";
 
-/** One of {@link GIT_NAMES} given a value. */
-const GIT_ENV = new RegExp(`^(?:${GIT_NAMES})=`);
+/** One of {@link GIT_NAMES} given a value, or appended to as `+=` does. */
+const GIT_ENV = new RegExp(`^(?:${GIT_NAMES})\\+?=`);
 
 /** One of {@link GIT_NAMES} alone, as `export` names one already set. */
 const GIT_NAME = new RegExp(`^(?:${GIT_NAMES})$`);
@@ -743,11 +793,16 @@ const MOVED = "GIT_DIR=(moved earlier in the line)";
 /** The shell's commands that export what they name, or set. */
 const EXPORTS = new Set(["export", "declare", "typeset", "readonly", "local"]);
 
+/** The shell's commands that set, or unset, the names they're given. */
+const SETS_NAMED = new Set(["read", "mapfile", "readarray", "unset"]);
+
 /**
  * Whether a command, its words `own` and assignments `env`, moves the
  * environment the gits after it in the line inherit: one setting or
  * exporting one of {@link GIT_NAMES}, or `set -a`, after which every such
- * setting is exported.
+ * setting is exported. `eval`, and a script sourced from anywhere but
+ * stdin (whose lines are read where it is fed), may set any of them, and
+ * what they run isn't known.
  */
 function movesGit(own: string[], env: string[]): boolean {
 	const [verb, ...rest] = own;
@@ -755,10 +810,159 @@ function movesGit(own: string[], env: string[]): boolean {
 	if (EXPORTS.has(verb)) {
 		return rest.some((word) => GIT_ENV.test(word) || GIT_NAME.test(word));
 	}
+	if (verb === "eval") return true;
+	if (verb === "source" || verb === ".") return !sourcesStdin(verb, rest);
+	if (verb === "printf") {
+		const [flag = "", next] = rest;
+		const name =
+			flag === "-v" ? next : flag.startsWith("-v") ? flag.slice(2) : undefined;
+		return name !== undefined && namesGit(name);
+	}
+	if (SETS_NAMED.has(verb)) return rest.some(namesGit);
 	return (
 		verb === "set" &&
 		rest.some((word) => /^-\w*a/.test(word) || word === "allexport")
 	);
+}
+
+/**
+ * Whether a command writes what git reads to choose where a push goes,
+ * so the pushes after it in the line go where git's settings no longer
+ * say: a setting {@link PUSH_SETTINGS} names, a remote, or a branch's
+ * upstream. Switching branches is left to what settle reads.
+ */
+function setsPushes(own: string[]): boolean {
+	const [program, ...args] = own;
+	if (program?.split("/").at(-1) !== "git") return false;
+	const [verb, ...rest] = args.slice(gitVerbAt(args));
+	if (verb === "config") return writesPushSetting(rest);
+	if (verb === "remote") {
+		const sub = rest.find((word) => !word.startsWith("-"));
+		return sub !== undefined && REMOTE_MOVES.has(sub);
+	}
+	return verb === "branch" && rest.some(movesUpstream);
+}
+
+/** Where git's verb stands among its words, past the options before it. */
+function gitVerbAt(args: string[]): number {
+	let at = 0;
+	while ((args[at] ?? "").startsWith("-")) {
+		const flag = args[at] ?? "";
+		at += flag === "-C" || GIT_VALUED.has(flag) ? 2 : 1;
+	}
+	return at;
+}
+
+/** `git remote`'s verbs that add, move or take away where one pushes. */
+const REMOTE_MOVES = new Set([
+	"add",
+	"set-url",
+	"rename",
+	"remove",
+	"rm",
+	"set-branches",
+]);
+
+/**
+ * Whether an option of git branch sets or unsets a branch's upstream,
+ * which a push goes to when `push.default` is upstream: `-u` or `-t`
+ * among other short options, or their long names by a prefix. Moving or
+ * copying a branch (`-m`, `-M`, `-c`, `-C`) takes its settings, its
+ * upstream among them, to the name it is given.
+ */
+function movesUpstream(word: string): boolean {
+	if (/^-[^-]/.test(word)) return /^-[A-Za-z]*[tuMmCc]/.test(word);
+	return (
+		isOption(word, "--set-upstream-to", 3) ||
+		isOption(word, "--unset-upstream", 3) ||
+		isOption(word, "--track", 4) ||
+		isOption(word, "--move", 3) ||
+		isOption(word, "--copy", 3)
+	);
+}
+
+/** git config's options that only read. */
+const CONFIG_READS = new Set([
+	"--get",
+	"--get-all",
+	"--get-regexp",
+	"--get-urlmatch",
+	"--get-color",
+	"--get-colorbool",
+	"--list",
+	"-l",
+]);
+
+/** git config's options that write with a name alone, or a section's. */
+const CONFIG_WRITES = new Set([
+	"--unset",
+	"--unset-all",
+	"--add",
+	"--replace-all",
+	"--rename-section",
+	"--remove-section",
+]);
+
+/** git config's options that take the next word as their value. */
+const CONFIG_VALUED = new Set([
+	"-f",
+	"--file",
+	"--blob",
+	"--type",
+	"--default",
+	"--comment",
+	"--value",
+]);
+
+/** git config's verbs that write the name after them. */
+const CONFIG_VERBS = new Set([
+	"set",
+	"unset",
+	"rename-section",
+	"remove-section",
+]);
+
+/**
+ * Whether `git config`'s words write a key, or a section holding one,
+ * that {@link PUSH_SETTINGS} names. Opening an editor may write any. A
+ * name with nothing after it, and no option that writes, is read.
+ */
+function writesPushSetting(args: string[]): boolean {
+	const named: string[] = [];
+	let writes = false;
+	for (let at = 0; at < args.length; at += 1) {
+		const word = args[at] ?? "";
+		if (word === "--") {
+			named.push(...args.slice(at + 1));
+			break;
+		}
+		if (!word.startsWith("-")) named.push(word);
+		else if (CONFIG_READS.has(word)) return false;
+		else if (word === "-e" || word === "--edit") return true;
+		else if (CONFIG_WRITES.has(word)) writes = true;
+		else if (CONFIG_VALUED.has(word)) at += 1;
+	}
+	const [first, second] = named;
+	if (first === "get" || first === "list") return false;
+	if (first === "edit") return true;
+	const verb = first !== undefined && CONFIG_VERBS.has(first);
+	const key = verb ? second : first;
+	if (key === undefined || (!verb && !writes && named.length < 2)) return false;
+	// A section's name stands for every key in it.
+	return (
+		PUSH_SETTINGS.test(key) ||
+		PUSH_SETTINGS.test(`${key}.`) ||
+		/^core$/i.test(key)
+	);
+}
+
+/**
+ * Whether a word a builtin sets may be one of {@link GIT_NAMES}: one of
+ * them, or one named by a variable. An option's value read as a name
+ * holds more than it need, never less.
+ */
+function namesGit(word: string): boolean {
+	return GIT_NAME.test(word) || word.includes("$");
 }
 
 /**
@@ -878,11 +1082,15 @@ function pushesElsewhere(word: string, next: string | undefined): boolean {
 	return value !== "no" && value !== "check";
 }
 
-/** git push's options that take the next word as their value. */
+/**
+ * git push's options that take the next word as their value: `-o`, alone
+ * or ending a cluster of short options, as `-fo` does, since the rest of
+ * a cluster after its first `o` is that `o`'s value.
+ */
 function takesValue(word: string): boolean {
 	if (word.includes("=")) return false;
 	return (
-		word === "-o" ||
+		/^-[^-o]*o$/.test(word) ||
 		isOption(word, "--push-option", 3) ||
 		isOption(word, "--repo", 5) ||
 		isOption(word, "--receive-pack", 6) ||
@@ -983,9 +1191,13 @@ function deletion(refspec: string, call: WriteCall): WriteCall {
 	return branch === undefined ? call : { ...call, branch };
 }
 
-/** A remote named by name stays for git; one given as a URL names its repo. */
+/**
+ * A remote named by name stays for git; one given as a URL names its
+ * repo. A word with a slash but no colon is a name git looks up first,
+ * or a path, and never owner/name, so it stays for git too.
+ */
 function remotePart(remote: string): { remote: string } | { repo: string } {
-	const repo = /[:/]/.test(remote) ? repoOfUrl(remote) : undefined;
+	const repo = remote.includes(":") ? repoOfUrl(remote) : undefined;
 	return repo ? { repo } : { remote };
 }
 

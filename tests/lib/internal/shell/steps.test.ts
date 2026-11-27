@@ -60,6 +60,28 @@ describe("a command's steps", () => {
 		).toBe(false);
 	});
 
+	it("appends NAME+=value to what the command set it to", () => {
+		const steps =
+			stepsOf("K=/t; K+=/sub; cd $K; J+=/x; R+=$(pwd); y", "/w", HOME) ?? [];
+		expect(steps.map((step) => step.cwd)).toEqual([
+			"/w",
+			"/w",
+			"/w",
+			"/t/sub",
+			"/t/sub",
+			"/t/sub",
+		]);
+		expect(steps[5]?.vars.get("K")).toBe("/t/sub");
+		expect(
+			steps[5]?.vars.has("J"),
+			"J, appended to with nothing known before, is unknown",
+		).toBe(false);
+		expect(
+			steps[5]?.substituted.has("R"),
+			"R, appended to, is no one command's output",
+		).toBe(false);
+	});
+
 	it("keeps a redirection's ampersand inside its step", () => {
 		const steps = stepsOf("a >x 2>&1; b &>y", "/w", HOME) ?? [];
 		expect(steps.map((step) => step.text.trim())).toEqual([

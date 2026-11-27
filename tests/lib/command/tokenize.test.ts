@@ -72,6 +72,16 @@ describe("tokenize", () => {
 		expect(command.argv.map((w) => w.text)).toEqual(["gh", "pr", "create"]);
 	});
 
+	it("separates a leading NAME+=value, which bash appends with", () => {
+		const command = at(tokenize("PATH+=:/x A=1 git push").commands, 0);
+
+		expect(command.assignments.map((w) => w.text)).toEqual([
+			"PATH+=:/x",
+			"A=1",
+		]);
+		expect(command.argv.map((w) => w.text)).toEqual(["git", "push"]);
+	});
+
 	it("keeps a non-leading equals as an argv word", () => {
 		const command = at(tokenize("git config user.email a=b").commands, 0);
 
