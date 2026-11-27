@@ -17,7 +17,7 @@ import type { ChangeRef } from "../../../../lib/core/review/index.ts";
 const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
 const head = "b".repeat(40);
 
-/** Where the node's command lies, as PATH finds it. */
+/** Where the node's command lies, standing in for the system profile's. */
 const MYCELIUM = "/run/node/bin/mycelium";
 const found = () => MYCELIUM;
 
@@ -80,7 +80,9 @@ describe("the room a round's reviewers run on", () => {
 		const path = await config({ room: { machine: "room-1" } });
 
 		for (const key of ["github:shop/world", "github:someone/core.nix"]) {
-			expect(await roomFor(change(key), head, harness, path)).toBeUndefined();
+			expect(
+				await roomFor(change(key), head, harness, path, found),
+			).toBeUndefined();
 		}
 	});
 
@@ -90,9 +92,11 @@ describe("the room a round's reviewers run on", () => {
 		const misnamed = await config({ room: { machine: "" } });
 		const mine = change("github:Jitsusama/mycelium");
 
-		expect(await roomFor(mine, undefined, harness, named)).toBeUndefined();
-		expect(await roomFor(mine, head, harness, none)).toBeUndefined();
-		expect(await roomFor(mine, head, harness, misnamed)).toBeUndefined();
+		expect(
+			await roomFor(mine, undefined, harness, named, found),
+		).toBeUndefined();
+		expect(await roomFor(mine, head, harness, none, found)).toBeUndefined();
+		expect(await roomFor(mine, head, harness, misnamed, found)).toBeUndefined();
 	});
 
 	it("is none when the node's command can't be found, so the round runs here", async () => {

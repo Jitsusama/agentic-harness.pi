@@ -47,8 +47,7 @@ describe("a reviewer started on a room", () => {
 		expect(launch).toEqual({
 			binary: "mycelium",
 			args: [
-				"--realm",
-				"work",
+				"--realm=work",
 				"run",
 				"--need",
 				"machine=room-1",

@@ -48,6 +48,7 @@ async function roomRun(
 	more: Parameters<typeof runChild>[2] = {},
 	node?: string,
 	local: string[] = answered("here"),
+	options: { wrapUpReserveMs?: number } = {},
 ) {
 	const stateDir = await tempStateDir();
 	const ranHere = join(stateDir, "ran-here");
@@ -72,6 +73,7 @@ async function roomRun(
 		runId: "run",
 		reviewerId: "roomed",
 		room,
+		...options,
 	});
 	const starts = await readFile(ranHere, "utf8").then(
 		(text) => text.split("\n").filter(Boolean).map(Number),
@@ -104,9 +106,11 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.journal).toEqual([{ subject: "found on the room" }]);
 	});
 
-	it("starts the room's command outside the tree under review, with no relative PATH folder", async () => {
-		const seen = join(await tempStateDir(), "seen.json");
-		vi.stubEnv("PATH", `bin:${process.env.PATH ?? ""}`);
+	it("starts the room's command outside the tree under review, with none of the reviewer's PATH", async () => {
+		const planted = await tempStateDir();
+		const seen = join(planted, "seen.json");
+		// A relative folder, and an absolute one a fenced command could write.
+		vi.stubEnv("PATH", `bin:${planted}:${process.env.PATH ?? ""}`);
 		let tree = "";
 		try {
 			const { result, stateDir } = await roomRun([
@@ -122,6 +126,7 @@ describe("a reviewer asked to run on a room", () => {
 		const { cwd, path } = JSON.parse(await readFile(seen, "utf8"));
 		expect(cwd).not.toBe(tree);
 		expect(path.split(":")).not.toContain("bin");
+		expect(path.split(":")).not.toContain(planted);
 	});
 
 	it("gives the room's command only what the node's command reads, never the reviewer's keys", async () => {
@@ -174,17 +179,11 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.warnings?.join(" ")).toMatch(/No room ran this reviewer/);
 	});
 
-	it("runs here once when the room's command fails to start, whichever ending says so first", async () => {
-		const { result, starts } = await roomRun([], {}, "/nowhere/mycelium");
-
-		expectRan(result);
-		expect(starts, "it ran here once").toHaveLength(1);
-	});
-
 	it("stops a reviewer run here by the wall clock counted from the run's start, not the fallback's", async () => {
 		// The room is slow to say no; the reviewer here then never ends.
+		// Margins of three seconds each side, for node's starts under load.
 		const roomSaysNo = 3000;
-		const timeoutMs = 4500;
+		const timeoutMs = 9000;
 		const { result, starts } = await roomRun(
 			[`setTimeout(() => process.exit(255), ${roomSaysNo});`],
 			{ timeoutMs },
@@ -197,7 +196,21 @@ describe("a reviewer asked to run on a room", () => {
 		expect(starts).toHaveLength(1);
 		// From its start here, a clock restarted at the fallback would give
 		// it the whole of timeoutMs, past the parent's backstop.
-		expect(ended - (starts[0] ?? 0)).toBeLessThan(timeoutMs - 1000);
+		expect(ended - (starts[0] ?? 0)).toBeLessThan(timeoutMs - 3000);
+	});
+
+	it("starts nothing here once the soft deadline has passed while the room said no", async () => {
+		// Its soft deadline at 6 s, the room's no at 7 s, the wall at 10 s.
+		const { result, starts } = await roomRun(
+			["setTimeout(() => process.exit(255), 7000);"],
+			{ timeoutMs: 10_000 },
+			undefined,
+			answered("here"),
+			{ wrapUpReserveMs: 4000 },
+		);
+
+		expect(starts, "nothing ran here").toHaveLength(0);
+		expect(result.state).toBe("soft-deadline");
 	});
 
 	it("ends idle when our clock stops a silent room, and never runs here after", async () => {

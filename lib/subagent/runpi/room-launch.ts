@@ -159,8 +159,8 @@ export function roomLaunch(
 	return {
 		binary: place.mycelium,
 		args: [
-			"--realm",
-			place.realm,
+			// One word, so no realm can be read as an option of its own.
+			`--realm=${place.realm}`,
 			"run",
 			"--need",
 			`machine=${place.machine}`,
