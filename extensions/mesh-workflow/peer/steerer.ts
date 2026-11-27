@@ -7,6 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
 import { isMoveTarget } from "../../../lib/internal/session/move.ts";
+import { saySteered } from "../../../lib/jobs/steer.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { isPersonsTalk, type Steer } from "../../../lib/mesh/steer.ts";
 import {
@@ -53,6 +54,8 @@ export function createSteerer(m: MeshState) {
 	 * a turn when idle, otherwise as steerDelivery says for a steer: into
 	 * the run under way for the person's talk, else once that run ends. A
 	 * look's answer comes with no steer, and waits for the run to end.
+	 * Talk read into the run is said as a typed line is, so a call that
+	 * can move to the background moves rather than hold it (lib/jobs).
 	 */
 	const steered = (
 		text: string,
@@ -62,6 +65,7 @@ export function createSteerer(m: MeshState) {
 		const afterRun = idle ? undefined : "followUp";
 		const deliverAs = steer ? steerDelivery(steer, idle) : afterRun;
 		m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
+		if (deliverAs === "steer") saySteered(m.pi.events);
 	};
 
 	/**

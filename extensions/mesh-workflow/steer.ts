@@ -166,11 +166,15 @@ export function createSteering(host: SteeringHost): Steering {
 /**
  * How a steer's words reach the session: a turn of their own when it is
  * idle (nothing), and into the run under way once its current round of
- * tools ends when the steer is the person's own talk, as pi's editor
- * steers what he types on Enter, or says `now` and is the person's or
- * names nobody. A peer's or the machine's words wait for that run to end
- * whatever they say, so an agent's task isn't broken into by them (Joel,
- * 26 November). A round running a long tool holds the talk as long.
+ * tools ends when Joel wrote it from the launcher, as pi's editor steers
+ * what he types on Enter, or when it says `now` and is the person's or
+ * names nobody. The node's words on his word (`person`, mycelium's swarm
+ * `say`) wait unless they say now, since there he chooses between `say`
+ * and `say now`. A peer's or the machine's words wait for that run to
+ * end whatever they say, so an agent's task isn't broken into by them
+ * (Joel, 26 November). A round running a long tool holds the talk as
+ * long, bar a call that can move to the background (the steerer says
+ * the talk is waiting, as job-workflow does for a typed line).
  */
 export function steerDelivery(
 	steer: Pick<Steer, "now" | "text" | "act" | "from">,
@@ -178,7 +182,12 @@ export function steerDelivery(
 ): "steer" | "followUp" | undefined {
 	if (idle) return undefined;
 	const saysNow = steer.now === true && isFromPerson(steer.from);
-	return saysNow || isPersonsTalk(steer) ? "steer" : "followUp";
+	return saysNow || isLauncherTalk(steer) ? "steer" : "followUp";
+}
+
+/** Whether a steer is words Joel wrote himself, from the launcher. */
+function isLauncherTalk(steer: Pick<Steer, "text" | "act" | "from">): boolean {
+	return isPersonsTalk(steer) && steer.from?.toLowerCase() === "joel";
 }
 
 /** What the session is doing as a steer reaches it. */

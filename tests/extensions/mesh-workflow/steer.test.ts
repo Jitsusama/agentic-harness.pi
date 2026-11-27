@@ -370,7 +370,7 @@ describe("when a steer reaches the session", () => {
 		}
 	});
 
-	it("reads the person's own talk into a busy run after its tool, as typing does", () => {
+	it("reads Joel's launcher talk into a busy run after its tools, as typing does", () => {
 		expect(
 			steerDelivery({ text: "look here", from: "joel" }, false),
 			"Joel's talk",
@@ -382,9 +382,16 @@ describe("when a steer reaches the session", () => {
 		expect(steerDelivery({ text: "", from: "joel" }, false), "no words").toBe(
 			"followUp",
 		);
+	});
+
+	it("holds the node's words on his word for the run's end unless they say now", () => {
+		expect(
+			steerDelivery({ text: "stop that", from: "person" }, false),
+			"swarm say",
+		).toBe("followUp");
 		expect(
 			steerDelivery({ text: "stop that", from: "person", now: true }, false),
-			"the node's on his word, now",
+			"swarm say now",
 		).toBe("steer");
 	});
 });

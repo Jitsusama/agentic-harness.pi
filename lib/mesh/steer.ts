@@ -19,13 +19,13 @@
  * An `answer` answers the open ask the session's want `want` names, with
  * one of its choices as `value` or the person's words as `other`, or the
  * look `look` names with one of its choices as `value`. Words from
- * `"joel"` or `"person"` reach a session at work in the run under way,
+ * `"joel"`, the launcher, reach a session at work in the run under way,
  * once its current round of tools ends, as typing in its window does
  * (Joel, 26 November, replacing his 12 November rule that they wait for
- * the turn to end unless he says now). Anyone else's words, and words
- * naming nobody, wait for the run to end, unless `"now": true` comes
- * with words naming nobody; a peer's or the machine's `now` is not
- * honoured, so no agent breaks into another's task. A
+ * the turn to end unless he says now). Words from `"person"` (the
+ * node's swarm `say`) or naming nobody wait for the run to end unless
+ * they hold `"now": true`; a peer's or the machine's `now` is not
+ * honoured, so an agent naming itself never breaks into another's task. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. An
  * orchestrator's ordered carry, `{"act": "ordered-carry", "to", "why", "by"}`,

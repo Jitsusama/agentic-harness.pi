@@ -1,7 +1,8 @@
 /**
  * The steerer hands each act and talk to pausing with the time its
  * steer says it was written, so pausing can drop a Stop or Pause that
- * came before what it would end.
+ * came before what it would end, and hands each talk to the session in
+ * the run under way or after it, as who wrote it says.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,9 +10,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MeshState } from "../../../extensions/mesh-workflow/peer/mesh.ts";
 import { createSteerer } from "../../../extensions/mesh-workflow/peer/steerer.ts";
+import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
 import { giveSteer } from "../../../lib/mesh/steer.ts";
 
 const ADDRESS = "A1B2C3";
+
+/** What the bus hears when a talk is said as a typed line is. */
+const JOBS_STEERED = "jobs:steered:v1";
+
+/** The framing a busy session reads the person's talk under. */
+const BUSY_FRAMING = "while this session works";
 
 /** What reached pausing, as each call's name and arguments. */
 type Heard = [string, ...(string | undefined)[]];
@@ -39,8 +47,11 @@ function peerHearing(heard: Heard[]) {
 /** What the steerer sent the session: its words and how they go. */
 type Sent = [string, { deliverAs?: string } | undefined];
 
+/** What the session's bus heard: each event's name and its payload. */
+type Emitted = [string, unknown];
+
 /** A peer's state as busy or idle, recording what reaches the session. */
-function sessionAt(idle: boolean, sent: Sent[]) {
+function sessionAt(idle: boolean, sent: Sent[], emitted: Emitted[]) {
 	const state = {
 		peer: { addresses: [ADDRESS] },
 		pausing: { act: () => undefined, talked: () => undefined },
@@ -50,7 +61,9 @@ function sessionAt(idle: boolean, sent: Sent[]) {
 		pi: {
 			sendUserMessage: (text: string, options?: { deliverAs?: string }) =>
 				sent.push([text, options]),
-			events: { emit: () => undefined },
+			events: {
+				emit: (name: string, data: unknown) => emitted.push([name, data]),
+			},
 		},
 		steering: undefined,
 		steerRoot: undefined,
@@ -98,32 +111,59 @@ describe("a talk the steerer hands a session", () => {
 	const handed = async (
 		steer: Parameters<typeof giveSteer>[2],
 		idle: boolean,
-	): Promise<Sent[]> => {
+	): Promise<{ sent: Sent[]; emitted: Emitted[] }> => {
 		const root = mkdtempSync(join(tmpdir(), "steerer-"));
 		roots.push(root);
 		const sent: Sent[] = [];
-		const m = sessionAt(idle, sent);
+		const emitted: Emitted[] = [];
+		const m = sessionAt(idle, sent, emitted);
 		giveSteer(root, ADDRESS, steer);
 		createSteerer(m).steer(root);
 		await m.steering?.look();
 		m.steering?.stop();
-		return sent;
+		return { sent, emitted };
 	};
 
-	it("steers the person's talk into a busy run, framed as said while it works", async () => {
-		const sent = await handed({ text: "look at X", from: "joel" }, false);
+	/** The names of the events a hand-over said, in order. */
+	const names = (emitted: Emitted[]) => emitted.map(([name]) => name);
+
+	it("steers Joel's launcher talk into a busy run, said as a typed line is", async () => {
+		const { sent, emitted } = await handed(
+			{ text: "look at X", from: "joel" },
+			false,
+		);
 
 		expect(sent.map(([, options]) => options)).toEqual([
 			{ deliverAs: "steer" },
 		]);
-		expect(sent[0]?.[0]).toContain("while this session works");
-		expect(sent[0]?.[0]).toContain("then do what is asked, or carry on");
+		const [said] = sent[0] ?? [];
+		expect(said).toContain(BUSY_FRAMING);
+		expect(said).toContain("then do what is asked, or carry on");
+		expect(emitted).toContainEqual([PERSON_TALKED, { intoRun: true }]);
+		expect(names(emitted)).toContain(JOBS_STEERED);
+	});
+
+	it("holds the node's words on his word for the run's end unless they say now", async () => {
+		const waits = await handed({ text: "look at X", from: "person" }, false);
+		const now = await handed(
+			{ text: "look at X", from: "person", now: true },
+			false,
+		);
+
+		expect(waits.sent.map(([, options]) => options)).toEqual([
+			{ deliverAs: "followUp" },
+		]);
+		expect(names(waits.emitted)).not.toContain(JOBS_STEERED);
+		expect(now.sent.map(([, options]) => options)).toEqual([
+			{ deliverAs: "steer" },
+		]);
+		expect(names(now.emitted)).toContain(JOBS_STEERED);
 	});
 
 	it("holds a peer's or the machine's words for the run's end, now or not", async () => {
 		for (const from of ["ABC123", "machine"]) {
 			for (const now of [undefined, true] as const) {
-				const sent = await handed(
+				const { sent, emitted } = await handed(
 					{ text: "look at X", from, ...(now ? { now } : {}) },
 					false,
 				);
@@ -131,17 +171,38 @@ describe("a talk the steerer hands a session", () => {
 					sent.map(([, options]) => options),
 					`${from}, now ${now}`,
 				).toEqual([{ deliverAs: "followUp" }]);
-				expect(sent[0]?.[0], `${from}, now ${now}`).not.toContain(
-					"while this session works",
+				expect(names(emitted), `${from}, now ${now}`).not.toContain(
+					JOBS_STEERED,
 				);
 			}
 		}
 	});
 
-	it("starts a turn with the person's talk when the session is idle", async () => {
-		const sent = await handed({ text: "look at X", from: "joel" }, true);
+	it("starts a turn with Joel's talk when the session is idle", async () => {
+		const { sent, emitted } = await handed(
+			{ text: "look at X", from: "joel" },
+			true,
+		);
 
 		expect(sent.map(([, options]) => options)).toEqual([undefined]);
-		expect(sent[0]?.[0]).not.toContain("while this session works");
+		const [said] = sent[0] ?? [];
+		expect(said).not.toContain(BUSY_FRAMING);
+		expect(names(emitted)).not.toContain(JOBS_STEERED);
+	});
+
+	it("holds words with no steer, as a look's answer, for a busy run's end", () => {
+		const sent: Sent[] = [];
+		const emitted: Emitted[] = [];
+		const busy = createSteerer(sessionAt(false, sent, emitted));
+		const idle = createSteerer(sessionAt(true, sent, emitted));
+
+		busy.steered("the look's answer", false);
+		idle.steered("the look's answer", true);
+
+		expect(sent).toEqual([
+			["the look's answer", { deliverAs: "followUp" }],
+			["the look's answer", undefined],
+		]);
+		expect(names(emitted)).not.toContain(JOBS_STEERED);
 	});
 });

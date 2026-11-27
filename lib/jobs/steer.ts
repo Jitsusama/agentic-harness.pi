@@ -6,8 +6,10 @@
  * November lines waited up to 101.6 s. A call that can move to the
  * background (hand-off.ts) moves soon after the line arrives rather than
  * at the minute, so the line is read as soon as the calls that can't move
- * are done. Only the person's own lines count: a mesh message steered in
- * by an extension waits its turn as it always has.
+ * are done. Only the person's own lines count: his typed lines, and his
+ * launcher talk the mesh steers into the run (mesh-workflow's steerer).
+ * A peer's mesh message steered in by an extension waits its turn as it
+ * always has.
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
