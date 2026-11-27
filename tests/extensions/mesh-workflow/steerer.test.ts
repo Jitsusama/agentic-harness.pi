@@ -64,8 +64,10 @@ function tell(lives: Lives, name: string, event: unknown = {}): void {
 	for (const handler of lives.get(name) ?? []) handler(event);
 }
 
-/** What pi says as it starts reading a message of `role`. */
-const reading = (role: string) => ({ message: { role } });
+/** What pi says as it starts reading `text` as a message of `role`. */
+const reading = (role: string, text = "look at X") => ({
+	message: { role, content: [{ type: "text", text }] },
+});
 
 /**
  * A peer's state as busy or idle, recording what reaches the session,
@@ -279,7 +281,53 @@ describe("a talk the steerer hands a session", () => {
 		expect(steerWaiting(bus), "once read").toBe(false);
 	});
 
-	// F76, F83: a reload builds a second steerer on the bus that outlives it.
+	// F84: pi reads one steer a turn, so another's may come first.
+	it("keeps Joel's talk waiting while pi reads another message first", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+		steerer.steered("and Y", false, { text: "and Y", from: "joel" });
+
+		tell(lives, "message_start", reading("user", "a line typed first"));
+		expect(steerWaiting(bus), "behind a typed line").toBe(true);
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "with his second talk unread").toBe(true);
+		tell(lives, "message_start", reading("user", "and Y"));
+		expect(steerWaiting(bus), "once both are read").toBe(false);
+	});
+
+	// F87: pi may read it as it is sent.
+	it("says nothing waits for talk pi reads as it is sent", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const state = sessionAt(false, [], [], lives, bus);
+		state.pi.sendUserMessage = (text) =>
+			tell(lives, "message_start", reading("user", String(text)));
+		const steerer = createSteerer(state);
+		tell(lives, "session_start");
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+		expect(steerWaiting(bus)).toBe(false);
+	});
+
+	// F93: talk pi never took doesn't wait.
+	it("says nothing waits for talk pi refused to take", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const state = sessionAt(false, [], [], lives, bus);
+		state.pi.sendUserMessage = () => {
+			throw new Error("no session");
+		};
+		const steerer = createSteerer(state);
+		tell(lives, "session_start");
+		expect(() =>
+			steerer.steered("look at X", false, { text: "look at X", from: "joel" }),
+		).toThrow("no session");
+		expect(steerWaiting(bus)).toBe(false);
+	});
+
+	// F76, F83, F85: a reload builds a second steerer on the bus that outlives it.
 	it("leaves no answer behind once its session shuts down for a reload", () => {
 		const bus = createEventBus();
 		const before: Lives = new Map();
@@ -292,7 +340,22 @@ describe("a talk the steerer hands a session", () => {
 		const after: Lives = new Map();
 		createSteerer(sessionAt(false, [], [], after, bus));
 		tell(after, "session_start");
-		expect(steerWaiting(bus), "after the reload").toBe(false);
+		// Only an answer still on the bus could say the old steerer's words wait.
+		old.steered("stale", false, { text: "stale", from: "joel" });
+		expect(steerWaiting(bus), "the old steerer answers after the reload").toBe(
+			false,
+		);
+	});
+
+	// F89: a session started again answers once, afresh.
+	it("answers once when its session starts again", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+		tell(lives, "session_start");
+		expect(steerWaiting(bus), "what waited before").toBe(false);
 	});
 
 	it("says nothing waits for words held for the run's end", () => {
