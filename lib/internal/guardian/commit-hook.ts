@@ -15,6 +15,7 @@ import {
 	type HookInstall,
 	installCommitHook as installCommitHookWith,
 } from "../../core/attribution/index.ts";
+import { STRICT, sandboxName } from "../sandbox/sandbox.ts";
 
 export type { HookInstall } from "../../core/attribution/index.ts";
 
@@ -36,14 +37,28 @@ export function installCommitHook(repoRoot: string): HookInstall {
 }
 
 /**
+ * Whether this pi's commands carry `PI_CO_AUTHOR` to git. A strict
+ * sandbox hands its commands only the variables it knows are harmless,
+ * and this is not one of them, so there the hook could attribute
+ * nothing: it would only be one more thing a commit can fail on, as a
+ * room's strict session found it could not run (S99IA2 [acf576c3]).
+ */
+function hookCanAttribute(env: NodeJS.ProcessEnv = process.env): boolean {
+	return sandboxName(env) !== STRICT;
+}
+
+/**
  * Ensure the hook is installed in the repo containing dir, at most
  * once per repo root. This is how hook coverage follows the
  * session into repos it later cds into, rather than only the repo
- * pi started in.
+ * pi started in. A pi whose commands can't carry the trailer writes
+ * none.
  */
-export function ensureCommitHook(
+export async function ensureCommitHook(
 	dir: string,
 	installed: Set<string>,
+	env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-	return ensureCommitHookWith(dir, installed, PI_OPTIONS);
+	if (!hookCanAttribute(env)) return;
+	await ensureCommitHookWith(dir, installed, PI_OPTIONS);
 }
