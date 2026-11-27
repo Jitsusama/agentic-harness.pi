@@ -524,7 +524,7 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// An environment moved earlier in the line is inherited by every
 		// git after it, and a setting written earlier is read by it. What
 		// a command runs itself, as eval does, is read where it runs.
-		moved ||= movesLater(line, simple);
+		moved ||= movesLater(line, simple, false);
 		writes.push(...pushesGiven(writeIn(own, dir), moving));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;
@@ -571,31 +571,47 @@ function fedTo(
 
 /**
  * Whether a command moves where the pushes after it in its line go, by
- * its own words ({@link movesGit}, {@link setsPushes}) or by what a
- * sourced stdin feeds it, which runs in this shell and so moves its own
- * environment.
+ * its own words ({@link movesGit}, {@link setsPushes}) or by what it
+ * runs or is fed. What a sourced stdin runs moves this shell's own
+ * environment. A child shell's, as `sh -c` or `bash <<<` runs, dies
+ * with it (`child`), but a setting, a remote or an upstream it writes
+ * stays in the repository. What an opaque runner runs, as ssh does on
+ * another host, moves nothing here.
  */
-function movesLater(line: CommandLine, simple: SimpleCommand): boolean {
+function movesLater(
+	line: CommandLine,
+	simple: SimpleCommand,
+	child: boolean,
+): boolean {
 	const given = hereStrings(simple.argv.map((word) => unquote(word.text)));
 	const own = unwrapped(given.own);
 	const env = simple.assignments.map((word) => unquote(word.text));
-	if (movesGit(own, env) || setsPushes(own)) return true;
-	const [program = "", ...args] = ranAtLast(own);
-	if (!sourcesStdin(program.split("/").at(-1) ?? "", args)) return false;
+	if (!child && movesGit(own, env)) return true;
+	const last = ranAtLast(own);
+	if (setsPushes(last)) return true;
+	const [program = "", ...args] = last;
+	const name = program.split("/").at(-1) ?? "";
+	// A line handed on runs in a child, eval's apart, which movesGit
+	// already counts as moving anything.
+	const ran = runs(name, args);
+	if (ran?.opaque === undefined && ran !== undefined && "line" in ran)
+		return movesInLine(ran.line, true);
 	const fed = fedTo(line, simple, own, given.strings);
-	return fed?.lines.some(movesInLine) ?? false;
+	if (fed === undefined || fed.runner !== undefined) return false;
+	const sourced = sourcesStdin(name, args);
+	return fed.lines.some((one) => movesInLine(one, child || !sourced));
 }
 
 /**
- * Whether a line sourced as {@link movesLater} reads it moves the pushes
+ * Whether a line run as {@link movesLater} reads it moves the pushes
  * after it. One the command model can't read may move anything.
  */
-function movesInLine(command: string): boolean {
+function movesInLine(command: string, child: boolean): boolean {
 	const source = inlined(ansiUnquoted(uncommented(command)));
 	const read = defusedLine(source);
 	const line = read.supported ? read : defusedLine(flatten(source).line);
 	if (!line.supported) return true;
-	return line.commands.some((simple) => movesLater(line, simple));
+	return line.commands.some((simple) => movesLater(line, simple, child));
 }
 
 /**

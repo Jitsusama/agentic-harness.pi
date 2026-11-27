@@ -272,6 +272,7 @@ describe("writesInBash", () => {
 			"git branch --unset-upstream; git push origin x",
 			"git branch --track x origin/stopped; git push origin x",
 			"sudo git config push.default upstream; git push origin x",
+			"flock /tmp/l git config push.default upstream; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([
 				{
@@ -383,6 +384,44 @@ describe("writesInBash", () => {
 			"bash -c 'source /dev/stdin <<< \"export HOME=/x\"'; git push origin x",
 			"ssh host 'git config push.default upstream'; git push origin x",
 			"echo 'git config push.default upstream' | ssh host; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
+	it("reads a push after a child shell that wrote where pushes go as naming nothing", () => {
+		// What it writes to the repository outlives it.
+		for (const command of [
+			"sh -c 'git config remote.origin.pushurl y'; git push origin x",
+			"bash -c 'git remote add elsewhere y' && git push origin x",
+			"bash <<< 'git branch -u origin/stopped'; git push origin x",
+			"echo 'git config push.default upstream' | sh; git push origin x",
+			"source /dev/stdin <<< 'git config push.default upstream'; git push origin x",
+			"sh -c \"bash -c 'git config push.default upstream'\"; git push origin x",
+			"flock /tmp/l -c 'git config push.default upstream'; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Reading the settings there moves nothing.
+		for (const command of [
+			"sh -c 'git config --get push.default'; git push origin x",
+			"bash <<< 'git remote -v'; git push origin x",
 		]) {
 			expect(writesInBash(command, HERE), command).toEqual([
 				{
