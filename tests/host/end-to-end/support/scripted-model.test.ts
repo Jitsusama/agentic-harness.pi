@@ -14,6 +14,7 @@ import {
 	CARRYING,
 	fauxOf,
 	SCRIPTED,
+	STORE,
 	scriptedCore,
 } from "./scripted-model.ts";
 
@@ -84,13 +85,35 @@ describe("the scripted model", () => {
 		).toEqual([]);
 	});
 
-	it("reads only the words said since its last answer", async () => {
-		const ended = {
-			role: "user",
-			content: "[j1] the command exited 0 after 46 seconds.",
-		};
+	it("acts on words said after its answer", async () => {
 		expect(
-			(await answerTo([told, started, handedOff, answered, ended])).calls,
-		).toEqual([]);
+			(await answerTo([told, started, handedOff, answered, told])).calls,
+		).toEqual([
+			{ name: "bash", arguments: { command: CARRYING, background: true } },
+		]);
+	});
+
+	it("still reads the turn's words after a tool's result", async () => {
+		const searched = {
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-2",
+					name: "tool_search",
+					arguments: { query: "spend" },
+				},
+			],
+		};
+		const found = {
+			role: "toolResult",
+			toolCallId: "call-2",
+			toolName: "tool_search",
+			content: [{ type: "text", text: "Loaded spend." }],
+		};
+		const calls = (
+			await answerTo([{ role: "user", content: STORE }, searched, found])
+		).calls;
+		expect(calls.map((call) => call.name)).toEqual(["spend"]);
 	});
 });
