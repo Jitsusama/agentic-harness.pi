@@ -34,6 +34,16 @@ import { versionsMove } from "./what-starts.ts";
  */
 export const WOKEN_AGAIN_AFTER_MS = 10 * 60_000;
 
+/**
+ * How many times in `WAKES_COUNTED_OVER_MS` one whose child went
+ * mid-turn is woken, so a turn that kills its child each time, however
+ * long it takes to, asks the model again only so often.
+ */
+export const WAKES_A_DAY = 3;
+
+/** How far back the wakes `WAKES_A_DAY` counts reach. */
+export const WAKES_COUNTED_OVER_MS = 24 * 60 * 60_000;
+
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
 	/** What the backend asks to wake, open and resume in children. */
@@ -128,22 +138,37 @@ export function hostChildren(options: {
 	// words or a run nobody answered. Rested, it waited for a window or a
 	// message, though a host's own restart carries every such run on. It
 	// is woken at once, as a message wakes one, unless one woken so within
-	// WOKEN_AGAIN_AFTER_MS failed the same way. A child that says it failed
+	// WOKEN_AGAIN_AFTER_MS failed the same way, or it was woken so
+	// WAKES_A_DAY times in the day before. A child that says it failed
 	// while busy is woken too, since no word says which turn it left.
-	const wokenAt = new Map<string, number>();
+	// Each conversation's wakes are kept only for that day, by its id in
+	// either case, as the supervisor takes either case as one.
+	const wokenAt = new Map<string, number[]>();
 	const now = options.now ?? Date.now;
 	function wakeCutOff(sessionId: string): void {
 		const { wake } = options;
 		if (!wake) return;
 		const at = now();
-		const last = wokenAt.get(sessionId);
+		const id = sessionId.toLowerCase();
+		const recent = (wokenAt.get(id) ?? []).filter(
+			(one) => at - one < WAKES_COUNTED_OVER_MS,
+		);
+		if (recent.length > 0) wokenAt.set(id, recent);
+		else wokenAt.delete(id);
+		const last = recent.at(-1);
 		if (last !== undefined && at - last < WOKEN_AGAIN_AFTER_MS) {
 			options.say?.(
 				`${sessionId}: its child failed mid-turn again within ${WOKEN_AGAIN_AFTER_MS / 60_000} minutes of its last wake, so it rests until it is asked for`,
 			);
 			return;
 		}
-		wokenAt.set(sessionId, at);
+		if (recent.length >= WAKES_A_DAY) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn after ${WAKES_A_DAY} wakes for that in a day, so it rests until it is asked for`,
+			);
+			return;
+		}
+		wokenAt.set(id, [...recent, at]);
 		options.say?.(
 			`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
 		);

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type HostedChildren,
 	hostChildren,
+	WAKES_A_DAY,
+	WAKES_COUNTED_OVER_MS,
 	WOKEN_AGAIN_AFTER_MS,
 } from "../../../host/service/child-hosting.ts";
 import type { ChildPolicy } from "../../../host/service/child-policy.ts";
@@ -36,6 +38,8 @@ let resting: boolean;
 let givingUp: string | undefined;
 // Each conversation woken, in order, and how its wake goes.
 let woken: string[];
+// Each rest and wake, in the order they came.
+let order: string[];
 let waking: () => Promise<void>;
 let clock: number;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
@@ -70,6 +74,7 @@ beforeEach(async () => {
 	resting = true;
 	givingUp = undefined;
 	woken = [];
+	order = [];
 	waking = async () => undefined;
 	clock = 0;
 	const moving = new Set<string>();
@@ -93,6 +98,7 @@ function hosting(restsGivenUp: boolean): HostedChildren {
 		roster: roster(),
 		restsParked(entry) {
 			rested.push(entry);
+			order.push(`rested ${entry.sessionId}`);
 			return resting;
 		},
 		...(restsGivenUp
@@ -108,6 +114,7 @@ function hosting(restsGivenUp: boolean): HostedChildren {
 		became: (previousId, nextId) => told.push([previousId, nextId]),
 		wake(sessionId) {
 			woken.push(sessionId);
+			order.push(`woken ${sessionId}`);
 			return waking();
 		},
 		now: () => clock,
@@ -186,10 +193,10 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(woken, "woken").toEqual([a]));
-			expect(
-				rested.map(({ sessionId }) => sessionId),
-				"rested first, so its wake stays watched",
-			).toEqual([a]);
+			expect(order, "rested first, so its wake stays watched").toEqual([
+				`rested ${a}`,
+				`woken ${a}`,
+			]);
 			expect(said).toContain(
 				`${a}: its child failed mid-turn, so it is woken to carry the turn on`,
 			);
@@ -201,6 +208,49 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
 			expect(woken, "nothing left unanswered").toEqual([]);
+		});
+
+		it("leaves one resting whose child went idle again before it failed", async () => {
+			await busy();
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state: "idle" },
+			});
+			await vi.waitFor(() =>
+				expect(children.backend.running(a)?.state).toBe("idle"),
+			);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "its last state decides, and it had answered").toEqual([]);
+		});
+
+		it("rests it once it was woken so as often as a day allows, however far apart", async () => {
+			for (const wake of Array.from({ length: WAKES_A_DAY }, (_, n) => n)) {
+				clock = wake * WOKEN_AGAIN_AFTER_MS;
+				await busy();
+				await units.childOf(a).exit();
+				await vi.waitFor(() => expect(woken).toHaveLength(wake + 1));
+			}
+
+			clock = WAKES_A_DAY * WOKEN_AGAIN_AFTER_MS;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn after ${WAKES_A_DAY} wakes for that in a day, so it rests until it is asked for`,
+				),
+			);
+			expect(woken, "not woken past the day's count").toHaveLength(WAKES_A_DAY);
+
+			clock = WAKES_COUNTED_OVER_MS;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "woken once its first wake is a day old").toHaveLength(
+					WAKES_A_DAY + 1,
+				),
+			);
 		});
 
 		it("leaves one whose busy child said it parked resting", async () => {
