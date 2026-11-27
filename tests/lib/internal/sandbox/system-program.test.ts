@@ -143,7 +143,7 @@ describe("a program that runs outside the sandbox", () => {
 		expect(sealedPath("/l1", chain(MOST_LINKS))).toBe("/made");
 		expect(sealedPath("/l1", chain(MOST_LINKS + 1))).toBeUndefined();
 		// Each system's count, whichever this one is.
-		for (const platform of ["linux", "darwin"] as const) {
+		for (const platform of ["linux", "darwin", "sunos"] as const) {
 			const most = mostLinksOn(platform);
 			expect(sealedPath("/l1", chain(most), most), platform).toBe("/made");
 			expect(
@@ -153,11 +153,20 @@ describe("a program that runs outside the sandbox", () => {
 		}
 	});
 
-	it("counts links as each system does, and a system it doesn't name as the lower", () => {
-		expect(mostLinksOn("linux")).toBe(40);
-		expect(mostLinksOn("darwin")).toBe(32);
-		expect(mostLinksOn("freebsd")).toBe(32);
-		expect(mostLinksOn("openbsd")).toBe(32);
+	it("counts links as each system does, and a system it doesn't name as 32", () => {
+		const counts: [NodeJS.Platform, number][] = [
+			["linux", 40],
+			["android", 40],
+			["sunos", 20],
+			["darwin", 32],
+			["freebsd", 32],
+			["openbsd", 32],
+			// Named nowhere in the count's doc.
+			["aix", 32],
+			["win32", 32],
+		];
+		for (const [platform, most] of counts)
+			expect(mostLinksOn(platform), platform).toBe(most);
 	});
 });
 
