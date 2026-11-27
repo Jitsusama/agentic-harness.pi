@@ -9,7 +9,7 @@
 
 import { type ExecFileException, execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { withPi } from "../../lib/internal/priority/place.ts";
+import { withPi } from "../../lib/internal/process/stays-with-pi.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { firstLine } from "./status.ts";
 

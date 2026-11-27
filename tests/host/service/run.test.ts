@@ -19,7 +19,15 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
 import { hostKey } from "../../../host/service/address.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
@@ -253,7 +261,11 @@ describe("a child host", () => {
 	// The other side of the guard: a realm host keeps its children, so a
 	// guard that dropped them for every host would fail here.
 	it("leaves a realm host asking its key's policy what moves to a child", async () => {
-		const runtime = join(dir, "run");
+		// A realm host refuses a runtime folder whose children's sockets
+		// wouldn't fit, so this one is short, as /run/user/<uid> is, rather
+		// than under a temp folder a session may have made long.
+		const runtime = await mkdtemp(join("/tmp", "h2-rt-"));
+		onTestFinished(() => rm(runtime, { recursive: true, force: true }));
 		const folder = join(runtime, "pi-host", "work-background.d");
 		await mkdir(folder, { recursive: true, mode: 0o700 });
 		const unitFaults = vi.fn();

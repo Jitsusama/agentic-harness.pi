@@ -30,10 +30,6 @@ import { join } from "node:path";
 import { stayingWithPi } from "../process/stays-with-pi.ts";
 import { queuedCommand } from "./turn.ts";
 
-// The host's systemd notify still takes withPi from here, until moving
-// its import gets the host test run the merge gate asks of host/.
-export { withPi } from "../process/stays-with-pi.ts";
-
 const CGROUPS = "/sys/fs/cgroup";
 
 /**
