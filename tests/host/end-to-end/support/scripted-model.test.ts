@@ -154,6 +154,14 @@ describe("the scripted model", () => {
 		).toBe("stop");
 	});
 
+	// The answer the start of restart-carry's cases waits on.
+	it("stops once the carried command's result is in", async () => {
+		expect(await answerTo([told, started, handedOff])).toEqual({
+			stopReason: "stop",
+			calls: [],
+		});
+	});
+
 	it("asks for a tool's result when it calls one", async () => {
 		expect((await answerTo([told])).stopReason).toBe("toolUse");
 	});
@@ -169,6 +177,10 @@ describe("the scripted model", () => {
 			expect(await callsTo(afterSearch(STORE))).toEqual([
 				{ name: "spend", arguments: { query: FIFTY_ROWS, limit: 2 } },
 			]);
+			// More rows than the two shown, so the rest are stored under a
+			// handle, which is what the host case that reads them needs.
+			const rows = /json_each\('(\[[0-9,]*\])'\)/.exec(FIFTY_ROWS)?.[1];
+			expect(JSON.parse(rows ?? "[]")).toHaveLength(50);
 		});
 
 		it("for end", async () => {
