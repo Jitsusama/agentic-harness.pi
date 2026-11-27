@@ -35,6 +35,7 @@ import {
 	wrapFor,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { strictRules } from "../../../../lib/internal/sandbox/strict-rules.ts";
+import { SOCKET_ROOT } from "../../../setup/temp-root.ts";
 
 const RUNTIME = "/run/user/1000";
 const WORKER = `${WORKER_SOCKET_FOLDER}/work-worker.sock`;
@@ -531,7 +532,11 @@ describe("the disk a worker socket is judged on, as it is", () => {
 	let server: Server;
 	const socket = () => join(base, "open", "w.sock");
 	beforeAll(async () => {
-		base = realpathSync(mkdtempSync(join(tmpdir(), "wd-")));
+		// The socket goes in the run's short folder in /tmp where there is
+		// one: a session's TMPDIR can be long enough that a socket under it
+		// passes a Unix address's limit, and listen refuses it.
+		const roomy = process.env[SOCKET_ROOT] ?? tmpdir();
+		base = realpathSync(mkdtempSync(join(roomy, "wd-")));
 		mkdirSync(join(base, "kept"), { mode: 0o755 });
 		mkdirSync(join(base, "open"), { mode: 0o755 });
 		chmodSync(join(base, "open"), 0o777);
