@@ -14,7 +14,7 @@ import {
 	ledAreas,
 	ledAreasAt,
 } from "../../../lib/mesh/led-areas.ts";
-import { subjectWords } from "../../../lib/mesh/need-route.ts";
+import { LONGEST_WORD, routingWords } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 
 const NOW = Date.parse("2026-11-25T06:00:00Z");
@@ -196,11 +196,24 @@ describe("the areas each quest led in its landings", () => {
 	// #2224: lib/most led this file's ordering test until most became a
 	// function word, when it was left out as routing reads it.
 	it("leaves out an area named by a word routing passes over", () => {
-		expect(subjectWords("agentic-harness.pi:lib/most")).toEqual([]);
+		expect(routingWords("agentic-harness.pi:lib/most")).toEqual([]);
 		expect(
 			led([
 				merge("QEST-A", ["lib/most", "lib/mesh"]),
 				merge("QEST-A", ["lib/most", "lib/mesh"], 1),
+			]),
+		).toEqual({ "QEST-A": ["agentic-harness.pi:lib/mesh"] });
+	});
+
+	// A hub takes a need saying every word of its subject, and no need
+	// keeps one past LONGEST_WORD, so such an area's hub would take none.
+	it("leaves out an area with a word past the longest a need keeps", () => {
+		const long = `lib/${"a".repeat(LONGEST_WORD + 1)}-lines`;
+		expect(routingWords(`agentic-harness.pi:${long}`)).toEqual(["lines"]);
+		expect(
+			led([
+				merge("QEST-A", [long, "lib/mesh"]),
+				merge("QEST-A", [long, "lib/mesh"], 1),
 			]),
 		).toEqual({ "QEST-A": ["agentic-harness.pi:lib/mesh"] });
 	});
@@ -213,7 +226,7 @@ describe("the areas each quest led in its landings", () => {
 		// Each area must give routing a word, or it is left out and the
 		// test fails as an ordering fault rather than naming the cause.
 		for (const area of [...areas, "lib/mesh"]) {
-			expect(subjectWords(`agentic-harness.pi:${area}`)).not.toEqual([]);
+			expect(routingWords(`agentic-harness.pi:${area}`)).not.toEqual([]);
 		}
 		const landings = [
 			...[0, 1].map((d) => merge("QEST-A", areas, d)),
@@ -267,15 +280,36 @@ describe("the led areas kept beside the landings", () => {
 				quests: {
 					"QEST-A": [
 						1,
-						"x:y",
-						{ subject: "x:z" },
-						{ subject: "x:w", until: "later" },
-						{ subject: "x:v", until: NOW + 1 },
+						"x:yarns",
+						{ subject: "x:zones" },
+						{ subject: "x:wells", until: "later" },
+						{ subject: "x:vents", until: NOW + 1 },
 					],
 				},
 			}),
 		);
-		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:y", "x:v"]);
+		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:yarns", "x:vents"]);
+	});
+
+	// A file written before such areas were left out, or by a session not
+	// yet reloaded, still names them until the lead lapses (#2220's fifth
+	// council, F12).
+	it("read none whose hub takes no need, however the file came to hold it", () => {
+		const long = `x:${"a".repeat(LONGEST_WORD + 1)}-lines`;
+		writeFileSync(
+			join(dir, LED_AREAS_FILE),
+			JSON.stringify({
+				v: 2,
+				quests: {
+					"QEST-A": [
+						{ subject: long, until: NOW + 1 },
+						"x:can",
+						{ subject: "x:vents", until: NOW + 1 },
+					],
+				},
+			}),
+		);
+		expect(ledAreasAt(dir, "QEST-A", NOW)).toEqual(["x:vents"]);
 	});
 
 	// The council, 25 November: a pipe in the file's place would hold a

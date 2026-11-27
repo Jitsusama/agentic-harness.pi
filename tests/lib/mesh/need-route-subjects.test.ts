@@ -1,19 +1,18 @@
 /**
- * A need found by the subjects cells declare: each subject read by its
- * narrowest part, capped so no cell can stuff its record, and a hub
- * chosen by how narrow its subject is rather than how long.
+ * A need found by the subjects cells declare: a hub chosen by how narrow
+ * its subject is rather than how long. The words each subject gives a
+ * cell are need-route-subject-words.test.ts's.
  */
 
 import { describe, expect, it } from "vitest";
 import {
 	foragersFrom,
 	type Hub,
-	MOST_SUBJECT_WORDS,
+	LONGEST_WORD,
 	MOST_WORDS,
 	type NeedAsked,
-	subjectWords,
+	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
-import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 import {
 	asked,
 	cells,
@@ -61,148 +60,6 @@ const takenOver = (
 	}
 	return taken;
 };
-
-describe("the words a cell's declared subjects give it", () => {
-	it("reads the narrowest part of each subject a cell declares, beside its title", () => {
-		const line = JSON.stringify({
-			id: 2,
-			records: [
-				{
-					key: "cell:5HJZ8Z",
-					title: "Carry a Session",
-					subjects: ["mycelium:easing", "health.asks.", 12345],
-				},
-				{ key: "cell:9T2BBY", title: "Placement", subjects: "easing" },
-			],
-		});
-
-		expect(foragersFrom(line)).toEqual([
-			{ address: "5HJZ8Z", words: ["carry", "session", "easing", "asks"] },
-			{ address: "9T2BBY", words: ["placement"] },
-		]);
-	});
-
-	it("never gives a cell the broader words of a subject it narrows", () => {
-		expect(subjectWords("mycelium:easing")).toEqual(["easing"]);
-		expect(subjectWords("unit:pi-host-")).toEqual(["host", "pi-host"]);
-		expect(subjectWords("health.asks.")).toEqual(["asks"]);
-		expect(subjectWords("")).toEqual([]);
-	});
-
-	it("breaks a subject at a slash, as a repository's scope does", () => {
-		expect(subjectWords("github:Jitsusama/mycelium")).toEqual(["mycelium"]);
-	});
-
-	it("reads at most MOST_SUBJECTS subjects from one cell", () => {
-		// Every subject within the cap says the same word, so only the cap
-		// on subjects, not the one on their words, leaves the last unread.
-		const subjects = [
-			...Array.from({ length: MOST_SUBJECTS }, (_, at) => `same${at}:easing`),
-			"past:carry",
-		];
-		const line = JSON.stringify({
-			id: 2,
-			records: [{ key: "cell:XXXXXX", subjects }],
-		});
-
-		const [cell] = foragersFrom(line);
-
-		expect(cell?.words, "the subject past the cap is not read").toEqual([
-			"easing",
-		]);
-	});
-
-	it("reads every one of MOST_SUBJECTS subjects, each its own word", () => {
-		const subjects = Array.from(
-			{ length: MOST_SUBJECTS },
-			(_, at) => `x:word${at}`,
-		);
-		const line = JSON.stringify({
-			id: 2,
-			records: [{ key: "cell:XXXXXX", subjects: [5, ...subjects] }],
-		});
-
-		const [cell] = foragersFrom(line);
-
-		expect(cell?.words, "a non-string takes no subject's place").toEqual(
-			Array.from({ length: MOST_SUBJECTS }, (_, at) => `word${at}`),
-		);
-	});
-
-	it("gives a word a subject shares with the title once, as the title's", () => {
-		const line = JSON.stringify({
-			id: 2,
-			records: [
-				{
-					key: "cell:XXXXXX",
-					title: "Carry a Session",
-					subjects: ["mycelium:carry", "mycelium:easing"],
-				},
-			],
-		});
-
-		const [cell] = foragersFrom(line);
-
-		expect(cell?.words).toEqual(["carry", "session", "easing"]);
-	});
-
-	it("gives a cell at most MOST_SUBJECT_WORDS words from all its subjects together", () => {
-		const half = MOST_SUBJECT_WORDS / 2 + 1;
-		const run = (from: number) =>
-			Array.from({ length: half }, (_, at) => `word${from + at}`);
-		const subject = (from: number) => `x:${run(from).join("-")}`;
-		const line = JSON.stringify({
-			id: 2,
-			records: [
-				{
-					key: "cell:XXXXXX",
-					title: "Placement",
-					subjects: [subject(0), subject(half)],
-				},
-			],
-		});
-
-		const [cell] = foragersFrom(line);
-
-		expect(
-			cell?.words,
-			"its title, then the first subject words up to the cap, across subjects",
-		).toEqual(
-			["placement", ...run(0), ...run(half)].slice(0, 1 + MOST_SUBJECT_WORDS),
-		);
-		expect(
-			cell?.words,
-			"no id longer than a route keeps, as each joined run of words is",
-		).not.toContain(run(0).join("-"));
-	});
-
-	it("counts a subject's ids apart from its words, so an id pushes no word out", () => {
-		const words = Array.from(
-			{ length: MOST_SUBJECT_WORDS },
-			(_, at) => `${String.fromCharCode(97 + at).repeat(3)}`,
-		);
-		const half = MOST_SUBJECT_WORDS / 2;
-		const first = words.slice(0, half).join("-");
-		const second = words.slice(half).join("-");
-		const line = JSON.stringify({
-			id: 2,
-			records: [
-				{
-					key: "cell:ROWS01",
-					subjects: [`x:${first}`, `x:${second}`],
-				},
-			],
-		});
-		const [cell] = foragersFrom(line);
-
-		expect(cell?.words, "every word of both subjects, then both ids").toEqual([
-			...words.slice(0, half),
-			first,
-			...words.slice(half),
-			second,
-		]);
-	});
-});
 
 describe("a need routed by declared subjects", () => {
 	it("reaches the cell declaring its subject past a nearer one holding a generic word", () => {
@@ -601,6 +458,94 @@ describe("a need routed by declared subjects", () => {
 			}),
 			ties: ties(["A", "C", 1]),
 			hubs: [{ subject: "x:pallet-lines", hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	// No need keeps a word past LONGEST_WORD, so a subject saying one is
+	// never said whole, and its hub can't take a need saying only its
+	// short part (#2220's third judge).
+	it("takes no hub whose subject says a word longer than any a need keeps", () => {
+		const long = "p".repeat(LONGEST_WORD + 1);
+		const found = routeNeed(asked("A", "easing", "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	// A word past LONGEST_WORD is a token, not work, even said whole, so
+	// the hub config refuses is never taken (#2220's fifth council, F1
+	// and F5).
+	it("takes no hub for a word longer than any a need keeps, even said whole", () => {
+		const long = "p".repeat(LONGEST_WORD + 1);
+		const found = routeNeed(asked("A", "easing", long, "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${long}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	// The cap keeps a word as long as it, so a hub of one is taken by a
+	// need saying it (#2220's sixth council, F44).
+	it("takes the hub for a word as long as LONGEST_WORD, said whole", () => {
+		const longest = "p".repeat(LONGEST_WORD);
+		const found = routeNeed(asked("A", "easing", longest, "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${longest}-lines`, hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "its hub takes it to H").toMatchObject({
+			fit: "H",
+			path: ["H"],
+		});
+	});
+
+	// A joined id with a number is said only whole or inside a longer id,
+	// and past LONGEST_WORD no need keeps it: a hub left matching by its
+	// other words would take a need for leg 27 for a subject of leg 26
+	// (#2220's sixth council, F57).
+	it("takes no hub whose subject joins a number into an id longer than any a need keeps", () => {
+		const word = "p".repeat(LONGEST_WORD - 6);
+		const found = routeNeed(asked("A", ...wordsOf(`easing ${word} leg 27`)), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["leg"],
+				W: ["leg"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: `x:${word}-leg-26`, hub: "H", fits: ["H"] }],
 		});
 
 		expect(found, "easing carries it to C").toMatchObject({

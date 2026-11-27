@@ -24,6 +24,12 @@ import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutat
 import { stewards } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
 import {
+	hubTakesNone,
+	LONGEST_WORD,
+	overLongWords,
+	routingWords,
+} from "../../../lib/mesh/need-route.ts";
+import {
 	declaredSubjects,
 	LONGEST_SUBJECT,
 	MOST_SUBJECTS,
@@ -151,18 +157,41 @@ function ownedByQuest(questId: string): string[] {
 /**
  * What the quest's sessions say they work on, as presence publishes
  * it: what they own, then what the README declares, naming any of
- * those the node would pass over or the places would leave out.
+ * those the node would pass over or the places would leave out, and
+ * which it declares name no work a need is routed by or say a word
+ * whose hub no need reaches. What it owns is
+ * the machine's config, which `subjects=` can't change, so it is left
+ * out of those.
  */
 function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	const owned = subjectsOf(ownedByQuest(questId), []);
 	const declared = declaredSubjects(fm._extra?.subjects);
 	const said = subjectsOf(owned, declared);
 	const left = declared.filter((one) => !said.includes(one));
+	const silent = said.filter(
+		(one) => declared.includes(one) && namesNoWork(one),
+	);
+	// Set by hand or before config refused them, so said here, where
+	// their hubs would otherwise go quiet unseen (#2220's fifth council,
+	// F3, F7, F9 and F11).
+	const hubless = said.filter(
+		(one) => declared.includes(one) && !namesNoWork(one) && hubTakesNone(one),
+	);
 	const parts = [
 		said.length > 0
 			? `They say they work on ${said.join(", ")}`
 			: "They say they work on nothing",
 	];
+	if (silent.length > 0) {
+		parts.push(
+			`of which ${silent.join(", ")} ${silent.length === 1 ? "names" : "name"} no work a need is routed by`,
+		);
+	}
+	if (hubless.length > 0) {
+		parts.push(
+			`of which ${hubless.join(", ")} ${hubless.length === 1 ? "says a word" : "say words"} past ${LONGEST_WORD} characters, which no need keeps, so ${hubless.length === 1 ? "its hub takes" : "their hubs take"} none`,
+		);
+	}
 	if (owned.length > 0) parts.push(`owning ${owned.join(", ")}`);
 	if (left.length > 0) {
 		parts.push(`leaving out ${left.length} its README declares`);
@@ -171,10 +200,21 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 }
 
 /**
+ * Whether a subject names no work a need is routed by: its narrowest
+ * part, after its last colon, dot or slash with a `.service` ending
+ * set aside, holds no word routing reads, as x:can or hooks:after, so
+ * no need ever finds a cell by it.
+ */
+function namesNoWork(subject: string): boolean {
+	return routingWords(subject).length === 0;
+}
+
+/**
  * Set the subjects the quest `id` names (else the loaded one) says its
  * sessions work on, on its front matter, so every session on it declares
  * the same; an empty list clears them. Refused, changing nothing, when
- * the node would read fewer than were said.
+ * the node would read fewer than were said, or when one names no work a
+ * need is routed by.
  */
 function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 	const target = questNamed(state, params);
@@ -186,6 +226,29 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 		const dropped = said.filter((one) => !subjects.includes(one));
 		return refuse(
 			`Nothing changed: mycelium's node reads at most ${MOST_SUBJECTS} subjects, each plain text of at most ${LONGEST_SUBJECT} characters, and would pass over ${dropped.length} of these. ${SUBJECTS_USAGE}`,
+		);
+	}
+	// Refused by the one rule led areas and the report read, so the three
+	// can't part, and worded by its causes (#2220's sixth council, F45
+	// and F47).
+	const hubless = subjects.filter(hubTakesNone);
+	const silent = hubless.filter(namesNoWork);
+	if (silent.length > 0) {
+		return refuse(
+			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash with a .service ending set aside, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short, too long or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
+		);
+	}
+	const overLong = hubless.flatMap((one) =>
+		overLongWords(one).map((word) => `${word} in ${one}`),
+	);
+	if (overLong.length > 0) {
+		return refuse(
+			`Nothing changed: a subject's hub takes a need only when it says every word of the subject's narrowest part, and no need keeps a word past ${LONGEST_WORD} characters, so its hub would take none for ${overLong.join(", ")}. Name the work there in shorter words. ${SUBJECTS_USAGE}`,
+		);
+	}
+	if (hubless.length > 0) {
+		return refuse(
+			`Nothing changed: no need would reach the hub of ${hubless.join(", ")}. Name the work itself there. ${SUBJECTS_USAGE}`,
 		);
 	}
 	const owned = subjectsOf(ownedByQuest(target.questId), []);
