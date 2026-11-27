@@ -204,8 +204,8 @@ export function expandWith(
 	};
 }
 
-/** `NAME=value`, as a step setting a variable writes it. */
-const ASSIGNMENT = /^([A-Za-z_]\w*)=(.*)$/s;
+/** `NAME=value`, or `NAME+=value`, as a step setting a variable writes it. */
+const ASSIGNMENT = /^([A-Za-z_]\w*)(\+?)=(.*)$/s;
 
 /** A value that is one command's output, as `$(git rev-parse HEAD)`. */
 const SUBSTITUTION = /^"?\$\(([^()`]*)\)"?$/;
@@ -240,9 +240,18 @@ export function stepsOf(
 		const first = words[0] === "export" ? words.slice(1) : words;
 		if (first.length > 0 && first.every((word) => ASSIGNMENT.test(word))) {
 			for (const word of first) {
-				const [, name = "", value = ""] = ASSIGNMENT.exec(word) ?? [];
-				const expanded = expand(value);
-				const output = SUBSTITUTION.exec(value)?.[1];
+				const [, name = "", appends = "", value = ""] =
+					ASSIGNMENT.exec(word) ?? [];
+				// An append is known only while what it appends to is, as a
+				// name unset here may be set in the environment.
+				const before = appends === "" ? "" : vars.get(name);
+				const added = expand(value);
+				const expanded =
+					before === undefined || added === undefined
+						? undefined
+						: before + added;
+				const output =
+					appends === "" ? SUBSTITUTION.exec(value)?.[1] : undefined;
 				substituted.delete(name);
 				if (expanded === undefined) vars.delete(name);
 				else vars.set(name, expanded);
