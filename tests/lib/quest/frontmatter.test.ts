@@ -498,7 +498,8 @@ describe("every front-matter field", () => {
 
 	// A field of the person's own named like `__proto__` may hold a map,
 	// which must come back as that map rather than become the prototype.
-	it("keeps an extra __proto__ field that holds a map", () => {
+	// A quest's too, as the case above reads both (#2220's round 8, F9).
+	it("keeps an extra __proto__ field that holds a map, on a quest and a document", () => {
 		const extra = Object.defineProperty({}, "__proto__", {
 			value: { nested: "kept" },
 			enumerable: true,
@@ -514,12 +515,18 @@ describe("every front-matter field", () => {
 			_extra: extra,
 		};
 		const text = `${serializeDocumentFrontMatter(doc)}\n# Plan\n`;
-		const read = parseDocumentFrontMatter(text)?.frontMatter._extra;
+		const quest: QuestFrontMatter = { ...SAMPLE_QUEST_FM, _extra: extra };
+		const questText = `${serializeQuestFrontMatter(quest)}\n# Title\n`;
 
-		expect(read, "the extra as written").toStrictEqual(extra);
-		expect(read && Object.getPrototypeOf(read), "its prototype").toBe(
-			Object.prototype,
-		);
+		for (const [whose, read] of [
+			["the document's", parseDocumentFrontMatter(text)?.frontMatter._extra],
+			["the quest's", parseQuestFrontMatter(questText)?.frontMatter._extra],
+		] as const) {
+			expect(read, `${whose} extra as written`).toStrictEqual(extra);
+			expect(read && Object.getPrototypeOf(read), `${whose} prototype`).toBe(
+				Object.prototype,
+			);
+		}
 	});
 
 	// An extra can't write over a field the shape knows, so a hand-added
@@ -539,6 +546,21 @@ describe("every front-matter field", () => {
 			parseDocumentFrontMatter(`${text}\n# Plan\n`)?.frontMatter.stage,
 		).toBe("build");
 		expect(text, "the extra's value").not.toContain("think");
+	});
+
+	// A quest's too, so a hand-added `status` never changes its status
+	// (#2220's round 8, F9).
+	it("writes a quest's known field over an extra of the same name", () => {
+		const quest: QuestFrontMatter = {
+			...SAMPLE_QUEST_FM,
+			_extra: { status: "retired" },
+		};
+		const text = serializeQuestFrontMatter(quest);
+
+		expect(
+			parseQuestFrontMatter(`${text}\n# Title\n`)?.frontMatter.status,
+		).toBe(SAMPLE_QUEST_FM.status);
+		expect(text, "the extra's value").not.toContain("retired");
 	});
 });
 

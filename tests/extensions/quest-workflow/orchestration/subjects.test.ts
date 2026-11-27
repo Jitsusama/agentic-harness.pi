@@ -12,7 +12,10 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { questAddress } from "../../../../lib/mesh/address.ts";
 import { LONGEST_WORD } from "../../../../lib/mesh/need-route.ts";
-import { MOST_SUBJECTS } from "../../../../lib/mesh/subjects.ts";
+import {
+	LONGEST_SUBJECT,
+	MOST_SUBJECTS,
+} from "../../../../lib/mesh/subjects.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
@@ -121,10 +124,15 @@ describe("the subjects a quest's sessions declare", () => {
 			id,
 			ref: `subjects=${many}`,
 		});
+		// One that routes, so only the length refuses it (#2220's sixth
+		// council, F50), and one past the cap, so the cap is where it
+		// says (seventh council, F63).
+		const long = `x:${"lines-".repeat(19)}lines`;
+		expect(long, "one past the cap").toHaveLength(LONGEST_SUBJECT + 1);
 		const tooLong = await run({
 			action: "config",
 			id,
-			ref: `subjects=${"x".repeat(121)}`,
+			ref: `subjects=${long}`,
 		});
 		expect(
 			[tooMany.ok, tooLong.ok, subjectsOf(id)],
@@ -132,6 +140,9 @@ describe("the subjects a quest's sessions declare", () => {
 		).toEqual([false, false, undefined]);
 		expect(said(tooMany)).toMatch(
 			new RegExp(`reads at most ${MOST_SUBJECTS} subjects`),
+		);
+		expect(said(tooLong), "refused for its length").toMatch(
+			new RegExp(`at most ${LONGEST_SUBJECT} characters`),
 		);
 	});
 
@@ -152,13 +163,18 @@ describe("the subjects a quest's sessions declare", () => {
 	// Routing keeps no word past LONGEST_WORD, so one such names no work.
 	it("refuse a subject whose one word runs past the longest kept", async () => {
 		const id = await made();
-		const long = `x:${"a".repeat(LONGEST_WORD + 1)}`;
+		const word = "a".repeat(LONGEST_WORD + 1);
+		const long = `x:${word}`;
 		const result = await run({ action: "config", id, ref: `subjects=${long}` });
 		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
 			false,
 			undefined,
 		]);
-		expect(said(result)).toContain(long);
+		// Named by its length, not only as naming no work, which either
+		// cause would say (#2220's round 8, F8).
+		expect(said(result), "refused for its word's length").toContain(
+			`${word} in ${long}`,
+		);
 	});
 
 	// A hub takes a need saying every word of its subject, and no need
@@ -176,6 +192,43 @@ describe("the subjects a quest's sessions declare", () => {
 			undefined,
 		]);
 		expect(said(result), "the word named").toContain(
+			`${word} in x:${word}-lines`,
+		);
+	});
+
+	// Words are read lowercased, but the writer looks for the word as
+	// written (#2220's sixth council, F59).
+	it("refuse a subject with a word past the longest kept, naming it as written", async () => {
+		const id = await made();
+		const word = `Ab${"c".repeat(LONGEST_WORD)}`;
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=x:${word}-lines`,
+		});
+		expect(said(result), "the word as written").toContain(
+			`${word} in x:${word}-lines`,
+		);
+	});
+
+	// Mending one cause shouldn't meet a refusal for the other (#2220's
+	// seventh council, F71).
+	it("refuse subjects naming no work and with a word past the longest kept at once, naming both", async () => {
+		const id = await made();
+		const word = "a".repeat(LONGEST_WORD + 1);
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=x:can,x:${word}-lines`,
+		});
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result), "the one naming no work").toMatch(
+			/x:can holds none there/,
+		);
+		expect(said(result), "the over-long word").toContain(
 			`${word} in x:${word}-lines`,
 		);
 	});
@@ -238,8 +291,9 @@ describe("the subjects a quest's sessions declare", () => {
 	});
 
 	// What the quest owns is the machine's config, which subjects= can't
-	// change, so the report names only what the README declares.
-	it("name those the README declares that name no work, and none it owns", async () => {
+	// change, so the report says it apart, as the owners file's to mend
+	// (#2220's round 8, F10).
+	it("name those the README declares that name no work, and those it owns apart", async () => {
 		const id = await made();
 		// An owned prefix as common as after routes nothing either.
 		owners(`after.=${questAddress(id)}`);
@@ -251,7 +305,12 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 		const report = await run({ action: "config", id });
 		expect(said(report)).toMatch(/, of which x:can names no work a need/);
-		expect(said(report), "the owned prefix").toMatch(/owning after\./);
+		expect(said(report), "the owned prefix, said apart").toContain(
+			"owning after., of which after. takes no need, which the machine's owners file must mend",
+		);
+		expect(said(report), "not as the README's").not.toMatch(
+			/after\. names no work/,
+		);
 	});
 
 	// One set by hand, or before config refused it, would leave its hub
@@ -274,13 +333,15 @@ describe("the subjects a quest's sessions declare", () => {
 
 	// An owned prefix is the machine's config, which subjects= can't
 	// change, so it is never named as the README's (#2220's sixth
-	// council, F46).
-	it("name no owned prefix whose word past the longest kept leaves its hub taking none", async () => {
+	// council, F46), but said apart (round 8, F10).
+	it("name an owned prefix whose word past the longest kept leaves its hub taking none apart from the README's", async () => {
 		const id = await made();
 		const long = `${"a".repeat(LONGEST_WORD + 1)}-lines.`;
 		owners(`${long}=${questAddress(id)}`);
 		const report = await run({ action: "config", id });
-		expect(said(report), "the owned prefix").toContain(`owning ${long}`);
+		expect(said(report), "the owned prefix, said apart").toContain(
+			`owning ${long}, of which ${long} takes no need, which the machine's owners file must mend`,
+		);
 		expect(said(report), "not as the README's").not.toMatch(
 			/past \d+ characters/,
 		);

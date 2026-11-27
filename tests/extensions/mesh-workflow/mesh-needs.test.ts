@@ -323,6 +323,85 @@ describe("sending to a need", () => {
 		expect(said, "no id the asker never wrote").not.toContain("check-out");
 	});
 
+	// A cell works on roll, so the phrase's id is left alone of the words
+	// no cell works on, and was once said as the asker never wrote it
+	// (#2220's round 7b, F72 and F80).
+	it("names a phrase no cell works on as its asker wrote it", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Roll the Deploy" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who can undo the deploy?",
+			about: "roll back the deploy",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "roll back, as written").toContain(
+			"No cell works on back, roll back, so they found nobody",
+		);
+		expect(said, "no id the asker never wrote").not.toContain("roll-back");
+	});
+
+	// Only an ended cell works on check out, so both its words are said of
+	// the live cell's lack, which once named the id too (round 7b, F75).
+	it("names a phrase only an ended cell works on by its first word alone", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Store", subjects: ["x:check-out"] },
+				{ key: "cell:5HJZ8Z", title: "Lease Files" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:7M6JKG~J7XHQN", strength: 1, heard: Date.now() },
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who can look at the lease files?",
+			about: "check out the lease files",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "check alone, as written").toContain(
+			"No live cell works on check, so it found nobody and it was routed by lease files alone.",
+		);
+		expect(said, "no id the asker never wrote").not.toContain("check-out");
+	});
+
+	// The asker typed check-out, so it is theirs to be told of, where the
+	// reply once named only check (round 7b, F83).
+	it("names a joined id its asker typed as typed", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Lease Files" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who can look at the lease files?",
+			about: "check-out the lease files",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "both, as typed").toContain(
+			"No cell works on check, check-out, so they found nobody",
+		);
+	});
+
 	it("says nothing of a joined id whose short part could never be a word, but names a numbered one", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(
