@@ -338,8 +338,10 @@ Dropping a merged branch with `git branch -D` still reads them all,
 but that cost 0.27 s with 1,130, and detached snapshots, most of
 what a sweep takes, have no branch to drop.
 A tree claimed
-over `work:tree-claims:v1`, one whose record names nobody, and one
-the broker never cut are left alone. The outside runner alone also
+over `work:tree-claims:v1` for good, one whose record names nobody,
+and one the broker never cut are left alone; one claimed only until
+spent goes by the rules above once its sessions end, and by the idle
+rules below only as they say. The outside runner alone also
 finishes up to ten removals a run that stopped part way: folders named
 as cut trees with no `.git` at their top or just below, which no record
 or claim names, reaches into or holds from above, untouched for a day
@@ -408,8 +410,22 @@ file beyond what builds make again (ignored links, as Nix's `result`,
 and ignored folders builds name, as `node_modules/` and `target/`; any
 other ignored folder, as `.worktrees/`, may hold work), no file marked
 skip-worktree or assume-unchanged, no stash on its branch, no commit
-only its HEAD's reflog holds, not locked and no submodules. One whose
-record names no session stays, as nothing could tell or keep its
+only its HEAD's reflog holds, not locked and no submodules. One a
+holder claims stays, unless it claims it only until spent and some
+holder names it in `idleMayTake`, one list for them all: a live quest
+names there each tree it lists on this machine in a known repository
+but that repository's last whose folder stands, and never one any
+live quest keeps, so the tree its session reopens in stays. The
+holders are asked again as the idle phase begins, since a tree they
+kept may have gone since they chose, and the rules take only what
+both answers name; an ask that fails lets them take none. A list of
+claims, which can't be asked again, lets none go once the run took or
+refused a tree it kept. Once any tree the holders kept goes during
+the idle phase, the rest of the run takes none they let go. A taken tree leaves its
+quest's list, but its branch's alias stays while the branch does, so
+a change on that branch still finds the quest, and goes once a sweep
+deletes the branch. One whose record names no
+session stays, as nothing could tell or keep its
 branch for it. Worktrees go first, with half the share, so a backlog
 of snapshots never starves them, and `idleWorktreesLeft` says how many
 a run left.
