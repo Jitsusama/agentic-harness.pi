@@ -44,6 +44,8 @@
 
 import { stat } from "node:fs/promises";
 import {
+	abortedBeforeStart,
+	abortedBy,
 	callSignal,
 	EXIT_ABORTED,
 	spawnExec,
@@ -191,22 +193,20 @@ export interface GateRun {
 }
 
 /**
- * `stderr` without the note spawnExec puts last on a run it stopped,
- * which names neither the gate nor its clock, as the refusal does:
- * "bash aborted: " and the signal's reason, which may run over lines,
- * or "bash aborted before it started". What the gate said before it,
- * even a line reading the same, stays.
+ * `stderr` without the note spawnExec put last on a run it stopped,
+ * which names neither the gate nor its clock, as the refusal does. The
+ * note is one of `notes`, the words spawnExec writes for each signal
+ * that may have stopped it, so it is matched whole, whatever its reason
+ * says. What the gate said before it, even a line reading the same,
+ * stays, and stderr ending in none of them is kept as it is.
  */
-function withoutExecNote(stderr: string): string {
-	const at = stderr.lastIndexOf("bash aborted");
-	if (at === -1 || (at > 0 && stderr[at - 1] !== "\n")) return stderr;
-	const note = stderr.slice(at);
-	if (
-		note !== "bash aborted before it started" &&
-		!note.startsWith("bash aborted: ")
-	)
-		return stderr;
-	return stderr.slice(0, Math.max(0, at - 1));
+function withoutExecNote(stderr: string, notes: readonly string[]): string {
+	for (const note of notes) {
+		if (stderr === note) return "";
+		if (stderr.endsWith(`\n${note}`))
+			return stderr.slice(0, -(note.length + 1));
+	}
+	return stderr;
 }
 
 /** Runs a gate's shell line in a folder, killing it past `timeoutMs`. */
@@ -239,7 +239,13 @@ export function gateRunner(): RunGate {
 				ran.code === EXIT_ABORTED &&
 				(clock.signal.aborted || call?.aborted === true);
 			if (!stoppedHere) return { ...ran, killed: false };
-			const stderr = withoutExecNote(ran.stderr);
+			const notes = [
+				abortedBeforeStart("bash"),
+				...[clock.signal, call]
+					.filter((signal) => signal?.aborted === true)
+					.map((signal) => abortedBy("bash", signal?.reason)),
+			];
+			const stderr = withoutExecNote(ran.stderr, notes);
 			const killed = clock.signal.aborted && call?.aborted !== true;
 			return { ...ran, stderr, killed, aborted: !killed };
 		} finally {

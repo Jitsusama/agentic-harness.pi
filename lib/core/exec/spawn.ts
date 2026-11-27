@@ -121,7 +121,7 @@ function runUnattended(
 		return Promise.resolve({
 			code: EXIT_ABORTED,
 			stdout: "",
-			stderr: `${command} aborted before it started`,
+			stderr: abortedBeforeStart(command),
 		});
 	}
 	return new Promise((resolve) => {
@@ -167,7 +167,7 @@ function runUnattended(
 			);
 		};
 		const onAbort = (): void =>
-			stop(EXIT_ABORTED, `${command} aborted: ${reasonWords(signal?.reason)}`);
+			stop(EXIT_ABORTED, abortedBy(command, signal?.reason));
 		signal?.addEventListener("abort", onAbort, { once: true });
 		const clock =
 			options.timeoutMs === undefined
@@ -221,6 +221,23 @@ function runUnattended(
 /** A signal's exit code as a shell reports it: 128 and its number. */
 function exitOfSignal(signal: NodeJS.Signals): number {
 	return 128 + (constants.signals[signal] ?? 0);
+}
+
+/**
+ * The note a run stopped before `command` started is given as its
+ * stderr, so a caller that stopped it can know the words as written.
+ */
+export function abortedBeforeStart(command: string): string {
+	return `${command} aborted before it started`;
+}
+
+/**
+ * The note put last on the stderr of a run of `command` stopped by a
+ * signal whose reason is `reason`, so a caller that stopped it can know
+ * the words as written.
+ */
+export function abortedBy(command: string, reason: unknown): string {
+	return `${command} aborted: ${reasonWords(reason)}`;
 }
 
 /**

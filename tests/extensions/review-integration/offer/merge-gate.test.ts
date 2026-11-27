@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	baseTip,
 	DEFAULT_GATE_MINUTES,
@@ -398,7 +398,7 @@ describe("a repo's merge gate", () => {
 			shell(
 				`echo 'gate: step 3' >&2; (sleep 2; touch ${JSON.stringify(marker)}) & wait`,
 				dir,
-				200,
+				1_000, // long enough for bash to start and say its line on a loaded machine, short of the child's sleep
 			),
 		);
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
@@ -416,15 +416,35 @@ describe("a repo's merge gate", () => {
 
 	// A gate's own line reading as the exec layer's is the gate's to say.
 	it("leaves out only the exec layer's note when a call is stopped, whatever its reason", async () => {
-		const call = new AbortController();
-		setTimeout(() => call.abort(new Error("stopped by\nthe person")), 200);
-		const ran = await withCallSignal(call.signal, () =>
-			shell("echo 'bash aborted: by the gate' >&2; sleep 5", dir, 10_000),
-		);
-		expect(ran.aborted, "a stopped call is an Escape").toBe(true);
-		expect(ran.stderr, "what the gate said, and nothing after").toBe(
-			"bash aborted: by the gate",
-		);
+		const reasons = [
+			"stopped by\nthe person",
+			"the bash aborted twice",
+			"stopped\nbash aborted: again",
+		];
+		for (const reason of reasons) {
+			const spoke = join(dir, "spoke");
+			rmSync(spoke, { force: true });
+			const call = new AbortController();
+			const ran = withCallSignal(call.signal, () =>
+				shell(
+					`echo 'bash aborted before it started' >&2; echo 'bash aborted: by the gate' >&2; touch ${JSON.stringify(spoke)}; sleep 5`,
+					dir,
+					10_000,
+				),
+			);
+			await vi.waitFor(() => {
+				if (!existsSync(spoke)) throw new Error("the gate hasn't spoken yet");
+			});
+			call.abort(new Error(reason));
+			const stopped = await ran;
+			expect(stopped.aborted, `a stopped call is an Escape (${reason})`).toBe(
+				true,
+			);
+			expect(
+				stopped.stderr,
+				`what the gate said, and nothing after (${reason})`,
+			).toBe("bash aborted before it started\nbash aborted: by the gate");
+		}
 	});
 
 	it("leaves out the exec layer's note for a call stopped before the gate starts", async () => {
