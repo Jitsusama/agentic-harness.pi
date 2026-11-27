@@ -57,6 +57,14 @@ export function createSteerer(m: MeshState) {
 	 * call that starts after it moves to the background too, and none once
 	 * the last is read. pi reads one steer a turn, so another's message
 	 * read first, a typed line or a peer's, leaves the talk waiting.
+	 *
+	 * The words are matched whole, as pi 1.6.1 matches its own queue: it
+	 * keeps a steer as the one text part it was sent as. A message of
+	 * several parts is read joined by spaces (userTextOf), so talk pi ever
+	 * split would wait until the run settles rather than be let go early.
+	 * pi settles a run only as it ends (agent_settled, after its own
+	 * compactions), never between turns, so talk held past its read stays
+	 * marked no longer than that run.
 	 */
 	const unread: string[] = [];
 	let answering: (() => void) | undefined;
@@ -105,7 +113,9 @@ export function createSteerer(m: MeshState) {
 			return;
 		}
 		// Marked before it is sent, so pi's reading it, however soon, clears
-		// it, and let go if it never was.
+		// it, and let go at once if pi refuses it as it is sent. pi says a
+		// refusal that comes later as an error of its own, not to the
+		// sender, so that talk stays marked until the run settles.
 		unread.push(text);
 		try {
 			m.pi.sendUserMessage(text, { deliverAs });
