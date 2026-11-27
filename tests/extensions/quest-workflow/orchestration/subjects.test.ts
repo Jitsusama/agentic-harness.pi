@@ -281,7 +281,10 @@ describe("the subjects a quest's sessions declare", () => {
 			id,
 			ref: "subjects=x:ab.service",
 		});
-		expect(result.ok).toBe(false);
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
 		expect(said(result), "its type set aside").toMatch(
 			/a \.service ending set aside/,
 		);

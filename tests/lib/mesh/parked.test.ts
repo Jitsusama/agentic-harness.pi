@@ -171,7 +171,10 @@ describe("waking a parked peer", () => {
 		});
 		const read = (id: string) => (id === pivot.id ? pivot : undefined);
 
-		expect(wakes(refusal, parked, read)).toBe(true);
+		expect(
+			wakes(refusal, parked, read),
+			"a question re its pivot wakes it",
+		).toBe(true);
 		expect(
 			wakes({ ...refusal, intent: "fyi" }, parked, read),
 			"news re its pivot stays for its next start",
