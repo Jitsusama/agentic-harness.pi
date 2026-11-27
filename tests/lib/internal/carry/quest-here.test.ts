@@ -279,6 +279,20 @@ describe("what a quest has on this machine", () => {
 		const own = join(at.root, "trees", "own");
 		mkdirSync(join(own, ".git"), { recursive: true });
 		mkdirSync(join(own, "src", ".git"), { recursive: true });
+		// Neither it nor its src has a git, so nothing says it is a checkout
+		// one level down.
+		const bare = join(at.root, "trees", "bare");
+		mkdirSync(join(bare, "src"), { recursive: true });
+		// The broker has kept a World tree by its root too: one record of
+		// 1,837 on optimus did (27 November).
+		const cut = join(at.root, "world", "trees", "cut");
+		mkdirSync(join(cut, "src", ".git"), { recursive: true });
+		createTreeMemory(at.treeRecords).remember({
+			identity: { key: "cut", shareable: false },
+			path: cut,
+			providerId: "world-dev-tree",
+			sessions: ["s-cut"],
+		});
 		mkdirSync(join(at.quests, QUEST));
 		writeFileSync(
 			join(at.quests, QUEST, "README.md"),
@@ -296,6 +310,7 @@ describe("what a quest has on this machine", () => {
 				trees: [
 					{ path: world, providerId: "dev-tree", host: hostname() },
 					{ path: own, providerId: "git", host: hostname() },
+					{ path: bare, providerId: "git", host: hostname() },
 				],
 			})}\n# Carry\n`,
 		);
@@ -307,7 +322,10 @@ describe("what a quest has on this machine", () => {
 
 		expect(
 			found.trees,
-			"a tree with a git of its own is named as it is",
-		).toEqual([join(world, "src"), own]);
+			"a World tree by its src, and a tree with a git of its own or none at all as named",
+		).toEqual([join(world, "src"), own, bare]);
+		expect(found.held, "the broker's World tree by its src too").toEqual([
+			{ path: join(cut, "src"), sessions: ["s-cut"] },
+		]);
 	});
 });
