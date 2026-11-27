@@ -101,6 +101,7 @@ import {
 	REPOSITORY_HOMES,
 	readOnlyEntry,
 	readOnlyPaths,
+	repositoryHomes,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
@@ -648,8 +649,9 @@ const GIT_WRITTEN = ["objects", "refs", "logs", "lfs", "rr-cache"] as const;
 
 /** The repository homes the fence keeps read-only, that are folders here. */
 function keptHomes(home: string, disk: Disk): string[] {
-	return REPOSITORY_HOMES.filter(({ kept }) => kept)
-		.map(({ where }) => join(home, where))
+	return repositoryHomes(home)
+		.filter(({ kept }) => kept)
+		.map(({ top }) => top)
 		.filter((top) => disk.kind(top) === "folder");
 }
 
@@ -663,8 +665,9 @@ function gitFolderOf(path: string, disk: Disk): string | undefined {
 }
 
 /**
- * The git folders in the home folder's repositories, working and bare.
- * A walk stops at a repository, and below the top goes only into plain
+ * The git folders in the home folder's repositories, working and bare,
+ * and in each repository home the person's settings name outside it
+ * (`fence-repository-homes.ts`). A walk stops at a repository, and below the top goes only into plain
  * folders, never a hidden one or a link.
  */
 export function gitFolders(home: string, disk: Disk = DISK): string[] {
@@ -684,8 +687,7 @@ export function gitFolders(home: string, disk: Disk = DISK): string[] {
 			}
 		}
 	};
-	for (const { where, depth } of REPOSITORY_HOMES)
-		walk(join(home, where), depth);
+	for (const { top, depth } of repositoryHomes(home)) walk(top, depth);
 	return [...found].sort();
 }
 
@@ -703,9 +705,8 @@ export function guardsGitFolder(
 	const working = basename(git) === ".git" && disk.kind(git) === "folder";
 	const repository = working ? dirname(git) : git;
 	if (gitFolderOf(repository, disk) !== git) return false;
-	return REPOSITORY_HOMES.some(({ where, depth, kept }) => {
+	return repositoryHomes(home).some(({ top, depth, kept }) => {
 		if (!kept) return false;
-		const top = join(home, where);
 		const parts = relative(top, repository).split(sep);
 		const first = parts[0] ?? "";
 		if (first === "" || first === ".." || parts.length > depth) return false;
@@ -723,8 +724,9 @@ export function guardsGitFolder(
 
 /**
  * bubblewrap's arguments for git, since git runs outside the fence in
- * each repository (the person, pi's work tool). `src` and `world` are
- * read-only, so no command makes a repository there, and so is each
+ * each repository (the person, pi's work tool). `src`, `world` and each
+ * repository home the person's settings name are read-only, so no
+ * command makes a repository there, not even after it starts, and so is each
  * git folder in them but what a commit writes (`GIT_WRITTEN`). In a
  * repository elsewhere, what runs code is read-only (`GIT_CODE`). A
  * repository's whole `worktrees` folder is read-only too, one mount

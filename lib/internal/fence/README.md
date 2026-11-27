@@ -135,6 +135,11 @@ would miss what another binds over it.
   files and programs' entries whose settings name a command, with
   the caches within them bound back and the programs given a home of
   their own in the sandbox's cache.
+- **`fence-repository-homes.ts`**: the folders outside the home folder
+  the person's settings name in `sections.fence.repositoryHomes`, read
+  once a process from the settings file in the home folder, which the
+  fence keeps read-only as it keeps `~/src`; on Linux only, and never
+  the disk, the home folder, the harness's install or a link.
 - **`fence-seed.ts`**: those own homes seeded from what the person's
   programs already downloaded (cargo's crates, index and git clones),
   copied one way by reflink, again at most every ten minutes.

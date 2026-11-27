@@ -264,7 +264,7 @@ function redirected(top: string, git: string): GitRun | undefined {
 
 /** What a fenced session is told to do instead of naming an unguarded repository. */
 const CUT_ELSEWHERE =
-	"Cut the tree from a checkout under ~/src, whose settings the fence keeps read-only (`work tree`).";
+	"Cut the tree from a checkout under ~/src, or under a repository home the person's settings name in sections.fence.repositoryHomes, whose settings the fence keeps read-only (`work tree`).";
 
 /**
  * How git may run `args` in `folder` for pi, outside the fence: as
