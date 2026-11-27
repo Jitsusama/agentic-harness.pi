@@ -250,7 +250,10 @@ async function listedIn(dir: string): Promise<Listed> {
 				// every conversation the host holds.
 				const entry = await folder.read();
 				if (entry === null) return listed;
-				if (isMessageFile(entry.name)) listed.ids.push(idOf(entry.name));
+				// A file alone: a pipe so named would hold its read, off the
+				// thread, until something wrote to it, and the catch-up with it.
+				if (isMessageFile(entry.name) && entry.isFile())
+					listed.ids.push(idOf(entry.name));
 				else if (isDay(entry.name)) listed.days.push(entry.name);
 			}
 			await yieldThread();

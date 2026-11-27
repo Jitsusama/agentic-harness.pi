@@ -402,6 +402,149 @@ describe("a message never lost", () => {
 		await vi.waitFor(() => expect(marker()).toBe(lately.id));
 	});
 
+	it("is caught up on at the next start when handing what it caught up on over throws", async () => {
+		// Let go on a throw, what was caught up on, already seen here, was
+		// passed by the marker, so no later start had it either.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		settled(now - day, "7M6JKG: yesterday?");
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+		const listed = holdListing(dir);
+		const first = await startSession({}, { isIdle: () => true });
+		await listed.held;
+		// Handing over throws once, as the catch-up is handed, then as any
+		// session's: armed while it lists, before it has anything to hand.
+		let refused = 0;
+		const push = first.sent.push.bind(first.sent);
+		first.sent.push = (...items) => {
+			refused += 1;
+			if (refused === 1) throw new Error("no turn to tell");
+			return push(...items);
+		};
+		listed.release();
+		await vi.waitFor(() =>
+			expect(refused, "handing the catch-up over threw").toBe(1),
+		);
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+		await vi.waitFor(() =>
+			expect(handed(first.sent)).toContain("7M6JKG: lately?"),
+		);
+		expect(handed(first.sent), "handed over though it threw").not.toContain(
+			"7M6JKG: yesterday?",
+		);
+		expect(marker(), "the marker, past what the throw left unshown").toBe(
+			floor,
+		);
+		await first.fire("session_shutdown");
+
+		const again = await startSession({}, { isIdle: () => true });
+		await vi.waitFor(() =>
+			expect(handed(again.sent), "caught up on by the next start").toContain(
+				"7M6JKG: yesterday?",
+			),
+		);
+	});
+
+	it("hands over no message a withdrawal heard while the catch-up read replaced", async () => {
+		// Read off the thread, the backlog's question was handed over in full
+		// after the withdrawal heard meanwhile, as if it still stood.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const asked = settled(now - day, "7M6JKG: still yours?");
+		const read = holdRead(asked);
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: not yours after all?",
+			pid: 7,
+			supersedes: asked,
+		});
+		await vi.waitFor(() =>
+			expect(handed(sent)).toContain("7M6JKG: not yours after all?"),
+		);
+
+		read.release();
+		// A real pause: the test is that the catch-up, let on now, hands
+		// nothing over in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(handed(sent), "the question withdrawn").toEqual([
+			"7M6JKG: not yours after all?",
+		]);
+	});
+
+	it("reads no further once its session has ended", async () => {
+		// Only a start in the same runtime stopped it, so a session closed
+		// or reloaded mid catch-up read its whole backlog to the end.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		// More than one batch of reads at once.
+		const ids = Array.from({ length: 40 }, (_, at) =>
+			settled(now - day + at, `7M6JKG: number ${at}?`),
+		);
+		const read = holdRead(ids[0] ?? "");
+		reading.off = [];
+		const { fire } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		await fire("session_shutdown");
+
+		read.release();
+		// A real pause: the test is that no later batch is read in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		const last = ids.at(-1) ?? "";
+		expect(
+			reading.off.some((file) => file.endsWith(`${last}.json`)),
+			"read the backlog's last batch after the session ended",
+		).toBe(false);
+	});
+
+	it("hands over no file whose message names another id", async () => {
+		// The front is held by file and handed by envelope, so an envelope
+		// naming another id let go a hold it never took, the catch-up's
+		// listing among them, whose id is the empty one.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const { sent } = await startSession({}, { isIdle: () => true });
+		const file = `${now}-QQQQQQ-1-eeeeeeee`;
+		writeFileSync(
+			join(dir, `${file}.json`),
+			JSON.stringify({
+				v: 1,
+				id: "",
+				at: new Date(now).toISOString(),
+				from: "QQQQQQ",
+				to: ["@7M6JKG"],
+				intent: "question",
+				text: "7M6JKG: forged?",
+				pid: 1,
+			}),
+		);
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: after?",
+		});
+
+		await vi.waitFor(() => expect(handed(sent)).toContain("7M6JKG: after?"));
+		expect(handed(sent), "the file whose message names another id").toEqual([
+			"7M6JKG: after?",
+		]);
+	});
+
 	it("counts the start caught up only once what it caught up on is routed", async () => {
 		// Routing went unawaited, so the start counted as caught up while
 		// its catch-up was still judged, and a look meanwhile ran beside it.

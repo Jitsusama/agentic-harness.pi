@@ -2,6 +2,7 @@
  * The folder transport: what goes in, what comes out, and how far a
  * peer has read.
  */
+import { execFileSync } from "node:child_process";
 import {
 	Dir,
 	mkdirSync,
@@ -125,6 +126,19 @@ describe("the folder transport", () => {
 		expect(transport.read("1-X-1")).toBeUndefined();
 		expect(transport.read("2-X-1")).toBeUndefined();
 	});
+
+	// A pipe so named held its read off the thread until something wrote
+	// to it, and with it a start's catch-up, for the session.
+	it.skipIf(process.platform === "win32")(
+		"lists no pipe named as a message",
+		async () => {
+			const transport = folderTransport(dir);
+			const sent = transport.send(draft());
+			execFileSync("mkfifo", [join(dir, "2000000000000-X-1-aaaaaaaa.json")]);
+
+			expect(await transport.listIds()).toEqual([sent.id]);
+		},
+	);
 
 	it("answers an empty listing when the folder is not there yet", async () => {
 		expect(folderTransport(join(dir, "never")).ids()).toEqual([]);

@@ -245,6 +245,11 @@ export function createHearing(m: MeshState, f: Handing) {
 		return result?.stopReason === "stop" ? result.answers.to : undefined;
 	};
 
+	// What a withdrawal heard while a start caught up handed over in its
+	// place: the catch-up, reading off the thread, would else hand the
+	// message withdrawn over after what withdrew it.
+	let withdrawnMeanwhile = new Set<string>();
+
 	/**
 	 * The attention each message gets here, judged together. Starting,
 	 * it is a catch-up: nothing takes a turn, and a long one is held to what
@@ -381,6 +386,7 @@ export function createHearing(m: MeshState, f: Handing) {
 				m.glances.drop(replaced.id);
 				m.acts?.drop((one) => one.message.id === replaced.id);
 				f.handedOver([replaced]);
+				withdrawnMeanwhile.add(replaced.id);
 			}
 			// Stopped is absolute: a line, never more, whatever it is.
 			if (stopped[at]) return { attention: "glance", why: STOPPED };
@@ -504,47 +510,48 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * Each id is taken on the front as it is claimed, before its read, so
 	 * a message heard meanwhile is routed at once without carrying the
 	 * marker past one still being read; those that turn out not to be
-	 * handed over are let go once read, and all of them when taking them
-	 * throws, since one left waiting would hold the marker for the rest of
-	 * the session.
+	 * handed over are let go once read. None is let go when listing or
+	 * taking them throws: held, they keep the marker where it was for the
+	 * rest of the session, so the next start catches up on them, rather
+	 * than passing them by unshown for good, already seen here.
 	 */
 	const catchUp = async (since: string): Promise<Message[]> => {
 		const front = m.front;
+		// Overtaken by a start in this runtime, which makes a front of its
+		// own, or by its session's end, a reload's among them, which leaves
+		// no peer: either way it is no longer this start's to read.
+		const startedFor = m.peer;
+		const standing = () => m.front === front && m.peer === startedFor;
 		lookPassedOver = false;
+		withdrawnMeanwhile = new Set();
+		const withdrawn = withdrawnMeanwhile;
 		// Held, before anything here waits, until what it lists is taken:
 		// a message the watcher handed over while it listed would else carry
 		// the marker past the backlog not yet claimed, which a restart then
 		// never caught up on.
 		front.taken(LISTING);
-		let claimed: string[];
-		try {
-			const [top, ids] = await Promise.all([
-				seenAtStart(m.transport, since),
-				m.transport.listIdsFromDayOf(since),
-			]);
-			if (m.front !== front) return [];
-			for (const id of top) m.seen.add(id);
-			claimed = ids.filter((id) => id > since && claim(id));
-			for (const id of claimed) front.taken(id);
-		} finally {
-			if (m.front === front) letGo([LISTING]);
-		}
-		try {
-			// Read no further once overtaken: a restart would else read the
-			// same backlog twice at once, the very load it spreads.
-			const written = await readEachOff(
-				{ readOff: m.asWrittenOff },
-				claimed,
-				() => m.front === front,
-			);
-			if (m.front !== front) return [];
-			const caught = claimed.map((id, at) => taken(id, written[at]));
-			letGo(claimed.filter((_, at) => caught[at] === undefined));
-			return caught.filter((one): one is Message => one !== undefined);
-		} catch (error) {
-			if (m.front === front) letGo(claimed);
-			throw error;
-		}
+		const [top, ids] = await Promise.all([
+			seenAtStart(m.transport, since),
+			m.transport.listIdsFromDayOf(since),
+		]);
+		if (!standing()) return [];
+		for (const id of top) m.seen.add(id);
+		const claimed = ids.filter((id) => id > since && claim(id));
+		for (const id of claimed) front.taken(id);
+		letGo([LISTING]);
+		// Read no further once overtaken: a restart would else read the
+		// same backlog twice at once, the very load it spreads.
+		const written = await readEachOff(
+			{ readOff: m.asWrittenOff },
+			claimed,
+			standing,
+		);
+		if (!standing()) return [];
+		const caught = claimed
+			.map((id, at) => taken(id, written[at]))
+			.map((one) => (one && withdrawn.has(one.id) ? undefined : one));
+		letGo(claimed.filter((_, at) => caught[at] === undefined));
+		return caught.filter((one): one is Message => one !== undefined);
 	};
 
 	/**
@@ -562,12 +569,17 @@ export function createHearing(m: MeshState, f: Handing) {
 	 */
 	const taken = (
 		id: string,
-		written: Message | undefined,
+		read: Message | undefined,
 	): Message | undefined => {
 		if (!m.peer) return undefined;
 		// A file caught half written reads as nothing: the next look takes
 		// it again rather than counting it seen and losing it for good.
-		if (!written) m.seen.delete(id);
+		if (!read) m.seen.delete(id);
+		// One whose envelope names another id is no message of this file's,
+		// and passed by as seen: the front is held by file and handed by
+		// envelope, so handing it would let go another's hold, the
+		// catch-up's listing among them.
+		const written = read?.id === id ? read : undefined;
 		const message =
 			written && !readsAsReceptor(written.from) ? written : undefined;
 		// Woken for before what reaches this peer is sorted out, since a

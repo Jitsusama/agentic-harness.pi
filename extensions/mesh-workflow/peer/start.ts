@@ -402,31 +402,29 @@ export function onSessionStart(
 		// passed by as read. What rests in the days before is never taken,
 		// since a watcher and the minute's look list only the top.
 		const front = m.front;
+		const peer = m.peer;
+		// Started again or ended meanwhile, this start has nothing more to say.
+		const standing = () => m.front === front && m.peer === peer;
 		void f
 			.catchUp(since)
 			// Routed whole before the start counts as caught up, as on the
 			// thread before, so what waited and the look passed over come after.
-			.then((missed) =>
-				f.route(missed, true).catch((error: unknown) => {
-					// Left waiting, what wasn't handed over would hold the marker
-					// for the rest of the session; the warning below says so.
-					if (m.front === front) f.letGo(missed.map((one) => one.id));
-					throw error;
-				}),
-			)
+			.then((missed) => f.route(missed, true))
 			.catch((error: unknown) => {
 				// Only a throw taking or routing what was caught up on: a folder
 				// that won't list or a file that won't read is none, as on the
-				// thread before. Said, rather than a rejection nothing handles.
-				if (m.front !== front || !started.hasUI) return;
+				// thread before. What it caught up on stays held, so the marker
+				// holds and the next start has it. Said, rather than a rejection
+				// nothing handles.
+				if (!standing() || !started.hasUI) return;
 				started.ui.notify(
-					`Mesh: catching up at start failed (${error instanceof Error ? error.message : String(error)}), so some messages sent before this start may not reach this session.`,
+					`Mesh: catching up at start failed (${error instanceof Error ? error.message : String(error)}), so some messages sent before this start may reach this session only once it starts again.`,
 					"warning",
 				);
 			})
 			.finally(() => {
 				// Started again meanwhile, the new start's catch-up says when.
-				if (m.front !== front) return;
+				if (!standing()) return;
 				m.startCaughtUp = true;
 				f.readWhatWaited();
 				f.lookIfPassedOver();
