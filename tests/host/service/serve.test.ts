@@ -815,7 +815,8 @@ describe("serveHost with children", () => {
 				// The first resumed runs in its child by now; it dies mid-turn,
 				// and no new child can start, so its wake fails here, mid-start.
 				const [child] = [...units.children.values()];
-				if (!child) throw new Error("the first resume ran in no child");
+				if (!child?.conversation)
+					throw new Error("the first resume ran in no child");
 				woken = child.conversation.sessionId;
 				units.start = () => Promise.reject(refused);
 				child.say({
