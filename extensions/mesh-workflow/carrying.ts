@@ -69,6 +69,8 @@ export interface CarryingPlaces {
 	 */
 	readonly hold?: CarryHold;
 	readonly timing?: HoldTiming;
+	/** The harness this session runs, this package's own by default. */
+	readonly root?: string;
 }
 
 /** What a note a carry writes into its conversation is typed as. */
