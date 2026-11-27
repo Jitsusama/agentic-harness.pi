@@ -26,8 +26,8 @@
  * since a light entry must never reach the model. A log pi's own open
  * reads as it reads any, such as one whose leaf's branch passes no
  * compaction, is left to it with nothing said. Where a log's header
- * alone leaves it to pi, only the header is read first, so the log is
- * not parsed twice: once here and again whole by pi.
+ * alone leaves it to pi, it is read no further than its header, so the
+ * log is not parsed twice: once here and again whole by pi.
  */
 
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
@@ -48,9 +48,23 @@ const READ_SIZE = 1024 * 1024;
 
 /**
  * How much of a log one read takes in looking for its header, which
- * takes a few hundred bytes; a longer one is read on until it ends.
+ * takes a few hundred bytes; a longer one is read on until it ends or
+ * the look reaches its limit.
  */
 const HEADER_READ_SIZE = 4096;
+
+/**
+ * How much of a log a look for its header reads at most, as pi's own
+ * header scan does: 1 MiB. A header not found by then is left to the
+ * light read, which stops at it all the same when it leaves the log to
+ * pi; pi's open also reads its log whole then. Were pi's limit to grow,
+ * a header between the two would cost a light read up to it, never a
+ * wrong open, since the light read checks it too.
+ */
+const HEADER_SCAN_LIMIT = 1024 * 1024;
+
+/** What `firstEntry` answers when its look reached its limit first. */
+const UNSEEN: unique symbol = Symbol("header unseen");
 
 /** The byte that ends each of a log's lines. */
 const NEWLINE = 0x0a;
@@ -73,12 +87,14 @@ export interface LightLog {
 
 /**
  * `file` read light, `size` bytes a read, or undefined when pi's own open
- * should read it: a file that isn't a log, or one whose last line is
- * unfinished, which pi's open ends with a newline of its own.
+ * should read it: a file that isn't a log, one whose last line is
+ * unfinished, which pi's open ends with a newline of its own, and one
+ * whose header `takes` turns down, which is read no further than it.
  */
 export function readLight(
 	file: string,
 	size: number = READ_SIZE,
+	takes: (header: unknown) => boolean = () => true,
 ): LightLog | undefined {
 	const entries: unknown[] = [];
 	const spans = new WeakMap<object, Span>();
@@ -88,9 +104,10 @@ export function readLight(
 	// would hold them, so its log falls back to pi's own open.
 	let since: { entry: Record<string, unknown>; span: Span }[] = [];
 	let lightened = 0;
-	const unfinished = eachLine(file, size, (bytes, start) => {
+	const end = eachLine(file, size, (bytes, start) => {
 		const entry = lineValue(bytes);
 		if (entry === undefined) return true;
+		if (entries.length === 0 && !takes(entry)) return false;
 		entries.push(entry);
 		if (!isRecord(entry)) return true;
 		if (entry.type === "compaction") {
@@ -104,7 +121,9 @@ export function readLight(
 		since.push({ entry, span: { start, length: bytes.length } });
 		return true;
 	});
-	if (unfinished) return undefined;
+	if (end === "unfinished") return undefined;
+	// A header `takes` turned down stopped the read before it was kept, so
+	// no header is held and the log is pi's.
 	const header = entries[0];
 	if (!isRecord(header) || header.type !== "session") return undefined;
 	if (typeof header.id !== "string") return undefined;
@@ -116,25 +135,36 @@ export function readLight(
 }
 
 /**
+ * How a read of a log's lines ended: at the file's end, inside a line
+ * the file never finished, where `take` stopped it, or at its limit.
+ */
+type LinesEnd = "ended" | "unfinished" | "stopped" | "limited";
+
+/**
  * Hand each of `file`'s lines to `take`, its newline left out, with the
  * byte it starts at, reading `size` bytes at a time, until `take` answers
- * false. Answers whether the file ended inside a line it never finished.
- * A line's bytes are good only until `take` returns.
+ * false or `limit` bytes are read. A line's bytes are good only until
+ * `take` returns.
  */
 function eachLine(
 	file: string,
 	size: number,
 	take: (bytes: Buffer, start: number) => boolean,
-): boolean {
+	limit: number = Number.POSITIVE_INFINITY,
+): LinesEnd {
 	const fd = openSync(file, "r");
 	try {
 		const buffer = Buffer.allocUnsafe(size);
 		// The bytes of a line begun in an earlier read, copied out of it.
 		let begun: Buffer[] = [];
 		let lineStart = 0;
+		let scanned = 0;
 		for (;;) {
-			const read = readSync(fd, buffer, 0, size, null);
-			if (read === 0) return begun.length > 0;
+			if (scanned >= limit) return "limited";
+			const wanted = Math.min(size, limit - scanned);
+			const read = readSync(fd, buffer, 0, wanted, null);
+			if (read === 0) return begun.length > 0 ? "unfinished" : "ended";
+			scanned += read;
 			const chunk = buffer.subarray(0, read);
 			let from = 0;
 			for (
@@ -145,7 +175,7 @@ function eachLine(
 				const rest = chunk.subarray(from, end);
 				const bytes = begun.length > 0 ? Buffer.concat([...begun, rest]) : rest;
 				begun = [];
-				if (!take(bytes, lineStart)) return false;
+				if (!take(bytes, lineStart)) return "stopped";
 				lineStart += bytes.length + 1;
 				from = end + 1;
 			}
@@ -174,15 +204,21 @@ function lineValue(bytes: Buffer): unknown {
 
 /**
  * The first entry pi's open would keep of `file`, its header, reading no
- * further than the line that holds it; undefined when it keeps none.
+ * further than the line that holds it; undefined when it keeps none, and
+ * UNSEEN when it lies past what a look for it reads.
  */
 function firstEntry(file: string): unknown {
 	let first: unknown;
-	eachLine(file, HEADER_READ_SIZE, (bytes) => {
-		first = lineValue(bytes);
-		return first === undefined;
-	});
-	return first;
+	const end = eachLine(
+		file,
+		HEADER_READ_SIZE,
+		(bytes) => {
+			first = lineValue(bytes);
+			return first === undefined;
+		},
+		HEADER_SCAN_LIMIT,
+	);
+	return end === "limited" ? UNSEEN : first;
 }
 
 /** A log header the light open can stand on, as far as it reads one. */
@@ -377,11 +413,19 @@ export function openKept(
 	const said = new HeldReport();
 	try {
 		// A log its header leaves to pi is read no further, since pi's own
-		// open parses the whole of it again.
-		if (!lightHeader(firstEntry(file), version)) return undefined;
-		const log = readLight(file);
+		// open parses the whole of it again. One whose header lies past a
+		// look's limit is read light up to its header, which the light read
+		// checks before it reads on, as it does a header written over since
+		// the look.
+		const first = firstEntry(file);
+		if (first !== UNSEEN && !lightHeader(first, version)) return undefined;
+		const log = readLight(
+			file,
+			READ_SIZE,
+			(entry) => lightHeader(entry, version) !== undefined,
+		);
 		if (!log) return undefined;
-		// The header read again with the log, for one written over since.
+		// The header the light read took, as the view and manager read it.
 		const header = lightHeader(log.entries[0], version);
 		if (!header) return undefined;
 		const path = resolve(file);

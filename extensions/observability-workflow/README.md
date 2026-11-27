@@ -34,7 +34,10 @@ from real data rather than by re-parsing CLI args.
   how it was queued mid-run (`queued`, steer or followUp) and
   its length (`chars`), to match it to the user message pi
   saves on delivery. A message an extension sends, from the
-  mesh, a steer or the launcher, is never marked.
+  mesh, a steer or the launcher, is never marked. Nothing
+  reads either entry back in the process, so a kept view or
+  a rollover leaves those from before its first kept entry
+  in the log, with the turns they time.
 - Rolls rows older than the 30-day retention window into
   weekly summaries lazily at session start, so long-term
   trends survive while per-run detail ages out.

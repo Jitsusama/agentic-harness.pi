@@ -7,6 +7,10 @@
  * emits, in which case reclamation sees an empty claim list and calls
  * a quest's tree abandoned. A test that called the function directly
  * would pass against exactly that system.
+ *
+ * Long because every case asks over the same bus, against quest folders
+ * built the same way, and the rules they prove (what a quest keeps, what
+ * it lets go, what it forgets) are one answer read three ways.
  */
 
 import {
@@ -16,14 +20,17 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	answerTreeClaims,
 	forgetSweptTrees,
+	forgetTrees,
+	liveQuestClaims,
 } from "../../../../extensions/quest-workflow/claims.ts";
 import {
 	type SweptTrees,
@@ -77,7 +84,7 @@ function questListing(
 		.map(
 			(path) =>
 				`  - path: ${path}\n    providerId: git-worktree\n` +
-				`    repoRoot: ${path}\n    origin: cut\n`,
+				`    repoRoot: ${path}\n    origin: scaffolded\n`,
 		)
 		.join("");
 	writeFileSync(
@@ -88,6 +95,54 @@ function questListing(
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
 	);
 	return join(root, id, "README.md");
+}
+
+/** A tree a quest lists, in `repo`, on `host` (this machine by default). */
+interface Placed {
+	path: string;
+	repo?: string;
+	host?: string;
+}
+
+/** Write quest `id` into `root`, live, listing `trees` in order. */
+function questPlacing(root: string, id: string, ...trees: Placed[]): string {
+	mkdirSync(join(root, id), { recursive: true });
+	const listed = trees
+		.map(
+			(tree) =>
+				`  - path: ${tree.path}\n    providerId: git-worktree\n` +
+				(tree.repo === undefined ? "" : `    repoRoot: ${tree.repo}\n`) +
+				`    host: ${tree.host ?? hostname()}\n    origin: scaffolded\n`,
+		)
+		.join("");
+	const readme = join(root, id, "README.md");
+	writeFileSync(
+		readme,
+		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			`trees:\n${listed}` +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
+	);
+	return readme;
+}
+
+/** A folder for each of `names` under a fresh one, standing as trees do. */
+function standing(...names: string[]): string[] {
+	const top = mkdtempSync(join(tmpdir(), "claims-trees-"));
+	return names.map((name) => {
+		const path = join(top, name);
+		mkdirSync(path, { recursive: true });
+		return path;
+	});
+}
+
+/** What a live quest in `root` lets idle rules take, asked once. */
+function letGo(root: string): string[] | undefined {
+	const pi = bus();
+	answerTreeClaims(pi as never, root);
+	const claims: TreeClaims = { paths: [], untilSpent: [], idleMayTake: [] };
+	pi.events.emit(WORK_TREE_CLAIMS, claims);
+	return claims.idleMayTake;
 }
 
 describe("answering who holds a tree", () => {
@@ -219,6 +274,229 @@ describe("answering who holds a tree", () => {
 		]);
 	});
 
+	it("lets idle rules take a live quest's trees here but its newest in each repository", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, only, last, unknownFirst, unknownLast, away] = standing(
+			"a/first",
+			"b/only",
+			"a/last-here",
+			"a/unknown-first",
+			"a/unknown-last",
+			"a/other-machine",
+		);
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${only}`, repo: "/src/b" },
+			{ path: `${last}`, repo: "/src/a" },
+			{ path: `${unknownFirst}` },
+			{ path: `${unknownLast}` },
+			{ path: `${away}`, repo: "/src/a", host: "away" },
+		);
+
+		expect(
+			letGo(root),
+			"only an older tree here whose repository is known",
+		).toEqual([first]);
+	});
+
+	it("keeps the tree before a repository's last when the last's folder is gone", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, before] = standing("a/first", "a/before-gone");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${before}`, repo: "/src/a" },
+			{ path: `${before}-gone-since`, repo: "/src/a" },
+		);
+
+		expect(letGo(root), "the older one alone, not the one reopened in").toEqual(
+			[first],
+		);
+	});
+
+	it("never lets idle rules take a tree another live quest holds as its newest", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [sharedPath, later] = standing("a/shared", "a/later");
+		const shared = { path: `${sharedPath}`, repo: "/src/a" };
+		questPlacing(root, "QEST-20260731-AAAAAA", shared, {
+			path: `${later}`,
+			repo: "/src/a",
+		});
+		questPlacing(root, "QEST-20260731-BBBBBB", shared);
+
+		expect(letGo(root), "another quest's newest").toEqual([]);
+	});
+
+	it("never lets idle rules take an older tree a quest's session started in, since its reopen looks there", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Its session started in the first tree and cut the last from there.
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: closed-one\n    cwd: ${join(`${first}`, "src")}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a host's answer, off a host").toEqual([]);
+		expect(
+			liveQuestClaims(root).idleMayTake,
+			"the outside sweep's answer",
+		).toEqual([]);
+	});
+
+	it("keeps an older tree a session started at the top of, through a linked spelling, since the two folders are one", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const linked = join(mkdtempSync(join(tmpdir(), "claims-link-")), "first");
+		symlinkSync(`${first}`, linked);
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: closed-one\n    cwd: ${linked}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a tree started in, spelled through a link").toEqual(
+			[],
+		);
+	});
+
+	it("keeps an older tree a session on another quest started in, since that session reopens there", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		const other = questPlacing(root, "QEST-20260731-BBBBBB");
+		writeFileSync(
+			other,
+			readFileSync(other, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: moved-on\n    cwd: ${first}\n---\n\n# Holding`,
+			),
+		);
+
+		expect(letGo(root), "a tree another quest's session started in").toEqual(
+			[],
+		);
+	});
+
+	it("keeps an older tree the quest adopted, as adopting it promised", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				"origin: scaffolded",
+				"origin: adopted",
+			),
+		);
+
+		expect(letGo(root), "an adopted tree").toEqual([]);
+	});
+
+	it("keeps an older tree with no mark of how it came, as a hand-registered tree has", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace("    origin: scaffolded\n", ""),
+		);
+
+		expect(letGo(root), "a tree with no mark").toEqual([]);
+	});
+
+	it("lets idle rules take nothing while a walk leaves a quest out, since it may hold any tree", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Another quest's README is mid-write as the walk reads it.
+		mkdirSync(join(root, "QEST-20260731-BBBBBB"));
+		writeFileSync(
+			join(root, "QEST-20260731-BBBBBB", "README.md"),
+			"---\nid: QEST-20260731-BBBBBB\n",
+		);
+
+		expect(letGo(root), "a host's answer, off a host").toEqual([]);
+		expect(
+			liveQuestClaims(root).idleMayTake,
+			"the outside sweep's answer",
+		).toEqual([]);
+	});
+
+	it("never lets idle rules take a tree another live quest lists with no repository", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [shared, later] = standing("a/shared", "a/later");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${shared}`, repo: "/src/a" },
+			{ path: `${later}`, repo: "/src/a" },
+		);
+		questPlacing(root, "QEST-20260731-BBBBBB", { path: `${shared}` });
+
+		expect(letGo(root), "a tree the other quest keeps").toEqual([]);
+	});
+
+	it("lets idle rules take nothing of an asker that offers no list for it", () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		const claims: TreeClaims = { paths: [], untilSpent: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims, "the claims, with no list added").toEqual({
+			paths: [],
+			untilSpent: [first, last],
+		});
+	});
+
 	it("gives an asker that waits nothing more to wait on, since its walk is fresh", () => {
 		const pi = bus();
 		answerTreeClaims(
@@ -286,7 +564,7 @@ describe("answering who holds a tree on a host", () => {
 				"trees:\n",
 				"trees:\n  - path: /src/repo/.worktrees/new\n" +
 					"    providerId: git-worktree\n" +
-					"    repoRoot: /src/repo/.worktrees/new\n    origin: cut\n",
+					"    repoRoot: /src/repo/.worktrees/new\n    origin: scaffolded\n",
 			),
 		);
 		settle(readme);
@@ -295,6 +573,235 @@ describe("answering who holds a tree on a host", () => {
 		await Promise.all(claims.answering ?? []);
 
 		expect(claims.paths).toContain("/src/repo/.worktrees/new");
+	});
+
+	it("lets idle rules take a tree an asker that waits hears was outgrown since the last walk", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [firstPath, newer] = standing("a/first", "a/newer");
+		const first = { path: `${firstPath}`, repo: "/src/a" };
+		const readme = questPlacing(root, "QEST-20260731-AAAAAA", first);
+		settle(readme);
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// Another process cuts a newer tree in the same repository.
+		questPlacing(root, "QEST-20260731-AAAAAA", first, {
+			path: `${newer}`,
+			repo: "/src/a",
+		});
+		settle(readme);
+		const claims: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.idleMayTake, "the last walk's newest").toEqual([]);
+		await Promise.all(claims.answering ?? []);
+
+		expect(claims.idleMayTake, "the fresh walk's older tree").toEqual([
+			firstPath,
+		]);
+	});
+
+	it("takes back a tree the last walk let go once an asker that waits hears it is newest", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [firstPath, newer] = standing("a/first", "a/newer");
+		const first = { path: `${firstPath}`, repo: "/src/a" };
+		const readme = questPlacing(root, "QEST-20260731-AAAAAA", first, {
+			path: `${newer}`,
+			repo: "/src/a",
+		});
+		settle(readme);
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// Another process releases the newer tree, leaving the first newest.
+		questPlacing(root, "QEST-20260731-AAAAAA", first);
+		settle(readme);
+		const claims: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.idleMayTake, "the last walk's older tree").toEqual([
+			firstPath,
+		]);
+		await Promise.all(claims.answering ?? []);
+
+		expect(claims.idleMayTake, "the fresh walk's newest, taken back").toEqual(
+			[],
+		);
+	});
+
+	it("keeps every tree a quest listed in the last walk when a fresh walk can't read that quest", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [shared, newer, before, aside, beside] = standing(
+			"a/shared",
+			"a/newer",
+			"a/before",
+			"c/aside",
+			"c/beside",
+		);
+		const outgrown = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${shared}`, repo: "/src/a" },
+			{ path: `${newer}`, repo: "/src/a" },
+		);
+		const holder = questPlacing(
+			root,
+			"QEST-20260731-BBBBBB",
+			{ path: `${before}`, repo: "/src/a" },
+			{ path: `${shared}`, repo: "/src/a" },
+		);
+		// A quest both walks read, whose older tree goes either way.
+		const bystander = questPlacing(
+			root,
+			"QEST-20260731-CCCCCC",
+			{ path: `${aside}`, repo: "/src/c" },
+			{ path: `${beside}`, repo: "/src/c" },
+		);
+		settle(outgrown);
+		settle(holder);
+		settle(bystander);
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(join(root, "QEST-20260731-BBBBBB"));
+		settle(join(root, "QEST-20260731-CCCCCC"));
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// The holder's README is mid-write as the fresh walk reads it.
+		writeFileSync(holder, "---\nid: QEST-20260731-BBBBBB\n");
+		settle(holder);
+		const claims: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(
+			[...(claims.idleMayTake ?? [])].sort(),
+			"the last walk's holder",
+		).toEqual([before, aside].sort());
+		await Promise.all(claims.answering ?? []);
+
+		expect(
+			claims.idleMayTake,
+			"a fresh walk that couldn't read the holder",
+		).toEqual([aside]);
+	});
+
+	it("keeps a tree a quest's session started in when a fresh walk can't read that quest", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last, aside, beside] = standing(
+			"a/first",
+			"a/last",
+			"c/aside",
+			"c/beside",
+		);
+		const outgrown = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// A quest both walks read, whose older tree goes either way.
+		const bystander = questPlacing(
+			root,
+			"QEST-20260731-CCCCCC",
+			{ path: `${aside}`, repo: "/src/c" },
+			{ path: `${beside}`, repo: "/src/c" },
+		);
+		settle(bystander);
+		settle(join(root, "QEST-20260731-CCCCCC"));
+		const holder = questPlacing(root, "QEST-20260731-BBBBBB");
+		writeFileSync(
+			holder,
+			readFileSync(holder, "utf8").replace(
+				"---\n\n# Holding",
+				`sessions:\n  - id: moved-on\n    cwd: ${first}\n---\n\n# Holding`,
+			),
+		);
+		settle(outgrown);
+		settle(holder);
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(join(root, "QEST-20260731-BBBBBB"));
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// The holder's README is mid-write as the fresh walk reads it.
+		writeFileSync(holder, "---\nid: QEST-20260731-BBBBBB\n");
+		settle(holder);
+		const claims: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.idleMayTake, "the last walk's session folder").toEqual([
+			aside,
+		]);
+		await Promise.all(claims.answering ?? []);
+
+		expect(
+			claims.idleMayTake,
+			"a fresh walk that couldn't read the session's quest",
+		).toEqual([aside]);
+	});
+
+	it("lets idle rules take nothing while neither walk reads a quest, since it may hold any tree", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const [first, last] = standing("a/first", "a/last");
+		const readme = questPlacing(
+			root,
+			"QEST-20260731-AAAAAA",
+			{ path: `${first}`, repo: "/src/a" },
+			{ path: `${last}`, repo: "/src/a" },
+		);
+		// Another quest's README won't parse, for the last walk and the next.
+		const unread = join(root, "QEST-20260731-BBBBBB");
+		mkdirSync(unread);
+		writeFileSync(join(unread, "README.md"), "---\nid: QEST-20260731-BBBBBB\n");
+		settle(readme);
+		settle(join(unread, "README.md"));
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(unread);
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		const waits: TreeClaims = {
+			paths: [],
+			untilSpent: [],
+			idleMayTake: [],
+			answering: [],
+		};
+		pi.events.emit(WORK_TREE_CLAIMS, waits);
+		await Promise.all(waits.answering ?? []);
+		expect(waits.idleMayTake, "an asker that waits").toEqual([]);
+
+		const hears: TreeClaims = { paths: [], untilSpent: [], idleMayTake: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, hears);
+		expect(hears.idleMayTake, "an asker that hears only the last walk").toEqual(
+			[],
+		);
 	});
 });
 
@@ -356,6 +863,79 @@ describe("hearing that a sweep took a tree", () => {
 				"/src/repo/.worktrees/working",
 			]);
 		}, FORGETS_WITHIN);
+	});
+
+	/**
+	 * Whether a quest still names `open-change` as its branch once a sweep
+	 * took the tree on it, saying it deleted `gone`.
+	 */
+	async function aliasKeptWhenGone(gone: string[]): Promise<boolean> {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const id = "QEST-20260731-AAAAAA";
+		mkdirSync(join(root, id));
+		const readme = join(root, id, "README.md");
+		writeFileSync(
+			readme,
+			`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+				"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+				"aliases:\n  - type: git-branch\n    value: open-change\n" +
+				"trees:\n  - path: /src/repo/.worktrees/spent\n" +
+				"    branch: open-change\n    providerId: git-worktree\n" +
+				"    repoRoot: /src/repo\n    origin: scaffolded\n" +
+				"  - path: /src/repo/.worktrees/working\n    providerId: git-worktree\n" +
+				"    repoRoot: /src/repo\n    origin: scaffolded\n" +
+				"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = {
+			paths: ["/src/repo/.worktrees/spent"],
+			branchesGone: gone,
+		};
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		await listedOnceGone(pi, "/src/repo/.worktrees/spent");
+		return readFileSync(readme, "utf8").includes("value: open-change");
+	}
+
+	it("keeps the alias of a swept tree's branch that still stands, so a change on it finds its quest", async () => {
+		expect(await aliasKeptWhenGone([]), "the branch's alias").toBe(true);
+	});
+
+	it("drops the alias of a swept tree's branch the sweep deleted", async () => {
+		const kept = await aliasKeptWhenGone(["open-change"]);
+		expect(kept, "the branch's alias").toBe(false);
+	});
+
+	it("drops an alias an earlier take left once a later run deletes its branch, keeping a listed tree's", async () => {
+		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+		const id = "QEST-20260731-AAAAAA";
+		mkdirSync(join(root, id));
+		const readme = join(root, id, "README.md");
+		writeFileSync(
+			readme,
+			`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+				"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+				"aliases:\n  - type: git-branch\n    value: taken-earlier\n" +
+				"  - type: git-branch\n    value: still-listed\n" +
+				"trees:\n  - path: /src/repo/.worktrees/working\n" +
+				"    branch: still-listed\n    providerId: git-worktree\n" +
+				"    repoRoot: /src/repo\n    origin: scaffolded\n" +
+				"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
+		);
+		await forgetTrees(root, [], ["taken-earlier", "still-listed"]);
+
+		const after = readFileSync(readme, "utf8");
+		expect(
+			after.includes("value: taken-earlier"),
+			"the alias of a deleted branch no listed tree is on",
+		).toBe(false);
+		expect(
+			after.includes("value: still-listed"),
+			"the alias of a branch a listed tree is on",
+		).toBe(true);
 	});
 
 	it("leaves a quest's trees alone when the sweep took others", async () => {

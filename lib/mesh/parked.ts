@@ -53,11 +53,22 @@ function listenerOf(parked: Presence) {
 	};
 }
 
-/** A parked peer as one listening, to judge a message by. */
-type Listener = ReturnType<typeof listenerOf>;
+/**
+ * A parked peer as one listening, to judge a message by; named apart
+ * from message.ts's `Listener`, which a running peer's own is.
+ */
+type ParkedListener = ReturnType<typeof listenerOf>;
+
+/**
+ * When a message is judged: at `now` when said, else at its own time,
+ * since a sender judges as it sends.
+ */
+function judgedAt(message: Message, now: number | undefined): number {
+	return now ?? Date.parse(message.at);
+}
 
 /** Whether a message reaches a parked peer at all, judged on what its presence says. */
-function reachesParked(message: Message, listener: Listener): boolean {
+function reachesParked(message: Message, listener: ParkedListener): boolean {
 	// Its process is gone, so no pid of a sender is its own.
 	return reaches(message, listener, -1);
 }
@@ -76,12 +87,19 @@ export function wakes(
 	parked: Presence,
 	read: Reader,
 	sender?: Pick<Presence, "orchestratedBy">,
-	now: number = Date.parse(message.at),
+	now?: number,
 ): boolean {
 	const listener = listenerOf(parked);
 	return (
 		reachesParked(message, listener) &&
-		wakesOnceReached(message, parked, listener, read, sender, now)
+		wakesOnceReached(
+			message,
+			parked,
+			listener,
+			read,
+			sender,
+			judgedAt(message, now),
+		)
 	);
 }
 
@@ -92,7 +110,7 @@ export function wakes(
 function wakesOnceReached(
 	message: Message,
 	parked: Presence,
-	listener: Listener,
+	listener: ParkedListener,
 	read: Reader,
 	sender: Pick<Presence, "orchestratedBy"> | undefined,
 	now: number,
@@ -219,6 +237,7 @@ export function wakeParked(
 ): string[] {
 	const woken: string[] = [];
 	const sender = everyone.find((one) => one.addresses.includes(message.from));
+	const now = judgedAt(message, judged.now);
 	for (const one of everyone) {
 		// Reached first, since a marker is looked at on the thread for each:
 		// on 26 November that was 1.4 s of one start's catch-up.
@@ -226,7 +245,6 @@ export function wakeParked(
 		const listener = listenerOf(one);
 		if (!reachesParked(message, listener)) continue;
 		if (!isParked(one.session)) continue;
-		const now = judged.now ?? Date.parse(message.at);
 		if (!wakesOnceReached(message, one, listener, read, sender, now)) continue;
 		if (judged.still && !judged.still(one)) continue;
 		try {

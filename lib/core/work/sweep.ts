@@ -236,10 +236,18 @@ const LOCK_WAIT_EVERY_MS = 10 * 1000;
  * What holders claim: paths held for good, or those and the paths held
  * only while they are still work, which reclaim's rules may take once
  * nothing else holds them, as `orphanedTrees` says under `spendable`.
+ * Of those, `idleMayTake` names the ones a holder lets the idle rules
+ * take: a worktree a day idle in its open session, clean and pushed, is
+ * taken by them only when it is named there, and every other one held
+ * until spent stays. A snapshot held until spent stays either way.
  */
 export type SweepClaims =
 	| readonly string[]
-	| { held: readonly string[]; untilSpent: readonly string[] };
+	| {
+			held: readonly string[];
+			untilSpent: readonly string[];
+			idleMayTake?: readonly string[];
+	  };
 
 /** A tree the sweep took back, with the branch it leaves behind. */
 export interface SweptTree {
@@ -391,10 +399,12 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	try {
 		// Asked at once, before any wait, so a conversation that closes
 		// while the sweep runs has already said what its quests hold.
-		const asked =
+		const ask = async () =>
 			typeof deps.claims === "function" ? await deps.claims() : deps.claims;
+		const asked = await ask();
 		const claims = "held" in asked ? asked.held : asked;
 		const untilSpent = "held" in asked ? asked.untilSpent : [];
+		const idleMayTake = new Set("held" in asked ? asked.idleMayTake : []);
 		const facts = deps.facts ?? systemFacts;
 		const inUse = await treesInUse(deps, deps.memory.recall());
 		const held = [...(await deps.memory.heldNow(facts)), ...inUse];
@@ -446,6 +456,13 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			await branchesKeptFor(deps.exec, keptDir, await deps.liveSessions?.()),
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
+		const letGo = await stillLetGo(
+			deps.claims,
+			ask,
+			untilSpent,
+			idleMayTake,
+			outcome,
+		);
 		const { idleWithinMs } = deps;
 		// Read as the idle phase begins, not as the run does: the ended trees
 		// before it can spend the whole bound, leaving only a host's share.
@@ -478,15 +495,30 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			const share = deps.idleTakes ?? IDLE_TAKES_PER_SWEEP;
 			const worktrees: IdleChoice = {
 				...choice,
+				// A quest lists every tree it ever cut, and those lists alone kept
+				// every idle worktree of an open quest: what its holder lets go, goes.
+				claims: [...claims, ...untilSpent.filter((path) => !letGo.has(path))],
 				most: Math.ceil(share / 2),
 				left: (count: number) => {
 					outcome.idleWorktreesLeft = count;
 				},
 			};
+			const letGoNow = new Set([...letGo].map(resolved));
+			const keptStood = keptStanding(untilSpent, letGo);
 			for await (const idle of eachIdleWorktree(live, worktrees)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
 				given += 1;
+				if (
+					letGoNow.has(resolved(idle.tree.path)) &&
+					keptStood.some((path) => !existsSync(path))
+				) {
+					outcome.kept.push({
+						path: idle.tree.path,
+						why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
+					});
+					continue;
+				}
 				await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
 			}
 			for await (const idle of eachIdleSnapshot(live, {
@@ -580,6 +612,58 @@ async function byRepository(
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
 	return { byMain: repositories, orphans };
+}
+
+/**
+ * What idle rules may take of `idleMayTake`, the trees holders let them
+ * take as the run began. Holders chose before the trees above went, and
+ * minutes may pass before the idle phase: a tree they kept from those
+ * rules may go meanwhile, taken or stuck aside by this run, or released
+ * by its own session, and leave an older tree its only one. So holders
+ * that can be asked again always are, and only what both answers name
+ * may go, since a holder judges again by what stands. Claims that are a
+ * list, which can't be asked again, let none go once this run took or
+ * refused a tree they kept, and an ask that fails lets none go.
+ */
+async function stillLetGo(
+	claims: SweepDeps["claims"],
+	ask: () => Promise<SweepClaims>,
+	untilSpent: readonly string[],
+	idleMayTake: ReadonlySet<string>,
+	outcome: SweepOutcome,
+): Promise<ReadonlySet<string>> {
+	const keptFromIdle = new Set(
+		untilSpent.filter((path) => !idleMayTake.has(path)).map(resolved),
+	);
+	const touched = [...outcome.taken, ...outcome.refused].some((tree) =>
+		keptFromIdle.has(resolved(tree.path)),
+	);
+	if (typeof claims !== "function") return touched ? new Set() : idleMayTake;
+	if (idleMayTake.size === 0) return idleMayTake;
+	try {
+		const again = await ask();
+		const fresh = new Set("held" in again ? again.idleMayTake : []);
+		return new Set([...idleMayTake].filter((path) => fresh.has(path)));
+	} catch {
+		// Nobody answered again, so nobody let anything go again.
+		return new Set();
+	}
+}
+
+/**
+ * The trees holders claim and keep from idle rules that stand as the
+ * idle phase begins. Holders let an older tree go because its quest's
+ * newest stood; the phase takes one tree after another for minutes,
+ * and that newest may go meanwhile, released by its own session. So
+ * once any of these is gone, no tree a holder let go is taken in this
+ * run, and the next run asks the holders afresh.
+ */
+function keptStanding(
+	untilSpent: readonly string[],
+	letGo: ReadonlySet<string>,
+): string[] {
+	if (letGo.size === 0) return [];
+	return untilSpent.filter((path) => !letGo.has(path) && existsSync(path));
 }
 
 /**

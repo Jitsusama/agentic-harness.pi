@@ -24,12 +24,12 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
-	rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { count, verb } from "../../ui/count.ts";
+import { tidyTree } from "../files/remove-tree.ts";
 import { patchChanges } from "./changes.ts";
 import {
 	doneFileOf,
@@ -251,7 +251,7 @@ async function sameChanges(
 			? true
 			: "Its uncommitted changes differ from the ones carried.";
 	} finally {
-		rmSync(scratch, { recursive: true, force: true });
+		tidyTree(scratch);
 	}
 }
 

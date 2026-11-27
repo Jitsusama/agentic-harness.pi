@@ -10,15 +10,10 @@
  */
 
 import { randomBytes } from "node:crypto";
-import {
-	existsSync,
-	renameSync,
-	rmSync,
-	type Stats,
-	writeFileSync,
-} from "node:fs";
-import { lstat, readdir, rm } from "node:fs/promises";
+import { existsSync, renameSync, type Stats, writeFileSync } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { removeTree, removeTreeOff } from "../../internal/files/remove-tree.ts";
 import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
@@ -99,7 +94,7 @@ export async function takeOrphan(
 	// a removal that stops part way may already have taken it.
 	const dotGit = readPlain(join(aside, ".git"));
 	try {
-		rmSync(aside, { recursive: true, force: true });
+		removeTree(aside);
 		outcome.taken.push({ path: tree.path });
 	} catch (error) {
 		// Read-only module caches refuse a plain removal. What is left goes
@@ -326,7 +321,7 @@ async function finish(
 		return true;
 	}
 	try {
-		await rm(aside, { recursive: true, force: true });
+		await removeTreeOff(aside);
 		outcome.taken.push({ path, why: "its removal stopped part way" });
 	} catch (error) {
 		// Read-only module caches refuse a plain removal; what is left

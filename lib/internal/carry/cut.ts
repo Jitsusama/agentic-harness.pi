@@ -16,11 +16,11 @@ import {
 	lstatSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	statSync,
 } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import { removeTree } from "../files/remove-tree.ts";
 import { within } from "../sandbox/tree-git.ts";
 import { messageOf } from "./message.ts";
 
@@ -285,9 +285,9 @@ async function takenOut(
 	]);
 	if (removed.code === 0) return undefined;
 	try {
-		rmSync(path, { recursive: true, force: true });
+		removeTree(path);
 		if (entry !== undefined) {
-			rmSync(entry, { recursive: true, force: true });
+			removeTree(entry);
 			return undefined;
 		}
 		// Pruning would take out other trees' entries too, so it is named.

@@ -5,8 +5,9 @@
  * where the disk won't let it go.
  */
 
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { messageOf } from "./message.ts";
 
 /** What a clone left beside a tree's place asks of whoever reads it. */
@@ -38,7 +39,7 @@ export function letGoOf(
 	asking: string = BESIDE,
 ): string | undefined {
 	try {
-		rmSync(clone, { recursive: true, force: true });
+		removeTree(clone);
 		return undefined;
 	} catch (error) {
 		return `its clone is left at ${clone}, since it couldn't be taken out: ${messageOf(error)}; ${asking}`;

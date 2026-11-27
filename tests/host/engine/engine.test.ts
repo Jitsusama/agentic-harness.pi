@@ -167,6 +167,8 @@ interface Seen {
 	 * not the engine's late import.
 	 */
 	readonly keptHistory?: Readonly<Record<string, unknown>>;
+	/** Whether a fresh host's first resume held the view's record, and the probe's own once its load said it stays behind. */
+	readonly resumedFirst?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -961,6 +963,17 @@ describe("the host's engine", () => {
 			});
 		},
 		HOST_LIFE_MS,
+	);
+
+	it(
+		"leaves out the records a conversation's extensions say stay behind, though its log was held before they loaded",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "compacted-to-come-back");
+			const seen = await step(folder, "resumed-first");
+			expect(seen.resumedFirst).toEqual({ record: true, probeRecord: false });
+		},
+		2 * HOST_LIFE_MS,
 	);
 
 	it.skipIf(process.platform !== "linux")(

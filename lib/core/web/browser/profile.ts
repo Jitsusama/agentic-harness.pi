@@ -12,6 +12,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { removeTree } from "../../../internal/files/remove-tree.ts";
 import { processGlobal } from "../../../internal/process/process-global.ts";
 import { findProcsByProfile, verifyBrowser } from "../procs.ts";
 import { killPidGroup, type OwnerRecord, reapOrphans } from "./reaping.ts";
@@ -106,6 +107,6 @@ export function reapOrphanProfiles(): void {
 		verifyBrowser,
 		findProcsByProfile,
 		killPid: (pid) => killPidGroup(pid),
-		removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+		removeDir: (dir) => removeTree(dir),
 	});
 }

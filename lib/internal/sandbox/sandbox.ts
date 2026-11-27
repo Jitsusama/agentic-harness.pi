@@ -58,7 +58,7 @@
  * from mint, which answers only outside (`delta-token.ts`).
  */
 
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import {
@@ -120,6 +120,7 @@ import {
 	offloadedOutside,
 	offloadKeptIn,
 } from "../fence/offload-exemption.ts";
+import { removeTree } from "../files/remove-tree.ts";
 import { withSecretNote } from "../secrets/secret-ask.ts";
 import { cutTreeDir } from "../work-records.ts";
 import {
@@ -502,7 +503,7 @@ export function cloudVariables(
 ): Record<string, string> {
 	const settings = join(parent, sessionFolderName(env));
 	if (!freshSettings.has(settings)) {
-		rmSync(settings, { recursive: true, force: true });
+		removeTree(settings);
 		freshSettings.add(settings);
 	}
 	mkdirSync(settings, { recursive: true, mode: 0o700 });

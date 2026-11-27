@@ -20,6 +20,7 @@
  * until a take names what it resumes, with SLOT.warm or SLOT.taken
  * beside it.
  */
+
 import { execFile } from "node:child_process";
 import {
 	mkdir,
@@ -36,6 +37,7 @@ import {
 	isSessionId,
 	type RosterEntry,
 } from "../../lib/core/session/roster.ts";
+import { removeTreeOff } from "../../lib/internal/files/remove-tree.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { MAX_SOCKET_PATH_BYTES } from "./address.ts";
 import { spareMarks } from "./spare.ts";
@@ -226,7 +228,7 @@ export async function clearSlot(slot: Slot): Promise<void> {
 	await rm(marks.warm, { force: true });
 	await rm(marks.taken, { force: true });
 	await rm(slot.socket, { force: true });
-	await rm(slot.folder, { force: true, recursive: true });
+	await removeTreeOff(slot.folder);
 }
 
 /**

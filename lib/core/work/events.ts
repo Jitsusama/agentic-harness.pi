@@ -82,6 +82,16 @@ export interface TreeClaims {
 	 */
 	untilSpent?: string[];
 	/**
+	 * Of {@link untilSpent}, the trees a holder lets a sweep's idle rules
+	 * take while it lives: a day unused, clean and pushed. Offered by an
+	 * asker with idle rules. The list is one for every holder, so a path
+	 * any holder names here is open to those rules whoever else claims it
+	 * until spent: a holder names only trees it knows no other holder
+	 * keeps. When no holder names a tree, as when none heard of this list,
+	 * every one they claim until spent is kept from those rules.
+	 */
+	idleMayTake?: string[];
+	/**
 	 * Offered by an asker that can wait: a holder whose quick answer may
 	 * be out of date pushes a promise here that ends once it has written
 	 * its up-to-date answer into {@link paths} or {@link untilSpent}, and
@@ -101,6 +111,12 @@ export const WORK_TREES_SWEPT = "work:trees-swept:v1";
 /** What a sweep says it took. */
 export interface SweptTrees {
 	paths: readonly string[];
+	/**
+	 * The branches the sweep deleted as it ran, with a tree or after one,
+	 * trunk holding all of them: a holder that keeps a taken tree's branch
+	 * in mind lets these go. Left out by a sweep that never says.
+	 */
+	branchesGone?: readonly string[];
 }
 
 /**

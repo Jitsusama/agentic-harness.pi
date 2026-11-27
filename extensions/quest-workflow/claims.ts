@@ -23,7 +23,7 @@ import {
 	readdirSync,
 	statSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -38,6 +38,7 @@ import {
 	type DiscoveryResult,
 	discoverQuests,
 	discoverQuestsAfresh,
+	type QuestEntry,
 	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -45,10 +46,14 @@ import {
 	README_MISSING,
 } from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
+import { canonicalPath } from "../../lib/internal/quest/workspace/git-signals.ts";
+import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import {
+	forgetBranchesFromQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../lib/internal/quest/workspace/trees.ts";
+import type { QuestTree } from "../../lib/quest/types.ts";
 
 /**
  * Answer the working layer's question about held trees.
@@ -68,6 +73,14 @@ import {
  * the asker's {@link TreeClaims.untilSpent} when it offers that list,
  * and are held for good only by an asker that doesn't.
  *
+ * Of those, a quest lets an unattended sweep's idle rules take every
+ * tree it lists on this machine in a known repository but that
+ * repository's newest whose folder stands, which holds the one its
+ * session reopens in, as the sweep ruling of 24 November keeps; it
+ * names them in {@link TreeClaims.idleMayTake} when the asker
+ * offers that list. A quest's older trees alone kept every idle worktree
+ * of an open quest: 24 clean, pushed and day-idle trees on 26 November.
+ *
  * The claims come at once from each store's last walk, which on a host
  * may predate another process's change by as long as nobody asked. An
  * asker that offers {@link TreeClaims.answering} waits as well on each
@@ -76,7 +89,12 @@ import {
  * gives no answer in time, that wait rejects rather than pass an old
  * walk off as fresh: a sweep then takes nothing that round, since a
  * tree listed since would be in no claim. Plain pi walks every ask
- * afresh, so it offers the asker nothing more to wait on.
+ * afresh, so it offers the asker nothing more to wait on. A walk that
+ * leaves out a quest, as when its README changes during it, with no
+ * earlier walk to hold for it, names no tree for idle rules to take,
+ * on a host or off it: that quest may list any of them as its newest.
+ * The left-out quest's own trees are in no claim at all, which is why
+ * the outside sweep refuses to run while any quest can't be read.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
@@ -85,14 +103,21 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 		const stores = storesOf(questsRoot);
 		// A store this host never walked is signed only off the thread,
 		// below, for an asker that waits.
-		claimFrom(
-			stores.filter(questsWalked).map((store) => discoverQuests(store)),
-			into,
-		);
-		if (!hosted()) return;
-		claims.answering?.push(
+		const walked = stores.filter(questsWalked);
+		const walks = walked.map((store) => discoverQuests(store));
+		const last = claimFrom(walks, into, claims.idleMayTake);
+		if (!hosted() || claims.answering === undefined) {
+			if (anyLeftOut(walked, walks)) claims.idleMayTake?.splice(0);
+			return;
+		}
+		claims.answering.push(
 			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
-				(walks) => claimFrom(walks, into),
+				(walks) => {
+					claimFrom(walks, into, claims.idleMayTake, last);
+					// The last walk holds the trees of a quest it read; one
+					// neither walk read may hold any.
+					if (anyLeftOut(stores, walks, last)) claims.idleMayTake?.splice(0);
+				},
 			),
 		);
 	});
@@ -104,12 +129,55 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
  * a host each store is signed as it stands on every ask.
  */
 export function liveQuestTrees(questsRoot: string): string[] {
-	const paths: string[] = [];
-	claimFrom(
-		storesOf(questsRoot).map((store) => discoverQuests(store)),
-		paths,
-	);
-	return paths;
+	return liveQuestClaims(questsRoot).untilSpent;
+}
+
+/** What the live quests hold until spent, and which of it idle rules may take. */
+export interface QuestTreeClaims {
+	untilSpent: string[];
+	idleMayTake: string[];
+}
+
+/**
+ * Every tree a live quest lists, as {@link liveQuestTrees} reads them,
+ * and of those the ones idle rules may take, from one walk, so the two
+ * lists tell of the same moment.
+ */
+export function liveQuestClaims(questsRoot: string): QuestTreeClaims {
+	const claims: QuestTreeClaims = { untilSpent: [], idleMayTake: [] };
+	const stores = storesOf(questsRoot);
+	const walks = stores.map((store) => discoverQuests(store));
+	claimFrom(walks, claims.untilSpent, claims.idleMayTake);
+	// A quest the walk left out may hold any tree as its newest.
+	if (anyLeftOut(stores, walks)) claims.idleMayTake.length = 0;
+	return claims;
+}
+
+/**
+ * Whether any quest folder in `stores` is missing from its walk, the one
+ * at the same place in `walks` that the claims read, and from `held`, an
+ * earlier walk's lists, or a store that stands can't be listed, since it
+ * may hold any quest.
+ */
+function anyLeftOut(
+	stores: readonly string[],
+	walks: readonly DiscoveryResult[],
+	held?: ReadonlyMap<string, unknown>,
+): boolean {
+	return stores.some((store, at) => {
+		const walk = walks[at];
+		let names: string[];
+		try {
+			names = readdirSync(store);
+		} catch {
+			// A store that isn't there holds no quest to leave out.
+			return lstatSync(store, { throwIfNoEntry: false }) !== undefined;
+		}
+		return (
+			walk === undefined ||
+			whyQuestLeftOut(store, names, walk, held) !== undefined
+		);
+	});
 }
 
 /**
@@ -156,6 +224,7 @@ function whyQuestLeftOut(
 	store: string,
 	names: readonly string[],
 	walk: DiscoveryResult,
+	held?: ReadonlyMap<string, unknown>,
 ): string | undefined {
 	const walked = new Set(
 		[...walk.index.quests.values()].map((quest) => quest.dir),
@@ -163,7 +232,7 @@ function whyQuestLeftOut(
 	for (const name of names) {
 		if (!isId(name) || prefixOf(name) !== "QEST") continue;
 		const dir = join(store, name);
-		if (walked.has(dir) || beingMade(dir)) continue;
+		if (walked.has(dir) || held?.has(dir) || beingMade(dir)) continue;
 		return `the quest at ${dir} can't be read for its claims: ${whyLeftOut(dir, walk)}`;
 	}
 	return undefined;
@@ -219,14 +288,113 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
 
 /**
  * Push every tree a live quest in `walks` lists onto `into`, once, so
- * the fresh answer adds only what the last walk didn't hold.
+ * the fresh answer adds only what the last walk didn't hold, and onto
+ * `mayTake`, when it is given, each of its trees here that isn't the
+ * newest of its repository. A quest adds a tree to the end of its list
+ * as it cuts it, so a repository's last whose folder stands is its
+ * newest: one already gone leaves the tree before it to its session.
+ * Each quest keeps every other tree it lists, such as one whose
+ * repository isn't known, and a tree any live quest keeps is never
+ * named, so one quest letting a tree go never overrides another's
+ * hold. One an earlier walk named that this one keeps is taken back.
+ * A quest `before`, an earlier walk of the same ask, saw listing a tree
+ * keeps it, the older ones it let go then included, when this walk
+ * couldn't read that quest, as when its README changes during the walk:
+ * what it would say now is unknown, and so do the folders its sessions
+ * started in then. A tree any live quest's session started in is kept
+ * too, newest or not and whichever quest that session is on, since
+ * reopening it finds its log only there; the two folders are compared
+ * as the disk resolves them, each resolved once, so a linked spelling
+ * still matches. Only a tree the quest's tool cut may go: one it adopted,
+ * or one with no mark, as a hand-registered tree has, is kept, as the
+ * mark promises. Says what each quest walked holds.
  */
-function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
+function claimFrom(
+	walks: readonly DiscoveryResult[],
+	into: string[],
+	mayTake?: string[],
+	before?: ReadonlyMap<string, QuestHold>,
+): Map<string, QuestHold> {
+	const kept = new Set<string>();
+	const holds = new Map<string, QuestHold>();
+	const older: string[] = [];
 	for (const entry of liveQuests(walks)) {
-		for (const tree of entry.doc.frontMatter.trees ?? []) {
+		const trees = entry.doc.frontMatter.trees ?? [];
+		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
+		// Which trees stand is read from the disk, so only for an asker
+		// that may take; one that only asks what is held reads nothing.
+		const letGo =
+			mayTake === undefined ? new Set<string>() : olderInEachRepo(trees);
+		for (const tree of trees) {
+			if (letGo.has(tree.path) && tree.origin === "scaffolded") {
+				older.push(tree.path);
+			} else kept.add(tree.path);
+		}
+		holds.set(entry.dir, {
+			trees: new Set(trees.map((tree) => tree.path)),
+			startedIn: (entry.doc.frontMatter.sessions ?? []).flatMap((session) =>
+				session.cwd === undefined ? [] : [session.cwd],
+			),
+		});
 	}
+	const startedIn = [...holds.values()].flatMap((hold) => hold.startedIn);
+	for (const [dir, hold] of before ?? []) {
+		if (holds.has(dir)) continue;
+		for (const path of hold.trees) kept.add(path);
+		startedIn.push(...hold.startedIn);
+	}
+	if (mayTake === undefined) return holds;
+	const resolvedOnce = new Map<string, string>();
+	const resolve = (path: string): string => {
+		const known = resolvedOnce.get(path);
+		if (known !== undefined) return known;
+		const found = canonicalPath(path);
+		resolvedOnce.set(path, found);
+		return found;
+	};
+	const opened = startedIn.map(resolve);
+	const keeps = (path: string): boolean => {
+		if (kept.has(path)) return true;
+		const top = resolve(path);
+		return opened.some((cwd) => cwd === top || cwd.startsWith(top + sep));
+	};
+	for (const path of older) {
+		if (!mayTake.includes(path) && !keeps(path)) mayTake.push(path);
+	}
+	for (let at = mayTake.length - 1; at >= 0; at--) {
+		const path = mayTake[at];
+		if (path !== undefined && keeps(path)) mayTake.splice(at, 1);
+	}
+	return holds;
+}
+
+/**
+ * What a walk saw a live quest hold: the trees it lists, and the folders
+ * its sessions started in, as recorded.
+ */
+interface QuestHold {
+	readonly trees: ReadonlySet<string>;
+	readonly startedIn: readonly string[];
+}
+
+/**
+ * The trees a quest lists here, in a known repository, before that
+ * repository's last whose folder stands: the ones it lets idle rules
+ * take.
+ */
+function olderInEachRepo(trees: readonly QuestTree[]): Set<string> {
+	const here = treesHere(trees).filter(
+		(tree) => tree.repoRoot !== undefined && existsSync(tree.path),
+	);
+	const newest = new Map<string, string>();
+	for (const tree of here) newest.set(tree.repoRoot ?? "", tree.path);
+	return new Set(
+		here
+			.filter((tree) => newest.get(tree.repoRoot ?? "") !== tree.path)
+			.map((tree) => tree.path),
+	);
 }
 
 /**
@@ -240,7 +408,8 @@ function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
-		forgetTrees(questsRoot, (data as SweptTrees).paths).catch(
+		const swept = data as SweptTrees;
+		forgetTrees(questsRoot, swept.paths, swept.branchesGone).catch(
 			(error: unknown) => {
 				sayForgetFailed("any quest", error);
 			},
@@ -256,8 +425,13 @@ export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 export function forgetTrees(
 	questsRoot: string,
 	paths: readonly string[],
+	branchesGone?: readonly string[],
 ): Promise<void> {
-	return forgetTaken(questsRoot, new Set(paths));
+	return forgetTaken(
+		questsRoot,
+		new Set(paths),
+		branchesGone === undefined ? undefined : new Set(branchesGone),
+	);
 }
 
 /**
@@ -265,11 +439,19 @@ export function forgetTrees(
  * quest's write on its own, so one quest's locked or vanished folder
  * leaves the rest forgetting. A tree whose folder is back by the time
  * the walk ends was cut again at its path while the quest was signed,
- * so it stays listed.
+ * so it stays listed. Its branch's alias stays while the branch does,
+ * as an idle take leaves it, since a live quest's open change on that
+ * branch still has to find it; one the sweep says it deleted goes with
+ * its tree, as does every one when the sweep says nothing of branches.
+ * A deleted branch's alias that an earlier take left goes too, from a
+ * quest that lists no tree on it. Aliases name a branch alone, so a
+ * branch of that name in another repository loses its alias with it,
+ * unless the quest lists a tree on it.
  */
 async function forgetTaken(
 	questsRoot: string,
 	taken: ReadonlySet<string>,
+	branchesGone: ReadonlySet<string> | undefined,
 ): Promise<void> {
 	const walks: DiscoveryResult[] = [];
 	for (const store of storesOf(questsRoot)) {
@@ -277,19 +459,57 @@ async function forgetTaken(
 		if (walk) walks.push(walk);
 	}
 	for (const entry of liveQuests(walks)) {
-		for (const tree of entry.doc.frontMatter.trees ?? []) {
-			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
-			try {
-				// A write refused says why as a throw does, and stops the second.
-				const removed = removeTreeFromQuest(entry.dir, tree.path);
-				if (!removed.ok) throw new Error(removed.reason);
-				const cleared = setPendingPrune(entry.dir, null, {
-					clearPath: tree.path,
-				});
-				if (!cleared.ok) throw new Error(cleared.reason);
-			} catch (error) {
-				sayForgetFailed(entry.doc.frontMatter.id, error);
-			}
+		forgetTakenFrom(entry, taken, branchesGone);
+		// Only a quest whose alias names a deleted branch is locked to drop it.
+		if (branchesGone === undefined || !aliasesAny(entry, branchesGone)) {
+			continue;
+		}
+		try {
+			const forgot = forgetBranchesFromQuest(entry.dir, branchesGone);
+			if (!forgot.ok) throw new Error(forgot.reason);
+		} catch (error) {
+			sayForgetFailed(entry.doc.frontMatter.id, error);
+		}
+	}
+}
+
+/**
+ * Whether the quest at `entry`, as its walk read it, has a `git-branch`
+ * alias for any of `branches`.
+ */
+function aliasesAny(entry: QuestEntry, branches: ReadonlySet<string>): boolean {
+	return entry.doc.frontMatter.aliases.some(
+		(alias) => alias.type === "git-branch" && branches.has(alias.value),
+	);
+}
+
+/**
+ * Drop each tree in `taken` from the quest at `entry`, as
+ * {@link forgetTaken} says.
+ */
+function forgetTakenFrom(
+	entry: QuestEntry,
+	taken: ReadonlySet<string>,
+	branchesGone: ReadonlySet<string> | undefined,
+): void {
+	for (const tree of entry.doc.frontMatter.trees ?? []) {
+		if (!taken.has(tree.path) || existsSync(tree.path)) continue;
+		try {
+			// A write refused says why as a throw does, and stops the second.
+			const stands =
+				branchesGone !== undefined &&
+				tree.branch !== undefined &&
+				!branchesGone.has(tree.branch);
+			const removed = removeTreeFromQuest(entry.dir, tree.path, {
+				keepBranch: stands,
+			});
+			if (!removed.ok) throw new Error(removed.reason);
+			const cleared = setPendingPrune(entry.dir, null, {
+				clearPath: tree.path,
+			});
+			if (!cleared.ok) throw new Error(cleared.reason);
+		} catch (error) {
+			sayForgetFailed(entry.doc.frontMatter.id, error);
 		}
 	}
 }

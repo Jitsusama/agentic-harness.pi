@@ -17,7 +17,7 @@
  * a lot; --only runs the checks named.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +28,7 @@ import {
 	summary,
 } from "../lib/internal/fence/fence-preflight.ts";
 import { CHECKS } from "../lib/internal/fence/fence-preflight-checks.ts";
+import { removeTree } from "../lib/internal/files/remove-tree.ts";
 
 /** The value after `flag` in the arguments, if given. */
 function option(args: readonly string[], flag: string): string | undefined {
@@ -64,7 +65,7 @@ async function main(args: readonly string[]): Promise<number> {
 		process.stdout.write(`${summary(verdicts)}\n`);
 		return exitStatus(verdicts);
 	} finally {
-		rmSync(scratch, { recursive: true, force: true });
+		removeTree(scratch);
 	}
 }
 

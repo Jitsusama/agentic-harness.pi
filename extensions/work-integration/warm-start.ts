@@ -18,11 +18,11 @@ import {
 	readFileSync,
 	renameSync,
 	rmdirSync,
-	rmSync,
 	statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Exec } from "../../lib/core/exec/index.ts";
+import { removeTree, tidyTree } from "../../lib/internal/files/remove-tree.ts";
 
 /** What warming a tree needs from the machine. */
 export interface WarmStartSeams {
@@ -149,7 +149,7 @@ export async function cloneTarget(
 		if (dropOwnFingerprints(staging, profiles, ours) === 0) return false;
 		return landInPlace(staging, to);
 	} finally {
-		if (staging) rmSync(staging, { recursive: true, force: true });
+		if (staging) tidyTree(staging);
 	}
 }
 
@@ -198,7 +198,7 @@ function dropOwnFingerprints(
 			// Named `<package>-<hash>`, and a package name may hold dashes.
 			const cut = fingerprint.lastIndexOf("-");
 			if (cut > 0 && ours.has(fingerprint.slice(0, cut))) {
-				rmSync(join(fingerprints, fingerprint), { recursive: true });
+				removeTree(join(fingerprints, fingerprint));
 				removed++;
 			}
 		}

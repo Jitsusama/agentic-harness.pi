@@ -254,6 +254,28 @@ describe("waking a parked peer", () => {
 			"a peer on another machine had its marker looked at for this machine's hold",
 		).toEqual(["s-parked"]);
 	});
+
+	it("judges a message at its own time unless told when", () => {
+		const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+		const hold = message({ intent: "hold", at: threeHoursAgo.toISOString() });
+		const woken = (judged?: { now: number }) =>
+			wakeParked(
+				hold,
+				[parked],
+				nothing,
+				() => true,
+				() => {},
+				judged,
+			);
+
+		expect(woken(), "a hold judged at its own time didn't wake").toEqual([
+			"s-parked",
+		]);
+		expect(
+			woken({ now: Date.now() }),
+			"a hold that had lapsed by the time it was judged woke",
+		).toEqual([]);
+	});
 });
 
 describe("waking a parked peer for a message carried in", () => {

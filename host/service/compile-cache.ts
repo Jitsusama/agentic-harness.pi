@@ -14,13 +14,7 @@
  */
 
 import { createHash } from "node:crypto";
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	realpathSync,
-	rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
 import {
@@ -29,6 +23,7 @@ import {
 	runtimeCompileFolderOf,
 } from "../../lib/internal/fence/compile-cache-place.ts";
 import { sweepIdleCompiled } from "../../lib/internal/fence/compile-cache-sweep.ts";
+import { removeTree } from "../../lib/internal/files/remove-tree.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
@@ -114,7 +109,7 @@ function sweepEarlier(
 ): void {
 	for (const entry of readdirSync(root))
 		if (entry.startsWith(`${host}-`) && entry !== keep)
-			rmSync(join(root, entry), { recursive: true, force: true });
+			removeTree(join(root, entry));
 }
 
 /**

@@ -40,6 +40,7 @@ import {
 	statSync,
 } from "node:fs";
 import { join } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { runtimeDir } from "../paths.ts";
 import { clearWriting, writeWhole } from "../write-whole.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
@@ -426,7 +427,7 @@ export function queueFolder(
 		try {
 			work();
 		} finally {
-			rmSync(lock, { recursive: true, force: true });
+			removeTree(lock);
 		}
 	};
 

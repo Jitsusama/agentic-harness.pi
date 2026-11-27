@@ -14,7 +14,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -76,6 +76,8 @@ const idle: {
 	skipped?: string;
 	failed?: string;
 	partly?: string;
+	/** The run takes no tree and only deletes a settled branch. */
+	takesNone?: boolean;
 } = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
@@ -112,7 +114,24 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		);
 		return {
 			...none,
-			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
+			// One taken with its branch, one with its branch deleted too, and a
+			// branch deleted with no tree.
+			taken: idle.takesNone
+				? []
+				: [
+						{ path: "/src/repo/.worktrees/spent", branch: "spent" },
+						{
+							path: "/src/repo/.worktrees/merged",
+							branch: "merged",
+							branchGone: true,
+						},
+					],
+			branches: [
+				{
+					checkout: "/src/repo",
+					went: [{ branch: "settled", commit: "c0ffee" }],
+				},
+			],
 			kept: [...keeps],
 			...(idle.partly === undefined ? {} : { idleUnjudged: idle.partly }),
 		};
@@ -144,6 +163,7 @@ beforeEach(() => {
 	delete idle.skipped;
 	delete idle.failed;
 	delete idle.partly;
+	delete idle.takesNone;
 	keeps.length = 0;
 	host = installTestHost();
 });
@@ -191,7 +211,7 @@ function liveQuestListing(path: string): string {
 		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			`trees:\n  - path: ${path}\n    providerId: git-worktree\n` +
-			`    repoRoot: ${path}\n    origin: cut\n` +
+			`    repoRoot: ${path}\n    origin: scaffolded\n` +
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with a tree.\n",
 	);
 	return quests;
@@ -209,7 +229,37 @@ it("holds a live quest's tree only until spent", async () => {
 	await vi.waitFor(() => expect(given, "claims given").toHaveLength(1));
 
 	expect(given, "the claims the sweep was given").toEqual([
-		{ held: [], untilSpent: [tree] },
+		{ held: [], untilSpent: [tree], idleMayTake: [] },
+	]);
+});
+
+it("passes on to the idle rules a live quest's older tree here", async () => {
+	const events = createEventBus();
+	const quests = join(root, "quests");
+	const id = "QEST-20260731-AAAAAA";
+	// The repository's last tree counts as newest only while its folder stands.
+	const older = join(root, "trees", "older");
+	const newest = join(root, "trees", "newest");
+	mkdirSync(older, { recursive: true });
+	mkdirSync(newest, { recursive: true });
+	mkdirSync(join(quests, id), { recursive: true });
+	const tree = (path: string) =>
+		`  - path: ${path}\n    providerId: git-worktree\n` +
+		`    repoRoot: /src/repo\n    host: ${hostname()}\n    origin: scaffolded\n`;
+	writeFileSync(
+		join(quests, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			`trees:\n${tree(older)}${tree(newest)}` +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with two trees.\n",
+	);
+	answerTreeClaims({ events } as never, quests);
+
+	await sweepOn(events);
+	await vi.waitFor(() => expect(given, "claims given").toHaveLength(1));
+
+	expect(given, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [older, newest], idleMayTake: [older] },
 	]);
 });
 
@@ -503,7 +553,7 @@ it("says how many it couldn't tell when forgetting fails later", async () => {
 
 	expect(end, "how the sweep said it ended").toBe("ran");
 	expect(readFileSync(sweepLog(), "utf8"), "the sweep's log").toContain(
-		'"unforgotten":1,"why":"a quest\'s folder was locked"',
+		'"unforgotten":2,"unforgottenBranches":2,"why":"a quest\'s folder was locked"',
 	);
 });
 
@@ -573,16 +623,36 @@ it("says what it took to whoever listed it", async () => {
 		(data as TreeClaims).paths.push("/src/repo/.worktrees/kept");
 	});
 	const heard: string[] = [];
+	const branchesGone: string[] = [];
 	events.on(WORK_TREES_SWEPT, (data) => {
 		heard.push(...(data as SweptTrees).paths);
+		branchesGone.push(...((data as SweptTrees).branchesGone ?? []));
 	});
 
 	await sweepOn(events);
 
 	expect(given, "the claims the sweep was given").toEqual([
-		{ held: ["/src/repo/.worktrees/kept"], untilSpent: [] },
+		{ held: ["/src/repo/.worktrees/kept"], untilSpent: [], idleMayTake: [] },
 	]);
 	expect(heard, "what holders heard was taken").toEqual([
 		"/src/repo/.worktrees/spent",
+		"/src/repo/.worktrees/merged",
 	]);
+	expect(branchesGone, "the branches holders heard went").toEqual([
+		"merged",
+		"settled",
+	]);
+});
+
+it("tells holders of a branch it deleted in a run that took no tree, so an alias left by an earlier take goes", async () => {
+	idle.takesNone = true;
+	const events = createEventBus();
+	const branchesGone: string[] = [];
+	events.on(WORK_TREES_SWEPT, (data) => {
+		branchesGone.push(...((data as SweptTrees).branchesGone ?? []));
+	});
+
+	await sweepOn(events);
+
+	expect(branchesGone, "the branches holders heard went").toEqual(["settled"]);
 });

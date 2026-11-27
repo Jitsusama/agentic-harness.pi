@@ -64,13 +64,13 @@
  * when they couldn't be listed.
  */
 
-import { constants as fsConstants, mkdtempSync, rmSync } from "node:fs";
+import { constants as fsConstants, mkdtempSync } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { createRunStore } from "../../lib/core/review/index.ts";
+import { removeTree } from "../../lib/internal/files/remove-tree.ts";
 import { mirroredRunsDir, runDir } from "./engine.ts";
 
 /** How many of a change's commits are asked about, newest first. */
@@ -655,7 +655,7 @@ async function scratchRepo(
 	if (dir === undefined) return undefined;
 	const remove = () => {
 		try {
-			rmSync(dir, { recursive: true, force: true });
+			removeTree(dir);
 		} catch {
 			// A scratch folder left behind costs a few bytes of the temporary
 			// folder, which the system clears; the gate's answer stands.
