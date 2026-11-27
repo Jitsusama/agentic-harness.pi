@@ -328,6 +328,7 @@ describe("starting council rounds on room alone", () => {
 	it("looks again at the usual pace while short, whatever its spacing", async () => {
 		let looks = 0;
 		const stop = new AbortController();
+		const from = Date.now();
 		const start = awaitCouncilStart(
 			path,
 			claim("ISXEG8", {
@@ -338,12 +339,14 @@ describe("starting council rounds on room alone", () => {
 			}),
 			stop.signal,
 		);
-		const watched = 20 * LOOK;
 		// Long enough for twenty looks at the usual pace, against hundreds
 		// at one a millisecond.
-		await new Promise((done) => setTimeout(done, watched));
+		// any time: the looks are judged against the stretch actually
+		// watched, so a late stop only lengthens what they're counted over.
+		await new Promise((done) => setTimeout(done, 20 * LOOK));
 		stop.abort();
 		await start;
+		const watched = Date.now() - from;
 
 		expect(looks, "about one a look").toBeLessThanOrEqual(watched / LOOK + 5);
 	});

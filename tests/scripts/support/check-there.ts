@@ -790,6 +790,9 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				// so never sooner than its length nor a second past it: what was
 				// left ends 3.5 to 4.5 s after the stop, where six of its own
 				// would end 6 s or more after it, and a kill at once at none.
+				// any time: a timer never fires early, and one up to 2 s late
+				// still leaves more than the floor below. A bounded race, kept
+				// because the moment of a TERM can't be waited on from here.
 				await new Promise((resolve) => setTimeout(resolve, 2_500));
 				const stopAt = Date.now();
 				holder.kill("SIGTERM");

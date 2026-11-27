@@ -7,7 +7,7 @@
  * operating system's and a fake would only restate the implementation.
  */
 
-import { mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -116,15 +116,24 @@ describe("a command run unattended", () => {
 describe("a command that will not finish", () => {
 	it("is stopped with everything it started when the signal fires", async () => {
 		const stop = new AbortController();
+		// The shell names its child in a file it moves into place whole, so
+		// the stop lands once there is a child to stop, however slow the
+		// machine.
+		const started = join(mkdtempSync(join(tmpdir(), "spawn-")), "child");
 		const running = spawnExec({ signal: stop.signal })("sh", [
 			"-c",
-			"sleep 30 & echo $!; wait",
+			'sleep 30 & echo $! > "$1.part"; mv "$1.part" "$1"; wait',
+			"sh",
+			started,
 		]);
-		// Long enough for the shell to have started its own child.
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		stop.abort();
+		// Stopped even when the wait fails, so no child sleeps on after it.
+		try {
+			await until("the shell's child starting", () => existsSync(started));
+		} finally {
+			stop.abort();
+		}
 		const result = await running;
-		const grandchild = Number(result.stdout.trim());
+		const grandchild = Number(readFileSync(started, "utf8").trim());
 
 		expect(result.code).toBe(EXIT_ABORTED);
 		expect(result.stderr).toContain("aborted");
@@ -237,7 +246,7 @@ describe("a command that will not finish", () => {
 	it("hears a wait and its end in one piece", async () => {
 		const result = await spawnExec({
 			timeoutMs: 800,
-			signal: AbortSignal.timeout(4_000),
+			signal: AbortSignal.timeout(4_000), // any time: a backstop past the 800 ms clock, which fires only if that clock fails
 			turn: TURN,
 		})("sh", [
 			"-c",
@@ -290,7 +299,7 @@ describe("a command that will not finish", () => {
 		const started = Date.now();
 		const result = await spawnExec({
 			timeoutMs: 400,
-			signal: AbortSignal.timeout(3_000),
+			signal: AbortSignal.timeout(3_000), // any time: a backstop past the clock, which fires only if that clock fails
 			turn: TURN,
 		})("sh", [
 			"-c",
@@ -313,7 +322,7 @@ describe("a command that will not finish", () => {
 		// wait nothing stops fails naming how it ended.
 		const result = await spawnExec({
 			timeoutMs: 2_000,
-			signal: AbortSignal.timeout(3_000),
+			signal: AbortSignal.timeout(3_000), // any time: a backstop past the wait's own 300 ms, which fires only if that fails
 			turn: { ...TURN, longestMs: 300 },
 		})("sh", ["-c", "echo 'gate: this one waits its turn.' >&2; sleep 30"]);
 
@@ -327,7 +336,7 @@ describe("a command that will not finish", () => {
 		// spare on a loaded machine, but not together.
 		const result = await spawnExec({
 			timeoutMs: 2_000,
-			signal: AbortSignal.timeout(4_000),
+			signal: AbortSignal.timeout(4_000), // any time: a backstop past the 2 s clock, which fires only if that clock fails
 			turn: { ...TURN, longestMs: 1_000 },
 		})("sh", [
 			"-c",
@@ -343,7 +352,7 @@ describe("a command that will not finish", () => {
 	it("reads a turn with an empty mark as no turn", async () => {
 		const result = await spawnExec({
 			timeoutMs: 300,
-			signal: AbortSignal.timeout(3_000),
+			signal: AbortSignal.timeout(3_000), // any time: a backstop past the 300 ms clock, which fires only if that clock fails
 			// An empty wait's mark would hold at the first line, and nothing
 			// would end it but the signal.
 			turn: { waits: "", goes: ["its turn came after"], longestMs: 10_000 },

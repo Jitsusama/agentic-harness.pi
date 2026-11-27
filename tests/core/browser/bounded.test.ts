@@ -17,6 +17,7 @@ import { readPage } from "../../../lib/core/web/reader.ts";
 import { webSearch } from "../../../lib/core/web/search.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { SETTLE_BUDGET_MS } from "../../../lib/core/web/wait/index.ts";
+import { until } from "../../support/until.ts";
 import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -135,7 +136,18 @@ describe("reading a page always lets go", () => {
 		const before = new Set(browser.browserContexts());
 		const controller = new AbortController();
 		const reading = readPage(fixture.url("/never"), controller.signal);
-		setTimeout(() => controller.abort(), 300); // any time: /never never answers, so the stop is what ends the read whenever it lands
+		// Stopped once the tab has asked for the page, so the stop lands
+		// mid-load with a tab open to close, however slow Chrome is; and
+		// stopped even when the wait fails, so no read outlives the case.
+		try {
+			await until(
+				"the read asking for /never",
+				() => fixture.requested("/never") > 0,
+				15_000,
+			);
+		} finally {
+			controller.abort();
+		}
 		const started = Date.now();
 
 		const outcome = await within(

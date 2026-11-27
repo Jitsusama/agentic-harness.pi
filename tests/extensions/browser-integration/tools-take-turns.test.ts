@@ -21,6 +21,7 @@ import {
 import { registerSee } from "../../../extensions/browser-integration/see-tool.ts";
 import type { BrowserSession } from "../../../lib/core/web/session.ts";
 import { resultSession } from "../../support/result-session.ts";
+import { until } from "../../support/until.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
 const SETTLED_WITHIN_MS = 200;
@@ -122,13 +123,13 @@ describe("a browser tool", () => {
 		const stop = new AbortController();
 
 		const call = tool(name)("call", params, stop.signal);
-		await pause(1);
-		const askedBeforeStop = page.asked.length;
+		// Stopped once the tool has asked the page, so the stop lands on a
+		// call waiting on the browser.
+		await until("the tool asking the page", () => page.asked.length > 0);
 		stop.abort();
 		const answered = await within(call);
 		page.answer();
 
-		expect(askedBeforeStop).toBeGreaterThan(0);
 		expect(answered).toMatchObject({ name: "AbortError" });
 	});
 

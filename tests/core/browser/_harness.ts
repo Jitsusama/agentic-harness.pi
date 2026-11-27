@@ -35,6 +35,8 @@ export interface Fixture {
 	readonly origin: string;
 	/** An absolute URL for one of its routes. */
 	url(path: string): string;
+	/** How many times a route has been asked for, so a test can wait on it. */
+	requested(path: string): number;
 	close(): Promise<void>;
 }
 
@@ -65,8 +67,10 @@ export async function serve(
 	sockets: readonly SocketRoute[] = [],
 ): Promise<Fixture> {
 	const byPath = new Map(routes.map((route) => [route.path, route]));
+	const asked = new Map<string, number>();
 	const server: Server = createServer((request, response) => {
 		const path = (request.url ?? "/").split("?")[0] ?? "/";
+		asked.set(path, (asked.get(path) ?? 0) + 1);
 		const route = byPath.get(path);
 		const answer = (): void => {
 			if (!route) {
@@ -102,6 +106,7 @@ export async function serve(
 	return {
 		origin,
 		url: (path) => `${origin}${path}`,
+		requested: (path) => asked.get(path) ?? 0,
 		close: async () => {
 			// A websocket server holds the http server open, so closing
 			// the http server alone hangs until every client times out.

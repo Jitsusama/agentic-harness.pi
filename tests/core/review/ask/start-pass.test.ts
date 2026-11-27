@@ -106,6 +106,8 @@ describe("starting past a bar that has held too long", () => {
 		);
 		// A fixed wait, since what is tested is that nothing happens in it:
 		// three whole holds, any one of which would pass a CPU bar.
+		// any time: nothing may start in the wait however long it runs, so a
+		// late stop only makes the case stricter.
 		await new Promise((done) => setTimeout(done, 3 * AFTER));
 		stop.abort();
 

@@ -147,10 +147,17 @@ describe("git-worktree provider, stopped or out of time", () => {
 				path: handle.path,
 				signal: stop.signal,
 			});
-			// Stopped once a git hangs, so it's the prune under way that stops.
-			await until("the prune's git to start", () => existsSync(hung));
-			stop.abort();
-			const started = Date.now();
+			// Stopped once a git hangs, so it's the prune under way that stops;
+			// and stopped, its end awaited, even when the wait fails, so no git
+			// sleeps on in a folder the suite removes.
+			let started = 0;
+			try {
+				await until("the prune's git to start", () => existsSync(hung));
+			} finally {
+				stop.abort();
+				started = Date.now();
+				await outcome(pruning);
+			}
 			expect(await outcome(pruning)).toMatch(/^AbortError/);
 			expect(Date.now() - started).toBeLessThan(3_000);
 		} finally {

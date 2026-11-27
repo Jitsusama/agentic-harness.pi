@@ -158,6 +158,8 @@ export function rpcClient(
 			if (exited) return;
 			const left = new Promise((done) => child.once("exit", done));
 			child.stdin.end();
+			// any time: a kill for a pi that didn't end when its input did,
+			// which it was given its grace to do.
 			const timer = setTimeout(() => child.kill("SIGKILL"), CLOSE_GRACE_MS);
 			await left;
 			clearTimeout(timer);

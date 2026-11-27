@@ -38,8 +38,11 @@ const shell: RunGate = gateRunner();
 const SPEAKS_MS = 8_000;
 
 /**
- * A clock that fires only once the gate's bash has started and run its
- * first lines, even on a loaded machine; the test waits past it.
+ * A clock meant to fire once the gate's bash has started and run its
+ * first lines. A gate's clock is inside the runner, so nothing can wait
+ * for that start instead: this is a bounded race, accepted. A bash that
+ * takes longer than this to start fails its case loudly, by a wait that
+ * names what never came, rather than passing it.
  */
 const STARTS_MS = 3_000;
 
@@ -346,34 +349,44 @@ describe("a repo's merge gate", () => {
 		}
 	});
 
-	it("says a gate stopped by Escape was stopped, with everything it started", async () => {
-		const started = join(dir, "child-started");
-		const marker = join(dir, "still-running");
-		const pressed = new AbortController();
-		const refusing = withCallSignal(pressed.signal, () =>
-			gateRefusal(
-				{
-					...GATE,
-					command: `(touch ${JSON.stringify(started)}; sleep 2; touch ${JSON.stringify(marker)}) & wait; true`,
-				},
-				HEAD,
-				dir,
-				shell,
-			),
-		);
-		// Escape once the child is there, so it's the child the signal must reach.
-		await there(started, "the gate's child starting");
-		pressed.abort();
-		const said = await refusing;
-		expect(said, "an Escape reads as the merge being stopped").toMatch(
-			/The merge was stopped before its gate/,
-		);
-		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
-		expect(
-			existsSync(marker),
-			"the call's signal reached the gate's whole group",
-		).toBe(false);
-	});
+	it(
+		"says a gate stopped by Escape was stopped, with everything it started",
+		async () => {
+			const started = join(dir, "child-started");
+			const marker = join(dir, "still-running");
+			const pressed = new AbortController();
+			const refusing = withCallSignal(pressed.signal, () =>
+				gateRefusal(
+					{
+						...GATE,
+						command: `(touch ${JSON.stringify(started)}; sleep 2; touch ${JSON.stringify(marker)}) & wait; true`,
+					},
+					HEAD,
+					dir,
+					shell,
+				),
+			);
+			// Escape once the child is there, so it's the child the signal must
+			// reach; and Escape, awaited, even when the wait fails, so no gate
+			// runs on in a folder afterEach removes.
+			try {
+				await there(started, "the gate's child starting");
+			} finally {
+				pressed.abort();
+				await refusing;
+			}
+			const said = await refusing;
+			expect(said, "an Escape reads as the merge being stopped").toMatch(
+				/The merge was stopped before its gate/,
+			);
+			await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
+			expect(
+				existsSync(marker),
+				"the call's signal reached the gate's whole group",
+			).toBe(false);
+		},
+		SPEAKS_MS + 8_000,
+	);
 
 	it("says a gate at the most minutes it may name needs looking at, not more time", async () => {
 		const slow: RunGate = async () => ({
@@ -412,21 +425,33 @@ describe("a repo's merge gate", () => {
 		// a refusal said it had stopped.
 		// Under a call signal nothing aborts, as a real call is, so its own
 		// clock is told from an Escape with a signal there.
+		const started = join(dir, "child-started");
 		const marker = join(dir, "still-running");
-		const ran = await withCallSignal(new AbortController().signal, () =>
+		const running = withCallSignal(new AbortController().signal, () =>
 			shell(
-				`echo 'gate: step 3' >&2; (sleep 5; touch ${JSON.stringify(marker)}) & wait`,
+				`echo 'gate: step 3' >&2; (touch ${JSON.stringify(started)}; sleep 5; touch ${JSON.stringify(marker)}) & wait`,
 				dir,
 				STARTS_MS, // short of the child's sleep
 			),
 		);
+		// The child's own sleep is timed from when it started, not from the
+		// call, so a slow start can't hide a child left running.
+		let childFrom = 0;
+		try {
+			await there(started, "the gate's child starting");
+			childFrom = Date.now();
+		} finally {
+			await running;
+		}
+		const ran = await running;
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
 		expect(ran.aborted, "its own clock is no Escape").toBe(false);
 		expect(
 			ran.stderr,
 			"the gate's own words, without the exec layer's note, which names neither gate nor clock",
 		).toBe("gate: step 3");
-		await new Promise((done) => setTimeout(done, 5_500 - STARTS_MS)); // past the child's own sleep, so a child left running would have touched the marker
+		const past = childFrom + 5_500 - Date.now();
+		await new Promise((done) => setTimeout(done, Math.max(0, past))); // past the child's own sleep, so a child left running would have touched the marker
 		expect(
 			existsSync(marker),
 			"the gate's child went with it, rather than finishing after",
@@ -449,8 +474,16 @@ describe("a repo's merge gate", () => {
 				STARTS_MS,
 			),
 		);
+		let settled = false;
+		void ran.then(() => {
+			settled = true;
+		});
 		try {
 			await there(termed, "the clock's TERM");
+			// Escape after the grace's KILL would find the call unstopped, and
+			// pass whichever way `killed` is read, so a machine too slow for
+			// this case fails it rather than passing it for nothing.
+			expect(settled, "Escape landed inside the grace").toBe(false);
 		} finally {
 			call.abort(new Error("pressed"));
 			await ran;
@@ -464,6 +497,49 @@ describe("a repo's merge gate", () => {
 			stopped.stderr,
 			"the gate's own line, though it reads as the clock's note, and nothing after",
 		).toBe("bash aborted: This operation was aborted");
+	}, 20_000);
+
+	// The other order: Escape stops the gate, and its clock fires while the
+	// gate is given its grace. Escape stopped it, so both follow Escape.
+	it("follows Escape when the clock fires while an Escaped gate is given its grace", async () => {
+		const started = join(dir, "started");
+		const call = new AbortController();
+		const from = Date.now();
+		// The gate says it started 1.5 s in, so Escape lands past that, and
+		// the clock at STARTS_MS inside the 2 s grace after it. It ignores
+		// Escape's TERM and ends only at the grace's KILL. Its stderr is
+		// closed, so bash's own word on the killed sleep isn't said.
+		const ran = withCallSignal(call.signal, () =>
+			shell(
+				`trap '' TERM; exec 2>/dev/null; sleep 1.5; touch ${JSON.stringify(started)}; sleep 10; sleep 10`,
+				dir,
+				STARTS_MS,
+			),
+		);
+		let escapedAfter = 0;
+		try {
+			await there(started, "the gate's start");
+			escapedAfter = Date.now() - from;
+		} finally {
+			call.abort(new Error("pressed"));
+			await ran;
+		}
+		const stopped = await ran;
+		const endedAfter = Date.now() - from;
+		// The case is only the order it names when Escape beat the clock and
+		// the gate lived past the clock to the KILL, so it says when it
+		// wasn't.
+		expect(escapedAfter, "Escape came before the clock").toBeLessThan(
+			STARTS_MS,
+		);
+		expect(endedAfter, "the clock fired inside Escape's grace").toBeGreaterThan(
+			STARTS_MS,
+		);
+		expect(stopped.aborted, "Escape stopped it").toBe(true);
+		expect(stopped.killed, "a clock in Escape's grace is no clock stop").toBe(
+			false,
+		);
+		expect(stopped.stderr, "nothing, as the gate said nothing").toBe("");
 	}, 20_000);
 
 	it(

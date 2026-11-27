@@ -21,8 +21,13 @@
  * setTimeout sleeps on none of them, so it is skipped; one that fakes only
  * other timers still sleeps on real ones, so it is read.
  *
- * A test that stops something on a timer, `setTimeout(() => stop.abort(),
- * 200)`, is a sleep by another name, and one any comment can't excuse.
+ * A test that stops something on a timer is a sleep by another name, and
+ * one any comment can't excuse. A stop is an `.abort` or a `.kill(`, and
+ * a timed stop is any of three shapes, read however it is spelled and
+ * with any delay but 0, a lower-case one included: a `setTimeout` whose
+ * callback stops, across as many lines as it takes; an
+ * `AbortSignal.timeout`; or a sleep with a stop within two code lines
+ * after it.
  * Most such stops are right: they end a wait that would otherwise last
  * for good, and land the same whenever they fire. The rest lean on the
  * timer to mean that what's under test got somewhere first, a child
@@ -30,8 +35,10 @@
  * the stop lands early, and the test fails for nothing or passes down a
  * path it never meant to prove. The comment that excused one, "long
  * enough for bash to start the gate's child", named that very race. So a
- * timed stop says why its moment can't matter, in a comment holding
- * `any time:` on its line or in the comment just above. Where the moment
+ * timed stop says why its moment can't matter, in a comment that opens
+ * with `any time:` and goes on to give the reason, on the stop's own
+ * lines or in the comment just above. Words that only mention it, in a
+ * string or after other words, don't count. Where the moment
  * matters, the test waits on the thing itself with `until` and stops it
  * then. Every test is read, faked timers or not, since a file faking
  * them in one case may race a real one in the next.
@@ -61,13 +68,29 @@ const SLEEPS = [
 	/\bAtomics\.wait\(/,
 ];
 
-/** A callback that only stops something, given a fixed delay. */
-const TIMED_STOP = new RegExp(
-	String.raw`\bsetTimeout\(\s*\(\)\s*=>\s*(?:\{\s*)?[\w.?]+\.abort\([^)]*\)\s*;?\s*\}?\s*,\s*${DELAY}`,
-);
+/** Some code that stops something: an abort, bound or called, or a kill. */
+const STOP = /\.abort\b|\.kill\(/;
 
-/** What a timed stop's comment holds when it says its moment can't matter. */
+/**
+ * A sleep for any delay but none, a helper's own parameter included:
+ * read beside a stop, a sleep in any name is the stop's timer.
+ */
+const SLEEPS_ANY = [
+	/\bsetTimeout\(\s*\w+\s*,\s*(?!0\s*\))[\w(]/,
+	/\bawait\s+(?:sleep|delay|pause|wait|setTimeout)\(\s*(?!0\s*[),])[\w(]/,
+];
+
+/** A signal on a clock of its own, given anything but no time. */
+const CLOCKED_SIGNAL = /\bAbortSignal\.timeout\(\s*(?!0\s*\))[^)\s]/;
+
+/** How many code lines after a sleep a stop still counts as its timer's. */
+const STOP_WITHIN = 2;
+
+/** What a timed stop's comment opens with when it says its moment can't matter. */
 const ANY_TIME = "any time:";
+
+/** A comment that opens with the marker and goes on to give a reason. */
+const REASON = /(?:^\s*(?:\/\/|\/\*+|\*)|\s\/\/)\s*any time:\s*\S/;
 
 /** Whether a line sleeps a fixed time. */
 function sleeps(line: string): boolean {
@@ -123,23 +146,93 @@ function uncommentedSleeps(text: string): number {
 	return count;
 }
 
+/** Whether a line is a comment and nothing else. */
+function onlySays(line: string): boolean {
+	const trimmed = line.trim();
+	return (
+		trimmed.startsWith("//") ||
+		trimmed.startsWith("*") ||
+		trimmed.startsWith("/*")
+	);
+}
+
+/** A call's arguments, split where its own commas fall. */
+function argumentsOf(given: string): string[] {
+	const parts: string[] = [];
+	let depth = 0;
+	let from = 0;
+	for (let at = 0; at < given.length; at++) {
+		const char = given[at];
+		if (char === "(" || char === "[" || char === "{") depth++;
+		else if (char === ")" || char === "]" || char === "}") depth--;
+		else if (char === "," && depth === 0) {
+			parts.push(given.slice(from, at));
+			from = at + 1;
+		}
+	}
+	parts.push(given.slice(from));
+	return parts.map((part) => part.trim()).filter((part) => part !== "");
+}
+
+/** The line, counted from 0, that a place in some text falls on. */
+function lineOf(text: string, at: number): number {
+	return text.slice(0, at).split("\n").length - 1;
+}
+
+/**
+ * Each timed stop in some source, as the lines it starts and ends on,
+ * counted from 0: a timer whose callback stops something after some
+ * delay, a signal on a clock, or a sleep with a stop just after it.
+ */
+function timedStops(text: string): Array<[number, number]> {
+	const spans: Array<[number, number]> = [];
+	for (const call of text.matchAll(/\bsetTimeout\(/g)) {
+		const from = call.index + call[0].length;
+		const given = givenFrom(text, from);
+		const [callback, delay] = argumentsOf(given);
+		if (!callback || !STOP.test(callback)) continue;
+		if (delay === undefined || /^0$/.test(delay)) continue;
+		spans.push([lineOf(text, call.index), lineOf(text, from + given.length)]);
+	}
+	const lines = text.split("\n");
+	lines.forEach((line, at) => {
+		if (CLOCKED_SIGNAL.test(line)) spans.push([at, at]);
+		if (!SLEEPS_ANY.some((pattern) => pattern.test(line))) return;
+		let code = 0;
+		for (let next = at + 1; next < lines.length && code < STOP_WITHIN; next++) {
+			const after = lines[next] ?? "";
+			if (after.trim() === "" || onlySays(after)) continue;
+			code++;
+			if (STOP.test(after)) {
+				spans.push([at, next]);
+				return;
+			}
+		}
+	});
+	return spans;
+}
+
 /**
  * The lines, counted from 1, that stop something on a timer without
- * saying, on the line or in the comment just above, why any time will do.
+ * saying why any time will do: in a comment opening with the marker and
+ * giving a reason, on a line of the stop's own or in the comment just
+ * above it, read up to the first line holding code.
  */
 function unexcusedTimedStops(text: string): number[] {
 	const lines = text.split("\n");
-	const found: number[] = [];
-	lines.forEach((line, at) => {
-		if (!TIMED_STOP.test(line) || line.includes(ANY_TIME)) return;
-		let above = at - 1;
-		while (above >= 0 && says(lines[above] ?? "")) {
-			if ((lines[above] ?? "").includes(ANY_TIME)) return;
+	const found = new Set<number>();
+	for (const [start, end] of timedStops(text)) {
+		const own = lines.slice(start, end + 1);
+		let above = start - 1;
+		const comment: string[] = [];
+		while (above >= 0 && onlySays(lines[above] ?? "")) {
+			comment.push(lines[above] ?? "");
 			above--;
 		}
-		found.push(at + 1);
-	});
-	return found;
+		if (![...own, ...comment].some((line) => REASON.test(line)))
+			found.add(start + 1);
+	}
+	return [...found].sort((a, b) => a - b);
 }
 
 function sourcesUnder(dir: string): string[] {
@@ -290,6 +383,118 @@ describe("the package's tests", () => {
 			unexcusedTimedStops(`vi.useFakeTimers();\n${stop}`),
 			"a file on fake timers is read too",
 		).toEqual([2]);
+	});
+
+	it("read a timed stop however it is spelled", () => {
+		const found = (text: string, why: string, lines: number[]) =>
+			expect(unexcusedTimedStops(text), why).toEqual(lines);
+		found(
+			"// Long enough for the shell to start its child.\nawait new Promise((resolve) => setTimeout(resolve, 300));\nstop.abort();",
+			"a sleep followed by a stop is found at the sleep",
+			[2],
+		);
+		found(
+			"await pause(1);\nconst asked = page.asked.length;\nstop.abort();",
+			"a stop a statement after a sleep is found",
+			[1],
+		);
+		found(
+			"await pause(ms);\n\n// Then stop it.\ncontroller.abort();",
+			"a sleep for a named delay, with a comment before the stop, is found",
+			[1],
+		);
+		found(
+			"await pause(1);\nconst a = 1;\nconst b = 2;\nstop.abort();",
+			"a stop well after a sleep is the sleep rule's, not this one's",
+			[],
+		);
+		found(
+			"// any time: the read never ends, so the stop is what ends it.\nawait pause(50);\nstop.abort();",
+			"a sleep and stop with a reason above pass",
+			[],
+		);
+		found(
+			'setTimeout(() => call.abort(new Error("pressed")), 200);',
+			"a stop given a reason built by a call is found",
+			[1],
+		);
+		found(
+			'const a = 1;\nsetTimeout(\n\t() => controller.abort(new Error("x")),\n\t200,\n);',
+			"a stop wrapped over lines is found where it opens",
+			[2],
+		);
+		found(
+			"setTimeout(\n\t() => controller.abort(), // any time: nothing answers\n\t200,\n);",
+			"a wrapped stop with a reason inside passes",
+			[],
+		);
+		found(
+			"setTimeout(() => { done = true; c.abort(); }, 50);",
+			"a body that does something else first is found",
+			[1],
+		);
+		found(
+			"setTimeout(() => { tell(a, b); c.abort(); }, 50);",
+			"a stop after a comma of the callback's own is found",
+			[1],
+		);
+		found(
+			'setTimeout(() => c.abort(new Error("x"), extra), 0);',
+			"a stop given two arguments, after a delay of 0, is none",
+			[],
+		);
+		found(
+			"setTimeout(stop.abort.bind(stop), 50);",
+			"a bound stop is found",
+			[1],
+		);
+		found(
+			"setTimeout(() => c.abort(), ms);",
+			"a stop after a delay named in lower case is found",
+			[1],
+		);
+		found(
+			'setTimeout(() => child.kill("SIGKILL"), GRACE_MS);',
+			"a timed kill is found",
+			[1],
+		);
+		found(
+			"run({ signal: AbortSignal.timeout(4_000) });",
+			"a signal on a clock is found",
+			[1],
+		);
+		found(
+			"const timeout = AbortSignal.timeout.bind(AbortSignal);\nsetTimeout(() => resolve(false), 1_000);\nawait new Promise((resolve) => setTimeout(resolve, 300));",
+			"a spy on the clock, a timer that stops nothing and a bare sleep are not stops",
+			[],
+		);
+	});
+
+	it("take only a reason given for the stop itself", () => {
+		const stop = "setTimeout(() => stop.abort(), 200);";
+		const found = (text: string, why: string, lines: number[]) =>
+			expect(unexcusedTimedStops(text), why).toEqual(lines);
+		found(
+			`setTimeout(() => a.abort(), 50); // any time: a never answers\n${stop}`,
+			"one stop's reason is not the next one's",
+			[2],
+		);
+		found(
+			`// any time: an older reason.\nconst x = 1; // set up\n${stop}`,
+			"a reason above code that ends in a comment is another line's",
+			[3],
+		);
+		found(`// any time:\n${stop}`, "a marker with no reason is none", [2]);
+		found(
+			`// not any time: the child must start first\n${stop}`,
+			"a comment that says it isn't any time is no reason",
+			[2],
+		);
+		found(
+			'setTimeout(() => stop.abort(new Error("any time: no")), 200);',
+			"the marker in a string is no reason",
+			[1],
+		);
 	});
 
 	it("stop something on a timer only where any time will do", () => {

@@ -268,6 +268,8 @@ function listening(
 ): Promise<string> {
 	return new Promise((done, fail) => {
 		let out = "";
+		// any time: a backstop for a host that never listens, which fires
+		// only once the start has already failed.
 		const timer = setTimeout(() => {
 			child.kill("SIGKILL");
 			fail(new Error(`the host didn't listen in ${LISTEN_MS} ms: ${errors()}`));

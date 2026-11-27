@@ -180,5 +180,5 @@ describe("a google call Google never answers", () => {
 		await until("the write to be sent", () => sent.writes > 0);
 		controller.abort();
 		expect(await outcome(call)).toBe("still running");
-	});
+	}, 10_000); // past until's own 5 s, so a write never sent fails by its name
 });

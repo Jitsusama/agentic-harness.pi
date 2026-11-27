@@ -179,6 +179,7 @@ describe("the advisor at the end of a turn", () => {
 		void turnEnds(handlers, run);
 		// A second review that never starts leaves nothing to wait on, so
 		// this pause is the case.
+		// any time: the stop after it only ends the run once it's judged.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		expect(reviews).toHaveLength(1);

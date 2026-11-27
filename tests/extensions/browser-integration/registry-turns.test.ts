@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { createSessionRegistry } from "../../../extensions/browser-integration/registry.ts";
 import type { BrowserSession } from "../../../lib/core/web/session.ts";
+import { until } from "../../support/until.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
 const SETTLED_WITHIN_MS = 200;
@@ -95,14 +96,19 @@ describe("calls on a browser session", () => {
 		const browser = pending();
 		const stop = new AbortController();
 		let nextRan = false;
+		let firstRunning = false;
 
 		const stopped = registry
-			.use("s", stop.signal, () => browser.promise)
+			.use("s", stop.signal, () => {
+				firstRunning = true;
+				return browser.promise;
+			})
 			.catch((error: Error) => error);
 		const next = registry.use("s", undefined, async () => {
 			nextRan = true;
 		});
-		await pause(1);
+		// Stopped while it runs, so what is abandoned is a call in flight.
+		await until("the first call running", () => firstRunning);
 		stop.abort();
 
 		const answered = await Promise.race([
@@ -129,14 +135,19 @@ describe("calls on a browser session", () => {
 		const first = pending();
 		const stop = new AbortController();
 		let waiterRan = false;
+		let oneRunning = false;
 
-		const one = registry.use("s", undefined, () => first.promise);
+		const one = registry.use("s", undefined, () => {
+			oneRunning = true;
+			return first.promise;
+		});
 		const waiter = registry
 			.use("s", stop.signal, async () => {
 				waiterRan = true;
 			})
 			.catch((error: Error) => error);
-		await pause(1);
+		// Stopped once the first holds the turn, so the waiter is waiting.
+		await until("the first call holding the turn", () => oneRunning);
 		stop.abort();
 
 		const answered = await Promise.race([

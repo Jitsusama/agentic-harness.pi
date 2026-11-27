@@ -5,8 +5,8 @@ tests/core/browser/navigation.test.ts 3
 tests/core/browser/signals.test.ts 1
 tests/core/browser/slack-extract.test.ts 1
 tests/core/browser/tracing.test.ts 5
-tests/extensions/browser-integration/registry-turns.test.ts 8
-tests/extensions/browser-integration/tools-take-turns.test.ts 2
+tests/extensions/browser-integration/registry-turns.test.ts 6
+tests/extensions/browser-integration/tools-take-turns.test.ts 1
 tests/extensions/job-workflow/host.test.ts 2
 tests/extensions/mesh-workflow/hand.test.ts 1
 tests/extensions/shell-workflow/hand-off.test.ts 2
@@ -14,7 +14,6 @@ tests/extensions/shell-workflow/reap.test.ts 1
 tests/lib/subagent/fleet-ledger.test.ts 1
 tests/lib/subagent/runpi/detached.test.ts 3
 tests/lib/subagent/runpi/supervisor-endings.test.ts 4
-tests/lib/subagent/runpi/supervisor-parent.test.ts 1
 tests/lib/subagent/runpi/supervisor-records.test.ts 1
 tests/lib/ui/prompt/gate-over-live-transcript.test.ts 1
 tests/lib/ui/pi-screen.ts 1

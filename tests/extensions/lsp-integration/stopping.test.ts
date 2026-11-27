@@ -138,6 +138,8 @@ describe("an lsp call whose server never answers", () => {
 				"the backend's signal is stopped with the call",
 			).toBe(true);
 		},
+		// Past until's own 5 s, so a call never handed fails by its name.
+		10_000,
 	);
 
 	it.each(OPERATIONS)(
