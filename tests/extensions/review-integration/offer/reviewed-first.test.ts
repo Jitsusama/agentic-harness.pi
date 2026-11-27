@@ -597,6 +597,58 @@ describe("holding a change until our own council has read it", () => {
 		).toContain("No council of ours");
 	});
 
+	/**
+	 * The topic's head is made on another machine, `elsewhere` here, and
+	 * pushed; this checkout's topic is reset onto it, as a pull from the
+	 * Mac does, its council reads it, and main moves on before the topic
+	 * is rebased onto it here (5GLTPH, 26 November).
+	 */
+	async function resetInThenRebased() {
+		await git(repo, "switch", "-qc", "elsewhere", trunk);
+		writeFileSync(join(repo, "made"), "made elsewhere\n");
+		await git(repo, "add", "made");
+		await git(repo, "commit", "-qm", "made elsewhere");
+		const pushed = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "branch", "-qD", "elsewhere");
+		await git(repo, "reset", "-q", "--hard", pushed);
+		await git(repo, "update-ref", "refs/remotes/origin/topic", pushed);
+		await councilRead(pushed);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "main");
+		await pushedAsItStands();
+	}
+
+	/** Points the topic's branch on origin where the topic is, as a push does. */
+	async function pushedAsItStands() {
+		const head = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "update-ref", "refs/remotes/origin/topic", head);
+	}
+
+	it("keeps the council of a head reset in from elsewhere across a clean rebase", async () => {
+		await resetInThenRebased();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("holds a head reset in from elsewhere with anything on it after the rebase", async () => {
+		// Brought work lends only to exactly its own change, never to a fix
+		// on it, since a branch cut from reviewed work is brought it too.
+		await resetInThenRebased();
+		writeFileSync(join(repo, "three"), "three\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+		await pushedAsItStands();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
 	it("keeps a renamed branch's council across a clean rebase", async () => {
 		await councilRead(fix);
 		await git(repo, "branch", "-m", "topic", "renamed");
