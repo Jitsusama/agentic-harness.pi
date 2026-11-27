@@ -15,10 +15,16 @@
  * A typed entry lands at Enter, before the message it marks; a message
  * typed while a run goes on is saved only when it is delivered, so the
  * entry says how it was queued, and its length to match it by.
+ *
+ * Nothing in the process reads either back, so both stay behind in the
+ * log with the turns they time: a kept view or a rollover leaves out
+ * those from before its first kept entry. Held, they cost a long
+ * conversation's view 2.1 MB (a 68 MB log with 7,068 call entries).
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, InputEvent } from "@earendil-works/pi-coding-agent";
+import { leaveInParentLog } from "../../lib/internal/session/rollover.ts";
 
 /** The custom type of a model call's timing entry. */
 export const CALL_ENTRY = "harness-call";
@@ -63,6 +69,8 @@ interface Under {
 
 /** Keep every model call's timing and every typed message in the log. */
 export function timeCalls(pi: ExtensionAPI): void {
+	leaveInParentLog(CALL_ENTRY);
+	leaveInParentLog(TYPED_ENTRY);
 	let under: Under | undefined;
 	pi.on("turn_start", async () => {
 		under = { turnAt: Date.now() };
