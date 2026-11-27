@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	checkLoad,
 	describeLoad,
+	LOAD_STOPPED,
 	loadCheckArgs,
 	loadCheckEnvironment,
 	loadFailures,
@@ -181,6 +182,129 @@ describe("asking a pi", () => {
 			problem: "pi was still loading after 1s",
 		});
 	});
+
+	it("ends a load once whoever asked for it stops, and starts none once already stopped", async () => {
+		const pi = fakePi("setInterval(() => {}, 1000);");
+		const stop = new AbortController();
+		const began = Date.now();
+		const loading = checkLoad(pi, "/t", 60_000, stop.signal);
+		// Long enough for node to have started before the stop.
+		setTimeout(() => stop.abort(), 200);
+		expect(await loading).toMatchObject({ ok: false, problem: LOAD_STOPPED });
+		expect(Date.now() - began).toBeLessThan(10_000);
+		expect(await checkLoad(pi, "/t", 60_000, stop.signal)).toMatchObject({
+			ok: false,
+			problem: LOAD_STOPPED,
+		});
+	}, 15_000);
+
+	/**
+	 * A stand-in pi that starts a sleeper holding its stdout and stderr,
+	 * writing the sleeper's pid to `pids`, apart in a session of its own
+	 * when `apart`, then runs `then`.
+	 */
+	function piLeavingASleeper(
+		pids: string,
+		apart: boolean,
+		then: string,
+	): { node: string; entry: string } {
+		return fakePi(`
+			import { spawn } from "node:child_process";
+			import { writeFileSync } from "node:fs";
+			const sleeper = spawn("sleep", ["30"], {
+				stdio: ["ignore", "inherit", "inherit"],
+				detached: ${apart},
+			});
+			writeFileSync(${JSON.stringify(pids)}, String(sleeper.pid));
+			${then}
+		`);
+	}
+
+	/** End the sleeper whose pid is in `pids`, if it is still there. */
+	function endSleeper(pids: string): void {
+		if (!existsSync(pids)) return;
+		try {
+			process.kill(Number(readFileSync(pids, "utf8")), "SIGKILL");
+		} catch {
+			// The check already ended it, which is what the case wants.
+		}
+	}
+
+	it("ends a load once pi exits, though a process it started still holds its output", async () => {
+		const pids = join(dir, "sleeper");
+		const pi = piLeavingASleeper(
+			pids,
+			false,
+			`process.stdout.write(${JSON.stringify(ANSWER)}, () => process.exit(0));`,
+		);
+		const began = Date.now();
+		try {
+			expect(await checkLoad(pi, "/t", 60_000)).toMatchObject({
+				ok: true,
+				commands: 2,
+			});
+			// Without the group's kill at pi's exit, the sleeper holds the
+			// pipes for its 30 s.
+			expect(Date.now() - began).toBeLessThan(4000);
+		} finally {
+			endSleeper(pids);
+		}
+	}, 15_000);
+
+	it("ends a load once pi exits, though a process in a session of its own holds its output", async () => {
+		const pids = join(dir, "sleeper");
+		const pi = piLeavingASleeper(
+			pids,
+			true,
+			`process.stdout.write(${JSON.stringify(ANSWER)}, () => process.exit(0));`,
+		);
+		const began = Date.now();
+		try {
+			expect(await checkLoad(pi, "/t", 60_000)).toMatchObject({
+				ok: true,
+				commands: 2,
+			});
+			// Past the group, only the grace after pi's exit ends the wait.
+			expect(Date.now() - began).toBeLessThan(12_000);
+		} finally {
+			endSleeper(pids);
+		}
+	}, 20_000);
+
+	it("doesn't call a load that ended in time hung, though its budget passes while its output is held", async () => {
+		const pids = join(dir, "sleeper");
+		const pi = piLeavingASleeper(
+			pids,
+			true,
+			`process.stdout.write(${JSON.stringify(ANSWER)}, () => process.exit(0));`,
+		);
+		try {
+			// The budget is shorter than the grace after pi's exit, so it
+			// passes while the sleeper still holds the pipes.
+			expect(await checkLoad(pi, "/t", 2000)).toMatchObject({
+				ok: true,
+				commands: 2,
+			});
+		} finally {
+			endSleeper(pids);
+		}
+	}, 20_000);
+
+	it("ends a stopped load with what pi started, not pi alone", async () => {
+		const pids = join(dir, "sleeper");
+		const pi = piLeavingASleeper(pids, false, "setInterval(() => {}, 1000);");
+		const stop = new AbortController();
+		const began = Date.now();
+		const loading = checkLoad(pi, "/t", 60_000, stop.signal);
+		// Long enough for the stand-in to have started its sleeper.
+		setTimeout(() => stop.abort(), 500);
+		try {
+			expect(await loading).toMatchObject({ ok: false, problem: LOAD_STOPPED });
+			expect(Date.now() - began).toBeLessThan(4000);
+		} finally {
+			endSleeper(pids);
+		}
+	}, 15_000);
 
 	it("starts pi in a sandbox of its own, off the machine's state and this session's ties", async () => {
 		const seen = join(dir, "seen.json");

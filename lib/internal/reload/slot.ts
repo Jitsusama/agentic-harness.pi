@@ -67,6 +67,12 @@ export interface ReloadSlot {
 	 */
 	rolling?: boolean;
 	/**
+	 * A tree is being put through its checks for a reload. They take
+	 * minutes, so a second request in that time is refused rather than
+	 * running a second full set beside the first.
+	 */
+	checking?: boolean;
+	/**
 	 * A delivery that would have started a turn was said without one, to
 	 * let a waiting reload go first (hold.ts): the landing starts it.
 	 */

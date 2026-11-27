@@ -33,6 +33,7 @@ import {
 	LINKS_MOVED_AS_IT_WAITED,
 	RELOAD_CALLED_OFF,
 	STILL_MS,
+	STOPPED_RELOAD,
 } from "../../../extensions/reload-workflow/transitions.ts";
 import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { linksMovedSince } from "../../../lib/internal/reload/extension-links.ts";
@@ -74,7 +75,7 @@ interface Tool {
 	execute: (
 		id: string,
 		params: unknown,
-		signal: undefined,
+		signal: AbortSignal | undefined,
 		onUpdate: undefined,
 		ctx: unknown,
 	) => Promise<{ content: { text: string }[] }>;
@@ -203,8 +204,9 @@ function runtime() {
 		notices,
 		fire,
 		start: (reason: string) => fire("session_start", { reason }),
-		ask: (params: object) =>
-			tool?.execute("t1", params, undefined, undefined, { cwd: dir, ui }) ??
+		/** Call the reload tool with `params`, in a run `signal` stops. */
+		ask: (params: object, signal?: AbortSignal) =>
+			tool?.execute("t1", params, signal, undefined, { cwd: dir, ui }) ??
 			Promise.reject(new Error("no tool")),
 		/**
 		 * Run `/harness <args>`; `reload()` brings up `next`. `idThrows`
@@ -770,6 +772,25 @@ describe("the agent asking for a reload", LANDS, () => {
 		await expect(now.ask({ reason: "x", onto: tree })).rejects.toThrow(
 			/run in the fence sandbox, and a reload would run/,
 		);
+		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("checks no tree for a run already stopped, and queues nothing", async () => {
+		runningATree();
+		const now = runtime();
+		await now.start("startup");
+		const tree = join(dir, "tree");
+		mkdirSync(tree);
+		writeFileSync(
+			join(tree, "package.json"),
+			JSON.stringify({ name: "agentic-harness.pi" }),
+		);
+		const stop = new AbortController();
+		stop.abort();
+
+		await expect(
+			now.ask({ reason: "x", onto: tree }, stop.signal),
+		).rejects.toThrow(STOPPED_RELOAD);
 		expect(reloadSlot().request).toBeUndefined();
 	});
 

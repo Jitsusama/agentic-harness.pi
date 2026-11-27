@@ -26,6 +26,8 @@ import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	checkLoad,
 	describeLoad,
+	LOAD_TIMEOUT_MS,
+	type LoadReport,
 } from "../../lib/internal/reload/load-check.ts";
 import {
 	homely,
@@ -43,6 +45,12 @@ import {
 	type ReloadRequest,
 	reloadSlot,
 } from "../../lib/internal/reload/slot.ts";
+import {
+	checkTree,
+	describeTree,
+	type TreeCheckOptions,
+	type TreeStep,
+} from "../../lib/internal/reload/tree-check.ts";
 import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	RESTART_ASK,
@@ -201,19 +209,86 @@ export function fencedReloadRefusal(
 	return `This session's commands run in the ${sandbox} sandbox, and a reload would run ${homely(tree)}'s code outside it, where a fenced command may have written it. Reload onto "${INSTALLED}", or try the tree as a fenced command (pi -p -e <tree>).`;
 }
 
+/** What a reload's checks may be given in place of what they would use. */
+export interface ReloadChecks {
+	/** Stops the checks, and with them the reload, when the run is stopped. */
+	readonly signal?: AbortSignal;
+	/** Loads the tree in a pi of its own, ending once `signal` aborts. */
+	readonly load?: (tree: string, signal?: AbortSignal) => Promise<LoadReport>;
+	readonly tree?: TreeCheckOptions;
+}
+
+/** The refusal a stopped run's reload ends in. */
+export const STOPPED_RELOAD =
+	"The run was stopped while the tree was being checked, so nothing was reloaded.";
+
+/** The refusal a second request gets while one tree is still being checked. */
+export const ALREADY_CHECKING =
+	"A reload's tree is already being checked in this session. Wait for that call's answer, then ask again if you still need to.";
+
+/** How a step is said while it runs, with how long it may take. */
+function stepSaid(step: TreeStep, tree: string, budgetMs: number): string {
+	const upTo = `for up to ${Math.ceil(budgetMs / 60_000)} minutes`;
+	return step === "typecheck"
+		? `Typechecking ${homely(tree)}, ${upTo}`
+		: `Running the tests ${homely(tree)}'s changes reach, ${upTo}`;
+}
+
+/**
+ * Load `tree` in a pi of its own, then put it through its typecheck and
+ * the tests its changes reach, saying how it went, or refuse it.
+ */
+async function checkReloadTree(
+	tree: string,
+	onProgress: (text: string) => void,
+	checks: ReloadChecks,
+): Promise<string> {
+	const { signal } = checks;
+	const refused = (why: string): Error =>
+		new Error(
+			`${why}\nNothing was reloaded. Fix what failed and ask again, or reload onto "${INSTALLED}".`,
+		);
+	onProgress(`Checking that ${homely(tree)} loads`);
+	const load =
+		checks.load ??
+		((at, stop) => checkLoad(getParentPiInstall(), at, LOAD_TIMEOUT_MS, stop));
+	const report = await load(tree, signal);
+	if (signal?.aborted) throw new Error(STOPPED_RELOAD);
+	if (!report.ok) throw refused(describeLoad(report, homely(tree)));
+	// The run's own signal and progress are laid last, so options given
+	// in place of the runner or budgets can't drop either.
+	const checked = await checkTree(tree, {
+		...checks.tree,
+		onStep: (step, budgetMs) => {
+			checks.tree?.onStep?.(step, budgetMs);
+			onProgress(stepSaid(step, tree, budgetMs));
+		},
+		...(signal ? { signal } : {}),
+	});
+	if (signal?.aborted) throw new Error(STOPPED_RELOAD);
+	if (!checked.ok) throw refused(describeTree(checked, homely(tree)));
+	return ` As it stood when checked, it loads in a pi of its own: ${report.commands} commands, no extension failed. ${describeTree(checked, "It")}`;
+}
+
 /**
  * Ask for a reload onto `tree` (or the install), once the run ends.
- * A tree is loaded in a pi of its own first, and a tree that does not
- * load is refused here, before anything touches the settings.
+ * A tree is loaded in a pi of its own first, then put through its
+ * typecheck and the tests its changes reach, and a tree that fails
+ * either, or whose run is stopped while it is checked, is refused
+ * here, before anything touches the settings.
  */
 export async function requestReload(
 	reason: string,
 	tree: string | undefined,
 	settings: PackageSettings,
 	onProgress: (text: string) => void,
+	checks: ReloadChecks = {},
 ): Promise<string> {
 	if (hosted()) throw new Error(HOSTED_RELOAD);
 	const slot = reloadSlot();
+	// A request queued now would be replaced by the checked one's when it
+	// ends, so even a reload onto the install waits for that answer.
+	if (slot.checking) throw new Error(ALREADY_CHECKING);
 	let checked = "";
 	if (tree !== undefined) {
 		if (entryFor(settings, settings.read(), PACKAGE_NAME) < 0) {
@@ -221,14 +296,12 @@ export async function requestReload(
 				`pi's settings name no package entry for ${PACKAGE_NAME}, so a reload cannot swap a tree in. Start pi with \`-e ${tree}\` instead.`,
 			);
 		}
-		onProgress(`Checking that ${homely(tree)} loads`);
-		const report = await checkLoad(getParentPiInstall(), tree);
-		if (!report.ok) {
-			throw new Error(
-				`${describeLoad(report, homely(tree))}\nNothing was reloaded. Fix what failed and ask again, or reload onto "${INSTALLED}".`,
-			);
+		slot.checking = true;
+		try {
+			checked = await checkReloadTree(tree, onProgress, checks);
+		} finally {
+			slot.checking = false;
 		}
-		checked = ` It loads in a pi of its own: ${report.commands} commands, no extension failed.`;
 	}
 	slot.request = { reason, by: "agent", ...(tree ? { tree } : {}) };
 	slot.dispatched = false;

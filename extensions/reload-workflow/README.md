@@ -19,8 +19,10 @@ loads the install and the install is `main`.
   `installed`. Left out, the session reloads whatever it runs now, so
   a tree being edited stays a tree.
   - A tree is loaded first in a pi of its own (see
-    [Load Check](#load-check)), and a tree that does not load is
-    refused with what failed, before anything is touched.
+    [Load Check](#load-check)), then put through its typecheck and
+    the tests its changes reach (see [Tree Check](#tree-check)). A
+    tree that fails either is refused with what failed, before
+    anything is touched.
   - In a session whose commands run in the fence, the tool reloads
     only onto `installed`: a reload runs the code it loads outside
     the fence, and a tree is a folder the fenced commands may have
@@ -250,6 +252,52 @@ nothing but the package (`--no-extensions`, then `-e <root>`), asks
 for its commands, which needs no model, and closes stdin. pi exits 1
 naming every extension that failed to load. The whole package takes
 about 13 seconds.
+
+pi runs in a process group of its own. A timeout or a stop kills
+the group, so a process an extension started at load goes with it,
+and when pi exits, what it left in its group goes too. One an
+extension started in a session of its own is out of reach; the check
+stops reading pi's output 5 seconds after pi exits, so it can't hold
+the reload tool open.
+
+## Tree Check
+
+Code that loads can still be wrong, and a session reloaded onto it
+runs it outside any test. So once a tree loads,
+`lib/internal/reload/tree-check.ts` runs the typecheck and tests of
+`pnpm check` (not its lint, knip or browser lane), from the tree's
+own node_modules: `tsc --noEmit`, then
+`vitest run --changed origin/main --passWithNoTests` with vitest's
+JSON report. The first that fails refuses the reload, naming its
+first ten type errors or failing tests, each with its cause.
+
+- **What it measures against:** the tree's own `origin/main`, as
+  fresh as its last fetch. A tree with no `origin/main` is refused,
+  saying to fetch origin in it, and one with no node_modules, saying
+  to install or link them. When git can't say either way (it hung,
+  wouldn't start or failed), the refusal says why instead.
+- **How long each may take:** the typecheck 5 minutes and the tests
+  15, so a hung typecheck shows sooner. Past its budget a check's
+  process group is asked to end, so vitest's teardown removes what it
+  made, and killed 5 seconds later; the refusal says it was still
+  running. A typecheck cut off says so even when it named errors
+  first, since those may be only some of them.
+- **What a check leaves behind:** when a check exits, whatever it
+  left in its group goes with it. A process a test started in a
+  session of its own is out of the group's reach and keeps running;
+  the check stops reading its output 5 seconds after its own exit, so
+  it can't hold the reload, and pi ending kills the groups of any
+  check still running. Each stream is held to 32 MiB, past which the
+  check is stopped and says so, and each line the refusal names to
+  400 characters.
+- **A stop ends it:** stopping the run ends whichever check runs,
+  the load check included, starts no other, and queues no reload.
+- **One at a time:** any request while a tree is being checked is
+  refused, a reload onto the install too, since the checked tree's
+  request would replace it when its checks end.
+- **What passing means:** the tree as it stood when checked. Both
+  run with folders of their own for state, data, cache and runtime,
+  as the load check's pi does.
 
 `pnpm load-check` runs the same check the way a person who installs
 the package would: it copies the files git would hand pi, installs

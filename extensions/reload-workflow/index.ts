@@ -6,8 +6,9 @@
  * The `reload` tool asks; when the run ends, `/harness reload` does it:
  * it points pi's entry for this package at the tree for as long as the
  * reload reads the settings, then puts the entry back. A tree is loaded
- * in a pi of its own first, and one that does not load is refused
- * before anything is touched. Every reload ends with the model told
+ * in a pi of its own first, then typechecked and the tests its changes
+ * reach are run, and one that fails any of these is refused before
+ * anything is touched. Every reload ends with the model told
  * which code now runs; a reload the agent asked for comes back as a
  * turn through the job host, so the work goes on, away mode included.
  *
@@ -238,7 +239,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 		exposure: "deferred",
 		label: "Reload",
 		description:
-			"Reload this session's extensions, onto a worktree of this harness or back onto its install, once the current run ends. A tree is loaded in a pi of its own first and refused if it does not load. When the reload lands, a message says which code runs, and the run carries on.",
+			"Reload this session's extensions, onto a worktree of this harness or back onto its install, once the current run ends. A tree is loaded in a pi of its own first, then typechecked and put through the tests its changes reach, and refused, naming what failed, if any of these fails. When the reload lands, a message says which code runs, and the run carries on.",
 		promptSnippet:
 			"Reload the session onto a harness worktree, or its install, and carry on.",
 		promptGuidelines: [
@@ -257,7 +258,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			// A host refuses every tree itself, so the fence's refusal is for a
 			// session of its own.
 			if (hosted()) {
@@ -281,6 +282,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 						content: [{ type: "text", text: progress }],
 						details: {},
 					}),
+				signal ? { signal } : {},
 			);
 			return {
 				content: [{ type: "text", text }],

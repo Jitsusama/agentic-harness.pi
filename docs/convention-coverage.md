@@ -459,7 +459,8 @@ is followed by judgment, not by a regex.
   the change yourself rather than asking the person to reload)
   are ⚪, since when to try a change is the agent's call. Their
   mechanical halves are in `extensions/reload-workflow/`: a
-  tree that does not load is refused before the settings are
+  tree that does not load, or fails its typecheck or the tests
+  its changes reach, is refused before the settings are
   touched, the reload waits for the run to end, its answer says
   to end the turn, and the landing names the code that runs.
 - **Style standards**: `code-style-standard`,
