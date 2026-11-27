@@ -74,7 +74,26 @@ async function councilRead(witness: string, over: Partial<AskRun> = {}) {
 		id: "origin/main..topic",
 		label: "origin/main..topic",
 	};
-	await createRunStore(runDir()).record(range, {
+	await councilOn(range, witness, over);
+}
+
+/** A pull request of the repo, numbered `id`. */
+function pullRequest(id: string): ChangeRef {
+	return {
+		provider: "github",
+		repo: { key: REPO },
+		id,
+		label: `Shopify/world#${id}`,
+	};
+}
+
+/** A finished council whose reviewers read `witness`, held against `change`. */
+async function councilOn(
+	change: ChangeRef,
+	witness: string,
+	over: Partial<AskRun> = {},
+) {
+	await createRunStore(runDir()).record(change, {
 		id: `council-${witness}`,
 		round: "council",
 		startedAt: new Date().toISOString(),
@@ -610,6 +629,95 @@ describe("holding a change until our own council has read it", () => {
 		expect(
 			await councilFirst(exec, { ...topic(), head: "renamed" }, "proposed"),
 		).toBeUndefined();
+	});
+
+	/** The pull request the topic went up as, and one beside it. */
+	const wentUpAs = pullRequest("7017");
+	const beside = pullRequest("7016");
+
+	/**
+	 * The topic, pushed at `made`, is checked out afresh from its remote
+	 * there, as another session's tree takes it, and brought to `fix`,
+	 * the head pushed since, when `made` is below it. Then main moves on,
+	 * and the topic is rebased onto it and pushed again.
+	 */
+	async function checkedOutAfresh(made: string) {
+		await git(repo, "update-ref", "refs/remotes/origin/topic", made);
+		await git(repo, "switch", "-q", "main");
+		await git(repo, "branch", "-D", "topic");
+		await git(repo, "branch", "topic", "origin/topic");
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await git(repo, "switch", "-q", "topic");
+		if (made !== fix)
+			await git(repo, "merge", "-q", "--ff-only", "origin/topic");
+		await rebasedOntoNewMain();
+		await git(
+			repo,
+			"update-ref",
+			"refs/remotes/origin/topic",
+			await git(repo, "rev-parse", "HEAD"),
+		);
+	}
+
+	/** The topic, judged as the pull request it went up as. */
+	const asWentUp = () => ({ ...topic(), change: wentUpAs });
+
+	it("keeps the change's council when its branch is made afresh at the head it read, then rebased", async () => {
+		await councilOn(wentUpAs, fix);
+		await checkedOutAfresh(fix);
+
+		expect(
+			await councilFirst(exec, asWentUp(), "marked ready"),
+		).toBeUndefined();
+	});
+
+	it("lends another change's council nothing at the head a branch was made at afresh", async () => {
+		await councilOn(beside, fix);
+		await checkedOutAfresh(fix);
+
+		expect(await councilFirst(exec, asWentUp(), "marked ready")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("lends nothing at the head a branch was made at afresh when no change is named", async () => {
+		// Proposing names no hosted change, so no council is this change's.
+		await councilOn(wentUpAs, fix);
+		await checkedOutAfresh(fix);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("keeps the change's council at the head a fresh branch was fast-forwarded to", async () => {
+		await councilOn(wentUpAs, fix);
+		await checkedOutAfresh(first);
+
+		expect(
+			await councilFirst(exec, asWentUp(), "marked ready"),
+		).toBeUndefined();
+	});
+
+	it("lends another change's council nothing at the head a fresh branch was fast-forwarded to", async () => {
+		await councilOn(beside, fix);
+		await checkedOutAfresh(first);
+
+		expect(await councilFirst(exec, asWentUp(), "marked ready")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("lends the change's council nothing below the head a fresh branch was fast-forwarded to", async () => {
+		// `first` is where the branch was made, and its replay gives the tree
+		// of the rebased commit below the head, but it sits under `fix`,
+		// which the branch was brought to.
+		await councilOn(wentUpAs, first);
+		await checkedOutAfresh(first);
+
+		expect(await councilFirst(exec, asWentUp(), "marked ready")).toContain(
+			"No council of ours",
+		);
 	});
 
 	it("holds a rebase whose conflict the person's global merge driver settled", async () => {

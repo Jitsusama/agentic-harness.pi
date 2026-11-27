@@ -81,11 +81,13 @@ export interface RunStore {
 	 * the change proposed from it is another key. A round that fell back
 	 * to the caller's checkout never read the commit it names, so it
 	 * doesn't count; nor does one still open or given up on. A ledger
-	 * that won't read is passed over, which can only find less.
+	 * that won't read is passed over, which can only find less. Named,
+	 * `change` narrows it to the rounds held under that change alone.
 	 */
 	witnessed(
 		repo: string,
 		commits: ReadonlySet<string>,
+		change?: ChangeRef,
 	): Promise<AskRun | undefined>;
 }
 
@@ -337,7 +339,7 @@ export function createRunStore(root: string): RunStore {
 			return { open, rounds, unreadable };
 		},
 
-		async witnessed(repo, commits) {
+		async witnessed(repo, commits, change) {
 			let files: string[];
 			try {
 				files = await readdir(root);
@@ -347,8 +349,13 @@ export function createRunStore(root: string): RunStore {
 			}
 			// Asked at every proposal, over every change ever reviewed here,
 			// so each file is parsed again only once it has changed. What is
-			// kept of one is its repo and the rounds that read something.
-			const kept = fileReads<Witnessing | undefined>("review-witnesses", root);
+			// kept of one is its repo, its change and the rounds that read
+			// something.
+			const kept = fileReads<Witnessing | undefined>(
+				"review-witnesses-by-change",
+				root,
+			);
+			const under = change === undefined ? undefined : changeKey(change);
 			const listed = new Set<string>();
 			let newest: AskRun | undefined;
 			for (const file of files) {
@@ -362,6 +369,7 @@ export function createRunStore(root: string): RunStore {
 					kept.keep(path, seen, held);
 				}
 				if (held === undefined || held.repo !== repo) continue;
+				if (under !== undefined && held.change !== under) continue;
 				for (const run of held.rounds) {
 					if (!readOneOf(run, commits)) continue;
 					if (newest === undefined || run.startedAt > newest.startedAt) {
@@ -441,9 +449,13 @@ function isMissing(error: unknown): boolean {
 	);
 }
 
-/** A ledger's repo, and its finished rounds whose reviewers read a commit. */
+/**
+ * A ledger's repo, the key of the change it is held under, and its
+ * finished rounds whose reviewers read a commit.
+ */
 interface Witnessing {
 	repo: string;
+	change: string;
 	rounds: AskRun[];
 }
 
@@ -467,7 +479,11 @@ async function witnessingIn(path: string): Promise<Witnessing | undefined> {
 		return undefined;
 	}
 	const rounds: AskRun[] = parsed.runs.filter(readSomething);
-	return { repo: parsed.change.repo.key, rounds };
+	return {
+		repo: parsed.change.repo.key,
+		change: changeKey(parsed.change),
+		rounds,
+	};
 }
 
 /**

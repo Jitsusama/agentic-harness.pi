@@ -45,7 +45,13 @@
  * the branch to lend, or anything under one: where it was made or
  * copied, and every reset, fast-forward, `branch -f` or `checkout -B`
  * since. That is work it was cut from or took in, which after a restack
- * or a rebase no pushed branch may hold any more. Only a commit, a
+ * or a rebase no pushed branch may hold any more, unless it is the very
+ * head a council of this same change read and nothing it was brought
+ * to since sits above it: a branch checked out from its own pushed copy
+ * at that head, and rebased, is the change it was. A council of another
+ * change at that head lends nothing there, since the ledger is asked by
+ * repo and a lower branch's council at a commit would otherwise lend
+ * itself to every branch cut there. Only a commit, a
  * cherry-pick, a revert, a merge that made a commit and a rebase that
  * replayed something are the branch's own; a subject git may write one
  * day counts as brought. So the branch's reflog in this checkout must
@@ -69,7 +75,7 @@ import { access, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Exec } from "../../lib/core/exec/index.ts";
-import { createRunStore } from "../../lib/core/review/index.ts";
+import { type ChangeRef, createRunStore } from "../../lib/core/review/index.ts";
 import { removeTree } from "../../lib/internal/files/remove-tree.ts";
 import { mirroredRunsDir, runDir } from "./engine.ts";
 
@@ -122,10 +128,14 @@ const HOLDERS_NAMED = 3;
 /** A full commit id, as git prints one a line. */
 const COMMIT_ID = /^[0-9a-f]{40}$/;
 
-/** Whether a finished council in `repo` read one of `commits`. */
+/**
+ * Whether a finished council in `repo` read one of `commits`; with
+ * `change`, only a council held under that change counts.
+ */
 export type Witnesses = (
 	repo: string,
 	commits: ReadonlySet<string>,
+	change?: ChangeRef,
 ) => Promise<boolean>;
 
 /** The ledgers one judgement asks, and what to say of them on a refusal. */
@@ -166,11 +176,13 @@ function realmLedgers(): Ledgers {
 		return listing;
 	};
 	return {
-		witnessed: async (repo, commits) => {
-			const here = await createRunStore(runDir()).witnessed(repo, commits);
+		witnessed: async (repo, commits, change) => {
+			const store = createRunStore(runDir());
+			const here = await store.witnessed(repo, commits, change);
 			if (here !== undefined) return true;
 			for (const ledger of (await mirrors()).ledgers) {
-				const read = await createRunStore(ledger).witnessed(repo, commits);
+				const mirrored = createRunStore(ledger);
+				const read = await mirrored.witnessed(repo, commits, change);
 				if (read !== undefined) return true;
 			}
 			return false;
@@ -322,6 +334,8 @@ export interface ChangeCommits {
 	readonly head: string;
 	/** A commit known to be its head, when the backend says. */
 	readonly headCommit?: string;
+	/** The hosted change, when there is one, as its rounds are held under it. */
+	readonly change?: ChangeRef;
 }
 
 /**
@@ -367,7 +381,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.${await said()}`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, or is just where it was, read by a council of this same change, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
 }
 
 /** The change's commits, newest first. */
@@ -486,7 +500,11 @@ async function rebasedReviewed(
 	try {
 		for (const head of earlier) {
 			if (!(await witnesses(change.repo, new Set([head])))) continue;
-			if (await atOrBelowAny(git, head, history.arrivals)) continue;
+			if (
+				(await atOrBelowAny(git, head, history.arrivals)) &&
+				!(await ownArrival(git, head, history.arrivals, change, witnesses))
+			)
+				continue;
 			const tree = await replayed(git, scratch, read.base, head, onto);
 			if (tree === undefined || !trees.has(tree)) continue;
 			if (await ownWherever(git, read.base, head, earlier, change.head))
@@ -568,6 +586,26 @@ async function atOrBelowAny(
 		if (under.code !== 1) return true;
 	}
 	return false;
+}
+
+/**
+ * Whether `head` is one of `arrivals` and under none of the others, and
+ * a council held under the change itself read it: the change's own
+ * reviewed head, its branch made or brought there afresh, as a branch
+ * checked out from its pushed copy is. A council of any other change
+ * there read work this branch was cut from.
+ */
+async function ownArrival(
+	git: (...args: string[]) => ReturnType<Exec>,
+	head: string,
+	arrivals: readonly string[],
+	change: ChangeCommits,
+	witnesses: Witnesses,
+): Promise<boolean> {
+	if (change.change === undefined || !arrivals.includes(head)) return false;
+	const others = arrivals.filter((arrival) => arrival !== head);
+	if (await atOrBelowAny(git, head, others)) return false;
+	return witnesses(change.repo, new Set([head]), change.change);
 }
 
 /**
