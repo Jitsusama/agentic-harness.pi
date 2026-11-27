@@ -11,6 +11,10 @@ import {
 	TYPED_ENTRY,
 	timeCalls,
 } from "../../../extensions/observability-workflow/timing.ts";
+import {
+	type Entry,
+	keptView,
+} from "../../../lib/internal/session/rollover.ts";
 
 type Handler = (event: unknown) => Promise<unknown>;
 
@@ -175,6 +179,55 @@ describe("a typed message in the log", () => {
 			{ action: "continue" },
 			{ action: "continue" },
 			{ action: "continue" },
+		]);
+	});
+});
+
+// Nothing in the process reads either entry back; the latency pass reads
+// the log on disk. Held from before the last compaction they cost a long
+// conversation 2.1 MB of its kept view (a 68 MB log, 7,068 call entries).
+describe("timing entries in a kept view", () => {
+	it("stay behind with the turns they time, while other state is kept", () => {
+		stub();
+		const at = "2026-11-12T07:00:00.000Z";
+		const custom = (id: string, parentId: string, customType: string) => ({
+			type: "custom",
+			id,
+			parentId,
+			timestamp: at,
+			customType,
+			data: {},
+		});
+		const message = (id: string, parentId: string | null) => ({
+			type: "message",
+			id,
+			parentId,
+			timestamp: at,
+			message: { role: "user", content: "hi", timestamp: 0 },
+		});
+		const branch = [
+			message("a0000001", null),
+			custom("a0000002", "a0000001", TYPED_ENTRY),
+			custom("a0000003", "a0000002", CALL_ENTRY),
+			custom("a0000004", "a0000003", "some-state"),
+			message("a0000005", "a0000004"),
+			{
+				type: "compaction",
+				id: "a0000006",
+				parentId: "a0000005",
+				timestamp: at,
+				summary: "so far",
+				firstKeptEntryId: "a0000005",
+				tokensBefore: 10,
+			},
+		] as unknown as Entry[];
+
+		const kept = keptView(branch)?.entries.map((entry) => entry.id);
+
+		expect(kept, "the state, then the turn kept and its compaction").toEqual([
+			"a0000004",
+			"a0000005",
+			"a0000006",
 		]);
 	});
 });
