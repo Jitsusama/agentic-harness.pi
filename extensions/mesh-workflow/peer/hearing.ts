@@ -465,7 +465,10 @@ export function createHearing(m: MeshState, f: Handing) {
 		return original && mayReplace(message, original) ? original : undefined;
 	};
 
-	const take = (id: string): Message | undefined => {
+	const take = (
+		id: string,
+		{ catchingUp = false }: { readonly catchingUp?: boolean } = {},
+	): Message | undefined => {
 		if (m.seen.has(id) || !m.peer) return undefined;
 		m.seen.add(id);
 		// From a day before the catch-up's, so only an old copy written back
@@ -475,6 +478,12 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom)) {
 			return undefined;
 		}
+		// Settled once and written back the same day: taken when it sat at
+		// the top before, since a message settles only hours after it lands
+		// and the minute's look lists the top, then let go of from seen once
+		// it left. Only the start's catch-up takes one, as it would the day's
+		// copy alone, for what reached this peer while it was gone.
+		if (!catchingUp && m.transport.writtenBack(id)) return undefined;
 		// As it lies, since route asks the node to vouch for one under a
 		// receptor's name; until then it ends no hold and answers nothing.
 		const written = m.asWritten(id);
@@ -689,9 +698,13 @@ export function createHearing(m: MeshState, f: Handing) {
 	const lookForMissed = async () => {
 		// Listed off the thread: the folder holds a week of messages, and
 		// listing it at once held the thread a key waits on.
-		const missed = (await m.transport.listIds())
+		const listed = await m.transport.listIds();
+		// What has settled out of the top is never listed again, so holding
+		// it would only grow the peer, by every id the machine sends.
+		m.seen.keepListed(listed);
+		const missed = listed
 			.filter((id) => !m.seen.has(id))
-			.map(take)
+			.map((id) => take(id))
 			.filter((one): one is Message => one !== undefined);
 		if (missed.length > 0) void route(missed);
 	};

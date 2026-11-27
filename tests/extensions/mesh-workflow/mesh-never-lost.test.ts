@@ -5,7 +5,7 @@
  * lets go of.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { Delivered } from "../../../extensions/mesh-workflow/delivery.ts";
@@ -35,6 +35,10 @@ const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
 const reading = vi.hoisted(() => ({
 	files: undefined as string[] | undefined,
 }));
+// The paths asked whether they exist, while a test keeps a list of them.
+const asking = vi.hoisted(() => ({
+	paths: undefined as string[] | undefined,
+}));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
 	return {
@@ -43,6 +47,10 @@ vi.mock("node:fs", async (importOriginal) => {
 			listing.dirs?.push(String(args[0]));
 			return fs.readdirSync(...args);
 		}) as typeof fs.readdirSync,
+		existsSync: ((...args: Parameters<typeof fs.existsSync>) => {
+			asking.paths?.push(String(args[0]));
+			return fs.existsSync(...args);
+		}) as typeof fs.existsSync,
 		readFileSync: ((...args: Parameters<typeof fs.readFileSync>) => {
 			reading.files?.push(String(args[0]));
 			return fs.readFileSync(...args);
@@ -61,6 +69,7 @@ beforeEach(() => {
 	watching.messages = 0;
 	listing.dirs = undefined;
 	reading.files = undefined;
+	asking.paths = undefined;
 });
 
 // A deaf watcher the mesh never armed through this fake proves nothing:
@@ -245,6 +254,80 @@ describe("a message never lost", () => {
 			"7M6JKG: at the top?",
 			"7M6JKG: settled?",
 		]);
+	});
+
+	it("is handed over once when it settles and is written back the same day", async () => {
+		// Each peer held every id that ever passed through the top, about
+		// 1 MiB more a day; let go of once settled, the id is known again by
+		// the copy its day's folder holds, as a link writes it back.
+		const dir = join(fixture.paths.mesh, "messages");
+		const { sent, fire } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		const asked = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: settled today?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		folderTransport(dir).settle(Date.now() + 1000);
+		const atTop = join(dir, `${asked.id}.json`);
+		const inDay = join(
+			dayFolder(Number(asked.id.split("-")[0])),
+			`${asked.id}.json`,
+		);
+		expect(existsSync(inDay), "settled into its day's folder").toBe(true);
+		// The top is never empty on a live machine, and an empty listing is
+		// taken for a folder that won't list.
+		fromElsewhere({ to: ["@5GV2AH"], text: "for another peer" });
+		// A real pause of several looks again, so the peer lets go of the id.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		asking.paths = [];
+
+		copyFileSync(inDay, atTop);
+		// A real pause of several looks again, any of which could take the copy.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		await fire("agent_end");
+		fromElsewhere({ to: ["@7M6JKG"], text: "news from now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		const askedAbout = asking.paths;
+		asking.paths = undefined;
+		// A real pause: the test is that nothing is handed over twice in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toHaveLength(2);
+		expect(sent[1]?.message.content).toContain("news from now");
+		expect(sent[1]?.message.content).not.toContain("settled today");
+		expect(
+			askedAbout,
+			"the peer let go of the settled id, and asked its day's folder of the copy",
+		).toContain(inDay);
+	});
+
+	it("is caught up on at a start when it settled while the peer was gone and was written back", async () => {
+		// Only a peer that was running when it sat at the top took it then.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const id = settled(now - day, "7M6JKG: settled while you were gone?");
+		copyFileSync(
+			join(dayFolder(now - day), `${id}.json`),
+			join(dir, `${id}.json`),
+		);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(1));
+		// A real pause: the test is that nothing is handed over twice in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(handed(sent)).toEqual(["7M6JKG: settled while you were gone?"]);
 	});
 
 	it("is handed over at the next start when it was waiting to act as the session went", async () => {

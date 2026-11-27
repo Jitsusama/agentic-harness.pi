@@ -68,6 +68,12 @@ export interface Transport {
 	 * reader on a host's thread, which every conversation it holds waits on.
 	 */
 	listAllIds(): Promise<string[]>;
+	/**
+	 * Whether this id rests at the top and in its day's folder at once: a
+	 * settled message a link to another machine wrote back, which stays
+	 * beside its day's copy until the next settle.
+	 */
+	writtenBack(id: string): boolean;
 	/** One message, or nothing when it will not read. */
 	read(id: string): Message | undefined;
 	/** One message, as {@link read} answers, read off the thread. */
@@ -335,6 +341,16 @@ export function folderTransport(dir: string): Transport {
 		recentIds: () => idsIn(dir).sort(),
 		listIds: async () => (await listedIn(dir)).ids.sort(),
 		listAllIds: () => allListedIn(dir),
+		writtenBack(id) {
+			const day = dayOf(id);
+			// The day's copy first: a message that never settled has none, and
+			// that is nearly every one asked about.
+			return (
+				day !== undefined &&
+				existsSync(join(dir, day, `${id}.json`)) &&
+				existsSync(join(dir, `${id}.json`))
+			);
+		},
 		read(id) {
 			const day = dayOf(id);
 			return (

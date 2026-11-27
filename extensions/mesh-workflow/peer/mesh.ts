@@ -30,7 +30,7 @@ import type { Message } from "../../../lib/mesh/message.ts";
 import type { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { createPresences, Presence } from "../../../lib/mesh/presence.ts";
-import type { createReadFront } from "../../../lib/mesh/reading.ts";
+import type { createReadFront, SeenIds } from "../../../lib/mesh/reading.ts";
 import type { sweeper } from "../../../lib/mesh/retention.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
@@ -292,7 +292,7 @@ export interface MeshState {
 	readonly undone: SessionEvent[];
 	/** What this session proposed before its peer was made, kept once it is. */
 	readonly unproposed: string[];
-	readonly seen: Set<string>;
+	readonly seen: SeenIds;
 	// Why the claim check judged nothing, each said once a session.
 	readonly unjudgedSaid: Set<string>;
 	readonly holdTurn: ReturnType<typeof createReloadHold>;

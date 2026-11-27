@@ -35,6 +35,63 @@ export function seenAtStart(
 	return transport.recentIds().filter((id) => id <= floor);
 }
 
+/**
+ * The ids a peer has looked at, so a watcher that reports one twice, as
+ * inotify does for a rename, and the minute's look that lists it again
+ * hand it over once.
+ *
+ * Kept only while the top folder lists them. Every peer takes every id
+ * that passes through the top, 19,000 to 24,000 a day on 24 to 26
+ * November, and keeping each for the peer's life grew its heap by about
+ * 1 MiB a day, though a settled id is never listed again. One written
+ * back at the top is known by the copy its day's folder still holds
+ * ({@link Transport.writtenBack}), not by being held here.
+ */
+export interface SeenIds {
+	has(id: string): boolean;
+	add(id: string): void;
+	delete(id: string): void;
+	clear(): void;
+	/**
+	 * Let go of each id missing from this listing of the top folder and
+	 * the one before it. Missing from one alone, it may have landed after
+	 * the listing passed its place, and is listed next time. An empty
+	 * listing lets go of nothing, since it is a folder that won't list.
+	 */
+	keepListed(listed: readonly string[]): void;
+}
+
+export function createSeenIds(): SeenIds {
+	const ids = new Set<string>();
+	// Missing from the last listing, and let go of if missing from the next.
+	let missing = new Set<string>();
+	return {
+		has: (id) => ids.has(id),
+		add(id) {
+			ids.add(id);
+		},
+		delete(id) {
+			ids.delete(id);
+			missing.delete(id);
+		},
+		clear() {
+			ids.clear();
+			missing = new Set();
+		},
+		keepListed(listed) {
+			if (listed.length === 0) return;
+			const atTop = new Set(listed);
+			const missingNow = new Set<string>();
+			for (const id of ids) {
+				if (atTop.has(id)) continue;
+				if (missing.has(id)) ids.delete(id);
+				else missingNow.add(id);
+			}
+			missing = missingNow;
+		},
+	};
+}
+
 /** Where the marker may move as messages are taken and handed over. */
 export interface ReadFront {
 	/** A message reaching this peer was taken and is not yet handed over. */

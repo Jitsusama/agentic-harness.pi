@@ -403,7 +403,7 @@ export function onSessionStart(
 		// since a watcher and the minute's look list only the top.
 		for (const id of m.transport.idsFromDayOf(since)) {
 			if (id <= since) continue;
-			const message = f.take(id);
+			const message = f.take(id, { catchingUp: true });
 			if (message) missed.push(message);
 		}
 		void f.route(missed, true).finally(() => {
