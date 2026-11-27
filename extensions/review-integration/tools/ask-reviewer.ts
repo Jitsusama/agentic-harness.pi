@@ -33,6 +33,8 @@ import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { askedSandbox } from "../../../lib/internal/fence/fence-stage.ts";
 import {
 	fencedChildrenRefusal,
+	heldPackRefusal,
+	heldStoreCopy,
 	inside,
 	packageRoot,
 } from "../../../lib/internal/fence/installed-only.ts";
@@ -331,7 +333,21 @@ export function fencePacks(folder?: string): string[] {
 		(folder === undefined ? undefined : reviewerFolderRefusal(folder));
 	if (refused !== undefined) throw new Error(refused);
 	const root = packageRoot();
-	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
+	const packs = FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
+	// From a store copy, each pack is held to the same rule as the copy.
+	const copy = heldStoreCopy(root);
+	const why =
+		copy === undefined
+			? undefined
+			: packs
+					.map((pack) => heldPackRefusal(pack, copy))
+					.find((one) => one !== undefined);
+	if (why !== undefined) {
+		throw new Error(
+			`No reviewer started: a fenced reviewer needs the fence's own extensions, and ${why}.`,
+		);
+	}
+	return packs;
 }
 
 /**

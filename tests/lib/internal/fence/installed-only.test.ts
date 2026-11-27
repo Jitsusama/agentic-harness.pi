@@ -6,11 +6,14 @@
  */
 
 import {
+	accessSync,
+	constants,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -21,6 +24,7 @@ import {
 	canChange,
 	fencedChildrenRefusal,
 	heldElsewhere,
+	heldPackRefusal,
 	heldStoreCopy,
 	inside,
 	installedPackages,
@@ -66,6 +70,23 @@ function places(
 	return { root, own, harness: () => harness, held, store, changeable };
 }
 
+/**
+ * Whether this machine's Nix store is laid out by a daemon: owned by
+ * another account and not writable by this one. A single-user Nix
+ * gives the person the store, where every store path is changeable.
+ */
+function othersStore(): boolean {
+	if (!existsSync("/nix/store")) return false;
+	if (statSync("/nix/store").uid === process.getuid?.()) return false;
+	try {
+		accessSync("/nix/store", constants.W_OK);
+		return false;
+	} catch {
+		// Not writable by this account, which is the layout asked about.
+		return true;
+	}
+}
+
 /** The fence's bash, as the installed harness holds it. */
 function fencedBash(): string {
 	return planted(join(installed, "extensions", "shell-workflow", "index.ts"));
@@ -89,12 +110,60 @@ describe("whether this account could change a path", () => {
 		},
 	);
 
-	it.skipIf(!existsSync("/nix/store") || process.getuid?.() === 0)(
-		"is no for the Nix store but on a Mac, whose fence hands its commands the daemon as a trusted client",
+	it.skipIf(!othersStore())(
+		"is no for a daemon's Nix store but on a Mac, whose fence hands its commands the daemon as a trusted client",
 		() => {
 			expect(canChange("/nix/store")).toBe(process.platform === "darwin");
 		},
 	);
+
+	it.skipIf(
+		!(othersStore() && process.platform !== "darwin") ||
+			!realpathSync(process.execPath).startsWith("/nix/store/"),
+	)("holds the store copy node runs from, walking a real store up to /", () => {
+		const node = realpathSync(process.execPath);
+		const [, , , entry] = node.split("/");
+		expect(heldStoreCopy(dirname(node))).toBe(`/nix/store/${entry}`);
+	});
+});
+
+describe("a pack a child would load from a held store copy", () => {
+	let copy: string;
+	let pack: string;
+
+	beforeEach(() => {
+		copy = join(home, "store", "abc-harness");
+		pack = planted(join(copy, "extensions", "fence.ts"));
+	});
+
+	it("may load while it lies in the copy and nothing on its way up can be changed", () => {
+		expect(heldPackRefusal(pack, copy, () => false)).toBeUndefined();
+	});
+
+	it("is refused when it isn't there", () => {
+		const gone = join(copy, "extensions", "gone.ts");
+		expect(heldPackRefusal(gone, copy, () => false)).toMatch(
+			/gone\.ts can't be found/,
+		);
+	});
+
+	it("is refused when it links out of the copy, even into another store path", () => {
+		const other = planted(join(home, "store", "def-other", "fence.ts"));
+		const linked = join(copy, "extensions", "linked.ts");
+		symlinkSync(other, linked);
+		expect(heldPackRefusal(linked, copy, () => false)).toMatch(
+			/lies outside this harness's copy in the Nix store/,
+		);
+	});
+
+	it("is refused when this account could change it or a folder between it and the copy", () => {
+		for (const path of [pack, dirname(pack)]) {
+			expect(
+				heldPackRefusal(pack, copy, (at) => at === path),
+				path,
+			).toMatch(/is one this account could change/);
+		}
+	});
 });
 
 describe("the store copy a session's own harness lies in", () => {

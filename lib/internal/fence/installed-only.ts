@@ -149,6 +149,30 @@ export function heldStoreCopy(
 	return unchangeable(own, changeable) ? copy : undefined;
 }
 
+/**
+ * Why a child may not load `pack` from the held store copy `copy`, or
+ * nothing: it must be there, lie in that copy once followed, and be
+ * one this account can't change, nor any folder on the way to it.
+ */
+export function heldPackRefusal(
+	pack: string,
+	copy: string,
+	changeable: (path: string) => boolean = canChange,
+): string | undefined {
+	let real: string;
+	try {
+		real = realpathSync(pack);
+	} catch {
+		return `${pack} can't be found`;
+	}
+	if (!inside(real, copy)) {
+		return `${pack} lies outside this harness's copy in the Nix store, ${copy}`;
+	}
+	return unchangeable(real, changeable)
+		? undefined
+		: `${real} is one this account could change`;
+}
+
 /** This package's own folder, followed, as this process loaded it. */
 export function packageRoot(): string {
 	const own = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
