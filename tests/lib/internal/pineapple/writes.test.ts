@@ -356,6 +356,46 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads a push after a sourced stdin that moved git's environment as naming nothing", () => {
+		// Sourcing runs the lines in this shell, so what they set stays.
+		for (const command of [
+			"source /dev/stdin <<< 'export GIT_DIR=x'; git push origin x",
+			"echo 'export HOME=/elsewhere' | . /dev/stdin; git push origin x",
+			"source /dev/stdin <<< 'eval \"$SETUP\"' && git push origin x",
+			"source /dev/stdin <<< 'true; unset PATH'; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// A child shell's environment dies with it, as one sourcing does.
+		for (const command of [
+			"source /dev/stdin <<< 'export message=hi'; git push origin x",
+			"bash <<< 'export GIT_DIR=x'; git push origin x",
+			"echo 'export GIT_DIR=x' | sh; git push origin x",
+			"sh -c 'export GIT_DIR=x'; git push origin x",
+			"bash -c 'source /dev/stdin <<< \"export HOME=/x\"'; git push origin x",
+			"ssh host 'git config push.default upstream'; git push origin x",
+			"echo 'git config push.default upstream' | ssh host; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push fed to a shell given its own environment as naming nothing", () => {
 		for (const command of [
 			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",

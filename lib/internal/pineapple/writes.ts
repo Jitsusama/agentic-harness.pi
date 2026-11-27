@@ -524,7 +524,7 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// An environment moved earlier in the line is inherited by every
 		// git after it, and a setting written earlier is read by it. What
 		// a command runs itself, as eval does, is read where it runs.
-		moved ||= movesGit(own, env) || setsPushes(own);
+		moved ||= movesLater(line, simple);
 		writes.push(...pushesGiven(writeIn(own, dir), moving));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;
@@ -567,6 +567,35 @@ function fedTo(
 		lines.push(...fed.own.slice(1), ...fed.strings);
 	}
 	return shell ? { lines } : { lines, runner: name };
+}
+
+/**
+ * Whether a command moves where the pushes after it in its line go, by
+ * its own words ({@link movesGit}, {@link setsPushes}) or by what a
+ * sourced stdin feeds it, which runs in this shell and so moves its own
+ * environment.
+ */
+function movesLater(line: CommandLine, simple: SimpleCommand): boolean {
+	const given = hereStrings(simple.argv.map((word) => unquote(word.text)));
+	const own = unwrapped(given.own);
+	const env = simple.assignments.map((word) => unquote(word.text));
+	if (movesGit(own, env) || setsPushes(own)) return true;
+	const [program = "", ...args] = ranAtLast(own);
+	if (!sourcesStdin(program.split("/").at(-1) ?? "", args)) return false;
+	const fed = fedTo(line, simple, own, given.strings);
+	return fed?.lines.some(movesInLine) ?? false;
+}
+
+/**
+ * Whether a line sourced as {@link movesLater} reads it moves the pushes
+ * after it. One the command model can't read may move anything.
+ */
+function movesInLine(command: string): boolean {
+	const source = inlined(ansiUnquoted(uncommented(command)));
+	const read = defusedLine(source);
+	const line = read.supported ? read : defusedLine(flatten(source).line);
+	if (!line.supported) return true;
+	return line.commands.some((simple) => movesLater(line, simple));
 }
 
 /**
