@@ -15,8 +15,6 @@ export {
 	run,
 } from "./exec.ts";
 export {
-	abortedBeforeStart,
-	abortedBy,
 	EXIT_ABORTED,
 	EXIT_SAID_TOO_MUCH,
 	EXIT_TIMED_OUT,
