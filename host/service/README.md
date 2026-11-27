@@ -498,20 +498,28 @@ input pipeline or screen. No unit or running host is installed yet.
   `WAKES_A_DAY` (3) times in a day of one host's run, as the host
   keeps the count in memory, so a turn that kills its child each time
   asks the model again only so often; past either, it rests, and the
-  journal says so. One whose child dies as its close, release or
-  abort is asked, whether a window asked it through the server or the
-  host asked it itself, rests too: until `END_ASKED_HOLDS_MS` (90
-  seconds) after the child agrees, and, when it can't be reached or
-  its asker hangs up first, until the child ends; an abort's hold
-  ends sooner, once the child says its turn is over, so a death in a
-  later turn is its own. A child stopped with SIGTERM
+  journal says so. One whose child dies as a close, release or abort
+  is asked of the host as a control request, whether a window asked
+  it through the server or the host asked it itself, rests too: until
+  `END_ASKED_HOLDS_MS` (90 seconds) after the child agrees, and, when
+  it can't be reached or its asker hangs up first, until the child
+  ends; an abort's hold ends sooner, once the child says its turn is
+  over, so a death in a later turn is its own. One the child refuses,
+  as it refuses a host it doesn't answer to, holds nothing, and a
+  stale child's ending leaves what was asked of the newer one. An
+  abort made inside an attached window, as Escape makes it, reaches
+  the child as the window's input, not as a request, so it holds
+  nothing either. A child stopped with SIGTERM
   (`systemctl --user stop` on its unit) parks, and stays parked; only
   one killed outright (SIGKILL, the kernel's out-of-memory killer) or
   crashed mid-turn is woken. A child whose thread is held when the
   stop comes can't park, and systemd kills it outright at its stop
   timeout, so it is woken too. To stop a busy one for good, close it,
   or stop its unit and then stop the woken one again, which the
-  spacing then leaves resting; never `kill -9` it. A wake that
+  spacing then leaves resting; never `kill -9` it. A turn whose crash
+  once left it resting is now carried on up to 3 times a day, so stop
+  a misbehaving turn by closing it or stopping its unit, not by the
+  crash it causes. A wake that
   doesn't land is said, counts toward neither limit, and is reported
   too unless the host is stopping, which refuses every wake as it
   should.
