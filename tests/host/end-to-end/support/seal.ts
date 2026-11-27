@@ -13,6 +13,10 @@
  * can't pass 103 bytes on a Mac. Where the longest child socket wouldn't
  * fit under the run's temp folder, as under a quest session's TMPDIR or
  * a Mac's own, the seal goes under the run's short folder in /tmp.
+ * Where there is no short folder, as in a sandbox whose /tmp can't be
+ * written, it stays under the run's temp folder so long as the host's
+ * own socket fits, as before children had sockets of their own: only a
+ * case whose child's socket passes the limit fails then, not every case.
  *
  * Everything is reached through a link to the folder, as a loaded quest's
  * TMPDIR is on Joel's machine: a link into the quest's scratch folder.
@@ -101,9 +105,20 @@ export function longestChildSocket(parent: string, realm: string): string {
 	);
 }
 
+/** The socket path of the host itself, sealed under `parent`. */
+export function hostSocket(parent: string, realm: string): string {
+	return join(
+		`${join(parent, SEAL_FOLDER)}${LINK_SUFFIX}`,
+		SEALED_FOLDERS.XDG_RUNTIME_DIR,
+		"pi-host",
+		`${hostKey(realm, "background")}.sock`,
+	);
+}
+
 /**
  * The folder a seal goes in: the run's temp folder when every socket fits
- * there, else the run's short folder, else none.
+ * there, else the run's short folder when they fit there, else the run's
+ * temp folder when at least the host's own socket fits, else none.
  */
 export function sealParent(
 	realm: string,
@@ -112,10 +127,14 @@ export function sealParent(
 ): string | undefined {
 	for (const parent of [near, short]) {
 		if (parent === undefined) continue;
-		const socket = longestChildSocket(parent, realm);
-		if (Buffer.byteLength(socket) <= MAX_SOCKET_PATH_BYTES) return parent;
+		if (fits(longestChildSocket(parent, realm))) return parent;
 	}
+	if (fits(hostSocket(near, realm))) return near;
 	return undefined;
+}
+
+function fits(socket: string): boolean {
+	return Buffer.byteLength(socket) <= MAX_SOCKET_PATH_BYTES;
 }
 
 /** Make a sealed home, refusing one whose children's sockets would be too long. */
@@ -124,7 +143,7 @@ export async function seal(): Promise<Seal> {
 	const parent = sealParent(realm, tmpdir(), process.env[SOCKET_ROOT]);
 	if (parent === undefined)
 		throw new Error(
-			`A sealed host's child socket would be ${longestChildSocket(tmpdir(), realm)}, past ${MAX_SOCKET_PATH_BYTES} bytes: run with a shorter TMPDIR`,
+			`A sealed host's socket would be ${hostSocket(tmpdir(), realm)}, past ${MAX_SOCKET_PATH_BYTES} bytes, and no short folder in a writable /tmp fits its children's sockets instead`,
 		);
 	const real = await mkdtemp(join(parent, "e-"));
 	const root = `${real}${LINK_SUFFIX}`;

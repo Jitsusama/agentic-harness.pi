@@ -8,12 +8,14 @@
  * names, which only these helpers write, so every other skip still fails.
  */
 import { it, type TestFunction } from "vitest";
-import { ONLY_ON_KEY } from "../../../../host/service/proof.ts";
+import { ONLY_ON_KEY, SKIPPED_ON_KEY } from "../../../../host/service/proof.ts";
 
 declare module "vitest" {
 	interface TaskMeta {
 		/** The one platform this case runs on, once it skipped on another. */
 		onlyOn?: NodeJS.Platform;
+		/** The platform it skipped on, so its report alone tells it from its own run's. */
+		skippedOn?: string;
 	}
 }
 
@@ -24,8 +26,8 @@ export function onlyOnNote(platform: NodeJS.Platform, why: string): string {
 
 /**
  * The body a case only `platform` runs registers on `here`: `fn` itself
- * there, and elsewhere a skip naming `platform` in its meta and, with
- * `why`, in its note.
+ * there, and elsewhere a skip naming `platform`, and `here`, in its meta
+ * and, with `why`, in its note.
  */
 export function onlyOnBody(
 	platform: NodeJS.Platform,
@@ -36,6 +38,7 @@ export function onlyOnBody(
 	if (here === platform) return fn;
 	return ({ skip, task }) => {
 		task.meta[ONLY_ON_KEY] = platform;
+		task.meta[SKIPPED_ON_KEY] = here;
 		skip(onlyOnNote(platform, why));
 	};
 }

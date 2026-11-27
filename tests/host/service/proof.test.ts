@@ -78,6 +78,10 @@ describe("a runtime's proof", () => {
 	it("reads back what was written", () => {
 		const proof = proofFor("/nix/store/abc-pi-host-runtime-1.5.0");
 		expect(parseProof(JSON.stringify(proof))).toEqual(proof);
+		const mac = { ...proof, letBy: { on: "darwin", cases: 15 } };
+		expect(parseProof(JSON.stringify(mac)), "one that let cases by").toEqual(
+			mac,
+		);
 	});
 
 	it("refuses what isn't a proof, saying what's wrong", () => {
@@ -88,6 +92,14 @@ describe("a runtime's proof", () => {
 			[JSON.stringify({ ...proof, version: 2 }), "is version 2"],
 			[JSON.stringify({ ...proof, runtime: "relative" }), "lacks its runtime"],
 			[JSON.stringify({ ...proof, cases: "71" }), "lacks its runtime"],
+			[
+				JSON.stringify({ ...proof, letBy: { on: "mac", cases: 15 } }),
+				"without its platform or count",
+			],
+			[
+				JSON.stringify({ ...proof, letBy: { on: "darwin" } }),
+				"without its platform or count",
+			],
 		];
 		for (const [text, said] of cases)
 			expect(() => parseProof(text)).toThrow(said);
@@ -114,6 +126,22 @@ describe("a runtime's proof", () => {
 		symlinkSync(runtime, link);
 		expect(proofRefusal(proofFor(runtime), join(link, "pi"))).toBeUndefined();
 		expect(proofRefusal(proofFor(link), join(runtime, "pi"))).toBeUndefined();
+	});
+
+	it("stands a proof that let cases by only for the platform its run was on", () => {
+		const { runtime, pi } = runtimeAt("proven");
+		const mac: HostProof = {
+			...proofFor(runtime),
+			letBy: { on: "darwin", cases: 15 },
+		};
+		expect(proofRefusal(mac, pi, "darwin"), "on a Mac").toBeUndefined();
+		expect(proofRefusal(mac, pi, "linux")).toContain(
+			"made on darwin, letting by 15 case(s) only another platform runs, so it proves nothing for a host on linux",
+		);
+		expect(
+			proofRefusal(proofFor(runtime), pi, "linux"),
+			"every case ran",
+		).toBeUndefined();
 	});
 
 	it("refuses a pi in another runtime, even one whose name starts the same", () => {
@@ -188,22 +216,38 @@ describe("what a run proves", () => {
 		};
 	}
 
-	it("lets by a case that skipped naming another platform, counting the cases that ran", () => {
-		expect(
-			provenBy(skipping({ onlyOn: "linux" }, { onlyOn: "linux" })),
-		).toEqual({ files: 14, cases: 69 });
+	/** What a Mac's skip of a case only Linux runs leaves in its meta. */
+	const onMac = { onlyOn: "linux", skippedOn: "darwin" };
+
+	it("lets by a case that skipped naming another platform, counting the cases that ran and saying what it let by", () => {
+		expect(provenBy(skipping(onMac, onMac))).toEqual({
+			files: 14,
+			cases: 69,
+			letBy: { on: "darwin", cases: 2 },
+		});
 	});
 
 	it("refuses every other skip beside one let by", () => {
 		const cases: [Record<string, unknown>, string][] = [
 			[{}, "no meta"],
-			[{ onlyOn: "never" }, "a word Node names no platform"],
-			[{ onlyOn: 1 }, "no word at all"],
+			[{ ...onMac, onlyOn: "never" }, "a word Node names no platform"],
+			[{ ...onMac, onlyOn: 1 }, "no word at all"],
+			[{ onlyOn: "linux" }, "no platform it skipped on"],
+			[{ ...onMac, skippedOn: "mac" }, "no platform Node names"],
+			// A report carries no exit, so the reporter's refusal of this
+			// is lost on host-prove's bare --report path.
+			[{ onlyOn: "darwin", skippedOn: "darwin" }, "its own run's platform"],
 		];
 		for (const [meta, why] of cases)
-			expect(provenBy(skipping({ onlyOn: "linux" }, meta)), why).toBe(
+			expect(provenBy(skipping(onMac, meta)), why).toBe(
 				"1 of 71 cases skipped",
 			);
+	});
+
+	it("refuses a run whose let-by skips were on more than one platform", () => {
+		expect(
+			provenBy(skipping(onMac, { onlyOn: "darwin", skippedOn: "linux" })),
+		).toBe("its cases skipped on darwin and linux, not on one platform");
 	});
 
 	it("refuses a todo, whatever its meta says", () => {
@@ -219,7 +263,7 @@ describe("what a run proves", () => {
 	});
 
 	it("proves nothing when every case skipped for another platform", () => {
-		const all = Array.from({ length: 71 }, () => ({ onlyOn: "linux" }));
+		const all = Array.from({ length: 71 }, () => onMac);
 		expect(provenBy(skipping(...all))).toBe("no case ran");
 	});
 });

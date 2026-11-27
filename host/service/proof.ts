@@ -36,8 +36,20 @@ export interface HostProof {
 	/** How many test files ran, and how many cases, every one passing. */
 	readonly files: number;
 	readonly cases: number;
+	/**
+	 * The cases only another platform runs that its run let by, and the
+	 * platform it ran on, which alone the proof then stands for; none
+	 * where every case ran.
+	 */
+	readonly letBy?: LetBy;
 	/** When it passed, as an ISO time. */
 	readonly provenAt: string;
+}
+
+/** How many cases a run let by for another platform's, and what it ran on. */
+export interface LetBy {
+	readonly on: NodeJS.Platform;
+	readonly cases: number;
 }
 
 /**
@@ -46,6 +58,12 @@ export interface HostProof {
  * (tests/host/end-to-end/support/only-on.mts writes it).
  */
 export const ONLY_ON_KEY = "onlyOn";
+
+/**
+ * The key under which the same meta names the platform the case skipped
+ * on, so a report alone tells another platform's case from its own run's.
+ */
+export const SKIPPED_ON_KEY = "skippedOn";
 
 /** The platforms Node names: the only ones a case may say it runs on alone. */
 const PLATFORMS: ReadonlySet<string> = new Set<NodeJS.Platform>([
@@ -92,7 +110,11 @@ export function parseProof(text: string): HostProof {
 		throw new Error(
 			`The runtime's proof is version ${String(value.version)}; this host reads ${PROOF_VERSION}`,
 		);
-	const { runtime, harness, files, cases, provenAt } = value;
+	const { runtime, harness, files, cases, provenAt, letBy } = value;
+	if (letBy !== undefined && !isLetBy(letBy))
+		throw new Error(
+			"The runtime's proof says what it let by without its platform or count",
+		);
 	if (
 		!(
 			typeof runtime === "string" &&
@@ -113,8 +135,16 @@ export function parseProof(text: string): HostProof {
 		harness,
 		files,
 		cases,
+		...(letBy === undefined ? {} : { letBy }),
 		provenAt,
 	};
+}
+
+/** Whether `value` says a platform and a count of cases let by. */
+function isLetBy(value: unknown): value is LetBy {
+	return (
+		isRecord(value) && isPlatform(value.on) && typeof value.cases === "number"
+	);
 }
 
 /** The proof a host unit names, read and checked against its pi. */
@@ -139,11 +169,18 @@ export function hostProof(
 	return proof;
 }
 
-/** Why a proof doesn't prove this pi, or nothing when it does. */
+/**
+ * Why a proof doesn't prove this pi, on `here`, or nothing when it does.
+ * A proof whose run let cases by for another platform's stands only for
+ * the platform that run was on, which never ran those cases.
+ */
 export function proofRefusal(
 	proof: HostProof,
 	packageDir: string,
+	here: NodeJS.Platform = process.platform,
 ): string | undefined {
+	if (proof.letBy !== undefined && proof.letBy.on !== here)
+		return `The runtime's proof was made on ${proof.letBy.on}, letting by ${proof.letBy.cases} case(s) only another platform runs, so it proves nothing for a host on ${here}; prove that pi here with node scripts/host-prove.ts ${runtimeOf(packageDir)}`;
 	const pi = resolved(packageDir);
 	const runtime = resolved(proof.runtime);
 	if (pi.startsWith(`${runtime}/`)) return undefined;
@@ -153,17 +190,19 @@ export function proofRefusal(
 /**
  * Every case ran and passed, as a proof's counts, or why the run proves
  * nothing. The one skip let by is a case whose meta names another
- * platform as the only one it runs on, as the Mac's run skips those
- * reading Linux's /proc; the counts are of the cases that ran. Only
- * test:host's reporter knows the run's own platform, and it fails the run
- * for a case that skipped naming this one, so a failed run proves nothing
- * before its report is read. A run with no case run proves nothing either.
+ * platform as the only one it runs on, and the one it skipped on, as the
+ * Mac's run skips those reading Linux's /proc; the counts are of the
+ * cases that ran, and the proof says what it let by and on what, so a
+ * host on another platform refuses it. A report alone carries no exit,
+ * so the meta, not test:host's reporter, keeps a case that skipped on its
+ * own platform from being let by. A run with no case run proves nothing.
  */
 export function provenBy(
 	summary: RunSummary,
-): { files: number; cases: number } | string {
+): { files: number; cases: number; letBy?: LetBy } | string {
 	const skipped = summary.numPendingTests + summary.numTodoTests;
-	const elsewhere = onlyElsewhere(summary);
+	const runsOn = onlyElsewhere(summary);
+	const elsewhere = runsOn.reduce((sum, [, count]) => sum + count, 0);
 	if (summary.numFailedTests > 0)
 		return `${summary.numFailedTests} of ${summary.numTotalTests} cases failed`;
 	if (skipped > elsewhere)
@@ -172,24 +211,37 @@ export function provenBy(
 	if (summary.numPassedTests === 0) return "no case ran";
 	if (summary.numPassedTests + elsewhere !== summary.numTotalTests)
 		return `${summary.numPassedTests} of ${summary.numTotalTests} cases passed`;
-	return { files: summary.testResults.length, cases: summary.numPassedTests };
+	const proven = {
+		files: summary.testResults.length,
+		cases: summary.numPassedTests,
+	};
+	const [only, ...others] = runsOn;
+	if (only === undefined) return proven;
+	if (others.length > 0)
+		return `its cases skipped on ${runsOn.map(([on]) => on).join(" and ")}, not on one platform`;
+	return { ...proven, letBy: { on: only[0], cases: only[1] } };
 }
 
-/** How many of a report's cases skipped naming another platform as their own. */
-function onlyElsewhere(summary: RunSummary): number {
-	let count = 0;
+/**
+ * How many of a report's cases skipped naming another platform than the
+ * one they skipped on as their own, by the platform they skipped on.
+ */
+function onlyElsewhere(
+	summary: RunSummary,
+): (readonly [NodeJS.Platform, number])[] {
+	const counts = new Map<NodeJS.Platform, number>();
 	for (const file of summary.testResults) {
 		if (!(isRecord(file) && Array.isArray(file.assertionResults))) continue;
-		for (const one of file.assertionResults)
-			if (
-				isRecord(one) &&
-				one.status === "skipped" &&
-				isRecord(one.meta) &&
-				isPlatform(one.meta[ONLY_ON_KEY])
-			)
-				count += 1;
+		for (const one of file.assertionResults) {
+			if (!(isRecord(one) && one.status === "skipped" && isRecord(one.meta)))
+				continue;
+			const only = one.meta[ONLY_ON_KEY];
+			const on = one.meta[SKIPPED_ON_KEY];
+			if (isPlatform(only) && isPlatform(on) && only !== on)
+				counts.set(on, (counts.get(on) ?? 0) + 1);
+		}
 	}
-	return count;
+	return [...counts];
 }
 
 /** The line scripts/host-run.sh prints before a whole run's JSON report. */

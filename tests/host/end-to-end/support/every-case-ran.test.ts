@@ -180,17 +180,26 @@ describe("the reporter", () => {
 });
 
 describe("a case only one platform runs", () => {
+	/** What vitest's skip throws to end a case, as the fake's does. */
+	class Skipped extends Error {}
+
 	/** What a body did when run: whether `fn` ran, the note it skipped with, and its meta. */
 	function ran(body: ReturnType<typeof onlyOnBody>) {
 		const meta: Record<string, unknown> = {};
 		let skipped: string | undefined;
 		const context = {
 			task: { meta },
+			// vitest's skip throws, so nothing after it in the body runs.
 			skip: (note?: string) => {
 				skipped = note;
+				throw new Skipped(note);
 			},
 		};
-		body(context as unknown as TestContext);
+		try {
+			body(context as unknown as TestContext);
+		} catch (error) {
+			if (!(error instanceof Skipped)) throw error;
+		}
 		return { skipped, meta };
 	}
 
@@ -207,6 +216,6 @@ describe("a case only one platform runs", () => {
 		);
 		expect(fn).not.toHaveBeenCalled();
 		expect(skipped).toBe("only on linux: it reads /proc");
-		expect(meta).toEqual({ onlyOn: "linux" });
+		expect(meta).toEqual({ onlyOn: "linux", skippedOn: "darwin" });
 	});
 });
