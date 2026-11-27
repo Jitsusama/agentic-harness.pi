@@ -54,6 +54,7 @@ import type { Judge } from "../../../lib/mesh/routing.ts";
 import { isStopped } from "../../../lib/mesh/stop.ts";
 import {
 	answers,
+	answersPivot,
 	answersQuestion,
 	depthOf,
 	mayReplace,
@@ -325,6 +326,9 @@ export function createHearing(m: MeshState, f: Handing) {
 		const asked = messages.map((message) =>
 			answersQuestion(message, read, self),
 		);
+		const refusing = messages.map((message) =>
+			answersPivot(message, read, self),
+		);
 		const concerns = await Promise.all(
 			messages.map((message, at) =>
 				// A peer hearing only what is put to it glances at the rest
@@ -382,6 +386,7 @@ export function createHearing(m: MeshState, f: Handing) {
 				idle,
 				answers: answeringAt(answering, at),
 				asked: answeringAt(asked, at),
+				...(refusing[at] ? { refuses: true } : {}),
 				...(awaiting[at] ? { awaits: true } : {}),
 				askedEach: asksEach(message, listener),
 				now: Date.now(),

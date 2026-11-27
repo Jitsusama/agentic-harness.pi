@@ -444,6 +444,21 @@ describe("a peer resting blocked on the sender", () => {
 		).toBe("act");
 	});
 
+	it("takes an idle orchestrator's turn for a session that can't take up its pivot", () => {
+		// A session answers a pivot only to refuse it, so the refusal is
+		// work for its orchestrator, however it was sent, and not a quiet
+		// ack left for whatever starts its next turn.
+		const refusal = message({ to: ["#quest/5gv2ah"], re: "0-5GV2AH-1-pivot" });
+		const led = { ...blocked, led: true, answers: true, refuses: true };
+		for (const intent of ["fyi", "finding"] as const) {
+			expect(attend({ ...refusal, intent }, led)).toEqual({
+				attention: "turn",
+				why: "a session can't take up its pivot",
+			});
+		}
+		expect(attend(refusal, { ...led, idle: false }).attention).toBe("note");
+	});
+
 	it("wakes nothing for a busy peer, whose run reads it", () => {
 		expect(
 			attend(message({ to: ["@5GV2AH"] }), { ...blocked, idle: false })

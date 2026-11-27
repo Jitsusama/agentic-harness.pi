@@ -37,7 +37,12 @@ import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
 import { inboxOf, type Steer, waitingSteers } from "./steer.ts";
 import { ORDERED_CARRY } from "./steer-who.ts";
-import { answers, answersQuestion, type Reader } from "./thread.ts";
+import {
+	answers,
+	answersPivot,
+	answersQuestion,
+	type Reader,
+} from "./thread.ts";
 
 /** Whether a presence says its session is parked. */
 export function saysParked(presence: Pick<Presence, "state">): boolean {
@@ -133,6 +138,7 @@ function wakesOnceReached(
 		// landing, so any of it wakes it, answering its pivot or not.
 		answers: !(led && message.intent === "fyi") && answers(message, read, self),
 		asked: answersQuestion(message, read, self),
+		...(answersPivot(message, read, self) ? { refuses: true } : {}),
 		askedEach: asksEach(message, listener),
 		now,
 	});

@@ -150,6 +150,30 @@ describe("an orchestrator", () => {
 		expect(sent[0]?.message.content).toContain("landing's url");
 	});
 
+	// A session answers a pivot only when it can't take it up, so an idle
+	// orchestrator left with that answer as a note would sit on the
+	// refusal until something else started its turn.
+	it("takes a turn, as an idle orchestrator, for a session that can't take up its pivot", async () => {
+		leading();
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "85PKB2",
+			re: pivot?.id,
+			text: "Can't take it up: the cap waits on a review.",
+		});
+
+		await vi.waitFor(() =>
+			expect(
+				sent.find(({ message }) => message.content.includes("the cap waits"))
+					?.options,
+			).toEqual({ triggerTurn: true }),
+		);
+	});
+
 	it("starts no turn for a finding from a session it does not lead", async () => {
 		leading();
 		const { sent } = await startSession({}, { isIdle: () => true });
@@ -336,11 +360,29 @@ describe("an orchestrator", () => {
 		);
 
 		const read = await readBack();
-		expect(read).toContain("\n  has it: 85PKB2");
+		expect(read, "has it, and is not waited on besides").toMatch(
+			/\n {2}has it: 85PKB2$/m,
+		);
 		expect(read, "the receipt line is left to the pivot's state").not.toContain(
 			"85PKB2 has it",
 		);
 		expect(read, "nobody answered it").not.toContain("answered by");
+
+		// A session refuses a pivot only once it has read it, so its answer
+		// comes with its marker past the pivot: it reads as answered, and
+		// as neither having it nor waiting on it.
+		fromElsewhere({
+			from: "85PKB2",
+			to: ["@7M6JKG"],
+			re: pivot?.id,
+			text: "Can't take it up: the cap waits on a review.",
+		});
+		const refused = await readBack();
+		expect(refused).toContain("\n  answered by 85PKB2, last in [");
+		expect(refused, "an answerer has more than the pivot").not.toContain(
+			"has it",
+		);
+		expect(refused, "an answerer waits on nothing").not.toContain("not yet");
 	});
 
 	// The miss of 16 November at 22:26: the person said "I want it

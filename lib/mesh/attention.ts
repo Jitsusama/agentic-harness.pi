@@ -102,6 +102,11 @@ export interface Standing {
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
 	/**
+	 * The message answers a pivot this peer sent, which a session does
+	 * only when it can't take the pivot up (see thread.ts).
+	 */
+	readonly refuses?: boolean;
+	/**
 	 * This peer is idle, its last run ended with a `Blocked:` line naming
 	 * the sender (see internal/session/ending.ts), and so it rests waiting
 	 * on that peer's next word, however that is sent.
@@ -205,9 +210,14 @@ export function attend(message: Message, at: Standing): Heed {
 	// to 22:00 on 17 November 532 of 1,097 led fyis to four orchestrators
 	// answered them, 322 of those a pivot, and one pivot woke WM4KSZ for 29
 	// at 14:41. Sessions now answer a pivot only when they can't take it
-	// up, and who has it shows beside the pivot by read marker. A landing
-	// that answers one still acts, and an answer to its question still
-	// takes a turn above.
+	// up, and who has it shows beside the pivot by read marker, so an
+	// answer to a pivot is a refusal its orchestrator must act on, and an
+	// idle one takes a turn for it, as for the answer to a question. A
+	// landing that answers one still acts, and an answer to its question
+	// still takes a turn above.
+	if (at.refuses && at.idle && message.intent !== "hold") {
+		return { attention: "turn", why: "a session can't take up its pivot" };
+	}
 	const answerOnly =
 		message.intent === "fyi" && at.answers === true && !at.restates;
 	if (

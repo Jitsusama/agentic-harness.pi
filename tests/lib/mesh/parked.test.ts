@@ -151,6 +151,31 @@ describe("waking a parked peer", () => {
 		).toBe(true);
 	});
 
+	it("wakes it for a refusal of its pivot, from whoever and to wherever", () => {
+		// A session answers a pivot only when it can't take it up, so the
+		// answer is owed a turn even from a session this peer doesn't lead,
+		// sent to a group rather than to its address.
+		const pivot = message({
+			id: "1-85PKB2-1-pppp",
+			from: "85PKB2",
+			intent: "pivot",
+			pid: 3,
+		});
+		const refusal = message({
+			intent: "fyi",
+			to: ["#quest/wcjqsg"],
+			re: pivot.id,
+			text: "can't take it up: the cap waits on a review",
+		});
+		const read = (id: string) => (id === pivot.id ? pivot : undefined);
+
+		expect(wakes(refusal, parked, read)).toBe(true);
+		expect(
+			wakes({ ...refusal, re: "1-P9R1KI-1-qqqq" }, parked, read),
+			"an fyi answering nothing it sent stays for its next start",
+		).toBe(false);
+	});
+
 	it("wakes it for an answer to its question, however it was sent", () => {
 		const asked = message({
 			id: "1-85PKB2-1-bbbb",
