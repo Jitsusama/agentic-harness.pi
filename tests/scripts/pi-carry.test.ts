@@ -358,52 +358,60 @@ describe("pi-carry", () => {
 	it.each([
 		["a home at its own path", false],
 		["a home reached through a link", true],
-	])("arrives so that pi --session resumes it on the far side, in its tree at the commit carried, on %s", async (_home, linked) => {
-		const cache = folder(made, "cache");
-		const from = await leaving(cache);
-		const real = machine("arriving", cache);
-		// As /home links to /var/home on Fedora's atomic desktops: the node's
-		// shell enters the folder through the link, and pi reads the folder
-		// it runs in by its real path.
-		const home = linked ? join(folder(made, "links"), "home") : real.home;
-		if (linked) symlinkSync(real.home, home);
-		const env = { ...real.env, HOME: home };
+	])(
+		"arrives so that pi --session resumes it on the far side, in its tree at the commit carried, on %s",
+		async (_home, linked) => {
+			const cache = folder(made, "cache");
+			const from = await leaving(cache);
+			const real = machine("arriving", cache);
+			// As /home links to /var/home on Fedora's atomic desktops: the node's
+			// shell enters the folder through the link, and pi reads the folder
+			// it runs in by its real path.
+			const home = linked ? join(folder(made, "links"), "home") : real.home;
+			if (linked) symlinkSync(real.home, home);
+			const env = { ...real.env, HOME: home };
 
-		const carried = await piCarry(from.env, QUEST, "--to", "elsewhere-machine");
-		const arrived = await piCarry(
-			env,
-			"arrive",
-			QUEST,
-			"--from",
-			thisMachine(),
-			"--session",
-			SESSION,
-		);
-		const resumed = await piResumes(env, thisMachine(), SESSION);
+			const carried = await piCarry(
+				from.env,
+				QUEST,
+				"--to",
+				"elsewhere-machine",
+			);
+			const arrived = await piCarry(
+				env,
+				"arrive",
+				QUEST,
+				"--from",
+				thisMachine(),
+				"--session",
+				SESSION,
+			);
+			const resumed = await piResumes(env, thisMachine(), SESSION);
 
-		expect(carried.code, "the carry went").toBe(0);
-		expect(arrived.code, "and arrived whole").toBe(0);
-		const tree = join(real.home, "src", "app");
-		expect(
-			resumed,
-			"pi resumed the session carried, from the folder its node enters, in its tree",
-		).toEqual({
-			code: 0,
-			resumed: {
-				session: SESSION,
-				file: expect.stringMatching(new RegExp(`_${SESSION}\\.jsonl$`)),
-				cwd: tree,
-			},
-		});
-		expect(
-			await git(tree, "rev-parse", "HEAD"),
-			"its tree stands at the commit carried",
-		).toBe(from.head);
-		expect(
-			await git(tree, "status", "--porcelain"),
-			"with the change never committed",
-		).toBe("M README.md");
-	});
+			expect(carried.code, "the carry went").toBe(0);
+			expect(arrived.code, "and arrived whole").toBe(0);
+			const tree = join(real.home, "src", "app");
+			expect(
+				resumed,
+				"pi resumed the session carried, from the folder its node enters, in its tree",
+			).toEqual({
+				code: 0,
+				resumed: {
+					session: SESSION,
+					file: expect.stringMatching(new RegExp(`_${SESSION}\\.jsonl$`)),
+					cwd: tree,
+				},
+			});
+			expect(
+				await git(tree, "rev-parse", "HEAD"),
+				"its tree stands at the commit carried",
+			).toBe(from.head);
+			expect(
+				await git(tree, "status", "--porcelain"),
+				"with the change never committed",
+			).toBe("M README.md");
+		},
+	);
 
 	// ISXEG8's condition 5 (15 November), as KP0L6A placed it: nothing
 	// travels but the work, wherever a secret sits on the leaving machine.
