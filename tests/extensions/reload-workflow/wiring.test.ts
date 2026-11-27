@@ -75,7 +75,7 @@ interface Tool {
 	execute: (
 		id: string,
 		params: unknown,
-		signal: undefined,
+		signal: AbortSignal | undefined,
 		onUpdate: undefined,
 		ctx: unknown,
 	) => Promise<{ content: { text: string }[] }>;
