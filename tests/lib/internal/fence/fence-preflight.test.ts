@@ -200,6 +200,7 @@ describe("the probe of gcloud's key, run as the fence runs it", () => {
 	it("reads the person's real key as no stand-in", () => {
 		const real = "-----BEGIN OPENSSH PRIVATE KEY-----\n";
 		const ran = probed(real);
+		expect(ran.code, "the probe ran through").toBe(0);
 		expect(ran.out).toContain(createHash("sha256").update(real).digest("hex"));
 		expect(readsAsStandIn(ran), "the person's real key").toBe(false);
 	});
