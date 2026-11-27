@@ -335,15 +335,64 @@ describe("when a steer reaches the session", () => {
 	it("starts a turn when the session is idle, now or not", () => {
 		for (const now of [undefined, true] as const) {
 			expect(
-				steerDelivery({ ...(now ? { now } : {}) }, true),
+				steerDelivery({ text: "hi", ...(now ? { now } : {}) }, true),
 				`idle, now ${now}`,
+			).toBeUndefined();
+			expect(
+				steerDelivery(
+					{ text: "hi", from: "joel", ...(now ? { now } : {}) },
+					true,
+				),
+				`the person's, idle, now ${now}`,
 			).toBeUndefined();
 		}
 	});
 
-	it("waits for the run under way to end, unless it says now", () => {
-		expect(steerDelivery({}, false), "busy").toBe("followUp");
-		expect(steerDelivery({ now: true }, false), "busy, now").toBe("steer");
+	it("holds words naming nobody for the run's end, unless they say now", () => {
+		expect(
+			steerDelivery({ text: "hi" }, false),
+			"an unnamed writer's, busy",
+		).toBe("followUp");
+		expect(
+			steerDelivery({ text: "hi", now: true }, false),
+			"an unnamed writer's, busy, now",
+		).toBe("steer");
+	});
+
+	it("holds a peer's or the machine's words for the run's end, now or not", () => {
+		for (const from of ["ABC123", "machine"]) {
+			for (const now of [undefined, true] as const) {
+				expect(
+					steerDelivery({ text: "hi", from, ...(now ? { now } : {}) }, false),
+					`${from}'s, busy, now ${now}`,
+				).toBe("followUp");
+			}
+		}
+	});
+
+	it("reads Joel's launcher talk into a busy run after its tools, as typing does", () => {
+		expect(
+			steerDelivery({ text: "look here", from: "joel" }, false),
+			"Joel's talk",
+		).toBe("steer");
+		expect(
+			steerDelivery({ text: "carry on", from: "joel", act: "resume" }, false),
+			"a resume with his words",
+		).toBe("steer");
+		expect(steerDelivery({ text: "", from: "joel" }, false), "no words").toBe(
+			"followUp",
+		);
+	});
+
+	it("holds the node's words on his word for the run's end unless they say now", () => {
+		expect(
+			steerDelivery({ text: "stop that", from: "person" }, false),
+			"swarm say",
+		).toBe("followUp");
+		expect(
+			steerDelivery({ text: "stop that", from: "person", now: true }, false),
+			"swarm say now",
+		).toBe("steer");
 	});
 });
 
@@ -352,7 +401,7 @@ describe("a steer as the session reads it", () => {
 		expect(
 			steerText({ text: "hello", from: "joel", file: "f" }, { busy: true }),
 		).toBe(
-			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then carry on.]\n\nhello",
+			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then do what is asked, or carry on if nothing is.]\n\nhello",
 		);
 		expect(steerText({ text: "hello", file: "f" }, { busy: false })).toBe(
 			"[The person is asking from outside this window: answer first, in a line or two, then do what is asked.]\n\nhello",
@@ -389,15 +438,18 @@ describe("a steer as the session reads it", () => {
 		).toBe(false);
 	});
 
+	// A peer's ask waits for the run's end, so it is never read busy.
 	it("says a peer's ask isn't the person's, and still asks for an answer first", () => {
 		const said = steerText(
 			{ text: "where does it stand?", from: "wcjqsg", file: "f" },
-			{ busy: true },
+			{ busy: false },
 		);
 		expect(said).toMatch(
 			/^\[Automated message, no human input: asked by wcjqsg, not by the person/,
 		);
-		expect(said).toMatch(/answer first, in a line or two, then carry on\./);
+		expect(said).toMatch(
+			/Please answer first, in a line or two, then do what is asked\.\n/,
+		);
 		expect(said).toMatch(/where does it stand\?$/);
 		expect(
 			isPersonText(said),

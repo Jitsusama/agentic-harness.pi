@@ -21,6 +21,7 @@ import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
 	ASKING_FROM_OUTSIDE,
 	inboxOf,
+	isPersonsTalk,
 	type Steer,
 	type Taken,
 	takenSteers,
@@ -164,16 +165,29 @@ export function createSteering(host: SteeringHost): Steering {
 
 /**
  * How a steer's words reach the session: a turn of their own when it is
- * idle (nothing), read into the run under way after its current tool
- * when the steer says `now`, and otherwise once that run ends, so a
- * task isn't broken into unless the person says to.
+ * idle (nothing), and into the run under way once its current round of
+ * tools ends when Joel wrote it from the launcher, as pi's editor steers
+ * what he types on Enter, or when it says `now` and is the person's or
+ * names nobody. The node's words on his word (`person`, mycelium's swarm
+ * `say`) wait unless they say now, since there he chooses between `say`
+ * and `say now`. A peer's or the machine's words wait for that run to
+ * end whatever they say, so an agent's task isn't broken into by them
+ * (Joel, 26 November). A round running a long tool holds the talk as
+ * long, bar a call that can move to the background (the steerer says
+ * the talk is waiting, as job-workflow does for a typed line).
  */
 export function steerDelivery(
-	steer: Pick<Steer, "now">,
+	steer: Pick<Steer, "now" | "text" | "act" | "from">,
 	idle: boolean,
 ): "steer" | "followUp" | undefined {
 	if (idle) return undefined;
-	return steer.now ? "steer" : "followUp";
+	const saysNow = steer.now === true && isFromPerson(steer.from);
+	return saysNow || isLauncherTalk(steer) ? "steer" : "followUp";
+}
+
+/** Whether a steer is words Joel wrote himself, from the launcher. */
+function isLauncherTalk(steer: Pick<Steer, "text" | "act" | "from">): boolean {
+	return isPersonsTalk(steer) && steer.from?.toLowerCase() === "joel";
 }
 
 /** What the session is doing as a steer reaches it. */
@@ -199,8 +213,10 @@ export function steerText(steer: Steer, into: SteeredInto): string {
 		const who = steer.by ?? "mycelium node";
 		return `${automatedHeader(`said by this machine's ${who}, not by the person, through this session's steer inbox`)}\n\n${steer.text}`;
 	}
+	// Busy, the words may turn the work as well as ask about it, so the
+	// session is told to carry on only where they ask nothing else.
 	const answer = into.busy
-		? "answer first, in a line or two, then carry on."
+		? "answer first, in a line or two, then do what is asked, or carry on if nothing is."
 		: "answer first, in a line or two, then do what is asked.";
 	if (!isFromPerson(steer.from)) {
 		// Asked, but not by the person, so a stop's parking and the mesh's
