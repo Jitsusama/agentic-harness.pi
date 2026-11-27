@@ -500,7 +500,6 @@ export async function listenControl(options: {
 			}
 			const line = `${JSON.stringify(passedOn(request, route))}\n`;
 			if (request.op === "attach") {
-				settle?.(undefined);
 				return {
 					child,
 					line,

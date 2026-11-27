@@ -396,7 +396,20 @@ describe("a host's children", () => {
 			expect(woken, "the turn the person aborted isn't carried on").toEqual([]);
 		});
 
-		it("wakes one whose child took its abort and then died mid-turn", async () => {
+		/** Say `a`'s state as its child does, once the routes have it. */
+		async function says(state: "idle" | "busy") {
+			units.childOf(a).say({
+				type: "state",
+				conversation: { ...conversationIn(folder, a), state },
+			});
+			await vi.waitFor(() =>
+				expect(children.backend.running(a)?.state).toBe(state),
+			);
+		}
+
+		// F70, F91: an abort the child took ends its turn, not the child, so a
+		// death before the child says that turn is over is still the abort's.
+		it("leaves one resting whose child took its abort and died before its turn was over", async () => {
 			await busy();
 			children.routes.asking?.(ending("abort"))?.({
 				v: 1,
@@ -406,9 +419,71 @@ describe("a host's children", () => {
 			});
 			await units.childOf(a).exit();
 
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "still the aborted turn").toEqual([]);
+		});
+
+		it("wakes one whose child took its abort and then died in a later turn", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.({
+				v: 1,
+				id: "abort",
+				ok: true,
+				result: null,
+			});
+			await says("idle");
+			await says("busy");
+			await units.childOf(a).exit();
+
 			await vi.waitFor(() =>
-				expect(woken, "an abort it took leaves its death its own").toEqual([a]),
+				expect(
+					woken,
+					"the aborted turn ended, so this death is its own",
+				).toEqual([a]),
 			);
+		});
+
+		it("wakes one whose child died long after it took its abort, though it never said its turn was over", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.({
+				v: 1,
+				id: "abort",
+				ok: true,
+				result: null,
+			});
+			clock += END_ASKED_HOLDS_MS;
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the abort's hold has lapsed").toEqual([a]),
+			);
+		});
+
+		// F85, F94: only the host's own word says the child wasn't reached; a
+		// child may refuse with any code, that one included.
+		it("wakes one whose child refused its abort with the code of one not reached", async () => {
+			await busy();
+			children.routes.asking?.(ending("abort"))?.({
+				v: 1,
+				id: "abort",
+				ok: false,
+				error: { code: "child_unreachable", message: "refused" },
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the child's own refusal").toEqual([a]),
+			);
+		});
+
+		// F84, F90: the server settles with nothing an end whose window left
+		// before the child was reached, so the child never heard it.
+		it("wakes one whose child died after an end that was never sent", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.(undefined);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(woken, "no close reached it").toEqual([a]));
 		});
 
 		it("leaves one resting whose child died in the turn of an abort it never answered, however late", async () => {
@@ -521,6 +596,83 @@ describe("a host's children", () => {
 			expect(woken, "the close still waits on its answer").toEqual([]);
 		});
 
+		// F97: one mark for each op, counting its asks, rather than one each.
+		it("keeps a close's mark while a second close asked beside it is unanswered", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"));
+			children.routes.asking?.(ending("close"))?.({
+				v: 1,
+				id: "close",
+				ok: false,
+				error: { code: "invalid_request", message: "refused" },
+			});
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(woken, "the first close still waits on its answer").toEqual([]);
+		});
+
+		it("wakes one whose child refused each close asked of it and then died mid-turn", async () => {
+			await busy();
+			const refused = {
+				v: 1,
+				id: "close",
+				ok: false,
+				error: { code: "invalid_request", message: "refused" },
+			} as const;
+			const first = children.routes.asking?.(ending("close"));
+			const second = children.routes.asking?.(ending("close"));
+			first?.(refused);
+			second?.(refused);
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(woken, "no close it holds").toEqual([a]));
+		});
+
+		// F92: one given up before its child ran has no child left to end as
+		// it was asked, so a later child's death is its own.
+		it("forgets an end asked of one whose child was given up", async () => {
+			children.routes.asking?.(ending("close"));
+			units.next = { silent: true };
+			await expect(
+				children.backend.resume(entryIn(folder, a), false, true),
+			).rejects.toThrow("as children.json says");
+			await vi.waitFor(() => expect(givenUp).toHaveLength(1));
+
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the close went with the child given up").toEqual([a]),
+			);
+		}, 15_000);
+
+		// F103: a conversation that became another ends as that one, so what
+		// was asked of the one it was is forgotten, not kept for a later child.
+		it("forgets an end asked of a conversation once it became another", async () => {
+			await busy();
+			const first = units.childOf(a);
+			children.routes.asking?.(ending("close"));
+			first.say({
+				type: "became",
+				previousId: a,
+				conversation: conversationIn(folder, b),
+				entry: entryIn(folder, b),
+			});
+			await vi.waitFor(() => expect(told).toEqual([[a, b]]));
+			await first.end("parked");
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			// Its file resumed again later, as a person may.
+			held = [...held, entryIn(folder, a)];
+
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "the close was of what it became from").toEqual([a]),
+			);
+		});
+
 		it("takes every end's mark back with its child's ending", async () => {
 			await busy();
 			children.routes.asking?.(ending("close"))?.({
@@ -579,8 +731,47 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() => expect(reported).toEqual([refusal]));
 			expect(said).toContain(
-				`${a}: its wake after its child failed mid-turn didn't land: its slot won't free`,
+				`${a}: its wake after its child failed mid-turn didn't land: its slot won't free, so it rests until it is asked for`,
 			);
+		});
+
+		// F101: a wake that didn't land spent none of the spacing, so the next
+		// death mid-turn is woken again.
+		it("counts no wake that didn't land against its spacing", async () => {
+			waking = () => Promise.reject(new Error("its slot won't free"));
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(reported).toHaveLength(1));
+
+			waking = async () => undefined;
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(woken, "woken again within the spacing").toEqual([a, a]),
+			);
+		});
+
+		it("rests one whose child fails mid-turn again while its last wake is still landing", async () => {
+			let land = (): void => undefined;
+			waking = () =>
+				new Promise<void>((resolve) => {
+					land = resolve;
+				});
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(woken).toEqual([a]));
+
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn as its last wake was still landing, so it rests until it is asked for`,
+				),
+			);
+			expect(woken, "not woken a second time").toEqual([a]);
+			land();
 		});
 
 		it("says a wake a stopping host refused, rather than reporting it", async () => {
@@ -591,7 +782,7 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() =>
 				expect(said).toContain(
-					`${a}: its wake after its child failed mid-turn didn't land: the host is stopping`,
+					`${a}: its wake after its child failed mid-turn didn't land: the host is stopping, so it rests until it is asked for`,
 				),
 			);
 			expect(reported).toEqual([]);

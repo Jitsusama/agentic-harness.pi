@@ -16,8 +16,8 @@ import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
 import {
 	askOnce,
-	CHILD_UNREACHABLE,
 	childUnreachable,
+	madeByHost,
 	reach,
 } from "./child-requests.ts";
 import {
@@ -64,6 +64,15 @@ export const END_ASKED_HOLDS_MS = EXITS_WITHIN_MS + ANSWERS_WITHIN_MS;
 const ENDS_A_TURN: ReadonlySet<string> = new Set(
 	"close release abort".split(" "),
 );
+
+/**
+ * An end asked of a conversation's child, for one request op: how many
+ * asks of it are still unanswered, and until when an agreed one holds.
+ */
+interface EndAsked {
+	unanswered: number;
+	until: number;
+}
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -140,9 +149,17 @@ export function hostChildren(options: {
 		},
 		// An abort's turn is over, whether or not its answer came.
 		atRest: (sessionId) => abortsAnswered(sessionId),
-		// Given up before it ran there, so it never parked: still held.
-		gaveUp: (sessionId) => restGivenUp(sessionId),
-		...(options.became ? { became: options.became } : {}),
+		// Given up before it ran there, so it never parked: still held, and
+		// no child of it is left to end as it was asked.
+		gaveUp: (sessionId) => {
+			forgetEnds(sessionId);
+			restGivenUp(sessionId);
+		},
+		// Its child ends as what it became, so no ending reads these again.
+		became: (previousId, nextId) => {
+			forgetEnds(previousId);
+			options.became?.(previousId, nextId);
+		},
 		...options.timings,
 	});
 
@@ -181,20 +198,25 @@ export function hostChildren(options: {
 	// WAKES_A_DAY times in the day before. A child that says it failed
 	// while busy is woken too, since no word says which turn it left.
 	// Each conversation's wakes are kept only for that day, by its id in
-	// either case, as the supervisor takes either case as one.
+	// either case, as the supervisor takes either case as one. A wake is
+	// counted once it lands, so one that didn't spends none of the spacing;
+	// while it is landing, the conversation is in `landing`, so two endings
+	// never both wake it.
 	const wokenAt = new Map<string, number[]>();
+	const landing = new Set<string>();
 	// Each conversation, by its id in either case, whose child was asked
-	// to end it or its turn: each ask's mark holds while it is unanswered,
-	// and for END_ASKED_HOLDS_MS once the child agreed to end it, so a child
-	// that dies as it is asked wakes nothing. One that couldn't be reached,
-	// or whose asker hung up first, may still hold the ask, so its mark holds
-	// until the child ends, or for an abort, which never ends the child,
-	// until the child says the turn is over: a child that lives on then
-	// rests at a death in that turn rather than carry on a turn the person
-	// may have closed, and is woken at a death in a later one. A refusal,
-	// or an abort's answer, takes back only its own ask's mark, and the
-	// child's ending takes them all.
-	const endsAsked = new Map<string, Set<{ until: number; abort: boolean }>>();
+	// to end it or its turn, with one mark for each op asked: it holds while
+	// an ask of that op is unanswered, and for END_ASKED_HOLDS_MS once the
+	// child agreed to one, so a child that dies as it is asked wakes nothing.
+	// One that couldn't be reached, or whose asker hung up first, may still
+	// hold the ask, so it stays unanswered until the child ends, or for an
+	// abort, which never ends the child, until the child says the turn is
+	// over: a child that lives on then rests at a death in that turn rather
+	// than carry on a turn the person may have closed, and is woken at a
+	// death in a later one. An abort's mark goes then even once it was
+	// agreed, as the turn it ended is over. A refusal answers only its own
+	// ask, and the child's ending takes every mark.
+	const endsAsked = new Map<string, Map<string, EndAsked>>();
 	const now = options.now ?? Date.now;
 	function asking(
 		sessionId: string,
@@ -202,46 +224,58 @@ export function hostChildren(options: {
 	): ((reply: ControlReply | undefined) => void) | undefined {
 		if (!ENDS_A_TURN.has(op)) return undefined;
 		const id = sessionId.toLowerCase();
-		const mark = { until: Number.POSITIVE_INFINITY, abort: op === "abort" };
-		const marks = endsAsked.get(id) ?? new Set();
-		marks.add(mark);
+		const marks = endsAsked.get(id) ?? new Map<string, EndAsked>();
 		endsAsked.set(id, marks);
+		const mark = marks.get(op) ?? {
+			unanswered: 0,
+			until: Number.NEGATIVE_INFINITY,
+		};
+		mark.unanswered += 1;
+		marks.set(op, mark);
 		return (reply) => {
-			if (
-				reply !== undefined &&
-				!reply.ok &&
-				reply.error.code === CHILD_UNREACHABLE
-			)
-				return;
-			// An abort taken leaves the child running, its turn over.
-			if (reply?.ok && op !== "abort") {
-				mark.until = now() + END_ASKED_HOLDS_MS;
-				return;
-			}
-			marks.delete(mark);
-			if (marks.size === 0 && endsAsked.get(id) === marks) endsAsked.delete(id);
+			// Taken back since, by the child's ending or its turn's.
+			if (endsAsked.get(id) !== marks || marks.get(op) !== mark) return;
+			// Not reached, or its asker gone first: the child may hold it still.
+			// A child's own refusal may carry the same code, and is a refusal.
+			if (reply !== undefined && !reply.ok && madeByHost(reply)) return;
+			mark.unanswered -= 1;
+			const at = now();
+			if (reply?.ok) mark.until = Math.max(mark.until, at + END_ASKED_HOLDS_MS);
+			if (mark.unanswered > 0 || mark.until > at) return;
+			marks.delete(op);
+			if (marks.size === 0) endsAsked.delete(id);
 		};
 	}
 	function abortsAnswered(sessionId: string): void {
 		const id = sessionId.toLowerCase();
 		const marks = endsAsked.get(id);
 		if (!marks) return;
-		for (const mark of marks) if (mark.abort) marks.delete(mark);
+		marks.delete("abort");
 		if (marks.size === 0) endsAsked.delete(id);
+	}
+	function forgetEnds(sessionId: string): void {
+		endsAsked.delete(sessionId.toLowerCase());
 	}
 	function endWasAsked(sessionId: string): boolean {
 		const id = sessionId.toLowerCase();
 		const marks = endsAsked.get(id);
 		endsAsked.delete(id);
 		const at = now();
-		return [...(marks ?? [])].some((mark) => mark.until > at);
+		return [...(marks?.values() ?? [])].some(
+			(mark) => mark.unanswered > 0 || mark.until > at,
+		);
 	}
-	// Whether one whose child failed mid-turn is woken, saying why not, and
-	// counting the wake as it is decided, so two endings never both wake.
+	// Whether one whose child failed mid-turn is woken, saying why not.
 	function mayWake(sessionId: string): boolean {
 		if (!options.wake) return false;
 		const at = now();
 		const id = sessionId.toLowerCase();
+		if (landing.has(id)) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn as its last wake was still landing, so it rests until it is asked for`,
+			);
+			return false;
+		}
 		const recent = (wokenAt.get(id) ?? []).filter(
 			(one) => at - one < WAKES_COUNTED_OVER_MS,
 		);
@@ -260,7 +294,6 @@ export function hostChildren(options: {
 			);
 			return false;
 		}
-		wokenAt.set(id, [...recent, at]);
 		return true;
 	}
 
@@ -271,14 +304,21 @@ export function hostChildren(options: {
 		options.say?.(
 			`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
 		);
+		const id = sessionId.toLowerCase();
+		landing.add(id);
 		// A host stopping refuses every wake, as it should, so that is only
 		// said; any other, as a slot that won't free, is a fault reported too.
-		wake(sessionId).catch((error: unknown) => {
-			options.say?.(
-				`${sessionId}: its wake after its child failed mid-turn didn't land: ${error instanceof Error ? error.message : String(error)}`,
-			);
-			if (!options.stopping?.()) report(error);
-		});
+		wake(sessionId)
+			.then(
+				() => wokenAt.set(id, [...(wokenAt.get(id) ?? []), now()]),
+				(error: unknown) => {
+					options.say?.(
+						`${sessionId}: its wake after its child failed mid-turn didn't land: ${error instanceof Error ? error.message : String(error)}, so it rests until it is asked for`,
+					);
+					if (!options.stopping?.()) report(error);
+				},
+			)
+			.finally(() => landing.delete(id));
 	}
 
 	// One whose child was given up never parked, so restsParked would
