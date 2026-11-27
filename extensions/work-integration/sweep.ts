@@ -15,6 +15,11 @@
  * from a timer, a host's sweeps stand down for two hours after each of
  * its runs that judged every provider the host has, so a host's one
  * thread never carries a sweep's work.
+ *
+ * Long because a host's sweep is one run from its timer to its log line:
+ * the claims it asks, the stand-down beside the outside sweep, and what
+ * it tells quests it took all read the same run's state, which split
+ * files would pass back and forth.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";

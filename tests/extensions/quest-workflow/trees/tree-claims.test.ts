@@ -7,6 +7,10 @@
  * emits, in which case reclamation sees an empty claim list and calls
  * a quest's tree abandoned. A test that called the function directly
  * would pass against exactly that system.
+ *
+ * Long because every case asks over the same bus, against quest folders
+ * built the same way, and the rules they prove (what a quest keeps, what
+ * it lets go, what it forgets) are one answer read three ways.
  */
 
 import {
