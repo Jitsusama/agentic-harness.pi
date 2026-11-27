@@ -138,7 +138,11 @@ export async function createEngine(
 		report,
 	});
 	// A child's siblings on the key run on: the supervisor sweeps for the dead.
-	if (!kept) await stopping.reapEarlier(host.key);
+	if (!kept)
+		await stopping.reapEarlier(
+			host.key,
+			(sessionId) => host.holds(sessionId) !== undefined,
+		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 	const logs = heldLogs(report);

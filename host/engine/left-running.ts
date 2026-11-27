@@ -28,6 +28,9 @@
  * A note goes a day after its stop, the same day a carried call nobody
  * took up runs (carried-shells.ts). While the notes fail to read for the
  * moment, a reap waits, and a note or a close is said and left undone.
+ * A notes file that fails to read for good keeps nothing, as no file
+ * would, and its fault is said, so a kill it costs has its cause in the
+ * journal.
  *
  * A child host notes in its conversation's own folder under the key's
  * engine folder, where a host running conversations in its own process
@@ -42,8 +45,7 @@
 import { type Dirent, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { isPassingFault } from "../../lib/internal/files/errno.ts";
-import { isRecord } from "../../lib/internal/record.ts";
+import { isGone, isPassingFault } from "../../lib/internal/files/errno.ts";
 import type { CarriedCalls } from "../../lib/internal/shell/kept.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { STRAY_FOR_MS } from "./carried-shells.ts";
@@ -107,17 +109,26 @@ function notesIn(text: string | undefined, since: number): LeftCall[] {
 		: [];
 }
 
-/** How a failed read of a notes file reads: "unread" for a fault of the moment, else no file. */
-function textOnFault(error: unknown): NoteText {
-	// No file: no park kept anything, or it was unreadable and keeps nothing.
-	return isPassingFault(error) ? "unread" : undefined;
+/**
+ * How a failed read of a notes file reads: "unread" for a fault of the
+ * moment, else no file. A fault of the path itself is said, since what
+ * the file kept then ends with the reap.
+ */
+function textOnFault(
+	error: unknown,
+	report: (error: unknown) => void,
+): NoteText {
+	if (isPassingFault(error)) return "unread";
+	// No file: no park kept anything. Unreadable for good: it keeps nothing.
+	if (!isGone(error)) report(error);
+	return undefined;
 }
 
-function readNow(file: string): NoteText {
+function readNow(file: string, report: (error: unknown) => void): NoteText {
 	try {
 		return readFileSync(file, "utf8");
 	} catch (error) {
-		return textOnFault(error);
+		return textOnFault(error, report);
 	}
 }
 
@@ -151,9 +162,10 @@ const READ_AT_ONCE = 32;
 /**
  * Each conversation's own folder under the key's engine folder, listed
  * without holding the loop; none when the folder isn't there yet, or
- * "unread" when it failed to list, so whom to spare is not known. Only a
- * lasting fault is said; a fault of the moment is tried again at the
- * next reap.
+ * "unread" when it failed to list, so whom to spare is not known. Every
+ * such fault is said, of the moment or lasting, since the reap waiting
+ * on it waits again at each try until the folder lists, and a fault
+ * that keeps coming back is the reason.
  */
 export async function conversationsUnder(
 	stateDir: string,
@@ -164,8 +176,8 @@ export async function conversationsUnder(
 		entries = await readdir(stateDir, { withFileTypes: true });
 	} catch (error) {
 		// No folder yet: no host under the key has noted anything.
-		if (isRecord(error) && error.code === "ENOENT") return [];
-		if (!isPassingFault(error)) report(error);
+		if (isGone(error)) return [];
+		report(error);
 		return "unread";
 	}
 	return entries
@@ -174,7 +186,10 @@ export async function conversationsUnder(
 }
 
 /** Each of `files`' texts, read a slice at a time so a large key can't run the process out of descriptors. */
-async function textsOf(files: readonly string[]): Promise<NoteText[]> {
+async function textsOf(
+	files: readonly string[],
+	report: (error: unknown) => void,
+): Promise<NoteText[]> {
 	const texts: NoteText[] = [];
 	for (let from = 0; from < files.length; from += READ_AT_ONCE)
 		texts.push(
@@ -182,7 +197,11 @@ async function textsOf(files: readonly string[]): Promise<NoteText[]> {
 				// Most conversations' folders hold no note: nothing to spare there.
 				files
 					.slice(from, from + READ_AT_ONCE)
-					.map((file) => readFile(file, "utf8").catch(textOnFault)),
+					.map((file) =>
+						readFile(file, "utf8").catch((error: unknown) =>
+							textOnFault(error, report),
+						),
+					),
 			)),
 		);
 	return texts;
@@ -208,10 +227,13 @@ export async function sparedUnder(
 	const listed =
 		options.listed ?? (await conversationsUnder(stateDir, options.report));
 	if (listed === "unread") return { ...carried, unread: true };
-	const texts = await textsOf([
-		join(stateDir, LEFT_FILE),
-		...listed.map((folder) => join(folder, LEFT_FILE)),
-	]);
+	const texts = await textsOf(
+		[
+			join(stateDir, LEFT_FILE),
+			...listed.map((folder) => join(folder, LEFT_FILE)),
+		],
+		options.report,
+	);
 	return sparedFrom(carried, texts, (options.now ?? Date.now)() - STRAY_FOR_MS);
 }
 
@@ -248,7 +270,7 @@ export function leftRunning(options: {
 	// A file's notes still within their day, oldest first, or nothing while
 	// it fails to read for the moment and what it says isn't known.
 	function readOf(file: string): LeftCall[] | undefined {
-		const text = readNow(file);
+		const text = readNow(file, options.report);
 		if (text === "unread") return undefined;
 		return notesIn(text, now() - STRAY_FOR_MS);
 	}
@@ -275,7 +297,7 @@ export function leftRunning(options: {
 		spared(carried, session) {
 			return sparedFrom(
 				carried,
-				files(session).map(readNow),
+				files(session).map((file) => readNow(file, options.report)),
 				now() - STRAY_FOR_MS,
 			);
 		},

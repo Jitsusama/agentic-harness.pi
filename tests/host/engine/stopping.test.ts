@@ -3,20 +3,45 @@
  * read once for the first reap of every conversation the start holds,
  * and every other reap (a held one's second, one the start doesn't hold,
  * one after a failed reading, or any outside a start) reads it whole;
- * and the start's reap of the whole key spares what a child parked.
+ * and the start's reap of the whole key spares what a child parked, and
+ * is tried again each STRAY_LOOK_MS while it waits, until it doesn't.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { STRAY_LOOK_MS } from "../../../host/engine/carried-shells.ts";
 import { LEFT_FILE } from "../../../host/engine/left-running.ts";
-import { carryEnds, stopKeeping } from "../../../host/engine/stopping.ts";
+import {
+	carryEnds,
+	REAP_RETRIES,
+	stopKeeping,
+} from "../../../host/engine/stopping.ts";
 import {
 	conversationMarker,
 	type ProcessTable,
 } from "../../../host/engine/tool-children.ts";
 import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
+
+/** A folder whose listing is to fail for the moment, as a process out of descriptors would. */
+const listFault = vi.hoisted(() => ({
+	folder: undefined as string | undefined,
+}));
+
+vi.mock("node:fs/promises", async (original) => {
+	const fs = await original<typeof import("node:fs/promises")>();
+	const readdir = ((...args: Parameters<typeof fs.readdir>) => {
+		if (String(args[0]) === listFault.folder)
+			return Promise.reject(
+				Object.assign(new Error("EMFILE: as the test asked"), {
+					code: "EMFILE",
+				}),
+			);
+		return fs.readdir(...args);
+	}) as typeof fs.readdir;
+	return { ...fs, readdir };
+});
 
 /** The host the table's processes ran under: pid 1, started at tick 0. */
 const HOST = { key: "test-host", mark: "1:0" };
@@ -59,12 +84,14 @@ function countingTable(
 describe("a start's reaps", () => {
 	const dirs: string[] = [];
 	afterEach(() => {
+		listFault.folder = undefined;
 		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true });
 	});
 	function keeping(
 		table: ProcessTable,
 		reported: unknown[] = [],
 		kept: readonly { session: string; mark: string }[] = [],
+		every?: (ms: number, run: () => void) => () => void,
 	) {
 		const stateDir = mkdtempSync(join(tmpdir(), "stopping-"));
 		dirs.push(stateDir);
@@ -77,6 +104,7 @@ describe("a start's reaps", () => {
 			stateDir,
 			report: (error) => reported.push(error),
 			table,
+			...(every ? { every } : {}),
 		});
 	}
 
@@ -219,6 +247,139 @@ describe("a start's reaps", () => {
 		);
 		await stopping.reapEarlier(HOST.key);
 		expect(table.killed, "only what no park kept").toEqual([20]);
+	});
+
+	it("try the start's reap of the key again each tick while it waits, and no more once it doesn't", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({ 1: {}, 20: conversationMarker("b", gone) });
+		const reported: unknown[] = [];
+		const ticks: { ms: number; run: () => void; stopped: boolean }[] = [];
+		const stopping = keeping(table, reported, [], (ms, run) => {
+			const tick = { ms, run, stopped: false };
+			ticks.push(tick);
+			return () => {
+				tick.stopped = true;
+			};
+		});
+		listFault.folder = dirs.at(-1);
+		await stopping.reapEarlier(HOST.key);
+		expect(table.killed, "whom to spare is not known").toEqual([]);
+		expect(ticks.map(({ ms }) => ms)).toEqual([STRAY_LOOK_MS]);
+		const [tick] = ticks;
+		if (tick === undefined) throw new Error("no retry was set");
+		const waits = () =>
+			reported.filter((said) => String(said).includes("ended nothing")).length;
+		expect(waits()).toBe(1);
+		tick.run();
+		// The try runs off the tick: done once its wait is said.
+		await vi.waitFor(() => expect(waits()).toBe(2));
+		expect(table.killed, "still waiting").toEqual([]);
+		expect(tick.stopped).toBe(false);
+		listFault.folder = undefined;
+		tick.run();
+		await vi.waitFor(() =>
+			expect(tick.stopped, "a try that didn't wait ends the retries").toBe(
+				true,
+			),
+		);
+		expect(table.killed, "once the folder lists").toEqual([20]);
+		expect(waits(), "no wait more").toBe(2);
+	});
+
+	it("spare at a later try of the start's reap what a conversation this host now holds runs, though a dead host's mark is on it", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		// a's process came through a restart still carrying the dead host's
+		// mark; b's belongs to a conversation nobody holds.
+		const table = countingTable({
+			1: {},
+			10: conversationMarker("a", gone),
+			20: conversationMarker("b", gone),
+		});
+		const ticks: { run: () => void; stopped: boolean }[] = [];
+		const stopping = keeping(table, [], [], (_ms, run) => {
+			const tick = { run, stopped: false };
+			ticks.push(tick);
+			return () => {
+				tick.stopped = true;
+			};
+		});
+		const held = new Set<string>();
+		listFault.folder = dirs.at(-1);
+		await stopping.reapEarlier(HOST.key, (session) => held.has(session));
+		const [tick] = ticks;
+		if (tick === undefined) throw new Error("no retry was set");
+		// The start resumes a before the next try.
+		held.add("a");
+		listFault.folder = undefined;
+		tick.run();
+		await vi.waitFor(() => expect(tick.stopped).toBe(true));
+		expect(table.killed, "only what nobody holds").toEqual([20]);
+	});
+
+	it("give up the start's retries while its folder still won't list after the last, saying so, and say a try that got through", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({ 1: {}, 20: conversationMarker("b", gone) });
+		const reported: unknown[] = [];
+		const ticks: { run: () => void; stopped: boolean }[] = [];
+		const stopping = keeping(table, reported, [], (_ms, run) => {
+			const tick = { run, stopped: false };
+			ticks.push(tick);
+			return () => {
+				tick.stopped = true;
+			};
+		});
+		const said = (words: string) =>
+			reported.filter((line) => String(line).includes(words)).length;
+		listFault.folder = dirs.at(-1);
+		await stopping.reapEarlier(HOST.key);
+		const [tick] = ticks;
+		if (tick === undefined) throw new Error("no retry was set");
+		for (let tried = 1; tried <= REAP_RETRIES; tried++) {
+			expect(tick.stopped, `still trying before try ${tried}`).toBe(false);
+			tick.run();
+			await vi.waitFor(() => expect(said("ended nothing")).toBe(tried + 1));
+		}
+		await vi.waitFor(() => expect(tick.stopped).toBe(true));
+		expect(said("gave up"), "the give-up is said").toBe(1);
+		expect(table.killed).toEqual([]);
+
+		// Another start whose second try gets through says so.
+		const second = keeping(table, reported, [], (_ms, run) => {
+			const again = { run, stopped: false };
+			ticks.push(again);
+			return () => {
+				again.stopped = true;
+			};
+		});
+		// Each keeping has a state folder of its own.
+		listFault.folder = dirs.at(-1);
+		await second.reapEarlier(HOST.key);
+		const retry = ticks.at(-1);
+		if (retry === undefined || retry === tick) throw new Error("no retry");
+		listFault.folder = undefined;
+		retry.run();
+		await vi.waitFor(() => expect(retry.stopped).toBe(true));
+		expect(said("got through"), "the end of the retries is said").toBe(1);
+		expect(table.killed).toEqual([20]);
+	});
+
+	it("end at the start's first reap of the key what a dead host left, held or not", async () => {
+		const gone = { key: HOST.key, mark: "99:0" };
+		const table = countingTable({ 1: {}, 10: conversationMarker("a", gone) });
+		const stopping = keeping(table);
+		await stopping.reapEarlier(HOST.key, () => true);
+		expect(table.killed, "nothing of a held one runs here yet").toEqual([10]);
+	});
+
+	it("set no retry for a start's reap of the key that didn't wait", async () => {
+		const table = countingTable({ 1: {} });
+		const ticks: number[] = [];
+		const stopping = keeping(table, [], [], (ms) => {
+			ticks.push(ms);
+			return () => undefined;
+		});
+		await stopping.reapEarlier(HOST.key);
+		expect(ticks).toEqual([]);
 	});
 
 	it("spare at a conversation's own reap what a child parked in its conversation's folder", async () => {

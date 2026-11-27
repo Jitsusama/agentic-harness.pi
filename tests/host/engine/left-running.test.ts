@@ -6,7 +6,9 @@
  * read for the moment loses no note and spares no less. A child's own
  * folder and the engine folder's are read together, whichever host runs
  * the conversation, and a start reaping the whole key spares every
- * folder's notes, or waits while one of them fails to read.
+ * folder's notes, or waits while one of them fails to read. A fault that
+ * lasts is said, whether of the listing or of a file, and a start reads
+ * no more than 32 notes files at once, however many folders it holds.
  */
 import {
 	mkdirSync,
@@ -34,6 +36,9 @@ const readFault = vi.hoisted(() => ({
 	listing: undefined as string | undefined,
 }));
 
+/** The notes reads out at once, and the most there have been since `peak` was last reset. */
+const reading = vi.hoisted(() => ({ now: 0, peak: 0 }));
+
 /** Whether a read of `file` is to fail as the test asked. */
 const faulted = vi.hoisted(
 	() => (file: unknown) =>
@@ -59,13 +64,17 @@ vi.mock("node:fs", async (original) => {
 
 vi.mock("node:fs/promises", async (original) => {
 	const fs = await original<typeof import("node:fs/promises")>();
-	const readFile = ((...args: Parameters<typeof fs.readFile>) => {
+	const readFile = (async (...args: Parameters<typeof fs.readFile>) => {
 		const code = readFault.code;
 		if (faulted(args[0]))
-			return Promise.reject(
-				Object.assign(new Error(`${code}: as the test asked`), { code }),
-			);
-		return fs.readFile(...args);
+			throw Object.assign(new Error(`${code}: as the test asked`), { code });
+		reading.now += 1;
+		reading.peak = Math.max(reading.peak, reading.now);
+		try {
+			return await fs.readFile(...args);
+		} finally {
+			reading.now -= 1;
+		}
 	}) as typeof fs.readFile;
 	const readdir = ((...args: Parameters<typeof fs.readdir>) => {
 		const code = readFault.listing;
@@ -299,7 +308,7 @@ describe("what parks kept running", () => {
 		expect(spared.unread, "whom to spare is not known").toBe(true);
 	});
 
-	it("waits at a start, saying nothing, while the key's folder fails to list for the moment", async () => {
+	it("waits at a start, and says why, while the key's folder fails to list for the moment", async () => {
 		childKept("b").note("b", ["child-call"]);
 		readFault.listing = "EMFILE";
 		const spared = await sparedUnder(stateDir, NONE, {
@@ -307,7 +316,58 @@ describe("what parks kept running", () => {
 			now: () => at,
 		});
 		expect(spared.unread, "whom to spare is not known").toBe(true);
-		expect(reported, "tried again at the next reap").toEqual([]);
+		expect(reported, "a fault that keeps coming back is seen").toEqual([
+			expect.objectContaining({ code: "EMFILE" }),
+		]);
+	});
+
+	it("spares at a start what every folder's notes name, past each slice of 32 reads, reading no more at once", async () => {
+		// The engine folder's file is the first read, so a folder's place
+		// among the reads is its number; the marks sit at each slice's edges.
+		const marked = new Map([
+			[31, "at-31"],
+			[32, "at-32"],
+			[33, "at-33"],
+			[70, "at-70"],
+		]);
+		for (let place = 1; place <= 70; place += 1) {
+			const name = `c${String(place).padStart(2, "0")}`;
+			mkdirSync(join(stateDir, name));
+			const mark = marked.get(place);
+			if (mark !== undefined) childKept(name).note(name, [mark]);
+		}
+		reading.peak = 0;
+		const spared = await sparedUnder(stateDir, NONE, {
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect([...spared.marks].sort()).toEqual([...marked.values()].sort());
+		expect(reading.peak, "reads out at once").toBeLessThanOrEqual(32);
+		expect(reading.peak, "read a slice at a time, not one by one").toBe(32);
+		expect(reported).toEqual([]);
+	});
+
+	it("spares less, and says why, at a start while a folder's notes fail to read for good", async () => {
+		childKept("b").note("b", ["child-call"]);
+		childKept("c").note("c", ["other-child-call"]);
+		readFault.code = "EACCES";
+		readFault.only = "b";
+		const spared = await sparedUnder(stateDir, NONE, {
+			report: (error) => reported.push(error),
+			now: () => at,
+		});
+		expect(spared.unread, "unreadable for good keeps nothing").toBeUndefined();
+		expect([...spared.marks]).toEqual(["other-child-call"]);
+		expect(reported, "the kill it costs has its cause").toEqual([
+			expect.objectContaining({ code: "EACCES" }),
+		]);
+	});
+
+	it("spares less, and says why, at a conversation's reap while its notes fail to read for good", () => {
+		kept().note("a", ["call-1"]);
+		readFault.code = "EIO";
+		expect(kept().spared(NONE)).toBe(NONE);
+		expect(reported).toEqual([expect.objectContaining({ code: "EIO" })]);
 	});
 
 	it("waits at a start, and says so, while the key's folder fails to list for good", async () => {
