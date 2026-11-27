@@ -145,7 +145,9 @@ export function installSignalStamp(
 				// cost the README but never the record restore reads.
 				try {
 					slot.release?.();
-				} catch {}
+				} catch {
+					// The stamp is down, and the signal must still end the process.
+				}
 			}
 			removeSignalStamp();
 			deps.schedule(() => deps.raise(signal), ENDING_GRACE_MS);
