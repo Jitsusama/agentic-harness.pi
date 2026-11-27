@@ -34,7 +34,9 @@
  * one gone all the same, as a quest's workspace does, asks `evenReadOnly`;
  * the system's `chmod` then makes its folders writable by their owner,
  * walking by descriptor and passing links by as `rm` does, and `rm` goes
- * again.
+ * again. That holds where `chmod` takes `-P`, as BSD's and GNU's from
+ * coreutils 9.5 do; an older GNU one refuses it, and the tree is left,
+ * its error saying so (`writableArgs`).
  *
  * What needs no walk needs no `rm`: a file, a link or an empty folder is
  * removed straight away, by a call that never follows its last name, so
@@ -45,7 +47,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { lstatSync, rmdirSync, unlinkSync } from "node:fs";
 import { lstat, rmdir, unlink } from "node:fs/promises";
 import { posix } from "node:path";
-import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
+import {
+	systemFolders,
+	systemProgram,
+	trustsNoOwner,
+} from "../sandbox/system-program.ts";
 
 /**
  * Where root alone puts an `rm`: the system's own profile on NixOS and
@@ -111,8 +117,12 @@ interface Program {
 function systemTool(name: string, folders: readonly string[]): Program {
 	const path = systemProgram(name, folders);
 	if (path !== undefined) return { path, name };
+	const where = trustsNoOwner()
+		? "no owner here can be told from pi's own, as in a user namespace " +
+			"whose ids pi can give its files to"
+		: `none is kept where only root can put one (${folders.join(", ")})`;
 	throw new Error(
-		`no ${name} found where only root can put one (${folders.join(", ")}), ` +
+		`no ${name} found: ${where}, ` +
 			"so the tree is left in place rather than walked by path",
 	);
 }

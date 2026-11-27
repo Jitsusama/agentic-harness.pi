@@ -111,7 +111,7 @@ function rootOwnersHere(): readonly number[] {
  * reason: from inside, it can't be told from the person under a nested
  * `unshare -r`. Where this process is the inner 0, it can give a file
  * to any id the map names, so the overflow user is kept only where the
- * map leaves it out. A Linux whose `/proc` can't be read may be such a
+ * map leaves it out, and the outer root's inner id never is. A Linux whose `/proc` can't be read may be such a
  * namespace too, so there this process's own id is dropped as well.
  */
 export function rootOwners(
@@ -128,7 +128,10 @@ export function rootOwners(
 		return platform === "linux" ? [0].filter((owner) => owner !== uid) : [0];
 	}
 	const inner = innerRoot(map);
-	if (inner !== undefined && (inner !== uid || isMachines(map))) return [inner];
+	if (inner !== undefined && isMachines(map)) return [inner];
+	// An inner 0 can give its files to the inner id the outer root maps to.
+	if (inner !== undefined && uid === 0 && inner !== uid) return [];
+	if (inner !== undefined && inner !== uid) return [inner];
 	const overflow = overflowUser(read);
 	const owners =
 		overflow === undefined || (uid === 0 && maps(map, overflow))
@@ -175,6 +178,14 @@ function innerRoot(map: string): number | undefined {
 		if (outside <= 0 && outside + count > 0) return inside - outside;
 	}
 	return undefined;
+}
+
+/**
+ * Whether no owner here can be told from this process's own, so no
+ * program is ever found, whatever the folders hold.
+ */
+export function trustsNoOwner(look: Look = real): boolean {
+	return (look.rootOwners?.() ?? [0]).length === 0;
 }
 
 /** The folders the system's profiles put this user's programs in. */
