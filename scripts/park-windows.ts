@@ -57,9 +57,19 @@ function jsonLines(text: string): unknown[] {
 		.map((line) => JSON.parse(line));
 }
 
+/**
+ * The most a node's answer may run to: `mycelium sessions` on a busy
+ * machine passes node's 1 MB default, which failed the script ENOBUFS.
+ */
+const MOST_ANSWER = 64 * 1024 * 1024;
+
 function mycelium(verb: string): unknown[] {
 	return jsonLines(
-		execFileSync("mycelium", [verb], { encoding: "utf8", timeout: 10_000 }),
+		execFileSync("mycelium", [verb], {
+			encoding: "utf8",
+			timeout: 10_000,
+			maxBuffer: MOST_ANSWER,
+		}),
 	);
 }
 

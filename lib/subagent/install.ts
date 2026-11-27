@@ -14,7 +14,8 @@
  * node binary and entry script removes the skew entirely.
  */
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { hosted } from "../core/session/index.ts";
 
 /** A pinned pi install: the node binary, entry script and asset dir. */
@@ -63,6 +64,17 @@ export interface ResolvePiInstallDeps {
 	 * the parent self-locates from its entry script.
 	 */
 	readonly piPackageDir?: string;
+	/**
+	 * Whether `dir` is a package's root, normally whether it holds a
+	 * `package.json`: how the entry script's own package is found when
+	 * `PI_PACKAGE_DIR` names a link an upgrade removed.
+	 */
+	readonly holdsPackage?: (dir: string) => boolean;
+}
+
+/** Whether `dir` holds a package.json, so is a package's root. */
+function holdsPackageJson(dir: string): boolean {
+	return existsSync(join(dir, "package.json"));
 }
 
 /**
@@ -83,7 +95,10 @@ export interface ResolvePiInstallDeps {
  * Dereferencing is best-effort: if a target cannot be
  * resolved (it was already deleted), the raw path is kept
  * so the caller still has something to spawn and the
- * health check can report it as gone.
+ * health check can report it as gone. A `PI_PACKAGE_DIR`
+ * that won't resolve is first looked for from the entry
+ * script, which runs inside the very package the link named:
+ * the nearest folder above it that holds a package.json.
  */
 export function resolveParentPiInstall(
 	deps: Partial<ResolvePiInstallDeps> = {},
@@ -97,14 +112,42 @@ export function resolveParentPiInstall(
 	// undefined from an absent key.
 	const piPackageDir =
 		"piPackageDir" in deps ? deps.piPackageDir : process.env.PI_PACKAGE_DIR;
+	const holdsPackage = deps.holdsPackage ?? holdsPackageJson;
 	const entryPath = argv[1] ?? "";
+	const entry = resolved(entryPath, realpath);
 	return {
 		node: dereference(execPath, realpath),
-		entry: dereference(entryPath, realpath),
+		entry: entry ?? entryPath,
 		...(piPackageDir
-			? { packageDir: dereference(piPackageDir, realpath) }
+			? {
+					packageDir:
+						resolved(piPackageDir, realpath) ??
+						packageOf(entry, holdsPackage) ??
+						piPackageDir,
+				}
 			: {}),
 	};
+}
+
+/**
+ * The package root the entry script at `entry` sits in: the nearest
+ * folder above it that `holdsPackage` says is one, or undefined when
+ * none is, up to the file system's root. `entry` is the script's
+ * dereferenced path, or undefined when it is gone: a package found
+ * above a script that no longer exists would be some other package.
+ */
+function packageOf(
+	entry: string | undefined,
+	holdsPackage: (dir: string) => boolean,
+): string | undefined {
+	if (!entry) return undefined;
+	let dir = dirname(entry);
+	while (true) {
+		if (holdsPackage(dir)) return dir;
+		const up = dirname(dir);
+		if (up === dir) return undefined;
+		dir = up;
+	}
 }
 
 /**
@@ -137,32 +180,84 @@ type StartupInstallGlobal = {
  * path, re-opening the crash the pin exists to prevent. This
  * accessor takes the reading once, stashes it on `globalThis`
  * so a `/reload` cannot recapture a stale value, and hands the
- * same immutable snapshot to every caller thereafter. The
- * first call must happen before any upgrade; module load at
- * extension registration (session start) and the health
- * check's own startup probe both satisfy that.
+ * same snapshot to every caller thereafter. A snapshot whose
+ * package folder has gone since, or a first capture taken after
+ * the link went, takes the package its entry script sits in
+ * instead and says it in `PI_PACKAGE_DIR`, so pi itself and its
+ * children read their assets from the package pi runs.
  */
 export function getParentPiInstall(): PiInstall {
 	const store = globalThis as StartupInstallGlobal;
 	const existing = store[STARTUP_INSTALL_KEY];
-	if (existing !== undefined) return existing;
+	if (existing !== undefined) {
+		const healed = healedInstall(existing);
+		if (healed !== existing) store[STARTUP_INSTALL_KEY] = healed;
+		// A snapshot taken while the link stood holds the folder it named,
+		// which outlives the link: the variable is said from it once the
+		// link goes, as in the usual order of an upgrade.
+		sayFoundPackage(healed);
+		return healed;
+	}
 	if (hosted()) {
 		throw new Error(
 			"Hosted subagents need the host to pin pi.subagent.startupPiInstall to pi's CLI before loading extensions",
 		);
 	}
 	const install = resolveParentPiInstall();
+	sayFoundPackage(install);
 	store[STARTUP_INSTALL_KEY] = install;
 	return install;
 }
 
+/**
+ * Put `install`'s package folder in `PI_PACKAGE_DIR` when the folder
+ * that variable names is gone and the install's own stands, whether it
+ * found it from its entry script or took it as the link's target while
+ * the link stood, so pi itself, and whatever it starts, reads its
+ * assets from the package it runs. A folder that stands is left as named.
+ */
+function sayFoundPackage(install: PiInstall): void {
+	const named = process.env.PI_PACKAGE_DIR;
+	const { packageDir } = install;
+	if (!named || packageDir === undefined || packageDir === named) return;
+	if (existsSync(named) || !existsSync(packageDir)) return;
+	process.env.PI_PACKAGE_DIR = packageDir;
+}
+
+/**
+ * `install`, or, when the package folder it names is gone, the same
+ * install with the package its entry script sits in, which is also
+ * put in `PI_PACKAGE_DIR` so pi itself reads its assets from there.
+ * A pi that captured its install with the link already gone, or under
+ * code that kept a dead link, heals so at its next dispatch.
+ */
+function healedInstall(install: PiInstall): PiInstall {
+	const { packageDir } = install;
+	if (packageDir === undefined || existsSync(packageDir)) return install;
+	const found = packageOf(
+		resolved(install.entry, realpathSync),
+		holdsPackageJson,
+	);
+	if (found === undefined) return install;
+	const root = dereference(found, realpathSync);
+	process.env.PI_PACKAGE_DIR = root;
+	return { ...install, packageDir: root };
+}
+
 function dereference(path: string, realpath: (p: string) => string): string {
-	if (!path) return path;
+	return resolved(path, realpath) ?? path;
+}
+
+/** `path` dereferenced, or undefined when empty or its target is gone. */
+function resolved(
+	path: string,
+	realpath: (p: string) => string,
+): string | undefined {
+	if (!path) return undefined;
 	try {
 		return realpath(path);
 	} catch {
-		// The target is already gone; keep the raw path so the
-		// health check surfaces it rather than throwing here.
-		return path;
+		// The target is already gone; the caller decides what stands in.
+		return undefined;
 	}
 }

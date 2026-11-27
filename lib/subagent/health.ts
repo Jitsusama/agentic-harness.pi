@@ -86,21 +86,21 @@ export function createSubagentHealthCheck(
 }
 
 /**
- * Default singleton bound to the running pi process.
- *
- * Captured at module load. Production code uses this; the
- * factory above stays exported for tests and any consumer
- * that wants a fresh probe.
+ * The check production dispatch runs, against the running pi's install
+ * as it reads at this dispatch: the startup snapshot, healed when its
+ * package folder has gone and the entry script's own package stands in
+ * (see `getParentPiInstall`). Read each time rather than at module
+ * load, so a healed reading passes and one gone since is named.
  */
-export const checkSubagentRuntime: () => SubagentRuntimeError | null = (() => {
+export function checkSubagentRuntime(): SubagentRuntimeError | null {
 	const install = getParentPiInstall();
 	return createSubagentHealthCheck({
 		paths: [install.node, install.entry, install.packageDir].filter(
 			(p): p is string => typeof p === "string" && p.length > 0,
 		),
 		exists: existsSync,
-	});
-})();
+	})();
+}
 
 /**
  * Pattern that matches the canonical "stale pi install"
