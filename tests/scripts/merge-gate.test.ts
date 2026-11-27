@@ -17,6 +17,7 @@
 import { execFile } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -460,6 +461,9 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).not.toContain("loosens a rule");
+		expect(answered.said, "a file it judges changed too").not.toContain(
+			"no file the gate judges",
+		);
 	});
 
 	it("lets a change to the config alone through", async () => {
@@ -475,7 +479,7 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("Biome passes the 1 file(s)");
 		expect(answered.said).not.toContain("main's config");
 		expect(answered.said, "the config it changes, named").toMatch(
-			/changes Biome's config or plugins and no file they judge.*\n {2}biome\.jsonc\n/,
+			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}biome\.jsonc\n/,
 		);
 	});
 
@@ -494,8 +498,48 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said, "the plugin it changes, named").toMatch(
-			/changes Biome's config or plugins and no file they judge.*\n {2}lib\/no-alert\.grit\n/,
+			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}lib\/no-alert\.grit\n/,
 		);
+	});
+
+	// A plugin is no file Biome judges, so a change to one alone ran no
+	// Biome at all, and a plugin that won't compile merged, failing every
+	// lint on main after it (27 November round, F21).
+	it("refuses a plugin a change edits alone that won't compile", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, { [grit]: "this is ( not grit\n" });
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "Biome's own words on the plugin").toContain(
+			"Failed to compile the Grit plugin",
+		);
+		expect(answered.said, "the plugin's to fix, not lint:fix's").toContain(
+			"couldn't judge",
+		);
+		expect(answered.said, "lint:fix can't mend a plugin").not.toContain(
+			"pnpm lint:fix",
+		);
+	});
+
+	it("refuses a config a change only misformats, sending it to lint:fix", async () => {
+		const checkout = await harness();
+		// It loads, and only Biome's formatter faults it, which lint:fix mends.
+		const sha = await change(checkout, {
+			"biome.jsonc": `{"formatter":{"indentStyle":"tab"}}\n`,
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "a fault lint:fix mends").toContain("pnpm lint:fix");
+		expect(answered.said, "the config loads").not.toContain("couldn't judge");
 	});
 
 	it("says a head's config that won't load is the config's to fix, not lint:fix's", async () => {
@@ -902,6 +946,59 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "the file wasn't judged").toContain(
 			"Biome passes the 1 file(s)",
 		);
+	});
+
+	it("keeps control characters a head's file name holds off the terminal", async () => {
+		const checkout = await harness();
+		// An escape that retitles the window, in a script's name the count then
+		// prints as the head lists it. Biome escapes what it prints itself.
+		const owned = "scripts/\u001b]0;owned\u0007.sh";
+		const sha = await change(checkout, {
+			[owned]: LOOSE,
+			[SUPPRESSION_LIST]: suppressionList(`${OLD} 1`, `${owned} 1`),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the count named it").toContain("]0;owned");
+		// Every control character but a tab and a newline, by its code.
+		const controls = [...answered.said].filter((character) => {
+			const code = character.charCodeAt(0);
+			return (code < 32 && code !== 9 && code !== 10) || code === 127;
+		});
+		expect(controls, "no escape reaches the terminal").toEqual([]);
+	});
+
+	it("runs none of the checkout's hooks", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// Each hook a fetch, a ref's move or an index could run, which a strict
+		// session could write to move a ref the gate then reads.
+		const ran = join(folder(made, "hooks"), "ran");
+		const hooks = join(checkout, ".git", "hooks");
+		mkdirSync(hooks, { recursive: true });
+		for (const hook of [
+			"reference-transaction",
+			"post-index-change",
+			"post-checkout",
+			"post-merge",
+		]) {
+			writeFileSync(
+				join(hooks, hook),
+				`#!/bin/sh\necho ${hook} >> "${ran}"\n`,
+				{
+					mode: 0o755,
+				},
+			);
+		}
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(existsSync(ran), "a hook of the checkout's ran").toBe(false);
 	});
 
 	it("reads a changed file named like an option as a file", async () => {

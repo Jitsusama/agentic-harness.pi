@@ -38,6 +38,12 @@ clean() {
     GIT_NO_REPLACE_OBJECTS=1 "$@"
 }
 
+# Text a head chose (its file names, and what Biome, vitest or git say of
+# them) as it may reach the terminal: every control character but a tab
+# and a newline goes, escape included, so none can move the cursor,
+# retitle the window or hide a line before it.
+shown() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
+
 # Git on the gate's own store, which holds no ref, replacement or graft.
 stored() { clean git --git-dir="$gate_store" -c core.hooksPath=/dev/null "$@"; }
 
@@ -91,7 +97,7 @@ gate_objects() {
   main_id=${BASH_REMATCH[1]}
   if ! said=$(fetched signing_in "$url" "$main_id" 2>&1) ||
     ! stored cat-file -e "$main_id^{commit}" 2> /dev/null; then
-    echo "$said" >&2
+    shown <<< "$said" >&2
     echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
     exit 1
   fi
