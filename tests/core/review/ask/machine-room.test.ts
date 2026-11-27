@@ -134,12 +134,19 @@ describe("whether the machine has room for a round", () => {
 	});
 
 	it("is quiet only under CPU some avg60 25, memory full avg60 2 and with 20 GiB available", async () => {
-		expect(await quiet()).toBe(true);
-		expect(await quiet({ memoryPressure: pressure("full", "2.00") })).toBe(
-			false,
-		);
-		expect(await quiet({ cpuPressure: pressure("some", "25.00") })).toBe(false);
-		expect(await quiet({ meminfo: meminfo(19.99) })).toBe(false);
+		expect(await quiet(), "every reading inside its bar").toBe(true);
+		expect(
+			await quiet({ memoryPressure: pressure("full", "2.00") }),
+			"memory full avg60 at 2",
+		).toBe(false);
+		expect(
+			await quiet({ cpuPressure: pressure("some", "25.00") }),
+			"CPU some avg60 at 25",
+		).toBe(false);
+		expect(
+			await quiet({ meminfo: meminfo(19.99) }),
+			"under 20 GiB available",
+		).toBe(false);
 	});
 
 	it("is never quiet where a reading isn't kept, as on a Mac", async () => {
