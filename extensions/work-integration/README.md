@@ -553,12 +553,14 @@ holding commits the carried one lacks, is refused, never written
 over; a tree that already stands as carried is left as it is. Each
 note the memory store here lacks for the quest, judged by its text,
 is added, so arriving twice adds nothing. The session's file is
-placed where pi finds it from its folder here, over any older copy,
-and it ends with `{"kind": "sessions", "sessions": [{"id", "cwd"}],
-"fence"}`, the fence naming what the session ran under; the node
-starts pi under that one, never another. It exits 1 when a tree was
-refused, the notes couldn't be added or nothing came, so nothing
-starts half arrived, and 64 when it was asked wrongly.
+placed where pi finds it from its folder here, by that folder's real
+path, as pi reads it however the node's shell entered it, over any
+older copy, and it ends with `{"kind": "sessions", "sessions":
+[{"id", "cwd"}], "fence"}`, the fence naming what the session ran
+under; the node starts pi under that one, never another. It exits 1
+when a tree was refused, the notes couldn't be added or nothing
+came, so nothing starts half arrived, and 64 when it was asked
+wrongly.
 
 A tree is cloned from a twin, a repository near where it goes with
 the same origin that is neither shallow nor partial, with
