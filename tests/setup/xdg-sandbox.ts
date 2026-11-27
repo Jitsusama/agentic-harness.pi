@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { useSecretStore } from "../../lib/core/internal/keyring/secrets.ts";
 import { memorySecretStore } from "../support/memory-secret-store.ts";
+import { dropHeldSession } from "./held-session.ts";
 
 const sandbox = mkdtempSync(join(tmpdir(), "pi-xdg-sandbox-"));
 
@@ -63,6 +64,8 @@ process.env.PI_SETTLE = "off";
 // Nor may the sandbox the developer's session runs in reach what a
 // test spawns, whose environment a strict parent's would change.
 delete process.env.PI_SANDBOX;
+// Nor is a test's session one the developer's node holds.
+dropHeldSession(process.env);
 // Nor may a test read or write the developer's keyring: credentials
 // go to a keyring in memory, fresh for each test file.
 useSecretStore(memorySecretStore());

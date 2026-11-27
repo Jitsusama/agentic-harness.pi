@@ -28,7 +28,13 @@ host of one key and a refused engine never listen, holds survive
 stop and resume at the next start, and a starting host answers a list
 before it has resumed what it held. The stale-rejection net is mocked,
 so the test worker keeps its own handling; the test checks a host sets
-it before its engine loads.
+it before its engine loads. Its cases, and run.test.ts's realm host,
+take their runtime folder from support/short-runtime.ts: under the
+run's temp folder when a child's socket fits there, else under the
+run's short folder in /tmp, since a session's temp folder is too long
+for one. Where /tmp may not be written there is no short folder, so it
+stays under the temp folder and only the cases needing children fail.
+short-runtime.test.ts checks all three, two at the limit's edge.
 children.test.ts checks a host passing what names a conversation a
 child runs to the child's socket over real sockets with fake backends:
 an attach and the window's keys and frames both ways, a frame split
@@ -70,7 +76,8 @@ now run, a busy one tried again with each try said, one systemd won't
 say has gone watched, a second one running a conversation stopped, and
 a start waiting on one it couldn't take up under another id.
 support/supervised-children.ts is their fake units, roster and
-children, each child's traits set by the test that starts it.
+children, each child's traits set by the test that starts it; its
+children listen in a folder from support/short-runtime.ts too.
 child-policy.test.ts checks the policy file read as it changes: one
 named, all, a missing file and an unreadable one each moving nothing.
 child-hosting.test.ts puts the routes, supervisor and policy together

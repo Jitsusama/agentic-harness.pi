@@ -24,6 +24,7 @@ import {
 	derivedIn,
 	fakeUnits,
 } from "./support/fake-children.ts";
+import { shortRuntime } from "./support/short-runtime.ts";
 
 // The net is process-wide, so the worker running these tests keeps its
 // own handling; what is checked is that a host sets it, and where.
@@ -33,14 +34,13 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 }));
 
 let dir: string;
-// The runtime folder, made apart from `dir` and short, since a child's
-// socket sits three names below it and a Unix socket's path can't pass
-// 107 bytes.
+// The runtime folder, made apart from `dir` by shortRuntime, which says
+// why a child's socket needs it short.
 let run: string;
 let report: ReturnType<typeof vi.fn<(error: unknown) => void>>;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-serve-"));
-	run = await mkdtemp(join(tmpdir(), "r"));
+	run = await shortRuntime("work-attended");
 	report = vi.fn();
 });
 afterEach(async () => {
@@ -592,9 +592,10 @@ describe("serveHost", () => {
 /**
  * Refuse, saying why, a run whose TMPDIR leaves no room for a child's
  * socket: the host then runs every conversation itself, as it should, and
- * a test of its children would fail on what it never started. A run's
- * folders sit 26 bytes under its TMPDIR, and a child's socket 67 more,
- * so past a TMPDIR of about 10 bytes, the system's own, there is none.
+ * a test of its children would fail on what it never started. shortRuntime
+ * leaves room wherever the run has its short folder in /tmp; only where it
+ * has none, as where /tmp can't be written, does `run` stay under a TMPDIR
+ * that may be too deep.
  */
 function roomForChildren(at = run): void {
 	try {

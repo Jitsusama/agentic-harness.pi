@@ -44,6 +44,7 @@ import { STEP_ALLOWANCE_MS } from "../../../host/service/systemd.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 import { fakeUnits } from "./support/fake-children.ts";
+import { shortRuntime } from "./support/short-runtime.ts";
 
 // The net is process-wide; serve.test.ts checks a host sets it.
 vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
@@ -261,10 +262,10 @@ describe("a child host", () => {
 	// The other side of the guard: a realm host keeps its children, so a
 	// guard that dropped them for every host would fail here.
 	it("leaves a realm host asking its key's policy what moves to a child", async () => {
-		// A realm host refuses a runtime folder whose children's sockets
-		// wouldn't fit, so this one is short, as /run/user/<uid> is, rather
-		// than under a temp folder a session may have made long.
-		const runtime = await mkdtemp(join("/tmp", "h2-rt-"));
+		// A realm host whose children's sockets wouldn't fit runs without
+		// them and reports it, so this host's runtime folder is one they
+		// fit in, as /run/user/<uid> is.
+		const runtime = await shortRuntime("work-background");
 		onTestFinished(() => rm(runtime, { recursive: true, force: true }));
 		const folder = join(runtime, "pi-host", "work-background.d");
 		await mkdir(folder, { recursive: true, mode: 0o700 });
