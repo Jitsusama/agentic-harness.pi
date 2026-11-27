@@ -1,38 +1,85 @@
 /**
- * A pull request's branch, asked once a session and kept, so a stop on
- * one change can tell its pushes from the rest of its repository's.
+ * A pull request's branch, so a stop on one change can tell its pushes
+ * from the rest of its repository's.
  *
- * Only a branch found is kept: a branch a change comes from doesn't move
- * while it is open. A lookup that found nothing (GitHub slow, a rate
- * limit, the door down) is asked again at the next write, since the stop
- * holds every write it can't tell apart, and a failure kept would hold
- * every push to that repository for as long as the stop stands.
+ * A branch told by name (GitHub's or Delta's own answer) is kept for
+ * the session: a branch a change comes from doesn't move while it is
+ * open. A lookup that found nothing (GitHub slow, a rate limit, the
+ * door down) is asked again at the next write, since the stop holds
+ * every write it can't tell apart, and a failure kept would hold every
+ * push to that repository for as long as the stop stands.
  *
- * Where neither GitHub's nor Delta's tool answers, git's own listing of
- * the repository still can: the pull request's head commit, and the one
- * branch standing at it ({@link headAmong}).
+ * Where no lookup tells the branch, git's own listing of the repository
+ * can still guess it: the one branch standing at the pull request's head
+ * commit ({@link headAmong}). A guess is never kept. GitHub moves a pull
+ * request's head after a push to its branch, not with it, so for a
+ * moment another branch left at the old commit can look like the
+ * change's own. Kept, that guess would let the stopped branch's pushes
+ * through for the rest of the session; asked each time, it can be wrong
+ * only for a write made in that moment.
  */
 
+import type { Exec } from "../../core/exec/index.ts";
 import type { HeadOf } from "./cover.ts";
 
-/** Each pull request's branch as `ask` finds it, found ones kept. */
-export function keptHeads(ask: HeadOf): HeadOf {
-	const heads = new Map<string, Promise<string | undefined>>();
-	return (repo, pr) => {
-		if (repo === undefined) return Promise.resolve(undefined);
-		const key = `${repo}#${pr}`;
-		const known = heads.get(key);
+/**
+ * Each pull request's branch as `ask` tells it, kept once found, and
+ * `guess` asked afresh wherever `ask` finds none. A lookup still under
+ * way is shared by every write that asks for it meanwhile.
+ */
+export function keptHeads(ask: HeadOf, guess?: HeadOf): HeadOf {
+	const told = new Map<string, Promise<string | undefined>>();
+	const guessing = new Map<string, Promise<string | undefined>>();
+	const guessed = (key: string, repo: string, pr: number) => {
+		const known = guessing.get(key);
+		if (known) return known;
+		const asked = guess ? guess(repo, pr) : Promise.resolve(undefined);
+		guessing.set(key, asked);
+		const forget = () => {
+			if (guessing.get(key) === asked) guessing.delete(key);
+		};
+		void asked.then(forget, forget);
+		return asked;
+	};
+	const tellOf = (key: string, repo: string, pr: number) => {
+		const known = told.get(key);
 		if (known) return known;
 		const asked = ask(repo, pr);
-		heads.set(key, asked);
+		told.set(key, asked);
 		const forget = () => {
-			if (heads.get(key) === asked) heads.delete(key);
+			if (told.get(key) === asked) told.delete(key);
 		};
 		void asked.then((head) => {
 			if (head === undefined) forget();
 		}, forget);
 		return asked;
 	};
+	return (repo, pr) => {
+		if (repo === undefined) return Promise.resolve(undefined);
+		const key = `${repo}#${pr}`;
+		return tellOf(key, repo, pr).then(
+			(head) => head ?? guessed(key, repo, pr),
+		);
+	};
+}
+
+/**
+ * The branch of pull request `pr` of the repository at `url`, guessed
+ * from git's listing of it ({@link headAmong}). None when the listing
+ * fails or can't tell.
+ */
+export async function listedHead(
+	exec: Exec,
+	url: string,
+	pr: number,
+): Promise<string | undefined> {
+	const listed = await exec("git", [
+		"ls-remote",
+		url,
+		`refs/pull/${pr}/head`,
+		"refs/heads/*",
+	]);
+	return listed.code === 0 ? headAmong(listed.stdout, pr) : undefined;
 }
 
 /**

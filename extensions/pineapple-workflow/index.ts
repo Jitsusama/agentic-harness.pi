@@ -25,21 +25,20 @@
  * empty folder, and the clock one more each tick.
  */
 
-import { execFile } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { headAmong, keptHeads } from "../../lib/internal/pineapple/heads.ts";
+import { keptHeads, listedHead } from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -61,19 +60,20 @@ import { tendHolds } from "./holding.ts";
 import { createParking } from "./parking.ts";
 import { createWhereabouts, reposOf } from "./whereabouts.ts";
 
-const run = promisify(execFile);
-
-/** How long a lookup may take before the guard goes on without it. */
-const LOOKUP_MS = 10_000;
+/**
+ * How a lookup runs: never asking on a screen, and stopped with all it
+ * started after ten seconds, when the guard goes on without it.
+ */
+const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
 
 /**
- * How long git's listing of every branch may take: over half a megabyte
- * for a busy repository, eight seconds on a slow link.
+ * How git's listing of every branch runs: over half a megabyte for a busy
+ * repository, eight seconds on a slow link, so given thirty.
  */
-const LISTING_MS = 30_000;
+const LISTINGS = spawnExec({ timeoutMs: 30_000 });
 
-/** The most a lookup may print, room for many times that listing. */
-const LISTING_BYTES = 32 * 1024 * 1024;
+/** A repository named as owner and name, as GitHub's listing needs. */
+const OWNED = /^[\w.-]+\/[\w.-]+$/;
 
 /**
  * How often a session looks for a stop or a resume, and holds are
@@ -84,7 +84,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = keptHeads(headOfAsked);
+	const heads = keptHeads(headOfAsked, headGuessed);
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
@@ -258,9 +258,8 @@ const gitFacts: GitFacts = {
 };
 
 /**
- * A pull request's branch, asked of GitHub, then Delta, then git's own
- * listing of the repository on GitHub; `keptHeads` keeps each one found
- * for the session.
+ * A pull request's branch, asked of GitHub, then Delta; `keptHeads`
+ * keeps each one found for the session.
  */
 const headOfAsked: HeadOf = async (repo, pr) => {
 	if (repo === undefined) return undefined;
@@ -275,32 +274,21 @@ const headOfAsked: HeadOf = async (repo, pr) => {
 			"headRefName",
 			"-q",
 			".headRefName",
-		])) ??
-		(await deltaHead(repo, pr)) ??
-		(await listedHead(repo, pr))
+		])) ?? (await deltaHead(repo, pr))
 	);
 };
 
 /**
- * A pull request's branch, read from git's listing of its repository on
- * GitHub, which needs neither tool's sign-in.
+ * A pull request's branch guessed from git's listing of its repository
+ * on github.com, the only host it's asked of. It needs neither tool's
+ * sign-in for a public repository; for a private one, git uses the
+ * machine's own credential helper or fails, and never asks. A name with
+ * no owner isn't listed, since it names no repository there.
  */
-async function listedHead(
-	repo: string,
-	pr: number,
-): Promise<string | undefined> {
-	const listing = await quietly(
-		"git",
-		[
-			"ls-remote",
-			`https://github.com/${repo}`,
-			`refs/pull/${pr}/head`,
-			"refs/heads/*",
-		],
-		LISTING_MS,
-	);
-	return listing === undefined ? undefined : headAmong(listing, pr);
-}
+const headGuessed: HeadOf = (repo, pr) =>
+	repo !== undefined && OWNED.test(repo)
+		? listedHead(LISTINGS, `https://github.com/${repo}`, pr)
+		: Promise.resolve(undefined);
 
 async function deltaHead(
 	repo: string,
@@ -328,20 +316,15 @@ async function deltaHead(
 	}
 }
 
+/**
+ * What `program` prints, or nothing where it failed or said nothing: an
+ * unknown answer makes the stop hold the write.
+ */
 async function quietly(
 	program: string,
 	args: string[],
-	timeout = LOOKUP_MS,
 ): Promise<string | undefined> {
-	try {
-		const { stdout } = await run(program, args, {
-			timeout,
-			maxBuffer: LISTING_BYTES,
-		});
-		const out = stdout.trim();
-		return out === "" ? undefined : out;
-	} catch {
-		// Nothing to say: an unknown answer makes the stop hold the write.
-		return undefined;
-	}
+	const { code, stdout } = await LOOKUPS(program, args);
+	const out = stdout.trim();
+	return code === 0 && out !== "" ? out : undefined;
 }
