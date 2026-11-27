@@ -14,6 +14,13 @@
  * This only reads the call. What it names but doesn't say, such as the
  * repository a bare `git push` goes to, is left for {@link settle} to ask
  * git, so the parsing stays testable without a checkout.
+ *
+ * Long because every way a command line can say where a push goes, its
+ * refspecs, its options, the settings and environment it is given and
+ * the shells it is fed to, is read by one walk of the line: split
+ * apart, one reader would learn a form of the line the others miss,
+ * and a push read one way by one and another way by another is a push
+ * a stop lets through.
  */
 
 import { isAbsolute, join, resolve } from "node:path";

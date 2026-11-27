@@ -1,3 +1,12 @@
+/**
+ * Which of a session's calls are writes a safe-word stop can hold, and
+ * what each is a write to.
+ *
+ * Long because each case is one more form of a command line the guard
+ * reads in one walk, and the cases share its fixtures (a checkout, its
+ * trees, a git whose settings each case sets): a stop holds only the
+ * pushes every form of the line is read alike for.
+ */
 import { describe, expect, it } from "vitest";
 import {
 	changeOf,
