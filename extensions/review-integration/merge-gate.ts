@@ -235,7 +235,8 @@ export function gateRunner(): RunGate {
 		const call = callSignal();
 		const clock = new AbortController();
 		// Whichever of the two fires first, with its reason, as the one
-		// spawnExec stops on carries it.
+		// spawnExec stops on carries it: what stopped the gate, even when
+		// the other fires while it is given its grace.
 		const first = call ? AbortSignal.any([clock.signal, call]) : clock.signal;
 		const timer = setTimeout(() => clock.abort(), timeoutMs);
 		try {
@@ -252,7 +253,8 @@ export function gateRunner(): RunGate {
 				abortedBeforeStart("bash"),
 				abortedBy("bash", first.reason),
 			);
-			const killed = clock.signal.aborted && call?.aborted !== true;
+			const killed =
+				clock.signal.aborted && first.reason === clock.signal.reason;
 			return { ...ran, stderr, killed, aborted: !killed };
 		} finally {
 			clearTimeout(timer);

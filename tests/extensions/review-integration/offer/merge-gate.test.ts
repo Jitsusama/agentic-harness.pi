@@ -33,8 +33,24 @@ function timed(): { run: RunGate; given: number[] } {
 /** The gate run by a real shell, as review_offer runs it. */
 const shell: RunGate = gateRunner();
 
-/** How long a gate's bash may take to start and speak on a loaded machine, well short of its 10 s clock. */
+/** How long a test waits for a gate to speak before failing, well short of a 10 s clock. */
 const SPEAKS_MS = 8_000;
+
+/**
+ * A clock that fires only once the gate's bash has started and run its
+ * first lines, even on a loaded machine; the test waits past it.
+ */
+const STARTS_MS = 3_000;
+
+/** Resolves once `path` is there, or fails after SPEAKS_MS. */
+async function until(path: string, what: string): Promise<void> {
+	await vi.waitFor(
+		() => {
+			if (!existsSync(path)) throw new Error(`${what} hasn't happened yet`);
+		},
+		{ timeout: SPEAKS_MS, interval: 20 },
+	);
+}
 
 let dir: string;
 beforeEach(() => {
@@ -399,9 +415,9 @@ describe("a repo's merge gate", () => {
 		const marker = join(dir, "still-running");
 		const ran = await withCallSignal(new AbortController().signal, () =>
 			shell(
-				`echo 'gate: step 3' >&2; (sleep 2; touch ${JSON.stringify(marker)}) & wait`,
+				`echo 'gate: step 3' >&2; (sleep 5; touch ${JSON.stringify(marker)}) & wait`,
 				dir,
-				1_000, // long enough for bash to start and say its line on a loaded machine, short of the child's sleep
+				STARTS_MS, // short of the child's sleep
 			),
 		);
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
@@ -410,12 +426,66 @@ describe("a repo's merge gate", () => {
 			ran.stderr,
 			"the gate's own words, without the exec layer's note, which names neither gate nor clock",
 		).toBe("gate: step 3");
-		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
+		await new Promise((done) => setTimeout(done, 5_500 - STARTS_MS)); // past the child's own sleep, so a child left running would have touched the marker
 		expect(
 			existsSync(marker),
 			"the gate's child went with it, rather than finishing after",
 		).toBe(false);
-	});
+	}, 15_000);
+
+	// The clock fires, and the person presses Escape while the stopped gate
+	// is still given its grace: the clock stopped it, so what is cut and
+	// what the refusal says both follow the clock.
+	it("follows the clock when Escape comes after it has stopped a gate", async () => {
+		const termed = join(dir, "termed");
+		const call = new AbortController();
+		// The gate outlives its TERM, so it is still running when Escape
+		// lands, and ends only at the grace's KILL. Its stderr is closed
+		// after its line, so bash's own word on the killed sleep isn't said.
+		const ran = withCallSignal(call.signal, () =>
+			shell(
+				`trap 'touch ${JSON.stringify(termed)}' TERM; echo 'bash aborted: This operation was aborted' >&2; exec 2>/dev/null; sleep 10; sleep 10`,
+				dir,
+				STARTS_MS,
+			),
+		);
+		try {
+			await until(termed, "the clock's TERM");
+		} finally {
+			call.abort(new Error("pressed"));
+			await ran;
+		}
+		const stopped = await ran;
+		expect(stopped.killed, "the clock stopped it").toBe(true);
+		expect(stopped.aborted, "an Escape after the clock is no Escape").toBe(
+			false,
+		);
+		expect(
+			stopped.stderr,
+			"the gate's own line, though it reads as the clock's note, and nothing after",
+		).toBe("bash aborted: This operation was aborted");
+	}, 20_000);
+
+	it(
+		"leaves nothing of the exec layer's when a call stops a gate that said nothing",
+		async () => {
+			const started = join(dir, "started");
+			const call = new AbortController();
+			const ran = withCallSignal(call.signal, () =>
+				shell(`touch ${JSON.stringify(started)}; sleep 5`, dir, 10_000),
+			);
+			try {
+				await until(started, "the gate's start");
+			} finally {
+				call.abort(new Error("pressed"));
+				await ran;
+			}
+			const stopped = await ran;
+			expect(stopped.aborted, "a stopped call is an Escape").toBe(true);
+			expect(stopped.stderr, "nothing, as the gate said nothing").toBe("");
+		},
+		SPEAKS_MS + 5_000,
+	);
 
 	// A gate's own line reading as the exec layer's is the gate's to say.
 	it.each([
@@ -425,8 +495,6 @@ describe("a repo's merge gate", () => {
 		// Ends in the before-start note's words, which spawnExec writes
 		// only as the whole stderr of a run that never started.
 		"stopped\nbash aborted before it started",
-		// Ends in the note the clock's bare abort would give.
-		"stopped\nbash aborted: This operation was aborted",
 	])(
 		"leaves out only the exec layer's note when a call is stopped for %j",
 		async (reason) => {
@@ -440,17 +508,12 @@ describe("a repo's merge gate", () => {
 				),
 			);
 			try {
-				await vi.waitFor(
-					() => {
-						if (!existsSync(spoke))
-							throw new Error("the gate hasn't spoken yet");
-					},
-					{ timeout: SPEAKS_MS, interval: 20 },
-				);
+				await until(spoke, "the gate's speaking");
 			} finally {
-				// Stopped even when the wait fails, so no gate runs on in a folder
-				// afterEach removes.
+				// Stopped, and its end awaited, even when the wait fails, so no
+				// gate runs on in a folder afterEach removes.
 				call.abort(new Error(reason));
+				await ran;
 			}
 			const stopped = await ran;
 			expect(stopped.aborted, "a stopped call is an Escape").toBe(true);
