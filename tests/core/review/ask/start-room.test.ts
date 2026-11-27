@@ -99,13 +99,15 @@ describe("starting council rounds on room alone", () => {
 		let looks = 0;
 		const room = async () => {
 			looks += 1;
-			return looks <= 3 ? "memory full avg60 was 14, at or past 10" : undefined;
+			return looks <= 3
+				? "memory full avg60 was 14, at or past 5; CPU some avg60 was 46, at or past 40"
+				: undefined;
 		};
 
 		const start = await awaitCouncilStart(path, onRoom("ISXEG8", room));
 
 		expect(looks, "it looked until there was room").toBe(4);
-		expect(start.waited).toContain("while memory has room");
+		expect(start.waited).toContain("while the machine has room");
 		expect(start.waited).toContain("memory full avg60 was 14");
 		expect(line().started.by).toBe("ISXEG8");
 	});
@@ -199,7 +201,7 @@ describe("starting council rounds on room alone", () => {
 		stop.abort();
 
 		const stopped = await start;
-		expect(stopped.cancelled).toContain("while memory has room");
+		expect(stopped.cancelled).toContain("while the machine has room");
 		expect(stopped.cancelled, "and what it was short of").toContain(
 			"memory full avg60 was 20",
 		);

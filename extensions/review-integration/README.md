@@ -333,12 +333,17 @@ round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
 
 Rounds on one machine start in the order they were asked, each as
-soon as the machine has memory for it: while the kernel's memory
-`full avg60` is under 10, read from `/proc/pressure/memory`
-(`lib/core/review/ask/memory-room.ts`), and at most two a minute,
-so a long line drains no faster than that minute-long average can
-show what the rounds before took. A machine that keeps no such
-reading, as a Mac, always has room, and keeps the two a minute.
+soon as the machine has room for it: while the kernel's memory
+`full avg60` is under 5, `MemAvailable` is at least 16 GiB (half
+of all memory on a machine with less than 32 GiB) and CPU
+`some avg60` is under 40, read from `/proc/pressure` and
+`/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
+most two a minute, so a long line drains no faster than those
+minute-long averages can show what the rounds before took. A
+reading the machine doesn't keep, as on a Mac, says nothing, so a
+Mac always has room and keeps the two a minute. The CPU bar came
+on 26 November, when optimus sat over 40 for an hour with 24
+councils running, since only memory was read.
 Rounds with the same first ask, as two sessions' rounds on one
 change always have, take their turns by ticket id, so every look
 agrees which is ahead. A
