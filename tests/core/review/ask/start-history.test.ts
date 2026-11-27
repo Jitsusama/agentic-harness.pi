@@ -72,13 +72,17 @@ describe("keeping the line's starts", () => {
 			kept.map((line) => line.change),
 			"both starts, in order",
 		).toEqual(["o/r#1", "o/r#2"]);
-		const second = kept[1];
+		const [first, second] = kept;
 		expect(second?.kind).toBe("council");
+		// The line spaces starts from each other, not from an ask, so the
+		// second's wait is the spacing less however late it asked.
 		expect(
-			Date.parse(second?.startAt ?? "") - Date.parse(second?.askedAt ?? ""),
-			"the second waited its spacing between its ask and its start",
+			Date.parse(second?.startAt ?? "") - Date.parse(first?.startAt ?? ""),
+			"the second started a spacing after the first",
 		).toBeGreaterThanOrEqual(600 - 2);
-		expect(second?.waitedMs).toBeGreaterThanOrEqual(600 - 2);
+		expect(second?.waitedMs).toBe(
+			Date.parse(second?.startAt ?? "") - Date.parse(second?.askedAt ?? ""),
+		);
 		expect(second?.ticket).toMatch(/^[0-9a-f-]{36}$/);
 	});
 

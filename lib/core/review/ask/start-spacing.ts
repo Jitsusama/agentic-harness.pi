@@ -397,7 +397,8 @@ export async function awaitCouncilStart(
 				...(ticket.kind === undefined ? {} : { kind: ticket.kind }),
 				askedAt: asked,
 				startAt: started.at,
-				waitedMs,
+				// From the start's own stamp, so the line reads as its two times.
+				waitedMs: Date.parse(started.at) - Date.parse(asked),
 				...(lastShort === undefined ? {} : { heldBy: lastShort }),
 			}).catch(() => {
 				// The history is for reading waits back afterwards; a round whose
