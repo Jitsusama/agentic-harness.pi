@@ -560,6 +560,98 @@ describe("a host with conversations in children", () => {
 		});
 		expect(madeByHost(reply), "the host's word, not the child's").toBe(true);
 	});
+	it("passes a heap snapshot to the child without who asked, saying who in its own journal", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "h",
+			op: "heap-snapshot",
+			sessionId: a,
+			by: "scripts/host-memory.ts",
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: a } });
+		expect(childAsked).toStrictEqual([
+			{ v: 1, id: "h", op: "heap-snapshot", sessionId: a },
+		]);
+		expect(said).toEqual([
+			expect.stringMatching(
+				`\\(${a}\\): a heap snapshot of its process, asked by scripts/host-memory\\.ts over the control socket, passed on to its child$`,
+			),
+		]);
+		expect(asked).toEqual([]);
+	});
+	it("has a child on code older than who asks write a snapshot all the same", async () => {
+		// A child started before `by` on a heap snapshot reads one carrying
+		// it as no request at all, as its strict schema does.
+		await strangeChild(b, (socket, request) => {
+			socket.write(
+				"by" in request
+					? line({
+							v: 1,
+							id: null,
+							ok: false,
+							error: {
+								code: "invalid_request",
+								message: "Invalid host control request",
+							},
+						})
+					: line({
+							v: 1,
+							id: request.id,
+							ok: true,
+							result: { sessionId: b },
+						}),
+			);
+		});
+
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "h",
+			op: "heap-snapshot",
+			sessionId: b,
+			by: "scripts/host-memory.ts",
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: b } });
+	});
+	it("says an asker that didn't name itself, and refuses one named past 128 characters before the child hears of it", async () => {
+		const unnamed = await controlRequest(hostPath, {
+			v: 1,
+			id: "h",
+			op: "heap-snapshot",
+			sessionId: a,
+		});
+		const long = await new Promise<unknown>((resolve) => {
+			// The client checks a request as the host does, so it is sent raw.
+			const caller = createConnection(hostPath);
+			const seen = messages(caller);
+			caller.write(
+				line({
+					v: 1,
+					id: "h2",
+					op: "heap-snapshot",
+					sessionId: a,
+					by: "x".repeat(129),
+				}),
+			);
+			void seen.next().then(({ value }) => {
+				caller.end();
+				resolve(value);
+			});
+		});
+
+		expect(unnamed).toMatchObject({ ok: true, result: { sessionId: a } });
+		expect(said).toEqual([
+			expect.stringContaining(
+				"a heap snapshot of its process, asked by a control request that didn't say who sent it, passed on to its child",
+			),
+		]);
+		expect(long).toMatchObject({
+			ok: false,
+			error: { code: "invalid_request" },
+		});
+		expect(childAsked, "only the one named in time").toHaveLength(1);
+	});
 	it("ends a child's conversation asked under the child's name, as the child lists it", async () => {
 		// The machine's host registry, and so a mesh presence, names the
 		// child's process for a conversation a child runs.

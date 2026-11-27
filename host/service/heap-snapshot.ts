@@ -12,7 +12,9 @@
  * conversation is busy, and the journal says how long each one took. A
  * snapshot holds every string the process holds, its environment's keys
  * among them, so it is written owner-only, in a folder only its owner can
- * enter. Whoever asked removes it once summed, and each new snapshot first
+ * enter, and the journal names who asked for it, as the asker named
+ * itself, so each copy of those secrets has someone to answer for it.
+ * Whoever asked removes it once summed, and each new snapshot first
  * removes any in the folder older than SNAPSHOT_KEPT_MS, so one forgotten
  * is gone within hours rather than kept for good. One whose write fails
  * is removed at once, since a partial file is no snapshot at all.
@@ -29,7 +31,7 @@ import {
 import { join } from "node:path";
 import { writeHeapSnapshot } from "node:v8";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { hostRefusal } from "./dispatch.ts";
+import { askedBy, hostRefusal } from "./dispatch.ts";
 
 /** Only the owner may enter the folder snapshots are written in. */
 const OWNER_ONLY_FOLDER = 0o700;
@@ -65,12 +67,14 @@ export interface SnapshotPlaces {
 
 /**
  * Write a heap snapshot of this process for `sessionId`, which it runs
- * in `state`, and answer where it went; refused while that conversation
- * is busy, since the write stops its thread.
+ * in `state`, as the caller named `by` asked, and answer where it went;
+ * refused while that conversation is busy, since the write stops its
+ * thread.
  */
 export function snapshotHeap(
 	sessionId: string,
 	state: string,
+	by: string | undefined,
 	places: SnapshotPlaces = {},
 ): Snapshot {
 	if (state === "busy")
@@ -90,6 +94,7 @@ export function snapshotHeap(
 	// so its privacy rests on this rather than on what mode a Node makes
 	// one with (24 makes it owner-only); and never over one already there.
 	writeFileSync(file, "", { mode: OWNER_ONLY_FILE, flag: "wx" });
+	const asked = `asked by ${askedBy(by)}`;
 	const clock = places.clock ?? Date.now;
 	const started = clock();
 	try {
@@ -97,14 +102,14 @@ export function snapshotHeap(
 	} catch (error) {
 		rmSync(file, { force: true });
 		places.say?.(
-			`A heap snapshot of conversation ${sessionId}'s process failed after ${clock() - started} ms, and its partial file was removed: ${error instanceof Error ? error.message : String(error)}`,
+			`A heap snapshot of conversation ${sessionId}'s process, ${asked}, failed after ${clock() - started} ms, and its partial file was removed: ${error instanceof Error ? error.message : String(error)}`,
 		);
 		throw error;
 	}
 	const tookMs = clock() - started;
 	const bytes = statSync(file).size;
 	places.say?.(
-		`Wrote a heap snapshot of conversation ${sessionId}'s process, ${Math.round(bytes / BYTES_PER_MIB)} MiB, to ${file}; its thread stopped for ${tookMs} ms`,
+		`Wrote a heap snapshot of conversation ${sessionId}'s process, ${Math.round(bytes / BYTES_PER_MIB)} MiB, to ${file}, ${asked}; its thread stopped for ${tookMs} ms`,
 	);
 	return { sessionId, file, bytes, tookMs };
 }
