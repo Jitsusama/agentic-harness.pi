@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	baseTip,
 	DEFAULT_GATE_MINUTES,
@@ -12,6 +12,7 @@ import {
 	type RunGate,
 } from "../../../../extensions/review-integration/merge-gate.ts";
 import { withCallSignal } from "../../../../lib/core/exec/index.ts";
+import { until } from "../../../support/until.ts";
 
 const CORE = "github:Jitsusama/core.nix";
 const HEAD = "4dca0632e1f0a6b3c9d27f4e5a8b1c0d2e3f4a5b";
@@ -43,13 +44,8 @@ const SPEAKS_MS = 8_000;
 const STARTS_MS = 3_000;
 
 /** Resolves once `path` is there, or fails after SPEAKS_MS. */
-async function until(path: string, what: string): Promise<void> {
-	await vi.waitFor(
-		() => {
-			if (!existsSync(path)) throw new Error(`${what} hasn't happened yet`);
-		},
-		{ timeout: SPEAKS_MS, interval: 20 },
-	);
+function there(path: string, what: string): Promise<void> {
+	return until(what, () => existsSync(path), SPEAKS_MS);
 }
 
 let dir: string;
@@ -450,7 +446,7 @@ describe("a repo's merge gate", () => {
 			),
 		);
 		try {
-			await until(termed, "the clock's TERM");
+			await there(termed, "the clock's TERM");
 		} finally {
 			call.abort(new Error("pressed"));
 			await ran;
@@ -475,7 +471,7 @@ describe("a repo's merge gate", () => {
 				shell(`touch ${JSON.stringify(started)}; sleep 5`, dir, 10_000),
 			);
 			try {
-				await until(started, "the gate's start");
+				await there(started, "the gate's start");
 			} finally {
 				call.abort(new Error("pressed"));
 				await ran;
@@ -508,7 +504,7 @@ describe("a repo's merge gate", () => {
 				),
 			);
 			try {
-				await until(spoke, "the gate's speaking");
+				await there(spoke, "the gate's speaking");
 			} finally {
 				// Stopped, and its end awaited, even when the wait fails, so no
 				// gate runs on in a folder afterEach removes.
