@@ -497,6 +497,26 @@ describe("sweepGone", () => {
 		]);
 	});
 
+	it("removes a gone folder name by name, taking a link and never what it names, and walks into none", async () => {
+		const outside = join(root, "outside");
+		await mkdir(outside);
+		await writeFile(join(outside, "kept"), "x");
+		await folder("linked", join(root, "no-such-install"));
+		await writeFile(join(root, "linked", "entry"), "x");
+		await symlink(outside, join(root, "linked", "out"));
+		// The cache writes only files in a folder, so one holding a folder
+		// is none it made, and emptying it would take a walk.
+		await folder("nested", join(root, "no-such-install"));
+		await mkdir(join(root, "nested", "inner"));
+		await writeFile(join(root, "nested", "inner", "kept"), "x");
+
+		await sweep();
+
+		expect((await readdir(root)).sort()).toEqual(["nested", "outside"]);
+		expect(await readdir(outside)).toEqual(["kept"]);
+		expect(await readdir(join(root, "nested", "inner"))).toEqual(["kept"]);
+	});
+
 	it("leaves a folder whose install can't be looked at now for a later sweep", async () => {
 		const shut = join(root, "shut");
 		await mkdir(join(shut, "install"), { recursive: true });
