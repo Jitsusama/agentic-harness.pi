@@ -20,6 +20,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
@@ -234,6 +235,35 @@ function stateHome(): string {
 	const dir = realpathSync(mkdtempSync(join(base, "merge-gate-state-")));
 	made.push(dir);
 	return dir;
+}
+
+/** Where the gate makes its copies, under the state folder `state`. */
+function roomOf(state: string): string {
+	return join(state, "pi", "agentic-harness.pi", "merge-gate", "scratch");
+}
+
+/**
+ * The room under `state`, made and then kept from being written, so the
+ * gate finds it there but can make no folder in it, as on a full disk.
+ */
+function unwritableRoom(state: string): string {
+	const room = roomOf(state);
+	mkdirSync(room, { recursive: true });
+	chmodSync(room, 0o555);
+	return room;
+}
+
+/** The gate's copies left in `room`, which a run should take with it. */
+function copiesIn(room: string): string[] {
+	return readdirSync(room).filter((name) => name.startsWith("merge-gate."));
+}
+
+/** The characters in `text` a terminal would act on rather than show. */
+function controlsIn(text: string): string[] {
+	return [...text].filter((character) => {
+		const code = character.charCodeAt(0);
+		return (code < 32 && code !== 9 && code !== 10) || code === 127;
+	});
 }
 
 /**
@@ -893,10 +923,31 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 			1,
 		);
 		for (const place of places) {
-			expect(place, "a copy beside the gate's store").toContain(
-				join(state, "pi", "agentic-harness.pi", "merge-gate", "scratch"),
-			);
+			expect(place, "a copy beside the gate's store").toContain(roomOf(state));
 		}
+	});
+
+	it("leaves no copy in its room after a run, passed or refused", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const passed = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+
+		expect(passed.code, passed.said).toBe(0);
+		expect(copiesIn(roomOf(state)), "the copies of a run that passed").toEqual(
+			[],
+		);
+		const untidy = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+
+		const refused = await gate(checkout, untidy, { XDG_STATE_HOME: state });
+
+		expect(refused.code, refused.said).toBe(1);
+		expect(copiesIn(roomOf(state)), "the copies of a run refused").toEqual([]);
 	});
 
 	it("refuses where pi's state folder can't be written, naming the fence", async () => {
@@ -912,7 +963,51 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		chmodSync(state, 0o755);
 
 		expect(answered.code, answered.said).toBe(1);
-		expect(answered.said).toContain("outside the agent fence");
+		expect(answered.said, "the room refused").toContain(
+			`no folder could be made under ${roomOf(state)}`,
+		);
+		expect(answered.said, "the fence named").toContain(
+			"outside the agent fence",
+		);
+	});
+
+	it("refuses where its room is there but takes no folder, naming the room", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const state = stateHome();
+		const room = unwritableRoom(state);
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+		chmodSync(room, 0o755);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the room mktemp failed in").toContain(
+			`no folder could be made under ${room}`,
+		);
+	});
+
+	it("says what mktemp said with the refusal, off the terminal's controls", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// A state folder whose name retitles the window, which the refusal
+		// names twice: in mktemp's words, and in its own.
+		const state = join(stateHome(), "\u001b]0;owned\u0007");
+		const room = unwritableRoom(state);
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+		chmodSync(room, 0o755);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "mktemp's own words, as a full disk's").toContain(
+			"mktemp:",
+		);
+		expect(controlsIn(answered.said), "no escape reaches the terminal").toEqual(
+			[],
+		);
 	});
 
 	it("loads a plugin whose name git would quote", async () => {
@@ -962,12 +1057,51 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said, "the count named it").toContain("]0;owned");
-		// Every control character but a tab and a newline, by its code.
-		const controls = [...answered.said].filter((character) => {
-			const code = character.charCodeAt(0);
-			return (code < 32 && code !== 9 && code !== 10) || code === 127;
+		expect(controlsIn(answered.said), "no escape reaches the terminal").toEqual(
+			[],
+		);
+	});
+
+	it("keeps bidi and C1 characters a head's file name holds off the terminal", async () => {
+		const checkout = await harness();
+		// A right-to-left override, which shows the rest of the name reversed,
+		// a C1 escape and a bidi isolate, in a script's name the count then
+		// prints as the head lists it.
+		const owned = "scripts/\u202e\u009b\u2066hs.sh";
+		const sha = await change(checkout, {
+			[owned]: LOOSE,
+			[SUPPRESSION_LIST]: suppressionList(`${OLD} 1`, `${owned} 1`),
 		});
-		expect(controls, "no escape reaches the terminal").toEqual([]);
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the count named it, past what went").toContain(
+			"scripts/hs.sh 1",
+		);
+		for (const character of ["\u202e", "\u009b", "\u2066"]) {
+			expect(
+				answered.said.includes(character),
+				`U+${character.charCodeAt(0).toString(16)} reaches the terminal`,
+			).toBe(false);
+		}
+	});
+
+	it("refuses a changed file whose name holds a newline, quoting it", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/two\nlines.ts": "export const two = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the refusal").toContain(
+			"whose name holds a newline",
+		);
+		expect(answered.said, "the name as printf quotes it").toContain(
+			"$'lib/two\\nlines.ts'",
+		);
 	});
 
 	it("runs none of the checkout's hooks", async () => {

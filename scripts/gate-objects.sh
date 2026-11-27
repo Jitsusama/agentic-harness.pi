@@ -41,8 +41,15 @@ clean() {
 # Text a head chose (its file names, and what Biome, vitest or git say of
 # them) as it may reach the terminal: every control character but a tab
 # and a newline goes, escape included, so none can move the cursor,
-# retitle the window or hide a line before it.
-shown() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
+# retitle the window or hide a line before it. The C1 controls go too, as
+# a terminal may take U+009B for an escape and a bracket, and so do the
+# bidi formatting characters, which can show a name's text reversed and
+# hide what it says. What's said is UTF-8, so those are matched as their
+# bytes, which no other character's encoding holds.
+shown() {
+  LC_ALL=C tr -d '\000-\010\013-\037\177' |
+    LC_ALL=C awk '{ gsub(/\302[\200-\237]|\342\200[\252-\256]|\342\201[\246-\251]/, ""); print }'
+}
 
 # Git on the gate's own store, which holds no ref, replacement or graft.
 stored() { clean git --git-dir="$gate_store" -c core.hooksPath=/dev/null "$@"; }
