@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { STEERED_RESULTS } from "../../../../extensions/job-workflow/outbox.ts";
-import { answeredLast } from "./hosted-case.ts";
+import { answeredLast, erredLast } from "./hosted-case.ts";
 
 const folders: string[] = [];
 
@@ -113,5 +113,44 @@ describe("answeredLast", () => {
 
 	it("waits on a file not written yet", () => {
 		expect(answeredLast(undefined)).toBe(false);
+	});
+});
+
+describe("erredLast", () => {
+	const erred = said({
+		role: "assistant",
+		content: [],
+		stopReason: "error",
+		errorMessage: "the provider refused",
+	});
+
+	it("says the error an answer last stopped on", () => {
+		expect(erredLast(sessionOf(told, erred))).toBe("the provider refused");
+	});
+
+	it("says an error that came with no text as unsaid", () => {
+		expect(erredLast(sessionOf(told, stoppedOn("error")))).toBe(
+			"no error text",
+		);
+	});
+
+	it("passes over an error answered since", () => {
+		expect(erredLast(sessionOf(told, erred, answered))).toBeUndefined();
+	});
+
+	it("passes over an error words have come after", () => {
+		expect(erredLast(sessionOf(erred, told))).toBeUndefined();
+	});
+
+	it("reads past a mark, as answeredLast does", () => {
+		const mark = { type: "custom", customType: "job-carried", data: {} };
+		expect(erredLast(sessionOf(told, erred, mark))).toBe(
+			"the provider refused",
+		);
+	});
+
+	it("says nothing of an answer that stopped, or a file not written", () => {
+		expect(erredLast(sessionOf(told, answered))).toBeUndefined();
+		expect(erredLast(undefined)).toBeUndefined();
 	});
 });

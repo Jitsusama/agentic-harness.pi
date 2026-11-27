@@ -139,6 +139,14 @@ export function answeredLast(file: string | undefined): boolean {
 	return message?.role === "assistant" && message.stopReason === "stop";
 }
 
+/**
+ * The error text of the answer a session file last records, when that
+ * answer stopped on an error and nothing has been said since.
+ */
+export function erredLast(_file: string | undefined): string | undefined {
+	return undefined;
+}
+
 /** Every entry a session file records, each as its parsed record. */
 export function entriesOf(file: string | undefined): Record<string, unknown>[] {
 	return textOf(file)

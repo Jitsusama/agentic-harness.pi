@@ -15,6 +15,7 @@ import {
 	CARRIED_FLEET,
 	CARRY,
 	CARRYING,
+	type Faux,
 	FIFTY_ROWS,
 	fauxOf,
 	LONG_NAP,
@@ -26,6 +27,17 @@ import {
 } from "./scripted-model.ts";
 
 const PACKAGE = resolve(import.meta.dirname, "../../../..");
+
+/** `own`, but an answer that says no stop stops as one cut off. */
+function cutOff(own: Faux): Faux {
+	return {
+		createFauxCore: (options) => own.createFauxCore(options),
+		fauxAssistantMessage: (content, options) =>
+			own.fauxAssistantMessage(content, { stopReason: "length", ...options }),
+		fauxToolCall: (name, args, options) =>
+			own.fauxToolCall(name, args, options),
+	};
+}
 
 /** A tool call the scripted model answered with. */
 interface Call {
@@ -44,8 +56,11 @@ interface Answer {
  * message, or one that stopped on an error, throws, so a broken core
  * can't pass for one that calls nothing.
  */
-async function answerTo(messages: readonly object[]): Promise<Answer> {
-	const core = scriptedCore(await fauxOf(PACKAGE));
+async function answerTo(
+	messages: readonly object[],
+	faux: (own: Faux) => Faux = (own) => own,
+): Promise<Answer> {
+	const core = scriptedCore(faux(await fauxOf(PACKAGE)));
 	// The faux core is pi's JavaScript, which carries no types here.
 	const stream = core.streamSimple(
 		{ ...SCRIPTED, api: core.api } as never,
@@ -164,6 +179,15 @@ describe("the scripted model", () => {
 
 	it("asks for a tool's result when it calls one", async () => {
 		expect((await answerTo([told])).stopReason).toBe("toolUse");
+	});
+
+	// The host cases take the faux from the pi built with the host's
+	// patches, whose default stop these cases can't load, so they answer
+	// through a faux whose default is another.
+	it("says its stops whatever the faux's default", async () => {
+		const stopped = [told, started, handedOff];
+		expect((await answerTo(stopped, cutOff)).stopReason).toBe("stop");
+		expect((await answerTo([told], cutOff)).stopReason).toBe("toolUse");
 	});
 
 	it("acts on words said after its answer", async () => {
