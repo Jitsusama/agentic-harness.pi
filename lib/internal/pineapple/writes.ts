@@ -716,10 +716,11 @@ const GIT_VALUED = new Set([
 
 /**
  * The keys of git's config that choose where a push goes, or that read
- * in more settings which may: an include, and the ssh program run.
+ * in more settings which may: an include, and the ssh program run. A
+ * submodule's, as `submodule.recurse`, may push its submodules too.
  */
 const PUSH_SETTINGS =
-	/^(?:push|remote|branch|url|include|includeif)\.|^core\.(?:sshcommand|gitproxy|hookspath)(?:=|$)/i;
+	/^(?:push|remote|branch|url|include|includeif|submodule)\.|^core\.(?:sshcommand|gitproxy|hookspath)(?:=|$)/i;
 
 /**
  * git's options before its verb that move the repository it reads, or
