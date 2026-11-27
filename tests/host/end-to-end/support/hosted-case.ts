@@ -119,6 +119,12 @@ export function turnEnded(file: string | undefined): boolean {
  * is read here too: until the model answers after it, the turn it joined
  * hasn't ended. Other custom messages needn't start a turn, so they're
  * passed over, as a note written after the answer would hold it open.
+ *
+ * Some do start one: the mesh's handing and away's held-back word send
+ * theirs with triggerTurn, and an entry doesn't say whether it did. A
+ * sealed host case has no peer handing it words and no away mode, so
+ * there the steered results are the only custom message that starts a
+ * turn; a case that has either must wait on its turn some other way.
  */
 export function answeredLast(file: string | undefined): boolean {
 	const last = entriesOf(file)

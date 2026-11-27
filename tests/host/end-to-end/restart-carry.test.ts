@@ -31,14 +31,19 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { saidAfter } from "./support/held-pi.ts";
-import { type HostProcess, startHost } from "./support/host-process.ts";
+import {
+	HOST_WAIT_MS,
+	type HostProcess,
+	LISTEN_WAIT_MS,
+	OPEN_WAIT_MS,
+	startHost,
+} from "./support/host-process.ts";
 import {
 	answeredLast,
 	entriesOf,
 	onHostPi,
 	ROUND_TRIP_MS,
 	textOf,
-	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
 import {
@@ -62,6 +67,14 @@ const CARRIED_MS = RUNS_MS + ROUND_TRIP_MS;
  * lands while the command runs, which a wait of a round trip outlasts.
  */
 const RECORD_MS = 5_000;
+
+/**
+ * The hosts' own bounded waits in each case: two hosts listening and the
+ * first's open. On a loaded lender an open took 67 s (h2353c), so leaving
+ * these out let vitest's timeout win before a wait's own failure. A
+ * restart's going waits on the host's exit, which nothing bounds.
+ */
+const HOSTS_MS = 2 * LISTEN_WAIT_MS + OPEN_WAIT_MS;
 
 let sealed: Seal;
 let hosts: HostProcess[] = [];
@@ -145,7 +158,12 @@ function entryLines(file: string): string {
 	return entriesOf(file)
 		.map((entry) => {
 			const message = isRecord(entry.message) ? entry.message : {};
-			const what = [message.role, message.stopReason, entry.customType]
+			const what = [
+				message.role,
+				message.stopReason,
+				message.errorMessage,
+				entry.customType,
+			]
 				.filter((one) => typeof one === "string")
 				.join(" ");
 			return `${String(entry.type)}${what === "" ? "" : ` ${what}`}`;
@@ -242,7 +260,7 @@ async function carrying(
 	const file = one.file ?? "";
 	await untilAnswered(
 		"the hosted turn that started the command to end",
-		async () => textOf(file).includes(CARRYING) && turnEnded(file),
+		async () => textOf(file).includes(CARRYING) && answeredLast(file),
 		ROUND_TRIP_MS,
 	);
 	// The call's .pid is made empty before its shell starts, and the stub
@@ -311,11 +329,10 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// Its polled waits' bounds (five round trips and CARRIED_MS) with one
-	// spare, so a wait's own failure, which says what it saw, comes first;
-	// the hosts' own start waits come on top, so on a very slow host
-	// vitest's may still win.
-	ROUND_TRIP_MS * 6 + CARRIED_MS,
+	// Its bounded waits (five round trips, CARRIED_MS and the hosts') with
+	// one round trip spare, so a wait's own failure, which says what it
+	// saw, comes first.
+	ROUND_TRIP_MS * 6 + CARRIED_MS + HOSTS_MS,
 );
 
 it(
@@ -386,9 +403,9 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// Its polled waits' bounds (five round trips, CARRIED_MS and
-	// RECORD_MS) with nearly two round trips spare, as E23's reasons.
-	ROUND_TRIP_MS * 7 + CARRIED_MS,
+	// Its bounded waits (five round trips, CARRIED_MS, RECORD_MS, the
+	// hosts' and the kill's) with nearly two round trips spare, as E23's.
+	ROUND_TRIP_MS * 7 + CARRIED_MS + HOSTS_MS + HOST_WAIT_MS,
 );
 
 it(
@@ -430,7 +447,7 @@ it(
 			);
 		});
 	},
-	// Its polled waits' bounds (five round trips) with two spare, as
-	// E23's reasons.
-	ROUND_TRIP_MS * 7,
+	// Its bounded waits (five round trips and the hosts') with two round
+	// trips spare, as E23's reasons.
+	ROUND_TRIP_MS * 7 + HOSTS_MS,
 );

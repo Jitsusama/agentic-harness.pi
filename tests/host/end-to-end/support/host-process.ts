@@ -32,19 +32,19 @@ const DISPATCH = resolve(
 );
 
 /** How long a host may take to go once told to. */
-const HOST_WAIT_MS = 20_000;
+export const HOST_WAIT_MS = 20_000;
 
 /**
  * How long a host may take to listen: a real engine loads pi first, and a
  * restarted host resumes every conversation it held before it listens.
  */
-const LISTEN_WAIT_MS = 120_000;
+export const LISTEN_WAIT_MS = 120_000;
 
 /**
  * How long an open may take to answer: a real engine loads pi and every
  * extension of the harness for the conversation before it commits.
  */
-const OPEN_WAIT_MS = 120_000;
+export const OPEN_WAIT_MS = 120_000;
 
 /** A running host process and the control requests a test makes of it. */
 export interface HostProcess {
