@@ -24,14 +24,19 @@
  * rest.
  */
 
-import type { HeadOf } from "./cover.ts";
+import {
+	EXIT_TIMED_OUT,
+	type Exec,
+	withCallSignal,
+} from "../../core/exec/index.ts";
+import { type HeadOf, TIMED_OUT, type TimedOut } from "./cover.ts";
 
 /** How long a lookup that found nothing stands before it's asked again. */
 export const FAILED_FOR_MS = 15_000;
 
 /** A lookup asked, and once it found nothing, when it settled. */
 interface Asked {
-	head: Promise<string | undefined>;
+	head: Promise<string | TimedOut | undefined>;
 	failedAt?: number;
 }
 
@@ -40,7 +45,10 @@ interface Asked {
  * asked again once a lookup that found nothing is `FAILED_FOR_MS` old
  * by `now`. A lookup still under way is shared by every write that asks
  * for it meanwhile, and one that throws tells nothing, as one that fails
- * does, so the stop still holds what it can't tell apart.
+ * does, so the stop still holds what it can't tell apart. A shared
+ * lookup runs under no caller's signal, on purpose: one passed in must
+ * be detached from it, or one caller's abort would answer every other
+ * with nothing.
  */
 export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 	const told = new Map<string, Asked>();
@@ -57,31 +65,55 @@ export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 		const asked: Asked = { head: ask(repo, pr).catch(() => undefined) };
 		told.set(key, asked);
 		void asked.head.then((head) => {
-			if (head === undefined) asked.failedAt = now();
+			if (typeof head !== "string") asked.failedAt = now();
 		});
 		return asked.head;
 	};
 }
 
 /**
- * What a program prints, trimmed, or nothing where it failed, timed out
- * or said nothing, so an unknown answer never names a branch.
+ * What a program prints, trimmed, or nothing where it failed or said
+ * nothing, or {@link TIMED_OUT} where its clock stopped it, so an
+ * unknown answer never names a branch. The program is stopped once
+ * `signal` fires, and its answer is then nothing too.
  */
 export type Look = (
 	program: string,
 	args: string[],
-) => Promise<string | undefined>;
+	signal?: AbortSignal,
+) => Promise<string | TimedOut | undefined>;
+
+/**
+ * A look through `exec`, each program run under its own `signal`
+ * alone, or none, rather than the signal of whichever call it runs in.
+ */
+export function lookThrough(exec: Exec): Look {
+	return async (program, args, signal) => {
+		const { code, stdout } = await withCallSignal(signal, () =>
+			exec(program, args),
+		);
+		if (code === EXIT_TIMED_OUT) return TIMED_OUT;
+		const out = stdout.trim();
+		return code === 0 && out !== "" ? out : undefined;
+	};
+}
 
 /**
  * A pull request's branch, asked of GitHub and Delta at once and taken
  * from GitHub where it answers, so a write waits for the slower only
- * when GitHub tells nothing. A blank answer, or one Delta gives as a
- * whole ref, is read as the short name a push is judged by, or none.
+ * when GitHub tells nothing. Delta's lookup is stopped once GitHub
+ * names the branch, as nothing waits on it then, and runs on where
+ * GitHub tells nothing. A blank answer, or one Delta gives as a whole
+ * ref, is read as the short name a push is judged by, or none. Where
+ * neither names it and either lookup timed out, the answer says so.
  */
 export function askedHead(look: Look): HeadOf {
 	return async (repo, pr) => {
 		if (repo === undefined) return undefined;
-		const delta = deltaHead(look, repo, pr).catch(() => undefined);
+		const deltaNeeded = new AbortController();
+		const delta = deltaHead(look, repo, pr, deltaNeeded.signal).catch(
+			() => undefined,
+		);
 		const github = await look("gh", [
 			"pr",
 			"view",
@@ -93,7 +125,16 @@ export function askedHead(look: Look): HeadOf {
 			"-q",
 			".headRefName",
 		]).catch(() => undefined);
-		return shortName(github) ?? (await delta);
+		const named = typeof github === "string" ? shortName(github) : undefined;
+		if (named === undefined) {
+			const fromDelta = await delta;
+			if (typeof fromDelta === "string") return fromDelta;
+			return github === TIMED_OUT || fromDelta === TIMED_OUT
+				? TIMED_OUT
+				: undefined;
+		}
+		deltaNeeded.abort();
+		return named;
 	};
 }
 
@@ -101,16 +142,14 @@ async function deltaHead(
 	look: Look,
 	repo: string,
 	pr: number,
-): Promise<string | undefined> {
-	const json = await look("dt", [
-		"pr",
-		"view",
-		String(pr),
-		"-R",
-		repo,
-		"--json",
-	]);
-	if (json === undefined) return undefined;
+	signal: AbortSignal,
+): Promise<string | TimedOut | undefined> {
+	const json = await look(
+		"dt",
+		["pr", "view", String(pr), "-R", repo, "--json"],
+		signal,
+	);
+	if (typeof json !== "string") return json;
 	try {
 		const view = JSON.parse(json) as {
 			head?: { ref?: unknown };

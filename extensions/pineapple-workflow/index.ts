@@ -38,7 +38,11 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { askedHead, keptHeads } from "../../lib/internal/pineapple/heads.ts";
+import {
+	askedHead,
+	keptHeads,
+	lookThrough,
+} from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -69,6 +73,21 @@ import { createWhereabouts, reposOf } from "./whereabouts.ts";
  */
 const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
 
+/** A look through the lookups, saying where one timed out. */
+const LOOK = lookThrough(LOOKUPS);
+
+/**
+ * What a lookup prints, or nothing where it failed, timed out or said
+ * nothing: an unknown answer makes the stop hold the write.
+ */
+async function quietly(
+	program: string,
+	args: string[],
+): Promise<string | undefined> {
+	const out = await LOOK(program, args);
+	return typeof out === "string" ? out : undefined;
+}
+
 /**
  * How often a session looks for a stop or a resume, and holds are
  * tended: often enough that Joel's stop all, which waits a minute for
@@ -78,7 +97,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = keptHeads(askedHead(quietly));
+	const heads = keptHeads(askedHead(LOOK));
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
@@ -306,17 +325,4 @@ function config(dir: string): (key: string) => Promise<string | undefined> {
 		if (code === 1 && value === "" && stderr.trim() === "") return undefined;
 		throw new Error(`git couldn't read ${key} at ${dir}`);
 	};
-}
-
-/**
- * What `program` prints, or nothing where it failed or said nothing: an
- * unknown answer makes the stop hold the write.
- */
-async function quietly(
-	program: string,
-	args: string[],
-): Promise<string | undefined> {
-	const { code, stdout } = await LOOKUPS(program, args);
-	const out = stdout.trim();
-	return code === 0 && out !== "" ? out : undefined;
 }
