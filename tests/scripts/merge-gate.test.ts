@@ -17,6 +17,7 @@
 import { execFile } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -25,8 +26,8 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, sep } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -222,17 +223,64 @@ function gitSaying(version: string): NodeJS.ProcessEnv {
 }
 
 /**
- * A state folder for the gate, which makes its copies there, whose real
- * path passes through no folder Biome reads no nested config under. A pi
- * session's temp folder is under ~/.cache, one of them, so there the
- * folder goes under /tmp, as ~/.local/state passes on a machine.
+ * The folders Biome reads no nested config under, wherever on a path they
+ * sit, as merge-gate.sh's probe names them.
+ */
+const UNREAD_UNDER = [".git", ".cache", ".turbo"];
+
+/** Whether Biome reads nested configs in a copy under `path`. */
+function readsNestedUnder(path: string): boolean {
+	return !path.split(sep).some((part) => UNREAD_UNDER.includes(part));
+}
+
+/** Whether `at` is `home` or a folder holding it. */
+function homeOrAbove(at: string, home: string): boolean {
+	return home === at || home.startsWith(at.endsWith(sep) ? at : at + sep);
+}
+
+/**
+ * Where a state folder may go, nearest first: the temp folder, then each
+ * folder holding it below the home folder, so none litters the home, then
+ * the runtime folder and /tmp, as a pi session's temp folder is under
+ * ~/.cache, where Biome reads no nested config.
+ */
+function statePlaces(): string[] {
+	const home = realpathSync(homedir());
+	const temp = realpathSync(tmpdir());
+	const places = [temp];
+	for (let at = dirname(temp); !homeOrAbove(at, home); at = dirname(at)) {
+		places.push(at);
+	}
+	const runtime = process.env.XDG_RUNTIME_DIR;
+	if (runtime) places.push(runtime);
+	places.push("/tmp");
+	return places;
+}
+
+/**
+ * A state folder for the gate, which makes its copies there, in the first
+ * place whose real path passes through no folder Biome reads no nested
+ * config under, as ~/.local/state passes on a machine. Where none passes
+ * or none can be written, it throws, naming every place it tried, rather
+ * than have the gate refuse every case for its folder.
  */
 function stateHome(): string {
-	const temp = realpathSync(tmpdir());
-	const base = /(^|\/)\.(cache|git)(\/|$)/.test(temp) ? "/tmp" : temp;
-	const dir = realpathSync(mkdtempSync(join(base, "merge-gate-state-")));
-	made.push(dir);
-	return dir;
+	const tried: string[] = [];
+	for (const place of statePlaces()) {
+		tried.push(place);
+		try {
+			if (!readsNestedUnder(realpathSync(place))) continue;
+			const dir = realpathSync(mkdtempSync(join(place, "merge-gate-state-")));
+			made.push(dir);
+			return dir;
+		} catch {
+			// A place that isn't there or can't be written gives way to the next.
+		}
+	}
+	const places = tried.join(", ");
+	throw new Error(
+		`No state folder Biome reads nested configs under goes in ${places}.`,
+	);
 }
 
 /**
@@ -359,6 +407,41 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("lib/untidy.ts");
 	});
 
+	it("judges the head an origin named by URL holds, though the checkout forges it", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+		await git(checkout, "push", "-q", "origin", "HEAD:work");
+		// A URL, as every real origin is, so origin's own upload-pack sends
+		// what the gate asks for, not one the gate names.
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		await git(checkout, "remote", "set-url", "origin", `file://${origin}`);
+		const main = await git(checkout, "rev-parse", "origin/main");
+		await forgeAsMerged(checkout, sha, main);
+		const forged = await git(checkout, "diff", "--name-only", main, sha);
+		expect(forged, "the forged head reads as no change").toBe("");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("lib/untidy.ts");
+	});
+
+	it("takes origin's main though another ref's name ends in it", async () => {
+		const checkout = await harness();
+		// ls-remote lists every ref whose name ends in refs/heads/main.
+		const tail = "refs/heads/x/refs/heads/main";
+		await git(checkout, "push", "-q", "origin", `HEAD:${tail}`);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+	});
+
 	it("refuses a head the checkout forges and origin doesn't hold", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, {
@@ -370,8 +453,105 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		const answered = await gate(checkout, sha);
 
 		expect(answered.code, answered.said).toBe(1);
-		expect(answered.said).toContain("couldn't be fetched whole");
+		expect(answered.said, "the forgery refused").toContain(
+			`${sha} couldn't be fetched whole, from this checkout or from origin`,
+		);
 		expect(answered.said, "judged as no change").not.toContain("host-gate:");
+	});
+
+	it.each(["GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"])(
+		"refuses a forged head, though %s names the checkout's objects",
+		async (variable) => {
+			const checkout = await harness();
+			const sha = await change(checkout, {
+				"lib/untidy.ts": "export const untidy   =   1\n",
+			});
+			const main = await git(checkout, "rev-parse", "origin/main");
+			await forgeAsMerged(checkout, sha, main);
+			const common = await git(
+				checkout,
+				"rev-parse",
+				"--path-format=absolute",
+				"--git-common-dir",
+			);
+
+			// Were it to reach the store, the store would read the checkout's
+			// objects as its own, the forged commit among them.
+			const answered = await gate(checkout, sha, {
+				[variable]: join(common, "objects"),
+			});
+
+			expect(answered.code, answered.said).toBe(1);
+			expect(answered.said, "the forgery refused").toContain(
+				`${sha} couldn't be fetched whole, from this checkout or from origin`,
+			);
+			expect(answered.said, "judged as no change").not.toContain("host-gate:");
+		},
+	);
+
+	it("refuses where the store can't be made, naming the fence", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		// A file where the store's folder goes, which git can't make a
+		// repository of, beside a room the copies can still go in.
+		const state = stateHome();
+		const gateHome = join(state, "pi", "agentic-harness.pi", "merge-gate");
+		mkdirSync(gateHome, { recursive: true });
+		writeFileSync(join(gateHome, "objects.git"), "");
+
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: state });
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the store refused").toContain(
+			`can't keep the objects it judges in ${gateHome}`,
+		);
+		expect(answered.said, "the fence named").toContain(
+			"outside the agent fence",
+		);
+	});
+
+	it("refuses where origin names no main", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const empty = join(folder(made, "empty"), "empty.git");
+		await git(dirname(empty), "init", "-q", "--bare", empty);
+		await git(checkout, "remote", "set-url", "origin", empty);
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the origin refused").toContain(
+			`origin (${empty}) didn't name its main`,
+		);
+	});
+
+	it("refuses where origin's main can't be fetched whole", async () => {
+		const checkout = await harness();
+		// A blob only main's newest commit holds, lost from origin, which
+		// still names that commit as main but can't send it.
+		await landed(checkout, {
+			"lost.txt": "only main's newest commit holds this\n",
+		});
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		const blob = await git(checkout, "rev-parse", "origin/main:lost.txt");
+		const loose = join(origin, "objects", blob.slice(0, 2), blob.slice(2));
+		expect(existsSync(loose), "the blob is loose in origin").toBe(true);
+		rmSync(loose, { force: true });
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const main = await git(checkout, "rev-parse", "origin/main");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the fetch of main refused").toContain(
+			`main's ${main} couldn't be fetched whole from origin`,
+		);
 	});
 
 	it("judges a second change in the store a first run left, by refs of its own", async () => {
@@ -395,9 +575,9 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		const kept = "the refs that keep what was fetched whole";
 		expect(refs.split("\n"), kept).toEqual(
 			expect.arrayContaining([
-				"refs/gate/main",
-				`refs/gate/heads/${tidy}`,
-				`refs/gate/heads/${untidy}`,
+				`refs/gate/commits/${await git(checkout, "rev-parse", "origin/main")}`,
+				`refs/gate/commits/${tidy}`,
+				`refs/gate/commits/${untidy}`,
 			]),
 		);
 	});
@@ -778,25 +958,24 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		);
 	});
 
-	it("judges by a nested config though TMPDIR is under a .cache folder", async () => {
+	it("refuses where pi's state folder is under a .cache folder, naming XDG_STATE_HOME", async () => {
 		const checkout = await harness();
-		await landed(checkout, {
-			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
-		});
 		const sha = await change(checkout, {
-			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+			"lib/tidy.ts": "export const tidy = 1;\n",
 		});
-		// Biome reads no nested config under a .cache folder, as a pi
-		// session's TMPDIR is.
-		const cached = join(folder(made, "home"), ".cache", "tmp");
+		// The real Biome reads no nested config in a copy under a .cache
+		// folder, where the gate makes its copies when pi's state folder is
+		// there.
+		const cached = join(folder(made, "home"), ".cache", "state");
 		mkdirSync(cached, { recursive: true });
 
-		const answered = await gate(checkout, sha, { TMPDIR: cached });
+		const answered = await gate(checkout, sha, { XDG_STATE_HOME: cached });
 
 		expect(answered.code, answered.said).toBe(1);
-		expect(answered.said, "the file lib/'s config faults").toContain(
-			"lib/tabbed.ts",
+		expect(answered.said, "the probe's refusal").toContain(
+			"judges no file by its nested config",
 		);
+		expect(answered.said, "what clears it").toContain("Set XDG_STATE_HOME");
 	});
 
 	it("refuses where no copy reads a nested config, naming XDG_STATE_HOME", async () => {

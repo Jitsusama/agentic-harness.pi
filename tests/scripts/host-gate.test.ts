@@ -665,8 +665,12 @@ describe("host-gate.sh", () => {
 		const on = await harness();
 		const sha = await change(on, "host/engine/engine.ts");
 		await git(on.checkout, "push", "-q", "origin", "HEAD:work");
+		// Read from the checkout, the head would hold main's tree and name
+		// main as its parent, and so change nothing.
 		const main = await git(on.checkout, "rev-parse", "origin/main");
 		await forgeAsMerged(on.checkout, sha, main);
+		const forged = await git(on.checkout, "diff", "--name-only", main, sha);
+		expect(forged, "the forged head reads as no change").toBe("");
 
 		const answered = await gate(on, sha);
 

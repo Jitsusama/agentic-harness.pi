@@ -19,12 +19,14 @@
 # refs/remotes/origin/main, which a session can write between the gate's
 # fetch and its read, and fetched by that id into the store.
 #
-# Each fetch writes a ref of the store's own, refs/gate/main or
-# refs/gate/heads/<id>, which no session can write. A fetch updates a ref
-# only once everything under it is there, so a ref names a commit held
-# whole, never one a fetch cut short left half-made. The refs are also
-# what a later fetch offers origin as had, so each brings only what's new
-# rather than the whole history again, and what gc keeps.
+# Each fetch writes a ref of the store's own, refs/gate/commits/<id>,
+# which no session can write. A fetch updates a ref only once everything
+# under it is there, so a ref names a commit held whole, never one a fetch
+# cut short left half-made. A ref is named by its commit, never shared as
+# "main", so two gates at once, on two mains, never move or lock each
+# other's. The refs are also what a later fetch offers origin as had, so
+# each brings only what's new rather than the whole history again, and
+# what gc keeps.
 
 gate_home=${XDG_STATE_HOME:-$HOME/.local/state}/pi/agentic-harness.pi/merge-gate
 gate_store=$gate_home/objects.git
@@ -58,7 +60,7 @@ signing_in() {
   for name in "${!GIT_@}"; do
     case $name in
       GIT_ASKPASS | GIT_SSH | GIT_SSH_COMMAND | GIT_SSH_VARIANT | GIT_TERMINAL_PROMPT | \
-        GIT_CONFIG_GLOBAL | GIT_HTTP_* | GIT_PROXY_*) ;;
+        GIT_CONFIG_GLOBAL | GIT_HTTP_* | GIT_PROXY_* | GIT_SSL_* | GIT_CURL_*) ;;
       *) unset+=(-u "$name") ;;
     esac
   done
@@ -94,7 +96,7 @@ holds() {
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
-  local gate=$1 sha=$2 url listed checkout said
+  local gate=$1 sha=$2 url listed line checkout said
   # git init again on a store that's there only makes what's missing, so a
   # store a first run left half-made is mended, and two first runs at once
   # both end with a whole one.
@@ -107,14 +109,25 @@ gate_objects() {
   # The checkout's own config names origin, which the fence keeps from a
   # session.
   url=$(git remote get-url origin)
-  if ! listed=$(signing_in ls-remote --exit-code "$url" refs/heads/main) ||
-    [[ ! $listed =~ ^([0-9a-f]{40}|[0-9a-f]{64})[[:space:]]refs/heads/main$ ]]; then
+  # ls-remote matches its pattern as a path's tail, so a ref such as
+  # refs/heads/x/refs/heads/main is listed too, and only the line naming
+  # refs/heads/main itself is main.
+  main_id=
+  if listed=$(signing_in ls-remote "$url" refs/heads/main); then
+    while IFS= read -r line; do
+      if [[ $line =~ ^([0-9a-f]{40}|[0-9a-f]{64})[[:space:]]refs/heads/main$ ]]; then
+        main_id=${BASH_REMATCH[1]}
+      fi
+    done <<< "$listed"
+  fi
+  if [[ -z $main_id ]]; then
     echo "$gate: origin ($url) didn't name its main, so nothing can be judged against it." >&2
     exit 1
   fi
-  main_id=${BASH_REMATCH[1]}
-  if ! said=$(fetched signing_in "$url" "$main_id" refs/gate/main 2>&1) ||
-    ! holds "$main_id" refs/gate/main; then
+  # A fetch that fails because another gate is writing the same ref at
+  # once still leaves it whole, so the ref, not the fetch, decides.
+  said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
+  if ! holds "$main_id" "refs/gate/commits/$main_id"; then
     echo "$said" >&2
     echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
     exit 1
@@ -129,7 +142,7 @@ gate_objects() {
     echo "$gate: $sha names no commit here." >&2
     exit 1
   fi
-  local held=refs/gate/heads/$head_id
+  local held=refs/gate/commits/$head_id
   if ! holds "$head_id" "$held"; then
     # The checkout first, since the head may be nowhere else yet, then
     # origin, which has it where the checkout's copy is forged. What each
