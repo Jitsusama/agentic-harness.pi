@@ -144,6 +144,7 @@ function proposalFromListing(
 		author: actorFrom(nested(raw, "author").login),
 		base: str(raw.baseRefName) ?? "",
 		head: str(raw.headRefName) ?? "",
+		...(str(raw.headRefOid) ? { headCommit: str(raw.headRefOid) } : {}),
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
 		...sizeOf(raw),
 		...labelsAndAssignees(raw),
@@ -294,6 +295,10 @@ export function githubChanges(exec: Exec): ChangesFacet {
 			const args = ["pr", "list", "--repo", slugOf(repo), "--json"];
 			args.push(
 				"number,title,body,state,isDraft,author,baseRefName,headRefName,url," +
+					// A stack is found by listing, and a stack round witnesses
+					// each change at its head: a node with none was read but
+					// left unwitnessed, so no gate could count the round for it.
+					"headRefOid," +
 					// Free in the same call, and a listing is exactly where
 					// knowing which change is the big one earns its keep.
 					"additions,deletions,changedFiles",

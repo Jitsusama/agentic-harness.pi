@@ -24,6 +24,7 @@ function pull(number: number, head: string, base: string) {
 		author: { login: "someone" },
 		baseRefName: base,
 		headRefName: head,
+		headRefOid: `${head}-sha`,
 		url: `https://github.com/Shopify/world/pull/${number}`,
 	};
 }
@@ -119,6 +120,31 @@ describe("deriving a stack", () => {
 		const stack = await gh.stacking?.stack(ref);
 		expect(stack?.nodes[0]?.change?.ref.id).toBe("2");
 		expect(stack?.nodes[1]?.change?.title).toBe("PR 3");
+	});
+
+	it("knows every node's head commit, not only the one it started from", async () => {
+		// A stack round witnesses each change at its proposal's head, and
+		// the ready gate counts the round only for a change it witnessed.
+		// Nodes above and below the cursor are found by listing, so a
+		// listing without heads left them read but unwitnessed.
+		const { gh } = provider([
+			cursorReply("middle", "bottom"),
+			byHead("bottom", [pull(1, "bottom", "main")]),
+			byHead("main", []),
+			byBase("middle", [pull(3, "top", "middle")]),
+			byBase("top", []),
+		]);
+		const stack = await gh.stacking?.stack(ref);
+		expect(stack?.nodes.map((node) => node.change?.headCommit)).toEqual([
+			"bottom-sha",
+			"sha",
+			"top-sha",
+		]);
+		expect(stack?.nodes.map((node) => node.headCommit)).toEqual([
+			"bottom-sha",
+			"sha",
+			"top-sha",
+		]);
 	});
 
 	it("keeps both children when the stack fans out", async () => {

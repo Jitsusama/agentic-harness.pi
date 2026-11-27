@@ -256,6 +256,7 @@ describe("listing changes", () => {
 			author: { login: "a" },
 			baseRefName: "main",
 			headRefName: "one",
+			headRefOid: "0123abcd",
 			url: "https://github.com/Shopify/world/pull/1",
 		},
 	]);
@@ -269,6 +270,17 @@ describe("listing changes", () => {
 		expect(found?.[0]?.state).toBe("open");
 		expect(found?.[0]?.ref.id).toBe("1");
 		expect(callMatching(calls, "list")?.args).toContain("--state");
+	});
+
+	it("carries each listed change's head commit", async () => {
+		// A stack below or above its cursor is found by listing, and a
+		// stack round can witness only a change whose head it knows.
+		const { provider: gh, calls } = provider([
+			{ when: ["pr", "list"], stdout: listJson },
+		]);
+		const found = await gh.changes?.list?.(repo, { state: "open" });
+		expect(found?.[0]?.headCommit).toBe("0123abcd");
+		expect(callMatching(calls, "list")?.args.join(" ")).toContain("headRefOid");
 	});
 
 	it("passes a head filter through", async () => {
