@@ -14,7 +14,7 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
-import { askOnce, reach } from "./child-requests.ts";
+import { askOnce, CHILD_UNREACHABLE, reach } from "./child-requests.ts";
 import {
 	type ChildSupervisor,
 	childSupervisor,
@@ -37,7 +37,8 @@ export const WOKEN_AGAIN_AFTER_MS = 10 * 60_000;
 /**
  * How many times in `WAKES_COUNTED_OVER_MS` one whose child went
  * mid-turn is woken, so a turn that kills its child each time, however
- * long it takes to, asks the model again only so often.
+ * long it takes to, asks the model again only so often. The count is
+ * kept in the host's memory, so it holds over one host's run.
  */
 export const WAKES_A_DAY = 3;
 
@@ -100,8 +101,15 @@ export function hostChildren(options: {
 		spares: () => policy.spares?.() ?? false,
 		spareMoved: versionsMove(),
 		ended: (sessionId, why, busy) => {
+			const endAsked = endsAsked.delete(sessionId.toLowerCase());
 			rest(sessionId, why);
-			if (why === "failed" && busy) wakeCutOff(sessionId);
+			if (why !== "failed" || !busy) return;
+			// Its close or release failed with it, so the person asks again.
+			if (endAsked)
+				options.say?.(
+					`${sessionId}: its child failed mid-turn as it was asked to end, so it rests until it is asked for`,
+				);
+			else wakeCutOff(sessionId);
 		},
 		// Given up before it ran there, so it never parked: still held.
 		gaveUp: (sessionId) => restGivenUp(sessionId),
@@ -144,6 +152,10 @@ export function hostChildren(options: {
 	// Each conversation's wakes are kept only for that day, by its id in
 	// either case, as the supervisor takes either case as one.
 	const wokenAt = new Map<string, number[]>();
+	// Each conversation, by its id in either case, whose close or release
+	// its child was asked and hasn't refused: its ending is that end's, so
+	// a child that dies as it is asked one wakes nothing.
+	const endsAsked = new Set<string>();
 	const now = options.now ?? Date.now;
 	function wakeCutOff(sessionId: string): void {
 		const { wake } = options;
@@ -215,13 +227,21 @@ export function hostChildren(options: {
 	async function ask(sessionId: string, request: ControlRequest) {
 		const route = routes.routeOf(sessionId);
 		if (!route) throw new Error(`Conversation is not hosted: ${sessionId}`);
+		const ends = request.op === "close" || request.op === "release";
+		if (ends) endsAsked.add(sessionId.toLowerCase());
 		const reply = await askOnce(
 			await reach(route.socket),
 			`${JSON.stringify(passedOn(request, route))}\n`,
 			request.id,
 			report,
 		);
-		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
+		// Refused by a child that lives on, so its next ending is its own;
+		// one that didn't answer may have died as it was asked.
+		if (!reply.ok) {
+			if (ends && reply.error.code !== CHILD_UNREACHABLE)
+				endsAsked.delete(sessionId.toLowerCase());
+			throw hostRefusal(reply.error.code, reply.error.message);
+		}
 		return reply.result;
 	}
 

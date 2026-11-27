@@ -458,9 +458,13 @@ input pipeline or screen. No unit or running host is installed yet.
   as a message wakes it, so the turn carries on as a host's restart
   carries one on, rather than waiting for a window. It is woken so at
   most once in `WOKEN_AGAIN_AFTER_MS` (10 minutes), and at most
-  `WAKES_A_DAY` (3) times in a day, so a turn that kills its child
-  each time asks the model again only so often; past either, it
-  rests, and the journal says so.
+  `WAKES_A_DAY` (3) times in a day of one host's run, as the host
+  keeps the count in memory, so a turn that kills its child each time
+  asks the model again only so often; past either, it rests, and the
+  journal says so. One whose child dies as its close or release is
+  asked rests too. So killing a busy child by hand carries its turn
+  on; to stop one for good, close it, or kill it again within the 10
+  minutes.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place
