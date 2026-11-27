@@ -98,6 +98,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/shell/spawner-starts.test.ts",
 	"tests/core/lsp/standalone/fenced-start.test.ts",
 	"tests/extensions/session-ending-interceptor/remembered.test.ts",
+	"tests/scripts/fail-to-pass.test.ts",
 	"tests/scripts/host-join.test.ts",
 	"tests/scripts/merge-gate.test.ts",
 	"tests/scripts/pi-carry.test.ts",

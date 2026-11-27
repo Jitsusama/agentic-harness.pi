@@ -151,7 +151,9 @@ no caller reads by.
   became of it, a thin client for agents and tests, and what
   pi-verbs' words ask, read before it looks for its socket.
 - **`verification/`**: a process-global check another extension can
-  ask whether the code is failing.
+  ask whether the code is failing, and the merge gate's fail-to-pass
+  judgment: whether some case a change's tests hold passes at its head
+  and fails with its source undone.
 
 ## Files
 

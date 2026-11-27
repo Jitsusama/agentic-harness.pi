@@ -39,6 +39,7 @@ const SCRIPT_MODULES: Record<string, () => Promise<unknown>> = {
 		import("../../../scripts/convention-recurrence.ts"),
 	"scripts/declared-called.ts": () =>
 		import("../../../scripts/declared-called.ts"),
+	"scripts/fail-to-pass.ts": () => import("../../../scripts/fail-to-pass.ts"),
 	"scripts/fence-preflight.ts": () =>
 		import("../../../scripts/fence-preflight.ts"),
 	"scripts/fence-stage.ts": () => import("../../../scripts/fence-stage.ts"),
