@@ -329,6 +329,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		// Its log was held before its extensions loaded, so the records they
 		// say stay behind leave the view before pi builds a context from it.
 		keptRetake(sessionManager);
+		mark?.("retake");
 		// What the CLI says as it starts: the screen shows it all, and the
 		// journal, read when no screen is, keeps the errors and warnings.
 		// Closed while its screen asked the person: nothing more is built for it.
