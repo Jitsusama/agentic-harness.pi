@@ -21,6 +21,7 @@ import { until } from "../../support/until.ts";
 type Listener = (data: string) => { consume?: boolean } | undefined;
 type Factory = (tui: unknown) => { render: (width: number) => string[] };
 
+const RUNNER_PLATFORM = process.platform;
 let scratch: string;
 let parents: string;
 
@@ -47,9 +48,13 @@ beforeEach(() => {
 	// The runner may itself be a held pi; each test here says whether it is.
 	vi.stubEnv("MYCELIUM_HELD", undefined);
 	vi.stubEnv("PI_CLIPBOARD_OSC52", undefined);
+	// Wayland is Linux's alone, and the widget listens only there, so a
+	// Mac runner stands in for Linux as it does for the display.
+	Object.defineProperty(process, "platform", { value: "linux" });
 });
 
 afterEach(() => {
+	Object.defineProperty(process, "platform", { value: RUNNER_PLATFORM });
 	vi.unstubAllEnvs();
 	rmSync(scratch, { recursive: true, force: true });
 });
@@ -111,29 +116,34 @@ async function started(focused: unknown) {
 }
 
 describe("the clipboard widget", () => {
-	it("pastes in the editor through its shell, never forking the session", async () => {
-		const target = editor();
-		const { press, widgets, fire, renders } = await started(target);
-		const answers = press("\u0016");
-		await until("the paste lands", () => target.inserted.length > 0);
-		await fire("session_shutdown");
-		const forkedBy = readFileSync(parents, "utf8").trim().split("\n");
-		expect({
-			answers,
-			inserted: target.inserted,
-			widgets,
-			rendered: renders() > 0,
-			bySession: forkedBy.filter((pid) => pid === String(process.pid)),
-			reads: forkedBy.length,
-		}).toEqual({
-			answers: [{ consume: true }],
-			inserted: ["pasted words"],
-			widgets: [{ placement: "belowEditor", drawn: [] }],
-			rendered: true,
-			bySession: [],
-			reads: 2,
-		});
-	});
+	// Its shell reads through GNU's timeout and base64 -w0, which only
+	// Linux carries.
+	it.skipIf(RUNNER_PLATFORM !== "linux")(
+		"pastes in the editor through its shell, never forking the session",
+		async () => {
+			const target = editor();
+			const { press, widgets, fire, renders } = await started(target);
+			const answers = press("\u0016");
+			await until("the paste lands", () => target.inserted.length > 0);
+			await fire("session_shutdown");
+			const forkedBy = readFileSync(parents, "utf8").trim().split("\n");
+			expect({
+				answers,
+				inserted: target.inserted,
+				widgets,
+				rendered: renders() > 0,
+				bySession: forkedBy.filter((pid) => pid === String(process.pid)),
+				reads: forkedBy.length,
+			}).toEqual({
+				answers: [{ consume: true }],
+				inserted: ["pasted words"],
+				widgets: [{ placement: "belowEditor", drawn: [] }],
+				rendered: true,
+				bySession: [],
+				reads: 2,
+			});
+		},
+	);
 
 	it("leaves Ctrl+V to pi when something other than the editor holds the keys", async () => {
 		const { press } = await started({ render: () => [], invalidate: () => {} });

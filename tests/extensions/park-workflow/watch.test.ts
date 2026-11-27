@@ -156,12 +156,14 @@ const watching = (
 	ctx: Parkable = session(),
 	env: NodeJS.ProcessEnv = holder(),
 	args: readonly string[] = [],
-	platform?: NodeJS.Platform,
+	// Linux unless a case says otherwise, so a Mac runner reads every case
+	// as CI does: a background host never parks on its own on macOS.
+	platform: NodeJS.Platform = "linux",
 ) =>
 	watch(ctx, events, {
 		env,
 		args,
-		...(platform === undefined ? {} : { platform }),
+		platform,
 		pid: HELD_PID,
 		switchPath: parkSwitch(folder),
 		folder,
