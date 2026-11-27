@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	firstLines,
+	noneFound,
 	removerFolders,
 	removeTree,
 	removeTreeOff,
@@ -37,6 +38,7 @@ import {
 import {
 	systemFolders,
 	systemProgram,
+	trustsNoOwner,
 } from "../../../../lib/internal/sandbox/system-program.ts";
 
 /** Root writes where its folders' modes say nobody may, so refusals don't hold. */
@@ -240,8 +242,12 @@ describe("removing a tree", () => {
 		// The test's own folder is the user's, so an rm there isn't trusted.
 		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
+		// Which reason is said rests on this machine's namespace, so the
+		// test asks which it holds, and names the message itself.
 		expect(() => removeTree(join(folder, "tree"), [folder])).toThrow(
-			/no rm found where only root can put one/,
+			trustsNoOwner()
+				? /^no rm found: no owner here can be told from pi's own, .* so the tree is left in place/
+				: `no rm found: none is kept where only root can put one (${folder}), so the tree is left in place rather than walked by path`,
 		);
 		await expect(removeTreeOff(join(folder, "tree"), [folder])).rejects.toThrow(
 			/no rm found/,
@@ -351,6 +357,30 @@ describe("removing a tree", () => {
 		}
 	});
 
+	it("makes nothing writable through a link named with a slash, even read-only, either way", async () => {
+		// Through the public calls, so the even-read-only branch passing chmod
+		// the path as given, slash and all, rather than the link, fails here.
+		const cache = readOnlyCache();
+		const reads = [join(cache, "mod@v1"), join(cache, "mod@v1", "pkg")];
+		const way = { evenReadOnly: true };
+		const inLine = join(folder, "swapped-in-line");
+		const off = join(folder, "swapped-off");
+		symlinkSync(cache, inLine);
+		symlinkSync(cache, off);
+		try {
+			removeTree(`${inLine}/`, removerFolders(), way);
+			await removeTreeOff(`${off}/`, removerFolders(), way);
+
+			expect(existsSync(inLine), "removeTree left the link").toBe(false);
+			expect(existsSync(off), "removeTreeOff left the link").toBe(false);
+			for (const read of reads) {
+				expect(lstatSync(read).mode & 0o777, read).toBe(0o555);
+			}
+		} finally {
+			for (const read of reads) chmodSync(read, 0o755);
+		}
+	});
+
 	it("removes a link named with a trailing slash, never what it names", async () => {
 		const outside = filled(join(folder, "outside"), 3);
 		for (const remove of [
@@ -376,6 +406,23 @@ describe("removing a tree", () => {
 		expect(firstLines(said.join("\n"))).toBe(
 			"rm: cannot remove 'f0'; rm: cannot remove 'f1'; " +
 				"rm: cannot remove 'f2'; and 4997 more",
+		);
+	});
+
+	it("blames the folders where an owner is trusted, and the namespace where none is", () => {
+		expect(noneFound("rm", ["/a", "/b"], undefined), "an owner trusted").toBe(
+			"no rm found: none is kept where only root can put one (/a, /b), " +
+				"so the tree is left in place rather than walked by path",
+		);
+		expect(noneFound("chmod", ["/a"], "namespace"), "in a namespace").toBe(
+			"no chmod found: no owner here can be told from pi's own, as in a user " +
+				"namespace whose ids pi can give its files to, so the tree is left in " +
+				"place rather than walked by path. Run pi as an id other than 0 there.",
+		);
+		expect(noneFound("rm", ["/a"], "unread"), "with no map").toBe(
+			"no rm found: no owner here can be told from pi's own, since /proc can't " +
+				"be read to say which user namespace pi is in, so the tree is left in " +
+				"place rather than walked by path. Mount /proc, or run pi as an id other than 0.",
 		);
 	});
 

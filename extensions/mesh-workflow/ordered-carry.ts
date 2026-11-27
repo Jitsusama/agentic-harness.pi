@@ -66,10 +66,12 @@ import type {
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../lib/core/work/rebase.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
+import { behindItsInstall } from "../../lib/internal/carry/current-code.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { messageOf } from "../../lib/internal/carry/message.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import type { CarryHold } from "../../lib/internal/carry/under-way.ts";
+import { packageRoot } from "../../lib/internal/fence/installed-only.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
 import { wholeWait } from "../../lib/internal/priority/only-waits.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
@@ -687,12 +689,17 @@ export interface HoldsAt {
 	readonly session: string;
 	/** The asking carry's own hold, which holds nothing against it. */
 	readonly ownCarry?: CarryHold;
+	/** The harness this session runs, this package's own by default. */
+	readonly root?: string;
 }
 
 /**
  * What keeps a session from an ordered carry besides a run under way:
  * what would keep it from moving (moving.ts's holdsOf, its run aside),
- * the leases it holds, and a rebase halted in a tree it holds.
+ * the leases it holds, a rebase halted in a tree it holds, and a
+ * harness its install left long ago (lib/internal/carry/current-code.ts),
+ * read only before the run is waited on or ended (`runEnded` false), so
+ * a bar passed during the wait never refuses a carry whose run is gone.
  */
 export async function orderedHolds(
 	at: HoldsAt,
@@ -706,5 +713,6 @@ export async function orderedHolds(
 		}),
 		leasesHolding(at.board, at.session, runEnded),
 		await rebaseHalted(at.session),
+		runEnded ? undefined : behindItsInstall(at.root ?? packageRoot()),
 	]);
 }

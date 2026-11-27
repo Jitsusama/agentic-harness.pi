@@ -114,6 +114,12 @@ export interface PausingHost {
 	/** The machine a carry under way takes its work to, if one is. */
 	readonly carryUnderWay: () => string | undefined;
 	/**
+	 * Why the code it runs keeps it from carrying, as a harness its install
+	 * left long ago does (lib/internal/carry/current-code.ts), or nothing:
+	 * asked before its run is ended, so a refusal costs the person no run.
+	 */
+	readonly behind?: () => string | undefined;
+	/**
 	 * Park it now, idle time aside, as its park watch does once nothing
 	 * holds it; answers why not.
 	 */
@@ -322,6 +328,13 @@ export function createPausing(host: PausingHost): Pausing {
 				const line = `A Carry to ${to} ${steeredBy(from)}, was left to the carry to ${other} already under way, which closes this session if it carries; if that one is refused, Carry again.`;
 				host.tell(line);
 				host.journal(line);
+				return;
+			}
+			const behind = host.behind?.();
+			if (behind !== undefined) {
+				host.tell(
+					`This session's work couldn't be carried to ${to}, so it stays open: ${behind}.`,
+				);
 				return;
 			}
 			callOffPark("a Carry came after it");

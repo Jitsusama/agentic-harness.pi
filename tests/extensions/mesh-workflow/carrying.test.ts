@@ -4,7 +4,14 @@
  * quest's handover, through real git.
  */
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -37,7 +44,7 @@ afterEach(() => {
 	// A carried hold stays until its session's close lands, so each test's
 	// lets go here rather than lingering in this process for its quarter
 	// hour (PV3TE0's round 10, F2).
-	for (const id of ["s-carry", "s-closing", "s-stale", "s-whole"])
+	for (const id of ["s-carry", "s-closing", "s-judged", "s-stale", "s-whole"])
 		closeLanded(id);
 	removeAll(made);
 });
@@ -233,6 +240,69 @@ describe("carrying a steered session's work", () => {
 				},
 			),
 		).rejects.toThrow("no quest is loaded");
+	});
+
+	it("refuses at once, saying why, while it runs code its install left long ago", async () => {
+		const home = folder(made, "home");
+		const install = folder(made, "install");
+		const ago = (version: string, ms: number) => {
+			const at = join(install, "versions", version);
+			mkdirSync(at, { recursive: true });
+			const when = (Date.now() - ms) / 1000;
+			utimesSync(at, when, when);
+			return at;
+		};
+		const running = ago(
+			"03c16f4cfe6b0b8ed5afba531da67409c1d6729c",
+			3 * 86_400_000,
+		);
+		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
+		symlinkSync(
+			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
+			join(install, "current"),
+		);
+
+		// A run that never ends, so only a refusal before winding down
+		// answers within the test.
+		await expect(
+			carryThisSession(
+				session("s-behind", home, "", Number.POSITIVE_INFINITY),
+				"penelope",
+				{ home, root: running, windDownMs: 50 },
+			),
+		).rejects.toThrow("it runs harness 03c16f4cfe6b, which its install left");
+		expect(carryUnderWay("s-behind")).toBeUndefined();
+	});
+
+	it("carries on where its caller judged its code before ending the run, though the bar has passed since", async () => {
+		const home = folder(made, "home");
+		const install = folder(made, "install");
+		const ago = (version: string, ms: number) => {
+			const at = join(install, "versions", version);
+			mkdirSync(at, { recursive: true });
+			const when = (Date.now() - ms) / 1000;
+			utimesSync(at, when, when);
+			return at;
+		};
+		const running = ago(
+			"03c16f4cfe6b0b8ed5afba531da67409c1d6729c",
+			3 * 86_400_000,
+		);
+		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
+		symlinkSync(
+			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
+			join(install, "current"),
+		);
+		loaded("s-judged", QUEST);
+
+		const done = await carryThisSession(
+			session("s-judged", home, join(home, "none.jsonl")),
+			"penelope",
+			{ home, root: running, judged: true },
+		);
+
+		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
+		expect(done).toBe(join(into, "s-judged.done.json"));
 	});
 
 	it("gives up when its run never winds down", async () => {

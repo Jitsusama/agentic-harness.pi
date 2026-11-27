@@ -16,7 +16,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
@@ -36,8 +36,32 @@ import {
 } from "../../../../lib/internal/fence/fence-git-root.ts";
 import { systemRmCommand } from "../../../../lib/internal/files/remove-tree.ts";
 
-/** How soon a planted name must be gone (ISXEG8). */
+/** How soon a planted name must be gone (ISXEG8), on a machine with a core to spare. */
 const PROMPTLY_MS = 100;
+
+/**
+ * How long a wait for the watcher may run. A wait that gives up at the
+ * bar fails every case on a loaded machine, a Mac at load 33 to 41 among
+ * them (27 November), though only the bar's own case measures it; this
+ * leaves the others to say what the watcher did, however late, inside
+ * vitest's own 5 s for a case, so the wait says what it saw.
+ */
+const WAIT_MS = 3000;
+
+/**
+ * The bar the case holds the watcher to as it runs. Where the machine
+ * has no core to spare, a wake waits its turn behind every other
+ * process, so the bar is ten times as wide there, and says what load it
+ * was measured under.
+ */
+function promptly(): { readonly ms: number; readonly under: string } {
+	const load = loadavg()[0] ?? 0;
+	const cores = availableParallelism();
+	const under = `at load ${load.toFixed(1)} on ${cores} cores`;
+	return load > cores
+		? { ms: PROMPTLY_MS * 10, under: `${under}, which leaves no core to spare` }
+		: { ms: PROMPTLY_MS, under };
+}
 
 let base: string;
 let root: string;
@@ -105,13 +129,16 @@ describe("a plant in the shared git folder", () => {
 				true,
 			);
 			const planted = path();
+			const bar = promptly();
 			const at = Date.now();
 			writeFileSync(planted, "/elsewhere\n");
 			await vi.waitFor(
 				() => expect(existsSync(planted), `${planted} still there`).toBe(false),
-				{ timeout: PROMPTLY_MS, interval: 2 },
+				{ timeout: WAIT_MS, interval: 2 },
 			);
-			expect(Date.now() - at, "how long it stood").toBeLessThan(PROMPTLY_MS);
+			expect(Date.now() - at, `how long it stood, ${bar.under}`).toBeLessThan(
+				bar.ms,
+			);
 			expect(deps.refused, "the refusal logged").toHaveBeenCalledWith("s-1");
 			expect(deps.stop, "the session's commands stopped").toHaveBeenCalledWith(
 				"s-1",
@@ -138,7 +165,7 @@ describe("a plant in the shared git folder", () => {
 		}
 		await vi.waitFor(
 			() => expect(existsSync(planted), "a plant still there").toBe(false),
-			{ timeout: PROMPTLY_MS, interval: 2 },
+			{ timeout: WAIT_MS, interval: 2 },
 		);
 		expect(plantStopped("s-loop"), "the session stopped").toBeDefined();
 		expect(deps.stop, "its commands ended").toHaveBeenCalledWith("s-loop");
@@ -151,10 +178,7 @@ describe("a plant in the shared git folder", () => {
 		writeFileSync(join(root, "gitdir"), "/elsewhere\n");
 		await vi.waitFor(
 			() => expect(plantStopped("s-b"), "s-b stopped").toBeDefined(),
-			{
-				timeout: PROMPTLY_MS,
-				interval: 2,
-			},
+			{ timeout: WAIT_MS, interval: 2 },
 		);
 		expect(plantStopped("s-a"), "s-a stopped").toBeDefined();
 		expect(deps.refused.mock.calls.flat().sort()).toEqual(["s-a", "s-b"]);
@@ -367,7 +391,37 @@ describe("the after-check", () => {
 		);
 
 		expect(ran.stdout.trim(), "the plant logged").toBe("logged");
+		expect(existsSync(planted), "the plant").toBe(false);
 		expect(readFileSync(used, "utf8"), "only the given rm ran").toBe("given\n");
+	});
+
+	it("removes with the system's rm as the fence runs it, whatever rm PATH finds first", () => {
+		// The fence calls withAfterCheckIn and names no rm, so this is the
+		// default a fenced command would most like to swap for its own.
+		const runtimeDir = join(root, "run");
+		mkdirSync(runtimeDir, { recursive: true });
+		const planted = join(root, "commondir");
+		const bin = join(base, "bin");
+		mkdirSync(bin);
+		const used = join(base, "used");
+		writeFileSync(join(bin, "rm"), `#!/bin/sh\necho path >> '${used}'\n`, {
+			mode: 0o755,
+		});
+		const text = withAfterCheckIn(
+			runtimeDir,
+			`mkdir '${planted}'`,
+			[planted],
+			"echo logged",
+		);
+
+		const ran = spawnSync("bash", ["-c", text], {
+			encoding: "utf8",
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+		});
+
+		expect(ran.stdout, "the plant logged").toBe("logged\n");
+		expect(existsSync(planted), "the plant").toBe(false);
+		expect(existsSync(used), "PATH's rm ran").toBe(false);
 	});
 
 	it("leaves a plant and says so where no rm only root keeps is found", () => {

@@ -178,6 +178,10 @@ function hostWith(programs: readonly string[]): string {
  * A check's shell: the turn-taking, then `body`, on the host's PATH with
  * the host's folder as its home. It leads a process group of its own, as
  * a shell ssh starts does, so a stop it sends its group reaches only it.
+ * It reads no startup file: bash given a socket as stdin, as node's
+ * pipes are, takes itself for sshd's and reads the system bashrc, whose
+ * PATH, on nix-darwin as on NixOS, brings back every program the host
+ * leaves out.
  */
 function check(
 	host: string,
@@ -185,7 +189,7 @@ function check(
 	fd9 = true,
 	exported: Readonly<Record<string, string>> = {},
 ): ChildProcess {
-	const child = spawn(bashHere(), ["-c", shellOf(host, body, fd9)], {
+	const child = spawn(bashHere(), ["--norc", "-c", shellOf(host, body, fd9)], {
 		env: { ...exported, PATH: join(host, "bin"), HOME: host },
 		stdio: ["pipe", "pipe", "pipe"],
 		detached: true,
@@ -198,13 +202,19 @@ function check(
  * A check's shell started under a caller of its own, as sshd starts the
  * shell there, so a test can take the caller away and leave the shell
  * running. What it returns is the caller; the shell says its own pid
- * first, on stdout.
+ * first, on stdout. Neither reads a startup file, as `check` says.
  */
 function checkUnderCaller(host: string, body: string): ChildProcess {
 	const bash = bashHere();
 	const caller = spawn(
 		bash,
-		["-c", '"$0" -c "$1" & wait', bash, shellOf(host, `echo "$$"\n${body}`)],
+		[
+			"--norc",
+			"-c",
+			'"$0" --norc -c "$1" & wait',
+			bash,
+			shellOf(host, `echo "$$"\n${body}`),
+		],
 		{
 			env: { PATH: join(host, "bin"), HOME: host },
 			stdio: ["pipe", "pipe", "pipe"],

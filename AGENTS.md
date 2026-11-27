@@ -244,7 +244,8 @@ rules, and where it doesn't yet.
   process's command line), off Linux a `tee` that takes `-p`
   (`teePersists`), a hard core limit of 0, as a pi host's unit
   sets, under which a killed host can't be given 1 (`givesNoCore`),
-  a git built without its fsmonitor daemon (`gitHasTheDaemon`), or a
+  a git built without its fsmonitor daemon (`gitHasTheDaemon`), a
+  `/tmp` the run may write (the sandbox grants only `TMPDIR`), or a
   platform. The browser lane fails without
   a Chrome rather than skipping.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The

@@ -77,23 +77,60 @@ export async function hostCodeOf(root: string): Promise<string> {
 export function installMovesFrom(
 	root: string,
 ): () => Promise<string | undefined> {
+	const look = installLooksFrom(root);
+	return async () => (await look()).moved;
+}
+
+/**
+ * As `installMovesFrom`, but an ask that can't tell throws rather than
+ * answering nothing: the install's `current` can't be read, or names a
+ * version still installing, or one whose install failed. A child's roll
+ * asks this way, so not knowing never reads as its code found current
+ * again, which would drop what it waited for.
+ */
+export function installMovesOrThrowsFrom(
+	root: string,
+): () => Promise<string | undefined> {
+	const look = installLooksFrom(root);
+	return async () => {
+		const { moved, unsure } = await look();
+		if (unsure !== undefined) throw new Error(unsure);
+		return moved;
+	};
+}
+
+/** What one ask of an install found: why it moved, or why it can't tell. */
+interface InstallLook {
+	readonly moved?: string;
+	readonly unsure?: string;
+}
+
+/** Ask the install of the version at `root` what it now names, as `installMovesFrom` describes. */
+function installLooksFrom(root: string): () => Promise<InstallLook> {
 	const install = installOfVersion(root);
-	if (install === undefined) return async () => undefined;
+	if (install === undefined) return async () => ({});
 	const link = join(install, "current");
 	let code: Promise<string> | undefined;
 	const codeOf = new Map<string, Promise<string>>();
 	return async () => {
 		code ??= hostCodeOf(root);
 		const now = await realpath(link).catch(() => undefined);
-		if (now === undefined || now === root || !dependenciesReady(now))
-			return undefined;
+		if (now === undefined)
+			return { unsure: `the install's ${link} can't be read` };
+		if (now === root) return {};
+		if (!dependenciesReady(now))
+			return {
+				unsure: `the install's ${basename(now).slice(0, 12)} hasn't finished installing`,
+			};
 		let next = codeOf.get(now);
 		if (!next) {
 			next = hostCodeOf(now);
 			codeOf.set(now, next);
 		}
-		if ((await next) === (await code)) return undefined;
-		return `the install's ${basename(now).slice(0, 12)} changes the host's own code`;
+		if ((await next) === (await code)) return {};
+		return {
+			moved: `the install's ${basename(now).slice(0, 12)} changes the host's own code`,
+		};
 	};
 }
 
@@ -253,11 +290,24 @@ export async function isUnitMain(
 }
 
 /**
+ * Where `systemctl --user set-property` keeps what it sets: a resource
+ * control systemd applies to the running unit at once, which never changes
+ * what the unit starts. A jobs sorter writes and takes back such drop-ins
+ * as it starts and stops, so counting them restarted every host at a
+ * switch that added one (03:00, 27 Nov). The host asks the user manager,
+ * which never reads the system's system.control, so only user.control is
+ * left out. It trusts the folder, not what is in it: a drop-in put there
+ * by hand, an ExecStart= or Environment= one too, goes unfollowed, as
+ * systemd keeps that folder for set-property and nothing here writes to it.
+ */
+const SET_PROPERTY_FOLDER = /\/systemd\/user\.control\//;
+
+/**
  * The fingerprint of the unit as systemd would start it now: where its
  * file and drop-ins resolve, which a switch moves to new store paths as it
- * rewrites them. Nothing while systemd hasn't read a changed file yet,
- * since a restart then would start the old unit again; nor when systemd
- * can't be asked.
+ * rewrites them, leaving out what `systemctl set-property` wrote. Nothing
+ * while systemd hasn't read a changed file yet, since a restart then would
+ * start the old unit again; nor when systemd can't be asked.
  */
 export async function unitDefinition(
 	unit: string,
@@ -285,8 +335,52 @@ export async function unitDefinition(
 	const files = [fragment, ...(properties.get("DropInPaths") ?? "").split(" ")];
 	const resolved = await Promise.all(
 		files
-			.filter((file) => file !== "")
+			.filter((file) => file !== "" && !SET_PROPERTY_FOLDER.test(file))
 			.map((file) => realpath(file).catch(() => file)),
 	);
 	return resolved.join("\n");
+}
+
+/**
+ * What moved between two of a unit's definitions, as the files systemd now
+ * reads and those it no longer reads, so a restart says which file changed
+ * rather than leaving it to be pieced together from the journal. Files are
+ * counted, not just named, so one that two drop-ins now resolve to is said
+ * as read a new number of times rather than as a new order. The clauses are
+ * joined with "; ", since a restart's reason joins its own with ", and ".
+ */
+export function definitionMoves(before: string, now: string): string {
+	const was = counted(before);
+	const is = counted(now);
+	const came = [...is.keys()].filter((file) => !was.has(file));
+	const went = [...was.keys()].filter((file) => !is.has(file));
+	const recounted = [...is].flatMap(([file, count]) => {
+		const had = was.get(file);
+		return had === undefined || had === count
+			? []
+			: [`${file} ${times(count)}, not ${times(had)}`];
+	});
+	const moves = [
+		...(came.length > 0 ? [`it now reads ${came.join(", ")}`] : []),
+		...(went.length > 0 ? [`it no longer reads ${went.join(", ")}`] : []),
+		...(recounted.length > 0 ? [`it reads ${recounted.join(", ")}`] : []),
+	];
+	return moves.length > 0
+		? moves.join("; ")
+		: "it reads the same files in a new order";
+}
+
+/** How many times a definition names each of its files. */
+function counted(definition: string): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const file of definition.split("\n"))
+		counts.set(file, (counts.get(file) ?? 0) + 1);
+	return counts;
+}
+
+/** A count of reads, in words. */
+function times(count: number): string {
+	if (count === 1) return "once";
+	if (count === 2) return "twice";
+	return `${count} times`;
 }

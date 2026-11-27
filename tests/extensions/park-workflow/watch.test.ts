@@ -156,12 +156,15 @@ const watching = (
 	ctx: Parkable = session(),
 	env: NodeJS.ProcessEnv = holder(),
 	args: readonly string[] = [],
-	platform?: NodeJS.Platform,
+	// Linux unless a case says otherwise, so a Mac runner reads every case
+	// as CI does: a background host never parks on its own on macOS. Null
+	// names none, leaving watch to read the process's, as parking does.
+	platform: NodeJS.Platform | null = "linux",
 ) =>
 	watch(ctx, events, {
 		env,
 		args,
-		...(platform === undefined ? {} : { platform }),
+		...(platform === null ? {} : { platform }),
 		pid: HELD_PID,
 		switchPath: parkSwitch(folder),
 		folder,
@@ -1627,7 +1630,7 @@ describe("why a session stays awake", () => {
 			key: string,
 			line = "on",
 			viewed = false,
-			platform: NodeJS.Platform = "linux",
+			platform: NodeJS.Platform | null = "linux",
 		): number | undefined => {
 			writeFileSync(parkSwitch(folder), `${line}\n`);
 			// Each starts unparked, not woken from the one before's marker.
@@ -1681,6 +1684,23 @@ describe("why a session stays awake", () => {
 			parksAfter("one-background", "on", false, "darwin"),
 			"background on macOS waits its half hour",
 		).toBe(PARK_AFTER_MS);
+		// Parking names no platform, so a Mac's guard holds only through the
+		// process's own, which a runner of either kind stands in for here.
+		const runner = process.platform;
+		try {
+			Object.defineProperty(process, "platform", { value: "darwin" });
+			expect(
+				parksAfter("one-background", "on", false, null),
+				"background on a Mac, as parking reads it, waits its half hour",
+			).toBe(PARK_AFTER_MS);
+			Object.defineProperty(process, "platform", { value: "linux" });
+			expect(
+				parksAfter("one-background", "on", false, null),
+				"background on Linux, as parking reads it, parks at five",
+			).toBe(BACKGROUND_PARK_AFTER_MS);
+		} finally {
+			Object.defineProperty(process, "platform", { value: runner });
+		}
 	});
 
 	/**

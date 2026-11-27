@@ -80,7 +80,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/remove: comma-separated `type:value` (e.g. `github-pr:shop/world#47281`). need-add/remove: comma-separated needs, as spawn's needs (kind=value, or the bare `cloud`). budget: a provider's name, `none` or `inherit`; left out, it says which. tree-expand: the zone (e.g. system/gitstream).",
+				"alias-add/remove: comma-separated `type:value` (e.g. `github-pr:shop/world#47281`). need-add/remove: comma-separated, as spawn's needs. budget: a provider's name, `none` or `inherit`; left out, it says which. tree-expand: the zone (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
@@ -126,7 +126,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	host: Type.Optional(
 		Type.String({
 			description:
-				"spawn: attended or background, to open it in the shared pi host, not a terminal; left out, the spawnHost setting decides.",
+				"spawn: attended or background, to open it in the shared pi host, not a terminal (default: the spawnHost setting).",
 		}),
 	),
 	nesting: Type.Optional(
@@ -138,7 +138,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	machine: Type.Optional(
 		Type.String({
 			description:
-				"spawn: the machine to start on, by its mycelium node's name; it starts held there and the window here joins it.",
+				"spawn: the mycelium node to start on, by name; it starts held there and the window here joins it.",
 		}),
 	),
 	needs: Type.Optional(
@@ -195,7 +195,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"tree-release: override its refusals, losing uncommitted work: confirm with the person first. section: let a body drop most of a large section. reopen-sessions: reopen the lost sessions rather than list them; confirm first too.",
+				"tree-release: override its refusals, losing uncommitted work: confirm with the person first. section: let a body drop most of a large section. reopen-sessions: reopen lost sessions, not list them; confirm first too.",
 		}),
 	),
 	dryRun: Type.Optional(

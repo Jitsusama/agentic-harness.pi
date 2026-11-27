@@ -59,12 +59,19 @@ function wallAtMonotonicZero(): number {
  * every marker unjudged.
  *
  * A forward step still misjudges what came before it: the boot read
- * after it is later by the step, so a marker written this boot before
- * the step reads as an earlier boot's, and a park check clears it.
- * Keeping the earlier boot instead would leave a peer or a restore
- * record from a boot that is over read as this one's, for every
- * reader of this time at once, so the later one is taken, as `btime`
- * itself gives.
+ * after it is later by the step, so whatever this boot wrote less than
+ * the step after it began reads as an earlier boot's, and a step longer
+ * than the boot's age reaches everything before it. A park marker
+ * written then is cleared. A mesh hold sent then stops standing, as a
+ * reboot ends it: each hand already told it began is told it is over,
+ * and a peer waiting on it is told the machine has restarted, though it
+ * hasn't, with no word of a clock step. A peer's own
+ * claims from then are let go when it next starts, and the boot the
+ * restore file pinned as the last one is no longer kept, so the
+ * records decide. Keeping the earlier boot instead would leave a peer
+ * or a restore record from a boot that is over read as this one's, for
+ * every reader of this time at once, so the later one is taken, as
+ * `btime` itself gives.
  */
 export function bootReadOnce(
 	read: () => string,

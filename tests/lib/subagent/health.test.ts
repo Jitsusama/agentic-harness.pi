@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+	checkSubagentRuntime,
 	createSubagentHealthCheck,
 	detectStaleInstallInStderr,
 	STALE_RUNTIME_WARNING_PREFIX,
@@ -14,6 +18,46 @@ import {
 // detector that together let the dispatcher surface a
 // clear "restart pi" advisory instead of a generic
 // retry suggestion.
+
+const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
+
+// The install is read at each dispatch, so a reading healed since the
+// module loaded, or one gone since, is the one the check judges.
+describe("checkSubagentRuntime", () => {
+	const store = globalThis as Record<symbol, unknown>;
+	const before = store[STARTUP_INSTALL_KEY];
+	const previous = process.env.PI_PACKAGE_DIR;
+	afterEach(() => {
+		store[STARTUP_INSTALL_KEY] = before;
+		if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+		else process.env.PI_PACKAGE_DIR = previous;
+	});
+
+	it("names a package folder gone since the module loaded", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-health-"));
+		const gone = join(root, "gone-link");
+		writeFileSync(join(root, "cli.js"), "");
+		store[STARTUP_INSTALL_KEY] = {
+			node: process.execPath,
+			entry: join(root, "cli.js"),
+			packageDir: gone,
+		};
+		expect(checkSubagentRuntime()?.path).toBe(gone);
+	});
+
+	it("passes once the package is found from the entry script", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-health-"));
+		mkdirSync(join(root, "dist"));
+		writeFileSync(join(root, "package.json"), "{}");
+		writeFileSync(join(root, "dist", "cli.js"), "");
+		store[STARTUP_INSTALL_KEY] = {
+			node: process.execPath,
+			entry: join(root, "dist", "cli.js"),
+			packageDir: join(root, "gone-link"),
+		};
+		expect(checkSubagentRuntime()).toBeNull();
+	});
+});
 
 describe("createSubagentHealthCheck", () => {
 	it("returns null when every install path still exists", () => {

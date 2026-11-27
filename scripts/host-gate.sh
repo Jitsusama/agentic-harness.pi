@@ -21,6 +21,14 @@
 # clears it.
 set -euo pipefail
 
+# The changed paths are read whole with mapfile -d, which came in bash 4.4;
+# macOS's own bash is 3.2, and there it would fail on the list.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  echo "host-gate: bash $BASH_VERSION can't read the changed paths whole, which needs bash 4.4." >&2
+  echo "Run it with a newer bash, as the dev shell's, then merge again." >&2
+  exit 1
+fi
+
 sha=${1:?Name the commit to merge: host-gate.sh SHA}
 # The runner beside this gate, the install's when the install runs it: a
 # branch's own copy can predate the runner the gate's records come from.
@@ -76,19 +84,47 @@ prose='(^|/)README\.md$'
 # refspec might leave origin/main where it was, and read by its full ref,
 # since a tag or branch of the checkout's named origin/main would outrank
 # it under the short name: either could set main at the head, so that
-# nothing reads as changed.
-git fetch -q origin +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
-base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
+# nothing reads as changed. No hook runs as it lands, so none the checkout
+# holds can move the ref after; the remote and the GIT_ variables given
+# still reach the fetch, as merge-gate.sh says why.
+fetching() { git -c core.hooksPath=/dev/null fetch -q origin "$@"; }
+fetching +refs/heads/main:refs/remotes/origin/main
+if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then fetching "$sha"; fi
+# What changed is read past the checkout's replacements, grafts and
+# commit-graph, any of which could make the head's commit read as main's,
+# so that nothing reads as changed. Every GIT_ variable the gate was given
+# is unset (a graft file or a replace base among them), as merge-gate.sh
+# does, and an empty graft file is named, since the checkout's info/grafts
+# is read otherwise. Git takes a commit's parents from the commit-graph
+# under objects/, which a strict session can write, and never checks them
+# against the commit, so parents are read from the commits themselves.
+inherited=()
+for name in "${!GIT_@}"; do inherited+=(-u "$name"); done
+grafts=$(mktemp)
+listed=$(mktemp)
+trap 'rm -f "$grafts" "$listed"' EXIT
+unreplaced() {
+  env ${inherited[@]+"${inherited[@]}"} GIT_GRAFT_FILE="$grafts" GIT_NO_REPLACE_OBJECTS=1 \
+    git --no-replace-objects -c core.commitGraph=false "$@"
+}
+base=$(unreplaced merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing. A rename is listed as
 # the path it left and the path it took, so hosted code moved to a README
-# still counts by the path it left.
-changed=$(git diff --name-only --no-renames "$base" "$sha")
-# A grep finding nothing exits 1, which means nothing a host runs; any
-# other failure stops the gate rather than passing the change.
-touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose") || [[ $? == 1 ]]
-if [[ -z $touched ]]; then
+# still counts by the path it left. Paths are read whole with -z, since
+# git quotes an odd name without it, and a quoted name opens with a quote
+# that none of the patterns below match, so hosted code named oddly would
+# skip the run. Each is matched whole, so a newline in one can't split it
+# into a README and a path that isn't hosted.
+unreplaced diff -z --name-only --no-renames "$base" "$sha" > "$listed"
+mapfile -d '' -t changed < "$listed"
+touched=()
+for path in ${changed[@]+"${changed[@]}"}; do
+  if [[ $path =~ $hosted || $path =~ $driven ]] && [[ ! $path =~ $prose ]]; then
+    touched+=("$path")
+  fi
+done
+if [[ ${#touched[@]} == 0 ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0
 fi
@@ -141,8 +177,8 @@ else
   why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
 
-# Arithmetic drops the spaces macOS's wc pads its count with.
-count=$(($(echo "$touched" | wc -l)))
-echo "host-gate: $sha changes $count path(s) pi hosts run, such as $(echo "$touched" | head -n 1), and $why." >&2
+# The path is the head's to name, so it's quoted as bash would, and no
+# newline or terminal escape in it reaches the screen raw.
+echo "host-gate: $sha changes ${#touched[@]} path(s) pi hosts run, such as $(printf '%q' "${touched[0]}"), and $why." >&2
 echo "$clear." >&2
 exit 1

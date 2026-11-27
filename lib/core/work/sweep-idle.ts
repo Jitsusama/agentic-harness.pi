@@ -107,6 +107,19 @@ export interface IdleChoice extends UseSigns {
 	 * refuse some of them, as one holding changes.
 	 */
 	left?(count: number): void;
+	/**
+	 * Whether to pass `tree` over now, asked of each before it is judged,
+	 * again after any pause, and once more after it is judged, so one
+	 * passed over costs none of `most`, and one passed over before its
+	 * judging costs no git call; whatever says so says why itself. None
+	 * is, by default.
+	 */
+	heldBack?(tree: HeldTree): boolean;
+	/**
+	 * Waited on once after each worktree given, before the next is judged,
+	 * so takes are spaced; none, by default.
+	 */
+	pause?(): Promise<void>;
 }
 
 /**
@@ -258,16 +271,29 @@ export async function* eachIdleWorktree(
 	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
 	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
 	let given = 0;
+	// One pause after each take, before the next tree is judged, so a run
+	// of trees judged and refused between two takes costs one pause, not
+	// one each.
+	let paused = true;
 	for (const [at, { tree, usedAt, path }] of aged.entries()) {
 		if (given >= most || (given >= floor && choice.spent?.() === true)) {
 			const left = aged.slice(at).filter((one) => !busy.has(one.path)).length;
 			if (left > 0) choice.left?.(left);
 			return;
 		}
-		if (busy.has(path)) continue;
+		if (busy.has(path) || choice.heldBack?.(tree) === true) continue;
+		if (!paused && choice.pause !== undefined) {
+			await choice.pause();
+			paused = true;
+			// What holds a tree back may have changed in the pause.
+			if (choice.heldBack?.(tree) === true) continue;
+		}
 		const settled = await nothingOnlyHere(choice.exec, tree.path);
-		if (settled === undefined) continue;
+		// And in the judging, whose status may take a while on a large tree,
+		// so the last look comes just before the tree is given to be taken.
+		if (settled === undefined || choice.heldBack?.(tree) === true) continue;
 		given += 1;
+		paused = false;
 		yield { tree, usedAt, ...settled };
 	}
 }
@@ -298,21 +324,8 @@ export async function nothingOnlyHere(
 	}
 	const name = ref.slice("refs/heads/".length);
 	const commit = head.stdout.trim();
-	const holding = await git(
-		"for-each-ref",
-		`--contains=${commit}`,
-		"--format=%(refname:short)",
-		"refs/remotes",
-	);
-	// Its own remote branch is named first, as the place to find it; a
-	// remote's HEAD, which git shortens to the remote's bare name, only
-	// repeats its default branch.
-	const remotes = holding.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.includes("/") && !line.endsWith("/HEAD"));
-	const remote = remotes.find((one) => one.endsWith(`/${name}`)) ?? remotes[0];
-	if (holding.code !== 0 || remote === undefined) return undefined;
+	const remote = await remoteHolding(git, commit, name);
+	if (remote === undefined) return undefined;
 	// The stash is the repository's, shared by every tree; git names the
 	// branch each entry was made on in its message.
 	const stashes = await git("stash", "list", "--format=%gs");
@@ -357,6 +370,37 @@ export async function nothingOnlyHere(
 		return undefined;
 	}
 	return { branch: name, commit, remote };
+}
+
+/**
+ * A remote-tracking branch holding `commit`, its own branch `name` on
+ * some remote first, as the place to find it. Only when none of those
+ * holds it are every remote's branches asked, since that walk reads far
+ * more: on 27 November it read 59 to 75 MB from the disk for one tree
+ * of a repository with 7,196 remote branches, where asking its own read
+ * at most 4 MB. A remote's HEAD, which git shortens to the remote's
+ * bare name, only repeats its default branch, so it is never named.
+ */
+async function remoteHolding(
+	git: (...args: string[]) => Promise<{ code: number; stdout: string }>,
+	commit: string,
+	name: string,
+): Promise<string | undefined> {
+	for (const among of [`refs/remotes/*/${name}`, "refs/remotes"]) {
+		const holding = await git(
+			"for-each-ref",
+			`--contains=${commit}`,
+			"--format=%(refname:short)",
+			among,
+		);
+		if (holding.code !== 0) return undefined;
+		const found = holding.stdout
+			.split("\n")
+			.map((line) => line.trim())
+			.find((line) => line.includes("/") && !line.endsWith("/HEAD"));
+		if (found !== undefined) return found;
+	}
+	return undefined;
 }
 
 /**

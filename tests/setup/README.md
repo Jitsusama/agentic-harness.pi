@@ -1,10 +1,28 @@
 # Test Setup
 
 What vitest runs around every unit test, named in `vitest.config.ts`: every
-XDG directory pointed at a throwaway tree, one temp root per run, the quest
+XDG directory pointed at a throwaway tree, none of the developer's
+session left in its environment (its sandbox, desktop and `MYCELIUM_`
+variables), one temp root per run with a
+short folder for sockets in /tmp (`PI_TEST_SOCKET_ROOT`), the quest
 workflow's signal listeners taken back out, the quest lock pointed at an
 empty runtime folder rather than the machine's own, and a note of which
 pi install the suite runs under. `xdg-sandbox.test.ts` proves the sandbox holds.
+`held-session.ts` picks which `MYCELIUM_` names go: all but those a caller
+chose for the run, such as `MYCELIUM_BIN`, which `held-session.test.ts`
+proves on an environment it plants.
+
+The run's end removes its temp root and short folder. Where /tmp may not
+be written, or isn't there, there is no short folder. A run killed
+outright leaves its short folder in /tmp, so each run first sweeps this
+account's whose process is gone, reading only names in the setup's
+shape. A pid is judged only in the pid namespace that wrote it, since
+each fenced command on Linux has its own. A folder whose pid lives stays
+at any age. One whose pid can't be judged goes after a day unchanged,
+and a live run touches its folder hourly, so only a gone run's is that
+stale. One with no run file, or an empty one, goes after an hour if
+nothing else is in it, whoever made it. One whose run file isn't the
+setup's stays. `temp-root.test.ts` proves the setup and the sweep.
 
 `scripts-as-text.ts` is a loader each project takes, so a test can
 import a shell script it runs, as its text, and `--changed` follows an

@@ -6,7 +6,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
+import { userTextOf } from "../../../lib/internal/session/driven.ts";
 import { isMoveTarget } from "../../../lib/internal/session/move.ts";
+import { answerSteerWaiting, saySteered } from "../../../lib/jobs/steer.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { isPersonsTalk, type Steer } from "../../../lib/mesh/steer.ts";
 import {
@@ -49,17 +51,79 @@ function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
 /** Steering for this peer, from the person's inboxes. */
 export function createSteerer(m: MeshState) {
 	/**
+	 * The talk steered into the run under way that pi has yet to read,
+	 * each from its steer until pi reads those very words as a user's
+	 * message, or the run settles, as job-workflow holds a typed line. So a
+	 * call that starts after it moves to the background too, and none once
+	 * the last is read. pi reads one steer a turn, so another's message
+	 * read first, a typed line or a peer's, leaves the talk waiting.
+	 *
+	 * The words are matched whole, as pi 1.6.1 matches its own queue: it
+	 * keeps a steer as the one text part it was sent as. A message of
+	 * several parts is read joined by spaces (userTextOf), so talk pi ever
+	 * split would wait until the run settles rather than be let go early.
+	 * pi settles a run only as it ends (agent_settled, after its own
+	 * compactions), never between turns, so talk held past its read stays
+	 * marked no longer than that run.
+	 */
+	const unread: string[] = [];
+	let answering: (() => void) | undefined;
+	/** Stop answering, so a reload's next steerer answers alone. */
+	const stopAnswering = () => {
+		answering?.();
+		answering = undefined;
+		unread.length = 0;
+	};
+	/** pi read `text`, so it no longer waits, if it was talk that did. */
+	const read = (text: string | undefined) => {
+		const at = text === undefined ? -1 : unread.indexOf(text);
+		if (at >= 0) unread.splice(at, 1);
+	};
+	m.pi.on("session_start", () => {
+		stopAnswering();
+		answering = answerSteerWaiting(m.pi.events, () => unread.length > 0);
+	});
+	m.pi.on("session_shutdown", stopAnswering);
+	m.pi.on("message_start", (event) => {
+		read(userTextOf({ type: "message", message: event.message }));
+	});
+	m.pi.on("agent_settled", () => {
+		unread.length = 0;
+	});
+
+	/**
 	 * The person's words from outside the window, as their own message:
-	 * a turn when idle, otherwise once the run under way ends, or into it
-	 * after its tool when the steer says now (steerDelivery).
+	 * a turn when idle, otherwise as steerDelivery says for a steer: into
+	 * the run under way for the person's talk, else once that run ends. A
+	 * look's answer comes with no steer, and waits for the run to end.
+	 * Talk read into the run is said as a typed line is, and waits as one
+	 * does until pi reads it or the run settles, so a call that can move to the
+	 * background moves rather than hold it, running or started since
+	 * (lib/jobs).
 	 */
 	const steered = (
 		text: string,
 		idle: boolean,
-		steer: Pick<Steer, "now"> = {},
+		steer?: Pick<Steer, "now" | "text" | "act" | "from">,
 	) => {
-		const deliverAs = steerDelivery(steer, idle);
-		m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
+		const afterRun = idle ? undefined : "followUp";
+		const deliverAs = steer ? steerDelivery(steer, idle) : afterRun;
+		if (deliverAs !== "steer") {
+			m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
+			return;
+		}
+		// Marked before it is sent, so pi's reading it, however soon, clears
+		// it, and let go at once if pi refuses it as it is sent. pi says a
+		// refusal that comes later as an error of its own, not to the
+		// sender, so that talk stays marked until the run settles.
+		unread.push(text);
+		try {
+			m.pi.sendUserMessage(text, { deliverAs });
+		} catch (error) {
+			read(text);
+			throw error;
+		}
+		saySteered(m.pi.events);
 	};
 
 	/**

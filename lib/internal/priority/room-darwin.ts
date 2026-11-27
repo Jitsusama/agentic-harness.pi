@@ -215,10 +215,13 @@ export function sysctlValues(text: string): Map<string, string> {
 	return values;
 }
 
-/** `vm_stat`'s count of pages swapped out, or 0 when it names none. */
-export function swapoutsIn(vmStat: string): number {
+/**
+ * `vm_stat`'s count of pages swapped out, or undefined when no line
+ * names one, so a lost count is never read as none.
+ */
+export function swapoutsReadIn(vmStat: string): number | undefined {
 	const found = vmStat.match(/^Swapouts:\s+(\d+)\.?\s*$/m);
-	return found ? Number(found[1]) : 0;
+	return found ? Number(found[1]) : undefined;
 }
 
 /** How many VM guests a list of process names holds. */
@@ -247,7 +250,9 @@ export function darwinFactsFrom(
 		availablePercent: number("kern.memorystatus_level"),
 		pressureLevel: number("kern.memorystatus_vm_pressure_level"),
 		load,
-		swapouts: swapoutsIn(vmStat),
+		// NaN when vm_stat named none, so a lost count never joins the
+		// shared history as 0 and reads to a council's start as a swap.
+		swapouts: swapoutsReadIn(vmStat) ?? Number.NaN,
 		guests: guestsIn(processNames),
 	};
 }
@@ -273,6 +278,38 @@ export function darwinFactsNow(): DarwinFacts {
 	);
 }
 
+/** The figures {@link darwinShort} judges a Mac's memory by. */
+export type MemoryFigures = Pick<
+	DarwinFacts,
+	"availablePercent" | "pressureLevel" | "swapouts"
+>;
+
+/**
+ * What holds work back on a Mac read as `read`, said for a person, or
+ * nothing when it has room: the kernel's pressure at warning or worse,
+ * a swap-out since the oldest of `seen`, the readings {@link keptAt}
+ * keeps, or less available than {@link LEAST_AVAILABLE_PERCENT}. The
+ * queue and a council's start read the one rule.
+ */
+export function darwinShort(
+	read: MemoryFigures,
+	seen: readonly Swapped[],
+): string | undefined {
+	if (read.pressureLevel >= WARNING_LEVEL) {
+		return `the kernel's memory pressure level is ${read.pressureLevel}, at or past warning`;
+	}
+	const since = seen[0];
+	if (since !== undefined && read.swapouts > since.swapouts) {
+		const newest = seen.at(-1)?.at ?? since.at;
+		const seconds = Math.round((newest - since.at) / 1000);
+		return `it swapped out ${read.swapouts - since.swapouts} pages in the last ${seconds} s`;
+	}
+	if (read.availablePercent < LEAST_AVAILABLE_PERCENT) {
+		return `${read.availablePercent}% of its memory is available, under ${LEAST_AVAILABLE_PERCENT}%`;
+	}
+	return undefined;
+}
+
 /**
  * Reads a Mac's room as the queue reads a Linux machine's, remembering
  * the last swap-out counts in `history` so that swapping now can be told
@@ -287,14 +324,12 @@ export function darwinRoom(
 		// Dated once read, as vm_stat can take a while on a Mac that swaps.
 		const read = facts();
 		const now = clock();
-		const seen = keptAt(history.load(), { at: now, swapouts: read.swapouts });
-		history.save(seen);
-		const swapping = read.swapouts > (seen[0]?.swapouts ?? read.swapouts);
-		const pressed =
-			read.pressureLevel >= WARNING_LEVEL ||
-			swapping ||
-			read.availablePercent < LEAST_AVAILABLE_PERCENT;
-		const memoryPressure = pressed ? MOST_MEMORY_PRESSURE : 0;
+		const seen = Number.isFinite(read.swapouts)
+			? keptAt(history.load(), { at: now, swapouts: read.swapouts })
+			: history.load();
+		if (Number.isFinite(read.swapouts)) history.save(seen);
+		const memoryPressure =
+			darwinShort(read, seen) === undefined ? 0 : MOST_MEMORY_PRESSURE;
 		const waiting =
 			read.load > read.cores ? ((read.load - read.cores) / read.load) * 100 : 0;
 		const cpuPressure = Math.round(waiting * 100) / 100;

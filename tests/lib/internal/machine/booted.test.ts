@@ -83,15 +83,21 @@ describe("when the machine booted", () => {
 	});
 
 	it("keeps that the machine will not say, with no btime or no /proc", () => {
-		for (const answer of [
-			() => "cpu  1 2 3\n",
-			() => {
-				throw failure("ENOENT");
-			},
-			() => {
-				throw failure("ENOTDIR");
-			},
-		]) {
+		for (const [said, answer] of [
+			["no btime", () => "cpu  1 2 3\n"],
+			[
+				"ENOENT",
+				() => {
+					throw failure("ENOENT");
+				},
+			],
+			[
+				"ENOTDIR",
+				() => {
+					throw failure("ENOTDIR");
+				},
+			],
+		] as const) {
 			let reads = 0;
 			const booted = bootReadOnce(
 				() => {
@@ -101,12 +107,12 @@ describe("when the machine booted", () => {
 				() => 0,
 			);
 
-			expect([booted(), booted(), booted()]).toEqual([
+			expect([booted(), booted(), booted()], said).toEqual([
 				undefined,
 				undefined,
 				undefined,
 			]);
-			expect(reads).toBe(1);
+			expect(reads, said).toBe(1);
 		}
 	});
 
@@ -153,12 +159,19 @@ describe("when the machine booted", () => {
 		expect(reads).toBe(1);
 		clock = 1001;
 		booted();
-		expect(reads).toBe(2);
+		expect(reads, "read again a millisecond past a second on").toBe(2);
+		clock = 1;
+		booted();
+		expect(reads, "kept through a second back from that read").toBe(2);
+		clock = 0;
+		booted();
+		expect(reads, "read again a millisecond past a second back").toBe(3);
 	});
 
 	it("takes the later boot a forward step gives, as btime does", () => {
-		// A known misjudgement, kept on purpose: a marker written before the
-		// step now reads as an earlier boot's (booted.ts says why).
+		// A known misjudgement, kept on purpose: what this boot wrote less
+		// than the step after it began now reads as an earlier boot's
+		// (booted.ts says why).
 		const answers = ["btime 1792861000\n", "btime 1792864600\n"];
 		let reads = 0;
 		let clock = 0;

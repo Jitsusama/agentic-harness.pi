@@ -12,9 +12,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	definitionMoves,
 	hostCodeOf,
 	hostModules,
 	installMovesFrom,
+	installMovesOrThrowsFrom,
 	isUnitMain,
 	ownLaunchdJob,
 	ownUnit,
@@ -195,6 +197,58 @@ describe("installMovesFrom", () => {
 		const moved = installMovesFrom(join(root, "tree"));
 		expect(await moved()).toBeUndefined();
 	});
+
+	// 27 November (#2320's F25): a child's roll read an unreadable link as
+	// its code found current again, and dropped its hour's wait for room.
+	describe("asked as a child's roll asks", () => {
+		it("throws, rather than answering nothing, when the install's link can't be read", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			const moved = installMovesOrThrowsFrom(one);
+			await expect(moved()).rejects.toThrow("can't be read");
+		});
+
+		it("throws while the version it names is still installing, then says why it moved", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			await version("two", "export const a = 2;\n");
+			await put(
+				"install/versions/two/pnpm-lock.yaml",
+				"lockfileVersion: '9.0'\n",
+			);
+			await symlink(one, join(root, "install", "current"));
+			const moved = installMovesOrThrowsFrom(one);
+			await moveTo("two");
+
+			await expect(moved(), "still installing").rejects.toThrow(
+				"the install's two hasn't finished installing",
+			);
+			await put("install/versions/two/node_modules/.modules.yaml", "{}\n");
+			expect(await moved(), "installed").toBe(
+				"the install's two changes the host's own code",
+			);
+		});
+
+		it("answers nothing while the install names its own version or the same host code", async () => {
+			const one = await version("one", "export const a = 1;\n");
+			await version("same", "export const a = 1;\n");
+			await symlink(one, join(root, "install", "current"));
+			const moved = installMovesOrThrowsFrom(one);
+			expect(await moved(), "its own version").toBeUndefined();
+			await moveTo("same");
+			expect(await moved(), "the same host code").toBeUndefined();
+		});
+
+		it("never moves, nor throws, for a version outside an install", async () => {
+			await put("tree/scripts/pi-host.ts", "export {};\n");
+			const moved = installMovesOrThrowsFrom(join(root, "tree"));
+			expect(await moved()).toBeUndefined();
+		});
+	});
+
+	it("answers nothing when the install's link can't be read, as a host's restart asks", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		const moved = installMovesFrom(one);
+		expect(await moved()).toBeUndefined();
+	});
 });
 
 describe("ownUnit", () => {
@@ -308,5 +362,136 @@ describe("unitDefinition", () => {
 			await unitDefinition("unit.service", async () => "NeedDaemonReload=no\n"),
 			"a unit with no file",
 		).toBeUndefined();
+	});
+
+	it("leaves out what set-property wrote, which changes nothing the unit starts", async () => {
+		await put("unit.service", "[Service]\n");
+		await put("unit.service.d/env.conf", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const dropIn = join(root, "unit.service.d/env.conf");
+		const controlled =
+			(...settings: string[]) =>
+			async () =>
+				[
+					"NeedDaemonReload=no",
+					`FragmentPath=${fragment}`,
+					`DropInPaths=${[
+						dropIn,
+						...settings.map(
+							(one) =>
+								`/run/user/1000/systemd/user.control/unit.service.d/50-${one}.conf`,
+						),
+					].join(" ")}`,
+					"",
+				].join("\n");
+		const before = await unitDefinition(
+			"unit.service",
+			controlled("CPUWeight"),
+		);
+		expect(before).toBe(`${fragment}\n${dropIn}`);
+		expect(
+			await unitDefinition("unit.service", controlled("CPUWeight", "IOWeight")),
+			"a jobs sorter setting one more control",
+		).toBe(before);
+		expect(
+			await unitDefinition("unit.service", controlled()),
+			"a jobs sorter taking its controls back as it stops",
+		).toBe(before);
+	});
+
+	it("leaves out the persistent user.control folder as well as the runtime one", async () => {
+		await put("unit.service", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const persistent =
+			"/home/joel/.config/systemd/user.control/unit.service.d/50-CPUWeight.conf";
+		expect(
+			await unitDefinition(
+				"unit.service",
+				async () =>
+					`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${persistent}\n`,
+			),
+			"what set-property wrote without --runtime",
+		).toBe(fragment);
+	});
+
+	it("still counts a drop-in in the folders beside set-property's", async () => {
+		await put("unit.service", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		// Real files under the test's own folder, so each resolves as a
+		// drop-in on the machine would rather than falling back to its name.
+		const beside = [
+			"run/user/1000/systemd/user/unit.service.d/50-env.conf",
+			"run/user/1000/systemd/transient/unit.service.d/50-env.conf",
+			"home/joel/.config/systemd/user/unit.service.d/override.conf",
+			"run/user/1000/systemd/user.control.d/unit.service.d/50-env.conf",
+			// The system's set-property folder, which the user manager the host
+			// asks never reads, so a drop-in named there is no set-property's.
+			"etc/systemd/system.control/unit.service.d/50-env.conf",
+		];
+		for (const place of beside) {
+			await put(place, "[Service]\n");
+			const dropIn = join(root, place);
+			expect(
+				await unitDefinition(
+					"unit.service",
+					async () =>
+						`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${dropIn}\n`,
+				),
+				dropIn,
+			).toBe(`${fragment}\n${dropIn}`);
+		}
+	});
+});
+
+describe("definitionMoves", () => {
+	it("names the files systemd now reads and those it no longer reads", () => {
+		expect(
+			definitionMoves("/a.service\n/old.conf", "/a.service\n/new.conf"),
+		).toBe("it now reads /new.conf; it no longer reads /old.conf");
+		expect(definitionMoves("/a.service", "/a.service\n/new.conf")).toBe(
+			"it now reads /new.conf",
+		);
+		expect(definitionMoves("/a.service\n/old.conf", "/a.service")).toBe(
+			"it no longer reads /old.conf",
+		);
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/c.conf",
+				"/a.service\n/c.conf\n/b.conf",
+			),
+			"drop-ins whose order alone changed",
+		).toBe("it reads the same files in a new order");
+	});
+
+	it("lists every file on each side, in the order systemd reads them", () => {
+		expect(
+			definitionMoves(
+				"/a.service\n/old-1.conf\n/old-2.conf",
+				"/a.service\n/new-1.conf\n/new-2.conf",
+			),
+		).toBe(
+			"it now reads /new-1.conf, /new-2.conf; it no longer reads /old-1.conf, /old-2.conf",
+		);
+	});
+
+	it("counts a file read more or fewer times rather than calling it a new order", () => {
+		expect(
+			definitionMoves("/a.service\n/b.conf", "/a.service\n/b.conf\n/b.conf"),
+			"two drop-ins that now resolve to one file",
+		).toBe("it reads /b.conf twice, not once");
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/b.conf\n/b.conf",
+				"/a.service\n/b.conf",
+			),
+			"three that resolved to one, two of them gone",
+		).toBe("it reads /b.conf once, not 3 times");
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/b.conf",
+				"/a.service\n/b.conf\n/c.conf",
+			),
+			"one of two copies replaced",
+		).toBe("it now reads /c.conf; it reads /b.conf once, not twice");
 	});
 });

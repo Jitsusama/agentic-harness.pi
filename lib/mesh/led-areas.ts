@@ -50,7 +50,7 @@ import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { KeptLanding } from "./landing-history.ts";
-import { subjectWords } from "./need-route.ts";
+import { hubTakesNone } from "./need-route.ts";
 import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** The led areas' file name, beside the landing history. */
@@ -119,7 +119,9 @@ export function ledAreas(
 		const weight = 2 ** (-age / HALF_LIFE_MS);
 		for (const area of new Set(areasNamed(landing.areas))) {
 			const subject = subjectOf(repo, area);
-			if (subjectWords(subject).length === 0) continue;
+			// One routing reads no word of, or whose hub no need could
+			// reach, being said a word no need keeps, leads nothing.
+			if (hubTakesNone(subject)) continue;
 			const byQuest = shares.get(subject) ?? new Map<string, Share>();
 			const share = byQuest.get(quest) ?? { weight: 0, at: [] };
 			share.weight += weight;
@@ -208,7 +210,8 @@ function questsAt(path: string): Record<string, unknown> {
  * The areas `quest` leads at `now`, as the file beside the landing
  * history in `dir` says, leaving out a lead that has lapsed since it was
  * written. A bare subject, as a file from before leads lapsed holds, is
- * read as one still led.
+ * read as one still led. One whose hub takes no need is left out, as a
+ * file written before such were is read (#2220's fifth council, F12).
  */
 export function ledAreasAt(
 	dir: string,
@@ -217,13 +220,15 @@ export function ledAreasAt(
 ): string[] {
 	const leads = questsAt(join(dir, LED_AREAS_FILE))[quest];
 	if (!Array.isArray(leads)) return [];
-	return leads.flatMap((lead: unknown) => {
-		if (typeof lead === "string") return [lead];
-		return isRecord(lead) &&
-			typeof lead.subject === "string" &&
-			typeof lead.until === "number" &&
-			lead.until > now
-			? [lead.subject]
-			: [];
-	});
+	return leads
+		.flatMap((lead: unknown) => {
+			if (typeof lead === "string") return [lead];
+			return isRecord(lead) &&
+				typeof lead.subject === "string" &&
+				typeof lead.until === "number" &&
+				lead.until > now
+				? [lead.subject]
+				: [];
+		})
+		.filter((subject) => !hubTakesNone(subject));
 }

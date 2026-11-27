@@ -34,6 +34,7 @@ import {
 	removeAll,
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
+import { plantParentByGraph } from "./support/commit-graph.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone: merge-gate.sh, from its path below, and the
 // host-gate.sh it runs in turn.
@@ -296,6 +297,30 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("lib/untidy.ts");
 	});
 
+	it("refuses a change Biome would format, whatever the checkout's commit-graph says", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+		await git(checkout, "checkout", "-q", "-B", "moved", "origin/main");
+		await git(checkout, "commit", "-q", "--allow-empty", "-m", "main moves");
+		const behind = await git(checkout, "rev-parse", "HEAD");
+		await git(checkout, "commit", "-q", "--allow-empty", "-m", "main moves on");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		// The gate's own repository borrows the checkout's objects, and its
+		// graph with them, so one naming the head as a parent of main's
+		// commit before its newest would make the head the base there too.
+		const main = await git(checkout, "rev-parse", "origin/main");
+		await plantParentByGraph(checkout, behind, sha);
+		const planted = await git(checkout, "merge-base", `${main}^{commit}`, sha);
+		expect(planted, "the graph names the head as merged").toBe(sha);
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("lib/untidy.ts");
+	});
+
 	it("refuses a change Biome's linter faults", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, {
@@ -396,6 +421,172 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said).toContain("Biome passes the 1 file(s)");
 		expect(answered.said).not.toContain("main's config");
+		expect(answered.said, "the config it changes, named").toMatch(
+			/changes Biome's config or plugins and no file they judge.*\n {2}biome\.jsonc\n/,
+		);
+	});
+
+	it("names a plugin a change edits alone, though no file it judges changes", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "the plugin it changes, named").toMatch(
+			/changes Biome's config or plugins and no file they judge.*\n {2}lib\/no-alert\.grit\n/,
+		);
+	});
+
+	it("says a head's config that won't load is the config's to fix, not lint:fix's", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "sideways" } }\n`,
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("couldn't judge the 2 file(s)");
+		expect(answered.said).not.toContain("pnpm lint:fix");
+	});
+
+	it("names what a change lets through by main's root biome.json, as by a biome.jsonc", async () => {
+		const checkout = await harness();
+		await git(checkout, "mv", "biome.jsonc", "biome.json");
+		await git(checkout, "commit", "-q", "-m", "plain json");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		const sha = await change(checkout, {
+			"biome.json": `{ "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said).toContain("lib/spaced.ts");
+	});
+
+	it("names what a nested config the head adds lets through, judged by main's alone", async () => {
+		const checkout = await harness();
+		// The nested config rules lib/ alone, so only it lets these spaces
+		// through; main's run must leave it out to fault them.
+		const sha = await change(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+			"lib/spaced.ts": "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "the file it lets through").toContain(
+			"lib/spaced.ts",
+		);
+	});
+
+	it("names what removing a nested config of main's lets through", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
+		await git(checkout, "rm", "-q", "lib/biome.jsonc");
+		const tabbed = "export function tabbed(): number {\n\treturn 1;\n}\n";
+		// git rm took lib/ with its one file, so it's made again.
+		mkdirSync(join(checkout, "lib"), { recursive: true });
+		writeFileSync(join(checkout, "lib", "tabbed.ts"), tabbed);
+		await git(checkout, "add", "lib/tabbed.ts");
+		await git(checkout, "commit", "-q", "-m", "no nested config");
+		const sha = await git(checkout, "rev-parse", "HEAD");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "the file it lets through").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
+	it("judges by the head's nested config, though the change leaves it be", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		// Tabs pass the root's config, so only lib/'s own faults them.
+		const sha = await change(checkout, {
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the file lib/'s config faults").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
+	it.each([
+		["named like an option", "--spaced.ts"],
+		["whose name git would quote", "lib/odd é.ts"],
+	])("names a file %s on main's run", async (_, name) => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"biome.jsonc": `{ "formatter": { "indentStyle": "space" } }\n`,
+			[name]: "export function spaced(): number {\n  return 1;\n}\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run judged the file").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(
+			answered.said,
+			"Biome couldn't judge by main's config",
+		).not.toContain("couldn't judge");
+	});
+
+	it("judges main's run by main's plugin, not the head's edit of it", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		// The head's plugin, at the same path, faults another call, so only
+		// main's faults alert; the config changes beside it, as an edit
+		// to both would.
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"], "files": { "maxSize": 2097152 } }\n`,
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's plugin faulted nothing").toContain(
+			"lib/loud.ts:1:1",
+		);
+		expect(answered.said, "main's plugin's words").toContain("no alert");
 	});
 
 	it("loads the plugins the head's config names, though the change leaves them be", async () => {
@@ -455,6 +646,122 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 			"main's config faults what it lets through",
 		);
 		expect(answered.said).toContain("lib/loud.ts:1:1");
+	});
+
+	it("names what an edit to a plugin alone lets through, by main's plugin", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		// No config changes, so only the plugin's edit can fire main's run.
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "main's plugin's words").toContain("no alert");
+	});
+
+	it("loads plugins a root .biome.jsonc names, as Biome reads one", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		const files = {
+			[grit]: plugin("alert", "no alert"),
+			".biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+			"lib/loud.ts": 'alert("hi");\n',
+		};
+		// Biome reads the dotted name only where no plain one is.
+		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
+		await git(checkout, "rm", "-q", "biome.jsonc");
+		for (const [file, text] of Object.entries(files)) {
+			mkdirSync(dirname(join(checkout, file)), { recursive: true });
+			writeFileSync(join(checkout, file), text);
+			await git(checkout, "add", "--", file);
+		}
+		await git(checkout, "commit", "-q", "-m", "dotted config");
+		const sha = await git(checkout, "rev-parse", "HEAD");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the head's dotted config went unread").toContain(
+			"no alert",
+		);
+	});
+
+	it("judges by a nested config though TMPDIR is under a .cache folder", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		const sha = await change(checkout, {
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+		// Biome reads no nested config under a .cache folder, as a pi
+		// session's TMPDIR is.
+		const cached = join(folder(made, "home"), ".cache", "tmp");
+		mkdirSync(cached, { recursive: true });
+
+		const answered = await gate(checkout, sha, { TMPDIR: cached });
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the file lib/'s config faults").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
+	it("refuses where no copy reads a nested config, naming TMPDIR", async () => {
+		const checkout = await harness();
+		// A Biome that reads only the root's config in the probe's copy, as
+		// one under a .cache folder does, wherever the copy is made.
+		const stand = join(checkout, "node_modules", ".bin", "biome");
+		rmSync(stand);
+		writeFileSync(
+			stand,
+			`#!/bin/sh\ncase $PWD in */probe) rm -f lib/biome.jsonc;; esac\nexec "${BIOME}" "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("judges no file by its nested config");
+		expect(answered.said).toContain("Set TMPDIR");
+	});
+
+	it("refuses where Biome fails in the probe without faulting its files", async () => {
+		const checkout = await harness();
+		// A Biome that processes nothing in the probe's copy, as one ignoring
+		// every file there would, and judges the real copy as it should.
+		const stand = join(checkout, "node_modules", ".bin", "biome");
+		rmSync(stand);
+		writeFileSync(
+			stand,
+			`#!/bin/sh\ncase $PWD in */probe) echo "No files were processed."; exit 1;; esac\nexec "${BIOME}" "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the probe took a failing run for a fault").toContain(
+			"faulted not even a file it should",
+		);
+		expect(answered.said, "blamed on TMPDIR").not.toContain("Set TMPDIR");
 	});
 
 	it("loads a plugin whose name git would quote", async () => {

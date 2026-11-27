@@ -19,6 +19,7 @@ import { newRunId } from "../../../../lib/core/review/ask/run.ts";
 import {
 	awaitCouncilStart,
 	newestRosterStartIn,
+	type RoomHeld,
 } from "../../../../lib/core/review/ask/start-spacing.ts";
 
 /** A spacing no start on room should wait for. */
@@ -73,9 +74,25 @@ function startedAt(by: string, at: Date, waiting: object[] = []): void {
 	);
 }
 
-/** A claim that starts on room alone, with no spacing asked for. */
+/** A hold on memory, which no wait lets a round past, said as `said`. */
+const onMemory = (said: string): RoomHeld => ({
+	said,
+	readings: ["memory full avg60"],
+	passable: false,
+});
+
+/**
+ * A claim that starts on room alone, with no spacing asked for, held
+ * on memory whenever `room` says what it is short of.
+ */
 const onRoom = (by: string, room: () => Promise<string | undefined>) =>
-	claim(by, { spacingMs: undefined, room });
+	claim(by, {
+		spacingMs: undefined,
+		room: async () => {
+			const said = await room();
+			return said === undefined ? undefined : onMemory(said);
+		},
+	});
 const roomy = async (): Promise<string | undefined> => undefined;
 
 // 24 November: a round waited about 30 minutes behind ten others, three
@@ -93,6 +110,149 @@ describe("starting council rounds on room alone", () => {
 		);
 		expect(gap, "no spacing held it").toBeLessThan(SPACING);
 		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("starts one look after another round's start, not its spacing, while the machine is quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		// Looks long enough apart that one look and two can be told apart.
+		const look = 500;
+
+		// Set to as often as it can, as the config's 0 or half a minute is,
+		// which a quiet machine takes quicker still.
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				spacing: async () => 0,
+				lookAgainMs: look,
+				room: roomy,
+				quiet: async () => true,
+			}),
+		);
+
+		const gap = Date.now() - before.getTime();
+		expect(gap, "the floor held it").toBeGreaterThanOrEqual(
+			look - TIMER_EARLY_MS,
+		);
+		expect(gap, "not two looks").toBeLessThan(1.8 * look);
+		expect(start.waited).toMatch(/, or each .+ while it is quiet,/);
+	});
+
+	it("goes by the spacing as configured at each look, not as it was when asked", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		// Ten minutes when asked; the config is then set to its floor.
+		const spacing = async () => {
+			looks += 1;
+			return looks === 1 ? 600_000 : 0;
+		};
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: undefined, room: roomy, spacing }),
+		);
+
+		expect(looks, "it looked again").toBeGreaterThan(1);
+		expect(Date.now() - before.getTime()).toBeLessThan(SPACING);
+	});
+
+	it("keeps a configured spacing while the machine is quiet, and names no quiet pace", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				room: roomy,
+				quiet: async () => true,
+				spacing: async () => SPACING,
+			}),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			SPACING - TIMER_EARLY_MS,
+		);
+		expect(start.waited).not.toMatch(/while it is quiet/);
+	});
+
+	it("keeps its spacing when it reads quiet but no room", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		const look = 300;
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: 0,
+				lookAgainMs: look,
+				quiet: async () => true,
+			}),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			2 * look - TIMER_EARLY_MS,
+		);
+	});
+
+	it("reads quiet again at each look, keeping its spacing once the machine is busy", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		const look = 300;
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				room: roomy,
+				// A look long enough that the first, made as it asks, comes
+				// too soon to start even on a busy machine.
+				lookAgainMs: look,
+				// Quiet only at that first look.
+				quiet: async () => {
+					looks += 1;
+					return looks === 1;
+				},
+			}),
+		);
+
+		expect(looks, "it looked again").toBeGreaterThan(1);
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			2 * look - TIMER_EARLY_MS,
+		);
+	});
+
+	it("names no quiet pace for a round that never reads quiet", async () => {
+		startedAt("A2VLJN", new Date());
+
+		// A look long enough that the first comes too soon to start.
+		const start = await awaitCouncilStart(path, {
+			...onRoom("ISXEG8", roomy),
+			lookAgainMs: 300,
+		});
+
+		expect(start.waited).toMatch(
+			/one roster round starts on this machine each/,
+		);
+		expect(start.waited).not.toMatch(/while it is quiet/);
+	});
+
+	it("keeps its spacing when the machine isn't quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { room: roomy, quiet: async () => false }),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			SPACING - TIMER_EARLY_MS,
+		);
 	});
 
 	it("waits while the machine is short, then starts, saying what it was short of", async () => {
@@ -173,7 +333,7 @@ describe("starting council rounds on room alone", () => {
 			claim("ISXEG8", {
 				room: async () => {
 					looks += 1;
-					return "memory full avg60 was 12";
+					return onMemory("memory full avg60 was 12");
 				},
 			}),
 			stop.signal,
@@ -237,7 +397,9 @@ describe("a busy line's lock", () => {
 	// 25 November, A2VLJN: seventy rounds each rewriting the line every
 	// look, only to refresh when they were seen, kept its lock changing hands.
 	it("leaves the line unwritten by a look that changes nothing in it", async () => {
-		const now = new Date().toISOString();
+		// Asked a second before the round, since two asks in one millisecond
+		// fall to their ids, and a round's id sorts before "ahead".
+		const now = new Date(Date.now() - 1_000).toISOString();
 		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
 			{
 				id: "ahead",

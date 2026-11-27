@@ -26,6 +26,10 @@
  * told its sandbox by name, since a session the first stage lists has
  * none in its environment to pass on, and an isolated one loads the
  * fence's bash and file guards from the install, held as a named one is.
+ * A session whose harness was loaded from the Nix store, as a room's is,
+ * takes them from that same store copy instead: only that one, since
+ * anyone may add a store path through the Nix daemon, and the store
+ * keeps every older copy until it is collected.
  */
 
 import { lstatSync, realpathSync } from "node:fs";
@@ -35,10 +39,14 @@ import {
 	spawnsJoin,
 } from "../../lib/internal/fence/fence-stage.ts";
 import {
+	canChange,
+	heldStoreCopy,
 	inside,
 	installedPackages,
+	NIX_STORE,
 	packageRoot,
 	settingsHarness,
+	unchangeable,
 } from "../../lib/internal/fence/installed-only.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import {
@@ -157,10 +165,14 @@ function lstatExists(path: string): boolean {
 	}
 }
 
-/** Where `path` really lies inside `root`, or why it can't be loaded. */
+/**
+ * Where `path` really lies inside `root`, which `where` names, or why
+ * it can't be loaded.
+ */
 function follow(
 	path: string,
 	root: string | null,
+	where = "pi's installed packages",
 ): { real: string } | { why: string } {
 	if (!isAbsolute(path)) {
 		return { why: `${path} isn't an absolute path` };
@@ -178,7 +190,7 @@ function follow(
 	}
 	if (!inside(real, root)) {
 		return {
-			why: `${path} lies outside pi's installed packages, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
+			why: `${path} lies outside ${where}, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
 		};
 	}
 	const older = olderVersion(real, root);
@@ -226,21 +238,44 @@ export function keepFence<T extends AskedJob>(
 
 /**
  * The fence's extensions, each followed to where it lies in the install
- * as a named one is, or why an isolated child can't be fenced.
+ * as a named one is, or why an isolated child can't be fenced. When the
+ * harness itself lies in the Nix store, they must lie in that same copy
+ * of it, never elsewhere in the store.
  */
 export function fencePacks(
 	home: string = packsHome(),
 	root: string | null = installedPackages(),
+	store: string = NIX_STORE,
+	own: string = packageRoot(),
+	changeable: (path: string) => boolean = canChange,
 ): { readonly packs: string[] } | { readonly why: string } {
+	const stored = inside(home, store);
+	const copy = stored ? heldStoreCopy(own, store, changeable) : undefined;
+	if (stored && copy === undefined) {
+		return {
+			why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions, and ${home} lies in the Nix store but not in a copy of this session's own harness this account can't change. Unisolated subagents need the install too, so start them from a session whose harness loads from pi's installed packages.`,
+		};
+	}
+	const within = copy ?? root;
+	const where =
+		copy === undefined
+			? "pi's installed packages"
+			: `this harness's copy in the Nix store, ${copy}`;
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {
-		const followed = follow(join(home, ...pack.split("/")), root);
-		if ("why" in followed) {
+		const followed = follow(join(home, ...pack.split("/")), within, where);
+		const why =
+			"why" in followed
+				? followed.why
+				: copy !== undefined && !unchangeable(followed.real, changeable)
+					? `${followed.real} is one this account could change`
+					: undefined;
+		if (why !== undefined) {
 			return {
-				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from pi's installed packages, and ${followed.why}. Reload onto the install, or start the subagents unisolated.`,
+				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from ${where}, and ${why}. ${copy === undefined ? "Reload onto the install, or start the subagents unisolated" : "This copy of the harness can't give them; start the subagents from a session whose harness loads from pi's installed packages"}.`,
 			};
 		}
-		packs.push(followed.real);
+		if ("real" in followed) packs.push(followed.real);
 	}
 	return { packs };
 }

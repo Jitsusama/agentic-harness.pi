@@ -69,6 +69,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/supervisor-runs.test.ts",
 	"tests/lib/subagent/runpi/supervisor-environment.test.ts",
 	"tests/lib/subagent/runpi/supervisor-records.test.ts",
+	"tests/lib/subagent/runpi/supervisor-room.test.ts",
 	"tests/lib/subagent/runpi/supervisor-parent.test.ts",
 	"tests/lib/subagent/runpi/supervisor-endings.test.ts",
 	"tests/lib/subagent/runpi/detached.test.ts",
@@ -223,6 +224,10 @@ export default defineConfig({
 						"./tests/setup/signal-stamp.ts",
 						"./tests/setup/quest-lock-folder.ts",
 					],
+					// A held session's variable, set before the setup files so
+					// xdg-sandbox.test.ts proves the setup drops it on any runner,
+					// not only one a node holds.
+					env: { MYCELIUM_HELD: "planted-by-the-config" },
 					maxWorkers: MAX_WORKERS,
 				},
 			},

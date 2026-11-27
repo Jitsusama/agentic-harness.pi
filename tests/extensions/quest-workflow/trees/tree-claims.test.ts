@@ -867,9 +867,12 @@ describe("hearing that a sweep took a tree", () => {
 
 	/**
 	 * Whether a quest still names `open-change` as its branch once a sweep
-	 * took the tree on it, saying it deleted `gone`.
+	 * took the tree on it, saying it deleted `gone`, or saying nothing of
+	 * branches when `gone` is undefined.
 	 */
-	async function aliasKeptWhenGone(gone: string[]): Promise<boolean> {
+	async function aliasKeptWhenGone(
+		gone: string[] | undefined,
+	): Promise<boolean> {
 		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
 		const id = "QEST-20260731-AAAAAA";
 		mkdirSync(join(root, id));
@@ -890,10 +893,10 @@ describe("hearing that a sweep took a tree", () => {
 		answerTreeClaims(pi as never, root);
 		forgetSweptTrees(pi as never, root);
 
-		const swept: SweptTrees = {
-			paths: ["/src/repo/.worktrees/spent"],
-			branchesGone: gone,
-		};
+		const swept: SweptTrees =
+			gone === undefined
+				? { paths: ["/src/repo/.worktrees/spent"] }
+				: { paths: ["/src/repo/.worktrees/spent"], branchesGone: gone };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
 
 		await listedOnceGone(pi, "/src/repo/.worktrees/spent");
@@ -902,6 +905,11 @@ describe("hearing that a sweep took a tree", () => {
 
 	it("keeps the alias of a swept tree's branch that still stands, so a change on it finds its quest", async () => {
 		expect(await aliasKeptWhenGone([]), "the branch's alias").toBe(true);
+	});
+
+	it("drops the alias of a swept tree's branch when the sweep says nothing of branches, as an older sweep does", async () => {
+		const kept = await aliasKeptWhenGone(undefined);
+		expect(kept, "the branch's alias").toBe(false);
 	});
 
 	it("drops the alias of a swept tree's branch the sweep deleted", async () => {

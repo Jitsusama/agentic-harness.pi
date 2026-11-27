@@ -598,7 +598,16 @@ takes as `--owner`, read at each refresh from
 `subjects`, set with the quest tool's `config` (`ref`
 `subjects=a,b`). At most 12, each plain text of at most 120
 characters, as the node reads them; presence leaves the key out
-while there are none. A subject routes a need and grants nothing.
+while there are none. A need finds a cell by the words of a
+subject's narrowest part, after its last colon, dot or slash, so
+`config` refuses one whose narrowest part holds no word routing
+reads (each too short, past 32 letters or as common as can or
+after), as `x:can` or `hooks:after`. It refuses one holding any
+word there past 32 letters as well: a hub takes a need only when
+the need says every word of its subject, and no need keeps such a
+word. Its report names any subject of either kind the README
+already holds, and neither is ever a led area. A subject routes a
+need and grants nothing.
 
 A quest marked `hears: addressed` (set with the quest tool's
 `config`, `ref` `hears=addressed`, and cleared with `hears=all`)
@@ -976,8 +985,12 @@ acknowledgements and thanks are not.
 Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
 
 - `messages/`: one JSON file per message, written to a
-  dot-file and renamed into place, and watched with
-  `fs.watch`. The envelope is
+  dot-file and renamed into place. A peer of the home realm
+  hears them through the machine's node, hosted or in a
+  terminal of its own, and watches the folder with `fs.watch`
+  only while no node answers (`lib/mesh/node-transport.ts`).
+  `PI_MESH_NODE=off` makes a pi hear by the folder alone,
+  leaving the node running. The envelope is
   `{ v, id, at, from, to, intent, text, pid }`, with `re`,
   `supersedes` and `invite` when they apply; a reader ignores
   fields it does not know. A `.read-<address>` marker
@@ -1071,13 +1084,21 @@ renamed into `steer/<ADDRESS>/` as `<unix-ms>-<random>.json`,
 holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
 (only `text` is needed), reaches the session going by that
 address as the person's own message. That's a turn when idle.
-A session at work reads it once its run ends, so a task isn't
-broken into, unless the file holds `"now": true`, which reads
-it into the run under way after its current tool (Joel, 12
-November). Either way it reads as the person asking from
-outside the window, to be answered first in a line or two
-before the session carries on, since the launcher shows that
-first answer; a machine's steer says it isn't the person's.
+A session at work reads Joel's talk from the launcher, `from`
+`joel`, into the run under way once its current round of tools
+ends, as typing in its window does (Joel, 26 November). A long
+tool holds it that long, but a call that can move to the
+background moves two seconds after it, as for a typed line.
+The node's words on his word, `from` `person` (mycelium's
+swarm `say`), and words naming nobody, wait for the run to end
+unless they hold `"now": true` (swarm `say now`). A peer's or
+the machine's words wait whatever they hold, so an agent that
+names itself never breaks into another's task; the inbox can't
+tell who wrote a file, so a writer naming nobody, or naming
+Joel, is taken at its word. Either
+way it reads as the person asking from outside the window, to
+be answered first in a line or two, since the launcher shows
+that first answer; a machine's steer says it isn't the person's.
 It isn't a mesh message, since peers read those as
 another agent's context. The session takes each file by
 renaming it, so it's delivered once, and sets one with no text
@@ -1172,8 +1193,11 @@ A steer may instead carry an `act`, with no text needed
   does. A run that starts from then on is ended. A carry with no
   machine, or one that isn't a hostname, is no act; one that
   fails, as with no quest loaded, leaves the session open and
-  says why. The work integration's README says what the handover
-  holds.
+  says why. A session still running a harness its install left
+  over 15 minutes ago refuses at once, naming both versions, so
+  it carries only once it has reloaded onto current code
+  ([`current-code.ts`](../../lib/internal/carry/current-code.ts)).
+  The work integration's README says what the handover holds.
 - `fill`, with `text`, puts the text in the session's prompt
   without sending it, for the person to read and send: what a
   to-do's act fills as it brings the session forward, as Joel

@@ -11,11 +11,13 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
+import { behindItsInstall } from "../../../lib/internal/carry/current-code.ts";
 import {
 	type CarryHold,
 	carryUnderWay,
 	holdForCarry,
 } from "../../../lib/internal/carry/under-way.ts";
+import { packageRoot } from "../../../lib/internal/fence/installed-only.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { everyRealmsDir } from "../../../lib/internal/paths.ts";
 import { withQuestLock } from "../../../lib/internal/quest/io.ts";
@@ -294,12 +296,14 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to, { timing: { lapsed } });
+			// Judged by `behind` before its run was ended.
+			await carryThisSession(m.ctx, to, { timing: { lapsed }, judged: true });
 		},
 		carryUnderWay: () => {
 			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
 		},
+		behind: () => behindItsInstall(packageRoot()),
 		park: () => askToPark(false),
 		parkable: () => askToPark(true),
 	});
@@ -359,8 +363,10 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
+			// Judged by its holds before its run was waited on.
 			await carryThisSession(m.ctx, to, {
 				...(orderedHold ? { hold: orderedHold } : { timing: { lapsed } }),
+				judged: true,
 			});
 		},
 		refuse: async (why, at) => {

@@ -153,8 +153,27 @@ function runtimeFolder(): string | undefined {
 }
 
 /**
+ * The readings the machine holds rounds on, as a place's line ends:
+ * each past its bar, since a pressure is too high where MemAvailable
+ * is too low. Each goes on one line, whatever a writer of the shared
+ * line put in it, so a name can't add a line of its own.
+ */
+function heldSaid(heldBy: readonly string[] | undefined): string {
+	const named = (heldBy ?? [])
+		.map((each) => each.replace(/\s+/g, " ").trim().slice(0, NAME_AT_MOST))
+		.filter((each) => each !== "");
+	return named.length === 0
+		? ""
+		: `, held past the machine's bar on ${named.join(", ")}`;
+}
+
+/** The most of one reading's name a place says. */
+const NAME_AT_MOST = 40;
+
+/**
  * Where the rounds waiting on `change` stand in the line kept beside
- * `path`, said one a line, or nothing when none waits.
+ * `path`, said one a line, with what holds the machine, or nothing
+ * when none waits.
  */
 export async function lineSaid(
 	path: string,
@@ -163,6 +182,6 @@ export async function lineSaid(
 	const places = await placesInLine(path, change);
 	return places.map(
 		(place) =>
-			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}`,
+			`- waiting in the start line, position ${place.position} of ${place.of}, asked ${place.askedAt} by ${place.by}${heldSaid(place.heldBy)}`,
 	);
 }

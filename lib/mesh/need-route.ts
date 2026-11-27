@@ -263,6 +263,10 @@ const COMMON = new Set(
 		"again already also always even ever here instead just maybe never not",
 		"now often only perhaps please quite rather really soon still then",
 		"there too very",
+		// Those of two letters, which only a number after them is read
+		// beside: "on 24" names no work, where "PR 42" and "v 2" do. Not i,
+		// which names a spirit property (I-5), nor go, the language.
+		"am as at be by do he if in is it me my no of on or so to up us we",
 	]
 		.join(" ")
 		.split(" "),
@@ -285,36 +289,111 @@ const JOINED_ID = /(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
  * which is the id leg-26 or postgres-15: split into words the number is
  * lost, being short, or said apart from anything it may belong to. Not
  * a word already inside a joined id, whose number would join the id's
- * last part alone.
+ * last part alone, nor a contraction's stub, whose "it's 5" names no
+ * s-5, though a word after an opening quote, as 'PR 42', is read.
+ * Read after `APOSTROPHE_LIKE` is folded, so a plain one stands for all.
  */
 const NUMBER_IN_PROSE =
-	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+	/(?<![\p{L}\p{N}_-]|\p{L}')(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+
+/**
+ * What prose writes for an apostrophe besides the plain one: the curly
+ * right and left single quotes, the modifier letter, which a split
+ * would keep inside its word as a letter, and the acute accent.
+ */
+const APOSTROPHE_LIKE = /[\u2018\u2019\u02BC\u00B4]/gu;
+
+/** The particles a word before them makes a phrase of, as hand over. */
+const PARTICLES = ["over", "off", "out", "up", "down", "back", "away"];
+
+/**
+ * A word and the particle after it in prose, "hand over" or "roll
+ * back", which is the id hand-over or roll-back: over and off are
+ * common words, left out alone, so without the phrase "hand over" says
+ * only hand, and a hub of hand-off takes it as surely as one of
+ * hand-over (#2204's judge, F37). An id no cell holds costs nothing,
+ * since a need keeps only the words some cell works on. The particle
+ * is looked ahead at, not taken, so it may head a phrase of its own:
+ * "please back up" is back-up (#2220's fifth council, F6).
+ */
+const PARTICLE_IN_PROSE = new RegExp(
+	`(?<![\\p{L}\\p{N}_-])(\\p{L}[\\p{L}\\p{N}]*)(?=\\s+(${PARTICLES.join("|")})(?![\\p{L}\\p{N}_-]))`,
+	"gu",
+);
+
+/** A phrase's id, hand-over, read back into its first word. */
+const PHRASE_ID = new RegExp(
+	`^(\\p{L}[\\p{L}\\p{N}]*)-(?:${PARTICLES.join("|")})$`,
+	"u",
+);
+
+/**
+ * The first word of a phrase's id, hand of hand-over, or nothing for a
+ * word that is no phrase's. A subject's joined id of the same shape,
+ * x:roll-back, reads the same, since it names the same work.
+ */
+function phraseHead(word: string): string | undefined {
+	return PHRASE_ID.exec(word)?.[1];
+}
+
+/** Whether a word in prose may name work: long enough, and not common. */
+function isWorkWord(word: string | undefined): word is string {
+	return (
+		word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word)
+	);
+}
 
 /**
  * The words a need or a cell's work is matched by: lowercased, once
  * each, leaving out the short and the common, then each joined id whole
  * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
- * past, and each word kept by the same rule with a number after it as
- * their id (`NUMBER_IN_PROSE`).
+ * past, then each word with a number after it as their id
+ * (`NUMBER_IN_PROSE`), a common word's left out, and each word kept
+ * with a particle after it as theirs (`PARTICLE_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
-	const lower = text.toLowerCase();
-	const words = lower
-		.split(/[^\p{L}\p{N}]+/u)
-		.filter((word) => word.length >= SHORTEST_WORD && !COMMON.has(word));
-	const ids = [...lower.matchAll(JOINED_ID)]
-		.map(([id]) => id)
-		.filter((id) => id.length <= LONGEST_WORD);
+	return wordsAndIdsOf(text, (id) => id.length <= LONGEST_WORD);
+}
+
+/**
+ * The words of a cell's title and repository: as `wordsOf` reads them,
+ * but with no phrase. A title is free prose, where a particle is most
+ * often a preposition, so "Sync over SSH" names no sync-over work and
+ * must not outweigh a cell on sync for a need saying sync over wifi
+ * (#2220's round 7b, F79). A cell doing hand-over work says so in a
+ * subject, which keeps its phrase.
+ */
+function titleWordsOf(text: string): string[] {
+	return wordsAndIdsOf(text, (id) => id.length <= LONGEST_WORD, false);
+}
+
+/**
+ * The words `wordsOf` reads, keeping of the ids only those `keep`
+ * holds to: `wordsOf` keeps none past `LONGEST_WORD`, and a subject's
+ * words keep every one, so a subject saying one is seen to say it.
+ * Without `phrases`, a word and its particle make no id.
+ */
+function wordsAndIdsOf(
+	text: string,
+	keep: (id: string) => boolean,
+	phrases = true,
+): string[] {
+	const lower = text.toLowerCase().replace(APOSTROPHE_LIKE, "'");
+	const words = lower.split(/[^\p{L}\p{N}]+/u).filter(isWorkWord);
+	const ids = [...lower.matchAll(JOINED_ID)].map(([id]) => id).filter(keep);
 	// A plain word's number is no id: "under 15" or "on 24" names no
-	// work, by the rule a word alone is left out by.
+	// work. A short word's is, so PR 42 and v 2 keep their ids.
 	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
-		.filter(
-			([, word]) =>
-				word !== undefined && word.length >= SHORTEST_WORD && !COMMON.has(word),
-		)
+		.filter(([, word]) => word !== undefined && !COMMON.has(word))
 		.map(([, word, n]) => `${word}-${n}`)
-		.filter((id) => id.length <= LONGEST_WORD);
-	return [...new Set([...words, ...ids, ...numbered])];
+		.filter(keep);
+	const phrased = phrases
+		? [...lower.matchAll(PARTICLE_IN_PROSE)]
+				.filter(([, word]) => isWorkWord(word))
+				.map(([, word, particle]) => `${word}-${particle}`)
+				.filter(keep)
+		: [];
+	return [...new Set([...words, ...ids, ...numbered, ...phrased])];
 }
 
 /** What a cell says it works on, as the node lists each one. */
@@ -369,10 +448,50 @@ function subjectParts(subject: string): string[] {
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
  * `asks`, and `unstamped:agents.service` gives `agents`, since a
  * service unit's type is left out. A narrowest part with no word long
- * enough gives none, rather than a broader part's.
+ * enough gives none, rather than a broader part's. A word or a joined
+ * id past `LONGEST_WORD` is kept, since a hub is matched by every word
+ * of its subject, and no need says that one: left out, the hub would
+ * take a need saying only the subject's shorter words, and a hub of
+ * x:...-leg-26 one for leg 27 (#2220's sixth council, F57).
  */
 export function subjectWords(subject: string): string[] {
-	return wordsOf(subjectParts(subject).at(-1) ?? "");
+	return wordsAndIdsOf(subjectParts(subject).at(-1) ?? "", () => true);
+}
+
+/**
+ * The words of a subject (`subjectWords`) a need can be routed by:
+ * none past `LONGEST_WORD`, which no need keeps. A subject giving none
+ * routes no need, and a word past the cap takes no cell's word slot.
+ */
+export function routingWords(subject: string): string[] {
+	return subjectWords(subject).filter((word) => word.length <= LONGEST_WORD);
+}
+
+/**
+ * The words of a subject (`subjectWords`) past `LONGEST_WORD` that no
+ * need can say: a hub of it takes a need only when the need says every
+ * one, and no need keeps these, so with any its hub takes nothing. A
+ * joined id is among them only where a part is a number, since one
+ * without is said by its parts (`saysWord`), and one with is said only
+ * whole or inside a longer id, neither of which a need keeps.
+ */
+export function overLongWords(subject: string): string[] {
+	return subjectWords(subject).filter(
+		(word) =>
+			word.length > LONGEST_WORD && (!isJoined(word) || isNumbered(word)),
+	);
+}
+
+/**
+ * Whether a subject's hub takes no need: its narrowest part holds no
+ * word routing reads (`routingWords`), or one past `LONGEST_WORD`
+ * (`overLongWords`), which no need says. Config refuses such a subject,
+ * its report names one already declared, and none is led.
+ */
+export function hubTakesNone(subject: string): boolean {
+	return (
+		routingWords(subject).length === 0 || overLongWords(subject).length > 0
+	);
 }
 
 /**
@@ -390,7 +509,7 @@ export function foragersFrom(line: string): Forager[] {
 		if (!isAddress(key.slice("cell:".length))) return [];
 		const declared = firstSubjects(subjects);
 		const said = [title, repo].filter((one) => typeof one === "string");
-		const titled = wordsOf(said.join(" "));
+		const titled = titleWordsOf(said.join(" "));
 		return [
 			{
 				address: key.slice("cell:".length),
@@ -428,7 +547,7 @@ function wordsBeyond(
 	const beyond: string[] = [];
 	const taken = { words: 0, ids: 0 };
 	for (const subject of subjects) {
-		for (const word of subjectWords(subject)) {
+		for (const word of routingWords(subject)) {
 			const kind = isJoined(word) ? "ids" : "words";
 			if (seen.has(word) || taken[kind] === MOST_SUBJECT_WORDS) continue;
 			seen.add(word);
@@ -579,7 +698,12 @@ function routeAs(
 	);
 	const holds = (address: string, word: string) =>
 		wordsHeld.get(address)?.has(word) ?? false;
-	const saying = new Set(said.words);
+	// A word past the cap is a token, not work, which no need keeps, so
+	// no hub is taken by it, even said whole: a subject holding one is
+	// refused by config and led by nobody (#2220's fifth council, F1/F5).
+	const saying = new Set(
+		said.words.filter((word) => word.length <= LONGEST_WORD),
+	);
 	// A need naming one numbered id, leg 27, says nothing of another,
 	// leg-26, whose words it shares: a cell holding leg-26 takes it on
 	// the word leg only when the need says leg-26 as well. A longer id
@@ -690,38 +814,97 @@ function routeAs(
 
 	const fitsOn = (address: string, word: string) =>
 		takes(address) && worksOnWord(address, word);
-	// How much of the need a cell works on, read as fitsOn reads a word,
-	// so a leg-26 cell never counts the leg of a need for leg-27.
-	const most = (address: string) =>
-		asked.words.filter((word) => worksOnWord(address, word)).length;
+	// How many of `words` a cell works on, read as fitsOn reads a word,
+	// so a leg-26 cell never counts the leg of a need for leg-27. A
+	// phrase's id counts only where its first word isn't counted too,
+	// being among `words` and worked on, since it says that word again:
+	// a cell whose title says find out never outweighs one holding the
+	// need's subject. Where the asker holds the first word, the phrase is
+	// all of it the cell can count.
+	const covers = (address: string, words: readonly string[]) =>
+		words.filter((word) => {
+			if (!worksOnWord(address, word)) return false;
+			const head = phraseHead(word);
+			return (
+				head === undefined ||
+				!words.includes(head) ||
+				!worksOnWord(address, head)
+			);
+		}).length;
+	// How much of the need a cell works on.
+	const most = (address: string) => covers(address, asked.words);
 	// How much of what the asker lacks a cell works on: the words its
 	// owner is judged by, since a word the asker holds routes nowhere and
 	// an ended sibling holding it owns nothing the live fit can't take.
-	const needed = (address: string) =>
-		lacking.filter((word) => worksOnWord(address, word)).length;
-	// A fit is weighed by what the asker lacks first, since a word it
-	// holds routes nowhere, then by the whole need, so of cells as useful
-	// the one nearer the asker's own work.
-	const better = (one: string, than: string) =>
-		needed(one) > needed(than) ||
-		(needed(one) === needed(than) && most(one) > most(than));
-	const best = (candidates: readonly string[]) =>
-		candidates.reduce<string | undefined>(
+	const needed = (address: string) => covers(address, lacking);
+	// How a lot of cells weigh as fits, each by one key, so whichever
+	// order they are found in the same one wins and none beats another
+	// that beats it (#2220's round 7b, F78): what the asker lacks first,
+	// since a word it holds routes nowhere; then the phrases it lacks
+	// that tell the cell from one of the lot on the same first word
+	// lacking them, as hand-over tells the hand-over cell from the
+	// hand-off one, each covering hand over by hand alone; then the
+	// whole need, so of cells as useful the one nearer the asker's own
+	// work. A phrase counts only against a cell of the lot on its first
+	// word that lacks it: against a cell not on find, find out says
+	// nothing it lacks (#2220's seventh round, F61), and against one
+	// holding the phrase too, nothing either (round 7b, F81). Positive
+	// where `one` is the better.
+	const weighedAmong = (lot: readonly string[]) => {
+		const phrases = (address: string) =>
+			lacking.filter((word) => {
+				const head = phraseHead(word);
+				return (
+					head !== undefined &&
+					worksOnWord(address, word) &&
+					lot.some(
+						(other) => worksOnWord(other, head) && !worksOnWord(other, word),
+					)
+				);
+			}).length;
+		const keys = new Map<string, readonly number[]>();
+		const key = (address: string) => {
+			const known = keys.get(address);
+			if (known !== undefined) return known;
+			const made = [needed(address), phrases(address), most(address)];
+			keys.set(address, made);
+			return made;
+		};
+		return (one: string, than: string, depth = 3) => {
+			const [mine, theirs] = [key(one), key(than)];
+			for (let at = 0; at < depth; at++) {
+				const by = (mine[at] ?? 0) - (theirs[at] ?? 0);
+				if (by !== 0) return by;
+			}
+			return 0;
+		};
+	};
+	// Whether a cell works on more of what the asker lacks, or as much
+	// and more of its phrases the other lacks: what an ended owner must
+	// outdo the fit by, the whole need left out.
+	const outranks = (one: string, than: string) =>
+		weighedAmong([one, than])(one, than, 2) > 0;
+	// The first of a lot that none after it outweighs.
+	const best = (lot: readonly string[]) => {
+		const weigh = weighedAmong(lot);
+		return lot.reduce<string | undefined>(
 			(chosen, one) =>
-				chosen === undefined || better(one, chosen) ? one : chosen,
+				chosen === undefined || weigh(one, chosen) > 0 ? one : chosen,
 			undefined,
 		);
+	};
 	const finds: {
 		readonly word: string;
 		readonly path: string[];
 		readonly fit: string;
 	}[] = [];
 	for (const { word } of within) {
-		// Among hubs that rank the same, the one whose fit works on most of
-		// the need; among those, the first the lot drew.
-		let chosen: { ranked: RankedHub; fit: string } | undefined;
+		// Among hubs that rank the same, the one whose fit weighs most;
+		// among those, the first the lot drew.
+		const level: { ranked: RankedHub; fit: string }[] = [];
 		for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
-			if (chosen !== undefined && !rankSame(chosen.ranked, ranked)) break;
+			const first = level[0];
+			if (first !== undefined && !rankSame(first.ranked, ranked)) break;
 			const { hub } = ranked;
 			// A cell counted back may be a hub, as it is once really back:
 			// one naming a cell sharing less for a narrower subject leaves
@@ -731,10 +914,10 @@ function routeAs(
 				hub.fits.filter((one) => !endedHolder(one, word) && fitsOn(one, word)),
 			);
 			if (fit === undefined) continue;
-			if (chosen === undefined || better(fit, chosen.fit)) {
-				chosen = { ranked, fit };
-			}
+			level.push({ ranked, fit });
 		}
+		const bestFit = best(level.map(({ fit }) => fit));
+		const chosen = level.find(({ fit }) => fit === bestFit);
 		if (chosen !== undefined) {
 			const { ranked, fit } = chosen;
 			const direct = ranked.hub.hub === fit || selves.has(ranked.hub.hub);
@@ -749,11 +932,8 @@ function routeAs(
 	}
 	// Hubs' finds first, then walks', each rarest word first, so of fits
 	// working on as much of the need the first found wins, as before.
-	const found = finds.reduce<(typeof finds)[number] | undefined>(
-		(chosen, one) =>
-			chosen === undefined || better(one.fit, chosen.fit) ? one : chosen,
-		undefined,
-	);
+	const foundFit = best(finds.map(({ fit }) => fit));
+	const found = finds.find(({ fit }) => fit === foundFit);
 	if (found === undefined) return lost();
 	if (back !== undefined) return record(found.path, found.fit, new Set());
 	// Routed again as if each cell heard from lately that works on more of
@@ -768,17 +948,17 @@ function routeAs(
 	// Tried best first, stopping at the first that owns it, and at most
 	// MOST_OWNER_TRIES of them, so many cells crashing at once, none of
 	// them owning it, costs no more than that many routes.
-	const owner = reach.foragers
+	const outranking = reach.foragers
 		.map(({ address }) => address)
 		.filter(
 			(address) =>
 				ended(address) &&
-				needed(address) > needed(found.fit) &&
+				outranks(address, found.fit) &&
 				heardWithin(reach.ties, address, said.at),
-		)
-		.sort((one, other) =>
-			better(one, other) ? -1 : better(other, one) ? 1 : 0,
-		)
+		);
+	const weighOwners = weighedAmong([...outranking, found.fit]);
+	const owner = outranking
+		.sort((one, other) => weighOwners(other, one))
 		.slice(0, MOST_OWNER_TRIES)
 		.find((address) => routeAs(said, reach, address).fit === address);
 	// Words only ended cells work on are said, whenever those were heard
@@ -1004,6 +1184,20 @@ export function partOfNumbered(
 			return true;
 	}
 	return false;
+}
+
+/**
+ * Whether `word` is a phrase's id whose first word is among `saying`,
+ * as check-out is when check is: said of a need, the first word already
+ * says that no cell works on it, and the asker never wrote the phrase's
+ * id (#2220's seventh round, F69).
+ */
+export function phraseOfSaid(
+	word: string,
+	saying: ReadonlySet<string>,
+): boolean {
+	const head = phraseHead(word);
+	return head !== undefined && saying.has(head);
 }
 
 /** Whether joined id `word` is said inside a longer id the need says. */

@@ -48,7 +48,7 @@ import { hostSettings } from "./settings.ts";
 import { isSpareSlot, type SpareEnd, spareUntilTaken } from "./spare.ts";
 import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
-import { installMovesFrom } from "./what-starts.ts";
+import { installMovesFrom, installMovesOrThrowsFrom } from "./what-starts.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -301,7 +301,8 @@ export async function startHostProgram(
 	// quiet moment, so its next wake starts a fresh child on current code.
 	if (child) {
 		rollChildWhenStale({
-			moved: installMovesFrom(hostRoot()),
+			// A look that can't tell throws, so it keeps what the roll waited for.
+			moved: installMovesOrThrowsFrom(hostRoot()),
 			host: () => rollable,
 			stopped: run.stopped,
 			report,

@@ -1,7 +1,8 @@
 /**
  * Needs, cells and ties as the need-routing tests build them, shared by
- * the tests of routing in general, of routing by declared subjects and
- * of subjects naming a service unit.
+ * every need-route test file: routing in general, by declared subjects,
+ * by subjects naming a service unit, by ids, without plain words, and
+ * to an ended owner.
  */
 
 import {

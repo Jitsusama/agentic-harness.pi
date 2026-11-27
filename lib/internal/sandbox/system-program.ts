@@ -56,6 +56,8 @@ export interface Look {
 	runnable(path: string): boolean;
 	/** The owners that are root here; root's alone where none says. */
 	rootOwners?(): readonly number[];
+	/** Whether this process's user namespace map can be read; taken as yes where none says. */
+	readsMap?(): boolean;
 }
 
 const real: Look = {
@@ -71,7 +73,25 @@ const real: Look = {
 		}
 	},
 	rootOwners: () => rootOwnersHere(),
+	readsMap: () => readsMapHere(),
 };
+
+/** Whether `/proc/self/uid_map` could be read, read once. */
+let mapRead: boolean | undefined;
+
+/** `readsMap`, read once for this process. */
+function readsMapHere(): boolean {
+	if (mapRead === undefined) {
+		try {
+			readFileSync("/proc/self/uid_map", "utf8");
+			mapRead = true;
+		} catch {
+			// No `/proc`, or one this process may not read: said, never thrown.
+			mapRead = false;
+		}
+	}
+	return mapRead;
+}
 
 /** The owners that are root in this process's namespace, read once. */
 let rootHere: readonly number[] | undefined;
@@ -83,27 +103,91 @@ function rootOwnersHere(): readonly number[] {
 }
 
 /**
- * The owner root's files show as in this process's user namespace, as
+ * The owners root's files show as in this process's user namespace, as
  * `/proc/self/uid_map` says: the inner id the outer root maps to, or the
- * overflow user where the namespace maps no root. Never the inner 0 of a
- * namespace that maps someone else there, as `unshare -r` maps the
- * person, since their own files would then pass as root's. Root alone
- * where there is no `/proc`, as on a Mac.
+ * overflow user where the namespace maps no root. Root alone where there
+ * is no `/proc`, as on a Mac. None where no owner can be told from this
+ * process's own, as the paragraphs below say.
+ *
+ * The map names ids of the namespace above, not the machine's, so the
+ * one its 0 maps to is root only in the machine's own namespace, or
+ * where it isn't this process: under `unshare -r`, nested or not, it is
+ * the person, whose own files would then pass as root's.
  *
  * Where root is unmapped, the overflow user also stands for every other
  * account the namespace leaves out. That trusts their files too, which
  * a fenced command can't make: it runs as the person, whom the
- * namespace maps.
+ * namespace maps. So does the inner 0 when this process isn't it, as in
+ * an unprivileged container, where it is the container's own root and
+ * its programs are root's: a fenced command, running as the person,
+ * can't make a file it owns.
+ *
+ * Outside the machine's own namespace, and outside a Mac, no id this
+ * process holds is ever kept. In a namespace that maps nobody, as
+ * `unshare -U` leaves one, this process is the overflow user too, and
+ * its files would pass as root's. Nor is root assumed to be 0 there:
+ * where the overflow user can't be read, only the inner 0 that isn't
+ * this process is kept, so where it is, no program is found. Real root
+ * in a namespace mapping only 0 to the one above is refused for the same
+ * reason: from inside, it can't be told from the person under a nested
+ * `unshare -r`. Where this process is the inner 0, it can give a file
+ * to any id the map names, so the overflow user is kept only where the
+ * map leaves it out, and the outer root's inner id never is. A Linux
+ * whose `/proc` can't be read may be such a namespace too, so there this
+ * process's own id is dropped as well.
  */
-export function rootOwners(read: (path: string) => string): readonly number[] {
+export function rootOwners(
+	read: (path: string) => string,
+	uid: number = process.getuid?.() ?? 0,
+	platform: NodeJS.Platform = process.platform,
+): readonly number[] {
+	let map: string;
 	try {
-		const inner = innerRoot(read("/proc/self/uid_map"));
-		if (inner !== undefined) return [inner];
-		return [Number(read("/proc/sys/kernel/overflowuid").trim())];
+		map = read("/proc/self/uid_map");
 	} catch {
-		// No `/proc`: no user namespaces, so root is root.
-		return [0];
+		// A Mac has no user namespaces, so root is root; a Linux without
+		// `/proc` may be under `unshare -r`, where 0 is the person.
+		return platform === "linux" ? [0].filter((owner) => owner !== uid) : [0];
 	}
+	const inner = innerRoot(map);
+	if (inner !== undefined && isMachines(map)) return [inner];
+	// An inner 0 can give its files to the inner id the outer root maps to.
+	if (inner !== undefined && uid === 0 && inner !== uid) return [];
+	if (inner !== undefined && inner !== uid) return [inner];
+	const overflow = overflowUser(read);
+	const owners =
+		overflow === undefined || (uid === 0 && maps(map, overflow))
+			? [0]
+			: [overflow, 0];
+	return owners.filter((owner) => owner !== uid);
+}
+
+/** Whether a `uid_map` names `id` on its inner side. */
+function maps(map: string, id: number): boolean {
+	return map.split("\n").some((line) => {
+		const [inside, , count] = line.trim().split(/\s+/).map(Number);
+		return (
+			inside !== undefined &&
+			count !== undefined &&
+			id >= inside &&
+			id < inside + count
+		);
+	});
+}
+
+/** The overflow user's id, or undefined where it can't be read whole. */
+function overflowUser(read: (path: string) => string): number | undefined {
+	try {
+		const said = read("/proc/sys/kernel/overflowuid").trim();
+		return /^\d+$/.test(said) ? Number(said) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Whether a `uid_map` is the machine's own namespace's, mapping every id to itself. */
+function isMachines(map: string): boolean {
+	return map.trim().split(/\s+/).join(" ") === "0 0 4294967295";
 }
 
 /** The inner id a `uid_map` maps the outer root to, if it maps it. */
@@ -116,6 +200,75 @@ function innerRoot(map: string): number | undefined {
 		if (outside <= 0 && outside + count > 0) return inside - outside;
 	}
 	return undefined;
+}
+
+/**
+ * Whether no owner here can be told from this process's own, so no
+ * program is ever found, whatever the folders hold.
+ */
+export function trustsNoOwner(look: Look = real): boolean {
+	return (look.rootOwners?.() ?? [0]).length === 0;
+}
+
+/**
+ * Why no owner here can be trusted: a user namespace whose ids pi can
+ * give its files to, or a Linux whose map can't be read to say.
+ */
+export type NoOwner = "namespace" | "unread";
+
+/** Why no owner here can be trusted, or nothing where one can. */
+export function noOwner(look: Look = real): NoOwner | undefined {
+	if (!trustsNoOwner(look)) return undefined;
+	return look.readsMap?.() === false ? "unread" : "namespace";
+}
+
+/** What no owner being trusted is, said in a clause, for every message that says it. */
+export function noOwnerSaid(why: NoOwner): string {
+	return why === "unread"
+		? "no owner here can be told from pi's own, since /proc can't be read to say " +
+				"which user namespace pi is in"
+		: "no owner here can be told from pi's own, as in a user namespace whose ids " +
+				"pi can give its files to";
+}
+
+/**
+ * What helps where no owner is trusted, as a sentence. No owner is
+ * trusted only where pi is 0 (`rootOwners`), so running it as another id
+ * always helps; where the map can't be read, mounting `/proc` lets root
+ * keep working.
+ */
+export function noOwnerFix(why: NoOwner): string {
+	return why === "unread"
+		? "Mount /proc, or run pi as an id other than 0."
+		: "Run pi as an id other than 0 there.";
+}
+
+/** Why some programs can't be run, said for a refusal, and what helps where anything does. */
+export interface NotKept {
+	readonly because: string;
+	readonly fix?: string;
+}
+
+/**
+ * Why `names` can't be run, said for a refusal: that no owner here can
+ * be trusted, where none can, rather than blaming the folders, which may
+ * well hold root's.
+ */
+export function notKept(
+	names: readonly string[],
+	why: NoOwner | undefined = noOwner(),
+): NotKept {
+	const listed = names.join(" and ");
+	if (why) {
+		return {
+			because: `${listed} can't be trusted: ${noOwnerSaid(why)}`,
+			fix: noOwnerFix(why),
+		};
+	}
+	const is = names.length === 1 ? "isn't" : "aren't";
+	return {
+		because: `${listed} ${is} in the system's own profile, where only root puts programs`,
+	};
 }
 
 /** The folders the system's profiles put this user's programs in. */

@@ -48,6 +48,9 @@ import {
 	EXIT_ABORTED,
 	spawnExec,
 } from "../../lib/core/exec/index.ts";
+// The note's words, from the one place that writes them, kept off the
+// public barrel: they are spawnExec's to change, not a consumer's to match.
+import { abortedBeforeStart, abortedBy } from "../../lib/core/exec/spawn.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
 /** How long a gate may take, in minutes, when it names no time of its own. */
@@ -190,6 +193,27 @@ export interface GateRun {
 	readonly aborted?: boolean;
 }
 
+/**
+ * `stderr` without the note spawnExec wrote on a run it stopped, which
+ * names neither the gate nor its clock, as the refusal does. A run that
+ * never started has that note, `beforeStart`, as its whole stderr; one
+ * stopped once started has `stoppedBy`, the words for the signal that
+ * fired first, put last. Each is matched whole and only where it is
+ * written, so a reason ending in another note's words cuts nothing
+ * short. What the gate said before it, even a line reading the same,
+ * stays, and stderr holding neither is kept as it is.
+ */
+function withoutExecNote(
+	stderr: string,
+	beforeStart: string,
+	stoppedBy: string,
+): string {
+	if (stderr === beforeStart || stderr === stoppedBy) return "";
+	if (stderr.endsWith(`\n${stoppedBy}`))
+		return stderr.slice(0, -(stoppedBy.length + 1));
+	return stderr;
+}
+
 /** Runs a gate's shell line in a folder, killing it past `timeoutMs`. */
 export type RunGate = (
 	line: string,
@@ -210,6 +234,9 @@ export function gateRunner(): RunGate {
 		// The call is read when the gate starts, as spawnExec reads it.
 		const call = callSignal();
 		const clock = new AbortController();
+		// Whichever of the two fires first, with its reason, as the one
+		// spawnExec stops on carries it.
+		const first = call ? AbortSignal.any([clock.signal, call]) : clock.signal;
 		const timer = setTimeout(() => clock.abort(), timeoutMs);
 		try {
 			const ran = await spawnExec({ cwd, signal: clock.signal })("bash", [
@@ -220,9 +247,11 @@ export function gateRunner(): RunGate {
 				ran.code === EXIT_ABORTED &&
 				(clock.signal.aborted || call?.aborted === true);
 			if (!stoppedHere) return { ...ran, killed: false };
-			// spawnExec's own last line, "bash aborted", names neither the
-			// gate nor why; the refusal says both.
-			const stderr = ran.stderr.replace(/(^|\n)bash aborted$/, "");
+			const stderr = withoutExecNote(
+				ran.stderr,
+				abortedBeforeStart("bash"),
+				abortedBy("bash", first.reason),
+			);
 			const killed = clock.signal.aborted && call?.aborted !== true;
 			return { ...ran, stderr, killed, aborted: !killed };
 		} finally {

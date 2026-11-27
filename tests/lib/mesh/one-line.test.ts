@@ -88,10 +88,41 @@ describe("plainQuotes", () => {
 		["a fullwidth double quote", "\uFF02"],
 		["a fullwidth backtick", "\uFF40"],
 		["a double prime", "\u2033"],
+		["a quadruple prime, which draws as two double quotes", "\u2057"],
 		["a modifier grave accent", "\u02CB"],
 		["an ornamental quote", "\u275E"],
+		["heavy low comma quote ornaments", "\u275F\u2760"],
+		["sans-serif heavy quote ornaments", "\u{1F676}\u{1F677}\u{1F678}"],
+		["the Greek varia and oxia, a grave and an acute", "\u1FEF\u1FFD"],
+		["the Greek numeral sign, a prime by another code point", "\u0374"],
+		["corner brackets", "\u300C\u300D\u300E\u300F"],
+		["halfwidth corner brackets", "\uFF62\uFF63"],
+		["vertical corner brackets", "\uFE41\uFE42\uFE43\uFE44"],
+		["the Hebrew gershayim, which draws as a double quote", "\u05F4"],
+		["the ideographic ditto mark", "\u3003"],
+		["a modifier double acute accent", "\u02DD"],
+		["the mid-height double grave and double acute", "\u02F5\u02F6"],
 	])("says %s as a straight single quote", (_, quote) => {
-		expect(plainQuotes(`y${quote}z`)).toBe(`y${"'".repeat(quote.length)}z`);
+		expect(plainQuotes(`y${quote}z`)).toBe(
+			`y${"'".repeat([...quote].length)}z`,
+		);
+	});
+
+	// The list is kept by hand, so every mark Unicode itself names a
+	// quotation mark is walked, which no addition to Unicode's list can
+	// slip past unseen (#2220's third judge).
+	it("says every mark Unicode names a quotation mark as a straight single quote", () => {
+		const marks: string[] = [];
+		for (let point = 0; point <= 0x10ffff; point++) {
+			const mark = String.fromCodePoint(point);
+			if (/\p{Quotation_Mark}/u.test(mark)) marks.push(mark);
+		}
+
+		expect(marks.length, "Unicode names some").toBeGreaterThan(20);
+		expect(
+			marks.filter((mark) => plainQuotes(mark) !== "'"),
+			"none left as it was",
+		).toEqual([]);
 	});
 
 	it("leaves accented letters and other punctuation as they are", () => {

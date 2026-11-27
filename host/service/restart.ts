@@ -119,6 +119,7 @@ import { quietFrom, RESTART_WAITS_ON_VARIABLE } from "./quiet.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
 import {
+	definitionMoves,
 	installMovesFrom,
 	isUnitMain,
 	type LaunchdFacts,
@@ -778,7 +779,7 @@ async function supervisorOf(
 			if (definition === undefined) return undefined;
 			const now = await unitDefinition(unit, systemctl);
 			if (now === undefined || now === definition) return undefined;
-			return `systemd has a new ${unit}, such as one naming a new pi`;
+			return `systemd has a new ${unit}: ${definitionMoves(definition, now)}`;
 		},
 		restart: async () => {
 			await systemctl(["--no-block", "restart", unit]);
