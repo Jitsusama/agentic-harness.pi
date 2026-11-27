@@ -5,12 +5,18 @@
  * one lets go.
  */
 
-import { mkdirSync, mkdtempSync, symlinkSync, utimesSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { holdsOf } from "../../../extensions/mesh-workflow/moving.ts";
 import { orderedHolds } from "../../../extensions/mesh-workflow/ordered-carry.ts";
 import { RUN_UNDER_WAY } from "../../../lib/internal/session/free.ts";
@@ -122,8 +128,20 @@ describe("what holds a session from an ordered carry, named at once", () => {
 });
 
 describe("what holds a session from an ordered carry, from code its install left", () => {
-	it("names the harness it runs as a hold, so it refuses before its run is waited on or ended", async () => {
+	const installs: string[] = [];
+	afterEach(() => {
+		for (const install of installs.splice(0)) {
+			rmSync(install, { recursive: true, force: true });
+		}
+	});
+
+	/**
+	 * An install whose `current` left the version it answers an hour ago,
+	 * past the bar, with a board of no leases beside it.
+	 */
+	function staleInstall(): { readonly old: string; readonly board: Board } {
 		const install = mkdtempSync(join(tmpdir(), "ordered-holds-install-"));
+		installs.push(install);
 		const made = (version: string, ago: number) => {
 			const at = join(install, "versions", version);
 			mkdirSync(at, { recursive: true });
@@ -137,16 +155,33 @@ describe("what holds a session from an ordered carry, from code its install left
 			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
 			join(install, "current"),
 		);
+		return { old, board: createBoard(join(install, "board")) };
+	}
+
+	it("names the harness it runs as a hold while its run is untouched", async () => {
+		const { old, board } = staleInstall();
 		const at = sessionHeld({ running: true });
 
 		const said = await orderedHolds(
-			{ ...at, board: createBoard(install), session: SESSION, root: old },
+			{ ...at, board, session: SESSION, root: old },
 			false,
 		);
 
 		expectNamesEach(said, [
 			"it runs harness 03c16f4cfe6b, which its install left 60 minutes ago",
 		]);
+	});
+
+	it("names no harness once its run has ended, since the carry judged it before ending the run", async () => {
+		const { old, board } = staleInstall();
+		const at = sessionHeld();
+
+		const said = await orderedHolds(
+			{ ...at, board, session: SESSION, root: old },
+			true,
+		);
+
+		expect(said).toBeUndefined();
 	});
 });
 
