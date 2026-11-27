@@ -159,17 +159,27 @@ async function councilRound(
 	// Before the start, since a round whose reviewers run on a room
 	// doesn't wait on this machine's memory or CPU, only its place in
 	// the line and the spacing.
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
-	const start = await awaitRosterStart(
+	const roomNow = () =>
+		roomFor(change, proposal.headCommit, () => roomHarness(tree.path));
+	const asked = await roomNow();
+	let start = await awaitRosterStart(
 		change.label,
 		seat.signal,
 		"council",
-		room === undefined ? undefined : ROOM_ROUND,
+		asked === undefined ? undefined : ROOM_ROUND,
 	);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
+	// Read again, since the wait can last hours: a room taken out of the
+	// config while it waited sends the round back to wait on the bars
+	// here, which it didn't, and a room moved to another is the new one.
+	const room = asked === undefined ? undefined : await roomNow();
+	if (asked !== undefined && room === undefined) {
+		await start.release?.();
+		start = await awaitRosterStart(change.label, seat.signal, "council");
+		if (start.cancelled !== undefined)
+			return { refused: refuse(start.cancelled) };
+	}
 	// Asked again after the wait: a council on this head queued ahead of
 	// this one writes its ledger entry only as it opens, a spacing ago.
 	// Refused then, it gives its slot back, so the next round on the

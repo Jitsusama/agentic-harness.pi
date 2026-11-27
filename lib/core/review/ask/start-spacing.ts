@@ -182,6 +182,11 @@ interface Ticket {
 	/** Whether it stands ahead of asks that don't, as World's changes do. */
 	readonly leads?: boolean;
 	/**
+	 * Whether its reviewers run on another machine, so that nothing held
+	 * by this machine's bars stands ahead of it.
+	 */
+	readonly away?: boolean;
+	/**
 	 * What kind of round it is, such as a council or a critique, so a
 	 * session's newer ask replaces only its own kind. A ticket an older
 	 * install wrote has none, and replaces and is replaced by nothing.
@@ -267,6 +272,13 @@ export interface StartClaim {
 	 */
 	readonly leads?: boolean;
 	/**
+	 * Whether this round's reviewers run on another machine, as a room's
+	 * do. It stands ahead of every round but an urgent one, since those
+	 * wait on this machine's bars and it doesn't; it still keeps the
+	 * spacing, which every start here takes.
+	 */
+	readonly away?: boolean;
+	/**
 	 * What kind of round asks, such as a council, a stack or a critique.
 	 * A newer ask replaces an older one of the same session, change and
 	 * kind, never another kind's, which still waits for its own start.
@@ -332,6 +344,7 @@ export async function awaitCouncilStart(
 		askedAt: asked,
 		seenAt: asked,
 		...(claim.leads === true ? { leads: true } : {}),
+		...(claim.away === true ? { away: true } : {}),
 		...(claim.kind === undefined ? {} : { kind: claim.kind }),
 	};
 	// The first look takes the place, so joining is retried like any look.
@@ -760,7 +773,8 @@ function earliest(times: readonly (string | undefined)[]): string {
 }
 
 /**
- * The line's one order: urgent first, then those that lead, then by
+ * The line's one order: urgent first, then those whose reviewers run
+ * elsewhere, which no bar here holds, then those that lead, then by
  * when each was first asked about, then by id, so every look orders
  * the same tickets the same way, whoever is looking.
  */
@@ -770,7 +784,8 @@ function inOrder(
 ): Ticket[] {
 	const rank = (each: Ticket): number => {
 		if (urgent.has(each.id) || urgent.has(each.change)) return 0;
-		return leads(each) ? 1 : 2;
+		if (each.away === true) return 1;
+		return leads(each) ? 2 : 3;
 	};
 	// Two asks in one millisecond fall to their ids, so every look agrees
 	// which is ahead rather than each seeing the other first.
@@ -1070,6 +1085,7 @@ function isTicket(value: unknown): value is Ticket {
 		typeof value.seenAt === "string" &&
 		Number.isFinite(Date.parse(value.seenAt)) &&
 		(!("leads" in value) || typeof value.leads === "boolean") &&
+		(!("away" in value) || typeof value.away === "boolean") &&
 		(!("kind" in value) || typeof value.kind === "string")
 	);
 }
