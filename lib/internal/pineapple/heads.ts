@@ -57,9 +57,7 @@ export function keptHeads(ask: HeadOf, guess?: HeadOf): HeadOf {
 	return (repo, pr) => {
 		if (repo === undefined) return Promise.resolve(undefined);
 		const key = `${repo}#${pr}`;
-		return tellOf(key, repo, pr).then(
-			(head) => head ?? guessed(key, repo, pr),
-		);
+		return tellOf(key, repo, pr).then((head) => head ?? guessed(key, repo, pr));
 	};
 }
 
