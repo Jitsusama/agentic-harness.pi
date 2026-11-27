@@ -335,6 +335,37 @@ describe("an act", () => {
 		});
 	});
 
+	it("starts no turn for a group's question answered meanwhile, though the minute's look ran", async () => {
+		// The look lets go of answers a day old, and must keep one just heard.
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			{ settleMs: 300, spreadMs: 0 },
+			undefined,
+			undefined,
+			20,
+		);
+
+		const asked = fromElsewhere({
+			intent: "question",
+			text: "who can look at 7M6JKG's tests?",
+		});
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@WCJQSG"],
+			re: asked.id,
+			text: "on it",
+		});
+
+		// The question waits to settle through many looks before it is handed.
+		await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 2000 });
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.details).toMatchObject({
+			why: ["about this peer's work, answered already"],
+		});
+	});
+
 	it("asks no classifier about what names this peer", async () => {
 		const calls: unknown[] = [];
 		const { sent } = await startSession({}, judging(notYours, calls));

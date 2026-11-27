@@ -51,7 +51,11 @@ import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { meshTransport } from "../../../lib/mesh/node-transport.ts";
 import { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
-import { createReadFront, createSeenIds } from "../../../lib/mesh/reading.ts";
+import {
+	createAnsweredIds,
+	createReadFront,
+	createSeenIds,
+} from "../../../lib/mesh/reading.ts";
 import { heedingNoReceptor } from "../../../lib/mesh/receptor.ts";
 import {
 	SWEEP_EVERY_MS,
@@ -168,8 +172,9 @@ export function createState(
 	});
 	// Messages other peers have answered, so a question to the machine
 	// that one peer took up starts no turn of the rest. A question that
-	// asks each peer is answered for this one only by its own reply.
-	const answered = new Set<string>();
+	// asks each peer is answered for this one only by its own reply. Each
+	// is kept a day, while the question can still reach this peer.
+	const answered = createAnsweredIds();
 	// Questions this peer left to the peer answering them, by id, kept
 	// until answered so one let go reaches this peer after all.
 	const left = new Map<string, Left>();

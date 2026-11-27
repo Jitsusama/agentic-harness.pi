@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL } from "../../../lib/mesh/group.ts";
 import {
+	ANSWERED_KEPT_MS,
+	createAnsweredIds,
 	createReadFront,
 	createSeenIds,
 	seenAtStart,
@@ -100,6 +102,53 @@ describe("the ids a peer has seen", () => {
 		seen.keepListed(["999-Z"]);
 
 		expect(seen.has("100-A"), "missing once since the clear").toBe(true);
+	});
+});
+
+describe("the questions other peers answered", () => {
+	// Kept for the peer's life, they held 2.0 MiB in one pi open 3.6 days.
+	const HOUR = 60 * 60 * 1000;
+	const stamped = (ago: number) => `${Date.now() - ago}-AAAAAA-1-deadbeef`;
+	const sweep = (answered: ReturnType<typeof createAnsweredIds>) =>
+		answered.keepStampedSince(Date.now() - ANSWERED_KEPT_MS);
+
+	it("knows a question once its answer is heard", () => {
+		const answered = createAnsweredIds();
+		const id = stamped(HOUR);
+		expect(answered.has(id), "before its answer").toBe(false);
+
+		answered.add(id);
+
+		expect(answered.has(id), "once answered").toBe(true);
+	});
+
+	it("keeps a question stamped within the day", () => {
+		const answered = createAnsweredIds();
+		const id = stamped(23 * HOUR);
+		answered.add(id);
+
+		sweep(answered);
+
+		expect(answered.has(id), "stamped 23 hours ago").toBe(true);
+	});
+
+	it("lets go of a question stamped before the day", () => {
+		const answered = createAnsweredIds();
+		const id = stamped(25 * HOUR);
+		answered.add(id);
+
+		sweep(answered);
+
+		expect(answered.has(id), "stamped 25 hours ago").toBe(false);
+	});
+
+	it("keeps a question with no stamp, which no expiry touches", () => {
+		const answered = createAnsweredIds();
+		answered.add("unstamped");
+
+		sweep(answered);
+
+		expect(answered.has("unstamped"), "with no stamp").toBe(true);
 	});
 });
 

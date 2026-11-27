@@ -16,7 +16,7 @@
  * strings is the order they were sent.
  */
 
-import type { Transport } from "./transport.ts";
+import { stampedAt, type Transport } from "./transport.ts";
 
 /**
  * The ids a starting peer marks seen: those at the top of the folder at
@@ -88,6 +88,49 @@ export function createSeenIds(): SeenIds {
 				else missingNow.add(id);
 			}
 			missing = missingNow;
+		},
+	};
+}
+
+/**
+ * How long a peer keeps the id of a question another peer answered: a
+ * day. A message rests at the top about six hours (retention.ts
+ * RECENT_MS), and up to an hour more before a sweep settles it; a
+ * question carried in later from another machine keeps its old stamp,
+ * and a day still knows its answer when it reaches this peer.
+ */
+export const ANSWERED_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The questions other peers have answered, so one this peer hears after
+ * its answer starts no turn here.
+ *
+ * Kept only while a question could still reach this peer: every answer
+ * a peer hears adds its question, and keeping each for the peer's life
+ * held 2.0 MiB in one pi open 3.6 days.
+ */
+export interface AnsweredIds {
+	has(id: string): boolean;
+	add(id: string): void;
+	/**
+	 * Let go of each id stamped before `since`. An id with no stamp is
+	 * kept, since no expiry touches it (transport.ts stampedAt).
+	 */
+	keepStampedSince(since: number): void;
+}
+
+export function createAnsweredIds(): AnsweredIds {
+	const ids = new Set<string>();
+	return {
+		has: (id) => ids.has(id),
+		add(id) {
+			ids.add(id);
+		},
+		keepStampedSince(since) {
+			for (const id of ids) {
+				const at = stampedAt(id);
+				if (at !== undefined && at < since) ids.delete(id);
+			}
 		},
 	};
 }
