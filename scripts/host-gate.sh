@@ -65,7 +65,7 @@ generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 # library every extension does, as lib/internal/paths.ts, are left to
 # pnpm check: counting one would ask an hour's run of a change most
 # tests answer.
-hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|lib/core/internal/keyring/(secrets\.ts|store\.ts|keychain\.ts|secret-service\.ts|secret-service-call\.mjs)$|tests/host/|tests/setup/(pi-install|xdg-sandbox|temp-root|scripts-as-text)\.ts$|tests/support/memory-secret-store\.ts$|scripts/pi-host|scripts/host-|scripts/spawn-decide\.ts$|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
+hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|lib/core/internal/keyring/(secrets\.ts|store\.ts|keychain\.ts|secret-service\.ts|secret-service-call\.mjs)$|tests/host/|tests/setup/(pi-install|xdg-sandbox|held-session|temp-root|scripts-as-text)\.ts$|tests/support/memory-secret-store\.ts$|scripts/pi-host|scripts/host-|scripts/spawn-decide\.ts$|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
 # The extensions whose tools and turns the host cases drive, and the
 # libraries under them: background jobs, tool_search's loadout, the mesh,
 # parking, quests, reloads, stored results, spend and subagents. A host

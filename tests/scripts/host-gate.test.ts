@@ -507,6 +507,7 @@ describe("host-gate.sh", () => {
 		"tests/setup/scripts-as-text.ts",
 		"tests/setup/pi-install.ts",
 		"tests/setup/xdg-sandbox.ts",
+		"tests/setup/held-session.ts",
 		"tests/setup/temp-root.ts",
 		"tests/support/memory-secret-store.ts",
 		"lib/core/internal/keyring/store.ts",
