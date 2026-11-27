@@ -107,9 +107,13 @@ describe("the plain words a need is not matched by", () => {
 	// Each covers one word the need lacks, and R doesn't work on find, so
 	// T's find out says nothing more against it: neither outranks the
 	// other, and the first found takes it (#2220's seventh round, F61).
-	const findOut = (live: (address: string) => boolean) =>
-		routeNeed(asked("A", ...wordsOf("find out who keeps the docs")), {
-			foragers: cells({ A: [], T: ["find", "find-out"], R: ["docs"] }),
+	// Words held as often are walked in their sorting order, so R's word
+	// is tried both before find (docs) and after it (zines): a tie follows
+	// that order, where a phrase counted against R gives T both times
+	// (round 7b, F74 and F76).
+	const findOut = (word: string, live: (address: string) => boolean) =>
+		routeNeed(asked("A", ...wordsOf(`find out who keeps the ${word}`)), {
+			foragers: cells({ A: [], T: ["find", "find-out"], R: [word] }),
 			ties: ties(["A", "T", 1], ["A", "R", 1]),
 			hubs: [],
 			live,
@@ -117,18 +121,18 @@ describe("the plain words a need is not matched by", () => {
 
 	it("lets no phrase outrank a cell holding none of its first word", () => {
 		expect(
-			findOut(() => true),
-			"the cell on the docs",
-		).toMatchObject({
-			fit: "R",
-		});
+			[findOut("docs", () => true).fit, findOut("zines", () => true).fit],
+			"a tie, taken by whichever is found first",
+		).toEqual(["R", "T"]);
 	});
 
 	it("names no ended owner by a phrase whose first word the fit doesn't work on", () => {
+		const live = (address: string) => address !== "T";
+
 		expect(
-			findOut((address) => address !== "T"),
-			"the live cell on the docs, not lost to T",
-		).toMatchObject({ fit: "R" });
+			[findOut("docs", live).fit, findOut("zines", live).fit],
+			"the live cell each time, not lost to T",
+		).toEqual(["R", "R"]);
 	});
 
 	it("sends a need saying hand over to hand-over's hub, not hand-off's", () => {
@@ -171,17 +175,25 @@ describe("the plain words a need is not matched by", () => {
 	});
 
 	it("counts the phrase of a cell when the asker holds its first word", () => {
+		// F lacks for nothing N does, so only the phrase makes it the need's
+		// owner; uncounted, the two tie and live N takes it, in whatever
+		// order they are found (round 7b, F76).
 		const found = routeNeed(asked("A", ...wordsOf("hand over the notes")), {
 			foragers: cells({
 				A: ["hand"],
-				F: ["hand", "hand-over"],
+				F: ["hand", "hand-over", "notes"],
 				N: ["notes"],
 			}),
 			ties: ties(["A", "N", 1], ["A", "F", 1]),
 			hubs: [],
+			live: (address) => address !== "F",
 		});
 
-		expect(found, "the cell holding the phrase").toMatchObject({ fit: "F" });
+		expect(found, "owned by the cell holding the phrase").toMatchObject({
+			fit: null,
+			ended: ["F"],
+			fellShort: "N",
+		});
 	});
 
 	it("says an ended hand-over cell owned a need a live hand-off cell would take", () => {
