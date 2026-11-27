@@ -76,7 +76,8 @@ now run, a busy one tried again with each try said, one systemd won't
 say has gone watched, a second one running a conversation stopped, and
 a start waiting on one it couldn't take up under another id.
 support/supervised-children.ts is their fake units, roster and
-children, each child's traits set by the test that starts it.
+children, each child's traits set by the test that starts it; its
+children listen in a folder from support/short-runtime.ts too.
 child-policy.test.ts checks the policy file read as it changes: one
 named, all, a missing file and an unreadable one each moving nothing.
 child-hosting.test.ts puts the routes, supervisor and policy together

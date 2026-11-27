@@ -1,9 +1,8 @@
 /** Children a supervisor under test starts, watches and adopts: fake units, a fake roster, and children run in this process. */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import {
@@ -25,6 +24,7 @@ import {
 	spareUntilTaken,
 } from "../../../../host/service/spare.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
+import { shortRuntime } from "./short-runtime.ts";
 
 export const key = "work-background";
 export const a = "a0000000-0000-4000-8000-000000000001";
@@ -590,8 +590,9 @@ export function pause(ms: number): Promise<void> {
  */
 export function superviseEachTest(): void {
 	beforeEach(async () => {
-		// Short, since a socket's path may run to no more than 103 bytes.
-		folder = await mkdtemp(join(tmpdir(), "cs-"));
+		// A child's socket goes in it, and a quest session's TMPDIR is
+		// long enough to take one past a Unix address's limit.
+		folder = await shortRuntime(key);
 		routes = heldChildren();
 		// As a host holds what it resumes before it resumes it.
 		roster = fakeRoster([entry(a)]);
@@ -606,6 +607,8 @@ export function superviseEachTest(): void {
 	afterEach(async () => {
 		supervisor.close();
 		for (const child of [...units.children.values()]) await child?.exit();
-		await rm(folder, { recursive: true, force: true });
+		// A child's last write can land as the walk empties its folder,
+		// which then reads ENOTEMPTY, so the walk is tried again.
+		await rm(folder, { recursive: true, force: true, maxRetries: 5 });
 	});
 }
