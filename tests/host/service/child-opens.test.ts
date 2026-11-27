@@ -568,13 +568,20 @@ describe("a new conversation", () => {
 		const beginning = supervisor.begin(opening("open-30"));
 		const all = [...held, beginning];
 		try {
+			// A tick for the begin to reach the gate; were it not held there it
+			// would start a third unit within it.
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(
+				units.started,
+				"the begin waits behind the two resumes",
+			).toHaveLength(2);
 			holdingA.settle();
 			await beginning;
 			const begun = units.started[2] ?? "";
 			const line = said.find((one) => one.startsWith(`${begun}: waited`));
 			expect(line, "its wait is said").toBeDefined();
-			expect(line, "someone waited on it from its first ask").toContain(
-				"with someone waiting on it",
+			expect(line, "someone waited on it from its first ask").toMatch(
+				/, with someone waiting on it$/,
 			);
 			expect(line, "ahead from its first ask, moved nowhere").not.toContain(
 				"going ahead",

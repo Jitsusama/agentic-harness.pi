@@ -103,7 +103,13 @@ function sweepWhileOpen(
 	known: Partial<
 		Pick<
 			SweepDeps,
-			"betweenIdleTakes" | "busyAmong" | "claims" | "liveSessions" | "memory"
+			| "betweenIdleTakes"
+			| "busyAmong"
+			| "claims"
+			| "exec"
+			| "idleTakes"
+			| "liveSessions"
+			| "memory"
 		>
 	> = {},
 ) {
@@ -193,6 +199,9 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+		expect(outcome.idleLetGoNone, "why none went").toBe(
+			"this run took or refused a tree a list of claims kept, and a list can't be asked again",
+		);
 	});
 
 	it("asks again after taking a tree its holder kept, and keeps what the holder no longer lets go", async () => {
@@ -211,6 +220,9 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+		expect(outcome.idleLetGoNone, "why none went").toBe(
+			"asked again, the holders let none of them go",
+		);
 	});
 
 	it("asks again before the idle phase, so an older tree stays once its newest went some other way", async () => {
@@ -268,6 +280,95 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 			path: older.tree,
 			why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
 		});
+		expect(outcome.idleLetGoNone, "why none went, when one stayed let go").toBe(
+			undefined,
+		);
+	});
+
+	it("takes no older tree whose newest goes while the older is judged", async () => {
+		const setup = await setUp();
+		const bystander = await pushedAndLeft(setup, "nobody-s", 2 * IDLE);
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		const newest = await pushedAndLeft(setup, "cut-last", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: () => ({
+				held: [],
+				untilSpent: [older.tree, newest.tree],
+				idleMayTake: existsSync(newest.tree) ? [older.tree] : [],
+			}),
+			// The quest's own session releases its newest while the older's
+			// status, the dearest of its judging, runs.
+			exec: async (command, args) => {
+				const judging = args.includes(older.tree) && args.includes("status");
+				if (judging && existsSync(newest.tree)) {
+					await git(setup.main, "worktree", "remove", "--force", newest.tree);
+				}
+				return await exec(command, args);
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([bystander.tree]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+	});
+
+	it("pauses once after a take, however many trees it refuses before the next", async () => {
+		const setup = await setUp();
+		const first = await pushedAndLeft(setup, "nobody-s", 4 * IDLE);
+		const dirty = await pushedAndLeft(setup, "half-done", 3 * IDLE);
+		writeFileSync(join(dirty.tree, "notes.md"), "mine\n");
+		await leaveAlone(setup, dirty.tree, 3 * IDLE);
+		const last = await pushedAndLeft(setup, "nobody-else-s", 2 * IDLE);
+		let pauses = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 4,
+			betweenIdleTakes: async () => {
+				pauses += 1;
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([
+			first.tree,
+			last.tree,
+		]);
+		expect(existsSync(dirty.tree), "the tree with a change").toBe(true);
+		expect(pauses, "pauses between takes").toBe(1);
+	});
+
+	it("spends no take on a let-go tree it holds back once a kept tree went, pausing once", async () => {
+		const setup = await setUp();
+		// Judged in this order, oldest first.
+		const first = await pushedAndLeft(setup, "nobody-s", 4 * IDLE);
+		const older = await pushedAndLeft(setup, "cut-first", 3 * IDLE);
+		const newest = await pushedAndLeft(setup, "cut-last", 3 * IDLE);
+		const last = await pushedAndLeft(setup, "nobody-else-s", 2 * IDLE);
+		let pauses = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			// Two worktree takes: the held-back tree once spent the second,
+			// so the last tree's take shows it spends none now.
+			idleTakes: 4,
+			claims: () => ({
+				held: [],
+				untilSpent: [older.tree, newest.tree],
+				idleMayTake: existsSync(newest.tree) ? [older.tree] : [],
+			}),
+			// The quest's own session releases its newest in the first pause.
+			betweenIdleTakes: async () => {
+				pauses += 1;
+				if (existsSync(newest.tree)) {
+					await git(setup.main, "worktree", "remove", "--force", newest.tree);
+				}
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([
+			first.tree,
+			last.tree,
+		]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+		expect(pauses, "pauses between takes").toBe(1);
 	});
 
 	it("takes none its holder let go when asking it again fails", async () => {
@@ -291,9 +392,12 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+		expect(outcome.idleLetGoNone, "why none went").toBe(
+			"asking the holders again failed: the quests couldn't be read",
+		);
 	});
 
-	it("still takes an older tree whose newest stands when another quest's kept tree went", async () => {
+	it("still takes an older tree whose newest stands when a kept tree went before the idle phase", async () => {
 		const setup = await setUp();
 		const older = await pushedAndLeft(setup, "cut-first", IDLE);
 		const newest = await pushedAndLeft(setup, "cut-last", IDLE);

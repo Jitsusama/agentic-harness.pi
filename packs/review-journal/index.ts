@@ -33,6 +33,7 @@ import { Type } from "@sinclair/typebox";
 // dispatcher, the supervisor and the artifact store into a process
 // whose whole job is appending a line to a file.
 import {
+	findingsIn,
 	JOURNAL_PATH_VAR,
 	JOURNAL_TOOL_NAME,
 } from "../../lib/subagent/runpi/journal.mjs";
@@ -65,43 +66,6 @@ async function write(path: string, line: string): Promise<string | undefined> {
 			"so keep it for your final answer and carry on reviewing."
 		);
 	}
-}
-
-/**
- * The findings in whatever the reviewer sent, and how many of
- * the things it sent were not findings.
- *
- * Three encodings are accepted for one reason: the reviewer's
- * intent is not in doubt in any of them, and this tool refusing a
- * finding it can plainly read is how a reviewer ends up recording
- * nothing at all. That is not hypothetical. A real one sent its
- * findings as JSON text, was told six times that a finding has to
- * be an object, and gave up, so the run that was meant to prove
- * the journal works recorded not one line.
- *
- * An array because a reviewer economising on turns under a
- * deadline batches, and text because a model asked for an object
- * will sometimes serialize it first. What stays refused is a
- * sentence, which is not a finding in any encoding.
- */
-function findingsIn(sent: unknown): {
-	kept: object[];
-	dropped: number;
-} {
-	if (typeof sent === "string") {
-		try {
-			return findingsIn(JSON.parse(sent));
-		} catch {
-			// Prose, not a finding. Refused below by having kept nothing.
-			return { kept: [], dropped: 1 };
-		}
-	}
-	const each = Array.isArray(sent) ? sent : [sent];
-	const kept = each.filter(
-		(one): one is object =>
-			one !== null && typeof one === "object" && !Array.isArray(one),
-	);
-	return { kept, dropped: each.length - kept.length };
 }
 
 /**

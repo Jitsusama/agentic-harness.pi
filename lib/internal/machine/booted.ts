@@ -58,10 +58,11 @@ function wallAtMonotonicZero(): number {
  * a passing fault, such as a process out of file handles, mustn't leave
  * every marker unjudged.
  *
- * A forward step still misjudges what came before it: the boot read
- * after it is later by the step, so a marker written this boot before
- * the step reads as an earlier boot's, and a park check clears it.
- * Keeping the earlier boot instead would leave a peer or a restore
+ * A forward step still misjudges a little of what came before it: the
+ * boot read after it is later by the step, so whatever this boot wrote
+ * less than the step after it began reads as an earlier boot's. A park
+ * marker written then is cleared, and a mesh hold sent then stops
+ * standing, as a reboot ends it; nothing says so. Keeping the earlier boot instead would leave a peer or a restore
  * record from a boot that is over read as this one's, for every
  * reader of this time at once, so the later one is taken, as `btime`
  * itself gives.

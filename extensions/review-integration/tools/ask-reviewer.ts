@@ -33,6 +33,8 @@ import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { askedSandbox } from "../../../lib/internal/fence/fence-stage.ts";
 import {
 	fencedChildrenRefusal,
+	heldPackRefusal,
+	heldStoreCopy,
 	inside,
 	packageRoot,
 } from "../../../lib/internal/fence/installed-only.ts";
@@ -53,6 +55,7 @@ import {
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.ts";
+import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
 import { fromScript } from "../../../lib/subagent/runpi/fresh.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import {
@@ -331,7 +334,21 @@ export function fencePacks(folder?: string): string[] {
 		(folder === undefined ? undefined : reviewerFolderRefusal(folder));
 	if (refused !== undefined) throw new Error(refused);
 	const root = packageRoot();
-	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
+	const packs = FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
+	// From a store copy, each pack is held to the same rule as the copy.
+	const copy = heldStoreCopy(root);
+	const why =
+		copy === undefined
+			? undefined
+			: packs
+					.map((pack) => heldPackRefusal(pack, copy))
+					.find((one) => one !== undefined);
+	if (why !== undefined) {
+		throw new Error(
+			`No reviewer started: a fenced reviewer needs the fence's own extensions, and ${why}.`,
+		);
+	}
+	return packs;
 }
 
 /**
@@ -355,6 +372,9 @@ export function deps(
 	// artifacts still go under the fresh id, because the transcript
 	// belongs to the attempt that produced it.
 	billTo?: string,
+	// The room each reviewer runs on first, when the round has one
+	// (ask-room.ts); each comes back here when the room gives nothing.
+	room?: RoomAsk,
 ) {
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
@@ -480,6 +500,7 @@ export function deps(
 			// running. It is derived from the round's, so Escape still
 			// reaches every one of them.
 			signal: watch.signalFor(participant.id),
+			...(room === undefined ? {} : { room }),
 			// Bounded twice, and the idle clock is the one doing the work:
 			// it catches a participant that has gone silent, while the wall
 			// clock only backstops one that nothing else will stop. Bounding

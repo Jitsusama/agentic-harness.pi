@@ -83,17 +83,16 @@ const LOOK_AGAIN_MS = 15_000;
 /**
  * The shortest spacing a machine may set. A look that took a start and
  * failed finds it again by its ticket at the next look, at most
- * {@link LOOK_AGAIN_MS} later, which only works while no other round
- * may yet start after it; twice that leaves room for a slow look. It
- * also keeps a round waiting behind tickets that never start from
- * reading the line in a tight loop.
+ * {@link LOOK_AGAIN_MS} later, as the latest start or the one the latest
+ * followed; twice that keeps a second start from coming between, even
+ * after a slow look. It also keeps a round waiting behind tickets that
+ * never start from reading the line in a tight loop.
  */
 export const FEWEST_SPACING_MS = 2 * LOOK_AGAIN_MS;
 
 /**
- * The longest spacing a machine may set. A round reads the spacing once,
- * when it asks, so a mistyped hour would hold it for that hour even
- * after the config was put right.
+ * The longest spacing a machine may set, so a mistyped hour holds no
+ * round for that hour, even read again at each look as the spacing is.
  */
 export const MOST_SPACING_MS = 30 * 60_000;
 
@@ -205,10 +204,24 @@ export interface StartClaim {
 	 */
 	readonly spacingMs?: number;
 	/**
+	 * The spacing as configured now, read at each look, so a change to the
+	 * config reaches rounds already waiting; `spacingMs` where it says
+	 * nothing.
+	 */
+	readonly spacing?: () => Promise<number | undefined>;
+	/**
 	 * What keeps a round from starting now, such as memory or CPU, said for its
 	 * answer, or nothing when the machine has room. Read at each look.
 	 */
 	readonly room?: () => Promise<string | undefined>;
+	/**
+	 * Whether the machine is quiet enough that a round may start one look
+	 * after the last, rather than its own spacing. Read at each look, and
+	 * only alongside `room` while the spacing is at its floor, since a
+	 * wider one set by hand may be for what pressure can't show, such as
+	 * a provider's limit; never quiet unless given.
+	 */
+	readonly quiet?: () => Promise<boolean>;
 	/**
 	 * The latest start made outside the line, such as a round started by
 	 * a session on an older install, read again each time the line is.
@@ -273,18 +286,8 @@ export async function awaitCouncilStart(
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
-	// Never under two looks, whoever asks: the line's own guard against a
-	// failed look losing its start, and against a tight loop, holds here
-	// rather than only in whichever reader of a config remembered it.
-	// Started on room, that floor is the spacing: two starts a minute, so
-	// a long line drains no faster than the minute-long averages of
-	// memory and CPU pressure can show what the rounds before took, and a
-	// machine with no reading of pressure still starts no burst.
-	const spacing = Math.max(
-		claim.spacingMs ??
-			(claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
-		2 * lookAgain,
-	);
+	// Read at each look; this stands only for a first look that failed.
+	let spacings: Spacings = { spacing: 2 * lookAgain, quickest: 2 * lookAgain };
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -305,7 +308,8 @@ export async function awaitCouncilStart(
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
-			turn = await takeTurn(at, path, ticket, claim, spacing);
+			spacings = await spacingsNow(claim, lookAgain);
+			turn = await takeTurn(at, path, ticket, claim, spacings);
 			failed = 0;
 		} catch (error) {
 			// A lock another live round holds past the wait is a busy line,
@@ -339,13 +343,13 @@ export async function awaitCouncilStart(
 				// Given up during the look that took the start: nothing is
 				// started in its name, so the start goes back.
 				await release();
-				return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
+				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
 			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
 				: {
-						waited: waitSaid(firstSeen, spacing, waitedMs, lastShort),
+						waited: waitSaid(firstSeen, spacings, waitedMs, lastShort),
 						release,
 					};
 		}
@@ -366,7 +370,7 @@ export async function awaitCouncilStart(
 			await leave(at, ticket).catch(() => {
 				// The ticket stops being looked at, so the next reader drops it.
 			});
-			return { cancelled: stoppedSaid(firstSeen, spacing, lastShort) };
+			return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 		}
 	}
 }
@@ -404,12 +408,17 @@ async function takeTurn(
 	path: string,
 	ticket: Ticket,
 	claim: StartClaim,
-	spacing: number,
+	spacings: Spacings,
 ): Promise<Turn> {
 	const elsewhere = await claim.startedElsewhere?.();
 	// Read before the lock, as they may be slow; a round that reads room
 	// and then finds another first in line waits its turn all the same.
 	const short = await claim.room?.();
+	const hurry =
+		spacings.quickest < spacings.spacing &&
+		short === undefined &&
+		(await claim.quiet?.()) === true;
+	const spacing = hurry ? spacings.quickest : spacings.spacing;
 	const urgent = new Set(await claim.urgent?.());
 	const seenFrom = async (line: Line, now: number): Promise<Look> =>
 		look(line, {
@@ -462,6 +471,14 @@ interface Look {
  */
 function look(line: Line, at: LookAt): Look {
 	const { ticket, now } = at;
+	if (line.started?.follows?.ticket === ticket.id) {
+		// An earlier look took the start and failed on its way out, and a
+		// quiet machine's next round started one look later: it is
+		// started all the same, though no longer the start to give back.
+		return {
+			turn: { started: line.started.follows, ahead: 0, waitMs: 0 },
+		};
+	}
 	if (line.started?.ticket === ticket.id) {
 		// An earlier look took the start and then failed on its way out:
 		// it is started, not owed another.
@@ -1015,9 +1032,54 @@ function bounded(name: string): string {
 		: `${name.slice(0, NAME_SAID_AT_MOST)}...`;
 }
 
+/** A round's spacing, and the quicker one it takes while the machine is quiet. */
+interface Spacings {
+	readonly spacing: number;
+	readonly quickest: number;
+}
+
+/**
+ * The spacings a look goes by, the config read as it stands now.
+ *
+ * Never under two looks, whoever asks: the line's own guard against a
+ * failed look losing its start, and against a tight loop, holds here
+ * rather than only in whichever reader of a config remembered it.
+ * Started on room, that floor is the spacing: two starts a minute, so a
+ * long line drains no faster than the minute-long averages of memory
+ * and CPU pressure can show what the rounds before took, and a machine
+ * with no reading of pressure still starts no burst.
+ *
+ * A quiet machine, well inside every bar, may start one look after the
+ * last instead, fifteen seconds in production (A210E4CA, 27 November):
+ * its live MemAvailable still stops a burst the averages are slow to
+ * show. A round that took a start and failed still finds it one start
+ * back. Only while the spacing is at its floor, which a config setting
+ * none or as often as it can leaves it at, and only for a claim that
+ * reads quiet at all, so a wait never names a pace it can't take.
+ */
+async function spacingsNow(
+	claim: StartClaim,
+	lookAgain: number,
+): Promise<Spacings> {
+	const given = (await claim.spacing?.()) ?? claim.spacingMs;
+	const floor = 2 * lookAgain;
+	const spacing = Math.max(
+		given ?? (claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
+		floor,
+	);
+	// Quiet is a pace inside the bars, never one without them, and only
+	// for a spacing at the floor, which asks for as often as it can.
+	const mayHurry =
+		claim.quiet !== undefined && claim.room !== undefined && spacing <= floor;
+	return {
+		spacing,
+		quickest: mayHurry ? Math.min(spacing, lookAgain) : spacing,
+	};
+}
+
 function waitSaid(
 	turn: Turn,
-	spacing: number,
+	spacing: Spacings,
 	waitedMs: number,
 	short: string | undefined,
 ): string {
@@ -1095,7 +1157,7 @@ function minutesSaid(ms: number): string {
 
 function stoppedSaid(
 	turn: Turn | undefined,
-	spacing: number,
+	spacing: Spacings,
 	short: string | undefined,
 ): string {
 	const where = turn === undefined ? "" : `, ${placeSaid(turn)},`;
@@ -1103,8 +1165,15 @@ function stoppedSaid(
 }
 
 /** When a round starts here, and what held it, as its answer says. */
-function startRuleSaid(spacing: number, short: string | undefined): string {
-	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}, while the machine has room`;
+function startRuleSaid(
+	{ spacing, quickest }: Spacings,
+	short: string | undefined,
+): string {
+	const quiet =
+		quickest < spacing
+			? `, or each ${spacingSaid(quickest)} while it is quiet`
+			: "";
+	const rule = `one roster round starts on this machine each ${spacingSaid(spacing)}${quiet}, while the machine has room`;
 	return short === undefined ? rule : `${rule}, and while it waited ${short}`;
 }
 

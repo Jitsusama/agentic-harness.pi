@@ -367,7 +367,37 @@ describe("the after-check", () => {
 		);
 
 		expect(ran.stdout.trim(), "the plant logged").toBe("logged");
+		expect(existsSync(planted), "the plant").toBe(false);
 		expect(readFileSync(used, "utf8"), "only the given rm ran").toBe("given\n");
+	});
+
+	it("removes with the system's rm as the fence runs it, whatever rm PATH finds first", () => {
+		// The fence calls withAfterCheckIn and names no rm, so this is the
+		// default a fenced command would most like to swap for its own.
+		const runtimeDir = join(root, "run");
+		mkdirSync(runtimeDir, { recursive: true });
+		const planted = join(root, "commondir");
+		const bin = join(base, "bin");
+		mkdirSync(bin);
+		const used = join(base, "used");
+		writeFileSync(join(bin, "rm"), `#!/bin/sh\necho path >> '${used}'\n`, {
+			mode: 0o755,
+		});
+		const text = withAfterCheckIn(
+			runtimeDir,
+			`mkdir '${planted}'`,
+			[planted],
+			"echo logged",
+		);
+
+		const ran = spawnSync("bash", ["-c", text], {
+			encoding: "utf8",
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+		});
+
+		expect(ran.stdout, "the plant logged").toBe("logged\n");
+		expect(existsSync(planted), "the plant").toBe(false);
+		expect(existsSync(used), "PATH's rm ran").toBe(false);
 	});
 
 	it("leaves a plant and says so where no rm only root keeps is found", () => {

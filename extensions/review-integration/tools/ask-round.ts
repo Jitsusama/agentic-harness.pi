@@ -14,9 +14,13 @@ import {
 	macRoundRoom,
 	type RoundRoom,
 } from "../../../lib/core/review/ask/mac-room.ts";
-import { machineShort } from "../../../lib/core/review/ask/machine-room.ts";
+import {
+	machineQuiet,
+	machineShort,
+} from "../../../lib/core/review/ask/machine-room.ts";
 import {
 	awaitCouncilStart,
+	COUNCIL_START_SPACING_MS,
 	type CouncilStart,
 	newestRosterStartIn,
 } from "../../../lib/core/review/ask/start-spacing.ts";
@@ -175,16 +179,14 @@ export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
 	kind: RosterRound,
-	room: RoundRoom & { readonly spacingMs?: number } = roundRoom(
-		process.platform,
-	),
+	room: RosterRoom = roundRoom(process.platform),
 ): Promise<CouncilStart> {
 	// A round a session on an older install started never joined the
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
-	const spacingMs = (await configuredSpacing()) ?? room.spacingMs;
 	const line = councilStartsPath();
+	const spacing = spacingKeptAcrossFailedReads(configuredSpacing);
 	const start = await awaitCouncilStart(
 		line,
 		{
@@ -195,7 +197,11 @@ export async function awaitRosterStart(
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => room.short(),
-			...(spacingMs === undefined ? {} : { spacingMs }),
+			...(room.quiet === undefined ? {} : { quiet: room.quiet }),
+			// Read at each look, so a spacing set while rounds wait reaches
+			// them; the room's own spacing stands where the config sets none.
+			spacing,
+			...(room.spacingMs === undefined ? {} : { spacingMs: room.spacingMs }),
 		},
 		signal,
 	);
@@ -230,14 +236,15 @@ export const MAC_SPACING_MS = 2 * 60_000;
  * roster round still runs there, then reads the queue's rule for a Mac,
  * since it keeps no pressure file, and spaces its starts
  * {@link MAC_SPACING_MS} apart unless config says otherwise; Linux
- * reads its memory and CPU pressure and available memory, and runs
- * rounds side by side.
+ * reads its memory and CPU pressure and available memory, runs rounds
+ * side by side, and alone keeps the readings a quiet machine is judged
+ * on.
  */
 export function roundRoom(
 	platform: NodeJS.Platform,
 	mac: () => RoundRoom = macRoundRoom,
 	running: () => Promise<string | undefined> = macRoundRunning,
-): RoundRoom & { readonly spacingMs?: number } {
+): RosterRoom {
 	if (platform === "darwin") {
 		const room = mac();
 		return {
@@ -246,7 +253,23 @@ export function roundRoom(
 			spacingMs: MAC_SPACING_MS,
 		};
 	}
-	return { short: () => machineShort(), startedUnjudged: () => undefined };
+	return {
+		short: () => machineShort(),
+		startedUnjudged: () => undefined,
+		quiet: () => machineQuiet(),
+	};
+}
+
+/**
+ * The room a roster round waits on: what keeps it from starting, the
+ * spacing its machine keeps when the config sets none, and whether the
+ * machine is quiet enough to start sooner, where it can tell.
+ */
+export interface RosterRoom extends RoundRoom {
+	/** The spacing between starts where the config sets none. */
+	readonly spacingMs?: number;
+	/** Whether the machine is quiet; left out where it can't be read. */
+	readonly quiet?: () => Promise<boolean>;
 }
 
 /** Why a Mac's round waits for another still running there, or nothing. */
@@ -255,17 +278,37 @@ async function macRoundRunning(): Promise<string | undefined> {
 	return round === undefined ? undefined : runningSaid(round);
 }
 
+/** A config read: what it set, or that it couldn't be read. */
+type SpacingRead = { readonly ms: number | undefined } | undefined;
+
 /**
- * The spacing this machine's config sets between round starts, or
- * undefined for none, so rounds start on room, two a minute at most. A
- * config that can't be read is read as setting none, rather than
- * stopping a round over a setting it may not even hold.
+ * A spacing reader that answers, when a read fails, what the last good
+ * read said, so a config caught half-saved while rounds wait takes none
+ * of them to the quickest pace. A first read that fails answers the
+ * line's default, as though nothing were known, since the config may
+ * set a wide spacing for what pressure can't show.
  */
-async function configuredSpacing(): Promise<number | undefined> {
+export function spacingKeptAcrossFailedReads(
+	read: () => Promise<SpacingRead>,
+): () => Promise<number | undefined> {
+	let kept: { readonly ms: number | undefined } | undefined;
+	return async () => {
+		kept = (await read()) ?? kept;
+		return kept === undefined ? COUNCIL_START_SPACING_MS : kept.ms;
+	};
+}
+
+/**
+ * The spacing this machine's config sets between round starts, with ms
+ * undefined for none, so rounds start on room, two a minute at most, or
+ * quicker while the machine is quiet. Undefined when the config can't be
+ * read, rather than stopping a round over a setting it may not even hold.
+ */
+async function configuredSpacing(): Promise<SpacingRead> {
 	const loaded = await loadPackageConfig();
 	if (!loaded.ok) return undefined;
 	const review = loaded.config.sections[REVIEW_SLUG];
-	return startSpacingMs(isRecord(review) ? review.ask : undefined);
+	return { ms: startSpacingMs(isRecord(review) ? review.ask : undefined) };
 }
 
 /**

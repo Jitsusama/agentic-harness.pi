@@ -1071,13 +1071,21 @@ renamed into `steer/<ADDRESS>/` as `<unix-ms>-<random>.json`,
 holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
 (only `text` is needed), reaches the session going by that
 address as the person's own message. That's a turn when idle.
-A session at work reads it once its run ends, so a task isn't
-broken into, unless the file holds `"now": true`, which reads
-it into the run under way after its current tool (Joel, 12
-November). Either way it reads as the person asking from
-outside the window, to be answered first in a line or two
-before the session carries on, since the launcher shows that
-first answer; a machine's steer says it isn't the person's.
+A session at work reads Joel's talk from the launcher, `from`
+`joel`, into the run under way once its current round of tools
+ends, as typing in its window does (Joel, 26 November). A long
+tool holds it that long, but a call that can move to the
+background moves two seconds after it, as for a typed line.
+The node's words on his word, `from` `person` (mycelium's
+swarm `say`), and words naming nobody, wait for the run to end
+unless they hold `"now": true` (swarm `say now`). A peer's or
+the machine's words wait whatever they hold, so an agent that
+names itself never breaks into another's task; the inbox can't
+tell who wrote a file, so a writer naming nobody, or naming
+Joel, is taken at its word. Either
+way it reads as the person asking from outside the window, to
+be answered first in a line or two, since the launcher shows
+that first answer; a machine's steer says it isn't the person's.
 It isn't a mesh message, since peers read those as
 another agent's context. The session takes each file by
 renaming it, so it's delivered once, and sets one with no text

@@ -128,6 +128,12 @@ function rmArgs(path: string): string[] {
  * chmod and BSD's alike. `-h` isn't used: BSD's refuses it beside `-R`,
  * and GNU's, given it, follows a link named as `path`. Options end
  * before the mode, as BSD's reads anything after it as a file.
+ *
+ * GNU's chmod before coreutils 9.5 (Debian 12, Ubuntu 24.04 and older)
+ * refuses `-P`, and isn't asked again without it: its plain `-R` follows
+ * a link swapped in for a folder mid-walk, the race 9.5 fixed, so a
+ * fenced command could have it make a folder outside the tree writable.
+ * There the read-only tree is left, and the error says chmod's refusal.
  */
 export function writableArgs(path: string): string[] {
 	return ["-R", "-P", "--", "u+w", path];
@@ -222,20 +228,25 @@ function runOff(program: Program, args: string[]): Promise<string | undefined> {
 
 /**
  * Removes `path` and everything under it, as `rmSync` with `recursive`
- * and `force` would, but by descriptor. Nothing there is no error.
+ * and `force` would, but by descriptor. Nothing there is no error. The
+ * folders are looked up only once a walk is needed, since that asks for
+ * the account's name, which a uid with none can't give, and a lock or a
+ * claim needs no walk.
  */
 export function removeTree(
 	path: string,
-	folders: readonly string[] = removerFolders(),
+	folders?: readonly string[],
 	way: RemovalWay = {},
 ): void {
 	const at = untrailed(path);
 	if (removedWithoutWalk(at)) return;
-	const rm = systemTool("rm", folders);
+	const kept = folders ?? removerFolders();
+	const rm = systemTool("rm", kept);
 	let said = runSync(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		chmodSaid = runSync(systemTool("chmod", folders), writableArgs(at));
+		const chmod = systemTool("chmod", kept);
+		chmodSaid = runSync(chmod, writableArgs(at));
 		said = runSync(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));
@@ -254,7 +265,7 @@ export function tidyTree(
 	folders?: readonly string[],
 ): string | undefined {
 	try {
-		removeTree(path, folders ?? removerFolders());
+		removeTree(path, folders);
 		return undefined;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);
@@ -264,16 +275,18 @@ export function tidyTree(
 /** `removeTree`, off the thread, for a caller that shares it. */
 export async function removeTreeOff(
 	path: string,
-	folders: readonly string[] = removerFolders(),
+	folders?: readonly string[],
 	way: RemovalWay = {},
 ): Promise<void> {
 	const at = untrailed(path);
 	if (await removedWithoutWalkOff(at)) return;
-	const rm = systemTool("rm", folders);
+	const kept = folders ?? removerFolders();
+	const rm = systemTool("rm", kept);
 	let said = await runOff(rm, rmArgs(at));
 	let chmodSaid: string | undefined;
 	if (said !== undefined && way.evenReadOnly === true) {
-		chmodSaid = await runOff(systemTool("chmod", folders), writableArgs(at));
+		const chmod = systemTool("chmod", kept);
+		chmodSaid = await runOff(chmod, writableArgs(at));
 		said = await runOff(rm, rmArgs(at));
 	}
 	if (said !== undefined) throw new Error(leftBecause(at, said, chmodSaid));

@@ -67,6 +67,22 @@ describe("when a stopped reviewer is owed a wrap-up", () => {
 		},
 	);
 
+	it("resumes the session here, never on the room the stopped run was asked on", () => {
+		const asked = wrapUpRequest(
+			{
+				...stoppedRun(),
+				room: { binary: "/bin/mycelium", args: ["run"] },
+				roomStays: "why",
+			},
+			"timeout",
+			SESSION,
+			false,
+		);
+		expect(asked).toBeDefined();
+		expect(asked).not.toHaveProperty("room");
+		expect(asked).not.toHaveProperty("roomStays");
+	});
+
 	it("asks nothing of one that had already handed in a verified answer", () => {
 		expect(wrapUpOwed(stoppedRun(), "timeout", true), "owed").toBe(false);
 		expect(

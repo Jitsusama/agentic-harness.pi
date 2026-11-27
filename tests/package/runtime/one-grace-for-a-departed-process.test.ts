@@ -91,9 +91,10 @@ describe("the grace a departed process gets to flush", () => {
 		// reviewer may never have started.
 		//
 		// The repair is not another number: a child that has exited has
-		// answered that question, so its exit disarms the report.
+		// answered that question, so its exit disarms the report. Each
+		// launch, here or on a room, listens to its own child as `self`.
 		expect(source("supervisor.mjs")).toMatch(
-			/child\.once\("exit"[\s\S]{0,900}?clearTimeout\(reportTimer\)/,
+			/self\.once\("exit"[\s\S]{0,900}?clearTimeout\(reportTimer\)/,
 		);
 	});
 });

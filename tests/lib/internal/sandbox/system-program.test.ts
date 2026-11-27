@@ -211,19 +211,49 @@ describe("root inside a user namespace", () => {
 			throw new Error(`ENOENT ${path}`);
 		};
 
-	it("is root alone where the namespace maps root", () => {
-		expect(rootOwners(proc("         0          0 4294967295\n"))).toEqual([0]);
+	const machines = "         0          0 4294967295\n";
+
+	it("is root alone where the namespace is the machine's", () => {
+		expect(rootOwners(proc(machines), 1000), "as the person").toEqual([0]);
+		expect(rootOwners(proc(machines), 0), "as root").toEqual([0]);
 	});
 
-	it("is the overflow user alone where it maps only the person, as the fence's", () => {
-		expect(rootOwners(proc("      1000       1000          1\n"))).toEqual([
-			65534,
-		]);
+	it("is the overflow user where it maps only the person, as the fence's", () => {
+		// The inner 0 beside it is unmapped there, so no file shows as it.
+		expect(
+			rootOwners(proc("      1000       1000          1\n"), 1000),
+			"the fence's namespace",
+		).toEqual([65534, 0]);
 	});
 
 	it("never counts the person mapped as inner root, as `unshare -r` does", () => {
-		expect(rootOwners(proc("         0       1000          1\n"))).toEqual([
-			65534,
+		expect(
+			rootOwners(proc("         0       1000          1\n"), 0),
+			"the person as inner root",
+		).toEqual([65534]);
+	});
+
+	it("never counts the person as root under a nested `unshare -r`", () => {
+		// The map names the namespace above's ids, where the person is 0.
+		expect(
+			rootOwners(proc("         0          0          1\n"), 0),
+			"the person as root a level up",
+		).toEqual([65534]);
+	});
+
+	it("counts an unprivileged container's own root, whom pi isn't", () => {
+		expect(
+			rootOwners(proc("         0     100000      65536\n"), 1000),
+			"the container's own root",
+		).toEqual([65534, 0]);
+	});
+
+	it("counts a toolbox's own root, not the person its map names as the root above", () => {
+		const toolbox =
+			"         0          1       1000\n      1000          0          1\n      1001       1001      64536\n";
+
+		expect(rootOwners(proc(toolbox), 1000), "the toolbox's own root").toEqual([
+			65534, 0,
 		]);
 	});
 
@@ -233,16 +263,86 @@ describe("root inside a user namespace", () => {
 				proc(
 					"         0       1000          1\n      5000          0          1\n",
 				),
+				1000,
 			),
+			"the outer root's inner id",
 		).toEqual([5000]);
 	});
 
-	it("is root alone where there is no /proc, as on a Mac", () => {
+	it.each([
+		["can't be read", undefined],
+		["reads empty", "\n"],
+	])(
+		"never counts the person as root where the overflow user %s",
+		(_, said) => {
+			const read =
+				(map: string) =>
+				(path: string): string => {
+					if (path === "/proc/self/uid_map") return map;
+					if (said !== undefined && path === "/proc/sys/kernel/overflowuid") {
+						return said;
+					}
+					throw new Error(`EACCES ${path}`);
+				};
+
+			expect(
+				rootOwners(read("         0       1000          1\n"), 0),
+				"the person as inner root",
+			).toEqual([]);
+			expect(
+				rootOwners(read("      1000       1000          1\n"), 1000),
+				"the inner 0 this process isn't, where root is unmapped",
+			).toEqual([0]);
+		},
+	);
+
+	it("never counts this process's own files where it is the overflow user", () => {
+		// `unshare -U` with no map written: every file, the person's too,
+		// shows as the overflow user, and so does this process.
+		expect(rootOwners(proc(""), 65534), "a namespace that maps nobody").toEqual(
+			[0],
+		);
+	});
+
+	it("keeps no overflow user an inner root can give its files to", () => {
+		// A rootless container's root maps 65536 ids, 65534 among them, and
+		// can chown a file to any of them.
 		expect(
-			rootOwners(() => {
-				throw new Error("ENOENT");
-			}),
-		).toEqual([0]);
+			rootOwners(proc("         0       1000      65536\n"), 0),
+			"the overflow id mapped",
+		).toEqual([]);
+		expect(
+			rootOwners(proc("         0       1000          1\n"), 0),
+			"the overflow id left out",
+		).toEqual([65534]);
+	});
+
+	it("is root alone where there is no /proc, as on a Mac", () => {
+		const none = (): string => {
+			throw new Error("ENOENT");
+		};
+
+		expect(rootOwners(none, 1000, "darwin"), "a Mac, as the person").toEqual([
+			0,
+		]);
+		expect(rootOwners(none, 0, "darwin"), "a Mac, as root").toEqual([0]);
+		expect(rootOwners(none, 1000, "linux"), "a Linux, as the person").toEqual([
+			0,
+		]);
+	});
+
+	it("never counts this process as root on a Linux whose /proc can't be read", () => {
+		// Under `unshare -r` with no `/proc` mounted, 0 is the person.
+		expect(
+			rootOwners(
+				() => {
+					throw new Error("ENOENT");
+				},
+				0,
+				"linux",
+			),
+			"0 with no map to read",
+		).toEqual([]);
 	});
 
 	it("takes a program the overflow user holds only where it stands for root", () => {
@@ -257,7 +357,26 @@ describe("root inside a user namespace", () => {
 			rootOwners: () => owners,
 		});
 
-		expect(systemProgram("bwrap", PROFILE, seen([0]))).toBeUndefined();
-		expect(systemProgram("bwrap", PROFILE, seen([0, 65534]))).toBeDefined();
+		expect(
+			systemProgram("bwrap", PROFILE, seen([0])),
+			"the overflow user, standing for no root",
+		).toBeUndefined();
+		expect(
+			systemProgram("bwrap", PROFILE, seen([0, 65534])),
+			"the overflow user, standing for root",
+		).toBeDefined();
+		// On root's own disk, so an empty list read as root's would find it.
+		const rooted = (owners: readonly number[]): Look => ({
+			...disk(NIXOS),
+			rootOwners: () => owners,
+		});
+		expect(
+			systemProgram("bwrap", PROFILE, rooted([0])),
+			"root trusted, on root's disk",
+		).toBeDefined();
+		expect(
+			systemProgram("bwrap", PROFILE, rooted([])),
+			"no owner trusted at all",
+		).toBeUndefined();
 	});
 });
