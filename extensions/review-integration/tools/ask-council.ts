@@ -56,7 +56,7 @@ import {
 	keepsItsOwnClocks,
 	substituting,
 } from "./ask-reviewer.ts";
-import { roomFor, roomHarness } from "./ask-room.ts";
+import { briefFitsARoom, roomFor, roomHarness } from "./ask-room.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
@@ -159,8 +159,11 @@ async function councilRound(
 	// Before the start, since a round whose reviewers run on a room
 	// doesn't wait on this machine's memory or CPU, only its place in
 	// the line and the spacing.
-	const roomNow = () =>
-		roomFor(change, proposal.headCommit, () => roomHarness(tree.path));
+	const briefFits = briefFitsARoom(prompt);
+	const roomNow = async () =>
+		briefFits
+			? await roomFor(change, proposal.headCommit, () => roomHarness(tree.path))
+			: undefined;
 	const asked = await roomNow();
 	let start = await awaitRosterStart(
 		change.label,
@@ -174,6 +177,7 @@ async function councilRound(
 	// config while it waited sends the round back to wait on the bars
 	// here, which it didn't, and a room moved to another is the new one.
 	const room = asked === undefined ? undefined : await roomNow();
+	const firstWaited = start.waited;
 	if (asked !== undefined && room === undefined) {
 		await start.release?.();
 		start = await awaitRosterStart(change.label, seat.signal, "council");
@@ -184,7 +188,7 @@ async function councilRound(
 	// this one writes its ledger entry only as it opens, a spacing ago.
 	// Refused then, it gives its slot back, so the next round on the
 	// machine waits behind none that never started.
-	if (start.waited !== undefined) {
+	if (start.waited !== undefined || firstWaited !== undefined) {
 		const since = await councilRefused(change, proposal.headCommit, params);
 		if (since !== undefined) {
 			await start.release?.();
@@ -200,7 +204,7 @@ async function councilRound(
 		conventions,
 		prompt,
 		room,
-		waited: start.waited,
+		waited: start.waited ?? firstWaited,
 		...(start.release === undefined ? {} : { release: start.release }),
 	};
 }

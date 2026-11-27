@@ -277,10 +277,10 @@ export type RunPi = (opts: {
 	readonly env?: Readonly<Record<string, string>>;
 	/**
 	 * A room to run this reviewer on, and the code it reads there.
-	 * The supervisor starts it there first and here only when the room
-	 * gave nothing back; a run whose words the room's entry would
-	 * refuse stays here from the start. Only the supervised runners
-	 * read it.
+	 * The supervisor starts it there and never here: a room that gave
+	 * nothing back, or whose entry would refuse its words, ends the run
+	 * as failed, since its round skipped this machine's bars. Only the
+	 * supervised runners read it.
 	 */
 	readonly room?: RoomAsk;
 }) => Promise<RunPiResult>;
