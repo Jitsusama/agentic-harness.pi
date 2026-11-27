@@ -1506,6 +1506,27 @@ describe("followWhatStarts", () => {
 		);
 	});
 
+	it("keeps a moved unit's files apart from its heap's reason when it restarts for both", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, report } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 3109 * MB, limitBytes: 4144 * MB }),
+			{ held: () => [{ state: "busy", since: lately }] },
+		);
+		const next = join(dir, "next.service");
+		await writeFile(next, "[Service]\n");
+		const was = await realpath(unitFile);
+		await rename(unitFile, join(dir, "old.service"));
+		await symlink(next, unitFile);
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		// The heap's reason and the unit's are joined with ", and ", so the
+		// unit's own clauses are joined with "; " to keep them apart.
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			`Restarting at once, turns and all, before its heap runs out, ending 1 turn mid-answer, as its heap holds 3109 of the 4144 MB V8 allows, past three-quarters, and systemd has a new ${unit}: it now reads ${await realpath(next)}; it no longer reads ${was}`,
+		);
+	});
+
 	it("stays while its heap holds half of what V8 allows or less", async () => {
 		const { systemctl } = systemd();
 		const { timers, serving } = await follow(systemctl, vi.fn(), () => ({
