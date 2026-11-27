@@ -86,7 +86,8 @@ function rootOwnersHere(): readonly number[] {
  * The owners root's files show as in this process's user namespace, as
  * `/proc/self/uid_map` says: the inner id the outer root maps to, or the
  * overflow user where the namespace maps no root. Root alone where there
- * is no `/proc`, as on a Mac.
+ * is no `/proc`, as on a Mac. None where no owner can be told from this
+ * process's own, as the paragraphs below say.
  *
  * The map names ids of the namespace above, not the machine's, so the
  * one its 0 maps to is root only in the machine's own namespace, or
@@ -111,8 +112,9 @@ function rootOwnersHere(): readonly number[] {
  * reason: from inside, it can't be told from the person under a nested
  * `unshare -r`. Where this process is the inner 0, it can give a file
  * to any id the map names, so the overflow user is kept only where the
- * map leaves it out, and the outer root's inner id never is. A Linux whose `/proc` can't be read may be such a
- * namespace too, so there this process's own id is dropped as well.
+ * map leaves it out, and the outer root's inner id never is. A Linux
+ * whose `/proc` can't be read may be such a namespace too, so there this
+ * process's own id is dropped as well.
  */
 export function rootOwners(
 	read: (path: string) => string,
@@ -186,6 +188,20 @@ function innerRoot(map: string): number | undefined {
  */
 export function trustsNoOwner(look: Look = real): boolean {
 	return (look.rootOwners?.() ?? [0]).length === 0;
+}
+
+/**
+ * Why `names` can't be run, said for a refusal: that no owner here can
+ * be trusted, where none can, rather than blaming the folders, which may
+ * well hold root's. No owner is trusted only where pi is the inner 0, so
+ * running it as another id is what helps.
+ */
+export function notKept(names: string, look: Look = real): string {
+	return trustsNoOwner(look)
+		? `${names} can't be trusted: no owner here can be told from pi's own, ` +
+				"as in a user namespace whose ids pi can give its files to, so run pi " +
+				"as an id other than 0 there"
+		: `${names} isn't in the system's own profile, where only root puts programs`;
 }
 
 /** The folders the system's profiles put this user's programs in. */

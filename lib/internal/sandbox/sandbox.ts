@@ -145,7 +145,7 @@ import {
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
-import { systemProgram } from "./system-program.ts";
+import { notKept, systemProgram } from "./system-program.ts";
 import { type GitRules, real, worktreeRepository } from "./tree-git.ts";
 import { unfencedFolder } from "./unfenced-folder.ts";
 
@@ -627,7 +627,7 @@ function fenceFor(
 		const missing = [bwrap ? [] : "bwrap", landrun ? [] : "landrun"].flat();
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${missing.join(" and ")} isn't in the system's own profile, where only root puts programs, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${notKept(missing.join(" and "))}, so no command runs unfenced.`,
 		};
 	}
 	const program = inStore(find("nix-offload"));
@@ -720,7 +720,7 @@ function askedFor(
 	if (!landrun) {
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but landrun isn't in the system's own profile, where only root puts programs, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but ${notKept("landrun")}, so no command runs unfenced.`,
 		};
 	}
 	return { kind: "strict", landrun, github, gcloud };

@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	firstLines,
+	noneFound,
 	removerFolders,
 	removeTree,
 	removeTreeOff,
@@ -37,6 +38,7 @@ import {
 import {
 	systemFolders,
 	systemProgram,
+	trustsNoOwner,
 } from "../../../../lib/internal/sandbox/system-program.ts";
 
 /** Root writes where its folders' modes say nobody may, so refusals don't hold. */
@@ -240,8 +242,10 @@ describe("removing a tree", () => {
 		// The test's own folder is the user's, so an rm there isn't trusted.
 		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
+		// Which reason is said rests on this machine's namespace, so the
+		// test asks for the one it holds.
 		expect(() => removeTree(join(folder, "tree"), [folder])).toThrow(
-			/no rm found: none is kept where only root can put one/,
+			noneFound("rm", [folder], trustsNoOwner()),
 		);
 		await expect(removeTreeOff(join(folder, "tree"), [folder])).rejects.toThrow(
 			/no rm found/,
@@ -401,6 +405,21 @@ describe("removing a tree", () => {
 			"rm: cannot remove 'f0'; rm: cannot remove 'f1'; " +
 				"rm: cannot remove 'f2'; and 4997 more",
 		);
+	});
+
+	it("blames the folders where an owner is trusted, and the namespace where none is", () => {
+		expect(noneFound("rm", ["/a", "/b"], false), "an owner trusted").toBe(
+			"no rm found: none is kept where only root can put one (/a, /b), " +
+				"so the tree is left in place rather than walked by path",
+		);
+		const none = noneFound("chmod", ["/a"], true);
+		expect(none, "no owner trusted").toMatch(
+			/^no chmod found: no owner here can be told from pi's own, .*run pi as an id other than 0 there, so the tree is left in place/,
+		);
+		expect(
+			none,
+			"no owner trusted, so the folders aren't blamed",
+		).not.toContain("/a");
 	});
 
 	it("names the system's rm by a path root alone keeps, for a shell", () => {
