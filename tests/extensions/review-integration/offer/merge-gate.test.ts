@@ -362,7 +362,7 @@ describe("a repo's merge gate", () => {
 			),
 		);
 		// Escape once the child is there, so it's the child the signal must reach.
-		await until(started, "the gate's child starting");
+		await there(started, "the gate's child starting");
 		pressed.abort();
 		const said = await refusing;
 		expect(said, "an Escape reads as the merge being stopped").toMatch(
