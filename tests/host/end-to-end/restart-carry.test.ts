@@ -29,6 +29,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { saidAfter } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -116,6 +117,96 @@ function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
 }
 
+/** The entries of a session file, each as its parsed record. */
+function entriesOf(file: string): Record<string, unknown>[] {
+	return textOf(file)
+		.split("\n")
+		.flatMap((line) => {
+			try {
+				const entry: unknown = JSON.parse(line);
+				return isRecord(entry) ? [entry] : [];
+			} catch {
+				// The blank line after the last, or one still being written.
+				return [];
+			}
+		});
+}
+
+/** How many times the conversation's model called bash to run CARRYING. */
+function carriedCalls(file: string): number {
+	return entriesOf(file)
+		.map((entry) => entry.message)
+		.filter(isRecord)
+		.flatMap((message) =>
+			Array.isArray(message.content) ? message.content : [],
+		)
+		.filter(
+			(part) =>
+				isRecord(part) &&
+				part.type === "toolCall" &&
+				part.name === "bash" &&
+				isRecord(part.arguments) &&
+				part.arguments.command === CARRYING,
+		).length;
+}
+
+/**
+ * Each entry of a session file in a line: its type, and its message's
+ * role or its custom type, so a failure says what asked the model.
+ */
+function entryLines(file: string): string {
+	return entriesOf(file)
+		.map((entry) => {
+			const message = isRecord(entry.message) ? entry.message : {};
+			const what = [message.role, message.stopReason, entry.customType]
+				.filter((one) => typeof one === "string")
+				.join(" ");
+			return `${String(entry.type)}${what === "" ? "" : ` ${what}`}`;
+		})
+		.join("\n");
+}
+
+/**
+ * Wait for nothing the shell kept of the command to be left once its end
+ * is said. The files go as the end's message is seen (job-workflow's
+ * message_end), so ones still there say that sight never counted: in
+ * h2353c on 27 November an .end and an .out stayed, and the failure said
+ * nothing of the log or the hosts.
+ */
+async function keptGoes(file: string): Promise<void> {
+	await untilAnswered(
+		"nothing the shell kept of the command is left once its end is said",
+		async () => kept().length === 0,
+		ROUND_TRIP_MS,
+	).catch((failed: unknown) => {
+		throw new Error(
+			[
+				`${String(failed)}; left: ${kept().join(", ")}`,
+				`the log's entries:\n${entryLines(file)}`,
+				said(),
+			].join("\n"),
+		);
+	});
+}
+
+/**
+ * Throw unless the conversation ran the carried command once: a second
+ * run leaves two shells, of which a case may kill the wrong one, as E24's
+ * did in h2353 on 27 November, and is itself a model asked twice.
+ */
+function carriedOnce(file: string, when: string): void {
+	const calls = carriedCalls(file);
+	const pids = kept().filter((name) => name.endsWith(".pid")).length;
+	if (calls === 1 && pids <= 1) return;
+	throw new Error(
+		[
+			`${when}, the model ran the carried command ${calls} times, and the shell kept ${pids} pids`,
+			`the log's entries:\n${entryLines(file)}`,
+			said(),
+		].join("\n"),
+	);
+}
+
 /** A host under the seal, kept to be killed after. */
 async function start(pi: string): Promise<HostProcess> {
 	const host = await startHost({
@@ -155,6 +246,7 @@ async function carrying(
 	)
 		// A pid never written is said just below, with what the host wrote.
 		.catch(() => undefined);
+	carriedOnce(file, "as its pid was written");
 	const shell = keptShell();
 	if (shell === undefined)
 		throw new Error(
@@ -180,6 +272,7 @@ it(
 			const { file, held, shell } = await carrying(first);
 
 			await first.restart();
+			carriedOnce(file, "after the restart");
 			expect(
 				alive(shell),
 				[
@@ -205,13 +298,7 @@ it(
 			).catch((failed: unknown) => {
 				throw new Error(`${String(failed)}\n${said()}`);
 			});
-			await untilAnswered(
-				"nothing the shell kept of the command is left once its end is said",
-				async () => kept().length === 0,
-				ROUND_TRIP_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}; left: ${kept().join(", ")}`);
-			});
+			await keptGoes(file);
 		});
 	},
 	ROUND_TRIP_MS * 4 + CARRIED_MS,
@@ -236,6 +323,7 @@ it(
 			).catch(() => undefined);
 
 			await first.kill();
+			carriedOnce(file, "after the kill");
 			const killedAfter = Date.now() - started;
 			if (!alive(shell) || killedAfter >= RUNS_MS - 15_000)
 				throw new Error(
@@ -280,13 +368,7 @@ it(
 				endedAfter >= RUNS_MS,
 				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms into it`,
 			).toBe(true);
-			await untilAnswered(
-				"nothing the shell kept of the command is left once its end is said",
-				async () => kept().length === 0,
-				ROUND_TRIP_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}; left: ${kept().join(", ")}`);
-			});
+			await keptGoes(file);
 		});
 	},
 	ROUND_TRIP_MS * 5 + CARRIED_MS,
@@ -300,6 +382,8 @@ it(
 			const { file, held, shell } = await carrying(first);
 
 			await first.restart();
+			// One run alone, so the shell killed is the one the case names.
+			carriedOnce(file, "after the restart");
 			// Killed while no host runs, its stub never writes a status.
 			process.kill(-shell, "SIGKILL");
 

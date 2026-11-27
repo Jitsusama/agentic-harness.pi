@@ -297,7 +297,20 @@ it(
 				["--deadline", "20"],
 				env,
 			);
-			expect(cutover.code, cutover.out).toBe(0);
+			// A session still waiting says nothing of why in the cutover's words
+			// (99E276D4 in h2353 on 27 November), so its presence and every
+			// terminal's screen go with them.
+			expect(
+				cutover.code,
+				[
+					cutover.out,
+					...sessions.map(
+						(one, i) =>
+							`${address[i]}'s presence: ${JSON.stringify(presences().of(one.sessionId))}`,
+					),
+					said(),
+				].join("\n"),
+			).toBe(0);
 			expect(cutover.out).toContain(`${SESSIONS} moved.`);
 			for (const one of address.slice(DRIVEN))
 				expect(cutover.out).toContain(
