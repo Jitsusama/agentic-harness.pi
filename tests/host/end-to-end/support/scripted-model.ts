@@ -307,15 +307,18 @@ function toldTo(words: string, told: string): boolean {
 }
 
 /**
- * The words of the latest turn's user messages, joined: the harness puts
- * its own notes, such as the quest context, beside what was said, so the
- * words to act on needn't be the last of them.
+ * The words of the user messages since the model's last answer, joined:
+ * the harness puts its own notes, such as the quest context, beside what
+ * was said, so the words to act on needn't be the last of them. Asked
+ * again on a turn it already answered, as a carried run's continue may
+ * ask, it has nothing new to act on: reading back past its answer ran
+ * `carry` twice in h2353 on 27 November.
  */
 function latestWords(heard: readonly Said[]): string {
 	const said: string[] = [];
 	for (const one of [...heard].reverse()) {
-		if (one.role === "user") said.unshift(wordsOf(one));
-		else if (said.length > 0) break;
+		if (one.role !== "user") break;
+		said.unshift(wordsOf(one));
 	}
 	return said.join("\n");
 }
