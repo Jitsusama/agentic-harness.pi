@@ -2,7 +2,8 @@
  * Whether a session carries on code its install has long left behind.
  *
  * A session follows its install, reloading once idle after the install
- * moves (lib/internal/reload/follow.ts), but one can miss it: on 27
+ * moves (lib/internal/reload/follow.ts), though not every session follows,
+ * and one that does can miss it: on 27
  * November MZ5YL7 carried on a harness two days old, which lacked the
  * fix for the very failure its carry met. A carry it starts then fails
  * on a bug already mended, so it waits for the reload instead, saying
@@ -54,7 +55,7 @@ export function behindItsInstall(
 	const left = leftAt(running);
 	if (left === undefined || now - left <= BEHIND_FOR_MS) return undefined;
 	const minutes = Math.floor((now - left) / MINUTE_MS);
-	return `it runs harness ${short(running)}, which its install left ${minutes} minutes ago for ${short(current)}, so it may lack a carry fix; it reloads once idle, and the carry can be asked again then`;
+	return `it runs harness ${short(running)}, which its install left ${minutes} minutes ago for ${short(current)}, so it may lack a carry fix; ask the carry again once it reloads, which /reload does now and a session following its install does once idle`;
 }
 
 /**

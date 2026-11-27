@@ -115,7 +115,8 @@ function session(
 
 describe("carrying a session from code its install has left", () => {
 	it("refuses before it ends the run under way, saying why, so the person's run goes on", async () => {
-		const behind = "it runs harness 03c16f4cfe6b, which its install left 16 minutes ago";
+		const behind =
+			"it runs harness 03c16f4cfe6b, which its install left 16 minutes ago";
 		const one = session(false, async () => {}, { behind: () => behind });
 
 		await one.pausing.carry("penelope", "launcher");

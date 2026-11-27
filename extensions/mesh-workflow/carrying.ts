@@ -11,8 +11,11 @@
  * named, since mycelium closes it once its done file is there. A session
  * with no quest loaded has no handover to carry into, so it refuses, and
  * stays open. So does one still running a harness its install left long
- * ago (lib/internal/carry/current-code.ts), refusing before its run is
- * ended, so it reloads once idle and carries on current code.
+ * ago (lib/internal/carry/current-code.ts), so it carries only once it
+ * reloads onto current code. A person's Carry (pausing.ts) and an
+ * ordered one (ordered-carry.ts's orderedHolds) ask the same before they
+ * end or wait on its run, so a refusal costs no run; the check here
+ * stays for any caller that doesn't.
  *
  * A carry under way holds the doors that would end the process it runs
  * in unasked (lib/internal/carry/under-way.ts lists them), but for a host

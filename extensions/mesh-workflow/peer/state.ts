@@ -11,11 +11,13 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
+import { behindItsInstall } from "../../../lib/internal/carry/current-code.ts";
 import {
 	type CarryHold,
 	carryUnderWay,
 	holdForCarry,
 } from "../../../lib/internal/carry/under-way.ts";
+import { packageRoot } from "../../../lib/internal/fence/installed-only.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { everyRealmsDir } from "../../../lib/internal/paths.ts";
 import { withQuestLock } from "../../../lib/internal/quest/io.ts";
@@ -300,6 +302,7 @@ export function createState(
 			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
 		},
+		behind: () => behindItsInstall(packageRoot()),
 		park: () => askToPark(false),
 		parkable: () => askToPark(true),
 	});
