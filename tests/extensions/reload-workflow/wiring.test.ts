@@ -896,6 +896,52 @@ describe("a reload nobody asked the agent for", LANDS, () => {
 		]);
 	});
 
+	it("tells a session the host rolled of the roll, quietly unless it was woken", async () => {
+		// On 27 November sessions the host rolled read as cut off: each
+		// began again with no word of the roll.
+		runningTheInstall();
+		const said = {
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "Running the fence tests next." }],
+			},
+		};
+		const rolled = (wakes: boolean) => ({
+			type: "custom",
+			customType: "host:rolled",
+			data: {
+				from: "9f8e7d6c5b4a3928",
+				onto: "1a2b3c4d5e6f7081",
+				at: "2026-11-27T10:12:00.000Z",
+				wakes,
+			},
+		});
+		const quiet = runtime();
+		await quiet.fire(
+			"session_start",
+			{ reason: "startup" },
+			{ sessionManager: { getBranch: () => [said, rolled(false)] } },
+		);
+		expect(quiet.hidden, "a parked roll was left unsaid").toEqual([
+			expect.stringMatching(
+				/^The host parked this session at .*\(host 1a2b3c4d.* "Running the fence tests next\.".* Carry on from where you were\.$/,
+			),
+		]);
+		expect(reported, "a quiet roll started a turn").toEqual([]);
+
+		const woken = runtime();
+		await woken.fire(
+			"session_start",
+			{ reason: "startup" },
+			{ sessionManager: { getBranch: () => [said, rolled(true)] } },
+		);
+		expect(woken.hidden, "a woken roll was said quietly too").toEqual([]);
+		expect(reported, "a woken roll started no turn").toEqual([
+			expect.stringMatching(/^The host parked this session at /),
+		]);
+	});
+
 	it("does nothing while the session rolls over, saying why", async () => {
 		// On 3 November a reload begun as a rollover switched finished on
 		// the log left behind, a runtime that went on reloading the live

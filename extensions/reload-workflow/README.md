@@ -243,6 +243,17 @@ none takes it back and no exit listener is added: one conversation
 ending must not take it back for the others, and pi-packages removes
 a file once its pid has ended.
 
+When the host rolls a conversation onto new code, it parks it at its
+next quiet moment and leaves a `host:rolled` entry in its log: the
+host code it ran and rolled onto, when, and whether the host wakes it
+at once. The next start on that log tells the session once, in place
+of the "started afresh" note: when it parked and onto what, what runs
+now, the last thing it said, and to carry on
+(`lib/internal/reload/rolled.ts`). A roll the host wakes starts that
+turn, since nobody sent it anything; any other is said quietly, with
+the turn whatever wakes it starts. A log with no such entry, or one
+where the session already spoke since, is told nothing of a roll.
+
 ## Load Check
 
 `lib/internal/reload/load-check.ts` starts pi in RPC mode with

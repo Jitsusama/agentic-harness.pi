@@ -22,6 +22,7 @@ import {
 	type Loaded,
 	readLoaded,
 } from "../../lib/internal/reload/loaded.ts";
+import { rolledText, rollToTell } from "../../lib/internal/reload/rolled.ts";
 import {
 	sayLoaded,
 	sayLoadedIn,
@@ -154,7 +155,20 @@ export function outdatedNoteSaid(
 	return `This pi started afresh since the last note on which harness code runs, so that note and the ones before it are out of date. ${now}`;
 }
 
-/** Tell the model when the session's last note on what runs is out of date. */
+/** A time as the person's clock says it, hours and minutes. */
+const clockTime = (at: number): string =>
+	new Date(at).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	});
+
+/**
+ * Tell the model when the host parked the session for a roll since it
+ * last spoke, or else when its last note on what runs is out of date.
+ * A roll the host woke the session for starts its turn, since nobody
+ * sent it anything; any other is said quietly, with the next turn.
+ */
 function sayIfOutdated(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
@@ -167,7 +181,25 @@ function sayIfOutdated(
 		// A context with no session behind it has no notes to correct.
 		return;
 	}
-	const said = outdatedNoteSaid(entries, describeLoaded(PACKAGE_NAME, loaded));
+	const now = describeLoaded(PACKAGE_NAME, loaded);
+	const roll = rollToTell(entries);
+	if (roll !== undefined) {
+		const text = rolledText(roll, now, clockTime);
+		const host = roll.rolled.wakes ? findJobHost(pi.events) : undefined;
+		if (host) {
+			host.start({ kind: "reload", label: "the host's roll" }).finish({
+				summary: text,
+			});
+			return;
+		}
+		pi.sendMessage({
+			customType: LOADED_MESSAGE,
+			content: text,
+			display: false,
+		});
+		return;
+	}
+	const said = outdatedNoteSaid(entries, now);
 	if (said === undefined) return;
 	// It never starts a turn, and never fills the person's screen.
 	pi.sendMessage({ customType: LOADED_MESSAGE, content: said, display: false });

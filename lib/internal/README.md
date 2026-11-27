@@ -89,8 +89,9 @@ no caller reads by.
   `Symbol.for` key, so a reload or a second module instance finds
   the same one.
 - **`reload/`**: following the install, reloading a session onto
-  a worktree, and telling which extension links moved since the
-  process started, which only a new process loads afresh.
+  a worktree, telling which extension links moved since the
+  process started, which only a new process loads afresh, and
+  what a session the host rolled onto new code is told of it.
 - **`sandbox/`**: which sandbox a session asked for and what both
   sandboxes build on: the shell text, which tree a fenced command
   stands in and where pi may run git outside it, the programs that
