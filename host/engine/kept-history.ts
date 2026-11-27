@@ -244,21 +244,28 @@ interface Held {
 	readonly dated: ReadonlySet<string>;
 	/** The messages left on disk. */
 	readonly left: LeftOut;
+	/** The ids of the record and usage entries held in their place. */
+	readonly standIns: ReadonlySet<string>;
+	/** The id of the record. */
+	readonly recordId: string;
+	/** How many entries of the log the record says are left out. */
+	readonly dropped: number;
 }
 
 /**
  * The entries `manager` holds once it holds the kept view, or undefined
  * when its log has nothing to leave out, or a rollover record the view
- * would hide. Every id in `taken` stays clear of the ids it gives the
- * record and usage entries. A manager already holding a view takes it
- * again over what it holds, adding to what it left out before, `prior`.
+ * would hide. The ids it gives the record and usage entries are clear of
+ * every id in `taken`, which is left as it was, so a view that fails
+ * keeps none of them. A manager already holding a view takes it again
+ * over what it holds, `prior`, adding to what that left out.
  */
 function heldEntries(
 	manager: HeldManager,
 	file: string,
 	whole: Whole,
-	taken: Set<string> = new Set(manager.byId.keys()),
-	prior?: LeftOut,
+	taken: ReadonlySet<string> = new Set(manager.byId.keys()),
+	prior?: Held,
 ): Held | undefined {
 	const branch = manager.getBranch() as Entry[];
 	const view = keptView(branch);
@@ -297,8 +304,11 @@ function heldEntries(
 	const keptIds = new Set([...state, ...run, ...kept].map((entry) => entry.id));
 	const left = branch.filter((entry) => !keptIds.has(entry.id));
 	// With only those left out, or only what a view held in their place,
-	// the view would save nothing.
-	if (left.every((entry) => standsIn(entry, file))) return undefined;
+	// the view would save nothing. Those are known by their ids, never by
+	// their shape, since the log may hold entries shaped as they are.
+	const standsIn = (entry: Entry): boolean =>
+		prior?.standIns.has(entry.id) ?? false;
+	if (left.every(standsIn)) return undefined;
 	// A leaf the view leaves out, such as a label on an entry left on disk,
 	// would have the next turn hang off the entry before it, forking the log.
 	const leaf = branch[branch.length - 1];
@@ -307,10 +317,18 @@ function heldEntries(
 	// The turn that paid the session's first prompt may be left on disk, so
 	// the trigger reads that prompt from here.
 	const { firstPromptTokens } = compactionHistory(left);
+	// What its record left out, and every other entry but those held in
+	// their place.
+	let dropped = 0;
+	for (const entry of left) {
+		if (!standsIn(entry)) dropped++;
+		else if (entry.id === prior?.recordId) dropped += prior.dropped;
+	}
+	const minted = new Set<string>();
 	const record: RolloverRecord = {
 		parentSession: file,
 		parentLeaf: before.id,
-		dropped: droppedBy(left, file),
+		dropped,
 		carried: {
 			...rolledFrom(left)?.carried,
 			[SPEND_CARRY]: { spend: spentOnBranch(left) },
@@ -322,7 +340,7 @@ function heldEntries(
 	const usage = usageLeftOut(manager.fileEntries, keptIds).map(
 		(spent): Entry => ({
 			type: "usage",
-			id: freshId(taken),
+			id: freshId(taken, minted),
 			parentId: null,
 			timestamp: before.timestamp,
 			kind: "kept-history",
@@ -332,7 +350,7 @@ function heldEntries(
 	);
 	const recordEntry: Entry = {
 		type: "custom",
-		id: freshId(taken),
+		id: freshId(taken, minted),
 		parentId: null,
 		timestamp: before.timestamp,
 		customType: ROLLOVER_RECORD,
@@ -384,39 +402,11 @@ function heldEntries(
 	return {
 		entries: [header, ...chained],
 		dated,
-		left: prior ? leftAgain(prior, onDisk) : onDisk,
+		left: prior ? leftAgain(prior.left, onDisk) : onDisk,
+		standIns: minted,
+		recordId: recordEntry.id,
+		dropped,
 	};
-}
-
-/**
- * Whether `entry` is one a view of `file` holds in place of what it left
- * out, and never writes: a usage entry or its record.
- */
-function standsIn(entry: Entry, file: string): boolean {
-	if (entry.type === "usage") return entry.kind === "kept-history";
-	return (
-		isRolloverRecord(entry) &&
-		isRecord(entry.data) &&
-		entry.data.parentSession === file
-	);
-}
-
-/**
- * How many entries of its log a view of `file` leaves out with `left`:
- * those a record it held already left out, and the rest of `left` but
- * what stood in for them.
- */
-function droppedBy(left: readonly Entry[], file: string): number {
-	let dropped = 0;
-	for (const entry of left) {
-		if (!standsIn(entry, file)) dropped++;
-		else if (isRolloverRecord(entry) && isRecord(entry.data)) {
-			const before = entry.data.dropped;
-			if (typeof before === "number" && Number.isFinite(before))
-				dropped += before;
-		}
-	}
-	return dropped;
 }
 
 /**
@@ -676,11 +666,14 @@ function guard(
 				file,
 				(held) => [...held],
 				taken,
-				current.left,
+				current,
 			);
 			if (!next) return;
 			manager.fileEntries = next.entries;
 			manager._buildIndex();
+			// Only once it holds them, so a view that fails keeps no id taken
+			// that no entry has, whose lookup would read the whole log.
+			for (const id of next.standIns) taken.add(id);
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
 			current = next;
@@ -881,12 +874,15 @@ function isHeader(entry: unknown): boolean {
 	);
 }
 
-/** An id no entry in `taken` has, in pi's eight-hex form. */
-function freshId(taken: Set<string>): string {
+/**
+ * An id in pi's eight-hex form that neither `taken` nor `minted` has,
+ * added to `minted`.
+ */
+function freshId(taken: ReadonlySet<string>, minted: Set<string>): string {
 	for (;;) {
 		const id = randomBytes(4).toString("hex");
-		if (!taken.has(id)) {
-			taken.add(id);
+		if (!taken.has(id) && !minted.has(id)) {
+			minted.add(id);
 			return id;
 		}
 	}
