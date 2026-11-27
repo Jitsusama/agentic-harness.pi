@@ -436,9 +436,10 @@ describe("a new conversation", () => {
 		// Two starts that never listen keep the gate full for their listen time.
 		units.traitsOf = () => ({ neverListens: true });
 		const held = [a, b].map((id) => supervisor.resume(entry(id)));
-		// Watched from the start: a loaded machine reaches their listen time,
-		// which refuses them, before the case closes the host, and a refusal
-		// nothing watches yet is reported as unhandled.
+		// Watched from the start: close() ends the two on separate ticks, and
+		// a loaded machine may reach their listen time sooner still, so
+		// whichever is refused first, while the case waits on the other, would
+		// be reported as unhandled.
 		const ended = Promise.allSettled(held);
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const asked = Date.now();
