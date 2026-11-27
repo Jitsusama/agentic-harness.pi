@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
@@ -424,7 +425,7 @@ async function timedBesideUnfenced(
 				? await fenced(script, cwd, session, FETCH_LIMIT_MS)
 				: await outside(script, cwd, FETCH_LIMIT_MS);
 		} finally {
-			rmSync(target, { recursive: true, force: true });
+			removeTree(target);
 		}
 	};
 	const plain = await runOnce(false);

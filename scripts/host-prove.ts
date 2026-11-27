@@ -35,7 +35,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -49,6 +48,7 @@ import {
 	PROOF_VERSION,
 	type provenBy,
 } from "../host/service/proof.ts";
+import { removeTree } from "../lib/internal/files/remove-tree.ts";
 
 const HARNESS = join(import.meta.dirname, "..");
 
@@ -156,7 +156,7 @@ function runHere(): { harness: string; verdict: ReturnType<typeof judged> } {
 		ran.status === 0
 			? judged(report)
 			: `pnpm test:host exited ${String(ran.status ?? ran.signal)}`;
-	rmSync(scratch, { recursive: true, force: true });
+	removeTree(scratch);
 	return { harness: commit, verdict };
 }
 

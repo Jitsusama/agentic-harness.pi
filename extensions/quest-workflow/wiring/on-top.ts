@@ -29,7 +29,6 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -38,6 +37,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { removeTree } from "../../../lib/internal/files/remove-tree.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	registerStandingContext,
@@ -252,7 +252,7 @@ function forgetOlderReads(reads: string, at: string): void {
 	for (const folder of folders) {
 		if (folder === keep) continue;
 		// force: another session may take the same folder away first.
-		rmSync(join(reads, folder), { recursive: true, force: true });
+		removeTree(join(reads, folder));
 	}
 }
 

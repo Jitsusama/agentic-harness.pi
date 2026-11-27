@@ -9,6 +9,7 @@
  * further back than 90 days reads the machine's logs, then asks the index
  * for the sessions it lacks.
  */
+
 import { execFileSync } from "node:child_process";
 import {
 	mkdtempSync,
@@ -19,6 +20,7 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { removeTree } from "../files/remove-tree.ts";
 import { isRecord } from "../record.ts";
 
 /** A log on Drive only, as the index names it. */
@@ -124,7 +126,7 @@ export function readAway<T>(
 			}
 		}
 	} finally {
-		rmSync(folder, { recursive: true, force: true });
+		removeTree(folder);
 	}
 	return why === undefined
 		? { read: results, unread }

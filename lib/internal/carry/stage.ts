@@ -49,6 +49,7 @@ import {
 import { hostname } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { moveFile } from "../files/move-file.ts";
+import { removeTree, tidyTree } from "../files/remove-tree.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { CARRY_STAGING } from "../sandbox/quest-folders.ts";
 import { doneFileOf, SHARE_LARGEST_FILE } from "./handover.ts";
@@ -164,7 +165,7 @@ export async function staged<T>(
 	} catch (error) {
 		// Nothing is placed yet, so the folder holds nothing to keep.
 		live.delete(folder);
-		rmSync(folder, { recursive: true, force: true });
+		tidyTree(folder);
 		throw error;
 	}
 	let keep = false;
@@ -244,7 +245,7 @@ export async function staged<T>(
 		);
 	} finally {
 		live.delete(folder);
-		if (!keep) rmSync(folder, { recursive: true, force: true });
+		if (!keep) tidyTree(folder);
 	}
 }
 
@@ -394,7 +395,7 @@ function sweep(tmp: string, into: string): void {
 					continue;
 				}
 			}
-			rmSync(folder, { recursive: true, force: true });
+			removeTree(folder);
 		} catch {
 			// What fails here waits for the next carry; this one goes on.
 		}

@@ -3,7 +3,8 @@
  * the tree is refused saying so, and where its clone is left, never
  * thrown out of the arrival. The disk is faked for the clone's own
  * folder, or one folder a test names, so it gets a file of its own: a
- * mock of `node:fs` covers every test in its file.
+ * mock of `node:fs`, for the rename, and of `remove-tree.ts`, which
+ * every removal goes through, covers every test in its file.
  */
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -24,13 +25,42 @@ const refusing = vi.hoisted(() => ({
 	removing: undefined as ((path: string) => boolean) | undefined,
 }));
 
+/** A failure as node's own fs throws it, code and all. */
+const refused = vi.hoisted(
+	() => (code: string, call: string, path: string) =>
+		Object.assign(new Error(`${code}: refused, ${call} '${path}'`), { code }),
+);
+
+/** Whether `path` is a clone's own folder, not a file within one. */
+const aClone = vi.hoisted(
+	() => (path: string) => /\.cloning-[^/]+$/.test(path),
+);
+
+vi.mock(
+	"../../../../lib/internal/files/remove-tree.ts",
+	async (importOriginal) => {
+		const real =
+			await importOriginal<
+				typeof import("../../../../lib/internal/files/remove-tree.ts")
+			>();
+		return {
+			...real,
+			removeTree: (path: string, folders?: readonly string[]) => {
+				const named =
+					refusing.removing === undefined
+						? aClone(path)
+						: refusing.removing(path);
+				if (refusing.remove !== undefined && named) {
+					throw refused(refusing.remove, "rm", path);
+				}
+				real.removeTree(path, folders);
+			},
+		};
+	},
+);
+
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
-	/** A failure as node's own fs throws it, code and all. */
-	const refused = (code: string, call: string, path: string) =>
-		Object.assign(new Error(`${code}: refused, ${call} '${path}'`), { code });
-	/** Whether `path` is a clone's own folder, not a file within one. */
-	const aClone = (path: string) => /\.cloning-[^/]+$/.test(path);
 	return {
 		...real,
 		renameSync: (...args: Parameters<typeof real.renameSync>) => {
@@ -39,17 +69,6 @@ vi.mock("node:fs", async (importOriginal) => {
 				throw refused(refusing.rename, "rename", from);
 			}
 			real.renameSync(...args);
-		},
-		rmSync: (...args: Parameters<typeof real.rmSync>) => {
-			const path = String(args[0]);
-			const named =
-				refusing.removing === undefined
-					? aClone(path)
-					: refusing.removing(path);
-			if (refusing.remove !== undefined && named) {
-				throw refused(refusing.remove, "rm", path);
-			}
-			real.rmSync(...args);
 		},
 	};
 });

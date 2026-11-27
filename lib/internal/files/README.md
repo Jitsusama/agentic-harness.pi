@@ -2,7 +2,8 @@
 
 Reading files once and keeping their parse until they change, so a
 reader asked often reads only what moved; where a file tool's path
-points; and moving a file whole across volumes.
+points; moving a file whole across volumes; and removing a tree
+without being led out of it.
 
 ## Files
 
@@ -22,6 +23,12 @@ points; and moving a file whole across volumes.
   copy renamed in beside its new place where a rename can't cross, as
   from outside a btrfs subvolume into it, so a carry's staging reaches a
   quest's scratch.
+- **`recursive-delete.grit`**: the Biome rule that sends every
+  recursive delete outside the tests through `remove-tree.ts`, since
+  Node's own walk follows a link swapped in mid-walk.
+- **`remove-tree.ts`**: removing a folder and all in it through the
+  system's own `rm`, taken only from where root alone puts one, which
+  walks by descriptor; a file, a link or an empty folder needs no `rm`.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings, and the stamp that says so, which the

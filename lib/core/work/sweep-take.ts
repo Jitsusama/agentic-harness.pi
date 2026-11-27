@@ -32,8 +32,8 @@ import {
 	statSync,
 	writeSync,
 } from "node:fs";
-import { rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { removeTreeOff } from "../../internal/files/remove-tree.ts";
 import type { Exec } from "../exec/index.ts";
 import { readPlain } from "./plain-file.ts";
 import { plainWords } from "./stranded.ts";
@@ -204,7 +204,7 @@ export async function removeAside(
 ): Promise<string | undefined> {
 	const stays: string[] = [];
 	try {
-		await rm(moved.aside, { recursive: true, force: true });
+		await removeTreeOff(moved.aside);
 	} catch (error) {
 		stays.push(`${messageOf(error)}; what is left is at ${moved.aside}`);
 	}
@@ -219,7 +219,7 @@ export async function removeAside(
 		return stays.join("; ");
 	}
 	try {
-		await rm(moved.gitDir, { recursive: true, force: true });
+		await removeTreeOff(moved.gitDir);
 	} catch (error) {
 		stays.push(`its git folder ${moved.gitDir} stays: ${messageOf(error)}`);
 	}

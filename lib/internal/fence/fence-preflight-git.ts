@@ -12,6 +12,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createTreeMemory } from "../../core/work/memory.ts";
+import { removeTree } from "../files/remove-tree.ts";
 import { treeRecordDir } from "../work-records.ts";
 import { routedPackedRefs } from "./fence-git-route.ts";
 import {
@@ -115,8 +116,7 @@ export async function everydayGit(context: PreflightContext): Promise<Verdict> {
 			`git -C '${root}' worktree remove --force '${tree}'`,
 			context.scratch,
 		);
-		for (const path of [root, tree, remote])
-			rmSync(path, { recursive: true, force: true });
+		for (const path of [root, tree, remote]) removeTree(path);
 	}
 }
 
@@ -189,8 +189,7 @@ export async function heldTreeGit(context: PreflightContext): Promise<Verdict> {
 			`git -C '${root}' worktree remove --force '${held}'; git -C '${root}' worktree remove --force '${unheld}'`,
 			context.scratch,
 		);
-		for (const path of [root, held, unheld, remote])
-			rmSync(path, { recursive: true, force: true });
+		for (const path of [root, held, unheld, remote]) removeTree(path);
 	}
 }
 
@@ -247,7 +246,7 @@ export async function plantLoop(context: PreflightContext): Promise<Verdict> {
 				);
 	} finally {
 		rmSync(join(root, ".git", "commondir"), { force: true });
-		rmSync(root, { recursive: true, force: true });
-		rmSync(tree, { recursive: true, force: true });
+		removeTree(root);
+		removeTree(tree);
 	}
 }

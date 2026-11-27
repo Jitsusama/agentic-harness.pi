@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { removeTree } from "../../internal/files/remove-tree.ts";
 import { stateDir } from "../../internal/paths.ts";
 import {
 	type ArtifactReaping,
@@ -125,10 +126,7 @@ function reapLegacyResults(opts: {
 		if (!Number.isInteger(pid) || pid <= 0) continue;
 		if (opts.isPidAlive(pid)) continue;
 		try {
-			fs.rmSync(path.join(opts.root, entry.name), {
-				recursive: true,
-				force: true,
-			});
+			removeTree(path.join(opts.root, entry.name));
 		} catch {
 			// It vanished under us or will not delete; either way the next
 			// session will try again.
@@ -153,7 +151,7 @@ export function cleanupSessionResults(ctx: SessionContext): void {
 	if (hosted()) return;
 	const dir = sessionResultDir(ctx);
 	try {
-		fs.rmSync(dir, { recursive: true, force: true });
+		removeTree(dir);
 	} catch {
 		// A later start retries cleanup using the recorded process identity.
 	}

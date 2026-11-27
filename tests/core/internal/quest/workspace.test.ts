@@ -13,13 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	diskRemovalCalls,
 	ensureQuestWorkspaceTmp,
 	processesIn,
 	questWorkspace,
 	removeQuestWorkspace,
-	removeTree,
-	type TreeRemovalCalls,
 } from "../../../../lib/core/internal/quest/workspace.ts";
 import { rosterDir } from "../../../../lib/core/session/roster.ts";
 
@@ -194,82 +191,6 @@ describe("removeQuestWorkspace", () => {
 		});
 		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 		expect(readdirSync(outside), "what it pointed to").toEqual(["kept.txt"]);
-	});
-});
-
-describe("removeTree", () => {
-	/** The filesystem's calls, counting how many are in flight at once. */
-	function counted(): { calls: TreeRemovalCalls; most: () => number } {
-		let now = 0;
-		let most = 0;
-		async function count<R>(call: Promise<R>): Promise<R> {
-			now += 1;
-			most = Math.max(most, now);
-			try {
-				return await call;
-			} finally {
-				now -= 1;
-			}
-		}
-		const disk = diskRemovalCalls;
-		const calls: TreeRemovalCalls = {
-			lstat: (path) => count(disk.lstat(path)),
-			chmod: (path, mode) => count(disk.chmod(path, mode)),
-			entries: (dir) => count(disk.entries(dir)),
-			rmdir: (path) => count(disk.rmdir(path)),
-			unlink: (path) => count(disk.unlink(path)),
-		};
-		return { calls, most: () => most };
-	}
-
-	it("makes one filesystem call at a time, leaving the thread pool to others", async () => {
-		const dir = join(root, "tree");
-		for (let folder = 0; folder < 5; folder++) {
-			const cache = join(dir, `f${folder}`);
-			mkdirSync(cache, { recursive: true });
-			for (let file = 0; file < 5; file++) {
-				writeFileSync(join(cache, `${file}.o`), "x");
-			}
-		}
-		const { calls, most } = counted();
-
-		await removeTree(dir, calls);
-
-		expect(existsSync(dir), `${dir} is removed`).toBe(false);
-		expect(most(), "calls in flight at once").toBe(1);
-	});
-
-	it("counts what something else removed meanwhile as gone", async () => {
-		const dir = join(root, "tree");
-		mkdirSync(dir);
-		writeFileSync(join(dir, "raced.txt"), "x");
-		const racing: TreeRemovalCalls = {
-			...diskRemovalCalls,
-			unlink: async (path) => {
-				await diskRemovalCalls.unlink(path);
-				return diskRemovalCalls.unlink(path);
-			},
-		};
-
-		await removeTree(dir, racing);
-
-		expect(existsSync(dir), `${dir} is removed`).toBe(false);
-	});
-
-	it("gives up on any other failure, saying what it was", async () => {
-		const dir = join(root, "tree");
-		mkdirSync(dir);
-		writeFileSync(join(dir, "held.txt"), "x");
-		const refused = Object.assign(new Error("EBUSY: held"), { code: "EBUSY" });
-		const refusing: TreeRemovalCalls = {
-			...diskRemovalCalls,
-			unlink: () => Promise.reject(refused),
-		};
-
-		await expect(removeTree(dir, refusing)).rejects.toBe(refused);
-		expect(existsSync(join(dir, "held.txt")), "what it couldn't take").toBe(
-			true,
-		);
 	});
 });
 
