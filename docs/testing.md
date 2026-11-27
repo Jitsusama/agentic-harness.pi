@@ -208,6 +208,18 @@ machine's tools, since the keeper keeps any program that passed. A refusal names
 command that clears it. A merge outside `review_offer`, on GitHub's page,
 skips it, as it skips core.nix's `merge-net ready`.
 
+`scripts/ready-gate.sh` is the harness's `review.ready.gates` entry:
+`review_offer ready` marks a draft ready only once the keeper kept a
+passing run of `scripts/changed-there.sh` at that very head. That
+sends the commit to a lent builder, where `scripts/changed-run.sh`
+runs lint, typecheck, knip, `tests/package`, the tests the change's
+files reach (`vitest related`, since the lender holds no main to diff
+against) and the load check: `pnpm check` but for the browser lane,
+which needs a Chrome no lender has. The gate works the words out
+again from the head's files, those it changed since it left
+`origin/main` and still holds, so a run of other files, another
+commit's or another program's clears nothing.
+
 New library modules should ship with tests that assert
 **observable behaviour through the public API**, never
 internals. A test that would still pass after a legitimate
