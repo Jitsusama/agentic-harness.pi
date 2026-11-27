@@ -41,7 +41,10 @@ interface Asked {
  * asked again once a lookup that found nothing is `FAILED_FOR_MS` old
  * by `now`. A lookup still under way is shared by every write that asks
  * for it meanwhile, and one that throws tells nothing, as one that fails
- * does, so the stop still holds what it can't tell apart.
+ * does, so the stop still holds what it can't tell apart. A shared
+ * lookup runs under no caller's signal, on purpose: one passed in must
+ * be detached from it, or one caller's abort would answer every other
+ * with nothing.
  */
 export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 	const told = new Map<string, Asked>();
