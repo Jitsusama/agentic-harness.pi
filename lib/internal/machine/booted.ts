@@ -57,6 +57,14 @@ function wallAtMonotonicZero(): number {
  * fails any other way is kept for nothing, so the next ask reads again:
  * a passing fault, such as a process out of file handles, mustn't leave
  * every marker unjudged.
+ *
+ * A forward step still misjudges what came before it: the boot read
+ * after it is later by the step, so a marker written this boot before
+ * the step reads as an earlier boot's, and a park check clears it.
+ * Keeping the earlier boot instead would leave a peer or a restore
+ * record from a boot that is over read as this one's, for every
+ * reader of this time at once, so the later one is taken, as `btime`
+ * itself gives.
  */
 export function bootReadOnce(
 	read: () => string,

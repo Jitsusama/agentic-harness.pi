@@ -15,7 +15,7 @@ describe("when the machine booted", () => {
 		expect(machineBooted(() => "cpu  1 2 3\n")).toBeUndefined();
 		expect(
 			machineBooted(() => {
-				throw new Error("ENOENT: /proc/stat");
+				throw failure("ENOENT");
 			}),
 		).toBeUndefined();
 	});
@@ -66,11 +66,30 @@ describe("when the machine booted", () => {
 		expect(reads).toBe(2);
 	});
 
+	it("reads again after a failure with no code, as a fault that may pass", () => {
+		let reads = 0;
+		const booted = bootReadOnce(
+			() => {
+				reads += 1;
+				if (reads === 1) throw new Error("no code");
+				return "btime 1792864593\n";
+			},
+			() => 0,
+		);
+
+		expect(booted()).toBeUndefined();
+		expect(booted()).toBe(1792864593000);
+		expect(reads).toBe(2);
+	});
+
 	it("keeps that the machine will not say, with no btime or no /proc", () => {
 		for (const answer of [
 			() => "cpu  1 2 3\n",
 			() => {
 				throw failure("ENOENT");
+			},
+			() => {
+				throw failure("ENOTDIR");
 			},
 		]) {
 			let reads = 0;
@@ -113,6 +132,44 @@ describe("when the machine booted", () => {
 		clock = 0;
 		expect(booted()).toBe(1792864593000);
 		expect(reads).toBe(3);
+	});
+
+	it("keeps its answer through a move of a second, and reads again just past it", () => {
+		let reads = 0;
+		let clock = 0;
+		const booted = bootReadOnce(
+			() => {
+				reads += 1;
+				return "btime 1792864593\n";
+			},
+			() => clock,
+		);
+
+		booted();
+		clock = 1000;
+		booted();
+		clock = -1000;
+		booted();
+		expect(reads).toBe(1);
+		clock = 1001;
+		booted();
+		expect(reads).toBe(2);
+	});
+
+	it("takes the later boot a forward step gives, as btime does", () => {
+		// A known misjudgement, kept on purpose: a marker written before the
+		// step now reads as an earlier boot's (booted.ts says why).
+		const answers = ["btime 1792861000\n", "btime 1792864600\n"];
+		let reads = 0;
+		let clock = 0;
+		const booted = bootReadOnce(
+			() => answers[reads++] ?? "",
+			() => clock,
+		);
+
+		expect(booted()).toBe(1792861000000);
+		clock = 3_600_000;
+		expect(booted()).toBe(1792864600000);
 	});
 });
 
