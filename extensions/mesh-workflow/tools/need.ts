@@ -32,7 +32,7 @@ import {
 	type NeedRecord,
 	needId,
 	partOfNumbered,
-	phraseOfSaid,
+	saidAs,
 	saysWord,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
@@ -158,7 +158,8 @@ export async function needRead(
 		refused: answer(`Not sent: ${why}`, { sent: false } satisfies SendDetails),
 	});
 	const fromText = params.about === undefined;
-	const words = wordsOf(params.about ?? params.text);
+	const written = params.about ?? params.text;
+	const words = wordsOf(written);
 	const [asker, ...selves] = at.peer.addresses;
 	if (words.length === 0) {
 		return refused(
@@ -192,7 +193,7 @@ export async function needRead(
 			`no node answered to say which cell works on it, and a need is passed to nobody in its place. Name the peers it is for by address. ${await whomToAsk(at, false, gone)}`,
 		);
 	}
-	const about = found.words.join(" ");
+	const about = saidAs(found.words, written).join(" ");
 	if (found.words.length === 0) {
 		const retry = fromText
 			? "no word of its text is one any cell works on, so it is counted as lost and passed to nobody in its place. Say what it is about in about, or name the peers it is for by address."
@@ -221,16 +222,14 @@ export async function needRead(
 			!saysWord(word, kept) &&
 			!partOfNumbered(word, saying),
 	);
-	// A phrase's id goes unsaid where its first word is said: check says
-	// it, and the asker wrote check out, never check-out.
-	const unworkedSaying = new Set(unworked);
+	// Each list is said in the asker's words: roll back, not roll-back.
 	const unasked = (went: Went) =>
 		unaskedText(
 			fromText || found.words.length >= MOST_WORDS
 				? []
-				: unworked.filter((word) => !phraseOfSaid(word, unworkedSaying)),
-			found.unheld ?? [],
-			found.by ?? [],
+				: saidAs(unworked, written),
+			saidAs(found.unheld ?? [], written),
+			saidAs(found.by ?? [], written),
 			went,
 		);
 	if (found.fit === null && found.fellShort !== undefined) {
