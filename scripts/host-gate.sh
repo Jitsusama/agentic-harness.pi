@@ -78,7 +78,11 @@ prose='(^|/)README\.md$'
 # it under the short name: either could set main at the head, so that
 # nothing reads as changed.
 git fetch -q origin +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
+# Fetched by the ref that names it where one does, as merge-gate.sh says.
+if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then
+  ref=$(git ls-remote origin 'refs/heads/*' 'refs/pull/*/head' | awk -v sha="$sha" '$1 == sha && !named { print $2; named = 1 }')
+  git fetch -q origin "${ref:-$sha}"
+fi
 base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing. A rename is listed as

@@ -50,7 +50,15 @@ trap 'rm -rf "$scratch"' EXIT
 # Main is fetched to its remote branch by name, since the checkout's own
 # refspec might leave origin/main where it was.
 git fetch -q origin +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
+# A head missing here is fetched by the ref that names it, a branch or a
+# pull request's, since GitHub may refuse a bare commit as "not our ref"
+# (#2245 on 26 November, cleared only by fetching its branch by name);
+# only when no ref names it is the commit asked for itself. Awk reads to
+# the end, so ls-remote never dies writing into a closed pipe.
+if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then
+  ref=$(git ls-remote origin 'refs/heads/*' 'refs/pull/*/head' | awk -v sha="$sha" '$1 == sha && !named { print $2; named = 1 }')
+  git fetch -q origin "${ref:-$sha}"
+fi
 
 # GIT_ATTR_SOURCE, which keeps the tree's attributes out of what's judged
 # below, came in git 2.42, and an older git would ignore it unsaid.
