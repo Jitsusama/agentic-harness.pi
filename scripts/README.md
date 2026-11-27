@@ -1,11 +1,13 @@
 # Scripts
 
 Programs run by hand, by `pnpm`, by a user's merge gate or by the
-host or a user timer: the load check, the merge and host gates, the
-sensors, the host rollout tools, the work-tree sweep a timer runs
-outside the hosts, and one-shot migrators of the quest store. One folder,
-`ssh-guard/`, holds the stand-ins an agent's shell finds before ssh
-while the ssh guard is on, which its own README describes.
+host or a user timer: the load check, the merge and host gates and the
+merge gate's fail-to-pass step, which runs a change's tests with its
+source undone, the sensors, the host rollout tools, the work-tree sweep
+a timer runs outside the hosts, and one-shot migrators of the quest
+store. One folder, `ssh-guard/`, holds the stand-ins an agent's shell
+finds before ssh while the ssh guard is on, which its own README
+describes.
 
 Many entries because each is run by its path from somewhere outside
 this folder: `package.json`, a user's merge-gate setting, the docs and

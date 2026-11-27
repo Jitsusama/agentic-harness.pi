@@ -20,9 +20,11 @@
 # with no change refused. Here main's copy of each rule judges the tree
 # the merge would make, and each of its lists may only shrink against
 # main's, so a head can't loosen a rule or raise its own list to pass, and
-# a line main took off since the branch was cut stays off. Then it hands
-# the commit to host-gate.sh beside it, which asks for a whole test:host
-# run of anything pi hosts run. A refusal says what clears it.
+# a line main took off since the branch was cut stays off. Then it
+# refuses a head whose own tests pass with its source undone, through
+# fail-to-pass.ts beside it. Last it hands the commit to host-gate.sh,
+# which asks for a whole test:host run of anything pi hosts run. A
+# refusal says what clears it.
 set -euo pipefail
 
 # The changed files are read whole with mapfile -d, which came in bash 4.4;
@@ -498,6 +500,34 @@ if [[ $counted != 0 ]]; then
   exit 1
 fi
 echo "merge-gate: no count that only falls has risen at $sha"
+
+# A head's own tests must fail with its source undone, the FAIL_TO_PASS
+# rule SWE-bench grades a fix by. In one week CADENCE counted 10 of the
+# harness's 55 changes (#2157, #2189, #2248, #2252, #2255, #2256, #2261,
+# #2263, #2265, #2266) with a test that passed with the fix undone or
+# couldn't fail, and nothing refused one: each was caught only when a
+# council read it. fail-to-pass.ts beside this runs the tests the head
+# changes on its tree, then with its source put back as the merge-base had
+# it, and refuses when no case flipped; a change that touches no source or
+# no test, or whose head commit says why nothing can be tested, passes.
+# This checkout's copy runs, not the head's, with its packages.
+set +e
+said=$(clean node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+  "$here/fail-to-pass.ts" "$main_id" "$head_id" 2>&1)
+flipped=$?
+set -e
+if [[ $flipped == 1 ]]; then
+  echo "$said" >&2
+  echo "merge-gate: $sha's tests pass with its source undone, so none shows the change works." >&2
+  echo "Make a test fail without the change (or add a Fail-To-Pass: none, <reason> trailer where nothing can), push, and merge the new head." >&2
+  exit 1
+elif [[ $flipped != 0 ]]; then
+  echo "$said" >&2
+  echo "merge-gate: the fail-to-pass step couldn't judge $sha; above says why." >&2
+  echo "Fix what it names in this checkout, then merge again." >&2
+  exit 1
+fi
+echo "$said"
 
 # exec replaces this shell, so its EXIT trap would never run: the head's
 # copy goes first.

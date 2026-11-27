@@ -438,6 +438,20 @@ is followed by judgment, not by a regex.
   names the layer that chose its roster, and the judge's answer
   ends with the check-and-group reminder.
 
+  One `code-tdd-guide` rule is gated too: 🟢 a test fails before
+  the change that makes it pass (The Cycle, Red). The merge gate,
+  `scripts/merge-gate.sh`, runs `scripts/fail-to-pass.ts`, which
+  runs the tests a change adds or changes at its head and again
+  with its source put back as the merge-base had it, and refuses
+  the head when no case passing the first time fails the second,
+  the FAIL_TO_PASS rule SWE-bench grades by. In one week 10 of the
+  harness's 55 changes had a test that passed with the fix undone
+  or couldn't fail, each caught only by a council. Not judged: a
+  change whose tests all fail to load undone (they reach only what
+  it adds), one changing no test, a test only the browser lane
+  runs, and a head whose commit carries a `Fail-To-Pass: none,
+  <reason>` trailer, whose reason the gate prints.
+
   `subagent-fleet-guide`'s sizing rules split the same way. One
   job per uncovered angle is ⚪. A fleet over
   `subagent.maxJobs` and a malformed `subagent` section are
