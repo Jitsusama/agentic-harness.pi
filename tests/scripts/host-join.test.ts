@@ -15,6 +15,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -72,6 +73,9 @@ function home(): string {
  * `at`, under `holder`'s variables when given and `more` of them, through
  * `sh` so the shell can name its own pid before it becomes node, which
  * starts with `flags`: the join's own, as every window's words give it.
+ * Given `remade`, the shell first enters that folder, then removes it and
+ * makes it again, as a checkout does, so the join runs in a folder that
+ * is gone while one stands at its path, which PWD names.
  */
 async function hostJoin(
 	args: readonly string[],
@@ -79,6 +83,7 @@ async function hostJoin(
 	holder?: { readonly files: Holder; readonly recordsSelf: boolean },
 	more: Readonly<Record<string, string>> = {},
 	flags: readonly string[] = [JOIN_QUIET],
+	remade?: string,
 ) {
 	const env = {
 		PATH: process.env.PATH,
@@ -92,6 +97,7 @@ async function hostJoin(
 					MYCELIUM_AGAIN: holder.files.again,
 				}
 			: {}),
+		...(remade === undefined ? {} : { PWD: remade }),
 		...more,
 	};
 	// A holder runs its program itself, so its record names that pid: the
@@ -99,11 +105,15 @@ async function hostJoin(
 	const names = holder?.recordsSelf
 		? `printf '{"id":"7df34a34","pid":%s}' "$$" > "$0"; `
 		: "";
+	const remakes =
+		remade === undefined
+			? ""
+			: `cd '${remade}' && rmdir '${remade}' && mkdir '${remade}' && `;
 	return run(
 		"sh",
 		[
 			"-c",
-			`${names}exec "$@"`,
+			`${remakes}${names}exec "$@"`,
 			holder?.files.record ?? "sh",
 			process.execPath,
 			...flags,
@@ -268,5 +278,85 @@ describe("host-join under its own holder", () => {
 			Array.isArray(next) ? next.slice(joinAt, joinAt + 4) : next,
 			"after the attach, node starts the join quietly",
 		).toEqual([process.execPath, QUIET, SCRIPT, "--released"]);
+	});
+});
+
+/** Plain pi as a test runs it: it says the folder it starts in, by its inode. */
+const WHERE_PI = ["sh", "-c", "pwd -P && echo carried on as plain pi"];
+
+/** A folder of a fresh home, as its real path names it. */
+function folderIn(at: string): string {
+	const folder = join(realpathSync(at), "tree");
+	mkdirSync(folder);
+	return folder;
+}
+
+/** Words run from `folder` after it is removed and made again, as a holder in it runs them. */
+function runInRemade(folder: string, words: readonly string[]) {
+	return run(
+		"sh",
+		[
+			"-c",
+			`cd '${folder}' && rmdir '${folder}' && mkdir '${folder}' && exec "$@"`,
+			"sh",
+			...words,
+		],
+		{ env: { PATH: process.env.PATH, PWD: folder }, timeout: 20_000 },
+	);
+}
+
+describe("host-join in a folder made again under it", () => {
+	it("runs plain pi itself in the folder at that path, under no holder", async () => {
+		const at = home();
+		const folder = folderIn(at);
+		const joined = await hostJoin(
+			["--view", "--session", "01a1", "--", ...WHERE_PI],
+			at,
+			undefined,
+			{},
+			[JOIN_QUIET],
+			folder,
+		);
+		expect(joined.stdout).toBe(
+			`\r\nThis window's folder was made again, so it carries on in ${folder}.\r\n${folder}\ncarried on as plain pi\n`,
+		);
+		expect(joined.code, "plain pi ended well").toBe(0);
+	});
+
+	it("names words to its holder that enter the folder at that path, then become plain pi", async () => {
+		const at = home();
+		const folder = folderIn(at);
+		const files = holderIn(at);
+		const joined = await hostJoin(
+			["--view", "--session", "01a1", "--", ...WHERE_PI],
+			at,
+			{ files, recordsSelf: true },
+			{},
+			[JOIN_QUIET],
+			folder,
+		);
+		expect(joined.code, "it exited as a park does").toBe(PARKED_EXIT);
+		const next: unknown = JSON.parse(readFileSync(files.again, "utf8"));
+		expect(Array.isArray(next) ? next.slice(-WHERE_PI.length) : next).toEqual(
+			WHERE_PI,
+		);
+		const words = Array.isArray(next) ? next.map(String) : [];
+		const ran = await runInRemade(folder, words);
+		expect(
+			ran.stdout,
+			"the holder's next words start plain pi in the folder at that path",
+		).toBe(`${folder}\ncarried on as plain pi\n`);
+	});
+
+	it("leaves its next words as they are while its folder stands", async () => {
+		const at = home();
+		const files = holderIn(at);
+		await hostJoin(
+			["--view", "--session", "01a1", "--", ...WHERE_PI],
+			at,
+			{ files, recordsSelf: true },
+			{ PWD: folderIn(at) },
+		);
+		expect(JSON.parse(readFileSync(files.again, "utf8"))).toEqual(WHERE_PI);
 	});
 });

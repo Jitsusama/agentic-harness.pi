@@ -126,7 +126,9 @@ no caller reads by.
   close (`park-window.ts`) and the calls to niri, kitty and the
   launcher that close them (`park-desktop.ts`); and an extension's
   state, kept as entries in the session's log and restored from the
-  last one (`state.ts`).
+  last one (`state.ts`); and, for a window whose folder was removed
+  and made again under it, the folder at its path for what comes
+  next to start in (`remade-folder.ts`).
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
   pi never forks itself to start one, a host's in a systemd scope of
