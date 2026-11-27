@@ -59,18 +59,28 @@ helpers=(tests/package/code/package-files.ts)
 # session's TMPDIR is under ~/.cache, so each place is tried with a copy
 # only a nested config faults, rather than against a list Biome may grow,
 # and the gate refuses where Biome reads none.
+# Biome fails for more than a fault (a config it can't load, a crash), and
+# where it processes no file at all the real runs below, which pass on
+# unmatched files, would judge nothing. So each place must show both: a
+# file the root config faults is named as faulted, and so is one only
+# lib/'s config faults. Each run is the real runs' own, flags and all.
+faults() {
+  local said
+  if said=$(cd "$1" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
+    --colors=off -- "$2" 2>&1); then
+    return 1
+  fi
+  [[ $said == *"$2"* ]]
+}
 reads_nested() {
-  local probe=$1/probe read=0
+  local probe=$1/probe read=1
   mkdir -p "$probe/lib"
   printf '{ "formatter": { "indentStyle": "tab" } }\n' > "$probe/biome.jsonc"
   printf '{ "root": false, "formatter": { "indentStyle": "space" } }\n' \
     > "$probe/lib/biome.jsonc"
+  printf 'export function spaced(): number {\n  return 1;\n}\n' > "$probe/spaced.ts"
   printf 'export function tabbed(): number {\n\treturn 1;\n}\n' > "$probe/lib/tabbed.ts"
-  # Only a run that faults the file read lib/'s config.
-  if (cd "$probe" && "$biome" check --vcs-enabled=false --colors=off -- lib/tabbed.ts \
-    > /dev/null 2>&1); then
-    read=1
-  fi
+  if faults "$probe" spaced.ts && faults "$probe" lib/tabbed.ts; then read=0; fi
   rm -rf "$probe"
   return "$read"
 }
@@ -84,7 +94,7 @@ for room in "${TMPDIR:-/tmp}" /tmp; do
   scratch=""
 done
 if [[ -z $scratch ]]; then
-  echo "merge-gate: Biome reads no nested config in a copy under ${TMPDIR:-/tmp} or /tmp, so it can't judge files as pnpm lint would." >&2
+  echo "merge-gate: Biome judges no file by its nested config in a copy under ${TMPDIR:-/tmp} or /tmp, so it can't judge files as pnpm lint would." >&2
   echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
   exit 1
 fi
@@ -118,7 +128,10 @@ fi
 # a folder) unset rather than a named few, since each could reach it. Only
 # commits are named, by their ids, and the checkout's refs, replacements
 # among them, aren't there, so every commit's contents are read here. The
-# rules run under the same, so none of their own git reaches the checkout.
+# checkout's commit-graph comes with its objects, and git would take each
+# commit's parents from it unchecked, so a planted one could make the head
+# main's parent; parents are read from the commits instead. The rules run
+# under the same, so none of their own git reaches the checkout.
 judging="$scratch/judging"
 inherited=()
 # Bash's own list of the names, since compgen is missing from a bash built
@@ -147,7 +160,7 @@ empty_tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904
 unattributed() {
   clean GIT_ATTR_SOURCE=$empty_tree GIT_ATTR_NOSYSTEM=1 \
     GIT_INDEX_FILE="${index:-$judging/.git/index}" \
-    git -C "$judging" -c core.attributesFile=/dev/null "$@"
+    git -C "$judging" -c core.attributesFile=/dev/null -c core.commitGraph=false "$@"
 }
 gate_index() {
   index="$scratch/index" unattributed -c core.symlinks=false "$@"

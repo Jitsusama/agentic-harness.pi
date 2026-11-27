@@ -31,6 +31,7 @@ import {
 	removeAll,
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
+import { plantParentByGraph } from "./support/commit-graph.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone; it runs them from their paths below.
 import "../../scripts/host-gate.sh";
@@ -616,6 +617,41 @@ describe("host-gate.sh", () => {
 
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said, "the graft hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it("reads what changed past the checkout's commit-graph", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		// Main moves on by two, and the checkout's graph, which its objects
+		// folder lets a strict session write, names the head as a second
+		// parent of the first, so the head reads as merged already.
+		await git(on.checkout, "checkout", "-q", "-B", "onward", "origin/main");
+		await git(on.checkout, "commit", "-q", "--allow-empty", "-m", "onward");
+		const behind = await git(on.checkout, "rev-parse", "HEAD");
+		await git(
+			on.checkout,
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"onward again",
+		);
+		await git(on.checkout, "push", "-q", "origin", "HEAD:main");
+		await plantParentByGraph(on.checkout, behind, sha);
+		const planted = await git(
+			on.checkout,
+			"merge-base",
+			"refs/remotes/origin/main^{commit}",
+			sha,
+		);
+		expect(planted, "the graph names the head as merged").toBe(sha);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the graph hid the change").toContain(
 			`nothing ran test:host at ${sha}`,
 		);
 	});

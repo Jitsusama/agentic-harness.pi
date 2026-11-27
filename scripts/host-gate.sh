@@ -87,12 +87,14 @@ prose='(^|/)README\.md$'
 # nothing reads as changed.
 git fetch -q origin +refs/heads/main:refs/remotes/origin/main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
-# What changed is read past the checkout's replacements and grafts, either
-# of which could make the head's commit read as main's, so that nothing
-# reads as changed. Every GIT_ variable the gate was given is unset (a
-# graft file or a replace base among them), as merge-gate.sh does, and an
-# empty graft file is named, since the checkout's info/grafts is read
-# otherwise.
+# What changed is read past the checkout's replacements, grafts and
+# commit-graph, any of which could make the head's commit read as main's,
+# so that nothing reads as changed. Every GIT_ variable the gate was given
+# is unset (a graft file or a replace base among them), as merge-gate.sh
+# does, and an empty graft file is named, since the checkout's info/grafts
+# is read otherwise. Git takes a commit's parents from the commit-graph
+# under objects/, which a strict session can write, and never checks them
+# against the commit, so parents are read from the commits themselves.
 inherited=()
 for name in "${!GIT_@}"; do inherited+=(-u "$name"); done
 grafts=$(mktemp)
@@ -100,7 +102,7 @@ listed=$(mktemp)
 trap 'rm -f "$grafts" "$listed"' EXIT
 unreplaced() {
   env ${inherited[@]+"${inherited[@]}"} GIT_GRAFT_FILE="$grafts" GIT_NO_REPLACE_OBJECTS=1 \
-    git --no-replace-objects "$@"
+    git --no-replace-objects -c core.commitGraph=false "$@"
 }
 base=$(unreplaced merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather

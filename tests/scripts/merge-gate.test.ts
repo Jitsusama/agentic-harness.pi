@@ -34,6 +34,7 @@ import {
 	removeAll,
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
+import { plantParentByGraph } from "./support/commit-graph.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone: merge-gate.sh, from its path below, and the
 // host-gate.sh it runs in turn.
@@ -291,6 +292,30 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		writeFileSync(grafts, `${main} ${sha}\n`);
 
 		const answered = await gate(checkout, sha, { GIT_GRAFT_FILE: grafts });
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("lib/untidy.ts");
+	});
+
+	it("refuses a change Biome would format, whatever the checkout's commit-graph says", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+		await git(checkout, "checkout", "-q", "-B", "moved", "origin/main");
+		await git(checkout, "commit", "-q", "--allow-empty", "-m", "main moves");
+		const behind = await git(checkout, "rev-parse", "HEAD");
+		await git(checkout, "commit", "-q", "--allow-empty", "-m", "main moves on");
+		await git(checkout, "push", "-q", "origin", "HEAD:main");
+		// The gate's own repository borrows the checkout's objects, and its
+		// graph with them, so one naming the head as a parent of main's
+		// commit before its newest would make the head the base there too.
+		const main = await git(checkout, "rev-parse", "origin/main");
+		await plantParentByGraph(checkout, behind, sha);
+		const planted = await git(checkout, "merge-base", `${main}^{commit}`, sha);
+		expect(planted, "the graph names the head as merged").toBe(sha);
+
+		const answered = await gate(checkout, sha);
 
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain("lib/untidy.ts");
@@ -634,6 +659,29 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said, "the file lib/'s config faults").toContain(
 			"lib/tabbed.ts",
+		);
+	});
+
+	it("refuses where Biome fails in the probe without faulting its files", async () => {
+		const checkout = await harness();
+		// A Biome that processes nothing in the probe's copy, as one ignoring
+		// every file there would, and judges the real copy as it should.
+		const stand = join(checkout, "node_modules", ".bin", "biome");
+		rmSync(stand);
+		writeFileSync(
+			stand,
+			`#!/bin/sh\ncase $PWD in */probe) echo "No files were processed."; exit 1;; esac\nexec "${BIOME}" "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the probe took a failing run for a fault").toContain(
+			"judges no file by its nested config",
 		);
 	});
 
