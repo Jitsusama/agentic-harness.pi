@@ -86,6 +86,7 @@ import {
 import { recordedCallsOf } from "./recorded-calls.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
+import { sayRolled } from "./rolled.ts";
 import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
 import {
 	backgroundIn,
@@ -409,7 +410,8 @@ export async function createEngine(
 			// One whose stop never began runs on, so its watch takes back saying it parks.
 			park: async () => {
 				record.parking = true;
-				const ranOn = await parked.park(sessionId);
+				const stopHearing = sayRolledIn(sessionId, record);
+				const ranOn = await parked.park(sessionId).finally(stopHearing);
 				if (ranOn === undefined) return;
 				record.parking = false;
 				const refused: ParkRefused = {
@@ -423,6 +425,27 @@ export async function createEngine(
 		parked.running(sessionId);
 		live.set(sessionId, record);
 		return record;
+	}
+
+	/**
+	 * Say in a parking conversation's log that it rolls onto new host code,
+	 * where it does, answering what stops hearing its park's carry. A log
+	 * that can't be written is reported, and the park goes on all the same.
+	 */
+	function sayRolledIn(sessionId: string, record: Live): () => void {
+		const log = record.runtime?.session.sessionManager;
+		if (log === undefined) return () => undefined;
+		try {
+			return sayRolled(host, sessionId, {
+				log,
+				bus: record.bus,
+				parking: () => record.parking === true,
+				report,
+			});
+		} catch (error) {
+			report(error);
+			return () => undefined;
+		}
 	}
 
 	/**

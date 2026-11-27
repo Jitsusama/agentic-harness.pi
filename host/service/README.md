@@ -397,6 +397,9 @@ input pipeline or screen. No unit or running host is installed yet.
   answers nothing for not knowing.
   The hour and the wait run on a clock a wall clock's steps don't move,
   and may not count the time a machine sleeps (untested).
+  As it rolls it names the code it rolls from and onto, the child's own
+  version and the one `current` names (what-starts.ts `rolledCodeFrom`),
+  so the conversation's log can say so as it parks (../engine/rolled.ts).
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

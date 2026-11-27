@@ -23,6 +23,7 @@ import {
 	ownUnit,
 	processLaunchdFacts,
 	relativeImports,
+	rolledCodeFrom,
 	unitDefinition,
 	versionsMove,
 } from "../../../host/service/what-starts.ts";
@@ -102,6 +103,29 @@ describe("hostCodeOf", () => {
 		await put("host/unused.ts", "export const unused = 2;\n");
 		await put("host/types.ts", "export type T = 2;\n");
 		expect(await hostCodeOf(root)).toBe(before);
+	});
+});
+
+describe("rolledCodeFrom", () => {
+	it("names its own version and the one the install's current link names as it rolls", async () => {
+		await put("install/versions/aaa/x", "");
+		await put("install/versions/bbb/x", "");
+		const current = join(root, "install", "current");
+		await symlink(join(root, "install", "versions", "aaa"), current);
+		const code = rolledCodeFrom(join(root, "install", "versions", "aaa"));
+		await rm(current);
+		await symlink(join(root, "install", "versions", "bbb"), current);
+		expect(code(), "read as it rolls").toEqual({ from: "aaa", onto: "bbb" });
+	});
+
+	it("names no code for a root outside an install, or one whose current can't be read", async () => {
+		await put("tree/x", "");
+		expect(rolledCodeFrom(join(root, "tree"))(), "a tree").toBeUndefined();
+		await put("install/versions/aaa/x", "");
+		expect(
+			rolledCodeFrom(join(root, "install", "versions", "aaa"))(),
+			"no current link",
+		).toBeUndefined();
 	});
 });
 

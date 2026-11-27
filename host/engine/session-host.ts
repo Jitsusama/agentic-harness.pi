@@ -15,6 +15,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isOwner } from "../../lib/core/process/index.ts";
+import type { RolledCode } from "../../lib/core/session/host.ts";
 import {
 	type FenceTeller,
 	type Host,
@@ -145,6 +146,8 @@ export class SessionHost implements Host {
 	private readonly viewedBy?: (sessionId: string) => boolean;
 	// Whether the host's own code is stale, so its conversations roll.
 	private stale = false;
+	// The code it rolls from and onto, where its roll named them.
+	private rolledFrom?: RolledCode;
 	// Whether a park keeps a conversation's bash calls, as the engine says once it can.
 	private carriedBy?: (id: string) => boolean;
 	// Whether a wake would be held for the next start, as the engine's parking says.
@@ -438,9 +441,19 @@ export class SessionHost implements Host {
 		return this.stale && !this.viewed(id);
 	}
 
-	/** Say the host's own code is stale for good; each conversation reads it at its next look. */
-	roll(): void {
+	/**
+	 * Say the host's own code is stale for good; each conversation reads it
+	 * at its next look. `code` names what it rolls from and onto, kept for
+	 * the conversations' logs; a later roll naming none keeps the last.
+	 */
+	roll(code?: RolledCode): void {
 		this.stale = true;
+		if (code !== undefined) this.rolledFrom = code;
+	}
+
+	/** The code the host rolls from and onto, as its roll named them, or nothing. */
+	rolledCode(): RolledCode | undefined {
+		return this.rolledFrom;
 	}
 
 	/** Whether the host's own code is stale, as roll said. */

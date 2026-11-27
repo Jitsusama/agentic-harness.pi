@@ -108,6 +108,29 @@ describe("rollChildWhenStale", () => {
 		]);
 	});
 
+	it("names the code it rolls from and onto, read as it rolls", async () => {
+		const timers = manualTimers();
+		const rolled: unknown[] = [];
+		let onto = "bbb";
+		rollChildWhenStale({
+			version: NO_INSTALL,
+			moved: async () => "moved",
+			host: () => ({ roll: (code) => rolled.push(code) }),
+			code: () => ({ from: "aaa", onto }),
+			stopped: new Promise(() => undefined),
+			report: () => undefined,
+			lookMs: 1,
+			after: timers.after,
+			bornAt: 0,
+			now: () => ROLL_ONLY_AFTER_MS,
+			spreadMs: 0,
+			roomShort: async () => undefined,
+		});
+		onto = "ccc";
+		await timers.fire();
+		expect(rolled).toEqual([{ from: "aaa", onto: "ccc" }]);
+	});
+
 	it("rolls a child no sooner than an hour after it started, so a conversation rolls at most once an hour", async () => {
 		expect(ROLL_ONLY_AFTER_MS, "an hour").toBe(60 * 60_000);
 		let now = 10_000;

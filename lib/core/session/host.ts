@@ -225,6 +225,31 @@ export function isParkRefused(value: unknown): value is ParkRefused {
 	);
 }
 
+/**
+ * The custom entry a host leaves in a conversation's log as it parks it
+ * to roll onto new host code, which the next pi to start on that log
+ * reads (lib/internal/reload/rolled.ts) to tell the session of its roll.
+ */
+export const HOST_ROLLED_ENTRY = "host:rolled";
+
+/** The host code a conversation rolls from and onto, each a version's name. */
+export interface RolledCode {
+	readonly from: string;
+	readonly onto: string;
+}
+
+/** What HOST_ROLLED_ENTRY holds. */
+export interface HostRolled extends RolledCode {
+	/** When it parked, as an ISO time. */
+	readonly at: string;
+	/**
+	 * Whether the host wakes it on the new code with nobody sending it
+	 * anything, as it does once the bash calls its park carried end; left
+	 * out where it doesn't.
+	 */
+	readonly wakes?: true;
+}
+
 /** An entry in the host's list of currently open conversations. */
 export interface HostedSession {
 	readonly id: string;

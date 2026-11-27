@@ -509,6 +509,22 @@ it("rolls each conversation no window views once its host code is stale", () => 
 	expect(hosted()?.rolling?.("a"), "as the park watch asks").toBe(true);
 });
 
+it("keeps the code a roll names, and keeps it through a roll naming none", () => {
+	const dir = mkdtempSync(join(tmpdir(), "session-rolled-"));
+	directories.push(dir);
+	const host = new SessionHost({ key: "test-host", owner, registryDir: dir });
+	hosts.push(host);
+	expect(host.rolledCode(), "never rolled").toBeUndefined();
+	host.roll({ from: "aaa", onto: "bbb" });
+	expect(host.rolledCode()).toEqual({ from: "aaa", onto: "bbb" });
+	host.roll();
+	expect(host.rolledCode(), "a codeless roll").toEqual({
+		from: "aaa",
+		onto: "bbb",
+	});
+	expect(host.rolling("a"), "rolled all the same").toBe(true);
+});
+
 // 23 November: a run that steps off as its child rolls writes its wake as
 // it parks; woken in the stale child, it would run the old code again.
 // A window keeps a stale child running, so one it views wakes there.
