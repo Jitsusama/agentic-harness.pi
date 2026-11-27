@@ -324,21 +324,8 @@ export async function nothingOnlyHere(
 	}
 	const name = ref.slice("refs/heads/".length);
 	const commit = head.stdout.trim();
-	const holding = await git(
-		"for-each-ref",
-		`--contains=${commit}`,
-		"--format=%(refname:short)",
-		"refs/remotes",
-	);
-	// Its own remote branch is named first, as the place to find it; a
-	// remote's HEAD, which git shortens to the remote's bare name, only
-	// repeats its default branch.
-	const remotes = holding.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.includes("/") && !line.endsWith("/HEAD"));
-	const remote = remotes.find((one) => one.endsWith(`/${name}`)) ?? remotes[0];
-	if (holding.code !== 0 || remote === undefined) return undefined;
+	const remote = await remoteHolding(git, commit, name);
+	if (remote === undefined) return undefined;
 	// The stash is the repository's, shared by every tree; git names the
 	// branch each entry was made on in its message.
 	const stashes = await git("stash", "list", "--format=%gs");
@@ -383,6 +370,37 @@ export async function nothingOnlyHere(
 		return undefined;
 	}
 	return { branch: name, commit, remote };
+}
+
+/**
+ * A remote-tracking branch holding `commit`, its own branch `name` on
+ * some remote first, as the place to find it. Only when none of those
+ * holds it are every remote's branches asked, since that walk reads far
+ * more: on 27 November it read 59 to 75 MB from the disk for one tree
+ * of a repository with 7,196 remote branches, where asking its own read
+ * at most 4 MB. A remote's HEAD, which git shortens to the remote's
+ * bare name, only repeats its default branch, so it is never named.
+ */
+async function remoteHolding(
+	git: (...args: string[]) => Promise<{ code: number; stdout: string }>,
+	commit: string,
+	name: string,
+): Promise<string | undefined> {
+	for (const among of [`refs/remotes/*/${name}`, "refs/remotes"]) {
+		const holding = await git(
+			"for-each-ref",
+			`--contains=${commit}`,
+			"--format=%(refname:short)",
+			among,
+		);
+		if (holding.code !== 0) return undefined;
+		const found = holding.stdout
+			.split("\n")
+			.map((line) => line.trim())
+			.find((line) => line.includes("/") && !line.endsWith("/HEAD"));
+		if (found !== undefined) return found;
+	}
+	return undefined;
 }
 
 /**

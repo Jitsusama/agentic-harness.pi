@@ -565,6 +565,46 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(outcome.taken.map((one) => one.branch)).toEqual(["shared-name"]);
 	});
 
+	it("asks only its own remote branch when that holds its head, walking no other", async () => {
+		const setup = await setUp();
+		const { tree } = await pushedAndLeft(setup, "own-first", IDLE);
+		const asked: string[][] = [];
+
+		const outcome = await sweepWhileOpen(setup, {
+			exec: async (command, args) => {
+				if (args.includes("for-each-ref")) asked.push([...args]);
+				return await exec(command, args);
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.remote)).toEqual([
+			"origin/own-first",
+		]);
+		// Judged once when chosen and again under its record's lock.
+		expect(
+			new Set(
+				asked.filter((args) => args.includes(tree)).map((args) => args.at(-1)),
+			),
+			"the remote branches it asked to hold its head",
+		).toEqual(new Set(["refs/remotes/*/own-first"]));
+	});
+
+	it("names trunk when its own branch was never pushed but trunk holds its head", async () => {
+		const setup = await setUp();
+		const tree = await setup.cut(
+			"never-pushed",
+			["-b", "never-pushed", "@", "main"],
+			[RUNNING],
+		);
+		await leaveAlone(setup, tree, IDLE);
+
+		const outcome = await sweepWhileOpen(setup);
+
+		expect(outcome.taken.map((one) => [one.branch, one.remote])).toEqual([
+			["never-pushed", "origin/main"],
+		]);
+	});
+
 	it("keeps one whose own HEAD reflog alone holds a commit made there and reset away", async () => {
 		const setup = await setUp();
 		const { tree, commit } = await pushedAndLeft(setup, "reset", IDLE);
