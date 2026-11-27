@@ -374,6 +374,34 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "judged as no change").not.toContain("host-gate:");
 	});
 
+	it("judges a second change in the store a first run left, by refs of its own", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const first = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+		expect(first.code, first.said).toBe(0);
+		const untidy = await change(checkout, {
+			"lib/untidy.ts": "export const untidy   =   1\n",
+		});
+
+		const answered = await gate(checkout, untidy, { XDG_STATE_HOME: state });
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("lib/untidy.ts");
+		const store = join(state, "pi/agentic-harness.pi/merge-gate/objects.git");
+		const refs = await git(store, "for-each-ref", "--format=%(refname)");
+		const kept = "the refs that keep what was fetched whole";
+		expect(refs.split("\n"), kept).toEqual(
+			expect.arrayContaining([
+				"refs/gate/main",
+				`refs/gate/heads/${tidy}`,
+				`refs/gate/heads/${untidy}`,
+			]),
+		);
+	});
+
 	it("refuses a change Biome's linter faults", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, {

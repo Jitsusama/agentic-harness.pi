@@ -116,7 +116,7 @@ if [[ -x $biome ]]; then
     exit 1
   elif [[ $probed != 0 ]]; then
     echo "merge-gate: Biome judges no file by its nested config in a copy under $room, so it can't judge files as pnpm lint would." >&2
-    echo "Set XDG_STATE_HOME to a folder outside any .git or .cache folder, then merge again." >&2
+    echo "Set XDG_STATE_HOME to a folder outside any .git or .cache folder and outside every folder the agent fence lets sessions write, then merge again." >&2
     exit 1
   fi
 fi

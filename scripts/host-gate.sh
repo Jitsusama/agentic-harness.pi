@@ -89,7 +89,11 @@ prose='(^|/)README\.md$'
 # shellcheck source=gate-objects.sh
 source "$(dirname "${BASH_SOURCE[0]}")/gate-objects.sh"
 gate_objects host-gate "$sha"
-listed=$(mktemp)
+# The list is kept beside the store rather than under TMPDIR: a session's
+# TMPDIR is its quest's, which any fenced session on the quest can write,
+# so one could empty the list between the diff and the read, and hosted
+# code would read as untouched.
+listed=$(mktemp "$gate_home/listed.XXXXXX")
 trap 'rm -f "$listed"' EXIT
 base=$(stored -c core.commitGraph=false merge-base "$main_id" "$head_id")
 # The diff is its own step, so a diff that fails stops the gate rather
