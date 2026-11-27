@@ -308,7 +308,7 @@ describe("a talk the steerer hands a session", () => {
 		const steerer = createSteerer(state);
 		tell(lives, "session_start");
 		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
-		expect(steerWaiting(bus)).toBe(false);
+		expect(steerWaiting(bus), "once pi read it as it was sent").toBe(false);
 	});
 
 	// F93: talk pi never took doesn't wait.
@@ -324,7 +324,7 @@ describe("a talk the steerer hands a session", () => {
 		expect(() =>
 			steerer.steered("look at X", false, { text: "look at X", from: "joel" }),
 		).toThrow("no session");
-		expect(steerWaiting(bus)).toBe(false);
+		expect(steerWaiting(bus), "once the send threw").toBe(false);
 	});
 
 	// F76, F83, F85: a reload builds a second steerer on the bus that outlives it.
@@ -369,6 +369,8 @@ describe("a talk the steerer hands a session", () => {
 		steerer.steered("the look's answer", false);
 		steerer.steered("look at X", true, { text: "look at X", from: "joel" });
 
-		expect(steerWaiting(bus)).toBe(false);
+		expect(steerWaiting(bus), "with every word held for the run's end").toBe(
+			false,
+		);
 	});
 });
