@@ -14,8 +14,9 @@
  * ago (lib/internal/carry/current-code.ts), so it carries only once it
  * reloads onto current code. A person's Carry (pausing.ts) and an
  * ordered one (ordered-carry.ts's orderedHolds) ask the same before they
- * end or wait on its run, so a refusal costs no run; the check here
- * stays for any caller that doesn't.
+ * end or wait on its run, so a refusal costs no run, and say so
+ * (`judged`), so the check here, kept for any caller that doesn't,
+ * never refuses once the run they ended is gone.
  *
  * A carry under way holds the doors that would end the process it runs
  * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
@@ -78,6 +79,13 @@ export interface CarryingPlaces {
 	readonly timing?: HoldTiming;
 	/** The harness this session runs, this package's own by default. */
 	readonly root?: string;
+	/**
+	 * Whether its caller already judged the code it runs before touching
+	 * its run, as a person's Carry and an ordered one do, so the carry
+	 * never judges it again once that run is ended and the bar has passed
+	 * in between.
+	 */
+	readonly judged?: boolean;
 }
 
 /** What a note a carry writes into its conversation is typed as. */
@@ -99,7 +107,10 @@ export async function carryThisSession(
 	}
 	// Before its run winds down or a hold is taken, so the follower may
 	// reload it as soon as it is idle.
-	const behind = behindItsInstall(places.root ?? packageRoot());
+	const behind =
+		places.judged === true
+			? undefined
+			: behindItsInstall(places.root ?? packageRoot());
 	if (behind !== undefined) throw new Error(`${behind}.`);
 	if (places.hold !== undefined) return await carryOut(ctx, to, places);
 	const hold = holdForCarry(id, to, places.timing);

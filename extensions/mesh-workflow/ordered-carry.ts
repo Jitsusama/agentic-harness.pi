@@ -698,7 +698,8 @@ export interface HoldsAt {
  * what would keep it from moving (moving.ts's holdsOf, its run aside),
  * the leases it holds, a rebase halted in a tree it holds, and a
  * harness its install left long ago (lib/internal/carry/current-code.ts),
- * read with the rest before the run is waited on or ended.
+ * read only before the run is waited on or ended (`runEnded` false), so
+ * a bar passed during the wait never refuses a carry whose run is gone.
  */
 export async function orderedHolds(
 	at: HoldsAt,
@@ -712,6 +713,6 @@ export async function orderedHolds(
 		}),
 		leasesHolding(at.board, at.session, runEnded),
 		await rebaseHalted(at.session),
-		behindItsInstall(at.root ?? packageRoot()),
+		runEnded ? undefined : behindItsInstall(at.root ?? packageRoot()),
 	]);
 }

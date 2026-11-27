@@ -296,7 +296,8 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to, { timing: { lapsed } });
+			// Judged by `behind` before its run was ended.
+			await carryThisSession(m.ctx, to, { timing: { lapsed }, judged: true });
 		},
 		carryUnderWay: () => {
 			const session = sessionOf();
@@ -362,8 +363,10 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
+			// Judged by its holds before its run was waited on.
 			await carryThisSession(m.ctx, to, {
 				...(orderedHold ? { hold: orderedHold } : { timing: { lapsed } }),
+				judged: true,
 			});
 		},
 		refuse: async (why, at) => {
