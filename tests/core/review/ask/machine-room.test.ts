@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type MachineReads,
+	machineQuiet,
 	machineShort,
 } from "../../../../lib/core/review/ask/machine-room.ts";
 
@@ -43,6 +44,15 @@ const reads = (over: Partial<MachineReads> = {}): MachineReads => ({
 	meminfo: meminfo(16),
 	...over,
 });
+
+/** Whether a machine quiet on every reading, with `over` put in, is quiet. */
+const quiet = (over: Partial<MachineReads> = {}) =>
+	machineQuiet({
+		memoryPressure: pressure("full", "1.99"),
+		cpuPressure: pressure("some", "24.99"),
+		meminfo: meminfo(20),
+		...over,
+	});
 
 describe("whether the machine has room for a round", () => {
 	it("has room while every reading is inside its bar", async () => {
@@ -121,6 +131,21 @@ describe("whether the machine has room for a round", () => {
 				reads({ meminfo: missing, cpuPressure: pressure("some", "41") }),
 			),
 		).toBe("CPU some avg60 was 41, at or past 40");
+	});
+
+	it("is quiet only under CPU some avg60 25, memory full avg60 2 and with 20 GiB available", async () => {
+		expect(await quiet()).toBe(true);
+		expect(await quiet({ memoryPressure: pressure("full", "2.00") })).toBe(
+			false,
+		);
+		expect(await quiet({ cpuPressure: pressure("some", "25.00") })).toBe(false);
+		expect(await quiet({ meminfo: meminfo(19.99) })).toBe(false);
+	});
+
+	it("is never quiet where a reading isn't kept, as on a Mac", async () => {
+		for (const gone of ["memoryPressure", "cpuPressure", "meminfo"] as const) {
+			expect(await quiet({ [gone]: missing }), gone).toBe(false);
+		}
 	});
 
 	it("says nothing of a reading that holds no line it reads", async () => {

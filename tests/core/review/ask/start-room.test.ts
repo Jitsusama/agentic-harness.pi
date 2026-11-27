@@ -95,6 +95,149 @@ describe("starting council rounds on room alone", () => {
 		expect(line().started.by).toBe("ISXEG8");
 	});
 
+	it("starts one look after another round's start, not its spacing, while the machine is quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		// Looks long enough apart that one look and two can be told apart.
+		const look = 500;
+
+		// Set to as often as it can, as the config's 0 or half a minute is,
+		// which a quiet machine takes quicker still.
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				spacing: async () => 0,
+				lookAgainMs: look,
+				room: roomy,
+				quiet: async () => true,
+			}),
+		);
+
+		const gap = Date.now() - before.getTime();
+		expect(gap, "the floor held it").toBeGreaterThanOrEqual(
+			look - TIMER_EARLY_MS,
+		);
+		expect(gap, "not two looks").toBeLessThan(1.8 * look);
+		expect(start.waited).toMatch(/, or each .+ while it is quiet,/);
+	});
+
+	it("goes by the spacing as configured at each look, not as it was when asked", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		// Ten minutes when asked; the config is then set to its floor.
+		const spacing = async () => {
+			looks += 1;
+			return looks === 1 ? 600_000 : 0;
+		};
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: undefined, room: roomy, spacing }),
+		);
+
+		expect(looks, "it looked again").toBeGreaterThan(1);
+		expect(Date.now() - before.getTime()).toBeLessThan(SPACING);
+	});
+
+	it("keeps a configured spacing while the machine is quiet, and names no quiet pace", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				room: roomy,
+				quiet: async () => true,
+				spacing: async () => SPACING,
+			}),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			SPACING - TIMER_EARLY_MS,
+		);
+		expect(start.waited).not.toMatch(/while it is quiet/);
+	});
+
+	it("keeps its spacing when it reads quiet but no room", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		const look = 300;
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: 0,
+				lookAgainMs: look,
+				quiet: async () => true,
+			}),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			2 * look - TIMER_EARLY_MS,
+		);
+	});
+
+	it("reads quiet again at each look, keeping its spacing once the machine is busy", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+		let looks = 0;
+		const look = 300;
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				spacingMs: undefined,
+				room: roomy,
+				// A look long enough that the first, made as it asks, comes
+				// too soon to start even on a busy machine.
+				lookAgainMs: look,
+				// Quiet only at that first look.
+				quiet: async () => {
+					looks += 1;
+					return looks === 1;
+				},
+			}),
+		);
+
+		expect(looks, "it looked again").toBeGreaterThan(1);
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			2 * look - TIMER_EARLY_MS,
+		);
+	});
+
+	it("names no quiet pace for a round that never reads quiet", async () => {
+		startedAt("A2VLJN", new Date());
+
+		// A look long enough that the first comes too soon to start.
+		const start = await awaitCouncilStart(path, {
+			...onRoom("ISXEG8", roomy),
+			lookAgainMs: 300,
+		});
+
+		expect(start.waited).toMatch(
+			/one roster round starts on this machine each/,
+		);
+		expect(start.waited).not.toMatch(/while it is quiet/);
+	});
+
+	it("keeps its spacing when the machine isn't quiet", async () => {
+		const before = new Date();
+		startedAt("A2VLJN", before);
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { room: roomy, quiet: async () => false }),
+		);
+
+		expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(
+			SPACING - TIMER_EARLY_MS,
+		);
+	});
+
 	it("waits while the machine is short, then starts, saying what it was short of", async () => {
 		let looks = 0;
 		const room = async () => {

@@ -14,6 +14,14 @@
  * `MemAvailable`, and CPU `some avg60` under 40. On a machine with
  * less than 32 GiB in all, the floor is half of what it has, since 16
  * GiB free could never come there and its rounds would never start.
+ *
+ * A quiet machine may start rounds closer together. From 05:46Z to
+ * 06:16Z on 27 November exactly one round started a minute while CPU
+ * `some avg60` read 7 to 20, memory `full avg60` 0.2 to 1.0 and about
+ * 23 GB was available, with 84 rounds waiting: the spacing bound, not
+ * the bars. So while CPU `some avg60` is under 25, memory `full avg60`
+ * under 2 and at least 20 GiB is available (A210E4CA, velocity), the
+ * line may use its shortest spacing.
  */
 
 import { readFile } from "node:fs/promises";
@@ -38,6 +46,15 @@ export const CPU_SOME_AVG60_AT_MOST = 40;
  * a machine with at least twice that in all.
  */
 export const MEM_AVAILABLE_GIB_AT_LEAST = 16;
+
+/** The CPU `some avg60` a quiet machine stays under. */
+export const QUIET_CPU_SOME_AVG60_UNDER = 25;
+
+/** The memory `full avg60` a quiet machine stays under. */
+export const QUIET_MEMORY_FULL_AVG60_UNDER = 2;
+
+/** The `MemAvailable`, in GiB, a quiet machine has at least. */
+export const QUIET_MEM_AVAILABLE_GIB_AT_LEAST = 20;
 
 /** The share of all its memory a smaller machine must have free. */
 const SMALL_MACHINE_SHARE = 0.5;
@@ -67,13 +84,7 @@ const LINUX_READS: MachineReads = {
 export async function machineShort(
 	reads: MachineReads = LINUX_READS,
 ): Promise<string | undefined> {
-	const [memory, cpu, meminfo] = await Promise.all([
-		pressureAvg60(reads.memoryPressure, "full"),
-		pressureAvg60(reads.cpuPressure, "some"),
-		readOrNothing(reads.meminfo),
-	]);
-	const available = meminfoGib(meminfo, "MemAvailable");
-	const total = meminfoGib(meminfo, "MemTotal");
+	const { memory, cpu, available, total } = await readings(reads);
 	const floor = Math.min(
 		MEM_AVAILABLE_GIB_AT_LEAST,
 		(total ?? Number.POSITIVE_INFINITY) * SMALL_MACHINE_SHARE,
@@ -90,6 +101,49 @@ export async function machineShort(
 			: undefined,
 	].filter((said) => said !== undefined);
 	return short.length === 0 ? undefined : short.join("; ");
+}
+
+/**
+ * Whether the machine is quiet enough for rounds to start at the line's
+ * shortest spacing. Only every reading inside its bar says so: a
+ * machine that keeps no reading, as a Mac keeps no pressure, is never
+ * quiet, and keeps its usual spacing.
+ */
+export async function machineQuiet(
+	reads: MachineReads = LINUX_READS,
+): Promise<boolean> {
+	const { memory, cpu, available } = await readings(reads);
+	return (
+		memory !== undefined &&
+		memory < QUIET_MEMORY_FULL_AVG60_UNDER &&
+		cpu !== undefined &&
+		cpu < QUIET_CPU_SOME_AVG60_UNDER &&
+		available !== undefined &&
+		available >= QUIET_MEM_AVAILABLE_GIB_AT_LEAST
+	);
+}
+
+/** The readings a round's room is judged by, each nothing where it can't be had. */
+interface Readings {
+	readonly memory: number | undefined;
+	readonly cpu: number | undefined;
+	readonly available: number | undefined;
+	readonly total: number | undefined;
+}
+
+/** Reads memory and CPU pressure and memory counts at once. */
+async function readings(reads: MachineReads): Promise<Readings> {
+	const [memory, cpu, meminfo] = await Promise.all([
+		pressureAvg60(reads.memoryPressure, "full"),
+		pressureAvg60(reads.cpuPressure, "some"),
+		readOrNothing(reads.meminfo),
+	]);
+	return {
+		memory,
+		cpu,
+		available: meminfoGib(meminfo, "MemAvailable"),
+		total: meminfoGib(meminfo, "MemTotal"),
+	};
 }
 
 /** One pressure line's `avg60`, or nothing where it can't be had. */

@@ -339,9 +339,14 @@ of all memory on a machine with less than 32 GiB) and CPU
 `some avg60` is under 40, read from `/proc/pressure` and
 `/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
 most two a minute, so a long line drains no faster than those
-minute-long averages can show what the rounds before took. A
-reading the machine doesn't keep, as on a Mac, says nothing, so a
-Mac always has room and keeps the two a minute. The CPU bar came
+minute-long averages can show what the rounds before took. While
+the machine is quiet, well inside every bar (memory `full avg60`
+under 2, CPU `some avg60` under 25 and at least 20 GiB
+available), a round starts one look, fifteen seconds, after the
+last, and the live `MemAvailable` stops a burst the averages are
+slow to show (27 November). A reading the machine doesn't keep, as
+on a Mac, says nothing, so a Mac always has room, is never quiet
+and keeps the two a minute. The CPU bar came
 on 26 November, when optimus sat over 40 for an hour with 24
 councils running, since only memory was read.
 Rounds with the same first ask, as two sessions' rounds on one
@@ -351,11 +356,13 @@ round that waited says how long, behind whom, and what the machine
 was short of. On 24 November a round waited half an hour behind ten
 others under the fixed three-minute gap this replaced, on a machine
 with room for all of them. `startSpacingMinutes` under `ask` sets a
-wider gap between starts, for a machine that wants one, held between
-half a minute and thirty minutes. Below half
-a minute a round could lose a start it took to the next one before
-it looked again, and a round reads its spacing once, so a mistyped
-hour would hold it that long even after the config was put right.
+gap between starts for a machine that wants one, held between half
+a minute and thirty minutes, and while it is set the quiet pace is
+not taken, since a gap set by hand may be for what pressure can't
+show, such as a provider's limit. Each waiting round reads it again
+at each look, keeping the last good value while the config can't be
+read. Below half a minute two rounds could start before a round that
+lost track of the start it took looked again.
 
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,
