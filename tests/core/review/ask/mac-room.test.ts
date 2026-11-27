@@ -424,9 +424,11 @@ describe("a Mac's figures, each program read apart", () => {
 	});
 });
 
+// Programs are named bare, found on PATH, since NixOS has no /bin/echo
+// or /bin/sleep.
 describe("a program run with a bound", () => {
 	it("gives what it printed", async () => {
-		expect(await runBounded("/bin/echo", ["hello"])).toEqual({
+		expect(await runBounded("echo", ["hello"])).toEqual({
 			text: "hello\n",
 		});
 	});
@@ -436,7 +438,7 @@ describe("a program run with a bound", () => {
 		try {
 			// The child's own timeout runs on Node's internal timers, which
 			// the test doesn't fake, so only the bound can answer here.
-			const answer = runBounded("/bin/sleep", ["2"]);
+			const answer = runBounded("sleep", ["2"]);
 			await vi.advanceTimersByTimeAsync(PROGRAM_TIMEOUT_MS + 1_000);
 			expect(await answer).toEqual({ slow: true });
 		} finally {
@@ -459,7 +461,7 @@ describe("a program run with a bound", () => {
 			// and well inside the bound, so the kill is what answers.
 			const answer = boundedRunner(500, 10_000)("/bin/sh", [
 				"-c",
-				`echo $$ > ${pidFile}; trap "" TERM; exec /bin/sleep 30`,
+				`echo $$ > ${pidFile}; trap "" TERM; exec sleep 30`,
 			]);
 			expect(await answer).toEqual({ slow: true });
 			const pid = Number(readFileSync(pidFile, "utf8").trim());

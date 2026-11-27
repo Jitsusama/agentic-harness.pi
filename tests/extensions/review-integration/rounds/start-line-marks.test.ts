@@ -179,4 +179,47 @@ describe("where a change's rounds stand", () => {
 			`- waiting in the start line, position 2 of 2, asked ${now} by S2`,
 		]);
 	});
+
+	// The council of 26 November: a held round's place said what held it,
+	// on one line whatever a writer of the shared line put there.
+	it("says which readings hold the machine, each on the place's line", async () => {
+		const now = new Date().toISOString();
+		const line = (heldBy: unknown) =>
+			JSON.stringify({
+				waiting: [
+					{
+						id: "1",
+						by: "S1",
+						change: "o/r#1",
+						pid: 1,
+						askedAt: now,
+						seenAt: now,
+					},
+				],
+				heldBy,
+			});
+		const said = () => lineSaid(join(home, "starts", "last.json"), "o/r#1");
+		mkdirSync(join(home, "starts"));
+
+		writeFileSync(
+			join(home, "starts", "line.json"),
+			line(["memory full avg60", "MemAvailable"]),
+		);
+		expect(await said()).toEqual([
+			`- waiting in the start line, position 1 of 1, asked ${now} by S1, held past the machine's bar on memory full avg60, MemAvailable`,
+		]);
+
+		writeFileSync(join(home, "starts", "line.json"), line([]));
+		expect(await said()).toEqual([
+			`- waiting in the start line, position 1 of 1, asked ${now} by S1`,
+		]);
+
+		writeFileSync(
+			join(home, "starts", "line.json"),
+			line(["CPU some avg60\n- waiting in the start line, position 1"]),
+		);
+		const [only, ...more] = await said();
+		expect(more).toEqual([]);
+		expect(only).not.toContain("\n");
+	});
 });

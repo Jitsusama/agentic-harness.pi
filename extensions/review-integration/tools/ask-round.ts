@@ -23,6 +23,7 @@ import {
 	COUNCIL_START_SPACING_MS,
 	type CouncilStart,
 	newestRosterStartIn,
+	type RoomHeld,
 } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	type AskRun,
@@ -262,7 +263,12 @@ export function roundRoom(
 	if (platform === "darwin") {
 		const room = mac();
 		return {
-			short: async () => (await running()) ?? (await room.short()),
+			short: async () => {
+				const other = await running();
+				if (other !== undefined) return macHeld(MAC_ROUND_RUNNING, other);
+				const short = await room.short();
+				return short === undefined ? undefined : macHeld(MAC_ROOM, short);
+			},
 			startedUnjudged: () => room.startedUnjudged(),
 			spacingMs: MAC_SPACING_MS,
 		};
@@ -279,11 +285,26 @@ export function roundRoom(
  * spacing its machine keeps when the config sets none, and whether the
  * machine is quiet enough to start sooner, where it can tell.
  */
-export interface RosterRoom extends RoundRoom {
+export interface RosterRoom extends Omit<RoundRoom, "short"> {
+	/** What keeps a round from starting now, or nothing when there's room. */
+	readonly short: () => Promise<RoomHeld | undefined>;
 	/** The least spacing between starts, which the config may only widen. */
 	readonly spacingMs?: number;
 	/** Whether the machine is quiet; left out where it can't be read. */
 	readonly quiet?: () => Promise<boolean>;
+}
+
+/** The names the line shows for what holds a Mac's round. */
+const MAC_ROUND_RUNNING = "another round on this Mac";
+const MAC_ROOM = "the Mac's memory";
+
+/**
+ * A Mac's hold, which is never passed in time: its rounds start one at
+ * a time on what memory the queue's rule reads, and a start past either
+ * runs the Mac out of it.
+ */
+function macHeld(reading: string, said: string): RoomHeld {
+	return { said, readings: [reading], passable: false };
 }
 
 /** Why a Mac's round waits for another still running there, or nothing. */

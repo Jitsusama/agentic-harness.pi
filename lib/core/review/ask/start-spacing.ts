@@ -31,8 +31,17 @@
  * for, the first in line starts as soon as nothing is short and half a
  * minute has passed since the last start: two a minute, so a long line
  * drains no faster than the minute-long averages of pressure can show
- * what the rounds before it took. The line keeps the order rounds were asked in, and its lock
- * makes each start whole.
+ * what the rounds before it took. The line keeps the order rounds were
+ * asked in, and its lock makes each start whole.
+ *
+ * A bar nothing can pass starves the line: from 17:45 on 26 November
+ * optimus sat at CPU `some` 40 to 54, past the CPU bar, for hours. So a
+ * round held by a bar the reading calls passable, the CPU's alone,
+ * starts anyway once it has been held by it for twenty minutes and no
+ * round has started for ten (A210E4CA, 26 November): at most one such
+ * start each ten minutes, and memory, whose shortage stalls the whole
+ * machine, is never passed. The line says what holds it, so a round's
+ * place can be read with its reason before it starts.
  *
  * A place once lost was lost for good. A round looks at the line under
  * its lock, and a look that met the lock held past its wait said
@@ -124,6 +133,22 @@ const REMEMBERED_MS = 6 * 60 * 60_000;
  */
 const SEEN_REFRESH_MS = UNSEEN_TICKET_MS / 4;
 
+/** How long a passable bar alone may hold a round before it starts anyway. */
+export const PASS_AFTER_MS = 20 * 60_000;
+
+/** How long since the last start before a round may pass a bar. */
+export const PASS_SPACING_MS = 10 * 60_000;
+
+/** What keeps a round from starting now, as `room` reads it. */
+export interface RoomHeld {
+	/** Every reading that is short, with its value and bar, for the answer. */
+	readonly said: string;
+	/** The names of the readings that are short, for the line to show. */
+	readonly readings: readonly string[];
+	/** Whether this is a bar a round may pass once it has held long enough. */
+	readonly passable: boolean;
+}
+
 /**
  * How far ahead a start may lie and still be spaced from. One further
  * ahead than any line of real rounds would reach is a clock that moved
@@ -189,6 +214,8 @@ interface Line {
 	readonly firstAsked?: Readonly<Record<string, string>>;
 	/** Tickets a newer ask replaced, with when, so their rounds can end. */
 	readonly replaced?: Readonly<Record<string, string>>;
+	/** The readings the machine was short of at the last look, if any. */
+	readonly heldBy?: readonly string[];
 }
 
 /** Who is starting a council now, and on what. */
@@ -210,10 +237,16 @@ export interface StartClaim {
 	 */
 	readonly spacing?: () => Promise<number | undefined>;
 	/**
-	 * What keeps a round from starting now, such as memory or CPU, said for its
-	 * answer, or nothing when the machine has room. Read at each look.
+	 * What keeps a round from starting now, such as memory or CPU, or
+	 * nothing when the machine has room. Read at each look.
 	 */
-	readonly room?: () => Promise<string | undefined>;
+	readonly room?: () => Promise<RoomHeld | undefined>;
+	/**
+	 * How long a passable bar alone may hold a round before it starts
+	 * anyway, and how long since the last start it then waits for;
+	 * {@link PASS_AFTER_MS} and {@link PASS_SPACING_MS} unless given.
+	 */
+	readonly pass?: { readonly afterMs: number; readonly spacingMs: number };
 	/**
 	 * Whether the machine is quiet enough that a round may start one look
 	 * after the last, rather than its own spacing. Read at each look, and
@@ -304,12 +337,16 @@ export async function awaitCouncilStart(
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
 	let lastShort: string | undefined;
+	// Since when only a passable bar has held the machine, by this round's
+	// own looks, so a round that joins a line already held so counts from
+	// its own first look.
+	let passableSince: number | undefined;
 	let failed = 0;
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
 			spacings = await spacingsNow(claim, lookAgain);
-			turn = await takeTurn(at, path, ticket, claim, spacings);
+			turn = await takeTurn(at, path, ticket, claim, spacings, passableSince);
 			failed = 0;
 		} catch (error) {
 			// A lock another live round holds past the wait is a busy line,
@@ -329,7 +366,11 @@ export async function awaitCouncilStart(
 			// Nothing of its own to leave: the newer ask holds its place.
 			return { cancelled: REPLACED_SAID };
 		}
-		if (turn !== undefined) firstSeen ??= turn;
+		if (turn !== undefined) {
+			firstSeen ??= turn;
+			passableSince =
+				turn.passable === true ? (passableSince ?? turn.lookedAt) : undefined;
+		}
 		if (turn?.short !== undefined) lastShort = turn.short;
 		const started = turn?.started;
 		if (turn !== undefined && started !== undefined) {
@@ -346,10 +387,18 @@ export async function awaitCouncilStart(
 				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
+			const passed =
+				turn.passed === true
+					? passSaid(
+							claim,
+							(turn.lookedAt ?? Date.now()) -
+								(passableSince ?? turn.lookedAt ?? Date.now()),
+						)
+					: "";
 			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
 				: {
-						waited: waitSaid(firstSeen, spacings, waitedMs, lastShort),
+						waited: `${waitSaid(firstSeen, spacings, waitedMs, lastShort)}${passed}`,
 						release,
 					};
 		}
@@ -401,6 +450,12 @@ interface Turn {
 	readonly behind?: { readonly by: string; readonly change: string };
 	/** What the machine was short of, when that held it back. */
 	readonly short?: string;
+	/** Whether what held it, if anything, was a passable bar alone. */
+	readonly passable?: boolean;
+	/** Whether it started past a passable bar it had been held by long enough. */
+	readonly passed?: boolean;
+	/** When the look was made, as a time. */
+	readonly lookedAt?: number;
 }
 
 async function takeTurn(
@@ -409,14 +464,15 @@ async function takeTurn(
 	ticket: Ticket,
 	claim: StartClaim,
 	spacings: Spacings,
+	passableSince: number | undefined,
 ): Promise<Turn> {
 	const elsewhere = await claim.startedElsewhere?.();
 	// Read before the lock, as they may be slow; a round that reads room
 	// and then finds another first in line waits its turn all the same.
-	const short = await claim.room?.();
+	const held = await claim.room?.();
 	const hurry =
 		spacings.quickest < spacings.spacing &&
-		short === undefined &&
+		held === undefined &&
 		(await claim.quiet?.()) === true;
 	const spacing = hurry ? spacings.quickest : spacings.spacing;
 	const urgent = new Set(await claim.urgent?.());
@@ -427,7 +483,12 @@ async function takeTurn(
 			alive: claim.alive ?? isAlive,
 			urgent,
 			spacing,
-			short,
+			held,
+			pass: {
+				since: passableSince,
+				afterMs: claim.pass?.afterMs ?? PASS_AFTER_MS,
+				spacingMs: claim.pass?.spacingMs ?? PASS_SPACING_MS,
+			},
 			starts: [elsewhere?.getTime(), await oldSlotCome(path, now)],
 		});
 	// Most looks change nothing: the round is kept, seen lately, in order
@@ -453,7 +514,13 @@ interface LookAt {
 	/** Tickets and changes marked urgent. */
 	readonly urgent: ReadonlySet<string>;
 	readonly spacing: number;
-	readonly short: string | undefined;
+	readonly held: RoomHeld | undefined;
+	/** When a passable bar alone began to hold this round, and how long it may. */
+	readonly pass: {
+		readonly since: number | undefined;
+		readonly afterMs: number;
+		readonly spacingMs: number;
+	};
 	/** Starts made outside the line, as times, when there were any. */
 	readonly starts: readonly (number | undefined)[];
 }
@@ -471,12 +538,18 @@ interface Look {
  */
 function look(line: Line, at: LookAt): Look {
 	const { ticket, now } = at;
+	const seen = { lookedAt: now, ...heldTurn(at.held) };
 	if (line.started?.follows?.ticket === ticket.id) {
 		// An earlier look took the start and failed on its way out, and a
 		// quiet machine's next round started one look later: it is
 		// started all the same, though no longer the start to give back.
 		return {
-			turn: { started: line.started.follows, ahead: 0, waitMs: 0 },
+			turn: {
+				started: line.started.follows,
+				ahead: 0,
+				waitMs: 0,
+				lookedAt: now,
+			},
 		};
 	}
 	if (line.started?.ticket === ticket.id) {
@@ -489,11 +562,12 @@ function look(line: Line, at: LookAt): Look {
 				...(follows === undefined ? {} : { before: follows }),
 				ahead: 0,
 				waitMs: 0,
+				lookedAt: now,
 			},
 		};
 	}
 	if (line.replaced?.[ticket.id] !== undefined) {
-		return { turn: { ahead: 0, waitMs: 0, replaced: true } };
+		return { turn: { ahead: 0, waitMs: 0, replaced: true, lookedAt: now } };
 	}
 	const replaced = remembered(line.replaced, now);
 	const kept = line.waiting.find((each) => each.id === ticket.id);
@@ -556,7 +630,14 @@ function look(line: Line, at: LookAt): Look {
 		Number.NEGATIVE_INFINITY,
 	);
 	const free = last + at.spacing;
-	if (ahead === 0 && now >= free && at.short === undefined) {
+	// Held by a passable bar alone for long enough, it starts once no
+	// round has started for the pass's spacing, as the head says.
+	const passes =
+		at.held?.passable === true &&
+		at.pass.since !== undefined &&
+		now - at.pass.since >= at.pass.afterMs &&
+		now >= last + Math.max(at.spacing, at.pass.spacingMs);
+	if (ahead === 0 && now >= free && (at.held === undefined || passes)) {
 		const before = withoutFollows(line.started);
 		const started: Started = {
 			at: new Date(now).toISOString(),
@@ -575,14 +656,22 @@ function look(line: Line, at: LookAt): Look {
 				...(before === undefined ? {} : { before }),
 				ahead: 0,
 				waitMs: 0,
+				...seen,
+				...(passes ? { passed: true } : {}),
 			},
-			next: remembering({ started, waiting: left }, asked, replaced),
+			next: remembering(
+				{ started, waiting: left, ...heldLine(at.held) },
+				asked,
+				replaced,
+			),
 		};
 	}
 	const next = remembering(
-		line.started === undefined
-			? { waiting }
-			: { started: line.started, waiting },
+		{
+			...(line.started === undefined ? {} : { started: line.started }),
+			waiting,
+			...heldLine(at.held),
+		},
 		firstAsked,
 		replaced,
 	);
@@ -595,12 +684,12 @@ function look(line: Line, at: LookAt): Look {
 			// least a moment, which says it waited.
 			waitMs: Math.max(
 				Math.max(free, now) + ahead * at.spacing - now,
-				ahead > 0 || at.short !== undefined ? 1 : 0,
+				ahead > 0 || at.held !== undefined ? 1 : 0,
 			),
 			...(ahead > 0 && first !== undefined
 				? { behind: { by: first.by, change: first.change } }
 				: {}),
-			...(at.short === undefined ? {} : { short: at.short }),
+			...seen,
 		},
 		// Only a change is written: a ticket joining, one dropped or moved,
 		// or a sighting old enough to need saying again.
@@ -608,12 +697,29 @@ function look(line: Line, at: LookAt): Look {
 	};
 }
 
+/** What a look says of the machine's hold on it. */
+function heldTurn(
+	held: RoomHeld | undefined,
+): Pick<Turn, "short" | "passable"> {
+	return held === undefined
+		? {}
+		: { short: held.said, ...(held.passable ? { passable: true } : {}) };
+}
+
+/**
+ * What the line keeps of the machine's hold: the readings' names only,
+ * which change seldom, so a look whose figures moved writes nothing.
+ */
+function heldLine(held: RoomHeld | undefined): Pick<Line, "heldBy"> {
+	return held === undefined ? {} : { heldBy: held.readings };
+}
+
 /**
  * The line with what it remembers: each waiting change's first ask,
  * folded into those remembered, and the tickets lately replaced.
  */
 function remembering(
-	line: Pick<Line, "started" | "waiting">,
+	line: Pick<Line, "started" | "waiting" | "heldBy">,
 	firstAsked: Record<string, string>,
 	replaced: Record<string, string>,
 ): Line {
@@ -711,6 +817,7 @@ function normal(line: Line): Line {
 		waiting: line.waiting,
 		...(line.firstAsked === undefined ? {} : { firstAsked: line.firstAsked }),
 		...(line.replaced === undefined ? {} : { replaced: line.replaced }),
+		...(line.heldBy === undefined ? {} : { heldBy: line.heldBy }),
 	};
 }
 
@@ -859,11 +966,16 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 			"firstAsked" in parsed ? timesIn(parsed.firstAsked) : undefined;
 		const replaced =
 			"replaced" in parsed ? timesIn(parsed.replaced) : undefined;
+		const heldBy =
+			"heldBy" in parsed && Array.isArray(parsed.heldBy)
+				? parsed.heldBy.filter((each) => typeof each === "string")
+				: undefined;
 		return {
 			...(started === undefined ? {} : { started }),
 			waiting,
 			...(firstAsked === undefined ? {} : { firstAsked }),
 			...(replaced === undefined ? {} : { replaced }),
+			...(heldBy === undefined ? {} : { heldBy }),
 		};
 	} catch {
 		// Cut short or overwritten by hand: spaced from now.
@@ -1086,6 +1198,18 @@ function waitSaid(
 	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round stops looking is passed over after ${UNSEEN_TICKET_MS / 60_000} minutes and keeps its place.`;
 }
 
+/**
+ * What a round that passed a bar adds to what its wait says: how long
+ * the CPU bar alone really held it, which can run well past the hold a
+ * pass needs while it waits its place or the pass's spacing, and the
+ * two rules it passed by.
+ */
+function passSaid(claim: StartClaim, heldMs: number): string {
+	const after = claim.pass?.afterMs ?? PASS_AFTER_MS;
+	const spacing = claim.pass?.spacingMs ?? PASS_SPACING_MS;
+	return ` It started past the CPU bar, which alone had held it for ${minutesSaid(heldMs)}, since a round the CPU bar alone holds for ${spacingSaid(after)} starts once no round has started for ${spacingSaid(spacing)}.`;
+}
+
 /** What a round replaced by a newer ask for its change answers. */
 const REPLACED_SAID =
 	"It was replaced by a newer ask for this change, which keeps its place in the start line, so nothing was started.";
@@ -1100,6 +1224,8 @@ export interface LinePlace {
 	readonly by: string;
 	/** When its change was first asked about, in ISO form. */
 	readonly askedAt: string;
+	/** The readings the machine was short of at the line's last look. */
+	readonly heldBy?: readonly string[];
 }
 
 /**
@@ -1130,6 +1256,7 @@ export async function placesInLine(
 						of: holding.length,
 						by: each.by,
 						askedAt: each.askedAt,
+						...(line.heldBy === undefined ? {} : { heldBy: line.heldBy }),
 					},
 				]
 			: [],

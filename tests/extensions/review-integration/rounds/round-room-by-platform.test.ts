@@ -27,7 +27,11 @@ describe("the room a round reads", () => {
 			async () => undefined,
 		);
 
-		expect(await room.short()).toBe("a Mac's own reason");
+		expect(await room.short()).toEqual({
+			said: "a Mac's own reason",
+			readings: ["the Mac's memory"],
+			passable: false,
+		});
 		expect(room.startedUnjudged()).toBe("started without a verdict");
 		expect(room.spacingMs).toBe(MAC_SPACING_MS);
 		expect(MAC_SPACING_MS).toBe(2 * 60_000);
@@ -49,7 +53,11 @@ describe("the room a round reads", () => {
 			async () => "council-x still runs on this Mac",
 		);
 
-		expect(await room.short()).toBe("council-x still runs on this Mac");
+		expect(await room.short()).toEqual({
+			said: "council-x still runs on this Mac",
+			readings: ["another round on this Mac"],
+			passable: false,
+		});
 		expect(read, "a round already running needs no reading").toBe(false);
 	});
 
