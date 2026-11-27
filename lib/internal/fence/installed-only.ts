@@ -12,7 +12,10 @@
  * command planted there, outside the fence (ISXEG8, 21 November). An
  * unisolated child also loads every extension the person's settings
  * name. So children of a fenced session run only from the install; a
- * session on a tree reloads onto it first. What a package registers or
+ * session on a tree reloads onto it first. A session whose own harness
+ * was loaded from the Nix store, as a room's is, may start them too,
+ * its children taking the fence's packs from that same copy (ISXEG8's
+ * #2328). What a package registers or
  * the settings name may also lie in pi's agent folder, which the fence
  * holds read-only too, or in the Nix store, which nobody writes.
  */
@@ -153,6 +156,8 @@ export interface Places {
 	readonly harness: () => string | undefined;
 	/** The other places a registered default may lie, the install aside. */
 	readonly held?: readonly string[];
+	/** The Nix store, where this session's own harness may lie too. */
+	readonly store?: string;
 }
 
 /** Where things lie on this machine, read as the gate asks. */
@@ -167,24 +172,25 @@ export function placesHere(): Places {
 
 /**
  * Why children of a fenced session can't start, or nothing: this
- * package runs from outside the install and every other held place, an extension registered as
- * every child's default lies outside it, or, for an unisolated child,
- * the person's settings load this package from outside or not at all.
+ * package runs from outside the install and the Nix store, an
+ * extension registered as every child's default lies outside every held
+ * place, or, for an unisolated child, the person's settings load this
+ * package from outside the install or not at all.
  */
 export function fencedChildrenRefusal(
 	unisolated: boolean,
 	defaults: readonly string[],
 	places: Places = placesHere(),
 ): string | undefined {
-	const { root, own, harness, held = [] } = places;
-	// A room runs the harness from the Nix store, which no fenced command
-	// writes any more than the install, so it counts as held too.
-	const safe = [root, ...held];
-	const isHeld = (real: string) => safe.some((each) => inside(real, each));
-	if (!isHeld(own)) {
-		return `This session runs the harness from ${own}, outside ${INSTALL}, pi's agent folder and the Nix store, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
+	const { root, own, harness, held = [], store = NIX_STORE } = places;
+	// A room runs the harness from the Nix store. Its own copy is held: no
+	// fenced command changes a store path, and which copy this session
+	// loaded is no command's choice. Children take their packs from that
+	// same copy (fence-keep's fencePacks), not from anywhere in the store.
+	if (!(inside(own, root) || inside(own, store))) {
+		return `This session runs the harness from ${own}, outside ${INSTALL} and the Nix store, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
 	}
-	const strays = outsideOf(defaults, safe);
+	const strays = outsideOf(defaults, [root, ...held]);
 	if (strays.length > 0) {
 		return `An extension registered for every subagent lies where fenced commands may write, outside ${INSTALL}, pi's agent folder and the Nix store, and each child would load it outside the fence: ${strays.join(", ")}. Install the package that registers it, or start this session without it.`;
 	}
@@ -193,8 +199,8 @@ export function fencedChildrenRefusal(
 	if (loaded === undefined) {
 		return `An unisolated child loads the harness from the person's settings, which name none, so its bash would be pi's plain one, run outside the fence. Name the install in pi's settings first.`;
 	}
-	if (!isHeld(loaded)) {
-		return `An unisolated child loads the harness from the person's settings, which name ${loaded}, outside ${INSTALL}, pi's agent folder and the Nix store, where fenced commands may write. Point the settings at the install first.`;
+	if (!inside(loaded, root)) {
+		return `An unisolated child loads the harness from the person's settings, which name ${loaded}, outside ${INSTALL}, where fenced commands may write. Point the settings at the install first.`;
 	}
 	return undefined;
 }

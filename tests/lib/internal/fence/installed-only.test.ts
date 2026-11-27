@@ -57,8 +57,9 @@ function places(
 	harness: string | undefined = undefined,
 	root: string | null = packages,
 	held: readonly string[] = [],
+	store: string = join(home, "store"),
 ): Places {
-	return { root, own, harness: () => harness, held };
+	return { root, own, harness: () => harness, held, store };
 }
 
 /** The fence's bash, as the installed harness holds it. */
@@ -139,7 +140,7 @@ describe("a fenced session's children", () => {
 		expect(refusal).toContain('reload with onto "installed"');
 	});
 
-	it("start from a session running the harness from a held place, as a room runs it from the Nix store with no install", () => {
+	it("start from a session running the harness from the Nix store, as a room runs it with no install", () => {
 		const store = join(home, "store");
 		const harness = join(store, "abc-harness");
 		mkdirSync(harness, { recursive: true });
@@ -147,18 +148,38 @@ describe("a fenced session's children", () => {
 			fencedChildrenRefusal(
 				false,
 				[],
-				places(harness, undefined, null, [store]),
+				places(harness, undefined, null, [store], store),
 			),
 		).toBeUndefined();
 	});
 
-	it("start unisolated while the person's settings load the harness from a held place", () => {
+	it("don't start from a tree, or from pi's agent folder, though both the store and that folder hold defaults", () => {
+		const store = join(home, "store");
+		const agent = join(home, ".pi", "agent");
+		const fromAgent = join(agent, "harness");
+		mkdirSync(fromAgent, { recursive: true });
+		for (const own of [tree, fromAgent]) {
+			expect(
+				fencedChildrenRefusal(
+					false,
+					[],
+					places(own, installed, packages, [agent, store], store),
+				),
+			).toContain(`runs the harness from ${own}`);
+		}
+	});
+
+	it("don't start unisolated while the person's settings load the harness from the store, which only the install answers for", () => {
 		const store = join(home, "store");
 		const harness = join(store, "abc-harness");
 		mkdirSync(harness, { recursive: true });
 		expect(
-			fencedChildrenRefusal(true, [], places(harness, harness, null, [store])),
-		).toBeUndefined();
+			fencedChildrenRefusal(
+				true,
+				[],
+				places(harness, harness, null, [store], store),
+			),
+		).toContain(`which name ${harness}`);
 	});
 
 	it("don't start where pi has installed no packages", () => {

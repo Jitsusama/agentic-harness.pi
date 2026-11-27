@@ -26,6 +26,10 @@
  * told its sandbox by name, since a session the first stage lists has
  * none in its environment to pass on, and an isolated one loads the
  * fence's bash and file guards from the install, held as a named one is.
+ * A session whose harness was loaded from the Nix store, as a room's is,
+ * takes them from that same store copy instead: only that one, since
+ * anyone may add a store path through the Nix daemon, and the store
+ * keeps every older copy until it is collected.
  */
 
 import { lstatSync, realpathSync } from "node:fs";
@@ -159,15 +163,13 @@ function lstatExists(path: string): boolean {
 }
 
 /**
- * Where `path` really lies inside `root` or the store, or why it can't
- * be loaded. A path in the store, where a room's image lays out the
- * harness, is held as the install is, and has no older version to lie
- * in: a store path never changes.
+ * Where `path` really lies inside `root`, which `where` names, or why
+ * it can't be loaded.
  */
 function follow(
 	path: string,
 	root: string | null,
-	store: string,
+	where = "pi's installed packages",
 ): { real: string } | { why: string } {
 	if (!isAbsolute(path)) {
 		return { why: `${path} isn't an absolute path` };
@@ -178,7 +180,6 @@ function follow(
 	} catch {
 		return { why: `${path} can't be found` };
 	}
-	if (inside(real, store)) return { real };
 	if (root === null) {
 		return {
 			why: `${path} can't be loaded, since pi's installed packages can't be found`,
@@ -186,7 +187,7 @@ function follow(
 	}
 	if (!inside(real, root)) {
 		return {
-			why: `${path} lies outside pi's installed packages and the Nix store, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
+			why: `${path} lies outside ${where}, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
 		};
 	}
 	const older = olderVersion(real, root);
@@ -204,13 +205,12 @@ export function keepFence<T extends AskedJob>(
 	jobs: readonly T[],
 	sandbox: string | undefined,
 	root: string | null = installedPackages(),
-	store: string = NIX_STORE,
 ): Kept<T> {
 	if (sandbox === undefined) return { ok: true, jobs: [...jobs] };
 	const reasons: string[] = [];
 	const kept = jobs.map((job) => {
 		const real = (path: string): string => {
-			const followed = follow(path, root, store);
+			const followed = follow(path, root);
 			if ("why" in followed) {
 				reasons.push(`${job.id}: ${followed.why}.`);
 				return path;
@@ -235,19 +235,26 @@ export function keepFence<T extends AskedJob>(
 
 /**
  * The fence's extensions, each followed to where it lies in the install
- * as a named one is, or why an isolated child can't be fenced.
+ * as a named one is, or why an isolated child can't be fenced. When the
+ * harness itself lies in the Nix store, they must lie in that same copy
+ * of it, never elsewhere in the store.
  */
 export function fencePacks(
 	home: string = packsHome(),
 	root: string | null = installedPackages(),
 	store: string = NIX_STORE,
 ): { readonly packs: string[] } | { readonly why: string } {
+	const stored = inside(home, store);
+	const within = stored ? home : root;
+	const where = stored
+		? `this harness's copy in the Nix store, ${home}`
+		: "pi's installed packages";
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {
-		const followed = follow(join(home, ...pack.split("/")), root, store);
+		const followed = follow(join(home, ...pack.split("/")), within, where);
 		if ("why" in followed) {
 			return {
-				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from pi's installed packages, and ${followed.why}. Reload onto the install, or start the subagents unisolated.`,
+				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from ${where}, and ${followed.why}. ${stored ? "This copy of the harness lacks them" : "Reload onto the install"}, or start the subagents unisolated.`,
 			};
 		}
 		packs.push(followed.real);

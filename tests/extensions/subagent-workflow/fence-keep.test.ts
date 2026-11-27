@@ -218,16 +218,14 @@ describe("a fenced session's subagent keeps the fence", () => {
 		).toContain("pi's installed packages can't be found");
 	});
 
-	it("lets a job load an extension from the store, which no fenced command writes", async () => {
-		const store = join(place, "store");
-		const pack = join(store, "abc-pack", "index.ts");
-		await mkdir(join(pack, ".."), { recursive: true });
-		await writeFile(pack, "");
-		const job = { id: "a", extraExtensions: [pack] };
-		expect(keepFence([job], "fence", null, store)).toEqual({
-			ok: true,
-			jobs: [job],
-		});
+	it("refuses an extension the job names in the Nix store, where anyone may add a path through the daemon", async () => {
+		// The node running this test lies in the store wherever Nix gave it,
+		// and is a file that is really there, so only the gate refuses it.
+		const stored = await realpath(process.execPath);
+		const job = { id: "a", extraExtensions: [stored] };
+		expect(refusal(keepFence([job], "fence", root))).toContain(
+			`${stored} lies outside pi's installed packages`,
+		);
 	});
 
 	it("lets a job that names no extension run", () => {
@@ -325,6 +323,29 @@ describe("the fence's own extensions", () => {
 		}
 		expect(fencePacks(harness, null, store)).toEqual({
 			packs: PACKS.map((pack) => join(harness, ...pack)),
+		});
+	});
+
+	it("are refused from a store copy whose pack links out of it, even into another store path", async () => {
+		const store = join(place, "store");
+		const harness = join(store, "abc-harness");
+		const other = join(store, "def-other", "index.ts");
+		await mkdir(join(other, ".."), { recursive: true });
+		await writeFile(other, "");
+		for (const [index, pack] of PACKS.entries()) {
+			await mkdir(join(harness, ...pack, ".."), { recursive: true });
+			if (index === 0) await symlink(other, join(harness, ...pack));
+			else await writeFile(join(harness, ...pack), "");
+		}
+		expect(fencePacks(harness, null, store)).toEqual({
+			why: expect.stringContaining(
+				`lies outside this harness's copy in the Nix store, ${harness}`,
+			),
+		});
+		await rm(join(harness, ...PACKS[0]));
+		await symlink(join(outside, "planted.ts"), join(harness, ...PACKS[0]));
+		expect(fencePacks(harness, null, store)).toEqual({
+			why: expect.stringContaining("shell-workflow"),
 		});
 	});
 
