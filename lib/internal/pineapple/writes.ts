@@ -177,6 +177,9 @@ export function repoOfUrl(url: string): string | undefined {
 		.trim()
 		.replace(/^[a-z+]+:\/\/[^/]+\//i, "")
 		.replace(/^[^@/]+@[^:]+:/, "")
+		// scp-style with no user, as `github.com:owner/name`, which git
+		// reads so for any host before a colon with no slash ahead of it.
+		.replace(/^[^@/:]+:/, "")
 		.replace(/\.git\/?$/, "")
 		.replace(/\/$/, "");
 	const parts = path.split("/").filter(Boolean);

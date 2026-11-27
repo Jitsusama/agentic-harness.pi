@@ -1116,7 +1116,19 @@ describe("references", () => {
 		expect(repoOfUrl("ssh://git@code.example.com/example/shop.git")).toBe(
 			"example/shop",
 		);
+		expect(repoOfUrl("github.com:Example/Shop.git")).toBe("example/shop");
 		expect(repoOfUrl("shop")).toBeUndefined();
+		expect(
+			writesInBash("git push github.com:Example/Shop.git x", HERE),
+		).toEqual([
+			{
+				action: "git push",
+				kind: "change",
+				dir: HERE,
+				repo: "example/shop",
+				source: "x",
+			},
+		]);
 	});
 
 	it("finds the branch a bare push goes to as git does", async () => {
