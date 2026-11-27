@@ -100,12 +100,21 @@ reads_nested() {
 # set before the first copy, so an interrupt mid-probe leaves none behind.
 scratch=""
 trap 'rm -rf "$scratch"' EXIT
+# What mkdir or mktemp says goes out with the refusal, since a full disk
+# or a missing folder is cleared another way than the fence is. It goes
+# through shown, the room's name too, since XDG_STATE_HOME may hold any
+# character.
 room=$gate_home/scratch
-if ! (umask 077 && mkdir -p "$room") || ! scratch=$(mktemp -d "$room/merge-gate.XXXXXX"); then
-  echo "merge-gate: no folder could be made under $room, so nothing can be copied out to judge." >&2
-  echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does." >&2
+if ! made=$( (umask 077 && mkdir -p "$room") 2>&1) ||
+  ! made=$(mktemp -d "$room/merge-gate.XXXXXX" 2>&1); then
+  {
+    echo "$made"
+    echo "merge-gate: no folder could be made under $room, so nothing can be copied out to judge."
+    echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does."
+  } | shown >&2
   exit 1
 fi
+scratch=$made
 # A checkout with no Biome is refused below, saying so.
 if [[ -x $biome ]]; then
   probed=0
@@ -290,6 +299,18 @@ if [[ $config_changed == 1 ]]; then
     fi
   done
 fi
+# Biome's output is matched to the files it judges a line at a time, so a
+# name holding a newline would match no line, and a fault in it would
+# read as a run that couldn't judge. Such a name is refused here instead,
+# quoted as printf %q quotes it, so its newline shows as \n, not a break.
+for file in ${judged[@]+"${judged[@]}"}; do
+  if [[ $file == *$'\n'* ]]; then
+    echo "merge-gate: $sha has Biome judge a file whose name holds a newline, which its output can't be matched to:" >&2
+    printf '  %q\n' "$file" | shown >&2
+    echo "Rename it without the newline in a checkout of the branch, push, and merge the new head." >&2
+    exit 1
+  fi
+done
 if [[ ${#judged[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
