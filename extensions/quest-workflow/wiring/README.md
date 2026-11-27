@@ -18,3 +18,5 @@ each in turn, so it reads as the extension's table of contents.
 - `scoreboard.ts`: the loaded quest's one line on screen.
 - `on-top.ts`: what the person put on top, said to every session as a
   standing context.
+- `answer-the-person.ts`: how a session answers its person, first and
+  for the whole quest, said to every session as a standing context.

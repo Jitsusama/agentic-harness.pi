@@ -42,6 +42,7 @@ import {
 } from "./orchestration/standing-rules.ts";
 import { questCommandEnvironment } from "./scratch.ts";
 import { createQuestState } from "./state.ts";
+import { registerAnsweringThePerson } from "./wiring/answer-the-person.ts";
 import { watchToolCalls } from "./wiring/calls.ts";
 import { registerQuestCommands } from "./wiring/commands.ts";
 import { registerOnTop } from "./wiring/on-top.ts";
@@ -133,6 +134,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// What Joel put on top, said to every session as it next works.
 	registerOnTop(pi);
+
+	// How to answer the person: first, and for the whole quest when he
+	// asks where things stand.
+	registerAnsweringThePerson(pi);
 
 	// Half of WCJQSG's builders try sending independent looks together.
 	registerBatchingTrial(
