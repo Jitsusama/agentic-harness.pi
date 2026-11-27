@@ -163,13 +163,18 @@ describe("the subjects a quest's sessions declare", () => {
 	// Routing keeps no word past LONGEST_WORD, so one such names no work.
 	it("refuse a subject whose one word runs past the longest kept", async () => {
 		const id = await made();
-		const long = `x:${"a".repeat(LONGEST_WORD + 1)}`;
+		const word = "a".repeat(LONGEST_WORD + 1);
+		const long = `x:${word}`;
 		const result = await run({ action: "config", id, ref: `subjects=${long}` });
 		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
 			false,
 			undefined,
 		]);
-		expect(said(result)).toContain(long);
+		// Named by its length, not only as naming no work, which either
+		// cause would say (#2220's round 8, F8).
+		expect(said(result), "refused for its word's length").toContain(
+			`${word} in ${long}`,
+		);
 	});
 
 	// A hub takes a need saying every word of its subject, and no need
@@ -286,8 +291,9 @@ describe("the subjects a quest's sessions declare", () => {
 	});
 
 	// What the quest owns is the machine's config, which subjects= can't
-	// change, so the report names only what the README declares.
-	it("name those the README declares that name no work, and none it owns", async () => {
+	// change, so the report says it apart, as the owners file's to mend
+	// (#2220's round 8, F10).
+	it("name those the README declares that name no work, and those it owns apart", async () => {
 		const id = await made();
 		// An owned prefix as common as after routes nothing either.
 		owners(`after.=${questAddress(id)}`);
@@ -299,7 +305,12 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 		const report = await run({ action: "config", id });
 		expect(said(report)).toMatch(/, of which x:can names no work a need/);
-		expect(said(report), "the owned prefix").toMatch(/owning after\./);
+		expect(said(report), "the owned prefix, said apart").toContain(
+			"owning after., of which after. takes no need, which the machine's owners file must mend",
+		);
+		expect(said(report), "not as the README's").not.toMatch(
+			/after\. names no work/,
+		);
 	});
 
 	// One set by hand, or before config refused it, would leave its hub
@@ -322,13 +333,15 @@ describe("the subjects a quest's sessions declare", () => {
 
 	// An owned prefix is the machine's config, which subjects= can't
 	// change, so it is never named as the README's (#2220's sixth
-	// council, F46).
-	it("name no owned prefix whose word past the longest kept leaves its hub taking none", async () => {
+	// council, F46), but said apart (round 8, F10).
+	it("name an owned prefix whose word past the longest kept leaves its hub taking none apart from the README's", async () => {
 		const id = await made();
 		const long = `${"a".repeat(LONGEST_WORD + 1)}-lines.`;
 		owners(`${long}=${questAddress(id)}`);
 		const report = await run({ action: "config", id });
-		expect(said(report), "the owned prefix").toContain(`owning ${long}`);
+		expect(said(report), "the owned prefix, said apart").toContain(
+			`owning ${long}, of which ${long} takes no need, which the machine's owners file must mend`,
+		);
 		expect(said(report), "not as the README's").not.toMatch(
 			/past \d+ characters/,
 		);

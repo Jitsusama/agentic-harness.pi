@@ -266,7 +266,10 @@ describe("the plain words a need is not matched by", () => {
 			id: 2,
 			records: [
 				{ key: "cell:SSHSYN", title: "Sync over SSH" },
-				{ key: "cell:HANDOV", title: "Notes", subjects: ["x:hand-over"] },
+				// Said as prose, so only a phrase read gives hand-over, as a
+				// joined id would be kept whole without one (#2220's round 8,
+				// F3).
+				{ key: "cell:HANDOV", title: "Notes", subjects: ["x:hand over"] },
 			],
 		});
 		const [titled, declared] = foragersFrom(line);

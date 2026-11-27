@@ -159,9 +159,9 @@ function ownedByQuest(questId: string): string[] {
  * it: what they own, then what the README declares, naming any of
  * those the node would pass over or the places would leave out, and
  * which it declares name no work a need is routed by or say a word
- * whose hub no need reaches. What it owns is
- * the machine's config, which `subjects=` can't change, so it is left
- * out of those.
+ * whose hub no need reaches. What it owns is the machine's config,
+ * which `subjects=` can't change, so it is said apart, as the owners
+ * file's to mend.
  */
 function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 	const owned = subjectsOf(ownedByQuest(questId), []);
@@ -193,6 +193,14 @@ function subjectsSaid(questId: string, fm: QuestFrontMatter): string {
 		);
 	}
 	if (owned.length > 0) parts.push(`owning ${owned.join(", ")}`);
+	// No refusal guards the owners file, so an owned prefix no need can
+	// reach would otherwise go quiet unseen (#2220's round 8, F10).
+	const ownedHubless = owned.filter(hubTakesNone);
+	if (ownedHubless.length > 0) {
+		parts.push(
+			`of which ${ownedHubless.join(", ")} ${ownedHubless.length === 1 ? "takes" : "take"} no need, which the machine's owners file must mend`,
+		);
+	}
 	if (left.length > 0) {
 		parts.push(`leaving out ${left.length} its README declares`);
 	}
