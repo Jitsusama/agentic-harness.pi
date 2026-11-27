@@ -18,6 +18,7 @@ import {
 	isParked,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import {
 	holderSteers,
@@ -256,8 +257,7 @@ describe("waking a parked peer", () => {
 	});
 
 	it("judges a message at its own time unless told when", () => {
-		const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-		const hold = message({ intent: "hold", at: threeHoursAgo.toISOString() });
+		const hold = lapsedHold();
 		const woken = (judged?: { now: number }) =>
 			wakeParked(
 				hold,
@@ -276,7 +276,30 @@ describe("waking a parked peer", () => {
 			"a hold that had lapsed by the time it was judged woke",
 		).toEqual([]);
 	});
+
+	it("judges one message at its own time unless told when", () => {
+		const hold = lapsedHold();
+
+		expect(
+			wakes(hold, parked, nothing),
+			"a hold judged at its own time didn't wake",
+		).toBe(true);
+		expect(
+			wakes(hold, parked, nothing, undefined, Date.now()),
+			"a hold that had lapsed by the time it was judged woke",
+		).toBe(false);
+	});
 });
+
+/**
+ * A hold sent an hour past the longest a hold lasts, so it is live at
+ * its own time and lapsed now.
+ */
+function lapsedHold(): Message {
+	const hourMs = 60 * 60 * 1000;
+	const sent = new Date(Date.now() - MOST_HOLD_MS - hourMs);
+	return message({ intent: "hold", at: sent.toISOString() });
+}
 
 describe("waking a parked peer for a message carried in", () => {
 	const here: Presence = {
