@@ -23,7 +23,9 @@
  * than be released, the window carries on as this join all the same,
  * which says so and looks again, waiting longer the more `--failures`
  * its words count. Under none, a view or a release runs it itself,
- * ending as it ends.
+ * ending as it ends. Should the window's folder have been removed and
+ * made again under it, what comes next starts in the folder at that
+ * path, since pi exits at once in a folder that is gone.
  *
  * The words a window keeps name this script through the install's
  * `current` link, so they still run once the version that wrote them is
@@ -61,6 +63,10 @@ import {
 	sayParked,
 	WAKE_ENV,
 } from "../lib/internal/session/park.ts";
+import {
+	remadeFolder,
+	startingIn,
+} from "../lib/internal/session/remade-folder.ts";
 
 const args = process.argv.slice(2);
 const split = args.indexOf("--");
@@ -144,8 +150,17 @@ const released = [
 	"--",
 	...plainPi,
 ];
-const next =
+const after =
 	joined.to === "host" ? viewingWords(joined.hold, session, released) : plainPi;
+// A holder hours old may sit in a folder a checkout has since removed
+// and made again; started there, pi would end at once, closing the
+// window. So what comes next enters the folder at that path afresh.
+const folder = remadeFolder();
+if (folder !== undefined)
+	looking.say(
+		`This window's folder was made again, so it carries on in ${folder}.`,
+	);
+const next = held && folder !== undefined ? startingIn(folder, after) : after;
 if (held) {
 	writeFileSync(again, JSON.stringify(next));
 	writeFileSync(
@@ -160,6 +175,9 @@ if (held) {
 	process.exitCode = PARKED_EXIT;
 } else {
 	const [program = "", ...words] = next;
-	const ran = spawnSync(program, words, { stdio: "inherit" });
+	const ran = spawnSync(program, words, {
+		stdio: "inherit",
+		...(folder === undefined ? {} : { cwd: folder }),
+	});
 	process.exitCode = ran.status ?? 1;
 }
