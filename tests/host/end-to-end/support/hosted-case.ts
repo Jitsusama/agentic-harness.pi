@@ -110,13 +110,25 @@ export function turnEnded(file: string | undefined): boolean {
 	return last?.role === "assistant" && last.stopReason !== "toolUse";
 }
 
+/** Every entry a session file records, each as its parsed record. */
+export function entriesOf(file: string | undefined): Record<string, unknown>[] {
+	return textOf(file)
+		.split("\n")
+		.map(entryOf)
+		.filter((entry) => entry !== undefined);
+}
+
 /** The message a session file's line records, if it records one. */
 function entryMessage(line: string): Record<string, unknown> | undefined {
+	const entry = entryOf(line);
+	return isRecord(entry?.message) ? entry.message : undefined;
+}
+
+/** The entry a session file's line records, if it parses as one. */
+function entryOf(line: string): Record<string, unknown> | undefined {
 	try {
 		const entry: unknown = JSON.parse(line);
-		return isRecord(entry) && isRecord(entry.message)
-			? entry.message
-			: undefined;
+		return isRecord(entry) ? entry : undefined;
 	} catch {
 		// A line still being written, or the blank one after the last: none.
 		return undefined;

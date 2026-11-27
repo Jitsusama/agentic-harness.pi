@@ -33,6 +33,7 @@ import { isRecord } from "../../../lib/internal/record.ts";
 import { saidAfter } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
+	entriesOf,
 	onHostPi,
 	ROUND_TRIP_MS,
 	textOf,
@@ -117,21 +118,6 @@ function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
 }
 
-/** The entries of a session file, each as its parsed record. */
-function entriesOf(file: string): Record<string, unknown>[] {
-	return textOf(file)
-		.split("\n")
-		.flatMap((line) => {
-			try {
-				const entry: unknown = JSON.parse(line);
-				return isRecord(entry) ? [entry] : [];
-			} catch {
-				// The blank line after the last, or one still being written.
-				return [];
-			}
-		});
-}
-
 /** How many times the conversation's model called bash to run CARRYING. */
 function carriedCalls(file: string): number {
 	return entriesOf(file)
@@ -187,6 +173,26 @@ async function keptGoes(file: string): Promise<void> {
 			].join("\n"),
 		);
 	});
+}
+
+/**
+ * `carriedOnce`, once the turn the next host's word of the end starts is
+ * answered: that turn, or the next host's continue, is what may ask the
+ * model again, and a run it starts is in the log only once it ends.
+ */
+async function answeredOnce(file: string, when: string): Promise<void> {
+	await untilAnswered(
+		`the turn is answered ${when}`,
+		async () => turnEnded(file),
+		ROUND_TRIP_MS,
+	).catch((failed: unknown) => {
+		throw new Error(
+			[String(failed), `the log's entries:\n${entryLines(file)}`, said()].join(
+				"\n",
+			),
+		);
+	});
+	carriedOnce(file, when);
 }
 
 /**
@@ -298,12 +304,12 @@ it(
 			).catch((failed: unknown) => {
 				throw new Error(`${String(failed)}\n${said()}`);
 			});
-			// The next host's continue is what may ask the model again.
-			carriedOnce(file, "once the next host said its end");
+			await answeredOnce(file, "once the next host said its end");
 			await keptGoes(file);
 		});
 	},
-	ROUND_TRIP_MS * 4 + CARRIED_MS,
+	// A round trip more than its waits, for the answer to the end's turn.
+	ROUND_TRIP_MS * 5 + CARRIED_MS,
 );
 
 it(
@@ -370,11 +376,11 @@ it(
 				endedAfter >= RUNS_MS,
 				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms into it`,
 			).toBe(true);
-			carriedOnce(file, "once the next host said its end");
+			await answeredOnce(file, "once the next host said its end");
 			await keptGoes(file);
 		});
 	},
-	ROUND_TRIP_MS * 5 + CARRIED_MS,
+	ROUND_TRIP_MS * 6 + CARRIED_MS,
 );
 
 it(
@@ -403,7 +409,7 @@ it(
 					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}\n${said()}`,
 				);
 			});
-			carriedOnce(file, "once the next host said it was lost");
+			await answeredOnce(file, "once the next host said it was lost");
 			// The lost line quotes the command, its echo included, so only a
 			// line of the echo's own output would say it ran again.
 			const there = saidAfter(file, held.length);
@@ -416,5 +422,5 @@ it(
 			);
 		});
 	},
-	ROUND_TRIP_MS * 5,
+	ROUND_TRIP_MS * 6,
 );
