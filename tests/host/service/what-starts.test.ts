@@ -399,16 +399,38 @@ describe("unitDefinition", () => {
 		).toBe(before);
 	});
 
+	it("leaves out the persistent user.control folder as well as the runtime one", async () => {
+		await put("unit.service", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const persistent =
+			"/home/joel/.config/systemd/user.control/unit.service.d/50-CPUWeight.conf";
+		expect(
+			await unitDefinition(
+				"unit.service",
+				async () =>
+					`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${persistent}\n`,
+			),
+			"what set-property wrote without --runtime",
+		).toBe(fragment);
+	});
+
 	it("still counts a drop-in in the folders beside set-property's", async () => {
 		await put("unit.service", "[Service]\n");
 		const fragment = join(root, "unit.service");
+		// Real files under the test's own folder, so each resolves as a
+		// drop-in on the machine would rather than falling back to its name.
 		const beside = [
-			"/run/user/1000/systemd/user/unit.service.d/50-env.conf",
-			"/run/user/1000/systemd/transient/unit.service.d/50-env.conf",
-			"/home/joel/.config/systemd/user/unit.service.d/override.conf",
-			"/run/user/1000/systemd/user.control.d/unit.service.d/50-env.conf",
+			"run/user/1000/systemd/user/unit.service.d/50-env.conf",
+			"run/user/1000/systemd/transient/unit.service.d/50-env.conf",
+			"home/joel/.config/systemd/user/unit.service.d/override.conf",
+			"run/user/1000/systemd/user.control.d/unit.service.d/50-env.conf",
+			// The system's set-property folder, which the user manager the host
+			// asks never reads, so a drop-in named there is no set-property's.
+			"etc/systemd/system.control/unit.service.d/50-env.conf",
 		];
-		for (const dropIn of beside) {
+		for (const place of beside) {
+			await put(place, "[Service]\n");
+			const dropIn = join(root, place);
 			expect(
 				await unitDefinition(
 					"unit.service",
@@ -425,7 +447,7 @@ describe("definitionMoves", () => {
 	it("names the files systemd now reads and those it no longer reads", () => {
 		expect(
 			definitionMoves("/a.service\n/old.conf", "/a.service\n/new.conf"),
-		).toBe("it now reads /new.conf, and it no longer reads /old.conf");
+		).toBe("it now reads /new.conf; it no longer reads /old.conf");
 		expect(definitionMoves("/a.service", "/a.service\n/new.conf")).toBe(
 			"it now reads /new.conf",
 		);
@@ -439,5 +461,37 @@ describe("definitionMoves", () => {
 			),
 			"drop-ins whose order alone changed",
 		).toBe("it reads the same files in a new order");
+	});
+
+	it("lists every file on each side, in the order systemd reads them", () => {
+		expect(
+			definitionMoves(
+				"/a.service\n/old-1.conf\n/old-2.conf",
+				"/a.service\n/new-1.conf\n/new-2.conf",
+			),
+		).toBe(
+			"it now reads /new-1.conf, /new-2.conf; it no longer reads /old-1.conf, /old-2.conf",
+		);
+	});
+
+	it("counts a file read more or fewer times rather than calling it a new order", () => {
+		expect(
+			definitionMoves("/a.service\n/b.conf", "/a.service\n/b.conf\n/b.conf"),
+			"two drop-ins that now resolve to one file",
+		).toBe("it reads /b.conf twice, not once");
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/b.conf\n/b.conf",
+				"/a.service\n/b.conf",
+			),
+			"three that resolved to one, two of them gone",
+		).toBe("it reads /b.conf once, not 3 times");
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/b.conf",
+				"/a.service\n/b.conf\n/c.conf",
+			),
+			"one of two copies replaced",
+		).toBe("it now reads /c.conf; it reads /b.conf once, not twice");
 	});
 });

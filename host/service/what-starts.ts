@@ -344,18 +344,43 @@ export async function unitDefinition(
 /**
  * What moved between two of a unit's definitions, as the files systemd now
  * reads and those it no longer reads, so a restart says which file changed
- * rather than leaving it to be pieced together from the journal.
+ * rather than leaving it to be pieced together from the journal. Files are
+ * counted, not just named, so one that two drop-ins now resolve to is said
+ * as read a new number of times rather than as a new order. The clauses are
+ * joined with "; ", since a restart's reason joins its own with ", and ".
  */
 export function definitionMoves(before: string, now: string): string {
-	const was = new Set(before.split("\n"));
-	const is = new Set(now.split("\n"));
-	const came = [...is].filter((file) => !was.has(file));
-	const went = [...was].filter((file) => !is.has(file));
+	const was = counted(before);
+	const is = counted(now);
+	const came = [...is.keys()].filter((file) => !was.has(file));
+	const went = [...was.keys()].filter((file) => !is.has(file));
+	const recounted = [...is].flatMap(([file, count]) => {
+		const had = was.get(file);
+		return had === undefined || had === count
+			? []
+			: [`${file} ${times(count)}, not ${times(had)}`];
+	});
 	const moves = [
 		...(came.length > 0 ? [`it now reads ${came.join(", ")}`] : []),
 		...(went.length > 0 ? [`it no longer reads ${went.join(", ")}`] : []),
+		...(recounted.length > 0 ? [`it reads ${recounted.join(", ")}`] : []),
 	];
 	return moves.length > 0
-		? moves.join(", and ")
+		? moves.join("; ")
 		: "it reads the same files in a new order";
+}
+
+/** How many times a definition names each of its files. */
+function counted(definition: string): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const file of definition.split("\n"))
+		counts.set(file, (counts.get(file) ?? 0) + 1);
+	return counts;
+}
+
+/** A count of reads, in words. */
+function times(count: number): string {
+	if (count === 1) return "once";
+	if (count === 2) return "twice";
+	return `${count} times`;
 }

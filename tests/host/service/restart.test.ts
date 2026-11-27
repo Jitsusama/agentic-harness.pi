@@ -1535,8 +1535,12 @@ describe("followWhatStarts", () => {
 		await timers.fire(() => calls.at(-1)?.[1] === "restart");
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
-		expect(String(report.mock.calls.at(-1)?.[0]), "which file moved").toContain(
-			`systemd has a new ${unit}: it now reads ${await realpath(next)}, and it no longer reads ${was}`,
+		// FragmentPath still names the unit file's own path, now a link to the
+		// new file. A definition is what its files resolve to, as a switch
+		// relinks a unit to a new store path, so the file systemd no longer
+		// reads is what the path resolved to before: the path itself.
+		expect(String(report.mock.calls.at(-1)?.[0]), "which file moved").toBe(
+			`Restarting once every conversation settled, as systemd has a new ${unit}: it now reads ${await realpath(next)}; it no longer reads ${was}`,
 		);
 	});
 
