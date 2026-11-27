@@ -9,7 +9,8 @@
  * waits, as a command asking a person does, until the host calls what it
  * leaves at WAIT_RELEASE. First words of ASK_ME are held by its input
  * handler until the person answers a select, as an extension asking
- * before a prompt goes on does. It is an .mts, like the
+ * before a prompt goes on does. As it loads it says its own record stays
+ * in a rolled log's parent, as the harness's records do. It is an .mts, like the
  * programs beside it, because it is copied rather than imported.
  */
 import { appendFileSync } from "node:fs";
@@ -54,6 +55,12 @@ interface ProbeApi {
 
 /** The harness's ambient conversation, as withSession sets it, read without importing the harness. */
 const AMBIENT = Symbol.for("agentic-harness.session.ambient.v1");
+
+/** The custom types loads say stay in a rolled log's parent, as rollover.ts keeps them, read without importing the harness. */
+const LEFT_BEHIND = Symbol.for("pi:harness:rollover-leaves-behind:v1");
+
+/** The probe's own record, which it says stays behind as the harness's records do. */
+const PROBE_RECORD = "probe-record";
 
 /** First words the probe's input handler asks the person about before they go on. */
 const ASK_ME = "ask me first";
@@ -102,6 +109,12 @@ export default function probeExtension(pi: ProbeApi): void {
 	);
 	appendFileSync(installs, `${JSON.stringify(pinned ?? null)}\n`);
 	noteAs("load");
+	// As leaveInParentLog says it, so a log held before this load holds it
+	// only until the host takes the view again.
+	const store = globalThis as Record<symbol, unknown>;
+	if (!(LEFT_BEHIND in store)) store[LEFT_BEHIND] = new Set<string>();
+	const leftBehind = store[LEFT_BEHIND];
+	if (leftBehind instanceof Set) leftBehind.add(PROBE_RECORD);
 	pi.on("session_start", (event, context) => {
 		note({ event: "session_start", reason: event.reason });
 		noteAs(

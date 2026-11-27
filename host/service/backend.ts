@@ -950,7 +950,8 @@ function namedIn(answer: unknown): string | undefined {
  * and the session file read; an open has its conversation prepared and
  * held in the roster. Then both have an earlier host's tools reaped,
  * pi's runtime built (its model runtime, its services with every
- * extension loaded, durable's store opened and pi's session made, then
+ * extension loaded, its held log's view taken again over what they
+ * leave behind, durable's store opened and pi's session made, then
  * the rest, its extensions' session start among it), its screen or
  * headless binding, durable's recovery begun and, for an open with first
  * words, those words held. A start whose screen asks the person answers
@@ -967,6 +968,7 @@ export type StartPhase =
 	| "reap"
 	| "models"
 	| "services"
+	| "retake"
 	| "store"
 	| "session"
 	| "runtime"

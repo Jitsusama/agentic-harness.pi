@@ -19,6 +19,7 @@ import {
 	holdKeptHistory,
 	holdsLikePi,
 	leftOutOf,
+	retakeKeptHistory,
 } from "../../../host/engine/kept-history.ts";
 import { compactionHistory } from "../../../lib/compaction/history.ts";
 import {
@@ -30,6 +31,7 @@ import { markedOnDisk } from "../../../lib/internal/logs/recall-on-disk.ts";
 import {
 	carriedBy,
 	type Entry,
+	leaveInParentLog,
 	messagesOnDisk,
 	ROLLOVER_RECORD,
 	rolledFrom,
@@ -136,6 +138,8 @@ interface LogShape {
 	 * -1000 entries dropped, or a usage entry of the view's kind.
 	 */
 	readonly lookalike?: "record" | "usage";
+	/** A custom entry of this type among the early state. */
+	readonly state?: string;
 }
 
 /** Append `entry` to `sessions` as pi appends its own, whatever its type. */
@@ -187,6 +191,7 @@ function compactedLog(shape: LogShape = {}): string {
 		sessions.branch(fork);
 	}
 	sessions.appendCustomEntry("away-state", { away: true });
+	if (shape.state) sessions.appendCustomEntry(shape.state, { early: true });
 	exchange(sessions, "early two", 2);
 	if (shape.before === "answer")
 		sessions.appendMessage(answer("zephyr has the last word", 0.25));
@@ -656,6 +661,17 @@ describe("a held conversation that compacts again", () => {
 });
 
 describe("what a held conversation holds in place of what it leaves out", () => {
+	/** The record `held`'s view holds, its id and how many it left out. */
+	const recordOf = (held: SessionManager): { id: string; dropped: number } => {
+		const entry = held
+			.getBranch()
+			.find((e) => e.type === "custom" && e.customType === ROLLOVER_RECORD);
+		const dropped = rolledFrom(held.getBranch())?.dropped;
+		if (!entry || typeof dropped !== "number")
+			throw new Error("the view holds no record");
+		return { id: entry.id, dropped };
+	};
+
 	/** How many entries the record of `file`'s view says it left out. */
 	const droppedFrom = (file: string): number => {
 		const dropped = rolledFrom(hold(file).getBranch())?.dropped;
@@ -669,9 +685,85 @@ describe("what a held conversation holds in place of what it leaves out", () => 
 		expect(droppedFrom(compactedLog({ lookalike: "record" }))).toBe(plain + 1);
 	});
 
-	it("counts a usage entry its log holds as an entry left out, whatever its kind", () => {
+	it("counts a usage entry its log holds as an entry left out, though it has the view's kind", () => {
 		const plain = droppedFrom(compactedLog());
 		expect(droppedFrom(compactedLog({ lookalike: "usage" }))).toBe(plain + 1);
+	});
+
+	it("counts a usage entry appended since it opened as one left out when it compacts again", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		appendRaw(held, {
+			type: "usage",
+			id: "feed0002",
+			parentId: held.getLeafId(),
+			timestamp: new Date().toISOString(),
+			kind: "kept-history",
+			note: "written by another tool",
+		});
+		compactsAgain(held);
+		expect(
+			texts(held.getEntries()),
+			"it holds the view of its new compaction",
+		).not.toContain("after");
+		expect(rolledFrom(held.getBranch())?.dropped).toBe(droppedFrom(file));
+	});
+
+	it("holds what it held when a new compaction keeps from where the last one did", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		const before = recordOf(held);
+		const compaction = SessionManager.open(file)
+			.getBranch()
+			.find((entry) => entry.type === "compaction");
+		if (compaction?.type !== "compaction")
+			throw new Error("the log holds no compaction");
+		exchange(held, "later one", 0.75);
+		held.appendCompaction("the same again", compaction.firstKeptEntryId, 2000);
+		const after = recordOf(held);
+		expect(after.id, "the view was taken again").toBe(before.id);
+		expect(after.dropped).toBe(before.dropped);
+	});
+
+	it("gives what it holds in their place no id an earlier view held there", () => {
+		const held = hold(compactedLog());
+		const earlier = held
+			.getBranch()
+			.filter(
+				(entry) => entry.type === "usage" || entry.id === recordOf(held).id,
+			)
+			.map((entry) => entry.id);
+		// The ids drawn first are those the earlier view held in their place.
+		drawn.push(...earlier, ...earlier);
+		compactsAgain(held);
+		expect(drawn, "the view drew ids for what it holds").not.toHaveLength(
+			2 * earlier.length,
+		);
+		const ids = held.getEntries().map((entry) => entry.id);
+		for (const id of earlier)
+			expect(ids, `a new stand-in took ${id}`).not.toContain(id);
+	});
+
+	it("looks up what an earlier view held in their place without reading its log back", () => {
+		const report = vi.fn();
+		const held = hold(compactedLog(), report);
+		const earlier = held
+			.getBranch()
+			.filter(
+				(entry) => entry.type === "usage" || entry.id === recordOf(held).id,
+			)
+			.map((entry) => entry.id);
+		expect(earlier.length, "the view holds a record and usage").toBeGreaterThan(
+			1,
+		);
+		compactsAgain(held);
+		for (const id of earlier)
+			expect(held.getEntry(id), `no entry has ${id}`).toBeUndefined();
+		expect(Object.hasOwn(held, "getTree"), "the view is still held").toBe(true);
+		expect(
+			texts(held.getEntries()),
+			"what its new compaction left out was read back",
+		).not.toContain("after");
 	});
 
 	it("keeps no id for what a compaction it couldn't leave out would have held", () => {
@@ -698,9 +790,85 @@ describe("what a held conversation holds in place of what it leaves out", () => 
 		);
 		for (const id of drawnFor)
 			expect(held.getEntry(id), `no entry has ${id}`).toBeUndefined();
-		expect(report).not.toHaveBeenCalledWith(
-			expect.stringContaining("whole log back into memory"),
-		);
+		// Looking one up reads nothing back, so the view stands as it was.
+		expect(Object.hasOwn(held, "getTree"), "the view is still held").toBe(true);
+		expect(
+			texts(held.getEntries()),
+			"the log was read back whole",
+		).not.toContain("early one");
+	});
+});
+
+describe("a held conversation once its extensions say what stays behind", () => {
+	/** The custom types of what `held` holds. */
+	const customTypes = (held: SessionManager): string[] =>
+		held
+			.getEntries()
+			.flatMap((entry) => (entry.type === "custom" ? [entry.customType] : []));
+
+	it("leaves out the records they say stay behind, though it opened before", () => {
+		const type = "late-record-left";
+		const file = compactedLog({ state: type });
+		const before = readFileSync(file, "utf8");
+		const report = vi.fn();
+		const held = hold(file, report);
+		expect(customTypes(held), "the view holds it until told").toContain(type);
+		const messages = texts(held.getEntries());
+		const dropped = rolledFrom(held.getBranch())?.dropped ?? 0;
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		expect(customTypes(held)).not.toContain(type);
+		expect(customTypes(held)).toContain("away-state");
+		expect(rolledFrom(held.getBranch())?.dropped).toBe(dropped + 1);
+		expect(texts(held.getEntries())).toEqual(messages);
+		expect(readFileSync(file, "utf8")).toBe(before);
+		expect(report).not.toHaveBeenCalled();
+	});
+
+	it("takes nothing again when none said more stays behind since it opened", () => {
+		const held = hold(compactedLog());
+		const before = held.getEntries();
+		retakeKeptHistory(held);
+		const after = held.getEntries();
+		// What it holds in place of what it left out stays as it was.
+		expect(
+			after.filter((entry, at) => entry !== before[at]).map((e) => e.id),
+			"the view was taken again",
+		).toEqual([]);
+	});
+
+	it("leaves them out again when it compacts again", () => {
+		const type = "late-record-compacted";
+		const held = hold(compactedLog({ state: type }));
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		const dropped = rolledFrom(held.getBranch())?.dropped ?? 0;
+		compactsAgain(held);
+		expect(customTypes(held)).not.toContain(type);
+		expect(
+			rolledFrom(held.getBranch())?.dropped,
+			"what it left out before is still counted",
+		).toBeGreaterThan(dropped);
+	});
+
+	it("leaves a conversation holding its whole log as it is", () => {
+		const type = "late-record-whole";
+		const whole = SessionManager.open(compactedLog({ state: type }));
+		const count = whole.getEntries().length;
+		leaveInParentLog(type);
+		retakeKeptHistory(whole);
+		expect(whole.getEntries()).toHaveLength(count);
+	});
+
+	it("leaves one that read its whole log back as it is", () => {
+		const type = "late-record-read-back";
+		const held = hold(compactedLog({ state: type }));
+		held.getTree();
+		const count = held.getEntries().length;
+		leaveInParentLog(type);
+		retakeKeptHistory(held);
+		expect(held.getEntries()).toHaveLength(count);
+		expect(customTypes(held)).toContain(type);
 	});
 });
 

@@ -117,7 +117,9 @@ export async function createEngine(
 	// modules, which pi-host resolves from the host's install. Bound as
 	// the program loads, a missing install would fail the import before
 	// the program's configuration check refuses it with exit 78.
-	const { holdKeptHistory } = await import("./kept-history.ts");
+	const { holdKeptHistory, retakeKeptHistory } = await import(
+		"./kept-history.ts"
+	);
 	const { hostOpen } = await import("./light-open.ts");
 	const { countLeftOut } = await import("./kept-history-session.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
@@ -226,6 +228,7 @@ export async function createEngine(
 			trust,
 			library,
 			keptHistory: holdKeptHistory,
+			keptRetake: retakeKeptHistory,
 			keptCounts: countLeftOut,
 		},
 		options,
