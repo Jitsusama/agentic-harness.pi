@@ -2,9 +2,10 @@
  * Say what pi install the unit suite is running under.
  *
  * Nothing here launches a subagent, but the subagent library
- * decides at module load whether the pi that started this
+ * checks at each dispatch whether the pi that started this
  * process still exists on disk, and refuses to dispatch when it
- * does not. That check reads PI_PACKAGE_DIR, which a pi session
+ * does not. It reads that install from a snapshot taken on first
+ * use, which would read PI_PACKAGE_DIR, a variable a pi session
  * exports and every child process inherits, this test runner
  * included.
  *
@@ -15,10 +16,12 @@
  * entirely. The check was right and the tests were wrong to be
  * consulting it.
  *
- * Seeding the slot the library caches into says the parent is
- * this process. Tests that want to exercise the stale-install
- * behaviour build their own probe through
- * createSubagentHealthCheck, so nothing is hidden by this.
+ * Seeding that snapshot says the parent is this process. The
+ * seed names no package folder, so the heal at each dispatch,
+ * which looks for a package only when the folder named has gone,
+ * leaves it alone and never writes PI_PACKAGE_DIR. The tests of
+ * the check and the heal put their own install in its place, case
+ * by case, so nothing is hidden by this.
  */
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
 

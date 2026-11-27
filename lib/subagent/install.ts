@@ -185,12 +185,22 @@ type StartupInstallGlobal = {
  * the link went, takes the package its entry script sits in
  * instead and says it in `PI_PACKAGE_DIR`, so pi itself and its
  * children read their assets from the package pi runs.
+ *
+ * `deps.holdsPackage` says which folder is a package's root on that
+ * walk up from the entry script, as it does for
+ * {@link resolveParentPiInstall}; production passes none, so it is
+ * whether the folder holds a package.json. Tests pass one, since the
+ * walk otherwise climbs to the file system's root, and a package.json
+ * in any folder above their temp folder would answer for them.
  */
-export function getParentPiInstall(): PiInstall {
+export function getParentPiInstall(
+	deps: Pick<ResolvePiInstallDeps, "holdsPackage"> = {},
+): PiInstall {
+	const holdsPackage = deps.holdsPackage ?? holdsPackageJson;
 	const store = globalThis as StartupInstallGlobal;
 	const existing = store[STARTUP_INSTALL_KEY];
 	if (existing !== undefined) {
-		const healed = healedInstall(existing);
+		const healed = healedInstall(existing, holdsPackage);
 		if (healed !== existing) store[STARTUP_INSTALL_KEY] = healed;
 		// A snapshot taken while the link stood holds the folder it named,
 		// which outlives the link: the variable is said from it once the
@@ -203,7 +213,7 @@ export function getParentPiInstall(): PiInstall {
 			"Hosted subagents need the host to pin pi.subagent.startupPiInstall to pi's CLI before loading extensions",
 		);
 	}
-	const install = resolveParentPiInstall();
+	const install = resolveParentPiInstall({ holdsPackage });
 	sayFoundPackage(install);
 	store[STARTUP_INSTALL_KEY] = install;
 	return install;
@@ -231,13 +241,13 @@ function sayFoundPackage(install: PiInstall): void {
  * A pi that captured its install with the link already gone, or under
  * code that kept a dead link, heals so at its next dispatch.
  */
-function healedInstall(install: PiInstall): PiInstall {
+function healedInstall(
+	install: PiInstall,
+	holdsPackage: (dir: string) => boolean,
+): PiInstall {
 	const { packageDir } = install;
 	if (packageDir === undefined || existsSync(packageDir)) return install;
-	const found = packageOf(
-		resolved(install.entry, realpathSync),
-		holdsPackageJson,
-	);
+	const found = packageOf(resolved(install.entry, realpathSync), holdsPackage);
 	if (found === undefined) return install;
 	const root = dereference(found, realpathSync);
 	process.env.PI_PACKAGE_DIR = root;
