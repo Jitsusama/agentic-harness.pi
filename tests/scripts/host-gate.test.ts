@@ -597,14 +597,20 @@ describe("host-gate.sh", () => {
 	it("reads what changed past the checkout's grafts", async () => {
 		const on = await harness();
 		const sha = await change(on, "host/engine/engine.ts");
-		const main = await git(on.checkout, "rev-parse", "origin/main");
+		const cut = await git(on.checkout, "rev-parse", "origin/main");
+		// Main moves on, and a graft names the head as a second parent of
+		// main's new commit, so the head reads as merged already.
+		await git(on.checkout, "checkout", "-q", "-B", "onward", "origin/main");
+		await git(on.checkout, "commit", "-q", "--allow-empty", "-m", "onward");
+		const main = await git(on.checkout, "rev-parse", "HEAD");
+		await git(on.checkout, "push", "-q", "origin", "HEAD:main");
 		const grafts = join(
 			await git(on.checkout, "rev-parse", "--git-common-dir"),
 			"info",
 			"grafts",
 		);
 		mkdirSync(dirname(resolve(on.checkout, grafts)), { recursive: true });
-		writeFileSync(resolve(on.checkout, grafts), `${main} ${sha}\n`);
+		writeFileSync(resolve(on.checkout, grafts), `${main} ${cut} ${sha}\n`);
 
 		const answered = await gate(on, sha);
 
