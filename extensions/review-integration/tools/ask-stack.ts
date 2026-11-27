@@ -9,6 +9,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
+import { stackAliases } from "../../../lib/core/review/ask/span.ts";
 import {
 	createFindingStore,
 	createRunStore,
@@ -161,6 +162,9 @@ export async function askStack(
 			prompt,
 			seq: nextSeq(),
 			stackRefs,
+			// A reviewer reads each change's title and body, which name it
+			// by its number, so a finding said at that number is placed.
+			aliases: stackAliases(changes),
 			witnessFor: (ref) => witnesses.get(ref),
 			witnesses: [...witnesses.values()].filter(
 				(sha): sha is string => sha !== undefined,

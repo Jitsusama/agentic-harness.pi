@@ -271,6 +271,21 @@ describe("listing changes", () => {
 		expect(callMatching(calls, "list")?.args).toContain("--state");
 	});
 
+	it("carries each change's head commit, as a stack round names it", async () => {
+		const headed = JSON.stringify([
+			{ ...JSON.parse(listJson)[0], headRefOid: "1d3e507e" },
+		]);
+		const { provider: gh, calls } = provider([
+			{ when: ["pr", "list"], stdout: headed },
+		]);
+		const found = await gh.changes?.list?.(repo, { state: "open" });
+
+		expect(found?.[0]?.headCommit).toBe("1d3e507e");
+		expect(callMatching(calls, "list")?.args.join(" ")).toMatch(
+			/\bheadRefOid\b/,
+		);
+	});
+
 	it("passes a head filter through", async () => {
 		const { provider: gh, calls } = provider([
 			{ when: ["pr", "list"], stdout: "[]" },

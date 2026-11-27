@@ -24,6 +24,7 @@ function pull(number: number, head: string, base: string) {
 		author: { login: "someone" },
 		baseRefName: base,
 		headRefName: head,
+		headRefOid: `sha-${head}`,
 		url: `https://github.com/Shopify/world/pull/${number}`,
 	};
 }
@@ -107,6 +108,30 @@ describe("deriving a stack", () => {
 		]);
 		expect(stack?.cursor).toBe(1);
 		expect(stack?.trunk).toBe("main");
+	});
+
+	it("knows every node's head commit, not only the one it started from", async () => {
+		// A stack round names each change's head as one it read, so a
+		// node above or below the cursor with none is a change the ledger
+		// can never say was read.
+		const { gh } = provider([
+			cursorReply("middle", "bottom"),
+			byHead("bottom", [pull(1, "bottom", "main")]),
+			byHead("main", []),
+			byBase("middle", [pull(3, "top", "middle")]),
+			byBase("top", []),
+		]);
+		const stack = await gh.stacking?.stack(ref);
+		expect(stack?.nodes.map((node) => node.headCommit)).toEqual([
+			"sha-bottom",
+			"sha",
+			"sha-top",
+		]);
+		expect(stack?.nodes.map((node) => node.change?.headCommit)).toEqual([
+			"sha-bottom",
+			"sha",
+			"sha-top",
+		]);
 	});
 
 	it("hangs the proposal it found on each node", async () => {

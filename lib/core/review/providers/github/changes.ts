@@ -144,6 +144,7 @@ function proposalFromListing(
 		author: actorFrom(nested(raw, "author").login),
 		base: str(raw.baseRefName) ?? "",
 		head: str(raw.headRefName) ?? "",
+		...(str(raw.headRefOid) ? { headCommit: str(raw.headRefOid) } : {}),
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
 		...sizeOf(raw),
 		...labelsAndAssignees(raw),
@@ -293,7 +294,9 @@ export function githubChanges(exec: Exec): ChangesFacet {
 		async list(repo: RepoLocator, filter: ChangeFilter) {
 			const args = ["pr", "list", "--repo", slugOf(repo), "--json"];
 			args.push(
-				"number,title,body,state,isDraft,author,baseRefName,headRefName,url," +
+				// headRefOid is each change's head commit, which a stack round
+				// names as the one it read for every change below the tip.
+				"number,title,body,state,isDraft,author,baseRefName,headRefName,headRefOid,url," +
 					// Free in the same call, and a listing is exactly where
 					// knowing which change is the big one earns its keep.
 					"additions,deletions,changedFiles",

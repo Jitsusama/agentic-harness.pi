@@ -19,6 +19,7 @@
  */
 
 import { isRecord } from "../../../internal/record.ts";
+import type { ChangeRef } from "../change.ts";
 import type { Finding, FindingOrigin } from "../finding.ts";
 import { readWireFinding, SAID_NOTHING, saysTheSame } from "./harvest.ts";
 import { ANSWER_WAS_CUT_OFF, readAnswer, wireText } from "./wire.ts";
@@ -27,6 +28,34 @@ import { ANSWER_WAS_CUT_OFF, readAnswer, wireText } from "./wire.ts";
 export interface FindingSpan {
 	/** One ref for an ordinary finding, several for a cross-change one. */
 	refs: string[];
+}
+
+/**
+ * Other names a reviewer gives a stack's changes, each to the ref it
+ * means: a change's label, its id, and the label's short form after
+ * its last `#`, as `#7034` for `Jitsusama/core.nix#7034`. A reviewer
+ * reads each change's title and body, which name it that way, so a
+ * finding said at `#7034` is about that change and is placed there.
+ */
+export type StackAliases = ReadonlyMap<string, string>;
+
+/** The other names of each change in a stack, for `StackAliases`. */
+export function stackAliases(
+	changes: readonly { ref: string; change: ChangeRef }[],
+): StackAliases {
+	const aliases = new Map<string, string>();
+	for (const { ref, change } of changes) {
+		const hash = change.label.lastIndexOf("#");
+		const names = [
+			change.label,
+			change.id,
+			...(hash === -1 ? [] : [change.label.slice(hash)]),
+		];
+		for (const name of names) {
+			if (name !== "" && name !== ref) aliases.set(name, ref);
+		}
+	}
+	return aliases;
 }
 
 /** A finding plus the changes it is about. */
@@ -54,13 +83,15 @@ export interface StackHarvest {
  * `witnessFor` is asked for the witness of the change a finding is
  * said at, because each change has its own diff: checking a line
  * finding on the tip against the base's diff would degrade a perfectly
- * good anchor for no reason.
+ * good anchor for no reason. `aliases` places a finding that names a
+ * change another way.
  */
 export function harvestStackFindings(
 	text: string,
 	origin: FindingOrigin,
 	stackRefs: readonly string[],
 	witnessFor?: (ref: string) => string | undefined,
+	aliases?: StackAliases,
 ): StackHarvest {
 	const { parsed, truncated } = readAnswer(text, "findings");
 	const held = parsed?.findings;
@@ -84,7 +115,7 @@ export function harvestStackFindings(
 	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 	for (const [index, entry] of held.entries()) {
 		const at = `findings[${index}]`;
-		const span = readSpan(entry, at, stackRefs, warnings);
+		const span = readSpan(entry, at, stackRefs, warnings, aliases);
 		if (span === undefined) continue;
 
 		const read = readWireFinding(
@@ -116,6 +147,7 @@ export function alsoRecordedInStack(
 	origin: FindingOrigin,
 	stackRefs: readonly string[],
 	witnessFor?: (ref: string) => string | undefined,
+	aliases?: StackAliases,
 ): StackHarvest {
 	if (recorded === undefined || recorded.length === 0) return said;
 	const findings = [...said.findings];
@@ -127,7 +159,7 @@ export function alsoRecordedInStack(
 	// and collapsing them would report the wrong change.
 	for (const [index, entry] of recorded.entries()) {
 		const at = `recorded[${index}]`;
-		const span = readSpan(entry, at, stackRefs, recordedWarnings);
+		const span = readSpan(entry, at, stackRefs, recordedWarnings, aliases);
 		if (span === undefined) continue;
 		const read = readWireFinding(
 			entry,
@@ -195,6 +227,7 @@ function readSpan(
 	at: string,
 	stackRefs: readonly string[],
 	warnings: string[],
+	aliases: StackAliases | undefined,
 ): FindingSpan | undefined {
 	if (!isRecord(entry)) {
 		warnings.push(`${at} is not an object, so it was dropped.`);
@@ -207,8 +240,13 @@ function readSpan(
 		return ref === undefined ? [] : [ref];
 	});
 
-	const known = named.filter((ref) => stackRefs.includes(ref));
-	const unknown = named.filter((ref) => !stackRefs.includes(ref));
+	const refOf = (name: string) =>
+		stackRefs.includes(name) ? name : aliases?.get(name);
+	const known = named.flatMap((name) => {
+		const ref = refOf(name);
+		return ref === undefined ? [] : [ref];
+	});
+	const unknown = named.filter((name) => refOf(name) === undefined);
 	if (unknown.length > 0) {
 		// Dropping the ref rather than the finding when others survive:
 		// a reviewer that named three changes and got one wrong still
