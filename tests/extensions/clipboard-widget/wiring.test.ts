@@ -116,8 +116,8 @@ async function started(focused: unknown) {
 }
 
 describe("the clipboard widget", () => {
-	// Its shell reads through GNU's timeout and base64 -w0, which only
-	// Linux carries.
+	// Its shell reads through GNU's timeout and base64 -w0, which a stock
+	// macOS lacks, and the widget runs it only on Linux.
 	it.skipIf(RUNNER_PLATFORM !== "linux")(
 		"pastes in the editor through its shell, never forking the session",
 		async () => {
@@ -163,6 +163,13 @@ describe("the clipboard widget", () => {
 
 	it("takes nothing without a Wayland display", async () => {
 		vi.stubEnv("WAYLAND_DISPLAY", undefined);
+		const pi = fakePi();
+		clipboardWidget(pi);
+		expect([...pi.recorded.handlers.keys()]).toEqual([]);
+	});
+
+	it("takes nothing on a Mac, whatever display it names", async () => {
+		Object.defineProperty(process, "platform", { value: "darwin" });
 		const pi = fakePi();
 		clipboardWidget(pi);
 		expect([...pi.recorded.handlers.keys()]).toEqual([]);
