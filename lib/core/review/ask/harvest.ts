@@ -262,11 +262,34 @@ export function saysTheSame(
 	one: Omit<Finding, "id">,
 	two: Omit<Finding, "id">,
 ): boolean {
+	const key = RECORDED_AS.get(one);
+	if (key !== undefined && key === RECORDED_AS.get(two)) return true;
 	if (foldedSubject(one) !== foldedSubject(two)) return false;
 	const here = pathOf(one);
 	const there = pathOf(two);
 	return here === "" || there === "" || here === there;
 }
+
+/**
+ * The key each finding read off the wire was recorded under: the one
+ * the record tool wrote on a journal line and asked the answer's entry
+ * to carry back. Two tellings with one key are one finding, however
+ * the answer reworded it, which a subject alone can't say (PV3TE0:
+ * four of one reviewer's findings counted twice that way).
+ *
+ * Held beside each finding rather than on it, since the key says only
+ * how the round reads a reviewer's tellings and is no part of the
+ * finding kept.
+ */
+const RECORDED_AS = new WeakMap<Omit<Finding, "id">, string>();
+
+/**
+ * The field the key comes in, as the journal writes it (`RECORDED_KEY`
+ * in `lib/subagent/runpi/journal.mjs`, which the core doesn't import);
+ * the harvest tests read the journal's own lines to hold the two to one
+ * word.
+ */
+const RECORDED_KEY = "recorded";
 
 /**
  * Read one entry off the wire.
@@ -316,7 +339,7 @@ function readFinding(
 	const { label, given } = readLabel(entry.label, at, warnings);
 	const anchor = readAnchor(entry.location, at, witness, warnings);
 
-	return {
+	const finding: Omit<Finding, "id"> = {
 		anchor,
 		label,
 		subject,
@@ -329,6 +352,9 @@ function readFinding(
 		...readConfidence(entry.confidence, at, warnings),
 		...readRaisedBy(entry.raisedBy, at, warnings),
 	};
+	const key = wireText(entry[RECORDED_KEY]);
+	if (key !== undefined) RECORDED_AS.set(finding, key);
+	return finding;
 }
 
 /**

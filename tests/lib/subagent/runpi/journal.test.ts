@@ -14,6 +14,7 @@ import {
 	JOURNAL_SAYS,
 	JOURNAL_TOOL_NAME,
 	journalFromStream,
+	journalLines,
 	journalWarnings,
 	MAX_JOURNAL_ENTRIES,
 	MAX_JOURNAL_ENTRY_BYTES,
@@ -124,7 +125,9 @@ describe("reading a journal off a reviewer's stream", () => {
 		const stream = journalFromStream();
 
 		expect(stream.read(start("1", { subject: "a" }))).toBeUndefined();
-		expect(stream.read(end("1"))).toBe(`${line("a")}\n`);
+		expect(stream.read(end("1"))).toBe(
+			journalLines({ subject: "a" }, "1").text,
+		);
 	});
 
 	it("says each finding of a batch, sent as an array or as text", () => {
@@ -132,8 +135,32 @@ describe("reading a journal off a reviewer's stream", () => {
 		stream.read(start("1", [{ subject: "a" }, { subject: "b" }]));
 		stream.read(start("2", JSON.stringify({ subject: "c" })));
 
-		expect(stream.read(end("2"))).toBe(`${line("c")}\n`);
-		expect(stream.read(end("1"))).toBe(`${line("a")}\n${line("b")}\n`);
+		expect(stream.read(end("2"))).toBe(
+			journalLines({ subject: "c" }, "2").text,
+		);
+		expect(stream.read(end("1"))).toBe(
+			journalLines([{ subject: "a" }, { subject: "b" }], "1").text,
+		);
+	});
+
+	it("keys each finding by its call, apart within a batch, and none where the call has no id", () => {
+		const one = journalLines({ subject: "a" }, "1");
+		const batch = journalLines([{ subject: "a" }, { subject: "b" }], "1");
+		const bare = journalLines({ subject: "a" }, "");
+
+		expect(one.keys, "one key, from the call").toEqual([
+			journalLines({ subject: "z" }, "1").keys[0],
+		]);
+		expect(one.keys, "another call keys apart").not.toEqual(
+			journalLines({ subject: "a" }, "2").keys,
+		);
+		expect(new Set(batch.keys).size, "a batch keys each apart").toBe(2);
+		expect(bare, "no id, no key").toEqual({
+			text: `${line("a")}\n`,
+			keys: [],
+			kept: 1,
+			dropped: 0,
+		});
 	});
 
 	it("says nothing of a call that failed, another tool's, or a sentence", () => {

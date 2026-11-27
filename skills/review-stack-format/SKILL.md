@@ -36,7 +36,9 @@ one, so answer in its shape.
 
 When a `record_finding` tool is available, call it the moment you are
 sure of a finding, with that one finding and its `refs`, and carry on.
-Then include everything in your final answer as normal. A stack round
+Then include everything in your final answer as normal, each recorded
+entry carrying the `recorded` key the tool gave it, so it is counted
+once however you reword it. A stack round
 reads several changes at once, so it is the longest round there is, and
 an answer that never arrives takes every finding in it.
 
