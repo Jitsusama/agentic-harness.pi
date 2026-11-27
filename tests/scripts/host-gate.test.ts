@@ -36,6 +36,7 @@ import {
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
 import { plantParentByGraph } from "./support/commit-graph.ts";
+import { forgeAsMerged } from "./support/forged-object.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone; it runs them from their paths below.
 import "../../scripts/host-gate.sh";
@@ -658,6 +659,37 @@ describe("host-gate.sh", () => {
 		expect(answered.said, "the graph hid the change").toContain(
 			`nothing ran test:host at ${sha}`,
 		);
+	});
+
+	it("reads what changed in the head origin holds, though the checkout forges it as merged", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		await git(on.checkout, "push", "-q", "origin", "HEAD:work");
+		// Read from the checkout, the head would hold main's tree and name
+		// main as its parent, and so change nothing.
+		const main = await git(on.checkout, "rev-parse", "origin/main");
+		await forgeAsMerged(on.checkout, sha, main);
+		const forged = await git(on.checkout, "diff", "--name-only", main, sha);
+		expect(forged, "the forged head reads as no change").toBe("");
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the forgery hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it("refuses a head the checkout forges and origin doesn't hold", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const main = await git(on.checkout, "rev-parse", "origin/main");
+		await forgeAsMerged(on.checkout, sha, main);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("couldn't be fetched whole");
 	});
 
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
