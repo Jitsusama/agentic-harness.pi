@@ -246,25 +246,30 @@ function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	// Refused by the one rule led areas and the report read, so the three
 	// can't part, and worded by its causes (#2220's sixth council, F45
-	// and F47).
+	// and F47). The rule is just these two causes, so every subject it
+	// refuses is named by one, and both are said at once, so a writer
+	// mending one isn't refused again for the other (seventh council,
+	// F62, F65, F70 and F71).
 	const hubless = subjects.filter(hubTakesNone);
 	const silent = hubless.filter(namesNoWork);
-	if (silent.length > 0) {
-		return refuse(
-			`Nothing changed: a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash with a .service ending set aside, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short, too long or as common as can or after. Name the work itself there. ${SUBJECTS_USAGE}`,
-		);
-	}
 	const overLong = hubless.flatMap((one) =>
 		overLongWords(one).map((word) => `${asWritten(word, one)} in ${one}`),
 	);
-	if (overLong.length > 0) {
+	const causes = [
+		...(silent.length > 0
+			? [
+					`a need finds a cell by the words of a subject's narrowest part, after its last colon, dot or slash with a .service ending set aside, and ${silent.join(", ")} ${silent.length === 1 ? "holds" : "hold"} none there, each word too short, too long or as common as can or after`,
+				]
+			: []),
+		...(overLong.length > 0
+			? [
+					`a subject's hub takes a need only when it says every word of the subject's narrowest part, and no need keeps a word past ${LONGEST_WORD} characters, so its hub would take none for ${overLong.join(", ")}`,
+				]
+			: []),
+	];
+	if (causes.length > 0) {
 		return refuse(
-			`Nothing changed: a subject's hub takes a need only when it says every word of the subject's narrowest part, and no need keeps a word past ${LONGEST_WORD} characters, so its hub would take none for ${overLong.join(", ")}. Name the work there in shorter words. ${SUBJECTS_USAGE}`,
-		);
-	}
-	if (hubless.length > 0) {
-		return refuse(
-			`Nothing changed: no need would reach the hub of ${hubless.join(", ")}. Name the work itself there. ${SUBJECTS_USAGE}`,
+			`Nothing changed: ${causes.join(". Besides, ")}. Name the work itself there, in words of at most ${LONGEST_WORD} characters. ${SUBJECTS_USAGE}`,
 		);
 	}
 	const owned = subjectsOf(ownedByQuest(target.questId), []);

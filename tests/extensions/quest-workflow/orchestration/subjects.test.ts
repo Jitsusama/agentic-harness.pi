@@ -124,12 +124,15 @@ describe("the subjects a quest's sessions declare", () => {
 			id,
 			ref: `subjects=${many}`,
 		});
+		// One that routes, so only the length refuses it (#2220's sixth
+		// council, F50), and one past the cap, so the cap is where it
+		// says (seventh council, F63).
+		const long = `x:${"lines-".repeat(19)}lines`;
+		expect(long, "one past the cap").toHaveLength(LONGEST_SUBJECT + 1);
 		const tooLong = await run({
 			action: "config",
 			id,
-			// One that routes, so only the length refuses it (#2220's sixth
-			// council, F50).
-			ref: `subjects=x:${"lines-".repeat(20)}lines`,
+			ref: `subjects=${long}`,
 		});
 		expect(
 			[tooMany.ok, tooLong.ok, subjectsOf(id)],
@@ -199,6 +202,28 @@ describe("the subjects a quest's sessions declare", () => {
 			ref: `subjects=x:${word}-lines`,
 		});
 		expect(said(result), "the word as written").toContain(
+			`${word} in x:${word}-lines`,
+		);
+	});
+
+	// Mending one cause shouldn't meet a refusal for the other (#2220's
+	// seventh council, F71).
+	it("refuse subjects naming no work and with a word past the longest kept at once, naming both", async () => {
+		const id = await made();
+		const word = "a".repeat(LONGEST_WORD + 1);
+		const result = await run({
+			action: "config",
+			id,
+			ref: `subjects=x:can,x:${word}-lines`,
+		});
+		expect([result.ok, subjectsOf(id)], "refused, nothing set").toEqual([
+			false,
+			undefined,
+		]);
+		expect(said(result), "the one naming no work").toMatch(
+			/x:can holds none there/,
+		);
+		expect(said(result), "the over-long word").toContain(
 			`${word} in x:${word}-lines`,
 		);
 	});
