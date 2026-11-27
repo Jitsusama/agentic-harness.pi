@@ -13,6 +13,7 @@ import {
 	readlinkSync,
 	rmdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import {
@@ -27,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import setup, {
+	FRESH_MS,
 	runRootBase,
 	SOCKET_ROOT,
 	STALE_MS,
@@ -47,6 +49,7 @@ vi.mock("node:fs", async (importOriginal) => {
 		mkdtempSync: vi.fn((prefix: string) => `${prefix}XXXXXX`),
 		rmSync: vi.fn(),
 		rmdirSync: vi.fn(fs.rmdirSync),
+		utimesSync: vi.fn(),
 		writeFileSync: vi.fn(),
 		readdirSync: vi.fn((path: string) =>
 			path === "/tmp" ? [] : fs.readdirSync(path),
@@ -188,21 +191,54 @@ describe("a test run's temp root", () => {
 		});
 	});
 
-	// As under the sandbox, which grants a fenced run only its TMPDIR.
-	it("names none where /tmp may not be written, dropping one it inherited, and still runs", () => {
-		inSession(() => {
-			vi.stubEnv(SOCKET_ROOT, "/tmp/vs-outer-run");
-			refuseShortFolder("EACCES");
-			const teardown = setup();
-			expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
-			expect(process.env.TMPDIR, "the run's TMPDIR").toBe(RUN_ROOT);
-			teardown();
-			expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
-				[RUN_ROOT, REMOVED],
-			]);
-			expect(process.env[SOCKET_ROOT], "given back").toBe("/tmp/vs-outer-run");
-		});
+	// Its age is its last change, which only a socket test's own folder
+	// makes, so a watch run left a day would read as gone to any sweep
+	// that can't judge its pid, as every other fenced command's on Linux.
+	it("keeps its short folder fresh while the run lasts, and stops at its end", () => {
+		expect(FRESH_MS * 2, "fresh well inside the day").toBeLessThan(STALE_MS);
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			inSession(() => {
+				vi.mocked(utimesSync).mockClear();
+				const teardown = setup();
+				vi.advanceTimersByTime(FRESH_MS);
+				expect(
+					vi.mocked(utimesSync).mock.calls.map(([path]) => path),
+					"once a while has passed",
+				).toEqual([SHORT]);
+				teardown();
+				vi.advanceTimersByTime(FRESH_MS);
+				expect(
+					vi.mocked(utimesSync),
+					"not after its end",
+				).toHaveBeenCalledTimes(1);
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
+
+	// As under the sandbox, which grants a fenced run only its TMPDIR, or a
+	// builder with no /tmp at all.
+	it.each(["EACCES", "ENOENT", "ENOTDIR"])(
+		"names none where /tmp may not be written or isn't there (%s), dropping one it inherited, and still runs",
+		(code) => {
+			inSession(() => {
+				vi.stubEnv(SOCKET_ROOT, "/tmp/vs-outer-run");
+				refuseShortFolder(code);
+				const teardown = setup();
+				expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
+				expect(process.env.TMPDIR, "the run's TMPDIR").toBe(RUN_ROOT);
+				teardown();
+				expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
+					[RUN_ROOT, REMOVED],
+				]);
+				expect(process.env[SOCKET_ROOT], "given back").toBe(
+					"/tmp/vs-outer-run",
+				);
+			});
+		},
+	);
 
 	it("fails the run on any other error making its short folder, leaving nothing it made", () => {
 		inSession(() => {
@@ -288,13 +324,28 @@ describe("a sweep of short folders", () => {
 			await plant(parent, "vs-liveOd", { pid: process.pid, ...old });
 			// Its gone pid names nothing here, so it may be a live fenced run's.
 			await plant(parent, "vs-away00", { pid: gone, namespace: ELSEWHERE });
+			await plant(parent, "vs-awayMd", {
+				pid: gone,
+				namespace: ELSEWHERE,
+				ageMs: STALE_MS - HOUR,
+			});
 			await plant(parent, "vs-awayOd", {
 				pid: gone,
 				namespace: ELSEWHERE,
 				...old,
 			});
 			await plant(parent, "vs-start0", {});
+			await plant(parent, "vs-startM", { ageMs: STARTING_MS - HOUR / 4 });
 			await plant(parent, "vs-unnamd", { ageMs: STARTING_MS + HOUR });
+			// A run killed between making its run file and writing it.
+			for (const [name, ageMs] of [
+				["vs-torn00", 0],
+				["vs-tornOd", STARTING_MS + HOUR],
+			] as const) {
+				const torn = await plant(parent, name, {});
+				await writeFile(join(torn, "run.pid"), "");
+				await age(torn, ageMs);
+			}
 			// No run's file, and something inside a sweep mustn't guess at.
 			const full = await plant(parent, "vs-fullOd", {});
 			await writeFile(join(full, "notes"), "kept");
@@ -317,6 +368,7 @@ describe("a sweep of short folders", () => {
 			expect(removedBy(parent)).toEqual([
 				"vs-awayOd",
 				"vs-gone00",
+				"vs-tornOd",
 				"vs-unnamd",
 			]);
 		} finally {
@@ -346,15 +398,17 @@ describe("a sweep of short folders", () => {
 	// On Linux every process has a namespace, so a run naming none read no
 	// /proc, and its pid may be any namespace's.
 	it.each([
-		["linux", "keeps", []],
-		["darwin", "removes", ["vs-empty0"]],
+		["linux", "keeps", "new", 0, []],
+		["linux", "keeps", "under a day old", STALE_MS - HOUR, []],
+		["linux", "removes", "a day old", STALE_MS + HOUR, ["vs-empty0"]],
+		["darwin", "removes", "new", 0, ["vs-empty0"]],
 	] as const)(
-		"on %s, %s a gone pid written with no namespace",
-		async (platform, _, removed) => {
+		"on %s, %s a gone pid written with no namespace, %s",
+		async (platform, _, _old, ageMs, removed) => {
 			const parent = await mkdtemp(join(tmpdir(), "sweep-"));
 			const gone = spawnSync("true").pid ?? 0;
 			try {
-				await plant(parent, "vs-empty0", { pid: gone, namespace: "" });
+				await plant(parent, "vs-empty0", { pid: gone, namespace: "", ageMs });
 
 				expect(removedBy(parent, { namespace: "", platform })).toEqual(removed);
 			} finally {
