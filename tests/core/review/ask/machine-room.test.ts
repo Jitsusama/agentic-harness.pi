@@ -21,14 +21,16 @@ const pressure =
 			"",
 		].join("\n");
 
-/** A meminfo file as Linux writes it, with `gib` GiB available. */
-const meminfo = (gib: number) => async (): Promise<string> =>
-	[
-		"MemTotal:       131072000 kB",
-		"MemFree:          1024000 kB",
-		`MemAvailable:   ${Math.round(gib * KIB_PER_GIB)} kB`,
-		"",
-	].join("\n");
+/** A meminfo file as Linux writes it, with `gib` GiB available of `total`. */
+const meminfo =
+	(gib: number, total = 125) =>
+	async (): Promise<string> =>
+		[
+			`MemTotal:       ${Math.round(total * KIB_PER_GIB)} kB`,
+			"MemFree:          1024000 kB",
+			`MemAvailable:   ${Math.round(gib * KIB_PER_GIB)} kB`,
+			"",
+		].join("\n");
 
 const missing = async (): Promise<string> => {
 	throw Object.assign(new Error("no such file"), { code: "ENOENT" });
@@ -57,12 +59,32 @@ describe("whether the machine has room for a round", () => {
 	});
 
 	it("is short under 16 GiB available, saying how much there was", async () => {
-		expect(await machineShort(reads({ meminfo: meminfo(15.9) }))).toBe(
-			"MemAvailable was 15.9 GiB, under 16",
+		expect(await machineShort(reads({ meminfo: meminfo(15.94) }))).toBe(
+			"MemAvailable was 15.9 GiB, under 16.0",
+		);
+	});
+
+	it("never says a reading just under the floor as the floor", async () => {
+		expect(await machineShort(reads({ meminfo: meminfo(15.96) }))).toBe(
+			"MemAvailable was 15.9 GiB, under 16.0",
+		);
+	});
+
+	// 16 GiB free never comes on a 16 GiB laptop or an 8 GiB VM, so its
+	// rounds would never start.
+	it("wants half of a machine smaller than 32 GiB free", async () => {
+		expect(
+			await machineShort(reads({ meminfo: meminfo(8, 15.4) })),
+		).toBeUndefined();
+		expect(await machineShort(reads({ meminfo: meminfo(7.5, 15.4) }))).toBe(
+			"MemAvailable was 7.5 GiB, under 7.7",
 		);
 	});
 
 	it("is short at CPU some avg60 40 and past it, whatever full reads", async () => {
+		expect(
+			await machineShort(reads({ cpuPressure: pressure("some", "40.00") })),
+		).toBe("CPU some avg60 was 40, at or past 40");
 		expect(
 			await machineShort(reads({ cpuPressure: pressure("some", "46.5") })),
 		).toBe("CPU some avg60 was 46.5, at or past 40");
@@ -79,7 +101,7 @@ describe("whether the machine has room for a round", () => {
 				meminfo: meminfo(8),
 			}),
 		).toBe(
-			"memory full avg60 was 12, at or past 5; MemAvailable was 8.0 GiB, under 16; CPU some avg60 was 54, at or past 40",
+			"memory full avg60 was 12, at or past 5; MemAvailable was 8.0 GiB, under 16.0; CPU some avg60 was 54, at or past 40",
 		);
 	});
 

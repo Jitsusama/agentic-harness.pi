@@ -11,7 +11,9 @@
  * councils' supervisors running at 18:33, since nothing read the CPU.
  * The rule now (A210E4CA, velocity, 26 November) is three readings
  * together: memory `full avg60` under 5, at least 16 GiB of
- * `MemAvailable`, and CPU `some avg60` under 40.
+ * `MemAvailable`, and CPU `some avg60` under 40. On a machine with
+ * less than 32 GiB in all, the floor is half of what it has, since 16
+ * GiB free could never come there and its rounds would never start.
  */
 
 import { readFile } from "node:fs/promises";
@@ -31,8 +33,14 @@ export const MEMORY_FULL_AVG60_AT_MOST = 5;
 /** The CPU `some avg60` at and past which a round waits for room. */
 export const CPU_SOME_AVG60_AT_MOST = 40;
 
-/** The `MemAvailable`, in GiB, under which a round waits for room. */
+/**
+ * The `MemAvailable`, in GiB, under which a round waits for room, on
+ * a machine with at least twice that in all.
+ */
 export const MEM_AVAILABLE_GIB_AT_LEAST = 16;
+
+/** The share of all its memory a smaller machine must have free. */
+const SMALL_MACHINE_SHARE = 0.5;
 
 const KIB_PER_GIB = 1024 * 1024;
 
@@ -59,17 +67,23 @@ const LINUX_READS: MachineReads = {
 export async function machineShort(
 	reads: MachineReads = LINUX_READS,
 ): Promise<string | undefined> {
-	const [memory, cpu, available] = await Promise.all([
+	const [memory, cpu, meminfo] = await Promise.all([
 		pressureAvg60(reads.memoryPressure, "full"),
 		pressureAvg60(reads.cpuPressure, "some"),
-		memAvailableGib(reads.meminfo),
+		readOrNothing(reads.meminfo),
 	]);
+	const available = meminfoGib(meminfo, "MemAvailable");
+	const total = meminfoGib(meminfo, "MemTotal");
+	const floor = Math.min(
+		MEM_AVAILABLE_GIB_AT_LEAST,
+		(total ?? Number.POSITIVE_INFINITY) * SMALL_MACHINE_SHARE,
+	);
 	const short = [
 		memory !== undefined && memory >= MEMORY_FULL_AVG60_AT_MOST
 			? `memory full avg60 was ${memory}, at or past ${MEMORY_FULL_AVG60_AT_MOST}`
 			: undefined,
-		available !== undefined && available < MEM_AVAILABLE_GIB_AT_LEAST
-			? `MemAvailable was ${available.toFixed(1)} GiB, under ${MEM_AVAILABLE_GIB_AT_LEAST}`
+		available !== undefined && available < floor
+			? `MemAvailable was ${tenthsDown(available)} GiB, under ${floor.toFixed(1)}`
 			: undefined,
 		cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
 			? `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`
@@ -90,13 +104,23 @@ async function pressureAvg60(
 	return said === undefined ? undefined : Number(said);
 }
 
-/** `MemAvailable` in GiB, or nothing where it can't be had. */
-async function memAvailableGib(
-	read: () => Promise<string>,
-): Promise<number | undefined> {
-	const text = await readOrNothing(read);
-	const kib = /^MemAvailable:\s+(\d+)\s+kB/m.exec(text ?? "")?.[1];
+/** One meminfo field in GiB, or nothing where it can't be had. */
+function meminfoGib(
+	text: string | undefined,
+	field: "MemAvailable" | "MemTotal",
+): number | undefined {
+	const kib = new RegExp(`^${field}:\\s+(\\d+)\\s+kB`, "m").exec(
+		text ?? "",
+	)?.[1];
 	return kib === undefined ? undefined : Number(kib) / KIB_PER_GIB;
+}
+
+/**
+ * An amount said to a tenth, rounded down, so one just under its floor
+ * never reads as the floor itself.
+ */
+function tenthsDown(gib: number): string {
+	return (Math.floor(gib * 10) / 10).toFixed(1);
 }
 
 /** A reading's text, or nothing where the machine doesn't keep it. */

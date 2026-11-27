@@ -99,7 +99,9 @@ describe("starting council rounds on room alone", () => {
 		let looks = 0;
 		const room = async () => {
 			looks += 1;
-			return looks <= 3 ? "memory full avg60 was 14, at or past 10" : undefined;
+			return looks <= 3
+				? "memory full avg60 was 14, at or past 5; CPU some avg60 was 46, at or past 40"
+				: undefined;
 		};
 
 		const start = await awaitCouncilStart(path, onRoom("ISXEG8", room));

@@ -334,8 +334,9 @@ default, is refused with the count and how to raise it.
 
 Rounds on one machine start in the order they were asked, each as
 soon as the machine has room for it: while the kernel's memory
-`full avg60` is under 5, `MemAvailable` is at least 16 GiB and
-CPU `some avg60` is under 40, read from `/proc/pressure` and
+`full avg60` is under 5, `MemAvailable` is at least 16 GiB (half
+of all memory on a machine with less than 32 GiB) and CPU
+`some avg60` is under 40, read from `/proc/pressure` and
 `/proc/meminfo` (`lib/core/review/ask/machine-room.ts`), and at
 most two a minute, so a long line drains no faster than those
 minute-long averages can show what the rounds before took. A

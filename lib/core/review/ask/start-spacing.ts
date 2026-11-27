@@ -27,11 +27,11 @@
  * A fixed spacing guarded nothing it should: on 24 November a round
  * waited about 30 minutes behind ten others on a machine with memory
  * for all of them. So a claim may say what the machine is short of
- * instead (`room`), and with no spacing asked for, the first in line
- * starts as soon as nothing is short and half a minute has passed since
- * the last start: two a minute, so a long line drains no faster than a
- * minute-long average of pressure can show what the rounds before it
- * took. The line keeps the order rounds were asked in, and its lock
+ * instead (`room`: memory, CPU or both), and with no spacing asked
+ * for, the first in line starts as soon as nothing is short and half a
+ * minute has passed since the last start: two a minute, so a long line
+ * drains no faster than the minute-long averages of pressure can show
+ * what the rounds before it took. The line keeps the order rounds were asked in, and its lock
  * makes each start whole.
  *
  * A place once lost was lost for good. A round looks at the line under
@@ -205,7 +205,7 @@ export interface StartClaim {
 	 */
 	readonly spacingMs?: number;
 	/**
-	 * What keeps a round from starting now, such as memory, said for its
+	 * What keeps a round from starting now, such as memory or CPU, said for its
 	 * answer, or nothing when the machine has room. Read at each look.
 	 */
 	readonly room?: () => Promise<string | undefined>;
@@ -277,9 +277,9 @@ export async function awaitCouncilStart(
 	// failed look losing its start, and against a tight loop, holds here
 	// rather than only in whichever reader of a config remembered it.
 	// Started on room, that floor is the spacing: two starts a minute, so
-	// a long line drains no faster than a minute-long average of memory
-	// pressure can show what the rounds before took, and a machine with
-	// no reading of pressure still starts no burst.
+	// a long line drains no faster than the minute-long averages of
+	// memory and CPU pressure can show what the rounds before took, and a
+	// machine with no reading of pressure still starts no burst.
 	const spacing = Math.max(
 		claim.spacingMs ??
 			(claim.room === undefined ? COUNCIL_START_SPACING_MS : 0),
