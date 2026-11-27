@@ -12,10 +12,20 @@
  * conversation is busy, and the journal says how long each one took. A
  * snapshot holds every string the process holds, its environment's keys
  * among them, so it is written owner-only, in a folder only its owner can
- * enter, and kept until whoever asked removes it.
+ * enter. Whoever asked removes it once summed, and each new snapshot first
+ * removes any in the folder older than SNAPSHOT_KEPT_MS, so one forgotten
+ * is gone within hours rather than kept for good. One whose write fails
+ * is removed at once, since a partial file is no snapshot at all.
  */
 
-import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { writeHeapSnapshot } from "node:v8";
 import { stateDir } from "../../lib/internal/paths.ts";
@@ -26,6 +36,9 @@ const OWNER_ONLY_FOLDER = 0o700;
 /** Only the owner may read a snapshot, which holds the process's secrets. */
 const OWNER_ONLY_FILE = 0o600;
 const BYTES_PER_MIB = 1024 * 1024;
+/** How long a snapshot is kept before the next one's sweep removes it. */
+export const SNAPSHOT_KEPT_MS = 2 * 60 * 60 * 1000;
+const SNAPSHOT_SUFFIX = ".heapsnapshot";
 
 /** Where a host writes heap snapshots unless told. */
 export function snapshotFolder(): string {
@@ -69,21 +82,53 @@ export function snapshotHeap(
 	mkdirSync(folder, { recursive: true, mode: OWNER_ONLY_FOLDER });
 	// mkdir leaves a folder that was already there as it stood.
 	chmodSync(folder, OWNER_ONLY_FOLDER);
-	const stamp = (places.now?.() ?? new Date())
-		.toISOString()
-		.replaceAll(":", "-");
-	const file = join(folder, `${sessionId}-${stamp}.heapsnapshot`);
+	const now = places.now?.() ?? new Date();
+	sweep(folder, now, places.say);
+	const stamp = now.toISOString().replaceAll(":", "-");
+	const file = join(folder, `${sessionId}-${stamp}${SNAPSHOT_SUFFIX}`);
 	// Made owner-only before V8 writes into it, which keeps a file's mode,
 	// so its privacy rests on this rather than on what mode a Node makes
 	// one with (24 makes it owner-only); and never over one already there.
 	writeFileSync(file, "", { mode: OWNER_ONLY_FILE, flag: "wx" });
 	const clock = places.clock ?? Date.now;
 	const started = clock();
-	(places.write ?? ((into) => writeHeapSnapshot(into)))(file);
+	try {
+		(places.write ?? ((into) => writeHeapSnapshot(into)))(file);
+	} catch (error) {
+		rmSync(file, { force: true });
+		places.say?.(
+			`A heap snapshot of conversation ${sessionId}'s process failed after ${clock() - started} ms, and its partial file was removed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		throw error;
+	}
 	const tookMs = clock() - started;
 	const bytes = statSync(file).size;
 	places.say?.(
 		`Wrote a heap snapshot of conversation ${sessionId}'s process, ${Math.round(bytes / BYTES_PER_MIB)} MiB, to ${file}; its thread stopped for ${tookMs} ms`,
 	);
 	return { sessionId, file, bytes, tookMs };
+}
+
+/**
+ * Remove every snapshot in `folder` last written more than
+ * SNAPSHOT_KEPT_MS before `now`, saying each. Only files named as a
+ * snapshot are touched, so nothing else kept there is lost.
+ */
+function sweep(
+	folder: string,
+	now: Date,
+	say: ((line: string) => void) | undefined,
+): void {
+	for (const name of readdirSync(folder)) {
+		if (!name.endsWith(SNAPSHOT_SUFFIX)) continue;
+		const file = join(folder, name);
+		// Whoever asked may remove theirs between the listing and here.
+		const written = statSync(file, { throwIfNoEntry: false })?.mtimeMs;
+		if (written === undefined) continue;
+		if (now.getTime() - written <= SNAPSHOT_KEPT_MS) continue;
+		rmSync(file, { force: true });
+		say?.(
+			`Removed heap snapshot ${file}, written ${Math.round((now.getTime() - written) / 60_000)} minutes ago`,
+		);
+	}
 }
