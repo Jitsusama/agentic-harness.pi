@@ -511,7 +511,9 @@ input pipeline or screen. No unit or running host is installed yet.
   stop comes can't park, and systemd kills it outright at its stop
   timeout, so it is woken too. To stop a busy one for good, close it,
   or stop its unit and then stop the woken one again, which the
-  spacing then leaves resting; never `kill -9` it.
+  spacing then leaves resting; never `kill -9` it. A wake that
+  doesn't land is said, and reported too unless the host is stopping,
+  which refuses every wake as it should.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place
