@@ -23,6 +23,7 @@
 
 import {
 	lstatSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -85,8 +86,9 @@ export const STARTING_MS = 60 * 60 * 1000;
  * How long before a short folder whose run this sweep can't judge is
  * taken: one whose pid another namespace wrote, as every other fenced
  * command's on Linux, or one no namespace was named for on Linux. Its
- * age is its last change, which a live run makes every `FRESH_MS`, so a
- * folder this stale is a gone run's, however long a run lasts.
+ * age is its last change, which a live run makes every `FRESH_MS` while
+ * its process runs. One asleep or stopped this long reads as gone, and
+ * remakes its folder at its next touch if a sweep took it.
  */
 export const STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -98,10 +100,17 @@ export const STALE_MS = 24 * 60 * 60 * 1000;
 export const FRESH_MS = STARTING_MS;
 
 /**
- * The errors that mean /tmp may not be written, or isn't there, rather
- * than a fault.
+ * The errors that mean /tmp may not be written, as under the sandbox,
+ * rather than a fault.
  */
-const REFUSED = new Set(["EACCES", "EPERM", "EROFS", "ENOENT", "ENOTDIR"]);
+const REFUSED = new Set(["EACCES", "EPERM", "EROFS"]);
+
+/**
+ * The errors that mean /tmp isn't there, or isn't a folder: the host's
+ * fault, which is said, though only the tests needing a short folder
+ * fail of it.
+ */
+const MISSING = new Set(["ENOENT", "ENOTDIR"]);
 
 /**
  * Point TMPDIR at the run's own directory, name a short one for sockets,
@@ -152,19 +161,43 @@ export default function setup(): () => void {
 /**
  * Touch `folder` every `FRESH_MS` while the run lasts, so a sweep reads
  * its age as the time since its run was last seen, not since a test last
- * made a folder in it. Unheld, so it never keeps a run going.
+ * made a folder in it. Where it's gone, taken by a sweep while the run
+ * was asleep or stopped, or by /tmp's clearing, it is made again at the
+ * same path, so `SOCKET_ROOT` names a folder again. Unheld, so it never
+ * keeps a run going.
  */
 function keptFresh(folder: string): NodeJS.Timeout {
 	const fresh = setInterval(() => {
 		try {
 			const now = new Date();
 			utimesSync(folder, now, now);
-		} catch {
-			// Gone with /tmp's clearing: nothing left to keep fresh.
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") remade(folder);
+			// Otherwise not this run's to touch now; the next tick tries again.
 		}
 	}, FRESH_MS);
 	fresh.unref();
 	return fresh;
+}
+
+/** Make `folder` again, naming this run, unless another made it first. */
+function remade(folder: string): void {
+	try {
+		mkdirSync(folder, { mode: 0o700 });
+	} catch {
+		// Another run's at the name, or /tmp refusing: none of this run's.
+		return;
+	}
+	try {
+		nameRun(folder);
+	} catch {
+		// Unnamed, it reads as a run's starting, and goes after an hour.
+	}
+}
+
+/** Write the run file in `folder`, naming this run and its namespace. */
+function nameRun(folder: string): void {
+	writeFileSync(join(folder, RUN_FILE), `${process.pid}\n${pidNamespace()}\n`);
 }
 
 /**
@@ -180,15 +213,16 @@ function socketRoot(): string | undefined {
 	try {
 		folder = mkdtempSync(join(SHORT_PARENT, SHORT_PREFIX));
 	} catch (error) {
-		if (REFUSED.has((error as NodeJS.ErrnoException).code ?? ""))
+		const code = (error as NodeJS.ErrnoException).code ?? "";
+		if (REFUSED.has(code)) return undefined;
+		if (MISSING.has(code)) {
+			process.stderr.write(`no short folder for sockets: /tmp gave ${code}\n`);
 			return undefined;
+		}
 		throw error;
 	}
 	try {
-		writeFileSync(
-			join(folder, RUN_FILE),
-			`${process.pid}\n${pidNamespace()}\n`,
-		);
+		nameRun(folder);
 	} catch (error) {
 		rmSync(folder, { recursive: true, force: true });
 		throw error;
@@ -218,7 +252,8 @@ export interface Sweeper {
  *   costs a few bytes rather than a live run.
  * - A folder with no run file, or an empty one, as a run killed while
  *   writing it leaves, may be a run's starting now, and stays for
- *   `STARTING_MS`; after that it goes only if empty but for that file.
+ *   `STARTING_MS`; after that it goes only if empty but for that file,
+ *   and one holding anything else is left as it is.
  * - A run file not as the setup writes it is no run's, and stays.
  */
 export function sweepShortFolders(
@@ -240,15 +275,20 @@ export function sweepShortFolders(
 			if (!stat.isDirectory() || stat.uid !== uid) continue;
 			const fate = fateOf(folder, sweeper.now - stat.mtimeMs, sweeper);
 			if (fate === "removed") rmSync(folder, { recursive: true, force: true });
-			else if (fate === "removed if empty") {
+			else if (fate === "removed if empty" && emptyButRunFile(folder)) {
 				unlinkEmptyRunFile(folder);
-				// Fails on anything else inside, which then stays.
+				// Fails on anything made inside since, which then stays.
 				rmdirSync(folder);
 			}
 		} catch {
 			// Gone, unreadable or not empty: not this sweep's to take.
 		}
 	}
+}
+
+/** Whether `folder` holds nothing, or nothing but its run file. */
+function emptyButRunFile(folder: string): boolean {
+	return readdirSync(folder).every((name) => name === RUN_FILE);
 }
 
 /** Take out `folder`'s run file, if it has one, which its fate found empty. */

@@ -42,14 +42,17 @@ interface Asked {
  * for it meanwhile, and one that throws tells nothing, as one that fails
  * does, so the stop still holds what it can't tell apart.
  */
-export function keptHeads(ask: HeadOf, now = Date.now): HeadOf {
+export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 	const told = new Map<string, Asked>();
 	return (repo, pr) => {
 		if (repo === undefined) return Promise.resolve(undefined);
 		const key = `${repo}#${pr}`;
 		const known = told.get(key);
 		const failedAt = known?.failedAt;
-		const stale = failedAt !== undefined && now() - failedAt >= FAILED_FOR_MS;
+		const age = failedAt === undefined ? undefined : now() - failedAt;
+		// A clock stepped back reads as stale rather than holding for as
+		// long as it stepped.
+		const stale = age !== undefined && (age >= FAILED_FOR_MS || age < 0);
 		if (known && !stale) return known.head;
 		const asked: Asked = { head: ask(repo, pr).catch(() => undefined) };
 		told.set(key, asked);
@@ -58,4 +61,71 @@ export function keptHeads(ask: HeadOf, now = Date.now): HeadOf {
 		});
 		return asked.head;
 	};
+}
+
+/**
+ * What a program prints, trimmed, or nothing where it failed, timed out
+ * or said nothing, so an unknown answer never names a branch.
+ */
+export type Look = (
+	program: string,
+	args: string[],
+) => Promise<string | undefined>;
+
+/**
+ * A pull request's branch, asked of GitHub and Delta at once and taken
+ * from GitHub where it answers, so a write waits for the slower only
+ * when GitHub tells nothing. A blank answer, or one Delta gives as a
+ * whole ref, is read as the short name a push is judged by, or none.
+ */
+export function askedHead(look: Look): HeadOf {
+	return async (repo, pr) => {
+		if (repo === undefined) return undefined;
+		const delta = deltaHead(look, repo, pr).catch(() => undefined);
+		const github = await look("gh", [
+			"pr",
+			"view",
+			String(pr),
+			"-R",
+			repo,
+			"--json",
+			"headRefName",
+			"-q",
+			".headRefName",
+		]).catch(() => undefined);
+		return shortName(github) ?? (await delta);
+	};
+}
+
+async function deltaHead(
+	look: Look,
+	repo: string,
+	pr: number,
+): Promise<string | undefined> {
+	const json = await look("dt", [
+		"pr",
+		"view",
+		String(pr),
+		"-R",
+		repo,
+		"--json",
+	]);
+	if (json === undefined) return undefined;
+	try {
+		const view = JSON.parse(json) as {
+			head?: { ref?: unknown };
+			headRefName?: unknown;
+		} | null;
+		const ref = view?.head?.ref ?? view?.headRefName;
+		return typeof ref === "string" ? shortName(ref) : undefined;
+	} catch {
+		// Not JSON: Delta didn't say, and the stop holds the write.
+		return undefined;
+	}
+}
+
+/** A branch's short name, as a push names it, or none where it's blank. */
+function shortName(ref: string | undefined): string | undefined {
+	const name = ref?.trim().replace(/^refs\/heads\//, "");
+	return name === undefined || name === "" ? undefined : name;
 }

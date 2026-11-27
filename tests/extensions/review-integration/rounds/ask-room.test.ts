@@ -11,8 +11,14 @@ import { describe, expect, it } from "vitest";
 import {
 	myceliumAt,
 	roomFor,
+	roomHarness,
 } from "../../../../extensions/review-integration/tools/ask-room.ts";
 import type { ChangeRef } from "../../../../lib/core/review/index.ts";
+import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+	registerSubagentDefaultSkill,
+} from "../../../../lib/subagent/defaults.ts";
 
 const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
 const head = "b".repeat(40);
@@ -128,6 +134,31 @@ describe("the room a round's reviewers run on", () => {
 
 		await roomFor(mine, head, counted, await config({}), found);
 		expect(asked).toBe(0);
+	});
+
+	it("leaves this session's registered defaults here, since they are this machine's model access", async () => {
+		const path = await config({ room: { machine: "room-1" } });
+		const proxy = "/home/p/.pi/agent/extensions/proxy/index.ts";
+		const guide = "/home/p/.pi/agent/skills/proxy/SKILL.md";
+		registerSubagentDefaultExtension(proxy);
+		registerSubagentDefaultSkill(guide);
+		try {
+			const folder = await mkdtemp(join(tmpdir(), "ask-room-tree-"));
+			const room = await roomFor(
+				change("github:Jitsusama/agentic-harness.pi"),
+				head,
+				() => roomHarness(folder),
+				path,
+				found,
+			);
+
+			expect(room?.place.hereOnly, "both defaults left here").toEqual([
+				proxy,
+				guide,
+			]);
+		} finally {
+			clearSubagentDefaults();
+		}
 	});
 });
 

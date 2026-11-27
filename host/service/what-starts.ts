@@ -346,24 +346,36 @@ export async function unitDefinition(
  * reads and those it no longer reads, so a restart says which file changed
  * rather than leaving it to be pieced together from the journal. Files are
  * counted, not just named, so one that two drop-ins now resolve to is said
- * as read a new number of times rather than as a new order. The clauses are
- * joined with "; ", since a restart's reason joins its own with ", and ".
+ * as read a new number of times rather than as a new order, and one that
+ * comes or goes says how many times it is read where that is more than
+ * once. The clauses are joined with "; ", since a restart's reason joins
+ * its own with ", and ", and each recounted file is a clause of its own,
+ * since each already holds ", not ". A heap restart's line also joins
+ * what it ends with "; ", but before its "as", so the two never meet.
  */
 export function definitionMoves(before: string, now: string): string {
 	const was = counted(before);
 	const is = counted(now);
-	const came = [...is.keys()].filter((file) => !was.has(file));
-	const went = [...was.keys()].filter((file) => !is.has(file));
+	const named = (counts: Map<string, number>, file: string) => {
+		const count = counts.get(file) ?? 1;
+		return count === 1 ? file : `${file} ${times(count)}`;
+	};
+	const came = [...is.keys()]
+		.filter((file) => !was.has(file))
+		.map((file) => named(is, file));
+	const went = [...was.keys()]
+		.filter((file) => !is.has(file))
+		.map((file) => named(was, file));
 	const recounted = [...is].flatMap(([file, count]) => {
 		const had = was.get(file);
 		return had === undefined || had === count
 			? []
-			: [`${file} ${times(count)}, not ${times(had)}`];
+			: [`it reads ${file} ${times(count)}, not ${times(had)}`];
 	});
 	const moves = [
 		...(came.length > 0 ? [`it now reads ${came.join(", ")}`] : []),
 		...(went.length > 0 ? [`it no longer reads ${went.join(", ")}`] : []),
-		...(recounted.length > 0 ? [`it reads ${recounted.join(", ")}`] : []),
+		...recounted,
 	];
 	return moves.length > 0
 		? moves.join("; ")

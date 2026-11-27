@@ -48,7 +48,7 @@ describe("a command started inside a call", () => {
 		const exec = spawnExec();
 		const stop = new AbortController();
 		const running = withCallSignal(stop.signal, () => exec("sleep", ["30"]));
-		setTimeout(() => stop.abort(), 50);
+		setTimeout(() => stop.abort(), 50); // any time: the sleep is spawned before a timer can fire, and only the stop ends it
 
 		const result = await within(running);
 		expect(result === "still running" ? result : result.code).toBe(
@@ -62,7 +62,7 @@ describe("a command started inside a call", () => {
 		const running = withCallSignal(call.signal, () =>
 			spawnExec({ signal: own.signal })("sleep", ["30"]),
 		);
-		setTimeout(() => own.abort(), 50);
+		setTimeout(() => own.abort(), 50); // any time: the sleep is spawned before a timer can fire, and only the stop ends it
 
 		const result = await within(running);
 		expect(result === "still running" ? result : result.code).toBe(
@@ -81,7 +81,7 @@ describe("a command started inside a call", () => {
 		const running = other.withCallSignal(stop.signal, () =>
 			exec("sleep", ["30"]),
 		);
-		setTimeout(() => stop.abort(), 50);
+		setTimeout(() => stop.abort(), 50); // any time: the sleep is spawned before a timer can fire, and only the stop ends it
 
 		const result = await within(running);
 		expect(result === "still running" ? result : result.code).toBe(

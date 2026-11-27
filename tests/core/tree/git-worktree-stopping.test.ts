@@ -132,8 +132,12 @@ describe("git-worktree provider, stopped or out of time", () => {
 
 		// From here on every git this process starts hangs.
 		const bin = join(scratch, "bin");
+		const hung = join(scratch, "git-started");
 		mkdirSync(bin);
-		writeFileSync(join(bin, "git"), "#!/bin/sh\nexec sleep 30\n");
+		writeFileSync(
+			join(bin, "git"),
+			`#!/bin/sh\n: > '${hung}'\nexec sleep 30\n`,
+		);
 		chmodSync(join(bin, "git"), 0o755);
 		const path = process.env.PATH;
 		process.env.PATH = `${bin}:${path}`;
@@ -143,7 +147,9 @@ describe("git-worktree provider, stopped or out of time", () => {
 				path: handle.path,
 				signal: stop.signal,
 			});
-			setTimeout(() => stop.abort(), 300);
+			// Stopped once a git hangs, so it's the prune under way that stops.
+			await until("the prune's git to start", () => existsSync(hung));
+			stop.abort();
 			const started = Date.now();
 			expect(await outcome(pruning)).toMatch(/^AbortError/);
 			expect(Date.now() - started).toBeLessThan(3_000);

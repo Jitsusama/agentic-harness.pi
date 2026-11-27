@@ -10,6 +10,7 @@ import {
 	parseAdoptResult,
 	parseControl,
 	parseDrainResult,
+	parseHeapSnapshotResult,
 	parseListResult,
 	parseMemoryResult,
 	parseOpenResult,
@@ -56,6 +57,13 @@ describe("result validation", () => {
 			heavy: ["job-1 shell: nix-offload there --changed"],
 		};
 		expect(parseDrainResult(drained)).toEqual(drained);
+		const snapshot = {
+			sessionId: A,
+			file: "/state/heap-snapshots/a.heapsnapshot",
+			bytes: 1024,
+			tookMs: 0,
+		};
+		expect(parseHeapSnapshotResult(snapshot)).toEqual(snapshot);
 		expect(
 			() => parseDrainResult({ ...drained, busy: -1 }),
 			"a count is never negative",
@@ -72,6 +80,21 @@ describe("result validation", () => {
 			expect(() => parseOpenResult(bad)).toThrow("Invalid host control result");
 		expect(() => parseListResult({ sessions: [held] })).toThrow();
 		expect(() => parseSessionResult({ sessionId: A, extra: 1 })).toThrow();
+		const snapshot = {
+			sessionId: A,
+			file: "/a.heapsnapshot",
+			bytes: 1,
+			tookMs: 2,
+		};
+		for (const bad of [
+			{ ...snapshot, file: "a.heapsnapshot" },
+			{ ...snapshot, bytes: -1 },
+			{ ...snapshot, tookMs: 0.5 },
+			{ ...snapshot, sessionId: "short" },
+		])
+			expect(() => parseHeapSnapshotResult(bad), JSON.stringify(bad)).toThrow(
+				"Invalid host control result",
+			);
 	});
 	it("reads a memory answer from a host that reports more than it knows", () => {
 		const heap = { used: 1, limit: 2, at: "2026-11-24T08:00:00.000Z" };
@@ -171,6 +194,7 @@ describe("wire validation", () => {
 			{ v: 1, id: "d", op: "drain", on: true, by: "integration" },
 			{ v: 1, id: "d", op: "drain", on: false },
 			{ v: 1, id: "m", op: "memory" },
+			{ ...close, op: "heap-snapshot" },
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.
 			{
@@ -193,6 +217,9 @@ describe("wire validation", () => {
 			{ ...close, id: "" },
 			// A memory answer drops what it doesn't know; its request doesn't.
 			{ v: 1, id: "m", op: "memory", sessionId: A },
+			// A snapshot names the one conversation whose process it writes.
+			{ v: 1, id: "h", op: "heap-snapshot" },
+			{ ...close, op: "heap-snapshot", file: "/tmp/x.heapsnapshot" },
 			{ v: 1, id: "a", op: "adopt", sessionFile: "relative", attended: true },
 			// Only how a session runs its commands, never a key or a path.
 			...[
