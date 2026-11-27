@@ -641,7 +641,13 @@ describe("answering who holds a tree on a host", () => {
 
 	it("keeps every tree a quest listed in the last walk when a fresh walk can't read that quest", async () => {
 		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
-		const [shared, newer, before] = standing("a/shared", "a/newer", "a/before");
+		const [shared, newer, before, aside, beside] = standing(
+			"a/shared",
+			"a/newer",
+			"a/before",
+			"c/aside",
+			"c/beside",
+		);
 		const outgrown = questPlacing(
 			root,
 			"QEST-20260731-AAAAAA",
@@ -654,10 +660,19 @@ describe("answering who holds a tree on a host", () => {
 			{ path: `${before}`, repo: "/src/a" },
 			{ path: `${shared}`, repo: "/src/a" },
 		);
+		// A quest both walks read, whose older tree goes either way.
+		const bystander = questPlacing(
+			root,
+			"QEST-20260731-CCCCCC",
+			{ path: `${aside}`, repo: "/src/c" },
+			{ path: `${beside}`, repo: "/src/c" },
+		);
 		settle(outgrown);
 		settle(holder);
+		settle(bystander);
 		settle(join(root, "QEST-20260731-AAAAAA"));
 		settle(join(root, "QEST-20260731-BBBBBB"));
+		settle(join(root, "QEST-20260731-CCCCCC"));
 		settle(root);
 		discoverQuests(root);
 		const pi = bus();
@@ -673,24 +688,41 @@ describe("answering who holds a tree on a host", () => {
 			answering: [],
 		};
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.idleMayTake, "the last walk's holder").toEqual([before]);
+		expect(
+			[...(claims.idleMayTake ?? [])].sort(),
+			"the last walk's holder",
+		).toEqual([before, aside].sort());
 		await Promise.all(claims.answering ?? []);
 
 		expect(
 			claims.idleMayTake,
 			"a fresh walk that couldn't read the holder",
-		).toEqual([]);
+		).toEqual([aside]);
 	});
 
 	it("keeps a tree a quest's session started in when a fresh walk can't read that quest", async () => {
 		const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
-		const [first, last] = standing("a/first", "a/last");
+		const [first, last, aside, beside] = standing(
+			"a/first",
+			"a/last",
+			"c/aside",
+			"c/beside",
+		);
 		const outgrown = questPlacing(
 			root,
 			"QEST-20260731-AAAAAA",
 			{ path: `${first}`, repo: "/src/a" },
 			{ path: `${last}`, repo: "/src/a" },
 		);
+		// A quest both walks read, whose older tree goes either way.
+		const bystander = questPlacing(
+			root,
+			"QEST-20260731-CCCCCC",
+			{ path: `${aside}`, repo: "/src/c" },
+			{ path: `${beside}`, repo: "/src/c" },
+		);
+		settle(bystander);
+		settle(join(root, "QEST-20260731-CCCCCC"));
 		const holder = questPlacing(root, "QEST-20260731-BBBBBB");
 		writeFileSync(
 			holder,
@@ -718,13 +750,15 @@ describe("answering who holds a tree on a host", () => {
 			answering: [],
 		};
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.idleMayTake, "the last walk's session folder").toEqual([]);
+		expect(claims.idleMayTake, "the last walk's session folder").toEqual([
+			aside,
+		]);
 		await Promise.all(claims.answering ?? []);
 
 		expect(
 			claims.idleMayTake,
 			"a fresh walk that couldn't read the session's quest",
-		).toEqual([]);
+		).toEqual([aside]);
 	});
 
 	it("lets idle rules take nothing while neither walk reads a quest, since it may hold any tree", async () => {

@@ -173,7 +173,7 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		expect(existsSync(newest.tree), "the quest's newest is kept").toBe(true);
 	});
 
-	it("takes none its holder lets idle rules take in a run that took one it kept from them", async () => {
+	it("takes none a holder's list lets idle rules take, since a list can't be asked again, in a run that took one it kept", async () => {
 		const setup = await setUp();
 		const older = await pushedAndLeft(setup, "cut-first", IDLE);
 		// The quest's newest, its session ended and trunk holding its branch,
@@ -207,6 +207,33 @@ describe("taking the worktrees a live session left clean and pushed", () => {
 		});
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([newest]);
+		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
+	});
+
+	it("asks again before the idle phase, so an older tree stays once its newest went some other way", async () => {
+		const setup = await setUp();
+		const older = await pushedAndLeft(setup, "cut-first", IDLE);
+		const newest = await pushedAndLeft(setup, "cut-last", IDLE);
+		let asked = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			claims: async () => {
+				asked += 1;
+				const answer = {
+					held: [],
+					untilSpent: [older.tree, newest.tree],
+					idleMayTake: existsSync(newest.tree) ? [older.tree] : [],
+				};
+				// The quest's own session releases its newest as the run goes,
+				// which nothing in the run's outcome records.
+				if (asked === 1) {
+					await git(setup.main, "worktree", "remove", "--force", newest.tree);
+				}
+				return answer;
+			},
+		});
+
+		expect(outcome.taken, "what the run took").toEqual([]);
 		expect(existsSync(older.tree), "the quest's one tree left").toBe(true);
 	});
 

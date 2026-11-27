@@ -605,12 +605,13 @@ async function byRepository(
 /**
  * What idle rules may take of `idleMayTake`, the trees holders let them
  * take as the run began. Holders chose before the trees above went, and
- * one they kept from those rules going, or moving aside and staying
- * there, may leave an older tree its only one. So a run that took or
- * refused such a tree asks them again and takes only what both answers
- * name, since a holder judges again by what stands. Claims that are
- * a list, which can't be asked again, and an ask that fails, let them
- * take none.
+ * minutes may pass before the idle phase: a tree they kept from those
+ * rules may go meanwhile, taken or stuck aside by this run, or released
+ * by its own session, and leave an older tree its only one. So holders
+ * that can be asked again always are, and only what both answers name
+ * may go, since a holder judges again by what stands. Claims that are a
+ * list, which can't be asked again, let none go once this run took or
+ * refused a tree they kept, and an ask that fails lets none go.
  */
 async function stillLetGo(
 	claims: SweepDeps["claims"],
@@ -625,8 +626,8 @@ async function stillLetGo(
 	const touched = [...outcome.taken, ...outcome.refused].some((tree) =>
 		keptFromIdle.has(resolved(tree.path)),
 	);
-	if (!touched) return idleMayTake;
-	if (typeof claims !== "function") return new Set();
+	if (typeof claims !== "function") return touched ? new Set() : idleMayTake;
+	if (idleMayTake.size === 0) return idleMayTake;
 	try {
 		const again = await ask();
 		const fresh = new Set("held" in again ? again.idleMayTake : []);

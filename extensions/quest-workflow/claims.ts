@@ -323,7 +323,10 @@ function claimFrom(
 		for (const tree of trees) {
 			if (!into.includes(tree.path)) into.push(tree.path);
 		}
-		const letGo = olderInEachRepo(trees);
+		// Which trees stand is read from the disk, so only for an asker
+		// that may take; one that only asks what is held reads nothing.
+		const letGo =
+			mayTake === undefined ? new Set<string>() : olderInEachRepo(trees);
 		for (const tree of trees) {
 			if (letGo.has(tree.path) && tree.origin === "scaffolded") {
 				older.push(tree.path);
@@ -343,10 +346,18 @@ function claimFrom(
 		startedIn.push(...hold.startedIn);
 	}
 	if (mayTake === undefined) return holds;
-	const opened = startedIn.map(canonicalPath);
+	const resolvedOnce = new Map<string, string>();
+	const resolve = (path: string): string => {
+		const known = resolvedOnce.get(path);
+		if (known !== undefined) return known;
+		const found = canonicalPath(path);
+		resolvedOnce.set(path, found);
+		return found;
+	};
+	const opened = startedIn.map(resolve);
 	const keeps = (path: string): boolean => {
 		if (kept.has(path)) return true;
-		const top = canonicalPath(path);
+		const top = resolve(path);
 		return opened.some((cwd) => cwd === top || cwd.startsWith(top + sep));
 	};
 	for (const path of older) {

@@ -76,6 +76,8 @@ const idle: {
 	skipped?: string;
 	failed?: string;
 	partly?: string;
+	/** The run takes no tree and only deletes a settled branch. */
+	takesNone?: boolean;
 } = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
@@ -114,14 +116,16 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 			...none,
 			// One taken with its branch, one with its branch deleted too, and a
 			// branch deleted with no tree.
-			taken: [
-				{ path: "/src/repo/.worktrees/spent", branch: "spent" },
-				{
-					path: "/src/repo/.worktrees/merged",
-					branch: "merged",
-					branchGone: true,
-				},
-			],
+			taken: idle.takesNone
+				? []
+				: [
+						{ path: "/src/repo/.worktrees/spent", branch: "spent" },
+						{
+							path: "/src/repo/.worktrees/merged",
+							branch: "merged",
+							branchGone: true,
+						},
+					],
 			branches: [
 				{
 					checkout: "/src/repo",
@@ -159,6 +163,7 @@ beforeEach(() => {
 	delete idle.skipped;
 	delete idle.failed;
 	delete idle.partly;
+	delete idle.takesNone;
 	keeps.length = 0;
 	host = installTestHost();
 });
@@ -637,4 +642,17 @@ it("says what it took to whoever listed it", async () => {
 		"merged",
 		"settled",
 	]);
+});
+
+it("tells holders of a branch it deleted in a run that took no tree, so an alias left by an earlier take goes", async () => {
+	idle.takesNone = true;
+	const events = createEventBus();
+	const branchesGone: string[] = [];
+	events.on(WORK_TREES_SWEPT, (data) => {
+		branchesGone.push(...((data as SweptTrees).branchesGone ?? []));
+	});
+
+	await sweepOn(events);
+
+	expect(branchesGone, "the branches holders heard went").toEqual(["settled"]);
 });
