@@ -347,20 +347,24 @@ describe("a repo's merge gate", () => {
 	});
 
 	it("says a gate stopped by Escape was stopped, with everything it started", async () => {
+		const started = join(dir, "child-started");
 		const marker = join(dir, "still-running");
 		const pressed = new AbortController();
-		setTimeout(() => pressed.abort(), 200); // long enough for bash to start the gate's child before Escape lands
-		const said = await withCallSignal(pressed.signal, () =>
+		const refusing = withCallSignal(pressed.signal, () =>
 			gateRefusal(
 				{
 					...GATE,
-					command: `(sleep 2; touch ${JSON.stringify(marker)}) & wait; true`,
+					command: `(touch ${JSON.stringify(started)}; sleep 2; touch ${JSON.stringify(marker)}) & wait; true`,
 				},
 				HEAD,
 				dir,
 				shell,
 			),
 		);
+		// Escape once the child is there, so it's the child the signal must reach.
+		await until(started, "the gate's child starting");
+		pressed.abort();
+		const said = await refusing;
 		expect(said, "an Escape reads as the merge being stopped").toMatch(
 			/The merge was stopped before its gate/,
 		);

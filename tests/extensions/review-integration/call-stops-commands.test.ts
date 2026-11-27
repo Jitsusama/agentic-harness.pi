@@ -8,20 +8,25 @@
  * a command it starts stops when that fires.
  */
 
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCommandsWith } from "../../../extensions/review-integration/commands.ts";
+import { until } from "../../support/until.ts";
 import { activate, HEADLESS, toolNamed } from "../support/review-extension.ts";
 
 let bin: string;
+/** Written by the hung gh once it runs, so a stop can land on it. */
+let started: string;
 
 beforeEach(async () => {
 	// A gh that never answers, found first on the path.
 	bin = await mkdtemp(join(tmpdir(), "hung-gh-"));
+	started = join(bin, "started");
 	const gh = join(bin, "gh");
-	await writeFile(gh, "#!/bin/sh\nsleep 30\n");
+	await writeFile(gh, `#!/bin/sh\n: > '${started}'\nsleep 30\n`);
 	await chmod(gh, 0o755);
 	vi.stubEnv("PATH", `${bin}:${process.env.PATH ?? ""}`);
 });
@@ -45,7 +50,9 @@ describe("a review tool stopped while gh hangs", () => {
 			undefined,
 			HEADLESS,
 		);
-		setTimeout(() => stop.abort(), 200);
+		// Stopped once gh hangs, so it's a running gh the stop must end.
+		await until("gh to start", () => existsSync(started));
+		stop.abort();
 
 		const settled = await Promise.race([
 			seeing.then(

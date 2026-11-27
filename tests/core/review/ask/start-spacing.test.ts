@@ -361,6 +361,7 @@ describe("spacing council starts on one machine", () => {
 		);
 		// Two spacings and a wide margin for a loaded machine: without a tie
 		// broken, neither ever starts, and with one, this waits no longer.
+		// any time: a bound on a wrong wait, cleared once both have started.
 		const waited = setTimeout(() => giving.abort(), 10 * SPACING);
 		await Promise.all(rounds);
 		clearTimeout(waited);
@@ -397,6 +398,7 @@ describe("spacing council starts on one machine", () => {
 			}),
 		);
 		// As above: without a tie broken, neither ever starts.
+		// any time: a bound on a wrong wait, cleared once both have started.
 		const waited = setTimeout(() => giving.abort(), 10 * SPACING);
 		await Promise.all(rounds);
 		clearTimeout(waited);
@@ -790,6 +792,7 @@ describe("spacing council starts on one machine", () => {
 			claim("ISXEG8", { spacingMs: 60_000, lookAgainMs: 60_000 }),
 			giving.signal,
 		);
+		// any time: a bound on a wrong wait, cleared once the start comes.
 		const stopping = setTimeout(() => giving.abort(), 2_000);
 		const start = await waiting;
 		clearTimeout(stopping);

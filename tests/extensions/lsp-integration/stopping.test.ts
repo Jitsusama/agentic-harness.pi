@@ -6,6 +6,7 @@ import {
 	type LspBackend,
 	registerLspBackend,
 } from "../../../lib/core/lsp/index.ts";
+import { until } from "../../support/until.ts";
 
 /**
  * What the lsp tool does when its language server will not answer.
@@ -127,7 +128,9 @@ describe("an lsp call whose server never answers", () => {
 				{ operation, ...params },
 				controller.signal,
 			);
-			setTimeout(() => controller.abort(), 50);
+			// Stopped once the backend holds it, so there's a call to tell.
+			await until("the backend to be handed the call", () => handed.length > 0);
+			controller.abort();
 			expect(await outcome(call)).toBe("failed: AbortError");
 			expect(handed).toHaveLength(1);
 			expect(

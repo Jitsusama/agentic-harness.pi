@@ -104,7 +104,7 @@ describe("a Slack credential extraction", () => {
 			EXTRACTION_CLOCK_MS,
 			() => {
 				chromes = extractionChromes().filter((pid) => !before.has(pid));
-				setTimeout(() => stop.abort(), 200);
+				setTimeout(() => stop.abort(), 200); // any time: Chrome is up by now, and only the stop ends it
 			},
 			{ signal: stop.signal, headless: true },
 		);

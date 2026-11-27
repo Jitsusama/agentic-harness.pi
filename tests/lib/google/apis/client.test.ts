@@ -81,7 +81,7 @@ describe("a Google API request nobody answers", () => {
 	it("is sent under the request clock", async () => {
 		const drive = google.drive({ version: "v3", rootUrl, retry: false });
 		const call = drive.files.list({});
-		setTimeout(() => fire.abort(), 200);
+		setTimeout(() => fire.abort(), 200); // any time: the server never answers, so the stand-in clock is what ends the request
 		await outcome(call);
 		expect(clocks).toContain(GOOGLE_REQUEST_TIMEOUT_MS);
 	});
@@ -89,7 +89,7 @@ describe("a Google API request nobody answers", () => {
 	it("ends when that clock runs out", async () => {
 		const drive = google.drive({ version: "v3", rootUrl, retry: false });
 		const call = drive.files.list({});
-		setTimeout(() => fire.abort(), 200);
+		setTimeout(() => fire.abort(), 200); // any time: the server never answers, so the stand-in clock is what ends the request
 		expect(await outcome(call)).toMatch(/^failed/);
 	});
 });

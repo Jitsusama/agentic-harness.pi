@@ -54,7 +54,7 @@ describe("execUnattended", () => {
 		const running = execUnattended("sleep", [SLEEP_SECONDS], {
 			signal: stop.signal,
 		});
-		setTimeout(() => stop.abort(), 50);
+		setTimeout(() => stop.abort(), 50); // any time: stopped before the sleep starts or after, a stopped command answers killed
 
 		const said = await Promise.race([
 			running,

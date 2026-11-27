@@ -46,7 +46,7 @@ describe("a Slack call", () => {
 		silentNetwork();
 		const client = new SlackClient("xoxp-1");
 		const stop = new AbortController();
-		setTimeout(() => stop.abort(), 50);
+		setTimeout(() => stop.abort(), 50); // any time: the network never answers, so the stop is what ends the call
 
 		await expect(
 			client.call("auth.test", {}, stop.signal),
@@ -64,7 +64,7 @@ describe("a Slack call", () => {
 		const client = new SlackClient("xoxp-1");
 		const stop = new AbortController();
 		const started = Date.now();
-		setTimeout(() => stop.abort(), 50);
+		setTimeout(() => stop.abort(), 50); // any time: the retry is 30 s off, so the stop is what ends the wait
 
 		await expect(
 			client.call("auth.test", {}, stop.signal),

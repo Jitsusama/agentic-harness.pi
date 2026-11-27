@@ -259,7 +259,9 @@ describe("the package's tests", () => {
 			"a comment that leans on the timer is no excuse",
 		).toEqual([1]);
 		expect(
-			unexcusedTimedStops(`${stop} // any time: it ends a wait that never ends`),
+			unexcusedTimedStops(
+				`${stop} // any time: it ends a wait that never ends`,
+			),
 			"a reason on the line passes",
 		).toEqual([]);
 		expect(
@@ -269,12 +271,14 @@ describe("the package's tests", () => {
 			"a reason anywhere in the comment just above passes",
 		).toEqual([]);
 		expect(
-			unexcusedTimedStops(`// any time: an older reason.\nconst x = 1;\n${stop}`),
+			unexcusedTimedStops(
+				`// any time: an older reason.\nconst x = 1;\n${stop}`,
+			),
 			"a reason above some code is another line's",
 		).toEqual([3]);
 		expect(
 			unexcusedTimedStops(
-				"const waited = setTimeout(() => { giving.abort(); }, 10 * SPACING);\nsetTimeout(() => c?.abort(\"stopped\"), STOP_MS);",
+				'const waited = setTimeout(() => { giving.abort(); }, 10 * SPACING);\nsetTimeout(() => c?.abort("stopped"), STOP_MS);',
 			),
 			"a braced body, a reason and a named or summed delay are found",
 		).toEqual([1, 2]);
