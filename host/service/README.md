@@ -366,13 +366,20 @@ input pipeline or screen. No unit or running host is installed yet.
   bar a council's round waits on (lib/internal/machine/room.ts
   `cpuShort`). While it isn't, it looks again after five minutes and
   its share again, so the children held go out apart as the CPU falls.
-  After an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`)
-  it rolls anyway and says so, since a child left on stale code for
-  hours is what the roll exists to end. A look that can't tell, since
-  the install's `current` can't be read or names a version not done
-  installing, keeps the wait; one finding the code current again
-  forgets it, saying so.
-  The hour and the wait run on a clock a wall clock's steps don't move.
+  At its first look past an hour of waiting for room
+  (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`), so up to a look and a share
+  later, it rolls anyway and says so, since a child left on stale code
+  for hours is what the roll exists to end. A look that can't tell,
+  since the install's `current` can't be read or names a version not
+  done installing, keeps the wait and its spread, and holds the roll
+  for as long as it can't tell, since a fresh child would start on an
+  install nobody can read; it says so once for each doubt until a look
+  answers. One finding the code current again forgets the wait, saying
+  so. The child's roll asks its version's install itself
+  (`ChildRoll.version`), so its wiring can't hand it an ask that
+  answers nothing for not knowing.
+  The hour and the wait run on a clock a wall clock's steps don't move,
+  and may not count the time a machine sleeps (untested).
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

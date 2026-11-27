@@ -1,4 +1,7 @@
 /** A child host rolls its conversation onto new code once its install moves on. */
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	ROLL_ONLY_AFTER_MS,
@@ -90,6 +93,46 @@ describe("rollWhenStale", () => {
 		// As a timer that fires as it is let go: stopped, it rolls nothing.
 		again?.run();
 		await new Promise((resolve) => setImmediate(resolve));
+		expect(roll).not.toHaveBeenCalled();
+	});
+
+	it("says once that it couldn't tell while the install stays unreadable, and again once it answered between", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let answer: () => string | undefined = () => {
+			throw new Error("unreadable install");
+		};
+		const reported: unknown[] = [];
+		rollWhenStale(async () => answer(), roll, {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+		});
+		await timers.fire();
+		await timers.fire();
+		await timers.fire();
+		expect(reported, "the same doubt, said once").toEqual([
+			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
+		]);
+
+		answer = () => {
+			throw new Error("link can't be read");
+		};
+		await timers.fire();
+		answer = () => undefined;
+		await timers.fire();
+		answer = () => {
+			throw new Error("link can't be read");
+		};
+		await timers.fire();
+		expect(
+			reported,
+			"a new doubt is said, and an old one again after a look that answered",
+		).toEqual([
+			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
+			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+		]);
 		expect(roll).not.toHaveBeenCalled();
 	});
 
@@ -273,7 +316,7 @@ describe("rollWhenStale", () => {
 			"busy: it looks again",
 		).toEqual([300_000]);
 		expect(reported).toEqual([
-			"Moved, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 7 minutes until it has room, rolling anyway after 60 minutes",
+			"Moved, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 7 minutes until it has room, rolling anyway at its first look past 60 minutes",
 		]);
 		short = undefined;
 		await timers.fire();
@@ -431,6 +474,38 @@ describe("rollWhenStale", () => {
 		expect(timers.due, "rolled, it looks no more").toEqual([]);
 	});
 
+	it("keeps the spread it waited through a look that couldn't tell, so it rolls at the next that answers", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const answers: (() => string)[] = [
+			() => "moved",
+			() => {
+				throw new Error("link can't be read");
+			},
+		];
+		rollWhenStale(async () => (answers.shift() ?? (() => "moved"))(), roll, {
+			lookMs: 60_000,
+			after: timers.after,
+			spreadMs: 120_000,
+			roomShort: async () => undefined,
+			report: () => undefined,
+		});
+		await timers.fire();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"its spread",
+		).toEqual([120_000]);
+		await timers.fire();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"couldn't tell",
+		).toEqual([60_000]);
+		await timers.fire();
+		expect(roll, "its spread already waited").toHaveBeenCalledExactlyOnceWith(
+			"moved",
+		);
+	});
+
 	it("rolls only while the machine has room, saying once why it waits", async () => {
 		const timers = manualTimers();
 		const roll = vi.fn();
@@ -453,7 +528,7 @@ describe("rollWhenStale", () => {
 			"it looks again each look",
 		).toEqual([300_000]);
 		expect(reported).toEqual([
-			"The host's code differs, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 5 minutes until it has room, rolling anyway after 60 minutes",
+			"The host's code differs, but the machine is busy (CPU some avg60 was 64.7, at or past 40), so it looks again each 5 minutes until it has room, rolling anyway at its first look past 60 minutes",
 		]);
 
 		short = undefined;
@@ -544,6 +619,40 @@ describe("rollWhenStale", () => {
 });
 
 describe("rollChildWhenStale", () => {
+	/** A version under no install, which its own ask never finds moved. */
+	const NO_INSTALL = "/nowhere/tree";
+
+	it("asks its version's install, saying it couldn't tell while the install's link can't be read", async () => {
+		const root = await realpath(await mkdtemp(join(tmpdir(), "h1-roll-")));
+		try {
+			const version = join(root, "install", "versions", "one");
+			await mkdir(join(version, "scripts"), { recursive: true });
+			await writeFile(join(version, "scripts", "pi-host.ts"), "export {};\n");
+			const timers = manualTimers();
+			const reported: unknown[] = [];
+			rollChildWhenStale({
+				version,
+				host: () => undefined,
+				stopped: new Promise(() => undefined),
+				report: (message) => reported.push(message),
+				lookMs: 1,
+				after: timers.after,
+				bornAt: 0,
+				now: () => ROLL_ONLY_AFTER_MS,
+				spreadMs: 0,
+				roomShort: async () => undefined,
+			});
+			await timers.fire();
+			// A real install's look reads the disk, so it takes more than a turn.
+			await vi.waitFor(() => expect(timers.due).toHaveLength(1));
+			expect(reported).toEqual([
+				`Couldn't tell whether the install's host code moved on, so it looks again: the install's ${join(root, "install", "current")} can't be read`,
+			]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	/** A child's wiring, its host stopping when `stop` is called. */
 	function wired(
 		moved: () => Promise<string | undefined>,
@@ -564,6 +673,7 @@ describe("rollChildWhenStale", () => {
 		// The rejection is the child's host failing, which its program handles.
 		stopped.catch(() => undefined);
 		rollChildWhenStale({
+			version: NO_INSTALL,
 			moved,
 			host: () => host,
 			stopped,
@@ -625,6 +735,7 @@ describe("rollChildWhenStale", () => {
 		const wiredAt = 10 * ROLL_ONLY_AFTER_MS;
 		let now = wiredAt;
 		rollChildWhenStale({
+			version: NO_INSTALL,
 			moved: async () => "moved",
 			host: () => ({ roll: () => rolled.push("rolled") }),
 			stopped: new Promise(() => undefined),
@@ -649,6 +760,7 @@ describe("rollChildWhenStale", () => {
 			vi.setSystemTime(new Date("2030-06-01T00:00:00Z"));
 			const timers = manualTimers();
 			rollChildWhenStale({
+				version: NO_INSTALL,
 				moved: async () => "moved",
 				host: () => undefined,
 				stopped: new Promise(() => undefined),
@@ -688,6 +800,7 @@ describe("rollChildWhenStale", () => {
 		cpu.short = "CPU some avg60 was 64.7, at or past 40";
 		try {
 			rollChildWhenStale({
+				version: NO_INSTALL,
 				moved: async () => "moved",
 				host: () => ({ roll: () => rolled.push("rolled") }),
 				stopped: new Promise(() => undefined),
@@ -713,6 +826,7 @@ describe("rollChildWhenStale", () => {
 		try {
 			const timers = manualTimers();
 			rollChildWhenStale({
+				version: NO_INSTALL,
 				moved: async () => "moved",
 				host: () => undefined,
 				stopped: new Promise(() => undefined),

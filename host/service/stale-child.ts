@@ -35,6 +35,7 @@
  */
 
 import { cpuShort } from "../../lib/internal/machine/room.ts";
+import { installMovesOrThrowsFrom } from "./what-starts.ts";
 
 /** How often a child looks at its install: often enough that a roll waits minutes, not hours. */
 export const LOOK_EVERY_MS = 5 * 60_000;
@@ -104,6 +105,9 @@ export function rollWhenStale(
 	const waitsAtMost =
 		options.waitsForRoomAtMostMs ?? ROLL_WAITS_FOR_ROOM_AT_MOST_MS;
 	let toldTooSoon = false;
+	// What it last said it couldn't tell, so an install that stays
+	// unreadable is said once, not at every look of every child.
+	let toldUnsure: string | undefined;
 	let spread = false;
 	let waitingSince: number | undefined;
 	let stopped = false;
@@ -115,15 +119,18 @@ export function rollWhenStale(
 		} catch (error) {
 			if (stopped) return;
 			const said = error instanceof Error ? error.message : String(error);
-			options.report?.(
-				`Couldn't tell whether the install's host code moved on, so it looks again: ${said}`,
-			);
+			if (said !== toldUnsure)
+				options.report?.(
+					`Couldn't tell whether the install's host code moved on, so it looks again: ${said}`,
+				);
+			toldUnsure = said;
 			// Not knowing isn't finding the code current: what it waited
 			// for stands, so its hour of waiting for room still bounds it.
 			cancel = after(lookMs, () => void look());
 			return;
 		}
 		if (stopped) return;
+		toldUnsure = undefined;
 		if (why === undefined) {
 			if (waitingSince !== undefined || toldTooSoon)
 				options.report?.(
@@ -161,7 +168,7 @@ export function rollWhenStale(
 			if (waited < waitsAtMost) {
 				if (first)
 					options.report?.(
-						`${capitalised(why)}, but the machine is busy (${short}), so it looks again each ${minutes(lookMs + spreadMs)} until it has room, rolling anyway after ${minutes(waitsAtMost)}`,
+						`${capitalised(why)}, but the machine is busy (${short}), so it looks again each ${minutes(lookMs + spreadMs)} until it has room, rolling anyway at its first look past ${minutes(waitsAtMost)}`,
 					);
 				// Its share again before it next asks, so the children held
 				// for room don't all go at the first look the CPU allows.
@@ -210,8 +217,14 @@ function minutes(ms: number): string {
 
 /** What a child's roll is wired to: its install, its host and its life. */
 export interface ChildRoll {
-	/** Why the install's host code differs from the child's, or nothing. */
-	readonly moved: () => Promise<string | undefined>;
+	/** The folder of the version the child runs, whose install it asks. */
+	readonly version: string;
+	/**
+	 * Why the install's host code differs from the child's, or nothing,
+	 * throwing when it can't tell; asked of `version`'s install, as
+	 * `installMovesOrThrowsFrom` asks, if left out.
+	 */
+	readonly moved?: () => Promise<string | undefined>;
 	/** The host holding the conversation, once its engine is being made. */
 	readonly host: () => { roll(): void } | undefined;
 	/** Settles, either way, as the child's host stops. */
@@ -239,7 +252,8 @@ export function rollChildWhenStale(wiring: ChildRoll): void {
 	const now = wiring.now ?? steadyNow;
 	const bornAt = wiring.bornAt ?? now();
 	const stop = rollWhenStale(
-		wiring.moved,
+		// Not knowing must throw, so it keeps what the roll waited for.
+		wiring.moved ?? installMovesOrThrowsFrom(wiring.version),
 		(why) => {
 			wiring.report(
 				`Rolling onto new code, as ${why}: the conversation parks at its next quiet moment unless a window views it`,
