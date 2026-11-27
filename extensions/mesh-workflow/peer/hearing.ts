@@ -3,6 +3,7 @@
  * what attention it gets here, and chasing what went unanswered.
  */
 
+import { deadline } from "../../../lib/clock/index.ts";
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { blockedLine, lastRun } from "../../../lib/internal/session/ending.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
@@ -205,14 +206,17 @@ export function createHearing(m: MeshState, f: Handing) {
 		try {
 			const found = await classifierWithin();
 			if (!found?.ok) return undefined;
+			const clock = deadline(JUDGE_MS, "judging what a message concerns");
 			const result = await settledWithin(
-				found.classify(
-					{
-						state: concernState(message, receiver),
-						questions: concernQuestionFor(receiver),
-					},
-					AbortSignal.timeout(JUDGE_MS),
-				),
+				found
+					.classify(
+						{
+							state: concernState(message, receiver),
+							questions: concernQuestionFor(receiver),
+						},
+						clock.signal,
+					)
+					.finally(clock.end),
 				JUDGE_MS,
 			);
 			return result?.stopReason === "stop"
@@ -231,8 +235,9 @@ export function createHearing(m: MeshState, f: Handing) {
 	const routing: Judge = async (context) => {
 		const found = await classifierWithin();
 		if (!found?.ok) return undefined;
+		const clock = deadline(JUDGE_MS, "judging where a message goes");
 		const result = await settledWithin(
-			found.classify(context, AbortSignal.timeout(JUDGE_MS)),
+			found.classify(context, clock.signal).finally(clock.end),
 			JUDGE_MS,
 		);
 		return result?.stopReason === "stop" ? result.answers.to : undefined;

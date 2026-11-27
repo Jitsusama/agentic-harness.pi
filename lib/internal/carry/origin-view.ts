@@ -33,6 +33,7 @@
 
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { deadline } from "../../clock/index.ts";
 import {
 	callSignal,
 	type Exec,
@@ -480,13 +481,9 @@ export async function timed(
 	seconds: number,
 	start: () => Promise<ExecResult>,
 ): Promise<ExecResult> {
-	const clock = AbortSignal.timeout(seconds * 1000);
-	const own = callSignal();
-	const done = await withCallSignal(
-		own === undefined ? clock : AbortSignal.any([own, clock]),
-		start,
-	);
-	return clock.aborted && done.code !== 0
+	const clock = deadline(seconds * 1000, "a look at origin", callSignal());
+	const done = await withCallSignal(clock.signal, start).finally(clock.end);
+	return clock.expired && done.code !== 0
 		? {
 				...done,
 				stderr: `${STOPPED}${seconds} seconds.\n${done.stderr}`.trim(),

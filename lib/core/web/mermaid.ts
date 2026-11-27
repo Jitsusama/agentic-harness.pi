@@ -15,6 +15,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { deadline } from "../../clock/index.ts";
 import { newPage } from "./browser.ts";
 
 /** Pinned Mermaid version, fetched once from jsDelivr. */
@@ -94,24 +95,28 @@ export async function loadMermaidSource(
 	fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
 	if (cachedMermaidSource) return cachedMermaidSource;
-	let response: Response;
+	// One clock over the request and its body, ended once both are in.
+	const clock = deadline(MERMAID_FETCH_TIMEOUT_MS, "fetching Mermaid");
 	try {
-		response = await fetchImpl(MERMAID_CDN, {
-			signal: AbortSignal.timeout(MERMAID_FETCH_TIMEOUT_MS),
-		});
-	} catch {
-		throw new MermaidRenderError(
-			"Could not fetch the Mermaid library (network required). " +
-				"Rendering needs internet access to fetch Mermaid.",
-		);
+		let response: Response;
+		try {
+			response = await fetchImpl(MERMAID_CDN, { signal: clock.signal });
+		} catch {
+			throw new MermaidRenderError(
+				"Could not fetch the Mermaid library (network required). " +
+					"Rendering needs internet access to fetch Mermaid.",
+			);
+		}
+		if (!response.ok) {
+			throw new MermaidRenderError(
+				`Could not fetch the Mermaid library (HTTP ${response.status}).`,
+			);
+		}
+		cachedMermaidSource = await response.text();
+		return cachedMermaidSource;
+	} finally {
+		clock.end();
 	}
-	if (!response.ok) {
-		throw new MermaidRenderError(
-			`Could not fetch the Mermaid library (HTTP ${response.status}).`,
-		);
-	}
-	cachedMermaidSource = await response.text();
-	return cachedMermaidSource;
 }
 
 /** Thrown when Mermaid source cannot be rendered (bad syntax or no library). */

@@ -15,6 +15,7 @@
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { Classify, FoundClassifier } from "../classifier/jev.ts";
+import { deadline } from "../clock/index.ts";
 import { scrubSecrets } from "../internal/secrets/secrets.ts";
 import { settledWithin } from "../internal/settled.ts";
 
@@ -296,11 +297,12 @@ async function untestedSureness(
 	{ readonly sure: number } | { readonly why: string; readonly detail?: string }
 > {
 	try {
+		const clock = deadline(JUDGE_MS, "the classifier's sureness");
 		const result = await settledWithin(
 			classify(
 				{ state: { message: part }, questions: QUESTIONS },
-				AbortSignal.timeout(JUDGE_MS),
-			),
+				clock.signal,
+			).finally(clock.end),
 			JUDGE_MS,
 		);
 		// A request the signal ended may come back stopped as aborted rather

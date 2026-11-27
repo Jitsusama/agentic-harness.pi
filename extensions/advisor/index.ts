@@ -24,6 +24,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { deadline } from "../../lib/clock/index.ts";
 import { runInvestigation } from "../../lib/completion/index.ts";
 import {
 	advisorCharter,
@@ -285,8 +286,8 @@ export default function advisor(pi: ExtensionAPI) {
 		// call or a wedged search tool would hang the review forever.
 		// Stopping the run it watched stops it too, since a review of
 		// work the person just halted is not one they are waiting on.
-		const clock = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
-		const signal = run ? AbortSignal.any([clock, run]) : clock;
+		const clock = deadline(REVIEW_TIMEOUT_MS, "the advisor's review", run);
+		const { signal } = clock;
 		const result = await runInvestigation(ctx.modelRegistry, {
 			systemPrompt: advisorCharter(),
 			messages,
@@ -294,7 +295,7 @@ export default function advisor(pi: ExtensionAPI) {
 			maxSteps: MAX_STEPS,
 			current: ctx.model,
 			signal,
-		});
+		}).finally(clock.end);
 		// A compaction or reset during the await invalidated the
 		// context; drop this review's writeback rather than resurrect
 		// the stale prefix the reset just cleared.
