@@ -71,10 +71,41 @@ const RECORD_MS = 5_000;
 /**
  * The hosts' own bounded waits in each case: two hosts listening and the
  * first's open. On a loaded lender an open took 67 s (h2353c), so leaving
- * these out let vitest's timeout win before a wait's own failure. A
- * restart's going waits on the host's exit, which nothing bounds.
+ * these out let vitest's timeout win before a wait's own failure.
  */
 const HOSTS_MS = 2 * LISTEN_WAIT_MS + OPEN_WAIT_MS;
+
+/**
+ * How long a host's own restart may take to go. systemd kills a stop that
+ * outruns 60 s, so a restart a round trip hasn't seen go is one the
+ * machine wouldn't have waited out either.
+ */
+const RESTART_MS = ROUND_TRIP_MS;
+
+/**
+ * Restart `host` as its own restart does, and wait for it to go, bounded:
+ * its exit isn't, and a hang would otherwise end in vitest's timeout with
+ * nothing the hosts wrote.
+ */
+async function restarted(host: HostProcess): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<never>((_, fail) => {
+		timer = setTimeout(
+			() =>
+				fail(
+					new Error(
+						`the host didn't go within ${RESTART_MS} ms of its restart\n${said()}`,
+					),
+				),
+			RESTART_MS,
+		);
+	});
+	try {
+		await Promise.race([host.restart(), late]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 let sealed: Seal;
 let hosts: HostProcess[] = [];
@@ -151,8 +182,9 @@ function carriedCalls(file: string): number {
 }
 
 /**
- * Each entry of a session file in a line: its type, and its message's
- * role or its custom type, so a failure says what asked the model.
+ * Each entry of a session file in a line: its type, its message's role,
+ * how an answer stopped and its error text, and its custom type, so a
+ * failure says what asked the model and how it answered.
  */
 function entryLines(file: string): string {
 	return entriesOf(file)
@@ -262,7 +294,15 @@ async function carrying(
 		"the hosted turn that started the command to end",
 		async () => textOf(file).includes(CARRYING) && answeredLast(file),
 		ROUND_TRIP_MS,
-	);
+	).catch((failed: unknown) => {
+		// An answer that stopped on an error holds this wait, so its text is
+		// in the log's entries, said here rather than lost to the timeout.
+		throw new Error(
+			[String(failed), `the log's entries:\n${entryLines(file)}`, said()].join(
+				"\n",
+			),
+		);
+	});
 	// The call's .pid is made empty before its shell starts, and the stub
 	// writes the pid only as it runs, which can come after the turn ends:
 	// read at once, 1 in 3 runs on 21 November found it empty.
@@ -298,7 +338,7 @@ it(
 			const first = await start(pi);
 			const { file, held, shell } = await carrying(first);
 
-			await first.restart();
+			await restarted(first);
 			carriedOnce(file, "after the restart");
 			expect(
 				alive(shell),
@@ -329,10 +369,10 @@ it(
 			await keptGoes(file);
 		});
 	},
-	// Its bounded waits (five round trips, CARRIED_MS and the hosts') with
-	// one round trip spare, so a wait's own failure, which says what it
-	// saw, comes first.
-	ROUND_TRIP_MS * 6 + CARRIED_MS + HOSTS_MS,
+	// Its bounded waits (five round trips, CARRIED_MS, the hosts' and the
+	// restart's) with one round trip spare, so a wait's own failure, which
+	// says what it saw, comes first.
+	ROUND_TRIP_MS * 6 + CARRIED_MS + HOSTS_MS + RESTART_MS,
 );
 
 it(
@@ -415,7 +455,7 @@ it(
 			const first = await start(pi);
 			const { file, held, shell } = await carrying(first);
 
-			await first.restart();
+			await restarted(first);
 			// One run alone, so the shell killed is the one the case names.
 			carriedOnce(file, "after the restart");
 			// Killed while no host runs, its stub never writes a status.
@@ -447,7 +487,7 @@ it(
 			);
 		});
 	},
-	// Its bounded waits (five round trips and the hosts') with two round
-	// trips spare, as E23's reasons.
-	ROUND_TRIP_MS * 7 + HOSTS_MS,
+	// Its bounded waits (five round trips, the hosts' and the restart's)
+	// with two round trips spare, as E23's reasons.
+	ROUND_TRIP_MS * 7 + HOSTS_MS + RESTART_MS,
 );
