@@ -63,8 +63,9 @@ function wallAtMonotonicZero(): number {
  * the step after it began reads as an earlier boot's, and a step longer
  * than the boot's age reaches everything before it. A park marker
  * written then is cleared. A mesh hold sent then stops standing, as a
- * reboot ends it: each hand is told it is over, and a peer waiting on
- * it is told the machine has restarted, though it hasn't. A peer's own
+ * reboot ends it: each hand already told it began is told it is over,
+ * and a peer waiting on it is told the machine has restarted, though it
+ * hasn't, with no word of a clock step. A peer's own
  * claims from then are let go when it next starts, and the boot the
  * restore file pinned as the last one is no longer kept, so the
  * records decide. Keeping the earlier boot instead would leave a peer
