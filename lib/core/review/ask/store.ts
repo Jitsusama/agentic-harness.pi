@@ -82,11 +82,21 @@ export interface RunStore {
 	 * to the caller's checkout never read the commit it names, so it
 	 * doesn't count; nor does one still open or given up on. A ledger
 	 * that won't read is passed over, which can only find less.
+	 *
+	 * Only the round's id and start come back, since every ledger's
+	 * reading is kept between asks and whole rounds carry their
+	 * reviewers' answers: kept whole, they held 10 MiB in a session.
 	 */
 	witnessed(
 		repo: string,
 		commits: ReadonlySet<string>,
-	): Promise<AskRun | undefined>;
+	): Promise<WitnessedRound | undefined>;
+}
+
+/** A finished round that read a commit, named by its id and start. */
+export interface WitnessedRound {
+	readonly id: string;
+	readonly startedAt: string;
 }
 
 /** A round still open, with what the ledger says of it. */
@@ -347,10 +357,11 @@ export function createRunStore(root: string): RunStore {
 			}
 			// Asked at every proposal, over every change ever reviewed here,
 			// so each file is parsed again only once it has changed. What is
-			// kept of one is its repo and the rounds that read something.
+			// kept of one is its repo and, of each round that read something,
+			// its id, its start and the commits it read.
 			const kept = fileReads<Witnessing | undefined>("review-witnesses", root);
 			const listed = new Set<string>();
-			let newest: AskRun | undefined;
+			let newest: ReadRound | undefined;
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
 				const path = join(root, file);
@@ -370,7 +381,9 @@ export function createRunStore(root: string): RunStore {
 				}
 			}
 			kept.keepOnly(listed);
-			return newest;
+			return newest === undefined
+				? undefined
+				: { id: newest.id, startedAt: newest.startedAt };
 		},
 
 		async latest(change, round) {
@@ -444,7 +457,12 @@ function isMissing(error: unknown): boolean {
 /** A ledger's repo, and its finished rounds whose reviewers read a commit. */
 interface Witnessing {
 	repo: string;
-	rounds: AskRun[];
+	rounds: ReadRound[];
+}
+
+/** A finished round, kept as no more than which commits it read. */
+interface ReadRound extends WitnessedRound {
+	readonly read: readonly string[];
 }
 
 /** What a ledger file says was read, or nothing when it isn't a ledger. */
@@ -466,8 +484,20 @@ async function witnessingIn(path: string): Promise<Witnessing | undefined> {
 	) {
 		return undefined;
 	}
-	const rounds: AskRun[] = parsed.runs.filter(readSomething);
+	const rounds = parsed.runs.filter(readSomething).map(readRound);
 	return { repo: parsed.change.repo.key, rounds };
+}
+
+/** What of `run` a witness needs: its name, its start and what it read. */
+function readRound(run: AskRun): ReadRound {
+	return {
+		id: run.id,
+		startedAt: run.startedAt,
+		read: [
+			...(typeof run.witness === "string" ? [run.witness] : []),
+			...(Array.isArray(run.witnesses) ? run.witnesses : []),
+		],
+	};
 }
 
 /**
@@ -492,12 +522,8 @@ function readSomething(run: unknown): run is AskRun {
 }
 
 /** Whether `run`'s reviewers read one of `commits`. */
-function readOneOf(run: AskRun, commits: ReadonlySet<string>): boolean {
-	const read = [
-		...(typeof run.witness === "string" ? [run.witness] : []),
-		...(Array.isArray(run.witnesses) ? run.witnesses : []),
-	];
-	return read.some((sha) => commits.has(sha));
+function readOneOf(run: ReadRound, commits: ReadonlySet<string>): boolean {
+	return run.read.some((sha) => commits.has(sha));
 }
 
 /**

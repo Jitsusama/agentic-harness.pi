@@ -3,6 +3,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import { createRunStore } from "../../../../lib/core/review/index.ts";
+import { fileReads } from "../../../../lib/internal/files/file-reads.ts";
 import { at } from "../../../support/at.ts";
 
 const change: ChangeRef = {
@@ -440,6 +442,31 @@ describe("finding a council that read a change's commits", () => {
 				new Set(["c1", "c2", "c3"]),
 			),
 		).toBeUndefined();
+	});
+
+	it("keeps no reviewer's answer between asks, only what each round read", async () => {
+		// Every ledger's reading is kept for the next ask, and whole rounds
+		// carry what their reviewers said: held whole, one session's 2,189
+		// ledgers kept 10 MiB of it.
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa"]),
+		);
+		const path = onlyFile(root);
+		const kept = fileReads<unknown>("review-witnesses", root).held(
+			path,
+			statSync(path),
+		);
+
+		expect(found).toEqual({
+			id: "council-aaa",
+			startedAt: "2026-07-30T00:00:00.000Z",
+		});
+		expect(kept).toBeDefined();
+		expect(JSON.stringify(kept)).not.toMatch(/hawk/u);
 	});
 
 	it("passes over a ledger that won't read", async () => {
