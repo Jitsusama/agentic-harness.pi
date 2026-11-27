@@ -294,12 +294,45 @@ describe("root inside a user namespace", () => {
 		);
 	});
 
-	it("is root alone where there is no /proc, as on a Mac", () => {
+	it("keeps no overflow user an inner root can give its files to", () => {
+		// A rootless container's root maps 65536 ids, 65534 among them, and
+		// can chown a file to any of them.
 		expect(
-			rootOwners(() => {
-				throw new Error("ENOENT");
-			}),
-		).toEqual([0]);
+			rootOwners(proc("         0       1000      65536\n"), 0),
+			"the overflow id mapped",
+		).toEqual([]);
+		expect(
+			rootOwners(proc("         0       1000          1\n"), 0),
+			"the overflow id left out",
+		).toEqual([65534]);
+	});
+
+	it("is root alone where there is no /proc, as on a Mac", () => {
+		const none = (): string => {
+			throw new Error("ENOENT");
+		};
+
+		expect(rootOwners(none, 1000, "darwin"), "a Mac, as the person").toEqual([
+			0,
+		]);
+		expect(rootOwners(none, 0, "darwin"), "a Mac, as root").toEqual([0]);
+		expect(rootOwners(none, 1000, "linux"), "a Linux, as the person").toEqual([
+			0,
+		]);
+	});
+
+	it("never counts this process as root on a Linux whose /proc can't be read", () => {
+		// Under `unshare -r` with no `/proc` mounted, 0 is the person.
+		expect(
+			rootOwners(
+				() => {
+					throw new Error("ENOENT");
+				},
+				0,
+				"linux",
+			),
+			"0 with no map to read",
+		).toEqual([]);
 	});
 
 	it("takes a program the overflow user holds only where it stands for root", () => {
@@ -322,8 +355,17 @@ describe("root inside a user namespace", () => {
 			systemProgram("bwrap", PROFILE, seen([0, 65534])),
 			"the overflow user, standing for root",
 		).toBeDefined();
+		// On root's own disk, so an empty list read as root's would find it.
+		const rooted = (owners: readonly number[]): Look => ({
+			...disk(NIXOS),
+			rootOwners: () => owners,
+		});
 		expect(
-			systemProgram("bwrap", PROFILE, seen([])),
+			systemProgram("bwrap", PROFILE, rooted([0])),
+			"root trusted, on root's disk",
+		).toBeDefined();
+		expect(
+			systemProgram("bwrap", PROFILE, rooted([])),
 			"no owner trusted at all",
 		).toBeUndefined();
 	});
