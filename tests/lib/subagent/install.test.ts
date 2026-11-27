@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,22 +89,38 @@ describe("resolveParentPiInstall", () => {
 	});
 
 	// Shopify's pi wrapper deletes ~/.pi/pkg/pi-<version> on an upgrade,
-	// while every pi started through it still names that link. The entry
-	// script the parent runs sits inside the very package the link named.
+	// while every pi started through it still names that link. The wrapper
+	// starts node on the entry script's store path, inside the very package
+	// the link named, so that script outlives the link.
 	it("finds the package from the entry script when PI_PACKAGE_DIR is gone", () => {
+		const entry = "/nix/store/pi-0.80.7/pi-monorepo/dist/bundle/cli.js";
 		const install = resolveParentPiInstall({
 			execPath: "/usr/bin/node",
-			argv: ["/usr/bin/node", "/home/x/.pi/pkg/pi-0.80.7/dist/cli.js"],
+			argv: ["/usr/bin/node", entry],
 			piPackageDir: "/home/x/.pi/pkg/pi-0.80.7",
 			realpath: (p) => {
-				if (p === "/home/x/.pi/pkg/pi-0.80.7/dist/cli.js") {
-					return "/nix/store/pi-0.80.7/pi-monorepo/dist/cli.js";
-				}
+				if (p === entry || p === "/usr/bin/node") return p;
 				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
 			},
 			holdsPackage: (dir) => dir === "/nix/store/pi-0.80.7/pi-monorepo",
 		});
 		expect(install.packageDir).toBe("/nix/store/pi-0.80.7/pi-monorepo");
+	});
+
+	// A package found above a script that is itself gone would be some
+	// other package, so nothing is looked for from a gone entry.
+	it("looks for no package above an entry script that is gone", () => {
+		const install = resolveParentPiInstall({
+			execPath: "/usr/bin/node",
+			argv: ["/usr/bin/node", "/gone/pi/dist/cli.js"],
+			piPackageDir: "/home/x/.pi/pkg/pi-0.80.7",
+			realpath: () => {
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			},
+			holdsPackage: () => true,
+		});
+		expect(install.entry).toBe("/gone/pi/dist/cli.js");
+		expect(install.packageDir).toBe("/home/x/.pi/pkg/pi-0.80.7");
 	});
 
 	it("keeps the raw PI_PACKAGE_DIR when neither it nor the entry's package resolves", () => {
@@ -175,11 +197,66 @@ describe("getParentPiInstall", () => {
 		}
 	});
 
-	it("leaves a snapshot whose package stands as it is", () => {
+	it("heals no snapshot from an entry script that is gone too", () => {
 		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		mkdirSync(join(root, "dist"));
+		writeFileSync(join(root, "package.json"), "{}");
 		const install = {
 			node: process.execPath,
-			entry: "/gone/cli.js",
+			entry: join(root, "dist", "gone-cli.js"),
+			packageDir: join(root, "gone-link"),
+		};
+		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = install;
+		expect(getParentPiInstall()).toBe(install);
+	});
+
+	// A first capture taken after the link went finds the package from
+	// the entry, and pi itself must read its assets from there too.
+	it("says a package found on a first capture in PI_PACKAGE_DIR", () => {
+		const previous = process.env.PI_PACKAGE_DIR;
+		const previousEntry = process.argv[1];
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		mkdirSync(join(root, "dist"));
+		writeFileSync(join(root, "package.json"), "{}");
+		writeFileSync(join(root, "dist", "cli.js"), "");
+		process.env.PI_PACKAGE_DIR = join(root, "gone-link");
+		process.argv[1] = join(root, "dist", "cli.js");
+		try {
+			expect(getParentPiInstall().packageDir).toBe(root);
+			expect(process.env.PI_PACKAGE_DIR).toBe(root);
+		} finally {
+			process.argv[1] = previousEntry ?? "";
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
+	});
+
+	it("leaves PI_PACKAGE_DIR as named when its folder stands", () => {
+		const previous = process.env.PI_PACKAGE_DIR;
+		const target = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const link = join(mkdtempSync(join(tmpdir(), "pi-link-")), "pi-0.80.7");
+		symlinkSync(target, link);
+		process.env.PI_PACKAGE_DIR = link;
+		try {
+			expect(getParentPiInstall().packageDir).toBe(target);
+			expect(process.env.PI_PACKAGE_DIR).toBe(link);
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
+	});
+
+	// The entry sits in a package of its own, so a snapshot healed while
+	// its package stands would move to that package and fail here.
+	it("leaves a snapshot whose package stands as it is", () => {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const other = realpathSync(mkdtempSync(join(tmpdir(), "pi-other-")));
+		mkdirSync(join(other, "dist"));
+		writeFileSync(join(other, "package.json"), "{}");
+		writeFileSync(join(other, "dist", "cli.js"), "");
+		const install = {
+			node: process.execPath,
+			entry: join(other, "dist", "cli.js"),
 			packageDir: root,
 		};
 		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = install;

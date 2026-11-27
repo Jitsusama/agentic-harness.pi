@@ -114,10 +114,10 @@ export function resolveParentPiInstall(
 		"piPackageDir" in deps ? deps.piPackageDir : process.env.PI_PACKAGE_DIR;
 	const holdsPackage = deps.holdsPackage ?? holdsPackageJson;
 	const entryPath = argv[1] ?? "";
-	const entry = dereference(entryPath, realpath);
+	const entry = resolved(entryPath, realpath);
 	return {
 		node: dereference(execPath, realpath),
-		entry,
+		entry: entry ?? entryPath,
 		...(piPackageDir
 			? {
 					packageDir:
@@ -132,10 +132,12 @@ export function resolveParentPiInstall(
 /**
  * The package root the entry script at `entry` sits in: the nearest
  * folder above it that `holdsPackage` says is one, or undefined when
- * none is, up to the file system's root.
+ * none is, up to the file system's root. `entry` is the script's
+ * dereferenced path, or undefined when it is gone: a package found
+ * above a script that no longer exists would be some other package.
  */
 function packageOf(
-	entry: string,
+	entry: string | undefined,
 	holdsPackage: (dir: string) => boolean,
 ): string | undefined {
 	if (!entry) return undefined;
@@ -178,10 +180,11 @@ type StartupInstallGlobal = {
  * path, re-opening the crash the pin exists to prevent. This
  * accessor takes the reading once, stashes it on `globalThis`
  * so a `/reload` cannot recapture a stale value, and hands the
- * same immutable snapshot to every caller thereafter. The
- * first call must happen before any upgrade; module load at
- * extension registration (session start) and the health
- * check's own startup probe both satisfy that.
+ * same snapshot to every caller thereafter. A snapshot whose
+ * package folder has gone since, or a first capture taken after
+ * the link went, takes the package its entry script sits in
+ * instead and says it in `PI_PACKAGE_DIR`, so pi itself and its
+ * children read their assets from the package pi runs.
  */
 export function getParentPiInstall(): PiInstall {
 	const store = globalThis as StartupInstallGlobal;
@@ -197,8 +200,23 @@ export function getParentPiInstall(): PiInstall {
 		);
 	}
 	const install = resolveParentPiInstall();
+	sayFoundPackage(install);
 	store[STARTUP_INSTALL_KEY] = install;
 	return install;
+}
+
+/**
+ * Put `install`'s package folder in `PI_PACKAGE_DIR` when the folder
+ * that variable names is gone and the install found its package
+ * elsewhere, from its entry script, so pi itself reads its assets
+ * from the package it runs. A folder that stands is left as named.
+ */
+function sayFoundPackage(install: PiInstall): void {
+	const named = process.env.PI_PACKAGE_DIR;
+	const { packageDir } = install;
+	if (!named || packageDir === undefined || packageDir === named) return;
+	if (existsSync(named) || !existsSync(packageDir)) return;
+	process.env.PI_PACKAGE_DIR = packageDir;
 }
 
 /**
@@ -212,7 +230,7 @@ function healedInstall(install: PiInstall): PiInstall {
 	const { packageDir } = install;
 	if (packageDir === undefined || existsSync(packageDir)) return install;
 	const found = packageOf(
-		dereference(install.entry, realpathSync),
+		resolved(install.entry, realpathSync),
 		holdsPackageJson,
 	);
 	if (found === undefined) return install;
