@@ -18,7 +18,7 @@ import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { childOf } from "../../../support/processes.ts";
 import { type Drawn, drawn } from "./drawn.ts";
 import { textOf, untilAnswered } from "./hosted-case.ts";
-import { scriptArgs } from "./script.ts";
+import { scriptOnPath } from "./script.ts";
 import type { Seal } from "./seal.ts";
 
 /** The extension that registers the scripted model in a plain pi. */
@@ -202,20 +202,19 @@ function inTerminal(options: TerminalStart) {
 	].map(quoted);
 	// script(1) reads no window from a pipe, so the terminal is told its
 	// size before pi starts in it; exec keeps the pid pi runs as.
-	const child = spawn(
-		"script",
-		scriptArgs(`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`),
-		{
-			cwd: options.cwd,
-			env: {
-				...options.seal.env,
-				...options.env,
-				TERM: "xterm-256color",
-				PI_HOST_PACKAGE_DIR: options.packageDir,
-			},
-			stdio: ["pipe", "pipe", "pipe"],
-		},
+	const script = scriptOnPath(
+		`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`,
 	);
+	const child = spawn(script.file, script.args, {
+		cwd: options.cwd,
+		env: {
+			...options.seal.env,
+			...options.env,
+			TERM: "xterm-256color",
+			PI_HOST_PACKAGE_DIR: options.packageDir,
+		},
+		stdio: ["pipe", "pipe", "pipe"],
+	});
 	const drawing: Drawn = drawn(ROWS, COLUMNS);
 	child.stdout.on("data", (chunk) => drawing.draw(String(chunk)));
 	let stderr = "";

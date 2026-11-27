@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { until } from "../../../support/until.ts";
 import { type Drawn, drawn, SHOWN_MS } from "./drawn.ts";
-import { scriptArgs } from "./script.ts";
+import { scriptOnPath } from "./script.ts";
 import type { Seal } from "./seal.ts";
 
 /** The prompt bash shows. */
@@ -82,17 +82,14 @@ export async function openTty(seal: Seal, options: TtyOptions): Promise<Tty> {
 	// script(1) runs its command through a shell's -c, and a bash run that
 	// way drops PS1 from its environment, so the prompt is handed to the
 	// interactive bash by env(1), past whichever shell script(1) runs.
-	const child = spawn(
-		"script",
-		scriptArgs(`env PS1='${PROMPT}' bash --norc --noprofile -i`),
-		{
-			env: {
-				...seal.env,
-				TERM: "xterm-256color",
-			},
-			stdio: ["pipe", "pipe", "pipe"],
+	const script = scriptOnPath(`env PS1='${PROMPT}' bash --norc --noprofile -i`);
+	const child = spawn(script.file, script.args, {
+		env: {
+			...seal.env,
+			TERM: "xterm-256color",
 		},
-	);
+		stdio: ["pipe", "pipe", "pipe"],
+	});
 	child.stdout.on("data", (chunk) => drawing.draw(String(chunk)));
 	const exited = new Promise<void>((done) => child.once("exit", () => done()));
 	const type = (data: string) => {

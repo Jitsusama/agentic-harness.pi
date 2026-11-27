@@ -7,6 +7,14 @@
  * and end with the command's status. The host cases were probed on
  * util-linux 2.38 and 2.42, so a Mac with util-linux first on its PATH
  * runs that one.
+ *
+ * node hands a child its stdio pipes as a socketpair, and a Mac's
+ * tcgetattr on a socket fails with EOPNOTSUPP rather than ENOTTY, which
+ * BSD script takes as fatal ("tcgetattr/ioctl: Operation not supported
+ * on socket", the Mac's host run, 27 November). So BSD script is started
+ * by bash with a pipe on its stdin, which cat fills from node's socket,
+ * and exec keeps the pid script's own, so a signal sent to it still
+ * reaches script.
  */
 
 import { spawnSync } from "node:child_process";
@@ -48,9 +56,33 @@ export function scriptWords(kind: ScriptKind, command: string): string[] {
 	return ["-qeF", "/dev/null", "/bin/sh", "-c", command];
 }
 
-/** The arguments for the PATH's script(1), refusing when it holds none. */
-export function scriptArgs(command: string): string[] {
+/** A program and its arguments, as spawn takes them. */
+export interface Launch {
+	readonly file: string;
+	readonly args: readonly string[];
+}
+
+/**
+ * bash's line that starts script with its arguments and a pipe, not
+ * node's socket, on its stdin; cat's errors go nowhere, since a write
+ * to a script that has ended says nothing worth reading.
+ */
+const BEHIND_A_PIPE = 'exec script "$@" < <(exec cat 2>/dev/null)';
+
+/**
+ * How to start script(1) of `kind` running `command` in a terminal of
+ * its own, from node's stdio: util-linux's as it is, and BSD's behind a
+ * pipe, as its own pid.
+ */
+export function scriptLaunch(kind: ScriptKind, command: string): Launch {
+	const args = scriptWords(kind, command);
+	if (kind === "util-linux") return { file: "script", args };
+	return { file: "/bin/bash", args: ["-c", BEHIND_A_PIPE, "script", ...args] };
+}
+
+/** How to start the PATH's script(1), refusing when it holds none. */
+export function scriptOnPath(command: string): Launch {
 	const kind = scriptKind();
 	if (kind === undefined) throw new Error(NO_SCRIPT);
-	return scriptWords(kind, command);
+	return scriptLaunch(kind, command);
 }
