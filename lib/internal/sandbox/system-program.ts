@@ -108,7 +108,8 @@ export function rootOwners(
 	try {
 		const map = read("/proc/self/uid_map");
 		const inner = innerRoot(map);
-		if (inner !== undefined && (inner !== uid || isMachines(map))) return [inner];
+		if (inner !== undefined && (inner !== uid || isMachines(map)))
+			return [inner];
 		const overflow = Number(read("/proc/sys/kernel/overflowuid").trim());
 		return uid === 0 ? [overflow] : [overflow, 0];
 	} catch {
