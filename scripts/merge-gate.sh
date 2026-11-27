@@ -52,7 +52,42 @@ for each in "${rules[@]}"; do
 done
 # What the rules import of the package's own, judged as they are.
 helpers=(tests/package/code/package-files.ts)
-scratch=$(mktemp -d)
+# Biome finds no nested config in a copy whose path passes through some
+# folders, wherever on the path they sit: .git, .cache, .turbo and more
+# (found by trying Biome 2.5.15, 27 November). There it judges every file
+# by the root config alone, which pnpm lint in the checkout doesn't. A pi
+# session's TMPDIR is under ~/.cache, so each place is tried with a copy
+# only a nested config faults, rather than against a list Biome may grow,
+# and the gate refuses where Biome reads none.
+reads_nested() {
+  local probe=$1/probe read=0
+  mkdir -p "$probe/lib"
+  printf '{ "formatter": { "indentStyle": "tab" } }\n' > "$probe/biome.jsonc"
+  printf '{ "root": false, "formatter": { "indentStyle": "space" } }\n' \
+    > "$probe/lib/biome.jsonc"
+  printf 'export function tabbed(): number {\n\treturn 1;\n}\n' > "$probe/lib/tabbed.ts"
+  # Only a run that faults the file read lib/'s config.
+  if (cd "$probe" && "$biome" check --vcs-enabled=false --colors=off -- lib/tabbed.ts \
+    > /dev/null 2>&1); then
+    read=1
+  fi
+  rm -rf "$probe"
+  return "$read"
+}
+scratch=""
+for room in "${TMPDIR:-/tmp}" /tmp; do
+  [[ -d $room ]] || continue
+  scratch=$(mktemp -d "$room/merge-gate.XXXXXX")
+  # A checkout with no Biome is refused below, saying so.
+  if [[ ! -x $biome ]] || reads_nested "$scratch"; then break; fi
+  rm -rf "$scratch"
+  scratch=""
+done
+if [[ -z $scratch ]]; then
+  echo "merge-gate: Biome reads no nested config in a copy under ${TMPDIR:-/tmp} or /tmp, so it can't judge files as pnpm lint would." >&2
+  echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
+  exit 1
+fi
 trap 'rm -rf "$scratch"' EXIT
 
 # Main is fetched to its remote branch by name, since the checkout's own
@@ -150,12 +185,21 @@ unattributed diff -z --name-only --diff-filter=d "$base" "$head_id" -- \
   '*.json' '*.jsonc' '*.css' > "$scratch/changed-files"
 mapfile -d '' -t files < "$scratch/changed-files"
 # Biome's config is any biome.json or biome.jsonc, at the root or nested in
-# a folder, where it rules that folder's files. A pathspec's * crosses
-# folders, so these name every such file at any depth, and only those.
-config_names=(biome.json biome.jsonc '*/biome.json' '*/biome.jsonc')
+# a folder, where it rules that folder's files, and at the root a
+# .biome.json or .biome.jsonc where neither plain name is. A pathspec's *
+# crosses folders, so these name every such file at any depth, and only
+# those; a dotted one nested, which Biome doesn't read, goes out unread.
+config_names=(biome.json biome.jsonc .biome.json .biome.jsonc
+  '*/biome.json' '*/biome.jsonc' '*/.biome.json' '*/.biome.jsonc')
+is_config() {
+  [[ ${1##*/} == biome.json || ${1##*/} == biome.jsonc ||
+    ${1##*/} == .biome.json || ${1##*/} == .biome.jsonc ]]
+}
 # Whether the change touches a config, one it removes included, since
-# removing a nested config loosens its folder as surely as editing it.
-unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" \
+# removing a nested config loosens its folder as surely as editing it. A
+# GritQL plugin counts too: a config loads its rules, so editing one
+# loosens lint as surely as editing the config that names it.
+unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" '*.grit' \
   > "$scratch/changed-configs"
 config_changed=0
 if [[ -s $scratch/changed-configs ]]; then config_changed=1; fi
@@ -170,8 +214,7 @@ if [[ ${#files[@]} -gt 0 ]]; then
   mapfile -d '' -t head_configs < "$scratch/head-configs"
   others=()
   for file in "${files[@]}"; do
-    [[ $file == biome.json || $file == biome.jsonc || $file == */biome.json ||
-      $file == */biome.jsonc ]] || others+=("$file")
+    is_config "$file" || others+=("$file")
   done
   gate_index checkout-index --prefix="$tree/" -- \
     ${head_configs[@]+"${head_configs[@]}"} ${others[@]+"${others[@]}"}

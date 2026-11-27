@@ -578,6 +578,42 @@ describe("host-gate.sh", () => {
 		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
 	});
 
+	// The 27 November round: one replacement of the head by main's commit,
+	// or a graft making the head main's parent, reads as no change at all.
+	it("reads what changed past the checkout's replacement of the head", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const main = await git(on.checkout, "rev-parse", "origin/main");
+		await git(on.checkout, "replace", sha, main);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the replacement hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it("reads what changed past the checkout's grafts", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const main = await git(on.checkout, "rev-parse", "origin/main");
+		const grafts = join(
+			await git(on.checkout, "rev-parse", "--git-common-dir"),
+			"info",
+			"grafts",
+		);
+		mkdirSync(dirname(resolve(on.checkout, grafts)), { recursive: true });
+		writeFileSync(resolve(on.checkout, grafts), `${main} ${sha}\n`);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the graft hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();
 		const code = "host/engine/engine.ts";

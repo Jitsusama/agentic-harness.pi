@@ -87,7 +87,22 @@ prose='(^|/)README\.md$'
 # nothing reads as changed.
 git fetch -q origin +refs/heads/main:refs/remotes/origin/main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
-base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
+# What changed is read past the checkout's replacements and grafts, either
+# of which could make the head's commit read as main's, so that nothing
+# reads as changed. Every GIT_ variable the gate was given is unset (a
+# graft file or a replace base among them), as merge-gate.sh does, and an
+# empty graft file is named, since the checkout's info/grafts is read
+# otherwise.
+inherited=()
+for name in "${!GIT_@}"; do inherited+=(-u "$name"); done
+grafts=$(mktemp)
+listed=$(mktemp)
+trap 'rm -f "$grafts" "$listed"' EXIT
+unreplaced() {
+  env ${inherited[@]+"${inherited[@]}"} GIT_GRAFT_FILE="$grafts" GIT_NO_REPLACE_OBJECTS=1 \
+    git --no-replace-objects "$@"
+}
+base=$(unreplaced merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing. A rename is listed as
 # the path it left and the path it took, so hosted code moved to a README
@@ -96,9 +111,7 @@ base=$(git merge-base "refs/remotes/origin/main^{commit}" "$sha")
 # that none of the patterns below match, so hosted code named oddly would
 # skip the run. Each is matched whole, so a newline in one can't split it
 # into a README and a path that isn't hosted.
-listed=$(mktemp)
-trap 'rm -f "$listed"' EXIT
-git diff -z --name-only --no-renames "$base" "$sha" > "$listed"
+unreplaced diff -z --name-only --no-renames "$base" "$sha" > "$listed"
 mapfile -d '' -t changed < "$listed"
 touched=()
 for path in ${changed[@]+"${changed[@]}"}; do

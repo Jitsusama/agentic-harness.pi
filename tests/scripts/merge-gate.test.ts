@@ -567,6 +567,76 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain("lib/loud.ts:1:1");
 	});
 
+	it("names what an edit to a plugin alone lets through, by main's plugin", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		await landed(checkout, {
+			[grit]: plugin("alert", "no alert"),
+			"biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+		});
+		// No config changes, so only the plugin's edit can fire main's run.
+		const sha = await change(checkout, {
+			[grit]: plugin("confirm", "no confirm"),
+			"lib/loud.ts": 'alert("hi");\n',
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "main's run never fired").toContain(
+			"main's config faults what it lets through",
+		);
+		expect(answered.said, "main's plugin's words").toContain("no alert");
+	});
+
+	it("loads plugins a root .biome.jsonc names, as Biome reads one", async () => {
+		const checkout = await harness();
+		const grit = "lib/no-alert.grit";
+		const files = {
+			[grit]: plugin("alert", "no alert"),
+			".biome.jsonc": `{ "plugins": ["./${grit}"] }\n`,
+			"lib/loud.ts": 'alert("hi");\n',
+		};
+		// Biome reads the dotted name only where no plain one is.
+		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
+		await git(checkout, "rm", "-q", "biome.jsonc");
+		for (const [file, text] of Object.entries(files)) {
+			mkdirSync(dirname(join(checkout, file)), { recursive: true });
+			writeFileSync(join(checkout, file), text);
+			await git(checkout, "add", "--", file);
+		}
+		await git(checkout, "commit", "-q", "-m", "dotted config");
+		const sha = await git(checkout, "rev-parse", "HEAD");
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the head's dotted config went unread").toContain(
+			"no alert",
+		);
+	});
+
+	it("judges by a nested config though TMPDIR is under a .cache folder", async () => {
+		const checkout = await harness();
+		await landed(checkout, {
+			"lib/biome.jsonc": `{ "root": false, "formatter": { "indentStyle": "space" } }\n`,
+		});
+		const sha = await change(checkout, {
+			"lib/tabbed.ts": "export function tabbed(): number {\n\treturn 1;\n}\n",
+		});
+		// Biome reads no nested config under a .cache folder, as a pi
+		// session's TMPDIR is.
+		const cached = join(folder(made, "home"), ".cache", "tmp");
+		mkdirSync(cached, { recursive: true });
+
+		const answered = await gate(checkout, sha, { TMPDIR: cached });
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the file lib/'s config faults").toContain(
+			"lib/tabbed.ts",
+		);
+	});
+
 	it("loads a plugin whose name git would quote", async () => {
 		const checkout = await harness();
 		const grit = "lib/no alert é.grit";
