@@ -19,6 +19,7 @@ import {
 	markAsOwner,
 	marked,
 	markedByConversation,
+	NO_PROC_NOTICE,
 	ownerMark,
 	type ProcessTable,
 	parseEnviron,
@@ -571,8 +572,9 @@ describe("reading the process table", () => {
 	it("says once as the host starts where there is no /proc that nothing is ever ended", () => {
 		const report = vi.fn();
 		markAsOwner(report, linuxProcessTable(noProc()));
-		expect(report).toHaveBeenCalledExactlyOnceWith(
-			"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it",
+		expect(report).toHaveBeenCalledExactlyOnceWith(NO_PROC_NOTICE);
+		expect(NO_PROC_NOTICE, "the notice says what it costs").toMatch(
+			/^This machine has no \/proc, so no conversation's tool processes are ever ended/,
 		);
 	});
 

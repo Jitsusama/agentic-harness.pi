@@ -1,21 +1,43 @@
-// A host case that only one platform can run, skipped elsewhere with a note naming that platform.
+// A host case that only one platform can run, skipped elsewhere saying which platform, in its note and its meta.
 /**
  * Some host cases read what only one platform has, as Linux's /proc. On
  * another they can't run, which is no check left unmade, so `pnpm
- * test:host`'s reporter (every-case-ran.mts) lets such a skip by, rather
- * than failing the Mac's whole run for it. It knows one from its note,
- * which these helpers write and read, so every other skip still fails.
+ * test:host`'s reporter (every-case-ran.mts) and the proof's judge
+ * (host/service/proof.ts) let such a skip by, rather than failing the
+ * Mac's whole run for it. Both know one from the platform its meta
+ * names, which only these helpers write, so every other skip still fails.
  */
 import { it, type TestFunction } from "vitest";
+import { ONLY_ON_KEY } from "../../../../host/service/proof.ts";
+
+declare module "vitest" {
+	interface TaskMeta {
+		/** The one platform this case runs on, once it skipped on another. */
+		onlyOn?: NodeJS.Platform;
+	}
+}
 
 /** What a platform's own case says as it skips elsewhere. */
 export function onlyOnNote(platform: NodeJS.Platform, why: string): string {
 	return `only on ${platform}: ${why}`;
 }
 
-/** The platform a skip's note says its case runs on alone, if it says one. */
-export function onlyOnPlatform(note: string | undefined): string | undefined {
-	return note?.match(/^only on ([a-z0-9]+): /)?.[1];
+/**
+ * The body a case only `platform` runs registers on `here`: `fn` itself
+ * there, and elsewhere a skip naming `platform` in its meta and, with
+ * `why`, in its note.
+ */
+export function onlyOnBody(
+	platform: NodeJS.Platform,
+	why: string,
+	fn: TestFunction,
+	here: string = process.platform,
+): TestFunction {
+	if (here === platform) return fn;
+	return ({ skip, task }) => {
+		task.meta[ONLY_ON_KEY] = platform;
+		skip(onlyOnNote(platform, why));
+	};
 }
 
 /**
@@ -24,7 +46,6 @@ export function onlyOnPlatform(note: string | undefined): string | undefined {
  */
 export function itOnlyOn(platform: NodeJS.Platform, why: string) {
 	return (name: string, fn: TestFunction, timeout?: number): void => {
-		if (process.platform === platform) it(name, fn, timeout);
-		else it(name, ({ skip }) => skip(onlyOnNote(platform, why)), timeout);
+		it(name, onlyOnBody(platform, why, fn), timeout);
 	};
 }

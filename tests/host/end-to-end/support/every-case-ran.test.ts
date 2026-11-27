@@ -1,30 +1,46 @@
 /**
  * The host gate's reporter, on the cases a run ended with: it names each
  * that skipped, with its note, and nothing that passed or failed, letting
- * by only a case another platform alone runs.
+ * by only a case whose meta names another platform as its own.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type TestContext, vi } from "vitest";
 import type { TestModule } from "vitest/node";
 import EveryCaseRan, { skipsIn } from "./every-case-ran.mts";
-import { onlyOnNote, onlyOnPlatform } from "./only-on.mts";
+import { onlyOnBody, onlyOnNote } from "./only-on.mts";
+
+/** A case as a file ended it: its name, its state, and its note and meta if any. */
+interface Case {
+	readonly name: string;
+	readonly state: string;
+	readonly note?: string;
+	readonly onlyOn?: string;
+}
 
 /** A file whose cases ended as given. */
-function file(
-	moduleId: string,
-	cases: readonly { name: string; state: string; note?: string }[],
-) {
+function file(moduleId: string, cases: readonly Case[]) {
 	return {
 		moduleId,
 		children: {
 			*allTests() {
-				for (const { name, state, note } of cases)
+				for (const { name, state, note, onlyOn } of cases)
 					yield {
 						fullName: name,
 						result: () => (note === undefined ? { state } : { state, note }),
+						meta: () => (onlyOn === undefined ? {} : { onlyOn }),
 					};
 			},
 		},
+	};
+}
+
+/** A case only `platform` runs, as it ended skipped on another. */
+function onlyOn(name: string, platform: NodeJS.Platform): Case {
+	return {
+		name,
+		state: "skipped",
+		note: onlyOnNote(platform, "it reads /proc"),
+		onlyOn: platform,
 	};
 }
 
@@ -69,13 +85,8 @@ describe("skipsIn", () => {
 	});
 
 	it("lets by a case only another platform runs, and refuses it on that platform", () => {
-		const linuxOnly = onlyOnNote("linux", "it reads /proc");
-		const ran = [
-			file("held-logs.test.ts", [
-				{ name: "holds a log once", state: "skipped", note: linuxOnly },
-			]),
-		];
-		const line = `held-logs.test.ts: holds a log once: ${linuxOnly}`;
+		const ran = [file("engine.test.ts", [onlyOn("holds a log", "linux")])];
+		const line = `engine.test.ts: holds a log: ${onlyOnNote("linux", "it reads /proc")}`;
 		expect(skipsIn(ran, "", "darwin"), "on the Mac").toEqual({
 			refused: [],
 			elsewhere: [line],
@@ -86,17 +97,28 @@ describe("skipsIn", () => {
 		});
 	});
 
-	it("refuses a note that names a platform only past its start", () => {
+	it("refuses a note naming another platform when the meta names none", () => {
+		const note = onlyOnNote("linux", "it reads /proc");
+		const ran = [
+			file("engine.test.ts", [{ name: "resumes", state: "skipped", note }]),
+		];
+		expect(skipsIn(ran, "", "darwin")).toEqual({
+			refused: [`engine.test.ts: resumes: ${note}`],
+			elsewhere: [],
+		});
+	});
+
+	it("refuses a meta naming a platform Node doesn't know", () => {
+		const note = "only on never: it can't run anywhere";
 		const ran = [
 			file("engine.test.ts", [
-				{
-					name: "resumes",
-					state: "skipped",
-					note: `No pi built; ${onlyOnNote("linux", "it reads /proc")}`,
-				},
+				{ name: "resumes", state: "skipped", note, onlyOn: "never" },
 			]),
 		];
-		expect(skipsIn(ran, "", "darwin").elsewhere).toEqual([]);
+		expect(skipsIn(ran, "", "linux")).toEqual({
+			refused: [`engine.test.ts: resumes: ${note}`],
+			elsewhere: [],
+		});
 	});
 });
 
@@ -121,6 +143,8 @@ describe("the reporter", () => {
 		return { exitCode: process.exitCode, said: said.join("\n") };
 	}
 
+	const other = process.platform === "linux" ? "darwin" : "linux";
+
 	it("fails a run any case skipped in, naming it", () => {
 		const { exitCode, said } = report([
 			file("engine.test.ts", [
@@ -132,27 +156,57 @@ describe("the reporter", () => {
 	});
 
 	it("passes a run whose only skips are another platform's, naming them", () => {
-		const other = process.platform === "linux" ? "darwin" : "linux";
 		const { exitCode, said } = report([
-			file("held-logs.test.ts", [
-				{
-					name: "holds a log once",
-					state: "skipped",
-					note: onlyOnNote(other, "probe"),
-				},
-			]),
+			file("held-logs.test.ts", [onlyOn("holds a log once", other)]),
 		]);
 		expect(exitCode).toBe(0);
 		expect(said).toContain("let by 1 only another platform runs");
+		expect(said).toContain("held-logs.test.ts: holds a log once");
+	});
+
+	it("fails a run that let one skip by and refused another, naming each", () => {
+		const { exitCode, said } = report([
+			file("engine.test.ts", [
+				onlyOn("holds a log once", other),
+				{ name: "resumes", state: "skipped", note: "No pi built" },
+			]),
+		]);
+		expect(exitCode).toBe(1);
+		expect(said).toContain("let by 1 only another platform runs");
+		expect(said).toContain(
+			"1 skipped:\n  engine.test.ts: resumes: No pi built",
+		);
 	});
 });
 
-describe("a platform's own case", () => {
-	it("says the platform it runs on as it skips, and is read back by it", () => {
-		const note = onlyOnNote("linux", "it reads /proc");
-		expect(note).toBe("only on linux: it reads /proc");
-		expect(onlyOnPlatform(note)).toBe("linux");
-		expect(onlyOnPlatform("No pi built")).toBeUndefined();
-		expect(onlyOnPlatform(undefined)).toBeUndefined();
+describe("a case only one platform runs", () => {
+	/** What a body did when run: whether `fn` ran, the note it skipped with, and its meta. */
+	function ran(body: ReturnType<typeof onlyOnBody>) {
+		const meta: Record<string, unknown> = {};
+		let skipped: string | undefined;
+		const context = {
+			task: { meta },
+			skip: (note?: string) => {
+				skipped = note;
+			},
+		};
+		body(context as unknown as TestContext);
+		return { skipped, meta };
+	}
+
+	it("runs its own body on its platform", () => {
+		const fn = vi.fn();
+		ran(onlyOnBody("linux", "it reads /proc", fn, "linux"));
+		expect(fn).toHaveBeenCalledOnce();
+	});
+
+	it("skips elsewhere, naming its platform in its note and its meta", () => {
+		const fn = vi.fn();
+		const { skipped, meta } = ran(
+			onlyOnBody("linux", "it reads /proc", fn, "darwin"),
+		);
+		expect(fn).not.toHaveBeenCalled();
+		expect(skipped).toBe("only on linux: it reads /proc");
+		expect(meta).toEqual({ onlyOn: "linux" });
 	});
 });

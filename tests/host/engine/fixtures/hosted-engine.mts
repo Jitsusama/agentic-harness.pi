@@ -33,6 +33,7 @@ import type {
 } from "../../../../host/engine/contract.ts";
 import { SETTLE_MS } from "../../../../host/engine/quiet-collection.ts";
 import type { SessionHost } from "../../../../host/engine/session-host.ts";
+import { NO_PROC_NOTICE } from "../../../../host/engine/tool-children.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
@@ -192,6 +193,15 @@ const derived: string[] = [];
 const OPENED_AS = "OPENED_AS";
 /** What the engine reported, in this run. */
 const reported: string[] = [];
+
+/**
+ * Note what the engine reported, but for the notice a Mac's host gives
+ * as it starts, having no /proc: true there, and nothing a case asks.
+ */
+function noteReported(error: unknown): void {
+	const said = String(error);
+	if (said !== NO_PROC_NOTICE) reported.push(said);
+}
 /** Project folders, each with an extension of its own that notes its loads in projectLoads. */
 const projects = join(folder, "projects");
 const projectLoads = join(folder, "project-loads.jsonl");
@@ -309,9 +319,7 @@ const rebounds: {
 function rebindingScreens(): EngineScreens {
 	const bind = (view: HostedView) => {
 		if (!runningHost) throw new Error("A screen bound before its host ran");
-		return bindHeadless(view.runtime, runningHost, (error) =>
-			reported.push(String(error)),
-		);
+		return bindHeadless(view.runtime, runningHost, noteReported);
 	};
 	return {
 		opened: (view) => bind(view),
@@ -1903,7 +1911,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 				}
 			: {}),
 		...(scenario.screens ? { screens: scenario.screens() } : {}),
-		report: (error) => reported.push(String(error)),
+		report: noteReported,
 	});
 	// As the service's roster does: the conversation a held one became replaces it, in one write.
 	engine.watch({
