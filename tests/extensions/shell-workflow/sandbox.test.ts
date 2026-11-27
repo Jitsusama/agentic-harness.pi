@@ -128,6 +128,50 @@ describe("what a session asks for", () => {
 		).toBe("refused");
 	});
 
+	/** Why the sandbox `asked` is refused where nothing is found, for `unowned`. */
+	const refusedFor = (
+		asked: "strict" | "fence",
+		unowned: "namespace" | "unread" | undefined,
+	): string => {
+		const sandbox = sandboxFor(
+			{ PI_SANDBOX: asked },
+			"linux",
+			() => undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			() => unowned,
+		);
+		return sandbox.kind === "refused" ? sandbox.reason : sandbox.kind;
+	};
+
+	it("says each refusal's reason by the owners its finder was given, not the machine's", () => {
+		expect(refusedFor("strict", undefined), "strict, an owner trusted").toBe(
+			"PI_SANDBOX=strict asks for a sandbox, but landrun isn't in the system's own " +
+				"profile, where only root puts programs, so no command runs unfenced.",
+		);
+		expect(refusedFor("fence", undefined), "the fence, an owner trusted").toBe(
+			"PI_SANDBOX=fence needs bwrap and landrun, but bwrap and landrun aren't in " +
+				"the system's own profile, where only root puts programs, so no command " +
+				"runs unfenced.",
+		);
+		expect(refusedFor("strict", "namespace"), "strict, in a namespace").toBe(
+			"PI_SANDBOX=strict asks for a sandbox, but landrun can't be trusted: no " +
+				"owner here can be told from pi's own, as in a user namespace whose ids " +
+				"pi can give its files to, so no command runs unfenced. Run pi as an id " +
+				"other than 0 there.",
+		);
+		expect(refusedFor("fence", "unread"), "the fence, with no map").toBe(
+			"PI_SANDBOX=fence needs bwrap and landrun, but bwrap and landrun can't be " +
+				"trusted: no owner here can be told from pi's own, since /proc can't be " +
+				"read to say which user namespace pi is in, so no command runs unfenced. " +
+				"Mount /proc, or run pi as an id other than 0.",
+		);
+	});
+
 	const onMac = (
 		asked: "strict" | "fence",
 		inside: boolean,

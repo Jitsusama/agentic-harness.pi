@@ -243,9 +243,11 @@ describe("removing a tree", () => {
 		writeFileSync(join(folder, "rm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
 		// Which reason is said rests on this machine's namespace, so the
-		// test asks for the one it holds.
+		// test asks which it holds, and names the message itself.
 		expect(() => removeTree(join(folder, "tree"), [folder])).toThrow(
-			noneFound("rm", [folder], trustsNoOwner()),
+			trustsNoOwner()
+				? /^no rm found: no owner here can be told from pi's own, .* so the tree is left in place/
+				: `no rm found: none is kept where only root can put one (${folder}), so the tree is left in place rather than walked by path`,
 		);
 		await expect(removeTreeOff(join(folder, "tree"), [folder])).rejects.toThrow(
 			/no rm found/,
@@ -408,18 +410,20 @@ describe("removing a tree", () => {
 	});
 
 	it("blames the folders where an owner is trusted, and the namespace where none is", () => {
-		expect(noneFound("rm", ["/a", "/b"], false), "an owner trusted").toBe(
+		expect(noneFound("rm", ["/a", "/b"], undefined), "an owner trusted").toBe(
 			"no rm found: none is kept where only root can put one (/a, /b), " +
 				"so the tree is left in place rather than walked by path",
 		);
-		const none = noneFound("chmod", ["/a"], true);
-		expect(none, "no owner trusted").toMatch(
-			/^no chmod found: no owner here can be told from pi's own, .*run pi as an id other than 0 there, so the tree is left in place/,
+		expect(noneFound("chmod", ["/a"], "namespace"), "in a namespace").toBe(
+			"no chmod found: no owner here can be told from pi's own, as in a user " +
+				"namespace whose ids pi can give its files to, so the tree is left in " +
+				"place rather than walked by path. Run pi as an id other than 0 there.",
 		);
-		expect(
-			none,
-			"no owner trusted, so the folders aren't blamed",
-		).not.toContain("/a");
+		expect(noneFound("rm", ["/a"], "unread"), "with no map").toBe(
+			"no rm found: no owner here can be told from pi's own, since /proc can't " +
+				"be read to say which user namespace pi is in, so the tree is left in " +
+				"place rather than walked by path. Mount /proc, or run pi as an id other than 0.",
+		);
 	});
 
 	it("names the system's rm by a path root alone keeps, for a shell", () => {

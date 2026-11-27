@@ -15,6 +15,7 @@ import {
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
+	noOwner,
 	notKept,
 	rootOwners,
 	sealedPath,
@@ -327,6 +328,17 @@ describe("root inside a user namespace", () => {
 			),
 			"the overflow id last in a later line's range",
 		).toEqual([]);
+		// A rootless toolbox entered as its root: the person is inner 0 and
+		// the subordinate ids cover the overflow id.
+		expect(
+			rootOwners(
+				proc(
+					"         0       1000          1\n         1     100000      65536\n",
+				),
+				0,
+			),
+			"a rootless toolbox, as its root",
+		).toEqual([]);
 		expect(
 			rootOwners(
 				proc(
@@ -349,17 +361,6 @@ describe("root inside a user namespace", () => {
 				0,
 			),
 			"the outer root mapped beside this process as inner 0",
-		).toEqual([]);
-		// A rootless toolbox entered as its root: the person is inner 0 and
-		// the subordinate ids cover the overflow id, so either can be forged.
-		expect(
-			rootOwners(
-				proc(
-					"         0       1000          1\n         1     100000      65536\n",
-				),
-				0,
-			),
-			"a rootless toolbox, as its root",
 		).toEqual([]);
 	});
 
@@ -437,14 +438,71 @@ describe("root inside a user namespace", () => {
 		expect(trustsNoOwner(disk(NIXOS)), "root, where none says").toBe(false);
 	});
 
-	it("refuses by the folders where an owner is trusted, and by the namespace where none is", () => {
-		const none: Look = { ...disk(NIXOS), rootOwners: () => [] };
+	it("trusts no owner only where this process is 0, so running as another id always helps", () => {
+		// Every map a case here reads, and none at all.
+		const maps = [
+			"         0          0 4294967295\n",
+			"         0       1000          1\n",
+			"      1000       1000          1\n",
+			"         0       1000      65536\n",
+			"         0       1000          1\n      5000          0          1\n",
+			"         0       1000          1\n         1     100000      65536\n",
+			"",
+		];
+		const reads = [
+			...maps.map(proc),
+			(): string => {
+				throw new Error("ENOENT");
+			},
+		];
+		for (const read of reads) {
+			for (const uid of [1, 1000, 5000, 65534, 100000]) {
+				expect(
+					rootOwners(read, uid, "linux").length,
+					`as ${uid}, no owner trusted`,
+				).toBeGreaterThan(0);
+			}
+		}
+	});
 
-		expect(notKept("landrun", disk(NIXOS)), "an owner trusted").toBe(
-			"landrun isn't in the system's own profile, where only root puts programs",
+	it("says why no owner is trusted: a namespace, or a map it can't read", () => {
+		const none = (readsMap: boolean): Look => ({
+			...disk(NIXOS),
+			rootOwners: () => [],
+			readsMap: () => readsMap,
+		});
+
+		expect(noOwner(disk(NIXOS)), "root trusted").toBeUndefined();
+		expect(noOwner(none(true)), "a map read").toBe("namespace");
+		expect(noOwner(none(false)), "no map read").toBe("unread");
+		expect(
+			noOwner({ ...disk(NIXOS), rootOwners: () => [] }),
+			"a look that doesn't say",
+		).toBe("namespace");
+	});
+
+	it("refuses by the folders where an owner is trusted, and by the namespace where none is", () => {
+		expect(notKept(["landrun"], undefined), "an owner trusted").toEqual({
+			because:
+				"landrun isn't in the system's own profile, where only root puts programs",
+		});
+		expect(
+			notKept(["bwrap", "landrun"], undefined).because,
+			"two names, an owner trusted",
+		).toBe(
+			"bwrap and landrun aren't in the system's own profile, where only root puts programs",
 		);
-		expect(notKept("bwrap", none), "no owner trusted").toMatch(
-			/^bwrap can't be trusted: no owner here can be told from pi's own, .*run pi as an id other than 0/,
-		);
+		expect(notKept(["bwrap"], "namespace"), "in a namespace").toEqual({
+			because:
+				"bwrap can't be trusted: no owner here can be told from pi's own, as in a " +
+				"user namespace whose ids pi can give its files to",
+			fix: "Run pi as an id other than 0 there.",
+		});
+		expect(notKept(["bwrap"], "unread"), "no map").toEqual({
+			because:
+				"bwrap can't be trusted: no owner here can be told from pi's own, since " +
+				"/proc can't be read to say which user namespace pi is in",
+			fix: "Mount /proc, or run pi as an id other than 0.",
+		});
 	});
 });

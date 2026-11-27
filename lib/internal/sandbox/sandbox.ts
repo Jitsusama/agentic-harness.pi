@@ -145,7 +145,12 @@ import {
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
-import { notKept, systemProgram } from "./system-program.ts";
+import {
+	type NoOwner,
+	noOwner,
+	notKept,
+	systemProgram,
+} from "./system-program.ts";
 import { type GitRules, real, worktreeRepository } from "./tree-git.ts";
 import { unfencedFolder } from "./unfenced-folder.ts";
 
@@ -611,6 +616,7 @@ function fenceFor(
 	inside: () => boolean,
 	seatbelt: () => string | undefined,
 	delta: DeltaTokenSource,
+	unowned: () => NoOwner | undefined,
 ): Sandbox {
 	if (platform !== "linux") {
 		return offLinux(
@@ -625,9 +631,10 @@ function fenceFor(
 	const landrun = find("landrun");
 	if (!bwrap || !landrun) {
 		const missing = [bwrap ? [] : "bwrap", landrun ? [] : "landrun"].flat();
+		const { because, fix } = notKept(missing, unowned());
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${notKept(missing.join(" and "))}, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${because}, so no command runs unfenced.${fix ? ` ${fix}` : ""}`,
 		};
 	}
 	const program = inStore(find("nix-offload"));
@@ -666,6 +673,9 @@ export function sandboxFor(
 	inside: () => boolean = insideMacSandbox,
 	seatbelt: () => string | undefined = macSandboxExec,
 	delta: DeltaTokenSource = sessionDelta,
+	// Why `find` trusts no owner, read beside it so a refusal says why
+	// the programs it was given weren't found.
+	unowned: () => NoOwner | undefined = () => noOwner(),
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
@@ -680,6 +690,7 @@ export function sandboxFor(
 		gcloud,
 		{ inside, seatbelt },
 		delta,
+		unowned,
 	);
 	// A refusal carries the stray value's note too, the way back to a
 	// fence that runs.
@@ -707,20 +718,22 @@ function askedFor(
 		readonly seatbelt: () => string | undefined;
 	},
 	delta: DeltaTokenSource,
+	unowned: () => NoOwner | undefined,
 ): Sandbox {
 	// Strict is never handed Delta's token: it writes as the person, more
 	// than strict's GitHub token, which can't merge.
 	if (asked === FENCE) {
-		return fenceFor(platform, find, mac.inside, mac.seatbelt, delta);
+		return fenceFor(platform, find, mac.inside, mac.seatbelt, delta, unowned);
 	}
 	if (platform !== "linux") {
 		return offLinux("strict", "Landlock", platform, mac.inside, mac.seatbelt);
 	}
 	const landrun = find("landrun");
 	if (!landrun) {
+		const { because, fix } = notKept(["landrun"], unowned());
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but ${notKept("landrun")}, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but ${because}, so no command runs unfenced.${fix ? ` ${fix}` : ""}`,
 		};
 	}
 	return { kind: "strict", landrun, github, gcloud };

@@ -20,7 +20,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { systemFolders, systemProgram } from "./system-program.ts";
+import {
+	noOwner,
+	noOwnerFix,
+	noOwnerSaid,
+	systemFolders,
+	systemProgram,
+} from "./system-program.ts";
 
 /** Delta's host, as `WGH_HOST` names it, and the destination mint takes. */
 export const DELTA_HOST = "delta.shopify.io";
@@ -93,7 +99,14 @@ export function mintEnvironment(
  */
 function askMint(fresh: boolean): string {
 	const mint = systemProgram("mint", MINT_FOLDERS);
-	if (!mint) throw new Error("no mint where only root puts it");
+	if (!mint) {
+		const why = noOwner();
+		throw new Error(
+			why
+				? `no mint found: ${noOwnerSaid(why)}. ${noOwnerFix(why)}`
+				: "no mint where only root puts it",
+		);
+	}
 	return execFileSync(
 		mint,
 		["token", DELTA_HOST, ...(fresh ? ["--fresh"] : [])],
