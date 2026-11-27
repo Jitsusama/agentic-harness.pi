@@ -270,9 +270,11 @@ rules, and where it doesn't yet.
   `reload` tool onto the tree you changed before treating a live
   tool run as evidence; `/harness` says which code runs.
 - **A reload re-evaluates a `.ts`, not a `.mjs`.**
-  `runpi/journal.mjs`, `runpi/assistant.mjs` and
-  `runpi/grace.mjs` keep their old values in a reloaded session,
-  so a change to one under a live session needs a restart. They
+  `runpi/journal.mjs`, `runpi/assistant.mjs`, `runpi/grace.mjs`,
+  the priority module's `push-hooks.mjs` and `fetched-git.mjs`,
+  and discovery's `root-standing.mjs` keep their old values in a
+  reloaded session, so a change to one under a live session needs
+  a restart. They
   can't become `.ts`: node won't strip types under
   `node_modules`, where consumers install this package.
 - **After pi upgrades, restart rather than reload.** Subagents are

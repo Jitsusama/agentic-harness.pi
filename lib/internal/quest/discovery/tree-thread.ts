@@ -35,6 +35,8 @@ export type EntryKind = "d" | "f" | "l" | "o";
 export interface TreeRead {
 	/** The root's stat, taken before anything else, if it is there. */
 	readonly root: StatRead | null;
+	/** How the root stood when it wouldn't list, or null when it listed. */
+	readonly unlisted: "gone" | "unreadable" | null;
 	/** Each folder listed, with its entries, or null for none. */
 	readonly listings: readonly [
 		string,

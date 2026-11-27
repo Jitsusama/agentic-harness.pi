@@ -110,6 +110,7 @@ export async function readTreeOffThread(
 	if (memo() !== m) return undefined;
 	const pass = newPass();
 	const rootStamp = read.root ? stampOf(read.root) : undefined;
+	if (read.unlisted) pass.unlisted.set(questsRoot, read.unlisted);
 	for (const [path, entries] of read.listings) {
 		pass.listings.set(
 			path,

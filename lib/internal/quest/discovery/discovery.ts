@@ -600,9 +600,11 @@ function caughtUp(
 	const pass = newPass();
 	const rootStamp = folderStampOf(questsRoot);
 	let { rootNames } = slot;
+	let rootListed = false;
 	if (rootStamp === undefined || rootStamp !== slot.rootStamp) {
 		const listed = readEntries(questsRoot, pass);
 		if (!rootNames || !listed) return undefined;
+		rootListed = true;
 		const now = namesOf(listed);
 		const moved = movedNames(rootNames, now);
 		for (const name of moved) names.add(name);
@@ -626,9 +628,11 @@ function caughtUp(
 		return slot.result;
 	}
 	const found = names.size > 0 ? walkNamed(questsRoot, names, pass) : undefined;
-	const result = found
-		? merged(questsRoot, slot.result, names, found)
-		: slot.result;
+	// A root that lists again with no quest to read still sheds its fault.
+	const result =
+		found || rootListed
+			? merged(questsRoot, slot.result, names, found ?? NOTHING, rootListed)
+			: slot.result;
 	const pending = new Map(
 		[...slot.pending].filter(([dir]) => !names.has(basename(dir))),
 	);
@@ -638,9 +642,11 @@ function caughtUp(
 	for (const name of named) read.set(name, at);
 	memo().cache.set(questsRoot, {
 		...slot,
-		// Never a tree's signature once a quest is read again, so the next
-		// signing builds its walk anew; kept while the walk is the same.
-		signature: found ? CAUGHT_UP : slot.signature,
+		// Never a tree's signature once the walk changed, by a quest read
+		// again or a root's fault shed, so the next signing builds its walk
+		// anew rather than taking this one for the tree it signed; kept
+		// while the walk is the same.
+		signature: result === slot.result ? slot.signature : CAUGHT_UP,
 		result,
 		writes,
 		rootStamp,
@@ -654,6 +660,12 @@ function caughtUp(
 
 /** The signature of a walk brought up to date quest by quest. */
 const CAUGHT_UP = "caught up";
+
+/** A walk that found nothing, for a merge that replaces no entry. */
+const NOTHING: DiscoveryResult = {
+	index: { quests: new Map(), children: new Map() },
+	errors: [],
+};
 
 /** Whether this process has said it can't place a write. */
 let saidUnplaced = false;

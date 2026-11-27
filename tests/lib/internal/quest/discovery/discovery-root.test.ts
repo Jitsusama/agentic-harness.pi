@@ -20,10 +20,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { discoverQuests } from "../../../../../lib/internal/quest/discovery/discovery.ts";
-import { newPass } from "../../../../../lib/internal/quest/discovery/discovery-reads.ts";
-import { discoverQuestsUncached } from "../../../../../lib/internal/quest/discovery/discovery-walk.ts";
+import {
+	discoverySignature,
+	newPass,
+} from "../../../../../lib/internal/quest/discovery/discovery-reads.ts";
+import {
+	discoverQuestsUncached,
+	merged,
+} from "../../../../../lib/internal/quest/discovery/discovery-walk.ts";
+import { readTreeOffThread } from "../../../../../lib/internal/quest/discovery/off-thread.ts";
 
 const FAULT = "Quests root is not a readable directory.";
+/** How long a signing's thread may read before it counts as hung. */
+const THREAD_HANGS_AFTER_MS = 30_000;
 
 let dir: string;
 
@@ -44,6 +53,14 @@ it("reads a quests root that isn't there yet as an empty store", () => {
 	expect(errors).toEqual([]);
 });
 
+it("reads a quests root whose data folder isn't there yet either as an empty store", () => {
+	const { errors } = discoverQuestsUncached(
+		join(dir, "data", "quests"),
+		newPass(),
+	);
+	expect(errors).toEqual([]);
+});
+
 it("says a quests root that is a file is no folder of quests", () => {
 	const root = join(dir, "quests");
 	writeFileSync(root, "");
@@ -59,6 +76,44 @@ it("says a quests root that is a dangling link is no folder of quests", () => {
 	expect(errors).toEqual([{ path: root, message: FAULT }]);
 });
 
+it("says a quests root that is a dangling link named with a trailing slash", () => {
+	const root = join(dir, "quests");
+	symlinkSync(join(dir, "nowhere"), root);
+	const slashed = `${root}/`;
+	const { errors } = discoverQuestsUncached(slashed, newPass());
+	expect(errors).toEqual([{ path: slashed, message: FAULT }]);
+});
+
+it("says a quests root under a data folder linked to somewhere not there", () => {
+	// As a data folder on a volume not mounted: a store gone offline.
+	const data = join(dir, "data");
+	symlinkSync(join(dir, "unmounted", "pi"), data);
+	const root = join(data, "quests");
+	const { errors } = discoverQuestsUncached(root, newPass());
+	expect(errors).toEqual([{ path: root, message: FAULT }]);
+});
+
+it("says a quests root named back out of a link to somewhere not there", () => {
+	// The kernel resolves `link/..` through the link, which leads nowhere;
+	// folded by text, the path would name a folder that is plainly there.
+	// Written out by hand, since join would fold it too.
+	const data = join(dir, "data");
+	mkdirSync(data);
+	symlinkSync(join(dir, "unmounted", "pi"), join(data, "link"));
+	const root = `${data}/link/../quests`;
+	const { errors } = discoverQuestsUncached(root, newPass());
+	expect(errors).toEqual([{ path: root, message: FAULT }]);
+});
+
+it("reads a quests root under a data folder linked to a folder as empty until made", () => {
+	const real = join(dir, "real");
+	mkdirSync(real);
+	const data = join(dir, "data");
+	symlinkSync(real, data);
+	const { errors } = discoverQuestsUncached(join(data, "quests"), newPass());
+	expect(errors).toEqual([]);
+});
+
 it("says a quests root behind a file, where its data folder should be", () => {
 	const data = join(dir, "data");
 	writeFileSync(data, "");
@@ -67,17 +122,62 @@ it("says a quests root behind a file, where its data folder should be", () => {
 	expect(errors).toEqual([{ path: root, message: FAULT }]);
 });
 
-it("says a quests root whose folder above can't be searched", () => {
-	const data = join(dir, "data");
-	const root = join(data, "quests");
-	mkdirSync(root, { recursive: true });
-	chmodSync(data, 0o000);
-	try {
-		const { errors } = discoverQuestsUncached(root, newPass());
-		expect(errors).toEqual([{ path: root, message: FAULT }]);
-	} finally {
-		chmodSync(data, 0o755);
-	}
+it.skipIf(process.getuid?.() === 0)(
+	"says a quests root whose folder above can't be searched",
+	() => {
+		// Root reads a folder whatever its mode, so it never sees the fault.
+		const data = join(dir, "data");
+		const root = join(data, "quests");
+		mkdirSync(root, { recursive: true });
+		chmodSync(data, 0o000);
+		try {
+			const { errors } = discoverQuestsUncached(root, newPass());
+			expect(errors).toEqual([{ path: root, message: FAULT }]);
+		} finally {
+			chmodSync(data, 0o755);
+		}
+	},
+);
+
+it("walks the root as it signed it, though it was made in between", () => {
+	const root = join(dir, "quests");
+	const pass = newPass();
+	expect(discoverySignature(root, pass)).toBe("absent:gone");
+	mkdirSync(root);
+	const { errors } = discoverQuestsUncached(root, pass);
+	expect(errors, "no fault for a root made since it was listed").toEqual([]);
+});
+
+it("has a signing's thread say how a root that won't list stands", async () => {
+	const gone = join(dir, "quests");
+	const file = join(dir, "file");
+	writeFileSync(file, "");
+	const [ofGone, ofFile] = await Promise.all(
+		[gone, file].map((root) => readTreeOffThread(root, THREAD_HANGS_AFTER_MS)),
+	);
+	if (!(ofGone && ofFile))
+		throw new Error("a signing's thread answered nothing");
+	// Made after the thread found it missing, before the walk: the walk
+	// says the root as the thread found it, not as it stands now.
+	mkdirSync(gone);
+	expect(discoverQuestsUncached(gone, ofGone.pass).errors, "gone").toEqual([]);
+	expect(discoverQuestsUncached(file, ofFile.pass).errors, "a file").toEqual([
+		{ path: file, message: FAULT },
+	]);
+});
+
+it("keeps the root's fault through a merge until the root lists again", () => {
+	const root = join(dir, "quests");
+	const nothing = {
+		index: { quests: new Map(), children: new Map() },
+		errors: [],
+	};
+	const faulted = { ...nothing, errors: [{ path: root, message: FAULT }] };
+	const none = new Set<string>();
+	expect(merged(root, faulted, none, nothing, false).errors).toEqual(
+		faulted.errors,
+	);
+	expect(merged(root, faulted, none, nothing, true).errors).toEqual([]);
 });
 
 it("says, at a session's discovery, a root that turns from gone to unreadable", () => {

@@ -48,7 +48,12 @@ the timings above hold.
 What the walk finds wrong with the tree's layout, such as a quest folder
 with no README, goes to a record in the workflow's state folder
 (`layout-faults.ts`) rather than onto the screen at every start and
-reload. The record holds what the latest walk of a quests root found,
+reload. A quests root that won't list is read one way on both threads
+(`root-standing.mjs`): with nothing at it or along it, as before a
+fresh data folder's first quest, it is an empty store; with something
+there (a dangling link, a file, a folder that can't be listed or
+searched) it is a fault, dropped at once when the root lists again.
+The record holds what the latest walk of a quests root found,
 each fault with when it was first seen, so a fixed fault drops out; a
 fault new to it goes to the system's journal at warning, once. A reader
 tells a tidy tree (no record) from a record it can't read.
