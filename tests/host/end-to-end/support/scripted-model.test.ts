@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import {
+	CARRIED_FLEET,
 	CARRY,
 	CARRYING,
 	fauxOf,
@@ -28,7 +29,11 @@ interface Call {
 	readonly arguments: unknown;
 }
 
-/** The tool calls the scripted model answers `messages` with. */
+/**
+ * The tool calls the scripted model answers `messages` with. An answer
+ * that isn't a message, or one that stopped on an error, throws, so a
+ * broken core can't pass for one that calls nothing.
+ */
 async function callsTo(messages: readonly object[]): Promise<Call[]> {
 	const core = scriptedCore(await fauxOf(PACKAGE));
 	// The faux core is pi's JavaScript, which carries no types here.
@@ -37,9 +42,13 @@ async function callsTo(messages: readonly object[]): Promise<Call[]> {
 		{ messages } as never,
 	);
 	const message: unknown = await stream.result();
-	const content =
-		isRecord(message) && Array.isArray(message.content) ? message.content : [];
-	return content
+	if (
+		!isRecord(message) ||
+		!Array.isArray(message.content) ||
+		message.stopReason === "error"
+	)
+		throw new Error(`not an answer: ${JSON.stringify(message)}`);
+	return message.content
 		.filter(isRecord)
 		.flatMap((part) =>
 			part.type === "toolCall" && typeof part.name === "string"
@@ -122,8 +131,8 @@ describe("the scripted model", () => {
 	});
 
 	it("acts on words said after its answer", async () => {
-		expect(await namesTo([told, started, handedOff, answered, told])).toEqual([
-			"bash",
+		expect(await callsTo([told, started, handedOff, answered, told])).toEqual([
+			{ name: "bash", arguments: { command: CARRYING, background: true } },
 		]);
 	});
 
@@ -138,30 +147,36 @@ describe("the scripted model", () => {
 			]);
 		});
 
-		it("for fleet", async () => {
-			expect(await namesTo(afterSearch("fleet /tmp/x /tmp/y.ts"))).toEqual([
-				"subagent",
-			]);
+		it("for fleet, run in the foreground", async () => {
+			const [call] = await callsTo(afterSearch("fleet /tmp/x /tmp/y.ts"));
+			expect(call?.name).toBe("subagent");
+			expect(call?.arguments).not.toHaveProperty("runId");
+			expect(call?.arguments).not.toHaveProperty("background");
 		});
 
-		it("for fleet-carry", async () => {
-			expect(
-				await namesTo(afterSearch("fleet-carry /tmp/x /tmp/y.ts")),
-			).toEqual(["subagent"]);
+		it("for fleet-carry, run in the background", async () => {
+			const [call] = await callsTo(afterSearch("fleet-carry /tmp/x /tmp/y.ts"));
+			expect(call?.name).toBe("subagent");
+			expect(call?.arguments).toMatchObject({
+				runId: CARRIED_FLEET,
+				background: true,
+			});
 		});
 
 		it("past the system message the harness puts after it", async () => {
 			expect(await namesTo([...afterSearch(STORE), listed])).toEqual(["spend"]);
 		});
 
+		// Store is matched before end, so an earlier turn's store read back
+		// would answer spend here.
 		it("and not an earlier turn's", async () => {
 			expect(
 				await namesTo([
-					{ role: "user", content: "end ABC123" },
+					{ role: "user", content: STORE },
 					answered,
-					...afterSearch(STORE),
+					...afterSearch("end ABC123"),
 				]),
-			).toEqual(["spend"]);
+			).toEqual(["mesh_end"]);
 		});
 	});
 });
