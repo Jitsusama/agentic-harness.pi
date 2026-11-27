@@ -42,16 +42,25 @@ import {
 import { isRecord } from "../../../lib/internal/record.ts";
 import type { Entry } from "../../../lib/internal/session/rollover.ts";
 
-// Each read the light open makes of a log, counted, so a case can tell a
-// look at a log's header from a read of the whole of it.
-const reads = vi.hoisted(() => ({ count: 0 }));
+// The bytes the light open reads of a log, counted, so a case can tell a
+// look at a log's header from a read of the whole of it; and a call made
+// as it opens a file, so a case can write a log over between two reads.
+const reads = vi.hoisted(() => ({
+	bytes: 0,
+	opening: undefined as (() => void) | undefined,
+}));
 vi.mock("node:fs", async (original) => {
 	const fs = await original<typeof import("node:fs")>();
 	return {
 		...fs,
+		openSync: (...args: Parameters<typeof fs.openSync>) => {
+			reads.opening?.();
+			return fs.openSync(...args);
+		},
 		readSync: (...args: Parameters<typeof fs.readSync>) => {
-			reads.count += 1;
-			return fs.readSync(...args);
+			const read = fs.readSync(...args);
+			reads.bytes += read;
+			return read;
 		},
 	};
 });
@@ -63,6 +72,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	reads.opening = undefined;
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -384,6 +394,31 @@ describe("a log opened light", () => {
 		expect(answers(lightHeld(file), file)).toEqual(answers(piHeld(file), file));
 	});
 
+	it("takes its header past more lines than a header look reads, looking no further", () => {
+		const file = compactedLog();
+		// A line pi's open skips, three of a header look's limits long.
+		const skipped = "x".repeat(3 * 1024 * 1024);
+		writeFileSync(file, `${skipped}\n${readFileSync(file, "utf8")}`);
+		// What the look read, taken as the log is opened to be read whole.
+		let opens = 0;
+		let looked = 0;
+		reads.bytes = 0;
+		reads.opening = () => {
+			opens += 1;
+			if (opens === 2) looked = reads.bytes;
+		};
+		const light = lightHeld(file);
+		// A third open, if any, is the kept view reading lines back whole.
+		expect(
+			opens,
+			"it looked at the header, then read the log",
+		).toBeGreaterThanOrEqual(2);
+		expect(looked, "the header look read past its limit").toBeLessThanOrEqual(
+			1024 * 1024,
+		);
+		expect(answers(light, file)).toEqual(answers(piHeld(file), file));
+	});
+
 	it("adds only its next entry to the log, off the leaf it opened on", () => {
 		const file = compactedLog();
 		const before = readFileSync(file, "utf8");
@@ -608,10 +643,13 @@ describe("pi's own open stands", () => {
 
 	it("for a log its header leaves to pi, reading no more of it than the header", () => {
 		// Each is pi's own to open whatever follows its header: a log pi
-		// would migrate, and one whose header names no folder.
+		// would migrate, one whose header names no folder, one whose first
+		// entry isn't a session's, and one whose header names no id.
 		const headers = [
 			(header: Record<string, unknown>) => ({ ...header, version: 2 }),
 			({ cwd: _, ...header }: Record<string, unknown>) => header,
+			(header: Record<string, unknown>) => ({ ...header, type: "message" }),
+			({ id: _, ...header }: Record<string, unknown>) => header,
 		];
 		for (const changed of headers) {
 			const file = compactedLog();
@@ -625,10 +663,33 @@ describe("pi's own open stands", () => {
 			});
 			const first = JSON.stringify(changed(JSON.parse(header)));
 			writeFileSync(file, [first, long, ...rest].join("\n"));
-			reads.count = 0;
+			reads.bytes = 0;
 			expect(fallsBack(file), "the log is left to pi's own open").toBe(true);
-			expect(reads.count, "the log was read past its header").toBe(1);
+			expect(reads.bytes, "the log was read past its header").toBeLessThan(
+				1024 * 1024,
+			);
 		}
+	});
+
+	it("for a log written over between its header and the rest, as its new header asks", () => {
+		const file = compactedLog();
+		const migrated = readFileSync(file, "utf8").replace(
+			`"version":${CURRENT_SESSION_VERSION}`,
+			'"version":2',
+		);
+		// The header looked at first, and the log written over before the
+		// open reads the whole of it.
+		let opens = 0;
+		reads.opening = () => {
+			opens += 1;
+			if (opens === 2) writeFileSync(file, migrated);
+		};
+		const said: unknown[] = [];
+		const opened = openKept(PI, file, (what) => said.push(what));
+		expect(opens, "it looked at the header, then read the log").toBe(2);
+		expect(opened, "the log is left to pi's own open").toBeUndefined();
+		expect(said, "it isn't a failure, so nothing is said").toEqual([]);
+		expect(readFileSync(file, "utf8")).toBe(migrated);
 	});
 
 	it("for a pi that doesn't say its log version, saying light opens are off", () => {
