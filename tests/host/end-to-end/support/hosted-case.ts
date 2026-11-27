@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
+import { STEERED_RESULTS } from "../../../../extensions/job-workflow/outbox.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { inboxOf, type SteerAct } from "../../../../lib/mesh/steer.ts";
 import { until } from "../../../support/until.ts";
@@ -122,11 +123,14 @@ export function turnEnded(file: string | undefined): boolean {
 export function answeredLast(file: string | undefined): boolean {
 	const last = entriesOf(file)
 		.filter(
-			(entry) => entry.type === "message" || entry.type === "custom_message",
+			(entry) =>
+				entry.type === "message" ||
+				(entry.type === "custom_message" &&
+					entry.customType === STEERED_RESULTS),
 		)
 		.at(-1);
 	const message = isRecord(last?.message) ? last.message : undefined;
-	return message?.role === "assistant" && message.stopReason !== "toolUse";
+	return message?.role === "assistant" && message.stopReason === "stop";
 }
 
 /** Every entry a session file records, each as its parsed record. */

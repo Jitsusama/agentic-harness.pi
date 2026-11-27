@@ -16,9 +16,12 @@ import {
 	CARRY,
 	CARRYING,
 	fauxOf,
+	LONG_NAP,
+	NAP,
 	SCRIPTED,
 	STORE,
 	scriptedCore,
+	WHOAMI,
 } from "./scripted-model.ts";
 
 const PACKAGE = resolve(import.meta.dirname, "../../../..");
@@ -138,7 +141,9 @@ describe("the scripted model", () => {
 
 	describe("after a tool's result, reads the words that started the turn", () => {
 		it("for store", async () => {
-			expect(await namesTo(afterSearch(STORE))).toEqual(["spend"]);
+			const calls = await callsTo(afterSearch(STORE));
+			expect(calls.map((call) => call.name)).toEqual(["spend"]);
+			expect(calls[0]?.arguments).toMatchObject({ limit: 2 });
 		});
 
 		it("for end", async () => {
@@ -148,19 +153,36 @@ describe("the scripted model", () => {
 		});
 
 		it("for fleet, run in the foreground", async () => {
-			const [call] = await callsTo(afterSearch("fleet /tmp/x /tmp/y.ts"));
-			expect(call?.name).toBe("subagent");
-			expect(call?.arguments).not.toHaveProperty("runId");
-			expect(call?.arguments).not.toHaveProperty("background");
+			const job = (id: string) => ({
+				id,
+				cwd: "/tmp/x",
+				userPrompt: WHOAMI,
+				extraExtensions: ["/tmp/y.ts"],
+			});
+			expect(await callsTo(afterSearch("fleet /tmp/x /tmp/y.ts"))).toEqual([
+				{ name: "subagent", arguments: { jobs: [job("one"), job("two")] } },
+			]);
 		});
 
 		it("for fleet-carry, run in the background", async () => {
-			const [call] = await callsTo(afterSearch("fleet-carry /tmp/x /tmp/y.ts"));
-			expect(call?.name).toBe("subagent");
-			expect(call?.arguments).toMatchObject({
-				runId: CARRIED_FLEET,
-				background: true,
+			const job = (id: string, userPrompt: string) => ({
+				id,
+				userPrompt,
+				cwd: "/tmp/x",
+				extraExtensions: ["/tmp/y.ts"],
 			});
+			expect(
+				await callsTo(afterSearch("fleet-carry /tmp/x /tmp/y.ts")),
+			).toEqual([
+				{
+					name: "subagent",
+					arguments: {
+						runId: CARRIED_FLEET,
+						background: true,
+						jobs: [job("one", NAP), job("two", LONG_NAP)],
+					},
+				},
+			]);
 		});
 
 		it("past the system message the harness puts after it", async () => {
