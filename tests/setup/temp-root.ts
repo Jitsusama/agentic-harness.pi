@@ -26,6 +26,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -51,8 +52,25 @@ export const SOCKET_ROOT = "PI_TEST_SOCKET_ROOT";
 const SHORT_PARENT = "/tmp";
 const SHORT_PREFIX = "vs-";
 
-/** The file in a short folder naming the run that made it. */
+/**
+ * The file in a short folder naming the run that made it: its pid, then
+ * on the next line the pid namespace that pid belongs to.
+ */
 const RUN_FILE = "run.pid";
+
+/**
+ * How long a folder with no run file may be a run's still starting: its
+ * setup writes the file just after making the folder, so an hour on, its
+ * run died between the two.
+ */
+export const STARTING_MS = 60 * 60 * 1000;
+
+/**
+ * How long before any short folder is taken, whatever its run file says:
+ * past any run's length, so one whose pid this sweep can't judge, from
+ * another namespace or reused by a live process, goes in the end.
+ */
+export const STALE_MS = 24 * 60 * 60 * 1000;
 
 /** The errors that mean /tmp may not be written, rather than a fault. */
 const REFUSED = new Set(["EACCES", "EPERM", "EROFS"]);
@@ -72,7 +90,16 @@ export default function setup(): () => void {
 		join(runRootBase(process.platform, tmpdir()), "vitest-run-"),
 	);
 	process.env.TMPDIR = root;
-	const sockets = socketRoot();
+	let sockets: string | undefined;
+	try {
+		sockets = socketRoot();
+	} catch (error) {
+		// No teardown comes back to remove the root or give TMPDIR back.
+		if (previous === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = previous;
+		rmSync(root, { recursive: true, force: true });
+		throw error;
+	}
 	// One inherited from an outer run names a folder this run doesn't own.
 	if (sockets === undefined) delete process.env[SOCKET_ROOT];
 	else process.env[SOCKET_ROOT] = sockets;
@@ -97,7 +124,8 @@ export default function setup(): () => void {
  * it; or none where /tmp may not be written, as under the sandbox, which
  * grants only TMPDIR. A test needing one then fails as it would have,
  * while every other test still runs. Any other error is a fault, and
- * fails the run rather than quietly leaving it without one.
+ * fails the run rather than quietly leaving it without one, removing the
+ * folder if it was made.
  */
 function socketRoot(): string | undefined {
 	let folder: string;
@@ -108,17 +136,38 @@ function socketRoot(): string | undefined {
 			return undefined;
 		throw error;
 	}
-	writeFileSync(join(folder, RUN_FILE), String(process.pid));
+	try {
+		writeFileSync(
+			join(folder, RUN_FILE),
+			`${process.pid}\n${pidNamespace()}\n`,
+		);
+	} catch (error) {
+		rmSync(folder, { recursive: true, force: true });
+		throw error;
+	}
 	return folder;
+}
+
+/** Where and when a sweep runs: its pid namespace, and the time. */
+export interface Sweeper {
+	readonly namespace: string;
+	readonly now: number;
 }
 
 /**
  * Remove the short folders in `parent` that this account's runs made and
- * that outlived them. One whose run file is missing may be a run's that
- * is starting now, and one whose process lives may be a reused id's;
- * both stay, so a sweep never takes a live run's folder.
+ * that outlived them. A pid is judged only in the namespace that wrote
+ * it, since one from another, as each fenced command on Linux has, names
+ * nothing here, or someone else; such a folder stays until `STALE_MS`
+ * has passed, as does one whose pid lives, which may be a reused id's.
+ * One with no run file may be a run's starting now, and stays for
+ * `STARTING_MS`. So a sweep takes no live run's folder that lasts less
+ * than a day.
  */
-export function sweepShortFolders(parent: string): void {
+export function sweepShortFolders(
+	parent: string,
+	sweeper: Sweeper = { namespace: pidNamespace(), now: Date.now() },
+): void {
 	let names: string[];
 	try {
 		names = readdirSync(parent);
@@ -132,12 +181,39 @@ export function sweepShortFolders(parent: string): void {
 		try {
 			const stat = lstatSync(folder);
 			if (!stat.isDirectory() || stat.uid !== uid) continue;
-			const pid = Number(readFileSync(join(folder, RUN_FILE), "utf8"));
-			if (!Number.isInteger(pid) || pid <= 0 || alive(pid)) continue;
-			rmSync(folder, { recursive: true, force: true });
+			const age = sweeper.now - stat.mtimeMs;
+			if (age > STALE_MS || ended(folder, age, sweeper.namespace))
+				rmSync(folder, { recursive: true, force: true });
 		} catch {
-			// Gone, unreadable or still starting: another sweep's to take.
+			// Gone or unreadable: another sweep's to take.
 		}
+	}
+}
+
+/** Whether the run that made `folder`, `age` old, has ended, as `namespace` can tell. */
+function ended(folder: string, age: number, namespace: string): boolean {
+	let record: string;
+	try {
+		record = readFileSync(join(folder, RUN_FILE), "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
+		return age > STARTING_MS;
+	}
+	const [pidLine, writer] = record.split("\n");
+	if (writer !== namespace) return false;
+	const pid = Number(pidLine);
+	return Number.isInteger(pid) && pid > 0 && !alive(pid);
+}
+
+/**
+ * This process's pid namespace, as Linux names it; empty where there is
+ * none to name, as on a Mac, whose processes all share one.
+ */
+function pidNamespace(): string {
+	try {
+		return readlinkSync("/proc/self/ns/pid");
+	} catch {
+		return "";
 	}
 }
 
