@@ -559,6 +559,7 @@ async function heldForCouncil(
 			base: hosted.base,
 			head: hosted.head,
 			...(hosted.headCommit ? { headCommit: hosted.headCommit } : {}),
+			change,
 		},
 		doing,
 	);

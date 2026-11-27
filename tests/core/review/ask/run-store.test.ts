@@ -331,6 +331,21 @@ describe("finding a council that read a change's commits", () => {
 		).toBe("council-aaa");
 	});
 
+	it("counts only a round held under the change, when one is named", async () => {
+		const store = createRunStore(root);
+		await store.record(other, read("aaa"));
+		await store.record(range, read("aaa"));
+		const repo = "github:Shopify/world";
+
+		expect(
+			await store.witnessed(repo, new Set(["aaa"]), change),
+		).toBeUndefined();
+		await store.record(change, read("aaa"));
+		expect((await store.witnessed(repo, new Set(["aaa"]), change))?.id).toBe(
+			"council-aaa",
+		);
+	});
+
 	it("counts none that read another commit, or another repo", async () => {
 		const store = createRunStore(root);
 		await store.record(range, read("zzz"));
