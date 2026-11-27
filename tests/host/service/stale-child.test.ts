@@ -263,8 +263,97 @@ describe("rollWhenStale", () => {
 		moved = "moved again";
 		await timers.fire();
 		expect(roll, "its wait began again").not.toHaveBeenCalled();
-		expect(reported).toHaveLength(2);
-		expect(reported[1]).toMatch(/^Moved again, but the machine is busy/);
+		expect(reported).toHaveLength(3);
+		expect(reported[1], "it says it forgot its wait").toBe(
+			"The install's host code is current again, so it no longer waits to roll",
+		);
+		expect(reported[2]).toMatch(/^Moved again, but the machine is busy/);
+	});
+
+	it("keeps its wait for room through a look that couldn't tell, so its most still bounds it", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		const reported: unknown[] = [];
+		let now = 0;
+		let fails = false;
+		rollWhenStale(
+			async () => {
+				if (fails) throw new Error("EIO");
+				return "moved";
+			},
+			roll,
+			{
+				lookMs: 1,
+				after: timers.after,
+				report: (message) => reported.push(message),
+				now: () => now,
+				roomShort: async () => "CPU some avg60 was 50, at or past 40",
+				waitsForRoomAtMostMs: 600_000,
+			},
+		);
+		await timers.fire();
+		now = 300_000;
+		fails = true;
+		await timers.fire();
+		now = 600_000;
+		fails = false;
+		await timers.fire();
+		expect(
+			roll,
+			"ten minutes since it first found no room, the throw between",
+		).toHaveBeenCalledExactlyOnceWith("moved");
+		expect(
+			reported.filter((said) => String(said).startsWith("Moved, but")),
+			"it said it was busy once, not again after the throw",
+		).toHaveLength(1);
+	});
+
+	it("spreads again once the install's code was current between two moves", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let moved: string | undefined = "moved";
+		rollWhenStale(async () => moved, roll, {
+			lookMs: 1,
+			after: timers.after,
+			spreadMs: 120_000,
+			roomShort: async () => undefined,
+		});
+		await timers.fire();
+		expect(
+			timers.due.map(({ ms }) => ms),
+			"its spread",
+		).toEqual([120_000]);
+		moved = undefined;
+		await timers.fire();
+		moved = "moved again";
+		await timers.fire();
+		expect(roll, "a new move waits its share again").not.toHaveBeenCalled();
+		expect(timers.due.map(({ ms }) => ms)).toEqual([120_000]);
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved again");
+	});
+
+	it("says again that it may not roll yet once the code was current between two moves", async () => {
+		const timers = manualTimers();
+		const reported: unknown[] = [];
+		let moved: string | undefined = "moved";
+		rollWhenStale(async () => moved, vi.fn(), {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			rollsFrom: 600_000,
+			now: () => 0,
+		});
+		await timers.fire();
+		moved = undefined;
+		await timers.fire();
+		moved = "moved again";
+		await timers.fire();
+		expect(reported).toEqual([
+			"Moved, but it may not roll yet, so it looks again in 10 minutes",
+			"The install's host code is current again, so it no longer waits to roll",
+			"Moved again, but it may not roll yet, so it looks again in 10 minutes",
+		]);
 	});
 
 	it("rolls at once when the install moves on after it may roll", async () => {
@@ -297,7 +386,7 @@ describe("rollWhenStale", () => {
 		expect(timers.due.map(({ ms }) => ms)).toEqual([120_000]);
 		await timers.fire();
 		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
-		expect(timers.due, "it spreads once, not at each look").toEqual([]);
+		expect(timers.due, "rolled, it looks no more").toEqual([]);
 	});
 
 	it("rolls only while the machine has room, saying once why it waits", async () => {
@@ -468,6 +557,7 @@ describe("rollChildWhenStale", () => {
 	});
 
 	it("rolls a child no sooner than an hour after it started, so a conversation rolls at most once an hour", async () => {
+		expect(ROLL_ONLY_AFTER_MS, "an hour").toBe(60 * 60_000);
 		let now = 10_000;
 		const child = wired(async () => "the host's code differs", {
 			bornAt: 10_000,
@@ -509,6 +599,32 @@ describe("rollChildWhenStale", () => {
 		now = wiredAt + ROLL_ONLY_AFTER_MS;
 		await timers.fire();
 		expect(rolled).toEqual(["rolled"]);
+	});
+
+	it("times its hour on a clock that a wall clock put back doesn't move", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(new Date("2030-06-01T00:00:00Z"));
+			const timers = manualTimers();
+			rollChildWhenStale({
+				moved: async () => "moved",
+				host: () => undefined,
+				stopped: new Promise(() => undefined),
+				report: () => undefined,
+				lookMs: 1,
+				after: timers.after,
+				spreadMs: 0,
+				roomShort: async () => undefined,
+			});
+			vi.setSystemTime(new Date("2029-06-01T00:00:00Z"));
+			await timers.fire();
+			expect(
+				timers.due.map(({ ms }) => ms <= ROLL_ONLY_AFTER_MS),
+				"a year put back holds it no longer than its hour",
+			).toEqual([true]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("holds its roll while the machine it is told of is busy", async () => {

@@ -363,10 +363,13 @@ input pipeline or screen. No unit or running host is installed yet.
   ten minutes (`ROLL_SPREAD_MS`), so a machine's children roll apart,
   and then rolls only while the CPU's `some avg60` is under 40, the
   bar a council's round waits on (lib/internal/machine/room.ts
-  `cpuShort`), looking again every five minutes while it isn't. After
-  an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`) it
-  rolls anyway and says so, since a child left on stale code for hours
-  is what the roll exists to end.
+  `cpuShort`). While it isn't, it looks again after five minutes and
+  its share again, so the children held go out apart as the CPU falls.
+  After an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`)
+  it rolls anyway and says so, since a child left on stale code for
+  hours is what the roll exists to end. A look that can't tell keeps
+  the wait; one finding the code current again forgets it, saying so.
+  The hour and the wait run on a clock a wall clock's steps don't move.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

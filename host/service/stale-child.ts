@@ -28,6 +28,10 @@
  * rather than at their next looks together. Busy past an hour of
  * waiting, it rolls anyway, saying so: a child kept on stale code for
  * hours is the cost the roll exists to end.
+ *
+ * Its hour and its wait are timed on a clock that only moves forward,
+ * so a wall clock put back holds no roll longer, and one put forward
+ * hurries none.
  */
 
 import { cpuShort } from "../../lib/internal/machine/room.ts";
@@ -46,6 +50,9 @@ export const ROLL_WAITS_FOR_ROOM_AT_MOST_MS = 60 * 60_000;
 
 const MINUTE_MS = 60_000;
 
+/** Epoch-shaped milliseconds that a wall clock's steps never move. */
+const steadyNow = (): number => performance.timeOrigin + performance.now();
+
 /** How a roll looks again after a wait; a test passes its own timers. */
 export type After = (ms: number, run: () => void) => () => void;
 
@@ -59,13 +66,15 @@ const realAfter: After = (ms, run) => {
  * Look at `moved` each `lookMs` and, the first time it says why the
  * host's code is stale, roll with that reason and stop looking, since
  * stale code stays stale. A look that throws is reported, saying what
- * it was looking for, and looks again. Stale before `rollsFrom`, it says
+ * it was looking for, and looks again, keeping whatever it was waiting
+ * for, since it couldn't tell. Stale before `rollsFrom`, it says
  * so and looks again then, rolling with what the install says at that
  * look. Past that, it waits `spreadMs`, and then rolls only while
  * `roomShort` says nothing; while it says why not, it looks again after
  * `lookMs` and `spreadMs` again, rolling anyway once it has waited
  * `waitsForRoomAtMostMs`. A look finding the code current again, as
- * after a rollback, forgets the waiting. Answers the function that stops
+ * after a rollback, forgets the waiting, saying so when it was waiting.
+ * Answers the function that stops
  * looking, which holds even over a look already under way.
  */
 export function rollWhenStale(
@@ -75,7 +84,7 @@ export function rollWhenStale(
 		lookMs?: number;
 		after?: After;
 		report?: (message: unknown) => void;
-		/** The moment, in epoch milliseconds, before which it never rolls. */
+		/** The moment, in `now`'s milliseconds, before which it never rolls. */
 		rollsFrom?: number;
 		now?: () => number;
 		/** How long it waits, once it may roll, before it first asks for room. */
@@ -87,7 +96,7 @@ export function rollWhenStale(
 ): () => void {
 	const lookMs = options.lookMs ?? LOOK_EVERY_MS;
 	const after = options.after ?? realAfter;
-	const now = options.now ?? Date.now;
+	const now = options.now ?? steadyNow;
 	const rollsFrom = options.rollsFrom ?? 0;
 	const spreadMs = options.spreadMs ?? 0;
 	const waitsAtMost =
@@ -107,9 +116,17 @@ export function rollWhenStale(
 			options.report?.(
 				`Couldn't tell whether the install's host code moved on, so it looks again: ${said}`,
 			);
+			// Not knowing isn't finding the code current: what it waited
+			// for stands, so its hour of waiting for room still bounds it.
+			cancel = after(lookMs, () => void look());
+			return;
 		}
 		if (stopped) return;
 		if (why === undefined) {
+			if (waitingSince !== undefined || toldTooSoon)
+				options.report?.(
+					"The install's host code is current again, so it no longer waits to roll",
+				);
 			toldTooSoon = false;
 			spread = false;
 			waitingSince = undefined;
@@ -200,7 +217,7 @@ export interface ChildRoll {
 	readonly report: (message: unknown) => void;
 	readonly lookMs?: number;
 	readonly after?: After;
-	/** When the child started, in epoch milliseconds; the wiring's moment if left out. */
+	/** When the child started, in `now`'s milliseconds; the wiring's moment if left out. */
 	readonly bornAt?: number;
 	readonly now?: () => number;
 	/** How long past its hour it waits before asking for room; a random share of `ROLL_SPREAD_MS` if left out. */
@@ -217,7 +234,7 @@ export interface ChildRoll {
  * however that ends.
  */
 export function rollChildWhenStale(wiring: ChildRoll): void {
-	const now = wiring.now ?? Date.now;
+	const now = wiring.now ?? steadyNow;
 	const bornAt = wiring.bornAt ?? now();
 	const stop = rollWhenStale(
 		wiring.moved,
