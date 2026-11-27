@@ -73,11 +73,20 @@ import { createWhereabouts, reposOf } from "./whereabouts.ts";
  */
 const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
 
+/** A look through the lookups, saying where one timed out. */
+const LOOK = lookThrough(LOOKUPS);
+
 /**
- * What a lookup prints, or nothing where it failed or said nothing: an
- * unknown answer makes the stop hold the write.
+ * What a lookup prints, or nothing where it failed, timed out or said
+ * nothing: an unknown answer makes the stop hold the write.
  */
-const quietly = lookThrough(LOOKUPS);
+async function quietly(
+	program: string,
+	args: string[],
+): Promise<string | undefined> {
+	const out = await LOOK(program, args);
+	return typeof out === "string" ? out : undefined;
+}
 
 /**
  * How often a session looks for a stop or a resume, and holds are
@@ -88,7 +97,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = keptHeads(askedHead(quietly));
+	const heads = keptHeads(askedHead(LOOK));
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];

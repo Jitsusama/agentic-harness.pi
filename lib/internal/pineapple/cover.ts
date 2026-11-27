@@ -32,11 +32,27 @@ export interface Held {
 	readonly because: string;
 }
 
-/** The branch a pull request comes from, when it can be found. */
+/** A lookup its clock stopped, rather than one that failed or said nothing. */
+export interface TimedOut {
+	readonly timedOut: true;
+}
+
+/** The one answer a lookup its clock stopped gives. */
+export const TIMED_OUT: TimedOut = { timedOut: true };
+
+/**
+ * The branch a pull request comes from, when it can be found, or
+ * {@link TIMED_OUT} where it couldn't be because a lookup timed out.
+ */
 export type HeadOf = (
 	repo: string | undefined,
 	pr: number,
-) => Promise<string | undefined>;
+) => Promise<string | TimedOut | undefined>;
+
+/** What a branch that couldn't be found adds to why a write is held. */
+function unfound(head: TimedOut | undefined): string {
+	return head === undefined ? "" : ", as a lookup timed out";
+}
 
 /** Every stop holding `write`, with the first of its reaches that does. */
 export async function covering(
@@ -115,8 +131,8 @@ async function prHeld(
 	if (write.branch === undefined)
 		return `which branch of ${write.repo} this touches couldn't be told`;
 	const head = await headOf(reach.repo ?? write.repo, reach.number);
-	if (head === undefined)
-		return `the branch of ${label} couldn't be found to tell it apart`;
+	if (typeof head !== "string")
+		return `the branch of ${label} couldn't be found to tell it apart${unfound(head)}`;
 	return head === write.branch
 		? `${write.branch} is the branch of ${label}`
 		: undefined;
@@ -145,8 +161,8 @@ async function forkHeld(
 			: undefined;
 	}
 	const head = await headOf(reach.repo, reach.number);
-	if (head === undefined)
-		return `the branch of ${label} couldn't be found to tell a fork's push apart`;
+	if (typeof head !== "string")
+		return `the branch of ${label} couldn't be found to tell a fork's push apart${unfound(head)}`;
 	return head === write.branch
 		? `${write.branch} is the branch of ${label}, which may come from ${write.repo}`
 		: undefined;
@@ -171,8 +187,8 @@ async function branchHeld(
 	}
 	if (write.pr !== undefined && write.repo !== undefined) {
 		const head = await headOf(write.repo, write.pr);
-		if (head === undefined)
-			return `the branch of #${write.pr} couldn't be found to tell it apart`;
+		if (typeof head !== "string")
+			return `the branch of #${write.pr} couldn't be found to tell it apart${unfound(head)}`;
 		return head === reach.name
 			? `#${write.pr} comes from ${reach.name}`
 			: undefined;

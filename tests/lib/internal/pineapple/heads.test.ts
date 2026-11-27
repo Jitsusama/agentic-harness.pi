@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	callSignal,
+	EXIT_TIMED_OUT,
 	type Exec,
 	withCallSignal,
 } from "../../../../lib/core/exec/index.ts";
+import {
+	TIMED_OUT,
+	type TimedOut,
+} from "../../../../lib/internal/pineapple/cover.ts";
 import {
 	askedHead,
 	FAILED_FOR_MS,
@@ -13,7 +18,7 @@ import {
 } from "../../../../lib/internal/pineapple/heads.ts";
 
 /** A lookup giving each answer in turn, counting how often it's asked. */
-function answering(answers: (string | undefined)[]) {
+function answering(answers: (string | TimedOut | undefined)[]) {
 	const asked: string[] = [];
 	const ask = async (repo: string | undefined, pr: number) => {
 		asked.push(`${repo}#${pr}`);
@@ -97,6 +102,19 @@ describe("keptHeads", () => {
 		expect(asked).toEqual(["o/r#1", "o/r#1"]);
 	});
 
+	it("asks again once a lookup that timed out is old enough", async () => {
+		const time = clock();
+		const { ask, asked } = answering([TIMED_OUT, "drill"]);
+		const headOf = keptHeads(ask, time.now);
+		expect(await headOf("o/r", 1)).toBe(TIMED_OUT);
+		time.pass(FAILED_FOR_MS - 1);
+		expect(await headOf("o/r", 1)).toBe(TIMED_OUT);
+		expect(asked).toEqual(["o/r#1"]);
+		time.pass(1);
+		expect(await headOf("o/r", 1)).toBe("drill");
+		expect(asked).toEqual(["o/r#1", "o/r#1"]);
+	});
+
 	it("reads a lookup that threw as telling nothing, and asks again", async () => {
 		const time = clock();
 		let calls = 0;
@@ -152,6 +170,7 @@ function looking(gh: unknown, dt: unknown): Look {
 	return async (program) => {
 		const answer = program === "gh" ? gh : dt;
 		if (typeof answer === "function") return answer();
+		if (answer === TIMED_OUT) return TIMED_OUT;
 		return answer === undefined ? undefined : String(answer);
 	};
 }
@@ -186,6 +205,24 @@ describe("askedHead", () => {
 			await askedHead(looking(undefined, view("")))("o/r", 1),
 		).toBeUndefined();
 		expect(await askedHead(looking("  ", view(" ")))("o/r", 1)).toBeUndefined();
+	});
+
+	it("says a lookup timed out only where neither names the branch", async () => {
+		expect(await askedHead(looking(TIMED_OUT, undefined))("o/r", 1)).toBe(
+			TIMED_OUT,
+		);
+		expect(await askedHead(looking(undefined, TIMED_OUT))("o/r", 1)).toBe(
+			TIMED_OUT,
+		);
+		expect(await askedHead(looking(TIMED_OUT, view("drill")))("o/r", 1)).toBe(
+			"drill",
+		);
+		expect(await askedHead(looking("drill", TIMED_OUT))("o/r", 1)).toBe(
+			"drill",
+		);
+		expect(
+			await askedHead(looking(undefined, undefined))("o/r", 1),
+		).toBeUndefined();
 	});
 
 	it("stops Delta's lookup once GitHub names the branch", async () => {
@@ -248,6 +285,11 @@ describe("lookThrough", () => {
 		expect(await lookThrough(printing(1, "drill").exec)("gh", [])).toBe(
 			undefined,
 		);
+	});
+
+	it("answers that a program its clock stopped timed out", async () => {
+		const stopped = printing(EXIT_TIMED_OUT, "drill").exec;
+		expect(await lookThrough(stopped)("gh", [])).toBe(TIMED_OUT);
 	});
 
 	it("runs a program under its own signal, never its call's", async () => {

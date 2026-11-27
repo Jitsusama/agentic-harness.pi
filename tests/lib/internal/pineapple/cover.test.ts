@@ -3,6 +3,7 @@ import {
 	covering,
 	type HeadOf,
 	type Here,
+	TIMED_OUT,
 } from "../../../../lib/internal/pineapple/cover.ts";
 import {
 	reachOf,
@@ -104,6 +105,27 @@ describe("a stop on one pull request", () => {
 			heads,
 		);
 		expect(found?.because).toMatch(/couldn't be found/);
+	});
+
+	it("says a lookup timed out where one did, and only there", async () => {
+		const timing: HeadOf = async (repo, pr) =>
+			pr === 98 ? TIMED_OUT : heads(repo, pr);
+		const because = async (write: Write, reach: string) => {
+			const [found] = await covering(write, [stop(reach)], HERE, timing);
+			return found?.because;
+		};
+		const timedOut = /couldn't be found .*, as a lookup timed out$/;
+		const pushX = { ...pushFix, branch: "x" };
+		expect(await because(pushX, "pr:example/shop#98")).toMatch(timedOut);
+		const forked = { ...pushX, repo: "someone/shop" };
+		expect(await because(forked, "pr:example/shop#98")).toMatch(timedOut);
+		const merge98 = { ...merge12, pr: 98 };
+		expect(await because(merge98, "branch:example/shop@fix-it")).toMatch(
+			timedOut,
+		);
+		const failed = await because(pushX, "pr:example/shop#99");
+		expect(failed).toMatch(/couldn't be found/);
+		expect(failed).not.toMatch(/timed out/);
 	});
 
 	it("whose repository wasn't named holds that number in any", async () => {

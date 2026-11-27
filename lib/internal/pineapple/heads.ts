@@ -24,15 +24,19 @@
  * rest.
  */
 
-import { type Exec, withCallSignal } from "../../core/exec/index.ts";
-import type { HeadOf } from "./cover.ts";
+import {
+	EXIT_TIMED_OUT,
+	type Exec,
+	withCallSignal,
+} from "../../core/exec/index.ts";
+import { type HeadOf, TIMED_OUT, type TimedOut } from "./cover.ts";
 
 /** How long a lookup that found nothing stands before it's asked again. */
 export const FAILED_FOR_MS = 15_000;
 
 /** A lookup asked, and once it found nothing, when it settled. */
 interface Asked {
-	head: Promise<string | undefined>;
+	head: Promise<string | TimedOut | undefined>;
 	failedAt?: number;
 }
 
@@ -61,23 +65,23 @@ export function keptHeads(ask: HeadOf, now = () => performance.now()): HeadOf {
 		const asked: Asked = { head: ask(repo, pr).catch(() => undefined) };
 		told.set(key, asked);
 		void asked.head.then((head) => {
-			if (head === undefined) asked.failedAt = now();
+			if (typeof head !== "string") asked.failedAt = now();
 		});
 		return asked.head;
 	};
 }
 
 /**
- * What a program prints, trimmed, or nothing where it failed, timed out
- * or said nothing, so an unknown answer never names a branch. The
- * program is stopped once `signal` fires, and its answer is then
- * nothing too.
+ * What a program prints, trimmed, or nothing where it failed or said
+ * nothing, or {@link TIMED_OUT} where its clock stopped it, so an
+ * unknown answer never names a branch. The program is stopped once
+ * `signal` fires, and its answer is then nothing too.
  */
 export type Look = (
 	program: string,
 	args: string[],
 	signal?: AbortSignal,
-) => Promise<string | undefined>;
+) => Promise<string | TimedOut | undefined>;
 
 /**
  * A look through `exec`, each program run under its own `signal`
@@ -88,6 +92,7 @@ export function lookThrough(exec: Exec): Look {
 		const { code, stdout } = await withCallSignal(signal, () =>
 			exec(program, args),
 		);
+		if (code === EXIT_TIMED_OUT) return TIMED_OUT;
 		const out = stdout.trim();
 		return code === 0 && out !== "" ? out : undefined;
 	};
@@ -99,7 +104,8 @@ export function lookThrough(exec: Exec): Look {
  * when GitHub tells nothing. Delta's lookup is stopped once GitHub
  * names the branch, as nothing waits on it then, and runs on where
  * GitHub tells nothing. A blank answer, or one Delta gives as a whole
- * ref, is read as the short name a push is judged by, or none.
+ * ref, is read as the short name a push is judged by, or none. Where
+ * neither names it and either lookup timed out, the answer says so.
  */
 export function askedHead(look: Look): HeadOf {
 	return async (repo, pr) => {
@@ -119,8 +125,14 @@ export function askedHead(look: Look): HeadOf {
 			"-q",
 			".headRefName",
 		]).catch(() => undefined);
-		const named = shortName(github);
-		if (named === undefined) return await delta;
+		const named = typeof github === "string" ? shortName(github) : undefined;
+		if (named === undefined) {
+			const fromDelta = await delta;
+			if (typeof fromDelta === "string") return fromDelta;
+			return github === TIMED_OUT || fromDelta === TIMED_OUT
+				? TIMED_OUT
+				: undefined;
+		}
 		deltaNeeded.abort();
 		return named;
 	};
@@ -131,13 +143,13 @@ async function deltaHead(
 	repo: string,
 	pr: number,
 	signal: AbortSignal,
-): Promise<string | undefined> {
+): Promise<string | TimedOut | undefined> {
 	const json = await look(
 		"dt",
 		["pr", "view", String(pr), "-R", repo, "--json"],
 		signal,
 	);
-	if (json === undefined) return undefined;
+	if (typeof json !== "string") return json;
 	try {
 		const view = JSON.parse(json) as {
 			head?: { ref?: unknown };
