@@ -18,6 +18,12 @@ import { installOfVersion } from "../reload/loaded.ts";
 /** How many characters of a version's commit a refusal names. */
 const SHORT_SHA = 12;
 
+/**
+ * What separates a commit from when its version was built again, in the
+ * folder of a rebuild, as core.nix's pi-packages names it.
+ */
+const REBUILT = "+";
+
 /** Milliseconds in a minute, for the refusal's count. */
 const MINUTE_MS = 60_000;
 
@@ -33,7 +39,8 @@ export const BEHIND_FOR_MS = 15 * 60_000;
 /**
  * Why a carry from the harness at `root` waits on its reload, `now`:
  * the install `root` is a version of has left it for another more than
- * {@link BEHIND_FOR_MS} ago. Nothing for the install's own version, or
+ * {@link BEHIND_FOR_MS} ago. Nothing for the install's own commit, in
+ * whichever folder or rebuild it runs from, or
  * for code outside an install of whole versions, such as a tree or a
  * store copy.
  */
@@ -52,7 +59,9 @@ export function behindItsInstall(
 		// A link onto nothing, or a version gone: nothing to come up to.
 		return undefined;
 	}
-	if (current === running) return undefined;
+	// One commit can sit in two folders, or be built again, and runs the
+	// same code in each.
+	if (commitOf(current) === commitOf(running)) return undefined;
 	const left = leftAt(install, running);
 	if (left === undefined || now - left <= BEHIND_FOR_MS) return undefined;
 	const minutes = Math.floor((now - left) / MINUTE_MS);
@@ -82,6 +91,11 @@ function leftAt(install: string, running: string): number | undefined {
 		// An install whose link can't be read says nothing of the move.
 		return undefined;
 	}
+}
+
+/** The commit a version folder holds, less what a rebuild adds. */
+function commitOf(version: string): string {
+	return basename(version).split(REBUILT)[0] ?? "";
 }
 
 /** A version folder's commit, as a refusal names it. */
