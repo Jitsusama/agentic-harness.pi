@@ -363,13 +363,18 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() =>
-				expect(woken, "a later turn's death, not the abort's").toEqual([a]),
+				expect(woken, "an abort it took leaves its death its own").toEqual([a]),
 			);
 		});
 
-		it("wakes one whose child died long after a close it never answered", async () => {
+		it("wakes one whose child died long after it agreed to a close", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			children.routes.asking?.(ending("close"))?.({
+				v: 1,
+				id: "close",
+				ok: true,
+				result: null,
+			});
 			clock += END_ASKED_HOLDS_MS;
 			await units.childOf(a).exit();
 
@@ -378,14 +383,32 @@ describe("a host's children", () => {
 			);
 		});
 
-		it("leaves one resting whose child died just after a close it never answered", async () => {
+		it("leaves one resting whose child died just after it agreed to a close", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			children.routes.asking?.(ending("close"))?.({
+				v: 1,
+				id: "close",
+				ok: true,
+				result: null,
+			});
 			clock += END_ASKED_HOLDS_MS - 1;
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
 			expect(woken, "still the close's ending").toEqual([]);
+		});
+
+		it("leaves one resting whose child died long after a close it never answered", async () => {
+			await busy();
+			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			clock += 10 * END_ASKED_HOLDS_MS;
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			expect(
+				woken,
+				"a close the child may still hold stays its ending",
+			).toEqual([]);
 		});
 
 		it("keeps one end's mark when another asked beside it is refused", async () => {

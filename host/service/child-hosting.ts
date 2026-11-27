@@ -175,10 +175,13 @@ export function hostChildren(options: {
 	const wokenAt = new Map<string, number[]>();
 	// Each conversation, by its id in either case, whose child was asked
 	// to end it or its turn: each ask's mark holds while it is unanswered,
-	// and for END_ASKED_HOLDS_MS once the child agreed to end it or gave no
-	// answer, so a child that dies as it is asked wakes nothing. A refusal,
-	// or an abort's answer, takes back only its own ask's mark, and the
-	// child's ending takes them all.
+	// and for END_ASKED_HOLDS_MS once the child agreed to end it, so a child
+	// that dies as it is asked wakes nothing. One that couldn't be reached,
+	// or whose asker hung up first, may still hold the ask, so its mark holds
+	// until the child ends: a child that lives on then rests at a later
+	// death rather than carry on a turn the person may have closed. A
+	// refusal, or an abort's answer, takes back only its own ask's mark, and
+	// the child's ending takes them all.
 	const endsAsked = new Map<string, Set<{ until: number }>>();
 	const now = options.now ?? Date.now;
 	function asking(
@@ -192,11 +195,14 @@ export function hostChildren(options: {
 		marks.add(mark);
 		endsAsked.set(id, marks);
 		return (reply) => {
-			// An abort taken leaves the child running, its turn over.
-			const holds =
+			if (
 				reply !== undefined &&
-				(reply.ok ? op !== "abort" : reply.error.code === CHILD_UNREACHABLE);
-			if (holds) {
+				!reply.ok &&
+				reply.error.code === CHILD_UNREACHABLE
+			)
+				return;
+			// An abort taken leaves the child running, its turn over.
+			if (reply?.ok && op !== "abort") {
 				mark.until = now() + END_ASKED_HOLDS_MS;
 				return;
 			}
