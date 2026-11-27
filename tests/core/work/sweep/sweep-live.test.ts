@@ -28,10 +28,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
-import type {
-	HeldTree,
-	TreeProvider,
-} from "../../../../lib/core/work/broker.ts";
+import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
@@ -902,7 +899,10 @@ describe("trees another provider cut", () => {
 
 		expect(outcome.taken).toEqual([{ path: tree }]);
 		expect(going, "its record's mark as the provider removed it").toEqual([
-			expect.objectContaining({ at: expect.any(Number) }),
+			expect.objectContaining({
+				at: expect.any(Number),
+				lock: expect.objectContaining({ path: expect.any(String) }),
+			}),
 		]);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
@@ -913,9 +913,9 @@ describe("trees another provider cut", () => {
 		settleFolder(tree);
 		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
 		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
-		const ends: (HeldTree | undefined)[] = [];
-		memory.endGoing = async (_, restore) => {
-			ends.push(restore);
+		const ends: (boolean | undefined)[] = [];
+		memory.endGoing = async (_, failed) => {
+			ends.push(failed);
 			throw new Error("the record's lock is held");
 		};
 		const provider = elsewhere(undefined, async () => {
@@ -926,7 +926,7 @@ describe("trees another provider cut", () => {
 
 		expect(outcome.taken).toEqual([{ path: tree }]);
 		expect(outcome.refused, "what it refused").toEqual([]);
-		expect(ends, "each end, with what it would put back").toEqual([undefined]);
+		expect(ends, "each end, whether its removal failed").toEqual([false]);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {
@@ -952,7 +952,7 @@ describe("trees another provider cut", () => {
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
-	it("gives the record back to its sessions when the release fails", async () => {
+	it("leaves the record marked as stopped when the release fails, so nobody works in what is left", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
 		settleFolder(tree);
@@ -963,9 +963,13 @@ describe("trees another provider cut", () => {
 		const outcome = await sweepWith(provider);
 
 		expect(outcome.refused).toEqual([{ path: tree, why: "dev refused" }]);
-		expect(memory.recall().find((one) => one.path === tree)?.owners).toEqual([
-			ENDED,
-		]);
+		const found = memory.recall().find((one) => one.path === tree);
+		expect(found?.going, "its mark").toEqual(
+			expect.objectContaining({ at: expect.any(Number) }),
+		);
+		expect(found?.going?.lock, "its mark's lock").toBeUndefined();
+		if (found === undefined) throw new Error("its record went");
+		expect(await memory.goingState(found), "its state").toBe("standing");
 	});
 });
 
@@ -1592,9 +1596,9 @@ describe("a tree whose record another process holds locked past the wait", () =>
 			refuse(path);
 			return await real.whileUnheld(path, take, facts);
 		};
-		memory.holdWhileUnheld = async (path, facts) => {
+		memory.holdWhileUnheld = async (path, lock, facts) => {
 			refuse(path);
-			return await real.holdWhileUnheld(path, facts);
+			return await real.holdWhileUnheld(path, lock, facts);
 		};
 		return memory;
 	}

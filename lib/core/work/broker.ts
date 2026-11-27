@@ -11,9 +11,15 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Owner } from "../process/index.ts";
-import { TreeGoing, type TreeMemory } from "./memory.ts";
+import {
+	TreeGoing,
+	TreeHalfGone,
+	type TreeMemory,
+	TreeStillGoing,
+} from "./memory.ts";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.ts";
 import { StuckAside } from "./stranded.ts";
+import type { RemovalLock } from "./sweep-lock.ts";
 import {
 	satisfies,
 	type TreeIdentity,
@@ -262,6 +268,14 @@ export interface GoingMark {
 	 * asked for, not when the sweep marked it.
 	 */
 	readonly asked?: number;
+	/**
+	 * The lock the removal runs under: the sweep's own, or one a session
+	 * finishing a stopped removal made. The mark stands only while that
+	 * file stands, held by `by`. Left out once a removal failed, so the
+	 * mark reads as stopped at once and the tree is removed again before
+	 * anybody takes it up.
+	 */
+	readonly lock?: RemovalLock;
 }
 
 /** How long a session waits by default for a tree a sweep is removing. */
@@ -276,26 +290,23 @@ const GOING_LOOK_MS = 1000;
  * marked it stops. Looked at on a clock through the record's own file
  * alone, since nothing tells a session when a sweep in another process
  * ends a removal, and reading every record each time held a host's
- * thread for seconds. Past `until` it throws, saying the sweep is still
- * at it; an aborted `signal` ends the wait with the call.
+ * thread for seconds. Past `until` it throws {@link TreeStillGoing}; an
+ * aborted `signal` ends the wait with the call. After a hold `refused`,
+ * it looks once at least, so a record that reads unmarked while another
+ * at its path refuses the hold can never spin the caller's loop.
  */
 async function waitWhileGoing(
 	memory: TreeMemory,
 	tree: HeldTree,
 	wait: { readonly until: number; readonly ms: number },
 	signal?: AbortSignal,
+	refused = false,
 ): Promise<void> {
 	const look = Math.max(1, Math.min(GOING_LOOK_MS, wait.ms / 10));
-	while ((await memory.goingState(tree)) === "going") {
-		if (Date.now() >= wait.until) {
-			const span =
-				wait.ms < 60_000
-					? `${Math.round(wait.ms / 1000)} seconds`
-					: `${Math.round(wait.ms / 60_000)} minutes`;
-			throw new Error(
-				`${tree.path} is still being removed by a sweep after ${span}, so ask for it again once that ends`,
-			);
-		}
+	let once = refused;
+	while (once || (await memory.goingState(tree)) === "going") {
+		once = false;
+		if (Date.now() >= wait.until) throw new TreeStillGoing(tree.path, wait.ms);
 		await sleep(look, undefined, signal === undefined ? {} : { signal });
 	}
 }
@@ -535,10 +546,27 @@ export function createTreeBroker(
 					await memory.rememberHeldByUs(found);
 					break;
 				} catch (error) {
+					if (error instanceof TreeHalfGone) {
+						// A sweep stopped partway, or its removal failed: what stands
+						// may be half undone, and a provider that treats already-there
+						// as ready would hand it out. So the removal is finished
+						// first, and the tree cut afresh.
+						const by = roster().find(
+							(provider) => provider.id === found.providerId,
+						);
+						if (by === undefined) {
+							throw new Error(
+								`${found.path} was left part-removed by a sweep that stopped, and ${found.providerId}, which could finish removing it, isn't loaded here`,
+							);
+						}
+						await memory.finishGoing(found, () => by.release(found, options));
+						waitedFor = found;
+						continue;
+					}
 					if (!(error instanceof TreeGoing)) throw error;
 				}
 				waitedFor = found;
-				await waitWhileGoing(memory, found, wait, options?.signal);
+				await waitWhileGoing(memory, found, wait, options?.signal, true);
 			}
 			if (reusable === undefined && waitedFor !== undefined) again = waitedFor;
 			if (reusable && again !== reusable) {

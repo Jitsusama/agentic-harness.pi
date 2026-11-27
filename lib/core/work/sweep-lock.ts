@@ -62,6 +62,72 @@ export const LOCK_FRESH_EVERY_MS = 60 * 1000;
  */
 export const LOCK_FRESH_FOR_MS = 5 * 60 * 60 * 1000;
 
+/**
+ * A lock file a removal runs under, by its path and which file it is, so
+ * a mark naming it stands exactly as long as the removal's lock does:
+ * a sleep leaves the file as it was, while a sweep ending, or another
+ * taking its lock over, makes it another file or none.
+ */
+export interface RemovalLock {
+	/** Where the lock file is. */
+	readonly path: string;
+	/** Which file it is, its device and inode. */
+	readonly id: string;
+}
+
+/** A held sweep lock: called to let it go, and naming the file it is. */
+export type HeldSweepLock = (() => void) & { readonly lock: RemovalLock };
+
+/**
+ * Whether `lock` still stands as the file that was made, holding `pid`,
+ * a process that runs. Gone, another file, or another pid's, it doesn't.
+ * A lock that can't be read for another reason is taken to stand, since
+ * a removal read as stopped while it runs is one a session would race.
+ */
+export function lockRuns(lock: RemovalLock, pid: number): boolean {
+	let stats: Stats;
+	try {
+		stats = lstatSync(lock.path);
+	} catch (error) {
+		if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) return false;
+		return true;
+	}
+	if (!stats.isFile() || identity(stats) !== lock.id) return false;
+	return holderOf(lock.path) === pid && isAlive(pid);
+}
+
+/**
+ * Make a lock at `lockPath` holding this process's pid for a removal run
+ * outside a sweep, answering it with how to let it go, or undefined when
+ * a lock is there whose holder still runs. One whose holder has ended is
+ * replaced. The caller serialises its makers, as a record's lock does.
+ */
+export function removalLock(
+	lockPath: string,
+): { readonly lock: RemovalLock; readonly end: () => void } | undefined {
+	for (let tries = 0; tries < 2; tries += 1) {
+		const mine = made(lockPath);
+		if (mine !== undefined) {
+			const lock = { path: lockPath, id: mine };
+			return {
+				lock,
+				end: () => {
+					try {
+						if (identityOf(lockPath) === mine)
+							rmSync(lockPath, { force: true });
+					} catch {
+						// Left behind, it names an ended pid, which reads as stopped.
+					}
+				},
+			};
+		}
+		const holder = holderOf(lockPath);
+		if (holder !== undefined && isAlive(holder)) return undefined;
+		rmSync(lockPath, { force: true });
+	}
+	return undefined;
+}
+
 /** How often, and for how long, a running sweep touches its lock. */
 export interface LockFresh {
 	/** Milliseconds between touches. */
@@ -83,7 +149,7 @@ export function sweepLock(
 		everyMs: LOCK_FRESH_EVERY_MS,
 		forMs: LOCK_FRESH_FOR_MS,
 	},
-): (() => void) | string {
+): HeldSweepLock | string {
 	// Locks moved aside stay until this sweep has made its own, so the
 	// new lock can never be given a moved one's inode, and its holder,
 	// if it still runs, never takes the new lock for its own.
@@ -151,7 +217,7 @@ function keptFresh(
 	lockPath: string,
 	mine: string,
 	fresh: LockFresh,
-): () => void {
+): HeldSweepLock {
 	// The monotonic clock stands still while the machine sleeps, so a
 	// night's suspend neither spends the budget nor ends it at the wake.
 	const began = performance.now();
@@ -175,7 +241,7 @@ function keptFresh(
 	}, fresh.everyMs);
 	// A sweep's touching must never keep its process alive.
 	beat.unref();
-	return () => {
+	const release = () => {
 		clearInterval(beat);
 		if (lost) return;
 		try {
@@ -185,6 +251,7 @@ function keptFresh(
 			// the hour, and the sweep's own outcome is never thrown over.
 		}
 	};
+	return Object.assign(release, { lock: { path: lockPath, id: mine } });
 }
 
 /**

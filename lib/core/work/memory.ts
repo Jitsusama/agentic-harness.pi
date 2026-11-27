@@ -61,7 +61,7 @@ import {
 } from "../process/index.ts";
 import { hosted, sessionOwner } from "../session/index.ts";
 import type { GoingMark, HeldTree } from "./broker.ts";
-import { LOCK_FRESH_FOR_MS, SWEEP_STALE_MS } from "./sweep-lock.ts";
+import { lockRuns, type RemovalLock, removalLock } from "./sweep-lock.ts";
 
 /** Somewhere to write down what was cut. */
 export interface TreeMemory {
@@ -173,33 +173,50 @@ export interface TreeMemory {
 	 * its record names has ended, judged under the record's lock as
 	 * {@link whileUnheld} judges it.
 	 *
-	 * For a tree that can't be moved aside before it is removed: the
-	 * record is marked as going, so while this session runs nobody takes
-	 * the tree up, a shareable one included, and a removal that takes
-	 * minutes can run outside the lock. Answers the record as it was,
-	 * unmarked, so a caller whose removal fails can put it back, or
+	 * For a tree that can't be moved aside before it is removed: every
+	 * record at the path is marked as going under `lock`, the sweep's own,
+	 * so while that lock stands nobody takes the tree up, a shareable one
+	 * included, and a removal that takes minutes can run outside the
+	 * records' locks. Answers the first record as it was, unmarked, or
 	 * nothing when the tree is held, or when the machine won't say when
 	 * this session started.
 	 */
 	holdWhileUnheld(
 		path: string,
+		lock: RemovalLock,
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
 	/**
-	 * End a removal {@link holdWhileUnheld} began: forget the tree's record,
-	 * or with `restore`, the record it answered, put it back for a removal
-	 * that failed, dated as last asked for when it was before the mark.
-	 * Only a record still marked as going is touched, under its lock, since
-	 * once the folder went a session may have cut the tree afresh at the
-	 * same path, and that record is the new cut's.
+	 * End a removal {@link holdWhileUnheld} began: forget the tree's
+	 * records, or for a removal that `failed`, leave them marked without
+	 * their lock, dated as last asked for before the mark, so the mark
+	 * reads as stopped and the tree is removed again before anybody takes
+	 * up what the failure left. Only records still marked are touched,
+	 * under their locks, since once the folder went a session may have cut
+	 * the tree afresh at the same path, and that record is the new cut's.
 	 */
-	endGoing(tree: HeldTree, restore?: HeldTree): Promise<void>;
+	endGoing(tree: HeldTree, failed?: boolean): Promise<void>;
 	/**
-	 * Whether `tree`'s record is gone, marked as going by a sweep still
-	 * removing it, or standing otherwise, read from its own file alone, so
-	 * a session waiting out a removal can look every second without reading
-	 * every record on the thread. A mark whose sweep stopped reads as
-	 * standing.
+	 * Finish a removal that stopped partway, through `release`, so `tree`
+	 * can be cut afresh: its records are marked as going under a lock this
+	 * process makes beside them, released, and forgotten, or left marked
+	 * as stopped when `release` throws, which goes on to the caller. Throws
+	 * {@link TreeGoing} when another removal of it runs, and does nothing
+	 * when none stopped.
+	 */
+	finishGoing(
+		tree: HeldTree,
+		release: () => Promise<void>,
+		facts?: ProcessFacts,
+	): Promise<void>;
+	/**
+	 * Whether `tree`'s record is gone, marked as going by a removal still
+	 * running, or standing otherwise, read from its own file alone, so a
+	 * session waiting out a removal can look every second without reading
+	 * every record on the thread. Every record at a path is marked alike,
+	 * so its own file says what all of them do. A mark whose removal
+	 * stopped reads as standing, which taking the tree up then refuses
+	 * with {@link TreeHalfGone}.
 	 */
 	goingState(
 		tree: HeldTree,
@@ -301,31 +318,80 @@ export class TreeGoing extends Error {
 }
 
 /**
- * How long a mark stands at most: as long as a sweep may run, keeping
- * its lock fresh and then holding it stale, so a mark older than that
- * was left by one that stopped, or by a removal whose end failed in a
- * process that outlives it, such as a host.
+ * A tree whose removal stopped partway, by a sweep that ended mid-way or
+ * a release that failed: what stands there may be half undone, so it is
+ * removed again before anybody takes it up.
  */
-const GOING_MARK_MS = LOCK_FRESH_FOR_MS + SWEEP_STALE_MS;
+export class TreeHalfGone extends Error {
+	/** The tree left part-removed. */
+	readonly path: string;
+
+	constructor(path: string) {
+		super(
+			`${path} was left part-removed by a sweep that stopped, so it is removed and cut afresh`,
+		);
+		this.name = "TreeHalfGone";
+		this.path = path;
+	}
+}
+
+/**
+ * A tree a sweep was still removing when a session's wait for it ran
+ * out. Asking again at once under the same identity waits on the same
+ * removal, so a caller with another way to the work takes it instead.
+ */
+export class TreeStillGoing extends Error {
+	/** The tree still being removed. */
+	readonly path: string;
+
+	constructor(path: string, waitedMs: number) {
+		const span =
+			waitedMs < 60_000
+				? `${Math.round(waitedMs / 1000)} seconds`
+				: `${Math.round(waitedMs / 60_000)} minutes`;
+		super(
+			`${path} is still being removed by a sweep after ${span}, so ask for it again once that ends`,
+		);
+		this.name = "TreeStillGoing";
+		this.path = path;
+	}
+}
+
+/** Whether a value read off disk names a removal's lock. */
+function isRemovalLock(lock: unknown): lock is RemovalLock {
+	return (
+		typeof lock === "object" &&
+		lock !== null &&
+		"path" in lock &&
+		typeof lock.path === "string" &&
+		"id" in lock &&
+		typeof lock.id === "string"
+	);
+}
 
 /**
  * Whether a record's mark, read off disk, where anybody may write, is
- * one this code wrote and young enough to stand.
+ * one this code wrote whose removal's lock still stands, held by the
+ * process that marked it. Its age counts for nothing: a sweep's lock
+ * lives in time the machine is awake, and a mark dated by the clock
+ * ended mid-removal across a long sleep. A mark with no lock is one a
+ * failed removal left, which stands no longer.
  */
 function markStands(going: unknown): going is GoingMark {
 	if (typeof going !== "object" || going === null) return false;
 	const at = "at" in going ? going.at : undefined;
 	const by = "by" in going ? going.by : undefined;
+	const lock = "lock" in going ? going.lock : undefined;
 	if (typeof at !== "number" || !Number.isFinite(at) || !isOwner(by)) {
 		return false;
 	}
-	const age = Date.now() - at;
-	return age >= 0 && age < GOING_MARK_MS;
+	return isRemovalLock(lock) && lockRuns(lock, by.pid);
 }
 
 /**
- * Whether a record is marked as going by a sweep still running, judged
- * by the process that marked it. A mark whose process has ended was left
+ * Whether a record is marked as going by a removal still running: its
+ * lock stands, held by the process that marked it, judged by its start
+ * too, so a pid used again isn't taken for it. Any other mark was left
  * by a removal that stopped partway.
  */
 async function goingNow(
@@ -336,6 +402,44 @@ async function goingNow(
 	if (!markStands(going)) return false;
 	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
 	return (await tickedStanding(going.by, once)) !== "gone";
+}
+
+/**
+ * Refuse to take up the tree at `path` while any of `records` there is
+ * marked: with {@link TreeGoing} while its removal runs, or with
+ * {@link TreeHalfGone} once it stopped. Every record at a path is judged,
+ * since World keeps two under two keys for one tree.
+ */
+async function refuseWhileMarked(
+	records: readonly HeldTree[],
+	path: string,
+	facts: ProcessFacts,
+): Promise<void> {
+	const marked = records.filter(
+		(tree) => tree.path === path && tree.going !== undefined,
+	);
+	for (const tree of marked) {
+		if (await goingNow(tree, facts)) throw new TreeGoing(path);
+	}
+	if (marked.length > 0) throw new TreeHalfGone(path);
+}
+
+/**
+ * `tree` marked as going under `lock` by the process `by`, held by `us`
+ * alone, and knowing when it was last `asked` for before the mark.
+ */
+function markedGoing(
+	tree: HeldTree,
+	us: Owner,
+	by: Owner,
+	lock: RemovalLock,
+	asked: number | undefined,
+): HeldTree {
+	const { going: _, sessions: __, ...rest } = tree;
+	const at = Date.now();
+	const going: GoingMark =
+		asked === undefined ? { at, by, lock } : { at, by, asked, lock };
+	return { ...rest, owners: [us], going };
 }
 
 /** What changes about a directory when an entry in it does. */
@@ -511,8 +615,12 @@ function named(tree: HeldTree): readonly Owner[] {
 /**
  * Whether a record names somebody and every session it names has ended.
  * A record that names nobody is never spent, since nothing can say so.
+ * One a removal still runs on is its remover's, whoever else it names,
+ * since in a host the conversation that marked it may close meanwhile;
+ * one whose removal stopped is spent, so the next sweep finishes it.
  */
 async function spent(tree: HeldTree, facts: ProcessFacts): Promise<boolean> {
+	if (tree.going !== undefined) return !(await goingNow(tree, facts));
 	const owners = named(tree);
 	if (owners.length === 0) return false;
 	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
@@ -816,6 +924,19 @@ export function createTreeMemory(
 	}
 
 	/**
+	 * Run `fn` under every record's lock in `keys`, taken in one order, so
+	 * two callers locking the same records never wait on each other.
+	 */
+	async function underLocks(
+		keys: readonly string[],
+		fn: () => Promise<void>,
+	): Promise<void> {
+		const [first, ...rest] = [...new Set(keys)].sort();
+		if (first === undefined) return await fn();
+		await underLock(first, () => underLocks(rest, fn));
+	}
+
+	/**
 	 * Every record the directory named once it held still, or every one any
 	 * listing named when it never did. A record is read once a reading, so
 	 * one rewritten meanwhile is handed back as first read. The broker's
@@ -914,8 +1035,7 @@ export function createTreeMemory(
 				// Under the lock all the same, since a sweep judges a record's
 				// use under it.
 				await underLock(held.identity.key, async () => {
-					const found = this.recall().find((tree) => tree.path === held.path);
-					if (await goingNow(found, facts)) throw new TreeGoing(held.path);
+					await refuseWhileMarked(this.recall(), held.path, facts);
 					const { going: _, ...rest } = held;
 					this.remember({ ...rest, ...sessionsWith(held), usedAt: Date.now() });
 				});
@@ -929,15 +1049,12 @@ export function createTreeMemory(
 			// written under the record's lock, since another session adding
 			// itself between the two would otherwise be written out again.
 			await underLock(held.identity.key, async () => {
-				const found = this.recall().find((tree) => tree.path === held.path);
-				if (await goingNow(found, facts)) throw new TreeGoing(held.path);
-				// A stopped removal's sweep no longer holds it either.
-				const stopped = found?.going !== undefined;
-				const before = stopped
-					? []
-					: (found?.owners ?? held.owners ?? []).filter(
-							(one) => isOwner(one) && !sameOwner(one, us),
-						);
+				const records = this.recall();
+				await refuseWhileMarked(records, held.path, facts);
+				const found = records.find((tree) => tree.path === held.path);
+				const before = (found?.owners ?? held.owners ?? []).filter(
+					(one) => isOwner(one) && !sameOwner(one, us),
+				);
 				const { sessions: _, going: __, ...rest } = held;
 				this.remember({
 					...rest,
@@ -1114,49 +1231,104 @@ export function createTreeMemory(
 			}
 		},
 
-		async holdWhileUnheld(path, facts = systemFacts) {
-			const found = this.recall().find((one) => one.path === path);
-			if (found === undefined) return undefined;
+		async holdWhileUnheld(path, lock, facts = systemFacts) {
+			const found = this.recall().filter((one) => one.path === path);
+			if (found.length === 0) return undefined;
 			const us = await holderNow(facts);
 			// The process marks it, not the conversation: in a host the
 			// conversation a sweep runs in may close while it removes the tree.
 			const by = await ownerNow(facts);
 			if (us === undefined || by === undefined) return undefined;
 			let before: HeldTree | undefined;
-			await underLock(found.identity.key, async () => {
-				const tree = this.recall().find((one) => one.path === path);
-				if (tree === undefined || !(await spent(tree, facts))) return;
-				const { going: _, ...unmarked } = tree;
-				const { sessions: __, ...rest } = unmarked;
-				const asked = this.askedAt(path, tree.identity.key);
-				const going: GoingMark =
-					asked === undefined
-						? { at: Date.now(), by }
-						: { at: Date.now(), by, asked };
-				this.remember({ ...rest, owners: [us], going });
-				before = unmarked;
-			});
+			await underLocks(
+				found.map((one) => one.identity.key),
+				async () => {
+					const trees = this.recall().filter((one) => one.path === path);
+					const first = trees[0];
+					if (first === undefined) return;
+					for (const tree of trees) {
+						if (!(await spent(tree, facts))) return;
+					}
+					for (const tree of trees) {
+						const asked = this.askedAt(path, tree.identity.key);
+						this.remember(markedGoing(tree, us, by, lock, asked));
+					}
+					const { going: _, ...unmarked } = first;
+					before = unmarked;
+				},
+			);
 			return before;
 		},
 
-		async endGoing(tree, restore) {
-			await underLock(tree.identity.key, async () => {
-				const found = this.recall().find((one) => one.path === tree.path);
-				if (found === undefined || found.going === undefined) return;
-				if (restore === undefined) {
+		async endGoing(tree, failed = false) {
+			const keys = this.recall()
+				.filter((one) => one.path === tree.path)
+				.map((one) => one.identity.key);
+			await underLocks([tree.identity.key, ...keys], async () => {
+				const trees = this.recall().filter(
+					(one) => one.path === tree.path && one.going !== undefined,
+				);
+				if (trees.length === 0) return;
+				if (!failed) {
 					this.forget(tree.path);
 					return;
 				}
-				this.remember(restore);
-				// Its file's time is when it was last asked for, and the mark and
-				// this write aren't asks: left as written, a failed removal would
-				// keep a tree a day as if a session had just asked for it.
-				const { asked } = found.going;
-				if (typeof asked === "number" && Number.isFinite(asked)) {
-					const when = new Date(asked);
-					utimesSync(fileFor(tree.identity.key), when, when);
+				for (const one of trees) {
+					if (one.going === undefined) continue;
+					const { lock: _, ...going } = one.going;
+					this.remember({ ...one, going });
+					// Its file's time is when it was last asked for, and the mark
+					// and this write aren't asks: left as written, a failed
+					// removal would keep a tree a day as if just asked for.
+					const { asked } = going;
+					if (typeof asked === "number" && Number.isFinite(asked)) {
+						const when = new Date(asked);
+						utimesSync(fileFor(one.identity.key), when, when);
+					}
 				}
 			});
+		},
+
+		async finishGoing(tree, release, facts = systemFacts) {
+			const by = await ownerNow(facts);
+			const us = await holderNow(facts);
+			if (by === undefined || us === undefined) {
+				throw new Error(
+					`${tree.path} was left part-removed, and this machine won't say when this process started, so it can't mark the removal as its own to finish it`,
+				);
+			}
+			const keys = this.recall()
+				.filter((one) => one.path === tree.path)
+				.map((one) => one.identity.key);
+			let ending: (() => void) | undefined;
+			await underLocks([tree.identity.key, ...keys], async () => {
+				const trees = this.recall().filter((one) => one.path === tree.path);
+				const stopped = trees.filter((one) => one.going !== undefined);
+				if (stopped.length === 0) return;
+				for (const one of stopped) {
+					if (await goingNow(one, facts)) throw new TreeGoing(tree.path);
+				}
+				// Beside the records, under their locks, so only one session
+				// finishes a removal at a time.
+				const made = removalLock(`${fileFor(tree.identity.key)}.removing`);
+				if (made === undefined) throw new TreeGoing(tree.path);
+				for (const one of trees) {
+					const asked =
+						one.going?.asked ?? this.askedAt(tree.path, one.identity.key);
+					this.remember(markedGoing(one, us, by, made.lock, asked));
+				}
+				ending = made.end;
+			});
+			if (ending === undefined) return;
+			try {
+				await release();
+				await this.endGoing(tree);
+			} catch (error) {
+				await this.endGoing(tree, true);
+				throw error;
+			} finally {
+				ending();
+			}
 		},
 
 		async goingState(tree, facts = systemFacts) {

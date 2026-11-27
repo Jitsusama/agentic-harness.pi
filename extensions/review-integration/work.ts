@@ -40,6 +40,7 @@ import {
 	WORK_REQUEST,
 	type WorkApi,
 } from "../../lib/core/work/events.ts";
+import { TreeStillGoing } from "../../lib/core/work/memory.ts";
 import { satisfies } from "../../lib/core/work/tree.ts";
 import { REVIEW_COMMANDS } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
@@ -746,7 +747,13 @@ export async function treeForRound(
 		return { path: held.path };
 	} catch (error) {
 		const why = error instanceof Error ? error.message : String(error);
-		if (asked.request.intent !== "snapshot" || files.length === 0) {
+		// A tree a sweep is still removing is the same tree at the commit
+		// alone, so asking again would wait out the same removal twice.
+		if (
+			asked.request.intent !== "snapshot" ||
+			files.length === 0 ||
+			error instanceof TreeStillGoing
+		) {
 			return fallbackAt(choice, commit, why);
 		}
 		// Asked once more for the commit alone. A provider refusing the

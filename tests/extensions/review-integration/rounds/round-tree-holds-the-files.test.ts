@@ -29,6 +29,7 @@ import {
 	type TreeRequest,
 	treeIdentity,
 } from "../../../../lib/core/work/index.ts";
+import { TreeStillGoing } from "../../../../lib/core/work/memory.ts";
 import { OFF } from "../../../../lib/internal/fence/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
@@ -66,7 +67,7 @@ async function checkoutAt(): Promise<{ path: string; head: string }> {
  * any asked to hold a file under `refused`, as World's provider refuses
  * a file in no zone.
  */
-function announceLayer(refused?: string): TreeRequest[] {
+function announceLayer(refused?: string, refusing?: Error): TreeRequest[] {
 	const asked: TreeRequest[] = [];
 	const layer = {
 		registerTreeProvider() {},
@@ -75,6 +76,7 @@ function announceLayer(refused?: string): TreeRequest[] {
 			held: (): HeldTree[] => [],
 			async ensure(request: TreeRequest): Promise<HeldTree> {
 				asked.push(request);
+				if (refusing !== undefined) throw refusing;
 				const paths = request.intent === "snapshot" ? request.paths : undefined;
 				const bad =
 					refused === undefined
@@ -203,6 +205,24 @@ describe("the files a round's tree must hold", () => {
 		const read = readFrom(tree, checkout.head, undefined);
 		expect(read.witness).toBe(checkout.head);
 		expect(read.unpinned).toContain(".github/CODEOWNERS");
+	});
+
+	it("asks once when a sweep is still removing the tree, since the commit alone is the same tree", async () => {
+		const checkout = await checkoutAt();
+		const asked = announceLayer(
+			undefined,
+			new TreeStillGoing("/trees/snapshot", 15 * 60 * 1000),
+		);
+		const tree = await treeForRound(
+			{ key: KEY, localPath: checkout.path },
+			checkout.head,
+			checkout.path,
+			["areas/a/x.ts"],
+		);
+
+		expect(asked, "the snapshots asked for").toHaveLength(1);
+		// The checkout stands at the commit, so the round reads it instead.
+		expect(tree, "the tree read instead").toEqual({ path: checkout.path });
 	});
 
 	it("asks for no files when the change names none", async () => {

@@ -86,7 +86,7 @@ import {
 	KEPT_BRANCHES,
 	keepBranch,
 } from "./sweep-kept-branches.ts";
-import { type LockFresh, sweepLock } from "./sweep-lock.ts";
+import { type LockFresh, type RemovalLock, sweepLock } from "./sweep-lock.ts";
 import {
 	finishStoppedRemovals,
 	goneGitDir,
@@ -566,6 +566,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			await releaseThroughProvider(
 				deps,
 				facts,
+				release.lock,
 				tree,
 				[...remembered, ...spendable],
 				outcome,
@@ -728,7 +729,10 @@ function unreadWhy(
  * becomes its only holder under the record's lock and marks it as
  * going, which makes the broker hand it to nobody else, a shareable one
  * included: a session asking meanwhile waits for the record to go and
- * cuts it afresh. The removal runs after. A shareable tree goes only
+ * cuts it afresh. The removal runs after. The mark is tied to this run's
+ * lock, so a run that stops partway, killed or failing, leaves it
+ * reading as stopped, and the next session asking for the tree finishes
+ * the removal through the provider before cutting it afresh. A shareable tree goes only
  * once nobody has asked for it for {@link PUSHED_SETTLE_MS}, since a
  * snapshot is read, which leaves its folder unmoved, and another round
  * at the same commit reuses one left a moment ago.
@@ -741,6 +745,7 @@ function unreadWhy(
 async function releaseThroughProvider(
 	deps: SweepDeps,
 	facts: ProcessFacts,
+	lock: RemovalLock,
 	tree: HeldTree,
 	remembered: readonly string[],
 	outcome: SweepOutcome,
@@ -783,7 +788,7 @@ async function releaseThroughProvider(
 	}
 	let before: HeldTree | undefined;
 	try {
-		before = await deps.memory.holdWhileUnheld(tree.path, facts);
+		before = await deps.memory.holdWhileUnheld(tree.path, lock, facts);
 	} catch (error) {
 		if (!keptForItsLock(tree, error, outcome)) throw error;
 		return;
@@ -801,12 +806,12 @@ async function releaseThroughProvider(
 	// Ended apart from the release, so a removal that went is taken however
 	// its record's end goes. An end that fails, its lock held or the disk
 	// out of descriptors, leaves the mark, which stands only while this
-	// process runs and the mark is young, and the run goes on.
+	// run's lock does, and the run goes on.
 	let unended: string | undefined;
 	try {
-		// Whatever the provider left stands where it was, and goes back to
-		// the sessions that held it, for the next sweep to judge again.
-		await deps.memory.endGoing(tree, failed === undefined ? undefined : before);
+		// What a failed removal left may be half a tree, so its mark stays,
+		// stopped, and whoever asks for it next finishes the removal first.
+		await deps.memory.endGoing(tree, failed !== undefined);
 	} catch (error) {
 		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
 	}
