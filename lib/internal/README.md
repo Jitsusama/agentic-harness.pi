@@ -71,8 +71,9 @@ no caller reads by.
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
   core's pineapple reader writes, which tool calls are writes and
-  where they go, which stops reach them, which sessions they park,
-  the mesh holds they send, and the guard on their own records, for
+  where they go, which stops reach them (asking a change's branch
+  again until one is found), which sessions they park, the mesh holds
+  they send, and the guard on their own records, for
   `pineapple-workflow`.
 - **`priority/`**: the machine queue: when a session's heavy work
   may run, by memory, VM limits and who is waiting on it.
