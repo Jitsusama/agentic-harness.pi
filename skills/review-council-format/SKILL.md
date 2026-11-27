@@ -31,9 +31,14 @@ What you have recorded survives that; what you were saving for the end
 does not.
 
 So record early and record often. Do not batch them up to record at the
-end, which is the failure this avoids, wearing a different hat. A
-finding recorded and then repeated in your answer is counted once, so
-repeating costs nothing and leaving it out risks everything.
+end, which is the failure this avoids, wearing a different hat.
+
+The tool answers with a key for each finding, such as `R1a2b3c`. Put
+it on that finding's entry in your answer as `"recorded": "R1a2b3c"`,
+however you reword the finding there. A finding recorded and then
+repeated with its key is counted once. Repeated without one, it is
+counted once only when its subject is word for word the same, and
+twice otherwise.
 
 ## Ask for Independent Reads Together
 

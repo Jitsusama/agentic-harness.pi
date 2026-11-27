@@ -33,9 +33,10 @@ import { Type } from "@sinclair/typebox";
 // dispatcher, the supervisor and the artifact store into a process
 // whose whole job is appending a line to a file.
 import {
-	findingsIn,
 	JOURNAL_PATH_VAR,
 	JOURNAL_TOOL_NAME,
+	journalLines,
+	RECORDED_KEY,
 } from "../../lib/subagent/runpi/journal.mjs";
 
 /** A tool answer, in the shape pi expects. */
@@ -83,6 +84,19 @@ function journalPath(): string | undefined {
 	return path === undefined || path.trim() === "" ? undefined : path;
 }
 
+/**
+ * What to ask of the answer for findings recorded under `keys`: the
+ * same key on each one's entry there, so a finding reworded in the
+ * answer is still counted once.
+ */
+function carryBack(keys: readonly string[]): string {
+	if (keys.length === 0) return "Include it in your final answer too.";
+	const named = keys.map((key) => `"${key}"`).join(", ");
+	return keys.length === 1
+		? `Include it in your final answer too, with "${RECORDED_KEY}": ${named} on its entry, so it is counted once however you word it there.`
+		: `Include them in your final answer too, each entry with its "${RECORDED_KEY}" key, in the order you sent them: ${named}, so each is counted once however you word it there.`;
+}
+
 export default function reviewJournal(pi: ExtensionAPI) {
 	pi.registerTool({
 		// Likewise from the library, which is what puts this on the
@@ -95,8 +109,8 @@ export default function reviewJournal(pi: ExtensionAPI) {
 			"describes. Call this the moment you are sure of a finding rather " +
 			"than saving it for your final answer: what you record is kept even " +
 			"if you are interrupted before you can answer. Still include " +
-			"everything in your final answer as well; anything recorded and " +
-			"then repeated is counted once.",
+			"everything in your final answer as well, each recorded finding's " +
+			"entry with the key this tool answers with, so it is counted once.",
 		parameters: Type.Object({
 			finding: Type.Unknown({
 				description:
@@ -105,7 +119,7 @@ export default function reviewJournal(pi: ExtensionAPI) {
 					"JSON text holding one is read rather than refused.",
 			}),
 		}),
-		async execute(_id: string, params: { finding?: unknown }) {
+		async execute(call: string, params: { finding?: unknown }) {
 			const path = journalPath();
 			if (path === undefined) {
 				return said(
@@ -113,34 +127,34 @@ export default function reviewJournal(pi: ExtensionAPI) {
 						"nowhere to record one. Put it in your final answer instead.",
 				);
 			}
-			const sent = findingsIn(params?.finding);
-			if (sent.kept.length === 0) {
+			const sent = journalLines(params?.finding, call);
+			if (sent.kept === 0) {
 				return said(
 					"A finding has to be an object shaped like one entry of your " +
 						"contract's findings array. Nothing was recorded.",
 				);
 			}
-			const wrote = await write(
-				path,
-				`${sent.kept.map((one) => JSON.stringify(one)).join("\n")}\n`,
-			);
+			const wrote = await write(path, sent.text);
 			if (wrote !== undefined) return said(wrote);
 			if (sent.dropped > 0) {
 				return said(
-					`Recorded ${sent.kept.length} of them. The other ${sent.dropped} ` +
+					`Recorded ${sent.kept} of them. The other ${sent.dropped} ` +
 						"were not findings and were not recorded, so send those again " +
-						"one at a time if they matter.",
+						`one at a time if they matter. ${carryBack(sent.keys)}`,
 				);
 			}
-			if (sent.kept.length > 1) {
+			if (sent.kept > 1) {
 				return said(
-					`Recorded ${sent.kept.length} of them, one per line. Record each ` +
+					`Recorded ${sent.kept} of them, one per line. Record each ` +
 						"one as you find it rather than in batches: a batch you are " +
 						"still holding when you are stopped is a batch nobody gets. " +
-						"Include them in your final answer too.",
+						carryBack(sent.keys),
 				);
 			}
-			return said("Recorded. Include it in your final answer too.");
+			const [key] = sent.keys;
+			return said(
+				`${key === undefined ? "Recorded." : `Recorded as ${key}.`} ${carryBack(sent.keys)}`,
+			);
 		},
 	});
 }

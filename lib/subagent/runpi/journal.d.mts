@@ -50,6 +50,24 @@ export function findingsIn(sent: unknown): {
 	dropped: number;
 };
 
+/** The field a recorded finding's key goes in, and comes back in. */
+export const RECORDED_KEY: string;
+
+/** One recording call's journal lines, each finding keyed. */
+export function journalLines(
+	sent: unknown,
+	call: string,
+): {
+	/** The lines to append, each ending in a newline; empty for none. */
+	text: string;
+	/** The keys written, in order, to hand back to the reviewer. */
+	keys: string[];
+	/** How many findings were kept. */
+	kept: number;
+	/** How many things sent were not findings. */
+	dropped: number;
+};
+
 /** Reads a reviewer's stream for the journal lines it recorded. */
 export interface StreamJournal {
 	/** The lines one event adds to the journal, if any. */

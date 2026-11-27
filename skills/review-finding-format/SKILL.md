@@ -21,6 +21,7 @@ own. The round's own contract says what wraps them and what it adds.
 | `severity` | no | `critical`, `medium` or `minor` |
 | `confidence` | no | A number from 0 to 1 |
 | `raisedBy` | no | Reviewer ids, when you are consolidating |
+| `recorded` | no | The key `record_finding` gave it, on its answer entry |
 
 ```json
 {

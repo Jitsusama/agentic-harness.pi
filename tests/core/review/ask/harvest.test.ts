@@ -4,6 +4,10 @@ import {
 	alsoRecorded,
 	harvestFindings,
 } from "../../../../lib/core/review/index.ts";
+import {
+	journalLines,
+	parseJournal,
+} from "../../../../lib/subagent/runpi/journal.mjs";
 
 const origin: FindingOrigin = {
 	kind: "reviewer",
@@ -508,6 +512,55 @@ describe("folding what was recorded into what was said", () => {
 		expect(findings.map((f) => f.subject)).toEqual([
 			"This leaks",
 			"Something else entirely",
+		]);
+	});
+
+	it("folds an answer's reworded telling onto the recording whose key it carries", () => {
+		// security-attacker in council-20261127T073306238-001026 recorded
+		// four and reworded each in its answer, so the round raised eight.
+		// The journal's own lines, so the key's field is the one it writes.
+		const lines = journalLines(
+			wire({
+				subject: "the sweep's only claim on a folder is a three-byte prefix",
+			}),
+			"call-a",
+		);
+		const recorded = parseJournal(lines.text).entries;
+		const said = harvestFindings(
+			answer(
+				wire({
+					subject: "the sweep claims a folder by a three-byte prefix alone",
+					recorded: lines.keys[0],
+				}),
+			),
+			origin,
+		);
+
+		const { findings } = alsoRecorded(said, recorded, origin);
+
+		expect(
+			findings.map((f) => f.subject),
+			"the answer's telling, once",
+		).toEqual(["the sweep claims a folder by a three-byte prefix alone"]);
+		expect(findings[0], "the key is no part of the finding").not.toHaveProperty(
+			"recorded",
+		);
+	});
+
+	it("keeps a reworded telling with another recording's key as a finding of its own", () => {
+		const first = journalLines(wire({ subject: "the first" }), "call-a");
+		const second = journalLines(wire({ subject: "the second" }), "call-b");
+		const recorded = parseJournal(first.text + second.text).entries;
+		const said = harvestFindings(
+			answer(wire({ subject: "the first, reworded", recorded: first.keys[0] })),
+			origin,
+		);
+
+		const { findings } = alsoRecorded(said, recorded, origin);
+
+		expect(findings.map((f) => f.subject)).toEqual([
+			"the first, reworded",
+			"the second",
 		]);
 	});
 

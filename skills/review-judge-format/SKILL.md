@@ -23,7 +23,8 @@ array; with nothing surviving consolidation, answer
 
 When a `record_finding` tool is available, call it as you settle each
 consolidated finding, and include everything in your final answer as
-normal. A judge reads every reviewer's answer at once, so it runs longer
+normal, each recorded entry carrying the `recorded` key the tool gave
+it so it is counted once however you reword it. A judge reads every reviewer's answer at once, so it runs longer
 than any of them, and a consolidation that never arrives takes the whole
 round's work with it.
 

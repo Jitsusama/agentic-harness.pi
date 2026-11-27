@@ -10,6 +10,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { journalFromStream } from "../../lib/subagent/runpi/journal.mjs";
 import reviewJournal from "../../packs/review-journal/index.ts";
 
 type Tool = {
@@ -47,17 +48,29 @@ function recordFinding(): Tool {
 	return found;
 }
 
-/** Every line written so far, parsed. Nothing written is nothing. */
-async function written(): Promise<unknown[]> {
-	const raw = await readFile(journal, "utf8").catch(
-		(error: NodeJS.ErrnoException) =>
-			error.code === "ENOENT" ? "" : Promise.reject(error),
+/** The journal's text so far. Nothing written is nothing. */
+function journalText(): Promise<string> {
+	return readFile(journal, "utf8").catch((error: NodeJS.ErrnoException) =>
+		error.code === "ENOENT" ? "" : Promise.reject(error),
 	);
-	return raw
+}
+
+/** Every line written so far, parsed, with the key each was written under. */
+async function keyed(): Promise<Record<string, unknown>[]> {
+	return (await journalText())
 		.split("\n")
 		.filter((line) => line.trim() !== "")
 		.map((line) => JSON.parse(line));
 }
+
+/** Every finding written so far, as the reviewer sent it, keys aside. */
+async function written(): Promise<unknown[]> {
+	return (await keyed()).map(({ recorded: _key, ...finding }) => finding);
+}
+
+/** The text of a tool answer. */
+const textOf = (answer: unknown) =>
+	(answer as { content: { text: string }[] }).content[0]?.text ?? "";
 
 describe("recording a finding", () => {
 	it("writes one line per finding, in the order they were found", async () => {
@@ -187,6 +200,52 @@ describe("recording a finding", () => {
 		})) as { content: { text: string }[] };
 
 		expect(answer.content[0]?.text).toMatch(/final answer|carry on/i);
+	});
+
+	it("writes each finding with a key of its call's and hands that key back for the answer", async () => {
+		// A reviewer told to repeat a finding in its answer rewords it
+		// there, and the round folds two tellings only on the same
+		// subject: four of one reviewer's eight were counted twice that
+		// way. The key lets the answer say which recording it repeats.
+		const tool = recordFinding();
+
+		const answer = await tool.execute("call-a", {
+			finding: { subject: "the first" },
+		});
+
+		const [line] = await keyed();
+		const key = line?.recorded;
+		expect(key, "the line carries a key").toMatch(/^R[0-9a-f]{6}$/);
+		expect(textOf(answer), "the answer names the key to carry back").toContain(
+			`"recorded": "${String(key)}"`,
+		);
+	});
+
+	it("keys each finding of a batch apart, and names every key", async () => {
+		const tool = recordFinding();
+
+		const answer = await tool.execute("call-a", {
+			finding: [{ subject: "the first" }, { subject: "the second" }],
+		});
+
+		const keys = (await keyed()).map((line) => String(line.recorded));
+		expect(new Set(keys).size, "two keys, not one").toBe(2);
+		for (const key of keys) expect(textOf(answer)).toContain(`"${key}"`);
+	});
+
+	it("writes for a call exactly the lines a room's stream reads for it", async () => {
+		// A reviewer on a room has its journal rebuilt from its stream, so
+		// a key drawn at random would differ between the two.
+		const tool = recordFinding();
+		const finding = [{ subject: "the first" }, { subject: "the second" }];
+
+		await tool.execute("call-a", { finding });
+
+		const stream = journalFromStream();
+		const base = { toolName: "record_finding", toolCallId: "call-a" };
+		stream.read({ ...base, type: "tool_execution_start", args: { finding } });
+		const read = stream.read({ ...base, type: "tool_execution_end" });
+		expect(read).toBe(await journalText());
 	});
 
 	it("refuses something that is not a finding without writing it", async () => {

@@ -45,3 +45,12 @@ which is not a finding in any encoding.
 Findings recorded and then repeated in the final answer are counted
 once. Where the same finding arrives twice, the answer's telling wins,
 since it is written after the investigation rather than during it.
+
+Each line is written with a `recorded` key taken from the tool call's
+id, and the tool answers with it, so the answer's entry can carry it
+back and be folded onto its recording however the reviewer rewords it.
+Without the key, two tellings fold only on the same subject, and one
+round counted four of a reviewer's findings twice that way. The key
+comes from the call rather than a random draw, since a room's
+supervisor rebuilds the journal from the stream and must write the same
+lines (`journalLines` in `lib/subagent/runpi/journal.mjs`).
