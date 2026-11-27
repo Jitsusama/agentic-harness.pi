@@ -349,6 +349,22 @@ describe("a talk the steerer hands a session", () => {
 		expect(steerWaiting(bus), "once both are read").toBe(false);
 	});
 
+	// F91: pi marks a run begun before it reads the prompt that began it,
+	// so talk sent in between is steered and read only after that prompt.
+	it("keeps talk sent as a run starts waiting past that run's own prompt", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		tell(lives, "agent_start");
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+
+		tell(lives, "message_start", reading("user", "start the work"));
+		expect(steerWaiting(bus), "once the run's prompt is read").toBe(true);
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "once the talk itself is read").toBe(false);
+	});
+
 	// F87: pi may read it as it is sent.
 	it("says nothing waits for talk pi reads as it is sent", () => {
 		const lives: Lives = new Map();
