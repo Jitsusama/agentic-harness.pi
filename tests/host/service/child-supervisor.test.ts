@@ -24,6 +24,7 @@ import {
 	conversation,
 	deferred,
 	ended,
+	endedBusy,
 	entry,
 	folder,
 	growing,
@@ -1497,6 +1498,41 @@ describe("what a child says", () => {
 		await vi.waitFor(() =>
 			expect(units.forgotten, "systemd forgets its unit").toEqual([slot.unit]),
 		);
+	});
+
+	it("says a child that ended as it last said it was busy ended busy", async () => {
+		await supervisor.resume(entry(a));
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy" },
+		});
+		await vi.waitFor(() =>
+			expect(routes.child(a)?.conversation.state).toBe("busy"),
+		);
+
+		await childOf(a).exit();
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
+		expect(endedBusy).toEqual([true]);
+	});
+
+	// F93: a child whose route another slot's child holds is stale, so its
+	// ending reads nothing of the newer child's state.
+	it("reads no newer child's state as a stale slot's child of the same conversation ends", async () => {
+		roster.held = [entry(a), entry(b)];
+		await supervisor.resume(entry(a));
+		await supervisor.resume(entry(b));
+		const stale = childOf(a);
+		const newer = routes.routeOf(b);
+		if (!newer) throw new Error("b's child holds no route");
+		// The child in b's slot runs a now, busy, as a newer child of it would.
+		routes.hold({ ...conversation(a), state: "busy" }, newer);
+
+		await stale.exit();
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
+		expect(endedBusy, "the stale child said it was idle").toEqual([false]);
+		expect(routes.routeOf(a), "the newer child's route kept").toEqual(newer);
 	});
 
 	it("lets the roster's hold go only when the child says it closed", async () => {
