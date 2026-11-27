@@ -214,6 +214,66 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads a push after a command that wrote where pushes go as naming nothing", () => {
+		for (const command of [
+			"git config remote.origin.pushurl git@github.com:example/stopped.git && git push origin x",
+			"git config --global push.default upstream; git push origin x",
+			"git config set branch.x.merge refs/heads/stopped; git push origin x",
+			"git config --unset remote.origin.push; git push origin x",
+			"git config --remove-section url.elsewhere; git push origin x",
+			"git config --file .git/config core.sshCommand ssh-elsewhere; git push origin x",
+			"git config --edit; git push origin x",
+			"git -C . config include.path /elsewhere; git push origin x",
+			"git remote set-url --push origin git@github.com:example/stopped.git; git push origin x",
+			"git remote add elsewhere git@github.com:example/stopped.git; git push origin x",
+			"git remote -v rename origin old; git push origin x",
+			"git remote rm origin; git push origin x",
+			"git remote set-branches origin x; git push origin x",
+			"git branch -u origin/stopped; git push origin x",
+			"git branch --set-upstream-to=origin/stopped x; git push origin x",
+			"git branch --unset-upstream; git push origin x",
+			"git branch --track x origin/stopped; git push origin x",
+			"sudo git config push.default upstream; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					unnamed: "every",
+					overridden: true,
+				},
+			]);
+		}
+		// Reading git's settings, or writing others, moves nothing.
+		for (const command of [
+			"git config remote.origin.pushurl; git push origin x",
+			"git config --get push.default; git push origin x",
+			"git config --get-all remote.origin.push; git push origin x",
+			"git config --get-regexp remote; git push origin x",
+			"git config --list; git push origin x",
+			"git config -l; git push origin x",
+			"git config get push.default; git push origin x",
+			"git config user.name Someone; git push origin x",
+			"git config --type bool core.fsmonitor false; git push origin x",
+			"git remote -v; git push origin x",
+			"git remote get-url origin; git push origin x",
+			"git branch -d old; git push origin x",
+			"git branch --list; git push origin x",
+			"git status; git push origin x",
+		]) {
+			expect(writesInBash(command, HERE), command).toEqual([
+				{
+					action: "git push",
+					kind: "change",
+					dir: HERE,
+					remote: "origin",
+					source: "x",
+				},
+			]);
+		}
+	});
+
 	it("reads a push fed to a shell given its own environment as naming nothing", () => {
 		for (const command of [
 			"GIT_DIR=/elsewhere bash <<< 'git push origin x'",

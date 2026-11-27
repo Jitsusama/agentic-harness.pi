@@ -516,8 +516,8 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 		// words, may move where its pushes go.
 		const env = [...simple.assignments.map((word) => unquote(word.text))];
 		// An environment moved earlier in the line is inherited by every
-		// git after it.
-		moved ||= movesGit(own, env);
+		// git after it, and a setting written earlier is read by it.
+		moved ||= movesGit(own, env) || setsPushes(own);
 		const moving = moved
 			? [...env, ...given.own, MOVED]
 			: [...env, ...given.own];
@@ -758,6 +758,133 @@ function movesGit(own: string[], env: string[]): boolean {
 	return (
 		verb === "set" &&
 		rest.some((word) => /^-\w*a/.test(word) || word === "allexport")
+	);
+}
+
+/**
+ * Whether a command writes what git reads to choose where a push goes,
+ * so the pushes after it in the line go where git's settings no longer
+ * say: a setting {@link PUSH_SETTINGS} names, a remote, or a branch's
+ * upstream. Switching branches is left to what settle reads.
+ */
+function setsPushes(own: string[]): boolean {
+	const [program, ...args] = own;
+	if (program?.split("/").at(-1) !== "git") return false;
+	const [verb, ...rest] = args.slice(gitVerbAt(args));
+	if (verb === "config") return writesPushSetting(rest);
+	if (verb === "remote") {
+		const sub = rest.find((word) => !word.startsWith("-"));
+		return sub !== undefined && REMOTE_MOVES.has(sub);
+	}
+	return verb === "branch" && rest.some(movesUpstream);
+}
+
+/** Where git's verb stands among its words, past the options before it. */
+function gitVerbAt(args: string[]): number {
+	let at = 0;
+	while ((args[at] ?? "").startsWith("-")) {
+		const flag = args[at] ?? "";
+		at += flag === "-C" || GIT_VALUED.has(flag) ? 2 : 1;
+	}
+	return at;
+}
+
+/** `git remote`'s verbs that add, move or take away where one pushes. */
+const REMOTE_MOVES = new Set([
+	"add",
+	"set-url",
+	"rename",
+	"remove",
+	"rm",
+	"set-branches",
+]);
+
+/**
+ * Whether an option of git branch sets or unsets a branch's upstream,
+ * which a push goes to when `push.default` is upstream: `-u` or `-t`
+ * among other short options, or their long names by a prefix.
+ */
+function movesUpstream(word: string): boolean {
+	if (/^-[^-]/.test(word)) return /^-[A-Za-z]*[tu]/.test(word);
+	return (
+		isOption(word, "--set-upstream-to", 3) ||
+		isOption(word, "--unset-upstream", 3) ||
+		isOption(word, "--track", 4)
+	);
+}
+
+/** git config's options that only read. */
+const CONFIG_READS = new Set([
+	"--get",
+	"--get-all",
+	"--get-regexp",
+	"--get-urlmatch",
+	"--get-color",
+	"--get-colorbool",
+	"--list",
+	"-l",
+]);
+
+/** git config's options that write with a name alone, or a section's. */
+const CONFIG_WRITES = new Set([
+	"--unset",
+	"--unset-all",
+	"--add",
+	"--replace-all",
+	"--rename-section",
+	"--remove-section",
+]);
+
+/** git config's options that take the next word as their value. */
+const CONFIG_VALUED = new Set([
+	"-f",
+	"--file",
+	"--blob",
+	"--type",
+	"--default",
+	"--comment",
+	"--value",
+]);
+
+/** git config's verbs that write the name after them. */
+const CONFIG_VERBS = new Set([
+	"set",
+	"unset",
+	"rename-section",
+	"remove-section",
+]);
+
+/**
+ * Whether `git config`'s words write a key, or a section holding one,
+ * that {@link PUSH_SETTINGS} names. Opening an editor may write any. A
+ * name with nothing after it, and no option that writes, is read.
+ */
+function writesPushSetting(args: string[]): boolean {
+	const named: string[] = [];
+	let writes = false;
+	for (let at = 0; at < args.length; at += 1) {
+		const word = args[at] ?? "";
+		if (word === "--") {
+			named.push(...args.slice(at + 1));
+			break;
+		}
+		if (!word.startsWith("-")) named.push(word);
+		else if (CONFIG_READS.has(word)) return false;
+		else if (word === "-e" || word === "--edit") return true;
+		else if (CONFIG_WRITES.has(word)) writes = true;
+		else if (CONFIG_VALUED.has(word)) at += 1;
+	}
+	const [first, second] = named;
+	if (first === "get" || first === "list") return false;
+	if (first === "edit") return true;
+	const verb = first !== undefined && CONFIG_VERBS.has(first);
+	const key = verb ? second : first;
+	if (key === undefined || (!verb && !writes && named.length < 2)) return false;
+	// A section's name stands for every key in it.
+	return (
+		PUSH_SETTINGS.test(key) ||
+		PUSH_SETTINGS.test(`${key}.`) ||
+		/^core$/i.test(key)
 	);
 }
 
