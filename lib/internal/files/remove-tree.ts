@@ -48,9 +48,12 @@ import { lstatSync, rmdirSync, unlinkSync } from "node:fs";
 import { lstat, rmdir, unlink } from "node:fs/promises";
 import { posix } from "node:path";
 import {
+	type NoOwner,
+	noOwner,
+	noOwnerFix,
+	noOwnerSaid,
 	systemFolders,
 	systemProgram,
-	trustsNoOwner,
 } from "../sandbox/system-program.ts";
 
 /**
@@ -117,24 +120,24 @@ interface Program {
 function systemTool(name: string, folders: readonly string[]): Program {
 	const path = systemProgram(name, folders);
 	if (path !== undefined) return { path, name };
-	throw new Error(noneFound(name, folders, trustsNoOwner()));
+	throw new Error(noneFound(name, folders, noOwner()));
 }
 
 /**
  * What a removal says when no `name` could be trusted: that no owner here
- * can be, where `noOwner` says so, rather than blaming the folders, which
- * may well hold root's.
+ * can be, where `why` says so, and what helps, rather than blaming the
+ * folders, which may well hold root's.
  */
 export function noneFound(
 	name: string,
 	folders: readonly string[],
-	noOwner: boolean,
+	why: NoOwner | undefined,
 ): string {
-	const where = noOwner
-		? "no owner here can be told from pi's own, as in a user namespace " +
-			"whose ids pi can give its files to, so run pi as an id other than 0 there"
+	const where = why
+		? noOwnerSaid(why)
 		: `none is kept where only root can put one (${folders.join(", ")})`;
-	return `no ${name} found: ${where}, so the tree is left in place rather than walked by path`;
+	const left = `no ${name} found: ${where}, so the tree is left in place rather than walked by path`;
+	return why ? `${left}. ${noOwnerFix(why)}` : left;
 }
 
 /** The arguments that remove `path` and all under it, never following it. */

@@ -56,6 +56,8 @@ export interface Look {
 	runnable(path: string): boolean;
 	/** The owners that are root here; root's alone where none says. */
 	rootOwners?(): readonly number[];
+	/** Whether this process's user namespace map can be read; taken as yes where none says. */
+	readsMap?(): boolean;
 }
 
 const real: Look = {
@@ -71,7 +73,25 @@ const real: Look = {
 		}
 	},
 	rootOwners: () => rootOwnersHere(),
+	readsMap: () => readsMapHere(),
 };
+
+/** Whether `/proc/self/uid_map` could be read, read once. */
+let mapRead: boolean | undefined;
+
+/** `readsMap`, read once for this process. */
+function readsMapHere(): boolean {
+	if (mapRead === undefined) {
+		try {
+			readFileSync("/proc/self/uid_map", "utf8");
+			mapRead = true;
+		} catch {
+			// No `/proc`, or one this process may not read: said, never thrown.
+			mapRead = false;
+		}
+	}
+	return mapRead;
+}
 
 /** The owners that are root in this process's namespace, read once. */
 let rootHere: readonly number[] | undefined;
@@ -191,17 +211,64 @@ export function trustsNoOwner(look: Look = real): boolean {
 }
 
 /**
+ * Why no owner here can be trusted: a user namespace whose ids pi can
+ * give its files to, or a Linux whose map can't be read to say.
+ */
+export type NoOwner = "namespace" | "unread";
+
+/** Why no owner here can be trusted, or nothing where one can. */
+export function noOwner(look: Look = real): NoOwner | undefined {
+	if (!trustsNoOwner(look)) return undefined;
+	return look.readsMap?.() === false ? "unread" : "namespace";
+}
+
+/** What no owner being trusted is, said in a clause, for every message that says it. */
+export function noOwnerSaid(why: NoOwner): string {
+	return why === "unread"
+		? "no owner here can be told from pi's own, since /proc can't be read to say " +
+				"which user namespace pi is in"
+		: "no owner here can be told from pi's own, as in a user namespace whose ids " +
+				"pi can give its files to";
+}
+
+/**
+ * What helps where no owner is trusted, as a sentence. No owner is
+ * trusted only where pi is 0 (`rootOwners`), so running it as another id
+ * always helps; where the map can't be read, mounting `/proc` lets root
+ * keep working.
+ */
+export function noOwnerFix(why: NoOwner): string {
+	return why === "unread"
+		? "Mount /proc, or run pi as an id other than 0."
+		: "Run pi as an id other than 0 there.";
+}
+
+/** Why some programs can't be run, said for a refusal, and what helps where anything does. */
+export interface NotKept {
+	readonly because: string;
+	readonly fix?: string;
+}
+
+/**
  * Why `names` can't be run, said for a refusal: that no owner here can
  * be trusted, where none can, rather than blaming the folders, which may
- * well hold root's. No owner is trusted only where pi is the inner 0, so
- * running it as another id is what helps.
+ * well hold root's.
  */
-export function notKept(names: string, look: Look = real): string {
-	return trustsNoOwner(look)
-		? `${names} can't be trusted: no owner here can be told from pi's own, ` +
-				"as in a user namespace whose ids pi can give its files to, so run pi " +
-				"as an id other than 0 there"
-		: `${names} isn't in the system's own profile, where only root puts programs`;
+export function notKept(
+	names: readonly string[],
+	why: NoOwner | undefined = noOwner(),
+): NotKept {
+	const listed = names.join(" and ");
+	if (why) {
+		return {
+			because: `${listed} can't be trusted: ${noOwnerSaid(why)}`,
+			fix: noOwnerFix(why),
+		};
+	}
+	const is = names.length === 1 ? "isn't" : "aren't";
+	return {
+		because: `${listed} ${is} in the system's own profile, where only root puts programs`,
+	};
 }
 
 /** The folders the system's profiles put this user's programs in. */
