@@ -1114,6 +1114,48 @@ describe("trees another provider cut", () => {
 			asked,
 		);
 	});
+
+	it("finishes a stopped removal unjudged, though what it took out reads as changes", async () => {
+		// Judged again, half a tree reads as moving, or as work its provider
+		// keeps, and would be left half gone for a day or for good.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		let asked = false;
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+			}),
+			whyKept: async () => {
+				asked = true;
+				return "it has uncommitted changes";
+			},
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(asked, "the provider was asked whether to keep it").toBe(false);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("keeps a stopped removal whose provider isn't loaded, and says so", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+
+		const outcome = await sweepWith({ ...elsewhere(undefined), id: "other" });
+
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: `${record.providerId} isn't loaded to finish its removal`,
+		});
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
 });
 
 describe("the dev-shell roots of trees nobody entered", () => {

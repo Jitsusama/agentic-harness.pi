@@ -91,35 +91,63 @@ export type HeldSweepLock = (() => void) & {
 const TAKEN_KEPT = 64;
 
 /**
+ * How long a takeover keeps the taken sweep's marks standing, from the
+ * moment it was noted. A sweep woken mid-removal finishes that removal
+ * and stops well inside it, since it asks whether its lock is still its
+ * own before each tree. One wedged on an answer that never comes would
+ * otherwise keep its trees refused to every session until its host
+ * ends, which can be days. As long as a sweep keeps touching its lock.
+ */
+export const TAKEN_STANDS_MS = LOCK_FRESH_FOR_MS;
+
+/**
  * Whether `lock` still stands as the file that was made, holding `pid`,
  * a process that runs. Gone, another file, or another pid's, it doesn't,
- * unless it was taken over from `pid` while that still ran: a sweep
- * taken over after a long stop goes on with the removal it was in, which
- * a session finishing it beside would race. A lock that can't be read
- * for another reason is taken to stand, for the same reason.
+ * unless it was taken over from `pid` while that still ran, in the last
+ * {@link TAKEN_STANDS_MS}: a sweep taken over after a long stop goes on
+ * with the removal it was in, which a session finishing it beside would
+ * race. The note is read first, since a later lock at the path can be
+ * given the taken one's inode once its aside is gone. A lock that can't
+ * be read for another reason is taken to stand, for the same reason.
  */
-export function lockRuns(lock: RemovalLock, pid: number): boolean {
+export function lockRuns(
+	lock: RemovalLock,
+	pid: number,
+	now: number = Date.now(),
+): boolean {
+	if (!isAlive(pid)) return false;
+	if (takenOver(lock, pid, now)) return true;
 	let stats: Stats;
 	try {
 		stats = lstatSync(lock.path);
 	} catch (error) {
-		if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
-			return takenOver(lock, pid) && isAlive(pid);
-		}
-		return true;
+		return !hasCode(error, "ENOENT") && !hasCode(error, "ENOTDIR");
 	}
-	if (!stats.isFile() || identity(stats) !== lock.id) {
-		return takenOver(lock, pid) && isAlive(pid);
-	}
-	return holderOf(lock.path) === pid && isAlive(pid);
+	if (!stats.isFile() || identity(stats) !== lock.id) return false;
+	return holderOf(lock.path) === pid;
 }
 
-/** Whether `lock` was noted as taken over from `pid` while it ran. */
-function takenOver(lock: RemovalLock, pid: number): boolean {
+/**
+ * Whether `lock` was noted as taken over from `pid` while it ran, less
+ * than {@link TAKEN_STANDS_MS} before `now`. The note is read only from a
+ * plain file, as the lock is: a pipe at its path would block the thread.
+ */
+function takenOver(lock: RemovalLock, pid: number, now: number): boolean {
+	const path = takenPath(lock.path);
 	try {
-		return readFileSync(takenPath(lock.path), "utf8")
+		if (!lstatSync(path).isFile()) return true;
+		return readFileSync(path, "utf8")
 			.split("\n")
-			.includes(`${lock.id} ${pid}`);
+			.some((line) => {
+				const [id, by, at] = line.split(" ");
+				const when = Number(at);
+				return (
+					id === lock.id &&
+					by === String(pid) &&
+					Number.isFinite(when) &&
+					now - when < TAKEN_STANDS_MS
+				);
+			});
 	} catch (error) {
 		// None noted, or no folder to note in, is none taken over; any other
 		// failure can't say, and a removal read as stopped while it runs is
@@ -134,8 +162,8 @@ function takenPath(lockPath: string): string {
 
 /**
  * Note that the lock `id` at `lockPath` is taken over from `pid`, which
- * still runs, keeping the newest {@link TAKEN_KEPT}. Written whole and
- * renamed in, so a reader never sees half of it.
+ * still runs, now, keeping the newest {@link TAKEN_KEPT}. Written whole
+ * and renamed in, so a reader never sees half of it.
  */
 function noteTaken(lockPath: string, id: string, pid: number): void {
 	let noted: string[] = [];
@@ -146,7 +174,7 @@ function noteTaken(lockPath: string, id: string, pid: number): void {
 	} catch (error) {
 		if (!hasCode(error, "ENOENT")) throw error;
 	}
-	const kept = [...noted, `${id} ${pid}`].slice(-TAKEN_KEPT);
+	const kept = [...noted, `${id} ${pid} ${Date.now()}`].slice(-TAKEN_KEPT);
 	const next = `${takenPath(lockPath)}.${process.pid}-${randomBytes(4).toString("hex")}`;
 	writeFileSync(next, `${kept.join("\n")}\n`);
 	renameSync(next, takenPath(lockPath));
@@ -354,11 +382,15 @@ function heldBy(lockPath: string, asides: string[]): string | undefined {
 	if (!gone && holder !== undefined) {
 		// Stale while its holder runs: stopped, frozen or past its touching,
 		// it may wake mid-removal, so its marks must go on standing. Noted
-		// before the move, and not taken over at all when the note fails.
+		// before the move, and not taken over when the note fails, until
+		// the lock has stood untouched as long as a note would have kept
+		// its marks: past that a full disk would keep every sweep out.
 		try {
 			noteTaken(lockPath, identity(judged), holder);
 		} catch (error) {
-			return `another sweep's lock is stale, pid ${holder}, and noting its takeover failed: ${error instanceof Error ? error.message : String(error)}`;
+			if (age <= SWEEP_STALE_MS + TAKEN_STANDS_MS) {
+				return `another sweep's lock is stale, pid ${holder}, and noting its takeover failed: ${error instanceof Error ? error.message : String(error)}`;
+			}
 		}
 	}
 	const aside = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;

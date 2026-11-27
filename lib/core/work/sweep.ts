@@ -566,8 +566,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		const judged = new Set<string>();
 		for (const tree of others) {
 			// A lock taken over, after a long sleep or past its touching, is
-			// another sweep's, which reads this one's marks as stopped: marking
-			// on would race it, so the sweep holding the lock takes what's left.
+			// another sweep's. Its note has this one's marks read as running
+			// while this one lives, so none is finished under it, but marking
+			// on would race the taker, so the sweep holding the lock takes
+			// what's left.
 			if (!release.ours()) break;
 			if (judged.has(tree.path)) continue;
 			judged.add(tree.path);
@@ -788,6 +790,20 @@ async function releaseThroughProvider(
 		keep("something still holds it");
 		return;
 	}
+	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
+	// A removal that stopped partway was judged spent before it began, and
+	// no session has taken the tree up since, since a marked tree is
+	// refused to all of them. Judged again, what it took out reads as the
+	// tree moving, or as changes its provider would keep, and what is left
+	// waits a day or for good.
+	if (tree.going !== undefined) {
+		if (provider === undefined) {
+			keep(`${tree.providerId} isn't loaded to finish its removal`);
+			return;
+		}
+		await removeMarked(deps, facts, lock, tree, provider, outcome);
+		return;
+	}
 	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
 	if (tree.identity.shareable) {
 		const asked = lastAsked(deps.memory, tree.path);
@@ -802,7 +818,6 @@ async function releaseThroughProvider(
 		keep("it moved within the last day, so a session may come back to it");
 		return;
 	}
-	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
 	if (provider?.whyKept === undefined) {
 		keep(`${tree.providerId} can't say whether it is spent`);
 		return;
@@ -817,6 +832,22 @@ async function releaseThroughProvider(
 		keep(why);
 		return;
 	}
+	await removeMarked(deps, facts, lock, tree, provider, outcome);
+}
+
+/**
+ * Mark `tree` as going under this run's `lock` and remove it through its
+ * provider, unless a session took it up again, ending the mark however
+ * the removal went.
+ */
+async function removeMarked(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	lock: RemovalLock,
+	tree: HeldTree,
+	provider: TreeProvider,
+	outcome: SweepOutcome,
+): Promise<void> {
 	let before: HeldTree | undefined;
 	try {
 		before = await deps.memory.holdWhileUnheld(tree.path, lock, facts);
@@ -825,7 +856,7 @@ async function releaseThroughProvider(
 		return;
 	}
 	if (before === undefined) {
-		keep("a session took it up again");
+		outcome.kept.push({ path: tree.path, why: "a session took it up again" });
 		return;
 	}
 	let failed: unknown;

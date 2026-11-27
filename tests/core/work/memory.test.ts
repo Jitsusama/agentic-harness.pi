@@ -1015,7 +1015,18 @@ describe("a tree a sweep is removing", () => {
 			).toBe("standing");
 			rmSync(tree.path, { recursive: true, force: true });
 		}
-		expect(memory.recall(), "records whose folders went").toEqual([]);
+		// What the provider had left beside the folder is finished before a
+		// fresh cut at its path, so each record stays, still read as stopped.
+		expect(
+			memory.recall().map((one) => one.identity.key),
+			"records whose folders went",
+		).toEqual(marks.map((_, index) => `snapshot-${index}`));
+		for (const one of memory.recall()) {
+			expect(
+				await memory.goingState(one, sweeping()),
+				`${one.identity.key} with its folder gone`,
+			).toBe("standing");
+		}
 	});
 
 	it("refuses a session joining it while its sweep runs, writing nothing", async () => {
@@ -1073,6 +1084,37 @@ describe("a tree a sweep is removing", () => {
 				`${key} taken up`,
 			).rejects.toThrow(TreeGoing);
 		}
+	});
+
+	it("marks none of a path's records when one came under a key it didn't lock", async () => {
+		// A session filing a twin after the sweep read the path holds only
+		// the twin's lock, so a mark written beside it would go unseen.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		let filed = false;
+		const twinArrives: ProcessFacts = {
+			...sweeping(),
+			startedAt: async (pid) => {
+				if (!filed) {
+					filed = true;
+					memory.remember({
+						...tree,
+						identity: { key: "snapshot-by-name", shareable: true },
+					});
+				}
+				return sweeping().startedAt(pid);
+			},
+		};
+
+		expect(
+			await memory.holdWhileUnheld(tree.path, running().lock, twinArrives),
+		).toBeUndefined();
+		expect(filed, "the twin was filed meanwhile").toBe(true);
+		expect(memory.recall().map((one) => one.going)).toEqual([
+			undefined,
+			undefined,
+		]);
 	});
 
 	it("marks none of a path's records while a session holds any of them", async () => {

@@ -940,6 +940,19 @@ export function createTreeMemory(
 	}
 
 	/**
+	 * The key `held` is filed under and every other record's at its path,
+	 * the locks a write must hold to be judged beside a sweep's mark.
+	 */
+	function keysAt(held: HeldTree): string[] {
+		return [
+			held.identity.key,
+			...all()
+				.filter((one) => one.held.path === held.path)
+				.map((one) => one.held.identity.key),
+		];
+	}
+
+	/**
 	 * Run `fn` under every record's lock in `keys`, taken in one order, so
 	 * two callers locking the same records never wait on each other.
 	 */
@@ -1050,7 +1063,7 @@ export function createTreeMemory(
 				// wrongly reclaimed costs work.
 				// Under the lock all the same, since a sweep judges a record's
 				// use under it.
-				await underLock(held.identity.key, async () => {
+				await underLocks(keysAt(held), async () => {
 					await refuseWhileMarked(this.recall(), held.path, facts);
 					const { going: _, ...rest } = held;
 					this.remember({ ...rest, ...sessionsWith(held), usedAt: Date.now() });
@@ -1064,7 +1077,10 @@ export function createTreeMemory(
 			// probed here, since this is on the path of every cut. Read and
 			// written under the record's lock, since another session adding
 			// itself between the two would otherwise be written out again.
-			await underLock(held.identity.key, async () => {
+			// Every record's at the path, not this key's alone, since a sweep
+			// marks them all under theirs: a twin's mark landing between this
+			// read and this write would remove a tree this session works in.
+			await underLocks(keysAt(held), async () => {
 				const records = this.recall();
 				await refuseWhileMarked(records, held.path, facts);
 				const found = records.find((tree) => tree.path === held.path);
@@ -1095,9 +1111,11 @@ export function createTreeMemory(
 				// removed by hand is dropped and its record with it, which is
 				// how somebody who cleaned up by hand stops being nagged about
 				// it forever. A record marked as going stays until its sweep
-				// ends the removal, so a session asking meanwhile still waits
-				// rather than cutting afresh where the removal still runs.
-				if (existsSync(held.path) || markStands(held.going)) {
+				// ends the removal, its folder gone or not: while it runs a
+				// session asking waits rather than cutting afresh beside it,
+				// and once it stopped, what the provider had still to undo
+				// past the folder is finished before a fresh cut.
+				if (existsSync(held.path) || held.going !== undefined) {
 					found.push(held);
 					continue;
 				}
@@ -1250,6 +1268,7 @@ export function createTreeMemory(
 		async holdWhileUnheld(path, lock, facts = systemFacts) {
 			const found = this.recall().filter((one) => one.path === path);
 			if (found.length === 0) return undefined;
+			const locked = new Set(found.map((one) => one.identity.key));
 			const us = await holderNow(facts);
 			// The process marks it, not the conversation: in a host the
 			// conversation a sweep runs in may close while it removes the tree.
@@ -1262,6 +1281,9 @@ export function createTreeMemory(
 					const trees = this.recall().filter((one) => one.path === path);
 					const first = trees[0];
 					if (first === undefined) return;
+					// One under a key not locked here came since the read above,
+					// a session's, whose write this can't hold off: left for now.
+					if (trees.some((tree) => !locked.has(tree.identity.key))) return;
 					for (const tree of trees) {
 						if (!(await spent(tree, facts))) return;
 					}
@@ -1379,7 +1401,11 @@ export function createTreeMemory(
 			if (!usable(written) || written.path !== tree.path) return "gone";
 			const found = written as unknown as HeldTree;
 			if (await goingNow(found, facts)) return "going";
-			return existsSync(tree.path) ? "standing" : "gone";
+			// A stopped mark stands with its folder gone too, since what the
+			// provider had still to undo is finished before a fresh cut.
+			return existsSync(tree.path) || found.going !== undefined
+				? "standing"
+				: "gone";
 		},
 
 		async heldNow(facts = systemFacts) {
