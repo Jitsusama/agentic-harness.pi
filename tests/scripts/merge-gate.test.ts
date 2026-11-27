@@ -426,6 +426,8 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		await git(checkout, "checkout", "-q", "-B", "work", "origin/main");
 		await git(checkout, "rm", "-q", "lib/biome.jsonc");
 		const tabbed = "export function tabbed(): number {\n\treturn 1;\n}\n";
+		// git rm took lib/ with its one file, so it's made again.
+		mkdirSync(join(checkout, "lib"), { recursive: true });
 		writeFileSync(join(checkout, "lib", "tabbed.ts"), tabbed);
 		await git(checkout, "add", "lib/tabbed.ts");
 		await git(checkout, "commit", "-q", "-m", "no nested config");
