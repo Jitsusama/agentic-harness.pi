@@ -25,6 +25,14 @@
 # run of anything pi hosts run. A refusal says what clears it.
 set -euo pipefail
 
+# The changed files are read whole with mapfile -d, which came in bash 4.4;
+# macOS's own bash is 3.2, and there it would fail on the first list.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  echo "merge-gate: bash $BASH_VERSION can't read the changed files whole, which needs bash 4.4." >&2
+  echo "Run it with a newer bash, as the dev shell's, then merge again." >&2
+  exit 1
+fi
+
 sha=${1:?Name the commit to merge: merge-gate.sh SHA}
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 biome="$PWD/node_modules/.bin/biome"
@@ -44,7 +52,52 @@ for each in "${rules[@]}"; do
 done
 # What the rules import of the package's own, judged as they are.
 helpers=(tests/package/code/package-files.ts)
-scratch=$(mktemp -d)
+# Biome finds no nested config in a copy whose path passes through some
+# folders, wherever on the path they sit: .git, .cache, .turbo and more
+# (found by trying Biome 2.5.15, 27 November). There it judges every file
+# by the root config alone, which pnpm lint in the checkout doesn't. A pi
+# session's TMPDIR is under ~/.cache, so each place is tried with a copy
+# only a nested config faults, rather than against a list Biome may grow,
+# and the gate refuses where Biome reads none.
+# Biome fails for more than a fault (a config it can't load, a crash), and
+# where it processes no file at all the real runs below, which pass on
+# unmatched files, would judge nothing. So each place must show both: a
+# file the root config faults is named as faulted, and so is one only
+# lib/'s config faults. Each run is the real runs' own, flags and all.
+faults() {
+  local said
+  if said=$(cd "$1" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
+    --colors=off -- "$2" 2>&1); then
+    return 1
+  fi
+  [[ $said == *"$2"* ]]
+}
+reads_nested() {
+  local probe=$1/probe read=1
+  mkdir -p "$probe/lib"
+  printf '{ "formatter": { "indentStyle": "tab" } }\n' > "$probe/biome.jsonc"
+  printf '{ "root": false, "formatter": { "indentStyle": "space" } }\n' \
+    > "$probe/lib/biome.jsonc"
+  printf 'export function spaced(): number {\n  return 1;\n}\n' > "$probe/spaced.ts"
+  printf 'export function tabbed(): number {\n\treturn 1;\n}\n' > "$probe/lib/tabbed.ts"
+  if faults "$probe" spaced.ts && faults "$probe" lib/tabbed.ts; then read=0; fi
+  rm -rf "$probe"
+  return "$read"
+}
+scratch=""
+for room in "${TMPDIR:-/tmp}" /tmp; do
+  [[ -d $room ]] || continue
+  scratch=$(mktemp -d "$room/merge-gate.XXXXXX")
+  # A checkout with no Biome is refused below, saying so.
+  if [[ ! -x $biome ]] || reads_nested "$scratch"; then break; fi
+  rm -rf "$scratch"
+  scratch=""
+done
+if [[ -z $scratch ]]; then
+  echo "merge-gate: Biome judges no file by its nested config in a copy under ${TMPDIR:-/tmp} or /tmp, so it can't judge files as pnpm lint would." >&2
+  echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
+  exit 1
+fi
 trap 'rm -rf "$scratch"' EXIT
 
 # Main is fetched to its remote branch by name, since the checkout's own
@@ -75,7 +128,10 @@ fi
 # a folder) unset rather than a named few, since each could reach it. Only
 # commits are named, by their ids, and the checkout's refs, replacements
 # among them, aren't there, so every commit's contents are read here. The
-# rules run under the same, so none of their own git reaches the checkout.
+# checkout's commit-graph comes with its objects, and git would take each
+# commit's parents from it unchecked, so a planted one could make the head
+# main's parent; parents are read from the commits instead. The rules run
+# under the same, so none of their own git reaches the checkout.
 judging="$scratch/judging"
 inherited=()
 # Bash's own list of the names, since compgen is missing from a bash built
@@ -104,7 +160,7 @@ empty_tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904
 unattributed() {
   clean GIT_ATTR_SOURCE=$empty_tree GIT_ATTR_NOSYSTEM=1 \
     GIT_INDEX_FILE="${index:-$judging/.git/index}" \
-    git -C "$judging" -c core.attributesFile=/dev/null "$@"
+    git -C "$judging" -c core.attributesFile=/dev/null -c core.commitGraph=false "$@"
 }
 gate_index() {
   index="$scratch/index" unattributed -c core.symlinks=false "$@"
@@ -141,20 +197,44 @@ unattributed diff -z --name-only --diff-filter=d "$base" "$head_id" -- \
   '*.ts' '*.mts' '*.cts' '*.tsx' '*.js' '*.mjs' '*.cjs' '*.jsx' \
   '*.json' '*.jsonc' '*.css' > "$scratch/changed-files"
 mapfile -d '' -t files < "$scratch/changed-files"
+# Biome's config is any biome.json or biome.jsonc, at the root or nested in
+# a folder, where it rules that folder's files, and at the root a
+# .biome.json or .biome.jsonc where neither plain name is. A pathspec's *
+# crosses folders, so these name every such file at any depth, and only
+# those; a dotted one nested, which Biome doesn't read, goes out unread.
+config_names=(biome.json biome.jsonc .biome.json .biome.jsonc
+  '*/biome.json' '*/biome.jsonc' '*/.biome.json' '*/.biome.jsonc')
+is_config() {
+  [[ ${1##*/} == biome.json || ${1##*/} == biome.jsonc ||
+    ${1##*/} == .biome.json || ${1##*/} == .biome.jsonc ]]
+}
+# Whether the change touches a config, one it removes included, since
+# removing a nested config loosens its folder as surely as editing it. A
+# GritQL plugin counts too: a config loads its rules, so editing one
+# loosens lint as surely as editing the config that names it.
+unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" '*.grit' \
+  > "$scratch/changed-configs"
+config_changed=0
+if [[ -s $scratch/changed-configs ]]; then config_changed=1; fi
 if [[ ${#files[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
-  # The config goes out once: named again as a changed file, checkout-index
-  # would find the copy it just wrote and refuse the whole checkout.
+  # Every config the head holds goes out, so its run reads each folder's as
+  # pnpm lint at the head would. Each goes out once: named again as a
+  # changed file, checkout-index would find the copy it just wrote and
+  # refuse the whole checkout.
+  gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
+  mapfile -d '' -t head_configs < "$scratch/head-configs"
   others=()
   for file in "${files[@]}"; do
-    [[ $file == biome.jsonc ]] || others+=("$file")
+    is_config "$file" || others+=("$file")
   done
-  gate_index checkout-index --prefix="$tree/" -- biome.jsonc "${others[@]}"
+  gate_index checkout-index --prefix="$tree/" -- \
+    ${head_configs[@]+"${head_configs[@]}"} ${others[@]+"${others[@]}"}
   # Biome loads a config's GritQL plugins before it judges anything, so
-  # they go out too, changed or not; none is among the files above. Other
-  # files a config can load, an extends target or a nested config, don't
-  # go out yet.
+  # they go out too, changed or not; none is among the files above. A file
+  # a config extends by another name doesn't go out yet, so a config that
+  # extends one fails to load here, and says so.
   gate_index ls-files -z -- '*.grit' > "$scratch/grits"
   mapfile -d '' -t plugins < "$scratch/grits"
   if [[ ${#plugins[@]} -gt 0 ]]; then
@@ -180,15 +260,20 @@ if [[ ${#files[@]} -gt 0 ]]; then
   # named, for whoever merges to see what the change lets through. Main's
   # own config is read, not the merge-base's, so a rule main tightened
   # since the cut counts and one it loosened isn't blamed on the change.
-  if [[ ${#others[@]} -gt 0 && ${#others[@]} -lt ${#files[@]} ]] &&
+  # Every config there is main's, nested ones too, and none of the head's,
+  # so a config the head adds or edits in a folder can't stand in for
+  # main's there.
+  if [[ $config_changed == 1 && ${#others[@]} -gt 0 ]] &&
     unattributed cat-file -e "$main_id:biome.jsonc" 2>/dev/null; then
     before="$scratch/before"
     mkdir "$before"
     gate_index checkout-index --prefix="$before/" -- "${others[@]}"
-    unattributed cat-file blob "$main_id:biome.jsonc" > "$before/biome.jsonc"
-    # Main's config loads main's plugins, as the head's loads its own, and
-    # they go out the same way, through an index of main's tree.
+    # Main's configs and main's plugins, which its configs load as the
+    # head's load its own, go out through an index of main's tree.
     main_index read-tree "$main_id"
+    main_index ls-files -z -- "${config_names[@]}" > "$scratch/main-configs"
+    mapfile -d '' -t main_configs < "$scratch/main-configs"
+    main_index checkout-index --prefix="$before/" -- "${main_configs[@]}"
     main_index ls-files -z -- '*.grit' > "$scratch/main-grits"
     mapfile -d '' -t main_plugins < "$scratch/main-grits"
     if [[ ${#main_plugins[@]} -gt 0 ]]; then
@@ -210,11 +295,11 @@ if [[ ${#files[@]} -gt 0 ]]; then
         done
       done < "$scratch/before.said"
       if [[ $named == 1 ]]; then
-        echo "merge-gate: $sha changes biome.jsonc, and main's config faults what it lets through:" >&2
+        echo "merge-gate: $sha changes Biome's config, and main's config faults what it lets through:" >&2
         cat "$scratch/before.said" >&2
         echo "merge-gate: so the change loosens a rule for these files, or main tightened one since the cut; that passes, said here." >&2
       else
-        echo "merge-gate: $sha changes biome.jsonc, and Biome couldn't judge its files by main's config:" >&2
+        echo "merge-gate: $sha changes Biome's config, and Biome couldn't judge its files by main's config:" >&2
         cat "$scratch/before.said" >&2
         echo "merge-gate: so what the change lets through goes unnamed; that passes, said here." >&2
       fi

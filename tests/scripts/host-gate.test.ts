@@ -6,6 +6,10 @@
  * `nix-offload passed ran` does, or say it runs no keeper. The tools the
  * words name come from a profile of the test's own, as from the
  * account's and the system's on a machine.
+ *
+ * Long because every case drives the one gate through the same harness,
+ * stand-in keeper and profiles, and a second file would have to copy
+ * them and keep them in step, as merge-gate.test.ts says of its own.
  */
 
 import { execFile } from "node:child_process";
@@ -31,6 +35,7 @@ import {
 	removeAll,
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
+import { plantParentByGraph } from "./support/commit-graph.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it runs changes alone; it runs them from their paths below.
 import "../../scripts/host-gate.sh";
@@ -357,6 +362,21 @@ describe("host-gate.sh", () => {
 	});
 
 	it.each([
+		["git would quote", "host/engine/odd é.ts"],
+		["holds a newline after a README's", "host/README.md\nengine.ts"],
+	])("refuses hosted code whose name %s, with no run", async (_, file) => {
+		const on = await harness();
+		const sha = await change(on, file);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the change counted as hosted").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it.each([
 		"extensions/subagent-workflow/index.ts",
 		"extensions/job-workflow/outbox.ts",
 		"lib/mesh/address.ts",
@@ -561,6 +581,83 @@ describe("host-gate.sh", () => {
 
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
+	// The 27 November round: one replacement of the head by main's commit,
+	// or a graft making the head main's parent, reads as no change at all.
+	it("reads what changed past the checkout's replacement of the head", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const main = await git(on.checkout, "rev-parse", "origin/main");
+		await git(on.checkout, "replace", sha, main);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the replacement hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it("reads what changed past the checkout's grafts", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const cut = await git(on.checkout, "rev-parse", "origin/main");
+		// Main moves on, and a graft names the head as a second parent of
+		// main's new commit, so the head reads as merged already.
+		await git(on.checkout, "checkout", "-q", "-B", "onward", "origin/main");
+		await git(on.checkout, "commit", "-q", "--allow-empty", "-m", "onward");
+		const main = await git(on.checkout, "rev-parse", "HEAD");
+		await git(on.checkout, "push", "-q", "origin", "HEAD:main");
+		const grafts = join(
+			await git(on.checkout, "rev-parse", "--git-common-dir"),
+			"info",
+			"grafts",
+		);
+		mkdirSync(dirname(resolve(on.checkout, grafts)), { recursive: true });
+		writeFileSync(resolve(on.checkout, grafts), `${main} ${cut} ${sha}\n`);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the graft hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
+	});
+
+	it("reads what changed past the checkout's commit-graph", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		// Main moves on by two, and the checkout's graph, which its objects
+		// folder lets a strict session write, names the head as a second
+		// parent of the first, so the head reads as merged already.
+		await git(on.checkout, "checkout", "-q", "-B", "onward", "origin/main");
+		await git(on.checkout, "commit", "-q", "--allow-empty", "-m", "onward");
+		const behind = await git(on.checkout, "rev-parse", "HEAD");
+		await git(
+			on.checkout,
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"onward again",
+		);
+		await git(on.checkout, "push", "-q", "origin", "HEAD:main");
+		await plantParentByGraph(on.checkout, behind, sha);
+		const planted = await git(
+			on.checkout,
+			"merge-base",
+			"refs/remotes/origin/main^{commit}",
+			sha,
+		);
+		expect(planted, "the graph names the head as merged").toBe(sha);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the graph hid the change").toContain(
+			`nothing ran test:host at ${sha}`,
+		);
 	});
 
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
