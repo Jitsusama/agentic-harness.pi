@@ -48,7 +48,7 @@ describe("a carry from code its install has left", () => {
 		const why = behindItsInstall(join(root, "versions", OLD), NOW);
 
 		expect(why).toBe(
-			`it runs harness ${OLD.slice(0, 12)}, which its install left 16 minutes ago for ${LATEST.slice(0, 12)}, so it may lack a carry fix; it reloads once idle, and the carry can be asked again then`,
+			`it runs harness ${OLD.slice(0, 12)}, which its install left 16 minutes ago for ${LATEST.slice(0, 12)}, so it may lack a carry fix; ask the carry again once it reloads, which /reload does now and a session following its install does once idle`,
 		);
 	});
 

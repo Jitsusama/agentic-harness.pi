@@ -40,6 +40,8 @@ function session(
 		readonly startsAt?: number;
 		/** Run as each line is told, to throw as a stale screen does. */
 		readonly telling?: () => void;
+		/** Why it can't carry from the code it runs, or nothing where it can. */
+		readonly behind?: () => string | undefined;
 	} = {},
 ): Session {
 	const did: string[] = [];
@@ -101,6 +103,7 @@ function session(
 				return closing.park?.();
 			},
 			parkable: () => closing.parkable?.(),
+			...(closing.behind === undefined ? {} : { behind: closing.behind }),
 		}),
 		did,
 		told,
@@ -109,6 +112,20 @@ function session(
 	};
 	return at;
 }
+
+describe("carrying a session from code its install has left", () => {
+	it("refuses before it ends the run under way, saying why, so the person's run goes on", async () => {
+		const behind = "it runs harness 03c16f4cfe6b, which its install left 16 minutes ago";
+		const one = session(false, async () => {}, { behind: () => behind });
+
+		await one.pausing.carry("penelope", "launcher");
+
+		expect(one.did, "neither its run nor the carry is touched").toEqual([]);
+		expect(one.told.join("\n")).toContain(
+			`This session's work couldn't be carried to penelope, so it stays open: ${behind}`,
+		);
+	});
+});
 
 describe("pausing a session", () => {
 	it("lets the turn under way finish, then ends every run until resumed", () => {
