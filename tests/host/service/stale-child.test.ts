@@ -127,11 +127,43 @@ describe("rollWhenStale", () => {
 		await timers.fire();
 		expect(
 			reported,
-			"a new doubt is said, and an old one again after a look that answered",
+			"a new doubt is said, its end is said, and an old one again after a look that answered",
 		).toEqual([
 			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
 			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+			"It can tell again whether the install's host code moved on",
 			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+		]);
+		expect(roll).not.toHaveBeenCalled();
+	});
+
+	it("ends a doubt at a look that finds the code moved, saying so, and says the doubt again after it", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let answer: () => string | undefined = () => {
+			throw new Error("unreadable install");
+		};
+		const reported: unknown[] = [];
+		rollWhenStale(async () => answer(), roll, {
+			lookMs: 1,
+			after: timers.after,
+			report: (message) => reported.push(message),
+			now: () => 0,
+			// Too soon to roll, so a look that finds the code moved only says so.
+			rollsFrom: 60_000,
+		});
+		await timers.fire();
+		answer = () => "the install moved on";
+		await timers.fire();
+		answer = () => {
+			throw new Error("unreadable install");
+		};
+		await timers.fire();
+		expect(reported).toEqual([
+			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
+			"It can tell again whether the install's host code moved on",
+			"The install moved on, but it may not roll yet, so it looks again in a minute",
+			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
 		]);
 		expect(roll).not.toHaveBeenCalled();
 	});
@@ -254,6 +286,7 @@ describe("rollWhenStale", () => {
 		expect(reported).toEqual([
 			"Moved, but it may not roll yet, so it looks again in 60 minutes",
 			"Couldn't tell whether the install's host code moved on, so it looks again: link can't be read",
+			"It can tell again whether the install's host code moved on",
 		]);
 	});
 

@@ -66,9 +66,11 @@ const realAfter: After = (ms, run) => {
 /**
  * Look at `moved` each `lookMs` and, the first time it says why the
  * host's code is stale, roll with that reason and stop looking, since
- * stale code stays stale. A look that throws is reported, saying what
- * it was looking for, and looks again, keeping whatever it was waiting
- * for, since it couldn't tell: a child's wiring asks
+ * stale code stays stale. A look that throws says what it was looking
+ * for, unless it throws as the look before it did, and looks again,
+ * keeping whatever it was waiting for, since it couldn't tell; the
+ * first look that answers after one says it can tell again, so the
+ * journal shows the doubt ended. A child's wiring asks
  * `installMovesOrThrowsFrom`, which throws for an install it can't
  * read or one not done installing. Stale before `rollsFrom`, it says
  * so and looks again then, rolling with what the install says at that
@@ -130,6 +132,10 @@ export function rollWhenStale(
 			return;
 		}
 		if (stopped) return;
+		if (toldUnsure !== undefined)
+			options.report?.(
+				"It can tell again whether the install's host code moved on",
+			);
 		toldUnsure = undefined;
 		if (why === undefined) {
 			if (waitingSince !== undefined || toldTooSoon)
