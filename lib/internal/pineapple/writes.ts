@@ -74,13 +74,24 @@ export interface GitFacts {
 	repoOf(dir: string, remote: string): Promise<string | undefined>;
 	/** The branch checked out at `dir`. */
 	branchOf(dir: string): Promise<string | undefined>;
+	/** The remote a push from `dir` naming none goes to. */
+	pushRemoteOf(dir: string): Promise<string>;
 }
 
-/** Fill in the repository and branch a call leaves to its checkout. */
+/**
+ * Fill in the repository and branch a call leaves to its checkout. A
+ * git push naming no remote goes where git sends it, which a branch's
+ * pushRemote or the checkout's remote.pushDefault can make another than
+ * origin; any other write is taken to act on origin's repository.
+ */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
 	if (machineWide(call.kind) || call.dir === undefined) return call;
-	const repo =
-		call.repo ?? (await git.repoOf(call.dir, call.remote ?? "origin"));
+	const remote =
+		call.remote ??
+		(/\b(?:git|dt) push$/.test(call.action)
+			? await git.pushRemoteOf(call.dir)
+			: "origin");
+	const repo = call.repo ?? (await git.repoOf(call.dir, remote));
 	const branch =
 		call.branch ??
 		(call.pr === undefined ? await git.branchOf(call.dir) : undefined);
@@ -98,6 +109,26 @@ export function repoOfUrl(url: string): string | undefined {
 	const parts = path.split("/").filter(Boolean);
 	if (parts.length < 2) return undefined;
 	return parts.slice(-2).join("/").toLowerCase();
+}
+
+/**
+ * The remote a push naming none goes to, as git chooses it: the
+ * branch's pushRemote, the checkout's remote.pushDefault, the remote
+ * the branch follows, then origin. `config` answers one key of the
+ * checkout's git config, or none where it isn't set.
+ */
+export async function pushRemote(
+	branch: string | undefined,
+	config: (key: string) => Promise<string | undefined>,
+): Promise<string> {
+	const ofBranch = (key: string) =>
+		branch === undefined ? undefined : config(`branch.${branch}.${key}`);
+	return (
+		(await ofBranch("pushRemote")) ??
+		(await config("remote.pushDefault")) ??
+		(await ofBranch("remote")) ??
+		"origin"
+	);
 }
 
 /**

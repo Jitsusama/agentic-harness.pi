@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	changeOf,
 	type GitFacts,
+	pushRemote,
 	repoOfPushUrls,
 	repoOfUrl,
 	settle,
@@ -633,7 +634,23 @@ describe("settle", () => {
 		repoOf: async (dir, remote) =>
 			dir === HERE && remote === "origin" ? "example/shop" : undefined,
 		branchOf: async () => "fix-it",
+		pushRemoteOf: async () => "origin",
 	};
+
+	it("judges a push naming no remote by where git sends it", async () => {
+		const forked: GitFacts = {
+			...git,
+			repoOf: async (_, remote) =>
+				remote === "fork" ? "someone/shop" : "example/shop",
+			pushRemoteOf: async () => "fork",
+		};
+		const push = { action: "git push", kind: "change", dir: HERE } as const;
+		expect((await settle(push, forked)).repo).toBe("someone/shop");
+		const named = { ...push, remote: "origin" };
+		expect((await settle(named, forked)).repo).toBe("example/shop");
+		const merge = { action: "gh pr merge", kind: "change", dir: HERE } as const;
+		expect((await settle(merge, forked)).repo).toBe("example/shop");
+	});
 
 	it("fills in the repository and branch the call left to its checkout", async () => {
 		expect(
@@ -670,6 +687,23 @@ describe("references", () => {
 			"example/shop",
 		);
 		expect(repoOfUrl("shop")).toBeUndefined();
+	});
+
+	it("finds the remote a bare push goes to as git does", async () => {
+		const config = (set: Record<string, string>) => async (key: string) =>
+			set[key];
+		const defaults = {
+			"remote.pushDefault": "fork",
+			"branch.fix.remote": "upstream",
+		};
+		const all = { ...defaults, "branch.fix.pushRemote": "mine" };
+		expect(await pushRemote("fix", config(all))).toBe("mine");
+		expect(await pushRemote("fix", config(defaults))).toBe("fork");
+		expect(
+			await pushRemote("fix", config({ "branch.fix.remote": "upstream" })),
+		).toBe("upstream");
+		expect(await pushRemote(undefined, config(all))).toBe("fork");
+		expect(await pushRemote("fix", config({}))).toBe("origin");
 	});
 
 	it("names where a remote pushes only when it pushes to one place", () => {

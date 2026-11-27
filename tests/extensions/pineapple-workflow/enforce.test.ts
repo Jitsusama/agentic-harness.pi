@@ -29,6 +29,7 @@ function machine(
 		git: {
 			repoOf: async () => "example/shop",
 			branchOf: async (dir) => (dir === TREE ? "fix-it" : "main"),
+			pushRemoteOf: async () => "origin",
 		},
 		headOf: async (repo, pr) => {
 			asked.push(`${repo}#${pr}`);

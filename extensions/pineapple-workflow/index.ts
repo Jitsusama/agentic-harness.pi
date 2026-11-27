@@ -48,6 +48,7 @@ import {
 } from "../../lib/internal/pineapple/stops.ts";
 import {
 	type GitFacts,
+	pushRemote,
 	repoOfPushUrls,
 } from "../../lib/internal/pineapple/writes.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
@@ -256,6 +257,12 @@ const gitFacts: GitFacts = {
 	},
 	branchOf: (dir) =>
 		quietly("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"]),
+	async pushRemoteOf(dir) {
+		const branch = await gitFacts.branchOf(dir);
+		return pushRemote(branch, (key) =>
+			quietly("git", ["-C", dir, "config", "--get", key]),
+		);
+	},
 };
 
 /**
