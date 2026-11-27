@@ -188,6 +188,8 @@ describe("a typed message in the log", () => {
 // conversation 2.1 MB of its kept view (a 68 MB log, 7,068 call entries).
 describe("timing entries in a kept view", () => {
 	it("stay behind with the turns they time, while other state is kept", () => {
+		// Loading it names both types as staying behind, for the whole
+		// process, which keptView reads when given no set of its own.
 		stub();
 		const at = "2026-11-12T07:00:00.000Z";
 		const custom = (id: string, parentId: string, customType: string) => ({
@@ -205,7 +207,7 @@ describe("timing entries in a kept view", () => {
 			timestamp: at,
 			message: { role: "user", content: "hi", timestamp: 0 },
 		});
-		const branch = [
+		const branch: Entry[] = [
 			message("a0000001", null),
 			custom("a0000002", "a0000001", TYPED_ENTRY),
 			custom("a0000003", "a0000002", CALL_ENTRY),
@@ -220,7 +222,7 @@ describe("timing entries in a kept view", () => {
 				firstKeptEntryId: "a0000005",
 				tokensBefore: 10,
 			},
-		] as unknown as Entry[];
+		];
 
 		const kept = keptView(branch)?.entries.map((entry) => entry.id);
 
