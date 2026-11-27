@@ -61,9 +61,20 @@ const gitHasTheDaemon = (
 	await exec("git", ["version", "--build-options"])
 ).stdout.includes("feature: fsmonitor--daemon");
 
-/** The daemon's own word on `tree`, which says when none watches it. */
+/**
+ * The daemon's own word on `tree`, which says when none watches it, in
+ * git's own words: git translates them, so it is asked in the C locale,
+ * which no LANGUAGE overrides.
+ */
 async function daemonStatus(tree: string): Promise<string> {
-	const said = await exec("git", ["-C", tree, "fsmonitor--daemon", "status"]);
+	const said = await new Promise<{ stdout: string; stderr: string }>((done) =>
+		execFile(
+			"git",
+			["-C", tree, "fsmonitor--daemon", "status"],
+			{ env: { ...process.env, LC_ALL: "C" } },
+			(_error, stdout, stderr) => done({ stdout, stderr }),
+		),
+	);
 	return `${said.stdout}${said.stderr}`;
 }
 
@@ -117,12 +128,16 @@ async function stopDaemons(trees: readonly string[]): Promise<void> {
 	}
 }
 
-/** Whether `args` turn the daemon off with a `-c` given before `status`. */
+/**
+ * Whether `args` turn the daemon off with a `-c` given before `status`:
+ * the last `core.fsmonitor` set there, since git takes the last.
+ */
 function turnsTheDaemonOff(args: readonly string[]): boolean {
 	const before = args.slice(0, args.indexOf("status"));
-	return before.some(
-		(arg, at) => arg === "-c" && before[at + 1] === "core.fsmonitor=false",
+	const set = before.filter(
+		(arg, at) => before[at - 1] === "-c" && arg.startsWith("core.fsmonitor="),
 	);
+	return set.at(-1) === "core.fsmonitor=false";
 }
 
 /** Commit one file on a new branch off main, and publish it. */
@@ -280,6 +295,20 @@ describe("reading worktree state from a real repository", () => {
 		} finally {
 			await stopDaemons(trees);
 		}
+	});
+
+	it("judges the daemon off by the last setting git takes", () => {
+		const off = ["-c", "core.fsmonitor=false"];
+		const on = ["-c", "core.fsmonitor=true"];
+		expect(turnsTheDaemonOff([...on, ...off, "status"]), "off set last").toBe(
+			true,
+		);
+		expect(turnsTheDaemonOff([...off, ...on, "status"]), "on set last").toBe(
+			false,
+		);
+		expect(turnsTheDaemonOff(["status", ...off]), "off after status").toBe(
+			false,
+		);
 	});
 
 	// Only a git built with the daemon can start one, so this case is
