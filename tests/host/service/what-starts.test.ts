@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	definitionMoves,
 	hostCodeOf,
 	hostModules,
 	installMovesFrom,
@@ -327,7 +328,6 @@ describe("unitDefinition", () => {
 							(one) =>
 								`/run/user/1000/systemd/user.control/unit.service.d/50-${one}.conf`,
 						),
-						`/run/systemd/system.control/unit.service.d/50-${settings[0] ?? "none"}.conf`,
 					].join(" ")}`,
 					"",
 				].join("\n");
@@ -344,5 +344,47 @@ describe("unitDefinition", () => {
 			await unitDefinition("unit.service", controlled()),
 			"a jobs sorter taking its controls back as it stops",
 		).toBe(before);
+	});
+
+	it("still counts a drop-in in the folders beside set-property's", async () => {
+		await put("unit.service", "[Service]\n");
+		const fragment = join(root, "unit.service");
+		const beside = [
+			"/run/user/1000/systemd/user/unit.service.d/50-env.conf",
+			"/run/user/1000/systemd/transient/unit.service.d/50-env.conf",
+			"/home/joel/.config/systemd/user/unit.service.d/override.conf",
+			"/run/user/1000/systemd/user.control.d/unit.service.d/50-env.conf",
+		];
+		for (const dropIn of beside) {
+			expect(
+				await unitDefinition(
+					"unit.service",
+					async () =>
+						`NeedDaemonReload=no\nFragmentPath=${fragment}\nDropInPaths=${dropIn}\n`,
+				),
+				dropIn,
+			).toBe(`${fragment}\n${dropIn}`);
+		}
+	});
+});
+
+describe("definitionMoves", () => {
+	it("names the files systemd now reads and those it no longer reads", () => {
+		expect(
+			definitionMoves("/a.service\n/old.conf", "/a.service\n/new.conf"),
+		).toBe("it now reads /new.conf, and it no longer reads /old.conf");
+		expect(definitionMoves("/a.service", "/a.service\n/new.conf")).toBe(
+			"it now reads /new.conf",
+		);
+		expect(definitionMoves("/a.service\n/old.conf", "/a.service")).toBe(
+			"it no longer reads /old.conf",
+		);
+		expect(
+			definitionMoves(
+				"/a.service\n/b.conf\n/c.conf",
+				"/a.service\n/c.conf\n/b.conf",
+			),
+			"drop-ins whose order alone changed",
+		).toBe("it reads the same files in a new order");
 	});
 });
