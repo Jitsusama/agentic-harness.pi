@@ -312,6 +312,14 @@ export interface SweepOutcome {
 	 */
 	idleWorktreesLeft?: number;
 	/**
+	 * Why the trees holders let idle rules take as the run began came to
+	 * none by the idle phase, so a run that takes none of them says why:
+	 * the run took or refused a tree a list kept, or asking the holders
+	 * again failed, with what failed. Unset when any stayed let go, or
+	 * none was to begin with.
+	 */
+	idleLetGoNone?: string;
+	/**
 	 * How long, in milliseconds of awake time, judging and taking those
 	 * snapshots took, so a slow run's idle phase can be told from the rest:
 	 * the census of processes, the pauses and the dating of every live
@@ -493,8 +501,26 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			// snapshots take the rest, and a run on a host's thread holds it
 			// no longer than before.
 			const share = deps.idleTakes ?? IDLE_TAKES_PER_SWEEP;
+			const letGoNow = new Set([...letGo].map(resolved));
+			const keptStood = keptStanding(untilSpent, letGo);
+			const heldBack = (tree: HeldTree): boolean => {
+				if (!letGoNow.has(resolved(tree.path))) return false;
+				if (!keptStood.some((path) => !existsSync(path))) return false;
+				outcome.kept.push({
+					path: tree.path,
+					why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
+				});
+				return true;
+			};
 			const worktrees: IdleChoice = {
 				...choice,
+				// Once a tree its holders kept has gone, a let-go tree may be its
+				// quest's only one now, so it is passed over before it is judged,
+				// costing no git call, take or pause.
+				heldBack,
+				pause: async () => {
+					await deps.betweenIdleTakes?.();
+				},
 				// A quest lists every tree it ever cut, and those lists alone kept
 				// every idle worktree of an open quest: what its holder lets go, goes.
 				claims: [...claims, ...untilSpent.filter((path) => !letGo.has(path))],
@@ -503,22 +529,11 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 					outcome.idleWorktreesLeft = count;
 				},
 			};
-			const letGoNow = new Set([...letGo].map(resolved));
-			const keptStood = keptStanding(untilSpent, letGo);
+			// The worktrees pause between themselves, before each is judged, so
+			// a tree held back in the pause is never judged.
 			for await (const idle of eachIdleWorktree(live, worktrees)) {
-				if (before) await deps.betweenIdleTakes?.();
 				before = true;
 				given += 1;
-				if (
-					letGoNow.has(resolved(idle.tree.path)) &&
-					keptStood.some((path) => !existsSync(path))
-				) {
-					outcome.kept.push({
-						path: idle.tree.path,
-						why: "a tree its holders kept went during this sweep, so this one may be its quest's only one now",
-					});
-					continue;
-				}
 				await takeIdleWorktree(deps, facts, idle, now, outcome, keptDir);
 			}
 			for await (const idle of eachIdleSnapshot(live, {
@@ -638,14 +653,24 @@ async function stillLetGo(
 	const touched = [...outcome.taken, ...outcome.refused].some((tree) =>
 		keptFromIdle.has(resolved(tree.path)),
 	);
-	if (typeof claims !== "function") return touched ? new Set() : idleMayTake;
 	if (idleMayTake.size === 0) return idleMayTake;
+	if (typeof claims !== "function") {
+		if (!touched) return idleMayTake;
+		outcome.idleLetGoNone =
+			"this run took or refused a tree a list of claims kept, and a list can't be asked again";
+		return new Set();
+	}
 	try {
 		const again = await ask();
 		const fresh = new Set("held" in again ? again.idleMayTake : []);
-		return new Set([...idleMayTake].filter((path) => fresh.has(path)));
-	} catch {
+		const both = new Set([...idleMayTake].filter((path) => fresh.has(path)));
+		if (both.size === 0) {
+			outcome.idleLetGoNone = "asked again, the holders let none of them go";
+		}
+		return both;
+	} catch (error) {
 		// Nobody answered again, so nobody let anything go again.
+		outcome.idleLetGoNone = `asking the holders again failed: ${messageOf(error)}`;
 		return new Set();
 	}
 }

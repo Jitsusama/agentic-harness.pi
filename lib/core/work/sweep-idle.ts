@@ -107,6 +107,18 @@ export interface IdleChoice extends UseSigns {
 	 * refuse some of them, as one holding changes.
 	 */
 	left?(count: number): void;
+	/**
+	 * Whether to pass `tree` over now, asked of each before it is judged,
+	 * and again after any pause, so one passed over costs no git call and
+	 * none of `most`; whatever says so says why itself. None is, by
+	 * default.
+	 */
+	heldBack?(tree: HeldTree): boolean;
+	/**
+	 * Waited on before judging each worktree once one was given, so takes
+	 * are spaced; none, by default.
+	 */
+	pause?(): Promise<void>;
 }
 
 /**
@@ -264,7 +276,12 @@ export async function* eachIdleWorktree(
 			if (left > 0) choice.left?.(left);
 			return;
 		}
-		if (busy.has(path)) continue;
+		if (busy.has(path) || choice.heldBack?.(tree) === true) continue;
+		if (given > 0 && choice.pause !== undefined) {
+			await choice.pause();
+			// What holds a tree back may have changed in the pause.
+			if (choice.heldBack?.(tree) === true) continue;
+		}
 		const settled = await nothingOnlyHere(choice.exec, tree.path);
 		if (settled === undefined) continue;
 		given += 1;

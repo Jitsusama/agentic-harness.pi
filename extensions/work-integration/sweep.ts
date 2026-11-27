@@ -778,6 +778,11 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		...(outcome.idleWorktreesLeft === undefined
 			? {}
 			: { idleWorktreesLeft: outcome.idleWorktreesLeft }),
+		// A run whose holders' let-go trees came to none says why, so eight
+		// runs taking none of them can't pass unexplained again.
+		...(outcome.idleLetGoNone === undefined
+			? {}
+			: { idleLetGoNone: outcome.idleLetGoNone }),
 		// The idle phase's own time, so a slow run says whether its snapshots
 		// or the ended trees before them took it.
 		...(outcome.idleMs === undefined ? {} : { idleMs: outcome.idleMs }),
