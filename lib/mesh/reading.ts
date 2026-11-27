@@ -16,8 +16,6 @@
  * strings is the order they were sent.
  */
 
-import type { Transport } from "./transport.ts";
-
 /**
  * The ids a starting peer marks seen: those at the top of the folder at
  * or below the floor it catches up from, oldest first.
@@ -27,13 +25,10 @@ import type { Transport } from "./transport.ts";
  * hold it in memory, in each conversation: the floor's whole day.
  * One written back at the top later is still never handed over, since
  * taking it finds it below the floor, though its answers and ends count.
- * Listed off the thread, since a host's conversations all wait on it.
+ * Taken from the top's ids as the catch-up listed them, oldest first.
  */
-export async function seenAtStart(
-	transport: Pick<Transport, "listIds">,
-	floor: string,
-): Promise<string[]> {
-	return (await transport.listIds()).filter((id) => id <= floor);
+export function seenAtStart(top: readonly string[], floor: string): string[] {
+	return top.filter((id) => id <= floor);
 }
 
 /** Where the marker may move as messages are taken and handed over. */

@@ -301,12 +301,15 @@ describe("the folder transport", () => {
 		expect(transport.idsFromDayOf("no-time"), "no time, every day").toEqual(
 			transport.ids(),
 		);
+		const listed = await transport.listFromDayOf(at(1, "dddddddd"));
+		expect(listed.ids, "off the thread, as on it").toEqual(
+			transport.idsFromDayOf(at(1, "dddddddd")),
+		);
+		expect(listed.top, "the top's alone, from the same listing").toEqual(
+			await transport.listIds(),
+		);
 		expect(
-			await transport.listIdsFromDayOf(at(1, "dddddddd")),
-			"off the thread, as on it",
-		).toEqual(transport.idsFromDayOf(at(1, "dddddddd")));
-		expect(
-			await transport.listIdsFromDayOf("no-time"),
+			(await transport.listFromDayOf("no-time")).ids,
 			"off the thread, no time, every day",
 		).toEqual(transport.ids());
 	});

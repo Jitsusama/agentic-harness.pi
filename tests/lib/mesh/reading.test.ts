@@ -40,7 +40,7 @@ describe("what a starting peer marks seen", () => {
 
 		expect(transport.ids(), "the moved one is still kept").toContain(moved.id);
 		expect(
-			await seenAtStart(transport, floor.id),
+			seenAtStart((await transport.listFromDayOf(floor.id)).top, floor.id),
 			"the top's ids up to the floor, and none past it or moved away",
 		).toEqual([lately.id, floor.id]);
 		expect(past.id > floor.id, "stamped after the floor").toBe(true);

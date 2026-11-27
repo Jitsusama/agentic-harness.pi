@@ -46,10 +46,13 @@ const reading = vi.hoisted(() => ({
 	off: undefined as string[] | undefined,
 }));
 // A read off the thread held until a test lets it on: the first of the
-// file named, which says so as it is held.
+// file named, which says so as it is held, and the first read of it that
+// comes back once let on.
 const holding = vi.hoisted(() => ({
 	name: undefined as string | undefined,
 	held: () => {},
+	readOf: undefined as string | undefined,
+	read: () => {},
 	open: Promise.resolve(),
 	dir: undefined as string | undefined,
 	listed: () => {},
@@ -94,22 +97,42 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 				holding.held();
 				await holding.open;
 			}
-			return fs.readFile(...args);
+			// A settled message's read at the top fails, and its reader goes on
+			// to its day's folder, so only a read that comes back counts.
+			const read = await fs.readFile(...args);
+			if (holding.readOf && String(args[0]).endsWith(holding.readOf)) {
+				holding.readOf = undefined;
+				holding.read();
+			}
+			return read;
 		}) as typeof fs.readFile,
 	};
 });
 
-/** Hold the first read off the thread of this message until `release`. */
-function holdRead(id: string): { held: Promise<void>; release: () => void } {
+/**
+ * Hold the first read off the thread of this message until `release`;
+ * `read` settles once, let go, it has read.
+ */
+function holdRead(id: string): {
+	held: Promise<void>;
+	read: Promise<void>;
+	release: () => void;
+} {
 	let release = () => {};
 	holding.open = new Promise((resolve) => {
-		release = resolve;
+		release = () => {
+			holding.readOf = `${id}.json`;
+			resolve();
+		};
 	});
 	const held = new Promise<void>((resolve) => {
 		holding.held = resolve;
 	});
+	const read = new Promise<void>((resolve) => {
+		holding.read = resolve;
+	});
 	holding.name = `${id}.json`;
-	return { held, release };
+	return { held, read, release };
 }
 
 /** Hold the first listing off the thread of this folder until `release`. */
@@ -136,7 +159,9 @@ beforeEach(() => {
 	listing.dirs = undefined;
 	listing.off = undefined;
 	reading.files = undefined;
+	reading.off = undefined;
 	holding.name = undefined;
+	holding.readOf = undefined;
 });
 
 // A deaf watcher the mesh never armed through this fake proves nothing:
@@ -338,6 +363,32 @@ describe("a message never lost", () => {
 			listedOff,
 			"the folders caught up from, listed off the thread",
 		).toEqual(expect.arrayContaining([dir, dayFolder(now - day)]));
+	});
+
+	it("lists the top folder once as it catches up", async () => {
+		// Listed once for what it marks seen and again for what it catches
+		// up on, both at once, the top was a start's slowest listing.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+		listing.off = [];
+
+		const { sent } = await startSession();
+		await read.held;
+		const listed = listing.off;
+		listing.off = undefined;
+		read.release();
+
+		expect(
+			listed.filter((folder) => folder === dir),
+			"the top, listed by the catch-up",
+		).toEqual([dir]);
+		await vi.waitFor(() =>
+			expect(handed(sent)).toEqual(["7M6JKG: yesterday?"]),
+		);
 	});
 
 	it("is heard as it lands while the catch-up reads, the marker kept behind what is read", async () => {
@@ -641,9 +692,10 @@ describe("a message never lost", () => {
 			expect(handed(sent)).toEqual(["7M6JKG: yesterday?"]),
 		);
 		read.release();
-		// A real pause: the test is that the first start's catch-up, let go
-		// now, hands nothing over in it.
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Once its read is back and the thread has turned, the first start's
+		// catch-up has ended, however slow the machine.
+		await read.read;
+		await new Promise((resolve) => setImmediate(resolve));
 
 		expect(handed(sent), "handed over once, by the start that stands").toEqual([
 			"7M6JKG: yesterday?",
@@ -787,6 +839,35 @@ describe("a message never lost", () => {
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.message.content).toContain("dropped by the kernel");
+	});
+
+	it("is looked for once the catch-up is done, when a look was asked for while it read", async () => {
+		// A look waits while the start catches up, so one asked for then is
+		// owed; passed over for good, what the watcher missed waited for the
+		// next minute's.
+		deafen();
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+
+		const { sent, fire } = await startSession();
+		await read.held;
+		fromElsewhere({ to: ["@7M6JKG"], text: "dropped by the kernel" });
+		await fire("agent_end");
+		// A real pause: the test is that no look hands anything over in it.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(handed(sent), "nothing, while the catch-up reads").toEqual([]);
+
+		read.release();
+		await vi.waitFor(() =>
+			expect(handed(sent).sort()).toEqual([
+				"7M6JKG: yesterday?",
+				expect.stringContaining("dropped by the kernel"),
+			]),
+		);
 	});
 
 	it("is looked for again as a run ends", async () => {

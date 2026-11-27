@@ -535,13 +535,12 @@ export function createHearing(m: MeshState, f: Handing) {
 		// the marker past the backlog not yet claimed, which a restart then
 		// never caught up on.
 		front.taken(LISTING);
-		const [top, ids] = await Promise.all([
-			seenAtStart(m.transport, since),
-			m.transport.listIdsFromDayOf(since),
-		]);
+		// The top listed once for both: twice at once, it was the slowest
+		// step of a start.
+		const listed = await m.transport.listFromDayOf(since);
 		if (!standing()) return [];
-		for (const id of top) m.seen.add(id);
-		const claimed = ids.filter((id) => id > since && claim(id));
+		for (const id of seenAtStart(listed.top, since)) m.seen.add(id);
+		const claimed = listed.ids.filter((id) => id > since && claim(id));
 		for (const id of claimed) front.taken(id);
 		letGo([LISTING]);
 		// Read no further once overtaken: a restart would else read the
