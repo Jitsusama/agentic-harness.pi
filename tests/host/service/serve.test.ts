@@ -734,6 +734,51 @@ describe("serveHost with children", () => {
 		}
 	});
 
+	// Item 7: the hosting wakes one only when the host wires its wake in,
+	// so the wiring itself is what this holds, through a real backend.
+	it("wakes one whose child died mid-turn into a new child", async () => {
+		roomForChildren();
+		const folder = slotFolder(run, "work-attended");
+		const units = fakeUnits(folder, "work-attended", report);
+		const said: string[] = [];
+		const host = await serveHost({
+			...places(),
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: () => true,
+					opens: () => true,
+					close: () => undefined,
+				}),
+			},
+			engine: async (h) => engine(h),
+		});
+		try {
+			const reply = await opened(host.path, "spawn-1");
+			if (!reply.ok) throw new Error(reply.error.message);
+			const { sessionId } = parseOpenResult(reply.result);
+			const child = units.childOf(sessionId);
+			// Said before it dies, on the socket its death ends, so read first.
+			child.say({
+				type: "state",
+				conversation: { ...child.conversation, state: "busy" },
+			});
+			await child.exit();
+
+			await until("its wake to start it again in a new child", () =>
+				Promise.resolve(units.started.length === 2),
+			);
+			expect(said).toContain(
+				`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
+			);
+			expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
+		} finally {
+			await host.stop();
+			for (const child of units.children.values()) await child?.exit();
+		}
+	});
+
 	it("runs every conversation itself when no child's socket would fit, saying so", async () => {
 		// Long enough that a child's socket, 39 bytes further down than the
 		// host's, passes the limit while the host's still fits.
