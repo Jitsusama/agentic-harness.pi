@@ -11,12 +11,14 @@
 
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sessionsDir } from "../../../../lib/internal/paths.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
+import { childOf } from "../../../support/processes.ts";
 import { type Drawn, drawn } from "./drawn.ts";
 import { textOf, untilAnswered } from "./hosted-case.ts";
+import { scriptArgs } from "./script.ts";
 import type { Seal } from "./seal.ts";
 
 /** The extension that registers the scripted model in a plain pi. */
@@ -199,11 +201,7 @@ function inTerminal(options: TerminalStart) {
 	// size before pi starts in it; exec keeps the pid pi runs as.
 	const child = spawn(
 		"script",
-		[
-			"-qfec",
-			`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`,
-			"/dev/null",
-		],
+		scriptArgs(`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`),
 		{
 			cwd: options.cwd,
 			env: {
@@ -231,23 +229,6 @@ function inTerminal(options: TerminalStart) {
 /** `word` quoted for sh. */
 function quoted(word: string): string {
 	return `'${word.replaceAll("'", `'\\''`)}'`;
-}
-
-/** The one process `parent` started, once it has. */
-function childOf(parent: number): number | undefined {
-	try {
-		const children = readFileSync(
-			`/proc/${parent}/task/${parent}/children`,
-			"utf8",
-		)
-			.trim()
-			.split(/\s+/)
-			.filter((one) => one !== "");
-		return children.length > 0 ? Number(children[0]) : undefined;
-	} catch {
-		// script(1) hasn't forked yet, or has ended: the poll asks again.
-		return undefined;
-	}
 }
 
 /** The log of `session` under the sessions folder, once pi has written one. */

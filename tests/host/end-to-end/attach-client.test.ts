@@ -15,7 +15,6 @@
  * when its host restarts.
  */
 
-import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -26,13 +25,14 @@ import {
 	hostPiMissing,
 } from "./support/host-pi.ts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
+import { NO_SCRIPT, scriptKind } from "./support/script.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { AT_PROMPT, openTty, type Tty } from "./support/tty.ts";
 import { attach, type Viewer } from "./support/viewer.ts";
 
 const packageDir = hostPackageDir();
 const mycelium = process.env.MYCELIUM_BIN || onPath("mycelium");
-const hasScript = spawnSync("script", ["--version"]).status === 0;
+const hasScript = scriptKind() !== undefined;
 /** A string only mycelium#112's client and later hold: the name of the file it hands the editor. */
 const HANDOFF_MARK = "mycelium-edit-";
 /** A string only mycelium#118's client and later hold: what it says while a restarting host comes back. */
@@ -43,7 +43,7 @@ const missing = [
 	mycelium
 		? handsOff(mycelium)
 		: "No mycelium: set MYCELIUM_BIN, or put core.nix's mycelium (mycelium#112 or later) on the PATH",
-	hasScript ? undefined : "No script(1) on the PATH: put util-linux on it",
+	hasScript ? undefined : NO_SCRIPT,
 ].filter((each) => each !== undefined);
 if (missing.length > 0 && process.env[HOST_PI_REQUIRED])
 	throw new Error(missing.join("; "));

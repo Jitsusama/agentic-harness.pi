@@ -18,6 +18,7 @@ import {
 	hostPackageDir,
 	hostPiMissing,
 } from "./support/host-pi.ts";
+import { itOnlyOn } from "./support/only-on.mts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { type Abilities, attach, type Viewer } from "./support/viewer.ts";
@@ -30,6 +31,11 @@ const TURN_MS = 20_000;
 /** A case: a few turns and viewers coming and going. */
 const CASE_MS = 60_000;
 const ENTER = "\r";
+/** A case of pi's Wayland clipboard, which it reads through wl-paste only on Linux. */
+const onWayland = itOnlyOn(
+	"linux",
+	"pi reads a Wayland clipboard, here a stand-in wl-paste, only on Linux",
+);
 /** A one-pixel PNG, for a tool to read. */
 const PICTURE =
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -416,7 +422,7 @@ describe.skipIf(!packageDir)(
 			CASE_MS,
 		);
 
-		it(
+		onWayland(
 			"pastes an image from the session's Wayland clipboard on Ctrl+V",
 			async () => {
 				const { sessionId } = await host.open(folder());

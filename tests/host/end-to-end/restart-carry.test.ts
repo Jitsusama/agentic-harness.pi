@@ -29,6 +29,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { alive } from "../../support/processes.ts";
 import { saidAfter } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -109,11 +110,6 @@ function keptShell(): { pid: number; started: number } | undefined {
 	return Number.isInteger(pid) && pid > 0
 		? { pid, started: statSync(path).mtimeMs }
 		: undefined;
-}
-
-/** Whether a process is still there. */
-function alive(pid: number): boolean {
-	return existsSync(`/proc/${pid}`);
 }
 
 /** A host under the seal, kept to be killed after. */

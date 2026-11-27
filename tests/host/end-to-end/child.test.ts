@@ -13,7 +13,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -25,6 +25,7 @@ import {
 	parseWatchLine,
 	parseWatchResult,
 } from "../../../host/service/protocol.ts";
+import { residentMb } from "../../support/processes.ts";
 import { onHostPi } from "./support/hosted-case.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
@@ -67,8 +68,6 @@ const COLLECTED = "Collected while quiet";
 const OPEN_MS = 90_000;
 /** A real-engine case: a start, a cold open, its collection and a close. */
 const REAL_CASE_MS = 240_000;
-/** How much a kB of /proc's VmRSS is of a MB. */
-const KB_PER_MB = 1024;
 
 let sealed: Seal;
 /** Every child a case started, each with its exit, stopped before the seal goes. */
@@ -177,14 +176,6 @@ process.exit(why === "failed" ? 1 : 0);`;
 		said: () => out,
 		errors: () => errors,
 	};
-}
-
-/** How much memory process `pid` holds now, in MB, from /proc's VmRSS. */
-async function residentMb(pid: number | undefined): Promise<number> {
-	const status = await readFile(`/proc/${pid}/status`, "utf8");
-	const kb = /^VmRSS:\s+(\d+) kB$/m.exec(status)?.[1];
-	if (kb === undefined) throw new Error(`no VmRSS for ${pid}: ${status}`);
-	return Number(kb) / KB_PER_MB;
 }
 
 /** The result a watch's first line carries, or nothing. */
@@ -374,9 +365,9 @@ it(
 				);
 				const openedMs = Date.now() - opening;
 				const watched = parseWatchResult(resultIn((await lines.next()).value));
-				const atOpen = await residentMb(child.process.pid);
+				const atOpen = residentMb(child.process.pid);
 				await saying(child.errors, COLLECTED, COLLECTED_MS);
-				const held = await residentMb(child.process.pid);
+				const held = residentMb(child.process.pid);
 				const heap = collectedHeap(child.errors());
 				process.stdout.write(
 					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
