@@ -27,6 +27,7 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
+	rmdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -53,22 +54,33 @@ const SHORT_PARENT = "/tmp";
 const SHORT_PREFIX = "vs-";
 
 /**
+ * A name as the setup's mkdtemp makes it, the prefix and six letters or
+ * digits, so a sweep never reads a folder of the developer's that merely
+ * starts with the prefix.
+ */
+const SHORT_NAME = /^vs-[A-Za-z0-9]{6}$/;
+
+/**
  * The file in a short folder naming the run that made it: its pid, then
  * on the next line the pid namespace that pid belongs to.
  */
 const RUN_FILE = "run.pid";
 
+/** A run file as the setup writes it: a pid, then its namespace. */
+const RUN_RECORD = /^([1-9]\d*)\n([^\n]*)\n$/;
+
 /**
  * How long a folder with no run file may be a run's still starting: its
  * setup writes the file just after making the folder, so an hour on, its
- * run died between the two.
+ * run died between the two, and the folder, empty, is taken.
  */
 export const STARTING_MS = 60 * 60 * 1000;
 
 /**
- * How long before any short folder is taken, whatever its run file says:
- * past any run's length, so one whose pid this sweep can't judge, from
- * another namespace or reused by a live process, goes in the end.
+ * How long before a short folder whose run this sweep can't judge is
+ * taken: one whose pid another namespace wrote, or one no namespace was
+ * named for on Linux. Past any run's length, so such a folder goes in
+ * the end, while one whose pid this sweep can judge as live stays.
  */
 export const STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -148,21 +160,28 @@ function socketRoot(): string | undefined {
 	return folder;
 }
 
-/** Where and when a sweep runs: its pid namespace, and the time. */
+/** Where and when a sweep runs: its pid namespace, platform and time. */
 export interface Sweeper {
 	readonly namespace: string;
 	readonly now: number;
+	readonly platform?: NodeJS.Platform;
 }
 
 /**
  * Remove the short folders in `parent` that this account's runs made and
- * that outlived them. A pid is judged only in the namespace that wrote
- * it, since one from another, as each fenced command on Linux has, names
- * nothing here, or someone else; such a folder stays until `STALE_MS`
- * has passed, as does one whose pid lives, which may be a reused id's.
- * One with no run file may be a run's starting now, and stays for
- * `STARTING_MS`. So a sweep takes no live run's folder that lasts less
- * than a day.
+ * that outlived them, reading only names as the setup makes them.
+ *
+ * - A pid is judged only in the namespace that wrote it, since one from
+ *   another, as each fenced command on Linux has, names nothing here, or
+ *   someone else. An empty namespace on Linux means /proc wasn't there to
+ *   name one, so it isn't judged either. Such a folder stays until
+ *   `STALE_MS` has passed.
+ * - A judged pid that lives keeps its folder at any age, as a watch run's
+ *   must; a reused pid's folder then stays until the pid ends or the
+ *   machine restarts, which costs a few bytes rather than a live run.
+ * - A folder with no run file may be a run's starting now, and stays for
+ *   `STARTING_MS`; after that it goes only if empty.
+ * - A run file not as the setup writes it is no run's, and stays.
  */
 export function sweepShortFolders(
 	parent: string,
@@ -176,33 +195,52 @@ export function sweepShortFolders(
 	}
 	const uid = process.getuid?.();
 	for (const name of names) {
-		if (!name.startsWith(SHORT_PREFIX)) continue;
+		if (!SHORT_NAME.test(name)) continue;
 		const folder = join(parent, name);
 		try {
 			const stat = lstatSync(folder);
 			if (!stat.isDirectory() || stat.uid !== uid) continue;
-			const age = sweeper.now - stat.mtimeMs;
-			if (age > STALE_MS || ended(folder, age, sweeper.namespace))
-				rmSync(folder, { recursive: true, force: true });
+			const fate = fateOf(folder, sweeper.now - stat.mtimeMs, sweeper);
+			if (fate === "removed") rmSync(folder, { recursive: true, force: true });
+			// Fails on anything inside, which then stays.
+			else if (fate === "removed if empty") rmdirSync(folder);
 		} catch {
-			// Gone or unreadable: another sweep's to take.
+			// Gone, unreadable or not empty: not this sweep's to take.
 		}
 	}
 }
 
-/** Whether the run that made `folder`, `age` old, has ended, as `namespace` can tell. */
-function ended(folder: string, age: number, namespace: string): boolean {
+/** What a sweep does with a short folder. */
+type Fate = "kept" | "removed" | "removed if empty";
+
+/** What becomes of `folder`, `age` old, as `sweeper` can tell its run. */
+function fateOf(folder: string, age: number, sweeper: Sweeper): Fate {
 	let record: string;
 	try {
 		record = readFileSync(join(folder, RUN_FILE), "utf8");
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
-		return age > STARTING_MS;
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "kept";
+		return age > STARTING_MS ? "removed if empty" : "kept";
 	}
-	const [pidLine, writer] = record.split("\n");
-	if (writer !== namespace) return false;
-	const pid = Number(pidLine);
-	return Number.isInteger(pid) && pid > 0 && !alive(pid);
+	const run = RUN_RECORD.exec(record);
+	if (run === null) return "kept";
+	const [, pid, writer] = run;
+	if (judgeable(writer ?? "", sweeper))
+		return alive(Number(pid)) ? "kept" : "removed";
+	return age > STALE_MS ? "removed" : "kept";
+}
+
+/**
+ * Whether a pid `writer`'s namespace wrote means the same process to
+ * `sweeper`: written in its own namespace, and not the empty one on
+ * Linux, where a run with no /proc to read names none whatever its
+ * namespace.
+ */
+function judgeable(writer: string, sweeper: Sweeper): boolean {
+	const platform = sweeper.platform ?? process.platform;
+	return (
+		writer === sweeper.namespace && !(writer === "" && platform === "linux")
+	);
 }
 
 /**

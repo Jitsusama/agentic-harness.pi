@@ -11,6 +11,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readlinkSync,
+	rmdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -30,19 +31,22 @@ import setup, {
 	SOCKET_ROOT,
 	STALE_MS,
 	STARTING_MS,
+	type Sweeper,
 	sweepShortFolders,
 } from "./temp-root.ts";
 
 // Named rather than made or removed, so the setup's own run is read
 // without writing where this machine's /tmp may not let a test write.
 // The machine's own /tmp reads as empty, so no sweep here counts another
-// run's folder among a case's removals.
+// run's folder among a case's removals. Removing an empty folder stays
+// real, so one with anything inside refuses as it would.
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof Fs>();
 	return {
 		...fs,
 		mkdtempSync: vi.fn((prefix: string) => `${prefix}XXXXXX`),
 		rmSync: vi.fn(),
+		rmdirSync: vi.fn(fs.rmdirSync),
 		writeFileSync: vi.fn(),
 		readdirSync: vi.fn((path: string) =>
 			path === "/tmp" ? [] : fs.readdirSync(path),
@@ -247,60 +251,73 @@ describe("a sweep of short folders", () => {
 				join(folder, "run.pid"),
 				`${run.pid}\n${run.namespace ?? HERE}\n`,
 			);
-		const at = (Date.now() - (run.ageMs ?? 0)) / 1000;
-		await utimes(folder, at, at);
+		await age(folder, run.ageMs ?? 0);
 		return folder;
 	}
 
-	/** Whom a sweep of `parent` removes, by name. */
-	function removedBy(parent: string, namespace = HERE): string[] {
+	/** Date `path` `ageMs` back. */
+	async function age(path: string, ageMs: number) {
+		const at = (Date.now() - ageMs) / 1000;
+		await utimes(path, at, at);
+	}
+
+	/** Whom a sweep of `parent` by `sweeper` removes, by name. */
+	function removedBy(parent: string, sweeper: Partial<Sweeper> = {}): string[] {
 		vi.mocked(rmSync).mockClear();
-		sweepShortFolders(parent, { namespace, now: Date.now() });
-		return vi
-			.mocked(rmSync)
-			.mock.calls.map(([path]) => String(path).slice(parent.length + 1))
+		vi.mocked(rmdirSync).mockClear();
+		sweepShortFolders(parent, { namespace: HERE, now: Date.now(), ...sweeper });
+		const emptied = vi
+			.mocked(rmdirSync)
+			.mock.calls.filter(
+				(_, call) => vi.mocked(rmdirSync).mock.results[call]?.type === "return",
+			);
+		return [...vi.mocked(rmSync).mock.calls, ...emptied]
+			.map(([path]) => String(path).slice(parent.length + 1))
 			.sort();
 	}
 
-	it("removes this account's whose run is gone, judging a pid only in its own namespace, and any past its time", async () => {
+	it("removes this account's whose run is gone, judging a pid only in its own namespace, and those it can't judge past their time", async () => {
 		const parent = await mkdtemp(join(tmpdir(), "sweep-"));
 		const away = await mkdtemp(join(tmpdir(), "sweep-away-"));
 		const gone = spawnSync("true").pid ?? 0;
+		const old = { ageMs: STALE_MS + HOUR };
 		try {
-			await plant(parent, "vs-gone", { pid: gone });
-			await plant(parent, "vs-live", { pid: process.pid });
-			// Pid 1 is another account's to a runner not root, so the probe is
-			// refused rather than answered: a pid reused by someone else.
-			await plant(parent, "vs-reused", { pid: 1 });
-			await plant(parent, "vs-reused-long-ago", {
-				pid: process.pid,
-				ageMs: STALE_MS + HOUR,
-			});
+			await plant(parent, "vs-gone00", { pid: gone });
+			await plant(parent, "vs-live00", { pid: process.pid });
+			// A watch run lasts as long as the developer leaves it.
+			await plant(parent, "vs-liveOd", { pid: process.pid, ...old });
 			// Its gone pid names nothing here, so it may be a live fenced run's.
-			await plant(parent, "vs-elsewhere", { pid: gone, namespace: ELSEWHERE });
-			await plant(parent, "vs-elsewhere-long-ago", {
+			await plant(parent, "vs-away00", { pid: gone, namespace: ELSEWHERE });
+			await plant(parent, "vs-awayOd", {
 				pid: gone,
 				namespace: ELSEWHERE,
-				ageMs: STALE_MS + HOUR,
+				...old,
 			});
-			await plant(parent, "vs-starting", {});
-			await plant(parent, "vs-never-named", { ageMs: STARTING_MS + HOUR });
+			await plant(parent, "vs-start0", {});
+			await plant(parent, "vs-unnamd", { ageMs: STARTING_MS + HOUR });
+			// No run's file, and something inside a sweep mustn't guess at.
+			const full = await plant(parent, "vs-fullOd", {});
+			await writeFile(join(full, "notes"), "kept");
+			await age(full, old.ageMs);
+			const odd = await plant(parent, "vs-badrec", {});
+			await writeFile(join(odd, "run.pid"), `${gone} and more\n`);
+			await age(odd, old.ageMs);
+			// The prefix alone, as a developer's own folder might be named.
+			await plant(parent, "vs-notes", { pid: gone, ...old });
 			await plant(parent, "other-gone", { pid: gone });
-			const file = join(parent, "vs-a-file");
+			const file = join(parent, "vs-afile0");
 			await writeFile(file, String(gone));
-			const old = (Date.now() - STALE_MS - HOUR) / 1000;
-			await utimes(file, old, old);
+			await age(file, old.ageMs);
 			// A link to a gone run's folder, which a sweep through it would take.
 			await symlink(
-				await plant(away, "vs-target", { pid: gone, ageMs: STALE_MS + HOUR }),
-				join(parent, "vs-link"),
+				await plant(away, "vs-target", { pid: gone, ...old }),
+				join(parent, "vs-link00"),
 			);
 
 			expect(removedBy(parent)).toEqual([
-				"vs-elsewhere-long-ago",
-				"vs-gone",
-				"vs-never-named",
-				"vs-reused-long-ago",
+				"vs-awayOd",
+				"vs-gone00",
+				"vs-unnamd",
 			]);
 		} finally {
 			await rm(parent, { recursive: true, force: true });
@@ -308,14 +325,57 @@ describe("a sweep of short folders", () => {
 		}
 	});
 
+	// A pid reused by another account's process: the probe is refused
+	// rather than answered, so the run may still be there.
+	it("keeps a folder whose pid it may not probe", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "sweep-"));
+		const gone = spawnSync("true").pid ?? 0;
+		const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+			throw fsError("EPERM");
+		});
+		try {
+			await plant(parent, "vs-perm00", { pid: gone });
+
+			expect(removedBy(parent)).toEqual([]);
+		} finally {
+			kill.mockRestore();
+			await rm(parent, { recursive: true, force: true });
+		}
+	});
+
+	// On Linux every process has a namespace, so a run naming none read no
+	// /proc, and its pid may be any namespace's.
+	it.each([
+		["linux", "keeps", []],
+		["darwin", "removes", ["vs-empty0"]],
+	] as const)(
+		"on %s, %s a gone pid written with no namespace",
+		async (platform, _, removed) => {
+			const parent = await mkdtemp(join(tmpdir(), "sweep-"));
+			const gone = spawnSync("true").pid ?? 0;
+			try {
+				await plant(parent, "vs-empty0", { pid: gone, namespace: "" });
+
+				expect(removedBy(parent, { namespace: "", platform })).toEqual(removed);
+			} finally {
+				await rm(parent, { recursive: true, force: true });
+			}
+		},
+	);
+
 	it("leaves another account's folders alone", async () => {
 		const parent = await mkdtemp(join(tmpdir(), "sweep-"));
 		const gone = spawnSync("true").pid ?? 0;
 		const uid = process.getuid?.() ?? 0;
 		const getuid = vi.spyOn(process, "getuid").mockReturnValue(uid + 1);
 		try {
-			await plant(parent, "vs-gone", { pid: gone });
-			await plant(parent, "vs-long-ago", { ageMs: STALE_MS + HOUR });
+			await plant(parent, "vs-gone00", { pid: gone });
+			await plant(parent, "vs-longgo", {
+				pid: gone,
+				namespace: ELSEWHERE,
+				ageMs: STALE_MS + HOUR,
+			});
+			await plant(parent, "vs-unnamd", { ageMs: STARTING_MS + HOUR });
 
 			expect(removedBy(parent)).toEqual([]);
 		} finally {
@@ -329,13 +389,16 @@ describe("a sweep of short folders", () => {
 		const parent = await mkdtemp(join(tmpdir(), "sweep-"));
 		const gone = spawnSync("true").pid ?? 0;
 		try {
-			await plant(parent, "vs-gone", { pid: gone, namespace: ownNamespace() });
+			await plant(parent, "vs-gone00", {
+				pid: gone,
+				namespace: ownNamespace(),
+			});
 			vi.mocked(rmSync).mockClear();
 
 			sweepShortFolders(parent);
 
 			expect(vi.mocked(rmSync).mock.calls).toEqual([
-				[join(parent, "vs-gone"), REMOVED],
+				[join(parent, "vs-gone00"), REMOVED],
 			]);
 		} finally {
 			await rm(parent, { recursive: true, force: true });

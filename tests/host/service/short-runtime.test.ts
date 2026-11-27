@@ -25,13 +25,13 @@ const sockets = process.env[SOCKET_ROOT];
  * Whether this run may write /tmp, probed rather than read from the
  * setup, so a setup that stops naming its folder fails here rather than
  * skipping. Only a refusal counts; any other error fails the file. Its
- * folder takes the short folders' prefix, so one a killed worker left
- * goes with the next run's sweep.
+ * folder is named as a short folder is, and stays empty, so one a killed
+ * worker left goes with a sweep an hour on.
  */
 function mayWriteTmp(): boolean {
 	let probe: string;
 	try {
-		probe = mkdtempSync("/tmp/vs-probe-");
+		probe = mkdtempSync("/tmp/vs-");
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code ?? "";
 		if (["EACCES", "EPERM", "EROFS"].includes(code)) return false;
