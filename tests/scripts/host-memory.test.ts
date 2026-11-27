@@ -192,7 +192,7 @@ describe("a heap snapshot, described", () => {
 				new Error("Host control request timed out; outcome unknown"),
 			),
 		).toBe(
-			`background:${ONE}: no snapshot: Host control request timed out; outcome unknown; the host may still be writing it into its heap-snapshots folder, and removes it after 2 hours`,
+			`background:${ONE}: no snapshot: Host control request timed out; outcome unknown; the host may still be writing it into its heap-snapshots folder, where the next snapshot removes it once 2 hours old`,
 		);
 		expect(
 			describeSnapshotFailure(

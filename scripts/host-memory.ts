@@ -210,7 +210,7 @@ export function describeSnapshot(
 export function describeSnapshotFailure(label: string, error: unknown): string {
 	const said = why(error);
 	const late = said.includes("timed out")
-		? `; the host may still be writing it into its heap-snapshots folder, and removes it after ${SNAPSHOT_KEPT_MS / MS_PER_HOUR} hours`
+		? `; the host may still be writing it into its heap-snapshots folder, where the next snapshot removes it once ${SNAPSHOT_KEPT_MS / MS_PER_HOUR} hours old`
 		: "";
 	return `${label}: no snapshot: ${said}${late}`;
 }
