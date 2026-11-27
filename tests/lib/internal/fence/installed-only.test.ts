@@ -139,6 +139,28 @@ describe("a fenced session's children", () => {
 		expect(refusal).toContain('reload with onto "installed"');
 	});
 
+	it("start from a session running the harness from a held place, as a room runs it from the Nix store with no install", () => {
+		const store = join(home, "store");
+		const harness = join(store, "abc-harness");
+		mkdirSync(harness, { recursive: true });
+		expect(
+			fencedChildrenRefusal(
+				false,
+				[],
+				places(harness, undefined, null, [store]),
+			),
+		).toBeUndefined();
+	});
+
+	it("start unisolated while the person's settings load the harness from a held place", () => {
+		const store = join(home, "store");
+		const harness = join(store, "abc-harness");
+		mkdirSync(harness, { recursive: true });
+		expect(
+			fencedChildrenRefusal(true, [], places(harness, harness, null, [store])),
+		).toBeUndefined();
+	});
+
 	it("don't start where pi has installed no packages", () => {
 		expect(
 			fencedChildrenRefusal(false, [], places(installed, installed, null)),

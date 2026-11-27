@@ -218,6 +218,18 @@ describe("a fenced session's subagent keeps the fence", () => {
 		).toContain("pi's installed packages can't be found");
 	});
 
+	it("lets a job load an extension from the store, which no fenced command writes", async () => {
+		const store = join(place, "store");
+		const pack = join(store, "abc-pack", "index.ts");
+		await mkdir(join(pack, ".."), { recursive: true });
+		await writeFile(pack, "");
+		const job = { id: "a", extraExtensions: [pack] };
+		expect(keepFence([job], "fence", null, store)).toEqual({
+			ok: true,
+			jobs: [job],
+		});
+	});
+
 	it("lets a job that names no extension run", () => {
 		expect(keepFence([{ id: "a" }], "fence", null)).toMatchObject({ ok: true });
 	});
@@ -301,6 +313,18 @@ describe("the fence's own extensions", () => {
 		}
 		expect(fencePacks(tree, root)).toEqual({
 			why: expect.stringContaining("lies outside pi's installed packages"),
+		});
+	});
+
+	it("come from the store, where a room lays out the harness with no install beside it", async () => {
+		const store = join(place, "store");
+		const harness = join(store, "abc-harness");
+		for (const pack of PACKS) {
+			await mkdir(join(harness, ...pack, ".."), { recursive: true });
+			await writeFile(join(harness, ...pack), "");
+		}
+		expect(fencePacks(harness, null, store)).toEqual({
+			packs: PACKS.map((pack) => join(harness, ...pack)),
 		});
 	});
 

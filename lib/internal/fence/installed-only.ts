@@ -34,8 +34,11 @@ const PACKAGES = join(".local", "share", "pi-packages");
 /** pi's agent folder, under the home folder: its settings and what it finds. */
 const AGENT = join(".pi", "agent");
 
-/** The Nix store, whose paths nobody changes once they are there. */
-const STORE = "/nix/store";
+/**
+ * The Nix store, whose paths nobody changes once they are there: where a
+ * room's image lays out the harness and the packages it loads.
+ */
+export const NIX_STORE = "/nix/store";
 
 /**
  * The folder `name` names under the home folder, really, or nothing
@@ -64,7 +67,7 @@ export function installedPackages(home: string = homedir()): string | null {
  */
 export function heldElsewhere(home: string = homedir()): string[] {
 	const agent = heldByName(home, AGENT);
-	return agent === null ? [STORE] : [agent, STORE];
+	return agent === null ? [NIX_STORE] : [agent, NIX_STORE];
 }
 
 /** Whether `real`, a path already followed, lies inside `root`. */
@@ -164,7 +167,7 @@ export function placesHere(): Places {
 
 /**
  * Why children of a fenced session can't start, or nothing: this
- * package runs from outside the install, an extension registered as
+ * package runs from outside the install and every other held place, an extension registered as
  * every child's default lies outside it, or, for an unisolated child,
  * the person's settings load this package from outside or not at all.
  */
@@ -174,10 +177,14 @@ export function fencedChildrenRefusal(
 	places: Places = placesHere(),
 ): string | undefined {
 	const { root, own, harness, held = [] } = places;
-	if (!inside(own, root)) {
-		return `This session runs the harness from ${own}, outside ${INSTALL}, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
+	// A room runs the harness from the Nix store, which no fenced command
+	// writes any more than the install, so it counts as held too.
+	const safe = [root, ...held];
+	const isHeld = (real: string) => safe.some((each) => inside(real, each));
+	if (!isHeld(own)) {
+		return `This session runs the harness from ${own}, outside ${INSTALL}, pi's agent folder and the Nix store, where its fenced commands may write; each child would load this package's own files from there outside the fence. ${RELOAD}.`;
 	}
-	const strays = outsideOf(defaults, [root, ...held]);
+	const strays = outsideOf(defaults, safe);
 	if (strays.length > 0) {
 		return `An extension registered for every subagent lies where fenced commands may write, outside ${INSTALL}, pi's agent folder and the Nix store, and each child would load it outside the fence: ${strays.join(", ")}. Install the package that registers it, or start this session without it.`;
 	}
@@ -186,8 +193,8 @@ export function fencedChildrenRefusal(
 	if (loaded === undefined) {
 		return `An unisolated child loads the harness from the person's settings, which name none, so its bash would be pi's plain one, run outside the fence. Name the install in pi's settings first.`;
 	}
-	if (!inside(loaded, root)) {
-		return `An unisolated child loads the harness from the person's settings, which name ${loaded}, outside ${INSTALL}, where fenced commands may write. Point the settings at the install first.`;
+	if (!isHeld(loaded)) {
+		return `An unisolated child loads the harness from the person's settings, which name ${loaded}, outside ${INSTALL}, pi's agent folder and the Nix store, where fenced commands may write. Point the settings at the install first.`;
 	}
 	return undefined;
 }

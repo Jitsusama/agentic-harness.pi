@@ -37,6 +37,7 @@ import {
 import {
 	inside,
 	installedPackages,
+	NIX_STORE,
 	packageRoot,
 	settingsHarness,
 } from "../../lib/internal/fence/installed-only.ts";
@@ -157,10 +158,16 @@ function lstatExists(path: string): boolean {
 	}
 }
 
-/** Where `path` really lies inside `root`, or why it can't be loaded. */
+/**
+ * Where `path` really lies inside `root` or the store, or why it can't
+ * be loaded. A path in the store, where a room's image lays out the
+ * harness, is held as the install is, and has no older version to lie
+ * in: a store path never changes.
+ */
 function follow(
 	path: string,
 	root: string | null,
+	store: string,
 ): { real: string } | { why: string } {
 	if (!isAbsolute(path)) {
 		return { why: `${path} isn't an absolute path` };
@@ -171,6 +178,7 @@ function follow(
 	} catch {
 		return { why: `${path} can't be found` };
 	}
+	if (inside(real, store)) return { real };
 	if (root === null) {
 		return {
 			why: `${path} can't be loaded, since pi's installed packages can't be found`,
@@ -178,7 +186,7 @@ function follow(
 	}
 	if (!inside(real, root)) {
 		return {
-			why: `${path} lies outside pi's installed packages, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
+			why: `${path} lies outside pi's installed packages and the Nix store, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
 		};
 	}
 	const older = olderVersion(real, root);
@@ -196,12 +204,13 @@ export function keepFence<T extends AskedJob>(
 	jobs: readonly T[],
 	sandbox: string | undefined,
 	root: string | null = installedPackages(),
+	store: string = NIX_STORE,
 ): Kept<T> {
 	if (sandbox === undefined) return { ok: true, jobs: [...jobs] };
 	const reasons: string[] = [];
 	const kept = jobs.map((job) => {
 		const real = (path: string): string => {
-			const followed = follow(path, root);
+			const followed = follow(path, root, store);
 			if ("why" in followed) {
 				reasons.push(`${job.id}: ${followed.why}.`);
 				return path;
@@ -231,10 +240,11 @@ export function keepFence<T extends AskedJob>(
 export function fencePacks(
 	home: string = packsHome(),
 	root: string | null = installedPackages(),
+	store: string = NIX_STORE,
 ): { readonly packs: string[] } | { readonly why: string } {
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {
-		const followed = follow(join(home, ...pack.split("/")), root);
+		const followed = follow(join(home, ...pack.split("/")), root, store);
 		if ("why" in followed) {
 			return {
 				why: `No subagent started: an isolated subagent of a fenced session needs the fence's own extensions from pi's installed packages, and ${followed.why}. Reload onto the install, or start the subagents unisolated.`,
