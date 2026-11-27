@@ -592,9 +592,10 @@ describe("serveHost", () => {
 /**
  * Refuse, saying why, a run whose TMPDIR leaves no room for a child's
  * socket: the host then runs every conversation itself, as it should, and
- * a test of its children would fail on what it never started. A run's
- * folders sit 26 bytes under its TMPDIR, and a child's socket 67 more,
- * so past a TMPDIR of about 10 bytes, the system's own, there is none.
+ * a test of its children would fail on what it never started. shortRuntime
+ * leaves room wherever the run has its short folder in /tmp; only where it
+ * has none, as where /tmp can't be written, does `run` stay under a TMPDIR
+ * that may be too deep.
  */
 function roomForChildren(at = run): void {
 	try {
