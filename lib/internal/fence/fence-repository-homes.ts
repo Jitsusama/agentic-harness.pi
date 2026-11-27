@@ -55,7 +55,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { cacheDir, stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
-import { packageRoot } from "./installed-only.ts";
+import { packageRoot } from "./package-root.ts";
 
 /** How deep repositories may sit in a named home, as in `~/src`. */
 export const NAMED_HOME_DEPTH = 4;
