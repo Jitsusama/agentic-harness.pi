@@ -51,7 +51,7 @@ import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { meshTransport } from "../../../lib/mesh/node-transport.ts";
 import { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
-import { createReadFront } from "../../../lib/mesh/reading.ts";
+import { createReadFront, createSeenIds } from "../../../lib/mesh/reading.ts";
 import { heedingNoReceptor } from "../../../lib/mesh/receptor.ts";
 import {
 	SWEEP_EVERY_MS,
@@ -210,9 +210,9 @@ export function createState(
 	const unlanded: Landing[] = [];
 	const undone: SessionEvent[] = [];
 	const unproposed: string[] = [];
-	// Every id already looked at, so a watcher that reports one twice,
-	// as inotify does for a rename, is handed over once.
-	const seen = new Set<string>();
+	// Every id looked at while the top folder lists it, so a watcher that
+	// reports one twice, as inotify does for a rename, is handed over once.
+	const seen = createSeenIds();
 	const unjudgedSaid = new Set<string>();
 	// A turn a note would start waits for a reload that is waiting: the
 	// note is said now, without it, and the landing starts it (hold.ts).

@@ -7,7 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL } from "../../../lib/mesh/group.ts";
-import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
+import {
+	createReadFront,
+	createSeenIds,
+	seenAtStart,
+} from "../../../lib/mesh/reading.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 
 describe("what a starting peer marks seen", () => {
@@ -44,6 +48,58 @@ describe("what a starting peer marks seen", () => {
 			"the top's ids up to the floor, and none past it or moved away",
 		).toEqual([lately.id, floor.id]);
 		expect(past.id > floor.id, "stamped after the floor").toBe(true);
+	});
+});
+
+describe("the ids a peer has seen", () => {
+	// Kept for the peer's life, they grew its heap by every id the machine
+	// sent, about 1 MiB a day, though a settled id is never listed again.
+	it("lets go of one missing from two listings of the top in a row", () => {
+		const seen = createSeenIds();
+		for (const id of ["100-A", "200-B", "300-C"]) seen.add(id);
+
+		seen.keepListed(["200-B", "300-C"]);
+		expect(seen.has("100-A"), "missing from one listing").toBe(true);
+		seen.keepListed(["200-B", "300-C"]);
+
+		expect(seen.has("100-A"), "missing from two").toBe(false);
+		expect(seen.has("200-B"), "listed both times").toBe(true);
+		expect(seen.has("300-C"), "listed both times").toBe(true);
+	});
+
+	it("keeps one missing from a listing that lists it again", () => {
+		// Landed after the listing passed its place, it is listed next time.
+		const seen = createSeenIds();
+		seen.add("100-A");
+		seen.add("200-B");
+
+		seen.keepListed(["100-A"]);
+		seen.keepListed(["100-A", "200-B"]);
+		seen.keepListed(["100-A"]);
+
+		expect(seen.has("200-B"), "missing twice, but not in a row").toBe(true);
+	});
+
+	it("lets go of nothing on an empty listing, which is a folder that won't list", () => {
+		const seen = createSeenIds();
+		seen.add("100-A");
+
+		seen.keepListed([]);
+		seen.keepListed([]);
+
+		expect(seen.has("100-A"), "after two empty listings").toBe(true);
+	});
+
+	it("starts its count of misses again once cleared", () => {
+		const seen = createSeenIds();
+		seen.add("100-A");
+		seen.keepListed(["999-Z"]);
+		seen.clear();
+		seen.add("100-A");
+
+		seen.keepListed(["999-Z"]);
+
+		expect(seen.has("100-A"), "missing once since the clear").toBe(true);
 	});
 });
 
