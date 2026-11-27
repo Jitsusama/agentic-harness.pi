@@ -38,7 +38,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { keptHeads, listedHead } from "../../lib/internal/pineapple/heads.ts";
+import { keptHeads } from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -67,15 +67,6 @@ import { createWhereabouts, reposOf } from "./whereabouts.ts";
 const LOOKUPS = spawnExec({ timeoutMs: 10_000 });
 
 /**
- * How git's listing of every branch runs: over half a megabyte for a busy
- * repository, eight seconds on a slow link, so given thirty.
- */
-const LISTINGS = spawnExec({ timeoutMs: 30_000 });
-
-/** A repository named as owner and name, as GitHub's listing needs. */
-const OWNED = /^[\w.-]+\/[\w.-]+$/;
-
-/**
  * How often a session looks for a stop or a resume, and holds are
  * tended: often enough that Joel's stop all, which waits a minute for
  * every session to park, sees an idle one park well inside it.
@@ -84,7 +75,7 @@ const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
-	const heads = keptHeads(headOfAsked, headGuessed);
+	const heads = keptHeads(headOfAsked);
 	let ctx: ExtensionContext | undefined;
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
@@ -258,11 +249,14 @@ const gitFacts: GitFacts = {
 };
 
 /**
- * A pull request's branch, asked of GitHub, then Delta; `keptHeads`
- * keeps each one found for the session.
+ * A pull request's branch, asked of GitHub and Delta at once and taken
+ * from GitHub where it answers, so a write waits for the slower only
+ * when GitHub tells nothing; `keptHeads` keeps each one found for the
+ * session.
  */
 const headOfAsked: HeadOf = async (repo, pr) => {
 	if (repo === undefined) return undefined;
+	const delta = deltaHead(repo, pr);
 	return (
 		(await quietly("gh", [
 			"pr",
@@ -274,21 +268,9 @@ const headOfAsked: HeadOf = async (repo, pr) => {
 			"headRefName",
 			"-q",
 			".headRefName",
-		])) ?? (await deltaHead(repo, pr))
+		])) ?? (await delta)
 	);
 };
-
-/**
- * A pull request's branch guessed from git's listing of its repository
- * on github.com, the only host it's asked of. It needs neither tool's
- * sign-in for a public repository; for a private one, git uses the
- * machine's own credential helper or fails, and never asks. A name with
- * no owner isn't listed, since it names no repository there.
- */
-const headGuessed: HeadOf = (repo, pr) =>
-	repo !== undefined && OWNED.test(repo)
-		? listedHead(LISTINGS, `https://github.com/${repo}`, pr)
-		: Promise.resolve(undefined);
 
 async function deltaHead(
 	repo: string,

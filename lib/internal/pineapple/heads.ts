@@ -5,96 +5,57 @@
  * A branch told by name (GitHub's or Delta's own answer) is kept for
  * the session: a branch a change comes from doesn't move while it is
  * open. A lookup that found nothing (GitHub slow, a rate limit, the
- * door down) is asked again at the next write, since the stop holds
- * every write it can't tell apart, and a failure kept would hold every
- * push to that repository for as long as the stop stands.
+ * door down) is asked again once fifteen seconds have passed, since the
+ * stop holds every write it can't tell apart, and a failure kept would
+ * hold every push to that repository for as long as the stop stands.
+ * Within those seconds a write is held at once rather than waiting on
+ * another lookup, so one command pushing several branches waits once.
  *
- * Where no lookup tells the branch, git's own listing of the repository
- * can still guess it: the one branch standing at the pull request's head
- * commit ({@link headAmong}). A guess is never kept. GitHub moves a pull
- * request's head after a push to its branch, not with it, so for a
- * moment another branch left at the old commit can look like the
- * change's own. Kept, that guess would let the stopped branch's pushes
- * through for the rest of the session; asked each time, it can be wrong
- * only for a write made in that moment.
+ * Nothing but a lookup's own answer names the branch. A guess from
+ * which branch stands at the pull request's head commit was tried and
+ * left out: GitHub moves that head after a push to the branch, not with
+ * it, so for as long as it lags, another branch left at the old commit
+ * looks like the change's own, and the stopped branch's pushes would go
+ * through on it.
+ *
+ * A kept branch is trusted for the session, so a change whose branch is
+ * renamed while a stop stands keeps the old name here until pi starts
+ * again, and the renamed branch's pushes aren't told apart from the
+ * rest.
  */
 
-import type { Exec } from "../../core/exec/index.ts";
 import type { HeadOf } from "./cover.ts";
+
+/** How long a lookup that found nothing stands before it's asked again. */
+export const FAILED_FOR_MS = 15_000;
+
+/** A lookup asked, and once it found nothing, when it settled. */
+interface Asked {
+	head: Promise<string | undefined>;
+	failedAt?: number;
+}
 
 /**
  * Each pull request's branch as `ask` tells it, kept once found, and
- * `guess` asked afresh wherever `ask` finds none. A lookup still under
- * way is shared by every write that asks for it meanwhile.
+ * asked again once a lookup that found nothing is `FAILED_FOR_MS` old
+ * by `now`. A lookup still under way is shared by every write that asks
+ * for it meanwhile, and one that throws tells nothing, as one that fails
+ * does, so the stop still holds what it can't tell apart.
  */
-export function keptHeads(ask: HeadOf, guess?: HeadOf): HeadOf {
-	const told = new Map<string, Promise<string | undefined>>();
-	const guessing = new Map<string, Promise<string | undefined>>();
-	const guessed = (key: string, repo: string, pr: number) => {
-		const known = guessing.get(key);
-		if (known) return known;
-		const asked = guess ? guess(repo, pr) : Promise.resolve(undefined);
-		guessing.set(key, asked);
-		const forget = () => {
-			if (guessing.get(key) === asked) guessing.delete(key);
-		};
-		void asked.then(forget, forget);
-		return asked;
-	};
-	const tellOf = (key: string, repo: string, pr: number) => {
-		const known = told.get(key);
-		if (known) return known;
-		const asked = ask(repo, pr);
-		told.set(key, asked);
-		const forget = () => {
-			if (told.get(key) === asked) told.delete(key);
-		};
-		void asked.then((head) => {
-			if (head === undefined) forget();
-		}, forget);
-		return asked;
-	};
+export function keptHeads(ask: HeadOf, now = Date.now): HeadOf {
+	const told = new Map<string, Asked>();
 	return (repo, pr) => {
 		if (repo === undefined) return Promise.resolve(undefined);
 		const key = `${repo}#${pr}`;
-		return tellOf(key, repo, pr).then((head) => head ?? guessed(key, repo, pr));
+		const known = told.get(key);
+		const failedAt = known?.failedAt;
+		const stale = failedAt !== undefined && now() - failedAt >= FAILED_FOR_MS;
+		if (known && !stale) return known.head;
+		const asked: Asked = { head: ask(repo, pr).catch(() => undefined) };
+		told.set(key, asked);
+		void asked.head.then((head) => {
+			if (head === undefined) asked.failedAt = now();
+		});
+		return asked.head;
 	};
-}
-
-/**
- * The branch of pull request `pr` of the repository at `url`, guessed
- * from git's listing of it ({@link headAmong}). None when the listing
- * fails or can't tell.
- */
-export async function listedHead(
-	exec: Exec,
-	url: string,
-	pr: number,
-): Promise<string | undefined> {
-	const listed = await exec("git", [
-		"ls-remote",
-		url,
-		`refs/pull/${pr}/head`,
-		"refs/heads/*",
-	]);
-	return listed.code === 0 ? headAmong(listed.stdout, pr) : undefined;
-}
-
-/**
- * The branch of pull request `pr` in `listing`, as `git ls-remote` gives
- * it for `refs/pull/<pr>/head` and `refs/heads/*`: the one branch whose
- * tip is the pull request's head. None when no branch stands there, or
- * more than one does, since then the change can't be told apart.
- */
-export function headAmong(listing: string, pr: number): string | undefined {
-	const refs = listing
-		.split("\n")
-		.map((line) => line.trim().split(/\s+/))
-		.filter((parts): parts is [string, string] => parts.length === 2);
-	const head = refs.find(([, ref]) => ref === `refs/pull/${pr}/head`)?.[0];
-	if (head === undefined) return undefined;
-	const branches = refs
-		.filter(([sha, ref]) => sha === head && ref.startsWith("refs/heads/"))
-		.map(([, ref]) => ref.slice("refs/heads/".length));
-	return branches.length === 1 ? branches[0] : undefined;
 }
