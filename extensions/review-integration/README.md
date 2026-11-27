@@ -257,6 +257,25 @@ refused as unreadable when a merge is asked, since the base its
 gate read may be the one the change lands on. A queued change that
 names no base is still refused.
 
+### What a Repo Says Before a Draft Is Ready
+
+`ready.gates` names a gate the same way for `review_offer ready`,
+run with the head's full sha once our council has read the change
+and before the draft goes to its readers:
+
+```json
+{ "ready": { "gates": { "github:Jitsusama/agentic-harness.pi":
+  "bash ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/current/scripts/ready-gate.sh" } } }
+```
+
+It came of changes marked ready with no check run at the head their
+readers read (1JQPPC, 27 November). It takes a command and
+`minutes` as a merge's gate does, never `base`, since nothing lands;
+its refusals leave the change a draft, and one whose head moved while
+the gate ran is refused too. The harness's gate passes only once the
+keeper kept a run of `scripts/changed-there.sh` passing at that head,
+for the files it changes; the refusal names that command.
+
 ### Councils Mirrored From Another Machine
 
 Proposing or merging waits for a council of ours. A round run on

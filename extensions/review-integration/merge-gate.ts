@@ -40,6 +40,12 @@
  * its base is neither read nor compared; the head is read again as
  * ever. A forge that merges when asked can't say it, since there the
  * base its gate read is the one the change lands on.
+ *
+ * `review.ready.gates` names a gate the same way for review_offer ready,
+ * run with the head's full sha before a draft is marked ready: a change
+ * readied before its checks ran at that head asked people to read code
+ * nothing had checked (1JQPPC, 27 November). A ready gate takes no
+ * `base`, since nothing lands; the head is all it judges.
  */
 
 import { stat } from "node:fs/promises";
@@ -68,8 +74,29 @@ const BASE_READ_MS = 2 * MINUTE_MS;
 /** Exit code a shell gives a command it can't find. */
 const NOT_FOUND = 127;
 
-/** The keys a gate's object form may hold. */
-const GATE_KEYS = new Set(["command", "minutes", "base"]);
+/** The keys a gate's object form may hold, at each stage. */
+const GATE_KEYS: Readonly<Record<Stage, ReadonlySet<string>>> = {
+	merge: new Set(["command", "minutes", "base"]),
+	ready: new Set(["command", "minutes"]),
+};
+
+/** Which act a gate stands before: a merge, or marking a draft ready. */
+export type Stage = "merge" | "ready";
+
+/** How each stage's gate is named, and what a refusal leaves. */
+const STAGE_WORDS: Readonly<
+	Record<
+		Stage,
+		{ readonly gate: string; readonly act: string; readonly left: string }
+	>
+> = {
+	merge: { gate: "merge gate", act: "The merge", left: "Not merged" },
+	ready: {
+		gate: "ready gate",
+		act: "Marking it ready",
+		left: "Left as a draft",
+	},
+};
 
 /**
  * The forges whose merges go through a queue onto main's newest tip, by
@@ -78,8 +105,11 @@ const GATE_KEYS = new Set(["command", "minutes", "base"]);
  */
 const QUEUED_FORGES = new Set(["delta"]);
 
-/** How a gate is named, for a message saying it was named wrongly. */
-const GATE_FORMS = `a command, or { "command": ..., "minutes": ..., "base": "queued" } with minutes a whole number from 1 to ${MOST_GATE_MINUTES} and base queued only on ${[...QUEUED_FORGES].join(", ")}`;
+/** How a gate is named at each stage, for a message saying it was named wrongly. */
+const GATE_FORMS: Readonly<Record<Stage, string>> = {
+	merge: `a command, or { "command": ..., "minutes": ..., "base": "queued" } with minutes a whole number from 1 to ${MOST_GATE_MINUTES} and base queued only on ${[...QUEUED_FORGES].join(", ")}`,
+	ready: `a command, or { "command": ..., "minutes": ... } with minutes a whole number from 1 to ${MOST_GATE_MINUTES}`,
+};
 
 /** The gate a repo names, or why the config can't be read for one. */
 export type GateFor =
@@ -95,23 +125,28 @@ export interface Gate {
 	readonly queued?: true;
 }
 
-/** The gate `review` names for one repo key. */
-export function gateFor(review: unknown, repo: string): GateFor {
-	if (!isRecord(review) || review.merge === undefined) return { kind: "none" };
-	const merge = review.merge;
+/** The gate `review` names for one repo key, before a merge unless `stage` says. */
+export function gateFor(
+	review: unknown,
+	repo: string,
+	stage: Stage = "merge",
+): GateFor {
+	if (!isRecord(review) || review[stage] === undefined) return { kind: "none" };
+	const section = review[stage];
+	const forms = GATE_FORMS[stage];
 	if (
-		!isRecord(merge) ||
-		(merge.gates !== undefined && !isRecord(merge.gates))
+		!isRecord(section) ||
+		(section.gates !== undefined && !isRecord(section.gates))
 	) {
 		return {
 			kind: "malformed",
-			problem: `review.merge.gates should be an object of repo keys, each naming ${GATE_FORMS}.`,
+			problem: `review.${stage}.gates should be an object of repo keys, each naming ${forms}.`,
 		};
 	}
-	const named = isRecord(merge.gates) ? merge.gates[repo] : undefined;
+	const named = isRecord(section.gates) ? section.gates[repo] : undefined;
 	if (named === undefined) return { kind: "none" };
 	const stray = isRecord(named)
-		? Object.keys(named).filter((key) => !GATE_KEYS.has(key))
+		? Object.keys(named).filter((key) => !GATE_KEYS[stage].has(key))
 		: [];
 	const command = isRecord(named) ? named.command : named;
 	if (
@@ -125,7 +160,7 @@ export function gateFor(review: unknown, repo: string): GateFor {
 				: "";
 		return {
 			kind: "malformed",
-			problem: `review.merge.gates["${repo}"] should be ${GATE_FORMS}.${unknown}`,
+			problem: `review.${stage}.gates["${repo}"] should be ${forms}.${unknown}`,
 		};
 	}
 	const queued = queuedOf(isRecord(named) ? named.base : undefined, repo);
@@ -147,7 +182,7 @@ export function gateFor(review: unknown, repo: string): GateFor {
 	) {
 		return {
 			kind: "malformed",
-			problem: `review.merge.gates["${repo}"].minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}, not ${JSON.stringify(minutes) ?? String(minutes)}.`,
+			problem: `review.${stage}.gates["${repo}"].minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}, not ${JSON.stringify(minutes) ?? String(minutes)}.`,
 		};
 	}
 	return { kind: "gate", command: command.trim(), minutes, ...queued };
@@ -272,9 +307,11 @@ function quoted(word: string): string {
 export async function missingCheckout(
 	gate: Gate,
 	cwd: string,
+	stage: Stage = "merge",
 ): Promise<string | undefined> {
 	if (await isFolder(cwd)) return undefined;
-	return `The merge gate \`${gate.command}\` couldn't run in ${cwd}: there is no such folder. Not merged; name a checkout of the repo with \`repo\`.`;
+	const { gate: named, left } = STAGE_WORDS[stage];
+	return `The ${named} \`${gate.command}\` couldn't run in ${cwd}: there is no such folder. ${left}; name a checkout of the repo with \`repo\`.`;
 }
 
 /**
@@ -322,42 +359,46 @@ export async function baseTip(
 }
 
 /**
- * Why a gate refuses this head, or nothing when it lets it merge.
+ * Why a gate refuses this head, or nothing when it lets it through to
+ * its `stage`: a merge, unless it says.
  */
 export async function gateRefusal(
 	gate: Gate,
 	head: string,
 	cwd: string,
 	run: RunGate,
+	stage: Stage = "merge",
 ): Promise<string | undefined> {
 	const { command } = gate;
-	const missing = await missingCheckout(gate, cwd);
+	const { gate: named, act, left } = STAGE_WORDS[stage];
+	const missing = await missingCheckout(gate, cwd, stage);
 	if (missing !== undefined) return missing;
 	let ran: GateRun;
 	try {
 		ran = await run(`${command} ${quoted(head)}`, cwd, gateTimeoutMs(gate));
 	} catch (error) {
-		return `The merge gate \`${command}\` couldn't run in ${cwd}: ${error instanceof Error ? error.message : String(error)}. Not merged.`;
+		return `The ${named} \`${command}\` couldn't run in ${cwd}: ${error instanceof Error ? error.message : String(error)}. ${left}.`;
 	}
 	if (ran.code === 0 && !ran.killed && ran.aborted !== true) return undefined;
 	const said = (ran.stderr.trim() || ran.stdout.trim()).slice(-2_000);
 	const tail = said ? `\n${said}` : "";
+	const at = head.slice(0, 12);
 	if (ran.killed) {
-		const stopped = `The merge gate \`${command}\` was still running after its ${gate.minutes} minutes at ${head.slice(0, 12)}, so it was stopped and nothing was merged.`;
+		const stopped = `The ${named} \`${command}\` was still running after its ${gate.minutes} minutes at ${at}, so it was stopped. ${left}.`;
 		if (gate.minutes >= MOST_GATE_MINUTES) {
 			return `${stopped} ${MOST_GATE_MINUTES} minutes is the most a gate may name, so the gate itself needs looking at.${tail}`;
 		}
 		const queued = gate.queued ? `, "base": "queued"` : "";
-		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)}${queued} }.${tail}`;
+		return `${stopped} If it needs longer, give it more time in review.${stage}.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)}${queued} }.${tail}`;
 	}
 	if (ran.aborted === true) {
-		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.${tail}`;
+		return `${act} was stopped before its gate \`${command}\` answered at ${at}. ${left}.${tail}`;
 	}
 	if (ran.code === NOT_FOUND) {
-		return `The merge gate \`${command}\` isn't on this machine (exit ${NOT_FOUND}), so nothing could say ${head.slice(0, 12)} may merge. Not merged.${said ? `\n${said}` : ""}`;
+		return `The ${named} \`${command}\` isn't on this machine (exit ${NOT_FOUND}), so nothing could say ${at} may go on. ${left}.${tail}`;
 	}
 	return [
-		`The merge gate \`${command}\` refused ${head.slice(0, 12)} (exit ${ran.code}), so it was not merged.`,
+		`The ${named} \`${command}\` refused ${at} (exit ${ran.code}). ${left}.`,
 		said || "It said nothing about why.",
 	].join("\n");
 }

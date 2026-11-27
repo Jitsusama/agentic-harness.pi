@@ -59,8 +59,9 @@ import {
 	confirmWrite,
 	missingMethod,
 } from "./offer-gates.ts";
-import { merge, reviewSection } from "./offer-merge.ts";
+import { type MergeGating, merge, reviewSection } from "./offer-merge.ts";
 import { propose } from "./offer-propose.ts";
+import { readyRefusal } from "./offer-ready.ts";
 import {
 	draftOf,
 	inTitleCase,
@@ -399,6 +400,12 @@ export async function runOffer(
 						"marked ready",
 					);
 					if (waits) return refuse(waits);
+					const unchecked = await readyRefusal(
+						await gatingFor(ctx, params, change),
+						bound,
+						change,
+					);
+					if (unchecked) return refuse(unchecked);
 				}
 				const decision = await confirmWrite(
 					ctx,
@@ -487,16 +494,15 @@ export async function runOffer(
 			case "retarget-stack":
 				return retargetStack(ctx, bound, change, authoring);
 			case "merge":
-				return merge(ctx, bound, change, authoring, params, pi.events, {
-					...(await reviewSection()),
-					// A relative repo is the session's, not the host process's,
-					// which in a shared host is some other folder.
-					cwd: resolve(
-						sessionCwd(ctx),
-						params.repo ?? change.repo.localPath ?? ".",
-					),
-					run: gateRunner(),
-				});
+				return merge(
+					ctx,
+					bound,
+					change,
+					authoring,
+					params,
+					pi.events,
+					await gatingFor(ctx, params, change),
+				);
 			case "reviewers": {
 				const waits = await heldForCouncil(
 					bound,
@@ -512,6 +518,24 @@ export async function runOffer(
 	} catch (error) {
 		return refuseFailure(error, bound);
 	}
+}
+
+/**
+ * What a repo's own gate is run with, before a merge or a ready: the
+ * config, and the checkout it runs in.
+ */
+async function gatingFor(
+	ctx: ExtensionToolContext,
+	params: OfferParams,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+): Promise<MergeGating> {
+	return {
+		...(await reviewSection()),
+		// A relative repo is the session's, not the host process's, which in
+		// a shared host is some other folder.
+		cwd: resolve(sessionCwd(ctx), params.repo ?? change.repo.localPath ?? "."),
+		run: gateRunner(),
+	};
 }
 
 /**
