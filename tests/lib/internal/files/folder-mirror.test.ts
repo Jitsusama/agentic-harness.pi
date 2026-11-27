@@ -420,6 +420,8 @@ describe("a host's mirror of a folder", { timeout: HEARING_CASE_MS }, () => {
 		folder.files();
 		chmodSync(dir, 0o000);
 		try {
+			// The unreadable folder may fail the refresh; the case reads what
+			// the mirror keeps.
 			await folder.refresh().catch(() => undefined);
 			expect(wordsOf(folder.files()), "what it last read").toEqual(["here"]);
 		} finally {

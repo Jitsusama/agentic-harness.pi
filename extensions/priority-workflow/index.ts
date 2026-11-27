@@ -553,7 +553,10 @@ export function keepQueue(pi: ExtensionAPI, machine: Machine) {
 		if (!found()) return;
 		const { command } = event.input;
 		if (runsChangedChecks(command)) await takesNow();
+		// An answer that can't be had leaves the call judged on the last
+		// one, as before asking, and must not fail the call it serves.
 		await placesNow(command, ctx.cwd).catch(() => undefined);
+		// A room that can't be read leaves the turn to the last reading.
 		if (kindOf(command, { cwd: ctx.cwd, home: homedir() }) !== undefined)
 			await readNow().catch(() => undefined);
 	});

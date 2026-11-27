@@ -163,6 +163,7 @@ describe("watching the guard", () => {
 		expect(watch.current()).toBe(ON);
 		next = Promise.reject(new Error("rewritten"));
 		watch.start();
+		// The read fails on purpose; this waits only for the watch to have had it.
 		await next.catch(() => undefined);
 		await Promise.resolve();
 		expect(watch.current()).toBe(ON);
@@ -178,6 +179,7 @@ describe("watching the guard", () => {
 			(why) => said.push(why),
 		);
 		const settle = async () => {
+			// A read may fail on purpose; this waits only for the watch to have had it.
 			await next.catch(() => undefined);
 			await Promise.resolve();
 		};

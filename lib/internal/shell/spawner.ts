@@ -769,6 +769,8 @@ async function endOnceStarted(
 	try {
 		const first = await Promise.race([started, waited]);
 		if (first === "started") {
+			// Killed as it started, it ends however it ends: the call only
+			// waits for it to be gone.
 			await run.done.catch(() => undefined);
 		} else if (first === "waited") {
 			run.forsake();

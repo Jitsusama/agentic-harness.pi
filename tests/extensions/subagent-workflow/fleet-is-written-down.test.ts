@@ -203,6 +203,8 @@ describe("dispatching a fleet", () => {
 			throw new Error("cancelled");
 		};
 
+		// The answer throws on purpose; the case reads the ledger, not the
+		// dispatch.
 		await dispatchWith("fleet-cut", stop.signal).catch(() => undefined);
 
 		// Held as cut off, for the cut-off window rather than forever,

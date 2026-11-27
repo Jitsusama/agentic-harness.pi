@@ -181,6 +181,8 @@ describe("stopping a cut the built-in git provider is making", () => {
 			undefined,
 			HEADLESS,
 		);
+		// Handled only while the hook is awaited: the case still reads a
+		// failed cut through `cutting.then` below.
 		cutting.catch(() => undefined);
 
 		await until(

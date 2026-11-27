@@ -70,10 +70,8 @@ beforeEach(async () => {
 	sealed = await seal();
 });
 afterEach(async () => {
-	for (const viewer of viewers.splice(0))
-		await viewer.leave().catch(() => {
-			// A viewer the host already let go has nothing left to leave.
-		});
+	// One the host already let go settles at once: leave never fails.
+	for (const viewer of viewers.splice(0)) await viewer.leave();
 	await host?.kill();
 	await screens?.stop();
 	host = undefined;

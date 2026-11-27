@@ -178,6 +178,8 @@ function keptFresh(folder: string): NodeJS.Timeout {
 function socketRoot(): string | undefined {
 	let folder: string;
 	try {
+		// The setup's own short folder: this run removes it, and the next
+		// run's sweep takes it from one that was killed.
 		folder = mkdtempSync(join(SHORT_PARENT, SHORT_PREFIX));
 	} catch (error) {
 		if (REFUSED.has((error as NodeJS.ErrnoException).code ?? ""))

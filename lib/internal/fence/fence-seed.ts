@@ -94,6 +94,8 @@ async function copyOne(
 	name: string,
 	to: string,
 ): Promise<void> {
+	// A place that can't be looked at is tried as empty: the copy below
+	// lets its own failure go, and the fenced program fetches what it lacks.
 	if (await disk.lstat(place).catch(() => undefined)) return;
 	const half = join(to, `.${name}.seeding-${randomUUID()}`);
 	try {

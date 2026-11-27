@@ -154,6 +154,7 @@ describe("the soak's provider, holding an answer", () => {
 				"soak c0-t9 abort, please",
 				cut.signal,
 			);
+			// Handled only until the case reads its rejection below.
 			first.catch(() => undefined);
 			await provider.held("c0-t9", 5000);
 			cut.abort();

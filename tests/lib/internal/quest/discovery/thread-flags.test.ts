@@ -7,6 +7,7 @@
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -27,7 +28,7 @@ afterEach(() => {
 
 describe("the tree's thread", () => {
 	it("reads a tree in a process run with --input-type", () => {
-		home = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "thread-flags-"));
+		home = mkdtempSync(join(tmpdir(), "thread-flags-"));
 		const root = join(home, "quests");
 		mkdirSync(root);
 		const script = [

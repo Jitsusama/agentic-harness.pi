@@ -103,6 +103,7 @@ describe.skipIf(missing.length > 0)(
 			chmodSync(editor, 0o755);
 		}, CASE_MS);
 		afterAll(async () => {
+			// One that fails to close must not keep the host below from stopping.
 			for (const each of opened) await each.close().catch(() => undefined);
 			await host?.stop();
 			await sealed?.dispose();

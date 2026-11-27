@@ -74,6 +74,7 @@ function leaveWhileQueued<T>(
 	return new Promise<T>((resolve, reject) => {
 		const onAbort = (): void => {
 			if (place.started) return;
+			// The chain still owns `result`; this caller has left it.
 			result.catch(() => undefined);
 			reject(stopped(signal));
 		};
