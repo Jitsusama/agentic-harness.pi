@@ -44,7 +44,9 @@ beforeEach(() => {
 	vi.stubEnv("MYCELIUM_REALM", "home");
 	vi.stubEnv("PI_HOME_REALM", "home");
 	vi.stubEnv("PI_MESH_NODE", "");
-	uninstall = host();
+	// No host, as a pi in a terminal of its own runs: the gates below decide
+	// for it, and a hosted session passes the same ones.
+	uninstall = undefined;
 });
 
 afterEach(async () => {
@@ -100,6 +102,7 @@ async function noneDialled(): Promise<void> {
 
 describe("which mesh hears through the machine's node", () => {
 	it("asks the home realm's node for a hosted session's own mesh", async () => {
+		uninstall = host();
 		await nodes("home");
 		watched(stateDir("mesh-workflow"));
 		await vi.waitFor(() => expect(clients.length, "dialled").toBe(1));
@@ -108,8 +111,6 @@ describe("which mesh hears through the machine's node", () => {
 	// A pi in a terminal of its own runs as long as a hosted one, and a
 	// folder watch would wake it at every message any peer sends.
 	it("asks the home realm's node outside a host too", async () => {
-		uninstall?.();
-		uninstall = undefined;
 		await nodes("home");
 		watched(stateDir("mesh-workflow"));
 		await vi.waitFor(() => expect(clients.length, "dialled").toBe(1));
