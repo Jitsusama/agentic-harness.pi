@@ -47,6 +47,16 @@ const WHERE_TO_LOOK =
 	"Read within the tree you were given; in a large one, search the folders the change touches rather than the whole of it. Read a dependency only at a path the tree itself names, such as a vendored copy or a folder its lockfile points at. When none is there, say in the finding that the library's behaviour went unchecked, rather than looking for it. Never search or list /, /nix/store or a home folder: a walk of any of them takes minutes of the machine somebody is working at, and finds nothing the tree doesn't name.";
 
 /**
+ * What a discovery reviewer, of one change or a stack, checks of each
+ * fix: the paths that do the same thing. In one week of 2026-11 a fix on one path, not its twin,
+ * was found after merge on agentic-harness.pi#2256 and core.nix#5979
+ * and #6431 (1JQPPC's cadence count), each where a reviewer had read
+ * the fixed path and not asked what else did the same.
+ */
+const TWIN_PATHS =
+	"For each thing the change fixes, find the other paths that do the same: the twin handler, the same check on another platform or entry point, a copy of the logic elsewhere. Name each, and say whether the change fixes it too. A fix on one path left undone on its twin is a finding.";
+
+/**
  * What the repo under review says about how it wants to be worked in.
  *
  * A reviewer reads a tree pinned to the commit under review, and a pi
@@ -198,6 +208,7 @@ export function councilPrompt(input: PromptInput): string {
 		"You are one of several reviewers reading the same change independently. Your pass is for discovery: find what is worth saying, and say why you believe it. Another pass will consolidate, and a third will push back, so a finding you are unsure of is still worth raising as long as the uncertainty comes with the evidence that would settle it.",
 		"Read the change below, then use your tools on the tree to check what the diff cannot tell you: who calls this, what the tests around it assume, whether the library really behaves the way the code expects. A finding grounded in something you went and read is worth ten that restate the diff.",
 		"Cover correctness, security, performance, interface design, readability, test quality and naming. Say where each finding points and what the consequence is. Do not describe what the diff already shows.",
+		TWIN_PATHS,
 		WHERE_TO_LOOK,
 		anchorGuidance(input.diff),
 		intentSection(input.intent),
@@ -395,6 +406,7 @@ export function stackPrompt(input: StackPromptInput): string {
 		"Name the changes each finding is about, by the refs given below. A finding about one change names one. A finding that only exists between changes names every change it involves, and stays one finding: reporting it separately against each change turns one observation into several unrelated ones and loses the thing that made it worth saying.",
 		"Review each change on its own merits too. A stack pass that only reports cross-change findings is half a review.",
 		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
+		TWIN_PATHS,
 		WHERE_TO_LOOK,
 		intentSection(input.intent),
 		guidanceSection(input.guidance),
