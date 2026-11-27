@@ -12,6 +12,7 @@ import {
 	readdirSync,
 	readFileSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +34,8 @@ import { git } from "../support/git-fixture.ts";
 
 const run = promisify(execFile);
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "pi-carry.ts");
+/** `pi --session <id>` as pi's own session manager opens it. */
+const PI_RESUME = join(import.meta.dirname, "fixtures", "pi-resume.mts");
 const QUEST = "QEST-20261107-CARRY3";
 const SESSION = "01a19111-pi-carry";
 
@@ -78,6 +81,54 @@ async function piCarry(env: NodeJS.ProcessEnv, ...args: string[]) {
 			.filter((line) => line !== "")
 			.map((line) => JSON.parse(line)),
 	};
+}
+
+/** What `pi --session <id>` did: what it resumed, or why it couldn't. */
+interface Resumed {
+	readonly code: number;
+	/** The session, the log it opened, and the folder it runs it in. */
+	readonly resumed?: { session: string; file: string; cwd: string };
+	readonly why?: string;
+}
+
+/**
+ * What `pi --session <id>` resumes on a machine of `env`, started as the
+ * node starts it: in the folder `pi-carry where` names, which the node's
+ * shell enters first.
+ */
+async function piResumes(
+	env: NodeJS.ProcessEnv,
+	from: string,
+	session: string,
+): Promise<Resumed> {
+	const where = await piCarryRaw(
+		env,
+		"where",
+		QUEST,
+		"--from",
+		from,
+		"--session",
+		session,
+	);
+	if (where.code !== 0) {
+		return { code: where.code, why: "where named no folder to start in" };
+	}
+	return run(
+		"node",
+		[
+			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			PI_RESUME,
+			"--session",
+			session,
+		],
+		{ env, cwd: where.stdout.trimEnd() },
+	).then(
+		(done): Resumed => ({ code: 0, resumed: JSON.parse(done.stdout) }),
+		(failed: { code?: number; stderr?: string }): Resumed => ({
+			code: failed.code ?? -1,
+			why: failed.stderr ?? "",
+		}),
+	);
 }
 
 /**
@@ -297,6 +348,61 @@ describe("pi-carry", () => {
 		);
 		expect(refused.code, "a tree refused starts nothing after it").toBe(1);
 		expect(refused.lines[0]).toMatchObject({ kind: "tree", did: "refused" });
+	});
+
+	// 5HJZ8Z (27 November): a carry counts as done only once its session
+	// answers on the far side, which the node waits for after it starts
+	// it. The harness's half is that pi can resume what arrived, so this
+	// holds an arrival to what pi's own session manager resumes from the
+	// folder the node starts it in, not to its files landing.
+	it.each([
+		["a home at its own path", false],
+		["a home reached through a link", true],
+	])("arrives so that pi --session resumes it on the far side, in its tree at the commit carried, on %s", async (_home, linked) => {
+		const cache = folder(made, "cache");
+		const from = await leaving(cache);
+		const real = machine("arriving", cache);
+		// As /home links to /var/home on Fedora's atomic desktops: the node's
+		// shell enters the folder through the link, and pi reads the folder
+		// it runs in by its real path.
+		const home = linked ? join(folder(made, "links"), "home") : real.home;
+		if (linked) symlinkSync(real.home, home);
+		const env = { ...real.env, HOME: home };
+
+		const carried = await piCarry(from.env, QUEST, "--to", "elsewhere-machine");
+		const arrived = await piCarry(
+			env,
+			"arrive",
+			QUEST,
+			"--from",
+			thisMachine(),
+			"--session",
+			SESSION,
+		);
+		const resumed = await piResumes(env, thisMachine(), SESSION);
+
+		expect(carried.code, "the carry went").toBe(0);
+		expect(arrived.code, "and arrived whole").toBe(0);
+		const tree = join(real.home, "src", "app");
+		expect(
+			resumed,
+			"pi resumed the session carried, from the folder its node enters, in its tree",
+		).toEqual({
+			code: 0,
+			resumed: {
+				session: SESSION,
+				file: expect.stringMatching(new RegExp(`_${SESSION}\\.jsonl$`)),
+				cwd: tree,
+			},
+		});
+		expect(
+			await git(tree, "rev-parse", "HEAD"),
+			"its tree stands at the commit carried",
+		).toBe(from.head);
+		expect(
+			await git(tree, "status", "--porcelain"),
+			"with the change never committed",
+		).toBe("M README.md");
 	});
 
 	// ISXEG8's condition 5 (15 November), as KP0L6A placed it: nothing
