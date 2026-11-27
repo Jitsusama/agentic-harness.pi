@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { keptHeads } from "../../../../lib/internal/pineapple/heads.ts";
+import {
+	headAmong,
+	keptHeads,
+} from "../../../../lib/internal/pineapple/heads.ts";
 
 /** A lookup giving each answer in turn, counting how often it's asked. */
 function answering(answers: (string | undefined)[]) {
@@ -43,5 +46,31 @@ describe("keptHeads", () => {
 		const { ask, asked } = answering(["drill"]);
 		expect(await keptHeads(ask)(undefined, 1)).toBeUndefined();
 		expect(asked).toEqual([]);
+	});
+});
+
+describe("headAmong", () => {
+	const listing = [
+		"aaa\trefs/heads/main",
+		"bbb\trefs/heads/drill",
+		"ccc\trefs/heads/other",
+		"bbb\trefs/pull/7/head",
+		"ddd\trefs/pull/8/head",
+	].join("\n");
+
+	it("names the one branch standing at the pull request's head", () => {
+		expect(headAmong(listing, 7)).toBe("drill");
+	});
+
+	it("names none where no branch stands there", () => {
+		expect(headAmong(listing, 8)).toBeUndefined();
+	});
+
+	it("names none where the pull request isn't listed", () => {
+		expect(headAmong(listing, 9)).toBeUndefined();
+	});
+
+	it("names none where two branches stand there", () => {
+		expect(headAmong(`${listing}\nbbb\trefs/heads/copy`, 7)).toBeUndefined();
 	});
 });

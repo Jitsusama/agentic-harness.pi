@@ -7,6 +7,10 @@
  * limit, the door down) is asked again at the next write, since the stop
  * holds every write it can't tell apart, and a failure kept would hold
  * every push to that repository for as long as the stop stands.
+ *
+ * Where neither GitHub's nor Delta's tool answers, git's own listing of
+ * the repository still can: the pull request's head commit, and the one
+ * branch standing at it ({@link headAmong}).
  */
 
 import type { HeadOf } from "./cover.ts";
@@ -29,4 +33,23 @@ export function keptHeads(ask: HeadOf): HeadOf {
 		}, forget);
 		return asked;
 	};
+}
+
+/**
+ * The branch of pull request `pr` in `listing`, as `git ls-remote` gives
+ * it for `refs/pull/<pr>/head` and `refs/heads/*`: the one branch whose
+ * tip is the pull request's head. None when no branch stands there, or
+ * more than one does, since then the change can't be told apart.
+ */
+export function headAmong(listing: string, pr: number): string | undefined {
+	const refs = listing
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/))
+		.filter((parts): parts is [string, string] => parts.length === 2);
+	const head = refs.find(([, ref]) => ref === `refs/pull/${pr}/head`)?.[0];
+	if (head === undefined) return undefined;
+	const branches = refs
+		.filter(([sha, ref]) => sha === head && ref.startsWith("refs/heads/"))
+		.map(([, ref]) => ref.slice("refs/heads/".length));
+	return branches.length === 1 ? branches[0] : undefined;
 }

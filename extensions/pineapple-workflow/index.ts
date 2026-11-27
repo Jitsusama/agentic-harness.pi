@@ -39,7 +39,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
-import { keptHeads } from "../../lib/internal/pineapple/heads.ts";
+import { headAmong, keptHeads } from "../../lib/internal/pineapple/heads.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
 	describeReach,
@@ -65,6 +65,15 @@ const run = promisify(execFile);
 
 /** How long a lookup may take before the guard goes on without it. */
 const LOOKUP_MS = 10_000;
+
+/**
+ * How long git's listing of every branch may take: over half a megabyte
+ * for a busy repository, eight seconds on a slow link.
+ */
+const LISTING_MS = 30_000;
+
+/** The most a lookup may print, room for many times that listing. */
+const LISTING_BYTES = 32 * 1024 * 1024;
 
 /**
  * How often a session looks for a stop or a resume, and holds are
@@ -249,8 +258,9 @@ const gitFacts: GitFacts = {
 };
 
 /**
- * A pull request's branch, asked of GitHub and then Delta; `keptHeads`
- * keeps each one found for the session.
+ * A pull request's branch, asked of GitHub, then Delta, then git's own
+ * listing of the repository on GitHub; `keptHeads` keeps each one found
+ * for the session.
  */
 const headOfAsked: HeadOf = async (repo, pr) => {
 	if (repo === undefined) return undefined;
@@ -265,9 +275,32 @@ const headOfAsked: HeadOf = async (repo, pr) => {
 			"headRefName",
 			"-q",
 			".headRefName",
-		])) ?? (await deltaHead(repo, pr))
+		])) ??
+		(await deltaHead(repo, pr)) ??
+		(await listedHead(repo, pr))
 	);
 };
+
+/**
+ * A pull request's branch, read from git's listing of its repository on
+ * GitHub, which needs neither tool's sign-in.
+ */
+async function listedHead(
+	repo: string,
+	pr: number,
+): Promise<string | undefined> {
+	const listing = await quietly(
+		"git",
+		[
+			"ls-remote",
+			`https://github.com/${repo}`,
+			`refs/pull/${pr}/head`,
+			"refs/heads/*",
+		],
+		LISTING_MS,
+	);
+	return listing === undefined ? undefined : headAmong(listing, pr);
+}
 
 async function deltaHead(
 	repo: string,
@@ -298,9 +331,13 @@ async function deltaHead(
 async function quietly(
 	program: string,
 	args: string[],
+	timeout = LOOKUP_MS,
 ): Promise<string | undefined> {
 	try {
-		const { stdout } = await run(program, args, { timeout: LOOKUP_MS });
+		const { stdout } = await run(program, args, {
+			timeout,
+			maxBuffer: LISTING_BYTES,
+		});
 		const out = stdout.trim();
 		return out === "" ? undefined : out;
 	} catch {
