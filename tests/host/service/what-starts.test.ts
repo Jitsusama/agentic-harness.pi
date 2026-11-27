@@ -17,6 +17,7 @@ import {
 	hostModules,
 	installMovesFrom,
 	installMovesOrThrowsFrom,
+	installStepsBackFrom,
 	isUnitMain,
 	ownLaunchdJob,
 	ownUnit,
@@ -25,6 +26,7 @@ import {
 	unitDefinition,
 	versionsMove,
 } from "../../../host/service/what-starts.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 let root: string;
 beforeEach(async () => {
@@ -248,6 +250,88 @@ describe("installMovesFrom", () => {
 		const one = await version("one", "export const a = 1;\n");
 		const moved = installMovesFrom(one);
 		expect(await moved()).toBeUndefined();
+	});
+});
+
+// 27 November (F33): an operator moved the install's current link back
+// to an older version, and each child stayed on the bad one for one to
+// two hours; a step back is what lets a child roll at once.
+describe("installStepsBackFrom", () => {
+	let source: string;
+	let older: string;
+	let newer: string;
+	let aside: string;
+	beforeEach(async () => {
+		source = await freshRepo("steps-back");
+		older = await git(source, "rev-parse", "HEAD");
+		await git(source, "commit", "-q", "--allow-empty", "-m", "newer");
+		newer = await git(source, "rev-parse", "HEAD");
+		await git(source, "checkout", "-q", "-b", "aside", older);
+		await git(source, "commit", "-q", "--allow-empty", "-m", "aside");
+		aside = await git(source, "rev-parse", "HEAD");
+	});
+	afterEach(() => disposeRepo(source));
+
+	/** A version as pi-packages builds one: a shared clone of the install's mirror, detached at its commit. */
+	async function version(name: string, commit = name): Promise<string> {
+		const folder = join(root, "install", "versions", name);
+		await mkdir(dirname(folder), { recursive: true });
+		await git(root, "clone", "-q", "--shared", "--no-checkout", source, folder);
+		await git(folder, "checkout", "-q", "--detach", commit);
+		return folder;
+	}
+	async function current(folder: string): Promise<void> {
+		const next = join(root, "install", "next");
+		await symlink(folder, next);
+		await rename(next, join(root, "install", "current"));
+	}
+
+	it("says so once the install names a version whose commit came before its own", async () => {
+		const own = await version(newer);
+		const steps = installStepsBackFrom(own);
+		await current(own);
+		expect(await steps(), "its own version").toBe(false);
+		await current(await version(older));
+		expect(await steps()).toBe(true);
+	});
+
+	it("takes a move forward, or onto a commit beside its own history, as no step back", async () => {
+		const own = await version(older);
+		const steps = installStepsBackFrom(own);
+		await current(await version(newer));
+		expect(await steps(), "forward").toBe(false);
+		await current(await version(aside));
+		expect(await steps(), "beside").toBe(false);
+	});
+
+	it("takes a rebuild of its own commit as no step back", async () => {
+		const own = await version(newer);
+		await current(await version(`${newer}+1795740138`, newer));
+		expect(await installStepsBackFrom(own)()).toBe(false);
+	});
+
+	it("takes a version whose commit can't be read as no step back", async () => {
+		const own = await version(newer);
+		await put("install/versions/unread/package.json", "{}\n");
+		await current(join(root, "install", "versions", "unread"));
+		expect(await installStepsBackFrom(own)()).toBe(false);
+	});
+
+	it("takes an unreadable link, or a version outside an install, as no step back", async () => {
+		const own = await version(newer);
+		expect(await installStepsBackFrom(own)(), "no link").toBe(false);
+		await put("tree/package.json", "{}\n");
+		expect(await installStepsBackFrom(join(root, "tree"))()).toBe(false);
+	});
+
+	it("asks of each version once, since its commit never changes under its name", async () => {
+		const own = await version(newer);
+		const steps = installStepsBackFrom(own);
+		const back = await version(older);
+		await current(back);
+		expect(await steps()).toBe(true);
+		await rm(join(back, ".git"), { recursive: true, force: true });
+		expect(await steps(), "the first answer kept").toBe(true);
 	});
 });
 
