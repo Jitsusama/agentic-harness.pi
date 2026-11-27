@@ -450,7 +450,11 @@ fi
 # The rules run under a config written here rather than the head's, with
 # the checkout's packages, and import nothing but vitest and node's own.
 # Each walks the whole tree, which takes past vitest's 5 seconds on a busy
-# machine, so a test may take five minutes before it counts as failed.
+# machine, so a test may take five minutes before it counts as failed,
+# and each rule's own limit, which wins over this one, is held no shorter
+# by tests/scripts/merge-gate.test.ts. Whoever runs this gate bounds the
+# whole of it: review_offer gives a gate five minutes unless its entry
+# names more, so a walk that long fails the gate before the test.
 ln -s "$PWD/node_modules" "$whole/node_modules"
 config="$scratch/counts.config.mjs"
 {

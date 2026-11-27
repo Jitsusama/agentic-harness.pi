@@ -25,18 +25,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { extensionOf, isCode, packageFiles } from "./package-files.ts";
+import { extensionOf, isCode, packageFiles, WALK } from "./package-files.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
 /** The shrink-only list of files and how many suppressions each still has. */
 const LIST = join(import.meta.dirname, "suppressions-waiting.txt");
-
-/**
- * How long a walk of the whole tree may take on a busy machine: as long
- * as merge-gate.sh gives it, since this limit wins over the gate's.
- */
-const WALK = { timeout: 300_000 };
 
 /** A comment mark and the markers that, opening its comment, suppress. */
 interface Marks {
@@ -120,8 +114,17 @@ function codeFiles(): string[] {
 	return packageFiles(ROOT).filter(isCode);
 }
 
+/** The walk's counts, kept so both cases read one walk of the tree. */
+let walked: Map<string, number> | undefined;
+
 /** Each file's suppressions, for the files that have any. */
 function counted(): Map<string, number> {
+	walked ??= walk();
+	return walked;
+}
+
+/** Each file's suppressions, read from the tree as it stands. */
+function walk(): Map<string, number> {
 	const counts = new Map<string, number>();
 	for (const file of codeFiles()) {
 		const extension = extensionOf(file);
