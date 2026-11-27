@@ -792,7 +792,10 @@ export function createHearing(m: MeshState, f: Handing) {
 	const lookIfPassedOver = () => {
 		if (!lookPassedOver) return;
 		lookPassedOver = false;
-		lookAgain();
+		// After the look that passed it over: joined while that one still
+		// runs, it would end with it, owing what it was passed over for
+		// until the next minute's look.
+		void lastLook.then(lookAgain);
 	};
 
 	/** Messages the watcher never reported, taken as it would have. */
@@ -817,13 +820,15 @@ export function createHearing(m: MeshState, f: Handing) {
 	// A tick that comes while the last look still reads is passed over:
 	// on a stalled disk, looks stacking up would only queue more reads.
 	const looking = singleFlight<string, void>();
+	// Settled once the newest look has ended, however it ended.
+	let lastLook: Promise<void> = Promise.resolve();
 
 	/** What a minute changed that nothing said, looked at again. */
 	const lookAgain = () => {
 		if (!m.peer) return;
 		chase();
 		if (m.left.size > 0) void reconsider();
-		looking("again", async () => {
+		lastLook = looking("again", async () => {
 			// Both end before the next tick may look: one failing leaves the
 			// other to finish rather than run beside its next.
 			await Promise.allSettled([lookAround(), lookForMissed()]);
