@@ -201,6 +201,9 @@ export async function serveHost(options: {
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 	let children: HostedChildren | undefined;
+	// Declared before the children's hosting, which reads it whenever a wake
+	// fails, as one can while the start still adopts and resumes.
+	let stopping: Promise<void> | undefined;
 	try {
 		host = new SessionHost({
 			key,
@@ -334,7 +337,6 @@ export async function serveHost(options: {
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
-		let stopping: Promise<void> | undefined;
 		let restarting = false;
 		return {
 			identity,

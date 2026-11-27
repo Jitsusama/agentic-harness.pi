@@ -780,6 +780,73 @@ describe("serveHost with children", () => {
 		}
 	});
 
+	// F121 on #2330: a wake that fails while the start still resumes asks
+	// whether the host is stopping, which it must answer, not throw on.
+	it("reports a wake that fails while the start still resumes", async () => {
+		roomForChildren();
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		for (const id of ["a", "b"]) {
+			const reply = await opened(first.path, id);
+			if (!reply.ok) throw new Error(reply.error.message);
+		}
+		await first.stop();
+		const folder = slotFolder(run, "work-attended");
+		const units = fakeUnits(folder, "work-attended", report);
+		const said: string[] = [];
+		const refused = new Error("no unit may start");
+		let woken: string | undefined;
+		const second = await serveHost({
+			...places(),
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: () => true,
+					opens: () => true,
+					close: () => undefined,
+				}),
+			},
+			engine: async (h) => engine(h),
+			starting: async (step) => {
+				if (step.step !== "resume" || step.number !== 2) return;
+				// The first resumed runs in its child by now; it dies mid-turn,
+				// and no new child can start, so its wake fails here, mid-start.
+				const [child] = [...units.children.values()];
+				if (!child) throw new Error("the first resume ran in no child");
+				woken = child.conversation.sessionId;
+				units.start = () => Promise.reject(refused);
+				child.say({
+					type: "state",
+					conversation: { ...child.conversation, state: "busy" },
+				});
+				await child.exit();
+				await until("its wake to fail", () =>
+					Promise.resolve(said.some((line) => line.includes("didn't land"))),
+				);
+			},
+		});
+		try {
+			const reported = () =>
+				report.mock.calls.some(
+					([error]) =>
+						error instanceof Error &&
+						error.cause === refused &&
+						woken !== undefined &&
+						error.message.startsWith(woken),
+				);
+			await until("the failed wake to be reported", () =>
+				Promise.resolve(reported()),
+			);
+			expect(reported(), "a host starting is no host stopping").toBe(true);
+		} finally {
+			await second.stop();
+			for (const child of units.children.values()) await child?.exit();
+		}
+	});
+
 	it("runs every conversation itself when no child's socket would fit, saying so", async () => {
 		// Long enough that a child's socket, 39 bytes further down than the
 		// host's, passes the limit while the host's still fits.
