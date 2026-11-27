@@ -313,8 +313,10 @@ input pipeline or screen. No unit or running host is installed yet.
   code from before the field refuses the request; the host's own
   journal names the asker as it passes the request on. The next snapshot removes any there
   over 2 hours old, and a write that fails removes its partial file.
-  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one
-  and waits up to 10 minutes; past that, the file may still come.
+  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one,
+  naming itself, and waits up to 10 minutes; past that, the file may
+  still come. A host still running code from before `by` refuses it,
+  so the script asks that one again without.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.

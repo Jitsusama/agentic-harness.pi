@@ -24,8 +24,9 @@
  * of its host, which passes it to the child, and says where it went. The
  * write stops that process's thread for seconds, so a busy conversation
  * refuses it. The file holds what the process holds, secrets among them,
- * so it is written for its owner alone; remove it once read. The host
- * removes any left more than 2 hours before its next snapshot. A large heap
+ * so it is written for its owner alone, and the host's journal names this
+ * script as who asked for it; remove it once read. The host removes any
+ * left more than 2 hours before its next snapshot. A large heap
  * takes a while to write, so this waits up to SNAPSHOT_WAIT_MS; one that
  * gives up says the file may still be coming.
  */
@@ -215,18 +216,34 @@ export function describeSnapshotFailure(label: string, error: unknown): string {
 	return `${label}: no snapshot: ${said}${late}`;
 }
 
-/** The heap snapshot the host on `socket` has written of `sessionId`'s process, or why not. */
-async function snapshotAt(socket: string, sessionId: string): Promise<string> {
-	const reply = await controlRequest(
-		socket,
-		{
-			v: 1,
-			id: randomUUID(),
-			op: "heap-snapshot",
-			sessionId,
-		},
-		SNAPSHOT_WAIT_MS,
-	);
+/** Who this script tells a host asks for a snapshot, for its journal. */
+export const SNAPSHOT_ASKER = "scripts/host-memory.ts";
+
+/**
+ * The heap snapshot the host on `socket` has written of `sessionId`'s
+ * process, or why not, waiting up to `waitMs`. A host not yet restarted
+ * onto code that takes who asks refuses the request unread, having done
+ * nothing, so it is asked once more without.
+ */
+export async function snapshotAt(
+	socket: string,
+	sessionId: string,
+	waitMs = SNAPSHOT_WAIT_MS,
+): Promise<string> {
+	const ask = (by?: string) =>
+		controlRequest(
+			socket,
+			{
+				v: 1,
+				id: randomUUID(),
+				op: "heap-snapshot",
+				sessionId,
+				...(by === undefined ? {} : { by }),
+			},
+			waitMs,
+		);
+	let reply = await ask(SNAPSHOT_ASKER);
+	if (!reply.ok && reply.error.code === "invalid_request") reply = await ask();
 	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
 	return describeSnapshot(parseHeapSnapshotResult(reply.result));
 }
