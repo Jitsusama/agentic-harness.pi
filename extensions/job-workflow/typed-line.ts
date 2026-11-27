@@ -7,20 +7,27 @@
  * calls that can move to the background hear of it (lib/jobs/steer.ts).
  * A line queued to follow the run, or one an extension sends, waits as
  * it was asked to and changes nothing here.
+ *
+ * Each line waits until pi reads its own words, since another message
+ * may be read first: the run's own prompt, or a steer from elsewhere.
+ * A line pi reads in other words, as a skill or template it expands,
+ * waits until the run ends instead: too long, never too short.
  */
 
 import { count, verb } from "../../lib/ui/count.ts";
 
 /** A line typed during a run, and the calls it waits on. */
 export interface TypedLine {
-	/** The person typed a line pi holds until the turn's calls end. */
-	typed(): void;
+	/** The person typed `text`, a line pi holds until the turn's calls end. */
+	typed(text: string): void;
 	/** A call started. */
 	started(toolCallId: string, toolName: string): void;
 	/** A call ended, however it ended. */
 	ended(toolCallId: string): void;
-	/** pi read the line, or the run ended and nothing waits any more. */
-	read(): void;
+	/** pi read a message whose words are `text`, letting go a line typed so. */
+	read(text: string | undefined): void;
+	/** The run ended, so no line waits any more. */
+	settled(): void;
 	/** Whether a typed line waits to be read. */
 	waiting(): boolean;
 	/** What pi's working line says while the line waits; none once read. */
@@ -29,11 +36,11 @@ export interface TypedLine {
 
 /** Keep track of a typed line and the calls running beside it. */
 export function typedLine(): TypedLine {
-	let waiting = false;
+	const unread: string[] = [];
 	const running = new Map<string, string>();
 	return {
-		typed() {
-			waiting = true;
+		typed(text) {
+			unread.push(text);
 		},
 		started(toolCallId, toolName) {
 			running.set(toolCallId, toolName);
@@ -41,12 +48,16 @@ export function typedLine(): TypedLine {
 		ended(toolCallId) {
 			running.delete(toolCallId);
 		},
-		read() {
-			waiting = false;
+		read(text) {
+			const at = text === undefined ? -1 : unread.indexOf(text);
+			if (at >= 0) unread.splice(at, 1);
 		},
-		waiting: () => waiting,
+		settled() {
+			unread.length = 0;
+		},
+		waiting: () => unread.length > 0,
 		words() {
-			if (!waiting) return undefined;
+			if (unread.length === 0) return undefined;
 			return `Your message is read once ${waitedOn([...running.values()])}`;
 		},
 	};
