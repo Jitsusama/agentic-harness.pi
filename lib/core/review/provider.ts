@@ -42,6 +42,12 @@ export interface RepoProbe {
 	remoteUrls?: string[];
 	/** The `origin` remote's URL among them, where changes go by convention. */
 	origin?: string;
+	/**
+	 * Why the checkout couldn't be read, when a guard refused its git
+	 * rather than the folder not being a repo: the refusal is the answer
+	 * a person needs, where "nobody claimed it" would send them to pin it.
+	 */
+	refused?: string;
 }
 
 /** Which changes to list. */

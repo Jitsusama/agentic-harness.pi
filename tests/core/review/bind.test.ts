@@ -307,6 +307,20 @@ describe("resolving a checkout with nothing to review yet", () => {
 		expect(!resolution.resolved && resolution.tried).toContain("github");
 	});
 
+	it("says the guard's refusal rather than advising a pin when git was refused in the checkout", () => {
+		registerReviewProvider(
+			stubProvider({ id: "github", priority: 10, claimRepo: () => null }),
+		);
+
+		const resolution = resolveRepo({
+			refused: "the tree's hooks run outside the fence",
+		});
+
+		expect(!resolution.resolved && resolution.message).toBe(
+			"No review provider could read this checkout, because its git was refused: the tree's hooks run outside the fence",
+		);
+	});
+
 	it("remembers nothing, because a checkout is not a target", () => {
 		// A binding exists so a target cannot flip provider mid-flight. There
 		// is no target here, and pinning the repo would decide for every

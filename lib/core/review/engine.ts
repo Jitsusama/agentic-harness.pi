@@ -10,6 +10,7 @@
  * draft about itself.
  */
 
+import { GIT_REFUSED } from "../../internal/sandbox/tree-git.ts";
 import type { Exec } from "../exec/index.ts";
 import { run } from "../exec/index.ts";
 import { resolveRepo, resolveTarget } from "./bind.ts";
@@ -158,8 +159,12 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			"rev-parse",
 			"--show-toplevel",
 		]);
-		// Not being in a repo is an ordinary answer, not a failure:
-		// a reference can still be a URL.
+		// A guard refusing git is said, since the checkout may well be a
+		// repo a provider would claim. Not being in a repo is an ordinary
+		// answer, not a failure: a reference can still be a URL.
+		if (top.code === GIT_REFUSED) {
+			return { refused: top.stderr.trim() || "git was refused here" };
+		}
 		if (top.code !== 0) return {};
 		const repoRoot = top.stdout.trim();
 

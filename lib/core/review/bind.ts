@@ -243,7 +243,7 @@ function resolveIn(
 	return {
 		resolved: false,
 		tried,
-		message: unclaimed(ids),
+		message: unclaimed(ids, probe),
 	};
 }
 
@@ -274,8 +274,18 @@ function originsOwn(
 	return claimRepo(others, { ...probe, remoteUrls: [origin] }, tried);
 }
 
-/** Why nobody claimed a repo, naming a pin that names nobody. */
-function unclaimed(ids: string[]): string {
+/**
+ * Why nobody claimed a repo: the guard's refusal when git was refused
+ * in the checkout, else the advice to pin it, naming a pin that names
+ * nobody.
+ */
+function unclaimed(ids: string[], probe: RepoProbe): string {
+	if (probe.refused !== undefined) {
+		return (
+			"No review provider could read this checkout, because its git " +
+			`was refused: ${probe.refused}`
+		);
+	}
 	const absent = ids.filter((id) => !getReviewProvider(id));
 	const missing =
 		absent.length > 0
