@@ -599,13 +599,14 @@ takes as `--owner`, read at each refresh from
 `subjects=a,b`). At most 24, each plain text of at most 120
 characters, as the node reads them; presence leaves the key out
 while there are none. A node before mycelium 22d57885 keeps only
-the first 12, and says nothing of the rest. A need finds a cell by the words of a
-subject's narrowest part, after its last colon, dot or slash, so
-`config` refuses one whose narrowest part holds no word routing
-reads (each too short, past 32 letters or as common as can or
-after), as `x:can` or `hooks:after`. It refuses one holding any
-word there past 32 letters as well: a hub takes a need only when
-the need says every word of its subject, and no need keeps such a
+the first 12, the same 12 a cap of 12 would say, and says nothing
+of the rest. A need finds a cell by the words of a subject's
+narrowest part, after its last colon, dot or slash, so `config`
+refuses one whose narrowest part holds no word routing reads
+(each too short, past 32 letters or as common as can or after),
+as `x:can` or `hooks:after`. It refuses one holding any word
+there past 32 letters as well: a hub takes a need only when the
+need says every word of its subject, and no need keeps such a
 word. Its report names any subject of either kind the README
 already holds, and neither is ever a led area. A subject routes a
 need and grants nothing.
