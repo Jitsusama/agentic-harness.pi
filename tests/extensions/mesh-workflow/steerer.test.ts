@@ -12,13 +12,39 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { MeshState } from "../../../extensions/mesh-workflow/peer/mesh.ts";
 import { createSteerer } from "../../../extensions/mesh-workflow/peer/steerer.ts";
 import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
-import { steerWaiting } from "../../../lib/jobs/steer.ts";
+import { onSteered, steerWaiting } from "../../../lib/jobs/steer.ts";
 import { giveSteer } from "../../../lib/mesh/steer.ts";
 
 const ADDRESS = "A1B2C3";
 
-/** What the bus hears when a talk is said as a typed line is. */
-const JOBS_STEERED = "jobs:steered:v1";
+/** How many times `bus` hears a talk said as a typed line is, so far. */
+function steeredOn(bus: ReturnType<typeof createEventBus>): () => number {
+	let said = 0;
+	onSteered(bus, () => {
+		said += 1;
+	});
+	return () => said;
+}
+
+/**
+ * A bus that counts the listeners still on it, so a test can see how
+ * many answers a steerer leaves behind.
+ */
+function countingBus() {
+	const bus = createEventBus();
+	let listening = 0;
+	const on: typeof bus.on = (name, handler) => {
+		const off = bus.on(name, handler);
+		listening += 1;
+		let gone = false;
+		return () => {
+			if (!gone) listening -= 1;
+			gone = true;
+			off();
+		};
+	};
+	return { bus: { ...bus, on }, listening: () => listening };
+}
 
 /** The framing a busy session reads the person's talk under. */
 const BUSY_FRAMING = "while this session works";
@@ -143,28 +169,33 @@ describe("a steer the steerer takes", () => {
 });
 
 describe("a talk the steerer hands a session", () => {
-	/** What one steer becomes, given to a session busy or idle. */
+	/**
+	 * What one steer becomes, given to a session busy or idle: what was
+	 * sent, what its bus heard, how often it heard the talk said as a
+	 * typed line is, and the session's bus and life to ask and tell after.
+	 */
 	const handed = async (
 		steer: Parameters<typeof giveSteer>[2],
 		idle: boolean,
-	): Promise<{ sent: Sent[]; emitted: Emitted[] }> => {
+	) => {
 		const root = mkdtempSync(join(tmpdir(), "steerer-"));
 		roots.push(root);
 		const sent: Sent[] = [];
 		const emitted: Emitted[] = [];
-		const m = sessionAt(idle, sent, emitted);
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steered = steeredOn(bus);
+		const m = sessionAt(idle, sent, emitted, lives, bus);
 		giveSteer(root, ADDRESS, steer);
 		createSteerer(m).steer(root);
+		tell(lives, "session_start");
 		await m.steering?.look();
 		m.steering?.stop();
-		return { sent, emitted };
+		return { sent, emitted, steered: steered(), bus, lives };
 	};
 
-	/** The names of the events a hand-over said, in order. */
-	const names = (emitted: Emitted[]) => emitted.map(([name]) => name);
-
 	it("steers Joel's launcher talk into a busy run, said as a typed line is", async () => {
-		const { sent, emitted } = await handed(
+		const { sent, emitted, steered } = await handed(
 			{ text: "look at X", from: "joel" },
 			false,
 		);
@@ -176,7 +207,24 @@ describe("a talk the steerer hands a session", () => {
 		expect(said).toContain(BUSY_FRAMING);
 		expect(said).toContain("then do what is asked, or carry on");
 		expect(emitted).toContainEqual([PERSON_TALKED, { intoRun: true }]);
-		expect(names(emitted)).toContain(JOBS_STEERED);
+		expect(steered).toBe(1);
+	});
+
+	// F97: pi reads back the words it was sent, framing and all, which
+	// is what the steerer must match, not the steer's bare text.
+	it("lets Joel's talk go once pi reads back the very words it was handed", async () => {
+		const { sent, bus, lives } = await handed(
+			{ text: "look at X", from: "joel" },
+			false,
+		);
+		const [said = ""] = sent[0] ?? [];
+		expect(said, "framed, not bare").not.toBe("look at X");
+
+		expect(steerWaiting(bus), "once handed").toBe(true);
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "its bare words read").toBe(true);
+		tell(lives, "message_start", reading("user", said));
+		expect(steerWaiting(bus), "the words it was handed read").toBe(false);
 	});
 
 	it("steers Joel's talk however his name is written", async () => {
@@ -199,17 +247,19 @@ describe("a talk the steerer hands a session", () => {
 		expect(waits.sent.map(([, options]) => options)).toEqual([
 			{ deliverAs: "followUp" },
 		]);
-		expect(names(waits.emitted)).not.toContain(JOBS_STEERED);
+		expect(waits.steered).toBe(0);
+		expect(steerWaiting(waits.bus)).toBe(false);
 		expect(now.sent.map(([, options]) => options)).toEqual([
 			{ deliverAs: "steer" },
 		]);
-		expect(names(now.emitted)).toContain(JOBS_STEERED);
+		expect(now.steered).toBe(1);
+		expect(steerWaiting(now.bus)).toBe(true);
 	});
 
 	it("holds a peer's or the machine's words for the run's end, now or not", async () => {
 		for (const from of ["ABC123", "machine"]) {
 			for (const now of [undefined, true] as const) {
-				const { sent, emitted } = await handed(
+				const { sent, steered, bus } = await handed(
 					{ text: "look at X", from, ...(now ? { now } : {}) },
 					false,
 				);
@@ -217,15 +267,14 @@ describe("a talk the steerer hands a session", () => {
 					sent.map(([, options]) => options),
 					`${from}, now ${now}`,
 				).toEqual([{ deliverAs: "followUp" }]);
-				expect(names(emitted), `${from}, now ${now}`).not.toContain(
-					JOBS_STEERED,
-				);
+				expect(steered, `${from}, now ${now}`).toBe(0);
+				expect(steerWaiting(bus), `${from}, now ${now}`).toBe(false);
 			}
 		}
 	});
 
 	it("starts a turn with Joel's talk when the session is idle", async () => {
-		const { sent, emitted } = await handed(
+		const { sent, steered, bus } = await handed(
 			{ text: "look at X", from: "joel" },
 			true,
 		);
@@ -233,14 +282,16 @@ describe("a talk the steerer hands a session", () => {
 		expect(sent.map(([, options]) => options)).toEqual([undefined]);
 		const [said] = sent[0] ?? [];
 		expect(said).not.toContain(BUSY_FRAMING);
-		expect(names(emitted)).not.toContain(JOBS_STEERED);
+		expect(steered).toBe(0);
+		expect(steerWaiting(bus)).toBe(false);
 	});
 
 	it("holds words with no steer, as a look's answer, for a busy run's end", () => {
 		const sent: Sent[] = [];
-		const emitted: Emitted[] = [];
-		const busy = createSteerer(sessionAt(false, sent, emitted));
-		const idle = createSteerer(sessionAt(true, sent, emitted));
+		const bus = createEventBus();
+		const steered = steeredOn(bus);
+		const busy = createSteerer(sessionAt(false, sent, [], new Map(), bus));
+		const idle = createSteerer(sessionAt(true, sent, [], new Map(), bus));
 
 		busy.steered("the look's answer", false);
 		idle.steered("the look's answer", true);
@@ -249,7 +300,7 @@ describe("a talk the steerer hands a session", () => {
 			["the look's answer", { deliverAs: "followUp" }],
 			["the look's answer", undefined],
 		]);
-		expect(names(emitted)).not.toContain(JOBS_STEERED);
+		expect(steered()).toBe(0);
 	});
 
 	// F64: a call that starts after the talk asks whether a line waits.
@@ -347,8 +398,8 @@ describe("a talk the steerer hands a session", () => {
 		);
 	});
 
-	// F89: a session started again answers once, afresh.
-	it("answers once when its session starts again", () => {
+	// F89: a session started again forgets what waited before.
+	it("forgets what waited when its session starts again", () => {
 		const lives: Lives = new Map();
 		const bus = createEventBus();
 		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
@@ -356,6 +407,37 @@ describe("a talk the steerer hands a session", () => {
 		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
 		tell(lives, "session_start");
 		expect(steerWaiting(bus), "what waited before").toBe(false);
+	});
+
+	// F95, F99: each start puts the last answer down before it answers.
+	it("answers once however often its session starts, and not after it shuts down", () => {
+		const lives: Lives = new Map();
+		const { bus, listening } = countingBus();
+		createSteerer(sessionAt(false, [], [], lives, bus));
+		const before = listening();
+
+		tell(lives, "session_start");
+		tell(lives, "session_start");
+		tell(lives, "session_start");
+		expect(listening() - before, "after three starts").toBe(1);
+		tell(lives, "session_shutdown");
+		expect(listening() - before, "once shut down").toBe(0);
+	});
+
+	// F98: the same words twice wait until pi has read both.
+	it("keeps the second of two identical talks waiting until pi reads it too", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		const joel = { text: "look at X", from: "joel" };
+		steerer.steered("look at X", false, joel);
+		steerer.steered("look at X", false, joel);
+
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "one read of two").toBe(true);
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "both read").toBe(false);
 	});
 
 	it("says nothing waits for words held for the run's end", () => {
