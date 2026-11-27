@@ -36,6 +36,30 @@ function peerHearing(heard: Heard[]) {
 	return state as unknown as MeshState;
 }
 
+/** What the steerer sent the session: its words and how they go. */
+type Sent = [string, { deliverAs?: string } | undefined];
+
+/** A peer's state as busy or idle, recording what reaches the session. */
+function sessionAt(idle: boolean, sent: Sent[]) {
+	const state = {
+		peer: { addresses: [ADDRESS] },
+		pausing: { act: () => undefined, talked: () => undefined },
+		moving: { cancel: () => undefined },
+		talks: { opened: () => undefined },
+		ctx: { isIdle: () => idle, hasUI: false },
+		pi: {
+			sendUserMessage: (text: string, options?: { deliverAs?: string }) =>
+				sent.push([text, options]),
+			events: { emit: () => undefined },
+		},
+		steering: undefined,
+		steerRoot: undefined,
+	};
+	// The steerer is wired against the whole peer state; these are the
+	// parts a talk reaches.
+	return state as unknown as MeshState;
+}
+
 let roots: string[] = [];
 afterEach(() => {
 	for (const root of roots) rmSync(root, { recursive: true, force: true });
@@ -66,5 +90,58 @@ describe("a steer the steerer takes", () => {
 			["act", "stop", "joel", stopAt],
 			["talked", talkAt],
 		]);
+	});
+});
+
+describe("a talk the steerer hands a session", () => {
+	/** What one steer becomes, given to a session busy or idle. */
+	const handed = async (
+		steer: Parameters<typeof giveSteer>[2],
+		idle: boolean,
+	): Promise<Sent[]> => {
+		const root = mkdtempSync(join(tmpdir(), "steerer-"));
+		roots.push(root);
+		const sent: Sent[] = [];
+		const m = sessionAt(idle, sent);
+		giveSteer(root, ADDRESS, steer);
+		createSteerer(m).steer(root);
+		await m.steering?.look();
+		m.steering?.stop();
+		return sent;
+	};
+
+	it("steers the person's talk into a busy run, framed as said while it works", async () => {
+		const sent = await handed({ text: "look at X", from: "joel" }, false);
+
+		expect(sent.map(([, options]) => options)).toEqual([
+			{ deliverAs: "steer" },
+		]);
+		expect(sent[0]?.[0]).toContain("while this session works");
+		expect(sent[0]?.[0]).toContain("then do what is asked, or carry on");
+	});
+
+	it("holds a peer's or the machine's words for the run's end, now or not", async () => {
+		for (const from of ["ABC123", "machine"]) {
+			for (const now of [undefined, true] as const) {
+				const sent = await handed(
+					{ text: "look at X", from, ...(now ? { now } : {}) },
+					false,
+				);
+				expect(
+					sent.map(([, options]) => options),
+					`${from}, now ${now}`,
+				).toEqual([{ deliverAs: "followUp" }]);
+				expect(sent[0]?.[0], `${from}, now ${now}`).not.toContain(
+					"while this session works",
+				);
+			}
+		}
+	});
+
+	it("starts a turn with the person's talk when the session is idle", async () => {
+		const sent = await handed({ text: "look at X", from: "joel" }, true);
+
+		expect(sent.map(([, options]) => options)).toEqual([undefined]);
+		expect(sent[0]?.[0]).not.toContain("while this session works");
 	});
 });

@@ -1071,13 +1071,16 @@ renamed into `steer/<ADDRESS>/` as `<unix-ms>-<random>.json`,
 holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
 (only `text` is needed), reaches the session going by that
 address as the person's own message. That's a turn when idle.
-A session at work reads it once its run ends, so a task isn't
-broken into, unless the file holds `"now": true`, which reads
-it into the run under way after its current tool (Joel, 12
-November). Either way it reads as the person asking from
-outside the window, to be answered first in a line or two
-before the session carries on, since the launcher shows that
-first answer; a machine's steer says it isn't the person's.
+A session at work reads the person's talk, `from` `joel` or
+`person`, into the run under way once its current round of
+tools ends, as typing in its window does (Joel, 26 November);
+a long tool holds it that long. Anyone else's words, and words
+naming nobody, wait for the run to end, so no agent breaks
+into another's task; `"now": true` reads words naming nobody
+in early, and is ignored from a peer or the machine. Either
+way it reads as the person asking from outside the window, to
+be answered first in a line or two, since the launcher shows
+that first answer; a machine's steer says it isn't the person's.
 It isn't a mesh message, since peers read those as
 another agent's context. The session takes each file by
 renaming it, so it's delivered once, and sets one with no text

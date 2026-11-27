@@ -18,11 +18,14 @@
  * `pi`), and a `fill` puts its `text` in the prompt without sending it.
  * An `answer` answers the open ask the session's want `want` names, with
  * one of its choices as `value` or the person's words as `other`, or the
- * look `look` names with one of its choices as `value`. Words reach a
- * session at work once its run ends, unless the steer holds `"now": true`,
- * which reads them into the run under way, after its current tool: the
- * person says when to break into a task (Joel, 12 November: a message
- * to a session mid-task waits for its turn to end unless he says now). A
+ * look `look` names with one of its choices as `value`. Words from
+ * `"joel"` or `"person"` reach a session at work in the run under way,
+ * once its current round of tools ends, as typing in its window does
+ * (Joel, 26 November, replacing his 12 November rule that they wait for
+ * the turn to end unless he says now). Anyone else's words, and words
+ * naming nobody, wait for the run to end, unless `"now": true` comes
+ * with words naming nobody; a peer's or the machine's `now` is not
+ * honoured, so no agent breaks into another's task. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. An
  * orchestrator's ordered carry, `{"act": "ordered-carry", "to", "why", "by"}`,
@@ -186,7 +189,8 @@ export interface Steer {
 	readonly given?: GivenAnswer;
 	/**
 	 * Whether its words go into the run under way, rather than waiting for
-	 * it to end; only for words, never for an act.
+	 * it to end; only for words, never for an act, and honoured only for a
+	 * steer naming the person or nobody (extensions/mesh-workflow/steer.ts).
 	 */
 	readonly now?: true;
 	/**

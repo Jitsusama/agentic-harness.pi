@@ -165,17 +165,20 @@ export function createSteering(host: SteeringHost): Steering {
 
 /**
  * How a steer's words reach the session: a turn of their own when it is
- * idle (nothing), and into the run under way after its current tool when
- * the steer says `now` or is the person's own talk, as pi's editor steers
- * what he types on Enter. A peer's or the machine's words otherwise wait
- * for that run to end, so an agent's task isn't broken into by them.
+ * idle (nothing), and into the run under way once its current round of
+ * tools ends when the steer is the person's own talk, as pi's editor
+ * steers what he types on Enter, or says `now` and is the person's or
+ * names nobody. A peer's or the machine's words wait for that run to end
+ * whatever they say, so an agent's task isn't broken into by them (Joel,
+ * 26 November). A round running a long tool holds the talk as long.
  */
 export function steerDelivery(
 	steer: Pick<Steer, "now" | "text" | "act" | "from">,
 	idle: boolean,
 ): "steer" | "followUp" | undefined {
 	if (idle) return undefined;
-	return steer.now || isPersonsTalk(steer) ? "steer" : "followUp";
+	const saysNow = steer.now === true && isFromPerson(steer.from);
+	return saysNow || isPersonsTalk(steer) ? "steer" : "followUp";
 }
 
 /** What the session is doing as a steer reaches it. */
@@ -201,8 +204,10 @@ export function steerText(steer: Steer, into: SteeredInto): string {
 		const who = steer.by ?? "mycelium node";
 		return `${automatedHeader(`said by this machine's ${who}, not by the person, through this session's steer inbox`)}\n\n${steer.text}`;
 	}
+	// Busy, the words may turn the work as well as ask about it, so the
+	// session is told to carry on only where they ask nothing else.
 	const answer = into.busy
-		? "answer first, in a line or two, then carry on."
+		? "answer first, in a line or two, then do what is asked, or carry on if nothing is."
 		: "answer first, in a line or two, then do what is asked.";
 	if (!isFromPerson(steer.from)) {
 		// Asked, but not by the person, so a stop's parking and the mesh's

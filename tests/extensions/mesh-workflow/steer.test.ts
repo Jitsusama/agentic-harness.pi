@@ -348,15 +348,26 @@ describe("when a steer reaches the session", () => {
 		}
 	});
 
-	it("waits for the run under way to end, unless it says now", () => {
-		expect(steerDelivery({ text: "hi" }, false), "busy").toBe("followUp");
+	it("holds words naming nobody for the run's end, unless they say now", () => {
 		expect(
-			steerDelivery({ text: "hi", from: "ABC123" }, false),
-			"a peer's, busy",
+			steerDelivery({ text: "hi" }, false),
+			"an unnamed writer's, busy",
 		).toBe("followUp");
-		expect(steerDelivery({ text: "hi", now: true }, false), "busy, now").toBe(
-			"steer",
-		);
+		expect(
+			steerDelivery({ text: "hi", now: true }, false),
+			"an unnamed writer's, busy, now",
+		).toBe("steer");
+	});
+
+	it("holds a peer's or the machine's words for the run's end, now or not", () => {
+		for (const from of ["ABC123", "machine"]) {
+			for (const now of [undefined, true] as const) {
+				expect(
+					steerDelivery({ text: "hi", from, ...(now ? { now } : {}) }, false),
+					`${from}'s, busy, now ${now}`,
+				).toBe("followUp");
+			}
+		}
 	});
 
 	it("reads the person's own talk into a busy run after its tool, as typing does", () => {
@@ -371,6 +382,10 @@ describe("when a steer reaches the session", () => {
 		expect(steerDelivery({ text: "", from: "joel" }, false), "no words").toBe(
 			"followUp",
 		);
+		expect(
+			steerDelivery({ text: "stop that", from: "person", now: true }, false),
+			"the node's on his word, now",
+		).toBe("steer");
 	});
 });
 
@@ -379,7 +394,7 @@ describe("a steer as the session reads it", () => {
 		expect(
 			steerText({ text: "hello", from: "joel", file: "f" }, { busy: true }),
 		).toBe(
-			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then carry on.]\n\nhello",
+			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then do what is asked, or carry on if nothing is.]\n\nhello",
 		);
 		expect(steerText({ text: "hello", file: "f" }, { busy: false })).toBe(
 			"[The person is asking from outside this window: answer first, in a line or two, then do what is asked.]\n\nhello",
@@ -424,7 +439,9 @@ describe("a steer as the session reads it", () => {
 		expect(said).toMatch(
 			/^\[Automated message, no human input: asked by wcjqsg, not by the person/,
 		);
-		expect(said).toMatch(/answer first, in a line or two, then carry on\./);
+		expect(said).toMatch(
+			/answer first, in a line or two, then do what is asked, or carry on if nothing is\./,
+		);
 		expect(said).toMatch(/where does it stand\?$/);
 		expect(
 			isPersonText(said),

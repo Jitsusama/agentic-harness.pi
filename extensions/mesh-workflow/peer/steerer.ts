@@ -50,17 +50,17 @@ function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
 export function createSteerer(m: MeshState) {
 	/**
 	 * The person's words from outside the window, as their own message:
-	 * a turn when idle, otherwise into the run under way after its tool
-	 * when the steer says now or is the person's talk, and else once that
-	 * run ends (steerDelivery). A look's answer passes no steer, so it
-	 * waits for the run to end.
+	 * a turn when idle, otherwise as steerDelivery says for a steer: into
+	 * the run under way for the person's talk, else once that run ends. A
+	 * look's answer comes with no steer, and waits for the run to end.
 	 */
 	const steered = (
 		text: string,
 		idle: boolean,
-		steer: Pick<Steer, "now" | "text" | "act" | "from"> = { text: "" },
+		steer?: Pick<Steer, "now" | "text" | "act" | "from">,
 	) => {
-		const deliverAs = steerDelivery(steer, idle);
+		const afterRun = idle ? undefined : "followUp";
+		const deliverAs = steer ? steerDelivery(steer, idle) : afterRun;
 		m.pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
 	};
 
