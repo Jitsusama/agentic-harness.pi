@@ -12,7 +12,8 @@ pi install the suite runs under. `xdg-sandbox.test.ts` proves the sandbox holds.
 chose for the run, such as `MYCELIUM_BIN`, which `held-session.test.ts`
 proves on an environment it plants.
 
-The run's end removes its temp root and short folder. Where /tmp may not
+The run's end removes its temp root, and its short folder while that is
+still its own. Where /tmp may not
 be written, or isn't there, there is no short folder; a /tmp that isn't
 there, or isn't a folder, is said. A run killed
 outright leaves its short folder in /tmp, so each run first sweeps this
@@ -22,7 +23,11 @@ each fenced command on Linux has its own. A folder whose pid lives stays
 at any age. One whose pid can't be judged goes after a day unchanged.
 A live run touches its folder hourly while its process runs, and one
 asleep or stopped that long makes its folder again at its next touch if
-a sweep took it. One with no run file, or an empty one, goes after an
+a sweep took it, which is said. A run acts only on a folder still its
+own: a folder, not a link, of this account's, whose run file names the
+run. Where something else sits at the name, as a folder another made
+there, the run says so once, and neither touches nor removes it. One
+with no run file, or an empty one, goes after an
 hour if nothing else is in it, whoever made it; one with anything else
 inside is left as it is. One whose run file isn't the
 setup's stays. `temp-root.test.ts` proves the setup and the sweep.

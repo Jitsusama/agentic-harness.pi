@@ -117,7 +117,9 @@ const MISSING = new Set(["ENOENT", "ENOTDIR"]);
  * and remove both at the end, so what a killed worker left in either
  * goes too. A run killed outright leaves its short folder in /tmp, out
  * of any session's scratch, so each run first sweeps those whose run is
- * gone.
+ * gone. The short folder goes only if it's still this run's at the end:
+ * /tmp is everyone's, and what sits at its name once a sweep took it may
+ * be another run's or another account's.
  */
 export default function setup(): () => void {
 	const previous = process.env.TMPDIR;
@@ -142,7 +144,7 @@ export default function setup(): () => void {
 	else process.env[SOCKET_ROOT] = sockets;
 	const fresh = sockets === undefined ? undefined : keptFresh(sockets);
 	return () => {
-		clearInterval(fresh);
+		fresh?.stop();
 		if (previous === undefined) delete process.env.TMPDIR;
 		else process.env.TMPDIR = previous;
 		if (previousSockets === undefined) delete process.env[SOCKET_ROOT];
@@ -150,12 +152,23 @@ export default function setup(): () => void {
 		// The short folder first and apart, since it sits in the shared
 		// /tmp: a root a test left unremovable mustn't keep it there.
 		try {
-			if (sockets !== undefined)
-				rmSync(sockets, { recursive: true, force: true });
+			if (sockets !== undefined) {
+				if (ours(sockets)) rmSync(sockets, { recursive: true, force: true });
+				// Gone is no one's: nothing to remove, and nothing to say.
+				else if (!gone(sockets)) fresh?.lost();
+			}
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
 	};
+}
+
+/** The run's short folder, kept fresh while the run lasts. */
+interface KeptFresh {
+	/** Stop touching it, as at the run's end. */
+	stop(): void;
+	/** Stop touching it, saying once that it's no longer this run's. */
+	lost(): void;
 }
 
 /**
@@ -163,41 +176,110 @@ export default function setup(): () => void {
  * its age as the time since its run was last seen, not since a test last
  * made a folder in it. Where it's gone, taken by a sweep while the run
  * was asleep or stopped, or by /tmp's clearing, it is made again at the
- * same path, so `SOCKET_ROOT` names a folder again. Unheld, so it never
- * keeps a run going.
+ * same path, so `SOCKET_ROOT` names a folder again, and that is said.
+ * Where something else sits at the path, a link or a folder not this
+ * run's, it is touched no more, and that is said once: a touch would
+ * follow a link planted there to any of this account's files. Unheld, so
+ * it never keeps a run going.
  */
-function keptFresh(folder: string): NodeJS.Timeout {
+function keptFresh(folder: string): KeptFresh {
+	let said = false;
+	const kept: KeptFresh = {
+		stop: () => clearInterval(fresh),
+		lost: () => {
+			clearInterval(fresh);
+			if (said) return;
+			said = true;
+			process.stderr.write(
+				`short folder for sockets is no longer this run's: ${folder}\n`,
+			);
+		},
+	};
 	const fresh = setInterval(() => {
-		try {
-			const now = new Date();
-			utimesSync(folder, now, now);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") remade(folder);
-			// Otherwise not this run's to touch now; the next tick tries again.
-		}
+		if (gone(folder)) remade(folder, kept.lost);
+		else if (ours(folder)) touched(folder);
+		else kept.lost();
 	}, FRESH_MS);
 	fresh.unref();
-	return fresh;
+	return kept;
 }
 
-/** Make `folder` again, naming this run, unless another made it first. */
-function remade(folder: string): void {
+/** Whether nothing is at `folder`'s path, not even a link. */
+function gone(folder: string): boolean {
+	try {
+		lstatSync(folder);
+		return false;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ENOENT";
+	}
+}
+
+/** Date `folder` now, as a live run's. */
+function touched(folder: string): void {
+	try {
+		const now = new Date();
+		utimesSync(folder, now, now);
+	} catch {
+		// Taken since the look; the next tick looks again.
+	}
+}
+
+/**
+ * Make `folder` again, naming this run, and say so; where another made
+ * it first, it's `lost` to this run.
+ */
+function remade(folder: string, lost: () => void): void {
 	try {
 		mkdirSync(folder, { mode: 0o700 });
-	} catch {
-		// Another run's at the name, or /tmp refusing: none of this run's.
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST" && !ours(folder))
+			lost();
+		// Otherwise /tmp refusing for now; the next tick tries again.
 		return;
 	}
 	try {
 		nameRun(folder);
 	} catch {
-		// Unnamed, it reads as a run's starting, and goes after an hour.
+		// Left unnamed, it would read as another's at the next tick, which
+		// would give it up, so it's taken back for that tick to make again.
+		try {
+			rmdirSync(folder);
+		} catch {
+			// The failed write left a file in it, so the next tick gives it up.
+		}
+		return;
 	}
+	process.stderr.write(
+		`short folder for sockets was taken; made again: ${folder}\n`,
+	);
 }
 
 /** Write the run file in `folder`, naming this run and its namespace. */
 function nameRun(folder: string): void {
-	writeFileSync(join(folder, RUN_FILE), `${process.pid}\n${pidNamespace()}\n`);
+	writeFileSync(join(folder, RUN_FILE), runRecord());
+}
+
+/** The run file this run writes: its pid, then its pid namespace. */
+function runRecord(): string {
+	return `${process.pid}\n${pidNamespace()}\n`;
+}
+
+/**
+ * Whether `folder` is still this run's: a folder, not a link, of this
+ * account's, whose run file names this run. One that can't be read is
+ * not, since a run acts only on what it can show is its own.
+ */
+function ours(folder: string): boolean {
+	try {
+		const stat = lstatSync(folder);
+		return (
+			stat.isDirectory() &&
+			stat.uid === process.getuid?.() &&
+			readFileSync(join(folder, RUN_FILE), "utf8") === runRecord()
+		);
+	} catch {
+		return false;
+	}
 }
 
 /**

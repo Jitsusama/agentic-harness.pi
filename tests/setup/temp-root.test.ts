@@ -28,7 +28,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import setup, {
 	FRESH_MS,
 	runRootBase,
@@ -39,21 +39,70 @@ import setup, {
 	sweepShortFolders,
 } from "./temp-root.ts";
 
+/**
+ * What sits at the run's short folder: a folder or a link, an account's,
+ * holding a run file or none; nothing where it's gone.
+ */
+interface AtShort {
+	readonly link?: boolean;
+	readonly uid?: number;
+	readonly record?: string;
+}
+
+/** The run's short folder as the setup names it, and what sits there. */
+const short = vi.hoisted(() => ({
+	path: "/tmp/vs-XXXXXX",
+	now: undefined as AtShort | undefined,
+}));
+
 // Named rather than made or removed, so the setup's own run is read
 // without writing where this machine's /tmp may not let a test write.
 // The machine's own /tmp reads as empty, so no sweep here counts another
 // run's folder among a case's removals. Removing an empty folder stays
-// real, so one with anything inside refuses as it would.
+// real, so one with anything inside refuses as it would. The run's short
+// folder is stood in by what `short` says sits there, so a case can put
+// a sweep's taking, or another's folder, at its name.
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof Fs>();
+	const runFile = `${short.path}/run.pid`;
+	const failing = (code: string) =>
+		Object.assign(new Error(`${code}: stood in`), { code });
 	return {
 		...fs,
-		mkdirSync: vi.fn(),
+		lstatSync: vi.fn((path: Fs.PathLike, options?: Fs.StatSyncOptions) => {
+			if (path !== short.path) return fs.lstatSync(path, options);
+			const at = short.now;
+			if (at === undefined) throw failing("ENOENT");
+			return {
+				isDirectory: () => at.link !== true,
+				isSymbolicLink: () => at.link === true,
+				uid: at.uid ?? process.getuid?.(),
+			} as Fs.Stats;
+		}),
+		mkdirSync: vi.fn((path: Fs.PathLike) => {
+			if (path !== short.path) return;
+			if (short.now !== undefined) throw failing("EEXIST");
+			short.now = {};
+		}),
 		mkdtempSync: vi.fn((prefix: string) => `${prefix}XXXXXX`),
+		readFileSync: vi.fn(
+			(path: Fs.PathOrFileDescriptor, options?: BufferEncoding) => {
+				if (path !== runFile) return fs.readFileSync(path, options);
+				const record = short.now?.record;
+				if (record === undefined) throw failing("ENOENT");
+				return record;
+			},
+		),
 		rmSync: vi.fn(),
-		rmdirSync: vi.fn(fs.rmdirSync),
+		rmdirSync: vi.fn((path: Fs.PathLike) => {
+			if (path !== short.path) return fs.rmdirSync(path);
+			short.now = undefined;
+		}),
 		utimesSync: vi.fn(),
-		writeFileSync: vi.fn(),
+		writeFileSync: vi.fn((path: Fs.PathOrFileDescriptor, data: unknown) => {
+			if (path === runFile && short.now !== undefined)
+				short.now = { ...short.now, record: String(data) };
+		}),
 		readdirSync: vi.fn((path: string) =>
 			path === "/tmp" ? [] : fs.readdirSync(path),
 		),
@@ -65,8 +114,14 @@ const MAC_TMPDIR = "/var/folders/zz/zyxvpxvq6csfxvn_n0000000000000/T";
 
 /** What the setup names under a session's TMPDIR, as mocked here. */
 const RUN_ROOT = "/tmp/pi-quest-x/vitest-run-XXXXXX";
-const SHORT = "/tmp/vs-XXXXXX";
+const SHORT = short.path;
 const REMOVED = { recursive: true, force: true };
+
+/** What the setup says when its short folder is found another's. */
+const LOST = `short folder for sockets is no longer this run's: ${SHORT}\n`;
+
+/** What the setup says when it makes its short folder again. */
+const REMADE = `short folder for sockets was taken; made again: ${SHORT}\n`;
 
 /** This process's pid namespace as Linux names it, or none, as on a Mac. */
 function ownNamespace(): string {
@@ -76,6 +131,14 @@ function ownNamespace(): string {
 		return "";
 	}
 }
+
+/** The run file this process writes: its pid, then its namespace. */
+function ownRecord(): string {
+	return `${process.pid}\n${ownNamespace()}\n`;
+}
+
+/** An account that isn't this one. */
+const OTHER_UID = (process.getuid?.() ?? 0) + 1;
 
 /** An error as the file system raises it, with its code. */
 function fsError(code: string): Error {
@@ -106,7 +169,34 @@ function inSession(body: () => void): void {
 	}
 }
 
+/** Run `body` with stderr kept quiet, handing it what's said there so far. */
+function hearing(body: (said: () => string[]) => void): void {
+	const written = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation(() => true);
+	try {
+		body(() => written.mock.calls.map(([said]) => String(said)));
+	} finally {
+		written.mockRestore();
+	}
+}
+
+/** Run `body` with the setup's interval stood in, so it moves the clock. */
+function ticking(body: () => void): void {
+	vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+	try {
+		body();
+	} finally {
+		vi.useRealTimers();
+	}
+}
+
 describe("a test run's temp root", () => {
+	// The short folder as the setup makes it, naming this run.
+	beforeEach(() => {
+		short.now = { record: ownRecord() };
+	});
+
 	it("goes under /tmp on a Mac, whose own TMPDIR is too deep for a socket", () => {
 		expect(runRootBase("darwin", MAC_TMPDIR)).toBe("/tmp");
 		expect(runRootBase("darwin", `/private${MAC_TMPDIR}`), "as resolved").toBe(
@@ -230,74 +320,187 @@ describe("a test run's temp root", () => {
 
 	// A run asleep or stopped past STALE_MS fires no timer, so a sweep that
 	// can't judge its pid may take its folder before the next touch.
-	it("makes its short folder again, naming its run, where a sweep took it", () => {
-		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-		try {
-			inSession(() => {
-				const teardown = setup();
-				vi.mocked(writeFileSync).mockClear();
-				vi.mocked(mkdirSync).mockClear();
-				vi.mocked(utimesSync).mockImplementationOnce(() => {
-					throw fsError("ENOENT");
-				});
-				vi.advanceTimersByTime(FRESH_MS);
-				expect(vi.mocked(mkdirSync).mock.calls).toEqual([
-					[SHORT, { mode: 0o700 }],
-				]);
-				expect(vi.mocked(writeFileSync)).toHaveBeenCalledWith(
-					`${SHORT}/run.pid`,
-					`${process.pid}\n${ownNamespace()}\n`,
-				);
-				// Another run's, made at the name in between, isn't this run's.
-				vi.mocked(writeFileSync).mockClear();
-				vi.mocked(utimesSync).mockImplementationOnce(() => {
-					throw fsError("ENOENT");
-				});
-				vi.mocked(mkdirSync).mockImplementationOnce(() => {
-					throw fsError("EEXIST");
-				});
-				vi.advanceTimersByTime(FRESH_MS);
-				expect(vi.mocked(writeFileSync)).not.toHaveBeenCalled();
-				teardown();
-			});
-		} finally {
-			vi.useRealTimers();
-		}
+	it("makes its short folder again, naming its run, where a sweep took it, and says so", () => {
+		ticking(() =>
+			hearing((said) =>
+				inSession(() => {
+					const teardown = setup();
+					vi.mocked(writeFileSync).mockClear();
+					vi.mocked(mkdirSync).mockClear();
+					short.now = undefined;
+					vi.advanceTimersByTime(FRESH_MS);
+					expect(vi.mocked(mkdirSync).mock.calls).toEqual([
+						[SHORT, { mode: 0o700 }],
+					]);
+					expect(vi.mocked(writeFileSync)).toHaveBeenCalledWith(
+						`${SHORT}/run.pid`,
+						ownRecord(),
+					);
+					expect(said(), "what's said of it").toEqual([REMADE]);
+					teardown();
+					expect(vi.mocked(rmSync), "its own again").toHaveBeenCalledWith(
+						SHORT,
+						REMOVED,
+					);
+				}),
+			),
+		);
 	});
 
-	// As under the sandbox, which grants a fenced run only its TMPDIR, or a
-	// builder with no /tmp at all.
-	it.each(["EACCES", "ENOENT", "ENOTDIR"])(
-		"names none where /tmp may not be written or isn't there (%s), dropping one it inherited, and still runs",
-		(code) => {
-			const warned = vi
-				.spyOn(process.stderr, "write")
-				.mockImplementation(() => true);
+	// Another run's, or another account's, made at the name between the
+	// tick's look and its make: its sockets and files aren't this run's to
+	// name or remove.
+	it("leaves a folder another made at its name before it could make it again", () => {
+		ticking(() =>
+			hearing((said) =>
+				inSession(() => {
+					const teardown = setup();
+					vi.mocked(writeFileSync).mockClear();
+					vi.mocked(mkdirSync).mockClear();
+					short.now = undefined;
+					vi.mocked(mkdirSync).mockImplementationOnce(() => {
+						short.now = { uid: OTHER_UID, record: "1\npid:[1]\n" };
+						throw fsError("EEXIST");
+					});
+					vi.advanceTimersByTime(FRESH_MS);
+					expect(vi.mocked(writeFileSync), "not named").not.toHaveBeenCalled();
+					expect(said(), "what's said of it").toEqual([LOST]);
+					expect(vi.getTimerCount(), "no longer ticking").toBe(0);
+					vi.advanceTimersByTime(FRESH_MS * 2);
+					expect(vi.mocked(mkdirSync), "not tried again").toHaveBeenCalledTimes(
+						1,
+					);
+					teardown();
+					expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
+						[RUN_ROOT, REMOVED],
+					]);
+					expect(said(), "said once").toEqual([LOST]);
+				}),
+			),
+		);
+	});
+
+	// /tmp is everyone's: what sits at the name once the run's folder went
+	// may be a link planted to any of this account's files, which a touch
+	// would follow, or a folder that isn't this run's.
+	it.each<[string, AtShort]>([
+		["a link", { link: true, record: ownRecord() }],
+		["another account's folder", { uid: OTHER_UID, record: ownRecord() }],
+		["a folder naming another run", { record: `1\n${ownNamespace()}\n` }],
+	])("touches %s at its name no more, saying so once", (_, planted) => {
+		ticking(() =>
+			hearing((said) =>
+				inSession(() => {
+					const teardown = setup();
+					vi.mocked(utimesSync).mockClear();
+					short.now = planted;
+					vi.advanceTimersByTime(FRESH_MS);
+					expect(vi.mocked(utimesSync), "never touched").not.toHaveBeenCalled();
+					expect(said(), "what's said of it").toEqual([LOST]);
+					expect(vi.getTimerCount(), "no longer ticking").toBe(0);
+					vi.advanceTimersByTime(FRESH_MS * 2);
+					expect(vi.mocked(utimesSync), "nor later").not.toHaveBeenCalled();
+					teardown();
+					expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
+						[RUN_ROOT, REMOVED],
+					]);
+					expect(said(), "said once").toEqual([LOST]);
+				}),
+			),
+		);
+	});
+
+	// Gone at the end, with no tick since to make it again: nothing sits at
+	// the name, so there is nothing to remove and nothing another holds.
+	it("ends quietly when its short folder is gone at the end", () => {
+		hearing((said) =>
 			inSession(() => {
-				vi.stubEnv(SOCKET_ROOT, "/tmp/vs-outer-run");
-				refuseShortFolder(code);
 				const teardown = setup();
-				// The sandbox refuses /tmp on every fenced run, which is no fault;
-				// a /tmp that isn't there is the host's, and named.
-				expect(
-					warned.mock.calls.map(([said]) => String(said)),
-					"what's said of /tmp",
-				).toEqual(
-					code === "EACCES"
-						? []
-						: [`no short folder for sockets: /tmp gave ${code}\n`],
-				);
-				warned.mockRestore();
-				expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
-				expect(process.env.TMPDIR, "the run's TMPDIR").toBe(RUN_ROOT);
+				short.now = undefined;
 				teardown();
 				expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
 					[RUN_ROOT, REMOVED],
 				]);
-				expect(process.env[SOCKET_ROOT], "given back").toBe(
-					"/tmp/vs-outer-run",
-				);
-			});
+				expect(said(), "nothing said").toEqual([]);
+			}),
+		);
+	});
+
+	it("leaves another's folder found at its name at the end, saying so", () => {
+		hearing((said) =>
+			inSession(() => {
+				const teardown = setup();
+				short.now = { uid: OTHER_UID, record: ownRecord() };
+				teardown();
+				expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
+					[RUN_ROOT, REMOVED],
+				]);
+				expect(said(), "what's said of it").toEqual([LOST]);
+			}),
+		);
+	});
+
+	// Left unnamed, the folder it made would read as another's at the next
+	// tick, which would then give it up.
+	it("takes back a folder it made again but couldn't name, and makes it at the next tick", () => {
+		ticking(() =>
+			hearing((said) =>
+				inSession(() => {
+					const teardown = setup();
+					vi.mocked(mkdirSync).mockClear();
+					vi.mocked(rmdirSync).mockClear();
+					short.now = undefined;
+					vi.mocked(writeFileSync).mockImplementationOnce(() => {
+						throw fsError("ENOSPC");
+					});
+					expect(() => vi.advanceTimersByTime(FRESH_MS)).not.toThrow();
+					expect(vi.mocked(rmdirSync).mock.calls, "taken back").toEqual([
+						[SHORT],
+					]);
+					expect(said(), "nothing said yet").toEqual([]);
+					vi.advanceTimersByTime(FRESH_MS);
+					expect(vi.mocked(mkdirSync), "made again").toHaveBeenCalledTimes(2);
+					expect(short.now, "naming this run").toEqual({
+						record: ownRecord(),
+					});
+					expect(said()).toEqual([REMADE]);
+					teardown();
+					expect(vi.mocked(rmSync)).toHaveBeenCalledWith(SHORT, REMOVED);
+				}),
+			),
+		);
+	});
+
+	// As under the sandbox, which grants a fenced run only its TMPDIR, or a
+	// builder with no /tmp at all.
+	it.each([
+		["EACCES", []],
+		["EPERM", []],
+		["EROFS", []],
+		["ENOENT", ["no short folder for sockets: /tmp gave ENOENT\n"]],
+		["ENOTDIR", ["no short folder for sockets: /tmp gave ENOTDIR\n"]],
+	])(
+		"names none where /tmp may not be written or isn't there (%s), dropping one it inherited, and still runs",
+		(code, warning) => {
+			hearing((said) =>
+				inSession(() => {
+					vi.stubEnv(SOCKET_ROOT, "/tmp/vs-outer-run");
+					refuseShortFolder(code);
+					const teardown = setup();
+					// The sandbox refuses /tmp on every fenced run, which is no
+					// fault; a /tmp that isn't there is the host's, and named.
+					expect(said(), "what's said of /tmp").toEqual(warning);
+					expect(process.env[SOCKET_ROOT], "no short folder").toBeUndefined();
+					expect(process.env.TMPDIR, "the run's TMPDIR").toBe(RUN_ROOT);
+					teardown();
+					expect(vi.mocked(rmSync).mock.calls, "only the run root").toEqual([
+						[RUN_ROOT, REMOVED],
+					]);
+					expect(process.env[SOCKET_ROOT], "given back").toBe(
+						"/tmp/vs-outer-run",
+					);
+				}),
+			);
 		},
 	);
 
