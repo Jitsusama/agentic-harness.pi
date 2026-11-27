@@ -463,15 +463,21 @@ export async function listenControl(options: {
 				send(staleHost(request.id));
 				return;
 			}
+			// An end asked of a child that then dies ended its turn, so the
+			// children's host wakes nothing for it: told before the child hears.
+			const settle = options.children?.asking?.(request);
 			let child: Socket;
 			try {
 				child = await reach(route.socket);
 			} catch (error) {
 				options.report(error);
-				send(childUnreachable(request.id));
+				const unreachable = childUnreachable(request.id);
+				settle?.(unreachable);
+				send(unreachable);
 				return;
 			}
 			if (socket.destroyed || ended) {
+				settle?.(undefined);
 				child.destroy();
 				return;
 			}
@@ -493,18 +499,22 @@ export async function listenControl(options: {
 				return;
 			}
 			const line = `${JSON.stringify(passedOn(request, route))}\n`;
-			if (request.op === "attach")
+			if (request.op === "attach") {
+				settle?.(undefined);
 				return {
 					child,
 					line,
 					id: request.id,
 					sessionId: request.sessionId,
 				};
+			}
 			// Any other request has one answer, and the connection is the
 			// host's again once it comes, for whatever is asked next.
 			const gone = () => child.destroy();
 			socket.once("close", gone);
-			send(await askOnce(child, line, request.id, options.report));
+			const reply = await askOnce(child, line, request.id, options.report);
+			settle?.(reply);
+			send(reply);
 			socket.off("close", gone);
 			return undefined;
 		}
