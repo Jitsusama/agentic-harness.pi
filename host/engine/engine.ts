@@ -167,8 +167,19 @@ export async function createEngine(
 	// One whose carried calls couldn't be recorded carries none for a while.
 	host.keepsCarried((sessionId) => parkCarries() && parked.mayCarry(sessionId));
 	// What an earlier restart kept and no conversation here took up is
-	// stopped once due; a child's are the supervisor's to look over.
-	if (!kept) shells.watch((sessionId) => live.has(sessionId));
+	// stopped once due; a child's are the supervisor's to look over. A
+	// parked conversation is no longer live, but its park watches the calls
+	// it carried until it wakes, so those are held too. The first tick
+	// comes after `parked` is made.
+	if (!kept)
+		shells.watch(
+			(sessionId) => live.has(sessionId) || parked.watches(sessionId),
+		);
+	// A conversation's start has run its take-up: each call an earlier pi
+	// recorded for it is now held here, or ended, saying which in the log.
+	const takenUp = (sessionId: string): void => {
+		void shells.started(sessionId).catch(report);
+	};
 	let watched: ConversationEvents | undefined;
 	const requests = keptRequests({ engine: options, sessions, report });
 	const { warming } = requests;
@@ -336,6 +347,7 @@ export async function createEngine(
 			() => {
 				// A build leaves its load's garbage behind, which only a stir collects.
 				quiet.stirred();
+				takenUp(sessionId);
 				return "built" as const;
 			},
 			(error: unknown) => {

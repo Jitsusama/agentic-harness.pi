@@ -27,15 +27,27 @@
  *
  * What it kept is written down, so the next host can stop what nobody
  * holds: a call whose conversation never came back is stopped once its
- * time limit passes or a day after the restart, whichever comes first,
- * saying so in the journal. A call that ended, or that a conversation
- * this host runs has taken up, is let go. A crash or a kill -9 carries
- * nothing through here; what its conversations recorded of each call as
- * it ran (lib/internal/shell/kept-jobs.ts) spares the call from the next
- * host's reaper, and the conversation takes it up as it resumes. A
- * recorded call whose pi has gone and that no conversation here holds
- * is stopped on the same look, once its time limit or a day from its
- * start has passed.
+ * time limit passes or `STRAY_FOR_MS` after this host first saw it
+ * unheld, whichever comes first, saying so in the journal. A call that
+ * ended, or that a conversation this host runs has taken up, is let go.
+ * A crash or a kill -9 carries nothing through here; what its
+ * conversations recorded of each call as it ran
+ * (lib/internal/shell/kept-jobs.ts) spares the call from the next host's
+ * reaper, and the conversation takes it up as it resumes, which rewrites
+ * the record under the pi that took it.
+ *
+ * So a record still naming a pi that has gone was taken up by nobody,
+ * whatever conversation here runs its session: on 28 November two test
+ * loops an earlier host started for 2AF2DH's conversation still ran 6.5
+ * and 8 hours after their results were read, holding 3.2 GB, spared all
+ * along because that conversation ran here. Now such a record is spared
+ * only while it is carried and the carry is held here, as a park holds
+ * it; any other is stopped, its whole group with it, once its time
+ * limit passes or `STRAY_FOR_MS` after this host first saw it so. As a
+ * conversation starts here (`started`) each call recorded for it is
+ * said held, or stopped at once if its take-up left it to a pi gone. A
+ * look also ends each kept call with no record whose pi has gone
+ * (lib/internal/shell/kept-orphans.ts).
  *
  * Every file it reads or writes, each call's `.end` and the kept list,
  * goes through fs/promises, since the host's conversations share its
@@ -44,13 +56,14 @@
  */
 
 import { readFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
 	isHostRestarting,
 } from "../../lib/core/session/host.ts";
 import { jobsProcs } from "../../lib/internal/priority/place.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import {
 	type CarriedShell,
 	carriesMark,
@@ -58,14 +71,17 @@ import {
 	stopCarried,
 } from "../../lib/internal/shell/carried.ts";
 import {
+	CARRIED_SUFFIX,
 	endRead,
 	processThere,
-	RECORD_SPARED_FOR_MS,
 } from "../../lib/internal/shell/kept.ts";
 import {
 	type KeptJob,
+	recordedKeptJobs,
 	strayKeptJobs,
+	unheld,
 } from "../../lib/internal/shell/kept-jobs.ts";
+import { endOrphanedKept } from "../../lib/internal/shell/kept-orphans.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { spawnersScoped } from "../../lib/internal/shell/spawner-scope.ts";
 import { writeWholeOff } from "../../lib/internal/write-whole.ts";
@@ -77,13 +93,27 @@ import {
 } from "./tool-children.ts";
 
 /**
- * How long a carried call nobody took up may run on before it is
- * stopped: as long as a recorded one is spared.
+ * How long a kept call nobody took up may run on, from when this host
+ * first saw it so, before it is stopped. A fail-safe, not a schedule: a
+ * take-up rewrites the record within the start that does it, and the
+ * longest start this code has seen took over 2 minutes (a child's, 22
+ * November, parked-calls.ts), a host's stop at most systemd's 60 s; ten
+ * minutes leaves a slow move several times that.
  */
-export const STRAY_FOR_MS = RECORD_SPARED_FOR_MS;
+export const STRAY_FOR_MS = 10 * 60 * 1000;
 
 /** How often the host looks at what an earlier restart kept. */
-export const STRAY_LOOK_MS = 10 * 60 * 1000;
+export const STRAY_LOOK_MS = 60 * 1000;
+
+/**
+ * When this process first saw each unheld call, by `keptAs` or by its
+ * record and owner: one map for the process, so a sweep's fresh
+ * `carriedShells` counts from the same first look as the last one.
+ */
+const unclaimedSince = processGlobal(
+	"agentic-harness.host/engine/carried-shells-unclaimed.v1",
+	() => new Map<string, number>(),
+);
 
 const MS_PER_MINUTE = 60_000;
 
@@ -151,6 +181,12 @@ export interface CarriedShells {
 	 * once it is due, those its jobs recorded as running among them.
 	 */
 	look(holds: (session: string) => boolean): Promise<void>;
+	/**
+	 * As `session` has started here and run its take-up: say each call
+	 * recorded for it that this process now holds, and stop each still
+	 * running whose pi has gone, since its take-up left it to nobody.
+	 */
+	started(session: string): Promise<void>;
 }
 
 /** What the carried calls need of the machine, for tests to stand in for. */
@@ -177,6 +213,11 @@ export interface CarriedShellsOptions {
 	 * off the thread, by default.
 	 */
 	readonly recorded?: () => readonly KeptJob[] | Promise<readonly KeptJob[]>;
+	/**
+	 * Every record of a call a session ran, whoever holds it; read from
+	 * the kept folder, off the thread, by default.
+	 */
+	readonly records?: (session: string) => Promise<readonly KeptJob[]>;
 	readonly table?: ProcessTable;
 	/** Writes a pid into a cgroup.procs file. */
 	readonly move?: (procs: string, pid: number) => Promise<void>;
@@ -186,6 +227,20 @@ export interface CarriedShellsOptions {
 	 */
 	readonly running?: (work: CarriedShell) => boolean | Promise<boolean>;
 	readonly stop?: (work: CarriedShell) => void;
+	/**
+	 * Whether a call is marked carried (`<keep>.carried`); read off the
+	 * thread by default, rejecting when that can't be said for the moment.
+	 */
+	readonly carriedMark?: (keep: string) => boolean | Promise<boolean>;
+	/**
+	 * End each kept call with no record whose pi has gone; the kept
+	 * folder's by default (kept-orphans.ts).
+	 */
+	readonly orphans?: () => Promise<void>;
+	/** When each unheld call was first seen; the process's own by default. */
+	readonly unclaimed?: Map<string, number>;
+	/** The pid a record names as holding a call here; this process's by default. */
+	readonly self?: number;
 	readonly say: (line: string) => void;
 	readonly report: (error: unknown) => void;
 	readonly now?: () => number;
@@ -241,6 +296,23 @@ async function readKept(file: string): Promise<KeptCall[] | undefined> {
 	}
 }
 
+/** Whether `keep` is marked carried, read off the thread. */
+async function carriedMark(keep: string): Promise<boolean> {
+	try {
+		await access(`${keep}${CARRIED_SUFFIX}`);
+		return true;
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT")
+			return false;
+		throw error;
+	}
+}
+
+/** Which recorded call this is, under the pi that recorded it. */
+function recordAs(job: KeptJob): string {
+	return JSON.stringify([job.work.keep, job.owner, job.started]);
+}
+
 /** Which kept call this is, across two reads of the kept file. */
 function keptAs(call: KeptCall): string {
 	return JSON.stringify([call.session, call.job, call.at, call.work.mark]);
@@ -294,7 +366,48 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	};
 	const stop = options.stop ?? stopCarried;
 	const recorded = options.recorded ?? (() => strayKeptJobs());
+	const records =
+		options.records ?? ((session: string) => recordedKeptJobs(session));
+	const marked = options.carriedMark ?? carriedMark;
+	const orphans =
+		options.orphans ??
+		(async () => {
+			await endOrphanedKept({ say: options.say });
+		});
+	const unclaimed = options.unclaimed ?? unclaimedSince;
+	const self = options.self ?? process.pid;
 	const carried: KeptCall[] = [];
+
+	/**
+	 * When a call nobody holds is due: its time limit, or `STRAY_FOR_MS`
+	 * after this process first saw it unheld, whichever comes first.
+	 */
+	function dueOf(key: string, work: CarriedShell): number {
+		const first = unclaimed.get(key) ?? now();
+		unclaimed.set(key, first);
+		return Math.min(
+			work.deadline ?? Number.POSITIVE_INFINITY,
+			first + STRAY_FOR_MS,
+		);
+	}
+
+	/**
+	 * Whether a recorded call is held here: carried, and the carry held
+	 * by a conversation here, as a park holds it. Not known while its mark
+	 * can't be read for the moment.
+	 */
+	async function carryHeld(
+		job: KeptJob,
+		holds: (session: string) => boolean,
+	): Promise<boolean | undefined> {
+		if (!holds(job.session)) return false;
+		try {
+			return await marked(job.work.keep);
+		} catch {
+			// Its mark failed to read for the moment: not known either way.
+			return undefined;
+		}
+	}
 
 	/**
 	 * Drop from `carried` each call of `calls` that ended, keeping one not
@@ -343,24 +456,54 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		}
 	}
 
-	/** Stop each recorded call due, whose pi has gone and nobody holds. */
+	/**
+	 * Stop each recorded call due whose pi has gone: a conversation here
+	 * that runs its session holds it only through a carry, since one that
+	 * took it up would have recorded it again as its own.
+	 */
 	async function lookRecorded(
 		holds: (session: string) => boolean,
 	): Promise<void> {
 		for (const job of await recorded()) {
-			if ((await runs(job.work)) !== true || holds(job.session)) continue;
-			const due = Math.min(
-				job.work.deadline ?? Number.POSITIVE_INFINITY,
-				job.work.startedAt + RECORD_SPARED_FOR_MS,
-			);
+			const key = recordAs(job);
+			const out = await runs(job.work);
+			if (out === false) unclaimed.delete(key);
+			if (out !== true) continue;
+			const held = await carryHeld(job, holds);
+			if (held !== false) {
+				if (held) unclaimed.delete(key);
+				continue;
+			}
+			const due = dueOf(key, job.work);
 			if (now() < due) continue;
+			unclaimed.delete(key);
 			stop(job.work);
-			const why =
-				job.work.deadline !== undefined && job.work.deadline <= due
-					? "its time limit passed"
-					: "a day passed";
 			options.say(
-				`Stopped \`${job.label}\` (${job.id} of ${job.session}), recorded as it ran: its conversation never took it up and ${why}`,
+				`Stopped \`${job.label}\` (${job.id} of ${job.session}), recorded as it ran: no conversation took it up and ${whyDue(job.work, due)}`,
+			);
+		}
+	}
+
+	async function started(session: string): Promise<void> {
+		for (const job of await records(session)) {
+			if ((await runs(job.work)) !== true) continue;
+			if (job.owner === self) {
+				unclaimed.delete(recordAs(job));
+				options.say(
+					`Took up \`${job.label}\` (${job.id} of ${session}), recorded as it ran, as its conversation started here`,
+				);
+				continue;
+			}
+			if (!unheld(job)) {
+				options.say(
+					`Left \`${job.label}\` (${job.id} of ${session}) to the pi that holds it, pid ${job.owner}, as its conversation started here`,
+				);
+				continue;
+			}
+			unclaimed.delete(recordAs(job));
+			stop(job.work);
+			options.say(
+				`Stopped \`${job.label}\` (${job.id} of ${session}), recorded as it ran: its conversation started here without taking it up`,
 			);
 		}
 	}
@@ -368,6 +511,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	async function look(holds: (session: string) => boolean): Promise<void> {
 		await lookRecorded(holds);
 		await lookKept(holds);
+		await orphans();
 	}
 
 	/** Stop each call an earlier restart kept that is due and nobody holds. */
@@ -381,22 +525,17 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			// Not known yet: kept for the next look, never stopped unread.
 			if (out === undefined) continue;
 			if (!out || holds(call.session)) {
+				unclaimed.delete(keptAs(call));
 				settled.add(keptAs(call));
 				continue;
 			}
-			const due = Math.min(
-				call.work.deadline ?? Number.POSITIVE_INFINITY,
-				call.at + STRAY_FOR_MS,
-			);
+			const due = dueOf(keptAs(call), call.work);
 			if (now() < due) continue;
+			unclaimed.delete(keptAs(call));
 			settled.add(keptAs(call));
 			stop(call.work);
-			const why =
-				call.work.deadline !== undefined && call.work.deadline <= due
-					? "its time limit passed"
-					: "a day passed";
 			options.say(
-				`Stopped \`${call.label}\` (${call.job} of ${call.session}), carried through a restart: its conversation never came back and ${why}`,
+				`Stopped \`${call.label}\` (${call.job} of ${call.session}), carried through a restart: its conversation never came back and ${whyDue(call.work, due)}`,
 			);
 		}
 		if (settled.size === 0) return;
@@ -510,5 +649,13 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			return every(STRAY_LOOK_MS, looking);
 		},
 		look,
+		started,
 	};
+}
+
+/** Why a call came due: its own time limit, or nobody taking it up in time. */
+function whyDue(work: CarriedShell, due: number): string {
+	return work.deadline !== undefined && work.deadline <= due
+		? "its time limit passed"
+		: `no host took it up within ${STRAY_FOR_MS / MS_PER_MINUTE} minutes`;
 }

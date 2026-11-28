@@ -480,13 +480,45 @@ moved pi leaves.
   it ends. A carried one's go once its end is said where it was
   carried, or once it is stopped. Handing one on marks it with a
   `.carried` file holding the call's own mark, so a host reaping what a
-  released conversation started spares everything carrying that mark. Files left a week, by a pi killed outright, are swept
-  as a session starts.
+  released conversation started spares everything carrying that mark.
+  Each call's `.owner` file names the pi that started it (its pid, the
+  tick it started at and its pid namespace), written before any of its
+  processes runs. What still runs once that pi has gone ends so:
+  - **As its conversation starts in a host:** the host takes up each
+    call that conversation recorded, or ends it with its whole group,
+    writing one line in its log for each: `Took up`, `Left` to the pi
+    that holds it, or `Stopped`.
+  - **When nobody takes it up:** a call no conversation took up ends
+    with its whole group ten minutes after a host first saw it so, or
+    once its time limit passes, if sooner. The bound is a fail-safe and
+    a guess, not a measure: the longest legitimate wait seen here is a
+    child host's start of over two minutes (22 November), and a host's
+    stop has at most systemd's 60 s. A call stays only while it is
+    marked `.carried` and a conversation here holds the carry, as a
+    park does; a conversation running its session here no longer
+    spares it, since a take-up records the call again under its taker.
+  - **With no record:** a call whose `.job` and `.carried` are gone,
+    and whose `.owner` names a pi gone or whose files are gone
+    altogether, is ended when found: at each host's look, every minute,
+    and as a plain pi's session starts, at most hourly. One kept before
+    `.owner` was written ends only once its shell has gone, and one
+    that ended by itself keeps what it left running, as any command
+    does; only its `tee` goes.
+
+  Files left a week, by a pi killed outright, are swept as a session
+  starts.
 - **Where not:** commands a `pi-spawner` from before `pi-spawner
   keeps` starts, since it kills every command when its pi goes, and any
   where `tee` lacks `-p` or the shell isn't bash, run as before and
   hold a move. A `pi-spawner` that answers `keeps` leaves a kept
   command running when its pi goes, so its calls are kept like pi's.
+  Nothing above ends a call marked `.carried` whose carry is still
+  live, another account's process, or anything outside the kept
+  folder's own calls: processes are found by the call's path in
+  `PI_BASH_KEEP`, which only this account's environments show, and by
+  the call's record or mark, never by a command line alone. An owner
+  counted in another pid namespace, as a fenced pi's, is never taken
+  as gone, since its pid means nothing here.
 - **Queued, with a time limit:** heavy work the machine's queue holds
   runs under a clock of its own, started when its turn begins.
   `timed-keeping.ts` remembers each such call by the signal pi ran it

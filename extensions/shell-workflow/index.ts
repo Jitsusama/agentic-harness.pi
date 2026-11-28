@@ -68,6 +68,7 @@ import {
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
 import { sweepKeptNowAndThen } from "../../lib/internal/shell/kept.ts";
+import { endOrphanedKeptNowAndThen } from "../../lib/internal/shell/kept-orphans.ts";
 import { watchSshGuard } from "../../lib/internal/shell/ssh-guard.ts";
 import {
 	endsWithItsPrompts,
@@ -249,6 +250,11 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		// What a call kept and nobody took up, a week on, swept once an hour
 		// for the process however many sessions it starts (kept.ts).
 		void sweepKeptNowAndThen();
+		// And what a pi gone left running with nothing recorded, ended, as a
+		// host's look ends it each minute (kept-orphans.ts).
+		void endOrphanedKeptNowAndThen().catch(() => {
+			// Looked at again within the hour, by this pi or a host.
+		});
 	});
 	pi.on("session_shutdown", () => {
 		retireBash();

@@ -35,6 +35,12 @@
  * 64 KB of its output, none of which the samples caught. Removing them,
  * and the job records a removal takes back, is kept-removal.ts's.
  *
+ * Each call names the pi that started it in `<path>.owner`, its pid and
+ * the tick it started at, written before any of its processes start, so
+ * a host finding one of them with no record and no carry can tell a call
+ * some pi still runs from one whose pi has gone, which nobody will ever
+ * report (kept-orphans.ts).
+ *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
  * (host/engine/tool-children.ts) spares it: its shell still carries the
@@ -50,6 +56,7 @@ import { randomUUID } from "node:crypto";
 import {
 	existsSync,
 	readFileSync,
+	readlinkSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
@@ -68,6 +75,7 @@ import { basename, join } from "node:path";
 import { isPassingFault } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
+import { startTicksFromProcSync } from "../process-ticks.ts";
 
 /** The variable a bash call's command travels in (shell-workflow's command-line.ts). */
 export const COMMAND_VARIABLE = "PI_BASH_COMMAND";
@@ -120,7 +128,57 @@ const FOLDER_MODE = 0o700;
 export const JOB_SUFFIX = ".job";
 
 /** The suffix marking a call handed to another process. */
-const CARRIED = ".carried";
+export const CARRIED_SUFFIX = ".carried";
+const CARRIED = CARRIED_SUFFIX;
+
+/** The suffix naming the pi that started a call (`ownerMarkOf`). */
+export const OWNER_SUFFIX = ".owner";
+
+/**
+ * A process as a kept call's owner: its pid, the tick it started at,
+ * which no later process with that pid shares, and the pid namespace
+ * the pid is counted in; the pid alone where the machine keeps no
+ * ticks, as a Mac.
+ */
+export function ownerMarkOf(pid: number = process.pid): string {
+	const ticks = startTicksFromProcSync(pid);
+	if (ticks === undefined) return `${pid}`;
+	const space = pidSpaceOf(pid);
+	return space === undefined ? `${pid}:${ticks}` : `${pid}:${ticks}@${space}`;
+}
+
+/** The pid namespace a process counts pids in, as its inode; none off Linux. */
+function pidSpaceOf(pid: number | "self"): string | undefined {
+	try {
+		return /\[(\d+)\]/.exec(readlinkSync(`/proc/${pid}/ns/pid`))?.[1];
+	} catch {
+		// Gone, no /proc, or not ours to read.
+		return undefined;
+	}
+}
+
+/**
+ * Whether the pi an owner mark names still runs as itself: its pid there
+ * and, where the mark holds its ticks, started at the same one, or at
+ * ticks that can't be read for the moment. A mark this code can't read, or one counted in another pid namespace than
+ * this process's, as a fence's, is taken as running, since nothing here
+ * can prove it gone.
+ */
+export function ownerRuns(
+	mark: string,
+	ticksOf: (pid: number) => number | undefined = startTicksFromProcSync,
+	ownSpace: () => string | undefined = () => pidSpaceOf("self"),
+): boolean {
+	const match = /^(\d+)(?::(\d+)(?:@(\d+))?)?$/.exec(mark.trim());
+	if (match === null) return true;
+	if (match[3] !== undefined && match[3] !== ownSpace()) return true;
+	const pid = Number(match[1]);
+	if (!processThere(pid)) return false;
+	if (match[2] === undefined) return true;
+	// Ticks that can't be read for the moment prove nothing gone.
+	const ticks = ticksOf(pid);
+	return ticks === undefined || ticks === Number(match[2]);
+}
 
 /** Where kept calls go: shell-workflow's state, under XDG_STATE_HOME. */
 export function keptFolder(): string {
@@ -128,14 +186,22 @@ export function keptFolder(): string {
 }
 
 /**
- * A new call's path in `folder`, with its `.out`, `.end` and `.pid` made
- * empty and private, so nothing the stub writes is made with the
+ * A new call's path in `folder`, its `owner` named first, with its
+ * `.out`, `.end` and `.pid` made empty and private, so nothing the stub writes is made with the
  * command's own umask.
  */
-export async function makeKept(folder: string = keptFolder()): Promise<string> {
+export async function makeKept(
+	folder: string = keptFolder(),
+	owner: string = ownerMarkOf(),
+): Promise<string> {
 	await mkdir(folder, { recursive: true, mode: FOLDER_MODE });
 	await chmod(folder, FOLDER_MODE);
 	const path = join(folder, randomUUID());
+	// First, so no process of the call is ever found without its owner.
+	await writeFile(`${path}${OWNER_SUFFIX}`, owner, {
+		mode: FILE_MODE,
+		flag: "wx",
+	});
 	for (const suffix of [".out", ".end", ".pid"]) {
 		await writeFile(`${path}${suffix}`, "", { mode: FILE_MODE, flag: "wx" });
 	}

@@ -129,6 +129,9 @@ describe("carried shells", () => {
 			say: (line) => said.push(line),
 			report: (error) => reported.push(error),
 			now: () => now,
+			// The kept folder's orphans are kept-ends.test.ts's to look at.
+			orphans: () => Promise.resolve(),
+			unclaimed: new Map(),
 			...overrides,
 		});
 	}
@@ -157,12 +160,14 @@ describe("carried shells", () => {
 			at: 0,
 			work: shell("m1", { pid: call.pid ?? 0 }),
 		};
-		now = STRAY_FOR_MS + 1;
 		const write = () =>
 			writeFileSync(join(stateDir, KEPT_FILE), `${JSON.stringify([due])}\n`);
 		// The host's own judgement of running, not this file's stand-in.
 		write();
-		await make({ running: undefined }).look(() => false);
+		const judged = make({ running: undefined });
+		await judged.look(() => false);
+		now += STRAY_FOR_MS;
+		await judged.look(() => false);
 		expect(stopped, "where /proc is, the pid and its mark say").toHaveLength(1);
 
 		stopped = [];
@@ -415,14 +420,18 @@ describe("carried shells", () => {
 			expect(kept()).toHaveLength(1);
 		});
 
-		it("stops a call nobody took up a day after the restart, saying so", async () => {
+		it("stops a call nobody took up the bound after this host first saw it, saying so", async () => {
 			keptEarlier(call(shell("m1")));
 			const look = watched(() => false);
+			await look();
+			expect(stopped, "not due at the first sight of it").toEqual([]);
 			now += STRAY_FOR_MS;
 			await look();
 			expect(stopped).toEqual([shell("m1")]);
 			expect(said).toEqual([
-				expect.stringMatching(/make test.*j1 of s1.*a day passed/),
+				expect.stringMatching(
+					/make test.*j1 of s1.*no host took it up within 10 minutes/,
+				),
 			]);
 			expect(kept()).toEqual([]);
 		});
@@ -445,22 +454,26 @@ describe("carried shells", () => {
 				work,
 			});
 
-			it("is left until a day from its start", async () => {
-				const work = shell("m1", { startedAt: now });
+			it("is left until the bound after this host first saw it", async () => {
+				const work = shell("m1", { startedAt: 0 });
 				const look = watched(() => false, { recorded: () => [stray(work)] });
+				await look();
 				now += STRAY_FOR_MS - 1;
 				await look();
 				expect(stopped).toEqual([]);
 			});
 
-			it("is stopped a day from its start, saying so", async () => {
+			it("is stopped the bound after this host first saw it, saying so", async () => {
 				const work = shell("m1", { startedAt: now });
 				const look = watched(() => false, { recorded: () => [stray(work)] });
+				await look();
 				now += STRAY_FOR_MS;
 				await look();
 				expect(stopped).toEqual([work]);
 				expect(said).toEqual([
-					expect.stringMatching(/make test.*j1 of s1.*recorded.*a day passed/),
+					expect.stringMatching(
+						/make test.*j1 of s1.*recorded.*no host took it up within 10 minutes/,
+					),
 				]);
 			});
 
@@ -480,6 +493,7 @@ describe("carried shells", () => {
 				const look = watched(() => false, {
 					recorded: async () => [stray(work)],
 				});
+				await look();
 				now += STRAY_FOR_MS;
 				await look();
 				expect(stopped).toEqual([work]);
@@ -488,12 +502,17 @@ describe("carried shells", () => {
 			it("is stopped once, however long the folder takes to read", async () => {
 				const work = shell("m1", { startedAt: now });
 				const readings: ((jobs: KeptJob[]) => void)[] = [];
+				let slow = false;
 				const look = watched(() => false, {
 					recorded: () =>
-						new Promise<KeptJob[]>((done) => {
-							readings.push(done);
-						}),
+						slow
+							? new Promise<KeptJob[]>((done) => {
+									readings.push(done);
+								})
+							: [stray(work)],
 				});
+				await look();
+				slow = true;
 				now += STRAY_FOR_MS;
 				const first = look();
 				const second = look();
@@ -528,10 +547,11 @@ describe("carried shells", () => {
 				const look = watched(() => false, {
 					recorded: async () => {
 						reads += 1;
-						if (reads === 1) throw failure;
+						if (reads === 2) throw failure;
 						return [stray(work)];
 					},
 				});
+				await look();
 				now += STRAY_FOR_MS;
 				await look();
 				expect(reported).toEqual([failure]);
@@ -586,13 +606,55 @@ describe("carried shells", () => {
 				]);
 			});
 
-			it("is left to a conversation here that holds it, or once it ended", async () => {
+			it("is left to a conversation here that holds its carry, or once it ended", async () => {
 				const held = shell("m1", { startedAt: 0 });
 				const ended = shell("m2", { startedAt: 0 });
 				const look = watched((session) => session === "s1", {
 					recorded: () => [stray(held), stray(ended, "s2")],
 					running: (work) => work.mark !== "m2",
+					carriedMark: () => true,
 				});
+				await look();
+				now += STRAY_FOR_MS;
+				await look();
+				expect(stopped).toEqual([]);
+			});
+
+			// A take-up records the call again under the pi that took it, so
+			// one still named for a pi gone was taken up by nobody, however
+			// long its conversation ran here: 2AF2DH's two test loops ran on
+			// 6.5 and 8 hours so (28 November).
+			it("is stopped though a conversation here runs its session, when nothing carries it", async () => {
+				const work = shell("m1", { startedAt: 0 });
+				const look = watched((session) => session === "s1", {
+					recorded: () => [stray(work)],
+					carriedMark: () => false,
+				});
+				await look();
+				now += STRAY_FOR_MS;
+				await look();
+				expect(stopped).toEqual([work]);
+			});
+
+			it("is stopped when carried but no conversation here holds the carry", async () => {
+				const work = shell("m1", { startedAt: 0 });
+				const look = watched(() => false, {
+					recorded: () => [stray(work)],
+					carriedMark: () => true,
+				});
+				await look();
+				now += STRAY_FOR_MS;
+				await look();
+				expect(stopped).toEqual([work]);
+			});
+
+			it("is neither stopped nor let go while its carry mark can't be read", async () => {
+				const work = shell("m1", { startedAt: 0 });
+				const look = watched(() => true, {
+					recorded: () => [stray(work)],
+					carriedMark: () => Promise.reject(new Error("EMFILE")),
+				});
+				await look();
 				now += STRAY_FOR_MS;
 				await look();
 				expect(stopped).toEqual([]);
@@ -635,6 +697,7 @@ describe("carried shells", () => {
 			});
 			let answer: (running: boolean) => void = () => undefined;
 			let look: (() => void | Promise<void>) | undefined;
+			let slow = false;
 			const shells = make({
 				every: (_ms, run) => {
 					look = run;
@@ -642,7 +705,7 @@ describe("carried shells", () => {
 				},
 				table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),
 				running: (work) => {
-					if (work.mark !== "m0") return true;
+					if (work.mark !== "m0" || !slow) return true;
 					asked();
 					return new Promise<boolean>((resolve) => {
 						answer = resolve;
@@ -650,6 +713,9 @@ describe("carried shells", () => {
 				},
 			});
 			shells.watch(() => false);
+			// First seen unheld here, so the look below finds it due.
+			await look?.();
+			slow = true;
 			const parked = bus();
 			shells.heard(parked);
 			parked.emit(HOST_RESTARTING_EVENT, { session: "s1" });

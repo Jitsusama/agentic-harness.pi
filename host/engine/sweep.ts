@@ -60,7 +60,13 @@ export interface SweepOptions {
 	/** How each kept call is judged running and stopped, and what jobs recorded; the machine's by default. */
 	readonly shells?: Pick<
 		CarriedShellsOptions,
-		"running" | "stop" | "recorded" | "ownCgroup" | "scoped"
+		| "running"
+		| "stop"
+		| "recorded"
+		| "ownCgroup"
+		| "scoped"
+		| "orphans"
+		| "unclaimed"
 	>;
 }
 
@@ -122,8 +128,11 @@ export async function sweepUnheld(
 				report,
 				...now,
 				...(options.table ? { table: options.table } : {}),
-				// What jobs recorded is one record for the key, looked at once.
-				...(index === 0 ? {} : { recorded: () => [] }),
+				// What jobs recorded is one record for the key, looked at once,
+				// as is the kept folder for calls nobody recorded.
+				...(index === 0
+					? {}
+					: { recorded: () => [], orphans: () => Promise.resolve() }),
 			}).look(held);
 		} catch (error) {
 			report(error);

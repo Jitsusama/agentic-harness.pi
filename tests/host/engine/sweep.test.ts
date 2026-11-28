@@ -93,8 +93,11 @@ function carried(session: string, mark: string) {
 }
 
 let root: string;
+/** The clock each sweep reads, stepped on between sweeps. */
+let now: number;
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "sweep-"));
+	now = NOW;
 });
 afterEach(async () => {
 	listFault.folder = undefined;
@@ -107,7 +110,7 @@ function sweeping(stopped: string[] = []) {
 		carried: () => NONE,
 		say: vi.fn<(line: string) => void>(),
 		report: vi.fn<(error: unknown) => void>(),
-		now: () => NOW,
+		now: () => now,
 		shells: {
 			running: () => true,
 			stop: (work: CarriedShell) => {
@@ -116,8 +119,25 @@ function sweeping(stopped: string[] = []) {
 			recorded: () => [],
 			ownCgroup: () => "0::/test\n",
 			scoped: true,
+			// One supervisor's sweeps share what each first saw unclaimed.
+			unclaimed: new Map<string, number>(),
+			orphans: () => Promise.resolve(),
 		},
 	};
+}
+
+/**
+ * Sweep once, then again the bound on, as a supervisor's sweeps come
+ * round: a call is due the bound after a sweep first saw it unclaimed.
+ */
+async function sweptTwice(
+	sweep: () => ReturnType<typeof sweepUnheld>,
+	stopped: readonly string[],
+): ReturnType<typeof sweepUnheld> {
+	await sweep();
+	expect(stopped, "nothing is due at the first sight of it").toEqual([]);
+	now += STRAY_FOR_MS;
+	return sweep();
 }
 
 describe("sweeping a key for what no live host holds", () => {
@@ -172,10 +192,11 @@ describe("sweeping a key for what no live host holds", () => {
 		);
 		const stopped: string[] = [];
 		const { fake } = table({ 1: { group: 1, env: {} } });
-		const swept = await sweepUnheld(KEY, new Set(["two"]), {
-			...sweeping(stopped),
-			table: fake,
-		});
+		const options = sweeping(stopped);
+		const swept = await sweptTwice(
+			() => sweepUnheld(KEY, new Set(["two"]), { ...options, table: fake }),
+			stopped,
+		);
 		expect(stopped.sort()).toEqual(["call-one", "call-three"]);
 		expect(swept.folders).toBe(3);
 		const kept: unknown = JSON.parse(
@@ -193,14 +214,20 @@ describe("sweeping a key for what no live host holds", () => {
 		const { fake } = table({ 1: { group: 1, env: {} } });
 		const { session, label, work } = carried("gone", "recorded");
 		const options = sweeping(stopped);
-		await sweepUnheld(KEY, new Set(), {
-			...options,
-			shells: {
-				...options.shells,
-				recorded: () => [{ session, id: "job-1", kind: "shell", label, work }],
-			},
-			table: fake,
-		});
+		await sweptTwice(
+			() =>
+				sweepUnheld(KEY, new Set(), {
+					...options,
+					shells: {
+						...options.shells,
+						recorded: () => [
+							{ session, id: "job-1", kind: "shell", label, work },
+						],
+					},
+					table: fake,
+				}),
+			stopped,
+		);
 		expect(stopped).toEqual(["recorded"]);
 	});
 
@@ -210,17 +237,21 @@ describe("sweeping a key for what no live host holds", () => {
 		const { fake } = table({ 1: { group: 1, env: {} } });
 		const { session, label, work } = carried("gone", "recorded");
 		const options = sweeping(stopped);
-		const swept = await sweepUnheld(KEY, new Set(), {
-			...options,
-			carried: async () => NONE,
-			shells: {
-				...options.shells,
-				recorded: async () => [
-					{ session, id: "job-1", kind: "shell", label, work },
-				],
-			},
-			table: fake,
-		});
+		const swept = await sweptTwice(
+			() =>
+				sweepUnheld(KEY, new Set(), {
+					...options,
+					carried: async () => NONE,
+					shells: {
+						...options.shells,
+						recorded: async () => [
+							{ session, id: "job-1", kind: "shell", label, work },
+						],
+					},
+					table: fake,
+				}),
+			stopped,
+		);
 		expect(stopped).toEqual(["recorded"]);
 		expect(options.report, "nothing went wrong").not.toHaveBeenCalled();
 		expect(swept.reaped, "nothing left to end").toEqual({
