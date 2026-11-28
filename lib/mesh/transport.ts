@@ -71,9 +71,11 @@ export interface Transport {
 	/**
 	 * The ids from the day this id was stamped on, as {@link idsFromDayOf}
 	 * answers, read a little at a time, for a peer catching up as it
-	 * starts on a host's thread.
+	 * starts on a host's thread; and those at the top, as
+	 * {@link listIds} answers, from the same listing, since listing the
+	 * top twice at once was the slowest step of a start.
 	 */
-	listIdsFromDayOf(id: string): Promise<string[]>;
+	listFromDayOf(id: string): Promise<{ top: string[]; ids: string[] }>;
 	/** One message, or nothing when it will not read. */
 	read(id: string): Message | undefined;
 	/** One message, as {@link read} answers, read off the thread. */
@@ -270,16 +272,20 @@ async function listedIn(dir: string): Promise<Listed> {
 
 /**
  * The ids at the top and in the day folders from `first` on, once each,
- * oldest first, off the thread; from "" that is every day's.
+ * oldest first, off the thread, from "" every day's; and the top's
+ * alone, oldest first.
  */
-async function listedFrom(dir: string, first: string): Promise<string[]> {
+async function listedFrom(
+	dir: string,
+	first: string,
+): Promise<{ top: string[]; ids: string[] }> {
 	const top = await listedIn(dir);
 	const found = new Set(top.ids);
 	// One day at a time, so a week of folders never opens all at once.
 	for (const day of top.days.filter((one) => one >= first)) {
 		for (const id of (await listedIn(join(dir, day))).ids) found.add(id);
 	}
-	return [...found].sort();
+	return { top: top.ids.sort(), ids: [...found].sort() };
 }
 
 /** How many messages a reader of many reads at once off the thread. */
@@ -355,8 +361,8 @@ export function folderTransport(dir: string): Transport {
 		idsFromDayOf: (id) => idsFrom(dir, dayOf(id) ?? ""),
 		recentIds: () => idsIn(dir).sort(),
 		listIds: async () => (await listedIn(dir)).ids.sort(),
-		listAllIds: () => listedFrom(dir, ""),
-		listIdsFromDayOf: (id) => listedFrom(dir, dayOf(id) ?? ""),
+		listAllIds: async () => (await listedFrom(dir, "")).ids,
+		listFromDayOf: (id) => listedFrom(dir, dayOf(id) ?? ""),
 		read(id) {
 			const day = dayOf(id);
 			return (
