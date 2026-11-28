@@ -8,8 +8,10 @@
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -30,15 +32,20 @@ import {
 	type SocketDisk,
 	WORKER_SOCKET_FOLDER,
 } from "../../../../lib/internal/fence/fence-worker-socket.ts";
+import type { GrantPlace } from "../../../../lib/internal/sandbox/machine-grants.ts";
 import {
 	type Sandbox,
 	wrapFor,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
+import { fileToolRefusal } from "../../../../lib/internal/sandbox/sandbox-files.ts";
 import { strictRules } from "../../../../lib/internal/sandbox/strict-rules.ts";
 import { SOCKET_ROOT } from "../../../setup/temp-root.ts";
 
 const RUNTIME = "/run/user/1000";
 const WORKER = `${WORKER_SOCKET_FOLDER}/work-worker.sock`;
+
+/** A reader granting nothing, so no case reads this machine's grants file. */
+const GRANTING_NONE = () => ({ read: [], write: [] });
 
 /**
  * A disk holding `sockets` and `files` where they are named, with links
@@ -254,6 +261,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 		kind: "strict",
 		landrun: "/bin/landrun",
 		workerSockets: diskWith({ sockets: [WORKER] }),
+		grants: GRANTING_NONE,
 		...(served ? { served } : {}),
 	});
 
@@ -313,6 +321,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 						bwrap: "/bin/bwrap",
 						landrun: "/bin/landrun",
 						workerSockets: diskWith({ sockets: [WORKER] }),
+						grants: GRANTING_NONE,
 					},
 				},
 			);
@@ -330,6 +339,39 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			"pi-fence's strict run was handed a refused socket",
 		).not.toContain("MYCELIUM_WORKER_SOCKET");
 	});
+
+	// The root binds only folders the real disk holds, so this runs on a
+	// node with its worker folder and is skipped on a machine without one.
+	it.skipIf(!existsSync(WORKER_SOCKET_FOLDER))(
+		"is bound into the root pi-fence's strict run lays, as Landlock is told of it",
+		() => {
+			const made = fenceRunText(
+				{ kind: "strict", folder: join(base, "work"), words: ["true"] },
+				{
+					env: naming(WORKER, undefined),
+					home: join(base, "home"),
+					platform: "linux",
+					sandbox: {
+						kind: "fence",
+						bwrap: "/bin/bwrap",
+						landrun: "/bin/landrun",
+						workerSockets: diskWith({ sockets: [WORKER] }),
+						grants: GRANTING_NONE,
+					},
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			// The root's arguments sit in a file bubblewrap reads, NUL between
+			// each, or with no runtime folder to hold one, quoted in the text.
+			const file = /--args 3 3<'([^']+)'/.exec(made.text)?.[1];
+			const root = file
+				? readFileSync(file, "utf8").split("\0").join(" ")
+				: made.text.replaceAll("'", "");
+			expect(root, "the root binds the worker socket's folder").toContain(
+				`--ro-bind ${WORKER_SOCKET_FOLDER} ${WORKER_SOCKET_FOLDER}`,
+			);
+		},
+	);
 
 	it("is handed it in the bubblewrap fence too, the session's own value never, and nothing in a language server's", () => {
 		const fence = (served = false): Sandbox => ({
@@ -381,6 +423,30 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			served,
 			"a language server's fence was handed the socket",
 		).not.toContain(`MYCELIUM_WORKER_SOCKET='`);
+	});
+
+	it("is the one pi's file tools judge the machine's grants beside; a language server's tools read no grants at all", () => {
+		/** The worker socket the file tools' grants were read beside. */
+		const judgedBeside = (served: boolean) => {
+			const asked: GrantPlace[] = [];
+			fileToolRefusal(
+				{ toolName: "read", input: { path: "notes.md" } },
+				{
+					cwd: join(base, "work"),
+					env: { ...naming(WORKER), PI_SANDBOX: "strict" },
+					home: join(base, "home"),
+					workerSockets: diskWith({ sockets: [WORKER] }),
+					grants: (place) => {
+						asked.push(place);
+						return { read: [], write: [] };
+					},
+					...(served ? { served } : {}),
+				},
+			);
+			return asked.map((place) => place.workerSocket);
+		};
+		expect(judgedBeside(false), "the session's tools").toEqual([WORKER]);
+		expect(judgedBeside(true), "a language server's tools").toEqual([]);
 	});
 });
 

@@ -27,11 +27,19 @@ sandbox its hour-long tokens.
   profile, from `/etc/pi-sandbox/strict-grants.json`, honoured only
   where nothing but root could have written it: how a World cloud
   node lets its lanes reach World's disk, tokens, signing key and KVM.
-  One entry the fence can't honour refuses the whole file: a comma, a
-  link, a home, a folder the fence needs whole, `/proc`, `/sys`, `/tmp`,
-  `/var/tmp`, `/dev/shm`, a door the fence lets through, a device
-  granted to read, a write in a runtime folder or over a named
-  repository home, or any entry lying within a write.
+  It is read for the session's own place (its home, runtime folder
+  and the worker socket the fence lets through), through a reader a
+  test may stand in for, and a served sandbox takes no grant. One
+  entry the fence can't honour refuses the whole file: a comma, a
+  link, a folder any account may write along the way, a home, a
+  folder the fence needs whole, `/proc`, `/sys`, `/tmp`, `/var/tmp`,
+  `/dev/shm`, a door the fence lets through, the worker socket's
+  folder, a folder the fence covers after the grants, a device
+  granted to read, a write in a runtime folder (the session's own as
+  well as `/run/user/*`) or over a named repository home, or any entry
+  lying within a write. A file whose folder can't be searched grants
+  nothing and says so. Inside the fence's root, "root's" means shown
+  as the overflow uid, which the fenced account never is.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

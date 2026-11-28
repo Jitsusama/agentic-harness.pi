@@ -27,35 +27,48 @@
  * system or the fence needs whole (`/dev`, `/proc`, `/usr`, a runtime
  * folder and the like), or lie in `/proc` or `/sys`, and a device is
  * granted only to write, since bubblewrap binds a read-only one nodev.
+ * Nor may it pass through a folder any account may write, sticky or
+ * not, where an account could lay a missing part as a link. A file whose
+ * folder this account can't search shows as missing, so it grants
+ * nothing too, but says so. The file is read for the session's own
+ * place: its home, its runtime folder and the node's worker socket the
+ * fence lets through, and a served session takes no grant at all.
  *
  * A grant must also leave alone what the fence lays itself, since it is
  * bound after most of it and would undo it. A written entry may not be,
  * hold or lie in a repository home the person names, which the fence
  * keeps read-only so git runs there unfenced, nor lie in a runtime
- * folder, whose doors the fence lets through read-only. No entry may be,
- * hold or lie in one of those doors or pi's folder beside them, nor in
- * `/tmp`, `/var/tmp` or `/dev/shm`, where any account could lay a link
- * in a missing entry's place before bubblewrap follows it. And no entry
+ * folder, the session's own as well as `/run/user/*`, whose doors the
+ * fence lets through read-only. No entry may be, hold or lie in one of
+ * those doors or pi's folder beside them, nor in `/tmp`, `/var/tmp` or
+ * `/dev/shm`, which the fence lays itself, nor in the worker socket's
+ * folder, which it binds read-only, nor in a folder it covers after the
+ * grants, such as the system bus's. And no entry
  * may lie within a written one: Landlock and the bind would make it
  * writable whatever it was granted as, and a command could swap it for a
  * link, refusing the whole file to every command after.
  *
  * Inside the fence's own root, which is a user namespace mapping only
  * the session's account, root's files show as the kernel's overflow
- * account, so there that account stands for root. Nothing the session
- * writes can show as it: the session's account is mapped, and only an
- * account outside the namespace shows as overflow, which in `/etc` is
- * root alone.
+ * account, so there "root's" means "shown as overflow", which every
+ * account outside the map is: root, but also mycelium or any other
+ * system account. That is enough, since the check guards against the
+ * fenced command's own account, which is mapped and so can never show
+ * as overflow. Under a root-only `/etc`, only root can make
+ * `/etc/pi-sandbox`; a machine that gives the folder or the file to
+ * another account trusts that account with every strict session's
+ * fence.
  */
 
-import { lstatSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { accessSync, constants, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, normalize } from "node:path";
 import {
+	COVERED_AFTER_GRANTS,
 	FENCE_RUNTIME_FOLDER,
 	LET_THROUGH,
 } from "../fence/fence-let-through.ts";
 import { namedRepositoryHomes } from "../fence/fence-repository-homes.ts";
+import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 
 /** Where a machine's owner writes what the strict profile adds there. */
 export const MACHINE_GRANTS = "/etc/pi-sandbox/strict-grants.json";
@@ -81,6 +94,11 @@ export interface GrantDisk {
 	say(why: string): void;
 	/** The owner root's files show as here. */
 	rootSeenAs(): number;
+	/**
+	 * Whether this account may search `folder`, without which a file in it
+	 * shows as missing whether it is there or not.
+	 */
+	searchable(folder: string): boolean;
 }
 
 /** The account that alone may write the grant. */
@@ -98,11 +116,39 @@ const DEFAULT_OVERFLOW = 65534;
 /** The mode bits that let a group or anyone else write. */
 const WRITABLE_BY_OTHERS = 0o022;
 
-/** No grant at all. */
-const NONE: MachineGrants = { read: [], write: [] };
+/** No grant at all: what a machine without a grants file, or a served session, gets. */
+export const NO_GRANTS: MachineGrants = { read: [], write: [] };
 
-/** What this process has already said of a grant it refused. */
-const said = new Set<string>();
+/**
+ * A way to say why a grant was refused that writes each reason once, in
+ * pi's words, through `write`, however often a session asks.
+ */
+export function sayingOnce(
+	write: (text: string) => void,
+): (why: string) => void {
+	const said = new Set<string>();
+	return (why) => {
+		if (said.has(why)) return;
+		said.add(why);
+		write(`pi: ${why}\n`);
+	};
+}
+
+/**
+ * The account the owner root's files show as, by what `read` finds: root
+ * itself outside a Linux namespace or in one mapping root, and otherwise
+ * the kernel's overflow account, which every account outside the map
+ * shows as.
+ */
+export function rootSeenAsIn(
+	read: (path: string) => string | undefined,
+): number {
+	const map = read(UID_MAP);
+	// No map is no Linux namespace to be in: root is root.
+	if (map === undefined || rootMapped(map)) return ROOT;
+	const overflow = Number.parseInt(read(OVERFLOW_UID) ?? "", 10);
+	return Number.isInteger(overflow) ? overflow : DEFAULT_OVERFLOW;
+}
 
 /** The disk as it is. */
 const DISK: GrantDisk = {
@@ -130,17 +176,16 @@ const DISK: GrantDisk = {
 			return undefined;
 		}
 	},
-	say(why) {
-		if (said.has(why)) return;
-		said.add(why);
-		process.stderr.write(`pi: ${why}\n`);
-	},
-	rootSeenAs() {
-		const map = DISK.read(UID_MAP);
-		// No map is no Linux namespace to be in: root is root.
-		if (map === undefined || rootMapped(map)) return ROOT;
-		const overflow = Number.parseInt(DISK.read(OVERFLOW_UID) ?? "", 10);
-		return Number.isInteger(overflow) ? overflow : DEFAULT_OVERFLOW;
+	say: sayingOnce((text) => process.stderr.write(text)),
+	rootSeenAs: () => rootSeenAsIn((path) => DISK.read(path)),
+	searchable(folder) {
+		try {
+			accessSync(folder, constants.X_OK);
+			return true;
+		} catch {
+			// Refused, or missing: either way nothing in it can be looked up.
+			return false;
+		}
 	},
 };
 
@@ -159,24 +204,66 @@ export function rootMapped(map: string): boolean {
 }
 
 /**
- * What the machine adds to the strict profile, read from `path`: nothing
- * unless only root could have written it and every entry in it is one
- * the profile can take, `home` being this account's and
- * `repositoryHomes` the repository homes its settings name.
+ * The session a machine's grants are judged for: the home the fence
+ * lays for it, its runtime folder, the node's worker socket it lets
+ * through, and the repository homes its settings name, read from the
+ * home's settings unless given.
+ */
+export interface GrantPlace {
+	readonly home: string;
+	readonly runtimeDir?: string | undefined;
+	readonly workerSocket?: string | undefined;
+	readonly repositoryHomes?: readonly string[];
+}
+
+/**
+ * What reads a machine's grants for a session's place: `machineGrants`,
+ * unless a caller hands in its own, as a test does so as not to read
+ * this machine's file.
+ */
+export type GrantsReader = (place: GrantPlace) => MachineGrants;
+
+/**
+ * The place a session at `home` is judged as, naming only what it has:
+ * a runtime folder and a worker socket left unset are left out.
+ */
+export function grantPlace(
+	home: string,
+	runtimeDir: string | undefined,
+	workerSocket: string | undefined,
+): GrantPlace {
+	return {
+		home,
+		...(runtimeDir === undefined ? {} : { runtimeDir }),
+		...(workerSocket === undefined ? {} : { workerSocket }),
+	};
+}
+
+/**
+ * What the machine adds to the strict profile for the session at
+ * `place`, read from `path`: nothing unless only root could have written
+ * it and every entry in it is one the profile can take for that session.
  */
 export function machineGrants(
+	place: GrantPlace,
 	path: string = MACHINE_GRANTS,
 	disk: GrantDisk = DISK,
-	home: string = homedir(),
-	repositoryHomes: readonly string[] = namedRepositoryHomes(home),
 ): MachineGrants {
 	const file = disk.lstat(path);
-	if (file === undefined) return NONE;
 	const refused = (why: string): MachineGrants => {
 		disk.say(`the strict profile takes no grant from ${path}: ${why}`);
-		return NONE;
+		return NO_GRANTS;
 	};
 	const folder = disk.lstat(dirname(path));
+	if (file === undefined) {
+		// A folder this account can't search hides the file either way.
+		const hidden = folder?.kind === "folder" && !disk.searchable(dirname(path));
+		return hidden
+			? refused(
+					"its folder can't be searched, so whether it grants anything can't be told",
+				)
+			: NO_GRANTS;
+	}
 	const root = disk.rootSeenAs();
 	const unsafe =
 		unsafeBecause(file, "file", root) ?? unsafeBecause(folder, "folder", root);
@@ -204,12 +291,14 @@ export function machineGrants(
 	if (!isList(read) || !isList(write)) {
 		return refused("read and write must each be a list of paths");
 	}
+	const repositoryHomes =
+		place.repositoryHomes ?? namedRepositoryHomes(place.home);
 	for (const [use, listed] of [
 		["read", read],
 		["write", write],
 	] as const) {
 		for (const entry of listed) {
-			const why = entryRefusal(entry, use, home, repositoryHomes, disk);
+			const why = entryRefusal(entry, use, place, repositoryHomes, disk);
 			if (why) return refused(`${JSON.stringify(entry)} under ${use} ${why}`);
 		}
 	}
@@ -250,24 +339,45 @@ const SEALED: readonly string[] = ["/proc", "/sys"];
 const HOMES: readonly string[] = ["/home/*", "/root"];
 
 /**
- * Folders any account may write, where a missing entry could be laid as
- * a link before bubblewrap follows it, which no grant may name, hold or
- * lie in.
+ * The shared temporary folders, which no grant may name, hold or lie in
+ * even where this disk lays one closed: any account may write each on
+ * most machines, and the fence lays /tmp and /dev/shm itself.
  */
-const OPEN_TO_ALL: readonly string[] = ["/tmp", "/var/tmp", "/dev/shm"];
+const SHARED_TEMP: readonly string[] = ["/tmp", "/var/tmp", "/dev/shm"];
+
+/** The mode bit that lets any account write. */
+const WRITABLE_BY_ANYONE = 0o002;
 
 /** Any account's runtime folder. */
 const RUNTIME_FOLDER = "/run/user/*";
 
 /**
- * What the fence lays in a runtime folder itself, which no grant may
+ * The runtime folders the fence lays for `place`: any account's, and the
+ * session's own wherever it lies, when named absolute and in its
+ * plainest form, as the fence lays only such a one.
+ */
+function runtimeFolders(place: GrantPlace): readonly string[] {
+	const own = place.runtimeDir;
+	const laid =
+		own !== undefined &&
+		isAbsolute(own) &&
+		normalize(own) === own &&
+		own !== "/" &&
+		!own.endsWith("/") &&
+		!holds(RUNTIME_FOLDER, own);
+	return laid ? [RUNTIME_FOLDER, own] : [RUNTIME_FOLDER];
+}
+
+/**
+ * What the fence lays in each runtime folder itself, which no grant may
  * name, hold or lie in: bound again, a door the fence lets through only
  * read-only, or keeps from a language server, would come back as granted.
  */
-const FENCES_OWN: readonly string[] = [
-	...LET_THROUGH,
-	FENCE_RUNTIME_FOLDER,
-].map((name) => `${RUNTIME_FOLDER}/${name}`);
+function fencesOwn(runtime: readonly string[]): readonly string[] {
+	return runtime.flatMap((folder) =>
+		[...LET_THROUGH, FENCE_RUNTIME_FOLDER].map((name) => `${folder}/${name}`),
+	);
+}
 
 /**
  * Why an entry of `read` or `write` lies within an entry of `write`, or
@@ -302,16 +412,17 @@ function isList(listed: unknown): listed is string[] {
 }
 
 /**
- * Why the strict profile can't take `entry` to `use`, or none when it
- * can, `home` being this account's.
+ * Why the strict profile can't take `entry` to `use` for the session at
+ * `place`, or none when it can.
  */
 function entryRefusal(
 	entry: string,
 	use: "read" | "write",
-	home: string,
+	place: GrantPlace,
 	repositoryHomes: readonly string[],
 	disk: GrantDisk,
 ): string | undefined {
+	const { home } = place;
 	if (
 		!isAbsolute(entry) ||
 		normalize(entry) !== entry ||
@@ -335,22 +446,38 @@ function entryRefusal(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (sealed) return `is, holds or lies in ${sealed}`;
-	const whole = WHOLE.find((folder) => holds(entry, folder));
+	const runtime = runtimeFolders(place);
+	const whole = [...WHOLE, ...runtime].find((folder) => holds(entry, folder));
 	if (whole) return `is or holds ${whole}, which the fence needs whole`;
-	const laid = [...OPEN_TO_ALL, ...FENCES_OWN].find(
+	const laid = [...SHARED_TEMP, ...fencesOwn(runtime)].find(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (laid) return `is, holds or lies in ${laid}`;
-	if (use === "write" && holds(RUNTIME_FOLDER, entry)) {
-		return `lies in a runtime folder (${RUNTIME_FOLDER}), whose doors the fence lets through read-only`;
+	const covered = COVERED_AFTER_GRANTS.find(
+		(folder) => holds(entry, folder) || holds(folder, entry),
+	);
+	if (covered) {
+		return `is, holds or lies in ${covered}, which the fence covers after the grants`;
 	}
-	if (entry === "/dev") return "is /dev, which the fence lays itself";
+	// The fence binds the socket's folder read-only, before the grants; a
+	// grant over it would hide that bind, or make the socket's folder one
+	// a command could write.
+	const worker =
+		place.workerSocket === undefined
+			? undefined
+			: workerSocketRule(place.workerSocket);
+	if (worker && (holds(entry, worker) || holds(worker, entry))) {
+		return `is, holds or lies in the worker socket's folder (${worker}), which the fence binds read-only`;
+	}
+	const written =
+		use === "write" && runtime.find((folder) => holds(folder, entry));
+	if (written) {
+		return `lies in a runtime folder (${written}), whose doors the fence lets through read-only`;
+	}
 	if (use === "read" && holds("/dev", entry)) {
 		return "is a device, which works only granted to write";
 	}
-	const link = linkOn(entry, disk);
-	if (link) return `passes through a link at ${link}`;
-	return undefined;
+	return pathRefusal(entry, disk);
 }
 
 /**
@@ -369,17 +496,23 @@ function holds(outer: string, inner: string): boolean {
 }
 
 /**
- * The first folder or file along `path` that is a link, or none; the
- * walk stops where the path runs out on disk, since a missing path is
- * left out of the fence anyway.
+ * Why `path` can't be granted as the disk lays it, or none: a link along
+ * it, or a folder along it any account may write, sticky or not, where
+ * an account could lay a missing part as a link before bubblewrap
+ * follows it. The walk stops where the path runs out on disk, since a
+ * missing path is left out of the fence anyway; a folder only its group
+ * may write is the group's to trust.
  */
-function linkOn(path: string, disk: GrantDisk): string | undefined {
+function pathRefusal(path: string, disk: GrantDisk): string | undefined {
 	const parts = path.split("/").slice(1);
 	for (let end = 1; end <= parts.length; end++) {
 		const along = `/${parts.slice(0, end).join("/")}`;
 		const found = disk.lstat(along);
 		if (found === undefined) return undefined;
-		if (found.kind === "link") return along;
+		if (found.kind === "link") return `passes through a link at ${along}`;
+		if (found.kind === "folder" && (found.mode & WRITABLE_BY_ANYONE) !== 0) {
+			return `passes through ${along}, a folder any account may write, where a missing part could be laid as a link`;
+		}
 	}
 	return undefined;
 }

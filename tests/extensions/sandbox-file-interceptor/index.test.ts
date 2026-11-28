@@ -79,7 +79,11 @@ function refusal(
 	env: NodeJS.ProcessEnv = strict,
 	cwd = work,
 ): string | undefined {
-	return fileToolRefusal({ toolName, input }, { cwd, env, home });
+	return fileToolRefusal(
+		{ toolName, input },
+		// Granting nothing, so no case reads this machine's grants file.
+		{ cwd, env, home, grants: () => ({ read: [], write: [] }) },
+	);
 }
 
 describe("a session with no sandbox", () => {

@@ -28,10 +28,19 @@ import {
 	MAC_SECRETS,
 } from "../fence/fence-seatbelt.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
+import {
+	fencedWorkerSocket,
+	type SocketDisk,
+} from "../fence/fence-worker-socket.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { leadsTo } from "./leads-to.ts";
-import { machineGrants } from "./machine-grants.ts";
+import {
+	type GrantsReader,
+	grantPlace,
+	machineGrants,
+	NO_GRANTS,
+} from "./machine-grants.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -133,6 +142,10 @@ interface FilePlace {
 	skills?: readonly string[];
 	/** Whether the fence's first stage takes it unasked; by default, as it started. */
 	staged?: (env: NodeJS.ProcessEnv) => boolean;
+	/** What reads the machine's grants, unless `machineGrants`. */
+	grants?: GrantsReader;
+	/** The disk the node's worker socket is judged on, unless the real one. */
+	workerSockets?: SocketDisk;
 	/**
 	 * Judged for a language server, whose strict fence reaches none of
 	 * gcloud's settings, so pi reads and writes for it only where the
@@ -464,6 +477,18 @@ function strictRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const { cwd, home } = place;
+	// The socket a command would be let through to, so a file tool and a
+	// command judge the machine's grants beside the same one.
+	const workerSocket = place.served
+		? undefined
+		: fencedWorkerSocket(place.env, place.workerSockets);
+	// A served session's commands take no machine grant, so neither do
+	// its file tools.
+	const grants = place.served
+		? NO_GRANTS
+		: (place.grants ?? machineGrants)(
+				grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
+			);
 	const reach = fileReach(
 		{
 			home,
@@ -472,7 +497,7 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
-			grants: machineGrants(),
+			grants,
 		},
 		use,
 	)
@@ -487,10 +512,15 @@ function strictRefusal(
 			real === undefined
 				? `where it couldn't be followed: ${CANT_FOLLOW}`
 				: `to ${real}, outside it`;
+		// The machine's grants are named only where they reach this use.
 		const what =
 			use === "write"
-				? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
-				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants";
+				? grants.write.length > 0
+					? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
+					: "may write only in the working folder and the sandbox's own cache and temporary folder"
+				: grants.read.length + grants.write.length > 0
+					? "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants"
+					: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;

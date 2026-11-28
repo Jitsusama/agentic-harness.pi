@@ -35,7 +35,7 @@
 
 import { existsSync, lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { machineGrants } from "../sandbox/machine-grants.ts";
+import { grantPlace, machineGrants } from "../sandbox/machine-grants.ts";
 import {
 	makeScratches,
 	makeShares,
@@ -322,7 +322,9 @@ export function fenceRunText(
 	const worker = workerSocket ? { workerSocket } : {};
 	// Read here, outside the fence, where root's file shows as root's;
 	// the same grants go to Landlock and to the root bubblewrap lays.
-	const grants = machineGrants();
+	const grants = (sandbox.grants ?? machineGrants)(
+		grantPlace(home, runtimeDir, workerSocket),
+	);
 	const inner = sandboxedCommand(
 		command,
 		strictRules({
@@ -347,6 +349,7 @@ export function fenceRunText(
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 		grants,
+		...worker,
 	});
 	return strictText(sandbox.bwrap, root, inner, command, {
 		home,

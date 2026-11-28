@@ -104,7 +104,7 @@ import {
 	readOnlyPaths,
 	repositoryHomes,
 } from "./fence-home.ts";
-import { LET_THROUGH } from "./fence-let-through.ts";
+import { COVERED_AFTER_GRANTS, LET_THROUGH } from "./fence-let-through.ts";
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { pinnedAbove } from "./fence-pins.ts";
@@ -476,8 +476,9 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		}
 	}
 	args.push(...grantArgs(place.grants, exists));
-	// The system bus and X's sockets live outside the runtime folder.
-	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
+	// The system bus and X's sockets live outside the runtime folder;
+	// covered after the grants, which a machine's grants never reach.
+	for (const folder of COVERED_AFTER_GRANTS) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));

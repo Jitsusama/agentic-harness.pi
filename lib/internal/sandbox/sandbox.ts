@@ -136,7 +136,12 @@ import {
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { insideMacSandbox, macSandboxExec } from "./mac-sandbox.ts";
-import { machineGrants } from "./machine-grants.ts";
+import {
+	type GrantsReader,
+	grantPlace,
+	machineGrants,
+	NO_GRANTS,
+} from "./machine-grants.ts";
 import {
 	direnvTrusts,
 	makeScratches,
@@ -447,6 +452,8 @@ export type Sandbox =
 			readonly served?: boolean;
 			/** The disk the node's worker socket is judged on, unless the real one. */
 			readonly workerSockets?: SocketDisk;
+			/** What reads the machine's grants, unless `machineGrants`. */
+			readonly grants?: GrantsReader;
 	  })
 	| (Logged & {
 			readonly kind: "fence";
@@ -463,6 +470,8 @@ export type Sandbox =
 			readonly served?: boolean;
 			/** The disk the node's worker socket is judged on, unless the real one. */
 			readonly workerSockets?: SocketDisk;
+			/** What reads the machine's grants, unless `machineGrants`. */
+			readonly grants?: GrantsReader;
 	  })
 	| (Logged & {
 			readonly kind: "seatbelt";
@@ -1036,7 +1045,13 @@ export function wrapFor(
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
-				grants: machineGrants(),
+				// A language server runs for no one's ask, so the machine
+				// grants it nothing: its grants are for the person's commands.
+				grants: served
+					? NO_GRANTS
+					: (sandbox.grants ?? machineGrants)(
+							grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
+						),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
