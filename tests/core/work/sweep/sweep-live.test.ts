@@ -1171,6 +1171,95 @@ describe("trees another provider cut", () => {
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
+	it("releases nothing of a stopped removal a session finished and cut afresh since the run listed it", async () => {
+		// The run lists the stopped mark; before it holds the tree, a session
+		// finishes the removal, cuts the tree afresh and ends, leaving work
+		// its provider would keep. Finished as the stopped removal, unjudged,
+		// that work would go.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [fresh] = memory.recall();
+		if (fresh === undefined) throw new Error("no record was written");
+		memory.remember({ ...fresh, going: { at: Date.now(), by: ENDED } });
+		const real = memory.holdWhileUnheld.bind(memory);
+		let recut = false;
+		memory.holdWhileUnheld = async (...args) => {
+			if (!recut) {
+				recut = true;
+				memory.remember(fresh);
+				writeFileSync(join(tree, "src", "notes.txt"), "uncommitted\n");
+				settleFolder(tree);
+				const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+				utimesSync(join(tree, "src", "notes.txt"), then, then);
+			}
+			return await real(...args);
+		};
+		let releases = 0;
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				releases += 1;
+				rmSync(tree, { recursive: true, force: true });
+			}),
+			whyKept: async (held) =>
+				existsSync(join(held.path, "src", "notes.txt"))
+					? "it has uncommitted changes"
+					: undefined,
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(recut, "the tree was cut afresh meanwhile").toBe(true);
+		expect(releases, "how many times it was released").toBe(0);
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "a session finished its stopped removal since, so the next run judges what stands there through every gate",
+		});
+		expect(existsSync(join(tree, "src", "notes.txt")), "the fresh work").toBe(
+			true,
+		);
+		expect(memory.recall(), "the fresh cut's record").toEqual([fresh]);
+
+		const next = await sweepWith(provider);
+
+		expect(releases, "how many times the next run released it").toBe(0);
+		expect(next.kept, "what the next run kept, and why").toContainEqual({
+			path: tree,
+			why: "it has uncommitted changes",
+		});
+	});
+
+	it("judges a folder through every gate while any record there is unmarked, whichever is listed first", async () => {
+		// Code from before marks may file an unmarked twin beside a stopped
+		// mark, naming what may be its fresh cut. Judged by the mark listed
+		// first, the tree was finished unjudged, and with the hold asking for
+		// the mark on every record, it would be kept by every run unjudged.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "a-marked-twin" },
+			going: { at: Date.now(), by: ENDED },
+		});
+		judgedByKey(memory);
+		let releases = 0;
+		const provider = elsewhere("it has uncommitted changes", async () => {
+			releases += 1;
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(0);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "it has uncommitted changes",
+		});
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
 	it("keeps a stopped removal whose provider isn't loaded, and says so", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
@@ -2019,9 +2108,9 @@ describe("a tree whose record another process holds locked past the wait", () =>
 			refuse(path);
 			return await real.whileUnheld(path, take, facts);
 		};
-		memory.holdWhileUnheld = async (path, lock, facts) => {
+		memory.holdWhileUnheld = async (path, lock, facts, stopped) => {
 			refuse(path);
-			return await real.holdWhileUnheld(path, lock, facts);
+			return await real.holdWhileUnheld(path, lock, facts, stopped);
 		};
 		return memory;
 	}

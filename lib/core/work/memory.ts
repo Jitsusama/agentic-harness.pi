@@ -180,11 +180,18 @@ export interface TreeMemory {
 	 * records' locks. Answers the first record as it was, unmarked, or
 	 * nothing when the tree is held, or when the machine won't say when
 	 * this session started.
+	 *
+	 * Given the `stopped` mark the caller read, as a sweep finishing a
+	 * removal that stopped does, every record at the path must still carry
+	 * it (see {@link carriesMark}), or nothing is taken: a session may have
+	 * finished that removal since and cut the tree afresh, and a fresh cut
+	 * is a new tree, which only every gate may judge spent.
 	 */
 	holdWhileUnheld(
 		path: string,
 		lock: RemovalLock,
 		facts?: ProcessFacts,
+		stopped?: GoingMark,
 	): Promise<HeldTree | undefined>;
 	/**
 	 * End a removal {@link holdWhileUnheld} began: forget the tree's
@@ -475,6 +482,26 @@ async function refuseWhileMarked(
 		if (await goingNow(tree, facts)) throw new TreeGoing(path);
 	}
 	if (marked.length > 0) throw new TreeHalfGone(path);
+}
+
+/**
+ * Whether `tree` still carries the mark `read`, made by the same removal:
+ * dated alike, or made by the same process. One removal marks a path's
+ * twins one after another, so their dates may differ by a millisecond,
+ * while their remover is the same. A record unmarked, or marked by
+ * another removal, carries none of it.
+ */
+export function carriesMark(tree: HeldTree, read: GoingMark): boolean {
+	const going: unknown = tree.going;
+	if (typeof going !== "object" || going === null) return false;
+	if ("at" in going && going.at === read.at) return true;
+	const by = "by" in going ? going.by : undefined;
+	return (
+		isOwner(by) &&
+		isOwner(read.by) &&
+		by.pid === read.by.pid &&
+		sameProcess(by.startedAt, read.by.startedAt)
+	);
 }
 
 /**
@@ -1369,7 +1396,7 @@ export function createTreeMemory(
 			}
 		},
 
-		async holdWhileUnheld(path, lock, facts = systemFacts) {
+		async holdWhileUnheld(path, lock, facts = systemFacts, stopped) {
 			const found = this.recall().filter((one) => one.path === path);
 			if (found.length === 0) return undefined;
 			const locked = new Set(found.map((one) => one.identity.key));
@@ -1388,6 +1415,15 @@ export function createTreeMemory(
 					// One under a key not locked here came since the read above,
 					// a session's, whose write this can't hold off: left for now.
 					if (trees.some((tree) => !locked.has(tree.identity.key))) return;
+					// A record no longer carrying the stopped mark the caller read
+					// was finished by a session since, and may be its fresh cut,
+					// whose uncommitted work only the gates the caller skipped see.
+					if (
+						stopped !== undefined &&
+						trees.some((tree) => !carriesMark(tree, stopped))
+					) {
+						return;
+					}
 					for (const tree of trees) {
 						if (!(await spent(tree, facts))) return;
 					}

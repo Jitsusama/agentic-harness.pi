@@ -66,7 +66,7 @@ import {
 	treesInUse,
 	type UseSigns,
 } from "./in-use.ts";
-import type { GoingEnd, TreeMemory } from "./memory.ts";
+import { carriesMark, type GoingEnd, type TreeMemory } from "./memory.ts";
 import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
@@ -573,13 +573,21 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			if (!release.ours()) break;
 			if (judged.has(tree.path)) continue;
 			judged.add(tree.path);
+			// A folder is a stopped removal's only while every record there is
+			// marked. An unmarked twin, as code from before marks may file, may
+			// name a fresh cut, so the folder is judged through every gate by
+			// it, whichever record the listing gave first: judged by the mark,
+			// the hold refuses it as no longer the stopped removal, every run.
+			const unmarked = others.find(
+				(one) => one.path === tree.path && one.going === undefined,
+			);
 			// Other providers' rules know nothing of a quest's claim, so it
 			// holds their trees for good.
 			await releaseThroughProvider(
 				deps,
 				facts,
 				release.lock,
-				tree,
+				unmarked ?? tree,
 				[...remembered, ...spendable],
 				outcome,
 			);
@@ -850,13 +858,20 @@ async function removeMarked(
 ): Promise<void> {
 	let before: HeldTree | undefined;
 	try {
-		before = await deps.memory.holdWhileUnheld(tree.path, lock, facts);
+		// A stopped removal is finished unjudged, so only while every record
+		// still carries the mark read as the run listed its trees.
+		before = await deps.memory.holdWhileUnheld(
+			tree.path,
+			lock,
+			facts,
+			tree.going,
+		);
 	} catch (error) {
 		if (!keptForItsLock(tree, error, outcome)) throw error;
 		return;
 	}
 	if (before === undefined) {
-		outcome.kept.push({ path: tree.path, why: "a session took it up again" });
+		outcome.kept.push({ path: tree.path, why: whyNotHeld(deps.memory, tree) });
 		return;
 	}
 	let failed: unknown;
@@ -895,6 +910,25 @@ async function removeMarked(
 		path: tree.path,
 		why: `${messageOf(failed)}${unended ?? ""}`,
 	});
+}
+
+/**
+ * Why `tree` couldn't be held for its removal: a session took it up
+ * again, or, for a stopped removal, a session finished that removal
+ * since, and what stands there may be its fresh cut, which the next run
+ * judges through every gate. Read off the records as they stand now,
+ * outside their locks, so it names what a reader of the log would find.
+ */
+function whyNotHeld(memory: TreeMemory, tree: HeldTree): string {
+	const read = tree.going;
+	const finished =
+		read !== undefined &&
+		memory
+			.recall()
+			.some((one) => one.path === tree.path && !carriesMark(one, read));
+	return finished
+		? "a session finished its stopped removal since, so the next run judges what stands there through every gate"
+		: "a session took it up again";
 }
 
 /**
