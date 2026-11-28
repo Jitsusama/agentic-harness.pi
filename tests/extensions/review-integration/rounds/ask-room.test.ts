@@ -1,7 +1,7 @@
 /**
- * Which rounds' reviewers run on a room: only a change on a repository
- * the room keeps, with its head known, and only once the package
- * config names a room.
+ * Which rounds' reviewers run on a room: a change whose repository the
+ * config keys a room to, or one the default room keeps, with its head
+ * known, and only once the package config names a room.
  */
 
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -106,6 +106,118 @@ describe("the room a round's reviewers run on", () => {
 		).toBeUndefined();
 		expect(await roomFor(mine, head, harness, none, found)).toBeUndefined();
 		expect(await roomFor(mine, head, harness, misnamed, found)).toBeUndefined();
+	});
+
+	it("is the one the config keys to the change's repository, over the default", async () => {
+		const path = await config({
+			room: { machine: "room-1" },
+			rooms: {
+				"github:Jitsusama/core.nix": { repo: "core.nix", machine: "big-room" },
+			},
+		});
+
+		const room = await roomFor(
+			change("github:Jitsusama/core.nix"),
+			head,
+			harness,
+			path,
+			found,
+		);
+
+		expect(room?.place).toMatchObject({ machine: "big-room", keyed: true });
+		expect(room?.code).toEqual({ repo: "core.nix", commit: head });
+	});
+
+	it("is any machine with the needs a keyed room names, for a repository the default room doesn't keep", async () => {
+		const path = await config({
+			room: { machine: "room-1" },
+			rooms: {
+				"delta:shop/world": {
+					repo: "world",
+					realm: "home",
+					needs: ["repo=world", "zone=us"],
+				},
+			},
+		});
+
+		expect(
+			await roomFor(change("delta:shop/world"), head, harness, path, found),
+		).toEqual({
+			place: {
+				mycelium: MYCELIUM,
+				realm: "home",
+				needs: ["repo=world", "zone=us"],
+				keyed: true,
+				harnessRoot: "/pkg",
+				entryLoads: ["/pkg/fence.ts"],
+			},
+			code: { repo: "world", commit: head },
+		});
+	});
+
+	it("is the machine a keyed room names, over its needs", async () => {
+		const path = await config({
+			rooms: {
+				"delta:shop/world": {
+					repo: "world",
+					machine: "w-1",
+					needs: ["repo=world"],
+				},
+			},
+		});
+
+		const room = await roomFor(
+			change("delta:shop/world"),
+			head,
+			harness,
+			path,
+			found,
+		);
+
+		expect(room?.place).toMatchObject({ machine: "w-1", realm: "work" });
+		expect(room?.place).not.toHaveProperty("needs");
+	});
+
+	it("is none for a keyed room that is misnamed", async () => {
+		const world = change("delta:shop/world");
+		const misnamed = [
+			{ needs: ["repo=world"] },
+			{ repo: "../world", needs: ["repo=world"] },
+			{ repo: "World", needs: ["repo=world"] },
+			{ repo: "world" },
+			{ repo: "world", needs: [] },
+			{ repo: "world", needs: ["repo world"] },
+			{ repo: "world", needs: ["--repo=world"] },
+			{ repo: "world", needs: ["repo=world", 7] },
+			{ repo: "world", machine: "" },
+			{ repo: "world", machine: 7, needs: ["repo=world"] },
+			"world",
+		];
+		for (const entry of misnamed) {
+			const path = await config({ rooms: { "delta:shop/world": entry } });
+			expect(
+				await roomFor(world, head, harness, path, found),
+				JSON.stringify(entry),
+			).toBeUndefined();
+		}
+	});
+
+	it("is the default for a repository it keeps, when that repository's keyed room is misnamed", async () => {
+		const path = await config({
+			room: { machine: "room-1" },
+			rooms: { "github:Jitsusama/mycelium": { repo: "mycelium" } },
+		});
+
+		const room = await roomFor(
+			change("github:Jitsusama/mycelium"),
+			head,
+			harness,
+			path,
+			found,
+		);
+
+		expect(room?.place).toMatchObject({ machine: "room-1" });
+		expect(room?.place).not.toHaveProperty("keyed");
 	});
 
 	it("is none when the node's command can't be found, so the round runs here", async () => {

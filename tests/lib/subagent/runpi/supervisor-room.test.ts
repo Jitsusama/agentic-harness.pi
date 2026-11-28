@@ -20,6 +20,9 @@ import {
 // Slack for spawning, not a work budget: TEST_TIMEOUT_MS says why.
 vi.setConfig({ testTimeout: TEST_TIMEOUT_MS });
 
+/** The head every room run here is asked to read. */
+const HEAD = "a".repeat(40);
+
 /** A line of pi's stream, as a child script writes it. */
 const said = (event: Record<string, unknown>) =>
 	`process.stdout.write(${JSON.stringify(`${JSON.stringify(event)}\n`)});`;
@@ -49,7 +52,7 @@ async function roomRun(
 	more: Parameters<typeof runChild>[2] = {},
 	node?: string,
 	local: string[] = answered("here"),
-	options: { wrapUpReserveMs?: number } = {},
+	{ keyed, ...options }: { wrapUpReserveMs?: number; keyed?: boolean } = {},
 ) {
 	const stateDir = await tempStateDir();
 	const ranHere = join(stateDir, "ran-here");
@@ -61,8 +64,14 @@ async function roomRun(
 	const mycelium = node ?? (await script(join(stateDir, "mycelium"), lines));
 	await writeFile(join(stateDir, "brief.md"), "the brief");
 	const room: RoomAsk = {
-		place: { mycelium, realm: "work", machine: "room-1", harnessRoot: "/pkg" },
-		code: { repo: "agentic-harness.pi", commit: "a".repeat(40) },
+		place: {
+			mycelium,
+			realm: "work",
+			machine: "room-1",
+			harnessRoot: "/pkg",
+			...(keyed ? { keyed } : {}),
+		},
+		code: { repo: "agentic-harness.pi", commit: HEAD },
 	};
 	const result = await runChild(
 		childPath,
@@ -82,6 +91,10 @@ async function roomRun(
 	);
 	return { result, here: starts.length > 0, starts, stateDir };
 }
+
+/** A run asked onto a room keyed to its repository, which says its checkout. */
+const keyedRun = (lines: string[]) =>
+	roomRun(lines, {}, undefined, answered("here"), { keyed: true });
 
 describe("a reviewer asked to run on a room", () => {
 	it("is the room's run, its recorded findings kept here as its journal", async () => {
@@ -196,6 +209,55 @@ describe("a reviewer asked to run on a room", () => {
 
 		expect(here, "nothing ran here").toBe(false);
 		expect(result.exitCode).not.toBe(0);
+	});
+
+	it("counts a keyed room that says it checked out the head before pi starts", async () => {
+		const { result, here } = await keyedRun([
+			said({ type: "room_checkout", commit: HEAD }),
+			...answered("there"),
+		]);
+
+		expectRan(result);
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.finalAssistantText).toBe("there");
+	});
+
+	it("fails a keyed room that checked out another commit, never running here", async () => {
+		const { result, here } = await keyedRun([
+			said({ type: "room_checkout", commit: "1234abcd".repeat(5) }),
+			...answered("there"),
+		]);
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
+		expect(result.finalAssistantText).not.toBe("there");
+		expect(result.warnings?.join(" ")).toMatch(
+			/doesn't count \(the room read 1234abcd, not the head aaaaaaaa\).*doesn't run here/,
+		);
+	});
+
+	it("fails a keyed room that never said which commit it read, never running here", async () => {
+		const { result, here } = await keyedRun(answered("there"));
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
+		expect(result.finalAssistantText).not.toBe("there");
+		expect(result.warnings?.join(" ")).toMatch(
+			/doesn't count \(the room didn't say which commit it read\)/,
+		);
+	});
+
+	it("fails a keyed room that ended having said nothing but stray words", async () => {
+		const { result, here } = await keyedRun([
+			'process.stdout.write("checking out\\n");',
+			"process.exit(0);",
+		]);
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
+		expect(result.warnings?.join(" ")).toMatch(
+			/the room didn't say which commit it read/,
+		);
 	});
 
 	it("fails from the start, never running here, when the entry would refuse its words", async () => {

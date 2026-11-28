@@ -1,9 +1,11 @@
 /**
  * The room a round's reviewers run on, when the package config names
- * one: `sections.review.room`, `{ "machine": "<room>", "realm": "work" }`.
+ * one: `sections.review.rooms`, keyed by the change's repository key,
+ * each `{ "repo": "world", "realm"?, "machine"?, "needs"? }`, or else
+ * `sections.review.room`, `{ "machine": "<room>", "realm": "work" }`,
+ * the default room for the repositories it keeps (ROOM_REPOS).
  *
- * Only a change on one of the repositories a room keeps a checkout of
- * goes there, and only with its head commit known, since the room's
+ * A change goes there only with its head commit known, since the room's
  * entry checks that commit out before its reviewer starts. Anything
  * else, and every round where no room is named, runs here as before.
  * Read once a round, like the round's clocks.
@@ -22,7 +24,9 @@ import { getSubagentDefaults } from "../../../lib/subagent/defaults.ts";
 import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
 import {
 	MAX_ROOM_BRIEF_BYTES,
+	ROOM_REPO_NAME,
 	ROOM_REPOS,
+	type RoomMachine,
 } from "../../../lib/subagent/runpi/room-launch.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { fencePacks } from "./ask-reviewer.ts";
@@ -32,6 +36,9 @@ const ROOM_OWNER = "github:Jitsusama/";
 
 /** The realm a room is in, when the config names none. */
 const DEFAULT_REALM = "work";
+
+/** A need as mycelium's `run --need` takes it: `kind=value`, one word. */
+const NEED = /^[a-z][a-z0-9_-]*=\S+$/;
 
 /** The node's own command, by name, as every other caller asks it. */
 const MYCELIUM = "mycelium";
@@ -95,9 +102,8 @@ export async function roomFor(
 	path: string = packageConfigPath(),
 	mycelium: () => string | undefined = myceliumAt,
 ): Promise<RoomAsk | undefined> {
-	const repo = roomRepo(change.repo.key);
-	if (repo === undefined || head === undefined) return undefined;
-	const named = await roomNamed(path);
+	if (head === undefined) return undefined;
+	const named = await roomNamed(change.repo.key, path);
 	if (named === undefined) return undefined;
 	const command = mycelium();
 	if (command === undefined) return undefined;
@@ -107,12 +113,13 @@ export async function roomFor(
 		place: {
 			mycelium: command,
 			realm: named.realm,
-			machine: named.machine,
+			...named.on,
+			...(named.keyed ? { keyed: true } : {}),
 			harnessRoot: harness.root,
 			entryLoads: harness.entryLoads,
 			...(harness.hereOnly === undefined ? {} : { hereOnly: harness.hereOnly }),
 		},
-		code: { repo, commit: head },
+		code: { repo: named.repo, commit: head },
 	};
 }
 
@@ -129,26 +136,66 @@ function harnessHere(harnessOf: () => RoomHarness): RoomHarness | undefined {
 	}
 }
 
-/** The room's name for a repository it keeps, or nothing. */
-function roomRepo(key: string): string | undefined {
-	if (!key.startsWith(ROOM_OWNER)) return undefined;
-	const name = key.slice(ROOM_OWNER.length);
-	return ROOM_REPOS.has(name) ? name : undefined;
+/** A room the config names for a repository, as the round asks it. */
+interface NamedRoom {
+	/** The repository's name as the room lays it under ~/src. */
+	readonly repo: string;
+	readonly realm: string;
+	readonly on: RoomMachine;
+	/** Named for this repository in `rooms`, not the default `room`. */
+	readonly keyed: boolean;
 }
 
-/** The room the config names, or nothing when it names none or misnames one. */
+/**
+ * The room the config names for the repository `key` names: its own in
+ * `rooms`, else the default `room` for a repository that one keeps, else
+ * nothing. A misnamed room is taken as none.
+ */
 async function roomNamed(
+	key: string,
 	path: string,
-): Promise<{ machine: string; realm: string } | undefined> {
+): Promise<NamedRoom | undefined> {
 	const loaded = await loadPackageConfig(path);
 	if (!loaded.ok) return undefined;
 	const review = loaded.config.sections[REVIEW_SLUG];
-	const room = isRecord(review) ? review.room : undefined;
-	if (!isRecord(room)) return undefined;
-	const { machine, realm } = room;
+	if (!isRecord(review)) return undefined;
+	const rooms = isRecord(review.rooms) ? review.rooms : {};
+	return keyedRoom(rooms[key]) ?? defaultRoom(review.room, key);
+}
+
+/** A room keyed to one repository, or nothing when it is misnamed. */
+function keyedRoom(entry: unknown): NamedRoom | undefined {
+	if (!isRecord(entry)) return undefined;
+	const { repo, machine, needs } = entry;
+	if (typeof repo !== "string" || !ROOM_REPO_NAME.test(repo)) return undefined;
+	const realm = realmOf(entry.realm);
+	if (machine !== undefined) {
+		if (typeof machine !== "string" || machine === "") return undefined;
+		return { repo, realm, on: { machine }, keyed: true };
+	}
+	if (!Array.isArray(needs) || needs.length === 0) return undefined;
+	const named: string[] = [];
+	for (const need of needs) {
+		if (typeof need !== "string" || !NEED.test(need)) return undefined;
+		named.push(need);
+	}
+	return { repo, realm, on: { needs: named }, keyed: true };
+}
+
+/**
+ * The default room, for a repository it keeps, or nothing when it keeps
+ * none of that name or is misnamed.
+ */
+function defaultRoom(room: unknown, key: string): NamedRoom | undefined {
+	if (!key.startsWith(ROOM_OWNER)) return undefined;
+	const repo = key.slice(ROOM_OWNER.length);
+	if (!ROOM_REPOS.has(repo) || !isRecord(room)) return undefined;
+	const { machine } = room;
 	if (typeof machine !== "string" || machine === "") return undefined;
-	return {
-		machine,
-		realm: typeof realm === "string" && realm !== "" ? realm : DEFAULT_REALM,
-	};
+	return { repo, realm: realmOf(room.realm), on: { machine }, keyed: false };
+}
+
+/** The realm a room names, or the default where it names none. */
+function realmOf(realm: unknown): string {
+	return typeof realm === "string" && realm !== "" ? realm : DEFAULT_REALM;
 }
