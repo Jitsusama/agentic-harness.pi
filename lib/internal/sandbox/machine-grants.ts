@@ -27,25 +27,37 @@
  * system or the fence needs whole (`/dev`, `/proc`, `/usr`, a runtime
  * folder and the like), or lie in `/proc` or `/sys`, and a device is
  * granted only to write, since bubblewrap binds a read-only one nodev.
+ * Nor may it pass through a folder any account may write, sticky or
+ * not, where an account could lay a missing part as a link. A file whose
+ * folder this account can't search shows as missing, so it grants
+ * nothing too, but says so. The file is read for the session's own
+ * place: its home, its runtime folder and the node's worker socket the
+ * fence lets through, and a served session takes no grant at all.
  *
  * A grant must also leave alone what the fence lays itself, since it is
  * bound after most of it and would undo it. A written entry may not be,
  * hold or lie in a repository home the person names, which the fence
  * keeps read-only so git runs there unfenced, nor lie in a runtime
- * folder, whose doors the fence lets through read-only. No entry may be,
- * hold or lie in one of those doors or pi's folder beside them, nor in
- * `/tmp`, `/var/tmp` or `/dev/shm`, where any account could lay a link
- * in a missing entry's place before bubblewrap follows it. And no entry
+ * folder, the session's own as well as `/run/user/*`, whose doors the
+ * fence lets through read-only. No entry may be, hold or lie in one of
+ * those doors or pi's folder beside them, nor in `/tmp`, `/var/tmp` or
+ * `/dev/shm`, which the fence lays itself, nor in the worker socket's
+ * folder, which it binds read-only, nor in a folder it covers after the
+ * grants, such as the system bus's. And no entry
  * may lie within a written one: Landlock and the bind would make it
  * writable whatever it was granted as, and a command could swap it for a
  * link, refusing the whole file to every command after.
  *
  * Inside the fence's own root, which is a user namespace mapping only
  * the session's account, root's files show as the kernel's overflow
- * account, so there that account stands for root. Nothing the session
- * writes can show as it: the session's account is mapped, and only an
- * account outside the namespace shows as overflow, which in `/etc` is
- * root alone.
+ * account, so there "root's" means "shown as overflow", which every
+ * account outside the map is: root, but also mycelium or any other
+ * system account. That is enough, since the check guards against the
+ * fenced command's own account, which is mapped and so can never show
+ * as overflow. Under a root-only `/etc`, only root can make
+ * `/etc/pi-sandbox`; a machine that gives the folder or the file to
+ * another account trusts that account with every strict session's
+ * fence.
  */
 
 import { accessSync, constants, lstatSync, readFileSync } from "node:fs";

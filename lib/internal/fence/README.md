@@ -60,10 +60,15 @@ would miss what another binds over it.
   profile (`../sandbox/machine-grants.ts`), bound into the strict
   fence's root after its own `/dev` and emptied runtime folder, which
   would hide a granted device or token; read-only for a read,
-  writable for a write, a device for a path under `/dev`.
-- **`fence-let-through.ts`**: the names the fence lays in the runtime
-  folder itself, its doors and pi's folder, read by the fence and by a
-  machine's grants, which may bind over none of them.
+  writable for a write, a device for a path under `/dev`. Every read
+  comes before every write, so no read hides a write within it. The
+  strict root binds the node's worker socket folder too, as Landlock
+  is told of it.
+- **`fence-let-through.ts`**: what the fence lays itself: in the
+  runtime folder, its doors and pi's folder, and outside it, the
+  folders it covers after the grants (`COVERED_AFTER_GRANTS`: the
+  system bus's and X's sockets'). The fence and a machine's grants
+  both read it, and the grants may bind over none of them.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
 - **`fence-git-root.ts`**: a worktree's shared git folder, read-only
