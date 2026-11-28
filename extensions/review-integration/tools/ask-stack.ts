@@ -36,12 +36,11 @@ import {
 	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
-	headsMoved,
-	movedSaid,
 	nextSeq,
+	refsOf,
 	rereadFailed,
-	TREE_CUT_AGAIN,
 	treeGone,
+	waitChanged,
 } from "./ask-round.ts";
 import { type Answer, type boundFor, refuse, say } from "./shared.ts";
 
@@ -115,7 +114,7 @@ export async function askStack(
 	>;
 
 	// Everything that follows from the material, made once before the
-	// wait and again after it when a head moved or the tree went.
+	// wait and again after it.
 	const build = async ({ nodes, changes }: StackRead) => {
 		await Promise.all(
 			changes.map((one) =>
@@ -211,13 +210,18 @@ export async function askStack(
 	);
 	if (start.cancelled !== undefined) return refuse(start.cancelled);
 	let rebuiltSaid: string | undefined;
-	// Read again after a wait: a head that moved, or a change that came
-	// or went, is built again, and a tree whose folder went is cut again,
-	// both keeping the start held. Refused then, it gives its slot back.
+	// Read again and built again after a wait, keeping the start held:
+	// building asks for the tree again, which dates a still one so no
+	// sweep takes it as the reviewers start, and cuts afresh one a sweep
+	// took. Each change is bound afresh as it is read, so its diff is the
+	// one there now. Refused, or failing, it gives its slot back.
 	if (start.waited !== undefined) {
+		const wasGone = treeGone(built.tree);
 		let again: Awaited<ReturnType<typeof readStack>>;
+		let rebuilt: Awaited<ReturnType<typeof build>>;
 		try {
 			again = await readStack();
+			rebuilt = again.refused === undefined ? await build(again) : again;
 		} catch (error) {
 			await start.release?.();
 			return refuse(rereadFailed(error));
@@ -226,18 +230,16 @@ export async function askStack(
 			await start.release?.();
 			return again.refused;
 		}
-		const moved = movedSaid(
-			headsMoved(headsOf(built.changes), headsOf(again.changes)),
-		);
-		if (moved !== undefined || treeGone(built.tree)) {
-			const rebuilt = await build(again);
-			if (rebuilt.refused !== undefined) {
-				await start.release?.();
-				return rebuilt.refused;
-			}
-			built = rebuilt;
-			rebuiltSaid = moved ?? TREE_CUT_AGAIN;
+		if (rebuilt.refused !== undefined) {
+			await start.release?.();
+			return rebuilt.refused;
 		}
+		rebuiltSaid = waitChanged(
+			refsOf(built.changes),
+			refsOf(again.changes),
+			wasGone,
+		);
+		built = rebuilt;
 	}
 	const { changes, tip, tree, charters, witnesses, unheld } = built;
 	const { conventions, prompt } = built;
@@ -292,17 +294,5 @@ export async function askStack(
 			answerFor(run, warnings, saidOfTree(tree)),
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },
-	);
-}
-
-/** Each change's head, by its label, as a stack round reads them. */
-function headsOf(
-	changes: readonly {
-		change: { label: string };
-		proposal: { headCommit?: string | undefined };
-	}[],
-): Map<string, string | undefined> {
-	return new Map(
-		changes.map((one) => [one.change.label, one.proposal.headCommit]),
 	);
 }

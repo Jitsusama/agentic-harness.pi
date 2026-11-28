@@ -226,19 +226,10 @@ describe("review_ask", () => {
 		});
 		expect(wrong).toEqual([]);
 
-		// A council on this head queued ahead writes its ledger entry only
-		// as it opens, so the council asks again once its wait is over, and
-		// refused then gives its slot back.
-		const council = rounds.find((round) => round.name === "councilRound");
-		const afterWait = council?.body.slice(
-			council.body.indexOf("await awaitRosterStart("),
-		);
-		expect(afterWait, "asks the ledger again after its wait").toContain(
-			"councilRefused(",
-		);
-		expect(afterWait, "gives its slot back when refused then").toContain(
-			"start.release",
-		);
+		// That a council asks the ledger again once its wait is over, and
+		// refused then gives its slot back, is driven rather than read, in
+		// rereads-the-head-after-its-wait: a text match here was satisfied
+		// by any release after the wait, whatever refused it.
 
 		// A started round that started nobody gives its slot back too, so
 		// a retry after a failed dispatch waits behind none that never ran.

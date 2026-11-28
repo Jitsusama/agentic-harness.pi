@@ -420,49 +420,69 @@ export async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
 	return { proposal, diff };
 }
 
-/**
- * A change whose head moved while its round waited for its start: its
- * label, the head the round was built on and the head it has now, either
- * one missing for a change that came into the round or left it.
- */
-export interface HeadMoved {
-	readonly label: string;
-	readonly from: string | undefined;
-	readonly to: string | undefined;
+/** Where a change a round reads stands: its head and its base. */
+interface ChangeStands {
+	readonly head: string | undefined;
+	readonly base: string | undefined;
+}
+
+/** Where each change a round reads stands, keyed by its label. */
+export type RoundRefs = ReadonlyMap<string, ChangeStands>;
+
+/** Where each of a round's changes stands, as its proposals say. */
+export function refsOf(
+	changes: readonly {
+		readonly change: { readonly label: string };
+		readonly proposal: {
+			readonly headCommit?: string | undefined;
+			readonly baseCommit?: string | undefined;
+		};
+	}[],
+): RoundRefs {
+	return new Map(
+		changes.map(({ change, proposal }) => [
+			change.label,
+			{ head: proposal.headCommit, base: proposal.baseCommit },
+		]),
+	);
 }
 
 /**
- * Each change whose head differs between `before` and `after`, both
- * keyed by the change's label, in the order `before` then `after` name
- * them. A change one holds and the other doesn't counts as moved, since
- * a round built without it, or with it, reads another stack.
+ * What a round says of what changed while it waited for its start, or
+ * nothing when all held still. Heads first: each that moved, and each
+ * change that came into the round or left it. Else bases, since a still
+ * head over a moved base is another diff. Else a tree a sweep took,
+ * which building again cut afresh.
  */
-export function headsMoved(
-	before: ReadonlyMap<string, string | undefined>,
-	after: ReadonlyMap<string, string | undefined>,
-): HeadMoved[] {
+export function waitChanged(
+	before: RoundRefs,
+	after: RoundRefs,
+	treeWasGone: boolean,
+): string | undefined {
 	const labels = [...new Set([...before.keys(), ...after.keys()])];
-	return labels.flatMap((label) => {
+	const heads = labels.flatMap((label) => {
 		const from = before.get(label);
 		const to = after.get(label);
-		const both = before.has(label) && after.has(label);
-		return both && from === to ? [] : [{ label, from, to }];
+		if (from === undefined) return [`${label} came in at ${short(to?.head)}`];
+		if (to === undefined) return [`${label} left it`];
+		return from.head === to.head
+			? []
+			: [`${label} from ${short(from.head)} to ${short(to.head)}`];
 	});
-}
-
-/**
- * What a round says of the heads that moved while it waited, or nothing
- * when none did: that it reads what is there now, and each head's move.
- */
-export function movedSaid(moved: readonly HeadMoved[]): string | undefined {
-	if (moved.length === 0) return undefined;
-	const moves = moved
-		.map(
-			({ label, from, to }) => `${label} from ${short(from)} to ${short(to)}`,
-		)
-		.join("; ");
-	const which = moved.length === 1 ? "a head" : `${moved.length} heads`;
-	return `While it waited, ${which} moved, so it reads what is there now: ${moves}.`;
+	if (heads.length > 0) {
+		const which = heads.length === 1 ? "a head" : `${heads.length} heads`;
+		return `While it waited, ${which} moved, so it reads what is there now: ${heads.join("; ")}.`;
+	}
+	const bases = labels.flatMap((label) => {
+		const from = before.get(label)?.base;
+		const to = after.get(label)?.base;
+		return from === to ? [] : [`${label} from ${short(from)} to ${short(to)}`];
+	});
+	if (bases.length > 0) {
+		const which = bases.length === 1 ? "a base" : `${bases.length} bases`;
+		return `While it waited, ${which} moved, so it reads the diff there is now: ${bases.join("; ")}.`;
+	}
+	return treeWasGone ? TREE_CUT_AGAIN : undefined;
 }
 
 /** A head as a round's answer names it: its first eight characters. */
@@ -481,7 +501,7 @@ export function treeGone(tree: ReadableTree): boolean {
 }
 
 /** What a round says when the tree it cut was gone by its start. */
-export const TREE_CUT_AGAIN =
+const TREE_CUT_AGAIN =
 	"While it waited, the tree it was to read was gone, so it was cut again.";
 
 /**
@@ -490,7 +510,7 @@ export const TREE_CUT_AGAIN =
  */
 export function rereadFailed(error: unknown): string {
 	const why = error instanceof Error ? error.message : String(error);
-	return `While it waited for its start, the change couldn't be read again, so it starts nothing rather than read what may have moved: ${why}`;
+	return `While it waited for its start, the change couldn't be read again, so it starts nothing rather than read what may have moved: ${why.replace(/\.$/, "")}. Its place in the line is given back; ask again once the change reads.`;
 }
 
 /**

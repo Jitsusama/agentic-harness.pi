@@ -5,7 +5,9 @@
  * its start, a stack round read heads five commits old, and two councils
  * failed every reviewer on a snapshot folder gone by theirs. Driven with
  * everything past the material stubbed, so what is tried is only what
- * the round reads after its wait.
+ * the round reads after its wait. The tree stub answers as the work
+ * broker does: the same folder for a commit while it stands, dated by
+ * each ask, and a new one once a sweep took it.
  */
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -24,8 +26,22 @@ const state = vi.hoisted(() => ({
 	stack: [] as string[],
 	/** What happens while the round waits for its start. */
 	during: (): void => undefined,
-	/** Each commit a tree was cut at, in order. */
+	/** Each commit a tree was asked for at, in order. */
+	asks: [] as string[],
+	/** Each commit a new tree folder was cut at, in order. */
 	cuts: [] as string[],
+	/** The change's base now. */
+	base: "base0000",
+	/** Whether reading the change throws. */
+	unreadable: false,
+	/** Whether reading a reviewer's lens throws. */
+	lensBreaks: false,
+	/** Whether the round's start came without a wait. */
+	noWait: false,
+	/** The head each diff a council's prompt was made from was read at. */
+	prompted: [] as (string | undefined)[],
+	/** The heads each started stack round recorded as read. */
+	stackSent: [] as string[][],
 	/** The folder each cut made, in order. */
 	trees: [] as string[],
 	/** A head the ledger refuses a council at. */
@@ -62,11 +78,15 @@ vi.mock(
 			typeof import("../../../../extensions/review-integration/tools/ask-round.ts")
 		>()),
 		claimIdentities: async () => undefined,
-		chartersFor: async () => new Map(),
+		chartersFor: async () => {
+			if (state.lensBreaks)
+				throw new Error("The repo's lens couldn't be read.");
+			return new Map();
+		},
 		awaitRosterStart: async () => {
 			state.during();
 			return {
-				waited: "It waited 3 hours for its start.",
+				...(state.noWait ? {} : { waited: "It waited 3 hours for its start." }),
 				release: async () => {
 					state.released += 1;
 				},
@@ -78,19 +98,23 @@ vi.mock(
 vi.mock(
 	"../../../../extensions/review-integration/work.ts",
 	async (importOriginal) => {
-		const { mkdtempSync } = await import("node:fs");
+		const { existsSync, mkdirSync } = await import("node:fs");
 		const { join } = await import("node:path");
 		return {
 			...(await importOriginal<
 				typeof import("../../../../extensions/review-integration/work.ts")
 			>()),
 			treeForRound: async (_repo: unknown, commit: string) => {
-				state.cuts.push(commit);
+				state.asks.push(commit);
 				if (commit === state.treeRefuses) {
 					return { refusal: `No tree can be cut at ${commit}.` };
 				}
-				const path = mkdtempSync(join(state.root, "snapshot-"));
-				state.trees.push(path);
+				const path = join(state.root, `snapshot-${commit}`);
+				if (!existsSync(path)) {
+					mkdirSync(path);
+					state.cuts.push(commit);
+					state.trees.push(path);
+				}
 				return { path };
 			},
 		};
@@ -111,13 +135,19 @@ vi.mock("../../../../lib/core/review/index.ts", async (importOriginal) => ({
 			? `A council already read ${head}.`
 			: undefined,
 	guidanceFor: async () => ({}),
-	councilPrompt: () => "the council's prompt",
+	councilPrompt: (input: { diff: { at?: string } }) => {
+		state.prompted.push(input.diff.at);
+		return "the council's prompt";
+	},
 	stackPrompt: () => "the stack's prompt",
 	runCouncil: async (input: { witness?: string }) => {
 		state.witnessed.push(input.witness);
 		return { run: { id: "council-1" }, warnings: [] };
 	},
-	runStackCouncil: async () => ({ run: { id: "stack-1" }, warnings: [] }),
+	runStackCouncil: async (input: { witnesses: string[] }) => {
+		state.stackSent.push(input.witnesses);
+		return { run: { id: "stack-1" }, warnings: [] };
+	},
 }));
 
 vi.mock(
@@ -133,7 +163,10 @@ vi.mock(
 			heads: Map<string, string | undefined>,
 		) => {
 			state.stackRead.push([...heads.values()]);
-			return { held: new Map(), unheld: [] };
+			const held = [...heads].flatMap(([ref, head]) =>
+				head === undefined ? [] : [[ref, head] as const],
+			);
+			return { held: new Map(held), unheld: [] };
 		},
 	}),
 );
@@ -201,41 +234,52 @@ const changeRef = (label: string) => ({
 });
 
 /** The change's proposal as its head now stands. */
-const proposalOf = (label: string) => ({
-	ref: changeRef(label),
-	headCommit: state.heads.get(label),
-	baseCommit: "base0000",
-});
+const proposalOf = (label: string) => {
+	if (state.unreadable) throw new Error("The host didn't answer.");
+	return {
+		ref: changeRef(label),
+		headCommit: state.heads.get(label),
+		baseCommit: state.base,
+	};
+};
 
-/** A target bound to `CHANGE`, or to the stack `state.stack` names. */
-const bound = {
-	repo: { key: "github:o/r" },
-	provider: { id: "github" },
-	proposal: async () => proposalOf(CHANGE),
-	diffModel: async () => ({ files: [] }),
-	stack: async () => ({
-		nodes: state.stack.map((label) => ({
-			ref: `refs/heads/${label}`,
-			change: proposalOf(label),
-		})),
-	}),
+/**
+ * A target bound to `CHANGE`, or to the stack `state.stack` names. Its
+ * diff is read once, at the head there when it was bound, as a real
+ * bound target's is.
+ */
+const bindNow = () => {
+	const at = state.heads.get(CHANGE);
+	return {
+		repo: { key: "github:o/r" },
+		provider: { id: "github" },
+		proposal: async () => proposalOf(CHANGE),
+		diffModel: async () => ({ files: [], at }),
+		stack: async () => ({
+			nodes: state.stack.map((label) => ({
+				ref: `refs/heads/${label}`,
+				change: proposalOf(label),
+			})),
+		}),
+	};
 };
 
 const seat = () => ({ cwd: state.root, place: {}, said: [] });
 
 const council = () =>
 	askCouncil(
-		bound as never,
+		bindNow() as never,
 		changeRef(CHANGE) as never,
 		{ action: "council" },
 		seat() as never,
 		{} as never,
+		async () => bindNow() as never,
 	);
 
 const stackRound = () =>
 	askStack(
 		{} as never,
-		bound as never,
+		bindNow() as never,
 		{ action: "stack" },
 		seat() as never,
 		{ progress: () => undefined } as never,
@@ -250,7 +294,14 @@ beforeEach(() => {
 	state.heads = new Map([[CHANGE, A]]);
 	state.stack = [];
 	state.during = () => undefined;
+	state.asks = [];
 	state.cuts = [];
+	state.base = "base0000";
+	state.unreadable = false;
+	state.lensBreaks = false;
+	state.noWait = false;
+	state.prompted = [];
+	state.stackSent = [];
 	state.trees = [];
 	state.ledgerRefuses = undefined;
 	state.treeRefuses = undefined;
@@ -273,6 +324,7 @@ describe("a council that waited for its start", () => {
 
 		expect(state.cuts, "a tree cut at each head").toEqual([A, B]);
 		expect(state.witnessed, "the round reads the head now").toEqual([B]);
+		expect(state.prompted, "and the diff there now").toEqual([A, B]);
 		expect(state.startedIn).toEqual([state.trees[1]]);
 		expect(answer).toContain(
 			"While it waited, a head moved, so it reads what is there now: o/r#1 from aaaaaaaa to bbbbbbbb.",
@@ -291,12 +343,75 @@ describe("a council that waited for its start", () => {
 		expect(state.released).toBe(1);
 	});
 
-	it("cuts one tree when the head held still", async () => {
+	it("asks for its still tree again, dating it, and cuts no other", async () => {
 		const answer = textOf(await council());
 
+		expect(state.asks, "asked again after the wait").toEqual([A, A]);
 		expect(state.cuts).toEqual([A]);
 		expect(state.witnessed).toEqual([A]);
 		expect(answer).not.toContain("While it waited,");
+	});
+
+	it("asks for nothing again when it didn't wait", async () => {
+		state.noWait = true;
+		state.during = () => state.heads.set(CHANGE, B);
+
+		await council();
+
+		expect(state.asks).toEqual([A]);
+		expect(state.witnessed).toEqual([A]);
+	});
+
+	it("gives its start back when a council on its still head opened meanwhile", async () => {
+		state.during = () => {
+			state.ledgerRefuses = A;
+		};
+
+		const answer = textOf(await council());
+
+		expect(answer).toContain(`A council already read ${A}.`);
+		expect(state.witnessed, "nothing started").toEqual([]);
+		expect(state.released).toBe(1);
+	});
+
+	it("reads the diff there now when its base moved under a still head", async () => {
+		state.during = () => {
+			state.base = "base1111";
+		};
+
+		const answer = textOf(await council());
+
+		expect(state.prompted).toEqual([A, A]);
+		expect(answer).toContain(
+			"While it waited, a base moved, so it reads the diff there is now: o/r#1 from base0000 to base1111.",
+		);
+		expect(state.released).toBe(0);
+	});
+
+	it("gives its start back when the change can't be read again", async () => {
+		state.during = () => {
+			state.unreadable = true;
+		};
+
+		const answer = textOf(await council());
+
+		expect(answer).toContain("couldn't be read again");
+		expect(answer).toContain("The host didn't answer");
+		expect(answer).toContain("ask again once the change reads");
+		expect(state.witnessed).toEqual([]);
+		expect(state.released).toBe(1);
+	});
+
+	it("gives its start back when building again throws", async () => {
+		state.during = () => {
+			state.lensBreaks = true;
+		};
+
+		const answer = textOf(await council());
+
+		expect(answer).toContain("The repo's lens couldn't be read");
+		expect(state.witnessed).toEqual([]);
+		expect(state.released).toBe(1);
 	});
 
 	it("cuts its tree again when its folder went while it waited, and starts", async () => {
@@ -333,9 +448,8 @@ describe("a stack round that waited for its start", () => {
 		const answer = textOf(await stackRound());
 
 		expect(state.cuts, "a tree cut at each tip").toEqual([C, B]);
-		expect(state.stackRead.at(-1), "the round reads the heads now").toEqual([
-			A,
-			B,
+		expect(state.stackSent, "the round records the heads now").toEqual([
+			[A, B],
 		]);
 		expect(state.startedIn).toEqual([state.trees[1]]);
 		expect(answer).toContain(
@@ -353,7 +467,32 @@ describe("a stack round that waited for its start", () => {
 		const answer = textOf(await stackRound());
 
 		expect(state.cuts).toEqual([C, B]);
-		expect(answer).toContain("o/r#3 from nothing to bbbbbbbb.");
+		expect(answer).toContain("o/r#3 came in at bbbbbbbb.");
+	});
+
+	it("reads the stack without a change that left it while it waited", async () => {
+		state.during = () => {
+			state.stack = ["o/r#2"];
+		};
+
+		const answer = textOf(await stackRound());
+
+		expect(state.stackSent).toEqual([[C]]);
+		expect(answer).toContain(
+			"While it waited, a head moved, so it reads what is there now: o/r#1 left it.",
+		);
+	});
+
+	it("gives its start back when building again throws", async () => {
+		state.during = () => {
+			state.lensBreaks = true;
+		};
+
+		const answer = textOf(await stackRound());
+
+		expect(answer).toContain("The repo's lens couldn't be read");
+		expect(state.startedIn).toEqual([]);
+		expect(state.released).toBe(1);
 	});
 
 	it("gives its start back when the moved stack is refused", async () => {
@@ -367,9 +506,10 @@ describe("a stack round that waited for its start", () => {
 		expect(state.released).toBe(1);
 	});
 
-	it("cuts one tree when no head moved", async () => {
+	it("asks for its still tree again, dating it, and cuts no other", async () => {
 		const answer = textOf(await stackRound());
 
+		expect(state.asks).toEqual([C, C]);
 		expect(state.cuts).toEqual([C]);
 		expect(state.startedIn).toEqual([state.trees[0]]);
 		expect(answer).not.toContain("While it waited,");

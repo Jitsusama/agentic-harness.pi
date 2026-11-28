@@ -65,15 +65,14 @@ import {
 	chartersFor,
 	claimIdentities,
 	councilFindingsBehind,
-	headsMoved,
 	material,
-	movedSaid,
 	nextSeq,
 	ROOM_ROUND,
+	refsOf,
 	renderFindings,
 	rereadFailed,
-	TREE_CUT_AGAIN,
 	treeGone,
+	waitChanged,
 } from "./ask-round.ts";
 import { NARROWER_WEIGHING } from "./ask-weigh.ts";
 import { type Answer, type boundFor, refuse, say } from "./shared.ts";
@@ -85,8 +84,9 @@ export async function askCouncil(
 	params: AskParams,
 	seat: RoundSeat,
 	watch: RoundWatch,
+	rebind: () => Promise<Bound>,
 ): Promise<Answer> {
-	const set = await councilRound(bound, change, params, seat);
+	const set = await councilRound(bound, change, params, seat, rebind);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 	const { waited, room } = set;
@@ -133,18 +133,21 @@ const NARROWER_COUNCIL =
  * Built before its wait for a start and read again after it, since the
  * wait can last hours: on 28 November a council on mycelium#572 read a
  * head the change had moved past by its start, and two others failed
- * every reviewer on a tree folder gone by theirs.
+ * every reviewer on a tree folder gone by theirs. Read again through
+ * `rebind`, since a bound target reads its diff once and would pair a
+ * moved head with the diff from before.
  */
 async function councilRound(
-	bound: Awaited<ReturnType<typeof boundFor>>,
+	bound: Bound,
 	change: ChangeRef,
 	params: AskParams,
 	seat: RoundSeat,
+	rebind: () => Promise<Bound>,
 ) {
 	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	// Everything that follows from the change's material, made once before
-	// the wait and again after it when the head moved or the tree went.
+	// the wait and again after it.
 	const build = async ({ proposal, diff }: Material) => {
 		const unearned = await councilRefused(change, proposal.headCommit, params);
 		if (unearned !== undefined) return { refused: refuse(unearned) };
@@ -195,44 +198,36 @@ async function councilRound(
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
 	const said: string[] = [];
-	// Read again after a wait, which can last hours. A head that moved is
-	// built again, and a tree whose folder went is cut again, both keeping
-	// the start held. Otherwise the ledger is asked again: a council on
-	// this head queued ahead of this one writes its entry only as it
-	// opens, a spacing ago. Refused either way, it gives its slot back,
-	// so the next round on the machine waits behind none that never
+	// Read again and built again after a wait, which can last hours,
+	// keeping the start held. Building asks for the tree again, which
+	// dates a still one so no sweep takes it as the reviewers start, and
+	// cuts afresh one a sweep took. It asks the ledger again too: a
+	// council on this head queued ahead of this one writes its entry only
+	// as it opens, a spacing ago. Refused, or failing, it gives its slot
+	// back, so the next round on the machine waits behind none that never
 	// started.
 	const readAgain = async (held: CouncilStart): Promise<Answer | undefined> => {
+		const wasGone = treeGone(built.tree);
 		let again: Material;
+		let rebuilt: Awaited<ReturnType<typeof build>>;
 		try {
-			again = await material(bound);
+			again = await material(await rebind());
+			rebuilt = await build(again);
 		} catch (error) {
 			await held.release?.();
 			return refuse(rereadFailed(error));
 		}
-		const moved = movedSaid(
-			headsMoved(
-				new Map([[change.label, built.proposal.headCommit]]),
-				new Map([[change.label, again.proposal.headCommit]]),
-			),
-		);
-		if (moved === undefined && !treeGone(built.tree)) {
-			const since = await councilRefused(
-				change,
-				built.proposal.headCommit,
-				params,
-			);
-			if (since === undefined) return undefined;
-			await held.release?.();
-			return refuse(since);
-		}
-		const rebuilt = await build(again);
 		if (rebuilt.refused !== undefined) {
 			await held.release?.();
 			return rebuilt.refused;
 		}
+		const changed = waitChanged(
+			refsOf([{ change, proposal: built.proposal }]),
+			refsOf([{ change, proposal: again.proposal }]),
+			wasGone,
+		);
 		built = rebuilt;
-		said.push(moved ?? TREE_CUT_AGAIN);
+		if (changed !== undefined) said.push(changed);
 		return undefined;
 	};
 	const firstWaited = start.waited;
@@ -267,6 +262,9 @@ async function councilRound(
 
 /** The change and its diff, as a council round reads them. */
 type Material = Awaited<ReturnType<typeof material>>;
+
+/** A target bound to the change under review. */
+type Bound = Awaited<ReturnType<typeof boundFor>>;
 
 /**
  * Why a council on `change` at `head` is refused, from the rounds the
@@ -308,8 +306,9 @@ export async function startRound(
 	change: ChangeRef,
 	params: AskParams,
 	seat: RoundSeat,
+	rebind: () => Promise<Bound>,
 ): Promise<Answer> {
-	const set = await councilRound(bound, change, params, seat);
+	const set = await councilRound(bound, change, params, seat, rebind);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 	const { room } = set;

@@ -51,6 +51,7 @@ import { askAudit, askCritique, askJudge } from "./ask-weigh.ts";
 import { person } from "./heard.ts";
 import {
 	type Answer,
+	boundAgain,
 	boundFor,
 	messageOf,
 	refuse,
@@ -141,6 +142,7 @@ export async function runAsk(
 				}
 
 				const seat = await seatFor(ctx, params, change, signal);
+				const rebind = () => boundAgain(pi, bound);
 				switch (action) {
 					case "runs":
 						return await reportRuns(change);
@@ -153,9 +155,10 @@ export async function runAsk(
 							params,
 							seat,
 							watch("council"),
+							rebind,
 						);
 					case "start":
-						return await startRound(bus, bound, change, params, seat);
+						return await startRound(bus, bound, change, params, seat, rebind);
 					case "stop":
 						return await stopRound(change, params);
 					case "judge":
