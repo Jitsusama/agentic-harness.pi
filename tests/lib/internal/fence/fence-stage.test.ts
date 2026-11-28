@@ -9,8 +9,12 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	askedSandbox,
+	everyoneJoins,
 	inFirstStage,
+	isBackgroundConversation,
+	joinEveryone,
 	joinSpawns,
+	leaveEveryone,
 	leaveSpawns,
 	listedForStage,
 	listForStage,
@@ -119,6 +123,64 @@ describe("which pis are in the first stage", () => {
 		expect(spawnsJoin(folder), "spawns stayed after leaving").toBe(false);
 		expect(listedForStage(SESSION, folder), "leaving unlisted one").toBe(true);
 		expect(leaveSpawns(folder), "left twice").toBe(false);
+	});
+
+	it("takes no background conversation until everyone joins, and then every one", () => {
+		const background = { PI_HOST_KEY: "work-background" };
+		joinSpawns("spawns first", folder);
+		expect(
+			inFirstStage(background, [], folder),
+			"a background conversation joined with the spawns",
+		).toBe(false);
+		joinEveryone("after a clean stage one", folder);
+		expect(everyoneJoins(folder), "everyone didn't join").toBe(true);
+		expect(stagedSessions(folder), "the switch read as a listing").toEqual([]);
+		for (const realm of ["work-background", "home-background"]) {
+			expect(
+				inFirstStage({ PI_HOST_KEY: realm }, [], folder),
+				`${realm}'s conversation wasn't staged`,
+			).toBe(true);
+		}
+		expect(
+			inFirstStage(background, ["pi", "--session", SESSION], folder),
+			"a reopened background conversation stayed out",
+		).toBe(true);
+	});
+
+	it("leaves the attended host's and a terminal's pis out at every stage", () => {
+		joinSpawns("spawns", folder);
+		joinEveryone("everyone", folder);
+		for (const env of [
+			{ PI_HOST_KEY: "work-attended" },
+			{ PI_HOST_KEY: "work-background-attended" },
+			{},
+		]) {
+			expect(
+				inFirstStage(env, ["pi", "--session", SESSION], folder),
+				`${JSON.stringify(env)} was fenced`,
+			).toBe(false);
+			expect(isBackgroundConversation(env), JSON.stringify(env)).toBe(false);
+		}
+	});
+
+	it("lets spawns in with everyone, and everyone leave by its own file", () => {
+		joinEveryone("everyone", folder);
+		expect(spawnsJoin(folder), "spawns stayed out with everyone in").toBe(true);
+		expect(
+			inFirstStage({ SUBAGENT_SUPERVISOR: "1" }, [], folder),
+			"a subagent stayed out with everyone in",
+		).toBe(true);
+		expect(leaveSpawns(folder), "spawns left a file they never had").toBe(
+			false,
+		);
+		expect(leaveEveryone(folder), "it said everyone hadn't joined").toBe(true);
+		expect(everyoneJoins(folder), "everyone stayed after leaving").toBe(false);
+		expect(spawnsJoin(folder), "spawns stayed after everyone left").toBe(false);
+		expect(
+			inFirstStage({ PI_HOST_KEY: "work-background" }, [], folder),
+			"a background conversation stayed after everyone left",
+		).toBe(false);
+		expect(leaveEveryone(folder), "left twice").toBe(false);
 	});
 
 	it("takes a subagent, by either of its supervisor's marks, once spawns join", () => {

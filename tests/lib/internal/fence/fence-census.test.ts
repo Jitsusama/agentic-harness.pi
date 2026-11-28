@@ -34,6 +34,7 @@ import {
 	KEY_STAND_IN,
 } from "../../../../lib/internal/fence/fence-gcloud-ssh.ts";
 import { FENCE_HIDDEN } from "../../../../lib/internal/fence/fence-hidden.ts";
+import { joinEveryone } from "../../../../lib/internal/fence/fence-stage.ts";
 import { KEEPING_STUB } from "../../../../lib/internal/shell/kept.ts";
 import type { Presence } from "../../../../lib/mesh/presence.ts";
 
@@ -659,6 +660,33 @@ describe("the fence's census", () => {
 		writeFileSync(join(stage, `${ONE}.json`), "{}");
 		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
 		expect(census.rows.map((row) => row.judged)).toEqual(["claimed"]);
+	});
+
+	// A hosted conversation's PI_HOST_KEY is in its own environment, never
+	// in the host process's, which is all /proc shows.
+	it("reads an idle background conversation as fenced once everyone joins", () => {
+		lay({
+			pid: 500,
+			parent: 1,
+			name: "node",
+			mounts: MACHINE,
+			noNewPrivs: 0,
+			env: {},
+		});
+		const sessions = [
+			presence(ONE, 500, { host: "work-background", fence: "fence" }),
+			presence(TWO, 500, { host: "work-background-attended", fence: "none" }),
+		];
+		expect(
+			fenceCensus(place(sessions)).rows.map((row) => row.judged),
+			"before everyone joins",
+		).toEqual(["unfenced", "unfenced"]);
+
+		joinEveryone("test", stage);
+		expect(fenceCensus(place(sessions)).rows.map((row) => row.judged)).toEqual([
+			"claimed",
+			"unfenced",
+		]);
 	});
 
 	// A claim says what the next command would ask for, never that the

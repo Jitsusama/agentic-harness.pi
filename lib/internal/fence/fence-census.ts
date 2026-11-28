@@ -246,9 +246,13 @@ function judged(
 		};
 	}
 	const hosted = presence.owner?.host !== undefined;
+	// A hosted conversation's key is in its own environment, never its
+	// host process's, so it is said back from the presence for the stage.
+	const hostKey = presence.owner?.host;
 	const env: NodeJS.ProcessEnv = {
 		...owner.env,
 		PI_SESSION_ID: presence.session,
+		...(hostKey === undefined ? {} : { PI_HOST_KEY: hostKey }),
 	};
 	// /proc shows the environment the pi started with, before it lifted
 	// the fence from itself (fence-lifted.ts), so the census lifts it too.
