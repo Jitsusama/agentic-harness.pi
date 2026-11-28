@@ -61,6 +61,9 @@ would miss what another binds over it.
   fence's root after its own `/dev` and emptied runtime folder, which
   would hide a granted device or token; read-only for a read,
   writable for a write, a device for a path under `/dev`.
+- **`fence-let-through.ts`**: the names the fence lays in the runtime
+  folder itself, its doors and pi's folder, read by the fence and by a
+  machine's grants, which may bind over none of them.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
 - **`fence-git-root.ts`**: a worktree's shared git folder, read-only

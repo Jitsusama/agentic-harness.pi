@@ -28,8 +28,10 @@ sandbox its hour-long tokens.
   where nothing but root could have written it: how a World cloud
   node lets its lanes reach World's disk, tokens, signing key and KVM.
   One entry the fence can't honour refuses the whole file: a comma, a
-  link, a home, a folder the fence needs whole, `/proc`, `/sys`, or a
-  device granted to read.
+  link, a home, a folder the fence needs whole, `/proc`, `/sys`, `/tmp`,
+  `/var/tmp`, `/dev/shm`, a door the fence lets through, a device
+  granted to read, a write in a runtime folder or over a named
+  repository home, or any entry lying within a write.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

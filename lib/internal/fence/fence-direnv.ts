@@ -40,6 +40,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { type Block, routed } from "./fence-git-route.ts";
+import { FENCE_RUNTIME_FOLDER } from "./fence-let-through.ts";
 
 /** The variable that points direnv at its settings. */
 export const DIRENV_VARIABLE = "DIRENV_CONFIG";
@@ -47,8 +48,8 @@ export const DIRENV_VARIABLE = "DIRENV_CONFIG";
 /** The files direnv reads its settings from, of which the fence writes its own. */
 const SETTINGS = ["direnv.toml", "config.toml"] as const;
 
-/** pi's folder in the runtime folder, as `fence-copy.ts` names it. */
-const PI_FOLDER = "pi-fence";
+/** pi's folder in the runtime folder. */
+const PI_FOLDER = FENCE_RUNTIME_FOLDER;
 
 /** The fence's own settings folder, within pi's, and the person's within theirs. */
 const FOLDER = "direnv";

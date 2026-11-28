@@ -9,7 +9,8 @@ import {
 	type GrantDisk,
 	type GrantStat,
 	MACHINE_GRANTS,
-	machineGrants,
+	type MachineGrants,
+	machineGrants as readGrants,
 	rootMapped,
 } from "../../../../lib/internal/sandbox/machine-grants.ts";
 
@@ -25,6 +26,19 @@ const WORLD = JSON.stringify({
 
 /** The account whose grants are read, and its home. */
 const HOME = "/home/worker";
+
+/**
+ * The grants `given` holds at `path`, for `home` naming `repositoryHomes`:
+ * never this machine's own home or settings, which the test doesn't own.
+ */
+function machineGrants(
+	path: string,
+	given: GrantDisk,
+	home: string = HOME,
+	repositoryHomes: readonly string[] = [],
+): MachineGrants {
+	return readGrants(path, given, home, repositoryHomes);
+}
 
 /**
  * A disk holding `text` at the grant's path, laid as `file` and `folder`
@@ -196,6 +210,39 @@ describe("a machine's grants to the strict profile", () => {
 		["a path in /proc", "read", "/proc/1/environ", "lies in /proc"],
 		["a path in /sys", "write", "/sys/kernel", "lies in /sys"],
 		["a device to read", "read", "/dev/kvm", "is a device"],
+		["a folder in /tmp", "write", "/tmp/lane", "lies in /tmp"],
+		["a folder in /var/tmp", "read", "/var/tmp/x", "lies in /var/tmp"],
+		["a file in /dev/shm", "write", "/dev/shm/x", "lies in /dev/shm"],
+		[
+			"a folder written in a runtime folder",
+			"write",
+			"/run/user/1001/delta",
+			"lies in a runtime folder",
+		],
+		[
+			"the agent proxy's folder",
+			"read",
+			"/run/user/1001/pi-agent",
+			"lies in /run/user/*/pi-agent",
+		],
+		[
+			"Nix's door",
+			"read",
+			"/run/user/1001/nix-untrusted.sock",
+			"/run/user/*/nix-untrusted.sock",
+		],
+		[
+			"a folder holding the jobs broker",
+			"read",
+			"/run/user/1001/daemons",
+			"holds or lies in /run/user/*/daemons/jobs-broker.sock",
+		],
+		[
+			"pi's folder in the runtime folder",
+			"read",
+			"/run/user/1001/pi-fence/direnv",
+			"/run/user/*/pi-fence",
+		],
 	])(
 		"grant nothing from a file naming %s, and name it",
 		(_, use, entry, why) => {
@@ -252,6 +299,72 @@ describe("a machine's grants to the strict profile", () => {
 		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
 		expect(given.said.join("\n"), "why it grants nothing").toContain(why);
 	});
+
+	it.each([
+		["the repository home itself", "/world/git"],
+		["a folder holding it", "/world"],
+		["a folder in it", "/world/git/hooks"],
+	])(
+		"grant nothing from a write naming %s of a repository home",
+		(_, entry) => {
+			const given = disk(JSON.stringify({ write: [entry] }));
+			expect(
+				machineGrants(MACHINE_GRANTS, given, HOME, ["/world/git"]),
+				"no grant",
+			).toEqual(NONE);
+			expect(given.said.join("\n"), "names the repository home").toContain(
+				`${JSON.stringify(entry)} under write is, holds or lies in a repository home (/world/git)`,
+			);
+		},
+	);
+
+	it("grant a read of a repository home, which the fence lays read-only anyway", () => {
+		const given = disk(JSON.stringify({ read: ["/world/git"] }));
+		expect(
+			machineGrants(MACHINE_GRANTS, given, HOME, ["/world/git"]).read,
+			"granted",
+		).toEqual(["/world/git"]);
+	});
+
+	it("grant a write beside a repository home it neither holds nor lies in", () => {
+		const given = disk(JSON.stringify({ write: ["/world/trees"] }));
+		expect(
+			machineGrants(MACHINE_GRANTS, given, HOME, ["/world/git"]).write,
+			"granted",
+		).toEqual(["/world/trees"]);
+	});
+
+	it.each([
+		[
+			"a read",
+			{ read: ["/world/keys"], write: ["/world"] },
+			'"/world/keys" under read',
+		],
+		[
+			"the same read",
+			{ read: ["/world"], write: ["/world"] },
+			'"/world" under read',
+		],
+		[
+			"another write",
+			{ write: ["/world", "/world/trees"] },
+			'"/world/trees" under write',
+		],
+		[
+			"the same write twice",
+			{ write: ["/world", "/world"] },
+			'"/world" under write',
+		],
+	])(
+		"grant nothing where %s lies within a write, and name both",
+		(_, shape, inner) => {
+			const given = disk(JSON.stringify(shape));
+			expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+			expect(given.said.join("\n"), "names both").toContain(
+				`${inner} lies within "/world" under write`,
+			);
+		},
+	);
 
 	it("grant a folder within a runtime folder or /etc", () => {
 		const given = disk(

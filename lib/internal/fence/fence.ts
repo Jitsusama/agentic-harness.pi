@@ -104,6 +104,7 @@ import {
 	readOnlyPaths,
 	repositoryHomes,
 } from "./fence-home.ts";
+import { LET_THROUGH } from "./fence-let-through.ts";
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { pinnedAbove } from "./fence-pins.ts";
@@ -160,15 +161,11 @@ export const FENCE = "fence";
  * would stay the old, dead one. `pi-agent.sock` beside it is the
  * proxy's old place, now a link into the folder, kept for a machine
  * whose proxy hasn't moved yet.
+ *
+ * The list itself lives in `fence-let-through.ts`, which a machine's
+ * grants read too, so no grant binds over a door laid here.
  */
-export const LET_THROUGH = [
-	"nix-untrusted.sock",
-	"pi-agent.sock",
-	"pi-agent",
-	"daemons/jobs-broker.sock",
-	"pi-clipboard",
-	"pi-fence-display",
-] as const;
+export { LET_THROUGH };
 
 /**
  * What `place` lets through of the runtime folder: for a language

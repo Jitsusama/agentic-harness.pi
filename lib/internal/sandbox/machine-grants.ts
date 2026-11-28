@@ -28,6 +28,18 @@
  * folder and the like), or lie in `/proc` or `/sys`, and a device is
  * granted only to write, since bubblewrap binds a read-only one nodev.
  *
+ * A grant must also leave alone what the fence lays itself, since it is
+ * bound after most of it and would undo it. A written entry may not be,
+ * hold or lie in a repository home the person names, which the fence
+ * keeps read-only so git runs there unfenced, nor lie in a runtime
+ * folder, whose doors the fence lets through read-only. No entry may be,
+ * hold or lie in one of those doors or pi's folder beside them, nor in
+ * `/tmp`, `/var/tmp` or `/dev/shm`, where any account could lay a link
+ * in a missing entry's place before bubblewrap follows it. And no entry
+ * may lie within a written one: Landlock and the bind would make it
+ * writable whatever it was granted as, and a command could swap it for a
+ * link, refusing the whole file to every command after.
+ *
  * Inside the fence's own root, which is a user namespace mapping only
  * the session's account, root's files show as the kernel's overflow
  * account, so there that account stands for root. Nothing the session
@@ -39,6 +51,11 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, normalize } from "node:path";
+import {
+	FENCE_RUNTIME_FOLDER,
+	LET_THROUGH,
+} from "../fence/fence-let-through.ts";
+import { namedRepositoryHomes } from "../fence/fence-repository-homes.ts";
 
 /** Where a machine's owner writes what the strict profile adds there. */
 export const MACHINE_GRANTS = "/etc/pi-sandbox/strict-grants.json";
@@ -144,12 +161,14 @@ export function rootMapped(map: string): boolean {
 /**
  * What the machine adds to the strict profile, read from `path`: nothing
  * unless only root could have written it and every entry in it is one
- * the profile can take, `home` being this account's.
+ * the profile can take, `home` being this account's and
+ * `repositoryHomes` the repository homes its settings name.
  */
 export function machineGrants(
 	path: string = MACHINE_GRANTS,
 	disk: GrantDisk = DISK,
 	home: string = homedir(),
+	repositoryHomes: readonly string[] = namedRepositoryHomes(home),
 ): MachineGrants {
 	const file = disk.lstat(path);
 	if (file === undefined) return NONE;
@@ -190,10 +209,12 @@ export function machineGrants(
 		["write", write],
 	] as const) {
 		for (const entry of listed) {
-			const why = entryRefusal(entry, use, home, disk);
+			const why = entryRefusal(entry, use, home, repositoryHomes, disk);
 			if (why) return refused(`${JSON.stringify(entry)} under ${use} ${why}`);
 		}
 	}
+	const within = withinWritten(read, write);
+	if (within) return refused(within);
 	return { read: read as string[], write: write as string[] };
 }
 
@@ -228,6 +249,51 @@ const SEALED: readonly string[] = ["/proc", "/sys"];
 /** Folders that hold homes, which no grant may name, hold or lie in. */
 const HOMES: readonly string[] = ["/home/*", "/root"];
 
+/**
+ * Folders any account may write, where a missing entry could be laid as
+ * a link before bubblewrap follows it, which no grant may name, hold or
+ * lie in.
+ */
+const OPEN_TO_ALL: readonly string[] = ["/tmp", "/var/tmp", "/dev/shm"];
+
+/** Any account's runtime folder. */
+const RUNTIME_FOLDER = "/run/user/*";
+
+/**
+ * What the fence lays in a runtime folder itself, which no grant may
+ * name, hold or lie in: bound again, a door the fence lets through only
+ * read-only, or keeps from a language server, would come back as granted.
+ */
+const FENCES_OWN: readonly string[] = [
+	...LET_THROUGH,
+	FENCE_RUNTIME_FOLDER,
+].map((name) => `${RUNTIME_FOLDER}/${name}`);
+
+/**
+ * Why an entry of `read` or `write` lies within an entry of `write`, or
+ * none when none does.
+ */
+function withinWritten(
+	read: readonly string[],
+	write: readonly string[],
+): string | undefined {
+	const entries = [
+		...read.map((entry) => ({ entry, use: "read" })),
+		...write.map((entry) => ({ entry, use: "write" })),
+	];
+	for (const [at, written] of write.entries()) {
+		// Every entry but this written one itself, a second copy of it included.
+		const inside = entries.find(
+			(other, index) =>
+				index !== read.length + at && holds(written, other.entry),
+		);
+		if (inside) {
+			return `${JSON.stringify(inside.entry)} under ${inside.use} lies within ${JSON.stringify(written)} under write`;
+		}
+	}
+	return undefined;
+}
+
 /** Whether `listed` is a list of strings. */
 function isList(listed: unknown): listed is string[] {
 	return (
@@ -243,6 +309,7 @@ function entryRefusal(
 	entry: string,
 	use: "read" | "write",
 	home: string,
+	repositoryHomes: readonly string[],
 	disk: GrantDisk,
 ): string | undefined {
 	if (
@@ -258,12 +325,25 @@ function entryRefusal(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (home_) return `is, holds or lies in a home (${home_})`;
+	const repository =
+		use === "write" &&
+		repositoryHomes.find((top) => holds(entry, top) || holds(top, entry));
+	if (repository) {
+		return `is, holds or lies in a repository home (${repository}), which the fence keeps read-only`;
+	}
 	const sealed = SEALED.find(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (sealed) return `is, holds or lies in ${sealed}`;
 	const whole = WHOLE.find((folder) => holds(entry, folder));
 	if (whole) return `is or holds ${whole}, which the fence needs whole`;
+	const laid = [...OPEN_TO_ALL, ...FENCES_OWN].find(
+		(folder) => holds(entry, folder) || holds(folder, entry),
+	);
+	if (laid) return `is, holds or lies in ${laid}`;
+	if (use === "write" && holds(RUNTIME_FOLDER, entry)) {
+		return `lies in a runtime folder (${RUNTIME_FOLDER}), whose doors the fence lets through read-only`;
+	}
 	if (entry === "/dev") return "is /dev, which the fence lays itself";
 	if (use === "read" && holds("/dev", entry)) {
 		return "is a device, which works only granted to write";
