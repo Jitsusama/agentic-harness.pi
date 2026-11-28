@@ -23,8 +23,6 @@ import { BUDGET_ENTRY } from "../../lib/budget/record.ts";
 import { registerBuiltinTreeProviders } from "../../lib/core/tree/register.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/creation/url-fetchers.ts";
-import { adoptedTreesHere } from "../../lib/internal/quest/workspace/trees.ts";
-import { offerHeldTrees } from "../../lib/internal/sandbox/world-trees.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
 import { registerBuiltinPersonResolvers } from "../../lib/people/resolve.ts";
@@ -109,9 +107,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	offerShellEnvironment("quest-workflow", () =>
 		questCommandEnvironment(defaultWorkspaceRoot(), state.questId),
 	);
-	// The trees the loaded quest adopted are the session's too, so a strict
-	// session writes a World tree it adopted as one the broker cut it.
-	offerHeldTrees("quest-workflow", () => adoptedTreesHere(state.questDir));
 
 	registerQuestTool(pi, state);
 	registerQuestCommands(pi, state);

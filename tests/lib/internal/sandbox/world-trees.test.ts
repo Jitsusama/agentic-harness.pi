@@ -1,8 +1,8 @@
 /**
  * Which World trees a strict session writes besides its folder: a tree
- * held by the broker's records or offered by its quest counts only where
- * it really lies inside the folder `~/world/trees` leads to, through no
- * link beneath it, and holds a `.git` file.
+ * the broker's records hold for it alone counts only where it really
+ * lies inside the folder `~/world/trees` leads to, through no link
+ * beneath it, and holds a `.git` file.
  *
  * Each case lays out a made-up home whose `world/trees` is a link to a
  * folder beside it, as on a room, where `~/world/trees` leads to
@@ -20,15 +20,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { withSession } from "../../../../lib/core/session/index.ts";
 import { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
-	offeredHeldTrees,
-	offerHeldTrees,
 	sessionWorldTrees,
 	worldTreesAmong,
 } from "../../../../lib/internal/sandbox/world-trees.ts";
-import { installTestHost } from "../../../support/session-host.ts";
 
 let base: string;
 let home: string;
@@ -137,8 +133,6 @@ describe("the World trees among those a session holds", () => {
 });
 
 describe("the World trees a session writes", () => {
-	afterEach(() => offerHeldTrees("quest-workflow", undefined));
-
 	it("counts those the broker's records hold for it, and no other session's", () => {
 		const records = join(base, "records");
 		const mine = worktree("s-mine");
@@ -156,48 +150,29 @@ describe("the World trees a session writes", () => {
 			providerId: "git-worktree",
 			sessions: ["another-session"],
 		});
-		expect(sessionWorldTrees("the-session", home, records, [])).toEqual([
+		expect(sessionWorldTrees("the-session", home, records)).toEqual([
 			{ tree: mine, repository },
 		]);
-		expect(sessionWorldTrees(undefined, home, records, [])).toEqual([]);
+		expect(sessionWorldTrees(undefined, home, records)).toEqual([]);
 	});
 
-	it("counts those its quest adopted, as offered", () => {
-		const adopted = worktree("s-adopted");
-		offerHeldTrees("quest-workflow", () => [adopted]);
-		expect(offeredHeldTrees()).toEqual([adopted]);
-		expect(
-			sessionWorldTrees(undefined, home, join(base, "no-records")),
-		).toEqual([{ tree: adopted, repository }]);
-	});
-
-	it("leaves out an offer that fails, and one withdrawn", () => {
-		const adopted = worktree("s-adopted");
-		offerHeldTrees("broken", () => {
-			throw new Error("no README");
+	it("counts none the records name for several sessions, as a shared snapshot, since one writing it changes what the others read", () => {
+		const records = join(base, "records");
+		const shared = worktree("s-shared");
+		createTreeMemory(records).remember({
+			identity: { key: "shared", shareable: true },
+			path: shared,
+			providerId: "git-worktree",
+			sessions: ["the-session", "another-session"],
 		});
-		offerHeldTrees("quest-workflow", () => [adopted]);
-		expect(offeredHeldTrees()).toEqual([adopted]);
-		offerHeldTrees("broken", undefined);
-		offerHeldTrees("quest-workflow", undefined);
-		expect(offeredHeldTrees()).toEqual([]);
-	});
-});
-
-describe("the trees offered in a host of many conversations", () => {
-	let dispose: (() => void) | undefined;
-	afterEach(() => {
-		dispose?.();
-		dispose = undefined;
+		expect(sessionWorldTrees("the-session", home, records)).toEqual([]);
+		expect(sessionWorldTrees("another-session", home, records)).toEqual([]);
 	});
 
-	it("keeps each conversation's own, and offers none where no conversation is named", () => {
-		const installed = installTestHost();
-		dispose = installed.dispose;
-		withSession("a", () => offerHeldTrees("quest-workflow", () => ["/a"]));
-		offerHeldTrees("quest-workflow", () => ["/b"], "b");
-		expect(withSession("a", () => offeredHeldTrees())).toEqual(["/a"]);
-		expect(offeredHeldTrees("b")).toEqual(["/b"]);
-		expect(offeredHeldTrees()).toEqual([]);
+	it("counts none where the records can't be read", () => {
+		worktree("s-mine");
+		expect(
+			sessionWorldTrees("the-session", home, join(base, "no-records")),
+		).toEqual([]);
 	});
 });

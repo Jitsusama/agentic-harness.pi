@@ -50,7 +50,7 @@ import {
 } from "../../../lib/internal/sandbox/strict-rules.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
-import { offerHeldTrees } from "../../../lib/internal/sandbox/world-trees.ts";
+import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 
 /**
  * Prints, on one line, the arguments the command's shell was started
@@ -1048,11 +1048,22 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			};
 			const held = tree("s-held");
 			const other = tree("s-other");
-			offerHeldTrees("quest-workflow", () => [held]);
+			// Held as the work broker's records hold it, the one way a tree is.
+			vi.stubEnv("XDG_STATE_HOME", join(home, "state"));
+			mkdirSync(treeRecordDir(), { recursive: true });
+			writeFileSync(
+				join(treeRecordDir(), "s-held.json"),
+				JSON.stringify({
+					identity: { key: "s-held", shareable: false },
+					path: held,
+					providerId: "git-worktree",
+					sessions: ["the-session"],
+				}),
+			);
 			try {
 				const wrap = wrapFor(
 					{ kind: "strict", landrun },
-					{ cwd: work, env: {} },
+					{ cwd: work, env: { PI_SESSION_ID: "the-session" } },
 					home,
 				);
 				const script = "printf '#!/bin/sh\\necho ran-held\\n'";
@@ -1074,7 +1085,7 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 				expect(ran.stdout).toContain("other-unwritten");
 				expect(existsSync(join(other, "made"))).toBe(false);
 			} finally {
-				offerHeldTrees("quest-workflow", undefined);
+				vi.unstubAllEnvs();
 				rmSync(home, { recursive: true, force: true });
 			}
 		});

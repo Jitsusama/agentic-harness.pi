@@ -465,7 +465,10 @@ function strictRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const { cwd, home } = place;
-	const worldTrees = sessionWorldTrees(place.env.PI_SESSION_ID, home);
+	// A language server's sandbox writes no World tree (`wrapFor`).
+	const worldTrees = place.served
+		? []
+		: sessionWorldTrees(place.env.PI_SESSION_ID, home);
 	const reach = fileReach(
 		{
 			home,

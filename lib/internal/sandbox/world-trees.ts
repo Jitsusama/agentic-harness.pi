@@ -1,22 +1,31 @@
 /**
  * The World trees a strict session may write besides its folder: each
- * tree the work broker's records hold for it, and each its quest adopted,
- * that stands in World's trees folder as a worktree. Under strict only
- * the working folder was writable, so a lane that cut or adopted a World
- * tree and worked in it from its quest's folder could read and write
- * none of it (HMYVFW, through ISXEG8).
+ * tree the work broker's records hold for it alone that stands in
+ * World's trees folder as a worktree. Under strict only the working
+ * folder was writable, so a lane that cut a World tree and worked in it
+ * from its quest's folder could read and write none of it (HMYVFW,
+ * through ISXEG8).
+ *
+ * Only the broker's records grant, since only the broker writes them,
+ * outside every sandbox. A tree the session's quest adopted grants
+ * nothing: adopting is the session's own act (the quest tool, or the
+ * quest guard adopting where a write lands), and its README lies where
+ * a strict command in the quest's folder may rewrite it, so a session
+ * steered by a stranger's text could have granted itself another lane's
+ * tree. A tree the records name for several sessions, as a snapshot
+ * shared between readers, grants none of them: one writing it would
+ * change what the others read.
  *
  * A tree counts only where it really lies strictly inside the folder
  * `~/world/trees` leads to, reached through no link beneath it, and holds
  * a `.git` file: never World's trees folder itself, its repository, or a
  * link inside the folder that leaves it or leads to another session's
- * tree. A tree adopted elsewhere is left to the fence's own rules.
+ * tree. A tree elsewhere is left to the fence's own rules.
  */
 
 import { lstatSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { type SessionRef, sessionSlot } from "../../core/session/index.ts";
-import { treesHeldBy } from "../work-records.ts";
+import { treesHeldAloneBy } from "../work-records.ts";
 import { lies, real, worktreeRepository } from "./tree-git.ts";
 
 /** A World tree a strict session writes, and the repository git reads there. */
@@ -79,66 +88,24 @@ function worldTreeAt(
 	}
 }
 
-/** The trees an extension says the session holds, asked as each command starts. */
-type HeldTreesOffer = () => readonly string[] | undefined;
-
-const offers = (ref?: SessionRef) =>
-	sessionSlot("pi:held-trees:v1", ref, () => new Map<string, HeldTreesOffer>());
-
-/**
- * Offer trees the session holds under `name`, as the quest workflow does
- * its quest's adopted trees, or withdraw the offer with undefined.
- */
-export function offerHeldTrees(
-	name: string,
-	offer: HeldTreesOffer | undefined,
-	ref?: SessionRef,
-): void {
-	if (offer) offers(ref).set(name, offer);
-	else offers(ref).delete(name);
-}
-
-/**
- * Every offer's trees. An offer that throws is left out, as is every
- * offer where no session can be named: a command then writes fewer
- * trees, never more.
- */
-export function offeredHeldTrees(ref?: SessionRef): string[] {
-	let all: Map<string, HeldTreesOffer>;
-	try {
-		all = offers(ref);
-	} catch {
-		return [];
-	}
-	return [...all.values()].flatMap((offer) => {
-		try {
-			return [...(offer() ?? [])];
-		} catch {
-			// One extension's broken offer must not stop every command.
-			return [];
-		}
-	});
-}
-
 /**
  * The World trees a strict session `session` writes: those the broker's
- * records `records` hold for it, and those offered (its quest's adopted
- * trees), as {@link worldTreesAmong} keeps them.
+ * records `records` hold for it alone, as {@link worldTreesAmong} keeps
+ * them.
  */
 export function sessionWorldTrees(
 	session: string | undefined,
 	home: string,
 	records?: string,
-	offered: readonly string[] = offeredHeldTrees(),
 ): WorldTree[] {
-	return worldTreesAmong([...heldBy(session, records), ...offered], home);
+	return worldTreesAmong(heldAloneBy(session, records), home);
 }
 
-/** The trees the records hold for `session`; none where they can't be read. */
-function heldBy(session: string | undefined, records?: string): string[] {
+/** The trees the records hold for `session` alone; none where they can't be read. */
+function heldAloneBy(session: string | undefined, records?: string): string[] {
 	if (!session) return [];
 	try {
-		return treesHeldBy(session, records);
+		return treesHeldAloneBy(session, records);
 	} catch {
 		// Unread records grant nothing: a command writes fewer trees.
 		return [];

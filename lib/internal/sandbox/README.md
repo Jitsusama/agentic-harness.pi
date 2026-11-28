@@ -34,9 +34,9 @@ sandbox its hour-long tokens.
   repository home, or any entry lying within a write.
 
 - **`world-trees.ts`**: the World trees a strict session writes
-  besides its folder: those the work broker's records hold for it and
-  those its quest adopted, each only as it really lies in World's
-  trees folder.
+  besides its folder: those the work broker's records hold for it
+  alone, each only as it really lies in World's trees folder; a tree
+  its quest adopted grants nothing.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

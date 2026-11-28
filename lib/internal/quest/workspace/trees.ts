@@ -235,18 +235,3 @@ export function setPendingPrune(
 	if (!outcome.ok) return outcome;
 	return { ok: true };
 }
-
-/**
- * The trees the quest at `questDir` adopted on this machine, by path:
- * what its sessions hold besides the work broker's trees, so a strict
- * session writes a World tree among them (world-trees.ts). None for no
- * quest, or one whose README can't be read.
- */
-export function adoptedTreesHere(questDir: string | null): string[] {
-	if (!questDir) return [];
-	const listed = listTreesOnQuest(questDir);
-	if (!listed.ok) return [];
-	return listed.trees
-		.filter((tree) => tree.origin === "adopted" && treePlace(tree) === "here")
-		.map((tree) => tree.path);
-}

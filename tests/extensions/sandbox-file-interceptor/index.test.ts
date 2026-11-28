@@ -33,7 +33,6 @@ import {
 	fileToolRefusal,
 	toolPaths,
 } from "../../../lib/internal/sandbox/sandbox-files.ts";
-import { offerHeldTrees } from "../../../lib/internal/sandbox/world-trees.ts";
 import { offerShellEnvironment } from "../../../lib/internal/shell/environment.ts";
 import {
 	cutTreeDir,
@@ -558,7 +557,6 @@ describe("a strict session's writes in the World trees it holds", () => {
 	});
 
 	afterEach(() => {
-		offerHeldTrees("quest-workflow", undefined);
 		vi.unstubAllEnvs();
 	});
 
@@ -593,14 +591,31 @@ describe("a strict session's writes in the World trees it holds", () => {
 		).toContain("may write only");
 	});
 
-	it("reach a tree its quest adopted", () => {
-		offerHeldTrees("quest-workflow", () => [other]);
+	it("never reach a tree the records hold for several sessions, as a shared snapshot", () => {
+		writeFileSync(
+			join(treeRecordDir(), "s-other.json"),
+			JSON.stringify({
+				identity: { key: "s-other", shareable: true },
+				path: other,
+				providerId: "git-worktree",
+				sessions: ["the-session", "another-session"],
+			}),
+		);
 		expect(
-			refusal("write", { path: join(other, "file.ts"), content: "x" }),
-		).toBeUndefined();
+			refusal("write", { path: join(other, "file.ts"), content: "x" }, held),
+		).toContain("may write only");
+	});
+
+	it("never reach one from a language server's place, whose commands write none", () => {
 		expect(
-			refusal("write", { path: join(other, ".git"), content: "x" }),
-		).toContain("may not write a held tree's .git file");
+			fileToolRefusal(
+				{
+					toolName: "write",
+					input: { path: join(tree, "file.ts"), content: "x" },
+				},
+				{ cwd: work, env: held, home, served: true },
+			),
+		).toContain("may write only");
 	});
 });
 

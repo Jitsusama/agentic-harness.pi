@@ -17,10 +17,7 @@ import {
 	registerBuiltinTreeProviders,
 } from "../../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
-import {
-	addTreeToQuest,
-	adoptedTreesHere,
-} from "../../../../lib/internal/quest/workspace/trees.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/workspace/trees.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
 import { createEnvGuard } from "../_helpers.ts";
@@ -73,36 +70,6 @@ describe("tree-adopt", () => {
 			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
 		)?.frontMatter;
 		expect(fm?.trees?.[0]?.origin).toBe("adopted");
-	});
-
-	it("counts the trees it adopted here among those its sessions hold, and none it scaffolded", async () => {
-		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
-		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "create",
-			title: "Hold What It Adopted",
-		});
-		if (!created.ok) throw new Error(created.guidance);
-		const questDir = state.questDir ?? "";
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-adopt",
-			cwd: repoRoot,
-			force: true,
-		});
-		addTreeToQuest(questDir, {
-			path: join(tmpRoot, "scaffolded"),
-			providerId: "git-worktree",
-			origin: "scaffolded",
-		});
-		addTreeToQuest(questDir, {
-			path: join(tmpRoot, "adopted-elsewhere"),
-			providerId: "git-worktree",
-			origin: "adopted",
-			host: "another-machine",
-		});
-
-		expect(adoptedTreesHere(questDir)).toEqual([realpathSync(repoRoot)]);
-		expect(adoptedTreesHere(null)).toEqual([]);
-		expect(adoptedTreesHere(join(tmpRoot, "no-quest"))).toEqual([]);
 	});
 
 	it("refuses a main working tree without force", async () => {
