@@ -292,7 +292,7 @@ describe("installStepsBackFrom", () => {
 		await current(own);
 		expect(await steps(), "its own version").toBe(false);
 		await current(await version(older));
-		expect(await steps()).toBe(true);
+		expect(await steps(), "an older version").toBe(true);
 	});
 
 	it("takes a move forward, or onto a commit beside its own history, as no step back", async () => {
@@ -307,21 +307,24 @@ describe("installStepsBackFrom", () => {
 	it("takes a rebuild of its own commit as no step back", async () => {
 		const own = await version(newer);
 		await current(await version(`${newer}+1795740138`, newer));
-		expect(await installStepsBackFrom(own)()).toBe(false);
+		expect(await installStepsBackFrom(own)(), "a rebuild").toBe(false);
 	});
 
 	it("takes a version whose commit can't be read as no step back", async () => {
 		const own = await version(newer);
 		await put("install/versions/unread/package.json", "{}\n");
 		await current(join(root, "install", "versions", "unread"));
-		expect(await installStepsBackFrom(own)()).toBe(false);
+		expect(await installStepsBackFrom(own)(), "an unread commit").toBe(false);
 	});
 
 	it("takes an unreadable link, or a version outside an install, as no step back", async () => {
 		const own = await version(newer);
 		expect(await installStepsBackFrom(own)(), "no link").toBe(false);
 		await put("tree/package.json", "{}\n");
-		expect(await installStepsBackFrom(join(root, "tree"))()).toBe(false);
+		expect(
+			await installStepsBackFrom(join(root, "tree"))(),
+			"outside an install",
+		).toBe(false);
 	});
 
 	it("asks of each version once, since its commit never changes under its name", async () => {
@@ -329,7 +332,7 @@ describe("installStepsBackFrom", () => {
 		const steps = installStepsBackFrom(own);
 		const back = await version(older);
 		await current(back);
-		expect(await steps()).toBe(true);
+		expect(await steps(), "asked first").toBe(true);
 		await rm(join(back, ".git"), { recursive: true, force: true });
 		expect(await steps(), "the first answer kept").toBe(true);
 	});

@@ -55,25 +55,31 @@ const steered = {
 
 describe("answeredLast", () => {
 	it("holds once the model's last answer calls no tool", () => {
-		expect(answeredLast(sessionOf(told, answered))).toBe(true);
+		expect(answeredLast(sessionOf(told, answered)), "answered").toBe(true);
 	});
 
 	it("waits while the model's last message calls a tool", () => {
-		expect(answeredLast(sessionOf(told, calling))).toBe(false);
+		expect(answeredLast(sessionOf(told, calling)), "calling").toBe(false);
 	});
 
 	it("waits while words wait for the model", () => {
-		expect(answeredLast(sessionOf(answered, told))).toBe(false);
+		expect(answeredLast(sessionOf(answered, told)), "words waiting").toBe(
+			false,
+		);
 	});
 
 	it("waits on a job's end steered into the run after its answer", () => {
-		expect(answeredLast(sessionOf(told, answered, steered))).toBe(false);
+		expect(
+			answeredLast(sessionOf(told, answered, steered)),
+			"an end steered in",
+		).toBe(false);
 	});
 
 	it("holds once the model answers after the steered end", () => {
-		expect(answeredLast(sessionOf(told, answered, steered, answered))).toBe(
-			true,
-		);
+		expect(
+			answeredLast(sessionOf(told, answered, steered, answered)),
+			"answered after it",
+		).toBe(true);
 	});
 
 	it("passes over another extension's custom message", () => {
@@ -83,12 +89,12 @@ describe("answeredLast", () => {
 			content: "noted",
 			display: true,
 		};
-		expect(answeredLast(sessionOf(told, answered, note))).toBe(true);
+		expect(answeredLast(sessionOf(told, answered, note)), "a note").toBe(true);
 	});
 
 	it("passes over entries that aren't said, such as a mark", () => {
 		const mark = { type: "custom", customType: "job-carried", data: {} };
-		expect(answeredLast(sessionOf(told, answered, mark))).toBe(true);
+		expect(answeredLast(sessionOf(told, answered, mark)), "a mark").toBe(true);
 	});
 
 	it("waits on an answer that stopped on an error, which may be retried", () => {
@@ -97,10 +103,10 @@ describe("answeredLast", () => {
 			content: [],
 			stopReason: "error",
 		});
-		expect(answeredLast(sessionOf(told, failed))).toBe(false);
+		expect(answeredLast(sessionOf(told, failed)), "an error").toBe(false);
 	});
 
 	it("waits on a file not written yet", () => {
-		expect(answeredLast(undefined)).toBe(false);
+		expect(answeredLast(undefined), "no file").toBe(false);
 	});
 });
