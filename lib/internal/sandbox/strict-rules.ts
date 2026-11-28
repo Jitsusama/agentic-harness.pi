@@ -15,7 +15,9 @@
  * there is no program another runs. The cache, gcloud's settings and
  * the devices stay only writable, since nothing is built there.
  */
+import { opendirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { codeOf } from "../fence/fence-log.ts";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 import type { MachineGrants } from "./machine-grants.ts";
 
@@ -30,7 +32,7 @@ export const NIX_DOOR = "nix-untrusted.sock";
 const SANDBOX_FOLDER = ".cache/pi-sandbox";
 
 /** A name a folder may take whole: a session's id, or a process's. */
-const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+export const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 
 /** A session's name as a folder may take it, or the process's where there is none. */
 export function sessionFolderName(env: NodeJS.ProcessEnv): string {
@@ -38,20 +40,44 @@ export function sessionFolderName(env: NodeJS.ProcessEnv): string {
 	return FOLDER_NAME.test(session) ? session : `pid-${process.pid}`;
 }
 
+/** The folder every session's temporary folder lies in, for the home folder `home`. */
+export function temporaryFolders(home: string): string {
+	return join(home, SANDBOX_FOLDER, "tmp");
+}
+
+/**
+ * Whether this process runs where the folder `every` session's temporary
+ * folder lies in can't be listed: inside a strict command, whose Landlock
+ * rules give it its own folder and none of its neighbours.
+ */
+function hiddenFromUs(every: string): boolean {
+	try {
+		opendirSync(every).closeSync();
+		return false;
+	} catch (error) {
+		const code = codeOf(error);
+		return code === "EACCES" || code === "EPERM";
+	}
+}
+
 /**
  * The temporary folder a strict command in the session `env` names is
  * given: one of the session's own, since a command runs what it writes
  * there and one shared folder would let a session reading a stranger's
- * text plant a program another runs. A command already inside one, as
- * a strict pi's own commands are, keeps it: it can make no other.
+ * text plant a program another runs. The `TMPDIR` it was handed is kept
+ * only where it is that session's, or where this process is already a
+ * strict command, as a strict pi's own commands are: it can make no
+ * other. Elsewhere, as under a spawner outside every sandbox whose
+ * `TMPDIR` names another session's, it takes its own.
  */
 function temporaryFolder(home: string, env: NodeJS.ProcessEnv): string {
-	const every = join(home, SANDBOX_FOLDER, "tmp");
+	const every = temporaryFolders(home);
 	const inherited = env.TMPDIR;
 	if (
 		inherited !== undefined &&
 		dirname(inherited) === every &&
-		FOLDER_NAME.test(basename(inherited))
+		FOLDER_NAME.test(basename(inherited)) &&
+		(basename(inherited) === env.PI_SESSION_ID || hiddenFromUs(every))
 	) {
 		return inherited;
 	}
