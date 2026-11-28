@@ -396,7 +396,7 @@ const GATE = {
 function gatedPush(waits: string, goes: string) {
 	return spawnExec({
 		timeoutMs: 600,
-		signal: AbortSignal.timeout(4_000),
+		signal: AbortSignal.timeout(4_000), // any time: a backstop past the 600 ms clock, which fires only if the wait holds too long
 		turn: WORLD_PUSH_TURN,
 	})("sh", [
 		"-c",

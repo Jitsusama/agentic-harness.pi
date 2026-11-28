@@ -50,9 +50,14 @@ describe("a review tool stopped while gh hangs", () => {
 			undefined,
 			HEADLESS,
 		);
-		// Stopped once gh hangs, so it's a running gh the stop must end.
-		await until("gh to start", () => existsSync(started));
-		stop.abort();
+		// Stopped once gh hangs, so it's a running gh the stop must end;
+		// and stopped even when the wait fails, so no gh sleeps on past the
+		// folder afterEach removes.
+		try {
+			await until("gh to start", () => existsSync(started));
+		} finally {
+			stop.abort();
+		}
 
 		const settled = await Promise.race([
 			seeing.then(

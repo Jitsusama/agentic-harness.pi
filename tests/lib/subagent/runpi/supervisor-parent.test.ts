@@ -15,6 +15,7 @@ import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
 	parentGraceMs,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
+import { until } from "../../../support/until.ts";
 import { makeFakeChild } from "./fake-child.ts";
 import {
 	ANSWERED,
@@ -460,7 +461,13 @@ describe("createSupervisorRunPi: the parent over its supervisor", () => {
 		fake.stdout.write(
 			`${JSON.stringify({ type: "started", pid: groupId, pgid: groupId })}\n`,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		// The parent reads each line as it comes, so once the line has left
+		// the pipe the parent knows the child's group, and the stop finds it.
+		await until(
+			"the parent reading the started line",
+			() =>
+				fake.stdout.writableLength === 0 && fake.stdout.readableLength === 0,
+		);
 
 		controller.abort();
 		const outcome = await Promise.race([

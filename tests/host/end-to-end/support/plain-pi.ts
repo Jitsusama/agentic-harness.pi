@@ -116,6 +116,8 @@ export function startPlainPi(options: {
 			if (child.exitCode !== null || child.signalCode !== null) return;
 			const gone = once(child, "exit");
 			child.kill("SIGTERM");
+			// any time: a kill for a pi the TERM didn't end, which it was
+			// given its grace to do.
 			const timer = setTimeout(() => child.kill("SIGKILL"), STOP_WAIT_MS);
 			await gone;
 			clearTimeout(timer);

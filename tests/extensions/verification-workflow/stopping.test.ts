@@ -8,6 +8,7 @@ import {
 	registerLspBackend,
 } from "../../../lib/core/lsp/index.ts";
 import { endTurn } from "../../support/turn-end.ts";
+import { until } from "../../support/until.ts";
 
 /**
  * What the fast layer does when the language server will not answer.
@@ -176,8 +177,7 @@ describe("the fast layer at the end of a turn", () => {
 		const h = harness();
 		const run = new AbortController();
 		const turn = await endTurnAfterAnEdit(h, run, ["/work/a.ts", "/work/b.ts"]);
-		while (handed.length < 2)
-			await new Promise((resolve) => setTimeout(resolve, 5));
+		await until("both files handed to the checker", () => handed.length >= 2);
 
 		run.abort();
 		await turn.done;

@@ -88,6 +88,7 @@ export async function runTerminalPi(
 	options: TerminalStart & { withinMs: number },
 ): Promise<EndedTerminalPi> {
 	const run = inTerminal(options);
+	// any time: a pi still running at the bound has already failed it.
 	const timer = setTimeout(() => run.child.kill("SIGKILL"), options.withinMs);
 	const [code, signal] = (await run.exited) as [number | null, string | null];
 	clearTimeout(timer);
@@ -175,6 +176,8 @@ export async function startTerminalPi(
 		async stop() {
 			if (gone) return;
 			child.kill("SIGHUP");
+			// any time: a kill for a pi the hang-up didn't end, which it was
+			// given its grace to do.
 			const timer = setTimeout(() => {
 				child.kill("SIGKILL");
 				if (pid !== 0) killQuietly(pid);

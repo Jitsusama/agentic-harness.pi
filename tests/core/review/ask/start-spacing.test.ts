@@ -543,6 +543,7 @@ describe("spacing council starts on one machine", () => {
 		const start = await awaitCouncilStart(
 			path,
 			claim("85PKB2", { away: true }),
+			// any time: a bound on a wrong wait; a held start fails below.
 			AbortSignal.timeout(4_000),
 		);
 

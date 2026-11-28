@@ -243,6 +243,8 @@ describe("releaseBack", () => {
 		const stop = new AbortController();
 		const pause = realm.facts.pause;
 		realm.facts.pause = async (ms) => {
+			// any time: the realm's pause moves its own clock, which alone
+			// sets when the stop lands.
 			await pause(ms);
 			if (realm.clock() >= 20_000) stop.abort();
 		};
