@@ -321,7 +321,9 @@ input pipeline or screen. No unit or running host is installed yet.
   `.summary.json` beside `.raw`, which the snapshot's answer names. It
   holds figures and the names of classes, closures and code, never a
   string's contents: a kind not known to be structure, one a later V8
-  adds among them, is named by kind alone. A snapshot written, the host
+  adds among them, is named by kind alone. A name may still hold a
+  file path or a URL, since node names some native objects by the file
+  or module they came from. A snapshot written, the host
   sums it in a node process of its own, with no environment, rather
   than a worker, since a worker's heap would count in the
   conversation's process and may not go back to the system once it
