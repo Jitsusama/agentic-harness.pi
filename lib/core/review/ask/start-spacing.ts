@@ -66,6 +66,17 @@
  * round, which the line spaces from too, and a slot it kept that has
  * already come counts as a start.
  *
+ * A round judges the machine's room with the code its session loaded
+ * when it asked, which may be hours old: on 27 November 111 rounds
+ * waited on a CPU bar that the slice bar merged that evening (#2427)
+ * would have passed, since no waiting round's host had loaded it. So a
+ * round on this code grants the first in line its start when its own
+ * reading finds room and the spacing has passed, writing the start in
+ * that ticket's name, which every install since tickets began reads as
+ * a start its own look took. Only a ticket that doesn't say it judges
+ * its own start is granted one, so an older round takes the newer
+ * judgement and a newer round keeps its own.
+ *
  * Long because the line is one record every session on the machine
  * rewrites, so who goes next, how a look reads and writes it under its
  * lock, and how a wait says where it stands all change together when
@@ -188,6 +199,11 @@ interface Ticket {
 	 * install wrote has none, and replaces and is replaced by nothing.
 	 */
 	readonly kind?: string;
+	/**
+	 * Whether its round judges its own start, so no other round grants it
+	 * one. Tickets older installs wrote have none, and take a grant.
+	 */
+	readonly judges?: boolean;
 }
 
 /** A start that happened, as kept on disk. */
@@ -334,6 +350,7 @@ export async function awaitCouncilStart(
 		seenAt: asked,
 		...(claim.leads === true ? { leads: true } : {}),
 		...(claim.kind === undefined ? {} : { kind: claim.kind }),
+		judges: true,
 	};
 	// The first look takes the place, so joining is retried like any look.
 	let firstSeen: Turn | undefined;
@@ -683,6 +700,16 @@ function look(line: Line, at: LookAt): Look {
 			),
 		};
 	}
+	const first = holding[0];
+	if (
+		first !== undefined &&
+		ahead > 0 &&
+		first.judges !== true &&
+		now >= free &&
+		at.held === undefined
+	) {
+		return grant(line.started, first, waiting, firstAsked, replaced, at);
+	}
 	const next = remembering(
 		{
 			...(line.started === undefined ? {} : { started: line.started }),
@@ -692,7 +719,6 @@ function look(line: Line, at: LookAt): Look {
 		firstAsked,
 		replaced,
 	);
-	const first = holding[0];
 	return {
 		turn: {
 			ahead,
@@ -711,6 +737,52 @@ function look(line: Line, at: LookAt): Look {
 		// Only a change is written: a ticket joining, one dropped or moved,
 		// or a sighting old enough to need saying again.
 		...(sameLine(next, line) ? {} : { next }),
+	};
+}
+
+/**
+ * A look that grants `head`, first in line on code that judges room by
+ * an older rule, the start this look's room and spacing allow: the start
+ * is written in its ticket's name, which its own next look reads as a
+ * start it took, or, when another start came first, as the one that
+ * start followed. The looking round stays in line, now a place nearer.
+ */
+function grant(
+	last: Started | undefined,
+	head: Ticket,
+	waiting: readonly Ticket[],
+	firstAsked: Record<string, string>,
+	replaced: Record<string, string>,
+	at: LookAt,
+): Look {
+	const before = withoutFollows(last);
+	const started: Started = {
+		at: new Date(at.now).toISOString(),
+		by: head.by,
+		change: head.change,
+		ticket: head.id,
+		...(before === undefined ? {} : { follows: before }),
+	};
+	const left = waiting.filter((each) => each.id !== head.id);
+	const { [head.change]: _started, ...asked } = firstAsked;
+	const holding = left.filter(
+		(each) =>
+			each.id === at.ticket.id ||
+			Math.abs(at.now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS,
+	);
+	const ahead = holding.findIndex((each) => each.id === at.ticket.id);
+	const next = holding[0];
+	return {
+		turn: {
+			ahead,
+			of: holding.length,
+			waitMs: (ahead + 1) * at.spacing,
+			...(ahead > 0 && next !== undefined
+				? { behind: { by: next.by, change: next.change } }
+				: {}),
+			lookedAt: at.now,
+		},
+		next: remembering({ started, waiting: left }, asked, replaced),
 	};
 }
 
@@ -1087,7 +1159,8 @@ function isTicket(value: unknown): value is Ticket {
 		typeof value.seenAt === "string" &&
 		Number.isFinite(Date.parse(value.seenAt)) &&
 		(!("leads" in value) || typeof value.leads === "boolean") &&
-		(!("kind" in value) || typeof value.kind === "string")
+		(!("kind" in value) || typeof value.kind === "string") &&
+		(!("judges" in value) || typeof value.judges === "boolean")
 	);
 }
 

@@ -408,6 +408,8 @@ describe("a busy line's lock", () => {
 				pid: process.pid,
 				askedAt: now,
 				seenAt: now,
+				// A round on this code, which no other round grants a start.
+				judges: true,
 			},
 		]);
 		let looks = 0;

@@ -565,7 +565,9 @@ describe("spacing council starts on one machine", () => {
 	});
 
 	it("waits behind a round still looking, and says whose", async () => {
-		const now = new Date().toISOString();
+		// Asked a second before the round, since two asks in one millisecond
+		// fall to their ids, and a round's random id may sort before "ahead".
+		const now = new Date(Date.now() - 1_000).toISOString();
 		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
 			{
 				id: "ahead",
@@ -574,6 +576,8 @@ describe("spacing council starts on one machine", () => {
 				pid: process.pid,
 				askedAt: now,
 				seenAt: now,
+				// A round on this code, which no other round grants a start.
+				judges: true,
 			},
 		]);
 		const giving = new AbortController();
