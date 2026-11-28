@@ -28,7 +28,12 @@
  *   which go one at a time once memory stalls (see needs.ts's walksAtOnce).
  * - **Order**: timed work before bulk, quick work before the rest of
  *   bulk, then work another session waits on (see awaited.ts), then the
- *   oldest first. A job its limit holds back lets the next one past; a
+ *   oldest first. Walks of World's objects then take the places walks
+ *   hold by the class their caller gave World's push gate
+ *   (`WORLD_PUSH_CLASS`, 0 first, see push-class.ts), and within a class
+ *   pushes, fetches of main and a branch's own work ahead of other
+ *   walks, each in the order they had. A job its limit holds back lets
+ *   the next one past; a
  *   job memory holds back holds everyone behind it but quick work, one
  *   quick job at a time, so a big job is never starved by small ones
  *   slipping in and a check of seconds never waits on it; once the
