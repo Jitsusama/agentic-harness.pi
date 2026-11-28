@@ -133,8 +133,16 @@ export function takesLentOnly(program: string): boolean {
  * The day the nix-offload exemption is due out: a broker holds the
  * builders' key by then, so nothing goes out of the fence to reach them,
  * and a test fails from this day while the exemption is still here.
+ *
+ * It was 28 November. By then core's agent proxy held the builders' key
+ * and signed logins to lent builders alone, but nix-offload had not yet
+ * been run through it from inside the fence, so taking the exemption out
+ * that day risked every offloaded build. The day moved two weeks rather
+ * than turning every change's tests red. What the exemption lets out is
+ * unchanged, and its risk stays open in ISXEG8's register as
+ * R-offload-exemption-outlives-date.
  */
-export const OFFLOAD_EXEMPTION_ENDS = "2026-11-28";
+export const OFFLOAD_EXEMPTION_ENDS = "2026-12-12";
 
 /** A word with no meaning to a shell: no quote, expansion, glob or redirect. */
 const PLAIN_WORD = /^[A-Za-z0-9._/@:=+^*-]+$/;
