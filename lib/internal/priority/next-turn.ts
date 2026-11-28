@@ -491,7 +491,7 @@ export type Keeper =
 
 /** Why each waiting job waits, and what keeps each one waiting on the order. */
 export interface Waits {
-	readonly reasons: ReadonlyMap<string, WaitReason>;
+	readonly reasons: Map<string, WaitReason>;
 	readonly keepers: ReadonlyMap<string, Keeper>;
 }
 
