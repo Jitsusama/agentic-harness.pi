@@ -21,7 +21,10 @@
  * pi opened on the same file says its end.
  *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
- * why without one.
+ * why without one. E17 runs its command through pi-spawner, as a
+ * machine's pis do, and is skipped where the system's profile has none;
+ * pi's own spawn, which a quit kills what it started, is
+ * tests/lib/internal/shell/kept-apart.test.ts's.
  */
 
 import { execFile } from "node:child_process";
@@ -31,6 +34,8 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
+import { SPAWNER_PROGRAM } from "../../../lib/internal/shell/spawner.ts";
 import { saidAfter, startHeldPi } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -194,6 +199,28 @@ function processesOf(home: string): string {
 	return rows.length > 0 ? rows.join("\n") : "none";
 }
 
+/** The pi-spawner a pi on this machine starts commands through, if any. */
+function machineSpawner(): string | undefined {
+	return systemProgram(SPAWNER_PROGRAM);
+}
+
+/** Hold that the kept call's shell was started by pi-spawner. */
+function startedThrough(seal: Seal, spawner: string): void {
+	const shell = keptShellIn(seal);
+	// Its parent is the field after its state, after its name.
+	const parent =
+		shell === undefined
+			? undefined
+			: procOf(shell, "stat")?.split(") ")[1]?.split(" ")[1];
+	expect(
+		parent !== undefined && procOf(parent, "comm")?.trim() === SPAWNER_PROGRAM,
+		[
+			`the plain pi started its command through ${spawner}`,
+			`the seal's processes:\n${processesOf(seal.home)}`,
+		].join("\n"),
+	).toBe(true);
+}
+
 /** The kept call's shell, from the pid its stub wrote, if one did. */
 function keptShellIn(seal: Seal): number | undefined {
 	const pid = keptIn(seal).find((name) => name.endsWith(".pid"));
@@ -288,6 +315,11 @@ function keptIn(seal: Seal): string[] {
 it(
 	"E17: /host moves a plain pi with its background command running, and the command's end is said in the host",
 	async ({ skip }) => {
+		const spawner = machineSpawner();
+		if (spawner === undefined)
+			return skip(
+				"no pi-spawner in the system's profile, so the plain pi would start its command itself (kept-apart.test.ts)",
+			);
 		await onHostPi(skip, said, async (pi) => {
 			host = await startHost({
 				seal: sealed,
@@ -307,6 +339,7 @@ it(
 			const file = plain.file() ?? "";
 			const follow = await followUp(sealed.home);
 			const held = await readFile(file, "utf8");
+			startedThrough(sealed, spawner);
 
 			plain.type("/host");
 			await untilAnswered(

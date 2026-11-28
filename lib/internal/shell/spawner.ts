@@ -229,9 +229,9 @@ export interface SpawnerOperations extends BashOperations {
 	 */
 	retire(): void;
 	/**
-	 * Whether a kept command these start outlives this pi's going: always
-	 * through pi's own spawn, and through pi-spawner when it says it
-	 * keeps. Asked once and waited on without holding pi's loop.
+	 * Whether a kept command outlives this pi: always without pi-spawner,
+	 * started apart from pi's tracking (kept-apart.ts), and through it when
+	 * it says it keeps. Asked once and waited on without holding pi's loop.
 	 */
 	spares(): Promise<boolean>;
 }
@@ -804,7 +804,7 @@ function exitCodeOf(ended: Ended): number {
 }
 
 /** Kill a command's process group, or the process alone, as pi does. */
-function killGroup(pid: number): void {
+export function killGroup(pid: number): void {
 	if (process.platform === "darwin") {
 		try {
 			process.kill(-pid, "SIGSTOP");

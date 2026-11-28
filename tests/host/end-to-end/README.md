@@ -304,7 +304,12 @@ not a loss, and nothing the shell kept of the command is left in its
 state once that's said. A command that ended itself could end before a
 loaded lender's turn and move did, as about half of E17's runs there
 once failed, and a follow ended by a signal had bash print
-`Terminated` into its end.
+`Terminated` into its end. The plain pi starts the command through
+pi-spawner, as a machine's pis do, and the case holds that its shell's
+parent is pi-spawner; it is skipped where the system's profile has
+none. pi's own spawn is kept-apart.test.ts's: from pi 1.6 a quit kills
+each shell pi tracks, and on htt66 that took E17's kept shell with the
+pi that had just handed it on.
 
 E19, in the same file, goes the other way: a conversation the
 background host holds starts the same command, and `host-release.ts
