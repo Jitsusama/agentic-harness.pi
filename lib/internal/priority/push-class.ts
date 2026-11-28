@@ -73,8 +73,10 @@ interface Variable {
  * command, or through `env`, past what the command runs under (see
  * `ownAssignment`), a line its backslash continues included; else as an earlier step exported it, or
  * assigned it once exported; else `inherited`, the value the shell runs
- * with, until a step unsets it. Anything else, as a value other than 0,
- * 1 or 2, one set through a variable, or one set in a subshell, is
+ * with, until a step unsets it or takes its export with `export -n`, or
+ * the walk's own `env -i` or `env -u` keeps it from git. Anything else,
+ * as a value other than 0, 1 or 2, one set through a variable, or one
+ * exported in a subshell, is
  * {@link LAST_PUSH_CLASS}, as the gate counts it. So is a command that
  * walks none.
  */
@@ -95,8 +97,9 @@ export function pushClassOf(
 	let soonest = LAST_PUSH_CLASS;
 	for (const [at, step] of steps.entries()) {
 		if (walking.has(at)) {
-			const given =
-				ownAssignment(step) ?? (variable.exported ? variable.value : undefined);
+			const own = ownAssignment(step);
+			const reaches = variable.exported && !own.cleared;
+			const given = own.given ?? (reaches ? variable.value : undefined);
 			const walkClass =
 				(given === undefined ? undefined : CLASSES.get(given)) ??
 				LAST_PUSH_CLASS;
@@ -105,6 +108,16 @@ export function pushClassOf(
 		variable = afterStep(step, variable);
 	}
 	return soonest;
+}
+
+/**
+ * What a step's own words give {@link PUSH_CLASS_VARIABLE} for its
+ * command alone: a value, and whether the value the shell holds is kept
+ * from it, as `env -i` and `env -u` keep it.
+ */
+interface OwnClass {
+	readonly given: string | undefined;
+	readonly cleared: boolean;
 }
 
 /**
@@ -171,11 +184,14 @@ const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map([
  * programs that run a command as they were given it (see
  * {@link WRAPPERS}), as `timeout 600 env WORLD_PUSH_CLASS=0 git push`
  * gives 0. Nothing for a step that gives none, or one that only assigns,
- * which sets the shell's own.
+ * which sets the shell's own. An `env` that empties the environment or
+ * takes the variable out of it clears what came before it and keeps the
+ * shell's own from the command.
  */
-function ownAssignment(step: string): string | undefined {
+function ownAssignment(step: string): OwnClass {
 	const words = step.trim().split(/\s+/).filter(Boolean);
 	let given: string | undefined;
+	let cleared = false;
 	let assigns = true;
 	let at = 0;
 	while (at < words.length) {
@@ -188,19 +204,46 @@ function ownAssignment(step: string): string | undefined {
 		const set = ASSIGNED.exec(word);
 		if (set !== null) {
 			// Past a program that runs its next word, this is that word.
-			if (!assigns) return undefined;
+			if (!assigns) return { given: undefined, cleared };
 			if (set[1] === PUSH_CLASS_VARIABLE) given = set[2];
 			at += 1;
 			continue;
 		}
 		const wrapper = WRAPPERS.get(word);
-		if (wrapper === undefined) return given;
-		if (word === "direnv" && words[at + 1] !== "exec") return given;
-		at = pastOptions(words, at + 1, wrapper.valued) + wrapper.operands;
+		if (wrapper === undefined) return { given, cleared };
+		if (word === "direnv" && words[at + 1] !== "exec") {
+			return { given, cleared };
+		}
+		const options = pastOptions(words, at + 1, wrapper.valued);
+		if (word === "env" && envClears(words.slice(at + 1, options))) {
+			given = undefined;
+			cleared = true;
+		}
+		at = options + wrapper.operands;
 		assigns = wrapper.assigns;
 	}
-	return undefined;
+	return { given: undefined, cleared };
 }
+
+/**
+ * Whether `env`'s options take {@link PUSH_CLASS_VARIABLE} out of the
+ * environment it runs its command with: `-i`, `-` or
+ * `--ignore-environment` empty it, and `-u` or `--unset` naming the
+ * variable takes it out. It runs them before the variables it sets.
+ */
+function envClears(options: readonly string[]): boolean {
+	return options.some(
+		(option, at) =>
+			EMPTIES.has(option) ||
+			option === `-u${PUSH_CLASS_VARIABLE}` ||
+			option === `--unset=${PUSH_CLASS_VARIABLE}` ||
+			((option === "-u" || option === "--unset") &&
+				options[at + 1] === PUSH_CLASS_VARIABLE),
+	);
+}
+
+/** `env`'s options that run its command with an empty environment. */
+const EMPTIES = new Set(["-i", "-", "--ignore-environment"]);
 
 /**
  * Where a program's options end among `words`, from `at`: past each word
@@ -223,9 +266,10 @@ function pastOptions(
 }
 
 /**
- * What the shell knows of {@link PUSH_CLASS_VARIABLE} after a step that
- * walks nothing: an `export` sets and exports it, an `unset` clears it,
- * and a step of assignments alone sets it, exported only if it was.
+ * What the shell knows of {@link PUSH_CLASS_VARIABLE} after a step: an
+ * `export` sets and exports it, an `export -n` keeps it from the
+ * commands the shell runs, an `unset` clears it, and a step of
+ * assignments alone sets it, exported only if it was.
  */
 function afterStep(step: string, variable: Variable): Variable {
 	const [first, ...rest] = step.trim().split(/\s+/).filter(Boolean);
@@ -235,19 +279,21 @@ function afterStep(step: string, variable: Variable): Variable {
 			: variable;
 	}
 	const exporting = first === "export";
-	const words = exporting ? rest : [first, ...rest];
+	const unexporting = exporting && rest.includes("-n");
+	const words = exporting
+		? rest.filter((word) => !word.startsWith("-"))
+		: [first, ...rest];
 	const assignsOnly = words.every(
 		(word) => word !== undefined && ASSIGNED.test(word),
 	);
 	if (!exporting && !assignsOnly) return variable;
 	let { value, exported } = variable;
 	for (const word of words) {
-		if (exporting && word === PUSH_CLASS_VARIABLE) exported = true;
 		const set = ASSIGNED.exec(word ?? "");
-		if (set?.[1] === PUSH_CLASS_VARIABLE) {
-			value = set[2];
-			exported ||= exporting;
-		}
+		const names =
+			word === PUSH_CLASS_VARIABLE || set?.[1] === PUSH_CLASS_VARIABLE;
+		if (set?.[1] === PUSH_CLASS_VARIABLE) value = set[2];
+		if (exporting && names) exported = !unexporting;
 	}
 	return { value, exported };
 }

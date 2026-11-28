@@ -140,6 +140,43 @@ describe("the class a walk of World's objects gives World's push gate", () => {
 		).toBe(2);
 	});
 
+	it("reads no class where git would see none, whatever the shell holds", () => {
+		// Each keeps the inherited or exported 0 from git, so the gate
+		// ranks the walk 2: the queue must not wait it as 0.
+		for (const command of [
+			"env -i git push",
+			"env - git push",
+			"env --ignore-environment PATH=/bin git push",
+			"env -u WORLD_PUSH_CLASS git push",
+			"env -uWORLD_PUSH_CLASS git push",
+			"env --unset=WORLD_PUSH_CLASS git push",
+			"env --unset WORLD_PUSH_CLASS git push",
+			"timeout 600 env -u WORLD_PUSH_CLASS git push",
+			"WORLD_PUSH_CLASS=0 env -i git push",
+			"WORLD_PUSH_CLASS=0 env -u WORLD_PUSH_CLASS git push",
+			"export -n WORLD_PUSH_CLASS; git push",
+			"export -n WORLD_PUSH_CLASS=0; git push",
+		]) {
+			expect(pushClassOf(command, inWorld, "0"), command).toBe(2);
+		}
+		expect(
+			pushClassOf(
+				"export WORLD_PUSH_CLASS=0; export -n WORLD_PUSH_CLASS; git push",
+				inWorld,
+			),
+		).toBe(2);
+		// What it sets after emptying the environment still reaches git.
+		for (const command of [
+			"env -i WORLD_PUSH_CLASS=1 git push",
+			"env -u WORLD_PUSH_CLASS WORLD_PUSH_CLASS=1 git push",
+			"export -n WORLD_PUSH_CLASS; export WORLD_PUSH_CLASS; git push",
+			"env -u GIT_TRACE git push",
+			"export -n GIT_TRACE; git push",
+		]) {
+			expect(pushClassOf(command, inWorld, "1"), command).toBe(1);
+		}
+	});
+
 	it("ranks a walk with no class, or one the gate can't read, as 2", () => {
 		expect(pushClassOf("git fetch origin main", inWorld)).toBe(2);
 		for (const bad of ["3", "-1", "01", "", "soon", "0.5", "$C"]) {
