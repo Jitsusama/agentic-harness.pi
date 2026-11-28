@@ -1408,7 +1408,7 @@ describe("a session asking for a tree a sweep is removing", () => {
 	}
 
 	/** After `ms`, as a sweep in another process ends its removal. */
-	const later = (ms: number, then: () => Promise<void>): Promise<void> =>
+	const later = (ms: number, then: () => Promise<unknown>): Promise<unknown> =>
 		// A sweep's end is heard only by looking again, so the test waits as
 		// a session would, on the clock.
 		new Promise((done) => setTimeout(done, ms)).then(then);
@@ -1511,6 +1511,50 @@ describe("a session asking for a tree a sweep is removing", () => {
 		expect(held.path).toBe(tree.path);
 		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
 		expect(memory.recall()[0]?.going, "the stopped mark").toBeUndefined();
+	});
+
+	it("cuts afresh a tree whose stopped removal fails to finish once its folder is gone", async () => {
+		// Git's release runs `worktree remove` on the folder, which fails once
+		// it is gone: kept stopped, every ask would finish it again and fail.
+		const request = asked("folder-gone");
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider(),
+					async release(held) {
+						released.push(held.path);
+						throw new Error(`fatal: '${held.path}' is not a working tree`);
+					},
+				},
+			],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const path = join(root, "trees", request.purpose);
+		memory.remember({
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [GONE],
+			going: { at: Date.now(), by: GONE },
+		});
+
+		const held = await broker.ensure(request);
+
+		expect(released, "what the provider was asked to release").toEqual([path]);
+		expect(held.path, "where the tree was handed out").toBe(path);
+		expect(existsSync(path), "the fresh cut's folder").toBe(true);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.going),
+			"the marks on its records",
+		).toEqual([undefined]);
+		expect(
+			found[0]?.owners?.map((one) => one.pid),
+			"its record's holders",
+		).toContain(process.pid);
 	});
 
 	it("waits while another session finishes a stopped removal, then cuts afresh", async () => {

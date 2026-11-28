@@ -197,19 +197,28 @@ export interface TreeMemory {
 	 * Given the lock the removal ran `under`, only the marks made under it:
 	 * a mark another removal made since, after this one's lock was taken
 	 * over, is that removal's to end.
+	 *
+	 * A removal that failed with the tree's folder gone is forgotten as
+	 * finished all the same: nothing more can be undone from here, since a
+	 * release finds a tree by its folder, and git's `worktree remove` fails
+	 * on one that is gone, so a mark left stopped would fail every finish
+	 * for good. Answers whether the marked records were `forgotten`, left
+	 * `stopped`, or none was marked.
 	 */
 	endGoing(
 		tree: HeldTree,
 		failed?: boolean,
 		under?: RemovalLock,
-	): Promise<void>;
+	): Promise<GoingEnd>;
 	/**
 	 * Finish a removal that stopped partway, through `release`, so `tree`
 	 * can be cut afresh: its records are marked as going under a lock this
 	 * process makes beside them, released, and forgotten, or left marked
-	 * as stopped when `release` throws, which goes on to the caller. Throws
-	 * {@link TreeGoing} when another removal of it runs, and does nothing
-	 * when none stopped.
+	 * as stopped when `release` throws, which goes on to the caller. A
+	 * `release` that throws once the folder is gone forgets the records as
+	 * {@link endGoing} does, throwing nothing, so the caller cuts the tree
+	 * afresh. Throws {@link TreeGoing} when another removal of it runs, and
+	 * does nothing when none stopped.
 	 */
 	finishGoing(
 		tree: HeldTree,
@@ -286,6 +295,12 @@ export interface TreeMemory {
 	 */
 	reownSession(session: string, facts?: ProcessFacts): Promise<number>;
 }
+
+/**
+ * How {@link TreeMemory.endGoing} left a removal's records: forgotten,
+ * left marked as stopped, or none was marked to end.
+ */
+export type GoingEnd = "forgotten" | "stopped" | "unmarked";
 
 /** How many times a listing the directory changed under is read again. */
 const LISTING_TRIES = 8;
@@ -1308,6 +1323,7 @@ export function createTreeMemory(
 			const keys = this.recall()
 				.filter((one) => one.path === tree.path)
 				.map((one) => one.identity.key);
+			let end: GoingEnd = "unmarked";
 			await underLocks([tree.identity.key, ...keys], async () => {
 				const trees = this.recall().filter(
 					(one) =>
@@ -1316,15 +1332,22 @@ export function createTreeMemory(
 						(under === undefined || one.going.lock?.id === under.id),
 				);
 				if (trees.length === 0) return;
-				if (!failed) {
+				// A release that went as far as the folder before it failed, or
+				// one run again on a tree whose folder an earlier one took, has
+				// nothing left a release could find: kept stopped, the tree is
+				// released again by every sweep and every ask, and fails each
+				// time, so nobody could ever have it again.
+				if (!failed || !existsSync(tree.path)) {
 					// The marked ones alone: a twin under another key may already
 					// be a fresh cut's.
 					for (const one of trees) {
 						rmSync(fileFor(one.identity.key), { force: true });
 					}
 					noteWrite(dir, tree.path);
+					end = "forgotten";
 					return;
 				}
+				end = "stopped";
 				for (const one of trees) {
 					if (one.going === undefined) continue;
 					const { lock: _, ...going } = one.going;
@@ -1343,6 +1366,7 @@ export function createTreeMemory(
 					}
 				}
 			});
+			return end;
 		},
 
 		async finishGoing(tree, release, facts = systemFacts) {
@@ -1382,8 +1406,12 @@ export function createTreeMemory(
 				await release();
 				await this.endGoing(tree, false, marked);
 			} catch (error) {
-				await this.endGoing(tree, true, marked);
-				throw error;
+				// With the folder gone the records are forgotten as finished, and
+				// the tree is cut afresh rather than refused by the provider's
+				// failing on what is no longer there.
+				if ((await this.endGoing(tree, true, marked)) !== "forgotten") {
+					throw error;
+				}
 			} finally {
 				ending();
 			}

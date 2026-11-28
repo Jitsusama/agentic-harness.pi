@@ -66,7 +66,7 @@ import {
 	treesInUse,
 	type UseSigns,
 } from "./in-use.ts";
-import type { TreeMemory } from "./memory.ts";
+import type { GoingEnd, TreeMemory } from "./memory.ts";
 import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
@@ -870,15 +870,25 @@ async function removeMarked(
 	// out of descriptors, leaves the mark, which stands only while this
 	// run's lock does, and the run goes on.
 	let unended: string | undefined;
+	let end: GoingEnd | undefined;
 	try {
 		// What a failed removal left may be half a tree, so its mark stays,
 		// stopped, and whoever asks for it next finishes the removal first.
-		await deps.memory.endGoing(tree, failed !== undefined, lock);
+		end = await deps.memory.endGoing(tree, failed !== undefined, lock);
 	} catch (error) {
 		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
 	}
 	if (failed === undefined) {
 		outcome.taken.push({ path: tree.path });
+		return;
+	}
+	// Its folder gone, its record went as finished, and the log says why,
+	// since the provider's failure no longer stops anybody having it.
+	if (end === "forgotten") {
+		outcome.taken.push({
+			path: tree.path,
+			why: `its folder was gone when its release failed, so its record went as finished: ${messageOf(failed)}`,
+		});
 		return;
 	}
 	outcome.refused.push({

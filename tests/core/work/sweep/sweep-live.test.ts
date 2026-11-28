@@ -1156,6 +1156,61 @@ describe("trees another provider cut", () => {
 		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
+
+	it("forgets a stopped removal whose folder is gone once its release fails, and says why", async () => {
+		// Git's release runs `worktree remove` on the folder, which fails once
+		// it is gone: kept stopped, the tree would be released again by every
+		// sweep and refused to every session, for good.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		rmSync(tree, { recursive: true, force: true });
+		const refusal = `fatal: '${tree}' is not a working tree`;
+		let releases = 0;
+		const provider = elsewhere(undefined, async () => {
+			releases += 1;
+			throw new Error(refusal);
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(1);
+		expect(outcome.taken, "what the sweep says it took, and why").toEqual([
+			{
+				path: tree,
+				why: `its folder was gone when its release failed, so its record went as finished: ${refusal}`,
+			},
+		]);
+		expect(outcome.refused, "what it says it refused").toEqual([]);
+		expect(
+			memory.recall().map((one) => one.path),
+			"the records left",
+		).not.toContain(tree);
+	});
+
+	it("forgets a tree whose release took its folder and then failed", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+			throw new Error("its datastores wouldn't reset");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(
+			outcome.taken.map((one) => one.path),
+			"what the sweep says it took",
+		).toEqual([tree]);
+		expect(outcome.refused, "what it says it refused").toEqual([]);
+		expect(
+			memory.recall().map((one) => one.path),
+			"the records left",
+		).not.toContain(tree);
+	});
 });
 
 describe("the dev-shell roots of trees nobody entered", () => {
