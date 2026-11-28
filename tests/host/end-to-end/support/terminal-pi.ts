@@ -15,7 +15,7 @@ import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sessionsDir } from "../../../../lib/internal/paths.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
-import { childOf } from "../../../support/processes.ts";
+import { childOf, commandOf } from "../../../support/processes.ts";
 import { type Drawn, drawn } from "./drawn.ts";
 import { textOf, untilAnswered } from "./hosted-case.ts";
 import { scriptOnPath } from "./script.ts";
@@ -127,7 +127,7 @@ export async function startTerminalPi(
 	await untilAnswered(
 		"pi starts in its terminal",
 		async () => {
-			pid = childOf(child.pid ?? 0) ?? 0;
+			pid = piUnder(child.pid) ?? 0;
 			return pid !== 0 || gone;
 		},
 		START_MS,
@@ -226,6 +226,20 @@ function inTerminal(options: TerminalStart) {
 	const errors = () =>
 		[`Its terminal shows:\n${drawing.screen().join("\n")}`, stderr].join("\n");
 	return { child, drawing, errors, exited };
+}
+
+/**
+ * The pi script(1) runs under the launched pid `launched`, once it does:
+ * taken only once that pid runs script itself. A Mac's launch is bash's
+ * until its exec, and its helpers (the fifo's folder, its cat's
+ * subshell) are its children until then, which a Mac's pgrep -P may list
+ * first (#2385's second round, F24). By the exec bash has reaped each of
+ * them, so script's first child is its command, which execs pi.
+ */
+function piUnder(launched: number | undefined): number | undefined {
+	if (launched === undefined || commandOf(launched) !== "script")
+		return undefined;
+	return childOf(launched);
 }
 
 /** `word` quoted for sh. */

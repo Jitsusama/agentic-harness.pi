@@ -1,12 +1,15 @@
+import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
 	alive,
 	childOf,
+	commandOf,
 	noSuchProcess,
 	residentMb,
 	runningIn,
 	runningWith,
 } from "./processes.ts";
+import { until } from "./until.ts";
 
 /** A BSD ps -wwE -A -o pid=,command= listing, as a Mac prints one. */
 const LISTING = [
@@ -74,6 +77,29 @@ describe("this machine's processes", () => {
 			childOf(noSuchProcess()),
 			"a free pid has no children",
 		).toBeUndefined();
+	});
+
+	it("finds no child of no pid, where a Mac's pgrep -P 0 answers launchd", () => {
+		expect(childOf(0), "pid 0 names no parent").toBeUndefined();
+	});
+
+	it("finds a shell's child and names what each runs", async () => {
+		// The `; :` keeps sh from exec'ing sleep in its own place, so sleep
+		// is the shell's child rather than the shell itself.
+		const shell = spawn("/bin/sh", ["-c", "sleep 30; :"], { stdio: "ignore" });
+		try {
+			const parent = shell.pid ?? 0;
+			await until("the shell starts sleep", () => {
+				const child = childOf(parent);
+				return child !== undefined && commandOf(child) === "sleep";
+			});
+			expect(commandOf(parent), "the shell runs sh").toMatch(/sh$/);
+			expect(commandOf(noSuchProcess()), "a free pid runs nothing").toBe(
+				undefined,
+			);
+		} finally {
+			shell.kill("SIGKILL");
+		}
 	});
 
 	it("finds no process running a command nobody runs", () => {

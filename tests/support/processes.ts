@@ -8,6 +8,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { until } from "./until.ts";
 
 /** Where a machine shows each process's own files: Linux's /proc, which a Mac lacks, asking ps(1) instead. */
@@ -58,9 +59,11 @@ export async function execed(pid: number, program: string): Promise<void> {
 
 /**
  * The first process `parent` started, once it has: from /proc where
- * there is one, else from pgrep(1), which a Mac has.
+ * there is one, else from pgrep(1), which a Mac has. No pid names no
+ * parent, where a Mac's pgrep -P 0 would answer launchd.
  */
 export function childOf(parent: number): number | undefined {
+	if (parent <= 0) return undefined;
 	if (!existsSync(`${PROC}/self`)) {
 		const [first] = words(
 			spawnSync("pgrep", ["-P", String(parent)], { encoding: "utf8" }).stdout ??
@@ -75,6 +78,27 @@ export function childOf(parent: number): number | undefined {
 		return first === undefined ? undefined : Number(first);
 	} catch {
 		// It hasn't forked yet, or has ended: whoever polls asks again.
+		return undefined;
+	}
+}
+
+/**
+ * The program `pid` runs, by its file's name without its folder: /proc's
+ * comm where there is one, else ps(1)'s, which a Mac gives as a path.
+ * A pid nothing wears runs none.
+ */
+export function commandOf(pid: number): string | undefined {
+	if (pid <= 0) return undefined;
+	if (!existsSync(`${PROC}/self`)) {
+		const command = spawnSync("ps", ["-o", "comm=", "-p", String(pid)], {
+			encoding: "utf8",
+		}).stdout?.trim();
+		return command ? basename(command) : undefined;
+	}
+	try {
+		return readFileSync(`${PROC}/${pid}/comm`, "utf8").trim();
+	} catch {
+		// Nothing wears it, or it has just ended: it runs nothing to name.
 		return undefined;
 	}
 }
