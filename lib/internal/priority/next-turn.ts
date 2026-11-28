@@ -359,9 +359,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * sessions share. 24: walks of World's objects wait among themselves by
  * the class their caller gave World's push gate (push-class.ts), 0
  * first. 25: a quick push running holds no walk's place (job.ts's
- * `isQuick`), so another walk starts beside it.
+ * `isQuick`), so another walk starts beside it. 26: a job waiting past
+ * when it was due to start is marked so once, in its job, its `.late`
+ * and queue.json (late.ts).
  */
-export const RULES_VERSION = 25;
+export const RULES_VERSION = 26;
 
 /**
  * The job to start now, if any: the first waiting in order that its

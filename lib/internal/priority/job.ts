@@ -40,6 +40,11 @@ export interface Job {
 	 */
 	readonly dueToStart?: number;
 	/**
+	 * Where it stood when a keep first found it past {@link dueToStart}
+	 * with no turn yet, noted once, as its waiter was told (late.ts).
+	 */
+	readonly late?: Late;
+	/**
 	 * The token of the boot it was asked in, where the machine mints one,
 	 * so a queue folder that outlasts a reboot sets it aside after one.
 	 */
@@ -142,6 +147,18 @@ export interface Job {
 	 */
 	readonly grewAt?: string;
 	readonly grewTo?: number;
+}
+
+/**
+ * A job found waiting past when it was due to start: when it was found,
+ * its place in line then, once it had one, why it waited, and what held
+ * it, in plain words, as its waiter was told.
+ */
+export interface Late {
+	readonly at: string;
+	readonly place?: number;
+	readonly reason: WaitReason;
+	readonly heldBy: string;
 }
 
 /** Time spent waiting on each reason, those it never waited on left out. */

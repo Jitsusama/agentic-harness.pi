@@ -7,6 +7,7 @@
 
 import { NOBODY } from "./awaited.ts";
 import type { Processes } from "./folder.ts";
+import type { Late } from "./job.ts";
 import { workNameIn } from "./name.ts";
 import { type Outcome, ranSAfter } from "./outcome.ts";
 import { type PushClass, pushClassOfJob } from "./push-class.ts";
@@ -102,6 +103,14 @@ export interface QueueRecord {
 		readonly lastRanS?: number;
 		/** Why it waits, while it waits. */
 		readonly waitingOn?: WaitReason;
+		/** Waiting past when it was due to start, its waiter told so. */
+		readonly overdue?: true;
+		/**
+		 * Where it stood when first found overdue, as its waiter was told:
+		 * kept as it was then rather than read again, so the record changes
+		 * once as it is found, not with every pressure after (late.ts).
+		 */
+		readonly late?: Late;
 	}[];
 	/** Minutes some job waited today though the memory it needed was free. */
 	readonly wasted: {
@@ -217,6 +226,9 @@ export function queueRecord(
 				...(name !== undefined ? { name } : {}),
 				...(lastRanS !== undefined ? { lastRanS } : {}),
 				...(waitingOn !== undefined ? { waitingOn } : {}),
+				...(job.started === undefined && job.late !== undefined
+					? { overdue: true as const, late: job.late }
+					: {}),
 			};
 		}),
 		wasted,

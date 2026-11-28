@@ -22,6 +22,8 @@
  *   wait, so its time limit can start there (clock.ts).
  * - `<id>.end`: its shell's exit status, written as the shell exits,
  *   which goes with the job into the outcome file when it is given up.
+ * - `<id>.late`: one line its waiting shell prints once, written once a
+ *   keep finds the job still waiting past when it was due (late.ts).
  * - `room`: the room left, as words ("2 VM tests and 8 builds more"),
  *   or nothing, written with queue.json, which a shell says when its
  *   work ends.
@@ -51,8 +53,10 @@ import {
 	placeFetchedGit,
 	worldGit,
 } from "./fetched.ts";
+import type { Late } from "./job.ts";
 import { mayKeep } from "./keeper.ts";
 import { keptOutcomes } from "./kept-outcomes.ts";
+import { lateNow, lateSaid } from "./late.ts";
 import {
 	besideNow,
 	capFor,
@@ -303,6 +307,7 @@ const JOB_FILES: readonly string[] = [
 	"began",
 	"capped",
 	"end",
+	"late",
 	"plan",
 	"plan.planning",
 	"fetched",
@@ -550,6 +555,17 @@ export function queueFolder(
 			return noted;
 		});
 
+	/** Marks each job late that only now is, telling its waiter once. */
+	const noteLate = (queue: Job[], late: ReadonlyMap<string, Late>): Job[] =>
+		queue.map((job) => {
+			const found = late.get(job.id);
+			if (found === undefined) return job;
+			const marked = { ...job, late: found };
+			replace(path(job.id, "job"), `${JSON.stringify(marked)}\n`);
+			replace(path(job.id, "late"), `${lateSaid(marked, found)}\n`);
+			return marked;
+		});
+
 	/** A planning job as its plan leaves it, kept once that changed it. */
 	const planned = (job: Job, now: number): Job => {
 		if (!job.planning) return job;
@@ -659,11 +675,17 @@ export function queueFolder(
 								: job,
 						)
 					: answered;
-				const queue = noteWaits(
+				const reasons = waitReasons(
 					turned,
-					waitReasons(turned, reading, now, ruled, awaited, first),
+					reading,
 					now,
+					ruled,
+					awaited,
+					first,
 				);
+				const waits = noteWaits(turned, reasons, now);
+				const late = lateNow(waits, reasons, reading, now, awaited, first);
+				const queue = noteLate(waits, late);
 				if (next) {
 					const turn = queue.find((job) => job.id === next.id) as Job;
 					replace(path(next.id, "job"), `${JSON.stringify(turn)}\n`);
