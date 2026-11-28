@@ -174,7 +174,9 @@ would miss what another binds over it.
   refuses root's files as nobody's.
 - **`fence-stage.ts`**: which pis the fence takes by default in its
   first stage (subagents, fresh `quest spawn` sessions and those listed
-  by hand, under pi's state, `scripts/fence-stage.ts`), and how
+  by hand, under pi's state, `scripts/fence-stage.ts`, and once its
+  `everyone-joins` file is written, every background host conversation
+  too), and how
   `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
   unknown value reads as the fence, saying so once.
 - **`fence-declaration.ts`**: the fence a spawned session tells

@@ -2,8 +2,11 @@
  * Which pis the agent fence takes by default while it rolls out in
  * stages (ISXEG8's reshape [0ed98522]): the sessions named for it by
  * hand and, once a file says spawns join, a fleet's subagents and the
- * sessions `quest spawn` starts fresh. Everyone else runs as before until the
- * everyone stage, and a reopen joins only then, since a reopened
+ * sessions `quest spawn` starts fresh. Once another file says everyone
+ * joins, every agent's pi joins too: a conversation of a background
+ * host, whoever started it, since nobody types in one. A pi in a
+ * terminal or in the attended host stays out at every stage, and a
+ * reopen joins only as a background conversation, since a reopened
  * attended session would fence Joel's own typing [1309c590].
  *
  * The default is worked out from how the pi was started and never
@@ -236,12 +239,67 @@ export function askedSandbox(
  */
 const SPAWNS_JOIN = "spawns-join";
 
-/** Whether subagents and fresh spawns have joined the first stage. */
-export function spawnsJoin(folder: string = stageFolder()): boolean {
+/**
+ * The file whose presence lets every agent's pi join: subagents, fresh
+ * spawns and every background host's conversations. Like `SPAWNS_JOIN`,
+ * one file takes the stage on and off with no change of code, and ends
+ * in no `.json`.
+ */
+const EVERYONE_JOINS = "everyone-joins";
+
+/** Whether `name` is a file in `folder`. */
+function present(folder: string, name: string): boolean {
 	return (
-		statSync(join(folder, SPAWNS_JOIN), { throwIfNoEntry: false })?.isFile() ??
-		false
+		statSync(join(folder, name), { throwIfNoEntry: false })?.isFile() ?? false
 	);
+}
+
+/**
+ * Whether subagents and fresh spawns have joined the first stage, as they
+ * have once everyone joins.
+ */
+export function spawnsJoin(folder: string = stageFolder()): boolean {
+	return present(folder, SPAWNS_JOIN) || everyoneJoins(folder);
+}
+
+/** Whether every agent's pi has joined the stage. */
+export function everyoneJoins(folder: string = stageFolder()): boolean {
+	return present(folder, EVERYONE_JOINS);
+}
+
+/** Let every agent's pi join the stage, saying why. */
+export function joinEveryone(
+	why: string,
+	folder: string = stageFolder(),
+	now: Date = new Date(),
+): void {
+	mkdirSync(folder, { recursive: true });
+	const path = join(folder, EVERYONE_JOINS);
+	const writing = `${path}.writing`;
+	writeFileSync(
+		writing,
+		`${JSON.stringify({ v: 1, why, at: now.toISOString() })}\n`,
+	);
+	renameSync(writing, path);
+}
+
+/**
+ * Take every agent's pi back off the stage, leaving spawns as their own
+ * file says; answers whether everyone had joined.
+ */
+export function leaveEveryone(folder: string = stageFolder()): boolean {
+	if (!everyoneJoins(folder)) return false;
+	rmSync(join(folder, EVERYONE_JOINS));
+	return true;
+}
+
+/**
+ * Whether this pi is a conversation of a background host, as the host
+ * names itself to its children (`work-background`): nobody types in one,
+ * so it is an agent's, however it was started.
+ */
+export function isBackgroundConversation(env: NodeJS.ProcessEnv): boolean {
+	return /-background$/.test(env.PI_HOST_KEY?.trim() ?? "");
 }
 
 /** Let subagents and fresh spawns join the first stage, saying why. */
@@ -262,18 +320,19 @@ export function joinSpawns(
 
 /**
  * Take subagents and fresh spawns back off the first stage, leaving the
- * sessions listed by hand; answers whether they had joined.
+ * sessions listed by hand, though they stay while everyone joins;
+ * answers whether their own file was there.
  */
 export function leaveSpawns(folder: string = stageFolder()): boolean {
-	if (!spawnsJoin(folder)) return false;
+	if (!present(folder, SPAWNS_JOIN)) return false;
 	rmSync(join(folder, SPAWNS_JOIN));
 	return true;
 }
 
 /**
  * Whether the fence takes this pi by default: a session listed for the
- * first stage, by its id or its spawn's token, or a subagent once spawns
- * join.
+ * first stage, by its id or its spawn's token, a subagent once spawns
+ * join, or a background host's conversation once everyone joins.
  */
 export function inFirstStage(
 	env: NodeJS.ProcessEnv,
@@ -282,6 +341,7 @@ export function inFirstStage(
 ): boolean {
 	return (
 		(isSubagent(env) && spawnsJoin(folder)) ||
+		(isBackgroundConversation(env) && everyoneJoins(folder)) ||
 		listedForStage(startedSession(env, argv), folder) ||
 		listedForStage(env[STAGE_VARIABLE]?.trim(), folder)
 	);
