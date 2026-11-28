@@ -13,16 +13,26 @@
  * account's alone, since a folder made before this check may have taken
  * the umask's mode.
  *
- * A temporary folder named by a process's pid is made empty the first
- * time that process makes it: pids wrap, and an earlier process with the
- * same pid may have left files there, even a program this one would run.
- * It is emptied only once checked to be a real folder of this account's,
- * and checked again once made anew, so emptying never follows a link.
- * A session's folder is kept as it was, for the session resumed, and so
- * is one handed down in `TMPDIR`, which a live process still uses. A
- * folder an earlier process made read-only inside is made writable to
- * be emptied, as it is this account's own, rather than refusing every
- * command this process runs.
+ * A temporary folder named by a process (its pid, and its pid namespace
+ * where Linux has one) is made empty the first time that process makes
+ * it: pids wrap, and an earlier process with the same pid may have left
+ * files there, even a program this one would run. It is emptied only
+ * once checked to be a real folder of this account's, and checked again
+ * once made anew. The removal still goes by a path through `~/.cache`,
+ * which fenced commands may write, so a link swapped in above it after
+ * the check could lead it elsewhere; but only to a folder of this
+ * process's name, which nothing of the person's takes. A session's
+ * folder is kept as it was, for the session resumed, and so is one
+ * handed down in `TMPDIR`, which a live process still uses. A folder an
+ * earlier process made read-only inside is made writable to be emptied,
+ * as it is this account's own. One that still won't empty refuses the
+ * process's commands, saying to remove it by hand, and isn't walked
+ * again until it is gone, when it is made anew.
+ *
+ * What is emptied, and what won't empty, is kept once a process, not
+ * once a module: each extension loads its own copy of this one, and a
+ * reload another, and each would otherwise empty the folder again under
+ * the commands that write there.
  *
  * Nothing yet removes the folders of sessions gone. A sweep by path
  * would run through `~/.cache`, which the fence lets commands write: one
@@ -33,13 +43,23 @@
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { removeTree } from "../files/remove-tree.ts";
-import { sandboxFolders } from "./strict-rules.ts";
+import { processGlobal } from "../process/process-global.ts";
+import { processFolderName, sandboxFolders } from "./strict-rules.ts";
 
 /** The bits that let anyone but the owner reach a folder. */
 const OTHERS = 0o077;
 
 /** The temporary folders this process has made empty, so each is emptied once. */
-const madeFresh = new Set<string>();
+const madeFresh = processGlobal(
+	"agentic-harness.sandbox.made-fresh",
+	() => new Set<string>(),
+);
+
+/** The temporary folders that wouldn't empty, with why, so none is walked twice. */
+const wontEmpty = processGlobal(
+	"agentic-harness.sandbox.wont-empty",
+	() => new Map<string, string>(),
+);
 
 /** How the folders are made and read, so a test can stand in. */
 export interface FolderDisk {
@@ -82,16 +102,25 @@ export function makeSandboxFolders(
 	disk: FolderDisk = DISK,
 ): string | undefined {
 	const folders = sandboxFolders(home, env);
+	const temporary = folders.temporary;
+	const stuck = wontEmpty.get(temporary);
+	if (stuck !== undefined) {
+		if (disk.look(temporary) !== undefined) return stuck;
+		// Removed by hand, so made anew below, with nothing in it.
+		wontEmpty.delete(temporary);
+		madeFresh.add(temporary);
+	}
 	for (const folder of Object.values(folders)) {
 		const unmade = madeOurs(folder, disk);
 		if (unmade) return unmade;
 	}
-	const temporary = folders.temporary;
 	if (!startsFresh(temporary, env)) return undefined;
 	try {
 		disk.empty(temporary);
 	} catch (error) {
-		return `the strict sandbox couldn't empty its folder ${temporary}, which an earlier process may have left (${String(error)}), so no command runs`;
+		const refusal = `the strict sandbox couldn't empty its folder ${temporary}, which an earlier process may have left (${String(error)}), so no command runs: remove it by hand and try again`;
+		wontEmpty.set(temporary, refusal);
+		return refusal;
 	}
 	madeFresh.add(temporary);
 	return madeOurs(temporary, disk);
@@ -103,7 +132,7 @@ export function makeSandboxFolders(
  */
 function startsFresh(temporary: string, env: NodeJS.ProcessEnv): boolean {
 	return (
-		basename(temporary) === `pid-${process.pid}` &&
+		basename(temporary) === processFolderName() &&
 		(env.TMPDIR === undefined || temporary !== resolve(env.TMPDIR)) &&
 		!madeFresh.has(temporary)
 	);

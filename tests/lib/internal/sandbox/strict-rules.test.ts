@@ -14,8 +14,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	fileReach,
 	NIX_DOOR,
+	processFolderName,
 	strictRules,
 } from "../../../../lib/internal/sandbox/strict-rules.ts";
+
+/**
+ * Root lists a folder whatever its mode, so an unreadable folder can't
+ * stand in for Landlock's hiding there.
+ */
+const asRoot = process.getuid?.() === 0;
 
 /** The session these cases run in, and the temporary folder it is given. */
 const SESSION = { PI_SESSION_ID: "0a1b-session" };
@@ -106,6 +113,16 @@ describe("the strict profile", () => {
 			expect(within(join(every, "9z8y-inner"))).toBe(join(every, "9z8y-inner"));
 		});
 
+		it.skipIf(asRoot)(
+			"spells a kept one anew, so no trailing slash has the link check follow a link",
+			() => {
+				chmodSync(every, 0o300);
+				expect(within(`${every}/0a1b-session/`)).toBe(
+					join(every, "0a1b-session"),
+				);
+			},
+		);
+
 		it("takes its own in place of another session's, outside a sandbox", () => {
 			expect(
 				within(join(every, "0a1b-session")),
@@ -113,35 +130,42 @@ describe("the strict profile", () => {
 			).toBe(join(every, "9z8y-inner"));
 		});
 
-		it("keeps the one a strict command already runs in, which hides the rest", () => {
-			// Landlock refuses a strict command the folder every session's
-			// lies in, as an unreadable folder refuses a listing here.
-			chmodSync(every, 0o300);
-			expect(
-				within(join(every, "0a1b-session")),
-				"a strict pi's own command",
-			).toBe(join(every, "0a1b-session"));
-		});
-
-		it("keeps none but a session's own folder, sandboxed or not", () => {
-			for (const hidden of [false, true]) {
-				chmodSync(every, hidden ? 0o300 : 0o700);
-				const own = join(every, "9z8y-inner");
+		it.skipIf(asRoot)(
+			"keeps the one a strict command already runs in, which hides the rest",
+			() => {
+				// Landlock refuses a strict command the folder every session's
+				// lies in, as an unreadable folder refuses a listing here.
+				chmodSync(every, 0o300);
 				expect(
-					within("/run/user/1000/quest/tmp"),
-					"an unfenced session's",
-				).toBe(own);
-				expect(within(every), "the folder they share").toBe(own);
-				for (const [name, what] of [
-					["a/b", "a folder deeper in it"],
-					["..", "the sandbox's own folder"],
-					[".", "the folder they share"],
-					["a b", "a name no session takes"],
-				] as const) {
-					expect(within(join(every, name)), what).toBe(own);
+					within(join(every, "0a1b-session")),
+					"a strict pi's own command",
+				).toBe(join(every, "0a1b-session"));
+			},
+		);
+
+		it.skipIf(asRoot)(
+			"keeps none but a session's own folder, sandboxed or not",
+			() => {
+				for (const hidden of [false, true]) {
+					chmodSync(every, hidden ? 0o300 : 0o700);
+					const own = join(every, "9z8y-inner");
+					expect(
+						within("/run/user/1000/quest/tmp"),
+						"an unfenced session's",
+					).toBe(own);
+					expect(within(every), "the folder they share").toBe(own);
+					// Spelt as given, not joined, which would take the dots away.
+					for (const [name, what] of [
+						["a/b", "a folder deeper in it"],
+						["..", "the sandbox's own folder"],
+						[".", "the folder they share"],
+						["a b", "a name no session takes"],
+					] as const) {
+						expect(within(`${every}/${name}`), what).toBe(own);
+					}
 				}
-			}
-		});
+			},
+		);
 	});
 
 	it("names the folder for the process when the session's id isn't a folder's name", () => {
@@ -153,7 +177,7 @@ describe("the strict profile", () => {
 				cwd: "/home/someone/src/thing",
 			}).map(([, path]) => path);
 			expect(given, JSON.stringify(PI_SESSION_ID)).toContain(
-				`/home/someone/.cache/pi-sandbox/tmp/pid-${process.pid}`,
+				`/home/someone/.cache/pi-sandbox/tmp/${processFolderName()}`,
 			);
 		}
 	});

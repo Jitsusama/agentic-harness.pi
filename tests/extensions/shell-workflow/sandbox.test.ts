@@ -46,6 +46,7 @@ import {
 import { quoted } from "../../../lib/internal/sandbox/sandbox-shell.ts";
 import {
 	NIX_DOOR,
+	processFolderName,
 	sandboxFolders,
 } from "../../../lib/internal/sandbox/strict-rules.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
@@ -838,7 +839,7 @@ describe("a command in the sandbox", () => {
 		// pi names no session here, so the folder is the process's own.
 		const settings = join(
 			sandboxFolders(home, process.env).gcloud,
-			`pid-${process.pid}`,
+			processFolderName(),
 		);
 		// Left by an earlier run of the same session, which starts over.
 		mkdirSync(settings, { recursive: true });
@@ -877,7 +878,7 @@ describe("a command in the sandbox", () => {
 		mkdirSync(work, { recursive: true });
 		const settings = join(
 			sandboxFolders(home, process.env).gcloud,
-			`pid-${process.pid}`,
+			processFolderName(),
 		);
 		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
 		process.env.HOME = home;

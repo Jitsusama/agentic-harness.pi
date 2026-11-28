@@ -1,9 +1,9 @@
 import {
 	chmodSync,
 	existsSync,
-	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	readlinkSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -11,27 +11,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type FolderDisk,
 	makeSandboxFolders,
 } from "../../../../lib/internal/sandbox/sandbox-folders.ts";
-import { temporaryFolders } from "../../../../lib/internal/sandbox/strict-rules.ts";
+import {
+	processFolderName,
+	temporaryFolders,
+} from "../../../../lib/internal/sandbox/strict-rules.ts";
 
-/** Makes `folder` with `file` in it, both last changed at `when`. */
-function left(folder: string, file: string, when = Date.now()): string {
+/** Makes `folder` with `file` in it. */
+function left(folder: string, file: string): string {
 	mkdirSync(folder, { recursive: true });
 	const path = join(folder, file);
 	writeFileSync(path, "left behind");
-	ageTo(path, when);
-	ageTo(folder, when);
 	return path;
-}
-
-/** Sets `path`'s times to `when`, not following a link. */
-function ageTo(path: string, when: number): void {
-	const seconds = when / 1000;
-	lutimesSync(path, seconds, seconds);
 }
 
 const SESSION = { PI_SESSION_ID: "0a1b-session" };
@@ -128,8 +123,22 @@ describe("a temporary folder named for a process", () => {
 		rmSync(elsewhere, { recursive: true, force: true });
 	});
 
+	it("names it by the pid namespace too, where Linux has one, since fenced pids start again at 1", () => {
+		let namespace: string | undefined;
+		try {
+			namespace = /\d+/.exec(readlinkSync("/proc/self/ns/pid"))?.[0];
+		} catch {
+			// No /proc, as on a Mac: the pid alone.
+		}
+		expect(processFolderName()).toBe(
+			namespace === undefined
+				? `pid-${process.pid}`
+				: `pid-${namespace}-${process.pid}`,
+		);
+	});
+
 	it("empties the folder a process names by its pid the first time", () => {
-		const own = join(every, `pid-${process.pid}`);
+		const own = join(every, processFolderName());
 		const earlier = left(own, "planted");
 		expect(makeSandboxFolders(home, {})).toBeUndefined();
 		expect(existsSync(own), "the folder is made").toBe(true);
@@ -138,8 +147,20 @@ describe("a temporary folder named for a process", () => {
 
 	it("empties it once a process, keeping what its own commands wrote", () => {
 		makeSandboxFolders(home, {});
-		const written = left(join(every, `pid-${process.pid}`), "ours");
+		const written = left(join(every, processFolderName()), "ours");
 		makeSandboxFolders(home, {});
+		expect(existsSync(written)).toBe(true);
+	});
+
+	it("empties it once a process, not once a copy of the module, as each extension and reload loads", async () => {
+		makeSandboxFolders(home, {});
+		const written = left(join(every, processFolderName()), "ours");
+		vi.resetModules();
+		const copy = await import(
+			"../../../../lib/internal/sandbox/sandbox-folders.ts"
+		);
+		expect(copy.makeSandboxFolders).not.toBe(makeSandboxFolders);
+		expect(copy.makeSandboxFolders(home, {})).toBeUndefined();
 		expect(existsSync(written)).toBe(true);
 	});
 
@@ -151,26 +172,44 @@ describe("a temporary folder named for a process", () => {
 
 	it("refuses a link in its place, emptying nothing where it leads", () => {
 		const theirs = left(elsewhere, "theirs");
-		symlinkSync(elsewhere, join(every, `pid-${process.pid}`));
+		symlinkSync(elsewhere, join(every, processFolderName()));
 		expect(makeSandboxFolders(home, {})).toMatch(
 			/is a link or not a folder, so no command runs/,
 		);
 		expect(existsSync(theirs), "what the link leads to").toBe(true);
 	});
 
-	it("refuses when it can't be emptied", () => {
+	it("refuses when it can't be emptied, naming the remedy, and walks it again only once it is gone", () => {
+		let there = true;
+		let walks = 0;
 		const disk: FolderDisk = {
-			make: () => undefined,
-			look: () => ({ folder: true, uid: 1000, mode: 0o700 }),
+			make: () => {
+				there = true;
+			},
+			look: () =>
+				there ? { folder: true, uid: 1000, mode: 0o700 } : undefined,
 			narrow: () => undefined,
 			empty: () => {
+				walks += 1;
 				throw new Error("no trusted rm");
 			},
 			uid: 1000,
 		};
-		expect(makeSandboxFolders(join(home, "fresh"), {}, disk)).toMatch(
-			/couldn't empty its folder .*pid-\d+.*no trusted rm.*so no command runs/,
+		const stuck = join(home, "stuck");
+		const refusal = makeSandboxFolders(stuck, {}, disk);
+		expect(refusal).toMatch(
+			/couldn't empty its folder .*pid-[\d-]+.*no trusted rm.*so no command runs: remove it by hand and try again/,
 		);
+		expect(makeSandboxFolders(stuck, {}, disk), "the next command").toBe(
+			refusal,
+		);
+		expect(walks, "walked once").toBe(1);
+		there = false;
+		expect(
+			makeSandboxFolders(stuck, {}, disk),
+			"once removed by hand",
+		).toBeUndefined();
+		expect(walks, "made anew, not emptied").toBe(1);
 	});
 
 	it("checks the folder again once emptied, refusing a link put there meanwhile", () => {
@@ -178,7 +217,7 @@ describe("a temporary folder named for a process", () => {
 			home,
 			"swapped",
 			".cache/pi-sandbox/tmp",
-			`pid-${process.pid}`,
+			processFolderName(),
 		);
 		let emptied = false;
 		const disk: FolderDisk = {
@@ -195,12 +234,12 @@ describe("a temporary folder named for a process", () => {
 			uid: 1000,
 		};
 		expect(makeSandboxFolders(join(home, "swapped"), {}, disk)).toMatch(
-			/pid-\d+ is a link or not a folder, so no command runs/,
+			/pid-[\d-]+ is a link or not a folder, so no command runs/,
 		);
 	});
 
 	it("keeps the folder it was handed in TMPDIR, however the path ends", () => {
-		const own = join(every, `pid-${process.pid}`);
+		const own = join(every, processFolderName());
 		const handed = left(own, "in use");
 		for (const handedDown of [own, `${own}/`]) {
 			expect(makeSandboxFolders(home, { TMPDIR: handedDown })).toBeUndefined();
@@ -209,7 +248,7 @@ describe("a temporary folder named for a process", () => {
 	});
 
 	it("empties an earlier process's folder even where it made a folder read-only", () => {
-		const own = join(every, `pid-${process.pid}`);
+		const own = join(every, processFolderName());
 		const locked = join(own, "locked");
 		left(locked, "kept");
 		chmodSync(locked, 0o500);
