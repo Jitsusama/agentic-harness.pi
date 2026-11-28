@@ -217,7 +217,12 @@ describe("a machine's grants to the strict profile", () => {
 		["/var", "write", "/var", "is or holds /var"],
 		["/tmp", "write", "/tmp", "is or holds /tmp"],
 		["/dev/shm", "write", "/dev/shm", "is or holds /dev/shm"],
-		["/dev itself", "write", "/dev", "is or holds /dev/pts"],
+		[
+			"/dev itself, which holds /dev/pts the fence needs whole",
+			"write",
+			"/dev",
+			"is or holds /dev/pts",
+		],
 		["a path in /proc", "read", "/proc/1/environ", "lies in /proc"],
 		["a path in /sys", "write", "/sys/kernel", "lies in /sys"],
 		["a device to read", "read", "/dev/kvm", "is a device"],

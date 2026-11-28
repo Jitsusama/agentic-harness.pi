@@ -444,7 +444,6 @@ function entryRefusal(
 	if (written) {
 		return `lies in a runtime folder (${written}), whose doors the fence lets through read-only`;
 	}
-	if (entry === "/dev") return "is /dev, which the fence lays itself";
 	if (use === "read" && holds("/dev", entry)) {
 		return "is a device, which works only granted to write";
 	}
