@@ -140,6 +140,7 @@ import {
 	type GrantsReader,
 	grantPlace,
 	machineGrants,
+	NO_GRANTS,
 } from "./machine-grants.ts";
 import {
 	direnvTrusts,
@@ -1044,9 +1045,13 @@ export function wrapFor(
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
-				grants: (sandbox.grants ?? machineGrants)(
-					grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
-				),
+				// A language server runs for no one's ask, so the machine
+				// grants it nothing: its grants are for the person's commands.
+				grants: served
+					? NO_GRANTS
+					: (sandbox.grants ?? machineGrants)(
+							grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
+						),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();

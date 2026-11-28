@@ -87,6 +87,14 @@ describe("a strict command's grants", () => {
 		expect(text, "the read").toContain(`--ro '${granted.read[0]}'`);
 		expect(text, "the write").toContain(`--rwx '${granted.write[0]}'`);
 	});
+
+	it("are none for a served command, its reader never asked", () => {
+		const grants = reading(() => granted);
+		const text = wrapped(strict(grants, true));
+		expect(grants.asked, "never asked").toEqual([]);
+		expect(text, "no read granted").not.toContain(granted.read[0]);
+		expect(text, "no write granted").not.toContain(granted.write[0]);
+	});
 });
 
 describe("pi's file tools under the machine's grants", () => {
@@ -124,5 +132,14 @@ describe("pi's file tools under the machine's grants", () => {
 			),
 			"refused",
 		).toContain("didn't run");
+	});
+
+	it("take none for a served session, its reader never asked", () => {
+		const grants = reading(() => granted);
+		const read = join(granted.read[0] ?? "", "notes.md");
+		expect(asking("read", read, grants, true), "refused").toContain(
+			"didn't run",
+		);
+		expect(grants.asked, "never asked").toEqual([]);
 	});
 });

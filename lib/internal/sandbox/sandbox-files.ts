@@ -39,6 +39,7 @@ import {
 	type GrantsReader,
 	grantPlace,
 	machineGrants,
+	NO_GRANTS,
 } from "./machine-grants.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
@@ -489,9 +490,13 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
-			grants: (place.grants ?? machineGrants)(
-				grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
-			),
+			// A served session's commands take no machine grant, so neither
+			// do its file tools.
+			grants: place.served
+				? NO_GRANTS
+				: (place.grants ?? machineGrants)(
+						grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
+					),
 		},
 		use,
 	)

@@ -104,8 +104,8 @@ const DEFAULT_OVERFLOW = 65534;
 /** The mode bits that let a group or anyone else write. */
 const WRITABLE_BY_OTHERS = 0o022;
 
-/** No grant at all. */
-const NONE: MachineGrants = { read: [], write: [] };
+/** No grant at all: what a machine without a grants file, or a served session, gets. */
+export const NO_GRANTS: MachineGrants = { read: [], write: [] };
 
 /** What this process has already said of a grant it refused. */
 const said = new Set<string>();
@@ -222,7 +222,7 @@ export function machineGrants(
 	const file = disk.lstat(path);
 	const refused = (why: string): MachineGrants => {
 		disk.say(`the strict profile takes no grant from ${path}: ${why}`);
-		return NONE;
+		return NO_GRANTS;
 	};
 	const folder = disk.lstat(dirname(path));
 	if (file === undefined) {
@@ -232,7 +232,7 @@ export function machineGrants(
 			? refused(
 					"its folder can't be searched, so whether it grants anything can't be told",
 				)
-			: NONE;
+			: NO_GRANTS;
 	}
 	const root = disk.rootSeenAs();
 	const unsafe =

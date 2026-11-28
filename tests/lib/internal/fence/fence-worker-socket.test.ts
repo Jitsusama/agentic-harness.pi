@@ -425,7 +425,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 		).not.toContain(`MYCELIUM_WORKER_SOCKET='`);
 	});
 
-	it("is the one pi's file tools judge the machine's grants beside, and none in a language server's", () => {
+	it("is the one pi's file tools judge the machine's grants beside; a language server's tools read no grants at all", () => {
 		/** The worker socket the file tools' grants were read beside. */
 		const judgedBeside = (served: boolean) => {
 			const asked: GrantPlace[] = [];
@@ -446,9 +446,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			return asked.map((place) => place.workerSocket);
 		};
 		expect(judgedBeside(false), "the session's tools").toEqual([WORKER]);
-		expect(judgedBeside(true), "a language server's tools").toEqual([
-			undefined,
-		]);
+		expect(judgedBeside(true), "a language server's tools").toEqual([]);
 	});
 });
 
