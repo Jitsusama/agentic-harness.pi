@@ -4,8 +4,12 @@
  *
  * Only a change on one of the repositories a room keeps a checkout of
  * goes there, and only with its head commit known, since the room's
- * entry checks that commit out before its reviewer starts. Anything
- * else, and every round where no room is named, runs here as before.
+ * entry checks that commit out before its reviewer starts. A council
+ * goes at its change's head; a stack round at its tip's, and only when
+ * the tip's tree holds every member's head (`ask-stack.ts`), since that
+ * one commit is all a room's reviewer reads. Either goes only with a
+ * brief a room's start can carry. Anything else, and every round where
+ * no room is named, runs here as before.
  * Read once a round, like the round's clocks.
  */
 

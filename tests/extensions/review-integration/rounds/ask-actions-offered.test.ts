@@ -204,7 +204,11 @@ describe("review_ask", () => {
 		).toEqual(["askCritique", "askStack", "councilRound"]);
 
 		const wrong = rounds.flatMap(({ name, body }) => {
-			const claims = body.indexOf("await awaitRosterStart(");
+			// A stack round claims it through the helper that decides its
+			// room, which stack-round-takes-a-room.test.ts drives.
+			const direct = body.indexOf("await awaitRosterStart(");
+			const claims =
+				direct === -1 ? body.indexOf("await beginStackRound(") : direct;
 			if (claims === -1) return [`${name} starts without claiming a start`];
 			const sized = body.indexOf("tooLargeToAsk(");
 			if (sized === -1) return [`${name} has no size check to claim after`];

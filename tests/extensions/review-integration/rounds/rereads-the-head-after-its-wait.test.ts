@@ -7,7 +7,9 @@
  * everything past the material stubbed, so what is tried is only what
  * the round reads after its wait. The tree stub answers as the work
  * broker does: the same folder for a commit while it stands, dated by
- * each ask, and a new one once a sweep took it.
+ * each ask, and a new one once a sweep took it. A stack round bound for
+ * a room that is gone by its start waits again on this machine's bars,
+ * so it reads and builds once more after that second wait too.
  */
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -26,6 +28,14 @@ const state = vi.hoisted(() => ({
 	stack: [] as string[],
 	/** What happens while the round waits for its start. */
 	during: (): void => undefined,
+	/** What happens while it waits again, on this machine's bars. */
+	later: (): void => undefined,
+	/** How many times the round waited for a start. */
+	waits: 0,
+	/** The room the tip's reviewers would run on now, or nothing. */
+	room: undefined as { place: { machine: string } } | undefined,
+	/** The room each started round's reviewers were handed. */
+	roomsGiven: [] as unknown[],
 	/** Each commit a tree was asked for at, in order. */
 	asks: [] as string[],
 	/** Each commit a new tree folder was cut at, in order. */
@@ -84,7 +94,9 @@ vi.mock(
 			return new Map();
 		},
 		awaitRosterStart: async () => {
-			state.during();
+			state.waits += 1;
+			if (state.waits === 1) state.during();
+			else state.later();
 			return {
 				...(state.noWait ? {} : { waited: "It waited 3 hours for its start." }),
 				release: async () => {
@@ -177,7 +189,8 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("../../../../extensions/review-integration/tools/ask-room.ts")
 		>()),
-		briefFitsARoom: () => false,
+		briefFitsARoom: () => state.room !== undefined,
+		roomFor: async () => state.room,
 	}),
 );
 
@@ -198,8 +211,16 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("../../../../extensions/review-integration/tools/ask-reviewer.ts")
 		>()),
-		deps: (_change: unknown, path: string) => {
+		deps: (
+			_change: unknown,
+			path: string,
+			_watch: unknown,
+			_charters: unknown,
+			_round: unknown,
+			room: unknown,
+		) => {
 			state.startedIn.push(path);
+			state.roomsGiven.push(room);
 			return { ask: async () => undefined, warmed: async () => undefined };
 		},
 	}),
@@ -294,6 +315,10 @@ beforeEach(() => {
 	state.heads = new Map([[CHANGE, A]]);
 	state.stack = [];
 	state.during = () => undefined;
+	state.later = () => undefined;
+	state.waits = 0;
+	state.room = undefined;
+	state.roomsGiven = [];
 	state.asks = [];
 	state.cuts = [];
 	state.base = "base0000";
@@ -513,6 +538,42 @@ describe("a stack round that waited for its start", () => {
 		expect(state.cuts).toEqual([C]);
 		expect(state.startedIn).toEqual([state.trees[0]]);
 		expect(answer).not.toContain("While it waited,");
+	});
+
+	it("reads again after its room went and it waited on the bars, reading a member pushed then", async () => {
+		state.room = { place: { machine: "room-1" } };
+		state.during = () => {
+			state.room = undefined;
+		};
+		state.later = () => state.heads.set("o/r#2", B);
+
+		const answer = textOf(await stackRound());
+
+		expect(state.waits, "waited on the room, then on the bars").toBe(2);
+		expect(state.asks, "the tree asked for after each wait").toEqual([C, C, B]);
+		expect(state.cuts).toEqual([C, B]);
+		expect(state.stackSent, "the round records the head now").toEqual([[A, B]]);
+		expect(state.startedIn).toEqual([state.trees[1]]);
+		expect(state.roomsGiven, "its reviewers run here").toEqual([undefined]);
+		expect(answer).toContain(
+			"While it waited, a head moved, so it reads what is there now: o/r#2 from cccccccc to bbbbbbbb.",
+		);
+		expect(state.released, "only the room's start given back").toBe(1);
+	});
+
+	it("gives its second start back when the stack is refused after it waited on the bars", async () => {
+		state.room = { place: { machine: "room-1" } };
+		state.treeRefuses = B;
+		state.during = () => {
+			state.room = undefined;
+		};
+		state.later = () => state.heads.set("o/r#2", B);
+
+		const answer = textOf(await stackRound());
+
+		expect(answer).toContain(`No tree can be cut at ${B}.`);
+		expect(state.startedIn, "nothing started").toEqual([]);
+		expect(state.released, "the room's start and the bars' one").toBe(2);
 	});
 
 	it("cuts its tree again when its folder went while it waited, and starts", async () => {
