@@ -9,17 +9,23 @@
  * its own asks this first, and waits or says its piece without a turn.
  *
  * Plain pi reads its command line and process uptime, keeping the slot
- * across reloads. A host admits each conversation's initial words before
- * extension loading and measures from that admission, not host uptime.
- * A first prompt pi refused, or one an extension command took, never
- * becomes a run, so the wait is bounded in both modes.
+ * across reloads. A first prompt pi refused, or one an extension command
+ * took, never becomes a run, so its wait is bounded by that uptime.
+ *
+ * A host admits each conversation's initial words before extension
+ * loading, and they stay pending until a run starts or the host has
+ * handed them to pi, which bounds the wait without a clock. A window
+ * timed from admission closed while two host cases spent 63.5 s and
+ * 88.8 s loading their extensions (27 November), so quest-workflow's
+ * start said the host's first words too, and the model ran its first
+ * command twice.
  */
 
 import { parseArgs } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../core/session/index.ts";
 import { firstPromptSlot as slot } from "./first-prompt-slot.ts";
 
-export { noteFirstPrompt } from "./first-prompt-slot.ts";
+export { firstPromptHandedOn, noteFirstPrompt } from "./first-prompt-slot.ts";
 
 /**
  * How long after the process starts its first prompt may still be on
@@ -45,13 +51,7 @@ export function firstPromptPending(
 ): boolean {
 	const current = slot();
 	if (current.ran) return false;
-	if (hosted()) {
-		return (
-			current.hasInitialWords === true &&
-			current.beganAt !== undefined &&
-			Date.now() - current.beganAt < FIRST_PROMPT_MS
-		);
-	}
+	if (hosted()) return current.hasInitialWords === true;
 	return upMs < FIRST_PROMPT_MS && givesFirstPrompt(args);
 }
 

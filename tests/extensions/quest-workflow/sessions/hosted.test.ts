@@ -48,6 +48,10 @@ import {
 	localProcessDeps,
 	probeProcess,
 } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
+import {
+	FIRST_PROMPT_MS,
+	noteFirstPrompt,
+} from "../../../../lib/internal/session/first-prompt.ts";
 import { PARK_UNDONE, PARKING } from "../../../../lib/internal/session/park.ts";
 import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
@@ -199,6 +203,44 @@ it("takes only its own launch hints and literal first words", async () => {
 	expect(
 		withSession("b", () => sayFirstWords(pi, contexts("b"), "b", () => false)),
 	).toBeUndefined();
+});
+
+// On 27 November two host cases' opens spent 63.5 s and 88.8 s loading
+// their extensions, and the host's first words reached the model twice:
+// once from the host's own prompt and once from this start.
+it("leaves a host's first words to the host however long its open took", async () => {
+	const admitted = Date.now();
+	vi.useFakeTimers({ toFake: ["Date"], now: admitted });
+	try {
+		withSession("a", () => noteFirstPrompt("carry"));
+		hints.set("a", { firstWords: "carry" });
+		vi.setSystemTime(admitted + FIRST_PROMPT_MS + 30_000);
+		const pi = fakePi();
+		const state = createQuestState({ questsRoot: join(root, "quests") });
+		const budgets = { keep: async () => undefined, forget: () => undefined };
+		followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
+		const [start] = pi.recorded.handlers.get("session_start") ?? [];
+		const [discover] = pi.recorded.handlers.get("resources_discover") ?? [];
+		const ctx = {
+			...contexts("a"),
+			ui: new Proxy({}, { get: () => () => undefined }),
+			sessionManager: {
+				getSessionId: () => "a",
+				isPersisted: () => true,
+				getEntries: () => [],
+				getBranch: () => [],
+			},
+		};
+		await withSession("a", async () => {
+			await start?.({ type: "session_start", reason: "startup" }, ctx);
+			await discover?.({ type: "resources_discover" }, ctx);
+		});
+		// The start's send goes out on the turn after resources_discover.
+		await new Promise((settle) => setImmediate(settle));
+		expect(pi.recorded.sentAsUser, "the host sends them itself").toEqual([]);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it("accepts only its own host stamps and preserves signal endings through shutdown", () => {

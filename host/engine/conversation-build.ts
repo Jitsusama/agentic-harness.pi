@@ -14,7 +14,10 @@ import {
 	type SessionStamp,
 	withSession,
 } from "../../lib/core/session/index.ts";
-import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
+import {
+	firstPromptHandedOn,
+	noteFirstPrompt,
+} from "../../lib/internal/session/first-prompt-slot.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -577,6 +580,9 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			await Promise.race([words.held, taken, prompting.then(() => words.held)]);
 		} finally {
 			stopping.abort();
+			// pi has them, or failed them: what waited on them waits no longer,
+			// however long the open took.
+			firstPromptHandedOn();
 		}
 		prompting.catch((error: unknown) => failedAfterStart(record, error));
 	}
