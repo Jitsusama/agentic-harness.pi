@@ -15,6 +15,7 @@ import {
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
+	namespaceLook,
 	noOwner,
 	notKept,
 	rootOwners,
@@ -495,22 +496,26 @@ describe("root inside a user namespace", () => {
 			};
 			return { read, reads: () => reads };
 		};
+		// The real look answers both through namespaceLook, so the cause is
+		// asked of the same look that decided no owner is trusted, as the
+		// real one would be, the owners asked first and the map after.
 		const once = flaky();
-		const read = userNamespace(once.read, 0, "linux");
+		const look: Look = {
+			...disk(NIXOS),
+			...namespaceLook(once.read, 0, "linux"),
+		};
 
-		expect(read, "owners and the map, from one read").toEqual({
-			rootOwners: [],
-			readsMap: true,
-		});
+		expect(trustsNoOwner(look), "no owner trusted, as 0 mapped to 1000").toBe(
+			true,
+		);
+		expect(noOwner(look), "the cause, beside the owners it explains").toBe(
+			"namespace",
+		);
 		expect(once.reads(), "how often the map was read").toBe(1);
 		expect(
-			noOwner({
-				...disk(NIXOS),
-				rootOwners: () => read.rootOwners,
-				readsMap: () => read.readsMap,
-			}),
-			"the cause, beside the owners it explains",
-		).toBe("namespace");
+			userNamespace(flaky().read, 0, "linux"),
+			"owners and the map, from one read",
+		).toEqual({ rootOwners: [], readsMap: true });
 		expect(
 			userNamespace(
 				() => {
@@ -545,7 +550,12 @@ describe("root inside a user namespace", () => {
 
 	it("refuses by the folders where an owner is trusted, and by the namespace where none is", () => {
 		// `undefined` is a cause given, an owner trusted, never one the
-		// machine is asked for in its place.
+		// machine is asked for in its place. Leaving it out once let the
+		// machine's cause stand beside a finder that trusted otherwise, so it
+		// can't be left out: typecheck fails on the line below if it can,
+		// since the count of its parameters would then read 1 or 2.
+		const both = (count: Parameters<typeof notKept>["length"]): 2 => count;
+		expect(both(2), "a cause always given, the finder's own").toBe(2);
 		expect(
 			notKept(["landrun"], undefined),
 			"undefined, an owner trusted",
@@ -569,7 +579,10 @@ describe("root inside a user namespace", () => {
 			because:
 				"bwrap can't be trusted: no owner here can be told from pi's own, since " +
 				"/proc/self/uid_map can't be read to say which user namespace pi is in",
-			fix: "Run pi as an id other than 0, which works whether or not uid_map can be read.",
+			fix:
+				"Mount /proc and start pi again, which keeps pi working as root where its " +
+				"user namespace is the machine's own, or run pi as an id other than 0, which " +
+				"works either way.",
 		});
 	});
 });

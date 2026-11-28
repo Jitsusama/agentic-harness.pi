@@ -52,14 +52,25 @@ clean() {
 # and a newline goes, escape included, so none can move the cursor,
 # retitle the window or hide a line before it. The C1 controls go too, as
 # a terminal may take U+009B for an escape and a bracket, and so do the
-# bidi formatting characters, which can show a name's text reversed and
-# hide what it says. What's said is UTF-8, so those are matched as their
-# bytes, which no other character's encoding holds. Taking one out can
-# join the bytes either side of it into another, as \302 then \302\200
-# then \233 leaves \302\233, so each line is gone over until none is left.
+# bidi characters, the formatting ones and the implicit marks (U+200E,
+# U+200F and U+061C), which can show a name's text reversed and hide what
+# it says. What's said is UTF-8, so those are matched as their bytes,
+# which no other character's encoding holds. Taking one out can join the
+# bytes either side of it into another, as \302 then \302\200 then \233
+# leaves \302\233, so each line is gone over again while any is left. A
+# line nesting them deeper than eight passes take out is withheld whole,
+# so a long one costs eight passes over it, not one for each level.
 shown() {
   LC_ALL=C tr -d '\000-\010\013-\037\177' |
-    LC_ALL=C awk '{ while (gsub(/\302[\200-\237]|\342\200[\252-\256]|\342\201[\246-\251]/, "")) {} print }'
+    LC_ALL=C awk '{
+      for (passes = 0; passes < 8; passes++) {
+        if (!gsub(/\302[\200-\237]|\342\200[\216\217\252-\256]|\342\201[\246-\251]|\330\234/, "")) break
+      }
+      if (/\302[\200-\237]|\342\200[\216\217\252-\256]|\342\201[\246-\251]|\330\234/) {
+        $0 = "(a line nesting control or bidi characters too deep to show)"
+      }
+      print
+    }'
 }
 
 # Git on the gate's own store, which holds no replacement or graft, and
@@ -92,8 +103,12 @@ signing_in() {
 # repository, and would walk its grafts, replacements and commit-graph,
 # sending a head's forged parents' objects rather than its own; git clears
 # the variables that turn them off for it, so its command names them.
+# With a fifth word, `again`, it asks for everything under `id` as a fresh
+# clone would, rather than tell the server what the store has, since a
+# store that lost objects still names the commits above them. It's a word
+# rather than a variable so nothing in the gate's environment turns it on.
 fetched() {
-  local by=$1 from=$2 id=$3 ref=$4 own=()
+  local by=$1 from=$2 id=$3 ref=$4 again=${5:-} own=()
   # Only an absolute path is a repository here: a URL such as
   # git@github.com:o/r.git reads as a relative path too, and a folder a
   # session made under that name in the checkout would have the gate name
@@ -101,7 +116,8 @@ fetched() {
   if [[ $from == /* && -d $from ]]; then
     own=("--upload-pack=env GIT_GRAFT_FILE=/dev/null GIT_NO_REPLACE_OBJECTS=1 git -c core.commitGraph=false upload-pack")
   fi
-  "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${own[@]+"${own[@]}"} \
+  "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${again:+--refetch} \
+    ${own[@]+"${own[@]}"} \
     "$from" "+$id:$ref"
 }
 
@@ -115,10 +131,28 @@ holds() {
 # Whether the store is a repository git can read.
 made() { stored rev-parse --git-dir > /dev/null 2>&1; }
 
+# Whether every tree and file under commit `id` is in the store. A ref is
+# written only by a fetch that brought them all, but a store can lose
+# objects after, and one held without them is fetched again rather than
+# judged from what's left.
+whole() {
+  local id=$1 listed checked
+  listed=$(stored ls-tree -r --full-tree --format='%(objecttype) %(objectname)' "$id" 2> /dev/null) ||
+    return 1
+  checked=$(awk '$1 == "blob" { print $2 }' <<< "$listed" | stored cat-file --batch-check) ||
+    return 1
+  ! grep -q ' missing$' <<< "$checked"
+}
+
 # Whether the store is made once another gate's init, which this one's
-# lost the race to, has had time to finish: about two seconds.
+# lost the race to, has had time to finish: about two seconds. Only a
+# store folder that's there is waited for, since an init that lost a race
+# lost it to one that had made the folder, and an init that failed with
+# no folder made, as in a folder that can't be written, is refused at
+# once.
 made_by_another() {
   local _
+  [[ -d $gate_store ]] || return 1
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     made && return 0
     sleep 0.2
@@ -129,15 +163,28 @@ made_by_another() {
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
-  local gate=$1 sha=$2 url bare listed line checkout said
+  local gate=$1 sha=$2 url bare listed line checkout said= version
+  # whole() lists a tree by `ls-tree --format`, and a store that lost
+  # objects is mended by `fetch --refetch`, both from git 2.36; an older
+  # git would fail them as a fetch that couldn't bring main whole.
+  version=$(git --version)
+  if [[ ! $version =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] ||
+    ((10#${BASH_REMATCH[1]} < 2 || (10#${BASH_REMATCH[1]} == 2 && 10#${BASH_REMATCH[2]} < 36))); then
+    shown <<< "$gate: $version can't check that what it judges is whole, which needs git 2.36." >&2
+    echo "Merge from a machine with a newer git." >&2
+    exit 1
+  fi
   # The store is made only where it isn't yet, since git init rewrites its
   # config under config.lock, and two gates at once would refuse each
   # other. A store a first run left half-made is mended by making it
   # again, and an init that fails because another gate was making it at
   # the same moment is judged by whether the store is there once that
-  # gate's init has had time to finish.
+  # gate's init has had time to finish. What the init said is shown only
+  # when the store isn't there after, so a run that lost the race and
+  # passes prints no error.
   if ! (umask 077 && mkdir -p "$gate_home") ||
-    ! { made || clean git init -q --bare --template= "$gate_store" || made_by_another; }; then
+    ! { made || said=$(clean git init -q --bare --template= "$gate_store" 2>&1) || made_by_another; }; then
+    shown <<< "$said" >&2
     echo "$gate: can't keep the objects it judges in $gate_home, so none can be read as hashed." >&2
     echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does." >&2
     exit 1
@@ -168,15 +215,22 @@ gate_objects() {
   # A main an earlier gate fetched whole is held already, so origin is
   # asked only for its name. A fetch that fails because another gate is
   # writing the same ref at once still leaves it whole, so the ref, not
-  # the fetch, decides.
+  # the fetch, decides. Whatever is held is then checked for every tree
+  # and file, and fetched again whole when some are lost: a new main is
+  # fetched against the commits the store names, so a file an older main
+  # lost and the new one shares would never be sent otherwise.
   said=
   if ! holds "$main_id" "refs/gate/commits/$main_id"; then
     said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
   fi
-  if ! holds "$main_id" "refs/gate/commits/$main_id"; then
-    shown <<< "$said" >&2
-    echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
-    exit 1
+  if ! { holds "$main_id" "refs/gate/commits/$main_id" && whole "$main_id"; }; then
+    said+=$'\n'$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" again 2>&1) ||
+      true
+    if ! { holds "$main_id" "refs/gate/commits/$main_id" && whole "$main_id"; }; then
+      shown <<< "$said" >&2
+      echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
+      exit 1
+    fi
   fi
 
   # A full id is taken as it stands, and anything else is named in the

@@ -14,7 +14,6 @@ import {
 	FRESH_BELOW_MS,
 	type MintAsk,
 	mintEnvironment,
-	mintUntrusted,
 } from "../../../../lib/internal/sandbox/delta-token.ts";
 
 const HOUR = 60 * 60_000;
@@ -121,38 +120,28 @@ describe("Delta's tokens from mint", () => {
 		expect(asked).toEqual([false, true]);
 	});
 
-	it("aren't asked of mint where no owner can be trusted, and say why once while it stays so", () => {
-		const { ask, asked } = mint(expiring(24 * HOUR));
-		const told: string[] = [];
-		let now = 0;
-		const tokens = deltaTokens(
-			ask,
-			() => now,
-			() => "namespace",
-			(why) => told.push(why),
-		);
-		expect(tokens(), "the token handed on").toBeUndefined();
-		now = ASK_EVERY_MS;
-		expect(tokens(), "the token a quarter hour on").toBeUndefined();
-		expect(asked, "mint asked").toEqual([]);
-		expect(told, "what the operator was told").toEqual([
-			"Delta's token isn't handed to fenced commands, since mint can't be " +
-				"trusted: no owner here can be told from pi's own, as in a user " +
-				"namespace whose ids pi can give its files to. Run pi as an id other " +
-				"than 0 there.",
-		]);
-	});
-
-	it("say nothing where mint is just missing, which is no fault", () => {
-		const told: string[] = [];
-		const tokens = deltaTokens(
-			mint(new Error("no mint where only root puts it")).ask,
-			() => 0,
-			() => undefined,
-			(why) => told.push(why),
-		);
-		expect(tokens(), "the token handed on").toBeUndefined();
-		expect(told, "what the operator was told").toEqual([]);
+	it("aren't asked of mint where no owner can be trusted, for either cause, nor once it's gone", () => {
+		for (const why of ["namespace", "unread"] as const) {
+			const { ask, asked } = mint(expiring(24 * HOUR));
+			let now = 0;
+			let unowned: typeof why | undefined = why;
+			const tokens = deltaTokens(
+				ask,
+				() => now,
+				() => unowned,
+			);
+			expect(tokens(), `the token handed on, ${why}`).toBeUndefined();
+			now = ASK_EVERY_MS;
+			expect(tokens(), `a quarter hour on, ${why}`).toBeUndefined();
+			expect(asked, `mint asked, ${why}`).toEqual([]);
+			// Trusted again, mint is asked at the next quarter hour, not before.
+			unowned = undefined;
+			now = 2 * ASK_EVERY_MS - 1;
+			expect(tokens(), `before the quarter hour, ${why}`).toBeUndefined();
+			now = 2 * ASK_EVERY_MS;
+			expect(tokens(), `once trusted, ${why}`).toBeDefined();
+			expect(asked, `mint asked once trusted, ${why}`).toEqual([false]);
+		}
 	});
 
 	it("are none when mint answers with something other than a token", () => {
@@ -193,18 +182,6 @@ describe("what mint runs with", () => {
 			XDG_RUNTIME_DIR: "/run/user/1000",
 			PATH: "/etc/profiles/per-user/p/bin:/run/current-system/sw/bin",
 		});
-	});
-});
-
-describe("why mint isn't asked", () => {
-	it("says no owner can be trusted, from the one sentence every refusal of a program uses, and what helps", () => {
-		expect(mintUntrusted("unread"), "a map that can't be read").toBe(
-			"Delta's token isn't handed to fenced commands, since mint can't be " +
-				"trusted: no owner here can be told from pi's own, since " +
-				"/proc/self/uid_map can't be read to say which user namespace pi is " +
-				"in. Run pi as an id other than 0, which works whether or not uid_map " +
-				"can be read.",
-		);
 	});
 });
 
