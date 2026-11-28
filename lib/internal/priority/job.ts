@@ -234,8 +234,17 @@ export function isVm(job: Pick<Job, "kind">): boolean {
  * Whether a job takes the quick turn: a build marked quick whose shell
  * reads its own cap, which a shell an older harness started can't, or a
  * push of World marked quick, which it is when it leaves out its LFS
- * scan (see needs.ts's `PUSH_GIB`). A quick push still counts as a walk
- * while it runs, but waits for no other walk to end.
+ * scan (see needs.ts's `PUSH_GIB`). A quick push waits for no other walk
+ * to end, and while it runs it holds no walk's place: it maps no packs,
+ * and walks are held to a count only because walks side by side evict
+ * each other's (needs.ts's `WALKS_AT_ONCE`). On 28 November, with the
+ * minute's full stall at 5 to 7 and so one walk at a time, quick pushes
+ * held that place from 05:45Z to 06:31Z, each running 5 to 34 minutes
+ * as it waited on World's push gate yet peaking at 0 to 6 MB, and a
+ * fetch of two branches waited 3,704 s, the last 46 minutes behind them
+ * alone, to run 4 s. A push that does add an LFS file runs its scan
+ * under this light booking, and now beside a walk too; none of about 30
+ * that night did.
  */
 export function isQuick(job: Job): boolean {
 	if (job.quick !== true || job.cappable !== true) return false;

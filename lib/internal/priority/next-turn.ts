@@ -351,9 +351,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * swap-out in the last minute, read from one history the machine's
  * sessions share. 24: walks of World's objects wait among themselves by
  * the class their caller gave World's push gate (push-class.ts), 0
- * first.
+ * first. 25: a quick push running holds no walk's place (job.ts's
+ * `isQuick`), so another walk starts beside it.
  */
-export const RULES_VERSION = 24;
+export const RULES_VERSION = 25;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -542,7 +543,8 @@ export function waitReasons(
 
 /**
  * Whether a walk of World's objects must wait for another to end: the
- * walks allowed at once are running, or it fetches main while a fetch
+ * walks allowed at once are running, a quick push counting as none
+ * (job.ts's `isQuick`), or it fetches main while a fetch
  * of main runs, which will answer it as it ends (fetched.ts). On the
  * evening of 5 November four fetches of main waited up to 75 minutes
  * behind one already running, each to fetch the same commits again
@@ -573,6 +575,7 @@ export const WALK_SETTLES_MS = 60_000;
 
 /** The walks of World's objects running, and whether one is settling. */
 interface Walks {
+	/** Those that map packs: every one but a quick push. */
 	readonly running: number;
 	/** One started within {@link WALK_SETTLES_MS}. */
 	readonly settling: boolean;
@@ -678,8 +681,11 @@ function standing(
 		builds,
 		quick,
 		walks: {
-			running: running.filter((job) => job.kind === "world-walk").length,
-			// A quick push maps no packs, so it has no pressure to settle.
+			// A quick push maps no packs, so it holds no walk's place and has
+			// no pressure to settle (job.ts's `isQuick`).
+			running: running.filter(
+				(job) => job.kind === "world-walk" && !isQuick(job),
+			).length,
 			settling: running.some(
 				(job) =>
 					job.kind === "world-walk" &&
