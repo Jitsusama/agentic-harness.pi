@@ -529,6 +529,13 @@ export async function retryOne(
 		asked.role === "judge" ? NARROWER_WEIGHING : NARROWER_COUNCIL,
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	// A reviewer goes to the room a round would take now, since one no
+	// room took is retried for it, and one sent here would be load past
+	// the bars its round skipped. A judge runs here, as a weighing does.
+	const room =
+		asked.role !== "judge" && briefFitsARoom(prompt)
+			? await roomFor(change, proposal.headCommit, () => roomHarness(tree.path))
+			: undefined;
 	const watch = watchFor(asked.role === "judge" ? "judge" : "council");
 	const { run: fresh, warnings } =
 		asked.role === "judge"
@@ -550,7 +557,7 @@ export async function retryOne(
 						...read,
 						...given,
 					},
-					substituting(deps(change, tree.path, watch, charters, held.id)),
+					substituting(deps(change, tree.path, watch, charters, held.id, room)),
 				);
 
 	const outcome = fresh.outcomes[0];
