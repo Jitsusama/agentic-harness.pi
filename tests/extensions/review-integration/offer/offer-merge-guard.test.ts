@@ -323,6 +323,31 @@ describe("merging behind a head guard", () => {
 		).toEqual([{ expectedHead: AT }]);
 	});
 
+	it("hands its repo's gate the method the merge asked for", async () => {
+		// merge-net merged every rider with a merge commit, whatever was
+		// asked, because no gate was told the method.
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		gateIs(`test "\${REVIEW_MERGE_METHOD-unset}" = squash && test ${AT} =`);
+		const { checkout, root } = checkoutWithOrigin();
+
+		try {
+			await offer({
+				action: "merge",
+				change: "438",
+				method: "squash",
+				repo: checkout,
+			});
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			merges,
+			"the gate read squash and let the head through",
+		).toHaveLength(1);
+	});
+
 	it("refuses a merge when a push landed while the gate ran", async () => {
 		// Not every backend keeps expectedHead, so the head is read again
 		// once the gate passes rather than left to the backend.
