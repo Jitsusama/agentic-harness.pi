@@ -161,11 +161,19 @@ export async function keepAnswer(
 	participantId: string,
 	text: string,
 ): Promise<string> {
-	const dir = join(root, safeSegment(runId));
+	const dir = roundAnswers(root, runId);
 	await mkdir(dir, { recursive: true });
 	const at = join(dir, `${safeSegment(participantId)}.txt`);
 	await writeFile(at, text, "utf8");
 	return at;
+}
+
+/**
+ * Where the answers kept of round `runId` live under `root`, a folder
+ * a round, on this machine or as another machine's are mirrored.
+ */
+export function roundAnswers(root: string, runId: string): string {
+	return join(root, safeSegment(runId));
 }
 
 /**

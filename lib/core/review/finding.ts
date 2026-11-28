@@ -14,8 +14,10 @@
  * posted at a line that has since moved.
  */
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { withFileLock } from "../internal/file-lock.ts";
 import type { Anchor } from "./anchor.ts";
 import type { ChangeRef } from "./change.ts";
 import { changeKey } from "./keys.ts";
@@ -77,6 +79,18 @@ export interface Finding {
 	 * is worth keeping rather than collapsing.
 	 */
 	raisedBy?: string[];
+	/**
+	 * The machine whose round raised it, when it was adopted from that
+	 * machine's mirror; absent for a finding raised here.
+	 */
+	node?: string;
+}
+
+/** A round another machine ran, as its findings are adopted here. */
+export interface AdoptedRound {
+	/** The machine it ran on, as its mirror is named. */
+	readonly node: string;
+	readonly runId: string;
 }
 
 /** Findings held per change, outliving whatever produced them. */
@@ -90,6 +104,17 @@ export interface FindingStore {
 	list(change: ChangeRef): Promise<Finding[]>;
 	/** Forget a change's findings, without rewinding its numbering. */
 	clear(change: ChangeRef): Promise<void>;
+	/**
+	 * Add the findings another machine's round raised, numbered after
+	 * those held and marked with its node, once: a round already adopted
+	 * from that node adds nothing, even after a clear. Answers what it
+	 * added.
+	 */
+	adopt(
+		change: ChangeRef,
+		round: AdoptedRound,
+		findings: readonly Omit<Finding, "id" | "node">[],
+	): Promise<Finding[]>;
 }
 
 /** What one change's file holds. */
@@ -102,6 +127,12 @@ interface Ledger {
 	 * same name in one conversation.
 	 */
 	issued: number;
+	/**
+	 * The rounds adopted from other machines, kept apart from the
+	 * findings for the same reason as `issued`: a cleared change that
+	 * adopted them again would bring back what was put away.
+	 */
+	adopted?: AdoptedRound[];
 }
 
 /** The findings one round raised: a run's, or those written by hand. */
@@ -154,6 +185,7 @@ export function createFindingStore(root: string): FindingStore {
 				return {
 					findings: ledger.findings,
 					issued: ledger.issued ?? ledger.findings.length,
+					...(Array.isArray(ledger.adopted) ? { adopted: ledger.adopted } : {}),
 				};
 			}
 		} catch {
@@ -164,27 +196,66 @@ export function createFindingStore(root: string): FindingStore {
 		return { findings: [], issued: 0 };
 	}
 
+	/**
+	 * Lays the ledger down whole, through a file of its own renamed over
+	 * the change's, so a reader never meets half of it: read as nothing,
+	 * a half-written ledger would have the next write drop every finding.
+	 */
 	async function write(change: ChangeRef, ledger: Ledger): Promise<void> {
+		const path = join(root, fileFor(change));
+		const laying = `${path}.${process.pid}.${randomUUID()}.tmp`;
+		await writeFile(laying, JSON.stringify(ledger, null, 2), "utf8");
+		await rename(laying, path);
+	}
+
+	/**
+	 * Runs one read-modify-write of a change's ledger alone. A council
+	 * recording its round and a session adopting a node's round, or two
+	 * sessions adopting one, each read the ledger first, and the later
+	 * write would lay its copy over the other's findings.
+	 */
+	async function alone<T>(change: ChangeRef, work: () => Promise<T>) {
 		await mkdir(root, { recursive: true });
-		await writeFile(
-			join(root, fileFor(change)),
-			JSON.stringify(ledger, null, 2),
-			"utf8",
-		);
+		return await withFileLock(join(root, fileFor(change)), work);
 	}
 
 	return {
 		async record(change, raised) {
-			const ledger = await read(change);
-			const added = raised.map((finding, index) => ({
-				...finding,
-				id: ledger.issued + index + 1,
-			}));
-			await write(change, {
-				findings: [...ledger.findings, ...added],
-				issued: ledger.issued + added.length,
+			return await alone(change, async () => {
+				const ledger = await read(change);
+				const added = raised.map((finding, index) => ({
+					...finding,
+					id: ledger.issued + index + 1,
+				}));
+				await write(change, {
+					...ledger,
+					findings: [...ledger.findings, ...added],
+					issued: ledger.issued + added.length,
+				});
+				return added;
 			});
-			return added;
+		},
+
+		async adopt(change, round, raised) {
+			return await alone(change, async () => {
+				const ledger = await read(change);
+				const adopted = ledger.adopted ?? [];
+				const already = adopted.some(
+					(held) => held.node === round.node && held.runId === round.runId,
+				);
+				if (already) return [];
+				const added = raised.map((finding, index) => ({
+					...finding,
+					node: round.node,
+					id: ledger.issued + index + 1,
+				}));
+				await write(change, {
+					findings: [...ledger.findings, ...added],
+					issued: ledger.issued + added.length,
+					adopted: [...adopted, { node: round.node, runId: round.runId }],
+				});
+				return added;
+			});
 		},
 
 		async list(change) {
@@ -192,14 +263,25 @@ export function createFindingStore(root: string): FindingStore {
 		},
 
 		async clear(change) {
-			const ledger = await read(change);
-			if (ledger.issued === 0) {
-				await rm(join(root, fileFor(change)), { force: true });
-				return;
-			}
-			await write(change, { findings: [], issued: ledger.issued });
+			await alone(change, async () => {
+				const ledger = await read(change);
+				if (ledger.issued === 0 && (ledger.adopted ?? []).length === 0) {
+					await rm(join(root, fileFor(change)), { force: true });
+					return;
+				}
+				await write(change, { ...ledger, findings: [] });
+			});
 		},
 	};
+}
+
+/**
+ * Whether `file`, named as this store names a change's findings, holds
+ * a change in the repo keyed `repo`: another machine's findings are
+ * mirrored as its files are, so its change is read from the name.
+ */
+export function namesRepo(file: string, repo: string): boolean {
+	return file.includes(`_${safeCharacters(repo)}_`);
 }
 
 /**
@@ -210,8 +292,15 @@ export function createFindingStore(root: string): FindingStore {
  * two systems can spell one label the same way.
  */
 function fileFor(change: ChangeRef): string {
-	const safe = changeKey(change)
-		.replace(/[^A-Za-z0-9._-]/g, "_")
-		.replace(/^\.+/, "_");
-	return `${safe}.json`;
+	return `${slugged(changeKey(change))}.json`;
+}
+
+/** `key` as one safe file name, never one that walks. */
+function slugged(key: string): string {
+	return safeCharacters(key).replace(/^\.+/, "_");
+}
+
+/** `text` with each character a file name can't safely hold as `_`. */
+function safeCharacters(text: string): string {
+	return text.replace(/[^A-Za-z0-9._-]/g, "_");
 }

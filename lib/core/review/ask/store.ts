@@ -87,6 +87,13 @@ export interface RunStore {
 		repo: string,
 		commits: ReadonlySet<string>,
 	): Promise<AskRun | undefined>;
+	/**
+	 * Every round `witnessed` would choose among, oldest first: each
+	 * finished, pinned council or stack round in `repo` whose reviewers
+	 * read one of `commits`. For adopting another machine's findings on
+	 * exactly the rounds that let its change through.
+	 */
+	witnessing(repo: string, commits: ReadonlySet<string>): Promise<AskRun[]>;
 }
 
 /** A round still open, with what the ledger says of it. */
@@ -215,6 +222,44 @@ export function createRunStore(root: string): RunStore {
 		});
 	}
 
+	/** Every round in `repo` that read one of `commits`, oldest first. */
+	async function witnessingIn(
+		repo: string,
+		commits: ReadonlySet<string>,
+	): Promise<AskRun[]> {
+		let files: string[];
+		try {
+			files = await readdir(root);
+		} catch {
+			// No ledger, or none that can be read: no council is known.
+			return [];
+		}
+		// Asked at every proposal, over every change ever reviewed here,
+		// so each file is parsed again only once it has changed. What is
+		// kept of one is its repo and the rounds that read something.
+		const kept = fileReads<Witnessing | undefined>("review-witnesses", root);
+		const listed = new Set<string>();
+		const read: AskRun[] = [];
+		for (const file of files) {
+			if (!file.endsWith(".json")) continue;
+			const path = join(root, file);
+			listed.add(path);
+			const seen = await kept.stamp(path);
+			let held = kept.held(path, seen)?.said;
+			if (held === undefined) {
+				held = await witnessingOf(path);
+				kept.keep(path, seen, held);
+			}
+			if (held === undefined || held.repo !== repo) continue;
+			read.push(...held.rounds.filter((run) => readOneOf(run, commits)));
+		}
+		kept.keepOnly(listed);
+		// Stable, so rounds started in one millisecond keep the order read.
+		return read.sort((a, b) =>
+			a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0,
+		);
+	}
+
 	return {
 		async record(change, run) {
 			await mutate(change, (ledger) => ({ runs: [...ledger.runs, run] }));
@@ -338,40 +383,17 @@ export function createRunStore(root: string): RunStore {
 		},
 
 		async witnessed(repo, commits) {
-			let files: string[];
-			try {
-				files = await readdir(root);
-			} catch {
-				// No ledger, or none that can be read: no council is known.
-				return undefined;
-			}
-			// Asked at every proposal, over every change ever reviewed here,
-			// so each file is parsed again only once it has changed. What is
-			// kept of one is its repo and the rounds that read something.
-			const kept = fileReads<Witnessing | undefined>("review-witnesses", root);
-			const listed = new Set<string>();
+			// The first of the newest, as a tie on the clock always chose.
 			let newest: AskRun | undefined;
-			for (const file of files) {
-				if (!file.endsWith(".json")) continue;
-				const path = join(root, file);
-				listed.add(path);
-				const seen = await kept.stamp(path);
-				let held = kept.held(path, seen)?.said;
-				if (held === undefined) {
-					held = await witnessingIn(path);
-					kept.keep(path, seen, held);
-				}
-				if (held === undefined || held.repo !== repo) continue;
-				for (const run of held.rounds) {
-					if (!readOneOf(run, commits)) continue;
-					if (newest === undefined || run.startedAt > newest.startedAt) {
-						newest = run;
-					}
+			for (const run of await witnessingIn(repo, commits)) {
+				if (newest === undefined || run.startedAt > newest.startedAt) {
+					newest = run;
 				}
 			}
-			kept.keepOnly(listed);
 			return newest;
 		},
+
+		witnessing: witnessingIn,
 
 		async latest(change, round) {
 			// Finished rounds only. A round is now on the ledger from the
@@ -448,7 +470,7 @@ interface Witnessing {
 }
 
 /** What a ledger file says was read, or nothing when it isn't a ledger. */
-async function witnessingIn(path: string): Promise<Witnessing | undefined> {
+async function witnessingOf(path: string): Promise<Witnessing | undefined> {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(await readFile(path, "utf8"));

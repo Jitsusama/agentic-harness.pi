@@ -44,14 +44,16 @@ import {
 	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/core/review/index.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { adoptionLines, adoptMirroredFindings } from "../adopt-mirrored.ts";
 import {
 	CHECKS_POLL_MS,
 	type ChecksReading,
 	unsettled,
 	watchChecks,
 } from "../checks-job.ts";
-import { REVIEW_COMMANDS } from "../commands.ts";
+import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";
 import {
 	checksLines,
@@ -456,12 +458,23 @@ async function seeFindings(
 			`A ${bound.target.kind} in ${bound.repo.key} is not something findings are held against, since there is no change to hold them on.`,
 		);
 	}
+	// Another machine's rounds that count for a hosted change are adopted
+	// first, so its findings are listed, decided and fixed as ours are.
+	const hosted = hostedChange(bound);
+	const adopted = hosted
+		? adoptionLines(
+				await adoptMirroredFindings(reviewExec, bound, hosted, sessionCwd(ctx)),
+			)
+		: [];
 	const findings = await createFindingStore(findingDir()).list(change);
 	if (findings.length === 0) {
-		return say(`${GLYPH.finding} nothing raised on ${change.label} yet.`, {
-			ok: true,
-			count: 0,
-		});
+		return say(
+			[
+				`${GLYPH.finding} nothing raised on ${change.label} yet.`,
+				...adopted,
+			].join("\n"),
+			{ ok: true, count: 0 },
+		);
 	}
 	// What is already queued to fix, so a reader can tell settled from
 	// undecided. Without it the list looks the same before and after
@@ -487,7 +500,7 @@ async function seeFindings(
 	// the listing cuts the oldest rounds, never the one just run.
 	const rounds = byRoundNewestFirst(findings);
 	const newestFirst = rounds.flatMap((round) => round.findings);
-	const view = rounds
+	const listed = rounds
 		.map((round, at) =>
 			[
 				roundLine(round, at === 0),
@@ -497,6 +510,8 @@ async function seeFindings(
 			].join("\n"),
 		)
 		.join("\n\n");
+	const view =
+		adopted.length > 0 ? `${adopted.join("\n")}\n\n${listed}` : listed;
 	return say(
 		citeListing(openSessionStore(ctx), {
 			view,
@@ -520,7 +535,8 @@ function roundLine(round: FindingRound, newest: boolean): string {
 		ids.length === 1
 			? `F${ids[0]}`
 			: `F${Math.min(...ids)} to F${Math.max(...ids)}`;
-	const name = round.runId ?? "written by hand";
+	const node = round.findings[0]?.node;
+	const name = `${round.runId ?? "written by hand"}${node ? ` from ${node}` : ""}`;
 	return `${newest ? "Newest round" : "Earlier round"}: ${name}, ${count(ids.length, "finding", "findings")} (${span})`;
 }
 
@@ -548,7 +564,7 @@ function findingLine(
 	const from =
 		finding.origin.kind === "hand"
 			? "by hand"
-			: `${finding.origin.kind} ${finding.origin.reviewerId}`;
+			: `${finding.origin.kind} ${finding.origin.reviewerId}${finding.node ? ` on ${finding.node}` : ""}`;
 	const severity = finding.severity ? ` · ${finding.severity}` : "";
 	const fixing =
 		queued === undefined

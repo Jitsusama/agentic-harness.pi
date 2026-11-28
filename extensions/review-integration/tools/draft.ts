@@ -165,7 +165,7 @@ export async function runDraft(
 			}
 
 			if (params.action === "decide") {
-				return decideFinding(bound, draft, params);
+				return decideFinding(bound, draft, params, sessionCwd(ctx));
 			}
 
 			if (

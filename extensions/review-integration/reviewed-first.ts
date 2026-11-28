@@ -146,7 +146,7 @@ interface Ledgers {
  * The mirrors under runs-from that could be read, and, as sentences,
  * why the rest, or the folder itself, couldn't be.
  */
-interface Mirrors {
+export interface Mirrors {
 	readonly ledgers: readonly string[];
 	readonly trouble: readonly string[];
 }
@@ -198,7 +198,7 @@ function realmLedgers(): Ledgers {
  * Each machine's mirrored ledger, a folder or a link to one a node, in
  * name order. A stray file beside them is left out.
  */
-async function mirroredLedgers(): Promise<Mirrors> {
+export async function mirroredLedgers(): Promise<Mirrors> {
 	const root = mirroredRunsDir();
 	let nodes: Awaited<ReturnType<typeof readNodes>>;
 	try {
@@ -358,9 +358,7 @@ export async function councilFirst(
 ): Promise<string | undefined> {
 	const { witnessed, said } = ledgersNow();
 	const read = await commitsOf(exec, change);
-	const commits = new Set("commits" in read ? read.commits : []);
-	if (change.headCommit) commits.add(change.headCommit);
-	if (await witnessed(change.repo, commits)) return undefined;
+	if (await witnessed(change.repo, countedOf(read, change))) return undefined;
 	const range = `${change.base}..${change.head}`;
 	if ("unread" in read) {
 		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.${await said()}`;
@@ -375,6 +373,26 @@ export async function councilFirst(
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.${await said()}`;
 	}
 	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the commit it read is among the last ${EARLIER_HEADS} heads this checkout's reflogs recall, or under one of them, the branch's reflog here reaches back to its making, that commit is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
+}
+
+/**
+ * The commits a council must have read one of for `change` to go up:
+ * its own, and its head when the backend says. Another machine's
+ * findings are adopted on the rounds that read these, so a change's
+ * findings come from the councils that let it through.
+ */
+export async function countedCommits(
+	exec: Exec,
+	change: ChangeCommits,
+): Promise<ReadonlySet<string>> {
+	return countedOf(await commitsOf(exec, change), change);
+}
+
+/** The commits counted for `change`, from its commits as read. */
+function countedOf(read: Read, change: ChangeCommits): Set<string> {
+	const commits = new Set("commits" in read ? read.commits : []);
+	if (change.headCommit) commits.add(change.headCommit);
+	return commits;
 }
 
 /** The change's commits, newest first. */

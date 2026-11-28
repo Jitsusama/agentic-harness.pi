@@ -14,9 +14,17 @@ import {
 	createFixQueue,
 	type ReviewDraft,
 } from "../../../lib/core/review/index.ts";
+import { adoptionLines, adoptMirroredFindings } from "../adopt-mirrored.ts";
+import { reviewExec } from "../commands.ts";
 import { decisionDir, findingDir, fixDir } from "../engine.ts";
 import { anchorLabel, GLYPH } from "../render.ts";
-import { type Answer, refuse, reviewedChange, say } from "./shared.ts";
+import {
+	type Answer,
+	hostedChange,
+	refuse,
+	reviewedChange,
+	say,
+} from "./shared.ts";
 
 /**
  * Settle one produced finding into the review, or drop it.
@@ -29,6 +37,10 @@ import { type Answer, refuse, reviewedChange, say } from "./shared.ts";
  * Promoting takes the finding's own words unless you supply
  * better ones, because the common case is agreeing with a finding
  * and the uncommon case is agreeing with a qualification.
+ *
+ * Another machine's rounds that count for a hosted change are adopted
+ * first, read from `checkout` as the gate reads them, so a finding
+ * listed from a mirror can be decided before the listing was read here.
  */
 export async function decideFinding(
 	bound: BoundTarget | undefined,
@@ -38,6 +50,7 @@ export async function decideFinding(
 		settle?: "promote" | "dismiss" | "fix";
 		body?: string;
 	},
+	checkout: string,
 ): Promise<Answer> {
 	if (params.finding === undefined || params.settle === undefined) {
 		return refuse(
@@ -55,15 +68,21 @@ export async function decideFinding(
 			`A ${bound.target.kind} in ${bound.repo.key} holds no findings, since there is no change to hold them on.`,
 		);
 	}
+	const hosted = hostedChange(bound);
+	const adopted = hosted
+		? adoptionLines(
+				await adoptMirroredFindings(reviewExec, bound, hosted, checkout),
+			)
+		: [];
 	const store = createFindingStore(findingDir());
 	const findings = await store.list(change);
 	const finding = findings.find((held) => held.id === params.finding);
 	if (!finding) {
-		return refuse(
+		const why =
 			findings.length === 0
 				? `Nothing has been raised on ${change.label}, so there is no F${params.finding} to decide.`
-				: `There is no F${params.finding} on ${change.label}. Read review_see findings; the listing numbers them.`,
-		);
+				: `There is no F${params.finding} on ${change.label}. Read review_see findings; the listing numbers them.`;
+		return refuse([why, ...adopted].join(" "));
 	}
 
 	if (params.settle === "dismiss") {
