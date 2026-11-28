@@ -30,10 +30,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import type { CutOff } from "../../lib/internal/session/cut-off-record.ts";
-import {
-	isPersonsOwnText,
-	userTextOf,
-} from "../../lib/internal/session/driven.ts";
+import { isPersonsOwnText } from "../../lib/internal/session/driven.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
@@ -450,15 +447,24 @@ function showWaiting(line: TypedLine, ctx: ExtensionContext): void {
 }
 
 /**
- * Let go the typed line pi read as `text`, or every line once the run
- * ends (`text` undefined), giving pi back its working line when none
- * waits any more.
+ * Let go the typed line pi read in a user message of `content`, or
+ * every line once the run ends (no `content`), giving pi back its
+ * working line when none waits any more.
  */
-function lineRead(line: TypedLine, ctx: ExtensionContext, text?: string): void {
+function lineRead(
+	line: TypedLine,
+	ctx: ExtensionContext,
+	content?: unknown,
+): void {
 	if (!line.waiting()) return;
-	if (text === undefined) line.settled();
-	else line.read(text);
+	if (content === undefined) line.settled();
+	else line.read(content, ctx.hasPendingMessages());
 	showWaiting(line, ctx);
+}
+
+/** Tell a waiting line whether pi holds messages queued to be read. */
+function lineHeld(line: TypedLine, ctx: ExtensionContext): void {
+	if (line.waiting()) line.held(ctx.hasPendingMessages());
 }
 
 /** Why a session started, when it may be one the machine cut off. */
@@ -624,6 +630,7 @@ export default function jobWorkflow(
 
 	pi.on("tool_execution_end", (event, ctx) => {
 		line.ended(event.toolCallId);
+		lineHeld(line, ctx);
 		if (line.waiting()) showWaiting(line, ctx);
 	});
 
@@ -663,13 +670,14 @@ export default function jobWorkflow(
 	});
 
 	pi.on("message_start", (event, ctx) => {
-		// Only the line's own words let it go: the run's prompt, or a steer
-		// from elsewhere, may be read before it.
-		const text = userTextOf({ type: "message", message: event.message });
-		if (text !== undefined) lineRead(line, ctx, text);
+		// Only a read of the line itself lets it go: the run's prompt, or a
+		// steer from elsewhere, may be read before it (typed-line.ts).
+		if (event.message.role === "user")
+			lineRead(line, ctx, event.message.content);
 	});
 
-	pi.on("message_end", (event) => {
+	pi.on("message_end", (event, ctx) => {
+		lineHeld(line, ctx);
 		const text = textOf(event.message);
 		if (text === undefined) return;
 		shown.add(text);
