@@ -164,12 +164,50 @@ export function machineGrants(
 	if (typeof given !== "object" || given === null || Array.isArray(given)) {
 		return refused('it isn\'t {"read": [...], "write": [...]}');
 	}
+	const unknown = Object.keys(given).filter((key) => !KEYS.includes(key));
+	if (unknown.length > 0) {
+		return refused(
+			`it names ${unknown.join(", ")}, which is neither read nor write`,
+		);
+	}
 	const read = pathsIn(Reflect.get(given, "read"));
 	const write = pathsIn(Reflect.get(given, "write"));
 	if (read === undefined || write === undefined) {
 		return refused("read and write must each be a list of absolute paths");
 	}
+	const wide = [...read, ...write].filter(tooWide);
+	if (wide.length > 0) {
+		return refused(
+			`${wide.join(", ")} would hold a whole home, runtime folder, /etc or /nix`,
+		);
+	}
 	return { read, write };
+}
+
+/** The keys a grant may have. */
+const KEYS: readonly string[] = ["read", "write"];
+
+/**
+ * Folders no grant may name or hold, by their parts, `*` standing for any
+ * one: bound whole, a home or a runtime folder would bring past the fence
+ * everything it hides there, and `/etc` or `/nix` the system itself.
+ */
+const WIDEST: readonly (readonly string[])[] = [
+	["etc"],
+	["nix"],
+	["root"],
+	["home", "*"],
+	["run", "user", "*"],
+];
+
+/** Whether `path` is, or holds, one of the folders no grant may name. */
+function tooWide(path: string): boolean {
+	const parts = path.split("/").slice(1);
+	return WIDEST.some(
+		(widest) =>
+			parts.length <= widest.length &&
+			parts.every((part, at) => widest[at] === "*" || widest[at] === part),
+	);
 }
 
 /**

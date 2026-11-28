@@ -170,6 +170,43 @@ describe("a machine's grants to the strict profile", () => {
 		expect(given.said.join("\n"), "why it grants nothing").toContain(why);
 	});
 
+	it.each([
+		["a home", { read: ["/home/worker"] }],
+		["the folder of homes", { write: ["/home"] }],
+		["root's home", { read: ["/root"] }],
+		["a runtime folder", { read: ["/run/user/1001"] }],
+		["a folder holding runtime folders", { write: ["/run"] }],
+		["/etc", { read: ["/etc"] }],
+		["/nix", { write: ["/nix"] }],
+	])("grant nothing from a file naming %s", (_, shape) => {
+		const given = disk(JSON.stringify(shape));
+		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+		expect(given.said.join("\n"), "why it grants nothing").toContain(
+			"would hold a whole home, runtime folder, /etc or /nix",
+		);
+	});
+
+	it("grant a folder within a runtime folder or a home", () => {
+		const given = disk(
+			JSON.stringify({
+				read: ["/run/user/1001/delta", "/home/worker/cache", "/etc/pi-x"],
+			}),
+		);
+		expect(machineGrants(MACHINE_GRANTS, given).read, "the grant").toEqual([
+			"/run/user/1001/delta",
+			"/home/worker/cache",
+			"/etc/pi-x",
+		]);
+	});
+
+	it("grant nothing from a file naming a key it doesn't know", () => {
+		const given = disk(JSON.stringify({ read: [], writes: ["/world"] }));
+		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+		expect(given.said.join("\n"), "why it grants nothing").toContain(
+			"it names writes, which is neither read nor write",
+		);
+	});
+
 	it("grant only what a list names, an absent one granting nothing", () => {
 		const given = disk(JSON.stringify({ read: ["/run/worker-signing"] }));
 		expect(machineGrants(MACHINE_GRANTS, given), "the grant").toEqual({
