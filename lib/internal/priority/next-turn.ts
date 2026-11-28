@@ -476,7 +476,43 @@ export function waitReasons(
 	awaited: ReadonlySet<string> = NOBODY,
 	first: ReadonlySet<string> = NOBODY,
 ): Map<string, WaitReason> {
+	return judgeWaits(jobs, room, now, rules, awaited, first).reasons;
+}
+
+/**
+ * What keeps a job waiting on the order: a job ahead of it that holds
+ * the line, waiting on memory or behind a VM check; the turn just given
+ * to a job ahead of it; or, for quick work, the quick jobs allowed at
+ * once, already running.
+ */
+export type Keeper =
+	| { readonly by: "memory" | "behind" | "turn"; readonly job: string }
+	| { readonly by: "quick" };
+
+/** Why each waiting job waits, and what keeps each one waiting on the order. */
+export interface Waits {
+	readonly reasons: ReadonlyMap<string, WaitReason>;
+	readonly keepers: ReadonlyMap<string, Keeper>;
+}
+
+/**
+ * {@link waitReasons}, with the keeper of each job it finds waiting on
+ * the order, as its own loop found it: the first job ahead whose hold
+ * takes it in, or the job just given its turn. A job that would start
+ * next has none. Only a hold the loop itself set names a keeper, so a
+ * job ahead that waits on memory while holding only itself, as quick
+ * work does, is never named.
+ */
+export function judgeWaits(
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+	rules: Rules = RULES,
+	awaited: ReadonlySet<string> = NOBODY,
+	first: ReadonlySet<string> = NOBODY,
+): Waits {
 	const reasons = new Map<string, WaitReason>();
+	const keepers = new Map<string, Keeper>();
 	for (const job of jobs) {
 		if (job.started === undefined && job.planning) {
 			reasons.set(job.id, "planning");
@@ -494,7 +530,7 @@ export function waitReasons(
 		for (const job of waiting) {
 			if (!heldPressed(job)) reasons.set(job.id, "busy");
 		}
-		return reasons;
+		return { reasons, keepers };
 	}
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
@@ -505,20 +541,35 @@ export function waitReasons(
 			(other) =>
 				!isQuick(other) && Date.parse(other.since) < Date.parse(job.since),
 		);
-	let holds = HOLDS_NONE;
-	let given = false;
+	const holders: {
+		readonly job: string;
+		readonly by: "memory" | "behind";
+		readonly holds: Holds;
+	}[] = [];
+	let given: string | undefined;
 	for (const job of waiting) {
 		if (heldPressed(job)) continue;
 		const reason = ((): WaitReason => {
 			if (isQuick(job)) {
 				if (quick.left < 1) return "behind";
-				if (passes(job) && quick.running >= QUICK_AT_ONCE) return "order";
+				if (passes(job) && quick.running >= QUICK_AT_ONCE) {
+					keepers.set(job.id, { by: "quick" });
+					return "order";
+				}
 				if (!fits(job)) return "memory";
-				given = true;
+				given ??= job.id;
 				return "order";
 			}
 			if (waitsForLending(job, room, now)) return "lending";
-			if (holds(job) || given) return "order";
+			const holder = holders.find((one) => one.holds(job));
+			if (holder !== undefined) {
+				keepers.set(job.id, { by: holder.by, job: holder.job });
+				return "order";
+			}
+			if (given !== undefined) {
+				keepers.set(job.id, { by: "turn", job: given });
+				return "order";
+			}
 			if (busyWaits(job, room, first)) return "busy";
 			if (
 				isVm(job) &&
@@ -536,18 +587,19 @@ export function waitReasons(
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 			if (ruledOut || !fits(job)) {
-				holds = either(
-					holds,
-					ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
-				);
+				holders.push({
+					job: job.id,
+					by: ruledOut ? "behind" : "memory",
+					holds: ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
+				});
 				return ruledOut ? "behind" : "memory";
 			}
-			given = true;
+			given ??= job.id;
 			return "order";
 		})();
 		reasons.set(job.id, reason);
 	}
-	return reasons;
+	return { reasons, keepers };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -123,6 +123,23 @@ describe("the machine's queue folder telling a late job's waiter", () => {
 		expect(lateLine("due"), "a late job is told once").toBeUndefined();
 		expect(jobFile("due").late).toEqual(marked);
 		expect(recorded("due")?.late).toEqual(marked);
+	});
+
+	it("leaves a job unmarked while its line can't be written, and says it at the next keep", () => {
+		const queue = waitingThree();
+		// A folder where its line goes, so writing the line fails.
+		mkdirSync(join(dir, "due.late", "in-the-way"), { recursive: true });
+		expect(() =>
+			queue.keep(TIGHT, NOW + 3 * MINUTE_MS, () => undefined),
+		).not.toThrow();
+		expect(jobFile("due").late, "not marked without its line").toBeUndefined();
+		expect(recorded("due")?.late).toBeUndefined();
+		rmSync(join(dir, "due.late"), { recursive: true });
+		queue.keep(TIGHT, NOW + 4 * MINUTE_MS, () => undefined);
+		expect(lateLine("due")).toMatch(/^Due to start by /);
+		expect(jobFile("due").late?.at).toBe(
+			new Date(NOW + 4 * MINUTE_MS).toISOString(),
+		);
 	});
 
 	it("clears a late job's line with the rest of its files once its shell is gone", () => {
