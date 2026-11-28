@@ -24,7 +24,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
  */
 export function closedIn(folder: string, closed: string): boolean {
 	const folders = downTo(folder, closed);
-	return folders !== undefined && folders.every(ownAlone);
+	return folders?.every(ownAlone) ?? false;
 }
 
 /** `closed` and each folder below it down to `folder`; none outside it. */
