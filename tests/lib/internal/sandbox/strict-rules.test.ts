@@ -187,6 +187,7 @@ describe("the strict profile on a machine that grants more", () => {
 		home: "/home/worker",
 		runtimeDir: "/run/user/1001",
 		cwd: "/home/worker/work",
+		env: SESSION,
 		grants: {
 			read: ["/run/worker-signing"],
 			write: ["/world", "/dev/kvm"],
@@ -227,6 +228,7 @@ describe("the strict profile on a machine that grants more", () => {
 			home: place.home,
 			runtimeDir: place.runtimeDir,
 			cwd: place.cwd,
+			env: place.env,
 		});
 		expect(plain, "an empty grant changes nothing").toEqual(bare);
 	});
