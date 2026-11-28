@@ -6,12 +6,12 @@
  */
 
 import {
-	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
 	symlinkSync,
 	utimesSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,23 +143,18 @@ describe("what holds a session from an ordered carry, from code its install left
 	function staleInstall(): { readonly old: string; readonly board: Board } {
 		const install = mkdtempSync(join(tmpdir(), "ordered-holds-install-"));
 		installs.push(install);
-		const made = (version: string, ago: number) => {
-			const at = join(install, "versions", version);
-			mkdirSync(at, { recursive: true });
-			const when = (Date.now() - ago) / 1000;
-			utimesSync(at, when, when);
-			return at;
-		};
-		const old = made("03c16f4cfe6b0b8ed5afba531da67409c1d6729c", 50 * HOUR_MS);
-		made("9255f6d13012e75c85e1b7e9dab118755c1d7f94", HOUR_MS);
-		const link = join(install, "current");
-		symlinkSync(
-			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			link,
-		);
-		// The installer moves the link as it leaves the old version.
+		const left = "03c16f4cfe6b0b8ed5afba531da67409c1d6729c";
+		const latest = "9255f6d13012e75c85e1b7e9dab118755c1d7f94";
+		const old = join(install, "versions", left);
+		mkdirSync(old, { recursive: true });
+		mkdirSync(join(install, "versions", latest), { recursive: true });
+		symlinkSync(join("versions", latest), join(install, "current"));
+		// The installer marks the version it leaves, dated to the move.
+		mkdirSync(join(install, "retired"));
+		const marker = join(install, "retired", left);
+		writeFileSync(marker, "");
 		const moved = (Date.now() - HOUR_MS) / 1000;
-		lutimesSync(link, moved, moved);
+		utimesSync(marker, moved, moved);
 		return { old, board: createBoard(join(install, "board")) };
 	}
 

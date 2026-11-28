@@ -6,7 +6,6 @@
 
 import {
 	existsSync,
-	lutimesSync,
 	mkdirSync,
 	readdirSync,
 	symlinkSync,
@@ -86,6 +85,30 @@ function loaded(id: string, quest: string): void {
 			openedAt: "2026-11-07T20:00:00.000Z",
 		}),
 	);
+}
+
+/** The version a stale install left; its `current` names a newer one. */
+const LEFT = "03c16f4cfe6b0b8ed5afba531da67409c1d6729c";
+
+/**
+ * An install that left the version it answers a day ago, as core.nix's
+ * pi-packages leaves one: an empty marker in `retired/`, named for that
+ * version and dated to the move. The `current` link keeps the time it
+ * was made, now, so only the marker says the version was left.
+ */
+function leftInstall(): string {
+	const install = folder(made, "install");
+	const latest = "9255f6d13012e75c85e1b7e9dab118755c1d7f94";
+	const running = join(install, "versions", LEFT);
+	mkdirSync(running, { recursive: true });
+	mkdirSync(join(install, "versions", latest), { recursive: true });
+	symlinkSync(join("versions", latest), join(install, "current"));
+	mkdirSync(join(install, "retired"));
+	const marker = join(install, "retired", LEFT);
+	writeFileSync(marker, "");
+	const left = (Date.now() - 86_400_000) / 1000;
+	utimesSync(marker, left, left);
+	return running;
 }
 
 describe("carrying a steered session's work", () => {
@@ -245,27 +268,7 @@ describe("carrying a steered session's work", () => {
 
 	it("refuses at once, saying why, while it runs code its install left long ago", async () => {
 		const home = folder(made, "home");
-		const install = folder(made, "install");
-		const ago = (version: string, ms: number) => {
-			const at = join(install, "versions", version);
-			mkdirSync(at, { recursive: true });
-			const when = (Date.now() - ms) / 1000;
-			utimesSync(at, when, when);
-			return at;
-		};
-		const running = ago(
-			"03c16f4cfe6b0b8ed5afba531da67409c1d6729c",
-			3 * 86_400_000,
-		);
-		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
-		const link = join(install, "current");
-		symlinkSync(
-			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			link,
-		);
-		// The installer moves the link as it leaves the old version.
-		const moved = (Date.now() - 86_400_000) / 1000;
-		lutimesSync(link, moved, moved);
+		const running = leftInstall();
 
 		// A run that never ends, so only a refusal before winding down
 		// answers within the test.
@@ -281,27 +284,7 @@ describe("carrying a steered session's work", () => {
 
 	it("carries on where its caller judged its code before ending the run, though the bar has passed since", async () => {
 		const home = folder(made, "home");
-		const install = folder(made, "install");
-		const ago = (version: string, ms: number) => {
-			const at = join(install, "versions", version);
-			mkdirSync(at, { recursive: true });
-			const when = (Date.now() - ms) / 1000;
-			utimesSync(at, when, when);
-			return at;
-		};
-		const running = ago(
-			"03c16f4cfe6b0b8ed5afba531da67409c1d6729c",
-			3 * 86_400_000,
-		);
-		ago("9255f6d13012e75c85e1b7e9dab118755c1d7f94", 86_400_000);
-		const link = join(install, "current");
-		symlinkSync(
-			join("versions", "9255f6d13012e75c85e1b7e9dab118755c1d7f94"),
-			link,
-		);
-		// The installer moves the link as it leaves the old version.
-		const moved = (Date.now() - 86_400_000) / 1000;
-		lutimesSync(link, moved, moved);
+		const running = leftInstall();
 		loaded("s-judged", QUEST);
 
 		const done = await carryThisSession(
