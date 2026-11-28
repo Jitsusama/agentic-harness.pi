@@ -22,7 +22,9 @@ barrel, never from a file behind it.
   for its cap.
 - **[`clock/`](clock/)**: what a duration bounding a child process
   may be. The rules belong to the runner, but a roster read from a
-  config file needs them first, so one definition serves both.
+  config file needs them first, so one definition serves both. It
+  also bounds work once it runs, and makes the signal every clock in
+  the package fires, which node 22 never holds on to.
 - **[`command/`](command/)**: a lossless, range-indexed model of a
   command line, a flag-spec layer and splice-by-range editing.
 - **[`compaction/`](compaction/)**: when compacting pays, the

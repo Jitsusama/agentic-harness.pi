@@ -6,6 +6,7 @@
  * validation. No external dependencies.
  */
 
+import { deadline } from "../../clock/index.ts";
 import { refuseDirectSlack } from "../policy.ts";
 
 const SLACK_API_BASE = "https://slack.com/api";
@@ -133,13 +134,25 @@ export class SlackClient {
 		this.options = options;
 	}
 
-	/** The caller's signal joined to one request's clock. */
-	private bounded(
+	/**
+	 * What `send` makes of one request, sent and read on one clock that
+	 * the caller's signal also stops, the clock ended once it answers.
+	 */
+	private async within<R>(
 		signal: AbortSignal | undefined,
-		ms = this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
-	): AbortSignal {
-		const clock = AbortSignal.timeout(ms);
-		return signal === undefined ? clock : AbortSignal.any([signal, clock]);
+		send: (bound: AbortSignal) => Promise<R>,
+		ms?: number,
+	): Promise<R> {
+		const clock = deadline(
+			ms ?? this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+			"a Slack request",
+			signal,
+		);
+		try {
+			return await send(clock.signal);
+		} finally {
+			clock.end();
+		}
 	}
 
 	/**
@@ -177,32 +190,38 @@ export class SlackClient {
 			if (signal?.aborted) throw aborted(signal);
 			refuseDirectSlack();
 
-			const response = await fetch(`${SLACK_API_BASE}/${method}`, {
-				method: "POST",
-				headers,
-				body: body.toString(),
-				signal: this.bounded(signal),
+			// The wait a rate limit asks for is taken off the request's clock.
+			const answer = await this.within(signal, async (bound) => {
+				const response = await fetch(`${SLACK_API_BASE}/${method}`, {
+					method: "POST",
+					headers,
+					body: body.toString(),
+					signal: bound,
+				});
+				if (response.status === 429) {
+					return {
+						retryAfter: Number(response.headers.get("Retry-After") || "1"),
+					};
+				}
+				if (!response.ok) {
+					throw new Error(
+						`Slack API HTTP ${response.status}: ${response.statusText}`,
+					);
+				}
+				return { data: (await response.json()) as SlackApiResponse & T };
 			});
 
-			if (response.status === 429) {
+			if (answer.retryAfter !== undefined) {
 				if (++rateLimitHits > MAX_RATE_LIMIT_RETRIES) {
 					throw new RateLimitError(method, rateLimitHits);
 				}
-				const retryAfter = Number(response.headers.get("Retry-After") || "1");
-				await sleep(retryAfter * 1000, signal);
+				await sleep(answer.retryAfter * 1000, signal);
 				// Don't count rate limits against the error retry
 				// budget, since the API is explicitly telling us to wait.
 				attempt--;
 				continue;
 			}
-
-			if (!response.ok) {
-				throw new Error(
-					`Slack API HTTP ${response.status}: ${response.statusText}`,
-				);
-			}
-
-			const data = (await response.json()) as SlackApiResponse & T;
+			const { data } = answer;
 
 			if (!data.ok) {
 				if (data.error === "ratelimited") {
@@ -282,43 +301,50 @@ export class SlackClient {
 		}
 
 		refuseDirectSlack();
-		const response = await fetch(url, {
-			method: "GET",
-			headers,
-			signal: this.bounded(opts?.signal, TRANSFER_TIMEOUT_MS),
-		});
+		// The clock covers the body too, which is most of a large file's time.
+		return this.within(
+			opts?.signal,
+			async (bound) => {
+				const response = await fetch(url, {
+					method: "GET",
+					headers,
+					signal: bound,
+				});
 
-		if (!response.ok) {
-			throw new Error(
-				`File download failed: HTTP ${response.status} ${response.statusText}`,
-			);
-		}
+				if (!response.ok) {
+					throw new Error(
+						`File download failed: HTTP ${response.status} ${response.statusText}`,
+					);
+				}
 
-		// Reject oversized files before reading the body when
-		// the server reports Content-Length.
-		if (opts?.maxBytes) {
-			const contentLength = response.headers.get("content-length");
-			if (contentLength !== null && Number(contentLength) > opts.maxBytes) {
-				// Consume the body to release the connection.
-				await response.body?.cancel();
-				throw new Error(
-					`File too large: ${contentLength} bytes exceeds ${opts.maxBytes} byte limit`,
-				);
-			}
-		}
+				// Reject oversized files before reading the body when
+				// the server reports Content-Length.
+				if (opts?.maxBytes) {
+					const contentLength = response.headers.get("content-length");
+					if (contentLength !== null && Number(contentLength) > opts.maxBytes) {
+						// Consume the body to release the connection.
+						await response.body?.cancel();
+						throw new Error(
+							`File too large: ${contentLength} bytes exceeds ${opts.maxBytes} byte limit`,
+						);
+					}
+				}
 
-		const arrayBuffer = await response.arrayBuffer();
+				const arrayBuffer = await response.arrayBuffer();
 
-		// Belt-and-suspenders: reject if the actual body exceeds
-		// the limit (covers missing or dishonest Content-Length).
-		if (opts?.maxBytes && arrayBuffer.byteLength > opts.maxBytes) {
-			throw new Error(
-				`File too large: ${arrayBuffer.byteLength} bytes exceeds ${opts.maxBytes} byte limit`,
-			);
-		}
-		const contentType =
-			response.headers.get("content-type") ?? "application/octet-stream";
-		return { buffer: Buffer.from(arrayBuffer), contentType };
+				// Belt-and-suspenders: reject if the actual body exceeds
+				// the limit (covers missing or dishonest Content-Length).
+				if (opts?.maxBytes && arrayBuffer.byteLength > opts.maxBytes) {
+					throw new Error(
+						`File too large: ${arrayBuffer.byteLength} bytes exceeds ${opts.maxBytes} byte limit`,
+					);
+				}
+				const contentType =
+					response.headers.get("content-type") ?? "application/octet-stream";
+				return { buffer: Buffer.from(arrayBuffer), contentType };
+			},
+			TRANSFER_TIMEOUT_MS,
+		);
 	}
 
 	/**
@@ -339,12 +365,17 @@ export class SlackClient {
 		}
 
 		refuseDirectSlack();
-		const response = await fetch(url, {
-			method: "POST",
-			headers,
-			body: uploadable(body),
-			signal: this.bounded(signal, TRANSFER_TIMEOUT_MS),
-		});
+		const response = await this.within(
+			signal,
+			(bound) =>
+				fetch(url, {
+					method: "POST",
+					headers,
+					body: uploadable(body),
+					signal: bound,
+				}),
+			TRANSFER_TIMEOUT_MS,
+		);
 
 		if (!response.ok) {
 			throw new Error(

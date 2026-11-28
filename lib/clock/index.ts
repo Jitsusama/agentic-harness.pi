@@ -16,7 +16,9 @@
  *
  * The same barrel offers `bounded`, which holds work to a clock and a
  * signal once it is running: the rules above say what a duration may
- * be, and it is what makes one mean something.
+ * be, and it is what makes one mean something. And it offers
+ * `deadline`, the signal such a clock fires, which every clock in the
+ * package is made with rather than node's own timeout signal.
  */
 
 export {
@@ -26,6 +28,7 @@ export {
 	isAbort,
 	WallClockExceeded,
 } from "./bound.ts";
+export { type Deadline, deadline } from "./deadline.ts";
 
 /** The shortest duration worth calling a timeout. */
 export const CLOCK_FLOOR_MS = 1000;
