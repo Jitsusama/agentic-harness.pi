@@ -392,3 +392,48 @@ describe("a machine's grants to the strict profile", () => {
 		});
 	});
 });
+
+describe("a machine's grants beside the node's worker socket", () => {
+	/** A worker socket outside /run, so no other rule refuses its folder. */
+	const SOCKET = "/srv/node/work-worker.sock";
+
+	/** The grants `entry` to `use` makes, the fence letting `workerSocket` through. */
+	const granted = (
+		use: "read" | "write",
+		entry: string,
+		workerSocket?: string,
+	) => {
+		const given = disk(JSON.stringify({ [use]: [entry] }));
+		const grants = readGrants(
+			{ home: HOME, repositoryHomes: [], workerSocket },
+			MACHINE_GRANTS,
+			given,
+		);
+		return { grants, said: given.said.join("\n") };
+	};
+
+	it.each([
+		["the socket's folder", "write", "/srv/node"],
+		["a path in it", "read", "/srv/node/x"],
+		["a folder holding it", "read", "/srv"],
+	] as const)(
+		"grant nothing from a file naming %s, which the fence binds read-only",
+		(_, use, entry) => {
+			const { grants, said } = granted(use, entry, SOCKET);
+			expect(grants, "no grant").toEqual(NONE);
+			expect(said, "names the entry").toContain(
+				`${JSON.stringify(entry)} under ${use}`,
+			);
+			expect(said, "why it grants nothing").toContain(
+				"is, holds or lies in the worker socket's folder (/srv/node)",
+			);
+		},
+	);
+
+	it("grant the same folder where the fence lets no worker socket through", () => {
+		expect(granted("write", "/srv/node").grants, "granted").toEqual({
+			read: [],
+			write: ["/srv/node"],
+		});
+	});
+});

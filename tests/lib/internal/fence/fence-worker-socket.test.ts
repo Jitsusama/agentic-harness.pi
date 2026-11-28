@@ -32,10 +32,12 @@ import {
 	type SocketDisk,
 	WORKER_SOCKET_FOLDER,
 } from "../../../../lib/internal/fence/fence-worker-socket.ts";
+import type { GrantPlace } from "../../../../lib/internal/sandbox/machine-grants.ts";
 import {
 	type Sandbox,
 	wrapFor,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
+import { fileToolRefusal } from "../../../../lib/internal/sandbox/sandbox-files.ts";
 import { strictRules } from "../../../../lib/internal/sandbox/strict-rules.ts";
 import { SOCKET_ROOT } from "../../../setup/temp-root.ts";
 
@@ -421,6 +423,32 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			served,
 			"a language server's fence was handed the socket",
 		).not.toContain(`MYCELIUM_WORKER_SOCKET='`);
+	});
+
+	it("is the one pi's file tools judge the machine's grants beside, and none in a language server's", () => {
+		/** The worker socket the file tools' grants were read beside. */
+		const judgedBeside = (served: boolean) => {
+			const asked: GrantPlace[] = [];
+			fileToolRefusal(
+				{ toolName: "read", input: { path: "notes.md" } },
+				{
+					cwd: join(base, "work"),
+					env: { ...naming(WORKER), PI_SANDBOX: "strict" },
+					home: join(base, "home"),
+					workerSockets: diskWith({ sockets: [WORKER] }),
+					grants: (place) => {
+						asked.push(place);
+						return { read: [], write: [] };
+					},
+					...(served ? { served } : {}),
+				},
+			);
+			return asked.map((place) => place.workerSocket);
+		};
+		expect(judgedBeside(false), "the session's tools").toEqual([WORKER]);
+		expect(judgedBeside(true), "a language server's tools").toEqual([
+			undefined,
+		]);
 	});
 });
 

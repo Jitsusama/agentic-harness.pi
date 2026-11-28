@@ -28,6 +28,10 @@ import {
 	MAC_SECRETS,
 } from "../fence/fence-seatbelt.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
+import {
+	fencedWorkerSocket,
+	type SocketDisk,
+} from "../fence/fence-worker-socket.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { leadsTo } from "./leads-to.ts";
@@ -139,6 +143,8 @@ interface FilePlace {
 	staged?: (env: NodeJS.ProcessEnv) => boolean;
 	/** What reads the machine's grants, unless `machineGrants`. */
 	grants?: GrantsReader;
+	/** The disk the node's worker socket is judged on, unless the real one. */
+	workerSockets?: SocketDisk;
 	/**
 	 * Judged for a language server, whose strict fence reaches none of
 	 * gcloud's settings, so pi reads and writes for it only where the
@@ -470,6 +476,11 @@ function strictRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const { cwd, home } = place;
+	// The socket a command would be let through to, so a file tool and a
+	// command judge the machine's grants beside the same one.
+	const workerSocket = place.served
+		? undefined
+		: fencedWorkerSocket(place.env, place.workerSockets);
 	const reach = fileReach(
 		{
 			home,
@@ -479,7 +490,7 @@ function strictRefusal(
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
 			grants: (place.grants ?? machineGrants)(
-				grantPlace(home, place.env.XDG_RUNTIME_DIR, undefined),
+				grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
 			),
 		},
 		use,

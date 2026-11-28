@@ -55,6 +55,7 @@ import {
 	LET_THROUGH,
 } from "../fence/fence-let-through.ts";
 import { namedRepositoryHomes } from "../fence/fence-repository-homes.ts";
+import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 
 /** Where a machine's owner writes what the strict profile adds there. */
 export const MACHINE_GRANTS = "/etc/pi-sandbox/strict-grants.json";
@@ -237,14 +238,14 @@ export function machineGrants(
 	if (!isList(read) || !isList(write)) {
 		return refused("read and write must each be a list of paths");
 	}
-	const { home } = place;
-	const repositoryHomes = place.repositoryHomes ?? namedRepositoryHomes(home);
+	const repositoryHomes =
+		place.repositoryHomes ?? namedRepositoryHomes(place.home);
 	for (const [use, listed] of [
 		["read", read],
 		["write", write],
 	] as const) {
 		for (const entry of listed) {
-			const why = entryRefusal(entry, use, home, repositoryHomes, disk);
+			const why = entryRefusal(entry, use, place, repositoryHomes, disk);
 			if (why) return refused(`${JSON.stringify(entry)} under ${use} ${why}`);
 		}
 	}
@@ -337,16 +338,17 @@ function isList(listed: unknown): listed is string[] {
 }
 
 /**
- * Why the strict profile can't take `entry` to `use`, or none when it
- * can, `home` being this account's.
+ * Why the strict profile can't take `entry` to `use` for the session at
+ * `place`, or none when it can.
  */
 function entryRefusal(
 	entry: string,
 	use: "read" | "write",
-	home: string,
+	place: GrantPlace,
 	repositoryHomes: readonly string[],
 	disk: GrantDisk,
 ): string | undefined {
+	const { home } = place;
 	if (
 		!isAbsolute(entry) ||
 		normalize(entry) !== entry ||
@@ -376,6 +378,16 @@ function entryRefusal(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (laid) return `is, holds or lies in ${laid}`;
+	// The fence binds the socket's folder read-only, before the grants; a
+	// grant over it would hide that bind, or make the socket's folder one
+	// a command could write.
+	const worker =
+		place.workerSocket === undefined
+			? undefined
+			: workerSocketRule(place.workerSocket);
+	if (worker && (holds(entry, worker) || holds(worker, entry))) {
+		return `is, holds or lies in the worker socket's folder (${worker}), which the fence binds read-only`;
+	}
 	if (use === "write" && holds(RUNTIME_FOLDER, entry)) {
 		return `lies in a runtime folder (${RUNTIME_FOLDER}), whose doors the fence lets through read-only`;
 	}
