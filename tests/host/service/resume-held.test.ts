@@ -56,7 +56,7 @@ function opening(clock: ReturnType<typeof phaseClock>) {
 }
 
 describe("a start's resume of one that stays in the host", () => {
-	it("says the wait for an earlier host's child under left, and only the open under log", async () => {
+	it("says the wait for an earlier host's child under letgo, and only the open under log", async () => {
 		const staying = entry();
 		await roster.hold(staying);
 		const clock = phaseClock();
@@ -71,25 +71,92 @@ describe("a start's resume of one that stays in the host", () => {
 		});
 
 		expect(clock.said()).toBe(
-			" (ask 0.0 s, gate 0.0 s, left 30.0 s, log 1.0 s, rest 0.0 s)",
+			" (ask 0.0 s, gate 0.0 s, letgo 30.0 s, log 1.0 s, rest 0.0 s)",
 		);
 	});
-});
 
-describe("a start's resume of one that moves into a child", () => {
-	it("marks no left, since no earlier host's child is waited on", async () => {
-		const moving = entry();
-		await roster.hold(moving);
+	it.each([
+		["closes", (sessionId: string) => roster.drop(sessionId)],
+		["replaces", (sessionId: string) => roster.replace(sessionId, entry())],
+	])(
+		"keeps the wait under letgo for one its child %s as it waits, passed over as gone",
+		async (_ends, ending) => {
+			const staying = entry();
+			await roster.hold(staying);
+			const clock = phaseClock();
+			const moved = children([]);
+			moved.fake.left.mockImplementationOnce(async (sessionId: string) => {
+				clock.pass(LEFT_MS);
+				await ending(sessionId);
+			});
+			const building = opening(clock);
+			const finished = vi.fn();
+
+			await resumeHeld({
+				roster,
+				engine: building,
+				children: moved.fake,
+				mark: clock.mark,
+				finished,
+			});
+
+			expect(finished).toHaveBeenCalledWith(
+				expect.objectContaining({ sessionId: staying.sessionId }),
+				"gone",
+				undefined,
+			);
+			expect(building.resume).not.toHaveBeenCalled();
+			expect(clock.said()).toBe(
+				" (ask 0.0 s, gate 0.0 s, letgo 30.0 s, rest 0.0 s)",
+			);
+		},
+	);
+
+	it("keeps a wait that fails under letgo, not under the rest", async () => {
+		const staying = entry();
+		await roster.hold(staying);
 		const clock = phaseClock();
-		const moved = children([moving.sessionId]);
+		const moved = children([]);
+		const stillRuns = new Error(`${staying.sessionId} still runs in a child`);
+		moved.fake.left.mockImplementationOnce(async () => {
+			clock.pass(LEFT_MS);
+			throw stillRuns;
+		});
 
-		await resumeHeld({
+		const { unresumed } = await resumeHeld({
 			roster,
 			engine: opening(clock),
 			children: moved.fake,
 			mark: clock.mark,
 		});
 
+		expect(unresumed).toEqual([
+			{ sessionId: staying.sessionId, reason: stillRuns },
+		]);
+		expect(clock.said()).toBe(
+			" (ask 0.0 s, gate 0.0 s, letgo 30.0 s, rest 0.0 s)",
+		);
+	});
+});
+
+describe("a start's resume of one that moves into a child", () => {
+	it("resumes it in its child and marks no letgo, since no earlier host's child is waited on", async () => {
+		const moving = entry();
+		await roster.hold(moving);
+		const clock = phaseClock();
+		const moved = children([moving.sessionId]);
+
+		const { resumed, unresumed } = await resumeHeld({
+			roster,
+			engine: opening(clock),
+			children: moved.fake,
+			mark: clock.mark,
+		});
+
+		expect(unresumed).toEqual([]);
+		expect(resumed).toEqual([moving.sessionId]);
+		expect(moved.fake.resume).toHaveBeenCalledOnce();
+		expect(moved.fake.left).not.toHaveBeenCalled();
 		expect(clock.phases.map(({ phase }) => phase)).toEqual(["ask", "gate"]);
 	});
 });

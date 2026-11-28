@@ -979,23 +979,26 @@ function namedIn(answer: unknown): string | undefined {
 /**
  * The phases of a conversation's start, each marked as it ends. A resume
  * has the start's own ask for more time, the gate on another one running,
- * the wait for an earlier host's child to let go of one that stays in
- * the host, and the session file read; an open has its conversation prepared and
- * held in the roster. Then both have an earlier host's tools reaped,
- * pi's runtime built (its model runtime, its services with every
- * extension loaded, its held log's view taken again over what they
- * leave behind, durable's store opened and pi's session made, then
- * the rest, its extensions' session start among it), its screen or
- * headless binding, durable's recovery begun and, for an open with first
- * words, those words held. A start whose screen asks the person answers
+ * then, for one the host runs itself, the wait until no child an earlier
+ * host left still runs it (`letgo`, with the systemd queries and roster
+ * writes that wait makes), and the session file read (`log`, which held
+ * that wait too until 28 November); an open has its conversation
+ * prepared and held in the roster. Then both have an earlier host's
+ * tools reaped, pi's runtime built (its model runtime, its services with
+ * every extension loaded, its held log's view taken again over what they
+ * leave behind, durable's store opened and pi's session made, then the
+ * rest, its extensions' session start among it), its screen or headless
+ * binding, durable's recovery begun and, for an open with first words,
+ * those words held. A start whose screen asks the person answers
  * at the ask, marked `asked`: what it builds after is not timed, and a
- * failure after it is the engine's to say.
+ * failure after it is the engine's to say. A few resume at once on one
+ * thread, so a phase's time may hold another's synchronous work.
  */
 export type StartPhase =
 	| "asked"
 	| "ask"
 	| "gate"
-	| "left"
+	| "letgo"
 	| "log"
 	| "prepare"
 	| "roster"

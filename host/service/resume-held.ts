@@ -124,9 +124,9 @@ export const RESUME_AT_ONCE = 4;
  * `mark` hears each phase as it ends and `finished` each one's end,
  * resumed, parked or failed with why, under its own step, since several
  * run at once. A throw from `mark` at the phases this marks itself (ask,
- * gate and left) fails that conversation's resume; the engine's build hears it
- * too, so it must not throw there. One from `finished` fails the start,
- * once no resume is still building.
+ * gate and letgo) fails that conversation's resume; the engine's build
+ * hears it too, so it must not throw there. One from `finished` fails the
+ * start, once no resume is still building.
  * The runs a restart cut off wait until the last has resumed
  * (`resuming`, then `resumed`, also when one throws), so a few go at a
  * time in the whole start's order rather than racing the resumes; that
@@ -211,10 +211,16 @@ export async function resumeHeld(options: {
 			} else {
 				// A child an earlier host left, which the adopt couldn't take
 				// up, may run it still: never two processes on one file.
-				await options.children?.left(sessionId);
 				// Its own phase, so the log's open, which the engine marks, is
-				// timed apart from this wait.
-				mark("left");
+				// timed apart from this wait, and marked as the wait fails too,
+				// so a long one that fails isn't said as the rest (F5 on #2441).
+				try {
+					await options.children?.left(sessionId);
+				} catch (error) {
+					mark("letgo");
+					throw error;
+				}
+				mark("letgo");
 				// One its child replaced or closed while it waited is no longer
 				// held, and is passed over, as one closed before it began is.
 				if (
