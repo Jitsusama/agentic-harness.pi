@@ -1,3 +1,12 @@
+/**
+ * The broker's choices over fake providers and memories: which provider
+ * answers, when a remembered tree is reused, held or refused, and what it
+ * hands back.
+ *
+ * Long because every way a request meets a remembered tree shares the
+ * fakes at the top, and split by file each part would build them again.
+ */
+
 import { describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import {
@@ -78,6 +87,9 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
+		endGoing: async () => "unmarked",
+		finishGoing: async () => {},
+		goingState: async () => "standing",
 		whileUnusedSince: async () => undefined,
 		askedAt: () => undefined,
 		reownSession: async () => 0,
@@ -403,8 +415,17 @@ describe("createTreeBroker", () => {
 			new Map([[old.identity.key, "/trees/w-main/src"]]),
 		);
 		const written: HeldTree[] = [];
+		const heldWhenAsked: number[] = [];
 		const broker = createTreeBroker({
-			providers: [provider],
+			providers: [
+				{
+					...provider,
+					async ensure(asked, options) {
+						heldWhenAsked.push(written.length);
+						return provider.ensure(asked, options);
+					},
+				},
+			],
 			memory: {
 				...remembering(old, []),
 				rememberHeldByUs: async (held) => {
@@ -416,10 +437,97 @@ describe("createTreeBroker", () => {
 		const held = await broker.ensure(request);
 
 		expect(held.path).toBe("/trees/w-main/src");
-		expect(written).toEqual([{ ...old, path: "/trees/w-main/src" }]);
+		// Held where it was before the provider is asked, so a sweep can't
+		// take it meanwhile, then rewritten where it is now: one record
+		// under the tree's key, so the second write replaces the first.
+		expect(heldWhenAsked, "records written as the provider was asked").toEqual([
+			1,
+		]);
+		expect(written).toEqual([old, { ...old, path: "/trees/w-main/src" }]);
 		expect((await broker.stillHeld()).map((tree) => tree.path)).toContain(
 			"/trees/w-main/src",
 		);
+	});
+
+	it("lets a remembered tree go again when its provider fails to hand it back", async () => {
+		// The record is held before the provider is asked, so a sweep can't
+		// take the tree meanwhile; an ask that throws must not leave this
+		// session named on a tree it never got.
+		const request = worktree("main");
+		const old: HeldTree = {
+			identity: treeIdentity(request),
+			path: "/trees/w-main",
+			providerId: "world-dev-tree",
+			owners: [{ pid: 1, startedAt: 1 }],
+		};
+		const { provider } = fakeProvider("world-dev-tree");
+		const held: string[] = [];
+		const letGo: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider,
+					ensure: async () => {
+						throw new Error("the provider fell over");
+					},
+				},
+			],
+			memory: {
+				...remembering(old, []),
+				rememberHeldByUs: async (tree) => {
+					held.push(tree.path);
+				},
+				forgetUsAsHolder: async (path) => {
+					letGo.push(path);
+				},
+			},
+		});
+
+		await expect(broker.ensure(request)).rejects.toThrow(
+			"the provider fell over",
+		);
+		expect(held, "the records held").toEqual([old.path]);
+		expect(letGo, "the records let go").toEqual([old.path]);
+	});
+
+	it("keeps a hold its record already named when its provider fails to hand the tree back", async () => {
+		// After a reload, or a host resuming the conversation, the broker's
+		// own list starts empty, though the record still names this session
+		// and the session is working in the tree: dropping its share would
+		// leave the tree to the sweep.
+		const request = worktree("main");
+		const old: HeldTree = {
+			identity: treeIdentity(request),
+			path: "/trees/w-main",
+			providerId: "world-dev-tree",
+		};
+		const { provider } = fakeProvider("world-dev-tree");
+		const letGo: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider,
+					ensure: async () => {
+						throw new Error("the provider fell over");
+					},
+				},
+			],
+			memory: {
+				...remembering(old, []),
+				heldByUs: async (trees) =>
+					new Set(
+						trees.map((tree) => tree.path).filter((path) => path === old.path),
+					),
+				forgetUsAsHolder: async (path) => {
+					letGo.push(path);
+				},
+			},
+		});
+
+		await expect(broker.ensure(request)).rejects.toThrow(
+			"the provider fell over",
+		);
+		expect(letGo, "the records let go").toEqual([]);
 	});
 
 	it("cuts a second tree for a different request", async () => {

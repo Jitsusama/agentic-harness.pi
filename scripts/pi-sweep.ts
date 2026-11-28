@@ -49,9 +49,10 @@
  * judging or taking failed for every tree it tried, so the hosts go on
  * sweeping those trees. One that failed for only some keeps them and
  * stays in the stamp. Taking a tree has no clock, as in a host, since
- * the sweep hands a tree back to its sessions once a take fails, and
- * one cut off may still be removing it; the unit's own two hours end a
- * take that never settles, leaving the record the sweep's. Trees from
+ * one cut off may still be removing it while the sweep's lock stands,
+ * and a take that fails leaves its mark stopped, for the next sweep or
+ * ask to finish before anybody has the tree again; the unit's own two
+ * hours end a take that never settles, leaving the mark stopped too. Trees from
  * a provider loaded nowhere here are kept.
  *
  * It writes its sweep's line to the sweep's log, as a host's does, and a
@@ -459,8 +460,9 @@ function watched(
 		let late = false;
 		try {
 			const asked = call({ ...options, signal });
-			// A take goes unclocked: once it fails the sweep hands the tree
-			// back to its sessions, while one cut off may still be removing it.
+			// A take goes unclocked: one cut off may still be removing the tree,
+			// and one that fails leaves its mark stopped for the next sweep or
+			// ask to finish, so waiting it out costs nothing a clock would save.
 			const answer = await (kind === "take"
 				? asked
 				: within(withinMs, asked, () => {
@@ -475,10 +477,13 @@ function watched(
 			throw error;
 		}
 	};
-	const { whyKept } = provider;
+	const { whyKept, releaseNeedsFolder } = provider;
 	return {
 		id: provider.id,
 		specificity: provider.specificity,
+		// Carried, so a failed release of a tree whose folder went ends as
+		// its provider says it can: finished, or stopped to be released again.
+		...(releaseNeedsFolder === undefined ? {} : { releaseNeedsFolder }),
 		appliesTo: (repo) => provider.appliesTo(repo),
 		ensure: (request, options) => provider.ensure(request, options),
 		release: (held, options) =>

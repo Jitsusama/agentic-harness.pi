@@ -58,6 +58,7 @@ const seen = vi.hoisted(() => ({
 	execs: [] as Exec[],
 	lockWaits: [] as (number | undefined)[],
 	listsMerged: [] as boolean[],
+	needsFolder: [] as { id: string; needs: boolean | undefined }[],
 }));
 
 vi.mock("../../extensions/quest-workflow/config.ts", () => ({
@@ -99,6 +100,10 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		// As the library does: each provider that can is asked about a tree
 		// of its own, and one that throws keeps it.
 		for (const provider of deps.providers()) {
+			seen.needsFolder.push({
+				id: provider.id,
+				needs: provider.releaseNeedsFolder,
+			});
 			for (let tree = 0; tree < seen.trees; tree++) {
 				await provider.whyKept?.({} as never).catch(() => undefined);
 				if (seen.releasing) {
@@ -140,6 +145,7 @@ beforeEach(() => {
 	seen.idleMs = undefined;
 	seen.fails = undefined;
 	seen.claims.length = 0;
+	seen.needsFolder.length = 0;
 	seen.rests.length = 0;
 	seen.idleTakes.length = 0;
 	seen.idleWithin.length = 0;
@@ -500,6 +506,26 @@ it("puts no clock on taking a tree", async () => {
 	expect(stamp(), "the stamp it left").toEqual({
 		judged: ["git-worktree", "world-dev-tree"],
 	});
+});
+
+it("tells the sweep which providers' releases need the folder", async () => {
+	// Lost in the watching, a failed release of a tree whose folder went
+	// would stay stopped for good through a provider that can't finish it.
+	const needs = module(
+		"needs",
+		`() => [{ ...${providerSource("needs-folder")}, releaseNeedsFolder: true }, ${providerSource("world-dev-tree")}]`,
+	);
+
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: needs } });
+
+	expect(ran.troubles, "what went wrong beside").toEqual([]);
+	expect(
+		seen.needsFolder.filter((one) => one.id !== "git-worktree"),
+		"what each provider the sweep was given says of its release",
+	).toEqual([
+		{ id: "needs-folder", needs: true },
+		{ id: "world-dev-tree", needs: undefined },
+	]);
 });
 
 it("leaves out of its stamp a provider that couldn't take a tree", async () => {

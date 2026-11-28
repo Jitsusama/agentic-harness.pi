@@ -18,19 +18,28 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	statSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
-import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
+import type { ProcessFacts } from "../../../../lib/core/process/index.ts";
+import type {
+	HeldTree,
+	TreeProvider,
+} from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
-import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import {
+	PUSHED_SETTLE_MS,
+	sweepEndedTrees,
+} from "../../../../lib/core/work/sweep.ts";
 import { goneGitDir } from "../../../../lib/core/work/sweep-orphan.ts";
 import { guardedExec } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { git } from "../../../support/git-fixture.ts";
@@ -864,14 +873,188 @@ describe("trees another provider cut", () => {
 		});
 	});
 
-	it("keeps a shareable one, which a session could join mid-removal", async () => {
+	it("keeps a shareable one asked for within the day, which a session may join again", async () => {
 		const { elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
 
 		const outcome = await sweepWith(elsewhere(undefined));
 
 		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it is shareable and was asked for within the last day, so a session may join it again",
+		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("takes a spent shareable one nobody asked for in a day, marking it going as it goes", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const going: unknown[] = [];
+		const provider = elsewhere(undefined, async () => {
+			going.push(memory.recall().find((one) => one.path === tree)?.going);
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(going, "its record's mark as the provider removed it").toEqual([
+			expect.objectContaining({
+				at: expect.any(Number),
+				lock: expect.objectContaining({ path: expect.any(String) }),
+			}),
+		]);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	/**
+	 * Have `memory` hand its records back by key, so a case judges the
+	 * record it means first. A listing comes in the folder's own order,
+	 * creation order on tmpfs and btrfs and by hash on ext4, so no naming
+	 * of the files can settle it.
+	 */
+	function judgedByKey(memory: ReturnType<typeof createTreeMemory>): void {
+		const recall = memory.recall.bind(memory);
+		memory.recall = () =>
+			[...recall()].sort((one, two) =>
+				one.identity.key < two.identity.key ? -1 : 1,
+			);
+	}
+
+	it("keeps a shareable one its twin record says was asked for within the day", async () => {
+		// World files one tree under two keys, and the removal takes both,
+		// so either's ask keeps it. The old record is judged first, so only
+		// reading its twin's ask keeps the tree.
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
+		});
+		judgedByKey(memory);
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "it is shareable and was asked for within the last day, so a session may join it again",
+		});
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("takes a shareable one filed under two keys once, and says only that it took it", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
+		});
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		for (const key of ["dev-snapshot", "dev-snapshot-by-name"]) {
+			utimesSync(join(state, "cut", `${key}.json`), then, then);
+		}
+		let releases = 0;
+		const provider = elsewhere(undefined, async () => {
+			releases += 1;
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(
+			outcome.kept.filter((one) => one.path === tree),
+			"what it says it kept there",
+		).toEqual([]);
+		expect(releases, "releases").toBe(1);
+	});
+
+	it("takes a shareable one a killed run left marked, by when it was asked for before", async () => {
+		// The mark rewrote its file, which is no ask: read by its file's
+		// time, the half-removed tree would be kept a day. Only its twin is
+		// marked, and the unmarked record is judged first, so the tree is
+		// judged by when each was asked for rather than finished at once.
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
+			going: {
+				at: Date.now(),
+				by: ENDED,
+				asked: then.getTime(),
+			},
+		});
+		judgedByKey(memory);
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken, "what the sweep took").toEqual([{ path: tree }]);
+	});
+
+	it("counts a shareable one taken when ending its mark fails after it went", async () => {
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
+		const ends: (boolean | undefined)[] = [];
+		memory.endGoing = async (_, failed) => {
+			ends.push(failed);
+			throw new Error("the record's lock is held");
+		};
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(outcome.refused, "what it refused").toEqual([]);
+		expect(ends, "each end, whether its removal failed").toEqual([false]);
+	});
+
+	it("takes no more once another sweep has taken its lock over", async () => {
+		// The sweep that took it over reads this one's marks as stopped and
+		// finishes them, so marking on would race it.
+		const { lockPath, elsewhereTree, sweepWith } = await setUp();
+		const trees = [elsewhereTree("dev-one"), elsewhereTree("dev-two")];
+		for (const tree of trees) settleFolder(tree);
+		const provider = elsewhere(undefined, async (held) => {
+			writeFileSync(`${lockPath}.theirs`, String(process.pid));
+			renameSync(`${lockPath}.theirs`, lockPath);
+			rmSync(held.path, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken, "what it took").toHaveLength(1);
+		expect(
+			trees.filter((tree) => existsSync(tree)),
+			"a sweep went on taking trees under another sweep's lock",
+		).toHaveLength(1);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {
@@ -897,7 +1080,7 @@ describe("trees another provider cut", () => {
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
-	it("gives the record back to its sessions when the release fails", async () => {
+	it("leaves the record marked as stopped when the release fails, so nobody works in what is left", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
 		settleFolder(tree);
@@ -908,9 +1091,488 @@ describe("trees another provider cut", () => {
 		const outcome = await sweepWith(provider);
 
 		expect(outcome.refused).toEqual([{ path: tree, why: "dev refused" }]);
-		expect(memory.recall().find((one) => one.path === tree)?.owners).toEqual([
-			ENDED,
+		const found = memory.recall().find((one) => one.path === tree);
+		expect(found?.going, "its mark").toEqual(
+			expect.objectContaining({ at: expect.any(Number) }),
+		);
+		expect(found?.going?.lock, "its mark's lock").toBeUndefined();
+		if (found === undefined) throw new Error("its record went");
+		expect(await memory.goingState(found), "its state").toBe("standing");
+	});
+
+	it("finishes a removal that failed at the next sweep", async () => {
+		// The failed end leaves the record naming nobody, which mustn't read
+		// as held, or nothing but an ask would ever finish it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		await sweepWith(
+			elsewhere(undefined, async () => {
+				throw new Error("dev refused");
+			}),
+		);
+
+		const outcome = await sweepWith(
+			elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+			}),
+		);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("keeps a killed run's ask time through a removal that fails again", async () => {
+		// Dated by its file, rewritten by the killed run's mark, the tree
+		// would read as asked for when that run marked it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		const asked = Date.now() - 2 * PUSHED_SETTLE_MS;
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED, asked } });
+
+		await sweepWith(
+			elsewhere(undefined, async () => {
+				throw new Error("dev refused");
+			}),
+		);
+
+		const found = memory.recall().find((one) => one.path === tree);
+		expect(found?.going?.asked, "when its mark says it was asked for").toBe(
+			asked,
+		);
+	});
+
+	it("finishes a stopped removal unjudged, though what it took out reads as changes", async () => {
+		// Judged again, half a tree reads as moving, or as work its provider
+		// keeps, and would be left half gone for a day or for good.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		let asked = false;
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+			}),
+			whyKept: async () => {
+				asked = true;
+				return "it has uncommitted changes";
+			},
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(asked, "the provider was asked whether to keep it").toBe(false);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("releases nothing of a stopped removal a session finished and cut afresh since the run listed it", async () => {
+		// The run lists the stopped mark; before it holds the tree, a session
+		// finishes the removal, cuts the tree afresh and ends, leaving work
+		// its provider would keep. Finished as the stopped removal, unjudged,
+		// that work would go.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [fresh] = memory.recall();
+		if (fresh === undefined) throw new Error("no record was written");
+		memory.remember({ ...fresh, going: { at: Date.now(), by: ENDED } });
+		const real = memory.holdWhileUnheld.bind(memory);
+		let recut = false;
+		memory.holdWhileUnheld = async (...args) => {
+			if (!recut) {
+				recut = true;
+				memory.remember(fresh);
+				writeFileSync(join(tree, "src", "notes.txt"), "uncommitted\n");
+				settleFolder(tree);
+				const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+				utimesSync(join(tree, "src", "notes.txt"), then, then);
+			}
+			return await real(...args);
+		};
+		let releases = 0;
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				releases += 1;
+				rmSync(tree, { recursive: true, force: true });
+			}),
+			whyKept: async (held) =>
+				existsSync(join(held.path, "src", "notes.txt"))
+					? "it has uncommitted changes"
+					: undefined,
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(recut, "the tree was cut afresh meanwhile").toBe(true);
+		expect(releases, "how many times it was released").toBe(0);
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "a session finished its stopped removal since, so the next run judges what stands there through every gate",
+		});
+		expect(existsSync(join(tree, "src", "notes.txt")), "the fresh work").toBe(
+			true,
+		);
+		expect(memory.recall(), "the fresh cut's record").toEqual([fresh]);
+
+		const next = await sweepWith(provider);
+
+		expect(releases, "how many times the next run released it").toBe(0);
+		expect(next.kept, "what the next run kept, and why").toContainEqual({
+			path: tree,
+			why: "it has uncommitted changes",
+		});
+	});
+
+	it("judges a folder through every gate while any record there is unmarked, whichever is listed first", async () => {
+		// Code from before marks may file an unmarked twin beside a stopped
+		// mark, naming what may be its fresh cut. Judged by the mark listed
+		// first, the tree was finished unjudged, and with the hold asking for
+		// the mark on every record, it would be kept by every run unjudged.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({
+			...record,
+			identity: { ...record.identity, key: "a-marked-twin" },
+			going: { at: Date.now(), by: ENDED },
+		});
+		judgedByKey(memory);
+		let releases = 0;
+		const provider = elsewhere("it has uncommitted changes", async () => {
+			releases += 1;
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(0);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "it has uncommitted changes",
+		});
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("keeps a stopped removal whose provider isn't loaded, and says so", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+
+		const outcome = await sweepWith({ ...elsewhere(undefined), id: "other" });
+
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: `${record.providerId} isn't loaded to finish its removal`,
+		});
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("forgets a stopped removal whose folder is gone once its release fails, and says why", async () => {
+		// Git's release runs `worktree remove` on the folder, which fails once
+		// it is gone: kept stopped, the tree would be released again by every
+		// sweep and refused to every session, for good.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		rmSync(tree, { recursive: true, force: true });
+		const refusal = `fatal: '${tree}' is not a working tree`;
+		let releases = 0;
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				releases += 1;
+				throw new Error(refusal);
+			}),
+			releaseNeedsFolder: true,
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(1);
+		expect(outcome.taken, "what the sweep says it took, and why").toEqual([
+			{
+				path: tree,
+				why: `its folder was gone when its release failed, so its record went as finished: ${refusal}`,
+			},
 		]);
+		expect(outcome.refused, "what it says it refused").toEqual([]);
+		expect(
+			memory.recall().map((one) => one.path),
+			"the records left",
+		).not.toContain(tree);
+	});
+
+	it("keeps a stopped removal whose folder is gone stopped once its release fails, through a provider that needs no folder", async () => {
+		// World's release resets a tree's processes and datastores, which
+		// outlive its folder: forgotten, a fresh cut would meet what the
+		// failed release never undid.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		rmSync(tree, { recursive: true, force: true });
+		let releases = 0;
+		const provider = elsewhere(undefined, async () => {
+			releases += 1;
+			throw new Error("its datastores wouldn't reset");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(1);
+		expect(outcome.taken, "what the sweep says it took").toEqual([]);
+		expect(outcome.refused, "what it says it refused, and why").toEqual([
+			{ path: tree, why: "its datastores wouldn't reset" },
+		]);
+		const left = memory.recall().filter((one) => one.path === tree);
+		expect(left.length, "the records left at its path").toBe(1);
+		expect(left[0]?.going, "its mark").toBeDefined();
+		expect(left[0]?.going?.lock, "its mark's lock").toBeUndefined();
+	});
+
+	/**
+	 * A session from before marks, which takes a marked record for a free
+	 * one and joins it, and a machine where it runs while `joiner.runs`
+	 * says so, as this test's own process does.
+	 */
+	function oldCodeJoiner() {
+		const JOINER = { pid: 4003, startedAt: 2500 };
+		const joiner = { runs: true };
+		const facts: ProcessFacts = {
+			alive: (pid) =>
+				(pid === JOINER.pid && joiner.runs) || pid === process.pid,
+			startedAt: async (pid) =>
+				pid === JOINER.pid && joiner.runs
+					? JOINER.startedAt
+					: pid === process.pid
+						? US_STARTED
+						: undefined,
+		};
+		return { JOINER, joiner, facts };
+	}
+
+	it("never releases a tree a session from before marks joined while its removal ran", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const { JOINER, joiner, facts } = oldCodeJoiner();
+		let releases = 0;
+		const provider = elsewhere(undefined, async (held) => {
+			releases += 1;
+			if (releases > 1) {
+				rmSync(held.path, { recursive: true, force: true });
+				return;
+			}
+			// It joins while the sweep removes it, keeping the mark it doesn't
+			// know of, and the removal then fails with the folder standing.
+			const [marked] = memory.recall();
+			if (marked === undefined) throw new Error("no record to join");
+			memory.remember({
+				...marked,
+				owners: [...(marked.owners ?? []), JOINER],
+			});
+			throw new Error("its datastores wouldn't reset");
+		});
+		const sweep = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts,
+				providers: () => [provider],
+			});
+
+		await sweep();
+		const stopped = memory.recall();
+		const again = await sweep();
+
+		expect(
+			stopped.map((one) => one.owners),
+			"who its stopped record names",
+		).toEqual([[JOINER]]);
+		expect(releases, "how many times it was released").toBe(1);
+		expect(again.taken, "what the next sweep took").toEqual([]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+
+		joiner.runs = false;
+		const ended = await sweep();
+
+		expect(releases, "how many times it was released once it ended").toBe(2);
+		expect(
+			ended.taken.map((one) => one.path),
+			"what the sweep took once it ended",
+		).toEqual([tree]);
+		expect(memory.recall(), "the records left").toEqual([]);
+	});
+
+	it("never finishes a stopped removal a session from before marks joined, by a sweep or an ask", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const { JOINER, joiner, facts } = oldCodeJoiner();
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		const joined = {
+			...record,
+			owners: [JOINER],
+			going: { at: Date.now(), by: ENDED },
+		};
+		memory.remember(joined);
+		let releases = 0;
+		const provider = elsewhere(undefined, async (held) => {
+			releases += 1;
+			rmSync(held.path, { recursive: true, force: true });
+		});
+		const sweep = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts,
+				providers: () => [provider],
+			});
+
+		const swept = await sweep();
+		const asking = memory.finishGoing(
+			joined,
+			() => provider.release(joined, {}),
+			facts,
+		);
+
+		await expect(asking, "what finishing it says").rejects.toMatchObject({
+			name: "TreeInUse",
+			pids: [JOINER.pid],
+		});
+		expect(swept.taken, "what the sweep took").toEqual([]);
+		expect(releases, "how many times it was released").toBe(0);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		expect(memory.recall(), "its record").toEqual([joined]);
+
+		joiner.runs = false;
+		const ended = await sweep();
+
+		expect(releases, "how many times it was released once it ended").toBe(1);
+		expect(
+			ended.taken.map((one) => one.path),
+			"what the sweep took once it ended",
+		).toEqual([tree]);
+		expect(memory.recall(), "the records left").toEqual([]);
+	});
+
+	it("judges through every gate a tree whose mark names no owner", async () => {
+		// Read as a stopped removal, a mark no code that ships wrote was
+		// finished unjudged: `"going": 0` beside uncommitted work released it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const marks: unknown[] = [0, {}, { at: 1 }];
+		const trees = marks.map((going, index) => {
+			const tree = elsewhereTree(`dev-${index}`);
+			const record = memory.recall().find((one) => one.path === tree);
+			if (record === undefined) throw new Error("no record was written");
+			memory.remember({ ...record, going } as unknown as HeldTree);
+			settleFolder(tree);
+			return tree;
+		});
+		let releases = 0;
+		const provider = elsewhere("it has uncommitted changes", async () => {
+			releases += 1;
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times one was released").toBe(0);
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		for (const tree of trees) {
+			expect(outcome.kept, "what it kept, and why").toContainEqual({
+				path: tree,
+				why: "it has uncommitted changes",
+			});
+			expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		}
+		expect(
+			memory.recall().map((one) => one.going),
+			"the marks read from its records",
+		).toEqual([undefined, undefined, undefined]);
+	});
+
+	it("reads a record whose mark is null as unmarked, and sweeps on", async () => {
+		// A record is a file anybody may edit: read as a mark, the null threw
+		// out of the sweep at its ask time and ended the run for every tree.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const nulled = elsewhereTree("dev-nulled");
+		const other = elsewhereTree("dev-other");
+		const record = memory.recall().find((one) => one.path === nulled);
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: null } as unknown as HeldTree);
+		settleFolder(nulled);
+		settleFolder(other);
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(
+			outcome.taken.map((one) => one.path).sort(),
+			"what the sweep took",
+		).toEqual([nulled, other].sort());
+		expect(outcome.refused, "what it refused").toEqual([]);
+		expect(memory.recall(), "the records left").toEqual([]);
+	});
+
+	it("forgets a tree whose release took its folder and then failed, through a provider that needs the folder", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+				throw new Error("its branch wouldn't go");
+			}),
+			releaseNeedsFolder: true,
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(
+			outcome.taken.map((one) => one.path),
+			"what the sweep says it took",
+		).toEqual([tree]);
+		expect(outcome.refused, "what it says it refused").toEqual([]);
+		expect(
+			memory.recall().map((one) => one.path),
+			"the records left",
+		).not.toContain(tree);
+	});
+
+	it("keeps stopped a tree whose release took its folder and then failed, through a provider that needs no folder", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+			throw new Error("its datastores wouldn't reset");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken, "what the sweep says it took").toEqual([]);
+		expect(outcome.refused, "what it says it refused, and why").toEqual([
+			{ path: tree, why: "its datastores wouldn't reset" },
+		]);
+		const left = memory.recall().filter((one) => one.path === tree);
+		expect(left.length, "the records left at its path").toBe(1);
+		expect(left[0]?.going, "its mark").toBeDefined();
+		expect(left[0]?.going?.lock, "its mark's lock").toBeUndefined();
 	});
 });
 
@@ -1537,9 +2199,9 @@ describe("a tree whose record another process holds locked past the wait", () =>
 			refuse(path);
 			return await real.whileUnheld(path, take, facts);
 		};
-		memory.holdWhileUnheld = async (path, facts) => {
+		memory.holdWhileUnheld = async (path, lock, facts, stopped) => {
 			refuse(path);
-			return await real.holdWhileUnheld(path, facts);
+			return await real.holdWhileUnheld(path, lock, facts, stopped);
 		};
 		return memory;
 	}

@@ -22,6 +22,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
 import {
 	type Owner,
+	ownerNow,
 	type ProcessFacts,
 	systemFacts,
 } from "../../../lib/core/process/index.ts";
@@ -38,8 +40,17 @@ import {
 	type HeldTree,
 	type TreeProvider,
 } from "../../../lib/core/work/broker.ts";
-import { createTreeMemory } from "../../../lib/core/work/memory.ts";
-import type { TreeRequest } from "../../../lib/core/work/tree.ts";
+import {
+	createTreeMemory,
+	TreeGoing,
+	TreeHalfGone,
+	TreeStillGoing,
+} from "../../../lib/core/work/memory.ts";
+import {
+	type RemovalLock,
+	removalLock,
+} from "../../../lib/core/work/sweep-lock.ts";
+import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { at } from "../../support/at.ts";
 
 let root: string;
@@ -51,6 +62,19 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
+
+let locks = 0;
+
+/**
+ * A lock held as a sweep's run holds its own, by this process, so a mark
+ * naming it stands until `end` is called.
+ */
+function running(): { readonly lock: RemovalLock; readonly end: () => void } {
+	locks += 1;
+	const made = removalLock(join(root, `sweep-${locks}.lock`));
+	if (made === undefined) throw new Error("no lock could be made");
+	return made;
+}
 
 /** A provider that makes the directory, so existence checks are real. */
 function provider(released: string[] = []): TreeProvider {
@@ -689,6 +713,7 @@ describe("a tree remembers which session cut it", () => {
 
 		const before = await memory.holdWhileUnheld(
 			spent.path,
+			running().lock,
 			machine({ [process.pid]: 5000 }),
 		);
 
@@ -864,8 +889,13 @@ describe("a tree remembers which session cut it", () => {
 		memory.remember(nobody);
 		const facts = machine({ 4001: 1000, [process.pid]: 5000 });
 
-		expect(await memory.holdWhileUnheld(live.path, facts)).toBeUndefined();
-		expect(await memory.holdWhileUnheld(nobody.path, facts)).toBeUndefined();
+		const { lock } = running();
+		expect(
+			await memory.holdWhileUnheld(live.path, lock, facts),
+		).toBeUndefined();
+		expect(
+			await memory.holdWhileUnheld(nobody.path, lock, facts),
+		).toBeUndefined();
 		expect(
 			memory
 				.recall()
@@ -876,5 +906,932 @@ describe("a tree remembers which session cut it", () => {
 				["nobody", []],
 			]),
 		);
+	});
+});
+
+describe("a tree a sweep is removing", () => {
+	const memoryAt = () => createTreeMemory(join(root, "cut"));
+	const ENDED: Owner = { pid: 4001, startedAt: 1000 };
+	const sweeping = (): ProcessFacts => ({
+		alive: (pid) => pid === process.pid,
+		startedAt: async (pid) => (pid === process.pid ? 5000 : undefined),
+	});
+
+	/** A shareable tree on disk whose one session has ended. */
+	function ended(key: string): HeldTree {
+		const path = join(root, key);
+		mkdirSync(path, { recursive: true });
+		return {
+			identity: { key, shareable: true },
+			path,
+			providerId: "elsewhere",
+			owners: [ENDED],
+		};
+	}
+
+	it("is marked going, and answered as it was, unmarked", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		const { lock } = running();
+
+		const before = await memory.holdWhileUnheld(tree.path, lock, sweeping());
+
+		expect(before).toEqual(tree);
+		expect(memory.recall()[0]?.going, "the record's mark").toEqual(
+			expect.objectContaining({
+				at: expect.any(Number),
+				by: expect.objectContaining({ pid: process.pid }),
+				lock,
+			}),
+		);
+		expect(await memory.goingState(tree, sweeping()), "its state").toBe(
+			"going",
+		);
+	});
+
+	it("stays going while the process that marked it runs, whoever its record names", async () => {
+		// In a host the record names the conversation the sweep runs in,
+		// which may close while the removal goes on; the mark is the
+		// process's, so the tree is handed to nobody meanwhile.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		memory.remember({
+			...tree,
+			owners: [ENDED],
+			going: { at: Date.now(), by: us, lock: running().lock },
+		});
+
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeGoing,
+		);
+		expect(await memory.goingState(tree, sweeping())).toBe("going");
+	});
+
+	it("stays going however long its removal runs, until its lock goes", async () => {
+		// A machine asleep through the night leaves the lock as it was, so an
+		// age would read a removal still running as stopped.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		const { lock, end } = running();
+		const sevenHours = 7 * 60 * 60 * 1000;
+		memory.remember({
+			...tree,
+			going: { at: Date.now() - sevenHours, by: us, lock },
+		});
+
+		expect(await memory.goingState(tree, sweeping()), "while it runs").toBe(
+			"going",
+		);
+		end();
+		expect(await memory.goingState(tree, sweeping()), "once it ended").toBe(
+			"standing",
+		);
+	});
+
+	it("reads a mark whose lock went, or whose lock this code never wrote, as stopped", async () => {
+		const memory = memoryAt();
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		const gone = running();
+		gone.end();
+		const { lock } = running();
+		const marks: unknown[] = [
+			{ at: Date.now(), by: us },
+			{ at: Date.now(), by: us, lock: gone.lock },
+			{ at: Date.now(), by: us, lock: { ...lock, id: "1:1" } },
+			{ at: Date.now(), by: ENDED, lock },
+			{ at: 0, by: us, lock: "a lock" },
+		];
+
+		for (const [index, going] of marks.entries()) {
+			const tree = ended(`snapshot-${index}`);
+			memory.remember({ ...tree, going } as HeldTree);
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)}`,
+			).toBe("standing");
+			rmSync(tree.path, { recursive: true, force: true });
+		}
+		// What the provider had left beside the folder is finished before a
+		// fresh cut at its path, so each record stays, still read as stopped.
+		expect(
+			memory.recall().map((one) => one.identity.key),
+			"records whose folders went",
+		).toEqual(marks.map((_, index) => `snapshot-${index}`));
+		for (const one of memory.recall()) {
+			expect(
+				await memory.goingState(one, sweeping()),
+				`${one.identity.key} with its folder gone`,
+			).toBe("standing");
+		}
+	});
+
+	it("reads a mark naming no owner that wrote it as no mark", async () => {
+		// No code that ships writes a mark without its owner: read as a
+		// stopped removal, it would be finished unjudged, past every gate
+		// that keeps a tree's work.
+		const memory = memoryAt();
+		const { lock } = running();
+		const marks: unknown[] = [
+			0,
+			Date.now(),
+			{},
+			{ at: 1 },
+			{ at: Date.now(), by: "a sweep", lock },
+			{ at: Date.now(), by: { pid: "1", startedAt: 1 }, lock },
+			[{ at: 1, by: ENDED }],
+		];
+
+		for (const [index, going] of marks.entries()) {
+			const tree = ended(`snapshot-${index}`);
+			memory.remember({ ...tree, going } as HeldTree);
+			const [read] = memory
+				.recall()
+				.filter((one) => one.identity.key === tree.identity.key);
+			expect(read?.going, `the mark read from ${JSON.stringify(going)}`).toBe(
+				undefined,
+			);
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)}`,
+			).toBe("standing");
+			// Unmarked, nothing is left to finish once its folder goes.
+			rmSync(tree.path, { recursive: true, force: true });
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)} with its folder gone`,
+			).toBe("gone");
+		}
+	});
+
+	it("refuses a session joining it while its sweep runs, writing nothing", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+		const marked = memory.recall()[0];
+
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeGoing,
+		);
+		expect(memory.recall()[0], "the record").toEqual(marked);
+	});
+
+	it("refuses a session taking it up once its removal stopped partway, writing nothing", async () => {
+		// What a stopped removal left may be half a tree, so nobody may work
+		// in it until the removal is finished.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember({
+			...tree,
+			owners: [ENDED],
+			going: { at: Date.now(), by: ENDED },
+		});
+		const marked = memory.recall()[0];
+
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeHalfGone,
+		);
+		expect(memory.recall()[0], "the record").toEqual(marked);
+	});
+
+	it("marks every record at its path, and refuses each while it goes", async () => {
+		// World keeps one tree under two keys; marking the first alone left
+		// the second to be handed out mid-removal.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const other: HeldTree = {
+			...tree,
+			identity: { key: "snapshot-by-name", shareable: true },
+		};
+		memory.remember(tree);
+		memory.remember(other);
+
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+
+		for (const one of [tree, other]) {
+			const key = one.identity.key;
+			expect(await memory.goingState(one, sweeping()), `${key}'s state`).toBe(
+				"going",
+			);
+			await expect(
+				memory.rememberHeldByUs(one, sweeping()),
+				`${key} taken up`,
+			).rejects.toThrow(TreeGoing);
+		}
+	});
+
+	it("marks none of a path's records when one came under a key it didn't lock", async () => {
+		// A session filing a twin after the sweep read the path holds only
+		// the twin's lock, so a mark written beside it would go unseen.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		let filed = false;
+		const twinArrives: ProcessFacts = {
+			...sweeping(),
+			startedAt: async (pid) => {
+				if (!filed) {
+					filed = true;
+					memory.remember({
+						...tree,
+						identity: { key: "snapshot-by-name", shareable: true },
+					});
+				}
+				return sweeping().startedAt(pid);
+			},
+		};
+
+		expect(
+			await memory.holdWhileUnheld(tree.path, running().lock, twinArrives),
+		).toBeUndefined();
+		expect(filed, "the twin was filed meanwhile").toBe(true);
+		expect(memory.recall().map((one) => one.going)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("marks none of a path's records while a session holds any of them", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const held: HeldTree = {
+			...tree,
+			identity: { key: "snapshot-by-name", shareable: true },
+			owners: [{ pid: process.pid, startedAt: 5000 }],
+		};
+		memory.remember(tree);
+		memory.remember(held);
+
+		expect(
+			await memory.holdWhileUnheld(tree.path, running().lock, sweeping()),
+		).toBeUndefined();
+		expect(memory.recall().map((one) => one.going)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("isn't spent while its removal runs, so a second sweep leaves it", async () => {
+		// In a host the record names the conversation the sweep runs in,
+		// which may close while the removal goes on.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		memory.remember({
+			...tree,
+			owners: [ENDED],
+			going: { at: Date.now(), by: us, lock: running().lock },
+		});
+		const taken: string[] = [];
+
+		const second = await memory.holdWhileUnheld(
+			tree.path,
+			running().lock,
+			sweeping(),
+		);
+		await memory.whileUnheld(
+			tree.path,
+			async () => {
+				taken.push(tree.path);
+				return true;
+			},
+			sweeping(),
+		);
+
+		expect(second, "the second sweep's hold").toBeUndefined();
+		expect(taken, "what an unheld take took").toEqual([]);
+	});
+
+	it("keeps its record while the folder goes, until the sweep ends the removal", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+		rmSync(tree.path, { recursive: true, force: true });
+
+		expect(memory.recall().map((one) => one.path)).toEqual([tree.path]);
+		await memory.endGoing(tree);
+		expect(memory.recall()).toEqual([]);
+	});
+
+	it("leaves a mark another removal made since to that removal to end", async () => {
+		// A sweep whose lock was taken over after a long stop ends what it
+		// began; the sweep that took over may have marked the tree anew.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const us: Owner = { pid: process.pid, startedAt: 5000 };
+		const first = running().lock;
+		const second = running().lock;
+		const marked = { ...tree, going: { at: Date.now(), by: us, lock: second } };
+		memory.remember(marked);
+
+		await memory.endGoing(tree, false, first);
+		await memory.endGoing(tree, true, first);
+
+		expect(memory.recall(), "the second removal's record").toEqual([
+			expect.objectContaining({ path: tree.path, going: marked.going }),
+		]);
+	});
+
+	it("leaves the record marked as stopped when the removal fails", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		const { lock } = running();
+		await memory.holdWhileUnheld(tree.path, lock, sweeping());
+
+		await memory.endGoing(tree, true);
+
+		const found = memory.recall()[0];
+		expect(found?.going, "its mark").toEqual(
+			expect.objectContaining({
+				by: expect.objectContaining({ pid: process.pid }),
+			}),
+		);
+		expect(found?.going?.lock, "its mark's lock").toBeUndefined();
+		// The sweep held it only to remove it, so a session asking later
+		// finishes the removal rather than reading the sweep as using it.
+		expect(found?.owners ?? [], "its holders").toEqual([]);
+		expect(await memory.goingState(tree, sweeping()), "its state").toBe(
+			"standing",
+		);
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeHalfGone,
+		);
+	});
+
+	it("finishes a stopped removal through the provider, and forgets it", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember({ ...tree, going: { at: Date.now(), by: ENDED } });
+		let during: string | undefined;
+
+		await memory.finishGoing(
+			tree,
+			async () => {
+				during = await memory.goingState(tree, sweeping());
+				rmSync(tree.path, { recursive: true, force: true });
+			},
+			sweeping(),
+		);
+
+		expect(during, "its state while finishing").toBe("going");
+		expect(memory.recall(), "the records").toEqual([]);
+		expect(
+			readdirSync(join(root, "cut")).filter((name) =>
+				name.endsWith(".removing"),
+			),
+			"locks left behind",
+		).toEqual([]);
+	});
+
+	it("leaves a removal it couldn't finish stopped, and says why", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember({ ...tree, going: { at: Date.now(), by: ENDED } });
+
+		await expect(
+			memory.finishGoing(
+				tree,
+				async () => {
+					throw new Error("EBUSY: the folder is in use");
+				},
+				sweeping(),
+			),
+		).rejects.toThrow(/EBUSY/);
+		await expect(memory.rememberHeldByUs(tree, sweeping())).rejects.toThrow(
+			TreeHalfGone,
+		);
+	});
+
+	it("finishes nothing while another removal of it runs, or when none stopped", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const other = ended("other");
+		memory.remember(tree);
+		memory.remember(other);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+		const released: string[] = [];
+		const release = async (): Promise<void> => {
+			released.push("released");
+		};
+
+		await expect(
+			memory.finishGoing(tree, release, sweeping()),
+			"while its removal runs",
+		).rejects.toThrow(TreeGoing);
+		await memory.finishGoing(other, release, sweeping());
+
+		expect(released, "the releases").toEqual([]);
+		expect(memory.recall().find((one) => one.path === other.path)).toEqual(
+			other,
+		);
+	});
+
+	it("keeps when it was last asked for when the removal fails", async () => {
+		// The record's file time is the shareable rule's clock; the mark and
+		// the restore aren't asks, so neither may start its day again.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		const [file] = readdirSync(join(root, "cut")).filter((name) =>
+			name.endsWith(".json"),
+		);
+		if (file === undefined) throw new Error("no record was written");
+		const asked = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+		asked.setMilliseconds(0);
+		utimesSync(join(root, "cut", file), asked, asked);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+
+		await memory.endGoing(tree, true);
+
+		expect(memory.askedAt(tree.path, tree.identity.key)).toBe(asked.getTime());
+	});
+
+	it("reads a record that never was as gone", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+
+		expect(await memory.goingState(tree, sweeping())).toBe("gone");
+		memory.remember(tree);
+		expect(await memory.goingState(tree, sweeping())).toBe("standing");
+	});
+
+	it("leaves the record of a tree cut afresh where the removed one stood", async () => {
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		memory.remember(tree);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+		const fresh: HeldTree = {
+			...tree,
+			owners: [{ pid: 4002, startedAt: 2000 }],
+		};
+		memory.remember(fresh);
+
+		await memory.endGoing(tree);
+		await memory.endGoing(tree, true);
+
+		expect(memory.recall()).toEqual([fresh]);
+	});
+
+	it("forgets only the records still marked, leaving a twin cut afresh", async () => {
+		// World files one tree under two keys; once the folder went, either
+		// may be a new cut's before the removal's end is written.
+		const memory = memoryAt();
+		const tree = ended("snapshot");
+		const twin: HeldTree = {
+			...tree,
+			identity: { ...tree.identity, key: "twin-by-name" },
+		};
+		memory.remember(tree);
+		memory.remember(twin);
+		await memory.holdWhileUnheld(tree.path, running().lock, sweeping());
+		const fresh: HeldTree = {
+			...twin,
+			owners: [{ pid: 4002, startedAt: 2000 }],
+		};
+		memory.remember(fresh);
+
+		await memory.endGoing(tree);
+
+		expect(memory.recall()).toEqual([fresh]);
+	});
+});
+
+describe("a session asking for a tree a sweep is removing", () => {
+	const memoryAt = () => createTreeMemory(join(root, "cut"));
+	/** A session no process on any machine can be. */
+	const GONE: Owner = { pid: 2_147_483_646, startedAt: 1000 };
+
+	/**
+	 * A broker whose provider says, of each ask, whether a sweep was
+	 * still removing the tree, and a record for `request`'s tree, cut by
+	 * a session now gone, that the sweep has marked going.
+	 */
+	async function removing(request: TreeRequest, goingWaitMs: number) {
+		const memory = memoryAt();
+		const asks: boolean[] = [];
+		const released: string[] = [];
+		const made = provider(released);
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...made,
+					async ensure(asked, options) {
+						asks.push(memory.recall().some((one) => one.going !== undefined));
+						return made.ensure(asked, options);
+					},
+				},
+			],
+			memory,
+			goingWaitMs,
+		});
+		const path = join(root, "trees", request.purpose);
+		mkdirSync(path, { recursive: true });
+		const tree: HeldTree = {
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [GONE],
+		};
+		memory.remember(tree);
+		const sweep = running();
+		const before = await memory.holdWhileUnheld(path, sweep.lock);
+		if (before === undefined) throw new Error("the sweep didn't mark it");
+		return { memory, broker, asks, released, tree, sweep };
+	}
+
+	/** After `ms`, as a sweep in another process ends its removal. */
+	const later = (ms: number, then: () => Promise<unknown>): Promise<unknown> =>
+		// A sweep's end is heard only by looking again, so the test waits as
+		// a session would, on the clock.
+		new Promise((done) => setTimeout(done, ms)).then(then);
+
+	it("waits for the removal, then cuts the tree afresh, asking nothing while it goes", async () => {
+		const request = asked("joined");
+		const { memory, broker, asks, tree } = await removing(request, 5000);
+		const started = Date.now();
+
+		const [held] = await Promise.all([
+			broker.ensure(request),
+			later(100, async () => {
+				rmSync(tree.path, { recursive: true, force: true });
+				await memory.endGoing(tree);
+			}),
+		]);
+
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
+		expect(
+			memory.recall()[0]?.going,
+			"the fresh record's mark",
+		).toBeUndefined();
+	});
+
+	it("finishes a removal that failed, then cuts the tree afresh", async () => {
+		const request = asked("failed");
+		const { memory, broker, asks, released, tree } = await removing(
+			request,
+			5000,
+		);
+		const started = Date.now();
+
+		const [held] = await Promise.all([
+			broker.ensure(request),
+			later(100, () => memory.endGoing(tree, true)),
+		]);
+
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
+		expect(released, "what the provider released").toEqual([tree.path]);
+		expect(held.path).toBe(tree.path);
+		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
+		const found = memory.recall()[0];
+		expect(found?.going, "the record's mark").toBeUndefined();
+		expect(found?.owners?.map((one) => one.pid)).toContain(process.pid);
+	});
+
+	it("says the sweep is still at it once the wait runs out, asking nothing", async () => {
+		const request = asked("stuck");
+		const { broker, asks, tree } = await removing(request, 200);
+
+		await expect(broker.ensure(request)).rejects.toThrow(
+			`${tree.path} is still being removed by a sweep`,
+		);
+		expect(asks, "the provider's asks").toEqual([]);
+	});
+
+	/**
+	 * A tree a sweep is removing, filed under another key than the one
+	 * asked for, at the path its provider hands back for that ask, as
+	 * World files one tree under two keys.
+	 */
+	async function removingTwin(purpose: string, goingWaitMs: number) {
+		const removal = await removing(asked(purpose, "filed-apart"), goingWaitMs);
+		return { ...removal, request: asked(purpose) };
+	}
+
+	it("waits for a removal marked on a twin under another key, never listing the tree while refused", async () => {
+		const { memory, broker, tree, request } = await removingTwin(
+			"twinned",
+			5000,
+		);
+		const started = Date.now();
+		let listed: boolean | undefined;
+
+		const [held] = await Promise.all([
+			broker.ensure(request),
+			later(50, async () => {
+				listed = broker.cutHere(tree.path);
+			}),
+			later(100, async () => {
+				rmSync(tree.path, { recursive: true, force: true });
+				await memory.endGoing(tree);
+			}),
+		]);
+
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
+		expect(listed, "whether it listed the tree while refused").toBe(false);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		expect(broker.cutHere(held.path), "whether it lists the fresh cut").toBe(
+			true,
+		);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.identity.key),
+			"the records left",
+		).toEqual([treeIdentity(request).key]);
+		expect(found[0]?.going, "the fresh record's mark").toBeUndefined();
+		expect(found[0]?.owners?.map((one) => one.pid)).toContain(process.pid);
+	});
+
+	it("says a sweep still removes a twin under another key once the wait runs out, never listing the tree", async () => {
+		const { broker, tree, request } = await removingTwin("twin-stuck", 200);
+
+		const refusal = await broker.ensure(request).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+
+		expect(broker.cutHere(tree.path), "whether it lists the tree").toBe(false);
+		expect(refusal, "the ask's refusal").toBeInstanceOf(TreeStillGoing);
+	});
+
+	it("finishes a stopped removal marked on a twin under another key, then cuts the tree afresh", async () => {
+		const { memory, broker, released, tree, sweep, request } =
+			await removingTwin("twin-stopped", 5000);
+		await memory.endGoing(tree, true, sweep.lock);
+		sweep.end();
+
+		const held = await broker.ensure(request);
+
+		expect(released, "what the provider released").toEqual([tree.path]);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.identity.key),
+			"the records left",
+		).toEqual([treeIdentity(request).key]);
+		expect(found[0]?.going, "the fresh record's mark").toBeUndefined();
+		expect(found[0]?.owners?.map((one) => one.pid)).toContain(process.pid);
+	});
+
+	it("stops looking once the wait runs out, whatever the record's own file says", async () => {
+		// A record at the path left unmarked by older code reads as standing
+		// while its twin's removal runs; each refusal is one look, so the
+		// wait still ends.
+		const request = asked("twin");
+		const { memory, broker, asks, tree } = await removing(request, 200);
+		const marked = memory.recall()[0];
+		if (marked === undefined) throw new Error("no record was marked");
+		memory.remember({
+			...marked,
+			identity: { ...marked.identity, key: "twin-by-name" },
+		});
+		const { going: _, ...unmarked } = marked;
+		memory.remember(unmarked);
+		const started = Date.now();
+
+		await expect(broker.ensure(request)).rejects.toThrow(
+			`${tree.path} is still being removed by a sweep`,
+		);
+		expect(Date.now() - started, "how long it looked").toBeLessThan(5000);
+		expect(asks, "the provider's asks").toEqual([]);
+	});
+
+	it("finishes the removal at once when the sweep that marked it has stopped", async () => {
+		const request = asked("stopped");
+		const { memory, broker, asks, released, tree, sweep } = await removing(
+			request,
+			60_000,
+		);
+		sweep.end();
+		const started = Date.now();
+
+		const held = await broker.ensure(request);
+
+		expect(Date.now() - started, "how long it waited").toBeLessThan(5000);
+		expect(released, "what the provider released").toEqual([tree.path]);
+		expect(held.path).toBe(tree.path);
+		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
+		expect(memory.recall()[0]?.going, "the stopped mark").toBeUndefined();
+	});
+
+	it("cuts afresh a tree whose stopped removal fails to finish once its folder is gone", async () => {
+		// Git's release runs `worktree remove` on the folder, which fails once
+		// it is gone: kept stopped, every ask would finish it again and fail.
+		const request = asked("folder-gone");
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider(),
+					releaseNeedsFolder: true,
+					async release(held) {
+						released.push(held.path);
+						throw new Error(`fatal: '${held.path}' is not a working tree`);
+					},
+				},
+			],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const path = join(root, "trees", request.purpose);
+		memory.remember({
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [GONE],
+			going: { at: Date.now(), by: GONE },
+		});
+
+		const held = await broker.ensure(request);
+
+		expect(released, "what the provider was asked to release").toEqual([path]);
+		expect(held.path, "where the tree was handed out").toBe(path);
+		expect(existsSync(path), "the fresh cut's folder").toBe(true);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.going),
+			"the marks on its records",
+		).toEqual([undefined]);
+		expect(
+			found[0]?.owners?.map((one) => one.pid),
+			"its record's holders",
+		).toContain(process.pid);
+	});
+
+	it("refuses a tree whose stopped removal fails to finish with its folder gone, through a provider that needs no folder", async () => {
+		// World's release resets a tree's processes and datastores, which
+		// outlive its folder: cut afresh, the tree would meet what the failed
+		// release never undid.
+		const request = asked("datastores-left");
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider(),
+					async release(held) {
+						released.push(held.path);
+						throw new Error("its datastores wouldn't reset");
+					},
+				},
+			],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const path = join(root, "trees", request.purpose);
+		memory.remember({
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [GONE],
+			going: { at: Date.now(), by: GONE },
+		});
+
+		await expect(broker.ensure(request), "the ask").rejects.toThrow(
+			"its datastores wouldn't reset",
+		);
+
+		expect(released, "what the provider was asked to release").toEqual([path]);
+		expect(existsSync(path), "a fresh cut's folder").toBe(false);
+		const found = memory.recall();
+		expect(found.length, "its records").toBe(1);
+		expect(
+			(found[0]?.owners ?? []).map((one) => one.pid),
+			"its record's holders",
+		).not.toContain(process.pid);
+		expect(found[0]?.going, "its mark").toBeDefined();
+		expect(found[0]?.going?.lock, "its mark's lock").toBeUndefined();
+	});
+
+	it("waits while another session finishes a stopped removal, then cuts afresh", async () => {
+		// The other session holds the removal's lock, so this one can't take
+		// the removal up; that is a removal still going, not a refusal.
+		const request = asked("finished-elsewhere");
+		const { memory, broker, asks, released, tree, sweep } = await removing(
+			request,
+			5000,
+		);
+		sweep.end();
+		const file = `${tree.identity.key.replaceAll("/", "-")}.json.removing`;
+		const theirs = removalLock(join(root, "cut", file));
+		if (theirs === undefined)
+			throw new Error("the other session's lock wasn't made");
+		const started = Date.now();
+
+		const [held] = await Promise.all([
+			broker.ensure(request),
+			later(100, async () => {
+				rmSync(tree.path, { recursive: true, force: true });
+				await memory.endGoing(tree);
+				theirs.end();
+			}),
+		]);
+
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
+		expect(released, "what this session's provider released").toEqual([]);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
+	});
+
+	it("refuses, releasing nothing, a part-removed tree a session from before marks joined", async () => {
+		// Code from before marks takes a marked record for a free one and adds
+		// itself as a holder; finishing the removal would pull the tree out
+		// from under that session.
+		// A snapshot, since sessions share one: a worktree with another
+		// running holder is refused before its mark is looked at.
+		const request: TreeRequest = {
+			intent: "snapshot",
+			repo: { key: "github:o/r" },
+			purpose: "joined-stopped",
+			commit: "abc123",
+		};
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider(released)],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const theirs = await ownerNow(systemFacts, process.ppid);
+		if (theirs === undefined)
+			throw new Error("the parent process can't be read");
+		const path = join(root, "trees", request.purpose);
+		mkdirSync(path, { recursive: true });
+		const tree: HeldTree = {
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [theirs],
+			going: { at: Date.now(), by: GONE },
+		};
+		memory.remember(tree);
+
+		await expect(
+			broker.ensure(request),
+			"what asking for the tree says",
+		).rejects.toMatchObject({ name: "TreeInUse", path });
+
+		expect(released, "what the provider was asked to release").toEqual([]);
+		expect(existsSync(path), "the joined tree's folder").toBe(true);
+		expect(memory.recall(), "its record").toEqual([tree]);
+		expect(
+			(await memory.heldNow()).map((one) => one.path),
+			"the trees held now",
+		).toEqual([path]);
+	});
+
+	it("refuses a worktree another running session took up while it waited", async () => {
+		// A worktree is one session's at a time; the wait doesn't excuse the
+		// look at who else holds it.
+		const request = asked("taken-meanwhile");
+		const { memory, broker, asks, tree } = await removing(request, 5000);
+		const theirs = await ownerNow(systemFacts, process.ppid);
+		if (theirs === undefined)
+			throw new Error("the parent process can't be read");
+
+		await Promise.all([
+			expect(broker.ensure(request)).rejects.toThrow("another running session"),
+			later(100, async () => {
+				await memory.endGoing(tree);
+				memory.remember({ ...tree, owners: [theirs] });
+			}),
+		]);
+		expect(asks, "the provider's asks").toEqual([]);
+		expect(memory.recall()[0]?.owners, "its holders").toEqual([theirs]);
+	});
+
+	it("stops waiting when its call is called off", async () => {
+		const request = asked("called-off");
+		const { broker, asks } = await removing(request, 60_000);
+		const stop = new AbortController();
+		const started = Date.now();
+
+		await Promise.all([
+			expect(broker.ensure(request, { signal: stop.signal })).rejects.toThrow(),
+			later(100, async () => {
+				stop.abort();
+			}),
+		]);
+		expect(Date.now() - started, "how long it waited").toBeLessThan(5000);
+		expect(asks, "the provider's asks").toEqual([]);
 	});
 });

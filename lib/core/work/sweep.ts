@@ -66,7 +66,7 @@ import {
 	treesInUse,
 	type UseSigns,
 } from "./in-use.ts";
-import type { TreeMemory } from "./memory.ts";
+import { carriesMark, type GoingEnd, type TreeMemory } from "./memory.ts";
 import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
@@ -86,7 +86,7 @@ import {
 	KEPT_BRANCHES,
 	keepBranch,
 } from "./sweep-kept-branches.ts";
-import { type LockFresh, sweepLock } from "./sweep-lock.ts";
+import { type LockFresh, type RemovalLock, sweepLock } from "./sweep-lock.ts";
 import {
 	finishStoppedRemovals,
 	goneGitDir,
@@ -560,13 +560,34 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			.filter(
 				(tree) => tree.providerId !== GIT_WORKTREE && !heldPaths.has(tree.path),
 			);
+		// One turn a folder: a turn judges and takes every record there, as
+		// World files one tree under two keys, and a second would find none
+		// left and report the tree taken as kept too.
+		const judged = new Set<string>();
 		for (const tree of others) {
+			// A lock taken over, after a long sleep or past its touching, is
+			// another sweep's. Its note has this one's marks read as running
+			// while this one lives, so none is finished under it, but marking
+			// on would race the taker, so the sweep holding the lock takes
+			// what's left.
+			if (!release.ours()) break;
+			if (judged.has(tree.path)) continue;
+			judged.add(tree.path);
+			// A folder is a stopped removal's only while every record there is
+			// marked. An unmarked twin, as code from before marks may file, may
+			// name a fresh cut, so the folder is judged through every gate by
+			// it, whichever record the listing gave first: judged by the mark,
+			// the hold refuses it as no longer the stopped removal, every run.
+			const unmarked = others.find(
+				(one) => one.path === tree.path && one.going === undefined,
+			);
 			// Other providers' rules know nothing of a quest's claim, so it
 			// holds their trees for good.
 			await releaseThroughProvider(
 				deps,
 				facts,
-				tree,
+				release.lock,
+				unmarked ?? tree,
 				[...remembered, ...spendable],
 				outcome,
 			);
@@ -719,16 +740,43 @@ function unreadWhy(
 }
 
 /**
+ * When the tree at `path` was last asked for, by any record there, since
+ * the removal marks and takes them all: World files one tree under two
+ * keys. A marked record's file was rewritten by the mark, which is no
+ * ask, so it counts the time its mark kept, or none; a run killed
+ * mid-removal would otherwise leave its tree kept a day as just asked
+ * for. Nothing when no record is there any more.
+ */
+function lastAsked(memory: TreeMemory, path: string): number | undefined {
+	const times = memory
+		.recall()
+		.filter((one) => one.path === path)
+		.map((one) =>
+			one.going === undefined
+				? memory.askedAt(path, one.identity.key)
+				: (one.going.asked ?? 0),
+		)
+		.filter((at) => at !== undefined);
+	return times.length === 0 ? undefined : Math.max(...times);
+}
+
+/**
  * Take a tree another provider cut, through that provider, once it says
  * nothing would be lost.
  *
  * Such a tree can't be moved aside first: its provider finds it by
  * where it stands, and may have more to undo than the folder, as World
  * resets a tree's processes and datastores. So instead this session
- * becomes its only holder under the record's lock, which makes the
- * broker hand it to nobody else, and the removal runs after. A
- * shareable tree is never taken that way, since another session may
- * join one whoever holds it.
+ * becomes its only holder under the record's lock and marks it as
+ * going, which makes the broker hand it to nobody else, a shareable one
+ * included: a session asking meanwhile waits for the record to go and
+ * cuts it afresh. The removal runs after. The mark is tied to this run's
+ * lock, so a run that stops partway, killed or failing, leaves it
+ * reading as stopped, and the next session asking for the tree finishes
+ * the removal through the provider before cutting it afresh. A shareable tree goes only
+ * once nobody has asked for it for {@link PUSHED_SETTLE_MS}, since a
+ * snapshot is read, which leaves its folder unmoved, and another round
+ * at the same commit reuses one left a moment ago.
  *
  * A tree that moved within {@link PUSHED_SETTLE_MS} is kept without
  * asking, as a pushed git worktree is: on 13 November a provider called
@@ -738,6 +786,7 @@ function unreadWhy(
 async function releaseThroughProvider(
 	deps: SweepDeps,
 	facts: ProcessFacts,
+	lock: RemovalLock,
 	tree: HeldTree,
 	remembered: readonly string[],
 	outcome: SweepOutcome,
@@ -749,16 +798,34 @@ async function releaseThroughProvider(
 		keep("something still holds it");
 		return;
 	}
-	if (tree.identity.shareable) {
-		keep("it is shareable, so a session could join it while it is removed");
+	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
+	// A removal that stopped partway was judged spent before it began, and
+	// no session has taken the tree up since, since a marked tree is
+	// refused to all of them. Judged again, what it took out reads as the
+	// tree moving, or as changes its provider would keep, and what is left
+	// waits a day or for good.
+	if (tree.going !== undefined) {
+		if (provider === undefined) {
+			keep(`${tree.providerId} isn't loaded to finish its removal`);
+			return;
+		}
+		await removeMarked(deps, facts, lock, tree, provider, outcome);
 		return;
 	}
 	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
+	if (tree.identity.shareable) {
+		const asked = lastAsked(deps.memory, tree.path);
+		if (asked === undefined || asked > since) {
+			keep(
+				"it is shareable and was asked for within the last day, so a session may join it again",
+			);
+			return;
+		}
+	}
 	if (!treeStillSince(tree.path, since)) {
 		keep("it moved within the last day, so a session may come back to it");
 		return;
 	}
-	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
 	if (provider?.whyKept === undefined) {
 		keep(`${tree.providerId} can't say whether it is spent`);
 		return;
@@ -773,27 +840,100 @@ async function releaseThroughProvider(
 		keep(why);
 		return;
 	}
+	await removeMarked(deps, facts, lock, tree, provider, outcome);
+}
+
+/**
+ * Mark `tree` as going under this run's `lock` and remove it through its
+ * provider, unless a session took it up again, ending the mark however
+ * the removal went.
+ */
+async function removeMarked(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	lock: RemovalLock,
+	tree: HeldTree,
+	provider: TreeProvider,
+	outcome: SweepOutcome,
+): Promise<void> {
 	let before: HeldTree | undefined;
 	try {
-		before = await deps.memory.holdWhileUnheld(tree.path, facts);
+		// A stopped removal is finished unjudged, so only while every record
+		// still carries the mark read as the run listed its trees.
+		before = await deps.memory.holdWhileUnheld(
+			tree.path,
+			lock,
+			facts,
+			tree.going,
+		);
 	} catch (error) {
 		if (!keptForItsLock(tree, error, outcome)) throw error;
 		return;
 	}
 	if (before === undefined) {
-		keep("a session took it up again");
+		outcome.kept.push({ path: tree.path, why: whyNotHeld(deps.memory, tree) });
 		return;
 	}
+	let failed: unknown;
 	try {
 		await provider.release(tree);
-		deps.memory.forget(tree.path);
-		outcome.taken.push({ path: tree.path });
 	} catch (error) {
-		// Whatever the provider left stands where it was, and goes back to
-		// the sessions that held it, for the next sweep to judge again.
-		deps.memory.remember(before);
-		outcome.refused.push({ path: tree.path, why: messageOf(error) });
+		failed = error;
 	}
+	// Ended apart from the release, so a removal that went is taken however
+	// its record's end goes. An end that fails, its lock held or the disk
+	// out of descriptors, leaves the mark, which stands only while this
+	// run's lock does, and the run goes on.
+	let unended: string | undefined;
+	let end: GoingEnd | undefined;
+	try {
+		// What a failed removal left may be half a tree, so its mark stays,
+		// stopped, and whoever asks for it next finishes the removal first.
+		end = await deps.memory.endGoing(
+			tree,
+			failed !== undefined,
+			lock,
+			provider,
+		);
+	} catch (error) {
+		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
+	}
+	if (failed === undefined) {
+		outcome.taken.push({ path: tree.path });
+		return;
+	}
+	// Its folder gone, its record went as finished, and the log says why,
+	// since the provider's failure no longer stops anybody having it.
+	if (end === "forgotten") {
+		outcome.taken.push({
+			path: tree.path,
+			why: `its folder was gone when its release failed, so its record went as finished: ${messageOf(failed)}`,
+		});
+		return;
+	}
+	outcome.refused.push({
+		path: tree.path,
+		why: `${messageOf(failed)}${unended ?? ""}`,
+	});
+}
+
+/**
+ * Why `tree` couldn't be held for its removal: a session took it up
+ * again, or, for a stopped removal, a session finished that removal
+ * since, and what stands there may be its fresh cut, which the next run
+ * judges through every gate. Read off the records as they stand now,
+ * outside their locks, so it names what a reader of the log would find.
+ */
+function whyNotHeld(memory: TreeMemory, tree: HeldTree): string {
+	const read = tree.going;
+	const finished =
+		read !== undefined &&
+		memory
+			.recall()
+			.some((one) => one.path === tree.path && !carriesMark(one, read));
+	return finished
+		? "a session finished its stopped removal since, so the next run judges what stands there through every gate"
+		: "a session took it up again";
 }
 
 /**

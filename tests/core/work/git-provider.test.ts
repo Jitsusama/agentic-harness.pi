@@ -102,6 +102,13 @@ describe("createGitTreeProvider", () => {
 		expect(provider.specificity).toBe(0);
 	});
 
+	it("says its release needs the folder, since `worktree remove` runs on it", () => {
+		const { exec } = fakeExec(ok);
+		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
+
+		expect(provider.releaseNeedsFolder).toBe(true);
+	});
+
 	it("detaches a snapshot at its commit", async () => {
 		const { exec, calls } = fakeExec(ok);
 		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
