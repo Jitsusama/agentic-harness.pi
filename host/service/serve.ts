@@ -204,6 +204,9 @@ export async function serveHost(options: {
 	// Declared before the children's hosting, which reads it whenever a wake
 	// fails, as one can while the start still adopts and resumes.
 	let stopping: Promise<void> | undefined;
+	// Set as a start fails, which refuses a wake still under way as a stop
+	// does, so that wake's failure is only said beside the start's own.
+	let startFailed = false;
 	try {
 		host = new SessionHost({
 			key,
@@ -262,12 +265,16 @@ export async function serveHost(options: {
 					...(engine.restGivenUp
 						? { restGivenUp: (entry) => engine.restGivenUp?.(entry) }
 						: {}),
+					...(engine.leaveToStart
+						? { leaveToStart: (entry) => engine.leaveToStart?.(entry) }
+						: {}),
 					// A child's conversation that became another is told the backend
 					// as one the host runs is, so a repeat names the one now.
 					became: (previousId, nextId) => succeeded?.(previousId, nextId),
 					// One whose child failed mid-turn is woken as a message wakes it.
 					wake,
-					stopping: () => stopping !== undefined,
+					hostRuns: (sessionId) => host?.holds(sessionId) !== undefined,
+					stopping: () => stopping !== undefined || startFailed,
 					report: options.report,
 					...(options.say ? { say: options.say } : {}),
 				});
@@ -402,6 +409,7 @@ export async function serveHost(options: {
 			},
 		};
 	} catch (error) {
+		startFailed = true;
 		children?.close();
 		await listener?.close().catch(options.report);
 		if (host) {
