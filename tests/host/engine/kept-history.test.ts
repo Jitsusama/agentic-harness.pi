@@ -825,30 +825,63 @@ describe("a held conversation once its extensions say what stays behind", () => 
 		expect(report).not.toHaveBeenCalled();
 	});
 
-	it("takes nothing again when none said more stays behind since it opened", () => {
+	it("reads nothing again when none said more stays behind since it opened", () => {
 		const held = hold(compactedLog());
 		const before = held.getEntries();
+		// A view taken again over the same types finds nothing more to leave
+		// out, so only whether it read its branch again tells it was taken.
+		const read = vi.spyOn(held, "getBranch");
 		retakeKeptHistory(held);
+		expect(read, "the view was taken again").not.toHaveBeenCalled();
 		const after = held.getEntries();
-		// What it holds in place of what it left out stays as it was.
 		expect(
 			after.filter((entry, at) => entry !== before[at]).map((e) => e.id),
-			"the view was taken again",
+			"what it holds was changed",
 		).toEqual([]);
 	});
 
-	it("leaves them out again when it compacts again", () => {
-		const type = "late-record-compacted";
-		const held = hold(compactedLog({ state: type }));
+	it("holds what it held when taking it again fails, and says so", () => {
+		const type = "late-record-fails";
+		const report = vi.fn();
+		const held = hold(compactedLog({ state: type }), report);
+		const before = held.getEntries().map((entry) => entry.id);
 		leaveInParentLog(type);
+		// The view taken again fails to index once.
+		Reflect.set(held, "_buildIndex", () => {
+			Reflect.deleteProperty(held, "_buildIndex");
+			throw new Error("no index this once");
+		});
 		retakeKeptHistory(held);
-		const dropped = rolledFrom(held.getBranch())?.dropped ?? 0;
-		compactsAgain(held);
-		expect(customTypes(held)).not.toContain(type);
+		expect(report).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: expect.stringContaining(
+					`kept history couldn't leave out the ${type} records its extensions leave behind,`,
+				),
+			}),
+		);
 		expect(
-			rolledFrom(held.getBranch())?.dropped,
-			"what it left out before is still counted",
-		).toBeGreaterThan(dropped);
+			held.getEntries().map((entry) => entry.id),
+			"it holds what it held",
+		).toEqual(before);
+		expect(customTypes(held)).toContain(type);
+		expect(Object.hasOwn(held, "getTree"), "the view is still held").toBe(true);
+	});
+
+	it("leaves them out again when it compacts again, counted as one opened after they were said", () => {
+		const type = "late-record-compacted";
+		const told = hold(compactedLog({ state: type }));
+		leaveInParentLog(type);
+		retakeKeptHistory(told);
+		compactsAgain(told);
+		const knew = hold(compactedLog({ state: type }));
+		compactsAgain(knew);
+		const dropped = rolledFrom(knew.getBranch())?.dropped;
+		expect(dropped, "the view left nothing out").toBeGreaterThan(0);
+		expect(customTypes(told)).not.toContain(type);
+		expect(
+			rolledFrom(told.getBranch())?.dropped,
+			"what it left out before is counted once",
+		).toBe(dropped);
 	});
 
 	it("leaves a conversation holding its whole log as it is", () => {

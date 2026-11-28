@@ -724,7 +724,7 @@ function guard(
 			const why = error instanceof Error ? error.message : String(error);
 			report(
 				new Error(
-					`Kept history couldn't leave out ${what} of conversation ${manager.sessionId}, so it holds that until it next opens: ${why}`,
+					`Conversation ${manager.sessionId}'s kept history couldn't leave out ${what}, so it holds that until it next opens: ${why}`,
 					{ cause: error },
 				),
 			);

@@ -738,6 +738,11 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => ["early", "kept", "after"].map((word) => say(word)),
 		run: async (engine, host) => {
 			const { entry } = await compacted(engine, host, PROBE_RECORD);
+			// The next step can show the view leaves it out only if it was written.
+			if (!readFileSync(entry.file, "utf8").includes(`"${PROBE_RECORD}"`))
+				throw new Error(
+					`Conversation ${entry.sessionId}'s log holds no ${PROBE_RECORD}`,
+				);
 			writeFileSync(comeBack, JSON.stringify(entry));
 			return {};
 		},
@@ -2055,7 +2060,11 @@ async function compacted(
 ): Promise<{ entry: RosterEntry; kept: string; parent: string | null }> {
 	const id = await open(engine, { first: "early" });
 	await idle(engine, id);
-	if (record) logOf(engine, id)?.appendCustomEntry(record, { early: true });
+	if (record) {
+		const log = logOf(engine, id);
+		if (!log) throw new Error(`Conversation ${id} holds no log to write to`);
+		log.appendCustomEntry(record, { early: true });
+	}
 	await prompt(engine, id, "kept");
 	await idle(engine, id);
 	await prompt(engine, id, "after");

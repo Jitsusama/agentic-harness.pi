@@ -84,18 +84,24 @@ async function gitSays(
 
 /**
  * Whether this git, built with the daemon, says what it says in German
- * under a German locale, as one built with gettext does.
+ * under a German locale, as one built with gettext does: its answer
+ * names the tree as its English one does, quoted, without the English
+ * words. A failure that isn't git's answer, such as a timeout, names no
+ * tree that way, so it never reads as a translation.
  */
 const gitTranslates =
 	gitHasTheDaemon &&
 	(await (async () => {
 		const tree = await freshRepo("tidy-translates");
 		try {
+			const english = await daemonStatus(tree);
+			const named = /is not watching ('[^']+)'/.exec(english)?.[1];
+			if (named === undefined) return false;
 			const said = await gitSays(["-C", tree, "fsmonitor--daemon", "status"], {
 				...process.env,
 				...GERMAN,
 			});
-			return !said.includes("is not watching");
+			return said.includes(named) && !said.includes("is not watching");
 		} finally {
 			disposeRepo(tree);
 		}
@@ -484,11 +490,6 @@ function recording(): {
 	};
 }
 
-// What each question costs on World, where tidy ran past 600 s on
-// 10 November: 1,866 branches, 253 trees, 102 of them detached. Asking
-// git how far each branch is from its upstream took 476 s there, and
-// asking per detached tree whether a ref holds its commit took 14 s to
-// 102 s a tree. The counts below are what keeps those from coming back.
 describe("the check the fsmonitor cases judge git's commands by", () => {
 	const off = ["-c", "core.fsmonitor=false"];
 
@@ -527,6 +528,11 @@ describe("the check the fsmonitor cases judge git's commands by", () => {
 	});
 });
 
+// What each question costs on World, where tidy ran past 600 s on
+// 10 November: 1,866 branches, 253 trees, 102 of them detached. Asking
+// git how far each branch is from its upstream took 476 s there, and
+// asking per detached tree whether a ref holds its commit took 14 s to
+// 102 s a tree. The counts below are what keeps those from coming back.
 describe("reading a repository with many branches and trees", () => {
 	it("tells a gone upstream without counting how far each branch has moved", async () => {
 		const { local, remote } = await repoWithRemote();
