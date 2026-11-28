@@ -1,7 +1,7 @@
 /**
- * A stack round's reviewers run on a room, as a council's do, when the
- * tip's tree holds every member's head: a room's reviewer checks out one
- * commit, the tip's, so a stack the tip doesn't hold whole stays here and
+ * A stack round's reviewers run on a room, as a council's do, when every
+ * member lists a head the tip's tree holds: a room's reviewer checks out
+ * one commit, the tip's, so a stack the tip doesn't hold whole stays here and
  * waits on this machine's bars, as does one whose brief a room's start
  * can't carry. The room is read again after the wait, so one taken out
  * of the config meanwhile sends the round back to the bars.
@@ -139,6 +139,7 @@ function asked(overrides: Partial<StackStartAsk> = {}): StackStartAsk {
 		head: HEAD,
 		prompt: "Review this stack.",
 		unheld: [],
+		headless: [],
 		harness: () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] }),
 		signal: AbortSignal.timeout(HELD_AFTER_MS),
 		...overrides,
@@ -178,6 +179,23 @@ describe("a stack round with a room configured", () => {
 
 		expect(start.cancelled).toBeUndefined();
 		expect(room, "no room for a stack the tip doesn't hold").toBeUndefined();
+		expect(here.asked(), "read this machine's bars").toBeGreaterThan(0);
+		await start.release?.();
+	});
+
+	it("stays here and waits on the bars when a member lists no head", async () => {
+		const here = bars(false);
+
+		const { start, room } = await stackRoundStart(
+			asked({ headless: ["feature-b"] }),
+			reads(config({ room: { machine: "room-1" } }), here),
+		);
+
+		expect(start.cancelled).toBeUndefined();
+		expect(
+			room,
+			"no room for a head nothing shows the tip holds",
+		).toBeUndefined();
 		expect(here.asked(), "read this machine's bars").toBeGreaterThan(0);
 		await start.release?.();
 	});
@@ -234,7 +252,7 @@ describe("a stack round's reviewers", () => {
 
 	it("weigh the room again only once the stack is built again after the wait", () => {
 		const body = askFunctions().get("askStack") ?? "";
-		const rebuilt = body.indexOf("built = rebuilt;");
+		const rebuilt = body.indexOf("built = afterWait.rebuilt;");
 		const settles = body.indexOf("await settleStackRoom(");
 
 		expect(rebuilt, "the stack is built again after its wait").toBeGreaterThan(
