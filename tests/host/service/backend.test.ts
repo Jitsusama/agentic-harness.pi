@@ -233,7 +233,7 @@ describe("hostBackend", () => {
 		});
 	});
 
-	it("writes a heap snapshot of a conversation it runs, saying so, and refuses one busy or running nowhere", async () => {
+	it("writes a heap snapshot of a conversation it runs, saying so and who asked, and refuses one busy or running nowhere", async () => {
 		const said: string[] = [];
 		const wrote: string[] = [];
 		const backend = backendWith(engine().fake, undefined, {
@@ -245,20 +245,23 @@ describe("hostBackend", () => {
 			},
 		});
 		const running = parseOpenResult(await backend.execute(anOpen()));
-		const snapshot = (id: string) =>
+		const snapshot = (id: string, by?: string) =>
 			backend.execute({
 				v: 1,
 				id: randomUUID(),
 				op: "heap-snapshot",
 				sessionId: id,
+				...(by === undefined ? {} : { by }),
 			});
 
-		const answer = parseHeapSnapshotResult(await snapshot(running.sessionId));
+		const answer = parseHeapSnapshotResult(
+			await snapshot(running.sessionId, "scripts/host-memory.ts"),
+		);
 		expect(answer).toMatchObject({ sessionId: running.sessionId, bytes: 0 });
 		expect(wrote).toEqual([answer.file]);
 		expect(said).toEqual([
-			expect.stringContaining(
-				`Wrote a heap snapshot of conversation ${running.sessionId}'s process`,
+			expect.stringMatching(
+				`^Wrote a heap snapshot of conversation ${running.sessionId}'s process, .*, asked by scripts/host-memory\\.ts over the control socket; `,
 			),
 		]);
 

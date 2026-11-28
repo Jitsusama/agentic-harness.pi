@@ -75,8 +75,9 @@ const request = z.discriminatedUnion("op", [
 	// own, since a client reading list strictly would refuse its new fields.
 	z.strictObject({ ...envelope, op: z.literal("memory") }),
 	// A heap snapshot of the process running one conversation, asked of
-	// that process itself, as a child on its own socket (heap-snapshot.ts).
-	z.strictObject({ ...session, op: z.literal("heap-snapshot") }),
+	// that process itself, as a child on its own socket (heap-snapshot.ts),
+	// with who asks for the journal, since the file holds its secrets.
+	z.strictObject({ ...session, op: z.literal("heap-snapshot"), by: caller }),
 	// A child host's one conversation, followed for as long as the
 	// connection lasts (child.ts): what the supervisor that started it
 	// hears it by.

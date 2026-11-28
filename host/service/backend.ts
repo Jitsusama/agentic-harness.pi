@@ -17,6 +17,7 @@ import { CHILD_SAID_UNSETTLED, leftRunning } from "./child-requests.ts";
 import { oneReadAtOnce, PSS_WAIT_MS } from "./children.ts";
 import { endedLine } from "./conversation-events.ts";
 import {
+	askedBy,
 	type ControlBackend,
 	type ControlReply,
 	hostRefusal,
@@ -261,14 +262,6 @@ export interface LiveHost {
 	}[];
 	holds(id: string): SessionIdentity["state"] | undefined;
 	close(id: string, why?: string, handedOn?: boolean): Promise<void>;
-}
-
-// Who sent a control request, as it named itself; a name is only a
-// caller's word, so it is kept to one plain line.
-function askedBy(by: string | undefined): string {
-	return by === undefined
-		? "a control request that didn't say who sent it"
-		: `${by.replace(/\p{Cc}/gu, " ")} over the control socket`;
 }
 
 /** A held conversation the engine could not resume, and why. */
@@ -932,6 +925,7 @@ export function hostBackend(options: {
 					return snapshotHeap(
 						request.sessionId,
 						live(request.sessionId).state,
+						request.by,
 						{
 							...options.snapshots,
 							...(options.say ? { say: options.say } : {}),

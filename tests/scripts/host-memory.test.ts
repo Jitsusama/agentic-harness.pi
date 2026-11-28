@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +17,8 @@ import {
 	describeMemory,
 	describeSnapshot,
 	describeSnapshotFailure,
+	SNAPSHOT_ASKER,
+	snapshotAt,
 } from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
@@ -276,5 +279,110 @@ describe("the child a conversation runs in, found", () => {
 		);
 
 		expect(answer).toBeUndefined();
+	});
+});
+
+describe("a heap snapshot, asked", () => {
+	const WAIT_MS = 5000;
+	let dir: string;
+	let server: Server | undefined;
+	beforeEach(async () => {
+		dir = await mkdtemp(join(tmpdir(), "host-memory-snapshot-"));
+	});
+	afterEach(async () => {
+		server?.close();
+		server = undefined;
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	/**
+	 * A host on a socket that answers each request as `answer` says,
+	 * keeping every request it was sent.
+	 */
+	async function hostAnswering(
+		answer: (request: Record<string, unknown>) => unknown,
+	): Promise<{ socket: string; asked: Record<string, unknown>[] }> {
+		const socket = join(dir, "host.sock");
+		const asked: Record<string, unknown>[] = [];
+		server = createServer((connection) => {
+			let held = "";
+			connection.on("data", (chunk: Buffer) => {
+				held += chunk.toString("utf8");
+				const lf = held.indexOf("\n");
+				if (lf === -1) return;
+				const request = JSON.parse(held.slice(0, lf));
+				asked.push(request);
+				connection.end(`${JSON.stringify(answer(request))}\n`);
+			});
+		});
+		const listening = server;
+		await new Promise<void>((resolve) => listening.listen(socket, resolve));
+		return { socket, asked };
+	}
+
+	const written = (request: Record<string, unknown>) => ({
+		v: 1,
+		id: request.id,
+		ok: true,
+		result: {
+			sessionId: ONE,
+			file: "/state/heap-snapshots/one.heapsnapshot",
+			bytes: MIB,
+			tookMs: 40,
+		},
+	});
+
+	it("names this script as who asks, for the host's journal", async () => {
+		const host = await hostAnswering(written);
+
+		const said = await snapshotAt(host.socket, ONE, WAIT_MS);
+
+		expect(said).toBe(
+			`${ONE}: a heap snapshot of 1 MiB, written in 40 ms, to /state/heap-snapshots/one.heapsnapshot`,
+		);
+		expect(host.asked).toEqual([
+			expect.objectContaining({
+				op: "heap-snapshot",
+				sessionId: ONE,
+				by: "scripts/host-memory.ts",
+			}),
+		]);
+		expect(SNAPSHOT_ASKER).toBe("scripts/host-memory.ts");
+	});
+
+	it("asks a host on code older than who asks once more, without", async () => {
+		// Such a host reads a request carrying `by` as no request at all.
+		const host = await hostAnswering((request) =>
+			"by" in request
+				? {
+						v: 1,
+						id: null,
+						ok: false,
+						error: {
+							code: "invalid_request",
+							message: "Invalid host control request",
+						},
+					}
+				: written(request),
+		);
+
+		const said = await snapshotAt(host.socket, ONE, WAIT_MS);
+
+		expect(said).toContain("a heap snapshot of 1 MiB");
+		expect(host.asked.map((request) => "by" in request)).toEqual([true, false]);
+	});
+
+	it("asks only once when the host refuses for any other reason", async () => {
+		const host = await hostAnswering((request) => ({
+			v: 1,
+			id: request.id,
+			ok: false,
+			error: { code: "busy", message: "it is busy" },
+		}));
+
+		await expect(snapshotAt(host.socket, ONE, WAIT_MS)).rejects.toThrow(
+			"it refused: it is busy",
+		);
+		expect(host.asked).toHaveLength(1);
 	});
 });

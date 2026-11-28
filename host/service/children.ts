@@ -138,15 +138,28 @@ export function heldChildren(now: () => Date = () => new Date()): HeldChildren {
 /**
  * The request as the child takes it: the host checked the identity the
  * caller expected against its own and this child's, so the child is
- * asked under its own.
+ * asked under its own. A heap snapshot goes without who asked, which
+ * the host journals itself as it passes it on (server.ts): a child keeps
+ * the host code it started with for an hour or more (stale-child.ts),
+ * and one older than `by` on a heap snapshot refuses it as unreadable.
  */
 export function passedOn(
 	request: ControlRequest,
 	route: ChildRoute,
 ): ControlRequest {
-	return request.expectedHost
-		? { ...request, expectedHost: route.identity }
-		: request;
+	const asked =
+		request.op === "heap-snapshot" ? withoutAsker(request) : request;
+	return asked.expectedHost
+		? { ...asked, expectedHost: route.identity }
+		: asked;
+}
+
+/** A heap snapshot's request without who asked. */
+function withoutAsker(
+	request: Extract<ControlRequest, { op: "heap-snapshot" }>,
+): ControlRequest {
+	const { by: _by, ...asked } = request;
+	return asked;
 }
 
 /**

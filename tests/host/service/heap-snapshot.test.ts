@@ -48,10 +48,10 @@ function clockTaking(ms: number, first = 1000): () => number {
 }
 
 describe("a heap snapshot", () => {
-	it("is written to a file named by the conversation and the time, and answered with its size and pause", () => {
+	it("is written to a file named by the conversation and the time, and answered with its size, its pause and who asked", () => {
 		const said: string[] = [];
 		const modes: number[] = [];
-		const answer = snapshotHeap(ONE, "idle", {
+		const answer = snapshotHeap(ONE, "idle", "scripts/host-memory.ts", {
 			folder,
 			now: () => AT,
 			clock: clockTaking(2400),
@@ -73,13 +73,40 @@ describe("a heap snapshot", () => {
 			OWNER_ONLY_FILE,
 		]);
 		expect(said).toEqual([
-			`Wrote a heap snapshot of conversation ${ONE}'s process, 3 MiB, to ${answer.file}; its thread stopped for 2400 ms`,
+			`Wrote a heap snapshot of conversation ${ONE}'s process, 3 MiB, to ${answer.file}, asked by scripts/host-memory.ts over the control socket; its thread stopped for 2400 ms`,
 		]);
+	});
+
+	it("is written for an asker that didn't name itself, the journal saying so", () => {
+		const said: string[] = [];
+		const answer = snapshotHeap(ONE, "idle", undefined, {
+			folder,
+			clock: clockTaking(10),
+			say: (line) => said.push(line),
+			write: () => undefined,
+		});
+
+		expect(said).toEqual([
+			`Wrote a heap snapshot of conversation ${ONE}'s process, 0 MiB, to ${answer.file}, asked by a control request that didn't say who sent it; its thread stopped for 10 ms`,
+		]);
+	});
+
+	it("names its asker on one plain line, whatever the name holds", () => {
+		const said: string[] = [];
+		snapshotHeap(ONE, "idle", "one\nWrote a heap snapshot\u001b[2J", {
+			folder,
+			say: (line) => said.push(line),
+			write: () => undefined,
+		});
+
+		expect(said[0]).toContain(
+			"asked by one Wrote a heap snapshot [2J over the control socket",
+		);
 	});
 
 	it("keeps the file and its folder for the owner alone, a folder already there too", async () => {
 		await mkdir(folder, { recursive: true, mode: 0o755 });
-		const { file } = snapshotHeap(ONE, "idle", {
+		const { file } = snapshotHeap(ONE, "idle", undefined, {
 			folder,
 			write: () => undefined,
 		});
@@ -91,7 +118,7 @@ describe("a heap snapshot", () => {
 	it("is refused while its conversation is busy, writing nothing", async () => {
 		let wrote = false;
 		expect(() =>
-			snapshotHeap(ONE, "busy", {
+			snapshotHeap(ONE, "busy", undefined, {
 				folder,
 				write: () => {
 					wrote = true;
@@ -108,7 +135,7 @@ describe("a heap snapshot", () => {
 		await writeFile(file, "kept");
 
 		expect(() =>
-			snapshotHeap(ONE, "idle", {
+			snapshotHeap(ONE, "idle", undefined, {
 				folder,
 				now: () => AT,
 				write: () => undefined,
@@ -129,7 +156,7 @@ describe("a heap snapshot", () => {
 		await utimes(young, inTime, inTime);
 		const said: string[] = [];
 
-		const { file } = snapshotHeap(ONE, "idle", {
+		const { file } = snapshotHeap(ONE, "idle", undefined, {
 			folder,
 			now: () => AT,
 			say: (line) => said.push(line),
@@ -147,7 +174,7 @@ describe("a heap snapshot", () => {
 	it("removes the partial file of a write that fails, saying so, and still fails", async () => {
 		const said: string[] = [];
 		expect(() =>
-			snapshotHeap(ONE, "idle", {
+			snapshotHeap(ONE, "idle", "scripts/host-memory.ts", {
 				folder,
 				clock: clockTaking(700),
 				say: (line) => said.push(line),
@@ -160,14 +187,14 @@ describe("a heap snapshot", () => {
 
 		expect(await readdir(folder), "no partial snapshot kept").toEqual([]);
 		expect(said).toEqual([
-			`A heap snapshot of conversation ${ONE}'s process failed after 700 ms, and its partial file was removed: ENOSPC: no space left on device`,
+			`A heap snapshot of conversation ${ONE}'s process, asked by scripts/host-memory.ts over the control socket, failed after 700 ms, and its partial file was removed: ENOSPC: no space left on device`,
 		]);
 	});
 
 	it(
 		"is V8's own snapshot unless told how to write one, into the file made for it",
 		async () => {
-			const { file, bytes } = snapshotHeap(ONE, "idle", { folder });
+			const { file, bytes } = snapshotHeap(ONE, "idle", undefined, { folder });
 
 			expect(bytes, "a whole process's heap").toBeGreaterThan(MIB);
 			expect((await stat(file)).mode & PERMISSIONS, "V8 kept its mode").toBe(

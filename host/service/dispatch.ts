@@ -40,6 +40,16 @@ function refusalCode(error: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
+/**
+ * Who sent a control request, as it named itself (`by`), for the journal;
+ * a name is only a caller's word, so it is kept to one plain line.
+ */
+export function askedBy(by: string | undefined): string {
+	return by === undefined
+		? "a control request that didn't say who sent it"
+		: `${by.replace(/\p{Cc}/gu, " ")} over the control socket`;
+}
+
 /** A host's identity, as a request names the one it expects. */
 export type HostIdentity = ControlBackend["identity"];
 

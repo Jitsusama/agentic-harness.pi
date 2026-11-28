@@ -24,6 +24,7 @@ import {
 	passedOn,
 } from "./children.ts";
 import {
+	askedBy,
 	type ControlBackend,
 	dispatchControl,
 	failedReply,
@@ -498,6 +499,12 @@ export async function listenControl(options: {
 				socket.end();
 				return;
 			}
+			// The child hears no `by` (children.ts's passedOn), so the host's
+			// journal names who asked for the snapshot, before the write starts.
+			if (request.op === "heap-snapshot")
+				options.say?.(
+					`${sessionAddress(request.sessionId)} (${request.sessionId}): a heap snapshot of its process, asked by ${askedBy(request.by)}, passed on to its child`,
+				);
 			const line = `${JSON.stringify(passedOn(request, route))}\n`;
 			if (request.op === "attach") {
 				return {

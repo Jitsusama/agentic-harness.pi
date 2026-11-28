@@ -294,7 +294,8 @@ input pipeline or screen. No unit or running host is installed yet.
   parser, and tells the engine of each key and resize a viewer sends,
   so the quiet collection waits 30 s after one.
 - protocol.ts: strict v1 control requests, replies and viewer input.
-  A close or release may name its caller (`by`), for the journal.
+  A close, release, drain or heap snapshot may name its caller (`by`),
+  for the journal.
 - heap-snapshot.ts: `heap-snapshot`, which writes a V8 heap snapshot of
   the process one conversation runs in, so what a long-lived child
   holds can be named by what retains it; a child runs with SIGUSR1 off,
@@ -306,10 +307,17 @@ input pipeline or screen. No unit or running host is installed yet.
   The journal says each snapshot's size and pause. The file
   holds every string the process does, secrets among them, so it is
   made owner-only before V8 writes into it, in an owner-only folder
-  under the host service's state. The next snapshot removes any there
-  over 2 hours old, and a write that fails removes its partial file.
-  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one
-  and waits up to 10 minutes; past that, the file may still come.
+  under the host service's state, and the journal names who asked for
+  it, as the request's `by` names its caller, or says the asker didn't
+  name itself. A child is asked without `by`, since one still running
+  code from before the field refuses the request; the host's own
+  journal names the asker as it passes the request on. The next
+  snapshot removes any there over 2 hours old, and a write that fails
+  removes its partial file.
+  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one,
+  naming itself, and waits up to 10 minutes; past that, the file may
+  still come. A host still running code from before `by` refuses it,
+  so the script asks that one again without.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.

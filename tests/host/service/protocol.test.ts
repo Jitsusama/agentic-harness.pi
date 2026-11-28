@@ -195,6 +195,9 @@ describe("wire validation", () => {
 			{ v: 1, id: "d", op: "drain", on: false },
 			{ v: 1, id: "m", op: "memory" },
 			{ ...close, op: "heap-snapshot" },
+			// Who asks for a snapshot, for the journal, in up to 128 characters.
+			{ ...close, op: "heap-snapshot", by: "scripts/host-memory.ts" },
+			{ ...close, op: "heap-snapshot", by: "x".repeat(128) },
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.
 			{
@@ -220,6 +223,9 @@ describe("wire validation", () => {
 			// A snapshot names the one conversation whose process it writes.
 			{ v: 1, id: "h", op: "heap-snapshot" },
 			{ ...close, op: "heap-snapshot", file: "/tmp/x.heapsnapshot" },
+			// An asker names itself in a word or more, and no more than 128.
+			{ ...close, op: "heap-snapshot", by: "x".repeat(129) },
+			{ ...close, op: "heap-snapshot", by: "" },
 			{ v: 1, id: "a", op: "adopt", sessionFile: "relative", attended: true },
 			// Only how a session runs its commands, never a key or a path.
 			...[
