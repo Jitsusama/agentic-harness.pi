@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
+import { headFromFiles } from "../../lib/internal/reload/head.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 
 /** The host program, from a version's root. */
@@ -27,6 +28,9 @@ export const HOST_ENTRY = "scripts/pi-host.ts";
  * imports, which these two decide.
  */
 const DEPENDENCY_FILES = ["package.json", "pnpm-lock.yaml"] as const;
+
+/** How long one git call may take before its answer counts as no step back. */
+const GIT_TIMEOUT_MS = 5_000;
 
 /** How long one systemctl call may take before the unit counts as unread. */
 const SYSTEMCTL_TIMEOUT_MS = 5_000;
@@ -97,6 +101,71 @@ export function installMovesOrThrowsFrom(
 		if (unsure !== undefined) throw new Error(unsure);
 		return moved;
 	};
+}
+
+/**
+ * How a child started from the version at `root` asks whether its
+ * install's `current` has stepped back to a version older than its own:
+ * one whose commit is an ancestor of its own. The install records
+ * order only so: pi-packages names each version by its commit and builds
+ * it as a clone of the install's mirror, detached there, so each
+ * version's HEAD names its commit and its history holds every commit
+ * before it. A move forward, onto a commit beside its own history, or
+ * onto a rebuild of its own commit is no step back, nor is what can't be
+ * read: a link, a version's HEAD, or git's answer. Each version is asked
+ * of once git answers, since its commit never changes under its name; a
+ * git that timed out or couldn't start answered nothing, so the next look
+ * asks again.
+ */
+export function installStepsBackFrom(root: string): () => Promise<boolean> {
+	const install = installOfVersion(root);
+	if (install === undefined) return async () => false;
+	const link = join(install, "current");
+	const asked = new Map<string, boolean>();
+	return async () => {
+		const now = await realpath(link).catch(() => undefined);
+		if (now === undefined) return false;
+		const settled = asked.get(now);
+		if (settled !== undefined) return settled;
+		const back = await isBefore(now, root);
+		if (back === undefined) return false;
+		asked.set(now, back);
+		return back;
+	};
+}
+
+/**
+ * Whether the commit `version` runs came before, and isn't, the one `root`
+ * runs, as `root`'s history says; undefined when git gave no answer.
+ */
+async function isBefore(
+	version: string,
+	root: string,
+): Promise<boolean | undefined> {
+	const theirs = headFromFiles(version);
+	const own = headFromFiles(root);
+	if (theirs === undefined || own === undefined || theirs === own) return false;
+	return new Promise<boolean | undefined>((done) => {
+		execFile(
+			"git",
+			["-C", root, "merge-base", "--is-ancestor", theirs, own],
+			{ timeout: GIT_TIMEOUT_MS },
+			// It exits 0 for an ancestor, 1 for none, and fails for a commit
+			// its history lacks, as one after its own. A git killed at its
+			// timeout, or one that never started, said neither.
+			(error) => done(error === null ? true : gitAnswered(error)),
+		);
+	});
+}
+
+/** false when git itself exited with a code, undefined when it was killed or never ran. */
+function gitAnswered(error: {
+	readonly code?: unknown;
+	readonly killed?: boolean;
+}): false | undefined {
+	return typeof error.code === "number" && error.killed !== true
+		? false
+		: undefined;
 }
 
 /** What one ask of an install found: why it moved, or why it can't tell. */

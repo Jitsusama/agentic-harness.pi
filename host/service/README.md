@@ -373,7 +373,11 @@ input pipeline or screen. No unit or running host is installed yet.
   sooner than an hour after it started (`ROLL_ONLY_AFTER_MS`): stale
   before then, it says when it will roll and looks again at that
   moment, so a conversation rolls at most once an hour however often
-  the install moves. Past the hour it first waits a random share of
+  the install moves forward. A step back is the exception: once the
+  install's `current` names a version whose commit came before its own,
+  as off a bad release, it rolls at its next look, waiting for neither
+  its hour, its spread nor the machine's room
+  (`installStepsBackFrom`). Past the hour it first waits a random share of
   ten minutes (`ROLL_SPREAD_MS`), so a machine's children roll apart,
   and then rolls only while the CPU's `some avg60` is under 40, the
   bar a council's round waits on (lib/internal/machine/room.ts

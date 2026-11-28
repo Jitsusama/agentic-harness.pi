@@ -58,6 +58,7 @@ describe("rollChildWhenStale", () => {
 			bornAt?: number;
 			now?: () => number;
 			roomShort?: () => Promise<string | undefined>;
+			back?: () => Promise<boolean>;
 		} = {},
 	) {
 		const timers = manualTimers();
@@ -84,6 +85,7 @@ describe("rollChildWhenStale", () => {
 			// No spread, and room, unless a case says otherwise.
 			spreadMs: 0,
 			roomShort: clock.roomShort ?? (async () => undefined),
+			...(clock.back ? { back: clock.back } : {}),
 		});
 		return {
 			timers,
@@ -124,6 +126,19 @@ describe("rollChildWhenStale", () => {
 		now = 10_000 + ROLL_ONLY_AFTER_MS;
 		await child.timers.fire();
 		expect(child.rolled).toEqual(["young"]);
+	});
+
+	it("rolls within its first hour, and while the machine is busy, once its install steps back", async () => {
+		const why = "the install's one changes the host's own code";
+		const child = wired(async () => why, {
+			bornAt: 0,
+			now: () => 60_000,
+			roomShort: async () => "CPU some avg60 was 64.7, at or past 40",
+			back: async () => true,
+		});
+		child.holds("on the bad release");
+		await child.timers.fire();
+		expect(child.rolled).toEqual(["on the bad release"]);
 	});
 
 	it("takes its start as the wiring's moment when it isn't told one", async () => {
