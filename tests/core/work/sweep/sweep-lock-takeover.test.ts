@@ -199,8 +199,10 @@ describe("a sweep lock taken over", () => {
 
 	it("keeps only the newest takeovers noted", () => {
 		const lockPath = lockPathFresh();
-		const first = hold(lockPath);
-		let last = first;
+		// Held elsewhere, so a later lock given the first's inode, as ext4
+		// and XFS often do, is this process's and doesn't read as the first.
+		const first = heldElsewhere(lockPath);
+		let last: HeldSweepLock | undefined;
 		// One more than are kept, so the first is the one let go.
 		for (let takeover = 0; takeover < 65; takeover += 1) {
 			stale(lockPath);
@@ -210,9 +212,9 @@ describe("a sweep lock taken over", () => {
 		const noted = readFileSync(`${lockPath}.taken`, "utf8").trim().split("\n");
 		expect(noted, "how many takeovers are noted").toHaveLength(64);
 		expect(
-			lockRuns(first.lock, process.pid),
-			"the oldest takeover is kept",
+			lockRuns(first.lock, first.pid),
+			"a mark of the sweep whose takeover was let go read as running",
 		).toBe(false);
-		expect(last.ours(), "the newest lost its lock").toBe(true);
+		expect(last?.ours(), "the newest lost its lock").toBe(true);
 	});
 });

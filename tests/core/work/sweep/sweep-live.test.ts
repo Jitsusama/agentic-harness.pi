@@ -909,9 +909,24 @@ describe("trees another provider cut", () => {
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
+	/**
+	 * Have `memory` hand its records back by key, so a case judges the
+	 * record it means first. A listing comes in the folder's own order,
+	 * creation order on tmpfs and btrfs and by hash on ext4, so no naming
+	 * of the files can settle it.
+	 */
+	function judgedByKey(memory: ReturnType<typeof createTreeMemory>): void {
+		const recall = memory.recall.bind(memory);
+		memory.recall = () =>
+			[...recall()].sort((one, two) =>
+				one.identity.key < two.identity.key ? -1 : 1,
+			);
+	}
+
 	it("keeps a shareable one its twin record says was asked for within the day", async () => {
 		// World files one tree under two keys, and the removal takes both,
-		// so either's ask keeps it.
+		// so either's ask keeps it. The old record is judged first, so only
+		// reading its twin's ask keeps the tree.
 		const { state, memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-snapshot", { shareable: true });
 		settleFolder(tree);
@@ -923,10 +938,15 @@ describe("trees another provider cut", () => {
 			...record,
 			identity: { ...record.identity, key: "dev-snapshot-by-name" },
 		});
+		judgedByKey(memory);
 
 		const outcome = await sweepWith(elsewhere(undefined));
 
-		expect(outcome.taken).toEqual([]);
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(outcome.kept, "what it kept, and why").toContainEqual({
+			path: tree,
+			why: "it is shareable and was asked for within the last day, so a session may join it again",
+		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
@@ -962,27 +982,33 @@ describe("trees another provider cut", () => {
 
 	it("takes a shareable one a killed run left marked, by when it was asked for before", async () => {
 		// The mark rewrote its file, which is no ask: read by its file's
-		// time, the half-removed tree would be kept a day.
-		const { memory, elsewhereTree, sweepWith } = await setUp();
+		// time, the half-removed tree would be kept a day. Only its twin is
+		// marked, and the unmarked record is judged first, so the tree is
+		// judged by when each was asked for rather than finished at once.
+		const { state, memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-snapshot", { shareable: true });
 		settleFolder(tree);
+		const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+		utimesSync(join(state, "cut", "dev-snapshot.json"), then, then);
 		const [record] = memory.recall();
 		if (record === undefined) throw new Error("no record was written");
 		memory.remember({
 			...record,
+			identity: { ...record.identity, key: "dev-snapshot-by-name" },
 			going: {
 				at: Date.now(),
 				by: ENDED,
-				asked: Date.now() - 2 * PUSHED_SETTLE_MS,
+				asked: then.getTime(),
 			},
 		});
+		judgedByKey(memory);
 		const provider = elsewhere(undefined, async () => {
 			rmSync(tree, { recursive: true, force: true });
 		});
 
 		const outcome = await sweepWith(provider);
 
-		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(outcome.taken, "what the sweep took").toEqual([{ path: tree }]);
 	});
 
 	it("counts a shareable one taken when ending its mark fails after it went", async () => {
