@@ -60,6 +60,11 @@ import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 const SHELL_ARGUMENTS =
 	'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -ww -o args= -p $$; fi';
 
+/** A path as a pattern matching only itself, whatever its home is named. */
+function literally(path: string): string {
+	return path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
 	const repository = join(base, "repo/.git");
@@ -753,7 +758,9 @@ describe("a command in the sandbox", () => {
 		// The session's own, named by whatever session the command ran for.
 		const own = sandboxFolders(homedir(), {});
 		expect(answer).toMatch(
-			new RegExp(`own:${own.cache} ${dirname(own.temporary)}/[A-Za-z0-9-]+\n`),
+			new RegExp(
+				`own:${literally(own.cache)} ${literally(dirname(own.temporary))}/[A-Za-z0-9-]+\n`,
+			),
 		);
 		expect(answer).toContain("dropped:none none path:set");
 	});
@@ -985,6 +992,20 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("unhooked");
 		});
 
+		it("refuses a working folder whose comma would grant a second path", async () => {
+			// landrun splits a rule at its commas, so this folder's name would
+			// grant the kept-out folder beside it.
+			const folded = join(work, `x,${elsewhere}`);
+			mkdirSync(folded, { recursive: true });
+			const answer = await run(
+				{ kind: "strict", landrun },
+				`cat ${elsewhere}/token || echo refused`,
+				folded,
+			);
+			expect(answer).not.toContain("the-hidden-value");
+			expect(answer).toContain("whose comma landrun would read as two paths");
+		});
+
 		it("writes its work, and can't read what the profile leaves out", async () => {
 			const answer = await run(
 				{ kind: "strict", landrun },
@@ -1004,6 +1025,8 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 					`make() { ${script}; chmod +x "$1"; }`,
 					"make ./built work && ./built || echo work-unrun",
 					'own=$(mktemp) && make "$own" temporary && "$own" || echo temporary-unrun',
+					// Nothing runnable is left in the real home's folder.
+					'rm -f "$own" ./built',
 				].join("\n"),
 				work,
 			);
@@ -1038,7 +1061,9 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("unwritten");
 			// Within the session's own, never the folder every session shares.
 			const every = dirname(sandboxFolders(homedir(), {}).temporary);
-			expect(answer).toMatch(new RegExp(`${every}/[A-Za-z0-9-]+/tmp.`));
+			expect(answer).toMatch(
+				new RegExp(`${literally(every)}/[A-Za-z0-9-]+/tmp\\.`),
+			);
 			expect(answer).toContain("made-own");
 		});
 	},

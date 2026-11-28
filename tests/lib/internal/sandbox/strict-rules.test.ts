@@ -84,19 +84,38 @@ describe("the strict profile", () => {
 				env: { PI_SESSION_ID: "9z8y-inner", TMPDIR },
 				runtimeDir: undefined,
 				cwd: "/home/someone/src/thing",
-			}).filter(([flag]) => flag === "--rwx")[1]?.[1];
-		expect(within(TEMPORARY), "a strict pi's own command").toBe(TEMPORARY);
-		expect(within("/run/user/1000/quest/tmp"), "an unfenced session's").toBe(
-			"/home/someone/.cache/pi-sandbox/tmp/9z8y-inner",
+			})
+				.filter(([flag]) => flag === "--rwx")
+				.map(([, path]) => path)
+				.filter((path) => path !== "/home/someone/src/thing");
+		const own = ["/home/someone/.cache/pi-sandbox/tmp/9z8y-inner"];
+		expect(within(TEMPORARY), "a strict pi's own command").toEqual([TEMPORARY]);
+		expect(within("/run/user/1000/quest/tmp"), "an unfenced session's").toEqual(
+			own,
 		);
-		expect(
-			within("/home/someone/.cache/pi-sandbox/tmp"),
-			"the folder they share",
-		).toBe("/home/someone/.cache/pi-sandbox/tmp/9z8y-inner");
-		expect(
-			within("/home/someone/.cache/pi-sandbox/tmp/a/b"),
-			"a folder deeper in it",
-		).toBe("/home/someone/.cache/pi-sandbox/tmp/9z8y-inner");
+		for (const [TMPDIR, what] of [
+			["/home/someone/.cache/pi-sandbox/tmp", "the folder they share"],
+			["/home/someone/.cache/pi-sandbox/tmp/a/b", "a folder deeper in it"],
+			["/home/someone/.cache/pi-sandbox/tmp/..", "the sandbox's own folder"],
+			["/home/someone/.cache/pi-sandbox/tmp/.", "the folder they share"],
+			["/home/someone/.cache/pi-sandbox/tmp/a b", "a name no session takes"],
+		] as const) {
+			expect(within(TMPDIR), what).toEqual(own);
+		}
+	});
+
+	it("names the folder for the process when the session's id isn't a folder's name", () => {
+		for (const PI_SESSION_ID of ["..", "a/b", "", "x".repeat(65)]) {
+			const given = strictRules({
+				home: "/home/someone",
+				env: { PI_SESSION_ID },
+				runtimeDir: undefined,
+				cwd: "/home/someone/src/thing",
+			}).map(([, path]) => path);
+			expect(given, JSON.stringify(PI_SESSION_ID)).toContain(
+				`/home/someone/.cache/pi-sandbox/tmp/pid-${process.pid}`,
+			);
+		}
 	});
 
 	it("writes its cache and gcloud's settings without running anything there", () => {

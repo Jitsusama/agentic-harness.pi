@@ -142,6 +142,7 @@ import {
 	makeShares,
 	questScratch,
 } from "./quest-folders.ts";
+import { makeSandboxFolders } from "./sandbox-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import {
@@ -305,6 +306,10 @@ export function neverKept(name: string): boolean {
  * `command-line.ts`), and it is unset before it runs. Each of `passed`
  * travels the same way, set for landrun alone and named to it, so a
  * token handed in shows on no command line.
+ *
+ * landrun splits each rule's value at its commas, so a working folder
+ * named `x,/home/someone` would grant the whole home beside it; a rule
+ * holding a comma refuses the command.
  */
 export function sandboxedCommand(
 	command: string,
@@ -312,6 +317,12 @@ export function sandboxedCommand(
 	landrun: string,
 	passed: Readonly<Record<string, string>> = {},
 ): string {
+	const split = rules.find(([, value]) => value.includes(","));
+	if (split) {
+		return refusedCommand(
+			`the strict sandbox won't run in or grant ${split[1]}, whose comma landrun would read as two paths, so no command runs`,
+		);
+	}
 	const refused = [...WITHHELD, ...NEVER].join("|");
 	const kept = KEPT.join("|");
 	const flags = rules.map(([flag, value]) => `${flag} ${quoted(value)}`);
@@ -1009,11 +1020,8 @@ export function wrapFor(
 		case "strict": {
 			const unfenced = unfencedFolder(place.cwd, home);
 			if (unfenced) return () => refused(unfenced);
-			// landrun skips a path that isn't there, and nothing inside could
-			// make one, so the sandbox's folders are made before a command.
-			for (const folder of Object.values(sandboxFolders(home, place.env))) {
-				mkdirSync(folder, { recursive: true, mode: 0o700 });
-			}
+			const unmade = makeSandboxFolders(home, place.env);
+			if (unmade) return () => refused(unmade);
 			const served = sandbox.served === true;
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served

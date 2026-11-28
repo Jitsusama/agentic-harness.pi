@@ -18,7 +18,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	fencedCommand,
@@ -249,7 +249,10 @@ describe("what the agent fence hands gcloud", () => {
 
 	it("keeps its folders where no strict command can write", () => {
 		const fence = Object.values(fenceFolders(home));
-		for (const strict of Object.values(sandboxFolders(home, {}))) {
+		// Some strict session writes every folder beside its own temporary
+		// one, so the folder they all sit in is strict's whole.
+		const { cache, temporary, gcloud } = sandboxFolders(home, {});
+		for (const strict of [cache, gcloud, dirname(temporary)]) {
 			for (const own of fence) {
 				expect(
 					own === strict || own.startsWith(`${strict}/`),
