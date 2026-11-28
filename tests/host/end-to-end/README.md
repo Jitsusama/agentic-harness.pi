@@ -399,5 +399,7 @@ without it the check skips, or fails under `pnpm test:host`, saying so.
   offer to reopen from the seal's session records; the screen host's
   process, working folders and the trust store that judges them, a
   screen drawn and read back, a viewer reading its screen through the
-  socket, and a shell in a terminal of its own; and the gate's reporter,
-  failing a run in which any case skipped.
+  socket, and a shell in a terminal of its own; what a quiet child's
+  collection says it took off, read from its line, with the falls
+  child.test.ts holds it to; and the gate's reporter, failing a run in
+  which any case skipped.
