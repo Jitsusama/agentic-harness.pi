@@ -1518,6 +1518,10 @@ export function childSupervisor(options: {
 							},
 							state: (conversation, heap) => {
 								if (conversation.sessionId !== current) return;
+								// A stale slot's child, whose conversation another slot's
+								// child runs now, speaks for neither that child's state
+								// nor its turn, as its ending doesn't.
+								if (routes.routeOf(current)?.socket !== slot.socket) return;
 								routes.update(conversation, heap);
 								if (conversation.state !== "busy")
 									options.atRest?.(conversation.sessionId);

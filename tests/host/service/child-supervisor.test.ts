@@ -1578,12 +1578,19 @@ describe("what a child says", () => {
 		if (!newer) throw new Error("b's child holds no route");
 		// The child in b's slot runs a now, busy, as a newer child of it would.
 		routes.hold({ ...conversation(a), state: "busy" }, newer);
+		// F127: what the stale child says is no word on the newer child's turn.
+		stale.say({ type: "state", conversation: { ...conversation(a) } });
 
 		await stale.exit();
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
 		expect(endedBusy, "the stale child said it was idle").toEqual([false]);
 		expect(routes.routeOf(a), "the newer child's route kept").toEqual(newer);
+		expect(
+			routes.child(a)?.conversation.state,
+			"the newer child's state kept",
+		).toBe("busy");
+		expect(atRest, "nor its turn taken as over").toEqual([]);
 	});
 
 	it("lets the roster's hold go only when the child says it closed", async () => {
