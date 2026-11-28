@@ -43,7 +43,8 @@ function machineGrants(
 /**
  * A disk holding `text` at the grant's path, laid as `file` and `folder`
  * say; `"missing"` for a path with nothing there. Every other path in
- * `links` is a link, and every one in `others` a folder.
+ * `links` is a link, and every one in `others` a folder. Every folder
+ * may be searched.
  */
 function disk(
 	text: string | undefined,
@@ -71,6 +72,7 @@ function disk(
 		read: (path) => (path === MACHINE_GRANTS ? text : undefined),
 		say: (why) => said.push(why),
 		rootSeenAs: () => rootSeenAs,
+		searchable: () => true,
 	};
 }
 
@@ -122,6 +124,15 @@ describe("a machine's grants to the strict profile", () => {
 		const given = disk(undefined, "missing");
 		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
 		expect(given.said, "a missing file is no fault").toEqual([]);
+	});
+
+	it("are none, and say so, where the file's folder can't be searched", () => {
+		// The file then shows as missing whether or not the machine laid one.
+		const given = { ...disk(undefined, "missing"), searchable: () => false };
+		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+		expect(given.said.join("\n"), "why it grants nothing").toContain(
+			`the strict profile takes no grant from ${MACHINE_GRANTS}: its folder can't be searched, so whether it grants anything can't be told`,
+		);
 	});
 
 	it.each([

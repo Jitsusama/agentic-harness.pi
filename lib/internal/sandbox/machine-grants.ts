@@ -48,7 +48,7 @@
  * root alone.
  */
 
-import { lstatSync, readFileSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, normalize } from "node:path";
 import {
 	COVERED_AFTER_GRANTS,
@@ -82,6 +82,11 @@ export interface GrantDisk {
 	say(why: string): void;
 	/** The owner root's files show as here. */
 	rootSeenAs(): number;
+	/**
+	 * Whether this account may search `folder`, without which a file in it
+	 * shows as missing whether it is there or not.
+	 */
+	searchable(folder: string): boolean;
 }
 
 /** The account that alone may write the grant. */
@@ -142,6 +147,15 @@ const DISK: GrantDisk = {
 		if (map === undefined || rootMapped(map)) return ROOT;
 		const overflow = Number.parseInt(DISK.read(OVERFLOW_UID) ?? "", 10);
 		return Number.isInteger(overflow) ? overflow : DEFAULT_OVERFLOW;
+	},
+	searchable(folder) {
+		try {
+			accessSync(folder, constants.X_OK);
+			return true;
+		} catch {
+			// Refused, or missing: either way nothing in it can be looked up.
+			return false;
+		}
 	},
 };
 
@@ -206,12 +220,20 @@ export function machineGrants(
 	disk: GrantDisk = DISK,
 ): MachineGrants {
 	const file = disk.lstat(path);
-	if (file === undefined) return NONE;
 	const refused = (why: string): MachineGrants => {
 		disk.say(`the strict profile takes no grant from ${path}: ${why}`);
 		return NONE;
 	};
 	const folder = disk.lstat(dirname(path));
+	if (file === undefined) {
+		// A folder this account can't search hides the file either way.
+		const hidden = folder?.kind === "folder" && !disk.searchable(dirname(path));
+		return hidden
+			? refused(
+					"its folder can't be searched, so whether it grants anything can't be told",
+				)
+			: NONE;
+	}
 	const root = disk.rootSeenAs();
 	const unsafe =
 		unsafeBecause(file, "file", root) ?? unsafeBecause(folder, "folder", root);
