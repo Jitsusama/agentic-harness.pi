@@ -58,10 +58,10 @@ import {
 } from "../roster.ts";
 import {
 	type RunningRound,
-	rosterRoundsRunning,
 	roundsHeld,
 	SETTLED_AFTER_MS,
 } from "../round-running.ts";
+import { markStart, roundsStartingOrRunning } from "../round-starting.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
@@ -219,7 +219,38 @@ export async function awaitRosterStart(
 		},
 		signal,
 	);
-	return withUnjudged(start, room.startedUnjudged());
+	return withUnjudged(
+		await markedWhileStarting(start, room.markStart),
+		room.startedUnjudged(),
+	);
+}
+
+/**
+ * The start, marked by `mark` as taken until its round's folder shows
+ * it, where its room keeps such marks, and giving the mark back with
+ * the start. A mark that can't be written leaves the start as it was:
+ * the round still starts, and is counted once its folder is made, as
+ * every round was before marks.
+ */
+export async function markedWhileStarting(
+	start: CouncilStart,
+	mark: RosterRoom["markStart"],
+): Promise<CouncilStart> {
+	if (mark === undefined || start.cancelled !== undefined) return start;
+	let unmark: (() => Promise<void>) | undefined;
+	try {
+		unmark = await mark();
+	} catch {
+		// Unmarked, it is counted once its folder is made, as before marks.
+		return start;
+	}
+	const release = async (): Promise<void> => {
+		await unmark?.().catch(() => {
+			// Left, the mark holds starts until it ages out, never longer.
+		});
+		await start.release?.();
+	};
+	return { ...start, release };
 }
 
 /**
@@ -254,11 +285,12 @@ export function spacingAtLeast(
  * sets: its swap-outs show a round's reviewers only once they have
  * loaded, a minute or more after the start, so two a minute would
  * start a third before the first showed. It is the time a round takes
- * to settle in, so the next start always finds the last round's folder
- * and judges it by its age: a round takes its start last, just before
- * its reviewers, and a shorter gap would let a start pass beside one
- * that had yet to leave its folder, seen by neither the count nor the
- * age (F1, F11, F13). A config may set it wider.
+ * to settle in, so no start passes beside the last before its reviewers
+ * load. A round takes its start before it reads its change again and
+ * cuts its tree, which can take longer than this, so a Mac's round
+ * also marks its start until its folder is made (`round-starting.ts`),
+ * and the count and the age read the mark meanwhile. A config may set
+ * it wider.
  */
 export const MAC_SPACING_MS = SETTLED_AFTER_MS;
 
@@ -279,6 +311,7 @@ export function roundRoom(
 	mac: () => RoundRoom = macRoundRoom,
 	running: () => Promise<readonly RunningRound[]> = macRoundsRunning,
 	atOnce: () => Promise<number> = configuredRoundsAtOnce,
+	mark: () => Promise<() => Promise<void>> = macStartMarked,
 ): RosterRoom {
 	if (platform === "darwin") {
 		const room = mac();
@@ -296,6 +329,7 @@ export function roundRoom(
 			},
 			startedUnjudged: () => room.startedUnjudged(),
 			spacingMs: MAC_SPACING_MS,
+			markStart: mark,
 		};
 	}
 	return {
@@ -333,6 +367,12 @@ export interface RosterRoom extends Omit<RoundRoom, "short" | "freePercent"> {
 	readonly quiet?: () => Promise<boolean>;
 	/** Whether the round's reviewers run on another machine. */
 	readonly away?: boolean;
+	/**
+	 * Marks a start taken, for `short` to count until the round's folder
+	 * shows it, answering what takes the mark back; left out where
+	 * nothing counts rounds by their folders.
+	 */
+	readonly markStart?: () => Promise<() => Promise<void>>;
 }
 
 /** The names the line shows for what holds a Mac's round. */
@@ -348,9 +388,14 @@ function macHeld(reading: string, said: string): RoomHeld {
 	return { said, readings: [reading], passable: false };
 }
 
-/** The roster rounds still running on this Mac, newest first. */
+/** The roster rounds on this Mac still taking their start, then those running. */
 function macRoundsRunning(): Promise<readonly RunningRound[]> {
-	return rosterRoundsRunning(runArtifactDir());
+	return roundsStartingOrRunning(runArtifactDir());
+}
+
+/** Marks a start this Mac's round took, until its folder shows it. */
+function macStartMarked(): Promise<() => Promise<void>> {
+	return markStart(runArtifactDir());
 }
 
 /**

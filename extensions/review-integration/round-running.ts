@@ -13,11 +13,10 @@
  * every round running is {@link SETTLED_AFTER_MS} in, so their
  * reviewers have loaded and the reading includes them, and only on a
  * reading of at least {@link LEAST_FREE_FOR_ANOTHER_PERCENT}% free. A
- * round takes its start just before its reviewers, and a Mac spaces its
- * starts no closer than {@link SETTLED_AFTER_MS}, so by the next start
- * the last round's folder is there to be counted and aged: two waiting
- * rounds never both pass on one count. A round that took its start and
- * still has no folder that long after has failed before its reviewers.
+ * round takes its start minutes before its folder can be made, so a
+ * Mac counts those still taking theirs from the marks
+ * `round-starting.ts` keeps, beside the folders read here: two waiting
+ * rounds never both pass on one count.
  *
  * A round is read from the folders its reviewers leave under the
  * transcripts' `runs`, judged by the same supervisor lease the collect

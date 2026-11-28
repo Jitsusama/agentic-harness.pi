@@ -376,11 +376,13 @@ behind it. A retry's reviewer counts while it runs, and so does a
 reviewer whose model runs elsewhere, since its supervisor runs here.
 It also starts at most one round every three minutes, which a
 `startSpacingMinutes` may widen but never narrow, since a round's
-reviewers show in its swap-outs only once they have loaded. That is
-the time a round takes to settle in, so the next start always finds
-the last round's folder to count and age: a round takes its start
-just before its reviewers start, and a closer start could pass beside
-one yet to leave its folder. One reading, or one failure to read, serves a session's
+reviewers show in its swap-outs only once they have loaded. A round
+takes its start before it reads its change again and cuts its tree,
+which can take minutes before its folder is made, so it leaves a mark
+as it takes its start, and the count and the age read the mark as a
+round just started until a folder named at or after it shows it, the
+round gives its start back, or 15 minutes pass. One reading, or one
+failure to read, serves a session's
 rounds for 20 seconds, and a program that sits out its timeout is
 killed. A short reading holds a round for as long as it lasts, as on
 Linux. A wait with no verdict, for a figure it can't read or a
