@@ -8,7 +8,9 @@
  * none of them and no lane can fetch, build, sign or push. Only the
  * machine knows those paths, so the machine says them, in a file only
  * root can write: `/etc/pi-sandbox/strict-grants.json`, as
- * `{"read": [...], "write": [...]}`.
+ * `{"read": [...], "write": [...], "outbox": "..."}`. The outbox is the
+ * folder each strict session's own outbox lies in (`outbox.ts`), checked
+ * as a written entry is, and neither holding nor lying in another entry.
  *
  * The file is honoured only where nothing but root could have put it
  * there: a plain file, not a link, owned by root and writable by root
@@ -64,6 +66,8 @@ export const MACHINE_GRANTS = "/etc/pi-sandbox/strict-grants.json";
 export interface MachineGrants {
 	readonly read: readonly string[];
 	readonly write: readonly string[];
+	/** The folder each strict session's outbox lies in, when the machine keeps one. */
+	readonly outbox?: string;
 }
 
 /** What is known of a path on disk without following it, as the grant needs. */
@@ -196,7 +200,7 @@ export function machineGrants(
 	const unknown = Object.keys(given).filter((key) => !KEYS.includes(key));
 	if (unknown.length > 0) {
 		return refused(
-			`it names ${unknown.join(", ")}, which is neither read nor write`,
+			`it names ${unknown.join(", ")}, which is none of read, write and outbox`,
 		);
 	}
 	const read = Reflect.get(given, "read") ?? [];
@@ -215,11 +219,46 @@ export function machineGrants(
 	}
 	const within = withinWritten(read, write);
 	if (within) return refused(within);
-	return { read: read as string[], write: write as string[] };
+	const outbox = Reflect.get(given, "outbox");
+	if (outbox !== undefined) {
+		const why = outboxRefusal(outbox, [...read, ...write], (entry) =>
+			entryRefusal(entry, "write", home, repositoryHomes, disk),
+		);
+		if (why) return refused(why);
+	}
+	return {
+		read: read as string[],
+		write: write as string[],
+		...(typeof outbox === "string" ? { outbox } : {}),
+	};
 }
 
 /** The keys a grant may have. */
-const KEYS: readonly string[] = ["read", "write"];
+const KEYS: readonly string[] = ["read", "write", "outbox"];
+
+/**
+ * Why `outbox` can't be the folder sessions' outboxes lie in, or none:
+ * it must be a path a written entry may be, `refusal` saying why not,
+ * and neither hold nor lie in another entry, since a session writes its
+ * own outbox and must reach no granted path through it, nor its
+ * neighbours' through a grant.
+ */
+function outboxRefusal(
+	outbox: unknown,
+	entries: readonly string[],
+	refusal: (entry: string) => string | undefined,
+): string | undefined {
+	if (typeof outbox !== "string") return "outbox must be a path";
+	const why = refusal(outbox);
+	if (why) return `${JSON.stringify(outbox)} under outbox ${why}`;
+	const near = entries.find(
+		(entry) => holds(outbox, entry) || holds(entry, outbox),
+	);
+	if (near) {
+		return `${JSON.stringify(near)} and the outbox ${JSON.stringify(outbox)} lie one in the other`;
+	}
+	return undefined;
+}
 
 /**
  * Folders a grant may neither name nor hold, by their parts, `*` standing

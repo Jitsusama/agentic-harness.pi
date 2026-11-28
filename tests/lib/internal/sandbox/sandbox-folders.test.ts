@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type FolderDisk,
+	makeOutbox,
 	makeSandboxFolders,
 } from "../../../../lib/internal/sandbox/sandbox-folders.ts";
 
@@ -87,6 +88,50 @@ describe("the strict sandbox's own folders", () => {
 		};
 		expect(makeSandboxFolders(home, SESSION, disk)).toMatch(
 			/couldn't make its folder .* \(Error: EACCES: permission denied\), so no command runs/,
+		);
+	});
+});
+
+describe("a strict session's outbox", () => {
+	let base: string;
+	let every: string;
+	let elsewhere: string;
+	const mine = () => join(every, "0a1b-session");
+
+	beforeEach(() => {
+		base = mkdtempSync(join(tmpdir(), "outboxes-"));
+		every = join(base, "outboxes");
+		elsewhere = join(base, "elsewhere");
+		mkdirSync(every);
+		chmodSync(every, 0o755);
+		mkdirSync(elsewhere);
+	});
+	afterEach(() => rmSync(base, { recursive: true, force: true }));
+
+	it("is made private to this account in the machine's folder for them", () => {
+		expect(makeOutbox(mine())).toBeUndefined();
+		const made = statSync(mine());
+		expect(made.isDirectory()).toBe(true);
+		expect(made.mode & 0o777).toBe(0o700);
+	});
+
+	it("is none, and refuses nothing, where the machine's folder is missing or none is asked", () => {
+		rmSync(every, { recursive: true });
+		expect(makeOutbox(mine())).toBeUndefined();
+		expect(makeOutbox(undefined)).toBeUndefined();
+	});
+
+	it("refuses a link where it goes, granting nothing where it leads", () => {
+		symlinkSync(elsewhere, mine());
+		expect(makeOutbox(mine())).toMatch(
+			/0a1b-session is a link or not a folder, so no command runs/,
+		);
+	});
+
+	it("refuses where other accounts may write the machine's folder", () => {
+		chmodSync(every, 0o777);
+		expect(makeOutbox(mine())).toMatch(
+			/writable by other accounts, who could put a link where this session's outbox goes/,
 		);
 	});
 });

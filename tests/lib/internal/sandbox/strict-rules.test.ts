@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
 	fileReach,
 	NIX_DOOR,
+	outboxFolder,
 	strictRules,
 } from "../../../../lib/internal/sandbox/strict-rules.ts";
 
@@ -231,5 +232,39 @@ describe("the strict profile on a machine that grants more", () => {
 			env: place.env,
 		});
 		expect(plain, "an empty grant changes nothing").toEqual(bare);
+	});
+});
+
+describe("the strict profile on a machine that keeps an outbox", () => {
+	const place = {
+		home: "/home/worker",
+		runtimeDir: "/run/user/1001",
+		cwd: "/home/worker/work",
+		env: SESSION,
+		grants: { read: [], write: [], outbox: "/outbox" },
+	};
+	const mine = "/outbox/0a1b-session";
+
+	it("lets a session write its own outbox and run nothing from it", () => {
+		const rules = strictRules(place);
+		expect(
+			rules.filter(([, path]) => path === mine).map(([flag]) => flag),
+		).toEqual(["--rw"]);
+		expect(rules.some(([, path]) => path === "/outbox")).toBe(false);
+		expect(fileReach(place, "write")).toContain(mine);
+	});
+
+	it("gives none to a process naming no session, nor to a language server", () => {
+		expect(outboxFolder(place.grants, {})).toBeUndefined();
+		expect(outboxFolder(place.grants, { PI_SESSION_ID: "../x" })).toBe(
+			undefined,
+		);
+		const served = strictRules({ ...place, served: true });
+		expect(served.some(([, path]) => path.startsWith("/outbox"))).toBe(false);
+	});
+
+	it("gives none where the machine keeps no outbox", () => {
+		expect(outboxFolder({ read: [], write: [] }, SESSION)).toBeUndefined();
+		expect(outboxFolder(undefined, SESSION)).toBeUndefined();
 	});
 });

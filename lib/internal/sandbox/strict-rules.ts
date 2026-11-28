@@ -14,6 +14,10 @@
  * session's own, so what one session reading a stranger's text writes
  * there is no program another runs. The cache, gcloud's settings and
  * the devices stay only writable, since nothing is built there.
+ *
+ * Where the machine keeps an outbox, a session with an id writes its own
+ * folder in it, and runs nothing from it: what it leaves there is taken
+ * out by the node, from outside (`outbox.ts`).
  */
 import { basename, dirname, join } from "node:path";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
@@ -77,6 +81,23 @@ export function sandboxFolders(
 		temporary: temporaryFolder(home, env),
 		gcloud: join(home, SANDBOX_FOLDER, "gcloud"),
 	};
+}
+
+/**
+ * The session's own outbox in the folder `grants` keeps for them, or
+ * none: none where the machine keeps no outbox, and none for a process
+ * that names no session, which would have one folder a pid, never taken
+ * out.
+ */
+export function outboxFolder(
+	grants: MachineGrants | undefined,
+	env: NodeJS.ProcessEnv,
+): string | undefined {
+	const session = env.PI_SESSION_ID ?? "";
+	if (grants?.outbox === undefined || !FOLDER_NAME.test(session)) {
+		return undefined;
+	}
+	return join(grants.outbox, session);
 }
 
 /** Where a command runs, as the sandbox's rules need it. */
@@ -149,9 +170,14 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 	];
 	const own = sandboxFolders(place.home, place.env);
 	const buildable = [place.cwd, own.temporary];
+	// A language server runs no one's ask, so it hands nothing back.
+	const outbox = place.served
+		? undefined
+		: outboxFolder(place.grants, place.env);
 	const writable = [
 		own.cache,
 		...(place.served ? [] : [own.gcloud]),
+		...(outbox ? [outbox] : []),
 		"/dev/null",
 		"/dev/full",
 		"/dev/zero",
