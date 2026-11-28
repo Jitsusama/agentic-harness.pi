@@ -4,7 +4,8 @@ How the code is laid out: a domain owns its seams, a helper lives once, a
 relative import names its `.ts` file, a program lives in its own file,
 a long file says why it is long, an empty catch says why its error can
 go, a linter is turned off no more often
-than before, a test imports each shell script it runs, and googleapis' types come from each API's own module, so a
+than before, a test imports each shell script it runs, a host case
+marked as one platform's alone names Linux, and googleapis' types come from each API's own module, so a
 typecheck reads six APIs rather than 328, and the model providers'
 SDKs stay out of it.
 

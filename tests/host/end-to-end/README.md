@@ -383,10 +383,10 @@ itself: `pnpm test:host` resolves it in its shell and passes it in as
 saying how to run it. Under `pnpm test:host` any case that skips, for
 whatever reason, fails the run: its reporter
 (support/every-case-ran.mts) lists each with its note. The one skip it
-lets by is a case only another platform can run, written with `itOnlyOn`
-(support/only-on.mts), whose meta names that platform: on the Mac, the
-cases that read Linux's /proc are listed as let by, and the run proves
-the rest.
+lets by is a case only Linux can run, written with `itOnlyOn("linux",
+...)` (support/only-on.mts), skipped on a Mac: there the cases that read
+Linux's /proc are listed as let by, and the run proves the rest. On
+Linux, where merges are gated, nothing is let by.
 
 The rollout runs `pnpm test:host` against the re-pinned piHostRuntime
 before any machine names a realm for a host.

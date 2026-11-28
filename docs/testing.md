@@ -141,9 +141,14 @@ screens), the engine's and the parity tests (`tests/host/engine`,
 `tests/host/parity`), on a pi built with the host's patches, which an ordinary check can't build:
 elsewhere they skip, saying how to get one, and here they fail
 without one, since no CI runs them; any case that skips under it, for
-whatever reason, fails the run, but for one written with `itOnlyOn`
-that only another platform can run, as the engine's /proc reaps on a
-Mac. Merges are gated on optimus, where every case runs. A host's
+whatever reason, fails the run, but on a Mac for one written with
+`itOnlyOn("linux", ...)`, as the engine's /proc reaps. That is the only
+skip let by (`LINUX_ONLY_ON_A_MAC` in `host/service/proof.ts`): merges
+are gated on optimus, a Linux machine, where every case must run, so
+there a case marked as only a Mac's, or any other platform's, fails the
+run like any skip, and a proof made on Linux that let any case by is
+refused. `tests/package/code/host-cases-skip-only-off-linux.test.ts`
+refuses an `itOnlyOn` call naming any platform but Linux. A host's
 rollout runs it first;
 `tests/host/end-to-end/README.md` says where the pi is found.
 

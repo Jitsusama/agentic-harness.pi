@@ -1,7 +1,7 @@
 /**
  * A pi runtime's proof: what scripts/host-prove.ts writes once `pnpm
- * test:host` has passed on that runtime with no case skipped but one only
- * another platform can run, and what a
+ * test:host` has passed on that runtime with no case skipped but, on a
+ * Mac, one only Linux can run, and what a
  * host won't start without. World's bump writes it beside the runtime's
  * store path, core's host module refuses at evaluation a runtime the
  * proof doesn't name, and the host program checks it again as it starts.
@@ -37,9 +37,9 @@ export interface HostProof {
 	readonly files: number;
 	readonly cases: number;
 	/**
-	 * The cases only another platform runs that its run let by, and the
-	 * platform it ran on, which alone the proof then stands for; none
-	 * where every case ran.
+	 * The cases only Linux runs that a Mac's run let by, and the platform
+	 * it ran on, which alone the proof then stands for; none where every
+	 * case ran.
 	 */
 	readonly letBy?: LetBy;
 	/** When it passed, as an ISO time. */
@@ -65,7 +65,37 @@ export const ONLY_ON_KEY = "onlyOn";
  */
 export const SKIPPED_ON_KEY = "skippedOn";
 
-/** The platforms Node names: the only ones a case may say it runs on alone. */
+/** A platform a case runs on alone, and the one it may skip on for it. */
+export interface OnlyOnPair {
+	readonly onlyOn: NodeJS.Platform;
+	readonly skippedOn: NodeJS.Platform;
+}
+
+/**
+ * The one skip a host run lets by: a case only Linux runs, as one reading
+ * Linux's /proc, skipped on a Mac. Optimus, a Linux machine, is the only
+ * platform whose run clears a merge, so every case must run there; were
+ * any other pair let by, a case marked as only a Mac's, or its meta
+ * written so by hand, would skip on optimus and pass its gate unseen.
+ * `pnpm test:host`'s reporter (every-case-ran.mts), provenBy and
+ * proofRefusal all judge by this pair alone.
+ */
+export const LINUX_ONLY_ON_A_MAC: OnlyOnPair = {
+	onlyOn: "linux",
+	skippedOn: "darwin",
+};
+
+/**
+ * Whether a case whose meta says it runs only on `only`, skipped on `on`,
+ * is the one skip let by: LINUX_ONLY_ON_A_MAC's.
+ */
+export function letsBy(only: unknown, on: unknown): boolean {
+	return (
+		only === LINUX_ONLY_ON_A_MAC.onlyOn && on === LINUX_ONLY_ON_A_MAC.skippedOn
+	);
+}
+
+/** The platforms Node names: the only ones a proof may say it ran on. */
 const PLATFORMS: ReadonlySet<string> = new Set<NodeJS.Platform>([
 	"aix",
 	"android",
@@ -80,8 +110,8 @@ const PLATFORMS: ReadonlySet<string> = new Set<NodeJS.Platform>([
 	"win32",
 ]);
 
-/** Whether `name` is a platform Node names, so no made-up word lets a skip by. */
-export function isPlatform(name: unknown): name is NodeJS.Platform {
+/** Whether `name` is a platform Node names, so a proof names no made-up one. */
+function isPlatform(name: unknown): name is NodeJS.Platform {
 	return typeof name === "string" && PLATFORMS.has(name);
 }
 
@@ -171,16 +201,22 @@ export function hostProof(
 
 /**
  * Why a proof doesn't prove this pi, on `here`, or nothing when it does.
- * A proof whose run let cases by for another platform's stands only for
- * the platform that run was on, which never ran those cases.
+ * A proof whose run let cases by stands only for a Mac, the one platform
+ * whose run may let any by (LINUX_ONLY_ON_A_MAC), and which never ran
+ * them: one made on Linux, where every case must run, proves nothing.
  */
 export function proofRefusal(
 	proof: HostProof,
 	packageDir: string,
 	here: NodeJS.Platform = process.platform,
 ): string | undefined {
+	if (
+		proof.letBy !== undefined &&
+		proof.letBy.on !== LINUX_ONLY_ON_A_MAC.skippedOn
+	)
+		return `The runtime's proof was made on ${proof.letBy.on}, letting by ${proof.letBy.cases} case(s), though only a run on ${LINUX_ONLY_ON_A_MAC.skippedOn} may let any by, so it proves nothing; prove that pi with node scripts/host-prove.ts ${runtimeOf(packageDir)}, every case running`;
 	if (proof.letBy !== undefined && proof.letBy.on !== here)
-		return `The runtime's proof was made on ${proof.letBy.on}, letting by ${proof.letBy.cases} case(s) only another platform runs, so it proves nothing for a host on ${here}; prove that pi here with node scripts/host-prove.ts ${runtimeOf(packageDir)}`;
+		return `The runtime's proof was made on ${proof.letBy.on}, letting by ${proof.letBy.cases} case(s) only ${LINUX_ONLY_ON_A_MAC.onlyOn} runs, so it proves nothing for a host on ${here}; prove that pi here with node scripts/host-prove.ts ${runtimeOf(packageDir)}`;
 	const pi = resolved(packageDir);
 	const runtime = resolved(proof.runtime);
 	if (pi.startsWith(`${runtime}/`)) return undefined;
@@ -189,20 +225,19 @@ export function proofRefusal(
 
 /**
  * Every case ran and passed, as a proof's counts, or why the run proves
- * nothing. The one skip let by is a case whose meta names another
- * platform as the only one it runs on, and the one it skipped on, as the
- * Mac's run skips those reading Linux's /proc; the counts are of the
- * cases that ran, and the proof says what it let by and on what, so a
- * host on another platform refuses it. A report alone carries no exit,
- * so the meta, not test:host's reporter, keeps a case that skipped on its
- * own platform from being let by. A run with no case run proves nothing.
+ * nothing. The one skip let by is a case whose meta names Linux as the
+ * only platform it runs on, and a Mac as the one it skipped on
+ * (LINUX_ONLY_ON_A_MAC), as the Mac's run skips those reading Linux's
+ * /proc; the counts are of the cases that ran, and the proof says what it
+ * let by and on what, so a host on Linux refuses it. A report alone
+ * carries no exit, so the meta, not test:host's reporter, keeps any other
+ * skip from being let by. A run with no case run proves nothing.
  */
 export function provenBy(
 	summary: RunSummary,
 ): { files: number; cases: number; letBy?: LetBy } | string {
 	const skipped = summary.numPendingTests + summary.numTodoTests;
-	const runsOn = onlyElsewhere(summary);
-	const elsewhere = runsOn.reduce((sum, [, count]) => sum + count, 0);
+	const elsewhere = letByCount(summary);
 	if (summary.numFailedTests > 0)
 		return `${summary.numFailedTests} of ${summary.numTotalTests} cases failed`;
 	if (skipped > elsewhere)
@@ -215,33 +250,25 @@ export function provenBy(
 		files: summary.testResults.length,
 		cases: summary.numPassedTests,
 	};
-	const [only, ...others] = runsOn;
-	if (only === undefined) return proven;
-	if (others.length > 0)
-		return `its cases skipped on ${runsOn.map(([on]) => on).join(" and ")}, not on one platform`;
-	return { ...proven, letBy: { on: only[0], cases: only[1] } };
+	if (elsewhere === 0) return proven;
+	return {
+		...proven,
+		letBy: { on: LINUX_ONLY_ON_A_MAC.skippedOn, cases: elsewhere },
+	};
 }
 
-/**
- * How many of a report's cases skipped naming another platform than the
- * one they skipped on as their own, by the platform they skipped on.
- */
-function onlyElsewhere(
-	summary: RunSummary,
-): (readonly [NodeJS.Platform, number])[] {
-	const counts = new Map<NodeJS.Platform, number>();
+/** How many of a report's cases skipped as LINUX_ONLY_ON_A_MAC lets by. */
+function letByCount(summary: RunSummary): number {
+	let count = 0;
 	for (const file of summary.testResults) {
 		if (!(isRecord(file) && Array.isArray(file.assertionResults))) continue;
 		for (const one of file.assertionResults) {
 			if (!(isRecord(one) && one.status === "skipped" && isRecord(one.meta)))
 				continue;
-			const only = one.meta[ONLY_ON_KEY];
-			const on = one.meta[SKIPPED_ON_KEY];
-			if (isPlatform(only) && isPlatform(on) && only !== on)
-				counts.set(on, (counts.get(on) ?? 0) + 1);
+			if (letsBy(one.meta[ONLY_ON_KEY], one.meta[SKIPPED_ON_KEY])) count += 1;
 		}
 	}
-	return [...counts];
+	return count;
 }
 
 /** The line scripts/host-run.sh prints before a whole run's JSON report. */

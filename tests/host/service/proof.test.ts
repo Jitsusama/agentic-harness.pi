@@ -128,7 +128,7 @@ describe("a runtime's proof", () => {
 		expect(proofRefusal(proofFor(link), join(runtime, "pi"))).toBeUndefined();
 	});
 
-	it("stands a proof that let cases by only for the platform its run was on", () => {
+	it("stands a Mac's proof that let Linux's cases by only for a Mac", () => {
 		const { runtime, pi } = runtimeAt("proven");
 		const mac: HostProof = {
 			...proofFor(runtime),
@@ -136,12 +136,31 @@ describe("a runtime's proof", () => {
 		};
 		expect(proofRefusal(mac, pi, "darwin"), "on a Mac").toBeUndefined();
 		expect(proofRefusal(mac, pi, "linux")).toContain(
-			"made on darwin, letting by 15 case(s) only another platform runs, so it proves nothing for a host on linux",
+			"made on darwin, letting by 15 case(s) only linux runs, so it proves nothing for a host on linux",
 		);
 		expect(
 			proofRefusal(proofFor(runtime), pi, "linux"),
 			"every case ran",
 		).toBeUndefined();
+	});
+
+	it("refuses a proof that let cases by on Linux, where every case must run, wherever it is read", () => {
+		const { runtime, pi } = runtimeAt("proven");
+		const said =
+			"made on linux, letting by 2 case(s), though only a run on darwin may let any by";
+		const linux: HostProof = {
+			...proofFor(runtime),
+			letBy: { on: "linux", cases: 2 },
+		};
+		expect(proofRefusal(linux, pi, "linux"), "on Linux").toContain(said);
+		expect(proofRefusal(linux, pi, "darwin"), "on a Mac").toContain(said);
+		const windows: HostProof = {
+			...proofFor(runtime),
+			letBy: { on: "win32", cases: 2 },
+		};
+		expect(proofRefusal(windows, pi, "win32"), "on Windows").toContain(
+			"though only a run on darwin may let any by",
+		);
 	});
 
 	it("refuses a pi in another runtime, even one whose name starts the same", () => {
@@ -219,7 +238,7 @@ describe("what a run proves", () => {
 	/** What a Mac's skip of a case only Linux runs leaves in its meta. */
 	const onMac = { onlyOn: "linux", skippedOn: "darwin" };
 
-	it("lets by a case that skipped naming another platform, counting the cases that ran and saying what it let by", () => {
+	it("lets by a case only Linux runs that skipped on a Mac, counting the cases that ran and saying what it let by", () => {
 		expect(provenBy(skipping(onMac, onMac))).toEqual({
 			files: 14,
 			cases: 69,
@@ -237,17 +256,16 @@ describe("what a run proves", () => {
 			// A report carries no exit, so the reporter's refusal of this
 			// is lost on host-prove's bare --report path.
 			[{ onlyOn: "darwin", skippedOn: "darwin" }, "its own run's platform"],
+			// Optimus gates merges on Linux, so there every case must run.
+			[{ onlyOn: "darwin", skippedOn: "linux" }, "a Mac's case on Linux"],
+			[{ onlyOn: "win32", skippedOn: "linux" }, "Windows's case on Linux"],
+			[{ onlyOn: "never", skippedOn: "linux" }, "a made-up one on Linux"],
+			[{ onlyOn: "win32", skippedOn: "darwin" }, "Windows's case on a Mac"],
 		];
 		for (const [meta, why] of cases)
 			expect(provenBy(skipping(onMac, meta)), why).toBe(
 				"1 of 71 cases skipped",
 			);
-	});
-
-	it("refuses a run whose let-by skips were on more than one platform", () => {
-		expect(
-			provenBy(skipping(onMac, { onlyOn: "darwin", skippedOn: "linux" })),
-		).toBe("its cases skipped on darwin and linux, not on one platform");
 	});
 
 	it("refuses a todo, whatever its meta says", () => {

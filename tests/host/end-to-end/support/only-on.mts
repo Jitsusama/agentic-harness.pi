@@ -1,11 +1,16 @@
 // A host case that only one platform can run, skipped elsewhere saying which platform, in its note and its meta.
 /**
- * Some host cases read what only one platform has, as Linux's /proc. On
- * another they can't run, which is no check left unmade, so `pnpm
- * test:host`'s reporter (every-case-ran.mts) and the proof's judge
- * (host/service/proof.ts) let such a skip by, rather than failing the
- * Mac's whole run for it. Both know one from the platform its meta
- * names, which only these helpers write, so every other skip still fails.
+ * Some host cases read what only Linux has, as its /proc. On a Mac they
+ * can't run, which is no check left unmade, so `pnpm test:host`'s reporter
+ * (every-case-ran.mts) and the proof's judge (host/service/proof.ts) let
+ * such a skip by, rather than failing the Mac's whole run for it. That is
+ * the one pair let by, LINUX_ONLY_ON_A_MAC: optimus, on Linux, is the only
+ * platform whose run clears a merge, so a case marked as only a Mac's, or
+ * any other platform's, still fails there as any skip does. The meta is
+ * the test's own to write, so nothing here could hold a case to the
+ * truth; the pair is what keeps a skip from hiding on optimus, and
+ * tests/package/code/host-cases-skip-only-off-linux.test.ts refuses a
+ * call naming any platform but Linux.
  */
 import { it, type TestFunction } from "vitest";
 import { ONLY_ON_KEY, SKIPPED_ON_KEY } from "../../../../host/service/proof.ts";

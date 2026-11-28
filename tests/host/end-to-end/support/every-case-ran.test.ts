@@ -1,10 +1,18 @@
 /**
  * The host gate's reporter, on the cases a run ended with: it names each
  * that skipped, with its note, and nothing that passed or failed, letting
- * by only a case whose meta names another platform as its own.
+ * by only a case whose meta names Linux as its own, on a Mac.
  */
 
-import { afterEach, describe, expect, it, type TestContext, vi } from "vitest";
+import {
+	afterEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	type TestContext,
+	vi,
+} from "vitest";
 import type { TestModule } from "vitest/node";
 import EveryCaseRan, { skipsIn } from "./every-case-ran.mts";
 import { onlyOnBody, onlyOnNote } from "./only-on.mts";
@@ -84,7 +92,7 @@ describe("skipsIn", () => {
 		).toEqual({ refused: [], elsewhere: [] });
 	});
 
-	it("lets by a case only another platform runs, and refuses it on that platform", () => {
+	it("lets by a case only Linux runs on a Mac, and refuses it on Linux itself", () => {
 		const ran = [file("engine.test.ts", [onlyOn("holds a log", "linux")])];
 		const line = `engine.test.ts: holds a log: ${onlyOnNote("linux", "it reads /proc")}`;
 		expect(skipsIn(ran, "", "darwin"), "on the Mac").toEqual({
@@ -93,6 +101,28 @@ describe("skipsIn", () => {
 		});
 		expect(skipsIn(ran, "", "linux"), "on Linux itself").toEqual({
 			refused: [line],
+			elsewhere: [],
+		});
+	});
+
+	it("refuses on Linux a case only another platform runs, since every case must run there", () => {
+		const mac = [file("engine.test.ts", [onlyOn("holds a log", "darwin")])];
+		expect(skipsIn(mac, "", "linux"), "a Mac's case").toEqual({
+			refused: [
+				`engine.test.ts: holds a log: ${onlyOnNote("darwin", "it reads /proc")}`,
+			],
+			elsewhere: [],
+		});
+		const windows = [file("engine.test.ts", [onlyOn("holds a log", "win32")])];
+		expect(skipsIn(windows, "", "linux").elsewhere, "Windows's").toEqual([]);
+	});
+
+	it("lets by on a Mac only a case Linux runs, not another platform's", () => {
+		const windows = [file("engine.test.ts", [onlyOn("holds a log", "win32")])];
+		expect(skipsIn(windows, "", "darwin")).toEqual({
+			refused: [
+				`engine.test.ts: holds a log: ${onlyOnNote("win32", "it reads /proc")}`,
+			],
 			elsewhere: [],
 		});
 	});
@@ -129,9 +159,17 @@ describe("the reporter", () => {
 		vi.restoreAllMocks();
 	});
 
-	/** The exit code and what it said, after a run that ended with `ran`. */
-	function report(ran: readonly ReturnType<typeof file>[]) {
+	/** The exit code and what it said, after a run on `platform` that ended with `ran`. */
+	function report(
+		ran: readonly ReturnType<typeof file>[],
+		platform: NodeJS.Platform,
+	) {
 		const said: string[] = [];
+		const real = Object.getOwnPropertyDescriptor(process, "platform");
+		Object.defineProperty(process, "platform", { value: platform });
+		onTestFinished(() => {
+			if (real) Object.defineProperty(process, "platform", real);
+		});
 		vi.spyOn(console, "info").mockImplementation((line: string) =>
 			said.push(line),
 		);
@@ -143,36 +181,59 @@ describe("the reporter", () => {
 		return { exitCode: process.exitCode, said: said.join("\n") };
 	}
 
-	const other = process.platform === "linux" ? "darwin" : "linux";
-
 	it("fails a run any case skipped in, naming it", () => {
-		const { exitCode, said } = report([
-			file("engine.test.ts", [
-				{ name: "resumes", state: "skipped", note: "No pi built" },
-			]),
-		]);
+		const { exitCode, said } = report(
+			[
+				file("engine.test.ts", [
+					{ name: "resumes", state: "skipped", note: "No pi built" },
+				]),
+			],
+			"linux",
+		);
 		expect(exitCode).toBe(1);
 		expect(said).toContain("engine.test.ts: resumes: No pi built");
 	});
 
-	it("passes a run whose only skips are another platform's, naming them", () => {
-		const { exitCode, said } = report([
-			file("held-logs.test.ts", [onlyOn("holds a log once", other)]),
-		]);
+	it("passes a Mac's run whose only skips are Linux's, naming them", () => {
+		const { exitCode, said } = report(
+			[file("held-logs.test.ts", [onlyOn("holds a log once", "linux")])],
+			"darwin",
+		);
 		expect(exitCode).toBe(0);
-		expect(said).toContain("let by 1 only another platform runs");
+		expect(said).toContain("let by 1 only Linux runs");
 		expect(said).toContain("held-logs.test.ts: holds a log once");
 	});
 
-	it("fails a run that let one skip by and refused another, naming each", () => {
-		const { exitCode, said } = report([
-			file("engine.test.ts", [
-				onlyOn("holds a log once", other),
-				{ name: "resumes", state: "skipped", note: "No pi built" },
-			]),
-		]);
+	it("fails a Linux run whose cases skipped as only a Mac's or a made-up platform's, naming each", () => {
+		const made = "only on never: it can't run anywhere";
+		const { exitCode, said } = report(
+			[
+				file("held-logs.test.ts", [
+					onlyOn("holds a log once", "darwin"),
+					{ name: "resumes", state: "skipped", note: made, onlyOn: "never" },
+				]),
+			],
+			"linux",
+		);
 		expect(exitCode).toBe(1);
-		expect(said).toContain("let by 1 only another platform runs");
+		expect(said).not.toContain("let by");
+		expect(said).toContain(
+			`2 skipped:\n  held-logs.test.ts: holds a log once: ${onlyOnNote("darwin", "it reads /proc")}\n  held-logs.test.ts: resumes: ${made}`,
+		);
+	});
+
+	it("fails a run that let one skip by and refused another, naming each", () => {
+		const { exitCode, said } = report(
+			[
+				file("engine.test.ts", [
+					onlyOn("holds a log once", "linux"),
+					{ name: "resumes", state: "skipped", note: "No pi built" },
+				]),
+			],
+			"darwin",
+		);
+		expect(exitCode).toBe(1);
+		expect(said).toContain("let by 1 only Linux runs");
 		expect(said).toContain(
 			"1 skipped:\n  engine.test.ts: resumes: No pi built",
 		);
