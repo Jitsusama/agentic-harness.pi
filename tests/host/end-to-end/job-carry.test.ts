@@ -21,10 +21,11 @@
  * pi opened on the same file says its end.
  *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
- * why without one. E17 runs its command through pi-spawner, as a
- * machine's pis do, and is skipped where the system's profile has none;
- * pi's own spawn, which a quit kills what it started, is
- * tests/lib/internal/shell/kept-apart.test.ts's.
+ * why without one. E17 runs its command through pi-spawner where the
+ * system's profile has one, as a machine's pis do, and holds that it
+ * did; where there is none, the plain pi starts its kept command apart
+ * from its own tracking (kept-apart.ts), which a quit from pi 1.6 would
+ * otherwise kill, as it did on htt66.
  */
 
 import { execFile } from "node:child_process";
@@ -316,10 +317,6 @@ it(
 	"E17: /host moves a plain pi with its background command running, and the command's end is said in the host",
 	async ({ skip }) => {
 		const spawner = machineSpawner();
-		if (spawner === undefined)
-			return skip(
-				"no pi-spawner in the system's profile, so the plain pi would start its command itself (kept-apart.test.ts)",
-			);
 		await onHostPi(skip, said, async (pi) => {
 			host = await startHost({
 				seal: sealed,
@@ -339,7 +336,7 @@ it(
 			const file = plain.file() ?? "";
 			const follow = await followUp(sealed.home);
 			const held = await readFile(file, "utf8");
-			startedThrough(sealed, spawner);
+			if (spawner !== undefined) startedThrough(sealed, spawner);
 
 			plain.type("/host");
 			await untilAnswered(
