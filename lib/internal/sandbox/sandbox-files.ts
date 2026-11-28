@@ -31,6 +31,7 @@ import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { leadsTo } from "./leads-to.ts";
+import { machineGrants } from "./machine-grants.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -471,6 +472,7 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
+			grants: machineGrants(),
 		},
 		use,
 	)
@@ -487,8 +489,8 @@ function strictRefusal(
 				: `to ${real}, outside it`;
 		const what =
 			use === "write"
-				? "may write only in the working folder and the sandbox's own cache and temporary folder"
-				: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
+				? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
+				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;
