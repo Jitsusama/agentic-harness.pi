@@ -48,6 +48,10 @@ import {
 	localProcessDeps,
 	probeProcess,
 } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
+import {
+	FIRST_PROMPT_MS,
+	noteFirstPrompt,
+} from "../../../../lib/internal/session/first-prompt.ts";
 import { PARK_UNDONE, PARKING } from "../../../../lib/internal/session/park.ts";
 import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
@@ -199,6 +203,64 @@ it("takes only its own launch hints and literal first words", async () => {
 	expect(
 		withSession("b", () => sayFirstWords(pi, contexts("b"), "b", () => false)),
 	).toBeUndefined();
+});
+
+/**
+ * Start conversation "a" with launch hints naming "carry", once the host
+ * admitted `admitted` as its first words and its open took past
+ * FIRST_PROMPT_MS, and say what quest-workflow's start sent as the user.
+ */
+async function startCarrying(admitted: string | undefined) {
+	const admission = Date.now();
+	vi.useFakeTimers({ toFake: ["Date"], now: admission });
+	try {
+		withSession("a", () => noteFirstPrompt(admitted));
+		hints.set("a", { firstWords: "carry" });
+		vi.setSystemTime(admission + FIRST_PROMPT_MS + 30_000);
+		const pi = fakePi();
+		const state = createQuestState({ questsRoot: join(root, "quests") });
+		const budgets = { keep: async () => undefined, forget: () => undefined };
+		followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
+		const [start] = pi.recorded.handlers.get("session_start") ?? [];
+		const [discover] = pi.recorded.handlers.get("resources_discover") ?? [];
+		if (!start || !discover)
+			throw new Error("quest-workflow follows no session start to send from");
+		const ctx = {
+			...contexts("a"),
+			ui: new Proxy({}, { get: () => () => undefined }),
+			sessionManager: {
+				getSessionId: () => "a",
+				isPersisted: () => true,
+				getEntries: () => [],
+				getBranch: () => [],
+			},
+		};
+		await withSession("a", async () => {
+			await start({ type: "session_start", reason: "startup" }, ctx);
+			await discover({ type: "resources_discover" }, ctx);
+		});
+		// The start's send goes out on the turn after resources_discover.
+		await new Promise((settle) => setImmediate(settle));
+		return pi.recorded.sentAsUser;
+	} finally {
+		vi.useRealTimers();
+	}
+}
+
+// On 27 November two host cases' opens spent 63.5 s and 88.8 s loading
+// their extensions, and the host's first words reached the model twice:
+// once from the host's own prompt and once from this start.
+it("leaves a host's first words to the host however long its open took", async () => {
+	expect(await startCarrying("carry"), "the host sends them itself").toEqual(
+		[],
+	);
+});
+
+it("says the launch's words itself when the host admitted none", async () => {
+	expect(
+		await startCarrying(undefined),
+		"the start sends them, as nothing else will",
+	).toEqual(["carry"]);
 });
 
 it("accepts only its own host stamps and preserves signal endings through shutdown", () => {

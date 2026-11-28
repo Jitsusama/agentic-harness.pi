@@ -14,7 +14,10 @@ import {
 	type SessionStamp,
 	withSession,
 } from "../../lib/core/session/index.ts";
-import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
+import {
+	firstPromptHandedOn,
+	noteFirstPrompt,
+} from "../../lib/internal/session/first-prompt-slot.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -476,12 +479,32 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		mark?: (phase: StartPhase) => void,
 		turn?: TakeTurn,
 	): Promise<void> {
-		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
-		await context.stopping.reap(sessionId);
+		await context.stopping.reap(record.traits.sessionId);
 		mark?.("reap");
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
+		try {
+			await buildAdmitted(record, manager, request, first, mark, turn);
+		} catch (error) {
+			// A build that fails before its first words are handed on leaves its
+			// conversation held, parked, and nothing else ends their wait, so what
+			// puts its turns off for them would put them off for ever.
+			firstPromptHandedOn();
+			throw error;
+		}
+	}
+
+	/** Build a conversation whose first words, if any, were admitted, then hand them on. */
+	async function buildAdmitted(
+		record: Live,
+		manager: SessionManager,
+		request: OpenRequest | AdoptRequest | undefined,
+		first: string | undefined,
+		mark?: (phase: StartPhase) => void,
+		turn?: TakeTurn,
+	): Promise<void> {
+		const { sessionId, cwd } = record.traits;
 		const sessionManager =
 			request?.op === "open" ? keptFile(sessions, manager) : manager;
 		const seat: Seat = { current: record };
@@ -577,6 +600,9 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			await Promise.race([words.held, taken, prompting.then(() => words.held)]);
 		} finally {
 			stopping.abort();
+			// pi has them, or failed them: what waited on them waits no longer,
+			// however long the open took.
+			firstPromptHandedOn();
 		}
 		prompting.catch((error: unknown) => failedAfterStart(record, error));
 	}

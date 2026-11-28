@@ -12,6 +12,7 @@ import {
 } from "../../../../lib/internal/session/carried-model.ts";
 import {
 	FIRST_PROMPT_MS,
+	firstPromptHandedOn,
 	firstPromptPending,
 	noteFirstPrompt,
 	runStarted,
@@ -143,24 +144,28 @@ describe("hosted first prompt", () => {
 		).toBe(false);
 	});
 
-	it("expires from the conversation's admission time, including one opened long after boot", () => {
+	// On 27 November two host cases' opens spent 63.5 s and 88.8 s loading
+	// their extensions, and a window timed from admission had closed before
+	// they started, so quest-workflow said the host's first words a second
+	// time.
+	it("stays pending however long the open takes, until the host hands the words on", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000_000);
 		withSession("a", () => noteFirstPrompt("A words"));
-		vi.setSystemTime(1_000_000 + FIRST_PROMPT_MS - 1);
 		withSession("b", () => noteFirstPrompt("B words"));
+		vi.setSystemTime(1_000_000 + 2 * FIRST_PROMPT_MS);
 		expect(
 			withSession("a", firstPromptPending),
-			"A's words are pending until FIRST_PROMPT_MS after A's admission",
+			"A's words are pending past FIRST_PROMPT_MS after A's admission",
 		).toBe(true);
-		vi.advanceTimersByTime(1);
+		withSession("a", firstPromptHandedOn);
 		expect(
 			withSession("a", firstPromptPending),
-			"A's words expire FIRST_PROMPT_MS after A's admission",
+			"A's words are no longer pending once the host handed them on",
 		).toBe(false);
 		expect(
 			withSession("b", firstPromptPending),
-			"B, admitted later, keeps its words pending",
+			"B's words stay pending when A's are handed on",
 		).toBe(true);
 	});
 });

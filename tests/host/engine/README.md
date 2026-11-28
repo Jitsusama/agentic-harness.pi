@@ -29,7 +29,10 @@ counts tool calls from session
 events, and runs V8's own collection and reads this process's Pss.
 pi-runs.test.ts opens the agent's own runs as pi's through a session
 standing in for pi's runForHost: one run for nested holds, none for a
-run pi began, and no settle once the host parks.
+run pi began, and no settle once the host parks. first-words.test.ts
+builds an open on fakes of pi's runtime, its screen and the agent,
+holding that its first words stop being pending once handed to pi, and
+once a build that failed before handing them on ends.
 
 hosted-agent.test.ts, call-signal.test.ts, compacted-reads.test.ts,
 engine.test.ts and carried-runs.test.ts are the exceptions.
