@@ -57,6 +57,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { startSecondsFromProcSync } from "../process-ticks.ts";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
 	endOf,
@@ -91,6 +92,12 @@ export interface KeptJob {
 	readonly toolCallId?: string;
 	/** The pi that holds it, by its pid; one that runs still holds it. */
 	readonly owner?: number;
+	/**
+	 * When that pi started, in seconds since the epoch, where procfs said:
+	 * a pid since reused started at another second, so a pi gone is never
+	 * read as holding the call because another process took its pid.
+	 */
+	readonly started?: number;
 	readonly work: CarriedShell;
 }
 
@@ -512,10 +519,8 @@ export function disownKeptJob(keep: string): void {
 /** Whether a record read back is one this code wrote. */
 function isKeptJob(value: unknown): value is KeptJob {
 	if (typeof value !== "object" || value === null) return false;
-	const { session, id, kind, label, toolCallId, owner, work } = value as Record<
-		string,
-		unknown
-	>;
+	const { session, id, kind, label, toolCallId, owner, started, work } =
+		value as Record<string, unknown>;
 	return (
 		typeof session === "string" &&
 		typeof id === "string" &&
@@ -523,6 +528,7 @@ function isKeptJob(value: unknown): value is KeptJob {
 		typeof label === "string" &&
 		(toolCallId === undefined || typeof toolCallId === "string") &&
 		(owner === undefined || typeof owner === "number") &&
+		(started === undefined || typeof started === "number") &&
 		isCarriedShell(work)
 	);
 }
@@ -553,9 +559,19 @@ function recordIn(text: string): KeptJob | undefined {
 	return isKeptJob(parsed) ? parsed : undefined;
 }
 
-/** Whether the pi that recorded `job` has gone, so nothing holds it. */
-function unheld(job: KeptJob, there: (pid: number) => boolean): boolean {
-	return job.owner === undefined || !there(job.owner);
+/**
+ * Whether the pi that recorded `job` has gone, so nothing holds it: no
+ * process at its pid, or one that started at another second than it did.
+ */
+export function unheld(
+	job: KeptJob,
+	there: (pid: number) => boolean = processThere,
+	startedOf: (pid: number) => number | undefined = startSecondsFromProcSync,
+): boolean {
+	if (job.owner === undefined || !there(job.owner)) return true;
+	if (job.started === undefined) return false;
+	const started = startedOf(job.owner);
+	return started !== undefined && started !== job.started;
 }
 
 /** Every record in `folder` that reads back, by the call's kept path. */

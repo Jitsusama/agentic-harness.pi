@@ -183,6 +183,7 @@ export function recordJobs(
 					label,
 					...(toolCallId !== undefined ? { toolCallId } : {}),
 					owner,
+					...(started !== undefined ? { started } : {}),
 					work,
 				});
 				recorded.set(key, work.keep);

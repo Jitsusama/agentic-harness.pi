@@ -23,8 +23,18 @@ import { JOB_SUFFIX } from "./kept.ts";
  * have it taken up again first, then its status, so a removal cut short
  * leaves no call that reads as running. A carried call taken up has both
  * marks, and one cut between them can still have its end said again.
+ * Its owner goes last, so none of its files ever outlives the one naming
+ * who started it.
  */
-const SUFFIXES = [".job", ".carried", ".end", ".pid", ".out", ".old"] as const;
+const SUFFIXES = [
+	".job",
+	".carried",
+	".end",
+	".pid",
+	".out",
+	".old",
+	".owner",
+] as const;
 
 /** The suffixes that have a call taken up again. */
 const MARKS: ReadonlySet<string> = new Set([".job", ".carried"]);

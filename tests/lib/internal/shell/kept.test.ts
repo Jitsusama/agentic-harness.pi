@@ -94,7 +94,7 @@ describe("a kept call", () => {
 		const where = folder();
 		const path = await makeKept(where);
 		expect(statSync(where).mode & PERMISSIONS).toBe(PRIVATE_FOLDER);
-		for (const suffix of [".out", ".end", ".pid"]) {
+		for (const suffix of [".out", ".end", ".pid", ".owner"]) {
 			expect(
 				statSync(`${path}${suffix}`).mode & PERMISSIONS,
 				`${suffix} is the owner's alone`,
@@ -306,13 +306,13 @@ describe("a kept call", () => {
 		const old = await makeKept(where);
 		const fresh = await makeKept(where);
 		const weekAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
-		for (const suffix of [".out", ".end", ".pid"])
+		for (const suffix of [".out", ".end", ".pid", ".owner"])
 			utimesSync(`${old}${suffix}`, weekAgo, weekAgo);
 		const sweeping = sweepKept(where);
-		expect(readdirSync(where).length, "swept without holding the loop").toBe(6);
+		expect(readdirSync(where).length, "swept without holding the loop").toBe(8);
 		await sweeping;
 		expect(readdirSync(where).sort()).toEqual(
-			[".end", ".out", ".pid"]
+			[".end", ".out", ".owner", ".pid"]
 				.map((suffix) => `${fresh.split("/").at(-1)}${suffix}`)
 				.sort(),
 		);
@@ -325,7 +325,7 @@ describe("a kept call", () => {
 		const weekAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
 		const age = async () => {
 			const path = await makeKept(where);
-			for (const suffix of [".out", ".end", ".pid"])
+			for (const suffix of [".out", ".end", ".pid", ".owner"])
 				utimesSync(`${path}${suffix}`, weekAgo, weekAgo);
 		};
 		const start = Date.now();
@@ -335,7 +335,7 @@ describe("a kept call", () => {
 		await age();
 		await sweepKeptNowAndThen(where, start + 1000);
 		expect(readdirSync(where), "a start within the hour doesn't").toHaveLength(
-			3,
+			4,
 		);
 		await sweepKeptNowAndThen(where, start + 60 * 60 * 1000);
 		expect(readdirSync(where), "one an hour on sweeps again").toEqual([]);
@@ -365,7 +365,7 @@ describe("a kept call", () => {
 		const start = Date.now();
 		await sweepKeptNowAndThen(where, start);
 		const path = await makeKept(where);
-		for (const suffix of [".out", ".end", ".pid"])
+		for (const suffix of [".out", ".end", ".pid", ".owner"])
 			utimesSync(`${path}${suffix}`, weekAgo, weekAgo);
 		await sweepKeptNowAndThen(where, start - 1000);
 		expect(
