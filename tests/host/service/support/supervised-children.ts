@@ -46,6 +46,8 @@ export let units: FakeUnits;
 export let reported: unknown[];
 export let said: string[];
 export let ended: [string, string][];
+/** For each ending, whether its child's last state was busy, as said. */
+export let endedBusy: boolean[];
 /** What each child's conversation became, as the supervisor told it on. */
 export let becameTold: [string, string][];
 export let supervisor: ChildSupervisor;
@@ -507,7 +509,10 @@ function supervise(clocks: Clocks = {}): ChildSupervisor {
 		roster,
 		report: (error) => reported.push(error),
 		say: (text) => said.push(text),
-		ended: (sessionId, why) => ended.push([sessionId, why]),
+		ended: (sessionId, why, busy) => {
+			ended.push([sessionId, why]);
+			endedBusy.push(busy);
+		},
 		became: (previousId, nextId) => becameTold.push([previousId, nextId]),
 		listensWithinMs: 5_000,
 		answersWithinMs: 500,
@@ -600,6 +605,7 @@ export function superviseEachTest(): void {
 		reported = [];
 		said = [];
 		ended = [];
+		endedBusy = [];
 		becameTold = [];
 		supervisor = supervise();
 	});
