@@ -528,6 +528,97 @@ describe("a strict session's writes", () => {
 	});
 });
 
+describe("a strict session's writes in the World trees it holds", () => {
+	let tree: string;
+	let other: string;
+
+	/** A tree in World's trees folder, as World cuts one, holding a `.git` file. */
+	const worldTree = (zone: string) => {
+		const path = join(home, "world/trees", zone, "src");
+		mkdirSync(path, { recursive: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${join(base, "world.git")}\n`);
+		return path;
+	};
+
+	beforeEach(() => {
+		vi.stubEnv("XDG_STATE_HOME", join(base, "state"));
+		tree = worldTree("s-held");
+		other = worldTree("s-other");
+		mkdirSync(treeRecordDir(), { recursive: true });
+		writeFileSync(
+			join(treeRecordDir(), "s-held.json"),
+			JSON.stringify({
+				identity: { key: "s-held", shareable: false },
+				path: tree,
+				providerId: "git-worktree",
+				sessions: ["the-session"],
+			}),
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	const held = { ...strict, PI_SESSION_ID: "the-session" };
+
+	it("reach a tree the broker's records hold for the session", () => {
+		expect(
+			refusal("write", { path: join(tree, "file.ts"), content: "x" }, held),
+		).toBeUndefined();
+		expect(refusal("read", { path: join(tree, "file.ts") }, held)).toBe(
+			undefined,
+		);
+	});
+
+	it("never reach its .git file, which says where git reads from", () => {
+		expect(
+			refusal("write", { path: join(tree, ".git"), content: "x" }, held),
+		).toContain("may not write a held tree's .git file");
+		expect(refusal("read", { path: join(tree, ".git") }, held)).toBe(undefined);
+	});
+
+	it("never reach a tree another session holds", () => {
+		expect(
+			refusal("write", { path: join(other, "file.ts"), content: "x" }, held),
+		).toContain("may write only");
+		expect(
+			refusal(
+				"write",
+				{ path: join(tree, "file.ts"), content: "x" },
+				{ ...strict, PI_SESSION_ID: "another-session" },
+			),
+		).toContain("may write only");
+	});
+
+	it("never reach a tree the records hold for several sessions, as a shared snapshot", () => {
+		writeFileSync(
+			join(treeRecordDir(), "s-other.json"),
+			JSON.stringify({
+				identity: { key: "s-other", shareable: true },
+				path: other,
+				providerId: "git-worktree",
+				sessions: ["the-session", "another-session"],
+			}),
+		);
+		expect(
+			refusal("write", { path: join(other, "file.ts"), content: "x" }, held),
+		).toContain("may write only");
+	});
+
+	it("never reach one from a language server's place, whose commands write none", () => {
+		expect(
+			fileToolRefusal(
+				{
+					toolName: "write",
+					input: { path: join(tree, "file.ts"), content: "x" },
+				},
+				{ cwd: work, env: held, home, served: true },
+			),
+		).toContain("may write only");
+	});
+});
+
 describe("a strict session the sandbox can't fence", () => {
 	it("runs no file tool in the home folder", () => {
 		expect(refusal("read", { path: ".npmrc" }, strict, home)).toContain(

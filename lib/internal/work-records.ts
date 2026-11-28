@@ -593,6 +593,22 @@ export function treesHeldBy(
 }
 
 /**
+ * The folders of the trees the records in `dir` name as held by
+ * `session` and no other: what that session may change without changing
+ * what another reads, as a snapshot shared between readers is not.
+ */
+export function treesHeldAloneBy(
+	session: string,
+	dir: string = treeRecordDir(),
+): string[] {
+	return recordedTrees(dir)
+		.filter(
+			(tree) => tree.sessions.length === 1 && tree.sessions[0] === session,
+		)
+		.map((tree) => tree.path);
+}
+
+/**
  * `treesHeldBy`, for a caller that can answer without it for now: never
  * read on the thread. Before the process has a listing of `dir` it
  * begins the first reading off the thread and answers nothing

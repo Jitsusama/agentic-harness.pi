@@ -53,11 +53,20 @@ import {
 } from "../sandbox/sandbox.ts";
 import { makeSandboxFolders } from "../sandbox/sandbox-folders.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
-import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
+import {
+	brokerTrees,
+	heldWorktrees,
+	sessionWorktrees,
+} from "../sandbox/sandbox-trees.ts";
 import { strictHomeReads, strictRules } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
-import { cutTreeDir, treeRecordDir } from "../work-records.ts";
+import { worldTreesAmong } from "../sandbox/world-trees.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+	treesHeldAloneBy,
+} from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { BWRAP_MOST_ARGS, bwrapArgsFile } from "./fence-args-file.ts";
 import { ARGS_FD } from "./fence-command.ts";
@@ -323,6 +332,9 @@ export function fenceRunText(
 	// Read here, outside the fence, where root's file shows as root's;
 	// the same grants go to Landlock and to the root bubblewrap lays.
 	const grants = machineGrants();
+	// The World trees the asker holds are its to write as the folder is,
+	// each bound back writable in the root with its `.git` file read-only.
+	const worldTrees = worldTreesAmong(heldNamed(place), home);
 	const inner = sandboxedCommand(
 		command,
 		strictRules({
@@ -332,6 +344,7 @@ export function fenceRunText(
 			cwd: folder,
 			repository: worktreeRepository(folder, home),
 			grants,
+			...(worldTrees.length > 0 ? { worldTrees } : {}),
 			...worker,
 		}),
 		sandbox.landrun,
@@ -344,6 +357,7 @@ export function fenceRunText(
 		home,
 		runtimeDir,
 		...sessionWorktrees(folder, undefined, treesRoot),
+		heldWorktrees: heldWorktrees(worldTrees.map(({ tree }) => tree)),
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 		grants,
@@ -475,6 +489,25 @@ function heldBy(
 			trees: [],
 			why: `the work broker's records at ${records} couldn't be read: ${said}`,
 		};
+	}
+}
+
+/**
+ * The trees the asker holds, as they are named: those the caller gave,
+ * or else those the broker's records hold for its session alone, since
+ * one writing a snapshot shared between readers would change what the
+ * others read. None where no session is named or the records can't be
+ * read, so strict then writes only its folder.
+ */
+function heldNamed(place: FenceRunPlace): readonly string[] {
+	if (place.heldTrees) return place.heldTrees;
+	const session = place.env.PI_SESSION_ID;
+	if (!session) return [];
+	try {
+		return treesHeldAloneBy(session, place.treeRecords ?? treeRecordDir());
+	} catch {
+		// Unread records hold nothing here either.
+		return [];
 	}
 }
 
