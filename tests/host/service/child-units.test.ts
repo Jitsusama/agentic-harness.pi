@@ -139,6 +139,50 @@ describe("a child's unit, as systemd says", () => {
 		expect(await saying("", 5).units.cpuSpentMs(unit)).toBeUndefined();
 	});
 
+	// F136 on #2330: how a unit ended tells a crash from a person's kill.
+	it("says how a unit ended, naming the signal that ended it", async () => {
+		const { asked, units } = saying(
+			"Result=signal\nExecMainCode=2\nExecMainStatus=9\n",
+		);
+
+		expect(await units.ending(unit)).toEqual({
+			result: "signal",
+			signal: "SIGKILL",
+		});
+		expect(asked).toEqual([
+			["show", "--property=Result,ExecMainCode,ExecMainStatus", unit],
+		]);
+		expect(
+			await saying(
+				"Result=core-dump\nExecMainCode=3\nExecMainStatus=11\n",
+			).units.ending(unit),
+			"dumped",
+		).toEqual({ result: "core-dump", signal: "SIGSEGV" });
+		expect(
+			await saying(
+				"Result=oom-kill\nExecMainCode=2\nExecMainStatus=9\n",
+			).units.ending(unit),
+			"killed for memory",
+		).toEqual({ result: "oom-kill", signal: "SIGKILL" });
+	});
+
+	it("names no signal for a unit whose process exited", async () => {
+		const { units } = saying(
+			"Result=exit-code\nExecMainCode=1\nExecMainStatus=9\n",
+		);
+
+		expect(await units.ending(unit), "status 9 is no signal").toEqual({
+			result: "exit-code",
+		});
+	});
+
+	it("says no ending when systemd won't say one", async () => {
+		expect(await saying("Result=\n").units.ending(unit)).toBeUndefined();
+		expect(await saying("", 5).units.ending(unit)).toBeUndefined();
+		const throwing = unitsOver(() => Promise.reject(new Error("gone")));
+		expect(await throwing.ending(unit), "never throws").toBeUndefined();
+	});
+
 	it("starts and stops without waiting on the job, and says when systemd won't", async () => {
 		const { asked, units } = saying("");
 		await units.start(unit);

@@ -771,12 +771,15 @@ describe("serveHost with children", () => {
 			});
 			await child.exit();
 
-			await until("its wake to start it again in a new child", () =>
-				Promise.resolve(units.started.length === 2),
+			// Said once the wake lands, which is after its child starts.
+			await until("its wake to land in a new child", () =>
+				Promise.resolve(
+					said.includes(
+						`${sessionId}: its child failed mid-turn (SIGSEGV), so it is woken to carry the turn on`,
+					),
+				),
 			);
-			expect(said).toContain(
-				`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
-			);
+			expect(units.started, "started again in a new child").toHaveLength(2);
 			expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
 		} finally {
 			await host.stop();
@@ -850,6 +853,165 @@ describe("serveHost with children", () => {
 			await second.stop();
 			for (const child of units.children.values()) await child?.exit();
 		}
+	});
+
+	// F131, F139 on #2330: a wake a stop cuts off is the stop's, said and
+	// left to the next start, never reported as a fault.
+	it("says a wake a stop cut off, leaving it to the next start, rather than reporting it", async () => {
+		roomForChildren();
+		const folder = slotFolder(run, "work-attended");
+		const units = fakeUnits(folder, "work-attended", report);
+		const said: string[] = [];
+		const left: string[] = [];
+		const host = await serveHost({
+			...places(),
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: () => true,
+					opens: () => true,
+					close: () => undefined,
+				}),
+			},
+			engine: async (h) => ({
+				...engine(h),
+				leaveToStart: (entry) => {
+					left.push(entry.sessionId);
+					return undefined;
+				},
+			}),
+		});
+		const refused = new Error("no unit may start");
+		let refuse = (): void => undefined;
+		let sessionId: string | undefined;
+		try {
+			const reply = await opened(host.path, "spawn-1");
+			if (!reply.ok) throw new Error(reply.error.message);
+			sessionId = parseOpenResult(reply.result).sessionId;
+			const child = units.childOf(sessionId);
+			// Its wake's child starts only once the stop is under way.
+			let asked = false;
+			units.start = () => {
+				asked = true;
+				return new Promise<void>((_, reject) => {
+					refuse = () => reject(refused);
+				});
+			};
+			child.say({
+				type: "state",
+				conversation: { ...child.conversation, state: "busy" },
+			});
+			await child.exit();
+			await until("its wake to start a child", () => Promise.resolve(asked));
+		} finally {
+			const stopped = host.stop();
+			refuse();
+			await stopped;
+			for (const child of units.children.values()) await child?.exit();
+		}
+		const woken = sessionId;
+		await until("its wake's failure to be said", () =>
+			Promise.resolve(
+				said.some(
+					(line) =>
+						line.startsWith(
+							`${woken}: its wake after its child failed mid-turn didn't land, as the host is stopping (`,
+						) && line.endsWith("), so the host's next start takes it up"),
+				),
+			),
+		);
+		expect(left, "left to the next start").toEqual([woken]);
+		expect(
+			report.mock.calls.filter(
+				([error]) =>
+					error instanceof Error && error.message.startsWith(`${woken}`),
+			),
+			"the stop's, not a fault",
+		).toEqual([]);
+	});
+
+	// F137 on #2330: a start that fails refuses a wake under way as a stop
+	// does, so its failure is said beside the start's, not reported.
+	it("says a wake a failed start cut off, rather than reporting it beside the start's failure", async () => {
+		roomForChildren();
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		for (const id of ["a", "b"]) {
+			const reply = await opened(first.path, id);
+			if (!reply.ok) throw new Error(reply.error.message);
+		}
+		await first.stop();
+		const folder = slotFolder(run, "work-attended");
+		const units = fakeUnits(folder, "work-attended", report);
+		const said: string[] = [];
+		const refused = new Error("no unit may start");
+		const broke = new Error("the start broke");
+		let refuse = (): void => undefined;
+		let woken: string | undefined;
+		const starting = serveHost({
+			...places(),
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: () => true,
+					opens: () => true,
+					close: () => undefined,
+				}),
+			},
+			engine: async (h) => engine(h),
+			starting: async (step) => {
+				if (step.step !== "resume" || step.number !== 2) return;
+				// The first resumed runs in its child by now; it dies mid-turn,
+				// and its wake's child is still starting as the start fails.
+				const [child] = [...units.children.values()];
+				if (!child?.conversation)
+					throw new Error("the first resume ran in no child");
+				woken = child.conversation.sessionId;
+				let asked = false;
+				units.start = () => {
+					if (asked) return Promise.reject(new Error("not this one"));
+					asked = true;
+					return new Promise<void>((_, reject) => {
+						refuse = () => reject(refused);
+					});
+				};
+				child.say({
+					type: "state",
+					conversation: { ...child.conversation, state: "busy" },
+				});
+				await child.exit();
+				await until("its wake to start a child", () => Promise.resolve(asked));
+			},
+			finished: (step) => {
+				if (step.number === 2) throw broke;
+			},
+		});
+		try {
+			await expect(starting, "the start fails").rejects.toBe(broke);
+		} finally {
+			refuse();
+		}
+		await until("its wake's failure to be said", () =>
+			Promise.resolve(
+				said.some((line) =>
+					line.startsWith(
+						`${woken}: its wake after its child failed mid-turn didn't land, as the host is stopping (`,
+					),
+				),
+			),
+		);
+		expect(
+			report.mock.calls.filter(
+				([error]) =>
+					error instanceof Error && error.message.startsWith(`${woken}`),
+			),
+			"only the start's failure is the caller's",
+		).toEqual([]);
+		for (const child of units.children.values()) await child?.exit();
 	});
 
 	it("runs every conversation itself when no child's socket would fit, saying so", async () => {

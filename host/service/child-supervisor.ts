@@ -87,6 +87,7 @@ import {
 	slotSpare,
 	slotsIn,
 	slotWas,
+	type UnitEnding,
 	type Units,
 	writeSlot,
 	writeSpareSlot,
@@ -484,9 +485,21 @@ export function childSupervisor(options: {
 	/**
 	 * A child's conversation ended, as it said, its route already gone;
 	 * `busy` when the last state its child said of it was busy, as one
-	 * killed mid-turn leaves it.
+	 * killed mid-turn leaves it; `elsewhere` when another slot's child
+	 * holds its route, so this child was stale and the other runs it.
+	 * `ending` settles with how systemd says the child's unit ended, read
+	 * once it has gone and before it is forgotten, for one that failed
+	 * busy, and with undefined for any other or when systemd won't say.
 	 */
-	ended?: (sessionId: string, why: ChildEnding, busy: boolean) => void;
+	ended?: (
+		sessionId: string,
+		why: ChildEnding,
+		busy: boolean,
+		elsewhere: boolean,
+		ending: Promise<UnitEnding | undefined>,
+	) => void;
+	/** A child forsaken as it ran `sessionId`, whose ending isn't heard. */
+	forsook?: (sessionId: string) => void;
 	/** A child said its conversation is not busy, its turn over. */
 	atRest?: (sessionId: string) => void;
 	/**
@@ -595,6 +608,9 @@ export function childSupervisor(options: {
 	// Each graced leave's stop a forsaking hurried, which that leave waits
 	// out before it frees the slot, so no stop outlives it into the next.
 	const hurrying = new Map<string, Promise<void>>();
+	// Each leaving unit whose ending is asked for, by its unit, told how
+	// systemd says it ended once it has gone, or undefined if it never is.
+	const endingAsked = new Map<string, (ending?: UnitEnding) => void>();
 	// Each slot's claim under way, by its unit: a start's, from its check
 	// that the slot is free until its unit has started, or a check that
 	// frees it; so none clears a slot another has just taken.
@@ -1253,7 +1269,18 @@ export function childSupervisor(options: {
 	 * is given its grace is stopped at once all the same, beside the leave,
 	 * which waits that stop out before it frees the slot.
 	 */
-	function leave(slot: Slot, stopNow: boolean): Promise<void> {
+	function leave(
+		slot: Slot,
+		stopNow: boolean,
+		told?: (ending?: UnitEnding) => void,
+	): Promise<void> {
+		if (told) {
+			const before = endingAsked.get(slot.unit);
+			endingAsked.set(slot.unit, (ending) => {
+				before?.(ending);
+				told(ending);
+			});
+		}
 		const already = leaving.get(slot.unit);
 		if (already) {
 			if (stopNow && graced.delete(slot.unit))
@@ -1283,12 +1310,21 @@ export function childSupervisor(options: {
 				);
 				return;
 			}
+			// Read before the release forgets the unit, which loses it.
+			const asked = endingAsked.get(slot.unit);
+			if (asked) {
+				endingAsked.delete(slot.unit);
+				asked(await units.ending(slot.unit));
+			}
 			await release(slot);
 		})()
 			.catch((error) => {
 				if (!(error instanceof StoppedWatching)) options.report(error);
 			})
 			.finally(() => {
+				// One never read, as for a unit that still runs, says nothing.
+				endingAsked.get(slot.unit)?.();
+				endingAsked.delete(slot.unit);
 				leaving.delete(slot.unit);
 				graced.delete(slot.unit);
 				hurrying.delete(slot.unit);
@@ -1372,6 +1408,8 @@ export function childSupervisor(options: {
 			if (forsaken) return;
 			forsaken = true;
 			options.say?.(`${slot.unit}: stopped, since it ${why}`);
+			if (current && routes.routeOf(current)?.socket === slot.socket)
+				options.forsook?.(current);
 			if (current) dropOwn(current);
 			current = undefined;
 			markRunning(running);
@@ -1480,6 +1518,10 @@ export function childSupervisor(options: {
 							},
 							state: (conversation, heap) => {
 								if (conversation.sessionId !== current) return;
+								// A stale slot's child, whose conversation another slot's
+								// child runs now, speaks for neither that child's state
+								// nor its turn, as its ending doesn't.
+								if (routes.routeOf(current)?.socket !== slot.socket) return;
 								routes.update(conversation, heap);
 								if (conversation.state !== "busy")
 									options.atRest?.(conversation.sessionId);
@@ -1549,12 +1591,26 @@ export function childSupervisor(options: {
 									current !== undefined &&
 									routes.routeOf(current)?.socket === slot.socket &&
 									routes.child(current)?.conversation.state === "busy";
+								const routed =
+									current !== undefined ? routes.routeOf(current) : undefined;
+								const elsewhere =
+									routed !== undefined && routed.socket !== slot.socket;
 								if (current) dropOwn(current);
+								// How its unit ended is read only for one that failed busy,
+								// the one ending whose cause decides what follows.
+								let told: (ending?: UnitEnding) => void = () => undefined;
+								const ending = new Promise<UnitEnding | undefined>(
+									(resolve) => {
+										told = resolve;
+									},
+								);
 								// One refused as it ended may run on: it is stopped.
 								const left = leave(
 									slot,
 									why === "failed" || refused !== undefined,
+									why === "failed" && busy ? told : undefined,
 								);
+								if (!(why === "failed" && busy)) told();
 								if (!current) return;
 								const gone = current;
 								leftBy.set(keyed(gone), left);
@@ -1567,7 +1623,7 @@ export function childSupervisor(options: {
 								options.say?.(
 									`${sessionAddress(current)} (${current}): its process ended, ${why}`,
 								);
-								options.ended?.(current, why, busy);
+								options.ended?.(current, why, busy, elsewhere, ending);
 							},
 							misread: (error) =>
 								options.report(new Error(`${slot.unit} ${error.message}`)),

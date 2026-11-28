@@ -85,3 +85,29 @@ export function restGivenUp(
 	}
 	return undefined;
 }
+
+/**
+ * Leave `entry`, resting, for the host's next start to resume, as a stop
+ * that refused its wake after its child crashed mid-turn asks (F139):
+ * the marker from this boot naming this host's wake file is cleared, so
+ * that start's restsParked declines it and the start resumes it, as a
+ * restart carries other cut-off turns on. Answers why, doing nothing,
+ * while this host runs it or the marker names another holder's wake.
+ * No marker from this boot leaves nothing to clear.
+ */
+export function leaveToStart(
+	entry: RosterEntry,
+	place: Pick<GivenUpPlace, "runs" | "wakeFile" | "folder" | "booted">,
+): string | undefined {
+	const { sessionId } = entry;
+	if (place.runs(sessionId)) return "this host runs it now";
+	const folder = place.folder ?? parkFolder();
+	const marker = place.booted
+		? readParked(sessionId, folder, place.booted)
+		: readParked(sessionId, folder);
+	if (marker === undefined) return undefined;
+	if (marker.wake !== place.wakeFile(sessionId))
+		return `its marker names another holder's wake, ${marker.wake}`;
+	clearParked(sessionId, folder);
+	return undefined;
+}

@@ -105,6 +105,14 @@ export interface ConversationEngine {
 	 */
 	restGivenUp?(entry: RosterEntry): string | undefined;
 	/**
+	 * Leave a resting conversation for the host's next start to resume,
+	 * clearing its park marker where it names this host's wake, so that
+	 * start's `restsParked` declines it; answers why, doing nothing, while
+	 * the host runs it or another holder's marker stands. Asked by a stop
+	 * that refused the wake of one whose child crashed mid-turn.
+	 */
+	leaveToStart?(entry: RosterEntry): string | undefined;
+	/**
 	 * Whether a conversation the host holds has lost its session file, so
 	 * nothing could ever resume it: a start drops it rather than keep it.
 	 */

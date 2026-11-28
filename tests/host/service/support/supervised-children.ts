@@ -13,6 +13,7 @@ import {
 import {
 	type Slot,
 	slotOf,
+	type UnitEnding,
 	type Units,
 } from "../../../../host/service/child-units.ts";
 import { heldChildren } from "../../../../host/service/children.ts";
@@ -48,6 +49,10 @@ export let said: string[];
 export let ended: [string, string][];
 /** For each ending, whether its child's last state was busy, as said. */
 export let endedBusy: boolean[];
+/** For each ending, how its unit ended, as the supervisor read it. */
+export let endedAs: Promise<UnitEnding | undefined>[];
+/** Each conversation a child said is at rest, in order. */
+export let atRest: string[];
 /** What each child's conversation became, as the supervisor told it on. */
 export let becameTold: [string, string][];
 export let supervisor: ChildSupervisor;
@@ -201,6 +206,10 @@ export interface FakeUnits extends Units {
 	stopFails?: number;
 	/** The next stop returns, or fails, only once this settles. */
 	stopReturns?: Promise<void>;
+	/** How systemd says each unit ended; none it can say where unset. */
+	unitEnding?: UnitEnding;
+	/** Each unit whose ending was asked, and whether it was forgotten first. */
+	readonly endingsAsked: { unit: string; forgotten: boolean }[];
 }
 
 /** How a fake child answers. */
@@ -360,6 +369,7 @@ function fakeUnits(): FakeUnits {
 		forgotten: [],
 		children: new Map(),
 		cpuAsks: 0,
+		endingsAsked: [],
 		async start(unit) {
 			fake.started.push(unit);
 			if (fake.refusesStart) {
@@ -468,6 +478,13 @@ function fakeUnits(): FakeUnits {
 			if (!fake.children.has(unit)) return undefined;
 			return typeof fake.spent === "function" ? fake.spent() : fake.spent;
 		},
+		async ending(unit) {
+			fake.endingsAsked.push({
+				unit,
+				forgotten: fake.forgotten.includes(unit),
+			});
+			return fake.unitEnding;
+		},
 	};
 	return fake;
 }
@@ -509,10 +526,12 @@ function supervise(clocks: Clocks = {}): ChildSupervisor {
 		roster,
 		report: (error) => reported.push(error),
 		say: (text) => said.push(text),
-		ended: (sessionId, why, busy) => {
+		ended: (sessionId, why, busy, _elsewhere, ending) => {
 			ended.push([sessionId, why]);
 			endedBusy.push(busy);
+			endedAs.push(ending);
 		},
+		atRest: (sessionId) => atRest.push(sessionId),
 		became: (previousId, nextId) => becameTold.push([previousId, nextId]),
 		listensWithinMs: 5_000,
 		answersWithinMs: 500,
@@ -606,6 +625,8 @@ export function superviseEachTest(): void {
 		said = [];
 		ended = [];
 		endedBusy = [];
+		endedAs = [];
+		atRest = [];
 		becameTold = [];
 		supervisor = supervise();
 	});

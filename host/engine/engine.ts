@@ -58,7 +58,7 @@ import type {
 	HostEngine,
 } from "./contract.ts";
 import { conversationBuilds, type Live } from "./conversation-build.ts";
-import { restGivenUp } from "./given-up.ts";
+import { leaveToStart, restGivenUp } from "./given-up.ts";
 import type { StandingOpen } from "./gone-folder.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
@@ -748,6 +748,14 @@ export async function createEngine(
 				watches: (sessionId) => parked.watches(sessionId),
 				takeOn: takeOnResting,
 				pid: host.owner.pid,
+			}),
+
+		// A stop refused its wake after its child crashed mid-turn: its marker
+		// goes, so the next start resumes it rather than resting it (F139).
+		leaveToStart: (entry) =>
+			leaveToStart(entry, {
+				runs: (sessionId) => host.holds(sessionId) !== undefined,
+				wakeFile: (sessionId) => parked.wakeFile(sessionId),
 			}),
 
 		parkSettled: (sessionId) => parked.settled(sessionId),

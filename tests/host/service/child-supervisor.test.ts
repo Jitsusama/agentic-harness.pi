@@ -18,12 +18,14 @@ import { slotOf } from "../../../host/service/child-units.ts";
 import type * as StartGate from "../../../host/service/start-gate.ts";
 import {
 	a,
+	atRest,
 	b,
 	becameTold,
 	childOf,
 	conversation,
 	deferred,
 	ended,
+	endedAs,
 	endedBusy,
 	entry,
 	folder,
@@ -1516,6 +1518,55 @@ describe("what a child says", () => {
 		expect(endedBusy).toEqual([true]);
 	});
 
+	// F136: whether a crash or an operator's kill ended it is systemd's to
+	// say, and only until its unit is forgotten.
+	it("tells how a busy child's unit ended, read once it has gone and before systemd forgets it", async () => {
+		units.unitEnding = { result: "signal", signal: "SIGKILL" };
+		await supervisor.resume(entry(a));
+		const { unit } = slotOf(folder, key, a);
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy" },
+		});
+		await vi.waitFor(() =>
+			expect(routes.child(a)?.conversation.state).toBe("busy"),
+		);
+
+		await childOf(a).exit();
+
+		await vi.waitFor(() => expect(endedAs).toHaveLength(1));
+		expect(await endedAs[0]).toEqual({ result: "signal", signal: "SIGKILL" });
+		expect(units.endingsAsked, "read before it was forgotten").toEqual([
+			{ unit, forgotten: false },
+		]);
+		await vi.waitFor(() => expect(units.forgotten).toEqual([unit]));
+	});
+
+	it("asks systemd nothing of how an idle child's unit ended", async () => {
+		units.unitEnding = { result: "signal", signal: "SIGSEGV" };
+		await supervisor.resume(entry(a));
+		const { unit } = slotOf(folder, key, a);
+
+		await childOf(a).exit();
+
+		await vi.waitFor(() => expect(endedAs).toHaveLength(1));
+		expect(await endedAs[0], "nothing read").toBeUndefined();
+		// Once forgotten, since an ending is read before that or not at all.
+		await vi.waitFor(() => expect(units.forgotten).toEqual([unit]));
+		expect(units.endingsAsked).toEqual([]);
+	});
+
+	it("says a child's turn is at rest only as it says it is not busy", async () => {
+		await supervisor.resume(entry(a));
+		for (const state of ["busy", "idle"] as const)
+			childOf(a).say({
+				type: "state",
+				conversation: { ...conversation(a), state },
+			});
+
+		await vi.waitFor(() => expect(atRest).toEqual([a]));
+	});
+
 	// F93: a child whose route another slot's child holds is stale, so its
 	// ending reads nothing of the newer child's state.
 	it("reads no newer child's state as a stale slot's child of the same conversation ends", async () => {
@@ -1527,12 +1578,19 @@ describe("what a child says", () => {
 		if (!newer) throw new Error("b's child holds no route");
 		// The child in b's slot runs a now, busy, as a newer child of it would.
 		routes.hold({ ...conversation(a), state: "busy" }, newer);
+		// F127: what the stale child says is no word on the newer child's turn.
+		stale.say({ type: "state", conversation: { ...conversation(a) } });
 
 		await stale.exit();
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
 		expect(endedBusy, "the stale child said it was idle").toEqual([false]);
 		expect(routes.routeOf(a), "the newer child's route kept").toEqual(newer);
+		expect(
+			routes.child(a)?.conversation.state,
+			"the newer child's state kept",
+		).toBe("busy");
+		expect(atRest, "nor its turn taken as over").toEqual([]);
 	});
 
 	it("lets the roster's hold go only when the child says it closed", async () => {
