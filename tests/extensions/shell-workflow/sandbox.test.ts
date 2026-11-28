@@ -166,9 +166,32 @@ describe("what a session asks for", () => {
 		);
 		expect(refusedFor("fence", "unread"), "the fence, with no map").toBe(
 			"PI_SANDBOX=fence needs bwrap and landrun, but bwrap and landrun can't be " +
-				"trusted: no owner here can be told from pi's own, since /proc can't be " +
-				"read to say which user namespace pi is in, so no command runs unfenced. " +
-				"Mount /proc, or run pi as an id other than 0.",
+				"trusted: no owner here can be told from pi's own, since " +
+				"/proc/self/uid_map can't be read to say which user namespace pi is in, " +
+				"so no command runs unfenced. Run pi as an id other than 0, which works " +
+				"whether or not uid_map can be read.",
+		);
+	});
+
+	it("gives the fence wherever its programs are found, whatever cause it is told", () => {
+		// The cause only words a refusal; what was found decides.
+		const sandbox = sandboxFor(
+			{ PI_SANDBOX: "fence" },
+			"linux",
+			(program) =>
+				program === "bwrap" || program === "landrun"
+					? `/bin/${program}`
+					: undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			() => "namespace",
+		);
+		expect(sandbox.kind, "the sandbox given, told of a namespace").toBe(
+			"fence",
 		);
 	});
 

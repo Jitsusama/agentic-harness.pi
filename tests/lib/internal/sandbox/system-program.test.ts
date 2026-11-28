@@ -21,6 +21,7 @@ import {
 	sealedPath,
 	systemProgram,
 	trustsNoOwner,
+	userNamespace,
 } from "../../../../lib/internal/sandbox/system-program.ts";
 
 interface Node {
@@ -205,12 +206,17 @@ describe("on this machine's own disk", () => {
 });
 
 describe("root inside a user namespace", () => {
-	/** `/proc` as a process sees it with `map` as its uid_map. */
+	/**
+	 * `/proc` as a process sees it with `map` as its uid_map, and
+	 * `overflow` as the kernel's overflow user, unreadable where none.
+	 */
 	const proc =
-		(map: string) =>
+		(map: string, overflow: string | undefined = "65534\n") =>
 		(path: string): string => {
 			if (path === "/proc/self/uid_map") return map;
-			if (path === "/proc/sys/kernel/overflowuid") return "65534\n";
+			if (overflow !== undefined && path === "/proc/sys/kernel/overflowuid") {
+				return overflow;
+			}
 			throw new Error(`ENOENT ${path}`);
 		};
 
@@ -449,20 +455,76 @@ describe("root inside a user namespace", () => {
 			"         0       1000          1\n         1     100000      65536\n",
 			"",
 		];
+		// The overflow user as most kernels set it, as another id, and
+		// unreadable.
+		const overflows = ["65534\n", "1234\n", undefined];
 		const reads = [
-			...maps.map(proc),
-			(): string => {
-				throw new Error("ENOENT");
+			...maps.flatMap((map) =>
+				overflows.map((overflow) => ({
+					read: proc(map, overflow),
+					what: `map ${JSON.stringify(map)}, overflow ${overflow?.trim() ?? "unread"}`,
+				})),
+			),
+			{
+				read: (): string => {
+					throw new Error("ENOENT");
+				},
+				what: "no map",
 			},
 		];
-		for (const read of reads) {
-			for (const uid of [1, 1000, 5000, 65534, 100000]) {
+		for (const { read, what } of reads) {
+			for (const uid of [1, 1000, 1234, 5000, 65534, 100000]) {
 				expect(
 					rootOwners(read, uid, "linux").length,
-					`as ${uid}, no owner trusted`,
+					`as ${uid}, ${what}: no owner trusted`,
 				).toBeGreaterThan(0);
 			}
 		}
+	});
+
+	it("says whether the map was read from the same read the owners came from", () => {
+		// A /proc that answers the map once, then fails: a second read for
+		// the cause would call it unread beside owners read from it.
+		const flaky = () => {
+			let reads = 0;
+			const read = (path: string): string => {
+				if (path !== "/proc/self/uid_map") throw new Error(`EACCES ${path}`);
+				reads += 1;
+				if (reads > 1) throw new Error("EACCES /proc/self/uid_map");
+				return "         0       1000          1\n";
+			};
+			return { read, reads: () => reads };
+		};
+		const once = flaky();
+		const read = userNamespace(once.read, 0, "linux");
+
+		expect(read, "owners and the map, from one read").toEqual({
+			rootOwners: [],
+			readsMap: true,
+		});
+		expect(once.reads(), "how often the map was read").toBe(1);
+		expect(
+			noOwner({
+				...disk(NIXOS),
+				rootOwners: () => read.rootOwners,
+				readsMap: () => read.readsMap,
+			}),
+			"the cause, beside the owners it explains",
+		).toBe("namespace");
+		expect(
+			userNamespace(
+				() => {
+					throw new Error("ENOENT");
+				},
+				0,
+				"linux",
+			),
+			"no map read",
+		).toEqual({ rootOwners: [], readsMap: false });
+		expect(
+			userNamespace(proc("         0          0 4294967295\n"), 1000, "linux"),
+			"the machine's own namespace",
+		).toEqual({ rootOwners: [0], readsMap: true });
 	});
 
 	it("says why no owner is trusted: a namespace, or a map it can't read", () => {
@@ -482,7 +544,12 @@ describe("root inside a user namespace", () => {
 	});
 
 	it("refuses by the folders where an owner is trusted, and by the namespace where none is", () => {
-		expect(notKept(["landrun"], undefined), "an owner trusted").toEqual({
+		// `undefined` is a cause given, an owner trusted, never one the
+		// machine is asked for in its place.
+		expect(
+			notKept(["landrun"], undefined),
+			"undefined, an owner trusted",
+		).toEqual({
 			because:
 				"landrun isn't in the system's own profile, where only root puts programs",
 		});
@@ -501,8 +568,8 @@ describe("root inside a user namespace", () => {
 		expect(notKept(["bwrap"], "unread"), "no map").toEqual({
 			because:
 				"bwrap can't be trusted: no owner here can be told from pi's own, since " +
-				"/proc can't be read to say which user namespace pi is in",
-			fix: "Mount /proc, or run pi as an id other than 0.",
+				"/proc/self/uid_map can't be read to say which user namespace pi is in",
+			fix: "Run pi as an id other than 0, which works whether or not uid_map can be read.",
 		});
 	});
 });

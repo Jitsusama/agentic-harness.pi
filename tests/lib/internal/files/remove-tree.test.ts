@@ -420,9 +420,10 @@ describe("removing a tree", () => {
 				"place rather than walked by path. Run pi as an id other than 0 there.",
 		);
 		expect(noneFound("rm", ["/a"], "unread"), "with no map").toBe(
-			"no rm found: no owner here can be told from pi's own, since /proc can't " +
-				"be read to say which user namespace pi is in, so the tree is left in " +
-				"place rather than walked by path. Mount /proc, or run pi as an id other than 0.",
+			"no rm found: no owner here can be told from pi's own, since " +
+				"/proc/self/uid_map can't be read to say which user namespace pi is in, " +
+				"so the tree is left in place rather than walked by path. Run pi as an " +
+				"id other than 0, which works whether or not uid_map can be read.",
 		);
 	});
 

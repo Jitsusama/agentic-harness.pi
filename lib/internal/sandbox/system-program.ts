@@ -72,34 +72,31 @@ const real: Look = {
 			return false;
 		}
 	},
-	rootOwners: () => rootOwnersHere(),
-	readsMap: () => readsMapHere(),
+	rootOwners: () => namespaceHere().rootOwners,
+	readsMap: () => namespaceHere().readsMap,
 };
 
-/** Whether `/proc/self/uid_map` could be read, read once. */
-let mapRead: boolean | undefined;
+/** Where a process reads the map of its user namespace's ids. */
+const UID_MAP = "/proc/self/uid_map";
 
-/** `readsMap`, read once for this process. */
-function readsMapHere(): boolean {
-	if (mapRead === undefined) {
-		try {
-			readFileSync("/proc/self/uid_map", "utf8");
-			mapRead = true;
-		} catch {
-			// No `/proc`, or one this process may not read: said, never thrown.
-			mapRead = false;
-		}
-	}
-	return mapRead;
+/**
+ * What one read of this process's user namespace says: the owners that
+ * are root here, and whether its map could be read to say so. Both come
+ * from the same read, so the cause given for trusting no owner always
+ * agrees with the owners that decided it.
+ */
+export interface UserNamespace {
+	readonly rootOwners: readonly number[];
+	readonly readsMap: boolean;
 }
 
-/** The owners that are root in this process's namespace, read once. */
-let rootHere: readonly number[] | undefined;
+/** This process's user namespace, read once. */
+let here: UserNamespace | undefined;
 
-/** `rootOwners`, read once for this process. */
-function rootOwnersHere(): readonly number[] {
-	rootHere ??= rootOwners((path) => readFileSync(path, "utf8"));
-	return rootHere;
+/** `userNamespace`, read once for this process. */
+function namespaceHere(): UserNamespace {
+	here ??= userNamespace((path) => readFileSync(path, "utf8"));
+	return here;
 }
 
 /**
@@ -141,14 +138,38 @@ export function rootOwners(
 	uid: number = process.getuid?.() ?? 0,
 	platform: NodeJS.Platform = process.platform,
 ): readonly number[] {
+	return userNamespace(read, uid, platform).rootOwners;
+}
+
+/**
+ * The owners that are root in this process's user namespace, as
+ * `rootOwners` says, and whether `/proc/self/uid_map` could be read,
+ * both from the one read of it.
+ */
+export function userNamespace(
+	read: (path: string) => string,
+	uid: number = process.getuid?.() ?? 0,
+	platform: NodeJS.Platform = process.platform,
+): UserNamespace {
 	let map: string;
 	try {
-		map = read("/proc/self/uid_map");
+		map = read(UID_MAP);
 	} catch {
 		// A Mac has no user namespaces, so root is root; a Linux without
 		// `/proc` may be under `unshare -r`, where 0 is the person.
-		return platform === "linux" ? [0].filter((owner) => owner !== uid) : [0];
+		const owners =
+			platform === "linux" ? [0].filter((owner) => owner !== uid) : [0];
+		return { rootOwners: owners, readsMap: false };
 	}
+	return { rootOwners: ownersBy(map, read, uid), readsMap: true };
+}
+
+/** The owners that are root by `map`, a `uid_map` read, for `uid`. */
+function ownersBy(
+	map: string,
+	read: (path: string) => string,
+	uid: number,
+): readonly number[] {
 	const inner = innerRoot(map);
 	if (inner !== undefined && isMachines(map)) return [inner];
 	// An inner 0 can give its files to the inner id the outer root maps to.
@@ -212,7 +233,8 @@ export function trustsNoOwner(look: Look = real): boolean {
 
 /**
  * Why no owner here can be trusted: a user namespace whose ids pi can
- * give its files to, or a Linux whose map can't be read to say.
+ * give its files to, or a Linux whose `/proc/self/uid_map` can't be read
+ * to say, whether `/proc` isn't mounted or pi may not open it.
  */
 export type NoOwner = "namespace" | "unread";
 
@@ -225,8 +247,8 @@ export function noOwner(look: Look = real): NoOwner | undefined {
 /** What no owner being trusted is, said in a clause, for every message that says it. */
 export function noOwnerSaid(why: NoOwner): string {
 	return why === "unread"
-		? "no owner here can be told from pi's own, since /proc can't be read to say " +
-				"which user namespace pi is in"
+		? "no owner here can be told from pi's own, since /proc/self/uid_map can't " +
+				"be read to say which user namespace pi is in"
 		: "no owner here can be told from pi's own, as in a user namespace whose ids " +
 				"pi can give its files to";
 }
@@ -234,12 +256,13 @@ export function noOwnerSaid(why: NoOwner): string {
 /**
  * What helps where no owner is trusted, as a sentence. No owner is
  * trusted only where pi is 0 (`rootOwners`), so running it as another id
- * always helps; where the map can't be read, mounting `/proc` lets root
- * keep working.
+ * always helps. Where the map can't be read, nothing else is offered: a
+ * `/proc` that can be read may still show a namespace whose ids pi can
+ * give its files to, where root is trusted no more than now.
  */
 export function noOwnerFix(why: NoOwner): string {
 	return why === "unread"
-		? "Mount /proc, or run pi as an id other than 0."
+		? "Run pi as an id other than 0, which works whether or not uid_map can be read."
 		: "Run pi as an id other than 0 there.";
 }
 
@@ -251,12 +274,14 @@ export interface NotKept {
 
 /**
  * Why `names` can't be run, said for a refusal: that no owner here can
- * be trusted, where none can, rather than blaming the folders, which may
- * well hold root's.
+ * be trusted, where `why` says none can, rather than blaming the folders,
+ * which may well hold root's. `why` is always given, `undefined` meaning
+ * an owner is trusted, so the reason is the one read beside the finder
+ * that missed `names`, never the machine's in its place.
  */
 export function notKept(
 	names: readonly string[],
-	why: NoOwner | undefined = noOwner(),
+	why: NoOwner | undefined,
 ): NotKept {
 	const listed = names.join(" and ");
 	if (why) {
