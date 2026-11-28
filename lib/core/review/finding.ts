@@ -14,7 +14,8 @@
  * posted at a line that has since moved.
  */
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { withFileLock } from "../internal/file-lock.ts";
 import type { Anchor } from "./anchor.ts";
@@ -195,35 +196,48 @@ export function createFindingStore(root: string): FindingStore {
 		return { findings: [], issued: 0 };
 	}
 
+	/**
+	 * Lays the ledger down whole, through a file of its own renamed over
+	 * the change's, so a reader never meets half of it: read as nothing,
+	 * a half-written ledger would have the next write drop every finding.
+	 */
 	async function write(change: ChangeRef, ledger: Ledger): Promise<void> {
+		const path = join(root, fileFor(change));
+		const laying = `${path}.${process.pid}.${randomUUID()}.tmp`;
+		await writeFile(laying, JSON.stringify(ledger, null, 2), "utf8");
+		await rename(laying, path);
+	}
+
+	/**
+	 * Runs one read-modify-write of a change's ledger alone. A council
+	 * recording its round and a session adopting a node's round, or two
+	 * sessions adopting one, each read the ledger first, and the later
+	 * write would lay its copy over the other's findings.
+	 */
+	async function alone<T>(change: ChangeRef, work: () => Promise<T>) {
 		await mkdir(root, { recursive: true });
-		await writeFile(
-			join(root, fileFor(change)),
-			JSON.stringify(ledger, null, 2),
-			"utf8",
-		);
+		return await withFileLock(join(root, fileFor(change)), work);
 	}
 
 	return {
 		async record(change, raised) {
-			const ledger = await read(change);
-			const added = raised.map((finding, index) => ({
-				...finding,
-				id: ledger.issued + index + 1,
-			}));
-			await write(change, {
-				...ledger,
-				findings: [...ledger.findings, ...added],
-				issued: ledger.issued + added.length,
+			return await alone(change, async () => {
+				const ledger = await read(change);
+				const added = raised.map((finding, index) => ({
+					...finding,
+					id: ledger.issued + index + 1,
+				}));
+				await write(change, {
+					...ledger,
+					findings: [...ledger.findings, ...added],
+					issued: ledger.issued + added.length,
+				});
+				return added;
 			});
-			return added;
 		},
 
 		async adopt(change, round, raised) {
-			await mkdir(root, { recursive: true });
-			// Locked, since two sessions listing one change's findings at once
-			// would each find the round not yet adopted and adopt it twice.
-			return withFileLock(join(root, fileFor(change)), async () => {
+			return await alone(change, async () => {
 				const ledger = await read(change);
 				const adopted = ledger.adopted ?? [];
 				const already = adopted.some(
@@ -249,12 +263,14 @@ export function createFindingStore(root: string): FindingStore {
 		},
 
 		async clear(change) {
-			const ledger = await read(change);
-			if (ledger.issued === 0 && (ledger.adopted ?? []).length === 0) {
-				await rm(join(root, fileFor(change)), { force: true });
-				return;
-			}
-			await write(change, { ...ledger, findings: [] });
+			await alone(change, async () => {
+				const ledger = await read(change);
+				if (ledger.issued === 0 && (ledger.adopted ?? []).length === 0) {
+					await rm(join(root, fileFor(change)), { force: true });
+					return;
+				}
+				await write(change, { ...ledger, findings: [] });
+			});
 		},
 	};
 }

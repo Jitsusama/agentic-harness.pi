@@ -180,6 +180,54 @@ describe("createFindingStore", () => {
 		]);
 	});
 
+	it("keeps every finding when a council records and a node's round is adopted at once", async () => {
+		// A council records its round as it ends while a session listing the
+		// change adopts a node's round: each read the ledger first, so the
+		// later write laid its copy over the other's findings.
+		const pr = change("Shopify/world#1");
+		const rounds = Array.from({ length: 6 }, (_, index) => index);
+
+		await Promise.all(
+			rounds.flatMap((index) => [
+				store.record(pr, [raised(`recorded ${index}`)]),
+				store.adopt(pr, { node: "node-9", runId: `run-${index}` }, [
+					raised(`adopted ${index}`),
+				]),
+			]),
+		);
+
+		const held = await store.list(pr);
+		expect(held, "no write lost another's findings").toHaveLength(12);
+		expect(
+			new Set(held.map((finding) => finding.id)).size,
+			"no two findings share a number",
+		).toBe(12);
+	});
+
+	it("never shows a reader a ledger part written", async () => {
+		// Read as nothing, a half-written ledger looks like a change with
+		// no findings, and the next write from it drops every one.
+		const pr = change("Shopify/world#1");
+		await store.record(pr, [raised("first")]);
+		const other = createFindingStore(root);
+		const seen: number[] = [];
+		let writing = true;
+		const reading = (async () => {
+			while (writing) seen.push((await other.list(pr)).length);
+		})();
+
+		for (const index of Array.from({ length: 40 }, (_, at) => at)) {
+			await store.record(pr, [raised(`more ${index}`)]);
+		}
+		writing = false;
+		await reading;
+
+		expect(seen.length, "the reader read while writes landed").toBeGreaterThan(
+			0,
+		);
+		expect(Math.min(...seen), "it never read fewer than were held").toBe(1);
+	});
+
 	it("keeps a label a change's path could not hold", async () => {
 		const pr = change("Shopify/world#1?../../etc");
 
