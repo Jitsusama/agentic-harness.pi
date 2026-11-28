@@ -255,7 +255,13 @@ export async function askStack(
 			stackRefs,
 			// A reviewer reads each change's title and body, which name it
 			// by its number, so a finding said at that number is placed.
-			aliases: stackAliases(changes),
+			aliases: stackAliases(
+				changes.map((one) => ({
+					ref: one.ref,
+					change: one.change,
+					...(one.proposal.url === undefined ? {} : { url: one.proposal.url }),
+				})),
+			),
 			witnessFor: (ref) => witnesses.get(ref),
 			witnesses: [...witnesses.values()],
 			// Per-change witnesses, but one tree, so the caveat is about

@@ -392,7 +392,7 @@ export interface StackPromptInput {
 export function stackPrompt(input: StackPromptInput): string {
 	return [
 		"You are reading a stack of changes together, in the order they apply. Your pass is for discovery, and specifically for what only becomes visible across changes: an interface introduced early and used wrongly later, a split that leaves a middle change unable to stand on its own, a decision made once and contradicted afterwards.",
-		"Name the changes each finding is about, by the refs given below. A finding about one change names one. A finding that only exists between changes names every change it involves, and stays one finding: reporting it separately against each change turns one observation into several unrelated ones and loses the thing that made it worth saying.",
+		"Name the changes each finding is about, by the refs given below. A change may also be named by its branch as refs/heads/<branch>, origin/<branch> or refs/remotes/origin/<branch>, by its number as #N or owner/repo#N, or by its web page; a name that matches no change in the stack, or more than one, drops the finding. A finding about one change names one. A finding that only exists between changes names every change it involves, and stays one finding: reporting it separately against each change turns one observation into several unrelated ones and loses the thing that made it worth saying.",
 		"Review each change on its own merits too. A stack pass that only reports cross-change findings is half a review.",
 		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
 		WHERE_TO_LOOK,

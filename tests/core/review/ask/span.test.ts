@@ -122,6 +122,118 @@ describe("a finding that names a change by its number", () => {
 	});
 });
 
+describe("a finding that names a change by its branch", () => {
+	/** Roots before children, each by its bare branch, as GitHub's stack gives it. */
+	const branches = [
+		"jitsusama/lend-refused",
+		"jitsusama/watch-refused-forget",
+		"jitsusama/tip",
+	] as const;
+	/** Each branch as the pull request it went up as. */
+	const proposed = stackAliases(
+		branches.map((ref, index) => ({
+			ref,
+			change: {
+				provider: "github",
+				repo: { key: "github:Jitsusama/mycelium" },
+				id: String(561 + index),
+				label: `Jitsusama/mycelium#${561 + index}`,
+			},
+			url: `https://github.com/Jitsusama/mycelium/pull/${561 + index}`,
+		})),
+	);
+	const middle = "jitsusama/watch-refused-forget";
+
+	it.each([
+		middle,
+		`refs/heads/${middle}`,
+		`heads/${middle}`,
+		`origin/${middle}`,
+		`remotes/origin/${middle}`,
+		`refs/remotes/origin/${middle}`,
+		"#562",
+		"Jitsusama/mycelium#562",
+		"https://github.com/Jitsusama/mycelium/pull/562",
+	])("places one named %s at that change", (name) => {
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: [name] })),
+			origin,
+			branches,
+			undefined,
+			proposed,
+		);
+
+		expect(warnings).toEqual([]);
+		expect(findings.map((found) => found.span.refs)).toEqual([[middle]]);
+	});
+
+	it("places a branch's full ref when the stack gives full refs", () => {
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: ["origin/middle"] })),
+			origin,
+			stack,
+		);
+
+		expect(warnings).toEqual([]);
+		expect(findings.map((found) => found.span.refs)).toEqual([
+			["refs/heads/middle"],
+		]);
+	});
+
+	it("still drops a branch no change in the stack is", () => {
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: ["refs/heads/jitsusama/watch-refused"] })),
+			origin,
+			branches,
+			undefined,
+			proposed,
+		);
+
+		expect(findings).toEqual([]);
+		expect(warnings[0]).toContain("refs/heads/jitsusama/watch-refused");
+	});
+
+	it("drops a name two changes answer to", () => {
+		// Two backends' labels can end in the same number; placing the
+		// finding at either would put it on a change it may not be about.
+		const shared = stackAliases(
+			branches.slice(0, 2).map((ref, index) => ({
+				ref,
+				change: {
+					provider: "meteorite",
+					repo: { key: "meteorite:mycelium" },
+					id: `change-${index}`,
+					label: `lane-${index}#7`,
+				},
+			})),
+		);
+
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: ["#7"] })),
+			origin,
+			branches,
+			undefined,
+			shared,
+		);
+
+		expect(findings).toEqual([]);
+		expect(warnings[0]).toContain("could be any of");
+	});
+
+	it("drops a branch named in a form two changes take", () => {
+		// A stack holding one branch both bare and as its full ref is two
+		// nodes git can't tell apart by a remote's name for either.
+		const { findings, warnings } = harvestStackFindings(
+			answer(one({ refs: ["origin/topic"] })),
+			origin,
+			["topic", "refs/heads/topic"],
+		);
+
+		expect(findings).toEqual([]);
+		expect(warnings[0]).toContain("could be any of topic, refs/heads/topic");
+	});
+});
+
 describe("a finding that spans several changes", () => {
 	it("keeps every ref it names", () => {
 		const { findings } = harvestStackFindings(

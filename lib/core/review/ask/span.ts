@@ -31,31 +31,95 @@ export interface FindingSpan {
 }
 
 /**
- * Other names a reviewer gives a stack's changes, each to the ref it
- * means: a change's label, its id, and the label's short form after
- * its last `#`, as `#7034` for `Jitsusama/core.nix#7034`. A reviewer
- * reads each change's title and body, which name it that way, so a
- * finding said at `#7034` is about that change and is placed there.
+ * Other names a reviewer gives a stack's changes, each to the refs it
+ * could mean: a change's label, its id, the label's short form after
+ * its last `#`, as `#7034` for `Jitsusama/core.nix#7034`, and its web
+ * page. A reviewer reads each change's title and body, which name it
+ * that way, so a finding said at `#7034` is about that change and is
+ * placed there. A name two changes answer to is held with both, so a
+ * finding said at it is dropped rather than placed at a guess.
  */
-export type StackAliases = ReadonlyMap<string, string>;
+export type StackAliases = ReadonlyMap<string, readonly string[]>;
+
+/** One change in a stack, as `stackAliases` names it. */
+export interface AliasedChange {
+	/** The ref the stack knows it by. */
+	ref: string;
+	change: ChangeRef;
+	/** Its web page, when its backend has one. */
+	url?: string;
+}
 
 /** The other names of each change in a stack, for `StackAliases`. */
-export function stackAliases(
-	changes: readonly { ref: string; change: ChangeRef }[],
-): StackAliases {
-	const aliases = new Map<string, string>();
-	for (const { ref, change } of changes) {
+export function stackAliases(changes: readonly AliasedChange[]): StackAliases {
+	const aliases = new Map<string, string[]>();
+	for (const { ref, change, url } of changes) {
 		const hash = change.label.lastIndexOf("#");
 		const names = [
 			change.label,
 			change.id,
 			...(hash === -1 ? [] : [change.label.slice(hash)]),
+			...(url === undefined ? [] : [url]),
 		];
 		for (const name of names) {
-			if (name !== "" && name !== ref) aliases.set(name, ref);
+			if (name !== "" && name !== ref) answersTo(aliases, name, ref);
 		}
 	}
 	return aliases;
+}
+
+/**
+ * How a reviewer may write a branch other than as the stack gives it:
+ * as git's full ref, its short `heads/` form, or as the remote holds
+ * it, which is how a reviewer reading the tree's history sees it.
+ * Only `origin`, the remote a round's tree is fetched from, since any
+ * first segment read as a remote would make `jitsusama/topic` mean
+ * `topic` too.
+ */
+const BRANCH_FORMS = [
+	"refs/heads/",
+	"heads/",
+	"origin/",
+	"remotes/origin/",
+	"refs/remotes/origin/",
+] as const;
+
+/** The prefix git gives a branch's full ref. */
+const BRANCH_REF = "refs/heads/";
+
+/**
+ * Every name a finding may give a stack's change by, each to the refs
+ * it could mean: its aliases, and its branch in each of `BRANCH_FORMS`.
+ * A ref under `refs/` but not a branch, such as a tag, has no other
+ * form, since git's own short forms of one aren't a branch's.
+ */
+function changeNames(
+	stackRefs: readonly string[],
+	aliases: StackAliases | undefined,
+): StackAliases {
+	const names = new Map<string, string[]>();
+	for (const [name, refs] of aliases ?? []) {
+		for (const ref of refs) answersTo(names, name, ref);
+	}
+	for (const ref of stackRefs) {
+		const branch = ref.startsWith(BRANCH_REF)
+			? ref.slice(BRANCH_REF.length)
+			: ref.startsWith("refs/")
+				? undefined
+				: ref;
+		if (branch === undefined || branch === "") continue;
+		for (const form of [branch, ...BRANCH_FORMS.map((at) => at + branch)]) {
+			if (form !== ref) answersTo(names, form, ref);
+		}
+	}
+	return names;
+}
+
+/** Hold that `name` may mean `ref`, beside whatever else it may mean. */
+function answersTo(names: Map<string, string[]>, name: string, ref: string) {
+	const held = names.get(name);
+	if (held === undefined) names.set(name, [ref]);
+	else if (!held.includes(ref)) held.push(ref);
 }
 
 /** A finding plus the changes it is about. */
@@ -113,9 +177,10 @@ export function harvestStackFindings(
 	const findings: SpannedFinding[] = [];
 	const warnings: string[] = [];
 	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
+	const names = changeNames(stackRefs, aliases);
 	for (const [index, entry] of held.entries()) {
 		const at = `findings[${index}]`;
-		const span = readSpan(entry, at, stackRefs, warnings, aliases);
+		const span = readSpan(entry, at, stackRefs, warnings, names);
 		if (span === undefined) continue;
 
 		const read = readWireFinding(
@@ -153,13 +218,14 @@ export function alsoRecordedInStack(
 	const findings = [...said.findings];
 	const recordedWarnings: string[] = [];
 	const before = findings.length;
+	const names = changeNames(stackRefs, aliases);
 	// Keyed with the span, not just the finding. Two changes in a
 	// stack can carry the same line at the same path, which is what a
 	// stack is, so the same sentence about two of them is two findings
 	// and collapsing them would report the wrong change.
 	for (const [index, entry] of recorded.entries()) {
 		const at = `recorded[${index}]`;
-		const span = readSpan(entry, at, stackRefs, recordedWarnings, aliases);
+		const span = readSpan(entry, at, stackRefs, recordedWarnings, names);
 		if (span === undefined) continue;
 		const read = readWireFinding(
 			entry,
@@ -227,7 +293,7 @@ function readSpan(
 	at: string,
 	stackRefs: readonly string[],
 	warnings: string[],
-	aliases: StackAliases | undefined,
+	names: StackAliases,
 ): FindingSpan | undefined {
 	if (!isRecord(entry)) {
 		warnings.push(`${at} is not an object, so it was dropped.`);
@@ -240,13 +306,23 @@ function readSpan(
 		return ref === undefined ? [] : [ref];
 	});
 
-	const refOf = (name: string) =>
-		stackRefs.includes(name) ? name : aliases?.get(name);
+	// A ref as the stack gives it is that change, whatever else it could
+	// be read as: it is the name the prompt heads each change with.
+	const refsOf = (name: string): readonly string[] =>
+		stackRefs.includes(name) ? [name] : (names.get(name) ?? []);
 	const known = named.flatMap((name) => {
-		const ref = refOf(name);
-		return ref === undefined ? [] : [ref];
+		const refs = refsOf(name);
+		return refs.length === 1 ? refs : [];
 	});
-	const unknown = named.filter((name) => refOf(name) === undefined);
+	const unknown = named.filter((name) => refsOf(name).length === 0);
+	const ambiguous = named.filter((name) => refsOf(name).length > 1);
+	for (const name of ambiguous) {
+		// Placing it at either would put a finding on a change it may not
+		// be about, which reads as true there and is worse than dropping.
+		warnings.push(
+			`${at} names ${name}, which could be any of ${refsOf(name).join(", ")} in this stack, so it was left out.`,
+		);
+	}
 	if (unknown.length > 0) {
 		// Dropping the ref rather than the finding when others survive:
 		// a reviewer that named three changes and got one wrong still
