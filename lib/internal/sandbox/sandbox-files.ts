@@ -31,7 +31,11 @@ import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { leadsTo } from "./leads-to.ts";
-import { machineGrants } from "./machine-grants.ts";
+import {
+	type GrantsReader,
+	grantPlace,
+	machineGrants,
+} from "./machine-grants.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -133,6 +137,8 @@ interface FilePlace {
 	skills?: readonly string[];
 	/** Whether the fence's first stage takes it unasked; by default, as it started. */
 	staged?: (env: NodeJS.ProcessEnv) => boolean;
+	/** What reads the machine's grants, unless `machineGrants`. */
+	grants?: GrantsReader;
 	/**
 	 * Judged for a language server, whose strict fence reaches none of
 	 * gcloud's settings, so pi reads and writes for it only where the
@@ -472,7 +478,9 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
-			grants: machineGrants(),
+			grants: (place.grants ?? machineGrants)(
+				grantPlace(home, place.env.XDG_RUNTIME_DIR, undefined),
+			),
 		},
 		use,
 	)

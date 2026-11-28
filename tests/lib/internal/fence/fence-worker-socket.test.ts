@@ -40,6 +40,9 @@ import { SOCKET_ROOT } from "../../../setup/temp-root.ts";
 const RUNTIME = "/run/user/1000";
 const WORKER = `${WORKER_SOCKET_FOLDER}/work-worker.sock`;
 
+/** A reader granting nothing, so no case reads this machine's grants file. */
+const GRANTING_NONE = () => ({ read: [], write: [] });
+
 /**
  * A disk holding `sockets` and `files` where they are named, with links
  * followed by `links` (a path's real place), and the worker folder kept
@@ -254,6 +257,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 		kind: "strict",
 		landrun: "/bin/landrun",
 		workerSockets: diskWith({ sockets: [WORKER] }),
+		grants: GRANTING_NONE,
 		...(served ? { served } : {}),
 	});
 
@@ -313,6 +317,7 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 						bwrap: "/bin/bwrap",
 						landrun: "/bin/landrun",
 						workerSockets: diskWith({ sockets: [WORKER] }),
+						grants: GRANTING_NONE,
 					},
 				},
 			);

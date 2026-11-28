@@ -49,7 +49,6 @@
  */
 
 import { lstatSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, normalize } from "node:path";
 import {
 	FENCE_RUNTIME_FOLDER,
@@ -159,16 +158,50 @@ export function rootMapped(map: string): boolean {
 }
 
 /**
- * What the machine adds to the strict profile, read from `path`: nothing
- * unless only root could have written it and every entry in it is one
- * the profile can take, `home` being this account's and
- * `repositoryHomes` the repository homes its settings name.
+ * The session a machine's grants are judged for: the home the fence
+ * lays for it, its runtime folder, the node's worker socket it lets
+ * through, and the repository homes its settings name, read from the
+ * home's settings unless given.
+ */
+export interface GrantPlace {
+	readonly home: string;
+	readonly runtimeDir?: string | undefined;
+	readonly workerSocket?: string | undefined;
+	readonly repositoryHomes?: readonly string[];
+}
+
+/**
+ * What reads a machine's grants for a session's place: `machineGrants`,
+ * unless a caller hands in its own, as a test does so as not to read
+ * this machine's file.
+ */
+export type GrantsReader = (place: GrantPlace) => MachineGrants;
+
+/**
+ * The place a session at `home` is judged as, naming only what it has:
+ * a runtime folder and a worker socket left unset are left out.
+ */
+export function grantPlace(
+	home: string,
+	runtimeDir: string | undefined,
+	workerSocket: string | undefined,
+): GrantPlace {
+	return {
+		home,
+		...(runtimeDir === undefined ? {} : { runtimeDir }),
+		...(workerSocket === undefined ? {} : { workerSocket }),
+	};
+}
+
+/**
+ * What the machine adds to the strict profile for the session at
+ * `place`, read from `path`: nothing unless only root could have written
+ * it and every entry in it is one the profile can take for that session.
  */
 export function machineGrants(
+	place: GrantPlace,
 	path: string = MACHINE_GRANTS,
 	disk: GrantDisk = DISK,
-	home: string = homedir(),
-	repositoryHomes: readonly string[] = namedRepositoryHomes(home),
 ): MachineGrants {
 	const file = disk.lstat(path);
 	if (file === undefined) return NONE;
@@ -204,6 +237,8 @@ export function machineGrants(
 	if (!isList(read) || !isList(write)) {
 		return refused("read and write must each be a list of paths");
 	}
+	const { home } = place;
+	const repositoryHomes = place.repositoryHomes ?? namedRepositoryHomes(home);
 	for (const [use, listed] of [
 		["read", read],
 		["write", write],

@@ -37,7 +37,7 @@ function machineGrants(
 	home: string = HOME,
 	repositoryHomes: readonly string[] = [],
 ): MachineGrants {
-	return readGrants(path, given, home, repositoryHomes);
+	return readGrants({ home, repositoryHomes }, path, given);
 }
 
 /**

@@ -46,6 +46,7 @@ import {
 	fenceRunAsked,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
+import type { GrantPlace } from "../../../../lib/internal/sandbox/machine-grants.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { quoted } from "../../../../lib/internal/sandbox/sandbox-shell.ts";
 import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
@@ -132,11 +133,15 @@ describe("reading how pi-fence was asked", () => {
 	});
 });
 
-/** A fence laid by a machine with both programs, for the refusals' cases. */
+/**
+ * A fence laid by a machine with both programs, for the refusals' cases,
+ * granting nothing, so no case reads this machine's grants file.
+ */
 const LAID = {
 	kind: "fence",
 	bwrap: "/run/current-system/sw/bin/bwrap",
 	landrun: "/run/current-system/sw/bin/landrun",
+	grants: () => ({ read: [], write: [] }),
 } as const;
 
 describe("refusing to run where the fence can't hold", () => {
@@ -684,6 +689,40 @@ describe("Linux's strict fence, for its own arguments", () => {
 			{ env, home, sandbox: LAID },
 		);
 
+	it("binds and rules what the machine grants, read for the session's place", () => {
+		const read = join(own, "granted-read");
+		const write = join(own, "granted-write");
+		mkdirSync(read, { recursive: true });
+		mkdirSync(write, { recursive: true });
+		const asked: GrantPlace[] = [];
+		const grants = (place: GrantPlace) => {
+			asked.push(place);
+			return { read: [read], write: [write] };
+		};
+		const made = fenceRunText(
+			{ kind: "strict", folder: work, words: ["true"] },
+			{
+				env: { XDG_RUNTIME_DIR: runtime },
+				home,
+				sandbox: { ...LAID, grants },
+			},
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		expect(asked, "read once, for the session's place").toEqual([
+			{ home, runtimeDir: runtime },
+		]);
+		expect(rootIn(made.text), "the read bound read-only").toContain(
+			`'--ro-bind' '${read}' '${read}'`,
+		);
+		expect(rootIn(made.text), "the write bound writable").toContain(
+			`'--bind' '${write}' '${write}'`,
+		);
+		// Landlock's rules sit quoted once more, inside bubblewrap's bash -c.
+		expect(made.text, "Landlock lets the write be built in").toContain(
+			`--rwx '\\''${write}'\\''`,
+		);
+	});
+
 	it("reads bubblewrap's from a file in the runtime folder, closed before landrun starts", () => {
 		const made = strict(["true"], { XDG_RUNTIME_DIR: runtime });
 		if (!("text" in made)) throw new Error(JSON.stringify(made));
@@ -820,9 +859,15 @@ describe.skipIf(curl === undefined || !fenceLaid())(
 
 		/** Runs `words` through pi-fence's strict fence, as the script does. */
 		const fencedRun = (words: readonly string[]) => {
+			const env = { ...process.env, XDG_RUNTIME_DIR: runtimeDir };
+			// This machine's fence, as pi-fence reads it, granting nothing of
+			// its grants file.
+			const laid = sandboxFor({ ...env, PI_SANDBOX: "fence" });
+			const sandbox =
+				laid.kind === "fence" ? { ...laid, grants: LAID.grants } : laid;
 			const made = fenceRunText(
 				{ kind: "strict", folder, words },
-				{ env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir }, home },
+				{ env, home, sandbox },
 			);
 			if ("refused" in made) throw new Error(made.refused);
 			return ran("bash", ["-c", made.text], made.folder);
