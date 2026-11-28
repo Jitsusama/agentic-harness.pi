@@ -72,6 +72,8 @@ const NOW = Date.parse("2026-11-16T10:00:00Z");
 /** Session ids, as pi mints them. */
 const ONE = "11111111-1111-4111-8111-111111111111";
 const TWO = "22222222-2222-4222-8222-222222222222";
+const THREE = "33333333-3333-4333-8333-333333333333";
+const FOUR = "44444444-4444-4444-8444-444444444444";
 
 /**
  * What a process's root holds: the fence's view, where secrets are gone
@@ -694,6 +696,18 @@ describe("the fence's census", () => {
 	// or the attended host's pi, where Joel sits (ISXEG8, 27 November), so
 	// only a census narrowed to it can say whether it holds.
 	describe("a census of the stage", () => {
+		/** A pi in a terminal at `pid`, running no command, asking nothing. */
+		function terminalPi(pid: number): void {
+			lay({
+				pid,
+				parent: 1,
+				name: "node",
+				mounts: MACHINE,
+				noNewPrivs: 0,
+				env: { TERM: "xterm-kitty" },
+			});
+		}
+
 		/** A host's pi at `pid`, running no command, with nothing asked. */
 		function host(pid: number): void {
 			lay({
@@ -718,12 +732,31 @@ describe("the fence's census", () => {
 					{ [ONE]: NOW - 1000 },
 				),
 			);
-			expect(census.rows.map((row) => [row.judged, row.staged])).toEqual([
-				["claimed", true],
-				["unfenced", false],
+			expect(census.rows.map((row) => [row.judged, row.outside])).toEqual([
+				["claimed", undefined],
+				["unfenced", "attended"],
 			]);
 			expect(censusHolds(census), "the whole census fails").toBe(false);
 			expect(censusHolds(stageCensus(census)), "the stage holds").toBe(true);
+		});
+
+		// Before everyone joins, the stage leaves background conversations
+		// out by its own order, so they are a later step's, never neither.
+		it("counts a background conversation as a later step's before everyone joins", () => {
+			host(500);
+			const census = stageCensus(
+				fenceCensus(
+					place([
+						presence(ONE, 500, { host: "work-background", fence: "none" }),
+					]),
+				),
+			);
+			expect(census.unstaged?.map((row) => row.outside)).toEqual(["later"]);
+			expect(censusText(census).split("\n")).toEqual([
+				"0 live sessions in the stage: 0 proven fenced, 0 claimed, 0 unfenced",
+				"1 outside the stage, left unjudged: 1 a later step's",
+				"",
+			]);
 		});
 
 		it("fails on a session the stage takes that runs a command unfenced", () => {
@@ -763,39 +796,83 @@ describe("the fence's census", () => {
 				[ONE, "claimed"],
 				[TWO, "unfenced"],
 			]);
-			expect(census.unstaged).toBe(0);
+			expect(census.unstaged).toEqual([]);
 		});
 
 		it("takes in a session whose environment can't be read, as it can't be told out", () => {
 			host(100);
 			rmSync(join(proc, "100/environ"));
 			const census = stageCensus(fenceCensus(place([presence(ONE, 100)])));
-			expect(census.rows.map((row) => [row.judged, row.staged])).toEqual([
-				["unfenced", true],
+			expect(census.rows.map((row) => [row.judged, row.outside])).toEqual([
+				["unfenced", undefined],
 			]);
 		});
 
-		it("says the sessions it leaves out in one count line, never as failures", () => {
+		it("counts the terminal's and the attended host's it leaves out by why, never as failures", () => {
 			host(500);
-			host(600);
+			terminalPi(600);
 			joinEveryone("test", stage);
-			const census = fenceCensus(
-				place(
-					[
-						presence(ONE, 500, { host: "work-background", fence: "fence" }),
-						presence(TWO, 500, { host: "work-attended" }),
-						presence("33333333-3333-4333-8333-333333333333", 600),
-					],
-					{ [ONE]: NOW - 1000 },
+			const census = stageCensus(
+				fenceCensus(
+					place(
+						[
+							presence(ONE, 500, { host: "work-background", fence: "fence" }),
+							presence(TWO, 500, { host: "work-attended" }),
+							presence(THREE, 600),
+						],
+						{ [ONE]: NOW - 1000 },
+					),
 				),
 			);
-			expect(censusText(stageCensus(census)).split("\n")).toEqual([
+			expect(census.unstaged?.map((row) => row.outside)).toEqual([
+				"attended",
+				"terminal",
+			]);
+			expect(censusText(census).split("\n")).toEqual([
 				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced",
-				"2 outside the stage, left unjudged",
+				"2 outside the stage, left unjudged: 1 a terminal's, 1 the attended host's",
 				"claimed  111111: no command running; its host's environment asks fence; " +
 					"seen fenced within the hour",
 				"",
 			]);
+			expect(censusHolds(census), "the stage holds").toBe(true);
+		});
+
+		// A background pi its host never marked looks like no host's at all;
+		// were it counted with the terminals', the stage could miss it.
+		it("fails on a background pi without its host's mark, naming it as neither", () => {
+			host(500);
+			terminalPi(600);
+			host(700);
+			joinEveryone("test", stage);
+			const census = stageCensus(
+				fenceCensus(
+					place(
+						[
+							presence(ONE, 500, { host: "work-background", fence: "fence" }),
+							presence(TWO, 500, { host: "work-attended" }),
+							presence(THREE, 600),
+							presence(FOUR, 700),
+						],
+						{ [ONE]: NOW - 1000 },
+					),
+				),
+			);
+			expect(census.unstaged?.map((row) => row.outside)).toEqual([
+				"attended",
+				"terminal",
+				"neither",
+			]);
+			expect(censusText(census).split("\n")).toEqual([
+				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced",
+				"3 outside the stage, left unjudged: 1 a terminal's, 1 the attended host's, 1 neither",
+				"neither  444444: outside the stage, though neither a terminal's nor the " +
+					"attended host's, so the stage should have taken it: node, pid 700",
+				"claimed  111111: no command running; its host's environment asks fence; " +
+					"seen fenced within the hour",
+				"",
+			]);
+			expect(censusHolds(census), "a pi left out as neither fails").toBe(false);
 		});
 	});
 
@@ -866,7 +943,7 @@ describe("the fence's census", () => {
 		});
 		const restarted = presence(ONE, 100);
 		const gone = presence(TWO, 200);
-		const lastBoot = presence("33333333-3333-4333-8333-333333333333", 300);
+		const lastBoot = presence(THREE, 300);
 		const old = {
 			...lastBoot,
 			owner: { pid: 300, startedAt: 0, bootId: "another", startTicks: 1000 },
@@ -909,7 +986,7 @@ describe("the fence's census", () => {
 		piWithCommand(100, ONE, "fenced");
 		idlePi(200, "off");
 		const ownerless = {
-			...presence("44444444-4444-4444-8444-444444444444", 1),
+			...presence(FOUR, 1),
 		};
 		const { owner: _, ...noOwner } = ownerless;
 		const census = fenceCensus(

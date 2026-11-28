@@ -330,6 +330,58 @@ export function leaveSpawns(folder: string = stageFolder()): boolean {
 }
 
 /**
+ * Whether this pi is a conversation of the attended host, as the host
+ * names itself to its children (`work-attended`): Joel types in one.
+ */
+export function isAttendedConversation(env: NodeJS.ProcessEnv): boolean {
+	return /-attended$/.test(env.PI_HOST_KEY?.trim() ?? "");
+}
+
+/**
+ * Whether this pi runs in a terminal: no host names it, and its
+ * environment names a terminal (`TERM`), as every terminal sets it and
+ * no host's service does. A `dumb` one names none, as a program given
+ * no screen is told.
+ */
+export function isTerminalPi(env: NodeJS.ProcessEnv): boolean {
+	const term = env.TERM?.trim() ?? "";
+	return !env.PI_HOST_KEY?.trim() && term !== "" && term !== "dumb";
+}
+
+/**
+ * Why the stage leaves a pi out: it runs in a terminal, it is the
+ * attended host's, it is a subagent or a background conversation whose
+ * step the stage hasn't reached yet (`later`), or neither, which the
+ * stage leaves out by no design, so it should have taken it.
+ */
+export type LeftOut = "terminal" | "attended" | "later" | "neither";
+
+/**
+ * Why the fence's first stage leaves this pi out, or nothing when it
+ * takes it (`inFirstStage`): a terminal's pi or the attended host's, as
+ * the stage leaves out at every stage, or neither.
+ */
+export function leftOutOfStage(
+	env: NodeJS.ProcessEnv,
+	argv: readonly string[] = process.argv,
+	folder: string = stageFolder(),
+): LeftOut | undefined {
+	if (
+		(isSubagent(env) && spawnsJoin(folder)) ||
+		(isBackgroundConversation(env) && everyoneJoins(folder)) ||
+		listedForStage(startedSession(env, argv), folder) ||
+		listedForStage(env[STAGE_VARIABLE]?.trim(), folder)
+	) {
+		return undefined;
+	}
+	if (isAttendedConversation(env)) return "attended";
+	// Out by the stage's own order until its step is taken, so a census of
+	// a lower stage doesn't fail on what that stage leaves out by design.
+	if (isSubagent(env) || isBackgroundConversation(env)) return "later";
+	return isTerminalPi(env) ? "terminal" : "neither";
+}
+
+/**
  * Whether the fence takes this pi by default: a session listed for the
  * first stage, by its id or its spawn's token, a subagent once spawns
  * join, or a background host's conversation once everyone joins.
@@ -339,10 +391,5 @@ export function inFirstStage(
 	argv: readonly string[] = process.argv,
 	folder: string = stageFolder(),
 ): boolean {
-	return (
-		(isSubagent(env) && spawnsJoin(folder)) ||
-		(isBackgroundConversation(env) && everyoneJoins(folder)) ||
-		listedForStage(startedSession(env, argv), folder) ||
-		listedForStage(env[STAGE_VARIABLE]?.trim(), folder)
-	);
+	return leftOutOfStage(env, argv, folder) === undefined;
 }

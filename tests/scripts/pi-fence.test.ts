@@ -205,6 +205,8 @@ describe("pi-fence census", () => {
 	// never the attended host's, where Joel sits (ISXEG8, 27 November).
 	describe("of the stage", () => {
 		const ATTENDED = "22222222-2222-4222-8222-222222222222";
+		const TERMINAL = "33333333-3333-4333-8333-333333333333";
+		const UNMARKED = "44444444-4444-4444-8444-444444444444";
 		/** pi's state folder in the test's home, once it is made. */
 		const pi = (): string => join(root, "state/pi/agentic-harness.pi");
 
@@ -233,10 +235,33 @@ describe("pi-fence census", () => {
 			);
 		}
 
-		/** Two hosts' conversations, everyone joined, the background one seen. */
+		/** A pi of its own at `pid`, which no host holds, given `env`. */
+		function alone(session: string, pid: number, env: string): void {
+			writeFileSync(
+				join(presences, `${session}.json`),
+				JSON.stringify({
+					session,
+					addresses: [session.slice(0, 6)],
+					groups: [],
+					worksOn: "",
+					owns: [],
+					busy: false,
+					at: "2026-11-16T09:00:00Z",
+					fence: "none",
+					owner: { pid, startedAt: 0, bootId: BOOT, startTicks: 1000 },
+				}),
+			);
+			lay(pid, 1, "node", { env });
+		}
+
+		/**
+		 * Two hosts' conversations and a terminal's pi, everyone joined, the
+		 * background one seen.
+		 */
 		function everyoneStage(): void {
 			hosted(SESSION, "work-background", "fence");
 			hosted(ATTENDED, "work-attended", "none");
+			alone(TERMINAL, 300, "TERM=xterm-kitty\0");
 			lay(100, 1, "node");
 			mkdirSync(join(pi(), "fence-stage"), { recursive: true });
 			writeFileSync(join(pi(), "fence-stage/everyone-joins"), "{}\n");
@@ -247,7 +272,7 @@ describe("pi-fence census", () => {
 			);
 		}
 
-		it("exits 0 with the attended conversation unfenced, which the whole census fails", async () => {
+		it("exits 0 with the attended conversation and a terminal's pi unfenced, which the whole census fails", async () => {
 			everyoneStage();
 			const whole = await census(join(root, "proc"));
 			expect(whole.out).toContain("unfenced  222222");
@@ -255,11 +280,28 @@ describe("pi-fence census", () => {
 			const staged = await census(join(root, "proc"), "--stage");
 			expect(staged.out).toBe(
 				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced\n" +
-					"1 outside the stage, left unjudged\n" +
+					"2 outside the stage, left unjudged: 1 a terminal's, 1 the attended host's\n" +
 					"claimed  111111: no command running; its host's environment asks fence; " +
 					"seen fenced within the hour\n",
 			);
 			expect(staged.code, "the stage").toBe(0);
+			// It runs the script twice, about 1.8 s each when idle, so the default
+			// 5 s ran out on a loaded machine (27 Nov, CPU some at 48).
+		}, 15_000);
+
+		it("exits 1, naming it by pid and command, for a background pi without its host's mark", async () => {
+			everyoneStage();
+			alone(UNMARKED, 400, "");
+			const ran = await census(join(root, "proc"), "--stage");
+			expect(ran.out).toBe(
+				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced\n" +
+					"3 outside the stage, left unjudged: 1 a terminal's, 1 the attended host's, 1 neither\n" +
+					"neither  444444: outside the stage, though neither a terminal's nor the " +
+					"attended host's, so the stage should have taken it: node, pid 400\n" +
+					"claimed  111111: no command running; its host's environment asks fence; " +
+					"seen fenced within the hour\n",
+			);
+			expect(ran.code).toBe(1);
 		});
 
 		it("exits 1 when a session the stage takes runs a command unfenced", async () => {

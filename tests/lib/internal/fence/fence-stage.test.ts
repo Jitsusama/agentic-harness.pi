@@ -11,11 +11,14 @@ import {
 	askedSandbox,
 	everyoneJoins,
 	inFirstStage,
+	isAttendedConversation,
 	isBackgroundConversation,
+	isTerminalPi,
 	joinEveryone,
 	joinSpawns,
 	leaveEveryone,
 	leaveSpawns,
+	leftOutOfStage,
 	listedForStage,
 	listForStage,
 	listSpawnForStage,
@@ -161,6 +164,49 @@ describe("which pis are in the first stage", () => {
 			).toBe(false);
 			expect(isBackgroundConversation(env), JSON.stringify(env)).toBe(false);
 		}
+	});
+
+	// The census of the stage says why each pi it leaves out is out, so a
+	// background pi without its host's mark can't hide among the pis Joel
+	// sits at (ISXEG8, 27 November).
+	it("says why it leaves a pi out: a terminal's, the attended host's, or neither", () => {
+		joinEveryone("everyone", folder);
+		const reasons = [
+			[{ TERM: "xterm-kitty" }, "terminal"],
+			[{ PI_HOST_KEY: "work-attended", TERM: "xterm-kitty" }, "attended"],
+			[{ PI_HOST_KEY: "work-attended" }, "attended"],
+			[{}, "neither"],
+			[{ TERM: "dumb" }, "neither"],
+			[{ PI_HOST_KEY: "work-elsewhere", TERM: "xterm-kitty" }, "neither"],
+			[{ PI_HOST_KEY: "work-background" }, undefined],
+		] as const;
+		for (const [env, why] of reasons) {
+			expect(leftOutOfStage(env, [], folder), JSON.stringify(env)).toBe(why);
+			expect(inFirstStage(env, [], folder), JSON.stringify(env)).toBe(
+				why === undefined,
+			);
+		}
+		expect(isAttendedConversation({ PI_HOST_KEY: "work-attended" })).toBe(true);
+		expect(isTerminalPi({ TERM: "foot", PI_HOST_KEY: "" })).toBe(true);
+	});
+
+	// A lower stage leaves these out by its own order, so a census of it
+	// mustn't fail on them as pis the stage should have taken.
+	it("says a background conversation or a subagent is a later step's until its step joins", () => {
+		const background = { PI_HOST_KEY: "work-background", TERM: "xterm" };
+		const subagent = { SUBAGENT_RUN_ID: "run-1" };
+		expect(leftOutOfStage(background, [], folder)).toBe("later");
+		expect(leftOutOfStage(subagent, [], folder)).toBe("later");
+		joinSpawns("spawns", folder);
+		expect(leftOutOfStage(subagent, [], folder)).toBeUndefined();
+		expect(leftOutOfStage(background, [], folder)).toBe("later");
+		joinEveryone("everyone", folder);
+		expect(leftOutOfStage(background, [], folder)).toBeUndefined();
+		listForStage(SESSION, "by hand", folder);
+		expect(
+			leftOutOfStage({ TERM: "xterm" }, ["pi", "--session", SESSION], folder),
+			"a listed terminal's pi was left out",
+		).toBeUndefined();
 	});
 
 	it("lets spawns in with everyone, and everyone leave by its own file", () => {

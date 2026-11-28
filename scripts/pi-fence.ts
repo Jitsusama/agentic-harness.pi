@@ -22,9 +22,10 @@
  *
  * With --stage it judges, and exits on, only the sessions the fence's
  * first stage takes or whose environment asks a fence of its own, and
- * says the rest in one count line, left unjudged: the stage by design
+ * counts the rest by why in one line, left unjudged: the stage by design
  * takes no terminal's pi or the attended host's, where Joel sits, so
- * the whole census can't judge it.
+ * the whole census can't judge it. One left out as neither is named,
+ * by pid and command, and exits 1, since the stage should have taken it.
  */
 
 import { homedir } from "node:os";
