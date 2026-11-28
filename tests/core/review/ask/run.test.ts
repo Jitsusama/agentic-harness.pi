@@ -8,6 +8,7 @@ import {
 	describeRun,
 	failureLines,
 	newRunId,
+	retryHeadMoved,
 	runSummary,
 	staleRuntimeAdvisory,
 	stoppedNotes,
@@ -761,5 +762,46 @@ describe("a round that died because pi is no longer where it was", () => {
 		);
 
 		expect(said).toBeDefined();
+	});
+});
+
+describe("retrying into a round the change has moved past", () => {
+	// A retry reads the change as it stands and substitutes into a round
+	// whose ledger names what its reviewers read. On core.nix#7308 the
+	// change moved between the two, and the round went on claiming its
+	// reviewers read a commit the retried one never saw.
+	const A = "a".repeat(40);
+	const B = "b".repeat(40);
+
+	it("refuses a round witnessed at another head, naming both", () => {
+		const refusal = retryHeadMoved(run({ witness: A }), B);
+
+		expect(refusal).toContain(`moved from ${A} to ${B}`);
+		expect(refusal).toContain("council-20260730-000001");
+		expect(refusal).toContain("fresh council");
+	});
+
+	it("lets a round witnessed at the head it is at now retry", () => {
+		expect(retryHeadMoved(run({ witness: A }), A)).toBeUndefined();
+	});
+
+	it("lets a stack round retry while the head is one it read", () => {
+		expect(retryHeadMoved(run({ witnesses: [A, B] }), B)).toBeUndefined();
+	});
+
+	it("refuses a stack round none of whose reads is the head", () => {
+		const C = "c".repeat(40);
+
+		expect(retryHeadMoved(run({ witnesses: [A, B] }), C)).toContain(
+			`moved from ${A}, ${B} to ${C}`,
+		);
+	});
+
+	it("lets a round that recorded no read retry, claiming nothing", () => {
+		expect(retryHeadMoved(run(), B)).toBeUndefined();
+	});
+
+	it("lets a retry whose head could not be told go on", () => {
+		expect(retryHeadMoved(run({ witness: A }), undefined)).toBeUndefined();
 	});
 });

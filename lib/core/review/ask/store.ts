@@ -20,7 +20,8 @@ import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
 import { changeKey } from "../keys.ts";
 import { answeredOutcome } from "./answered.ts";
-import type { AskRound, AskRun } from "./run.ts";
+import type { AskRound, AskRun, ParticipantOutcome, TreeRead } from "./run.ts";
+import { substituteOutcome } from "./run.ts";
 
 /** Rounds held against a change. */
 export interface RunStore {
@@ -32,7 +33,36 @@ export interface RunStore {
 	latest(change: ChangeRef, round: AskRound): Promise<AskRun | undefined>;
 	/** One round by its id. */
 	byId(change: ChangeRef, runId: string): Promise<AskRun | undefined>;
-	/** Swap a round for a new version of itself, in place. */
+	/**
+	 * Change one held round in place, from the copy the ledger holds
+	 * at the moment of writing, and answer what was written.
+	 *
+	 * A retry reads its round, asks a reviewer for minutes, and only
+	 * then writes. Swapping in a whole round built from that first read
+	 * laid it over whatever another retry into the same round had
+	 * written meanwhile: on 28 Nov three retries into one council ran
+	 * together, and the last to finish wrote the round back with an
+	 * earlier one's answer listed as failed. `next` is handed the
+	 * freshest copy inside the ledger's lock instead, so each retry
+	 * changes only its own reviewer's outcome.
+	 *
+	 * Refuses a round it has never seen: a retry into a round that does
+	 * not exist has invented one, and should say so rather than quietly
+	 * adding it.
+	 */
+	revise(
+		change: ChangeRef,
+		runId: string,
+		next: (run: AskRun) => AskRun,
+	): Promise<AskRun>;
+	/**
+	 * Swap a round for a new version of itself, in place.
+	 *
+	 * @deprecated A whole round built from an earlier read lays itself
+	 * over whatever was written since. Use `revise`, which builds from
+	 * the ledger's copy; this stays only so callers of the public
+	 * export keep working.
+	 */
 	replace(change: ChangeRef, run: AskRun): Promise<void>;
 	/**
 	 * Hold this version of a round, whether or not one is held.
@@ -46,7 +76,7 @@ export interface RunStore {
 	 * would turn the end of a long council into an exception and throw
 	 * away everything it found.
 	 *
-	 * Distinct from `replace`, which refuses a round it has never seen
+	 * Distinct from `revise`, which refuses a round it has never seen
 	 * on purpose: a retry patching a round that does not exist has
 	 * invented one, and should say so rather than quietly adding it.
 	 */
@@ -406,22 +436,65 @@ export function createRunStore(root: string): RunStore {
 				};
 			});
 		},
-		async replace(change, run) {
+		async revise(change, runId, next) {
+			let written: AskRun | undefined;
 			await mutate(change, (ledger) => {
-				const at = ledger.runs.findIndex((held) => held.id === run.id);
-				if (at === -1) {
+				const at = ledger.runs.findIndex((held) => held.id === runId);
+				const now = ledger.runs[at];
+				if (now === undefined) {
 					// Adding it silently would make a retry look like it
 					// patched something when it invented a round instead.
+					throw new Error(
+						`No run "${runId}" is held against this change, so there is nothing to revise. Record it first, or check the id.`,
+					);
+				}
+				const revised = next(now);
+				written = revised;
+				return {
+					runs: ledger.runs.map((held, index) =>
+						index === at ? revised : held,
+					),
+				};
+			});
+			if (written === undefined) {
+				throw new Error(`Revising run "${runId}" wrote nothing.`);
+			}
+			return written;
+		},
+		async replace(change, run) {
+			await mutate(change, (ledger) => {
+				if (!ledger.runs.some((held) => held.id === run.id)) {
 					throw new Error(
 						`No run "${run.id}" is held against this change, so there is nothing to replace. Record it first, or check the id.`,
 					);
 				}
 				return {
-					runs: ledger.runs.map((held, index) => (index === at ? run : held)),
+					runs: ledger.runs.map((held) => (held.id === run.id ? run : held)),
 				};
 			});
 		},
 	};
+}
+
+/**
+ * Put one retried participant's outcome into its round as the ledger
+ * holds it now, and answer the round written.
+ *
+ * Takes the round's id rather than the round, so a retry can't hand
+ * in the copy it read before its reviewer ran: on 28 Nov three
+ * retries into one council did, and the last to finish listed an
+ * earlier one's reviewer as failed still.
+ */
+export function substituteInRound(
+	store: RunStore,
+	change: ChangeRef,
+	runId: string,
+	outcome: ParticipantOutcome,
+	read: TreeRead,
+): Promise<AskRun> {
+	return store.revise(change, runId, (now) =>
+		substituteOutcome(now, outcome, read),
+	);
 }
 
 /**

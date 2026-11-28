@@ -594,8 +594,8 @@ describe("what a round records about the tree it read", () => {
 		// original bug in a shorter spelling.
 		// The outcome carries this attempt's conditions, which are not
 		// the round's, so the spread is part of the call this checks.
-		expect(source).toContain(
-			"substituteOutcome(held, { ...outcome, ...given }, read)",
+		expect(source).toMatch(
+			/substituteInRound\(\s*store,\s*change,\s*held\.id,\s*\{ \.\.\.outcome, \.\.\.given \},\s*read,?\s*\)/,
 		);
 
 		// And that every one of them refuses a tree that was refused.

@@ -507,7 +507,7 @@ describe("finding the run you mean", () => {
 	});
 });
 
-describe("replacing a run", () => {
+describe("revising a run", () => {
 	let root: string;
 
 	beforeEach(() => {
@@ -526,18 +526,16 @@ describe("replacing a run", () => {
 		await store.record(change, run({ id: "council-1" }));
 		await store.record(change, run({ id: "judge-1", round: "judge" }));
 
-		await store.replace(
-			change,
-			run({
-				id: "council-1",
-				outcomes: [{ participantId: "hawk", findingIds: [9] }],
-			}),
-		);
+		const written = await store.revise(change, "council-1", (now) => ({
+			...now,
+			outcomes: [{ participantId: "hawk", findingIds: [9] }],
+		}));
 
 		const held = await store.list(change);
 		expect(held).toHaveLength(2);
 		expect(held[0]?.outcomes[0]?.findingIds).toEqual([9]);
 		expect(held[1]?.id).toBe("judge-1");
+		expect(written).toEqual(held[0]);
 	});
 
 	it("names every open round, across every change", async () => {
@@ -707,11 +705,31 @@ describe("replacing a run", () => {
 		}
 	});
 
-	it("refuses to replace a run it does not hold", async () => {
+	it("refuses to revise a run it does not hold", async () => {
 		// Silently adding it would make a retry look like it patched
 		// something when it invented a run instead.
 		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
 
+		await expect(store.revise(change, "ghost", (now) => now)).rejects.toThrow(
+			/ghost/,
+		);
+		expect((await store.list(change)).map((r) => r.id)).toEqual(["council-1"]);
+	});
+
+	it("still swaps a whole run for callers of the public export", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+
+		await store.replace(
+			change,
+			run({
+				id: "council-1",
+				outcomes: [{ participantId: "hawk", findingIds: [9] }],
+			}),
+		);
+
+		expect((await store.list(change))[0]?.outcomes[0]?.findingIds).toEqual([9]);
 		await expect(store.replace(change, run({ id: "ghost" }))).rejects.toThrow(
 			/ghost/,
 		);
