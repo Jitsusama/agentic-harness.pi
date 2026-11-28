@@ -231,10 +231,11 @@ finished `review_ask council` has read one of the change's own
 commits, from its base to its head. Run the council at the head,
 check its findings against the source, fix and push what holds, then
 propose; a council read before that last fix still counts, and so
-does one read before a clean rebase: a head the council read, which
-the checkout's reflogs still recall and which was the branch's own
-work above wherever it was made, copied, reset or fast-forwarded to
-in this checkout, lends its council
+does one read before a clean rebase: a commit the council read, a
+head the checkout's reflogs still recall or one the branch passed
+through under it, which was the branch's own work above wherever it
+was made, copied, reset or fast-forwarded to in this checkout, lends
+its council
 when git replays its change onto the new base cleanly, with no merge
 driver, into the tree of the change's head, or of one of its
 commits below a later fix. So a rebase needs a new round when it
