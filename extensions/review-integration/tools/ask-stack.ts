@@ -12,7 +12,9 @@ import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import { stackAliases } from "../../../lib/core/review/ask/span.ts";
 import { stackWitnesses } from "../../../lib/core/review/ask/stack-witness.ts";
+import type { CouncilStart } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
+	type ChangeRef,
 	createFindingStore,
 	createRunStore,
 	givenBy,
@@ -20,6 +22,7 @@ import {
 	runStackCouncil,
 	stackPrompt,
 } from "../../../lib/core/review/index.ts";
+import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
 import { findingDir, reviewEngine, runDir } from "../engine.ts";
 import type { RoundWatch } from "../progress.ts";
 import {
@@ -30,6 +33,12 @@ import {
 } from "../work.ts";
 import { answerFor } from "./ask-answer.ts";
 import { deps, ISOLATED } from "./ask-reviewer.ts";
+import {
+	briefFitsARoom,
+	type RoomHarness,
+	roomFor,
+	roomHarness,
+} from "./ask-room.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
@@ -37,6 +46,8 @@ import {
 	chartersFor,
 	claimIdentities,
 	nextSeq,
+	ROOM_ROUND,
+	type RosterRoom,
 	refsOf,
 	rereadFailed,
 	treeGone,
@@ -203,11 +214,10 @@ export async function askStack(
 	// What the round reads: what was built before its wait, or what was
 	// built again after it, which is what a start decided then follows.
 	let built = first;
-	const start = await awaitRosterStart(
-		built.tip.change.label,
-		seat.signal,
-		"stack",
-	);
+	// A room is weighed before the wait, so a round bound for one waits on
+	// no bar here, and settled after it from the heads as they are then.
+	const begun = await beginStackRound(stackStartOf(built, seat.signal));
+	const { start } = begun;
 	if (start.cancelled !== undefined) return refuse(start.cancelled);
 	let rebuiltSaid: string | undefined;
 	// Read again and built again after a wait, keeping the start held:
@@ -246,7 +256,16 @@ export async function askStack(
 	const stackRefs = changes.map((one) => one.ref);
 	const changeFor = new Map(changes.map((one) => [one.ref, one.change]));
 	const findings = createFindingStore(findingDir());
-	const asking = deps(tip.change, tree.path, watch, charters);
+	// After the reread, so a member pushed past the tip while the round
+	// waited keeps it here.
+	const settled = await settleStackRoom(
+		begun,
+		stackStartOf(built, seat.signal),
+	);
+	if (settled.start.cancelled !== undefined)
+		return refuse(settled.start.cancelled);
+	const { room } = settled;
+	const asking = deps(tip.change, tree.path, watch, charters, undefined, room);
 	const { run, warnings } = await runStackCouncil(
 		{
 			roster,
@@ -284,7 +303,7 @@ export async function askStack(
 	return say(
 		[
 			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
-			...(start.waited === undefined ? [] : [start.waited]),
+			...(settled.start.waited === undefined ? [] : [settled.start.waited]),
 			...(rebuiltSaid === undefined ? [] : [rebuiltSaid]),
 			...(unheld.length === 0
 				? []
@@ -295,4 +314,139 @@ export async function askStack(
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },
 	);
+}
+
+/** What a stack round's start is decided from. */
+export interface StackStartAsk {
+	/** The tip, whose tree the round reads. */
+	readonly tip: ChangeRef;
+	/** The tip's head, the one commit a room's reviewer checks out. */
+	readonly head: string | undefined;
+	/** The round's prompt, which a room's start must carry. */
+	readonly prompt: string;
+	/** The members whose head the tip's tree doesn't hold. */
+	readonly unheld: readonly string[];
+	/** The code a room's reviewers read, asked only once a room is named. */
+	readonly harness: () => RoomHarness;
+	/** Stops the wait. */
+	readonly signal: AbortSignal | undefined;
+}
+
+/** Where a stack round's start reads its room and this machine's bars. */
+export interface StackStartReads {
+	/** The room the tip's reviewers would run on now, or nothing. */
+	readonly roomOf: (
+		change: ChangeRef,
+		head: string | undefined,
+		harness: () => RoomHarness,
+	) => Promise<RoomAsk | undefined>;
+	/** This machine's bars; left out, its platform's own. */
+	readonly here?: RosterRoom;
+}
+
+/** The room and the bars a stack round reads outside a test. */
+const READS: StackStartReads = {
+	roomOf: (change, head, harness) => roomFor(change, head, harness),
+};
+
+/**
+ * The room a stack round's reviewers run on, or nothing when they run
+ * here. A room's reviewer checks out one commit, the tip's, so the
+ * round goes there only when the tip's tree holds every member's head,
+ * and only with a prompt a room's start can carry.
+ *
+ * Asked before the wait and again after it, from the stack as the
+ * round built it again then: a member pushed while it waited may no
+ * longer be held by the tip.
+ */
+async function stackRoom(
+	ask: StackStartAsk,
+	reads: StackStartReads = READS,
+): Promise<RoomAsk | undefined> {
+	if (ask.unheld.length > 0 || !briefFitsARoom(ask.prompt)) return undefined;
+	return await reads.roomOf(ask.tip, ask.head, ask.harness);
+}
+
+/** What a stack round built, as much of it as its start is decided from. */
+interface BuiltForStart {
+	readonly tip: {
+		readonly change: ChangeRef;
+		readonly proposal: { readonly headCommit?: string };
+	};
+	readonly prompt: string;
+	readonly unheld: readonly string[];
+	readonly tree: { readonly path: string };
+}
+
+/** The start a stack round asks for, from what it built. */
+function stackStartOf(
+	built: BuiltForStart,
+	signal: AbortSignal | undefined,
+): StackStartAsk {
+	return {
+		signal,
+		tip: built.tip.change,
+		head: built.tip.proposal.headCommit,
+		prompt: built.prompt,
+		unheld: built.unheld,
+		harness: () => roomHarness(built.tree.path),
+	};
+}
+
+/** A stack round's start as its wait ended, and the room it waited for. */
+export interface StackRoundBegun {
+	readonly start: CouncilStart;
+	/** The room weighed before the wait, which let it pass the bars. */
+	readonly asked: RoomAsk | undefined;
+}
+
+/**
+ * Waits for a stack round's start, as a council waits for its own: past
+ * this machine's bars when its reviewers would run on a room, since they
+ * load and think there, and on the bars otherwise.
+ */
+export async function beginStackRound(
+	ask: StackStartAsk,
+	reads: StackStartReads = READS,
+): Promise<StackRoundBegun> {
+	const asked = await stackRoom(ask, reads);
+	const start = await awaitRosterStart(
+		ask.tip.label,
+		ask.signal,
+		"stack",
+		asked === undefined ? reads.here : ROOM_ROUND,
+	);
+	return { start, asked };
+}
+
+/**
+ * The room a begun stack round's reviewers run on, weighed again from
+ * `ask`, the stack as the round built it after its wait, which can last
+ * hours. A room taken out of the config meanwhile, or a member the tip
+ * no longer holds, gives the start back and waits on the bars here.
+ */
+export async function settleStackRoom(
+	begun: StackRoundBegun,
+	ask: StackStartAsk,
+	reads: StackStartReads = READS,
+): Promise<{ start: CouncilStart; room: RoomAsk | undefined }> {
+	const { start, asked } = begun;
+	if (start.cancelled !== undefined || asked === undefined) {
+		return { start, room: undefined };
+	}
+	const room = await stackRoom(ask, reads);
+	if (room !== undefined) return { start, room };
+	await start.release?.();
+	const local = await awaitRosterStart(
+		ask.tip.label,
+		ask.signal,
+		"stack",
+		reads.here,
+	);
+	// What it said of its first wait, when the second said nothing.
+	const waited = local.waited ?? start.waited;
+	return {
+		start: waited === undefined ? local : { ...local, waited },
+		room: undefined,
+	};
 }
