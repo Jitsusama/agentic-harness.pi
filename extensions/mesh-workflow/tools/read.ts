@@ -333,12 +333,14 @@ async function questionStates(
 
 /**
  * Who of the sessions a pivot reached has it, by their read markers,
- * who can't take it up, which a session says by a question re it, and
- * who has not had it yet. A session is reached as any message reaches
- * it, so one hearing the pivot's group through a part of it counts.
- * Anything else re the pivot shows its sender has it, wherever it runs:
- * sessions still on the old ask ack every pivot with an fyi until they
- * reload, and a landing may answer one, so neither reads as a refusal.
+ * who can't take it up, which a session says by a question or a hold re
+ * it, and who has not had it yet. A session is reached as any message
+ * reaches it, so one hearing the pivot's group through a part of it
+ * counts. Anything else re the pivot shows its sender has it, wherever
+ * it runs: sessions still on the old ask ack every pivot with an fyi
+ * until they reload, and a landing may answer one, so neither reads as a
+ * refusal. Each sender's latest word re the pivot decides, so one that
+ * asked and then took it up has it (#2408's round, F1 and F16).
  */
 function pivotState(
 	pivot: Message,
@@ -347,11 +349,18 @@ function pivotState(
 	self: { addresses: readonly string[]; pid: number },
 	hasRead: (one: Presence, id: string) => boolean,
 ): string {
-	const asks = given.filter((one) => one.intent === "question");
-	const by = new Set(asks.map((one) => one.from));
+	// A hold re the pivot puts it off as a question does, and is as
+	// urgent to its orchestrator (#2408's round, F12 and F17).
+	const asking = (one: Message) =>
+		one.intent === "question" || one.intent === "hold";
+	const latest = [
+		...new Map(given.map((one) => [one.from, one] as const)).values(),
+	];
+	const by = new Set(latest.filter(asking).map((one) => one.from));
 	const said = new Set(
-		given.filter((one) => one.intent !== "question").map((one) => one.from),
+		latest.filter((one) => !asking(one)).map((one) => one.from),
 	);
+	const asks = given.filter((one) => asking(one) && by.has(one.from));
 	const reached = present.filter(
 		(one) =>
 			!one.addresses.some((address) => self.addresses.includes(address)) &&

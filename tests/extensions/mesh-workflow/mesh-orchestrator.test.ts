@@ -443,6 +443,50 @@ describe("an orchestrator", () => {
 		expect(read, "an ack is no refusal").not.toContain("can't take it up");
 	});
 
+	// Each sender's latest word re a pivot decides: one that asked and then
+	// took it up has it, and a hold puts it off as a question does
+	// (#2408's round, F1, F7, F12, F16 and F17).
+	it("reads each sender's latest word re a pivot, a hold as a refusal and a take-up after an ask as having it", async () => {
+		leading();
+		const { tools } = await startSession();
+		const readBack = async () =>
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		await send(tools, "#orchestration/7m6jkg", "pivot", "Take up the cap.");
+		const [pivot] = sentOut();
+		const word = (intent: "question" | "hold" | "fyi", text: string) =>
+			fromElsewhere({
+				from: "85PKB2",
+				to: ["@7M6JKG"],
+				re: pivot?.id,
+				intent,
+				text,
+			});
+
+		word("hold", "Holding the cap: it waits on a review.");
+		const held = await readBack();
+		expect(held, "a hold puts the pivot off").toContain(
+			"\n  can't take it up: 85PKB2, last in [",
+		);
+		expect(held, "a hold isn't taking it up").not.toContain("has it");
+
+		word("fyi", "The review landed; the cap is taken up.");
+		const taken = await readBack();
+		expect(taken, "a take-up after a hold has it").toMatch(
+			/\n {2}has it: 85PKB2$/m,
+		);
+		expect(taken, "an earlier hold no longer refuses").not.toContain(
+			"can't take it up",
+		);
+
+		word("question", "Can't keep the cap: who owns the review?");
+		expect(
+			await readBack(),
+			"a question after a take-up refuses again",
+		).toContain("\n  can't take it up: 85PKB2, last in [");
+	});
+
 	// From 08:00 on 26 November the four busiest hubs heard 391 answers to
 	// their pivots in a day; a read marker already says who has one, so a
 	// session takes a pivot up without answering it.
