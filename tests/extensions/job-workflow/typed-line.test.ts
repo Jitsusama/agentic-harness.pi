@@ -115,6 +115,19 @@ describe("a typed line once pi reads it", () => {
 		expect(steerWaiting(events), "no line waits").toBe(false);
 	});
 
+	// pi may read another message first: a peer's steer, or the run's prompt.
+	it("keeps waiting while pi reads another message first", async () => {
+		const { events, working, fire } = await started();
+		await fire("input", steer("stop that"));
+		await fire("message_start", userMessage("a peer's words read first"));
+
+		expect(steerWaiting(events), "behind another message").toBe(true);
+		expect(working.at(-1), "behind another message").toMatch(/^Your message/);
+		await fire("message_start", userMessage("stop that"));
+		expect(steerWaiting(events), "once its own words are read").toBe(false);
+		expect(working.at(-1)).toBeUndefined();
+	});
+
 	it("gives it back when the run ends without reading it", async () => {
 		const { events, working, fire } = await started();
 		await fire("input", steer("stop that"));

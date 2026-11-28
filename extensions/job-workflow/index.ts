@@ -30,7 +30,10 @@ import {
 } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import type { CutOff } from "../../lib/internal/session/cut-off-record.ts";
-import { isPersonsOwnText } from "../../lib/internal/session/driven.ts";
+import {
+	isPersonsOwnText,
+	userTextOf,
+} from "../../lib/internal/session/driven.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
@@ -446,10 +449,15 @@ function showWaiting(line: TypedLine, ctx: ExtensionContext): void {
 	ctx.ui.setWorkingMessage(line.words());
 }
 
-/** Mark a typed line read, giving pi back its working line if one waited. */
-function lineRead(line: TypedLine, ctx: ExtensionContext): void {
+/**
+ * Let go the typed line pi read as `text`, or every line once the run
+ * ends (`text` undefined), giving pi back its working line when none
+ * waits any more.
+ */
+function lineRead(line: TypedLine, ctx: ExtensionContext, text?: string): void {
 	if (!line.waiting()) return;
-	line.read();
+	if (text === undefined) line.settled();
+	else line.read(text);
 	showWaiting(line, ctx);
 }
 
@@ -602,7 +610,7 @@ export default function jobWorkflow(
 		// A peer's or the machine's steer is no one there to say what next.
 		if (carriedWait && isPersonsOwnText(event.text)) carriedWait.typed = true;
 		if (steersTheRun(event)) {
-			line.typed();
+			line.typed(event.text);
 			showWaiting(line, ctx);
 			saySteered(pi.events);
 		}
@@ -655,7 +663,10 @@ export default function jobWorkflow(
 	});
 
 	pi.on("message_start", (event, ctx) => {
-		if (event.message.role === "user") lineRead(line, ctx);
+		// Only the line's own words let it go: the run's prompt, or a steer
+		// from elsewhere, may be read before it.
+		const text = userTextOf({ type: "message", message: event.message });
+		if (text !== undefined) lineRead(line, ctx, text);
 	});
 
 	pi.on("message_end", (event) => {

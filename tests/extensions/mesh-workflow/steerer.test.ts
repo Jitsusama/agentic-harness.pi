@@ -248,12 +248,18 @@ describe("a talk the steerer hands a session", () => {
 			{ deliverAs: "followUp" },
 		]);
 		expect(waits.steered).toBe(0);
-		expect(steerWaiting(waits.bus), "no steer left waiting").toBe(false);
+		expect(
+			steerWaiting(waits.bus),
+			"talk held for the run's end said as waiting to steer it",
+		).toBe(false);
 		expect(now.sent.map(([, options]) => options)).toEqual([
 			{ deliverAs: "steer" },
 		]);
 		expect(now.steered).toBe(1);
-		expect(steerWaiting(now.bus), "a steer left waiting").toBe(true);
+		expect(
+			steerWaiting(now.bus),
+			"talk said now not said as waiting to steer the run",
+		).toBe(true);
 	});
 
 	it("holds a peer's or the machine's words for the run's end, now or not", async () => {
@@ -283,7 +289,10 @@ describe("a talk the steerer hands a session", () => {
 		const [said] = sent[0] ?? [];
 		expect(said).not.toContain(BUSY_FRAMING);
 		expect(steered).toBe(0);
-		expect(steerWaiting(bus), "no steer left waiting").toBe(false);
+		expect(
+			steerWaiting(bus),
+			"talk that started an idle session's turn said as waiting to steer it",
+		).toBe(false);
 	});
 
 	it("holds words with no steer, as a look's answer, for a busy run's end", () => {
@@ -347,6 +356,22 @@ describe("a talk the steerer hands a session", () => {
 		expect(steerWaiting(bus), "with his second talk unread").toBe(true);
 		tell(lives, "message_start", reading("user", "and Y"));
 		expect(steerWaiting(bus), "once both are read").toBe(false);
+	});
+
+	// F91: pi marks a run begun before it reads the prompt that began it,
+	// so talk sent in between is steered and read only after that prompt.
+	it("keeps talk sent as a run starts waiting past that run's own prompt", () => {
+		const lives: Lives = new Map();
+		const bus = createEventBus();
+		const steerer = createSteerer(sessionAt(false, [], [], lives, bus));
+		tell(lives, "session_start");
+		tell(lives, "agent_start");
+		steerer.steered("look at X", false, { text: "look at X", from: "joel" });
+
+		tell(lives, "message_start", reading("user", "start the work"));
+		expect(steerWaiting(bus), "once the run's prompt is read").toBe(true);
+		tell(lives, "message_start", reading("user", "look at X"));
+		expect(steerWaiting(bus), "once the talk itself is read").toBe(false);
 	});
 
 	// F87: pi may read it as it is sent.

@@ -213,18 +213,20 @@ export function steerText(steer: Steer, into: SteeredInto): string {
 		const who = steer.by ?? "mycelium node";
 		return `${automatedHeader(`said by this machine's ${who}, not by the person, through this session's steer inbox`)}\n\n${steer.text}`;
 	}
-	// Busy, the words may turn the work as well as ask about it, so the
-	// session is told to carry on only where they ask nothing else.
-	const answer = into.busy
-		? "answer first, in a line or two, then do what is asked, or carry on if nothing is."
-		: "answer first, in a line or two, then do what is asked.";
+	const answer = "answer first, in a line or two, then do what is asked";
 	if (!isFromPerson(steer.from)) {
 		// Asked, but not by the person, so a stop's parking and the mesh's
-		// driven mark must not take it for Joel's words.
-		return `${automatedHeader(`asked by ${steer.from}, not by the person, through this session's steer inbox`)} Please ${answer}\n\n${steer.text}`;
+		// driven mark must not take it for Joel's words. Never busy: a
+		// peer's words wait for the run's end (`steerDelivery`).
+		return `${automatedHeader(`asked by ${steer.from}, not by the person, through this session's steer inbox`)} Please ${answer}.\n\n${steer.text}`;
 	}
+	// Busy, the person's words may turn the work as well as ask about it,
+	// so the session is told to carry on only where they ask nothing else.
+	const asked = into.busy
+		? `${answer}, or carry on if nothing is.`
+		: `${answer}.`;
 	const then = into.busy ? " while this session works: " : ": ";
-	return `[${asker(steer.from)}${ASKING_FROM_OUTSIDE}${then}${answer}]\n\n${steer.text}`;
+	return `[${asker(steer.from)}${ASKING_FROM_OUTSIDE}${then}${asked}]\n\n${steer.text}`;
 }
 
 /** What the window says of an answer that came for an ask now gone. */
