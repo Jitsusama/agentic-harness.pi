@@ -144,9 +144,10 @@ describe("hosted first prompt", () => {
 		).toBe(false);
 	});
 
-	// On 27 November two host cases' opens took 67.6 s and 91.8 s, and a
-	// window timed from admission had closed before their extensions
-	// started, so quest-workflow said the host's first words a second time.
+	// On 27 November two host cases' opens spent 63.5 s and 88.8 s loading
+	// their extensions, and a window timed from admission had closed before
+	// they started, so quest-workflow said the host's first words a second
+	// time.
 	it("stays pending however long the open takes, until the host hands the words on", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000_000);
