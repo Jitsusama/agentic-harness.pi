@@ -41,11 +41,16 @@
  * settle a conflict, or brought anything else along, gives another tree
  * and needs a round of its own; so the replay runs in a scratch repo
  * that reads no settings or attributes, and no merge driver can settle
- * a conflict for it. Nor does any commit work from elsewhere brought
- * the branch to lend, or anything under one: where it was made or
+ * a conflict for it. A commit work from elsewhere brought the branch
+ * to, or anything under one, lends only when its replay gives the
+ * change's head tree exactly, with nothing on it: where it was made or
  * copied, and every reset, fast-forward, `branch -f` or `checkout -B`
- * since. That is work it was cut from or took in, which after a restack
- * or a rebase no pushed branch may hold any more. Only a commit, a
+ * since. That may be work it was cut from or took in, which after a
+ * restack or a rebase no pushed branch may hold any more, so a fix on
+ * it would pass someone else's council off as the fix's. A head pulled
+ * in from the Mac and only rebased here is still read (5GLTPH, 26
+ * November): its change is byte for byte what the council read, and
+ * the branch's own work is judged as ever. Only a commit, a
  * cherry-pick, a revert, a merge that made a commit and a rebase that
  * replayed something are the branch's own; a subject git may write one
  * day counts as brought. So the branch's reflog in this checkout must
@@ -480,15 +485,20 @@ async function rebasedReviewed(
 		return false;
 	const onto = await forkOf(git, read.base, now);
 	const trees = await ownTrees(git, read.base, now, read.commits);
-	if (onto === undefined || trees === undefined) return false;
+	const headTree = await treeOf(git, now);
+	if (onto === undefined || trees === undefined || headTree === undefined)
+		return false;
 	const scratch = await scratchRepo(exec, git);
 	if (scratch === undefined) return false;
 	try {
 		for (const head of earlier) {
 			if (!(await witnesses(change.repo, new Set([head])))) continue;
-			if (await atOrBelowAny(git, head, history.arrivals)) continue;
+			// Work brought in lends only to exactly its own change, nothing on
+			// it: a branch cut from reviewed work was brought it too.
+			const brought = await atOrBelowAny(git, head, history.arrivals);
 			const tree = await replayed(git, scratch, read.base, head, onto);
-			if (tree === undefined || !trees.has(tree)) continue;
+			if (tree === undefined) continue;
+			if (brought ? tree !== headTree : !trees.has(tree)) continue;
 			if (await ownWherever(git, read.base, head, earlier, change.head))
 				return true;
 		}
@@ -728,6 +738,21 @@ async function pushedHeads(
 	);
 	// No reflog, or no such branch: it recalls no earlier head.
 	return logged.code === 0 ? commitIds(logged.stdout) : [];
+}
+
+/** The tree `commit` records, or nothing when that can't be read. */
+async function treeOf(
+	git: (...args: string[]) => ReturnType<Exec>,
+	commit: string,
+): Promise<string | undefined> {
+	const read = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`${commit}^{tree}`,
+	);
+	const tree = read.stdout.trim();
+	return read.code === 0 && COMMIT_ID.test(tree) ? tree : undefined;
 }
 
 /** Where `head` left `base`, or nothing when that can't be read. */
