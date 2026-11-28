@@ -16,6 +16,7 @@ import { commandWrapFor } from "../../lib/internal/fence/fence-mac-command.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import type { Sandbox } from "../../lib/internal/sandbox/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
+import { keptApart } from "../../lib/internal/shell/kept-apart.ts";
 import {
 	type SpawnerOptions,
 	spawnedBy,
@@ -73,9 +74,14 @@ export function agentBash(
 			: session !== undefined
 				? sessionKeyOf(session)
 				: undefined;
+	// Without pi-spawner, a kept call starts apart from pi's tracking,
+	// which a quit kills, so it outlives the pi that hands it on.
 	const spawning = spawnedBy(
-		createLocalBashOperations(
-			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
+		keptApart(
+			createLocalBashOperations(
+				settings.shellPath ? { shellPath: settings.shellPath } : undefined,
+			),
+			settings.shellPath,
 		),
 		{
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),

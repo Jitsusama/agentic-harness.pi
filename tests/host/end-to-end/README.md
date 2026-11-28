@@ -295,17 +295,30 @@ API key found".
 
 job-carry.test.ts is E17, a move that doesn't wait for a session's own
 background command: a plain pi, held as in E13, starts a command that
-runs for 45 s, and /host moves it within 30 s while the command runs
-on. The background host lists the session, the command's end is said
-in its log under the same job id, and nothing the shell kept of the
-command is left in its state once that's said.
+runs until the case ends it, and /host moves it within 30 s while the
+command and the shell kept for it run on. The background host lists
+the session, and the case then releases the command's follow by
+writing a file, sending no signal. The command's own end, a plain exit
+0 and its last word, is said in the host's log under the same job id,
+not a loss, and nothing the shell kept of the command is left in its
+state once that's said. A command that ended itself could end before a
+loaded lender's turn and move did, as about half of E17's runs there
+once failed, and a follow ended by a signal had bash print
+`Terminated` into its end. Where the system's profile has pi-spawner,
+the plain pi starts the command through it, as a machine's pis do, and
+the case holds that its shell's parent is pi-spawner. Where it has
+none, the plain pi starts the command apart from its own tracking
+(kept-apart.ts): from pi 1.6 a quit kills each shell pi tracks, and on
+htt66 that took E17's kept shell with the pi that had just handed it
+on.
 
 E19, in the same file, goes the other way: a conversation the
 background host holds starts the same command, and `host-release.ts
 --all` releases it without waiting. The host spares the command as it
-closes the conversation, and a plain pi opened on the same file, as
-Reopen Them All opens it, says the command's end under the same job
-id, leaving nothing kept.
+closes the conversation, its kept shell running on, and a plain pi
+opened on the same file, as Reopen Them All opens it, says the
+command's end under the same job id, its own end as in E17, leaving
+nothing kept.
 
 launcher-verbs.test.ts is E20, the launcher's Stop and Close where E8
 leaves them unproved. A Stop sent while both conversations are

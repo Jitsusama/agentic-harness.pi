@@ -150,6 +150,29 @@ export const CARRIED_END = "carried-job-ended";
  */
 export const CARRYING = `timeout 45 tail -f /dev/null; echo ${CARRIED_END}`;
 
+/** What a conversation is told to leave a job running until its case ends it. */
+export const CARRY_ON = "carry on";
+
+/** The file in the command's home whose arrival ends `carry on`'s follow. */
+export const CARRY_RELEASE = "carry-released";
+
+/**
+ * The follow `carry on` runs: a wait, looking five times a second, for
+ * {@link CARRY_RELEASE}, which its case writes once it has seen the
+ * command outlive a move. No double quotes, which a session file holds
+ * escaped, so its cases still find the command there as it reads.
+ */
+export const CARRIED_FOLLOW = `until [ -e ~/${CARRY_RELEASE} ]; do sleep 0.2; done`;
+
+/**
+ * What bash runs in the background for `carry on`: the follow, so no
+ * wait before its release, however slow a loaded builder makes it, can
+ * see it end of itself, and then a word its result shows. Released
+ * rather than killed, it ends as a plain exit 0, with nothing a signal
+ * makes bash print. `timeout` only bounds a follow a failed case leaves.
+ */
+export const CARRYING_ON = `timeout 600 bash -c '${CARRIED_FOLLOW}'; echo ${CARRIED_END}`;
+
 /** The run id of the fleet `fleet-carry` dispatches, so its summary can be found. */
 export const CARRIED_FLEET = "e21-fleet";
 
@@ -409,6 +432,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "bash", { command: LINGERING, background: true });
 	if (toldTo(words, CARRY))
 		return toolCall(faux, "bash", { command: CARRYING, background: true });
+	if (toldTo(words, CARRY_ON))
+		return toolCall(faux, "bash", { command: CARRYING_ON, background: true });
 	if (toldTo(words, NAP)) return toolCall(faux, "bash", { command: NAPPING });
 	if (toldTo(words, LONG_NAP))
 		return toolCall(faux, "bash", { command: LONG_NAPPING });
