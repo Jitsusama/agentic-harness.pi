@@ -681,6 +681,7 @@ export function censusText(census: Census): string {
 const LEFT_OUT_SAID: readonly (readonly [LeftOut, string])[] = [
 	["terminal", "a terminal's"],
 	["attended", "the attended host's"],
+	["later", "a later step's"],
 	["neither", "neither"],
 ];
 

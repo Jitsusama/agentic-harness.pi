@@ -190,9 +190,18 @@ describe("which pis are in the first stage", () => {
 		expect(isTerminalPi({ TERM: "foot", PI_HOST_KEY: "" })).toBe(true);
 	});
 
-	it("says a background conversation is neither until everyone joins", () => {
+	// A lower stage leaves these out by its own order, so a census of it
+	// mustn't fail on them as pis the stage should have taken.
+	it("says a background conversation or a subagent is a later step's until its step joins", () => {
 		const background = { PI_HOST_KEY: "work-background", TERM: "xterm" };
-		expect(leftOutOfStage(background, [], folder)).toBe("neither");
+		const subagent = { SUBAGENT_RUN_ID: "run-1" };
+		expect(leftOutOfStage(background, [], folder)).toBe("later");
+		expect(leftOutOfStage(subagent, [], folder)).toBe("later");
+		joinSpawns("spawns", folder);
+		expect(leftOutOfStage(subagent, [], folder)).toBeUndefined();
+		expect(leftOutOfStage(background, [], folder)).toBe("later");
+		joinEveryone("everyone", folder);
+		expect(leftOutOfStage(background, [], folder)).toBeUndefined();
 		listForStage(SESSION, "by hand", folder);
 		expect(
 			leftOutOfStage({ TERM: "xterm" }, ["pi", "--session", SESSION], folder),

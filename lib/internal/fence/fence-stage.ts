@@ -350,10 +350,11 @@ export function isTerminalPi(env: NodeJS.ProcessEnv): boolean {
 
 /**
  * Why the stage leaves a pi out: it runs in a terminal, it is the
- * attended host's, or neither, which the stage leaves out by no design,
- * so once everyone joins it should have taken it.
+ * attended host's, it is a subagent or a background conversation whose
+ * step the stage hasn't reached yet (`later`), or neither, which the
+ * stage leaves out by no design, so it should have taken it.
  */
-export type LeftOut = "terminal" | "attended" | "neither";
+export type LeftOut = "terminal" | "attended" | "later" | "neither";
 
 /**
  * Why the fence's first stage leaves this pi out, or nothing when it
@@ -374,6 +375,9 @@ export function leftOutOfStage(
 		return undefined;
 	}
 	if (isAttendedConversation(env)) return "attended";
+	// Out by the stage's own order until its step is taken, so a census of
+	// a lower stage doesn't fail on what that stage leaves out by design.
+	if (isSubagent(env) || isBackgroundConversation(env)) return "later";
 	return isTerminalPi(env) ? "terminal" : "neither";
 }
 

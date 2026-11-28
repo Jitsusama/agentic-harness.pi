@@ -120,9 +120,10 @@ would miss what another binds over it.
   (`pi-fence census`). Each says whether the fence's first stage
   takes it, and why not, so `pi-fence census --stage` judges and
   exits on those alone and counts the rest unjudged by why: the
-  stage takes no terminal's pi or the attended host's, so the whole
-  census can't judge it. One that is neither fails it, named by pid
-  and command, since the stage should have taken it.
+  stage takes no terminal's pi or the attended host's, nor a subagent
+  or background conversation before its step joins, so the whole
+  census can't judge it. One that is none of these fails it, named by
+  pid and command, since the stage should have taken it.
 - **`fence-census-here.ts`**: the census run on this machine, over
   every realm's presences and what earlier censuses saw, loaded by
   `pi-fence` only when the census is asked for, so its run path needs

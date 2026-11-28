@@ -285,7 +285,9 @@ describe("pi-fence census", () => {
 					"seen fenced within the hour\n",
 			);
 			expect(staged.code, "the stage").toBe(0);
-		});
+			// It runs the script twice, about 1.8 s each when idle, so the default
+			// 5 s ran out on a loaded machine (27 Nov, CPU some at 48).
+		}, 15_000);
 
 		it("exits 1, naming it by pid and command, for a background pi without its host's mark", async () => {
 			everyoneStage();

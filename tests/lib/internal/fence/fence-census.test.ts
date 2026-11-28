@@ -740,6 +740,25 @@ describe("the fence's census", () => {
 			expect(censusHolds(stageCensus(census)), "the stage holds").toBe(true);
 		});
 
+		// Before everyone joins, the stage leaves background conversations
+		// out by its own order, so they are a later step's, never neither.
+		it("counts a background conversation as a later step's before everyone joins", () => {
+			host(500);
+			const census = stageCensus(
+				fenceCensus(
+					place([
+						presence(ONE, 500, { host: "work-background", fence: "none" }),
+					]),
+				),
+			);
+			expect(census.unstaged?.map((row) => row.outside)).toEqual(["later"]);
+			expect(censusText(census).split("\n")).toEqual([
+				"0 live sessions in the stage: 0 proven fenced, 0 claimed, 0 unfenced",
+				"1 outside the stage, left unjudged: 1 a later step's",
+				"",
+			]);
+		});
+
 		it("fails on a session the stage takes that runs a command unfenced", () => {
 			host(500);
 			lay({
