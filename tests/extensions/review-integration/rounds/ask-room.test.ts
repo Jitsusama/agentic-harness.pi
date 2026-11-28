@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	briefFitsARoom,
 	myceliumAt,
 	roomFor,
 	roomHarness,
@@ -19,6 +20,8 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../../../lib/subagent/defaults.ts";
+import { MAX_ROOM_BRIEF_BYTES } from "../../../../lib/subagent/runpi/room-launch.ts";
+import { askFunctions } from "./ask-source.ts";
 
 const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
 const head = "b".repeat(40);
@@ -159,6 +162,23 @@ describe("the room a round's reviewers run on", () => {
 		} finally {
 			clearSubagentDefaults();
 		}
+	});
+});
+
+describe("a round's prompt on a room", () => {
+	it("fits up to the bytes a room's start carries, counted as bytes, not characters", () => {
+		expect(briefFitsARoom("a".repeat(MAX_ROOM_BRIEF_BYTES))).toBe(true);
+		expect(briefFitsARoom("a".repeat(MAX_ROOM_BRIEF_BYTES + 1))).toBe(false);
+		// Two bytes a character: half the limit in characters is the whole of it in bytes.
+		const half = MAX_ROOM_BRIEF_BYTES / 2;
+		expect(briefFitsARoom("é".repeat(half))).toBe(true);
+		expect(briefFitsARoom("é".repeat(half + 1))).toBe(false);
+	});
+
+	it("keeps a round too large for a room here, never asking one", () => {
+		const body = askFunctions().get("councilRound") ?? "";
+		expect(body).toMatch(/briefFitsARoom\(prompt\)/);
+		expect(body).toMatch(/briefFits\s*\?\s*await roomFor\(/);
 	});
 });
 

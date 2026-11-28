@@ -20,7 +20,10 @@ import {
 } from "../../../lib/internal/sandbox/system-program.ts";
 import { getSubagentDefaults } from "../../../lib/subagent/defaults.ts";
 import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
-import { ROOM_REPOS } from "../../../lib/subagent/runpi/room-launch.ts";
+import {
+	MAX_ROOM_BRIEF_BYTES,
+	ROOM_REPOS,
+} from "../../../lib/subagent/runpi/room-launch.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { fencePacks } from "./ask-reviewer.ts";
 
@@ -70,6 +73,15 @@ export function roomHarness(folder: string): RoomHarness {
 		entryLoads: fencePacks(folder),
 		hereOnly: [...defaults.extensions, ...defaults.skills],
 	};
+}
+
+/**
+ * Whether a round's prompt fits the command line that starts a reviewer
+ * on a room. One that doesn't keeps its round here, since a reviewer
+ * asked on a room never runs here instead.
+ */
+export function briefFitsARoom(prompt: string): boolean {
+	return Buffer.byteLength(prompt) <= MAX_ROOM_BRIEF_BYTES;
 }
 
 /**

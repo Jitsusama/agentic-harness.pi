@@ -705,12 +705,20 @@ function detailFrom(result: RunReviewerResult, limit: AskLimit): string {
 		: why;
 }
 
+/**
+ * The supervisor's word for a reviewer no room took, which never runs
+ * here: the run has no child's stderr, so this is the only reason.
+ */
+const NO_ROOM = /^No room (?:could take|ran) this reviewer/;
+
 /** What to say about a run that produced nothing at all. */
 function failureFrom(result: RunReviewerResult): string {
 	const said = result.error?.message ?? result.stderr.trim();
-	return said === "" || said === undefined
-		? `${result.reviewerId} exited ${result.exitCode} without answering.`
-		: said;
+	if (said !== "" && said !== undefined) return said;
+	return (
+		result.warnings.find((warning) => NO_ROOM.test(warning)) ??
+		`${result.reviewerId} exited ${result.exitCode} without answering.`
+	);
 }
 
 /**

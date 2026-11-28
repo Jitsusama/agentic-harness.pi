@@ -56,7 +56,7 @@ import {
 	keepsItsOwnClocks,
 	substituting,
 } from "./ask-reviewer.ts";
-import { roomFor, roomHarness } from "./ask-room.ts";
+import { briefFitsARoom, roomFor, roomHarness } from "./ask-room.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
@@ -66,6 +66,7 @@ import {
 	councilFindingsBehind,
 	material,
 	nextSeq,
+	ROOM_ROUND,
 	renderFindings,
 } from "./ask-round.ts";
 import { NARROWER_WEIGHING } from "./ask-weigh.ts";
@@ -82,10 +83,7 @@ export async function askCouncil(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
-	const { waited } = set;
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
+	const { waited, room } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -158,14 +156,39 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	const start = await awaitRosterStart(change.label, seat.signal, "council");
+	// Before the start, since a round whose reviewers run on a room
+	// doesn't wait on this machine's memory or CPU, only its place in
+	// the line and the spacing.
+	const briefFits = briefFitsARoom(prompt);
+	const roomNow = async () =>
+		briefFits
+			? await roomFor(change, proposal.headCommit, () => roomHarness(tree.path))
+			: undefined;
+	const asked = await roomNow();
+	let start = await awaitRosterStart(
+		change.label,
+		seat.signal,
+		"council",
+		asked === undefined ? undefined : ROOM_ROUND,
+	);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
+	// Read again, since the wait can last hours: a room taken out of the
+	// config while it waited sends the round back to wait on the bars
+	// here, which it didn't, and a room moved to another is the new one.
+	const room = asked === undefined ? undefined : await roomNow();
+	const firstWaited = start.waited;
+	if (asked !== undefined && room === undefined) {
+		await start.release?.();
+		start = await awaitRosterStart(change.label, seat.signal, "council");
+		if (start.cancelled !== undefined)
+			return { refused: refuse(start.cancelled) };
+	}
 	// Asked again after the wait: a council on this head queued ahead of
 	// this one writes its ledger entry only as it opens, a spacing ago.
 	// Refused then, it gives its slot back, so the next round on the
 	// machine waits behind none that never started.
-	if (start.waited !== undefined) {
+	if (start.waited !== undefined || firstWaited !== undefined) {
 		const since = await councilRefused(change, proposal.headCommit, params);
 		if (since !== undefined) {
 			await start.release?.();
@@ -180,7 +203,8 @@ async function councilRound(
 		charters,
 		conventions,
 		prompt,
-		waited: start.waited,
+		room,
+		waited: start.waited ?? firstWaited,
 		...(start.release === undefined ? {} : { release: start.release }),
 	};
 }
@@ -229,13 +253,11 @@ export async function startRound(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
+	const { room } = set;
 	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkills("council");
-	const room = await roomFor(change, proposal.headCommit, () =>
-		roomHarness(tree.path),
-	);
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
@@ -507,6 +529,13 @@ export async function retryOne(
 		asked.role === "judge" ? NARROWER_WEIGHING : NARROWER_COUNCIL,
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	// A reviewer goes to the room a round would take now, since one no
+	// room took is retried for it, and one sent here would be load past
+	// the bars its round skipped. A judge runs here, as a weighing does.
+	const room =
+		asked.role !== "judge" && briefFitsARoom(prompt)
+			? await roomFor(change, proposal.headCommit, () => roomHarness(tree.path))
+			: undefined;
 	const watch = watchFor(asked.role === "judge" ? "judge" : "council");
 	const { run: fresh, warnings } =
 		asked.role === "judge"
@@ -528,7 +557,7 @@ export async function retryOne(
 						...read,
 						...given,
 					},
-					substituting(deps(change, tree.path, watch, charters, held.id)),
+					substituting(deps(change, tree.path, watch, charters, held.id, room)),
 				);
 
 	const outcome = fresh.outcomes[0];
