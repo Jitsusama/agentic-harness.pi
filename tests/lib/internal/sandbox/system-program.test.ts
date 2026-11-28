@@ -552,10 +552,10 @@ describe("root inside a user namespace", () => {
 		// `undefined` is a cause given, an owner trusted, never one the
 		// machine is asked for in its place. Leaving it out once let the
 		// machine's cause stand beside a finder that trusted otherwise, so it
-		// can't be left out: typecheck fails on the line below if it can.
-		// @ts-expect-error A cause is always given, the finder's own.
-		const defaulted = () => notKept(["landrun"]);
-		expect(typeof defaulted, "a call that must not type").toBe("function");
+		// can't be left out: typecheck fails on the line below if it can,
+		// since the count of its parameters would then read 1 or 2.
+		const both = (count: Parameters<typeof notKept>["length"]): 2 => count;
+		expect(both(2), "a cause always given, the finder's own").toBe(2);
 		expect(
 			notKept(["landrun"], undefined),
 			"undefined, an owner trusted",
