@@ -437,3 +437,70 @@ describe("a machine's grants beside the node's worker socket", () => {
 		});
 	});
 });
+
+describe("a machine's grants through folders any account may write", () => {
+	/**
+	 * A disk granting `entry` to `use`, where each folder in `laid` has
+	 * its mode and every other along the way is root's and plain.
+	 */
+	const granted = (
+		use: "read" | "write",
+		entry: string,
+		laid: Readonly<Record<string, number>>,
+		plain: readonly string[] = [],
+	) => {
+		const given = disk(
+			JSON.stringify({ [use]: [entry] }),
+			ROOTS_FILE,
+			ROOTS_FOLDER,
+			0,
+			[],
+			plain,
+		);
+		const lstat = given.lstat;
+		given.lstat = (path) => {
+			const mode = laid[path];
+			return mode === undefined ? lstat(path) : { ...ROOTS_FOLDER, mode };
+		};
+		return {
+			grants: machineGrants(MACHINE_GRANTS, given),
+			said: given.said.join("\n"),
+		};
+	};
+
+	it.each([
+		["/run/lock, sticky and open to all", "write", "/run/lock", "/run/lock"],
+		["a folder in /run/lock", "read", "/run/lock/x", "/run/lock"],
+		["/dev/mqueue", "write", "/dev/mqueue", "/dev/mqueue"],
+		["a missing folder in an open one", "write", "/srv/open/lane", "/srv/open"],
+	] as const)(
+		"grant nothing from a file naming %s, and name the folder",
+		(_, use, entry, open) => {
+			const { grants, said } = granted(
+				use,
+				entry,
+				{ "/run/lock": 0o41777, "/dev/mqueue": 0o41777, "/srv/open": 0o40777 },
+				["/run", "/dev", "/srv"],
+			);
+			expect(grants, "no grant").toEqual(NONE);
+			expect(said, "names the entry").toContain(
+				`${JSON.stringify(entry)} under ${use}`,
+			);
+			expect(said, "names the open folder").toContain(
+				`passes through ${open}, a folder any account may write`,
+			);
+		},
+	);
+
+	it("grant a path through a folder only its group may write", () => {
+		const { grants } = granted(
+			"write",
+			"/srv/team/lane",
+			{
+				"/srv/team": 0o40775,
+			},
+			["/srv", "/srv/team/lane"],
+		);
+		expect(grants.write, "granted").toEqual(["/srv/team/lane"]);
+	});
+});

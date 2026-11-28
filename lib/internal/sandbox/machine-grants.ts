@@ -286,11 +286,14 @@ const SEALED: readonly string[] = ["/proc", "/sys"];
 const HOMES: readonly string[] = ["/home/*", "/root"];
 
 /**
- * Folders any account may write, where a missing entry could be laid as
- * a link before bubblewrap follows it, which no grant may name, hold or
- * lie in.
+ * The shared temporary folders, which no grant may name, hold or lie in
+ * even where this disk lays one closed: any account may write each on
+ * most machines, and the fence lays /tmp and /dev/shm itself.
  */
-const OPEN_TO_ALL: readonly string[] = ["/tmp", "/var/tmp", "/dev/shm"];
+const SHARED_TEMP: readonly string[] = ["/tmp", "/var/tmp", "/dev/shm"];
+
+/** The mode bit that lets any account write. */
+const WRITABLE_BY_ANYONE = 0o002;
 
 /** Any account's runtime folder. */
 const RUNTIME_FOLDER = "/run/user/*";
@@ -374,7 +377,7 @@ function entryRefusal(
 	if (sealed) return `is, holds or lies in ${sealed}`;
 	const whole = WHOLE.find((folder) => holds(entry, folder));
 	if (whole) return `is or holds ${whole}, which the fence needs whole`;
-	const laid = [...OPEN_TO_ALL, ...FENCES_OWN].find(
+	const laid = [...SHARED_TEMP, ...FENCES_OWN].find(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (laid) return `is, holds or lies in ${laid}`;
@@ -395,9 +398,7 @@ function entryRefusal(
 	if (use === "read" && holds("/dev", entry)) {
 		return "is a device, which works only granted to write";
 	}
-	const link = linkOn(entry, disk);
-	if (link) return `passes through a link at ${link}`;
-	return undefined;
+	return pathRefusal(entry, disk);
 }
 
 /**
@@ -416,17 +417,23 @@ function holds(outer: string, inner: string): boolean {
 }
 
 /**
- * The first folder or file along `path` that is a link, or none; the
- * walk stops where the path runs out on disk, since a missing path is
- * left out of the fence anyway.
+ * Why `path` can't be granted as the disk lays it, or none: a link along
+ * it, or a folder along it any account may write, sticky or not, where
+ * an account could lay a missing part as a link before bubblewrap
+ * follows it. The walk stops where the path runs out on disk, since a
+ * missing path is left out of the fence anyway; a folder only its group
+ * may write is the group's to trust.
  */
-function linkOn(path: string, disk: GrantDisk): string | undefined {
+function pathRefusal(path: string, disk: GrantDisk): string | undefined {
 	const parts = path.split("/").slice(1);
 	for (let end = 1; end <= parts.length; end++) {
 		const along = `/${parts.slice(0, end).join("/")}`;
 		const found = disk.lstat(along);
 		if (found === undefined) return undefined;
-		if (found.kind === "link") return along;
+		if (found.kind === "link") return `passes through a link at ${along}`;
+		if (found.kind === "folder" && (found.mode & WRITABLE_BY_ANYONE) !== 0) {
+			return `passes through ${along}, a folder any account may write, where a missing part could be laid as a link`;
+		}
 	}
 	return undefined;
 }
