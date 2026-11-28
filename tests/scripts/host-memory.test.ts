@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,10 @@ import {
 	writeSlot,
 	writeSpareSlot,
 } from "../../host/service/child-units.ts";
+import {
+	type HeapSummary,
+	writeSummary,
+} from "../../host/service/heap-summary.ts";
 import type { MemoryAnswer } from "../../host/service/protocol.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import {
@@ -17,11 +21,35 @@ import {
 	describeMemory,
 	describeSnapshot,
 	describeSnapshotFailure,
+	describeSummary,
 	SNAPSHOT_ASKER,
 	snapshotAt,
 } from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
+/** Long enough to ask, short enough that a summary never coming is quick to see. */
+const SHORT_WAIT_MS = 400;
+const POLL_MS = 50;
+/** A summary, its last name holding a control character. */
+const FIGURES: HeapSummary = {
+	nodes: 30_000,
+	selfSize: 2 * MIB,
+	byType: [
+		{ type: "object", count: 20_000, selfSize: 1.5 * MIB },
+		{ type: "string", count: 10_000, selfSize: 0.5 * MIB },
+	],
+	byTypeAndName: [
+		{ type: "object", name: "MarkedThing", count: 1000, selfSize: MIB },
+		{ type: "string", count: 10_000, selfSize: 0.5 * MIB },
+		{
+			type: "object",
+			name: "Obj\u001bect",
+			count: 19_000,
+			selfSize: 0.5 * MIB,
+		},
+	],
+	largeStrings: { atLeast: 64 * 1024, count: 1, selfSize: 100 * 1024 },
+};
 const AT = "2026-11-24T08:00:00.000Z";
 const ONE = "01a1cf4a-a681-7237-bce7-2ce6dbc70547";
 const TWO = "01a1ccd0-1fc8-7057-8e8c-4577817aa50d";
@@ -335,11 +363,15 @@ describe("a heap snapshot, asked", () => {
 	it("names this script as who asks, for the host's journal", async () => {
 		const host = await hostAnswering(written);
 
-		const said = await snapshotAt(host.socket, ONE, WAIT_MS);
+		const said = await snapshotAt(host.socket, ONE, { waitMs: WAIT_MS });
 
-		expect(said).toBe(
-			`${ONE}: a heap snapshot of 1 MiB, written in 40 ms, to /state/heap-snapshots/one.heapsnapshot`,
-		);
+		expect(said).toEqual({
+			lines: [
+				`${ONE}: a heap snapshot of 1 MiB, written in 40 ms, to /state/heap-snapshots/one.heapsnapshot`,
+				"  no summary: the host runs code from before summaries, so the raw file is kept; remove it once read",
+			],
+			done: true,
+		});
 		expect(host.asked).toEqual([
 			expect.objectContaining({
 				op: "heap-snapshot",
@@ -366,9 +398,9 @@ describe("a heap snapshot, asked", () => {
 				: written(request),
 		);
 
-		const said = await snapshotAt(host.socket, ONE, WAIT_MS);
+		const said = await snapshotAt(host.socket, ONE, { waitMs: WAIT_MS });
 
-		expect(said).toContain("a heap snapshot of 1 MiB");
+		expect(said.lines[0]).toContain("a heap snapshot of 1 MiB");
 		expect(host.asked.map((request) => "by" in request)).toEqual([true, false]);
 	});
 
@@ -380,9 +412,95 @@ describe("a heap snapshot, asked", () => {
 			error: { code: "busy", message: "it is busy" },
 		}));
 
-		await expect(snapshotAt(host.socket, ONE, WAIT_MS)).rejects.toThrow(
-			"it refused: it is busy",
-		);
+		await expect(
+			snapshotAt(host.socket, ONE, { waitMs: WAIT_MS }),
+		).rejects.toThrow("it refused: it is busy");
 		expect(host.asked).toHaveLength(1);
+	});
+
+	/** A snapshot's raw file in the test's folder, and where its summary goes. */
+	async function rawAndSummary(): Promise<{ raw: string; summary: string }> {
+		const raw = join(dir, "one.heapsnapshot");
+		await writeFile(raw, "raw");
+		return { raw, summary: join(dir, "one.summary.json") };
+	}
+
+	/** A host answering that it wrote `raw`, whose summary goes to `summary`. */
+	const summing =
+		(raw: string, summary: string) => (request: Record<string, unknown>) => ({
+			...written(request),
+			result: { sessionId: ONE, file: raw, summary, bytes: MIB, tookMs: 40 },
+		});
+
+	it("prints the summary's figures, then removes the raw file, since it summed it", async () => {
+		const { raw, summary } = await rawAndSummary();
+		writeSummary(FIGURES, summary);
+		const host = await hostAnswering(summing(raw, summary));
+
+		const said = await snapshotAt(host.socket, ONE, { waitMs: WAIT_MS });
+
+		expect(said.lines).toEqual([
+			`${ONE}: a heap snapshot of 1 MiB, written in 40 ms, to ${raw}`,
+			...describeSummary(FIGURES),
+			`  removed the raw snapshot at ${raw}, since this summed it; --keep-raw keeps one for a retainers read`,
+		]);
+		expect(said.done).toBe(true);
+		await expect(stat(raw), "the raw file is gone").rejects.toThrow("ENOENT");
+		expect(await readFile(summary, "utf8"), "the summary stays").toContain(
+			"MarkedThing",
+		);
+	});
+
+	it("keeps the raw file, once summed, when asked to keep it", async () => {
+		const { raw, summary } = await rawAndSummary();
+		writeSummary(FIGURES, summary);
+		const host = await hostAnswering(summing(raw, summary));
+
+		const said = await snapshotAt(host.socket, ONE, {
+			waitMs: WAIT_MS,
+			keepRaw: true,
+		});
+
+		expect(said.lines.at(-1)).toBe(
+			`  kept the raw snapshot at ${raw}, as --keep-raw asked; remove it once read, or the host does once 2 hours old`,
+		);
+		expect(said.lines).toEqual(
+			expect.arrayContaining(describeSummary(FIGURES)),
+		);
+		expect(said.done).toBe(true);
+		expect(await readFile(raw, "utf8")).toBe("raw");
+	});
+
+	it("keeps the raw file, and says it isn't done, when no summary comes in time", async () => {
+		const { raw, summary } = await rawAndSummary();
+		// Half a summary, as one still being written reads.
+		await writeFile(summary, "{");
+		const host = await hostAnswering(summing(raw, summary));
+
+		const said = await snapshotAt(host.socket, ONE, {
+			waitMs: SHORT_WAIT_MS,
+			pollMs: POLL_MS,
+		});
+
+		expect(said.lines.at(-1)).toBe(
+			`  no summary came to ${summary} in time, so the raw file is kept; the host's journal says whether its sum failed`,
+		);
+		expect(said.done).toBe(false);
+		expect(await readFile(raw, "utf8")).toBe("raw");
+	});
+});
+
+describe("a heap snapshot's summary, described", () => {
+	it("gives its totals, each kind, then the largest kinds and names, as a table", () => {
+		expect(describeSummary(FIGURES)).toEqual([
+			"  30000 nodes, 2.0 MiB in all; strings of 64 KiB or more: 1, 0.1 MiB",
+			"      self size      count  kind",
+			"        1.5 MiB      20000  object",
+			"        0.5 MiB      10000  string",
+			"      self size      count  kind and name, the largest 3 of 3",
+			"        1.0 MiB       1000  object: MarkedThing",
+			"        0.5 MiB      10000  string",
+			"        0.5 MiB      19000  object: Obj?ect",
+		]);
 	});
 });

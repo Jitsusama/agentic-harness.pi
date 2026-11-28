@@ -94,6 +94,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/files/remove-tree.test.ts",
 	"tests/lib/internal/fence/fence-text-arguments.test.ts",
 	"tests/host/service/own-threads.test.ts",
+	"tests/host/service/heap-summary.test.ts",
 	"tests/lib/internal/shell/spawner-register-sockets.test.ts",
 	"tests/lib/internal/shell/spawner-starts.test.ts",
 	"tests/core/lsp/standalone/fenced-start.test.ts",

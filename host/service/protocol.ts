@@ -192,9 +192,12 @@ const memory = z.object({
 	),
 });
 
+// A heap snapshot's raw file, and where its summary will be written once
+// summed (heap-snapshot.ts); a host from before summaries says none.
 const snapshot = z.strictObject({
 	sessionId,
 	file: path,
+	summary: path.optional(),
 	bytes: count,
 	tookMs: count,
 });
@@ -286,7 +289,7 @@ export function parseMemoryResult(value: unknown): MemoryAnswer {
 	return result(memory, value);
 }
 
-/** A heap snapshot's result: where it was written, its size and how long its thread stopped. */
+/** A heap snapshot's result: where it was written and its summary will be, its size and how long its thread stopped. */
 export function parseHeapSnapshotResult(
 	value: unknown,
 ): z.infer<typeof snapshot> {

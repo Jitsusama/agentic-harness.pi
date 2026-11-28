@@ -304,20 +304,40 @@ input pipeline or screen. No unit or running host is installed yet.
   one. The write stops that thread for seconds, so a busy conversation
   refuses it, and so does one on the host's own thread, since there it
   would stop every other conversation and the watchdog's pings too.
-  The journal says each snapshot's size and pause. The file
+  The journal says each snapshot's size and pause. The raw file
   holds every string the process does, secrets among them, so it is
-  made owner-only before V8 writes into it, in an owner-only folder
-  under the host service's state, and the journal names who asked for
-  it, as the request's `by` names its caller, or says the asker didn't
-  name itself. A child is asked without `by`, since one still running
-  code from before the field refuses the request; the host's own
-  journal names the asker as it passes the request on. The next
-  snapshot removes any there over 2 hours old, and a write that fails
-  removes its partial file.
-  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one,
-  naming itself, and waits up to 10 minutes; past that, the file may
-  still come. A host still running code from before `by` refuses it,
-  so the script asks that one again without.
+  made owner-only before V8 writes into it, in a hidden owner-only
+  `.raw` folder inside an owner-only folder under the host service's
+  state, and the journal names who asked for it, as the request's `by`
+  names its caller, or says the asker didn't name itself. A child is
+  asked without `by`, since one still running code from before the
+  field refuses the request; the host's own journal names the asker as
+  it passes the request on. The next snapshot removes any raw file or
+  summary over 2 hours old, raw files left beside the summaries by a
+  host from before `.raw` too, and a write that fails removes its
+  partial file.
+- heap-summary.ts: sums a raw snapshot by kind and by kind and name,
+  with how many strings are 64 KiB or more, into an owner-only
+  `.summary.json` beside `.raw`, which the snapshot's answer names. It
+  holds figures and the names of classes, closures and code, never a
+  string's contents: a kind not known to be structure, one a later V8
+  adds among them, is named by kind alone. A name may still hold a
+  file path or a URL, since node names some native objects by the file
+  or module they came from. A snapshot written, the host
+  sums it in a node process of its own, with no environment, rather
+  than a worker, since a worker's heap would count in the
+  conversation's process and may not go back to the system once it
+  ends; the journal says when it is summed, or why not, and the raw
+  file stays when it isn't. It reads the file in chunks, so a 500 MB
+  snapshot sums in about 5 s in about 100 MB.
+  `node scripts/host-memory.ts --snapshot [--keep-raw] KIND:SESSION`
+  asks for one, naming itself, and waits up to 10 minutes for it and
+  its summary together, then prints the summary and removes the raw
+  file, unless `--keep-raw` asks to keep it for a retainers read. With
+  no summary in time it keeps the raw file and exits 1; past that, the
+  files may still come. A host still running code from before `by`
+  refuses it, so the script asks that one again without, and one from
+  before summaries answers with none, so its raw file is kept.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.

@@ -57,6 +57,7 @@ describe("result validation", () => {
 			heavy: ["job-1 shell: nix-offload there --changed"],
 		};
 		expect(parseDrainResult(drained)).toEqual(drained);
+		// A host from before summaries answers without one.
 		const snapshot = {
 			sessionId: A,
 			file: "/state/heap-snapshots/a.heapsnapshot",
@@ -64,6 +65,12 @@ describe("result validation", () => {
 			tookMs: 0,
 		};
 		expect(parseHeapSnapshotResult(snapshot)).toEqual(snapshot);
+		const summed = {
+			...snapshot,
+			file: "/state/heap-snapshots/.raw/a.heapsnapshot",
+			summary: "/state/heap-snapshots/a.summary.json",
+		};
+		expect(parseHeapSnapshotResult(summed)).toEqual(summed);
 		expect(
 			() => parseDrainResult({ ...drained, busy: -1 }),
 			"a count is never negative",
@@ -88,6 +95,8 @@ describe("result validation", () => {
 		};
 		for (const bad of [
 			{ ...snapshot, file: "a.heapsnapshot" },
+			{ ...snapshot, summary: "a.summary.json" },
+			{ ...snapshot, summary: "" },
 			{ ...snapshot, bytes: -1 },
 			{ ...snapshot, tookMs: 0.5 },
 			{ ...snapshot, sessionId: "short" },
