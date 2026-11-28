@@ -33,7 +33,7 @@
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, lstatSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
 	makeScratches,
@@ -50,13 +50,10 @@ import {
 	tooLong,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
+import { makeSandboxFolders } from "../sandbox/sandbox-folders.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
-import {
-	sandboxFolders,
-	strictHomeReads,
-	strictRules,
-} from "../sandbox/strict-rules.ts";
+import { strictHomeReads, strictRules } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
@@ -317,11 +314,8 @@ export function fenceRunText(
 			? { folder, text: wrap(command) }
 			: { refused: "this machine lays no fence, so nothing runs" };
 	}
-	// landrun skips a path that isn't there, and nothing inside could
-	// make one, so the strict profile's own folders are made first.
-	for (const own of Object.values(sandboxFolders(home))) {
-		mkdirSync(own, { recursive: true, mode: 0o700 });
-	}
+	const unmade = makeSandboxFolders(home, env);
+	if (unmade) return { refused: unmade };
 	const runtimeDir = env.XDG_RUNTIME_DIR;
 	const workerSocket = fencedWorkerSocket(env, sandbox.workerSockets);
 	const worker = workerSocket ? { workerSocket } : {};
@@ -329,6 +323,7 @@ export function fenceRunText(
 		command,
 		strictRules({
 			home,
+			env,
 			runtimeDir,
 			cwd: folder,
 			repository: worktreeRepository(folder, home),
@@ -567,6 +562,7 @@ function macFenceText(
 			? [
 					...strictHomeReads({
 						home: homeOnDisk,
+						env: place.env,
 						runtimeDir: undefined,
 						cwd: folder,
 						repository: worktreeRepository(tree ?? folder, homeOnDisk),

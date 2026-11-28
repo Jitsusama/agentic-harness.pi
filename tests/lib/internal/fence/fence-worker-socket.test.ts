@@ -174,7 +174,7 @@ describe("the worker socket a fenced command may reach", () => {
 });
 
 describe("the fence around a command on a machine whose node serves a worker socket", () => {
-	const place = { home: "/home/someone", runtimeDir: RUNTIME };
+	const place = { home: "/home/someone", env: {}, runtimeDir: RUNTIME };
 	const folders: Disk = {
 		kind: (path) =>
 			path === WORKER

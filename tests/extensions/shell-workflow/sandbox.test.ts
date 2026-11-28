@@ -24,7 +24,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEMP_LINK_PREFIX as QUESTS_LINK_PREFIX } from "../../../extensions/quest-workflow/scratch.ts";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
@@ -59,6 +59,11 @@ import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
  */
 const SHELL_ARGUMENTS =
 	'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -ww -o args= -p $$; fi';
+
+/** A path as a pattern matching only itself, whatever its home is named. */
+function literally(path: string): string {
+	return path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
@@ -750,8 +755,13 @@ describe("a command in the sandbox", () => {
 		expect(answer).toContain(
 			`kept nobus ${runtime ? `unix://${runtime}/${NIX_DOOR}` : ""}`.trim(),
 		);
-		const own = sandboxFolders(homedir());
-		expect(answer).toContain(`own:${own.cache} ${own.temporary}`);
+		// The session's own, named by whatever session the command ran for.
+		const own = sandboxFolders(homedir(), {});
+		expect(answer).toMatch(
+			new RegExp(
+				`own:${literally(own.cache)} ${literally(dirname(own.temporary))}/[A-Za-z0-9-]+\n`,
+			),
+		);
 		expect(answer).toContain("dropped:none none path:set");
 	});
 
@@ -796,7 +806,10 @@ describe("a command in the sandbox", () => {
 		const work = join(home, "work");
 		mkdirSync(work, { recursive: true });
 		// pi names no session here, so the folder is the process's own.
-		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
+		const settings = join(
+			sandboxFolders(home, process.env).gcloud,
+			`pid-${process.pid}`,
+		);
 		// Left by an earlier run of the same session, which starts over.
 		mkdirSync(settings, { recursive: true });
 		writeFileSync(join(settings, "left"), "");
@@ -832,7 +845,10 @@ describe("a command in the sandbox", () => {
 		const home = join(folder, "unbrokered-home");
 		const work = join(home, "work");
 		mkdirSync(work, { recursive: true });
-		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
+		const settings = join(
+			sandboxFolders(home, process.env).gcloud,
+			`pid-${process.pid}`,
+		);
 		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
 		process.env.HOME = home;
 		delete process.env.PI_SESSION_ID;
@@ -976,6 +992,20 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("unhooked");
 		});
 
+		it("refuses a working folder whose comma would grant a second path", async () => {
+			// landrun splits a rule at its commas, so this folder's name would
+			// grant the kept-out folder beside it.
+			const folded = join(work, `x,${elsewhere}`);
+			mkdirSync(folded, { recursive: true });
+			const answer = await run(
+				{ kind: "strict", landrun },
+				`cat ${elsewhere}/token || echo refused`,
+				folded,
+			);
+			expect(answer).not.toContain("the-hidden-value");
+			expect(answer).toContain("whose comma landrun would read as two paths");
+		});
+
 		it("writes its work, and can't read what the profile leaves out", async () => {
 			const answer = await run(
 				{ kind: "strict", landrun },
@@ -985,6 +1015,24 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("made");
 			expect(answer).not.toContain("the-hidden-value");
 			expect(answer).toContain("refused");
+		});
+
+		it("runs what it built in its work and its temporary folder", async () => {
+			const script = 'printf \'#!/bin/sh\\necho ran-%s\\n\' "$2" > "$1"';
+			const answer = await run(
+				{ kind: "strict", landrun },
+				[
+					`make() { ${script}; chmod +x "$1"; }`,
+					"make ./built work && ./built || echo work-unrun",
+					'own=$(mktemp) && make "$own" temporary && "$own" || echo temporary-unrun',
+					// Nothing runnable is left in the real home's folder.
+					'rm -f "$own" ./built',
+				].join("\n"),
+				work,
+			);
+			expect(answer).toContain("ran-work");
+			expect(answer).toContain("ran-temporary");
+			expect(answer).not.toContain("unrun");
 		});
 
 		it("can't read a token from its environment or its parent's", async () => {
@@ -1011,7 +1059,11 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).not.toContain("the-shared-value");
 			expect(answer).toContain("unread");
 			expect(answer).toContain("unwritten");
-			expect(answer).toContain(sandboxFolders(homedir()).temporary);
+			// Within the session's own, never the folder every session shares.
+			const every = dirname(sandboxFolders(homedir(), {}).temporary);
+			expect(answer).toMatch(
+				new RegExp(`${literally(every)}/[A-Za-z0-9-]+/tmp\\.`),
+			);
 			expect(answer).toContain("made-own");
 		});
 	},

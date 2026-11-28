@@ -323,7 +323,10 @@ it would hand over your next git command in that tree. The `.git` file
 naming it lies in the work, so it counts only when the folder it names
 points back at it. Its `TMPDIR` is the sandbox's, not the quest's scratch `tmp`,
 so what a command saves there for later lands under
-`~/.cache/pi-sandbox/tmp`.
+`~/.cache/pi-sandbox/tmp/<session>`, a folder of the session's own: a
+command may run what it writes there, as it may in its working folder,
+so no session shares one with another. A strict command inside a strict
+pi keeps the pi's folder.
 Code written in the working folder can still run later outside, an
 `.envrc` once you allow it. The sandbox narrows what a command reaches
 now, not what you later run from what it wrote.
