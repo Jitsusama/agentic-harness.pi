@@ -47,6 +47,7 @@ import {
 	hiddenFolder,
 	unfencedFolder,
 } from "./unfenced-folder.ts";
+import { sessionWorldTrees } from "./world-trees.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
@@ -464,6 +465,7 @@ function strictRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const { cwd, home } = place;
+	const worldTrees = sessionWorldTrees(place.env.PI_SESSION_ID, home);
 	const reach = fileReach(
 		{
 			home,
@@ -471,6 +473,7 @@ function strictRefusal(
 			runtimeDir: place.env.XDG_RUNTIME_DIR,
 			cwd,
 			repository: worktreeRepository(cwd, home),
+			...(worldTrees.length > 0 ? { worldTrees } : {}),
 			...(place.served ? { served: true } : {}),
 			grants: machineGrants(),
 		},
@@ -478,8 +481,17 @@ function strictRefusal(
 	)
 		.concat(use === "read" ? (place.skills ?? []) : [])
 		.flatMap((folder) => leadsTo(folder) ?? []);
+	// A held tree's `.git` file says where its git folder is, which git
+	// outside the fence then trusts, so it stays read-only as the fence
+	// keeps it; Landlock can't, inside a tree it lets a command write.
+	const gitFiles = worldTrees.map(({ tree }) => join(tree, ".git"));
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
+		const pointer =
+			use === "write" && real !== undefined && gitFiles.includes(real);
+		if (pointer) {
+			return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} may not write a held tree's .git file, and ${path} leads to ${real}, so it didn't run.`;
+		}
 		if (real !== undefined && reach.some((folder) => inside(real, folder))) {
 			continue;
 		}
@@ -489,7 +501,7 @@ function strictRefusal(
 				: `to ${real}, outside it`;
 		const what =
 			use === "write"
-				? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
+				? "may write only in the working folder, the World trees the session holds, the sandbox's own cache and temporary folder, and what this machine grants to write"
 				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}

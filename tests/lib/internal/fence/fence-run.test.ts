@@ -39,6 +39,7 @@ function foldsCase(): boolean {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import { ARGS_FD } from "../../../../lib/internal/fence/fence-command.ts";
 import {
 	FENCE_RUN_HELP,
@@ -711,6 +712,112 @@ describe("Linux's strict fence, for its own arguments", () => {
 
 		expect(made).toHaveProperty("refused");
 		expect(JSON.stringify(made)).toContain("put it in a script");
+	});
+});
+
+describe("Linux's strict fence, for the World trees its asker holds", () => {
+	let own: string;
+	let home: string;
+	let work: string;
+	let runtime: string;
+	let held: string;
+	let unheld: string;
+
+	/** A worktree of a repository beside the home, at `~/world/trees/<zone>/src`. */
+	const worktree = (zone: string) => {
+		const tree = join(home, "world/trees", zone, "src");
+		const gitFolder = join(own, "world.git/worktrees", zone);
+		mkdirSync(tree, { recursive: true });
+		mkdirSync(gitFolder, { recursive: true });
+		writeFileSync(join(tree, ".git"), `gitdir: ${gitFolder}\n`);
+		writeFileSync(join(gitFolder, "gitdir"), `${join(tree, ".git")}\n`);
+		return tree;
+	};
+
+	beforeAll(() => {
+		own = realpathSync(mkdtempSync(join(tmpdir(), "fw-")));
+		home = join(own, "home");
+		work = join(home, "work");
+		runtime = join(own, "run");
+		mkdirSync(work, { recursive: true });
+		mkdirSync(runtime);
+		mkdirSync(join(own, "world.git/objects"), { recursive: true });
+		held = worktree("s-held");
+		unheld = worktree("s-unheld");
+	});
+
+	afterAll(() => {
+		rmSync(own, { recursive: true, force: true });
+	});
+
+	const strict = (heldTrees: readonly string[]) => {
+		const made = fenceRunText(
+			{ kind: "strict", folder: work, words: ["true"] },
+			{ env: { XDG_RUNTIME_DIR: runtime }, home, sandbox: LAID, heldTrees },
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		return { landrun: made.text, root: rootIn(made.text) };
+	};
+
+	it("writes and runs a held tree, bound back writable with its .git file read-only", () => {
+		const { landrun, root } = strict([held]);
+
+		// landrun's words stand quoted once more, inside bubblewrap's command.
+		expect(landrun).toContain(`--rwx '\\''${held}'\\''`);
+		expect(root).toContain(`'--bind' '${held}' '${held}'`);
+		expect(root).toContain(
+			`'--ro-bind' '${join(held, ".git")}' '${join(held, ".git")}'`,
+		);
+	});
+
+	it("takes the trees the broker's records hold for its session, when the caller names none", () => {
+		const treeRecords = join(own, "records");
+		createTreeMemory(treeRecords).remember({
+			identity: { key: "held", shareable: false },
+			path: held,
+			providerId: "git-worktree",
+			sessions: ["the-asker"],
+		});
+		const text = (session: string) => {
+			const made = fenceRunText(
+				{ kind: "strict", folder: work, words: ["true"] },
+				{
+					env: { XDG_RUNTIME_DIR: runtime, PI_SESSION_ID: session },
+					home,
+					sandbox: LAID,
+					treeRecords,
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			return made.text;
+		};
+
+		expect(text("the-asker")).toContain(held);
+		expect(text("another-session")).not.toContain(held);
+	});
+
+	it("grants nothing for a tree it doesn't hold", () => {
+		const { landrun, root } = strict([held]);
+
+		expect(landrun).not.toContain(unheld);
+		expect(root).not.toContain(`'--bind' '${unheld}'`);
+	});
+
+	it("grants nothing for a held link beneath World's trees, nor a checkout outside them", () => {
+		mkdirSync(join(home, "world/trees/s-link"));
+		symlinkSync(unheld, join(home, "world/trees/s-link/src"));
+		const outside = join(own, "elsewhere");
+		mkdirSync(outside);
+		writeFileSync(join(outside, ".git"), "gitdir: /nowhere\n");
+		const { landrun, root } = strict([
+			join(home, "world/trees/s-link/src"),
+			outside,
+		]);
+
+		expect(landrun).not.toContain(unheld);
+		expect(landrun).not.toContain(outside);
+		expect(root).not.toContain(`'--bind' '${unheld}'`);
+		expect(root).not.toContain(`'--bind' '${outside}'`);
 	});
 });
 

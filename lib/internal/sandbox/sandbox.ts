@@ -160,6 +160,7 @@ import {
 } from "./system-program.ts";
 import { type GitRules, real, worktreeRepository } from "./tree-git.ts";
 import { unfencedFolder } from "./unfenced-folder.ts";
+import { sessionWorldTrees } from "./world-trees.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -1028,12 +1029,18 @@ export function wrapFor(
 			const workerSocket = served
 				? undefined
 				: fencedWorkerSocket(place.env, sandbox.workerSockets);
+			// The World trees the session holds are its to write as its folder
+			// is; a language server writes none.
+			const worldTrees = served
+				? []
+				: sessionWorldTrees(place.env.PI_SESSION_ID, home);
 			const rules = strictRules({
 				home,
 				env: place.env,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
+				...(worldTrees.length > 0 ? { worldTrees } : {}),
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
 				grants: machineGrants(),

@@ -33,6 +33,7 @@ import {
 	fileToolRefusal,
 	toolPaths,
 } from "../../../lib/internal/sandbox/sandbox-files.ts";
+import { offerHeldTrees } from "../../../lib/internal/sandbox/world-trees.ts";
 import { offerShellEnvironment } from "../../../lib/internal/shell/environment.ts";
 import {
 	cutTreeDir,
@@ -525,6 +526,81 @@ describe("a strict session's writes", () => {
 		expect(refusal("write", { path: "startup" })).toContain(
 			`leads to ${join(home, ".zshrc")}`,
 		);
+	});
+});
+
+describe("a strict session's writes in the World trees it holds", () => {
+	let tree: string;
+	let other: string;
+
+	/** A tree in World's trees folder, as World cuts one, holding a `.git` file. */
+	const worldTree = (zone: string) => {
+		const path = join(home, "world/trees", zone, "src");
+		mkdirSync(path, { recursive: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${join(base, "world.git")}\n`);
+		return path;
+	};
+
+	beforeEach(() => {
+		vi.stubEnv("XDG_STATE_HOME", join(base, "state"));
+		tree = worldTree("s-held");
+		other = worldTree("s-other");
+		mkdirSync(treeRecordDir(), { recursive: true });
+		writeFileSync(
+			join(treeRecordDir(), "s-held.json"),
+			JSON.stringify({
+				identity: { key: "s-held", shareable: false },
+				path: tree,
+				providerId: "git-worktree",
+				sessions: ["the-session"],
+			}),
+		);
+	});
+
+	afterEach(() => {
+		offerHeldTrees("quest-workflow", undefined);
+		vi.unstubAllEnvs();
+	});
+
+	const held = { ...strict, PI_SESSION_ID: "the-session" };
+
+	it("reach a tree the broker's records hold for the session", () => {
+		expect(
+			refusal("write", { path: join(tree, "file.ts"), content: "x" }, held),
+		).toBeUndefined();
+		expect(refusal("read", { path: join(tree, "file.ts") }, held)).toBe(
+			undefined,
+		);
+	});
+
+	it("never reach its .git file, which says where git reads from", () => {
+		expect(
+			refusal("write", { path: join(tree, ".git"), content: "x" }, held),
+		).toContain("may not write a held tree's .git file");
+		expect(refusal("read", { path: join(tree, ".git") }, held)).toBe(undefined);
+	});
+
+	it("never reach a tree another session holds", () => {
+		expect(
+			refusal("write", { path: join(other, "file.ts"), content: "x" }, held),
+		).toContain("may write only");
+		expect(
+			refusal(
+				"write",
+				{ path: join(tree, "file.ts"), content: "x" },
+				{ ...strict, PI_SESSION_ID: "another-session" },
+			),
+		).toContain("may write only");
+	});
+
+	it("reach a tree its quest adopted", () => {
+		offerHeldTrees("quest-workflow", () => [other]);
+		expect(
+			refusal("write", { path: join(other, "file.ts"), content: "x" }),
+		).toBeUndefined();
+		expect(
+			refusal("write", { path: join(other, ".git"), content: "x" }),
+		).toContain("may not write a held tree's .git file");
 	});
 });
 

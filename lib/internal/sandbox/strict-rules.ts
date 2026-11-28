@@ -14,10 +14,17 @@
  * session's own, so what one session reading a stranger's text writes
  * there is no program another runs. The cache, gcloud's settings and
  * the devices stay only writable, since nothing is built there.
+ *
+ * Each World tree the session holds besides its folder is its as the
+ * folder is, with its repository read (world-trees.ts). Landlock only
+ * ever adds reach, so it can't keep a tree's `.git` file read-only
+ * inside a tree it lets a command write: bubblewrap's root does that
+ * under pi-fence (fence-run.ts), and pi's own file tools refuse it.
  */
 import { basename, dirname, join } from "node:path";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 import type { MachineGrants } from "./machine-grants.ts";
+import type { WorldTree } from "./world-trees.ts";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -99,6 +106,8 @@ export interface SandboxPlace {
 	readonly workerSocket?: string;
 	/** What the machine's owner adds, from `machine-grants.ts`. */
 	readonly grants?: MachineGrants;
+	/** The World trees the session holds, written and run as `cwd` is. */
+	readonly worldTrees?: readonly WorldTree[];
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -110,6 +119,8 @@ interface StrictPaths {
 	readonly readable: readonly string[];
 	/** Written, and what is written there run: where a command builds. */
 	readonly buildable: readonly string[];
+	/** The World trees the session holds, built in as `buildable` is. */
+	readonly trees: readonly string[];
 	readonly writable: readonly string[];
 	/** What the machine's owner lets be written, and run where not a device. */
 	readonly granted: readonly string[];
@@ -119,6 +130,7 @@ interface StrictPaths {
 /** The strict profile's paths, for the place a command runs in. */
 function strictPaths(place: SandboxPlace): StrictPaths {
 	const home = (path: string) => join(place.home, path);
+	const worldTrees = place.worldTrees ?? [];
 	const runnable = [
 		"/nix/store",
 		"/run/current-system",
@@ -145,6 +157,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		home(".config/dev"),
 		home(".config/nix/nix.conf"),
 		...(place.repository ? [place.repository] : []),
+		...worldTrees.flatMap(({ repository }) => (repository ? [repository] : [])),
 		...(place.grants?.read ?? []),
 	];
 	const own = sandboxFolders(place.home, place.env);
@@ -162,8 +175,9 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
 		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
+	const trees = worldTrees.map(({ tree }) => tree);
 	const granted = place.grants?.write ?? [];
-	return { runnable, readable, buildable, writable, granted, sockets };
+	return { runnable, readable, buildable, trees, writable, granted, sockets };
 }
 
 /** Whether `path` is a device, which is written but never run. */
@@ -175,13 +189,14 @@ const isDevice = (path: string) => path.startsWith("/dev/");
  * every machine.
  */
 export function strictRules(place: SandboxPlace): Rule[] {
-	const { runnable, readable, buildable, writable, granted, sockets } =
+	const { runnable, readable, buildable, trees, writable, granted, sockets } =
 		strictPaths(place);
 	const own = sandboxFolders(place.home, place.env);
 	return [
 		...runnable.map((path): Rule => ["--rox", path]),
 		...readable.map((path): Rule => ["--ro", path]),
 		...buildable.map((path): Rule => ["--rwx", path]),
+		...trees.map((path): Rule => ["--rwx", path]),
 		...writable.map((path): Rule => ["--rw", path]),
 		// A build under a granted folder runs what it builds there.
 		...granted.map((path): Rule => [isDevice(path) ? "--rw" : "--rwx", path]),
@@ -209,10 +224,12 @@ export type FileUse = "read" | "write";
  * sandbox keeps from commands.
  */
 export function fileReach(place: SandboxPlace, use: FileUse): string[] {
-	const { runnable, readable, buildable, writable, granted } =
+	const { runnable, readable, buildable, trees, writable, granted } =
 		strictPaths(place);
 	const ours = (path: string) => path !== "/proc" && !isDevice(path);
-	const written = [...buildable, ...writable, ...granted].filter(ours);
+	const written = [...buildable, ...trees, ...writable, ...granted].filter(
+		ours,
+	);
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
 }

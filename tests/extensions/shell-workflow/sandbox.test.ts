@@ -50,6 +50,7 @@ import {
 } from "../../../lib/internal/sandbox/strict-rules.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
+import { offerHeldTrees } from "../../../lib/internal/sandbox/world-trees.ts";
 
 /**
  * Prints, on one line, the arguments the command's shell was started
@@ -1033,6 +1034,49 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("ran-work");
 			expect(answer).toContain("ran-temporary");
 			expect(answer).not.toContain("unrun");
+		});
+
+		it("writes and runs a World tree its session holds, and no other", () => {
+			// HMYVFW's lanes, working from their quest's folder, could read and
+			// write none of the World trees they held (through ISXEG8).
+			const home = mkdtempSync(join(tmpdir(), "sandbox-world-"));
+			const tree = (zone: string) => {
+				const path = join(home, "world/trees", zone, "src");
+				mkdirSync(path, { recursive: true });
+				writeFileSync(join(path, ".git"), "gitdir: /nowhere\n");
+				return path;
+			};
+			const held = tree("s-held");
+			const other = tree("s-other");
+			offerHeldTrees("quest-workflow", () => [held]);
+			try {
+				const wrap = wrapFor(
+					{ kind: "strict", landrun },
+					{ cwd: work, env: {} },
+					home,
+				);
+				const script = "printf '#!/bin/sh\\necho ran-held\\n'";
+				const ran = spawnSync(
+					"bash",
+					[
+						"-c",
+						wrap?.(
+							[
+								`${script} > ${held}/built && chmod +x ${held}/built && ${held}/built || echo held-unrun`,
+								`echo x > ${other}/made || echo other-unwritten`,
+							].join("\n"),
+						) ?? "",
+					],
+					{ encoding: "utf8" },
+				);
+				expect(ran.stdout, ran.stderr).toContain("ran-held");
+				expect(ran.stdout).not.toContain("held-unrun");
+				expect(ran.stdout).toContain("other-unwritten");
+				expect(existsSync(join(other, "made"))).toBe(false);
+			} finally {
+				offerHeldTrees("quest-workflow", undefined);
+				rmSync(home, { recursive: true, force: true });
+			}
 		});
 
 		it("can't read a token from its environment or its parent's", async () => {

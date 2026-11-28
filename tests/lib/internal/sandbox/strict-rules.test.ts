@@ -169,6 +169,33 @@ describe("the strict profile", () => {
 		expect(flags, "the repository is read-only").toEqual(["--ro"]);
 	});
 
+	it("writes and runs each World tree the session holds, and reads its repository", () => {
+		const place = {
+			home: "/home/someone",
+			runtimeDir: undefined,
+			cwd: "/home/someone/src/thing",
+			worldTrees: [
+				{ tree: "/world/trees/s-one/src", repository: "/world/world.git" },
+				{ tree: "/world/trees/s-two/src" },
+			],
+		};
+		const given = strictRules(place);
+		const flagsOf = (path: string) =>
+			given.filter(([, named]) => named === path).map(([flag]) => flag);
+		expect(flagsOf("/world/trees/s-one/src"), "a held tree").toEqual(["--rwx"]);
+		expect(flagsOf("/world/trees/s-two/src"), "a held tree").toEqual(["--rwx"]);
+		expect(flagsOf("/world/world.git"), "its repository").toEqual(["--ro"]);
+		expect(flagsOf("/world/trees"), "World's trees folder").toEqual([]);
+		expect(fileReach(place, "write")).toEqual(
+			expect.arrayContaining([
+				"/world/trees/s-one/src",
+				"/world/trees/s-two/src",
+			]),
+		);
+		expect(fileReach(place, "write")).not.toContain("/world/world.git");
+		expect(fileReach(place, "read")).toContain("/world/world.git");
+	});
+
 	it("reaches no socket but name lookups and Nix's door for sandboxes", () => {
 		expect(paths("--unix"), "the sockets a command reaches").toEqual([
 			"/run/nscd/socket",
