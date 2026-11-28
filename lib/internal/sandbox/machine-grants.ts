@@ -16,9 +16,17 @@
  * would let a fenced command widen its own fence for the next one. So
  * such a file grants nothing, as does a missing one, one this account
  * can't read, or one of another shape, and each but the missing one says
- * why on stderr, once a process. A path in it counts only when it is
- * absolute and already in its plainest form, and never the root folder,
- * so a slip in the file can't grant the whole disk.
+ * why on stderr, once a process. One entry the profile can't take
+ * refuses the whole file, naming the entry, since a file with one wrong
+ * entry may be wrong in ways that read right. An entry is taken only
+ * when it is absolute, already in its plainest form and free of commas
+ * (landrun splits a rule at each), passes through no link, and neither
+ * is, holds nor lies in a home: the fence lays homes after the grants
+ * and hides secrets in them, so a grant there would be read-only inside
+ * while Landlock called it writable. Nor may it be or hold a folder the
+ * system or the fence needs whole (`/dev`, `/proc`, `/usr`, a runtime
+ * folder and the like), or lie in `/proc` or `/sys`, and a device is
+ * granted only to write, since bubblewrap binds a read-only one nodev.
  *
  * Inside the fence's own root, which is a user namespace mapping only
  * the session's account, root's files show as the kernel's overflow
@@ -29,6 +37,7 @@
  */
 
 import { lstatSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, normalize } from "node:path";
 
 /** Where a machine's owner writes what the strict profile adds there. */
@@ -134,12 +143,13 @@ export function rootMapped(map: string): boolean {
 
 /**
  * What the machine adds to the strict profile, read from `path`: nothing
- * unless only root could have written it, and only the paths in it that
- * name a place plainly.
+ * unless only root could have written it and every entry in it is one
+ * the profile can take, `home` being this account's.
  */
 export function machineGrants(
 	path: string = MACHINE_GRANTS,
 	disk: GrantDisk = DISK,
+	home: string = homedir(),
 ): MachineGrants {
 	const file = disk.lstat(path);
 	if (file === undefined) return NONE;
@@ -170,44 +180,128 @@ export function machineGrants(
 			`it names ${unknown.join(", ")}, which is neither read nor write`,
 		);
 	}
-	const read = pathsIn(Reflect.get(given, "read"));
-	const write = pathsIn(Reflect.get(given, "write"));
-	if (read === undefined || write === undefined) {
-		return refused("read and write must each be a list of absolute paths");
+	const read = Reflect.get(given, "read") ?? [];
+	const write = Reflect.get(given, "write") ?? [];
+	if (!isList(read) || !isList(write)) {
+		return refused("read and write must each be a list of paths");
 	}
-	const wide = [...read, ...write].filter(tooWide);
-	if (wide.length > 0) {
-		return refused(
-			`${wide.join(", ")} would hold a whole home, runtime folder, /etc or /nix`,
-		);
+	for (const [use, listed] of [
+		["read", read],
+		["write", write],
+	] as const) {
+		for (const entry of listed) {
+			const why = entryRefusal(entry, use, home, disk);
+			if (why) return refused(`${JSON.stringify(entry)} under ${use} ${why}`);
+		}
 	}
-	return { read, write };
+	return { read: read as string[], write: write as string[] };
 }
 
 /** The keys a grant may have. */
 const KEYS: readonly string[] = ["read", "write"];
 
 /**
- * Folders no grant may name or hold, by their parts, `*` standing for any
- * one: bound whole, a home or a runtime folder would bring past the fence
- * everything it hides there, and `/etc` or `/nix` the system itself.
+ * Folders a grant may neither name nor hold, by their parts, `*` standing
+ * for any one: bound over, each would take from every command what the
+ * system or the fence lays there, and a runtime folder would bring past
+ * the fence everything it hides there.
  */
-const WIDEST: readonly (readonly string[])[] = [
-	["etc"],
-	["nix"],
-	["root"],
-	["home", "*"],
-	["run", "user", "*"],
+const WHOLE: readonly string[] = [
+	"/bin",
+	"/boot",
+	"/dev/pts",
+	"/dev/shm",
+	"/etc",
+	"/lib",
+	"/lib64",
+	"/nix",
+	"/run/user/*",
+	"/sbin",
+	"/tmp",
+	"/usr",
+	"/var",
 ];
 
-/** Whether `path` is, or holds, one of the folders no grant may name. */
-function tooWide(path: string): boolean {
-	const parts = path.split("/").slice(1);
-	return WIDEST.some(
-		(widest) =>
-			parts.length <= widest.length &&
-			parts.every((part, at) => widest[at] === "*" || widest[at] === part),
+/** Folders no grant may name, hold or lie in. */
+const SEALED: readonly string[] = ["/proc", "/sys"];
+
+/** Folders that hold homes, which no grant may name, hold or lie in. */
+const HOMES: readonly string[] = ["/home/*", "/root"];
+
+/** Whether `listed` is a list of strings. */
+function isList(listed: unknown): listed is string[] {
+	return (
+		Array.isArray(listed) && listed.every((entry) => typeof entry === "string")
 	);
+}
+
+/**
+ * Why the strict profile can't take `entry` to `use`, or none when it
+ * can, `home` being this account's.
+ */
+function entryRefusal(
+	entry: string,
+	use: "read" | "write",
+	home: string,
+	disk: GrantDisk,
+): string | undefined {
+	if (
+		!isAbsolute(entry) ||
+		normalize(entry) !== entry ||
+		entry === "/" ||
+		entry.endsWith("/")
+	) {
+		return "isn't an absolute path in its plainest form, other than /";
+	}
+	if (entry.includes(",")) return "holds a comma, which landrun reads as two";
+	const home_ = [...HOMES, home].find(
+		(folder) => holds(entry, folder) || holds(folder, entry),
+	);
+	if (home_) return `is, holds or lies in a home (${home_})`;
+	const sealed = SEALED.find(
+		(folder) => holds(entry, folder) || holds(folder, entry),
+	);
+	if (sealed) return `is, holds or lies in ${sealed}`;
+	const whole = WHOLE.find((folder) => holds(entry, folder));
+	if (whole) return `is or holds ${whole}, which the fence needs whole`;
+	if (entry === "/dev") return "is /dev, which the fence lays itself";
+	if (use === "read" && holds("/dev", entry)) {
+		return "is a device, which works only granted to write";
+	}
+	const link = linkOn(entry, disk);
+	if (link) return `passes through a link at ${link}`;
+	return undefined;
+}
+
+/**
+ * Whether `outer` is `inner` or a folder holding it, `*` in either
+ * standing for any one part, so `/run/user/1001` is `/run/user/*`.
+ */
+function holds(outer: string, inner: string): boolean {
+	const outers = outer.split("/").slice(1);
+	const inners = inner.split("/").slice(1);
+	return (
+		outers.length <= inners.length &&
+		outers.every(
+			(part, at) => part === "*" || inners[at] === "*" || part === inners[at],
+		)
+	);
+}
+
+/**
+ * The first folder or file along `path` that is a link, or none; the
+ * walk stops where the path runs out on disk, since a missing path is
+ * left out of the fence anyway.
+ */
+function linkOn(path: string, disk: GrantDisk): string | undefined {
+	const parts = path.split("/").slice(1);
+	for (let end = 1; end <= parts.length; end++) {
+		const along = `/${parts.slice(0, end).join("/")}`;
+		const found = disk.lstat(along);
+		if (found === undefined) return undefined;
+		if (found.kind === "link") return along;
+	}
+	return undefined;
 }
 
 /**
@@ -228,24 +322,4 @@ function unsafeBecause(
 		return `${what} is writable by more than root`;
 	}
 	return undefined;
-}
-
-/**
- * The paths `listed` names, when it is a list of paths each absolute,
- * already plain and not the root folder; none when anything in it isn't,
- * since a file with one wrong entry may be wrong in ways that read right.
- * A list left out grants nothing of its kind.
- */
-function pathsIn(listed: unknown): string[] | undefined {
-	if (listed === undefined) return [];
-	if (!Array.isArray(listed)) return undefined;
-	const plain = listed.filter(
-		(entry): entry is string =>
-			typeof entry === "string" &&
-			isAbsolute(entry) &&
-			normalize(entry) === entry &&
-			entry !== "/" &&
-			!entry.endsWith("/"),
-	);
-	return plain.length === listed.length ? plain : undefined;
 }

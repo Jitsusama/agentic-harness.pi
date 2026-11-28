@@ -57,6 +57,33 @@ describe("a machine's grants inside the fence", () => {
 		).toBeGreaterThan(-1);
 	});
 
+	it("binds every grant before the home and what it hides there", () => {
+		const args = fenceArgs({ ...place, grants }, disk);
+		const home = at(args, ["--ro-bind", place.home, place.home]);
+		expect(home, "the home is laid").toBeGreaterThan(-1);
+		const binds = [
+			["--ro-bind", "/run/worker-signing", "/run/worker-signing"],
+			["--ro-bind", "/run/user/1001/delta", "/run/user/1001/delta"],
+			["--bind", "/world", "/world"],
+			["--dev-bind", "/dev/kvm", "/dev/kvm"],
+		];
+		for (const bind of binds) {
+			const where = at(args, bind);
+			expect(where, `${bind[1]} is bound`).toBeGreaterThan(-1);
+			expect(where, `${bind[1]} before the home`).toBeLessThan(home);
+		}
+		const laterInHome = args.findIndex(
+			(arg, index) => index > home && arg.startsWith(`${place.home}/`),
+		);
+		for (const bind of binds) {
+			if (laterInHome > -1) {
+				expect(at(args, bind), `${bind[1]} before what is hidden`).toBeLessThan(
+					laterInHome,
+				);
+			}
+		}
+	});
+
 	it("leaves out a granted path this machine lacks", () => {
 		const noKvm: Disk = {
 			...disk,

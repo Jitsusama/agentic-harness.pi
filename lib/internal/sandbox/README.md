@@ -27,6 +27,9 @@ sandbox its hour-long tokens.
   profile, from `/etc/pi-sandbox/strict-grants.json`, honoured only
   where nothing but root could have written it: how a World cloud
   node lets its lanes reach World's disk, tokens, signing key and KVM.
+  One entry the fence can't honour refuses the whole file: a comma, a
+  link, a home, a folder the fence needs whole, `/proc`, `/sys`, or a
+  device granted to read.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

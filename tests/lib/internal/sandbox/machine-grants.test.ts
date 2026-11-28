@@ -23,15 +23,21 @@ const WORLD = JSON.stringify({
 	write: ["/world", "/dev/kvm"],
 });
 
+/** The account whose grants are read, and its home. */
+const HOME = "/home/worker";
+
 /**
  * A disk holding `text` at the grant's path, laid as `file` and `folder`
- * say; `"missing"` for a path with nothing there.
+ * say; `"missing"` for a path with nothing there. Every other path in
+ * `links` is a link, and every one in `others` a folder.
  */
 function disk(
 	text: string | undefined,
 	laidFile: GrantStat | "missing" = ROOTS_FILE,
 	laidFolder: GrantStat | "missing" = ROOTS_FOLDER,
 	rootSeenAs = 0,
+	links: readonly string[] = [],
+	others: readonly string[] = [],
 ): GrantDisk & { said: string[] } {
 	const file = laidFile === "missing" ? undefined : laidFile;
 	const folder = laidFolder === "missing" ? undefined : laidFolder;
@@ -39,7 +45,15 @@ function disk(
 	return {
 		said,
 		lstat: (path) =>
-			path === MACHINE_GRANTS ? file : path === FOLDER ? folder : undefined,
+			path === MACHINE_GRANTS
+				? file
+				: path === FOLDER
+					? folder
+					: links.includes(path)
+						? { ...ROOTS_FOLDER, kind: "link" }
+						: others.includes(path)
+							? ROOTS_FOLDER
+							: undefined,
 		read: (path) => (path === MACHINE_GRANTS ? text : undefined),
 		say: (why) => said.push(why),
 		rootSeenAs: () => rootSeenAs,
@@ -146,17 +160,86 @@ describe("a machine's grants to the strict profile", () => {
 	});
 
 	it.each([
-		["a relative path", { write: ["world"] }],
-		["a path not in its plainest form", { write: ["/world/../home"] }],
-		["the root folder", { write: ["/"] }],
-		["a path with a trailing slash", { read: ["/world/"] }],
 		["a path that isn't a string", { read: [7] }],
 		["a list that isn't a list", { write: "/world" }],
 	])("grant nothing from a file naming %s", (_, shape) => {
 		const given = disk(JSON.stringify(shape));
-		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+		expect(machineGrants(MACHINE_GRANTS, given, HOME), "no grant").toEqual(
+			NONE,
+		);
 		expect(given.said.join("\n"), "why it grants nothing").toContain(
-			"read and write must each be a list of absolute paths",
+			"read and write must each be a list of paths",
+		);
+	});
+
+	it.each([
+		["a relative path", "write", "world", "isn't an absolute path"],
+		["a path not in its plainest form", "write", "/world/../x", "plainest"],
+		["the root folder", "write", "/", "other than /"],
+		["a path with a trailing slash", "read", "/world/", "plainest"],
+		["a comma", "read", "/world,/home/worker", "holds a comma"],
+		["this account's home", "read", HOME, "a home (/home/*)"],
+		["a folder in a home", "write", "/home/worker/cache", "a home"],
+		["a home elsewhere", "write", "/srv/me", "a home (/srv/me)"],
+		["a folder holding a home", "write", "/srv", "a home (/srv/me)"],
+		["the folder of homes", "write", "/home", "a home"],
+		["root's home", "read", "/root/x", "a home (/root)"],
+		["a runtime folder", "read", "/run/user/1001", "/run/user/*"],
+		["a folder holding runtime folders", "write", "/run", "/run/user/*"],
+		["/etc", "read", "/etc", "is or holds /etc"],
+		["/nix", "write", "/nix", "is or holds /nix"],
+		["/usr", "read", "/usr", "is or holds /usr"],
+		["/var", "write", "/var", "is or holds /var"],
+		["/tmp", "write", "/tmp", "is or holds /tmp"],
+		["/dev/shm", "write", "/dev/shm", "is or holds /dev/shm"],
+		["/dev itself", "write", "/dev", "is or holds /dev/pts"],
+		["a path in /proc", "read", "/proc/1/environ", "lies in /proc"],
+		["a path in /sys", "write", "/sys/kernel", "lies in /sys"],
+		["a device to read", "read", "/dev/kvm", "is a device"],
+	])(
+		"grant nothing from a file naming %s, and name it",
+		(_, use, entry, why) => {
+			const given = disk(JSON.stringify({ [use]: [entry] }));
+			const home = entry.startsWith("/srv") ? "/srv/me" : HOME;
+			expect(machineGrants(MACHINE_GRANTS, given, home), "no grant").toEqual(
+				NONE,
+			);
+			const saidAll = given.said.join("\n");
+			expect(saidAll, "names the entry").toContain(
+				`${JSON.stringify(entry)} under ${use}`,
+			);
+			expect(saidAll, "why it grants nothing").toContain(why);
+		},
+	);
+
+	it("grant nothing from a path passing through a link", () => {
+		const given = disk(
+			JSON.stringify({ read: ["/var2/run/x"] }),
+			ROOTS_FILE,
+			ROOTS_FOLDER,
+			0,
+			["/var2/run"],
+			["/var2"],
+		);
+		expect(machineGrants(MACHINE_GRANTS, given, HOME), "no grant").toEqual(
+			NONE,
+		);
+		expect(given.said.join("\n"), "names the link").toContain(
+			"passes through a link at /var2/run",
+		);
+	});
+
+	it("grant a path whose folders are plain", () => {
+		const given = disk(
+			JSON.stringify({ write: ["/world/trees"] }),
+			ROOTS_FILE,
+			ROOTS_FOLDER,
+			0,
+			[],
+			["/world", "/world/trees"],
+		);
+		expect(machineGrants(MACHINE_GRANTS, given, HOME).write, "granted").toEqual(
+			["/world/trees"],
 		);
 	});
 
@@ -170,31 +253,12 @@ describe("a machine's grants to the strict profile", () => {
 		expect(given.said.join("\n"), "why it grants nothing").toContain(why);
 	});
 
-	it.each([
-		["a home", { read: ["/home/worker"] }],
-		["the folder of homes", { write: ["/home"] }],
-		["root's home", { read: ["/root"] }],
-		["a runtime folder", { read: ["/run/user/1001"] }],
-		["a folder holding runtime folders", { write: ["/run"] }],
-		["/etc", { read: ["/etc"] }],
-		["/nix", { write: ["/nix"] }],
-	])("grant nothing from a file naming %s", (_, shape) => {
-		const given = disk(JSON.stringify(shape));
-		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
-		expect(given.said.join("\n"), "why it grants nothing").toContain(
-			"would hold a whole home, runtime folder, /etc or /nix",
-		);
-	});
-
-	it("grant a folder within a runtime folder or a home", () => {
+	it("grant a folder within a runtime folder or /etc", () => {
 		const given = disk(
-			JSON.stringify({
-				read: ["/run/user/1001/delta", "/home/worker/cache", "/etc/pi-x"],
-			}),
+			JSON.stringify({ read: ["/run/user/1001/delta", "/etc/pi-x"] }),
 		);
-		expect(machineGrants(MACHINE_GRANTS, given).read, "the grant").toEqual([
+		expect(machineGrants(MACHINE_GRANTS, given, HOME).read, "granted").toEqual([
 			"/run/user/1001/delta",
-			"/home/worker/cache",
 			"/etc/pi-x",
 		]);
 	});
