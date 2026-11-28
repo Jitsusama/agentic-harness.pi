@@ -56,6 +56,11 @@ would miss what another binds over it.
 - **`fence-hidden.ts`**: what the fence keeps from every command,
   read from `data/fence-hidden.json`, which core's secret asks read
   too.
+- **`grantArgs` in `fence.ts`**: what the machine grants the strict
+  profile (`../sandbox/machine-grants.ts`), bound into the strict
+  fence's root after its own `/dev` and emptied runtime folder, which
+  would hide a granted device or token; read-only for a read,
+  writable for a write, a device for a path under `/dev`.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
 - **`fence-git-root.ts`**: a worktree's shared git folder, read-only

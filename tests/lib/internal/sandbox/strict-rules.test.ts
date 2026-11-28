@@ -181,3 +181,53 @@ describe("the strict profile", () => {
 		]);
 	});
 });
+
+describe("the strict profile on a machine that grants more", () => {
+	const place = {
+		home: "/home/worker",
+		runtimeDir: "/run/user/1001",
+		cwd: "/home/worker/work",
+		grants: {
+			read: ["/run/worker-signing"],
+			write: ["/world", "/dev/kvm"],
+		},
+	};
+	const rules = strictRules(place);
+	const flagsOf = (path: string) =>
+		rules.filter(([, given]) => given === path).map(([flag]) => flag);
+
+	it("lets a granted read be read and never written", () => {
+		expect(flagsOf("/run/worker-signing"), "a granted read").toEqual(["--ro"]);
+	});
+
+	it("lets a granted folder be written and what is built there run", () => {
+		expect(flagsOf("/world"), "a granted folder").toEqual(["--rwx"]);
+	});
+
+	it("lets a granted device be written and never run", () => {
+		expect(flagsOf("/dev/kvm"), "a granted device").toEqual(["--rw"]);
+	});
+
+	it("lets pi's file tools reach a granted folder but no granted device", () => {
+		const writes = fileReach(place, "write");
+		const reads = fileReach(place, "read");
+		expect(writes, "file tools write a granted folder").toContain("/world");
+		expect(writes, "file tools write no device").not.toContain("/dev/kvm");
+		expect(reads, "file tools read a granted read").toContain(
+			"/run/worker-signing",
+		);
+		expect(writes, "file tools never write a granted read").not.toContain(
+			"/run/worker-signing",
+		);
+	});
+
+	it("grants nothing more where the machine grants nothing", () => {
+		const plain = strictRules({ ...place, grants: { read: [], write: [] } });
+		const bare = strictRules({
+			home: place.home,
+			runtimeDir: place.runtimeDir,
+			cwd: place.cwd,
+		});
+		expect(plain, "an empty grant changes nothing").toEqual(bare);
+	});
+});

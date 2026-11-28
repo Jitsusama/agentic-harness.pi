@@ -136,6 +136,7 @@ import {
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { insideMacSandbox, macSandboxExec } from "./mac-sandbox.ts";
+import { machineGrants } from "./machine-grants.ts";
 import {
 	direnvTrusts,
 	makeScratches,
@@ -1035,6 +1036,7 @@ export function wrapFor(
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
+				grants: machineGrants(),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();

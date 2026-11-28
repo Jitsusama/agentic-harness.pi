@@ -17,6 +17,7 @@
  */
 import { basename, dirname, join } from "node:path";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
+import type { MachineGrants } from "./machine-grants.ts";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -96,6 +97,8 @@ export interface SandboxPlace {
 	readonly served?: boolean;
 	/** The node's worker socket, the one of its sockets a command may reach. */
 	readonly workerSocket?: string;
+	/** What the machine's owner adds, from `machine-grants.ts`. */
+	readonly grants?: MachineGrants;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -108,6 +111,8 @@ interface StrictPaths {
 	/** Written, and what is written there run: where a command builds. */
 	readonly buildable: readonly string[];
 	readonly writable: readonly string[];
+	/** What the machine's owner lets be written, and run where not a device. */
+	readonly granted: readonly string[];
 	readonly sockets: readonly string[];
 }
 
@@ -140,6 +145,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		home(".config/dev"),
 		home(".config/nix/nix.conf"),
 		...(place.repository ? [place.repository] : []),
+		...(place.grants?.read ?? []),
 	];
 	const own = sandboxFolders(place.home, place.env);
 	const buildable = [place.cwd, own.temporary];
@@ -156,8 +162,12 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
 		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
-	return { runnable, readable, buildable, writable, sockets };
+	const granted = place.grants?.write ?? [];
+	return { runnable, readable, buildable, writable, granted, sockets };
 }
+
+/** Whether `path` is a device, which is written but never run. */
+const isDevice = (path: string) => path.startsWith("/dev/");
 
 /**
  * The strict profile's rules. Paths that don't exist on a machine are
@@ -165,7 +175,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
  * every machine.
  */
 export function strictRules(place: SandboxPlace): Rule[] {
-	const { runnable, readable, buildable, writable, sockets } =
+	const { runnable, readable, buildable, writable, granted, sockets } =
 		strictPaths(place);
 	const own = sandboxFolders(place.home, place.env);
 	return [
@@ -173,6 +183,8 @@ export function strictRules(place: SandboxPlace): Rule[] {
 		...readable.map((path): Rule => ["--ro", path]),
 		...buildable.map((path): Rule => ["--rwx", path]),
 		...writable.map((path): Rule => ["--rw", path]),
+		// A build under a granted folder runs what it builds there.
+		...granted.map((path): Rule => [isDevice(path) ? "--rw" : "--rwx", path]),
 		...sockets.map((path): Rule => ["--unix", path]),
 		["--env", `TMPDIR=${own.temporary}`],
 		["--env", `XDG_CACHE_HOME=${own.cache}`],
@@ -197,9 +209,10 @@ export type FileUse = "read" | "write";
  * sandbox keeps from commands.
  */
 export function fileReach(place: SandboxPlace, use: FileUse): string[] {
-	const { runnable, readable, buildable, writable } = strictPaths(place);
-	const ours = (path: string) => path !== "/proc" && !path.startsWith("/dev/");
-	const written = [...buildable, ...writable].filter(ours);
+	const { runnable, readable, buildable, writable, granted } =
+		strictPaths(place);
+	const ours = (path: string) => path !== "/proc" && !isDevice(path);
+	const written = [...buildable, ...writable, ...granted].filter(ours);
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
 }

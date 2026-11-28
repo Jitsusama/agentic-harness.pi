@@ -71,6 +71,7 @@
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";
+import type { MachineGrants } from "../sandbox/machine-grants.ts";
 import { loginCompileRoots } from "./compile-cache-place.ts";
 import {
 	type BrokerTrees,
@@ -334,6 +335,12 @@ export interface FencePlace extends Worktrees {
 	 * in their place (`fence-gcloud-ssh.ts`).
 	 */
 	readonly gcloudSsh?: GcloudSsh;
+	/**
+	 * What the machine adds to the strict profile
+	 * (`../sandbox/machine-grants.ts`), bound in where they are, so the
+	 * fence's own `/dev` and emptied runtime folder don't hide them.
+	 */
+	readonly grants?: MachineGrants;
 }
 
 /**
@@ -471,6 +478,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			args.push("--ro-bind", place.direnv, place.direnv);
 		}
 	}
+	args.push(...grantArgs(place.grants, exists));
 	// The system bus and X's sockets live outside the runtime folder.
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
@@ -497,6 +505,30 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
 	return pinnedAbove(laid, place.home, disk, named);
+}
+
+/**
+ * bubblewrap's arguments binding each path the machine grants where it
+ * is: read-only for a read, writable for a write, and a device under
+ * `/dev` as one, as the render nodes are (`fence-gpu.ts`). After the
+ * runtime folder is emptied, since a grant inside it would otherwise be
+ * hidden. A path this machine lacks is left out, as the fence leaves out
+ * every other: bubblewrap refuses to bind one.
+ */
+export function grantArgs(
+	grants: MachineGrants | undefined,
+	exists: (path: string) => boolean,
+): string[] {
+	if (grants === undefined) return [];
+	const device = (path: string) => path.startsWith("/dev/");
+	const bound = (option: string) => (path: string) =>
+		exists(path) ? [option, path, path] : [];
+	return [
+		...grants.read.flatMap(bound("--ro-bind")),
+		...grants.write.flatMap((path) =>
+			bound(device(path) ? "--dev-bind" : "--bind")(path),
+		),
+	];
 }
 
 /**

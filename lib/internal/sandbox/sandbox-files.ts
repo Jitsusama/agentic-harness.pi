@@ -31,6 +31,7 @@ import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { leadsTo } from "./leads-to.ts";
+import { machineGrants } from "./machine-grants.ts";
 import { makeScratches, makeShares, questScratch } from "./quest-folders.ts";
 import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
@@ -471,6 +472,7 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
+			grants: machineGrants(),
 		},
 		use,
 	)

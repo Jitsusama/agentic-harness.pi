@@ -22,6 +22,11 @@ sandbox its hour-long tokens.
 - **`sandbox-folders.ts`**: makes the strict profile's own folders
   before a command, refusing one that is a link, not a folder or
   another account's, since its next command is granted write there.
+
+- **`machine-grants.ts`**: what a machine's owner adds to the strict
+  profile, from `/etc/pi-sandbox/strict-grants.json`, honoured only
+  where nothing but root could have written it: how a World cloud
+  node lets its lanes reach World's disk, tokens, signing key and KVM.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
