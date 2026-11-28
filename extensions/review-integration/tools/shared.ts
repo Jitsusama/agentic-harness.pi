@@ -101,6 +101,26 @@ export function namesTarget(params: TargetParams): boolean {
 }
 
 /**
+ * The same target bound afresh, for a round reading its change again
+ * after an hours-long wait: a bound target reads its diff once, so the
+ * same one would pair a moved head with the diff from before. Throws
+ * when it can't be, as a range whose checkout went can't, which a
+ * round says as a change it couldn't read again.
+ */
+export async function boundAgain(
+	pi: ExtensionAPI,
+	bound: BoundTarget,
+): Promise<BoundTarget> {
+	const again = await boundForTarget(pi, bound.target);
+	if (again === undefined) {
+		throw new Error(
+			`${bound.repo.key} has no checkout to read the change in again.`,
+		);
+	}
+	return again;
+}
+
+/**
  * Bind a target kept from an earlier call, such as the one a draft was
  * opened against, so a draft's id can stand for its change.
  *
