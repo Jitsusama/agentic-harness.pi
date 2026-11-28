@@ -18,20 +18,29 @@
  * until one says it runs that conversation. One that doesn't answer is
  * said and the next is read; exits 1 when any wasn't read, 0 otherwise.
  *
- *   node scripts/host-memory.ts --snapshot KIND:SESSION
+ *   node scripts/host-memory.ts --snapshot [--keep-raw] KIND:SESSION
  *
  * writes a heap snapshot of the process that conversation runs in, asked
  * of its host, which passes it to the child, and says where it went. The
  * write stops that process's thread for seconds, so a busy conversation
- * refuses it. The file holds what the process holds, secrets among them,
- * so it is written for its owner alone, and the host's journal names this
- * script as who asked for it; remove it once read. The host removes any
- * left more than 2 hours before its next snapshot. A large heap
- * takes a while to write, so this waits up to SNAPSHOT_WAIT_MS; one that
- * gives up says the file may still be coming.
+ * refuses it. The raw file holds what the process holds, secrets among
+ * them, so it is written for its owner alone, in a hidden folder, and the
+ * host's journal names this script as who asked for it. The host sums it
+ * by type, figures only, into a summary beside that folder; this waits for
+ * the summary, prints its figures as a short table, then removes the raw
+ * file, since this has summed it. With --keep-raw the raw file is kept,
+ * for a retainers read; remove it once read. Either way it says which.
+ * The host removes any raw file or summary left more than 2 hours before
+ * its next snapshot. A large heap takes a while to write and sum, so this
+ * waits up to SNAPSHOT_WAIT_MS for both; one that gives up says the file
+ * may still be coming, and keeps a raw file whose summary never came. A
+ * host from before summaries says none is coming, and its raw file is
+ * kept for its asker to remove.
  */
 
 import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	childFolder,
 	type HostKind,
@@ -43,6 +52,11 @@ import { slotHolds, slotOf, slotsIn } from "../host/service/child-units.ts";
 import { controlRequest } from "../host/service/client.ts";
 import { SNAPSHOT_KEPT_MS } from "../host/service/heap-snapshot.ts";
 import {
+	type HeapRow,
+	type HeapSummary,
+	parseHeapSummary,
+} from "../host/service/heap-summary.ts";
+import {
 	type MemoryAnswer,
 	parseHeapSnapshotResult,
 	parseMemoryResult,
@@ -51,7 +65,8 @@ import { isSessionId } from "../lib/core/session/roster.ts";
 import { runtimeDir as loginRuntimeDir } from "../lib/internal/paths.ts";
 import { printable } from "./where-sessions-run.ts";
 
-const BYTES_PER_MIB = 1024 * 1024;
+const BYTES_PER_KIB = 1024;
+const BYTES_PER_MIB = 1024 * BYTES_PER_KIB;
 const MS_PER_HOUR = 60 * 60 * 1000;
 /**
  * How long a snapshot is waited for. The write's length grows with the
@@ -59,6 +74,12 @@ const MS_PER_HOUR = 60 * 60 * 1000;
  * one still being written.
  */
 export const SNAPSHOT_WAIT_MS = 10 * 60 * 1000;
+/** How often a summary not yet written is looked for again. */
+const SUMMARY_POLL_MS = 250;
+/** How many of a summary's rows by type and name are printed. */
+const SUMMARY_ROWS_SHOWN = 15;
+const SIZE_WIDTH = "  99999.9 MiB".length;
+const COUNT_WIDTH = "  999999999".length;
 
 /** `bytes` in whole MiB, or "unread" where nothing was read. */
 function mib(bytes: number | undefined): string {
@@ -216,20 +237,149 @@ export function describeSnapshotFailure(label: string, error: unknown): string {
 	return `${label}: no snapshot: ${said}${late}`;
 }
 
+/** `bytes` in MiB to a tenth, so a summary's small rows read as more than 0. */
+function tenthsOfMib(bytes: number): string {
+	return `${(bytes / BYTES_PER_MIB).toFixed(1)} MiB`;
+}
+
+/** A summary's row as a line of its table: its self size, its count, its kind and name. */
+function rowOf({ type, name, count, selfSize }: HeapRow): string {
+	const named = name === undefined ? type : `${type}: ${printable(name)}`;
+	return `  ${tenthsOfMib(selfSize).padStart(SIZE_WIDTH)}${String(count).padStart(COUNT_WIDTH)}  ${named}`;
+}
+
+/**
+ * A summary's figures as a short table: its nodes, their self size and
+ * its large strings, then each kind, then the largest rows by kind and
+ * name; the summary file holds the rest.
+ */
+export function describeSummary(summary: HeapSummary): string[] {
+	const header = `  ${"self size".padStart(SIZE_WIDTH)}${"count".padStart(COUNT_WIDTH)}  `;
+	const shown = summary.byTypeAndName.slice(0, SUMMARY_ROWS_SHOWN);
+	return [
+		`  ${summary.nodes} nodes, ${tenthsOfMib(summary.selfSize)} in all; strings of ${summary.largeStrings.atLeast / BYTES_PER_KIB} KiB or more: ${summary.largeStrings.count}, ${tenthsOfMib(summary.largeStrings.selfSize)}`,
+		`${header}kind`,
+		...summary.byType.map(rowOf),
+		`${header}kind and name, the largest ${shown.length} of ${summary.byTypeAndName.length}`,
+		...shown.map(rowOf),
+	];
+}
+
+/**
+ * The summary at `file` once it is written whole, looked for again every
+ * `pollMs` until `deadline`; undefined when none came by then.
+ */
+async function summaryBy(
+	file: string,
+	deadline: number,
+	pollMs: number,
+): Promise<HeapSummary | undefined> {
+	for (;;) {
+		const summary = await readFile(file, "utf8")
+			.then((text) => parseHeapSummary(JSON.parse(text)))
+			// Not there yet, or not yet written whole: looked for again.
+			.catch(() => undefined);
+		if (summary !== undefined) return summary;
+		const left = deadline - Date.now();
+		if (left <= 0) return undefined;
+		await delay(Math.min(pollMs, left));
+	}
+}
+
+/** What asking for a snapshot said, and whether it did all it set out to. */
+export interface SnapshotTold {
+	readonly lines: readonly string[];
+	/** False when no summary came, or the raw file couldn't be removed. */
+	readonly done: boolean;
+}
+
+/** How a snapshot is asked for, beyond where. */
+export interface SnapshotAsk {
+	/** Keep the raw file once summed, for a retainers read; it is removed otherwise. */
+	readonly keepRaw?: boolean;
+	/** How long the request and the summary may take together. */
+	readonly waitMs?: number;
+	/** How often a summary not yet written is looked for again. */
+	readonly pollMs?: number;
+}
+
+/**
+ * The summary of the snapshot `answer` names, as lines, then the raw file
+ * removed, or kept where `keepRaw` asks or no summary came by `deadline`.
+ */
+async function summed(
+	answer: ReturnType<typeof parseHeapSnapshotResult>,
+	deadline: number,
+	{ keepRaw = false, pollMs = SUMMARY_POLL_MS }: SnapshotAsk,
+): Promise<SnapshotTold> {
+	const raw = printable(answer.file);
+	const said = [describeSnapshot(answer)];
+	if (answer.summary === undefined)
+		return {
+			lines: [
+				...said,
+				"  no summary: the host runs code from before summaries, so the raw file is kept; remove it once read",
+			],
+			done: true,
+		};
+	const summary = await summaryBy(answer.summary, deadline, pollMs);
+	if (summary === undefined)
+		return {
+			lines: [
+				...said,
+				`  no summary came to ${printable(answer.summary)} in time, so the raw file is kept; the host's journal says whether its sum failed`,
+			],
+			done: false,
+		};
+	said.push(...describeSummary(summary));
+	if (keepRaw)
+		return {
+			lines: [
+				...said,
+				`  kept the raw snapshot at ${raw}, as --keep-raw asked; remove it once read, or the host does once ${SNAPSHOT_KEPT_MS / MS_PER_HOUR} hours old`,
+			],
+			done: true,
+		};
+	try {
+		await rm(answer.file, { force: true });
+	} catch (error) {
+		return {
+			lines: [
+				...said,
+				`  could not remove the raw snapshot at ${raw}: ${why(error)}`,
+			],
+			done: false,
+		};
+	}
+	return {
+		lines: [
+			...said,
+			`  removed the raw snapshot at ${raw}, since this summed it; --keep-raw keeps one for a retainers read`,
+		],
+		done: true,
+	};
+}
+
+/** The flag that keeps a snapshot's raw file once summed. */
+const KEEP_RAW = "--keep-raw";
+
 /** Who this script tells a host asks for a snapshot, for its journal. */
 export const SNAPSHOT_ASKER = "scripts/host-memory.ts";
 
 /**
  * The heap snapshot the host on `socket` has written of `sessionId`'s
- * process, or why not, waiting up to `waitMs`. A host not yet restarted
- * onto code that takes who asks refuses the request unread, having done
+ * process and its summary, then what became of its raw file, or why not,
+ * waiting up to `waitMs` for all of it. A host not yet restarted onto
+ * code that takes who asks refuses the request unread, having done
  * nothing, so it is asked once more without.
  */
 export async function snapshotAt(
 	socket: string,
 	sessionId: string,
-	waitMs = SNAPSHOT_WAIT_MS,
-): Promise<string> {
+	asked: SnapshotAsk = {},
+): Promise<SnapshotTold> {
+	const waitMs = asked.waitMs ?? SNAPSHOT_WAIT_MS;
+	const deadline = Date.now() + waitMs;
 	const ask = (by?: string) =>
 		controlRequest(
 			socket,
@@ -245,7 +395,7 @@ export async function snapshotAt(
 	let reply = await ask(SNAPSHOT_ASKER);
 	if (!reply.ok && reply.error.code === "invalid_request") reply = await ask();
 	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
-	return describeSnapshot(parseHeapSnapshotResult(reply.result));
+	return summed(parseHeapSnapshotResult(reply.result), deadline, asked);
 }
 
 /** What the process on `socket` answers for its memory, or why not. */
@@ -287,13 +437,18 @@ async function readOne(
 	return describeChild(`${kind} child ${session}`, answer);
 }
 
-/** Write a snapshot for the conversation `word` names, saying where; exits 1 where none was. */
+/**
+ * Write a snapshot for the conversation the words name, printing its
+ * summary and what became of its raw file; exits 1 where it wasn't
+ * written, summed or removed as asked.
+ */
 async function snapshotOne(words: readonly string[]): Promise<void> {
-	const [word, ...rest] = words;
+	const keepRaw = words.includes(KEEP_RAW);
+	const [word, ...rest] = words.filter((each) => each !== KEEP_RAW);
 	const one = word === undefined || rest.length > 0 ? undefined : askedOf(word);
 	if (one?.session === undefined)
 		throw new Error(
-			"Usage: node scripts/host-memory.ts --snapshot KIND:SESSION",
+			`Usage: node scripts/host-memory.ts --snapshot [${KEEP_RAW}] KIND:SESSION`,
 		);
 	const runtimeDir = loginRuntimeDir();
 	if (!runtimeDir)
@@ -302,7 +457,9 @@ async function snapshotOne(words: readonly string[]): Promise<void> {
 		);
 	const socket = hostSocketPath(hostRealm(process.env), one.kind, runtimeDir);
 	try {
-		console.log(await snapshotAt(socket, one.session));
+		const told = await snapshotAt(socket, one.session, { keepRaw });
+		console.log(told.lines.join("\n"));
+		if (!told.done) process.exitCode = 1;
 	} catch (error) {
 		console.log(describeSnapshotFailure(`${one.kind}:${one.session}`, error));
 		process.exitCode = 1;

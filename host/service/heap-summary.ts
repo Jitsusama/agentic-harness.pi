@@ -121,6 +121,9 @@ const header = z.object({
 	}),
 });
 
+/** One row of a summary: a kind, its name where it is named, and its nodes' count and self size. */
+export type HeapRow = z.infer<typeof row>;
+
 /** What a heap snapshot holds, summed by type, figures only. */
 export type HeapSummary = z.infer<typeof summary>;
 
