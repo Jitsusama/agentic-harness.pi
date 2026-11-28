@@ -319,7 +319,7 @@ export function fenceRunText(
 	}
 	// landrun skips a path that isn't there, and nothing inside could
 	// make one, so the strict profile's own folders are made first.
-	for (const own of Object.values(sandboxFolders(home))) {
+	for (const own of Object.values(sandboxFolders(home, env))) {
 		mkdirSync(own, { recursive: true, mode: 0o700 });
 	}
 	const runtimeDir = env.XDG_RUNTIME_DIR;
@@ -329,6 +329,7 @@ export function fenceRunText(
 		command,
 		strictRules({
 			home,
+			env,
 			runtimeDir,
 			cwd: folder,
 			repository: worktreeRepository(folder, home),
@@ -567,6 +568,7 @@ function macFenceText(
 			? [
 					...strictHomeReads({
 						home: homeOnDisk,
+						env: place.env,
 						runtimeDir: undefined,
 						cwd: folder,
 						repository: worktreeRepository(tree ?? folder, homeOnDisk),

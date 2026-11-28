@@ -144,7 +144,12 @@ import {
 } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
-import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
+import {
+	type Rule,
+	sandboxFolders,
+	sessionFolderName,
+	strictRules,
+} from "./strict-rules.ts";
 import {
 	type NoOwner,
 	noOwner,
@@ -479,12 +484,6 @@ const sessionGrants = cloudGrants();
 /** Delta's tokens from mint, asked for once a quarter hour for the session. */
 const sessionDelta = deltaTokens();
 
-/** A session's name as a folder may take it, or the process's where there is none. */
-function sessionFolderName(env: NodeJS.ProcessEnv): string {
-	const session = env.PI_SESSION_ID ?? "";
-	return /^[A-Za-z0-9-]{1,64}$/.test(session) ? session : `pid-${process.pid}`;
-}
-
 /** The settings folders this process has made fresh, so each is emptied once. */
 const freshSettings = new Set<string>();
 
@@ -504,7 +503,7 @@ export function cloudVariables(
 	grant: CloudGrant | undefined,
 	home: string,
 	env: NodeJS.ProcessEnv,
-	parent: string = sandboxFolders(home).gcloud,
+	parent: string = sandboxFolders(home, env).gcloud,
 ): Record<string, string> {
 	const settings = join(parent, sessionFolderName(env));
 	if (!freshSettings.has(settings)) {
@@ -1012,7 +1011,7 @@ export function wrapFor(
 			if (unfenced) return () => refused(unfenced);
 			// landrun skips a path that isn't there, and nothing inside could
 			// make one, so the sandbox's folders are made before a command.
-			for (const folder of Object.values(sandboxFolders(home))) {
+			for (const folder of Object.values(sandboxFolders(home, place.env))) {
 				mkdirSync(folder, { recursive: true, mode: 0o700 });
 			}
 			const served = sandbox.served === true;
@@ -1022,6 +1021,7 @@ export function wrapFor(
 				: fencedWorkerSocket(place.env, sandbox.workerSockets);
 			const rules = strictRules({
 				home,
+				env: place.env,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),

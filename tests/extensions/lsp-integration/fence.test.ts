@@ -235,7 +235,7 @@ describe("the fence a session's language servers run in", () => {
 
 	it("refuses pi a read or write for a strict server in gcloud's settings, which the server's own fence keeps it from", () => {
 		const fence = lspFence(strict, as("one", root), home);
-		const own = sandboxFolders(home);
+		const own = sandboxFolders(home, process.env);
 		mkdirSync(own.gcloud, { recursive: true });
 		mkdirSync(own.cache, { recursive: true });
 

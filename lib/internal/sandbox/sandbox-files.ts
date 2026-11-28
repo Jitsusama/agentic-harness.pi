@@ -466,6 +466,7 @@ function strictRefusal(
 	const reach = fileReach(
 		{
 			home,
+			env: place.env,
 			runtimeDir: place.env.XDG_RUNTIME_DIR,
 			cwd,
 			repository: worktreeRepository(cwd, home),

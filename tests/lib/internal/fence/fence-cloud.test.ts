@@ -249,7 +249,7 @@ describe("what the agent fence hands gcloud", () => {
 
 	it("keeps its folders where no strict command can write", () => {
 		const fence = Object.values(fenceFolders(home));
-		for (const strict of Object.values(sandboxFolders(home))) {
+		for (const strict of Object.values(sandboxFolders(home, {}))) {
 			for (const own of fence) {
 				expect(
 					own === strict || own.startsWith(`${strict}/`),

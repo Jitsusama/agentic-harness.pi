@@ -221,7 +221,7 @@ describe.skipIf(landrun === undefined)(
 				landrun ?? "landrun",
 				"--unrestricted-network",
 				"--ignore-missing",
-				...strictRules({ home: base, runtimeDir, cwd: base }).flat(),
+				...strictRules({ home: base, env: {}, runtimeDir, cwd: base }).flat(),
 			];
 			expect(
 				await tries(eero, [

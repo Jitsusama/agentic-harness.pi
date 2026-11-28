@@ -3,7 +3,8 @@
  * settings, write only its work and its own folders, and reach no socket
  * but name lookups and Nix's door for sandboxes. It runs what it built
  * only in its work and its temporary folder, where a build runs what it
- * builds.
+ * builds, and that folder is its session's own, so no session runs what
+ * another planted.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,9 +14,14 @@ import {
 	strictRules,
 } from "../../../../lib/internal/sandbox/strict-rules.ts";
 
+/** The session these cases run in, and the temporary folder it is given. */
+const SESSION = { PI_SESSION_ID: "0a1b-session" };
+const TEMPORARY = "/home/someone/.cache/pi-sandbox/tmp/0a1b-session";
+
 describe("the strict profile", () => {
 	const rules = strictRules({
 		home: "/home/someone",
+		env: SESSION,
 		runtimeDir: "/run/user/1000",
 		cwd: "/home/someone/src/thing",
 	});
@@ -35,7 +41,7 @@ describe("the strict profile", () => {
 			[
 				"/home/someone/.cache/pi-sandbox/cache",
 				"/home/someone/.cache/pi-sandbox/gcloud",
-				"/home/someone/.cache/pi-sandbox/tmp",
+				TEMPORARY,
 				"/home/someone/.config/dev",
 				"/home/someone/.config/git",
 				"/home/someone/.config/nix/nix.conf",
@@ -51,10 +57,46 @@ describe("the strict profile", () => {
 		const flagsOf = (path: string) =>
 			rules.filter(([, given]) => given === path).map(([flag]) => flag);
 		expect(flagsOf("/home/someone/src/thing"), "the work").toEqual(["--rwx"]);
+		expect(flagsOf(TEMPORARY), "the temporary folder").toEqual(["--rwx"]);
+	});
+
+	it("gives each session a temporary folder of its own, and none the one they share", () => {
+		const other = strictRules({
+			home: "/home/someone",
+			env: { PI_SESSION_ID: "9z8y-other" },
+			runtimeDir: undefined,
+			cwd: "/home/someone/src/thing",
+		});
+		const reached = (given: readonly (readonly [string, string])[]) =>
+			given.map(([, path]) => path);
+		expect(reached(other)).toContain(
+			"/home/someone/.cache/pi-sandbox/tmp/9z8y-other",
+		);
+		expect(reached(other)).not.toContain(TEMPORARY);
+		expect(reached(rules)).not.toContain("/home/someone/.cache/pi-sandbox/tmp");
+		expect(reached(other)).not.toContain("/home/someone/.cache/pi-sandbox/tmp");
+	});
+
+	it("keeps the temporary folder a strict command already runs in, and no other", () => {
+		const within = (TMPDIR: string) =>
+			strictRules({
+				home: "/home/someone",
+				env: { PI_SESSION_ID: "9z8y-inner", TMPDIR },
+				runtimeDir: undefined,
+				cwd: "/home/someone/src/thing",
+			}).filter(([flag]) => flag === "--rwx")[1]?.[1];
+		expect(within(TEMPORARY), "a strict pi's own command").toBe(TEMPORARY);
+		expect(within("/run/user/1000/quest/tmp"), "an unfenced session's").toBe(
+			"/home/someone/.cache/pi-sandbox/tmp/9z8y-inner",
+		);
 		expect(
-			flagsOf("/home/someone/.cache/pi-sandbox/tmp"),
-			"the temporary folder",
-		).toEqual(["--rwx"]);
+			within("/home/someone/.cache/pi-sandbox/tmp"),
+			"the folder they share",
+		).toBe("/home/someone/.cache/pi-sandbox/tmp/9z8y-inner");
+		expect(
+			within("/home/someone/.cache/pi-sandbox/tmp/a/b"),
+			"a folder deeper in it",
+		).toBe("/home/someone/.cache/pi-sandbox/tmp/9z8y-inner");
 	});
 
 	it("writes its cache and gcloud's settings without running anything there", () => {
@@ -72,33 +114,32 @@ describe("the strict profile", () => {
 	it("lets nothing else written be run", () => {
 		expect(paths("--rwx"), "the paths written and run").toEqual([
 			"/home/someone/src/thing",
-			"/home/someone/.cache/pi-sandbox/tmp",
+			TEMPORARY,
 		]);
 	});
 
 	it("leaves pi's file tools writing where they did", () => {
 		const place = {
 			home: "/home/someone",
+			env: SESSION,
 			runtimeDir: "/run/user/1000",
 			cwd: "/home/someone/src/thing",
 		};
 		expect(fileReach(place, "write")).toEqual([
 			"/home/someone/src/thing",
-			"/home/someone/.cache/pi-sandbox/tmp",
+			TEMPORARY,
 			"/home/someone/.cache/pi-sandbox/cache",
 			"/home/someone/.cache/pi-sandbox/gcloud",
 		]);
 		expect(fileReach(place, "read")).toEqual(
-			expect.arrayContaining([
-				"/home/someone/src/thing",
-				"/home/someone/.cache/pi-sandbox/tmp",
-			]),
+			expect.arrayContaining(["/home/someone/src/thing", TEMPORARY]),
 		);
 	});
 
 	it("lets a worktree's repository be read and never written", () => {
 		const given = strictRules({
 			home: "/home/someone",
+			env: SESSION,
 			runtimeDir: undefined,
 			cwd: "/home/someone/trees/thing",
 			repository: "/home/someone/src/thing/.git",
@@ -115,7 +156,7 @@ describe("the strict profile", () => {
 			`/run/user/1000/${NIX_DOOR}`,
 		]);
 		expect(paths("--env"), "the variables the profile sets").toEqual([
-			"TMPDIR=/home/someone/.cache/pi-sandbox/tmp",
+			`TMPDIR=${TEMPORARY}`,
 			"XDG_CACHE_HOME=/home/someone/.cache/pi-sandbox/cache",
 			`NIX_REMOTE=unix:///run/user/1000/${NIX_DOOR}`,
 		]);

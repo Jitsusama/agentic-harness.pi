@@ -10,10 +10,12 @@
  * command could already run any code from them through the store's
  * interpreters (bash, python, node, ctypes), and what any of it touches
  * is still bounded by Landlock's path, socket and network rules and,
- * under the fence, by bubblewrap's binds. The cache, gcloud's settings
- * and the devices stay only writable, since nothing is built there.
+ * under the fence, by bubblewrap's binds. The temporary folder is the
+ * session's own, so what one session reading a stranger's text writes
+ * there is no program another runs. The cache, gcloud's settings and
+ * the devices stay only writable, since nothing is built there.
  */
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
@@ -21,24 +23,57 @@ export const NIX_DOOR = "nix-untrusted.sock";
 
 /**
  * The sandbox's own folder in the home folder, beneath the person's cache,
- * which it never reaches: its cache and its temporary folder, shared by
- * every sandboxed command and used by nothing outside.
+ * which it never reaches: its cache, shared by every sandboxed command,
+ * and a temporary folder for each session, used by nothing outside.
  */
 const SANDBOX_FOLDER = ".cache/pi-sandbox";
 
+/** A name a folder may take whole: a session's id, or a process's. */
+const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+
+/** A session's name as a folder may take it, or the process's where there is none. */
+export function sessionFolderName(env: NodeJS.ProcessEnv): string {
+	const session = env.PI_SESSION_ID ?? "";
+	return FOLDER_NAME.test(session) ? session : `pid-${process.pid}`;
+}
+
+/**
+ * The temporary folder a strict command in the session `env` names is
+ * given: one of the session's own, since a command runs what it writes
+ * there and one shared folder would let a session reading a stranger's
+ * text plant a program another runs. A command already inside one, as
+ * a strict pi's own commands are, keeps it: it can make no other.
+ */
+function temporaryFolder(home: string, env: NodeJS.ProcessEnv): string {
+	const every = join(home, SANDBOX_FOLDER, "tmp");
+	const inherited = env.TMPDIR;
+	if (
+		inherited !== undefined &&
+		dirname(inherited) === every &&
+		FOLDER_NAME.test(basename(inherited))
+	) {
+		return inherited;
+	}
+	return join(every, sessionFolderName(env));
+}
+
 /**
  * The sandbox's cache, temporary folder and gcloud's settings, for the
- * home folder `home`. gcloud writes its logs and settings where it's
- * pointed, so each session gets a folder of its own within `gcloud`.
+ * home folder `home` and the session `env` names. gcloud writes its logs
+ * and settings where it's pointed, so each session gets a folder of its
+ * own within `gcloud`, as it does a temporary folder.
  */
-export function sandboxFolders(home: string): {
+export function sandboxFolders(
+	home: string,
+	env: NodeJS.ProcessEnv,
+): {
 	cache: string;
 	temporary: string;
 	gcloud: string;
 } {
 	return {
 		cache: join(home, SANDBOX_FOLDER, "cache"),
-		temporary: join(home, SANDBOX_FOLDER, "tmp"),
+		temporary: temporaryFolder(home, env),
 		gcloud: join(home, SANDBOX_FOLDER, "gcloud"),
 	};
 }
@@ -46,6 +81,8 @@ export function sandboxFolders(home: string): {
 /** Where a command runs, as the sandbox's rules need it. */
 export interface SandboxPlace {
 	readonly home: string;
+	/** The command's environment, which names its session. */
+	readonly env: NodeJS.ProcessEnv;
 	/** `XDG_RUNTIME_DIR`, where the Nix door is. */
 	readonly runtimeDir: string | undefined;
 	readonly cwd: string;
@@ -104,7 +141,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		home(".config/nix/nix.conf"),
 		...(place.repository ? [place.repository] : []),
 	];
-	const own = sandboxFolders(place.home);
+	const own = sandboxFolders(place.home, place.env);
 	const buildable = [place.cwd, own.temporary];
 	const writable = [
 		own.cache,
@@ -130,7 +167,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 export function strictRules(place: SandboxPlace): Rule[] {
 	const { runnable, readable, buildable, writable, sockets } =
 		strictPaths(place);
-	const own = sandboxFolders(place.home);
+	const own = sandboxFolders(place.home, place.env);
 	return [
 		...runnable.map((path): Rule => ["--rox", path]),
 		...readable.map((path): Rule => ["--ro", path]),

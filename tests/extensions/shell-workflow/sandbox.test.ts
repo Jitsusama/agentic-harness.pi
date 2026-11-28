@@ -24,7 +24,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEMP_LINK_PREFIX as QUESTS_LINK_PREFIX } from "../../../extensions/quest-workflow/scratch.ts";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
@@ -750,8 +750,11 @@ describe("a command in the sandbox", () => {
 		expect(answer).toContain(
 			`kept nobus ${runtime ? `unix://${runtime}/${NIX_DOOR}` : ""}`.trim(),
 		);
-		const own = sandboxFolders(homedir());
-		expect(answer).toContain(`own:${own.cache} ${own.temporary}`);
+		// The session's own, named by whatever session the command ran for.
+		const own = sandboxFolders(homedir(), {});
+		expect(answer).toMatch(
+			new RegExp(`own:${own.cache} ${dirname(own.temporary)}/[A-Za-z0-9-]+\n`),
+		);
 		expect(answer).toContain("dropped:none none path:set");
 	});
 
@@ -796,7 +799,10 @@ describe("a command in the sandbox", () => {
 		const work = join(home, "work");
 		mkdirSync(work, { recursive: true });
 		// pi names no session here, so the folder is the process's own.
-		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
+		const settings = join(
+			sandboxFolders(home, process.env).gcloud,
+			`pid-${process.pid}`,
+		);
 		// Left by an earlier run of the same session, which starts over.
 		mkdirSync(settings, { recursive: true });
 		writeFileSync(join(settings, "left"), "");
@@ -832,7 +838,10 @@ describe("a command in the sandbox", () => {
 		const home = join(folder, "unbrokered-home");
 		const work = join(home, "work");
 		mkdirSync(work, { recursive: true });
-		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
+		const settings = join(
+			sandboxFolders(home, process.env).gcloud,
+			`pid-${process.pid}`,
+		);
 		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
 		process.env.HOME = home;
 		delete process.env.PI_SESSION_ID;
@@ -1027,7 +1036,9 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).not.toContain("the-shared-value");
 			expect(answer).toContain("unread");
 			expect(answer).toContain("unwritten");
-			expect(answer).toContain(sandboxFolders(homedir()).temporary);
+			// Within the session's own, never the folder every session shares.
+			const every = dirname(sandboxFolders(homedir(), {}).temporary);
+			expect(answer).toMatch(new RegExp(`${every}/[A-Za-z0-9-]+/tmp.`));
 			expect(answer).toContain("made-own");
 		});
 	},
