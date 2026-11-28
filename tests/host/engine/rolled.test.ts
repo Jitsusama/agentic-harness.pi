@@ -1,6 +1,6 @@
 /** Saying in a parking conversation's log that it rolls onto new host code. */
 import { describe, expect, it } from "vitest";
-import { sayRolled } from "../../../host/engine/rolled.ts";
+import { sayRolled, sayRolledIn } from "../../../host/engine/rolled.ts";
 import {
 	HOST_ROLLED_ENTRY,
 	type RolledCode,
@@ -132,6 +132,67 @@ describe("saying a conversation's roll", () => {
 		expect(() => talk.bus.emit(JOBS_CARRIED, carried())).not.toThrow();
 
 		expect(talk.entries).toHaveLength(1);
+		expect(talk.reported).toEqual([new Error("log is gone")]);
+	});
+});
+
+type Talk = ReturnType<typeof conversation>;
+
+/** What the engine holds of a conversation: its session, its bus and whether it parks. */
+interface Held {
+	runtime?: { session: { sessionManager: Talk["parts"]["log"] } };
+	bus: Talk["bus"];
+	parking?: boolean;
+}
+
+/** What the engine holds of `talk`, parking, with a session where `withSession`. */
+function held(talk: Talk, withSession = true): Held {
+	const record: Held = { bus: talk.bus, parking: true };
+	if (withSession)
+		record.runtime = { session: { sessionManager: talk.parts.log } };
+	return record;
+}
+
+describe("saying a roll from what the engine holds", () => {
+	it("says the roll in its session's log, and hears a carry only while it parks", () => {
+		const talk = conversation();
+		const record = held(talk);
+
+		sayRolledIn(host(CODE), "s1", record, talk.parts.report);
+		record.parking = false;
+		talk.bus.emit(JOBS_CARRIED, carried());
+		expect(talk.entries, "a carry while it doesn't park").toHaveLength(1);
+		record.parking = true;
+		talk.bus.emit(JOBS_CARRIED, carried());
+
+		expect(talk.entries.map((entry) => entry.data)).toEqual([
+			{ ...CODE, at: expect.any(String) },
+			{ ...CODE, at: expect.any(String), wakes: true },
+		]);
+	});
+
+	it("says nothing of a conversation with no session yet", () => {
+		const talk = conversation();
+
+		const stop = sayRolledIn(
+			host(CODE),
+			"s1",
+			held(talk, false),
+			talk.parts.report,
+		);
+		stop();
+
+		expect(talk.entries).toEqual([]);
+		expect(talk.reported).toEqual([]);
+	});
+
+	it("reports a roll it can't write, and lets the park go on", () => {
+		const talk = conversation({ failOn: 0 });
+
+		const stop = sayRolledIn(host(CODE), "s1", held(talk), talk.parts.report);
+
+		expect(stop).not.toThrow();
+		expect(talk.entries).toEqual([]);
 		expect(talk.reported).toEqual([new Error("log is gone")]);
 	});
 });

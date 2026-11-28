@@ -39,6 +39,45 @@ export interface RollingConversation {
 	readonly report: (error: unknown) => void;
 }
 
+/** What the engine holds of a conversation that begins to park. */
+export interface ParkingConversation {
+	/** pi's runtime, whose session manager writes its log, once it has one. */
+	readonly runtime?: {
+		readonly session: { readonly sessionManager: RollingConversation["log"] };
+	};
+	/** Its bus, which says the bash calls its park carried. */
+	readonly bus: RollingConversation["bus"];
+	/** Whether it parks now, read at each carry heard. */
+	readonly parking?: boolean;
+}
+
+/**
+ * Say in a parking conversation's log that it rolls, as sayRolled does,
+ * from what the engine holds of it: nothing where it has no session yet.
+ * Answers what stops hearing its park's carry. A log that can't be
+ * written is reported, and the park goes on all the same.
+ */
+export function sayRolledIn(
+	host: RollingHost,
+	sessionId: string,
+	conversation: ParkingConversation,
+	report: (error: unknown) => void,
+): () => void {
+	const log = conversation.runtime?.session.sessionManager;
+	if (log === undefined) return () => undefined;
+	try {
+		return sayRolled(host, sessionId, {
+			log,
+			bus: conversation.bus,
+			parking: () => conversation.parking === true,
+			report,
+		});
+	} catch (error) {
+		report(error);
+		return () => undefined;
+	}
+}
+
 /**
  * As `sessionId` begins to park, say in its log that it rolls, where its
  * host rolls it and names the code, and again, once, that the host wakes
