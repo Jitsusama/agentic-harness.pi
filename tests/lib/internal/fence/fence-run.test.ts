@@ -96,17 +96,36 @@ describe("reading how pi-fence was asked", () => {
 	});
 
 	it("reads a census, of /proc unless another is named", () => {
-		expect(fenceRunAsked(["census"], "/w")).toEqual({ census: "/proc" });
+		expect(fenceRunAsked(["census"], "/w")).toEqual({
+			census: "/proc",
+			stage: false,
+		});
 		expect(fenceRunAsked(["census", "--proc", "/p"], "/w")).toEqual({
 			census: "/p",
+			stage: false,
 		});
 		for (const args of [
 			["census", "--proc"],
 			["census", "--kind", "fence"],
+			["census", "--stage", "--stage"],
+			["census", "--proc", "/p", "--proc", "/q"],
 		]) {
 			expect(fenceRunAsked(args, "/w"), args.join(" ")).toHaveProperty("wrong");
 		}
 		expect(FENCE_RUN_HELP, "its help names it").toContain("pi-fence census");
+	});
+
+	it("reads a census of the stage alone, before or after the /proc it names", () => {
+		for (const args of [
+			["census", "--stage", "--proc", "/p"],
+			["census", "--proc", "/p", "--stage"],
+		]) {
+			expect(fenceRunAsked(args, "/w"), args.join(" ")).toEqual({
+				census: "/p",
+				stage: true,
+			});
+		}
+		expect(FENCE_RUN_HELP).toContain("pi-fence census [--stage]");
 	});
 
 	it("says a census on a Mac can't judge, so its exit isn't read as sessions unfenced", () => {

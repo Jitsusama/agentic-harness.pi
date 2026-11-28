@@ -28,6 +28,7 @@ import {
 	censusText,
 	fenceCensus,
 	SIGHTING_LASTS_MS,
+	stageCensus,
 } from "../../../../lib/internal/fence/fence-census.ts";
 import {
 	GCLOUD_KEY,
@@ -687,6 +688,115 @@ describe("the fence's census", () => {
 			"claimed",
 			"unfenced",
 		]);
+	});
+
+	// The stage takes every background conversation and never a terminal's
+	// or the attended host's pi, where Joel sits (ISXEG8, 27 November), so
+	// only a census narrowed to it can say whether it holds.
+	describe("a census of the stage", () => {
+		/** A host's pi at `pid`, running no command, with nothing asked. */
+		function host(pid: number): void {
+			lay({
+				pid,
+				parent: 1,
+				name: "node",
+				mounts: MACHINE,
+				noNewPrivs: 0,
+				env: {},
+			});
+		}
+
+		it("holds on a background conversation seen fenced, leaving the attended one unjudged", () => {
+			host(500);
+			joinEveryone("test", stage);
+			const census = fenceCensus(
+				place(
+					[
+						presence(ONE, 500, { host: "work-background", fence: "fence" }),
+						presence(TWO, 500, { host: "work-attended", fence: "none" }),
+					],
+					{ [ONE]: NOW - 1000 },
+				),
+			);
+			expect(census.rows.map((row) => [row.judged, row.staged])).toEqual([
+				["claimed", true],
+				["unfenced", false],
+			]);
+			expect(censusHolds(census), "the whole census fails").toBe(false);
+			expect(censusHolds(stageCensus(census)), "the stage holds").toBe(true);
+		});
+
+		it("fails on a session the stage takes that runs a command unfenced", () => {
+			host(500);
+			lay({
+				pid: 501,
+				parent: 500,
+				name: "pi-spawner",
+				mounts: MACHINE,
+				noNewPrivs: 0,
+			});
+			command(510, 501, ONE, "unfenced");
+			joinEveryone("test", stage);
+			const census = stageCensus(
+				fenceCensus(
+					place([
+						presence(ONE, 500, { host: "work-background", fence: "fence" }),
+					]),
+				),
+			);
+			expect(census.rows.map((row) => [row.judged, row.why])).toEqual([
+				["unfenced", "a command runs unfenced: sleep, pid 512"],
+			]);
+			expect(censusHolds(census), "an unfenced staged session fails").toBe(
+				false,
+			);
+		});
+
+		it("takes in a session asking a fence of its own, and one the stage lists though set off", () => {
+			idlePi(100, "fence");
+			idlePi(200, "off");
+			writeFileSync(join(stage, `${TWO}.json`), "{}");
+			const census = stageCensus(
+				fenceCensus(place([presence(ONE, 100), presence(TWO, 200)])),
+			);
+			expect(census.rows.map((row) => [row.session, row.judged])).toEqual([
+				[ONE, "claimed"],
+				[TWO, "unfenced"],
+			]);
+			expect(census.unstaged).toBe(0);
+		});
+
+		it("takes in a session whose environment can't be read, as it can't be told out", () => {
+			host(100);
+			rmSync(join(proc, "100/environ"));
+			const census = stageCensus(fenceCensus(place([presence(ONE, 100)])));
+			expect(census.rows.map((row) => [row.judged, row.staged])).toEqual([
+				["unfenced", true],
+			]);
+		});
+
+		it("says the sessions it leaves out in one count line, never as failures", () => {
+			host(500);
+			host(600);
+			joinEveryone("test", stage);
+			const census = fenceCensus(
+				place(
+					[
+						presence(ONE, 500, { host: "work-background", fence: "fence" }),
+						presence(TWO, 500, { host: "work-attended" }),
+						presence("33333333-3333-4333-8333-333333333333", 600),
+					],
+					{ [ONE]: NOW - 1000 },
+				),
+			);
+			expect(censusText(stageCensus(census)).split("\n")).toEqual([
+				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced",
+				"2 outside the stage, left unjudged",
+				"claimed  111111: no command running; its host's environment asks fence; " +
+					"seen fenced within the hour",
+				"",
+			]);
+		});
 	});
 
 	// A claim says what the next command would ask for, never that the

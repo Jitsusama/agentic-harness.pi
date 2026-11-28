@@ -17,7 +17,12 @@ import { createPresences } from "../../mesh/presence.ts";
 import { everyRealmsDir, stateDir } from "../paths.ts";
 import { keptFolder } from "../shell/kept.ts";
 import { writeWhole } from "../write-whole.ts";
-import { censusHolds, censusText, fenceCensus } from "./fence-census.ts";
+import {
+	censusHolds,
+	censusText,
+	fenceCensus,
+	stageCensus,
+} from "./fence-census.ts";
 import { stageFolder } from "./fence-stage.ts";
 
 /** The status a census finding a session unfenced exits with. */
@@ -82,17 +87,24 @@ function keepSightings(sightings: Readonly<Record<string, number>>): void {
 	});
 }
 
+/** What a census was asked: the /proc it reads, and whether of the stage. */
+export interface CensusAsk {
+	readonly proc: string;
+	/** Whether it judges only the sessions the stage takes. */
+	readonly stage: boolean;
+}
+
 /**
  * Run the census over the /proc named, this machine's unless asked
  * otherwise, write what it says, and answer the status pi-fence exits
  * with: 0 when there is at least one session and each was seen fenced,
- * 1 otherwise.
+ * 1 otherwise. Asked of the stage, only the sessions it takes count.
  */
 export function censusHere(
-	proc: string,
+	{ proc, stage }: CensusAsk,
 	write: (text: string) => void,
 ): number {
-	const census = fenceCensus({
+	const whole = fenceCensus({
 		proc,
 		presences: everyRealmsDir("state", "mesh-workflow").flatMap((mesh) =>
 			createPresences(join(mesh, "presence")).all(),
@@ -107,7 +119,8 @@ export function censusHere(
 		sightings: keptSightings(),
 		now: Date.now(),
 	});
-	if (census.read) keepSightings(census.sightings);
+	if (whole.read) keepSightings(whole.sightings);
+	const census = stage ? stageCensus(whole) : whole;
 	write(censusText(census));
 	return censusHolds(census) ? 0 : UNFENCED;
 }

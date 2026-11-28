@@ -107,7 +107,7 @@ export interface FenceRunAsk {
 
 /** How pi-fence is asked, said when it was asked wrongly. */
 export const FENCE_RUN_USAGE =
-	"usage: pi-fence --kind fence|strict [--folder DIR] [--shared-tree] -- PROGRAM [ARGUMENT...], or pi-fence census [--proc DIR]";
+	"usage: pi-fence --kind fence|strict [--folder DIR] [--shared-tree] -- PROGRAM [ARGUMENT...], or pi-fence census [--stage] [--proc DIR]";
 
 /** What `pi-fence --help` says, each line within 60 columns. */
 export const FENCE_RUN_HELP = `pi-fence runs one command in pi's own agent fence.
@@ -115,7 +115,7 @@ export const FENCE_RUN_HELP = `pi-fence runs one command in pi's own agent fence
 Usage:
   pi-fence --kind KIND [--folder DIR] [--shared-tree]
            -- PROGRAM [ARG...]
-  pi-fence census [--proc DIR]
+  pi-fence census [--stage] [--proc DIR]
 
 Kinds:
   fence    the agent fence a pi session lays
@@ -150,6 +150,11 @@ It exits 0 only when it found a session and each was
 seen fenced, a claimed one by a census in the last
 day; 1 otherwise, or when the processes can't be read.
 Linux only: on macOS it can't judge and exits 1.
+
+With --stage it judges only the sessions the fence's
+first stage takes, or whose environment asks a fence,
+and counts the rest in one line, left unjudged: the
+stage takes no terminal's pi or the attended host's.
 `;
 
 /**
@@ -164,7 +169,7 @@ export function fenceRunAsked(
 	| FenceRunAsk
 	| { readonly wrong: string }
 	| { readonly help: true }
-	| { readonly census: string } {
+	| CensusAsked {
 	if (args[0] === "--help" || args[0] === "-h") return { help: true };
 	if (args[0] === "census") return censusAsked(args.slice(1));
 	const split = args.indexOf("--");
@@ -206,16 +211,35 @@ export function fenceRunAsked(
 	};
 }
 
-/** The /proc a census was asked to read, or what is wrong with asking. */
+/** A census asked for: the /proc it reads, and whether of the stage alone. */
+interface CensusAsked {
+	readonly census: string;
+	readonly stage: boolean;
+}
+
+/**
+ * The census `args` ask for, of /proc unless another is named, or what
+ * is wrong with asking: each of its two options at most once.
+ */
 function censusAsked(
 	args: readonly string[],
-): { readonly census: string } | { readonly wrong: string } {
-	if (args.length === 0) return { census: "/proc" };
-	const [name, value, ...rest] = args;
-	if (name !== "--proc" || value === undefined || rest.length > 0) {
-		return { wrong: `census takes only --proc DIR. ${FENCE_RUN_USAGE}` };
+): CensusAsked | { readonly wrong: string } {
+	let proc: string | undefined;
+	let stage = false;
+	for (let at = 0; at < args.length; at += 1) {
+		const [name, value] = [args[at], args[at + 1]];
+		if (name === "--stage" && !stage) {
+			stage = true;
+		} else if (name === "--proc" && proc === undefined && value) {
+			proc = value;
+			at += 1;
+		} else {
+			return {
+				wrong: `census takes only --stage and --proc DIR. ${FENCE_RUN_USAGE}`,
+			};
+		}
 	}
-	return { census: value };
+	return { census: proc ?? "/proc", stage };
 }
 
 /** The text that runs what was asked and the folder it runs in, or why it can't run. */
