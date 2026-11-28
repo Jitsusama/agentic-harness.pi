@@ -23,6 +23,51 @@ describe("the class a walk of World's objects gives World's push gate", () => {
 		).toBe(0);
 	});
 
+	it("reads the class given behind what the walk runs under", () => {
+		const given = [
+			"(WORLD_PUSH_CLASS=0 git push)",
+			"( WORLD_PUSH_CLASS=0 git push )",
+			"{ WORLD_PUSH_CLASS=0 git push; }",
+			"if true; then WORLD_PUSH_CLASS=0 git push; fi",
+			"for r in a; do WORLD_PUSH_CLASS=0 git push; done",
+			"if false; then true; else WORLD_PUSH_CLASS=0 git push; fi",
+			"! WORLD_PUSH_CLASS=0 git push",
+			"timeout 600 env WORLD_PUSH_CLASS=0 git push",
+			"timeout -k 5 -s KILL 10m env WORLD_PUSH_CLASS=0 git push",
+			"timeout --signal=TERM 600 env WORLD_PUSH_CLASS=0 git push",
+			"WORLD_PUSH_CLASS=0 timeout 600 git push",
+			"nice env WORLD_PUSH_CLASS=0 git push",
+			"nice -n 10 env WORLD_PUSH_CLASS=0 git push",
+			"nice -5 env WORLD_PUSH_CLASS=0 git push",
+			"WORLD_PUSH_CLASS=0 nice -n 19 git push",
+			"env -u GIT_TRACE WORLD_PUSH_CLASS=0 git push",
+			"env -i HOME=/home/j WORLD_PUSH_CLASS=0 git push",
+			"env - WORLD_PUSH_CLASS=0 git push",
+			"env -C /home/j/world/src WORLD_PUSH_CLASS=0 git push",
+			"command env WORLD_PUSH_CLASS=0 git push",
+			"WORLD_PUSH_CLASS=0 command git push",
+			"exec env WORLD_PUSH_CLASS=0 git push",
+			"WORLD_PUSH_CLASS=0 exec -a push git push",
+			"nohup env WORLD_PUSH_CLASS=0 git push",
+			"time WORLD_PUSH_CLASS=0 git push",
+			"direnv exec . env WORLD_PUSH_CLASS=0 git push",
+			"WORLD_PUSH_CLASS=0 direnv exec . git push",
+			"WORLD_PUSH_CLASS=0 \\\n  git push",
+			"GIT_TRACE=1 \\\n  WORLD_PUSH_CLASS=0 \\\n  timeout 600 \\\n  git push",
+		];
+		for (const command of given) {
+			expect(pushClassOf(command, inWorld), command).toBe(0);
+		}
+		// Past a program that runs its next word, a variable is that word.
+		for (const command of [
+			"nice WORLD_PUSH_CLASS=0 git push",
+			"timeout 600 WORLD_PUSH_CLASS=0 git push",
+			"direnv status && WORLD_PUSH_CLASS=0 true; git push",
+		]) {
+			expect(pushClassOf(command, inWorld), command).toBe(2);
+		}
+	});
+
 	it("reads the class exported earlier in the command", () => {
 		expect(
 			pushClassOf(

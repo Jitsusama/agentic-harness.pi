@@ -46,6 +46,12 @@ export function pushClassOfJob(job: {
 	return isPushClass(job.pushClass) ? job.pushClass : LAST_PUSH_CLASS;
 }
 
+/**
+ * A backslash ending a line, which joins the next line to it as one, as
+ * the shell reads `WORLD_PUSH_CLASS=0 \` over `git push`.
+ */
+const CONTINUED = /\\\n/g;
+
 /** A variable set as one word, as `WORLD_PUSH_CLASS=0`. */
 const ASSIGNED = /^([A-Za-z_]\w*)=(\S*)$/;
 
@@ -64,7 +70,8 @@ interface Variable {
  * walk starts and every walk after it runs on that turn: a push given
  * class 0 after a fetch that has none waits as class 0. A walk's class
  * is {@link PUSH_CLASS_VARIABLE} as the walk's own step sets it before its
- * command, or through `env`; else as an earlier step exported it, or
+ * command, or through `env`, past what the command runs under (see
+ * `ownAssignment`), a line its backslash continues included; else as an earlier step exported it, or
  * assigned it once exported; else `inherited`, the value the shell runs
  * with, until a step unsets it. Anything else, as a value other than 0,
  * 1 or 2, one set through a variable, or one set in a subshell, is
@@ -76,7 +83,7 @@ export function pushClassOf(
 	where: Where = { home: homedir() },
 	inherited?: string,
 ): PushClass {
-	const steps = runSteps(command);
+	const steps = runSteps(command.replace(CONTINUED, " "));
 	// Read in one pass: each step's walk hangs on the folders and variables
 	// the steps before it set, so reading them again for each step costs
 	// the square of their count.
@@ -101,28 +108,118 @@ export function pushClassOf(
 }
 
 /**
+ * The words that open a group or a branch of the shell's own, which the
+ * command after them runs in the same shell: `{`, `then`, `do`, `else`
+ * and `!`. A subshell's `(` is read off the word it opens.
+ */
+const OPENS = new Set(["{", "then", "do", "else", "!"]);
+
+/**
+ * A program that runs the command after it with the environment it was
+ * given: the options it reads, those of them that take the next word as
+ * their value, the words it reads after them before the command (as
+ * `timeout`'s duration), and whether a variable may be set after it, as
+ * `env` reads `NAME=value` as one where `nice` would run it.
+ */
+interface Wrapper {
+	readonly valued: ReadonlySet<string>;
+	readonly operands: number;
+	readonly assigns: boolean;
+}
+
+/** The programs {@link ownAssignment} reads through, by {@link Wrapper}. */
+const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map([
+	[
+		"timeout",
+		{
+			valued: new Set(["-s", "-k", "--signal", "--kill-after"]),
+			operands: 1,
+			assigns: false,
+		},
+	],
+	[
+		"nice",
+		{ valued: new Set(["-n", "--adjustment"]), operands: 0, assigns: false },
+	],
+	[
+		"env",
+		{
+			valued: new Set([
+				"-u",
+				"--unset",
+				"-C",
+				"--chdir",
+				"-S",
+				"--split-string",
+			]),
+			operands: 0,
+			assigns: true,
+		},
+	],
+	["command", { valued: new Set(), operands: 0, assigns: false }],
+	["exec", { valued: new Set(["-a"]), operands: 0, assigns: false }],
+	["nohup", { valued: new Set(), operands: 0, assigns: false }],
+	["time", { valued: new Set(), operands: 0, assigns: true }],
+	// Its subcommand and the folder whose environment it loads.
+	["direnv", { valued: new Set(), operands: 2, assigns: false }],
+]);
+
+/**
  * The value a step gives {@link PUSH_CLASS_VARIABLE} for its own command
- * alone: assigned before it, or through `env`. Nothing for a step that
- * gives none, or one that only assigns, which sets the shell's own.
+ * alone: assigned before it, or after `env`, past what it runs under: a
+ * subshell, a group or a branch it opens (see {@link OPENS}), and the
+ * programs that run a command as they were given it (see
+ * {@link WRAPPERS}), as `timeout 600 env WORLD_PUSH_CLASS=0 git push`
+ * gives 0. Nothing for a step that gives none, or one that only assigns,
+ * which sets the shell's own.
  */
 function ownAssignment(step: string): string | undefined {
 	const words = step.trim().split(/\s+/).filter(Boolean);
 	let given: string | undefined;
+	let assigns = true;
 	let at = 0;
-	const readAssignments = () => {
-		for (; at < words.length; at += 1) {
-			const set = ASSIGNED.exec(words[at] ?? "");
-			if (set === null) return;
-			if (set[1] === PUSH_CLASS_VARIABLE) given = set[2];
+	while (at < words.length) {
+		const word = (words[at] ?? "").replace(/^\(+/, "");
+		if (word === "" || OPENS.has(word)) {
+			assigns = true;
+			at += 1;
+			continue;
 		}
-	};
-	readAssignments();
-	if (at === words.length) return undefined;
-	if (words[at] === "env") {
-		at += 1;
-		readAssignments();
+		const set = ASSIGNED.exec(word);
+		if (set !== null) {
+			// Past a program that runs its next word, this is that word.
+			if (!assigns) return undefined;
+			if (set[1] === PUSH_CLASS_VARIABLE) given = set[2];
+			at += 1;
+			continue;
+		}
+		const wrapper = WRAPPERS.get(word);
+		if (wrapper === undefined) return given;
+		if (word === "direnv" && words[at + 1] !== "exec") return given;
+		at = pastOptions(words, at + 1, wrapper.valued) + wrapper.operands;
+		assigns = wrapper.assigns;
 	}
-	return given;
+	return undefined;
+}
+
+/**
+ * Where a program's options end among `words`, from `at`: past each word
+ * starting with `-`, and the value after each of `valued`, up to `--`,
+ * which ends them and is read with them.
+ */
+function pastOptions(
+	words: readonly string[],
+	at: number,
+	valued: ReadonlySet<string>,
+): number {
+	let next = at;
+	while (next < words.length) {
+		const word = words[next] ?? "";
+		if (word === "--") return next + 1;
+		if (!word.startsWith("-")) return next;
+		next += valued.has(word) ? 2 : 1;
+	}
+	return next;
 }
 
 /**
