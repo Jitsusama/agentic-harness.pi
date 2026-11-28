@@ -51,6 +51,7 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, normalize } from "node:path";
 import {
+	COVERED_AFTER_GRANTS,
 	FENCE_RUNTIME_FOLDER,
 	LET_THROUGH,
 } from "../fence/fence-let-through.ts";
@@ -381,6 +382,12 @@ function entryRefusal(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (laid) return `is, holds or lies in ${laid}`;
+	const covered = COVERED_AFTER_GRANTS.find(
+		(folder) => holds(entry, folder) || holds(folder, entry),
+	);
+	if (covered) {
+		return `is, holds or lies in ${covered}, which the fence covers after the grants`;
+	}
 	// The fence binds the socket's folder read-only, before the grants; a
 	// grant over it would hide that bind, or make the socket's folder one
 	// a command could write.

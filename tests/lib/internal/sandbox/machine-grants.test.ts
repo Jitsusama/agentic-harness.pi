@@ -504,3 +504,28 @@ describe("a machine's grants through folders any account may write", () => {
 		expect(grants.write, "granted").toEqual(["/srv/team/lane"]);
 	});
 });
+
+describe("a machine's grants over what the fence covers after them", () => {
+	it.each([
+		["the system bus's folder", "read", "/run/dbus", "/run/dbus"],
+		[
+			"the system bus's socket",
+			"read",
+			"/run/dbus/system_bus_socket",
+			"/run/dbus",
+		],
+	] as const)(
+		"grant nothing from a file naming %s, which the fence hides after the grants",
+		(_, use, entry, covered) => {
+			const given = disk(JSON.stringify({ [use]: [entry] }));
+			expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+			const said = given.said.join("\n");
+			expect(said, "names the entry").toContain(
+				`${JSON.stringify(entry)} under ${use}`,
+			);
+			expect(said, "why it grants nothing").toContain(
+				`is, holds or lies in ${covered}, which the fence covers after the grants`,
+			);
+		},
+	);
+});
