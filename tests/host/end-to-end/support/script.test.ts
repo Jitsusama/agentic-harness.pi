@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -98,6 +98,45 @@ describe("scriptLaunch", () => {
 				"args -qeF /dev/null /bin/sh -c pi --x",
 				"typed hello",
 			]);
+		} finally {
+			rmSync(bin, { recursive: true, force: true });
+		}
+	});
+
+	it("starts BSD's script with no child of its own while node still holds its stdin open", async () => {
+		// F1 on #2385: the pipe's cat, forked before the exec, stayed
+		// script's child, and a Mac's pgrep -P named it before the command,
+		// so the terminal's pi was taken to be cat. The stand-in starts
+		// nothing, so any child it has came from the launch.
+		const bin = mkdtempSync(join(tmpdir(), "bsd-script-"));
+		try {
+			const stand = join(bin, "script");
+			writeFileSync(
+				stand,
+				[
+					"#!/bin/sh",
+					'echo "started"',
+					"read -r line",
+					'echo "typed $line"',
+				].join("\n"),
+			);
+			chmodSync(stand, 0o755);
+			const { file, args } = scriptLaunch("bsd", "pi --x");
+			const child = spawn(file, args, {
+				env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+			const exited = once(child, "exit");
+			const [chunk] = await once(child.stdout, "data");
+			expect(String(chunk), "the stand-in started").toBe("started\n");
+			const children = spawnSync("pgrep", ["-P", String(child.pid)], {
+				encoding: "utf8",
+			}).stdout;
+			child.stdin.write("hello\n");
+			child.stdin.end();
+			const [code] = await exited;
+			expect(children, "script's children with its stdin still open").toBe("");
+			expect(code, "the stand-in still took what was typed").toBe(0);
 		} finally {
 			rmSync(bin, { recursive: true, force: true });
 		}

@@ -14,7 +14,11 @@
  * on socket", the Mac's host run, 27 November). So BSD script is started
  * by bash with a pipe on its stdin, which cat fills from node's socket,
  * and exec keeps the pid script's own, so a signal sent to it still
- * reaches script.
+ * reaches script. cat must not be script's child: a process bash forks
+ * before its exec stays the child of the pid that becomes script, and a
+ * Mac's pgrep -P lists it before the command, so the terminal's pi was
+ * taken to be cat and a stop's SIGKILL fell on cat (#2385's round, F1,
+ * 28 November). So cat runs apart, its parent gone before script starts.
  */
 
 import { spawnSync } from "node:child_process";
@@ -64,10 +68,22 @@ export interface Launch {
 
 /**
  * bash's line that starts script with its arguments and a pipe, not
- * node's socket, on its stdin; cat's errors go nowhere, since a write
- * to a script that has ended says nothing worth reading.
+ * node's socket, on its stdin. The pipe is a fifo in a folder of its
+ * own, gone once both ends are open. cat fills it from node's socket,
+ * handed over as fd 3 since bash gives a background command /dev/null
+ * for its stdin, and runs in a subshell bash waits for, so by script's
+ * exec cat's parent has ended and script starts with no child but its
+ * command. cat's errors go nowhere, since a write to a script that has
+ * ended says nothing worth reading.
  */
-const BEHIND_A_PIPE = 'exec script "$@" < <(exec cat 2>/dev/null)';
+const BEHIND_A_PIPE = [
+	'folder="$(mktemp -d)"',
+	'mkfifo "$folder/in"',
+	'( (exec cat <&3 >"$folder/in" 2>/dev/null) & ) 3<&0',
+	'exec 5<"$folder/in"',
+	'rm -r "$folder"',
+	'exec script "$@" <&5 5<&-',
+].join(" && ");
 
 /**
  * How to start script(1) of `kind` running `command` in a terminal of
