@@ -1,14 +1,23 @@
 /**
- * Whether another roster round still runs on this machine, so a Mac
- * can start its rounds one at a time.
+ * Which roster rounds still run on this machine, and whether a Mac
+ * may start another beside them.
  *
  * A Mac's room reads its memory only as it stands: a round's reviewers
  * load a minute or more after it starts, so a second round started
  * beside a first read the room the first had not yet taken. On 26
  * November two rounds ran at once on the work Mac twice in ten minutes
  * (15:06 and 15:12), each started on a reading the other was about to
- * spend, and the Mac fell under 30% free. Velocity runs the Mac one
- * roster round at a time (1OGSE7), and this is what holds a start to it.
+ * spend, and the Mac fell under 30% free. So a Mac starts one roster
+ * round at a time unless its config's `review.mac.roundsAtOnce` lets
+ * it run more (1OGSE7), and even then a further round starts only once
+ * every round running is {@link SETTLED_AFTER_MS} in, so their
+ * reviewers have loaded and the reading includes them, and only on a
+ * reading of at least {@link LEAST_FREE_FOR_ANOTHER_PERCENT}% free. A
+ * round takes its start just before its reviewers, and a Mac spaces its
+ * starts no closer than {@link SETTLED_AFTER_MS}, so by the next start
+ * the last round's folder is there to be counted and aged: two waiting
+ * rounds never both pass on one count. A round that took its start and
+ * still has no folder that long after has failed before its reviewers.
  *
  * A round is read from the folders its reviewers leave under the
  * transcripts' `runs`, judged by the same supervisor lease the collect
@@ -44,6 +53,22 @@ import {
  */
 export const RUNNING_LOOK_BACK_MS = 2 * 60 * 60_000;
 
+/**
+ * How long every running round must have run before a Mac starts
+ * another beside it: a round's reviewers load a minute or more after
+ * it starts, so by three minutes they have, and the memory reading
+ * includes what they take.
+ */
+export const SETTLED_AFTER_MS = 3 * 60_000;
+
+/**
+ * The least free memory, as `kern.memorystatus_level` reads it, on
+ * which a Mac starts a round beside one already running. A round takes
+ * 3 to 4 GB, and the 35% a lone round starts on leaves no room for a
+ * second's on top of the first's.
+ */
+export const LEAST_FREE_FOR_ANOTHER_PERCENT = 60;
+
 /** A round still running here, and how many of its reviewers are yet to answer. */
 export interface RunningRound {
 	readonly runId: string;
@@ -52,17 +77,26 @@ export interface RunningRound {
 	readonly runningMs?: number;
 }
 
+/** Which condition holds a start beside the rounds already running. */
+export type RoundsHeldBy = "count" | "young" | "free";
+
+/** A start the rounds already running hold, and why, said for its answer. */
+export interface RoundsHeld {
+	readonly by: RoundsHeldBy;
+	readonly said: string;
+}
+
 /**
- * The newest roster round under `stateDir` that still runs on this
- * machine, or nothing when none does. A round whose folder holds no
- * reviewer yet counts as running while it is young, as a supervisor's
- * own missing lease does, since its reviewers are being handed out.
+ * Every roster round under `stateDir` that still runs on this machine,
+ * newest first, or none. A round whose folder holds no reviewer yet
+ * counts as running while it is young, as a supervisor's own missing
+ * lease does, since its reviewers are being handed out.
  */
-export async function rosterRoundRunning(
+export async function rosterRoundsRunning(
 	stateDir: string,
 	facts: TickFacts = tickFacts,
 	now: number = Date.now(),
-): Promise<RunningRound | undefined> {
+): Promise<RunningRound[]> {
 	const store = new ReviewerArtifactsStore(stateDir);
 	// One process listing for every reviewer this look reads, not one each.
 	const once = askedOnceWithTicks(facts);
@@ -73,39 +107,52 @@ export async function rosterRoundRunning(
 				run.at !== undefined && now - run.at < RUNNING_LOOK_BACK_MS,
 		)
 		.sort((a, b) => b.at - a.at);
+	const running: RunningRound[] = [];
 	for (const run of recent) {
-		const { reviewersDir } = store.rootPaths(run.name);
-		const reviewers = await namesIn(reviewersDir);
-		if (reviewers.length === 0) {
-			if (await youngerThan(reviewersDir, run.at, STARTING_FOR_MS, now)) {
-				return {
-					runId: run.name,
-					reviewersRunning: 0,
-					runningMs: now - run.at,
-				};
-			}
-			continue;
-		}
-		let running = 0;
-		for (const reviewerId of reviewers) {
-			const standing = await supervisorStanding(
-				store,
-				run.name,
-				reviewerId,
-				once,
-				now,
-			);
-			if (standing.kind === "running" || standing.kind === "starting") {
-				running += 1;
-			}
-		}
-		if (running > 0) {
-			return {
-				runId: run.name,
-				reviewersRunning: running,
-				runningMs: now - run.at,
-			};
-		}
+		const round = await stillRunning(store, run, once, now);
+		if (round !== undefined) running.push(round);
+	}
+	return running;
+}
+
+/**
+ * What holds a start on a Mac running `running`, where it may run
+ * `atOnce` roster rounds at a time, or nothing when it may start: the
+ * count once it is reached; below it, a round not yet
+ * {@link SETTLED_AFTER_MS} in; then a free reading under
+ * {@link LEAST_FREE_FOR_ANOTHER_PERCENT}%, or none to be had. With no
+ * round running nothing here holds it, and `freePercent` is asked only
+ * once the count and the ages let a start through.
+ */
+export async function roundsHeld(
+	running: readonly RunningRound[],
+	atOnce: number,
+	freePercent: () => Promise<number | undefined>,
+): Promise<RoundsHeld | undefined> {
+	if (running.length === 0) return undefined;
+	if (running.length >= atOnce) {
+		return { by: "count", said: countSaid(running, atOnce) };
+	}
+	// A round whose age is unknown reads as young, to hold rather than guess.
+	const young = running.find(
+		(round) => (round.runningMs ?? 0) < SETTLED_AFTER_MS,
+	);
+	if (young !== undefined) {
+		return {
+			by: "young",
+			said: `${young.runId} has run ${minutesSaid(young.runningMs ?? 0)} on this Mac, and another round starts beside it only once every round running is ${minutesSaid(SETTLED_AFTER_MS)} in, when their reviewers have loaded`,
+		};
+	}
+	const free = await freePercent();
+	if (free === undefined || free < LEAST_FREE_FOR_ANOTHER_PERCENT) {
+		const reads =
+			free === undefined
+				? "this Mac's free memory can't be read"
+				: `this Mac reads ${free}% free`;
+		return {
+			by: "free",
+			said: `${reads}, and another round starts beside ${running.length} running only at ${LEAST_FREE_FOR_ANOTHER_PERCENT}% free or more`,
+		};
 	}
 	return undefined;
 }
@@ -117,10 +164,72 @@ export function runningSaid(round: RunningRound): string {
 			? "its reviewers are still being handed out"
 			: `${round.reviewersRunning} of its reviewers ${round.reviewersRunning === 1 ? "is" : "are"} still running`;
 	const minutes =
-		round.runningMs === undefined
-			? ""
-			: `, ${Math.max(0, Math.floor(round.runningMs / 60_000))} minutes in`;
+		round.runningMs === undefined ? "" : `, ${minutesSaid(round.runningMs)} in`;
 	return `${round.runId} still runs on this Mac (${who}${minutes}), and a Mac starts one roster round at a time`;
+}
+
+/**
+ * Why a start waits once the rounds running number `atOnce`: as a Mac
+ * has always said it of one round, or naming them all.
+ */
+function countSaid(running: readonly RunningRound[], atOnce: number): string {
+	const [only] = running;
+	if (atOnce <= 1 && running.length === 1 && only !== undefined) {
+		return runningSaid(only);
+	}
+	const names = running
+		.map((round) =>
+			round.runningMs === undefined
+				? round.runId
+				: `${round.runId}, ${minutesSaid(round.runningMs)} in`,
+		)
+		.join("; ");
+	return `${running.length} roster rounds still run on this Mac (${names}), and it starts at most ${atOnce} at a time`;
+}
+
+/** The round `run` as its reviewers stand, when it still runs here. */
+async function stillRunning(
+	store: ReviewerArtifactsStore,
+	run: { readonly name: string; readonly at: number },
+	once: TickFacts,
+	now: number,
+): Promise<RunningRound | undefined> {
+	const { reviewersDir } = store.rootPaths(run.name);
+	const reviewers = await namesIn(reviewersDir);
+	const runningMs = now - run.at;
+	if (reviewers.length === 0) {
+		const starting = await youngerThan(
+			reviewersDir,
+			run.at,
+			STARTING_FOR_MS,
+			now,
+		);
+		return starting
+			? { runId: run.name, reviewersRunning: 0, runningMs }
+			: undefined;
+	}
+	let reviewersRunning = 0;
+	for (const reviewerId of reviewers) {
+		const standing = await supervisorStanding(
+			store,
+			run.name,
+			reviewerId,
+			once,
+			now,
+		);
+		if (standing.kind === "running" || standing.kind === "starting") {
+			reviewersRunning += 1;
+		}
+	}
+	return reviewersRunning > 0
+		? { runId: run.name, reviewersRunning, runningMs }
+		: undefined;
+}
+
+/** Whole minutes in `ms`, never under none, said as "1 minute" or "5 minutes". */
+function minutesSaid(ms: number): string {
+	const minutes = Math.max(0, Math.floor(ms / 60_000));
+	return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
 /** The folder names in `folder`, or none when it can't be read. */

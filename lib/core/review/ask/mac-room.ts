@@ -81,6 +81,12 @@ export interface RoundRoom {
 	 * through without its starting.
 	 */
 	startedUnjudged(): string | undefined;
+	/**
+	 * How much of the machine's memory is free, in percent, by the same
+	 * reading {@link RoundRoom.short} judges, or nothing when it can't be
+	 * read. A Mac asks it before starting a round beside one running.
+	 */
+	freePercent(): Promise<number | undefined>;
 }
 
 /**
@@ -128,6 +134,8 @@ export interface MacSources {
  * cap let through, or a gap past {@link UNJUDGED_LOOK_GAP_MS} with no
  * round looking starts that wait again; a look the cap let through
  * whose round didn't start spends nothing, so the next look may start.
+ * Its free memory is `kern.memorystatus_level` from the same reading,
+ * and none while that can't be read.
  */
 export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
 	const wait = sources.unjudged;
@@ -170,6 +178,12 @@ export function macRoundRoom(sources: MacSources = thisMac()): RoundRoom {
 				wait.lastLook = undefined;
 			}
 			return letThrough;
+		},
+		freePercent: async () => {
+			const read = await readingOf(sources.reading);
+			if (typeof read === "string") return undefined;
+			const free = read.figures.availablePercent;
+			return Number.isFinite(free) ? free : undefined;
 		},
 	};
 }
