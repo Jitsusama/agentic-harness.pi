@@ -159,8 +159,8 @@ function pidSpaceOf(pid: number | "self"): string | undefined {
 
 /**
  * Whether the pi an owner mark names still runs as itself: its pid there
- * and, where the mark holds its ticks, started at the same one. A mark
- * this code can't read, or one counted in another pid namespace than
+ * and, where the mark holds its ticks, started at the same one, or at
+ * ticks that can't be read for the moment. A mark this code can't read, or one counted in another pid namespace than
  * this process's, as a fence's, is taken as running, since nothing here
  * can prove it gone.
  */
@@ -174,7 +174,10 @@ export function ownerRuns(
 	if (match[3] !== undefined && match[3] !== ownSpace()) return true;
 	const pid = Number(match[1]);
 	if (!processThere(pid)) return false;
-	return match[2] === undefined || ticksOf(pid) === Number(match[2]);
+	if (match[2] === undefined) return true;
+	// Ticks that can't be read for the moment prove nothing gone.
+	const ticks = ticksOf(pid);
+	return ticks === undefined || ticks === Number(match[2]);
 }
 
 /** Where kept calls go: shell-workflow's state, under XDG_STATE_HOME. */

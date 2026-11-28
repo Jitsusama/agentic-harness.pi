@@ -26,7 +26,7 @@
  * any command's does; only its `tee` goes.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { processGlobal } from "../process/process-global.ts";
@@ -68,6 +68,11 @@ export interface OrphanOptions {
 	readonly ownerRuns?: (mark: string) => boolean;
 	/** Whether a pid is the call a mark names; carried.ts's by default. */
 	readonly proved?: (pid: number, mark: string) => boolean;
+	/**
+	 * Whether a process counts pids as this one does, so a pid its call
+	 * wrote down names the same process here; true when unknown.
+	 */
+	readonly sharesPids?: (pid: number) => boolean;
 	/** Kill every process a call's mark names; reap.ts's by default. */
 	readonly reap?: (mark: string) => void;
 	readonly say?: (line: string) => void;
@@ -95,10 +100,14 @@ export async function endOrphanedKept(
 	const runs = options.ownerRuns ?? ((mark: string) => ownerRuns(mark));
 	const proved = options.proved ?? provedCall;
 	const reapMark = options.reap ?? reap;
+	const sharesPids = options.sharesPids ?? sharesPidsHere;
 	const kept = await keptProcesses(folder, table);
 	const ended: EndedOrphan[] = [];
 	for (const [keep, found] of kept) {
-		const why = await orphaned(keep, found.mark, runs, proved);
+		// A call run in another pid namespace, as a fenced pi's, wrote its
+		// shell's pid as that namespace counts it, which proves nothing here.
+		const foreign = found.pids.some((pid) => !sharesPids(pid));
+		const why = await orphaned(keep, found.mark, runs, proved, foreign);
 		if (why === undefined) continue;
 		const pids = [...found.pids];
 		for (const pid of pids) {
@@ -170,6 +179,7 @@ async function orphaned(
 	mark: string | undefined,
 	runs: (mark: string) => boolean,
 	proved: (pid: number, mark: string) => boolean,
+	foreign: boolean,
 ): Promise<string | undefined> {
 	// A record is left to the conversation that takes it up, and to the
 	// host whose look stops it once nobody does; a carry to whoever holds it.
@@ -188,7 +198,8 @@ async function orphaned(
 			? "its files are gone, so nothing holds it"
 			: undefined;
 	// Written before pi named a call's owner: proved nobody's only once its
-	// shell has gone.
+	// shell has gone, which a pid from another namespace can't show.
+	if (foreign) return undefined;
 	const shell = wholeNumber(pid.text);
 	// Its stub hasn't said its shell yet: not proved gone.
 	if (shell === undefined) return undefined;
@@ -291,6 +302,23 @@ function procTable(root = "/proc"): KeptProcesses {
 			}
 		},
 	};
+}
+
+/** Whether `pid` counts pids in this process's namespace; true when unknown. */
+function sharesPidsHere(pid: number): boolean {
+	const theirs = pidSpace(pid);
+	const ours = pidSpace("self");
+	return theirs === undefined || ours === undefined || theirs === ours;
+}
+
+/** The pid namespace a process counts pids in, as its inode; none once unreadable. */
+function pidSpace(pid: number | "self"): string | undefined {
+	try {
+		return /\[(\d+)\]/.exec(readlinkSync(`/proc/${pid}/ns/pid`))?.[1];
+	} catch {
+		// Gone, or not ours to read: unknown, which proves nothing either way.
+		return undefined;
+	}
 }
 
 function readdirNumbers(root: string): number[] {

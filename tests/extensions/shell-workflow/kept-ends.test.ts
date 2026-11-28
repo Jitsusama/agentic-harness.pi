@@ -270,6 +270,24 @@ describe.runIf(existsSync("/proc/self/environ"))("a kept command", () => {
 		expect(said).toEqual([]);
 	});
 
+	it("from before owners were named, ends once its shell is gone, unless counted in another pid namespace", async () => {
+		/** A call whose pi named no owner, with its shell's pid naming nothing here. */
+		const ownerless = async (): Promise<Kept> => {
+			const kept = await keptCall(goneOwner());
+			rmSync(`${kept.work.keep}.owner`);
+			writeFileSync(`${kept.work.keep}.pid`, `${noSuchProcess()}\n`);
+			return kept;
+		};
+		const fenced = await ownerless();
+		await endOrphanedKept({ folder, sharesPids: () => false });
+		expect(
+			bothRun(fenced),
+			"a fenced pi's, whose pid proves nothing here",
+		).toBe(true);
+		await endOrphanedKept({ folder });
+		await ended(fenced);
+	});
+
 	it("is spared while the pi that started it runs, or when it isn't the kept folder's own", async () => {
 		const own = await keptCall(ownerMarkOf());
 		const deeper = join(folder, "deeper");

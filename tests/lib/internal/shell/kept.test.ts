@@ -24,6 +24,7 @@ import {
 	makeKept,
 	markCarried,
 	outputOf,
+	ownerRuns,
 	pidOf,
 	rollIfFull,
 	rollIfFullOff,
@@ -62,6 +63,25 @@ function teeEnding(status: number, before = ""): string {
 	chmodSync(tee, PRIVATE_FOLDER);
 	return dir;
 }
+
+describe("whether a call's owner runs", () => {
+	const space = () => "4026531836";
+	it("takes a pi started at another tick for gone, and one whose tick can't be read for there", () => {
+		const mark = `${process.pid}:12345@4026531836`;
+		expect(
+			ownerRuns(mark, () => 99, space),
+			"another start",
+		).toBe(false);
+		expect(
+			ownerRuns(mark, () => 12345, space),
+			"the same start",
+		).toBe(true);
+		expect(
+			ownerRuns(mark, () => undefined, space),
+			"unread",
+		).toBe(true);
+	});
+});
 
 describe("whether tee persists", () => {
 	it("answers for the tee each PATH finds", async () => {
