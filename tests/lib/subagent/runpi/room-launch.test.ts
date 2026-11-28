@@ -123,6 +123,60 @@ describe("a reviewer started on a room", () => {
 	});
 });
 
+describe("a reviewer started on a room keyed to its repository", () => {
+	const world = { repo: "world", commit: "c".repeat(40) };
+	const keyed: RoomPlace = {
+		mycelium: "mycelium",
+		realm: "work",
+		needs: ["repo=world", "zone=us"],
+		harnessRoot: "/pkg",
+		keyed: true,
+	};
+
+	it("asks the node for a machine with every need, for a repository the default room doesn't keep", () => {
+		const launch = roomLaunch(keyed, world, reviewer(), "b");
+		if (!("args" in launch)) throw new Error(launch.stays);
+
+		expect(launch.args.slice(0, 7)).toEqual([
+			"--realm=work",
+			"run",
+			"--need",
+			"repo=world",
+			"--need",
+			"zone=us",
+			"--",
+		]);
+		expect(launch.args.slice(7, 12)).toEqual([
+			"pi",
+			"--review",
+			"--repo",
+			"world",
+			"--commit",
+		]);
+	});
+
+	it("holds it to saying it checked out the head, where the default room isn't yet", () => {
+		const launch = roomLaunch(keyed, world, reviewer(), "b");
+		const before = roomLaunch(place, code, reviewer(), "b");
+
+		expect("args" in launch && launch.checkout).toBe(world.commit);
+		expect("args" in before && before.checkout).toBeUndefined();
+	});
+
+	it("stays for a repository name that isn't one folder's", () => {
+		for (const repo of ["../world", "-world", "World", "a/b"]) {
+			const launch = roomLaunch(keyed, { ...world, repo }, reviewer(), "b");
+			expect("stays" in launch && launch.stays, repo).toMatch(/no checkout of/);
+		}
+	});
+
+	it("stays for a room with no machine and no need", () => {
+		const launch = roomLaunch({ ...keyed, needs: [] }, world, reviewer(), "b");
+
+		expect("stays" in launch && launch.stays).toMatch(/no machine and no need/);
+	});
+});
+
 describe("a reviewer that stays here", () => {
 	const stays = (
 		args: readonly string[],

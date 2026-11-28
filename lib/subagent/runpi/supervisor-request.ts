@@ -20,7 +20,7 @@ import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { WrapUpRequest } from "../run-contract.ts";
 import type { RunPi } from "../subagent.ts";
-import { roomLaunch } from "./room-launch.ts";
+import { type RoomStart, roomLaunch } from "./room-launch.ts";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -273,9 +273,7 @@ export async function told(
 async function roomFor(
 	options: Parameters<RunPi>[0],
 ): Promise<
-	| { room: { binary: string; args: readonly string[] } }
-	| { roomStays: string }
-	| Record<string, never>
+	{ room: RoomStart } | { roomStays: string } | Record<string, never>
 > {
 	if (options.room === undefined) return {};
 	const named = options.args.filter((word) => word.startsWith("@"));
@@ -337,8 +335,11 @@ async function buildRequest(
 		readonly piPackageDir?: string;
 		readonly args: readonly string[];
 		readonly cwd: string;
-		/** Where it runs first, when it goes to a room. */
-		readonly room?: { binary: string; args: readonly string[] };
+		/**
+		 * Where it runs first, when it goes to a room, and the commit the
+		 * room must say it checked out, for a room whose entry says so.
+		 */
+		readonly room?: RoomStart;
 		/** Why no room can take a reviewer asked to run on one, which then fails. */
 		readonly roomStays?: string;
 		/** Nobody is waiting, so the parent's death means nothing. */

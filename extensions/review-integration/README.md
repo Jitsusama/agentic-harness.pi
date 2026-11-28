@@ -467,6 +467,47 @@ the adjustment somebody makes right after being told a reviewer
 ran out of time. A clock that could not be used is refused where
 it is written rather than dropped, on either road.
 
+### A Room for a Round's Reviewers
+
+A round's reviewers can run on a room, a machine of the mycelium
+that keeps a checkout of the change's repository, rather than here.
+`room` names the default room, for the three repositories it keeps:
+`core.nix`, `agentic-harness.pi` and `mycelium`, on GitHub under
+`Jitsusama`. `rooms` names a room for one repository, by its key,
+and wins over `room` for it:
+
+```json
+{
+  "room": { "machine": "room-1", "realm": "work" },
+  "rooms": {
+    "delta:shop/world": { "repo": "world", "needs": ["repo=world"] }
+  }
+}
+```
+
+A keyed room's `repo` is the folder the room keeps the repository
+in, one lowercase name of up to 64 characters. It names a `machine`,
+or `needs` as mycelium's `run --need` takes them (`kind=value`), and
+the node picks a machine with every need; a machine named wins over
+needs. `realm` is `work` unless it says otherwise. A room that names
+neither, or misnames anything, is taken as none. A repository with
+no room of either kind is reviewed here, as is any change whose head
+isn't known.
+
+The room's entry checks the head out before pi starts. A keyed room
+says which commit it read, in the first line of its stream:
+
+```json
+{ "type": "room_checkout", "commit": "<the head's 40 hex>" }
+```
+
+A reviewer whose room names another commit, says anything else
+first, or ends without the line fails, saying what came back, so a
+round counts only a room that read its head. The default room isn't
+held to the line yet, since its entry doesn't print it. A reviewer
+asked on a room never runs here instead, whatever went wrong there,
+since its round skipped this machine's bars.
+
 ## Registering a Provider
 
 A provider registers over the event bus, so it can live in

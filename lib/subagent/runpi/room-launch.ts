@@ -16,19 +16,37 @@
  * base64 in arguments, since nothing from here reaches a file in the
  * session's home; and the code under review is named by its commit,
  * which the entry checks out in the session's own layer of the room's
- * checkout of the repository `--repo` names before pi starts.
+ * checkout of the repository `--repo` names before pi starts. A room
+ * keyed to its repository in the config also says which commit it read,
+ * and the supervisor holds its reviewer to that.
  */
 
 import { isAbsolute, relative, sep } from "node:path";
 
+/**
+ * Which machine the node puts a reviewer on: the one it names, or any
+ * with every need (`kind=value`), as mycelium's own `run --need` picks.
+ */
+export type RoomMachine =
+	| { readonly machine: string }
+	| { readonly needs: readonly string[] };
+
 /** Where a reviewer goes when it goes to a room. */
-export interface RoomPlace {
+export type RoomPlace = RoomMachine & RoomReach;
+
+/** How a room is reached, and what this session's reviewers leave out there. */
+export interface RoomReach {
 	/** The mycelium binary that asks the node. */
 	readonly mycelium: string;
 	/** The realm the room is in. */
 	readonly realm: string;
-	/** The room, as mycelium names the machine. */
-	readonly machine: string;
+	/**
+	 * A room the config keys to the change's repository, rather than the
+	 * default one. Its entry takes any repository name of a safe shape,
+	 * not only ROOM_REPOS, and says which commit it checked out before pi
+	 * starts, which its reviewer is held to.
+	 */
+	readonly keyed?: boolean;
 	/** The harness this session runs, whose paths go as relative ones. */
 	readonly harnessRoot: string;
 	/**
@@ -55,10 +73,19 @@ export interface RoomCode {
 	readonly commit: string;
 }
 
+/** How a reviewer starts on a room. */
+export interface RoomStart {
+	readonly binary: string;
+	readonly args: readonly string[];
+	/**
+	 * The commit the room must say it checked out, in the first line of
+	 * its stream, before anything it says counts.
+	 */
+	readonly checkout?: string;
+}
+
 /** A started room reviewer, or why this one stays here. */
-export type RoomLaunch =
-	| { readonly binary: string; readonly args: readonly string[] }
-	| { readonly stays: string };
+export type RoomLaunch = RoomStart | { readonly stays: string };
 
 /**
  * The largest brief that goes to a room, before base64.
@@ -80,15 +107,28 @@ export const MAX_ROOM_BRIEF_BYTES = 1024 * 1024;
 export const ROOM_BRIEF_CHUNK = 96 * 1024;
 
 /**
- * The repositories a room keeps a checkout of, under the worker's
- * ~/src. The entry refuses any other name, so a review of anything
- * else stays here rather than asking.
+ * The repositories the default room keeps a checkout of, under the
+ * worker's ~/src. Its entry refuses any other name, so a review of
+ * anything else goes to a room keyed to its repository, or stays here.
  */
 export const ROOM_REPOS: ReadonlySet<string> = new Set([
 	"core.nix",
 	"agentic-harness.pi",
 	"mycelium",
 ]);
+
+/**
+ * The shape of a repository name a keyed room is asked for: one folder
+ * name under the room's ~/src, never a path or an option.
+ */
+export const ROOM_REPO_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * The type of the line a keyed room's entry prints on stdout before pi
+ * starts, `{"type":"room_checkout","commit":"<40 hex>"}`, naming the
+ * commit its reviewer reads.
+ */
+export const ROOM_CHECKOUT = "room_checkout";
 
 const COMMIT = /^[0-9a-f]{40}$/;
 const VALUED = new Set(["--extension", "-e", "--skill"]);
@@ -114,8 +154,16 @@ export function roomLaunch(
 	if (!COMMIT.test(code.commit)) {
 		return { stays: `${code.commit} is not a whole commit` };
 	}
-	if (!ROOM_REPOS.has(code.repo)) {
+	const known =
+		place.keyed === true
+			? ROOM_REPO_NAME.test(code.repo)
+			: ROOM_REPOS.has(code.repo);
+	if (!known) {
 		return { stays: `a room keeps no checkout of ${code.repo}` };
+	}
+	const needs = "machine" in place ? [`machine=${place.machine}`] : place.needs;
+	if (needs.length === 0) {
+		return { stays: "its room names no machine and no need" };
 	}
 	const loaded = new Set(place.entryLoads ?? []);
 	const hereOnly = new Set(place.hereOnly ?? []);
@@ -175,8 +223,7 @@ export function roomLaunch(
 			// One word, so no realm can be read as an option of its own.
 			`--realm=${place.realm}`,
 			"run",
-			"--need",
-			`machine=${place.machine}`,
+			...needs.flatMap((need) => ["--need", need]),
 			"--",
 			"pi",
 			"--review",
@@ -188,6 +235,10 @@ export function roomLaunch(
 			...pieces.flatMap((piece) => ["--brief-b64", piece]),
 			...words,
 		],
+		// Only a keyed room's entry says its checkout so far. The default
+		// room's (9R6RA6's) doesn't print the line yet; holding its
+		// reviewers to it as well is the next step, once it does.
+		...(place.keyed === true ? { checkout: code.commit } : {}),
 	};
 }
 
