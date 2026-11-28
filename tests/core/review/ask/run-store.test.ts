@@ -716,4 +716,22 @@ describe("revising a run", () => {
 		);
 		expect((await store.list(change)).map((r) => r.id)).toEqual(["council-1"]);
 	});
+
+	it("still swaps a whole run for callers of the public export", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+
+		await store.replace(
+			change,
+			run({
+				id: "council-1",
+				outcomes: [{ participantId: "hawk", findingIds: [9] }],
+			}),
+		);
+
+		expect((await store.list(change))[0]?.outcomes[0]?.findingIds).toEqual([9]);
+		await expect(store.replace(change, run({ id: "ghost" }))).rejects.toThrow(
+			/ghost/,
+		);
+	});
 });

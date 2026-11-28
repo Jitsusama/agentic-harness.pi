@@ -13,9 +13,12 @@
 import { describe, expect, it } from "vitest";
 import { askFunctions } from "./ask-source.ts";
 
-/** Where the retry asks whether the head moved, and acts on it. */
-const REFUSED =
-	/const moved = retryHeadMoved\(\s*held,\s*proposal\.headCommit,?\s*\);\s*if \(moved !== undefined\) return refuse\(moved\);/;
+/**
+ * Where the retry asks whether the head moved against the round it
+ * read, and refuses on the answer. Loose on names and layout, since
+ * what this holds is the order, not the spelling.
+ */
+const REFUSED = /retryHeadMoved\(\s*held,[^)]*\)[\s\S]{0,80}?return refuse\(/;
 
 const retry = askFunctions().get("retryOne") ?? "";
 
@@ -29,7 +32,9 @@ describe("a retry into a round the change has moved past", () => {
 	it.each([
 		["claims anybody", "claimIdentities("],
 		["asks anybody", "await runCouncil("],
-		["writes the ledger", "store.revise("],
+		["writes the ledger", "substituteInRound("],
+		["tells it to change a setting", "retryCannotResettle("],
+		["tells it to raise a clock", "retryWouldRepeat("],
 	])("is refused before it %s", (_what, act) => {
 		const refused = retry.search(REFUSED);
 		const acts = retry.indexOf(act);

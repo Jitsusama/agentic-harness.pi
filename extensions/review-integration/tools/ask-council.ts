@@ -12,6 +12,7 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { lensFor, tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import type { CouncilStart } from "../../../lib/core/review/ask/start-spacing.ts";
+import { substituteInRound } from "../../../lib/core/review/ask/store.ts";
 import {
 	type AskRound,
 	type ChangeRef,
@@ -28,7 +29,6 @@ import {
 	runCouncil,
 	runJudge,
 	startCouncil,
-	substituteOutcome,
 } from "../../../lib/core/review/index.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
@@ -495,6 +495,13 @@ export async function retryOne(
 		);
 	}
 
+	// Read before anybody is claimed or asked, and before any refusal
+	// that says to change a setting, since none helps once the change
+	// has moved past its round: that refuses the retry outright.
+	const { proposal, diff } = await material(bound);
+	const moved = retryHeadMoved(held, proposal.headCommit);
+	if (moved !== undefined) return refuse(moved);
+
 	// The round to change settings for is the next one, not this one.
 	const resettles = retryCannotResettle(params.who, held, asked.id);
 	if (resettles !== undefined) return refuse(resettles);
@@ -529,12 +536,6 @@ export async function retryOne(
 		keepsItsOwnClocks(participant) ? participant.id : undefined,
 	);
 	if (repeats !== undefined) return refuse(repeats);
-
-	// Read before anybody is claimed or asked, since a change that moved
-	// since its round refuses the retry outright.
-	const { proposal, diff } = await material(bound);
-	const moved = retryHeadMoved(held, proposal.headCommit);
-	if (moved !== undefined) return refuse(moved);
 
 	await claimIdentities(change, asked.role, [participant]);
 	const tree = await treeForRound(
@@ -639,8 +640,12 @@ export async function retryOne(
 	// before this reviewer ran: another retry into the same round may
 	// have landed meanwhile, and writing back the earlier read laid it
 	// over that one's answer.
-	const updated = await store.revise(change, held.id, (now) =>
-		substituteOutcome(now, { ...outcome, ...given }, read),
+	const updated = await substituteInRound(
+		store,
+		change,
+		held.id,
+		{ ...outcome, ...given },
+		read,
 	);
 	return say(
 		[

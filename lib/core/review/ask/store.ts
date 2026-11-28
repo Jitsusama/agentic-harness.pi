@@ -20,7 +20,8 @@ import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
 import { changeKey } from "../keys.ts";
 import { answeredOutcome } from "./answered.ts";
-import type { AskRound, AskRun } from "./run.ts";
+import type { AskRound, AskRun, ParticipantOutcome, TreeRead } from "./run.ts";
+import { substituteOutcome } from "./run.ts";
 
 /** Rounds held against a change. */
 export interface RunStore {
@@ -54,6 +55,15 @@ export interface RunStore {
 		runId: string,
 		next: (run: AskRun) => AskRun,
 	): Promise<AskRun>;
+	/**
+	 * Swap a round for a new version of itself, in place.
+	 *
+	 * @deprecated A whole round built from an earlier read lays itself
+	 * over whatever was written since. Use `revise`, which builds from
+	 * the ledger's copy; this stays only so callers of the public
+	 * export keep working.
+	 */
+	replace(change: ChangeRef, run: AskRun): Promise<void>;
 	/**
 	 * Hold this version of a round, whether or not one is held.
 	 *
@@ -451,7 +461,40 @@ export function createRunStore(root: string): RunStore {
 			}
 			return written;
 		},
+		async replace(change, run) {
+			await mutate(change, (ledger) => {
+				if (!ledger.runs.some((held) => held.id === run.id)) {
+					throw new Error(
+						`No run "${run.id}" is held against this change, so there is nothing to replace. Record it first, or check the id.`,
+					);
+				}
+				return {
+					runs: ledger.runs.map((held) => (held.id === run.id ? run : held)),
+				};
+			});
+		},
 	};
+}
+
+/**
+ * Put one retried participant's outcome into its round as the ledger
+ * holds it now, and answer the round written.
+ *
+ * Takes the round's id rather than the round, so a retry can't hand
+ * in the copy it read before its reviewer ran: on 28 Nov three
+ * retries into one council did, and the last to finish listed an
+ * earlier one's reviewer as failed still.
+ */
+export function substituteInRound(
+	store: RunStore,
+	change: ChangeRef,
+	runId: string,
+	outcome: ParticipantOutcome,
+	read: TreeRead,
+): Promise<AskRun> {
+	return store.revise(change, runId, (now) =>
+		substituteOutcome(now, outcome, read),
+	);
 }
 
 /**

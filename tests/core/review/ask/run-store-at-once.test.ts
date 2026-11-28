@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { substituteInRound } from "../../../../lib/core/review/ask/store.ts";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import {
 	createRunStore,
@@ -131,6 +132,46 @@ describe("writing one change's ledger from several places at once", () => {
 		]);
 		// Whichever wrote last answers with the other's outcome in it.
 		expect([answers(owl), answers(wren)]).toContainEqual(answers(held));
+	});
+
+	it("settles a closed round once retries landing together have answered all of it", async () => {
+		// What hurt on 28 Nov: a round stopped unfinished, whose every
+		// reviewer was then asked again at once. Built from the copy each
+		// read first, the last write listed another as failed, so the
+		// round stayed closed and no gate counted it.
+		const store = createRunStore(root);
+		await store.record(
+			change,
+			run({
+				closed: true,
+				participants: [
+					{ id: "hawk", role: "reviewer" },
+					{ id: "owl", role: "reviewer" },
+					{ id: "wren", role: "reviewer" },
+				],
+				outcomes: [],
+			}),
+		);
+
+		await Promise.all(
+			["hawk", "owl", "wren"].map((participantId, n) =>
+				substituteInRound(
+					store,
+					change,
+					run().id,
+					{ participantId, findingIds: [n] },
+					{},
+				),
+			),
+		);
+
+		const held = await store.byId(change, run().id);
+		expect(held?.outcomes.map((o) => o.participantId).sort()).toEqual([
+			"hawk",
+			"owl",
+			"wren",
+		]);
+		expect(held?.closed).toBeUndefined();
 	});
 
 	it("keeps every one of many rounds recorded at once", async () => {
