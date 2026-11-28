@@ -285,6 +285,34 @@ const EVERY_RUN_VALUES = [
 	},
 ];
 
+/** Where a message's words are, whether said whole or as a part. */
+const MESSAGE_TEXT = /\.message\.content(\[\d+\]\.text)?$/;
+
+/**
+ * How long a background job took, as its report says it
+ * (lib/jobs/hand-off.ts, `status` and `spoken`): "exited 0 after 1
+ * second", "failed after 2 minutes 5s". The time is the machine's, a
+ * loaded one taking a second longer, so two reports alike but for it
+ * are the same report; what ran, how it ended and what it said still count.
+ */
+const JOB_ELAPSED =
+	/\b(exited -?\d+|failed|finished) after (?:\d+ seconds?|\d+ minutes?(?: \d+s)?)/g;
+
+/** A message's words, each job report's elapsed time made one label. */
+function withoutElapsed(text: string): string {
+	return text.replace(JOB_ELAPSED, "$1 after <elapsed>");
+}
+
+/** Whether a difference is a message's words differing only by a job's elapsed time. */
+function differsByElapsed(one: Difference): boolean {
+	return (
+		MESSAGE_TEXT.test(one.path) &&
+		typeof one.expected === "string" &&
+		typeof one.actual === "string" &&
+		withoutElapsed(one.expected) === withoutElapsed(one.actual)
+	);
+}
+
 /** How many differences a parity report names. */
 const FIRST_DIFFERENCES = 10;
 
@@ -768,7 +796,8 @@ export function parityOf(
 				place.test(one.path) &&
 				one.expected === expected &&
 				one.actual === actual,
-		);
+		) ||
+		differsByElapsed(one);
 	const unexpected = found.filter((one) => !everyRun(one));
 	return {
 		...(restarted ? { customsLeftOut: true } : {}),

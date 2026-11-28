@@ -30,6 +30,7 @@ import {
 	turnRecords,
 	turnTimes,
 } from "./report.ts";
+import { JOB, JOB_SAYS } from "./soak-provider.ts";
 import { steerOf, summaryOf } from "./turns.ts";
 
 /** A message entry of a log, at `at` seconds past a fixed minute. */
@@ -776,6 +777,45 @@ describe("a soak's parity, past what each mode and restart writes", () => {
 				roots,
 			).unexpected,
 			"another error still counts",
+		).toBe(1);
+	});
+
+	it("expects a job's report to name its own elapsed time, and no other difference", () => {
+		const report = (command: string, took: string, output: string) => {
+			const text = `\`${command}\` exited 0 after ${took}.\n${output}`;
+			return entry("user", [{ type: "text", text }], 4);
+		};
+		expect(
+			parityOf(
+				[report(JOB, "2 seconds", JOB_SAYS)],
+				[report(JOB, "1 second", JOB_SAYS)],
+				roots,
+			).unexpected,
+			"a loaded machine takes longer",
+		).toBe(0);
+		expect(
+			parityOf(
+				[report(JOB, "1 minute 5s", JOB_SAYS)],
+				[report(JOB, "58 seconds", JOB_SAYS)],
+				roots,
+			).unexpected,
+			"past a minute, as it is said",
+		).toBe(0);
+		expect(
+			parityOf(
+				[report("echo other", "2 seconds", JOB_SAYS)],
+				[report(JOB, "1 second", JOB_SAYS)],
+				roots,
+			).unexpected,
+			"another command still counts",
+		).toBe(1);
+		expect(
+			parityOf(
+				[report(JOB, "2 seconds", "other")],
+				[report(JOB, "1 second", JOB_SAYS)],
+				roots,
+			).unexpected,
+			"other output still counts",
 		).toBe(1);
 	});
 
