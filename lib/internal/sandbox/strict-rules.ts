@@ -2,6 +2,16 @@
  * What the strict profile lets a command reach: the paths it may run,
  * read and write, the sockets it may use, and the sandbox's own folders
  * beside them, as landrun's rules and as pi's file tools read them.
+ *
+ * The working folder and the sandbox's temporary folder let a command
+ * run what it wrote there too, since a build runs what it builds: cargo's
+ * build scripts failed with "Permission denied (os error 13)" in rooms
+ * while those folders were only writable. That adds no reach. A strict
+ * command could already run any code from them through the store's
+ * interpreters (bash, python, node, ctypes), and what any of it touches
+ * is still bounded by Landlock's path, socket and network rules and,
+ * under the fence, by bubblewrap's binds. The cache, gcloud's settings
+ * and the devices stay only writable, since nothing is built there.
  */
 import { join } from "node:path";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
@@ -58,6 +68,8 @@ export type Rule = readonly [flag: string, value: string];
 interface StrictPaths {
 	readonly runnable: readonly string[];
 	readonly readable: readonly string[];
+	/** Written, and what is written there run: where a command builds. */
+	readonly buildable: readonly string[];
 	readonly writable: readonly string[];
 	readonly sockets: readonly string[];
 }
@@ -93,9 +105,8 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		...(place.repository ? [place.repository] : []),
 	];
 	const own = sandboxFolders(place.home);
+	const buildable = [place.cwd, own.temporary];
 	const writable = [
-		place.cwd,
-		own.temporary,
 		own.cache,
 		...(place.served ? [] : [own.gcloud]),
 		"/dev/null",
@@ -108,7 +119,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
 		...(place.workerSocket ? [workerSocketRule(place.workerSocket)] : []),
 	];
-	return { runnable, readable, writable, sockets };
+	return { runnable, readable, buildable, writable, sockets };
 }
 
 /**
@@ -117,11 +128,13 @@ function strictPaths(place: SandboxPlace): StrictPaths {
  * every machine.
  */
 export function strictRules(place: SandboxPlace): Rule[] {
-	const { runnable, readable, writable, sockets } = strictPaths(place);
+	const { runnable, readable, buildable, writable, sockets } =
+		strictPaths(place);
 	const own = sandboxFolders(place.home);
 	return [
 		...runnable.map((path): Rule => ["--rox", path]),
 		...readable.map((path): Rule => ["--ro", path]),
+		...buildable.map((path): Rule => ["--rwx", path]),
 		...writable.map((path): Rule => ["--rw", path]),
 		...sockets.map((path): Rule => ["--unix", path]),
 		["--env", `TMPDIR=${own.temporary}`],
@@ -147,9 +160,9 @@ export type FileUse = "read" | "write";
  * sandbox keeps from commands.
  */
 export function fileReach(place: SandboxPlace, use: FileUse): string[] {
-	const { runnable, readable, writable } = strictPaths(place);
+	const { runnable, readable, buildable, writable } = strictPaths(place);
 	const ours = (path: string) => path !== "/proc" && !path.startsWith("/dev/");
-	const written = writable.filter(ours);
+	const written = [...buildable, ...writable].filter(ours);
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
 }

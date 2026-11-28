@@ -987,6 +987,22 @@ describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("refused");
 		});
 
+		it("runs what it built in its work and its temporary folder", async () => {
+			const script = 'printf \'#!/bin/sh\\necho ran-%s\\n\' "$2" > "$1"';
+			const answer = await run(
+				{ kind: "strict", landrun },
+				[
+					`make() { ${script}; chmod +x "$1"; }`,
+					"make ./built work && ./built || echo work-unrun",
+					'own=$(mktemp) && make "$own" temporary && "$own" || echo temporary-unrun',
+				].join("\n"),
+				work,
+			);
+			expect(answer).toContain("ran-work");
+			expect(answer).toContain("ran-temporary");
+			expect(answer).not.toContain("unrun");
+		});
+
 		it("can't read a token from its environment or its parent's", async () => {
 			process.env.SANDBOX_TEST_TOKEN = "the-token-value";
 			const answer = await run(
