@@ -60,7 +60,10 @@ export function leasesText(
 	return lines.length > 0 ? `\nLeases:\n${lines.join("\n")}` : "";
 }
 
-/** A job as the queue holds it: running, or waiting at its place. */
+/**
+ * A job as the queue holds it: running, or waiting at its place, and
+ * overdue once it waits past when it was due to start.
+ */
 function jobSaid(job: QueueRecord["jobs"][number]): string {
 	const pushClass =
 		job.pushClass !== undefined ? ` of push class ${job.pushClass}` : "";
@@ -68,7 +71,7 @@ function jobSaid(job: QueueRecord["jobs"][number]): string {
 	const since = clock({ at: job.since });
 	return job.state === "running"
 		? `running ${kind} since ${since} (${job.what})`
-		: `waiting${job.place ? ` at place ${job.place}` : ""} to run ${kind}, since ${since} (${job.what})`;
+		: `waiting${job.place ? ` at place ${job.place}` : ""}${job.overdue ? ", overdue," : ""} to run ${kind}, since ${since} (${job.what})`;
 }
 
 /** A peer's leases in a phrase, its changes counted past the first few. */
