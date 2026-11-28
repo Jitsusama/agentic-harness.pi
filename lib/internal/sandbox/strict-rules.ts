@@ -15,9 +15,8 @@
  * there is no program another runs. The cache, gcloud's settings and
  * the devices stay only writable, since nothing is built there.
  */
-import { opendirSync, readlinkSync } from "node:fs";
+import { readlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { codeOf } from "../fence/fence-log.ts";
 import { workerSocketRule } from "../fence/fence-worker-socket.ts";
 import type { MachineGrants } from "./machine-grants.ts";
 
@@ -30,6 +29,14 @@ export const NIX_DOOR = "nix-untrusted.sock";
  * and a temporary folder for each session, used by nothing outside.
  */
 const SANDBOX_FOLDER = ".cache/pi-sandbox";
+
+/**
+ * What a strict command is handed beside `TMPDIR`, naming the same
+ * folder, so a process inside one knows it is: only landrun's own rule
+ * sets it, and what a strict command starts inherits it with the
+ * Landlock rules that bind it.
+ */
+export const STRICT_TMPDIR = "PI_STRICT_TMPDIR";
 
 /** A name a folder may take whole: a session's id, or a process's. */
 const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
@@ -73,29 +80,19 @@ export function temporaryFolders(home: string): string {
 }
 
 /**
- * Whether this process runs where the folder `every` session's temporary
- * folder lies in can't be listed: inside a strict command, whose Landlock
- * rules give it its own folder and none of its neighbours.
- */
-function hiddenFromUs(every: string): boolean {
-	try {
-		opendirSync(every).closeSync();
-		return false;
-	} catch (error) {
-		const code = codeOf(error);
-		return code === "EACCES" || code === "EPERM";
-	}
-}
-
-/**
  * The temporary folder a strict command in the session `env` names is
  * given: one of the session's own, since a command runs what it writes
  * there and one shared folder would let a session reading a stranger's
  * text plant a program another runs. The `TMPDIR` it was handed is kept
- * only where it is that session's, or where this process is already a
- * strict command, as a strict pi's own commands are: it can make no
- * other. Elsewhere, as under a spawner outside every sandbox whose
- * `TMPDIR` names another session's, it takes its own.
+ * only where this process is already a strict command handed that
+ * folder, as a strict pi's own commands are: it can make no other.
+ * Elsewhere, as under a spawner outside every sandbox whose `TMPDIR`
+ * names another session's, it takes its own.
+ *
+ * A strict command is known by what its rules hand it
+ * ({@link STRICT_TMPDIR}), never by what it can't list: a folder's mode
+ * says that too, and any command could set that mode on the folder
+ * every session's lies in (the #2460 council's F69).
  */
 function temporaryFolder(home: string, env: NodeJS.ProcessEnv): string {
 	const every = temporaryFolders(home);
@@ -104,7 +101,7 @@ function temporaryFolder(home: string, env: NodeJS.ProcessEnv): string {
 		inherited !== undefined &&
 		dirname(inherited) === every &&
 		FOLDER_NAME.test(basename(inherited)) &&
-		(basename(inherited) === env.PI_SESSION_ID || hiddenFromUs(every))
+		env[STRICT_TMPDIR] === inherited
 	) {
 		// Spelt anew, since one ending in a slash would have the link
 		// check follow a link put in its place.
@@ -242,6 +239,7 @@ export function strictRules(place: SandboxPlace): Rule[] {
 		...granted.map((path): Rule => [isDevice(path) ? "--rw" : "--rwx", path]),
 		...sockets.map((path): Rule => ["--unix", path]),
 		["--env", `TMPDIR=${own.temporary}`],
+		["--env", `${STRICT_TMPDIR}=${own.temporary}`],
 		["--env", `XDG_CACHE_HOME=${own.cache}`],
 		...(place.runtimeDir
 			? [

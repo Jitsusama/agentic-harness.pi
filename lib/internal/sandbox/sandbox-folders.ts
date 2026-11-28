@@ -26,8 +26,12 @@
  * handed down in `TMPDIR`, which a live process still uses. A folder an
  * earlier process made read-only inside is made writable to be emptied,
  * as it is this account's own. One that still won't empty refuses the
- * process's commands, saying to remove it by hand, and isn't walked
- * again until it is gone, when it is made anew.
+ * command, and the process's commands for {@link TRY_EMPTY_AGAIN_MS}
+ * after, so a leftover tree isn't walked on every command; then the
+ * next command tries again, since rm may have failed only for want of a
+ * process under load. The refusal names the folder and none of what is
+ * in it, since those names are an earlier writer's to choose and the
+ * refusal reaches the model.
  *
  * What is emptied, and what won't empty, is kept once a process, not
  * once a module: each extension loads its own copy of this one, and a
@@ -55,10 +59,18 @@ const madeFresh = processGlobal(
 	() => new Set<string>(),
 );
 
-/** The temporary folders that wouldn't empty, with why, so none is walked twice. */
+/**
+ * How long a temporary folder that wouldn't empty refuses commands
+ * before the next one tries again: long enough that a leftover tree is
+ * walked once a minute at most, short enough that a passing failure
+ * costs a minute.
+ */
+export const TRY_EMPTY_AGAIN_MS = 60_000;
+
+/** The temporary folders that wouldn't empty, with why and when, so none is walked on every command. */
 const wontEmpty = processGlobal(
-	"agentic-harness.sandbox.wont-empty",
-	() => new Map<string, string>(),
+	"agentic-harness.sandbox.wont-empty-since",
+	() => new Map<string, { readonly refusal: string; readonly at: number }>(),
 );
 
 /** How the folders are made and read, so a test can stand in. */
@@ -100,15 +112,22 @@ export function makeSandboxFolders(
 	home: string,
 	env: NodeJS.ProcessEnv,
 	disk: FolderDisk = DISK,
+	now: () => number = Date.now,
 ): string | undefined {
 	const folders = sandboxFolders(home, env);
 	const temporary = folders.temporary;
 	const stuck = wontEmpty.get(temporary);
 	if (stuck !== undefined) {
-		if (disk.look(temporary) !== undefined) return stuck;
-		// Removed by hand, so made anew below, with nothing in it.
-		wontEmpty.delete(temporary);
-		madeFresh.add(temporary);
+		if (disk.look(temporary) === undefined) {
+			// Removed by hand, so made anew below, with nothing in it.
+			wontEmpty.delete(temporary);
+			madeFresh.add(temporary);
+		} else if (now() - stuck.at < TRY_EMPTY_AGAIN_MS) {
+			return stuck.refusal;
+		} else {
+			// Its minute is up: this command tries to empty it again.
+			wontEmpty.delete(temporary);
+		}
 	}
 	for (const folder of Object.values(folders)) {
 		const unmade = madeOurs(folder, disk);
@@ -117,9 +136,11 @@ export function makeSandboxFolders(
 	if (!startsFresh(temporary, env)) return undefined;
 	try {
 		disk.empty(temporary);
-	} catch (error) {
-		const refusal = `the strict sandbox couldn't empty its folder ${temporary}, which an earlier process may have left (${String(error)}), so no command runs: remove it by hand and try again`;
-		wontEmpty.set(temporary, refusal);
+	} catch {
+		// What rm said names what is in the folder, an earlier writer's
+		// choice of words, so the refusal leaves it out.
+		const refusal = `the strict sandbox couldn't empty its folder ${temporary}, which an earlier process may have left, so this command doesn't run; a command a minute on tries again, or remove the folder`;
+		wontEmpty.set(temporary, { refusal, at: now() });
 		return refusal;
 	}
 	madeFresh.add(temporary);
