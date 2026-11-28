@@ -10,18 +10,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { STEERED_RESULTS } from "../../../../extensions/job-workflow/outbox.ts";
-import { answeredLast } from "./hosted-case.ts";
+import { answeredLast, erredLast } from "./hosted-case.ts";
 
-let folder: string | undefined;
+const folders: string[] = [];
 
 afterEach(() => {
-	if (folder) rmSync(folder, { recursive: true, force: true });
-	folder = undefined;
+	for (const folder of folders.splice(0))
+		rmSync(folder, { recursive: true, force: true });
 });
 
 /** A session file holding `entries`, one JSON line each, as pi writes. */
 function sessionOf(...entries: object[]): string {
-	folder = mkdtempSync(join(tmpdir(), "hosted-case-"));
+	const folder = mkdtempSync(join(tmpdir(), "hosted-case-"));
+	folders.push(folder);
 	const file = join(folder, "session.jsonl");
 	writeFileSync(
 		file,
@@ -46,6 +47,10 @@ const calling = said({
 	content: [{ type: "toolCall", id: "c", name: "bash", arguments: {} }],
 	stopReason: "toolUse",
 });
+/** The model's answer that stopped for `reason`, saying nothing. */
+function stoppedOn(reason: string): object {
+	return said({ role: "assistant", content: [], stopReason: reason });
+}
 const steered = {
 	type: "custom_message",
 	customType: STEERED_RESULTS,
@@ -53,27 +58,37 @@ const steered = {
 	display: true,
 };
 
+/**
+ * Expect answeredLast to read a session file of `entries` as answered, or
+ * as still waiting, saying which it should have read and what the file
+ * held when it doesn't.
+ */
+function expectAnswered(holds: boolean, ...entries: object[]): void {
+	expect(
+		answeredLast(sessionOf(...entries)),
+		`${holds ? "answered" : "still waiting"}: ${JSON.stringify(entries)}`,
+	).toBe(holds);
+}
+
 describe("answeredLast", () => {
 	it("holds once the model's last answer calls no tool", () => {
-		expect(answeredLast(sessionOf(told, answered))).toBe(true);
+		expectAnswered(true, told, answered);
 	});
 
 	it("waits while the model's last message calls a tool", () => {
-		expect(answeredLast(sessionOf(told, calling))).toBe(false);
+		expectAnswered(false, told, calling);
 	});
 
 	it("waits while words wait for the model", () => {
-		expect(answeredLast(sessionOf(answered, told))).toBe(false);
+		expectAnswered(false, answered, told);
 	});
 
 	it("waits on a job's end steered into the run after its answer", () => {
-		expect(answeredLast(sessionOf(told, answered, steered))).toBe(false);
+		expectAnswered(false, told, answered, steered);
 	});
 
 	it("holds once the model answers after the steered end", () => {
-		expect(answeredLast(sessionOf(told, answered, steered, answered))).toBe(
-			true,
-		);
+		expectAnswered(true, told, answered, steered, answered);
 	});
 
 	it("passes over another extension's custom message", () => {
@@ -83,24 +98,69 @@ describe("answeredLast", () => {
 			content: "noted",
 			display: true,
 		};
-		expect(answeredLast(sessionOf(told, answered, note))).toBe(true);
+		expectAnswered(true, told, answered, note);
 	});
 
 	it("passes over entries that aren't said, such as a mark", () => {
 		const mark = { type: "custom", customType: "job-carried", data: {} };
-		expect(answeredLast(sessionOf(told, answered, mark))).toBe(true);
+		expectAnswered(true, told, answered, mark);
 	});
 
 	it("waits on an answer that stopped on an error, which may be retried", () => {
-		const failed = said({
-			role: "assistant",
-			content: [],
-			stopReason: "error",
-		});
-		expect(answeredLast(sessionOf(told, failed))).toBe(false);
+		expectAnswered(false, told, stoppedOn("error"));
+	});
+
+	it("holds once a retry answers after an error", () => {
+		expectAnswered(true, told, stoppedOn("error"), answered);
+	});
+
+	it("waits on an answer cut off, whether aborted or out of room", () => {
+		expectAnswered(false, told, stoppedOn("aborted"));
+		expectAnswered(false, told, stoppedOn("length"));
 	});
 
 	it("waits on a file not written yet", () => {
-		expect(answeredLast(undefined)).toBe(false);
+		expect(answeredLast(undefined), "a file not written is still waiting").toBe(
+			false,
+		);
+	});
+});
+
+describe("erredLast", () => {
+	const erred = said({
+		role: "assistant",
+		content: [],
+		stopReason: "error",
+		errorMessage: "the provider refused",
+	});
+
+	it("says the error an answer last stopped on", () => {
+		expect(erredLast(sessionOf(told, erred))).toBe("the provider refused");
+	});
+
+	it("says an error that came with no text as unsaid", () => {
+		expect(erredLast(sessionOf(told, stoppedOn("error")))).toBe(
+			"no error text",
+		);
+	});
+
+	it("passes over an error answered since", () => {
+		expect(erredLast(sessionOf(told, erred, answered))).toBeUndefined();
+	});
+
+	it("passes over an error words have come after", () => {
+		expect(erredLast(sessionOf(erred, told))).toBeUndefined();
+	});
+
+	it("reads past a mark, as answeredLast does", () => {
+		const mark = { type: "custom", customType: "job-carried", data: {} };
+		expect(erredLast(sessionOf(told, erred, mark))).toBe(
+			"the provider refused",
+		);
+	});
+
+	it("says nothing of an answer that stopped, or a file not written", () => {
+		expect(erredLast(sessionOf(told, answered))).toBeUndefined();
+		expect(erredLast(undefined)).toBeUndefined();
 	});
 });

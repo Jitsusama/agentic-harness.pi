@@ -119,8 +119,40 @@ export function turnEnded(file: string | undefined): boolean {
  * is read here too: until the model answers after it, the turn it joined
  * hasn't ended. Other custom messages needn't start a turn, so they're
  * passed over, as a note written after the answer would hold it open.
+ *
+ * Some do start one: the mesh's handing and away's held-back word send
+ * theirs with triggerTurn, and an entry doesn't say whether it did. A
+ * sealed host case has no peer handing it words and no away mode, so
+ * there the steered results are the only custom message that starts a
+ * turn; a case that has either must wait on its turn some other way.
  */
 export function answeredLast(file: string | undefined): boolean {
+	const message = lastSaid(file);
+	return message?.role === "assistant" && message.stopReason === "stop";
+}
+
+/**
+ * The error text of the answer a session file last records, when that
+ * answer stopped on an error and nothing has been said since, read as
+ * answeredLast reads. A sealed host turns pi's retry off, so there such
+ * an answer is the turn's last word.
+ */
+export function erredLast(file: string | undefined): string | undefined {
+	const message = lastSaid(file);
+	if (message?.role !== "assistant" || message.stopReason !== "error")
+		return undefined;
+	return typeof message.errorMessage === "string"
+		? message.errorMessage
+		: "no error text";
+}
+
+/**
+ * The last message a session file records, counting a job's steered end
+ * as one said, as answeredLast says why.
+ */
+function lastSaid(
+	file: string | undefined,
+): Record<string, unknown> | undefined {
 	const last = entriesOf(file)
 		.filter(
 			(entry) =>
@@ -129,8 +161,7 @@ export function answeredLast(file: string | undefined): boolean {
 					entry.customType === STEERED_RESULTS),
 		)
 		.at(-1);
-	const message = isRecord(last?.message) ? last.message : undefined;
-	return message?.role === "assistant" && message.stopReason === "stop";
+	return isRecord(last?.message) ? last.message : undefined;
 }
 
 /** Every entry a session file records, each as its parsed record. */

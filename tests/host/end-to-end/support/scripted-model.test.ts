@@ -15,6 +15,8 @@ import {
 	CARRIED_FLEET,
 	CARRY,
 	CARRYING,
+	type Faux,
+	FIFTY_ROWS,
 	fauxOf,
 	LONG_NAP,
 	NAP,
@@ -26,19 +28,39 @@ import {
 
 const PACKAGE = resolve(import.meta.dirname, "../../../..");
 
+/** `own`, but an answer that says no stop stops as one cut off. */
+function cutOff(own: Faux): Faux {
+	return {
+		createFauxCore: (options) => own.createFauxCore(options),
+		fauxAssistantMessage: (content, options) =>
+			own.fauxAssistantMessage(content, { stopReason: "length", ...options }),
+		fauxToolCall: (name, args, options) =>
+			own.fauxToolCall(name, args, options),
+	};
+}
+
 /** A tool call the scripted model answered with. */
 interface Call {
 	readonly name: string;
 	readonly arguments: unknown;
 }
 
+/** What the scripted model answered: how it stopped, and its calls. */
+interface Answer {
+	readonly stopReason: unknown;
+	readonly calls: Call[];
+}
+
 /**
- * The tool calls the scripted model answers `messages` with. An answer
- * that isn't a message, or one that stopped on an error, throws, so a
- * broken core can't pass for one that calls nothing.
+ * The answer the scripted model gives `messages`. An answer that isn't a
+ * message, or one that stopped on an error, throws, so a broken core
+ * can't pass for one that calls nothing.
  */
-async function callsTo(messages: readonly object[]): Promise<Call[]> {
-	const core = scriptedCore(await fauxOf(PACKAGE));
+async function answerTo(
+	messages: readonly object[],
+	faux: (own: Faux) => Faux = (own) => own,
+): Promise<Answer> {
+	const core = scriptedCore(faux(await fauxOf(PACKAGE)));
 	// The faux core is pi's JavaScript, which carries no types here.
 	const stream = core.streamSimple(
 		{ ...SCRIPTED, api: core.api } as never,
@@ -51,13 +73,19 @@ async function callsTo(messages: readonly object[]): Promise<Call[]> {
 		message.stopReason === "error"
 	)
 		throw new Error(`not an answer: ${JSON.stringify(message)}`);
-	return message.content
+	const calls = message.content
 		.filter(isRecord)
 		.flatMap((part) =>
 			part.type === "toolCall" && typeof part.name === "string"
 				? [{ name: part.name, arguments: part.arguments }]
 				: [],
 		);
+	return { stopReason: message.stopReason, calls };
+}
+
+/** The tool calls the scripted model answers `messages` with. */
+async function callsTo(messages: readonly object[]): Promise<Call[]> {
+	return (await answerTo(messages)).calls;
 }
 
 /** The names of the tools the scripted model answers `messages` with. */
@@ -133,6 +161,35 @@ describe("the scripted model", () => {
 		);
 	});
 
+	// The host cases wait on an answer that stopped, as hosted-case's
+	// answeredLast reads, so a script that ended another way fails here.
+	it("stops when it calls nothing", async () => {
+		expect(
+			(await answerTo([told, started, handedOff, answered])).stopReason,
+		).toBe("stop");
+	});
+
+	// The answer the start of restart-carry's cases waits on.
+	it("stops once the carried command's result is in", async () => {
+		expect(await answerTo([told, started, handedOff])).toEqual({
+			stopReason: "stop",
+			calls: [],
+		});
+	});
+
+	it("asks for a tool's result when it calls one", async () => {
+		expect((await answerTo([told])).stopReason).toBe("toolUse");
+	});
+
+	// The host cases take the faux from the pi built with the host's
+	// patches, whose default stop these cases can't load, so they answer
+	// through a faux whose default is another.
+	it("says its stops whatever the faux's default", async () => {
+		const stopped = [told, started, handedOff];
+		expect((await answerTo(stopped, cutOff)).stopReason).toBe("stop");
+		expect((await answerTo([told], cutOff)).stopReason).toBe("toolUse");
+	});
+
 	it("acts on words said after its answer", async () => {
 		expect(await callsTo([told, started, handedOff, answered, told])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING, background: true } },
@@ -141,9 +198,15 @@ describe("the scripted model", () => {
 
 	describe("after a tool's result, reads the words that started the turn", () => {
 		it("for store", async () => {
-			const calls = await callsTo(afterSearch(STORE));
-			expect(calls.map((call) => call.name)).toEqual(["spend"]);
-			expect(calls[0]?.arguments).toMatchObject({ limit: 2 });
+			expect(await callsTo(afterSearch(STORE))).toEqual([
+				{ name: "spend", arguments: { query: FIFTY_ROWS, limit: 2 } },
+			]);
+			// More rows than the two shown, so the rest are stored under a
+			// handle, which is what the host case that reads them needs.
+			const rows = /json_each\('(\[[0-9,]*\])'\)/.exec(FIFTY_ROWS)?.[1];
+			// A rewrite of the query is said as one, not as a count of none.
+			expect(rows, `FIFTY_ROWS lists its rows: ${FIFTY_ROWS}`).toBeDefined();
+			expect(JSON.parse(rows ?? "[]")).toHaveLength(50);
 		});
 
 		it("for end", async () => {
