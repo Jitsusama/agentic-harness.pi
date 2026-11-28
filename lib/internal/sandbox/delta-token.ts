@@ -16,14 +16,16 @@
  * keeps its token outside. That risk is recorded (ISXEG8, 23 November)
  * and closes once Delta stands behind the door the way GitHub does, the
  * command holding only a stand-in. A machine without mint, or whose mint
- * gives none, hands none, and dt inside fails as it did before.
+ * gives none, hands none, and dt inside fails as it did before. Where no
+ * owner here can be trusted, mint isn't asked, and pi says why once, for
+ * whoever runs the machine: mint may well be there.
  */
 
 import { execFileSync } from "node:child_process";
 import {
+	type NoOwner,
 	noOwner,
-	noOwnerFix,
-	noOwnerSaid,
+	notKept,
 	systemFolders,
 	systemProgram,
 } from "./system-program.ts";
@@ -70,6 +72,9 @@ export type DeltaTokenSource = () => string | undefined;
 /** Asks mint for Delta's token, fresh or from its cache, throwing when it gives none. */
 export type MintAsk = (fresh: boolean) => string;
 
+/** Says to whoever runs the machine why Delta's token isn't handed on. */
+export type MintTold = (why: string) => void;
+
 /**
  * What mint runs with: who it runs as and where its broker listens, and
  * a `PATH` of the system's own folders alone. pi's own `PATH` can hold a
@@ -93,20 +98,36 @@ export function mintEnvironment(
 }
 
 /**
+ * Why Delta's token isn't handed to fenced commands where no owner here
+ * can be trusted, and what helps, as a sentence: said through `notKept`,
+ * as every refusal of a program for want of an owner is.
+ */
+export function mintUntrusted(why: NoOwner): string {
+	const { because, fix } = notKept(["mint"], why);
+	return `Delta's token isn't handed to fenced commands, since ${because}.${fix ? ` ${fix}` : ""}`;
+}
+
+/**
+ * Says `why` on standard error, where pi's screen keeps it in the stray
+ * output log and names it in a line, and a pi without one prints it.
+ */
+function tellOperator(why: string): void {
+	try {
+		process.stderr.write(`pi: ${why}\n`);
+	} catch {
+		// Standard error gone with whatever read it: commands still run,
+		// without Delta, as they would have.
+	}
+}
+
+/**
  * Runs mint from where only root puts it, or throws when it isn't there.
  * It runs while pi waits, at most twice a quarter hour and up to
  * `PATIENCE_MS` each; mint answers from its cache in a few milliseconds.
  */
 function askMint(fresh: boolean): string {
 	const mint = systemProgram("mint", MINT_FOLDERS);
-	if (!mint) {
-		const why = noOwner();
-		throw new Error(
-			why
-				? `no mint found: ${noOwnerSaid(why)}. ${noOwnerFix(why)}`
-				: "no mint where only root puts it",
-		);
-	}
+	if (!mint) throw new Error("no mint where only root puts it");
 	return execFileSync(
 		mint,
 		["token", DELTA_HOST, ...(fresh ? ["--fresh"] : [])],
@@ -148,17 +169,33 @@ export function expiresAt(token: string): number | undefined {
  * serves until the quarter hour or its expiry, whichever is sooner, so a
  * failing mint is asked no more often than a working one. A token that
  * is spent, or isn't a JWT, is never handed on.
+ *
+ * Where `unowned` says no owner here can be trusted, mint isn't asked,
+ * since none found could be trusted either, and `told` hears why once
+ * while it stays so: a machine without mint is nothing to report, but one
+ * whose mint pi can't trust is.
  */
 export function deltaTokens(
 	ask: MintAsk = askMint,
 	now: () => number = Date.now,
+	unowned: () => NoOwner | undefined = () => noOwner(),
+	told: MintTold = tellOperator,
 ): DeltaTokenSource {
 	let held: { token: string | undefined; until: number } | undefined;
+	let said: string | undefined;
 	const lasting = (token: string | undefined, at: number) =>
 		token !== undefined && (expiresAt(token) ?? 0) - at >= FRESH_BELOW_MS;
 	return () => {
 		const at = now();
 		if (held && at < held.until) return held.token;
+		const why = unowned();
+		const untrusted = why === undefined ? undefined : mintUntrusted(why);
+		if (untrusted !== undefined && untrusted !== said) told(untrusted);
+		said = untrusted;
+		if (untrusted !== undefined) {
+			held = { token: undefined, until: at + ASK_EVERY_MS };
+			return undefined;
+		}
 		let token = tried(ask, false);
 		// A fresh one only replaces it when one comes: a token with an hour
 		// left still serves a command that ends sooner.
