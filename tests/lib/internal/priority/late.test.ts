@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { lateNow, lateSaid } from "../../../../lib/internal/priority/late.ts";
+import {
+	judgeWaits,
+	type Keeper,
+} from "../../../../lib/internal/priority/next-turn.ts";
 import type {
 	Job,
 	Room,
@@ -11,22 +15,48 @@ import { job, NOW, ROOMY } from "./queue-line.ts";
 const due = (id: string, over: Partial<Job> = {}) =>
 	job(id, { dueToStart: NOW - 60_000, ...over });
 
-/** What each of `jobs` is told, by id, judged by `reasons` on `room`. */
+/**
+ * What each of `jobs` is told, by id, judged by `reasons` and `keepers`
+ * on `room`.
+ */
 const told = (
 	jobs: readonly Job[],
 	reasons: Record<string, WaitReason>,
 	room: Room = ROOMY,
+	keepers: Record<string, Keeper> = {},
 ) =>
 	Object.fromEntries(
-		[...lateNow(jobs, new Map(Object.entries(reasons)), room, NOW)].map(
+		[
+			...lateNow(
+				jobs,
+				{
+					reasons: new Map(Object.entries(reasons)),
+					keepers: new Map(Object.entries(keepers)),
+				},
+				room,
+				NOW,
+			),
+		].map(([id, late]) => [id, late.heldBy]),
+	);
+
+/** What each of `jobs` is told, by id, as the queue's own rules judge them. */
+const judged = (jobs: readonly Job[], room: Room = ROOMY) =>
+	Object.fromEntries(
+		[...lateNow(jobs, judgeWaits(jobs, room, NOW), room, NOW)].map(
 			([id, late]) => [id, late.heldBy],
 		),
 	);
 
 describe("what holds a late job, as its waiter is told", () => {
-	it("names the job ahead that keeps the line, past those only waiting their turn", () => {
+	it("names the job ahead that keeps the line, as the queue found it", () => {
 		const jobs = [due("a", { what: "cargo build -p one" }), due("b"), due("c")];
-		expect(told(jobs, { a: "memory", b: "order", c: "order" })).toMatchObject({
+		const a: Keeper = { by: "memory", job: "a" };
+		expect(
+			told(jobs, { a: "memory", b: "order", c: "order" }, ROOMY, {
+				b: a,
+				c: a,
+			}),
+		).toMatchObject({
 			b: "job a ahead of it (cargo build -p one), waiting on memory",
 			c: "job a ahead of it (cargo build -p one), waiting on memory",
 		});
@@ -35,23 +65,38 @@ describe("what holds a late job, as its waiter is told", () => {
 		});
 	});
 
-	it("passes over a job ahead whose wait holds only itself", () => {
+	it("names the turn just given, past a quick job ahead that waits on memory for itself", () => {
+		// Asked at once, the line takes them by id: a, then b, then c. The
+		// quick job doesn't fit, but holds nobody else; b fits and is given
+		// the turn, which is what keeps c.
 		const jobs = [
-			due("a", { what: "nix build .#vm-test" }),
-			due("b", { what: "cargo build -p two" }),
-			due("c"),
+			due("a", { quick: true, needsGib: 100, what: "cargo check" }),
+			due("b", { needsGib: 1, what: "cargo build -p two" }),
+			due("c", { needsGib: 1 }),
 		];
-		expect(told(jobs, { a: "vms", b: "behind", c: "order" })).toMatchObject({
-			c: "job b ahead of it (cargo build -p two), waiting behind a VM check",
+		expect(judged(jobs)).toMatchObject({
+			b: "the time between turns, its own next",
+			c: "the turn just given to job b ahead of it (cargo build -p two)",
+		});
+	});
+
+	it("names a job ahead that holds the line on memory, and says each other keeper", () => {
+		const jobs = [
+			due("a", { what: "cargo build -p one" }),
+			due("b", { needsGib: 1 }),
+		];
+		expect(judged(jobs, { ...ROOMY, availableGib: 0 })).toMatchObject({
+			a: expect.stringContaining("memory ("),
+			b: "job a ahead of it (cargo build -p one), waiting on memory",
 		});
 		expect(
-			// Asked at once, the line takes them by id: a, then b, then c.
-			told([due("a"), due("b"), due("c")], {
-				a: "vms",
-				b: "order",
-				c: "order",
+			told([due("a")], { a: "order" }, ROOMY, {
+				a: { by: "behind", job: "x" },
 			}),
-		).toMatchObject({ c: "the turn just given to a job ahead of it" });
+		).toEqual({ a: "job x ahead of it (gone), waiting behind a VM check" });
+		expect(
+			told([due("a")], { a: "order" }, ROOMY, { a: { by: "quick" } }),
+		).toEqual({ a: "the quick jobs allowed at once (1 running)" });
 	});
 
 	it("says the reading that holds it, as the queue reads it", () => {
@@ -97,7 +142,7 @@ describe("what holds a late job, as its waiter is told", () => {
 		const reasons = new Map<string, WaitReason>(
 			jobs.map((one) => [one.id, one.planning ? "planning" : "memory"]),
 		);
-		const late = lateNow(jobs, reasons, ROOMY, NOW);
+		const late = lateNow(jobs, { reasons, keepers: new Map() }, ROOMY, NOW);
 		const placeOf = (id: string) => {
 			const found = late.get(id);
 			const asked = jobs.find((one) => one.id === id);

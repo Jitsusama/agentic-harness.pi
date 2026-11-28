@@ -57,6 +57,7 @@ import type { Late } from "./job.ts";
 import { mayKeep } from "./keeper.ts";
 import { keptOutcomes } from "./kept-outcomes.ts";
 import { lateNow, lateSaid } from "./late.ts";
+import { judgeWaits } from "./next-turn.ts";
 import {
 	besideNow,
 	capFor,
@@ -82,7 +83,6 @@ import {
 	type Rules,
 	roomSaid,
 	type WaitReason,
-	waitReasons,
 } from "./queue.ts";
 import { type QueueRecord, queueRecord, shapeOf } from "./queue-record.ts";
 import { type BuildSeen, isVmCommand, type Reading } from "./room.ts";
@@ -561,9 +561,15 @@ export function queueFolder(
 			const found = late.get(job.id);
 			if (found === undefined) return job;
 			const marked = { ...job, late: found };
-			// Said before it is marked: a mark that fails is found again at the
-			// next keep, while a line that failed behind its mark never would be.
-			replace(path(job.id, "late"), `${lateSaid(marked, found)}\n`);
+			// Said before it is marked, so a line that can't be written leaves
+			// it unmarked, found again and said at the next keep, rather than
+			// marked and never said; and so the turns this keep gives never
+			// wait on a note.
+			try {
+				replace(path(job.id, "late"), `${lateSaid(marked, found)}\n`);
+			} catch {
+				return job;
+			}
 			replace(path(job.id, "job"), `${JSON.stringify(marked)}\n`);
 			return marked;
 		});
@@ -677,16 +683,9 @@ export function queueFolder(
 								: job,
 						)
 					: answered;
-				const reasons = waitReasons(
-					turned,
-					reading,
-					now,
-					ruled,
-					awaited,
-					first,
-				);
-				const waits = noteWaits(turned, reasons, now);
-				const late = lateNow(waits, reasons, reading, now, awaited, first);
+				const judged = judgeWaits(turned, reading, now, ruled, awaited, first);
+				const waits = noteWaits(turned, judged.reasons, now);
+				const late = lateNow(waits, judged, reading, now, awaited, first);
 				const queue = noteLate(waits, late);
 				if (next) {
 					const turn = queue.find((job) => job.id === next.id) as Job;

@@ -6,22 +6,22 @@
  */
 
 import { NOBODY } from "./awaited.ts";
-import { floorsBusy } from "./bounds.ts";
+import { floorsBusy, QUICK_AT_ONCE } from "./bounds.ts";
 import { dueBy } from "./due-to-start.ts";
 import type { Job, Late, Room, WaitReason } from "./job.ts";
 import { needsGibOf } from "./needs.ts";
-import { waitingInOrder } from "./next-turn.ts";
+import { type Keeper, type Waits, waitingInOrder } from "./next-turn.ts";
 
 /**
  * The jobs `jobs` holds that are waiting past when they were due to start
  * and were never found so before, each with where it stands at `now`: its
- * place in line, why it waits by `reasons` (next-turn.ts's
- * `waitReasons`), and what holds it, in plain words. A job found once is
+ * place in line, why it waits and what keeps it by `waits` (next-turn.ts's
+ * `judgeWaits`), and what holds it, in plain words. A job found once is
  * never found again, so its waiter is told once.
  */
 export function lateNow(
 	jobs: readonly Job[],
-	reasons: ReadonlyMap<string, WaitReason>,
+	{ reasons, keepers }: Waits,
 	room: Room,
 	now: number,
 	awaited: ReadonlySet<string> = NOBODY,
@@ -38,13 +38,7 @@ export function lateNow(
 			at: new Date(now).toISOString(),
 			...(at >= 0 ? { place: at + 1 } : {}),
 			reason,
-			heldBy: heldBy(
-				job,
-				reason,
-				line.slice(0, Math.max(0, at)),
-				reasons,
-				room,
-			),
+			heldBy: heldBy(job, reason, keepers.get(job.id), jobs, room),
 		});
 	}
 	return found;
@@ -69,16 +63,15 @@ export function lateSaid(job: Job, late: Late): string {
 /**
  * What holds a job waiting on `reason`, in plain words: the reading that
  * holds it, as memory pressure and the memory free, or, waiting on the
- * order, the job ahead of it that keeps the line: the first of those
- * `ahead` waiting on memory or behind a VM check, the only waits that
- * hold the jobs after them (next-turn.ts's `waitReasons`). With none, a
- * job ahead of it was just given its turn, or it waits for the next.
+ * order, what `keeper` says keeps it, a job of `jobs` named with what it
+ * runs. With no keeper it would start next, so it waits only for the
+ * time between turns.
  */
 function heldBy(
 	job: Job,
 	reason: WaitReason,
-	ahead: readonly Job[],
-	reasons: ReadonlyMap<string, WaitReason>,
+	keeper: Keeper | undefined,
+	jobs: readonly Job[],
 	room: Room,
 ): string {
 	switch (reason) {
@@ -100,29 +93,27 @@ function heldBy(
 			return "a builder being lent, which will take it";
 		case "planning":
 			return "its plan, as Nix is asked what it builds";
-		case "order": {
-			const keeper = ahead.find((one) =>
-				HOLDS_THE_LINE.has(reasons.get(one.id) ?? "order"),
-			);
-			if (keeper === undefined) {
-				return ahead.length > 0
-					? "the turn just given to a job ahead of it"
-					: "the time between turns, its own next";
-			}
-			const keeps = HOLDS_THE_LINE.get(reasons.get(keeper.id) ?? "order");
-			return `job ${keeper.id} ahead of it (${keeper.what}), ${keeps}`;
-		}
+		case "order":
+			return keptBy(keeper, jobs);
 	}
 }
 
-/** The waits that hold the jobs after them in line, not only their own. */
-const HOLDS_THE_LINE: ReadonlyMap<WaitReason, string> = new Map<
-	WaitReason,
-	string
->([
-	["memory", "waiting on memory"],
-	["behind", "waiting behind a VM check"],
-]);
+/** What keeps a job waiting on the order, by `keeper`, in plain words. */
+function keptBy(keeper: Keeper | undefined, jobs: readonly Job[]): string {
+	if (keeper === undefined) return "the time between turns, its own next";
+	if (keeper.by === "quick") {
+		return `the quick jobs allowed at once (${QUICK_AT_ONCE} running)`;
+	}
+	const named = `job ${keeper.job} ahead of it (${jobs.find((one) => one.id === keeper.job)?.what ?? "gone"})`;
+	switch (keeper.by) {
+		case "turn":
+			return `the turn just given to ${named}`;
+		case "memory":
+			return `${named}, waiting on memory`;
+		case "behind":
+			return `${named}, waiting behind a VM check`;
+	}
+}
 
 /** A figure to one decimal place, as the queue's record rounds memory. */
 function tenths(figure: number): number {
