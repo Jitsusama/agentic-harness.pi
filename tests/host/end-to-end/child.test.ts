@@ -25,6 +25,11 @@ import {
 	parseWatchLine,
 	parseWatchResult,
 } from "../../../host/service/protocol.ts";
+import {
+	collectedFalls,
+	HEAP_FALL_MB,
+	PSS_FALL_MB,
+} from "./support/collected-falls.ts";
 import { onHostPi } from "./support/hosted-case.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
@@ -45,26 +50,11 @@ const LISTEN_MS = 30_000;
  * November), so this is 165 MB over the most of them, and a child grown
  * much heavier fails here. Straight after the open, uncollected, a child
  * held 714 to 1226 MB, but the first one measured (20 November) held 527
- * MB, perhaps uncollected, so it is the heap's required fall, not this
- * bound, that fails a collection freeing nothing.
+ * MB, perhaps uncollected, so it is the heap's and the Pss's required
+ * falls (HEAP_FALL_MB, PSS_FALL_MB), not this bound, that fail a
+ * collection freeing nothing.
  */
 const CHILD_RSS_MB = 512;
-/**
- * The least, in MB, a quiet child's collection must take off its heap.
- * Twenty-five collections on 23 and 24 November took 96 to 830 MB off
- * (208 to 112 the least), and two made no-ops took 0, so this is a third
- * under the least seen. A collection cut to a scavenge of the young
- * generation, which the reads around it could set off with no collection
- * at all, took 29 MB off (24 November), and passed when any fall did (F11
- * on #2129); this fails it, with room to spare.
- *
- * The fall is of what the heap used or of its size, whichever is more. A
- * collection V8 ran by itself while the open settled can leave the quiet
- * one little to free: on 27 November it took 17 MB off what the heap used,
- * 132 to 115, yet its size fell from 541 MB to 139. A scavenge can shrink
- * neither by this much, nor can a collection that frees nothing.
- */
-const HEAP_FALL_MB = 64;
 /** How long after an open a quiet child may take to collect: its settle of 5 s, a pause, and a margin. */
 const COLLECTED_MS = 30_000;
 /** What a child says once it has collected while quiet. */
@@ -241,33 +231,6 @@ async function saying(
 	}
 }
 
-/**
- * The heap a child's collection says it went from and to, as `900 of
- * 950 MB to 112 of 300 MB`, the MB it used after, and the MB it fell by,
- * of what it used or of its size, whichever is more, read from its own
- * line rather than a state line, which may have been sent before the
- * collection (F2 on #2104).
- */
-function collectedHeap(said: string): {
-	readonly words: string;
-	readonly usedAfter?: number;
-	readonly fall?: number;
-} {
-	const [, before, usedBefore, sizeBefore, after, usedAfter, sizeAfter] =
-		/Collected while quiet[^\n]*?, heap ((\d+) of (\d+) MB) to ((\d+) of (\d+) MB)/.exec(
-			said,
-		) ?? [];
-	if (before === undefined) return { words: "unread" };
-	return {
-		words: `${before} to ${after}`,
-		usedAfter: Number(usedAfter),
-		fall: Math.max(
-			Number(usedBefore) - Number(usedAfter),
-			Number(sizeBefore) - Number(sizeAfter),
-		),
-	};
-}
-
 /** Each line after the answer, up to and with the ending. */
 async function toEnding(lines: AsyncGenerator<unknown>) {
 	const rest: unknown[] = [];
@@ -387,22 +350,31 @@ it(
 				const atOpen = await residentMb(child.process.pid);
 				await saying(child.errors, COLLECTED, COLLECTED_MS);
 				const held = await residentMb(child.process.pid);
-				const heap = collectedHeap(child.errors());
+				const falls = collectedFalls(child.errors());
 				process.stdout.write(
-					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${heap.words}\n`,
+					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB once collected, its heap ${falls.words}, its Pss ${falls.pss === undefined ? "unread" : `${falls.pss} MB less`}\n`,
 				);
 				// F6 on #2104: the collection itself freed the open's load, from a
 				// heap of 208 MB or more to 121 MB or less, or shrank a heap an
 				// earlier collection had emptied; one that frees nothing, or only
 				// what a scavenge would, fails.
-				expect(heap.words, "the collection's line reads a heap").not.toBe(
+				expect(falls.words, "the collection's line reads a heap").not.toBe(
 					"unread",
 				);
-				expect(heap.usedAfter, "MB the heap uses once collected").toBeDefined();
 				expect(
-					heap.fall ?? 0,
-					`MB the collection took off a heap of ${heap.words}, used or in size`,
+					falls.heap ?? 0,
+					`MB the collection took off a heap of ${falls.words}, used or in size`,
 				).toBeGreaterThanOrEqual(HEAP_FALL_MB);
+				// F6 and F12: what the process gave back tells a real collection
+				// from a scavenge or a no-op, as the heap's size alone can't be
+				// shown to. It is judged only where the child read its Pss: a
+				// machine with no /proc/self/smaps_rollup says it went unread,
+				// and the heap's fall above still judges the collection there.
+				if (falls.pss !== undefined)
+					expect(
+						falls.pss,
+						"MB the collection took off the child's Pss",
+					).toBeGreaterThanOrEqual(PSS_FALL_MB);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {
 					v: 1,
