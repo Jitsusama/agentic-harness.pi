@@ -771,12 +771,15 @@ describe("serveHost with children", () => {
 			});
 			await child.exit();
 
-			await until("its wake to start it again in a new child", () =>
-				Promise.resolve(units.started.length === 2),
+			// Said once the wake lands, which is after its child starts.
+			await until("its wake to land in a new child", () =>
+				Promise.resolve(
+					said.includes(
+						`${sessionId}: its child failed mid-turn (SIGSEGV), so it is woken to carry the turn on`,
+					),
+				),
 			);
-			expect(said).toContain(
-				`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
-			);
+			expect(units.started, "started again in a new child").toHaveLength(2);
 			expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
 		} finally {
 			await host.stop();

@@ -502,27 +502,32 @@ input pipeline or screen. No unit or running host is installed yet.
   is asked of the host as a control request, whether a window asked
   it through the server or the host asked it itself, rests too: until
   `END_ASKED_HOLDS_MS` (90 seconds) after the child agrees, and, when
-  it can't be reached or its asker hangs up first, until the child
-  ends; an abort's hold ends sooner, once the child says its turn is
-  over, so a death in a later turn is its own. One the child refuses,
+  its connect fails or its answer can't be read, until the child ends,
+  since the child may have heard it; one whose window left before it
+  was sent holds nothing, as no child heard it. An abort's hold ends
+  sooner, once the child says its turn is at rest (a busy state says it
+  goes on), so a death in a later turn is its own. One the child refuses,
   as it refuses a host it doesn't answer to, holds nothing, and a
   stale child's ending leaves what was asked of the newer one. An
   abort made inside an attached window, as Escape makes it, reaches
   the child as the window's input, not as a request, so it holds
-  nothing either. A child stopped with SIGTERM
-  (`systemctl --user stop` on its unit) parks, and stays parked; only
-  one killed outright (SIGKILL, the kernel's out-of-memory killer) or
-  crashed mid-turn is woken. A child whose thread is held when the
-  stop comes can't park, and systemd kills it outright at its stop
-  timeout, so it is woken too. To stop a busy one for good, close it,
-  or stop its unit and then stop the woken one again, which the
-  spacing then leaves resting; never `kill -9` it. A turn whose crash
-  once left it resting is now carried on up to 3 times a day, so stop
-  a misbehaving turn by closing it or stopping its unit, not by the
-  crash it causes. A wake that
-  doesn't land is said, counts toward neither limit, and is reported
-  too unless the host is stopping, which refuses every wake as it
-  should.
+  nothing either. Only a crash wakes one: the host asks systemd how
+  the child's unit ended, before it forgets the unit, and wakes it
+  when the result is `oom-kill`, `exit-code` (a child that said it
+  failed exits so) or `core-dump`, or a signal of SEGV, ABRT, BUS, ILL
+  or FPE. A person's kill or stop rests it, the journal saying so: a
+  signal of KILL, TERM, INT or HUP (`kill -9` on its process, or
+  `systemctl --user stop` on its unit, which parks a child that can
+  and kills one whose thread is held at its stop timeout), a stop that
+  timed out, or an ending systemd won't say. So `kill -9` on a busy
+  child is an emergency stop that holds. A wake is counted and said
+  once it lands and a child or the host runs the conversation; one
+  that started nothing counts toward neither limit, and nor does one
+  that doesn't land, which is said and reported too unless the host
+  is stopping or its start failed. Then it is left for the next start,
+  its park marker cleared where it names this host's wake, so that
+  start resumes it as a restart carries a cut-off turn on; the journal
+  says when the marker names another holder's wake and it rests.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

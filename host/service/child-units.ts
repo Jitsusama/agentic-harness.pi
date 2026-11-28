@@ -30,6 +30,7 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
+import { constants } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
 	isHostKey,
@@ -74,6 +75,24 @@ export interface Units {
 	 * answer it can't give only leaves a child to the wall clock.
 	 */
 	cpuSpentMs(unit: string): Promise<number | undefined>;
+	/**
+	 * How a unit that has gone last ended, as systemd says it, or
+	 * undefined when it won't say: read before the unit is forgotten,
+	 * which loses it. Never throws, since an ending it can't read only
+	 * leaves the child's conversation resting.
+	 */
+	ending(unit: string): Promise<UnitEnding | undefined>;
+}
+
+/** How systemd says a unit's last run ended. */
+export interface UnitEnding {
+	/**
+	 * systemd's `Result`: `success`, `exit-code`, `signal`, `core-dump`,
+	 * `oom-kill`, `timeout` or another it names.
+	 */
+	readonly result: string;
+	/** The signal that ended its main process, as `SIGKILL`, when one did. */
+	readonly signal?: string;
 }
 
 /** The folder a host's children keep their slots in. */
@@ -309,6 +328,21 @@ function shown(out: string, property: string): string | undefined {
 	return row?.slice(property.length + 1).trim();
 }
 
+/**
+ * What systemd's `ExecMainCode` says of a main process a signal ended,
+ * killed or dumping core, as waitid's CLD_KILLED and CLD_DUMPED.
+ */
+const ENDED_BY_SIGNAL: ReadonlySet<string> = new Set(["2", "3"]);
+
+/** The signal numbered `status`, by name, or undefined for one unknown. */
+function signalNamed(status: string | undefined): string | undefined {
+	if (!status || !/^\d+$/.test(status)) return undefined;
+	const number = Number(status);
+	return Object.entries(constants.signals).find(
+		([, value]) => value === number,
+	)?.[0];
+}
+
 /** The states a unit with nothing queued for it has gone in. */
 const GONE = new Set(["inactive", "failed"]);
 
@@ -364,6 +398,26 @@ export function unitsOver(run: Systemctl): Units {
 				return Number(BigInt(ns) / NS_PER_MS);
 			} catch {
 				// A user manager that hangs leaves the child to the wall clock.
+				return undefined;
+			}
+		},
+		async ending(unit) {
+			try {
+				const said = await run([
+					"show",
+					"--property=Result,ExecMainCode,ExecMainStatus",
+					unit,
+				]);
+				if (said.code !== 0) return undefined;
+				const result = shown(said.out, "Result");
+				if (!result) return undefined;
+				const code = shown(said.out, "ExecMainCode") ?? "";
+				const signal = ENDED_BY_SIGNAL.has(code)
+					? signalNamed(shown(said.out, "ExecMainStatus"))
+					: undefined;
+				return signal ? { result, signal } : { result };
+			} catch {
+				// A user manager that hangs says nothing of how the unit ended.
 				return undefined;
 			}
 		},

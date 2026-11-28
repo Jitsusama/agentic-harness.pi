@@ -23,6 +23,7 @@ import {
 	fromChild,
 } from "../../../host/service/child-requests.ts";
 import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
+import type { ControlReply } from "../../../host/service/dispatch.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
@@ -54,6 +55,12 @@ let order: string[];
 let waking: () => Promise<void>;
 // Whether the host is stopping, as a refused wake is read by.
 let stopping: boolean;
+// Whether the host itself runs what a wake started, as it does for one
+// that doesn't move; a child that runs it is read from the routes.
+let hostRunning: boolean;
+// Each conversation left for the next start, and why one can't be.
+let leftToStart: string[];
+let leavingToStart: string | undefined;
 let clock: number;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
 let children: HostedChildren;
@@ -90,6 +97,9 @@ beforeEach(async () => {
 	order = [];
 	waking = async () => undefined;
 	stopping = false;
+	hostRunning = true;
+	leftToStart = [];
+	leavingToStart = undefined;
 	clock = 0;
 	const moving = new Set<string>();
 	policy = {
@@ -131,7 +141,12 @@ function hosting(restsGivenUp: boolean): HostedChildren {
 			order.push(`woken ${sessionId}`);
 			return waking();
 		},
+		hostRuns: () => hostRunning,
 		stopping: () => stopping,
+		leaveToStart(entry) {
+			leftToStart.push(entry.sessionId);
+			return leavingToStart;
+		},
 		now: () => clock,
 		timings: {
 			listensWithinMs: 5_000,
@@ -201,6 +216,16 @@ describe("a host's children", () => {
 			);
 		}
 
+		/**
+		 * Wait until a wake of `id` would have been asked: it is asked once
+		 * systemd says how the unit ended, which is read before the slot is
+		 * free, so a test that sees it rested sees no wake yet either way.
+		 */
+		async function decided(id = a) {
+			await children.backend.left(id);
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+
 		// Item 7: rested, a turn its child was killed in waited for a window or
 		// a message, though a host's own restart carries every such turn on.
 		it("wakes it at once, once rested", async () => {
@@ -213,7 +238,7 @@ describe("a host's children", () => {
 				`woken ${a}`,
 			]);
 			expect(said).toContain(
-				`${a}: its child failed mid-turn, so it is woken to carry the turn on`,
+				`${a}: its child failed mid-turn (SIGSEGV), so it is woken to carry the turn on`,
 			);
 		});
 
@@ -234,7 +259,7 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() => expect(woken).toEqual([a]));
 			expect(said).toContain(
-				`${a}: its child ended failed, and nothing watches its wake, as it has no marker, so it is woken now instead`,
+				`${a}: its child ended failed, and nothing watches its wake, as it has no marker, so it is woken now instead, if systemd says a crash ended it`,
 			);
 			expect(
 				said.some((line) => line.includes("until it is asked for")),
@@ -260,6 +285,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "nothing left unanswered").toEqual([]);
 		});
 
@@ -275,6 +301,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "its last state decides, and it had answered").toEqual([]);
 		});
 
@@ -298,6 +325,18 @@ describe("a host's children", () => {
 			);
 			expect(woken, "not woken past the day's count").toHaveLength(WAKES_A_DAY);
 
+			// F126 on #2330: its first wake counts until a whole day has passed.
+			clock = WAKES_COUNTED_OVER_MS - 1;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(
+					said.filter((line) => line.includes(`after ${WAKES_A_DAY} wakes`)),
+					"still a day's count, a moment short of a day",
+				).toHaveLength(2),
+			);
+			expect(woken).toHaveLength(WAKES_A_DAY);
+
 			clock = WAKES_COUNTED_OVER_MS;
 			await busy();
 			await units.childOf(a).exit();
@@ -313,6 +352,7 @@ describe("a host's children", () => {
 			await units.childOf(a).end("parked");
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "a park keeps its turn for the next wake").toEqual([]);
 		});
 
@@ -372,20 +412,38 @@ describe("a host's children", () => {
 			return { v: 1, id: op, op, sessionId: a };
 		}
 
-		// The server passes a person's close straight to the child, never
-		// through the backend, and notes it through the routes.
-		it("leaves one resting whose child died as a close the server passed on was asked", async () => {
-			await busy();
-			children.routes.asking?.(ending("close"));
-			await units.childOf(a).exit();
+		/** The routes' note of a request, which a wired hosting always has. */
+		function asking(request: ControlRequest) {
+			const note = children.routes.asking;
+			if (!note) throw new Error("the routes note no request");
+			return note(request);
+		}
 
-			await vi.waitFor(() =>
-				expect(said).toContain(
-					`${a}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
-				),
-			);
-			expect(woken, "the server's close isn't undone").toEqual([]);
-		});
+		/** Note an end of a turn, and how to settle it, which one always has. */
+		function marked(request: ControlRequest) {
+			const settle = asking(request);
+			if (!settle) throw new Error(`${request.op} marked nothing`);
+			return settle;
+		}
+
+		// The server passes a person's close straight to the child, never
+		// through the backend, and notes it through the routes; F130 on #2330:
+		// a release and an abort are noted as a close is.
+		it.each(["close", "release", "abort"] as const)(
+			"leaves one resting whose child died as a %s the server passed on was asked",
+			async (op) => {
+				await busy();
+				marked(ending(op));
+				await units.childOf(a).exit();
+
+				await vi.waitFor(() =>
+					expect(said).toContain(
+						`${a}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
+					),
+				);
+				expect(woken, "the server's end isn't undone").toEqual([]);
+			},
+		);
 
 		it("leaves one resting whose child died as its abort was asked", async () => {
 			await busy();
@@ -398,6 +456,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(await aborting).toBe("refused");
 			expect(woken, "the turn the person aborted isn't carried on").toEqual([]);
 		});
@@ -417,7 +476,7 @@ describe("a host's children", () => {
 		// death before the child says that turn is over is still the abort's.
 		it("leaves one resting whose child took its abort and died before its turn was over", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.({
+			marked(ending("abort"))({
 				v: 1,
 				id: "abort",
 				ok: true,
@@ -426,12 +485,41 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "still the aborted turn").toEqual([]);
 		});
 
+		// F129 on #2330: only a word that the turn is at rest ends an abort's
+		// mark; a busy state, as a heap tick repeats, says the turn goes on.
+		const abortReplies: [string, ControlReply][] = [
+			["took", { v: 1, id: "abort", ok: true, result: null }],
+			["never answered", childUnreachable("abort")],
+		];
+		it.each(abortReplies)(
+			"leaves one resting whose child %s its abort, said its turn was busy still, and died",
+			async (_, reply) => {
+				await busy();
+				marked(ending("abort"))(reply);
+				// With a heap, as a tick says one, so its hearing shows.
+				units.childOf(a).say({
+					type: "state",
+					conversation: { ...conversationIn(folder, a), state: "busy" },
+					heap: { used: 1, limit: 2 },
+				});
+				await vi.waitFor(() =>
+					expect(children.routes.child(a)?.heap, "heard").toBeDefined(),
+				);
+				await units.childOf(a).exit();
+
+				await vi.waitFor(() => expect(rested).toHaveLength(1));
+				await decided();
+				expect(woken, "still the aborted turn").toEqual([]);
+			},
+		);
+
 		it("wakes one whose child took its abort and then died in a later turn", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.({
+			marked(ending("abort"))({
 				v: 1,
 				id: "abort",
 				ok: true,
@@ -451,7 +539,7 @@ describe("a host's children", () => {
 
 		it("wakes one whose child died long after it took its abort, though it never said its turn was over", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.({
+			marked(ending("abort"))({
 				v: 1,
 				id: "abort",
 				ok: true,
@@ -469,7 +557,7 @@ describe("a host's children", () => {
 		// child may refuse with any code, that one included.
 		it("wakes one whose child refused its abort with the code of one not reached", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.({
+			marked(ending("abort"))({
 				v: 1,
 				id: "abort",
 				ok: false,
@@ -486,7 +574,7 @@ describe("a host's children", () => {
 		// before the child was reached, so the child never heard it.
 		it("wakes one whose child died after an end that was never sent", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.(undefined);
+			marked(ending("close"))(undefined);
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(woken, "no close reached it").toEqual([a]));
@@ -494,17 +582,18 @@ describe("a host's children", () => {
 
 		it("leaves one resting whose child died in the turn of an abort it never answered, however late", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.(childUnreachable("abort"));
+			marked(ending("abort"))(childUnreachable("abort"));
 			clock += 10 * END_ASKED_HOLDS_MS;
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "still the aborted turn").toEqual([]);
 		});
 
 		it("wakes one whose child, past an abort it never answered, died in a later turn", async () => {
 			await busy();
-			children.routes.asking?.(ending("abort"))?.(childUnreachable("abort"));
+			marked(ending("abort"))(childUnreachable("abort"));
 			units.childOf(a).say({
 				type: "state",
 				conversation: { ...conversationIn(folder, a), state: "idle" },
@@ -531,7 +620,7 @@ describe("a host's children", () => {
 
 		it("keeps a close it never answered past its turn's end, as a close ends the child", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			marked(ending("close"))(childUnreachable("close"));
 			units.childOf(a).say({
 				type: "state",
 				conversation: { ...conversationIn(folder, a), state: "idle" },
@@ -540,12 +629,13 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the close may still be held").toEqual([]);
 		});
 
 		it("wakes one whose child died long after it agreed to a close", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.({
+			marked(ending("close"))({
 				v: 1,
 				id: "close",
 				ok: true,
@@ -561,7 +651,7 @@ describe("a host's children", () => {
 
 		it("leaves one resting whose child died just after it agreed to a close", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.({
+			marked(ending("close"))({
 				v: 1,
 				id: "close",
 				ok: true,
@@ -571,16 +661,18 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "still the close's ending").toEqual([]);
 		});
 
 		it("leaves one resting whose child died long after a close it never answered", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.(childUnreachable("close"));
+			marked(ending("close"))(childUnreachable("close"));
 			clock += 10 * END_ASKED_HOLDS_MS;
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(
 				woken,
 				"a close the child may still hold stays its ending",
@@ -589,8 +681,8 @@ describe("a host's children", () => {
 
 		it("keeps one end's mark when another asked beside it is refused", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"));
-			children.routes.asking?.(ending("release"))?.({
+			marked(ending("close"));
+			marked(ending("release"))({
 				v: 1,
 				id: "release",
 				ok: false,
@@ -599,14 +691,15 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the close still waits on its answer").toEqual([]);
 		});
 
 		// F97: one mark for each op, counting its asks, rather than one each.
 		it("keeps a close's mark while a second close asked beside it is unanswered", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"));
-			children.routes.asking?.(ending("close"))?.({
+			marked(ending("close"));
+			marked(ending("close"))({
 				v: 1,
 				id: "close",
 				ok: false,
@@ -615,6 +708,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the first close still waits on its answer").toEqual([]);
 		});
 
@@ -626,8 +720,8 @@ describe("a host's children", () => {
 				ok: false,
 				error: { code: "invalid_request", message: "refused" },
 			} as const;
-			const first = children.routes.asking?.(ending("close"));
-			const second = children.routes.asking?.(ending("close"));
+			const first = marked(ending("close"));
+			const second = marked(ending("close"));
 			first?.(refused);
 			second?.(refused);
 			await units.childOf(a).exit();
@@ -638,7 +732,7 @@ describe("a host's children", () => {
 		// F92: one given up before its child ran has no child left to end as
 		// it was asked, so a later child's death is its own.
 		it("forgets an end asked of one whose child was given up", async () => {
-			children.routes.asking?.(ending("close"));
+			marked(ending("close"));
 			units.next = { silent: true };
 			await expect(
 				children.backend.resume(entryIn(folder, a), false, true),
@@ -658,7 +752,7 @@ describe("a host's children", () => {
 		it("forgets an end asked of a conversation once it became another", async () => {
 			await busy();
 			const first = units.childOf(a);
-			children.routes.asking?.(ending("close"));
+			marked(ending("close"));
 			first.say({
 				type: "became",
 				previousId: a,
@@ -668,6 +762,7 @@ describe("a host's children", () => {
 			await vi.waitFor(() => expect(told).toEqual([[a, b]]));
 			await first.end("parked");
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			// Its file resumed again later, as a person may.
 			held = [...held, entryIn(folder, a)];
 
@@ -685,7 +780,7 @@ describe("a host's children", () => {
 			held = [...held, entryIn(folder, b)];
 			await busy();
 			const first = units.childOf(a);
-			children.routes.asking?.(ending("close"));
+			marked(ending("close"));
 			// Onto one the roster holds already, so it is forsaken and stopped.
 			first.say({
 				type: "became",
@@ -717,9 +812,10 @@ describe("a host's children", () => {
 				{ ...conversationIn(folder, a), state: "busy" },
 				newer,
 			);
-			children.routes.asking?.(ending("close"));
+			marked(ending("close"));
 			await stale.exit();
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 
 			// A child of a that dies busy while the close still waits.
 			children.routes.drop(a);
@@ -733,7 +829,7 @@ describe("a host's children", () => {
 		// F124: a release ends a conversation as a close does.
 		it("leaves one resting whose child died just after it agreed to a release", async () => {
 			await busy();
-			children.routes.asking?.(ending("release"))?.({
+			marked(ending("release"))({
 				v: 1,
 				id: "release",
 				ok: true,
@@ -742,6 +838,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the release it took").toEqual([]);
 		});
 
@@ -759,13 +856,14 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the close may have been its end").toEqual([]);
 		});
 
 		// F114: the server passes an id as it was typed; the child says its own.
 		it("leaves one resting whose child died as a close asked in capitals was", async () => {
 			await busy();
-			children.routes.asking?.({
+			marked({
 				v: 1,
 				id: "close",
 				op: "close",
@@ -774,6 +872,7 @@ describe("a host's children", () => {
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "the same conversation").toEqual([]);
 		});
 
@@ -792,7 +891,7 @@ describe("a host's children", () => {
 				),
 				"close",
 			);
-			children.routes.asking?.(ending("close"))?.(refused);
+			marked(ending("close"))(refused);
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() =>
@@ -803,16 +902,17 @@ describe("a host's children", () => {
 		it("leaves one resting whose child died after an answer to its close it couldn't read", async () => {
 			await busy();
 			const unread = fromChild(Buffer.from("not a reply"), "close");
-			children.routes.asking?.(ending("close"))?.(unread);
+			marked(ending("close"))(unread);
 			await units.childOf(a).exit();
 
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 			expect(woken, "it may have taken the close").toEqual([]);
 		});
 
 		it("takes every end's mark back with its child's ending", async () => {
 			await busy();
-			children.routes.asking?.(ending("close"))?.({
+			marked(ending("close"))({
 				v: 1,
 				id: "close",
 				ok: true,
@@ -820,6 +920,7 @@ describe("a host's children", () => {
 			});
 			await units.childOf(a).end("parked");
 			await vi.waitFor(() => expect(rested).toHaveLength(1));
+			await decided();
 
 			await busy();
 			await units.childOf(a).exit();
@@ -830,11 +931,11 @@ describe("a host's children", () => {
 
 		it("notes nothing for a request that ends no turn", () => {
 			expect(
-				children.routes.asking?.({ v: 1, id: "l", op: "list" }),
+				asking({ v: 1, id: "l", op: "list" }),
 				"no conversation",
 			).toBeUndefined();
 			expect(
-				children.routes.asking?.({
+				asking({
 					v: 1,
 					id: "v",
 					op: "attach",
@@ -911,7 +1012,9 @@ describe("a host's children", () => {
 			land();
 		});
 
-		it("says a wake a stopping host refused, rather than reporting it", async () => {
+		// F139 on #2330: a stopping host's refusal leaves the conversation for
+		// its next start, which a park marker would have it decline.
+		it("says a wake a stopping host refused, rather than reporting it, and leaves it to the next start", async () => {
 			stopping = true;
 			waking = () => Promise.reject(new Error("the host is stopping"));
 			await busy();
@@ -919,10 +1022,193 @@ describe("a host's children", () => {
 
 			await vi.waitFor(() =>
 				expect(said).toContain(
-					`${a}: its wake after its child failed mid-turn didn't land: the host is stopping, so it rests until it is asked for`,
+					`${a}: its wake after its child failed mid-turn didn't land, as the host is stopping (the host is stopping), so the host's next start takes it up`,
+				),
+			);
+			expect(leftToStart, "its marker cleared for the next start").toEqual([a]);
+			expect(reported).toEqual([]);
+		});
+
+		it("says why a wake a stopping host refused can't be left to the next start", async () => {
+			stopping = true;
+			leavingToStart = "its marker names another holder's wake, elsewhere";
+			waking = () => Promise.reject(new Error("the host is stopping"));
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its wake after its child failed mid-turn didn't land, as the host is stopping (the host is stopping), and its marker names another holder's wake, elsewhere, so it rests until it is asked for`,
 				),
 			);
 			expect(reported).toEqual([]);
+		});
+
+		// F136 on #2330: a person's kill or stop of a turn gone wrong is an
+		// emergency stop, which a wake must not undo.
+		it.each(["SIGKILL", "SIGTERM", "SIGINT", "SIGHUP"])(
+			"leaves one resting whose child %s ended mid-turn, as a person's kill does",
+			async (signal) => {
+				await busy();
+				await units.childOf(a).exit({ result: "signal", signal });
+
+				await vi.waitFor(() =>
+					expect(said).toContain(
+						`${a}: its child failed mid-turn, but systemd says ${signal} ended its unit (signal), as a person's kill or stop does, so it rests until it is asked for`,
+					),
+				);
+				expect(woken, "no crash, so not woken").toEqual([]);
+			},
+		);
+
+		it("leaves one resting whose unit's stop timed out", async () => {
+			await busy();
+			await units.childOf(a).exit({ result: "timeout", signal: "SIGKILL" });
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn, but systemd says its unit's stop timed out, as a stop that had to kill it does, so it rests until it is asked for`,
+				),
+			);
+			expect(woken).toEqual([]);
+		});
+
+		it("leaves one resting whose unit's ending systemd won't say", async () => {
+			units.endingUnsaid = true;
+			await busy();
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its child failed mid-turn, but systemd didn't say how its unit ended, so it rests until it is asked for`,
+				),
+			);
+			expect(woken, "fails closed").toEqual([]);
+		});
+
+		it.each([
+			[{ result: "signal", signal: "SIGABRT" }, "SIGABRT"],
+			[{ result: "oom-kill" }, "oom-kill"],
+			[{ result: "oom-kill", signal: "SIGKILL" }, "oom-kill by SIGKILL"],
+			[{ result: "exit-code" }, "exit-code"],
+			[{ result: "core-dump", signal: "SIGSEGV" }, "core-dump by SIGSEGV"],
+		])("wakes one whose unit ended as a crash, %o", async (how, crash) => {
+			await busy();
+			await units.childOf(a).exit(how);
+
+			await vi.waitFor(() => expect(woken).toEqual([a]));
+			expect(said).toContain(
+				`${a}: its child failed mid-turn (${crash}), so it is woken to carry the turn on`,
+			);
+		});
+
+		it("spends none of the spacing on one a person's kill ended", async () => {
+			await busy();
+			await units.childOf(a).exit({ result: "signal", signal: "SIGKILL" });
+			await vi.waitFor(() =>
+				expect(said.some((line) => line.includes("SIGKILL ended"))).toBe(true),
+			);
+
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "the crash after it is woken").toEqual([a]),
+			);
+		});
+
+		// F141 on #2330: a wake that resolved having started nothing carried
+		// no turn on, so it is neither said as one nor counted.
+		it("counts no wake that started nothing, and says so", async () => {
+			hostRunning = false;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(said).toContain(
+					`${a}: its wake after its child failed mid-turn started nothing, as the roster no longer holds it or an end was asked since`,
+				),
+			);
+			expect(
+				said.some((line) => line.includes("woken to carry the turn on")),
+				"never said as woken",
+			).toBe(false);
+
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "woken again within the spacing").toEqual([a, a]),
+			);
+		});
+
+		it("wakes nothing the roster no longer holds", async () => {
+			await busy();
+			held = [];
+			await units.childOf(a).exit();
+
+			await vi.waitFor(() =>
+				expect(children.backend.running(a), "its child gone").toBeUndefined(),
+			);
+			await children.backend.left(a);
+			expect(rested, "nothing held to rest").toEqual([]);
+			expect(woken, "closed or released, so nothing wakes").toEqual([]);
+		});
+
+		// F132, F140 on #2330: every step after the ending is caught, so
+		// none escapes, and the conversation never stays landing.
+		it("reports a wake that throws as it is asked, and leaves it landing no longer", async () => {
+			const thrown = new Error("no wake today");
+			waking = () => {
+				throw thrown;
+			};
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(reported).toEqual([thrown]));
+
+			waking = async () => undefined;
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "the next death wakes it").toEqual([a, a]),
+			);
+		});
+
+		it("reports a stopping host's question that throws, and leaves it landing no longer", async () => {
+			const thrown = new Error("the stop can't say");
+			children.close();
+			children = hostChildren({
+				key,
+				folder,
+				units,
+				policy,
+				roster: roster(),
+				restsParked: () => true,
+				report: (error) => reported.push(error),
+				say: (line) => said.push(line),
+				wake(sessionId) {
+					woken.push(sessionId);
+					return woken.length === 1
+						? Promise.reject(new Error("refused"))
+						: Promise.resolve();
+				},
+				hostRuns: () => true,
+				stopping: () => {
+					throw thrown;
+				},
+				now: () => clock,
+				timings: {
+					listensWithinMs: 5_000,
+					answersWithinMs: 500,
+					exitsWithinMs: 500,
+				},
+			});
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() => expect(reported).toEqual([thrown]));
+
+			await busy();
+			await units.childOf(a).exit();
+			await vi.waitFor(() =>
+				expect(woken, "the next death wakes it").toEqual([a, a]),
+			);
 		});
 	});
 

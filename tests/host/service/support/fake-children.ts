@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
 	type Slot,
 	slotOf,
+	type UnitEnding,
 	type Units,
 } from "../../../../host/service/child-units.ts";
 import type { HostIdentity } from "../../../../host/service/dispatch.ts";
@@ -65,11 +66,17 @@ export interface FakeChild {
 	entry: RosterEntry | undefined;
 	/** Say a line on every watch. */
 	say(value: unknown): void;
-	/** Say it ends, then exit. */
+	/** Say it ends, then exit, as one that ends failed exits with an error. */
 	end(why: string): Promise<void>;
-	/** Exit without a word. */
-	exit(): Promise<void>;
+	/** Exit without a word, its unit ending as `how` says; a crash's by default. */
+	exit(how?: UnitEnding): Promise<void>;
 }
+
+/** How systemd says a unit ended whose child crashed, as by a bad pointer. */
+export const CRASHED: UnitEnding = { result: "signal", signal: "SIGSEGV" };
+
+/** How systemd says a unit ended whose child its stop's SIGTERM ended. */
+export const TERMINATED: UnitEnding = { result: "success", signal: "SIGTERM" };
 
 /** How a fake child answers. */
 export interface ChildTraits {
@@ -89,6 +96,10 @@ export interface FakeUnits extends Units {
 	readonly forgotten: string[];
 	/** Each unit running, with its child once it listens. */
 	readonly children: Map<string, FakeChild | undefined>;
+	/** How systemd says each unit that has gone ended, until it is forgotten. */
+	readonly endings: Map<string, UnitEnding>;
+	/** Whether systemd says nothing of how a unit ended. */
+	endingUnsaid?: boolean;
 	/** What the next child started does, when a test says. */
 	next?: ChildTraits & { diesBeforeListening?: boolean };
 	/** The slot a unit names. */
@@ -112,6 +123,9 @@ async function runChild(
 	const watchers = new Set<Socket>();
 	const sockets = new Set<Socket>();
 	let server: Server | undefined;
+	// Its first exit says how its unit ended; a stop asked as it exits
+	// joins that exit rather than saying another.
+	let exiting: Promise<void> | undefined;
 	const child: FakeChild = {
 		slot,
 		identity: { key, owner: { pid, startedAt: pid } },
@@ -125,14 +139,18 @@ async function runChild(
 		},
 		async end(why) {
 			child.say({ type: "ending", why });
-			await child.exit();
+			await child.exit({ result: why === "failed" ? "exit-code" : "success" });
 		},
-		async exit() {
-			for (const socket of sockets) socket.end();
-			await new Promise<void>((resolve) =>
-				server ? server.close(() => resolve()) : resolve(),
-			);
-			units.children.delete(slot.unit);
+		exit(how = CRASHED) {
+			exiting ??= (async () => {
+				units.endings.set(slot.unit, how);
+				for (const socket of sockets) socket.end();
+				await new Promise<void>((resolve) =>
+					server ? server.close(() => resolve()) : resolve(),
+				);
+				units.children.delete(slot.unit);
+			})();
+			return exiting;
 		},
 	};
 	server = createServer((socket) => {
@@ -210,6 +228,7 @@ export function fakeUnits(
 		stopped: [],
 		forgotten: [],
 		children: new Map(),
+		endings: new Map(),
 		slotNamed(unit) {
 			const name = unit.slice(unit.indexOf("@") + 1, -".service".length);
 			return slotOf(folder, key, name);
@@ -245,11 +264,15 @@ export function fakeUnits(
 		},
 		async stop(unit) {
 			fake.stopped.push(unit);
-			await fake.children.get(unit)?.exit();
+			await fake.children.get(unit)?.exit(TERMINATED);
 			fake.children.delete(unit);
 		},
 		async forget(unit) {
 			fake.forgotten.push(unit);
+			fake.endings.delete(unit);
+		},
+		async ending(unit) {
+			return fake.endingUnsaid ? undefined : fake.endings.get(unit);
 		},
 		// A systemd that keeps no CPU account, so a slow child nobody waits on is
 		// asked of for two listen times, or two answer times, and given up then.
