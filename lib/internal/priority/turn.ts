@@ -338,8 +338,10 @@ export function waitsForTurn(
 			// wake and write it before its age counts. The age is read with
 			// GNU's stat, else a Mac's, which refuses -c and wants -f %m; with
 			// neither, no wait on a Mac ever waited (87KI6A, 15 November).
-			"__then=$(date +%s) __grace=0",
-			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || stat -f %m "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do sleep 1; done`,
+			// Once a keep finds the job late it writes a line saying where it
+			// stands (late.ts), which the wait prints once.
+			"__then=$(date +%s) __grace=0 __told=",
+			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || stat -f %m "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do [ -n "$__told" ] || { __late=$(cat "$__queue/$__job.late" 2>/dev/null) && [ -n "$__late" ] && { printf '%s\\n' "$__late" >&2; __told=1; }; }; sleep 1; done`,
 			// The mark its time limit starts from (clock.ts): the run begins
 			// here, whether its turn was given or the wait gave way.
 			`{ : > "$__queue/$__job.began"; } 2>/dev/null || :`,
@@ -351,7 +353,7 @@ export function waitsForTurn(
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
 			`trap "__end=\\$?; ${ended}printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
-			"unset __queue __job __since __into __ran __then __now __grace; :",
+			"unset __queue __job __since __into __ran __then __now __grace __told __late; :",
 		].join("\n");
 	};
 }

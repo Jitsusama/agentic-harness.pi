@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -15,6 +16,7 @@ import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
 	queuedCommand,
 	queueHeavyWork,
+	waitsForTurn,
 } from "../../../../lib/internal/priority/turn.ts";
 import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 
@@ -64,6 +66,50 @@ const dueAsked = () =>
 			.map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")))
 			.map((job) => [job.what, job.dueToStart]),
 	);
+
+/** What a late job's waiter is told, as a keep writes it. */
+const LATE =
+	"Due to start by 21:40 and still waiting for its turn in the machine queue: 2nd in line, held by memory.";
+
+/**
+ * Runs `command` in bash, its output and errors gathered as one, with a
+ * promise that settles once its output holds `seen`.
+ */
+function run(command: string, seen: string) {
+	const shell = spawn("bash", ["-c", command]);
+	let out = "";
+	let saw: () => void = () => undefined;
+	const shown = new Promise<void>((resolve) => {
+		saw = resolve;
+	});
+	const gather = (data: Buffer) => {
+		out += data;
+		if (out.includes(seen)) saw();
+	};
+	shell.stdout.on("data", gather);
+	shell.stderr.on("data", gather);
+	const ended = new Promise<{ out: string; code: number | null }>((resolve) =>
+		shell.on("exit", (code) => resolve({ out, code })),
+	);
+	return { shown, ended };
+}
+
+describe("a late job's waiting shell", () => {
+	it("says the queue's line once, however long it goes on waiting", async () => {
+		writeFileSync(join(dir, "j1.job"), "{}\n");
+		writeFileSync(join(dir, "j1.late"), `${LATE}\n`);
+		const { shown, ended } = run(
+			`${waitsForTurn(dir, 60)?.("j1")}\necho "ran \${__told-}\${__late-}"`,
+			LATE,
+		);
+		await shown;
+		// The wait polls each second, so this spans two more polls, each of
+		// which would say the line again were it not said once.
+		await new Promise((resolve) => setTimeout(resolve, 2_500));
+		writeFileSync(join(dir, "j1.turn"), "");
+		expect(await ended).toEqual({ out: `${LATE}\nran \n`, code: 0 });
+	});
+});
 
 describe("heavy work saying when it is due to start", () => {
 	it("asks with the time its command or its shell gives, or its kind's bound", () => {
