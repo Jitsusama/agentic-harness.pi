@@ -12,7 +12,7 @@
 
 import { homedir } from "node:os";
 import { runSteps } from "./steps.ts";
-import { type Where, worldWalks } from "./world-walk.ts";
+import { type Where, worldWalkSteps } from "./world-walk.ts";
 
 /** A class World's push gate ranks by: 0 soonest, then 1, then 2. */
 export type PushClass = 0 | 1 | 2;
@@ -75,12 +75,16 @@ export function pushClassOf(
 	inherited?: string,
 ): PushClass {
 	const steps = runSteps(command);
+	// Read in one pass: each step's walk hangs on the folders and variables
+	// the steps before it set, so reading them again for each step costs
+	// the square of their count.
+	const walking = new Set(worldWalkSteps(steps, where).map(({ at }) => at));
 	let variable: Variable = {
 		value: inherited,
 		exported: inherited !== undefined,
 	};
 	for (const [at, step] of steps.entries()) {
-		if (worldWalks(steps.slice(0, at + 1), where).length > 0) {
+		if (walking.has(at)) {
 			const given =
 				ownAssignment(step) ?? (variable.exported ? variable.value : undefined);
 			return (
