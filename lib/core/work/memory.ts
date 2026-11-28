@@ -787,27 +787,28 @@ function usable(written: Written): written is Required<Written> {
 }
 
 /**
- * The record `written` holds, with its mark read as one: a `going` that
- * is neither an object nor a time reads as no mark. A record is a file
- * anybody may edit, and every reader past here takes a mark for an
- * object: `"going": null` threw out of the sweep the moment it read the
- * mark's ask time, ending the whole run. A bare time is the mark this
- * code's first version wrote, so it reads as a stopped mark made then,
- * which is finished before the tree is handed out again.
+ * The record `written` holds, with its mark read as one: only a `going`
+ * naming the owner that wrote it reads as a mark, and anything else, a
+ * bare time among them, reads as none. A record is a file anybody may
+ * edit, and every reader past here takes a mark for an object:
+ * `"going": null` threw out of the sweep the moment it read the mark's
+ * ask time, ending the whole run. A mark with no owner is one no code
+ * that ships wrote; read as a stopped removal, it was finished unjudged,
+ * past every gate that keeps a tree, so `"going": 0` beside a tree's
+ * uncommitted work would have it released.
  */
 function heldOf(written: Written): HeldTree {
 	const held = written as unknown as HeldTree;
 	const going: unknown = held.going;
+	if (going === undefined) return held;
 	if (
-		going === undefined ||
-		(typeof going === "object" && going !== null && !Array.isArray(going))
+		typeof going === "object" &&
+		going !== null &&
+		!Array.isArray(going) &&
+		"by" in going &&
+		isOwner(going.by)
 	) {
 		return held;
-	}
-	if (typeof going === "number" && Number.isFinite(going)) {
-		// It names no remover, which every reader of a mark checks for, so
-		// it stands for nothing running.
-		return { ...held, going: { at: going } as GoingMark };
 	}
 	const { going: _, ...unmarked } = held;
 	return unmarked;

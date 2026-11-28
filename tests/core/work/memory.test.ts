@@ -990,7 +990,7 @@ describe("a tree a sweep is removing", () => {
 		);
 	});
 
-	it("reads a mark whose lock went, or one this code never wrote, as stopped", async () => {
+	it("reads a mark whose lock went, or whose lock this code never wrote, as stopped", async () => {
 		const memory = memoryAt();
 		const us: Owner = { pid: process.pid, startedAt: 5000 };
 		const gone = running();
@@ -1001,9 +1001,7 @@ describe("a tree a sweep is removing", () => {
 			{ at: Date.now(), by: us, lock: gone.lock },
 			{ at: Date.now(), by: us, lock: { ...lock, id: "1:1" } },
 			{ at: Date.now(), by: ENDED, lock },
-			{ at: Date.now(), by: "a sweep", lock },
 			{ at: 0, by: us, lock: "a lock" },
-			Date.now(),
 		];
 
 		for (const [index, going] of marks.entries()) {
@@ -1026,6 +1024,44 @@ describe("a tree a sweep is removing", () => {
 				await memory.goingState(one, sweeping()),
 				`${one.identity.key} with its folder gone`,
 			).toBe("standing");
+		}
+	});
+
+	it("reads a mark naming no owner that wrote it as no mark", async () => {
+		// No code that ships writes a mark without its owner: read as a
+		// stopped removal, it would be finished unjudged, past every gate
+		// that keeps a tree's work.
+		const memory = memoryAt();
+		const { lock } = running();
+		const marks: unknown[] = [
+			0,
+			Date.now(),
+			{},
+			{ at: 1 },
+			{ at: Date.now(), by: "a sweep", lock },
+			{ at: Date.now(), by: { pid: "1", startedAt: 1 }, lock },
+			[{ at: 1, by: ENDED }],
+		];
+
+		for (const [index, going] of marks.entries()) {
+			const tree = ended(`snapshot-${index}`);
+			memory.remember({ ...tree, going } as HeldTree);
+			const [read] = memory
+				.recall()
+				.filter((one) => one.identity.key === tree.identity.key);
+			expect(read?.going, `the mark read from ${JSON.stringify(going)}`).toBe(
+				undefined,
+			);
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)}`,
+			).toBe("standing");
+			// Unmarked, nothing is left to finish once its folder goes.
+			rmSync(tree.path, { recursive: true, force: true });
+			expect(
+				await memory.goingState(tree, sweeping()),
+				`the state under ${JSON.stringify(going)} with its folder gone`,
+			).toBe("gone");
 		}
 	});
 

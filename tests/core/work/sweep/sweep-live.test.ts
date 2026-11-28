@@ -1472,6 +1472,41 @@ describe("trees another provider cut", () => {
 		expect(memory.recall(), "the records left").toEqual([]);
 	});
 
+	it("judges through every gate a tree whose mark names no owner", async () => {
+		// Read as a stopped removal, a mark no code that ships wrote was
+		// finished unjudged: `"going": 0` beside uncommitted work released it.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const marks: unknown[] = [0, {}, { at: 1 }];
+		const trees = marks.map((going, index) => {
+			const tree = elsewhereTree(`dev-${index}`);
+			const record = memory.recall().find((one) => one.path === tree);
+			if (record === undefined) throw new Error("no record was written");
+			memory.remember({ ...record, going } as unknown as HeldTree);
+			settleFolder(tree);
+			return tree;
+		});
+		let releases = 0;
+		const provider = elsewhere("it has uncommitted changes", async () => {
+			releases += 1;
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times one was released").toBe(0);
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		for (const tree of trees) {
+			expect(outcome.kept, "what it kept, and why").toContainEqual({
+				path: tree,
+				why: "it has uncommitted changes",
+			});
+			expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		}
+		expect(
+			memory.recall().map((one) => one.going),
+			"the marks read from its records",
+		).toEqual([undefined, undefined, undefined]);
+	});
+
 	it("reads a record whose mark is null as unmarked, and sweeps on", async () => {
 		// A record is a file anybody may edit: read as a mark, the null threw
 		// out of the sweep at its ask time and ended the run for every tree.
