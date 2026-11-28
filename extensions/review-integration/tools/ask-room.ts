@@ -1,6 +1,10 @@
 /**
  * The room a round's reviewers run on, when the package config names
  * one: `sections.review.room`, `{ "machine": "<room>", "realm": "work" }`.
+ * A machine of `cloud` names no one room: each reviewer goes to the
+ * cloud machine the node places it on as it starts
+ * (`lib/subagent/runpi/room-place.ts`), never one made for it, and one
+ * the node places nowhere fails rather than running here.
  *
  * Only a change on one of the repositories a room keeps a checkout of
  * goes there, and only with its head commit known, since the room's

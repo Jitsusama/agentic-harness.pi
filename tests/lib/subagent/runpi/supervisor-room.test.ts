@@ -3,13 +3,18 @@
  * stand-in for the node's `mycelium run`: what the room streamed is
  * the run, its recorded findings come back as the journal, and a room
  * that said nothing at all fails the run rather than running it here,
- * since its round skipped this machine's bars.
+ * since its round skipped this machine's bars. On the `cloud` room the
+ * stand-in's `place` says which machine each reviewer runs on.
  */
 
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { RoomAsk } from "../../../../lib/subagent/run-contract.ts";
+import type {
+	RoomAsk,
+	RunPiResult,
+} from "../../../../lib/subagent/run-contract.ts";
+import { roomPlaced } from "../../../../lib/subagent/runpi/room-place.ts";
 import {
 	expectRan,
 	runChild,
@@ -229,5 +234,181 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.warnings?.join(" ")).toMatch(
 			/No room could take this reviewer \(it names more than one file to read\), and it doesn't run here/,
 		);
+	});
+});
+
+/** The node's answer placing work on `machine`. */
+const placedOn = (machine: string) =>
+	JSON.stringify({ Ok: { Placement: { placed: { machine, passed: [] } } } });
+
+/**
+ * A node whose `place` says each of `answers` in turn, writing down the
+ * words each place was asked with, and whose `run` writes down the
+ * machine it was pinned to and answers as a room does.
+ */
+async function placingNode(stateDir: string, answers: string[]) {
+	const places = join(stateDir, "places.log");
+	const runs = join(stateDir, "runs.log");
+	const mycelium = await script(join(stateDir, "mycelium"), [
+		`import { appendFileSync, readFileSync } from "node:fs";`,
+		"const words = process.argv.slice(2);",
+		`if (words.includes("place")) {`,
+		`  appendFileSync(${JSON.stringify(places)}, JSON.stringify(words) + "\\n");`,
+		`  const asked = readFileSync(${JSON.stringify(places)}, "utf8").split("\\n").filter(Boolean).length;`,
+		`  process.stdout.write(${JSON.stringify(answers)}[asked - 1] + "\\n");`,
+		"  process.exit(0);",
+		"}",
+		`appendFileSync(${JSON.stringify(runs)}, words[words.indexOf("--need") + 1] + "\\n");`,
+		...answered("there"),
+	]);
+	const lines = (path: string) =>
+		readFile(path, "utf8").then(
+			(text) => text.split("\n").filter(Boolean),
+			() => [],
+		);
+	return {
+		mycelium,
+		places: async () => (await lines(places)).map((line) => JSON.parse(line)),
+		runs: () => lines(runs),
+	};
+}
+
+/**
+ * Reviewers asked one after another on the room `machine` names, of a
+ * node standing in as `placingNode` makes it, each with a local child
+ * that marks having run here.
+ */
+async function placedRuns(machine: string, answers: string[], count: number) {
+	const stateDir = await tempStateDir();
+	const ranHere = join(stateDir, "ran-here");
+	const childPath = await script(join(stateDir, "child.mjs"), [
+		`import { appendFileSync } from "node:fs";`,
+		`appendFileSync(${JSON.stringify(ranHere)}, "here\\n");`,
+		...answered("here"),
+	]);
+	await writeFile(join(stateDir, "brief.md"), "the brief");
+	const node = await placingNode(stateDir, answers);
+	const room: RoomAsk = {
+		place: {
+			mycelium: node.mycelium,
+			realm: "work",
+			machine,
+			harnessRoot: "/pkg",
+		},
+		code: { repo: "agentic-harness.pi", commit: "a".repeat(40) },
+	};
+	const results: RunPiResult[] = [];
+	for (let at = 1; at <= count; at += 1) {
+		results.push(
+			await runChild(
+				childPath,
+				stateDir,
+			)({
+				args: ["--mode", "json", "--no-session", "-p", "@brief.md"],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: `reviewer-${at}`,
+				room,
+			}),
+		);
+	}
+	const here = await readFile(ranHere, "utf8").then(
+		() => true,
+		() => false,
+	);
+	return {
+		results,
+		here,
+		places: await node.places(),
+		runs: await node.runs(),
+	};
+}
+
+describe("a reviewer asked on the cloud room", () => {
+	it("runs pinned to the machine the node placed it on, each reviewer placed apart", async () => {
+		const { results, here, runs } = await placedRuns(
+			"cloud",
+			[placedOn("cloud-1"), placedOn("cloud-2")],
+			2,
+		);
+
+		for (const result of results) {
+			expectRan(result);
+			expect(result.finalAssistantText).toBe("there");
+		}
+		expect(here, "nothing ran here").toBe(false);
+		expect(runs).toEqual(["machine=cloud-1", "machine=cloud-2"]);
+	});
+
+	it("is placed for a cloud machine lasting its wall clock, never one made for it", async () => {
+		const { places } = await placedRuns("cloud", [placedOn("cloud-1")], 1);
+
+		// runChild gives every run a two-minute wall clock.
+		expect(places).toEqual([
+			["--realm=work", "place", "--need", "cloud", "--lasts", "2m"],
+		]);
+		expect(places.flat()).not.toContain("--may-cost");
+	});
+
+	it("fails, never running here or anywhere, when the node places it on no machine", async () => {
+		const refused = JSON.stringify({
+			Ok: {
+				Placement: {
+					refused: {
+						misses: [{ machine: "cloud-1", because: [{ full: 40 }] }],
+					},
+				},
+			},
+		});
+		const { results, here, runs } = await placedRuns("cloud", [refused], 1);
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(runs, "nothing ran on a room").toEqual([]);
+		expect(results[0]?.state).toBe("failed");
+		expect(results[0]?.warnings?.join(" ")).toMatch(
+			/No room could take this reviewer \(the node placed it on no machine: no machine takes it: cloud-1 holds the 40 sessions it holds at most\), and it doesn't run here/,
+		);
+	});
+
+	it("fails, never running here, when the node's place fails", async () => {
+		const { results, here, runs } = await placedRuns("cloud", [""], 1);
+
+		expect(here, "nothing ran here").toBe(false);
+		expect(runs, "nothing ran on a room").toEqual([]);
+		expect(results[0]?.state).toBe("failed");
+		expect(results[0]?.warnings?.join(" ")).toMatch(
+			/No room could take this reviewer \(the node's place failed: /,
+		);
+	});
+
+	it("is placed nowhere when the node doesn't answer in time", async () => {
+		const stateDir = await tempStateDir();
+		const mycelium = await script(join(stateDir, "mycelium"), [
+			`setTimeout(() => process.stdout.write(${JSON.stringify(placedOn("late"))}), 5000);`,
+		]);
+		const place = {
+			mycelium,
+			realm: "work",
+			machine: "cloud",
+			harnessRoot: "/pkg",
+		};
+
+		expect(await roomPlaced(place, 60_000, stateDir, 1000)).toEqual({
+			stays: "the node placed it nowhere within 1 s",
+		});
+	});
+});
+
+describe("a reviewer asked on a named room", () => {
+	it("runs on that room with no place asked", async () => {
+		const { results, places, runs } = await placedRuns(
+			"room-1",
+			[placedOn("cloud-1")],
+			1,
+		);
+
+		for (const result of results) expectRan(result);
+		expect(places).toEqual([]);
+		expect(runs).toEqual(["machine=room-1"]);
 	});
 });
