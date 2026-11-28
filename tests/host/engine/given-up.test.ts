@@ -2,13 +2,15 @@
  * Resting a conversation the host still holds whose child was given up
  * before it ran there: its park marker is written naming this host's
  * wake file, as a park writes it, so a sender's wake reaches the watch
- * the host then keeps (F167).
+ * the host then keeps (F167). One a stopping host couldn't wake after
+ * its child crashed mid-turn loses that marker, so the next start
+ * resumes it (F139).
  */
 import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { restGivenUp } from "../../../host/engine/given-up.ts";
+import { leaveToStart, restGivenUp } from "../../../host/engine/given-up.ts";
 import { parking } from "../../../host/engine/parking.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
@@ -230,5 +232,60 @@ describe("a given-up child's conversation", () => {
 			host.asking.mock.calls.some(([id]) => id === A),
 		);
 		host.parked.unwatch(A);
+	});
+});
+
+// F139: a stop that refused the wake of one whose child crashed mid-turn
+// leaves it for the next start to resume, rather than resting it parked.
+describe("a conversation left for the next start", () => {
+	/** A marker for `A`, naming `wake`, dated this boot. */
+	function markerNaming(wake: string) {
+		return {
+			session: A,
+			sessionFile: entry().file,
+			cwd: dir,
+			addresses: [],
+			parkedAt: "2026-11-23T01:00:00.000Z",
+			pid: 4242,
+			wake,
+		};
+	}
+
+	it("loses the marker naming this host's wake, so the next start's restsParked declines it", () => {
+		const host = hostParking();
+		expect(restGivenUp(entry(), host.place)).toBeUndefined();
+
+		expect(leaveToStart(entry(), host.place), "left").toBeUndefined();
+
+		expect(readParked(A, host.parks), "no marker left").toBeUndefined();
+		host.parked.unwatch(A);
+	});
+
+	it("is refused, leaving its marker, while another holder's wake holds it", () => {
+		const host = hostParking();
+		const elsewhere = markerNaming(join(dir, "other-host", A, "wake"));
+		writeParked(elsewhere, host.parks);
+
+		expect(leaveToStart(entry(), host.place)).toBe(
+			`its marker names another holder's wake, ${elsewhere.wake}`,
+		);
+
+		expect(readParked(A, host.parks)).toEqual(elsewhere);
+	});
+
+	it("is refused, leaving its marker, while this host runs it", () => {
+		const host = hostParking(true);
+		const own = markerNaming(host.parked.wakeFile(A));
+		writeParked(own, host.parks);
+
+		expect(leaveToStart(entry(), host.place)).toBe("this host runs it now");
+
+		expect(readParked(A, host.parks)).toEqual(own);
+	});
+
+	it("has nothing to clear where no marker stands", () => {
+		const host = hostParking();
+
+		expect(leaveToStart(entry(), host.place)).toBeUndefined();
 	});
 });
