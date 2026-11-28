@@ -235,6 +235,42 @@ the refusal says to give its full id. A branch's or a replay's fetch
 runs on its three-minute clock in the queue too, waits for a turn
 included, and past it starts from what it has.
 
+## A Push Runs Its Checkout's Push Check
+
+In the week to 27 November a check failing was found only at the
+gate on 10 changes, each a push, a wait for the gate and a push
+again, since nothing ran before `push`. A checkout the `work`
+section names in `pushChecks`, keyed as `fetches` is, has its check
+run in the tree before each push (`lib/core/work/push-checks.ts`):
+
+```json
+{
+  "sections": {
+    "work": {
+      "pushChecks": {
+        "/home/someone/src/repo/.git": {
+          "run": "bash tools/fast-rules.sh",
+          "seconds": 300
+        }
+      }
+    }
+  }
+}
+```
+
+`run` is shell text bash runs in the tree. `seconds` is how long it
+may run, 300 when left out and at most 900; a check past it is
+stopped. A check that exits other than 0, or runs past its time,
+refuses the push and pushes nothing, saying which check, how it
+ended, the line that runs it again (`cd <tree> && <run>`) and its
+last 40 lines, stdout then stderr. One that passes pushes as before,
+and the answer says it passed. A push the remote's ref, as the tree
+last fetched it, already holds runs no check, so a push with nothing
+new stays free. There is no switch to skip it: take the entry out to
+stop it. An entry written wrong is left out, and that checkout
+pushes as it always did. The folder is matched as written or
+through its links, as a fetch rule's is.
+
 ## Trees It Did Not Cut
 
 A quest cuts its own trees and records them in its own front

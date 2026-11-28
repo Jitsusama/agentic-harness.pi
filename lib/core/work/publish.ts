@@ -14,9 +14,21 @@
  * rebasing, which on a shared branch is somebody else's work, and the honest
  * version of "I know what is there" is to say what you think is there and be
  * refused when you are wrong.
+ *
+ * A checkout whose owner names a push check (`push-checks.ts`) has it
+ * run in the tree before the push, and one that fails stops it, since a
+ * check found failing only at the gate costs a push and a gate's wait.
+ * A push the remote already holds runs none, so a no-op stays free.
  */
 
-import type { Exec } from "../exec/index.ts";
+import { quote } from "../../shell/parse.ts";
+import {
+	EXIT_TIMED_OUT,
+	type Exec,
+	type ExecResult,
+	spawnExec,
+} from "../exec/index.ts";
+import type { PushCheck } from "./push-checks.ts";
 import { ask } from "./tree-git.ts";
 
 /** Where a branch went, or why it did not. */
@@ -29,6 +41,8 @@ export type PushOutcome =
 			tracked: boolean;
 			/** True when the push replaced commits the remote already had. */
 			replaced: boolean;
+			/** The push check that passed before it, as its run text. */
+			checked?: string;
 	  }
 	| { kind: "already-there"; branch: string; remote: string }
 	| {
@@ -139,9 +153,97 @@ async function recordRemote(
 	await exec("git", ["-C", treePath, "update-ref", ref, pushed]);
 }
 
+/** What publishing runs: git, and a checkout's push check where it has one. */
+export interface PublisherDeps {
+	exec: Exec;
+	/** The push check of the checkout whose common git folder is given. */
+	checks?: (gitDir: string) => Promise<PushCheck | undefined>;
+	/** Runs a check in a tree; bash on the check's own clock by default. */
+	runCheck?: (tree: string, check: PushCheck) => Promise<ExecResult>;
+}
+
+/** How many of a failed check's last lines its refusal shows. */
+const CHECK_TAIL_LINES = 40;
+
+/** A check's shell text, run by bash in the tree, stopped past its seconds. */
+function runInTree(tree: string, check: PushCheck): Promise<ExecResult> {
+	return spawnExec({ cwd: tree, timeoutMs: check.seconds * 1000 })("bash", [
+		"-c",
+		check.run,
+	]);
+}
+
+/**
+ * The check to run before pushing `pushing` to `remote`'s `branch`, or
+ * nothing: no check is asked for, the checkout names none, or the
+ * remote's ref as this tree last saw it already holds what is pushed.
+ */
+async function checkDue(
+	exec: Exec,
+	checks: PublisherDeps["checks"],
+	treePath: string,
+	target: { remote: string; branch: string; pushing: string | undefined },
+): Promise<PushCheck | undefined> {
+	if (checks === undefined) return undefined;
+	const gitDir = await ask(exec, treePath, [
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	]);
+	if (gitDir === undefined) return undefined;
+	const check = await checks(gitDir);
+	if (check === undefined) return undefined;
+	const held = await ask(exec, treePath, [
+		"rev-parse",
+		"--verify",
+		"-q",
+		`refs/remotes/${target.remote}/${target.branch}`,
+	]);
+	return target.pushing !== undefined && held === target.pushing
+		? undefined
+		: check;
+}
+
+/** Words the shell takes as one, quoted only when they need it. */
+function asShellWord(text: string): string {
+	return /^[\w@%+=:,./-]+$/.test(text) ? text : quote(text);
+}
+
+/**
+ * Why a push its check failed was refused: which check, how it ended,
+ * how to run it again, and the last of what it said.
+ */
+function checkFailed(
+	treePath: string,
+	branch: string,
+	check: PushCheck,
+	ran: ExecResult,
+): string {
+	const ended =
+		ran.code === EXIT_TIMED_OUT
+			? `It ran past its ${check.seconds} seconds, so it was stopped.`
+			: `It exited ${ran.code}.`;
+	const output = [ran.stdout, ran.stderr]
+		.map((stream) => stream.trimEnd())
+		.filter((stream) => stream !== "")
+		.join("\n");
+	const lines = output === "" ? [] : output.split("\n");
+	const tail = lines.slice(-CHECK_TAIL_LINES);
+	const said =
+		tail.length === 0
+			? "It said nothing."
+			: `${lines.length > CHECK_TAIL_LINES ? `Its last ${CHECK_TAIL_LINES} lines` : "What it said"}, stdout then stderr:\n\n${tail.join("\n")}`;
+	return [
+		`${branch} was not pushed: its push check failed. ${ended}`,
+		`The check: ${check.run}`,
+		`Fix what it found, then push again. To run it again yourself: cd ${asShellWord(treePath)} && ${check.run}`,
+		said,
+	].join("\n\n");
+}
+
 /** Publish with plain git. */
-export function createGitPublisher(deps: { exec: Exec }): WorkPublisher {
-	const { exec } = deps;
+export function createGitPublisher(deps: PublisherDeps): WorkPublisher {
+	const { exec, checks, runCheck = runInTree } = deps;
 
 	return {
 		async push(treePath, options = {}) {
@@ -200,8 +302,6 @@ export function createGitPublisher(deps: { exec: Exec }): WorkPublisher {
 				};
 			}
 
-			await fetchesBranch(exec, treePath, remote, branch);
-
 			// What is pushed, read now, so what the remote holds afterwards is
 			// known rather than asked for again.
 			const pushing = await ask(exec, treePath, [
@@ -209,6 +309,26 @@ export function createGitPublisher(deps: { exec: Exec }): WorkPublisher {
 				"--verify",
 				`refs/heads/${branch}`,
 			]);
+
+			// Before anything the push changes, so a refused push leaves the
+			// checkout's settings as they were.
+			const check = await checkDue(exec, checks, treePath, {
+				remote,
+				branch,
+				pushing,
+			});
+			if (check !== undefined) {
+				const ran = await runCheck(treePath, check);
+				if (ran.code !== 0) {
+					return {
+						kind: "refused",
+						branch,
+						reason: checkFailed(treePath, branch, check, ran),
+					};
+				}
+			}
+
+			await fetchesBranch(exec, treePath, remote, branch);
 
 			const args = ["-C", treePath, "push"];
 			// Lease, never bare force. The lease is what turns "overwrite it"
@@ -284,6 +404,7 @@ export function createGitPublisher(deps: { exec: Exec }): WorkPublisher {
 				remote,
 				tracked: !tracked,
 				replaced: options.replace === true,
+				...(check !== undefined ? { checked: check.run } : {}),
 			};
 		},
 	};

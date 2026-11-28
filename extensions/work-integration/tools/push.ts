@@ -10,6 +10,7 @@ import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import type { WorkHistory } from "../../../lib/core/work/history.ts";
 import { cautionsFrom, refusalFrom } from "../../../lib/core/work/objection.ts";
 import { createGitPublisher } from "../../../lib/core/work/publish.ts";
+import { configuredPushCheck } from "../../../lib/core/work/push-checks.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { repositoryKey } from "../../../lib/mesh/scope.ts";
 import { objectionsTo } from "../broker.ts";
@@ -45,7 +46,9 @@ export async function publish(
 		// happened rather than becoming what happened.
 		cautions = cautionsFrom(objected);
 	}
-	const publisher = createGitPublisher({ exec });
+	// The checkout's push check, read from the config at each push, so
+	// an entry taken out stops it at once.
+	const publisher = createGitPublisher({ exec, checks: configuredPushCheck });
 	const outcome = await publisher.push(
 		found.path,
 		replace ? { replace: true } : undefined,
@@ -73,13 +76,14 @@ export async function publish(
 	].filter((note) => note !== undefined);
 	return say(
 		[
-			`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
+			`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${outcome.checked !== undefined ? ` after its push check passed (${outcome.checked})` : ""}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
 			...cautions.map((caution) => `   ${GLYPH.dirty} ${caution}`),
 		].join("\n"),
 		{
 			ok: true,
 			branch: outcome.branch,
 			published: true,
+			...(outcome.checked !== undefined ? { checked: outcome.checked } : {}),
 			...(cautions.length > 0 ? { cautions } : {}),
 		},
 	);
