@@ -174,6 +174,7 @@ describe("the strict profile", () => {
 			home: "/home/someone",
 			runtimeDir: undefined,
 			cwd: "/home/someone/src/thing",
+			env: SESSION,
 			worldTrees: [
 				{ tree: "/world/trees/s-one/src", repository: "/world/world.git" },
 				{ tree: "/world/trees/s-two/src" },
