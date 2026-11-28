@@ -60,6 +60,7 @@ import {
 	type RunningRound,
 	rosterRoundsRunning,
 	roundsHeld,
+	SETTLED_AFTER_MS,
 } from "../round-running.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
@@ -252,9 +253,14 @@ export function spacingAtLeast(
  * The least a Mac leaves between round starts, whatever its config
  * sets: its swap-outs show a round's reviewers only once they have
  * loaded, a minute or more after the start, so two a minute would
- * start a third before the first showed. A config may set it wider.
+ * start a third before the first showed. It is the time a round takes
+ * to settle in, so the next start always finds the last round's folder
+ * and judges it by its age: a round takes its start last, just before
+ * its reviewers, and a shorter gap would let a start pass beside one
+ * that had yet to leave its folder, seen by neither the count nor the
+ * age (F1, F11, F13). A config may set it wider.
  */
-export const MAC_SPACING_MS = 2 * 60_000;
+export const MAC_SPACING_MS = SETTLED_AFTER_MS;
 
 /**
  * The room a round reads on `platform`: a Mac waits while the roster

@@ -12,10 +12,12 @@
  * it run more (1OGSE7), and even then a further round starts only once
  * every round running is {@link SETTLED_AFTER_MS} in, so their
  * reviewers have loaded and the reading includes them, and only on a
- * reading of at least {@link LEAST_FREE_FOR_ANOTHER_PERCENT}% free. The
- * line's spacing between starts still covers a round that took its
- * start and has yet to leave its folder, so two waiting rounds never
- * both pass on one count.
+ * reading of at least {@link LEAST_FREE_FOR_ANOTHER_PERCENT}% free. A
+ * round takes its start just before its reviewers, and a Mac spaces its
+ * starts no closer than {@link SETTLED_AFTER_MS}, so by the next start
+ * the last round's folder is there to be counted and aged: two waiting
+ * rounds never both pass on one count. A round that took its start and
+ * still has no folder that long after has failed before its reviewers.
  *
  * A round is read from the folders its reviewers leave under the
  * transcripts' `runs`, judged by the same supervisor lease the collect
@@ -138,7 +140,7 @@ export async function roundsHeld(
 	if (young !== undefined) {
 		return {
 			by: "young",
-			said: `${young.runId} has run ${minutesOf(young.runningMs ?? 0)} minutes on this Mac, and another round starts beside it only once every round running is ${SETTLED_AFTER_MS / 60_000} minutes in, when their reviewers have loaded`,
+			said: `${young.runId} has run ${minutesSaid(young.runningMs ?? 0)} on this Mac, and another round starts beside it only once every round running is ${minutesSaid(SETTLED_AFTER_MS)} in, when their reviewers have loaded`,
 		};
 	}
 	const free = await freePercent();
@@ -162,9 +164,7 @@ export function runningSaid(round: RunningRound): string {
 			? "its reviewers are still being handed out"
 			: `${round.reviewersRunning} of its reviewers ${round.reviewersRunning === 1 ? "is" : "are"} still running`;
 	const minutes =
-		round.runningMs === undefined
-			? ""
-			: `, ${minutesOf(round.runningMs)} minutes in`;
+		round.runningMs === undefined ? "" : `, ${minutesSaid(round.runningMs)} in`;
 	return `${round.runId} still runs on this Mac (${who}${minutes}), and a Mac starts one roster round at a time`;
 }
 
@@ -177,7 +177,13 @@ function countSaid(running: readonly RunningRound[], atOnce: number): string {
 	if (atOnce <= 1 && running.length === 1 && only !== undefined) {
 		return runningSaid(only);
 	}
-	const names = running.map((round) => round.runId).join(", ");
+	const names = running
+		.map((round) =>
+			round.runningMs === undefined
+				? round.runId
+				: `${round.runId}, ${minutesSaid(round.runningMs)} in`,
+		)
+		.join("; ");
 	return `${running.length} roster rounds still run on this Mac (${names}), and it starts at most ${atOnce} at a time`;
 }
 
@@ -220,9 +226,10 @@ async function stillRunning(
 		: undefined;
 }
 
-/** Whole minutes in `ms`, never under none. */
-function minutesOf(ms: number): number {
-	return Math.max(0, Math.floor(ms / 60_000));
+/** Whole minutes in `ms`, never under none, said as "1 minute" or "5 minutes". */
+function minutesSaid(ms: number): string {
+	const minutes = Math.max(0, Math.floor(ms / 60_000));
+	return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
 /** The folder names in `folder`, or none when it can't be read. */

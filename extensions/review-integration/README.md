@@ -363,7 +363,7 @@ hard makes it. A Mac starts one round at a time unless
 `roundsAtOnce` under `mac` sets more (a whole number; anything
 else reads as one): while that many rounds' reviewers are running
 or starting there, by the leases its rounds' folders keep, the next
-waits for one to end, saying how long it has run. Below that number
+waits for one to end, saying how long each has run. Below that number
 with a round running, a further round starts only once every round
 running is 3 minutes in, when its reviewers have loaded and the
 reading includes them, and only while `kern.memorystatus_level`
@@ -374,11 +374,13 @@ its supervisors stand, since the longest reviewer wall here is 90
 minutes and a wedged supervisor would otherwise hold every round
 behind it. A retry's reviewer counts while it runs, and so does a
 reviewer whose model runs elsewhere, since its supervisor runs here.
-It also starts at most one round every two minutes, which a
+It also starts at most one round every three minutes, which a
 `startSpacingMinutes` may widen but never narrow, since a round's
-reviewers show in its swap-outs only once they have loaded. The same
-gap covers the moment between a round taking its start and leaving
-its folder. One reading, or one failure to read, serves a session's
+reviewers show in its swap-outs only once they have loaded. That is
+the time a round takes to settle in, so the next start always finds
+the last round's folder to count and age: a round takes its start
+just before its reviewers start, and a closer start could pass beside
+one yet to leave its folder. One reading, or one failure to read, serves a session's
 rounds for 20 seconds, and a program that sits out its timeout is
 killed. A short reading holds a round for as long as it lasts, as on
 Linux. A wait with no verdict, for a figure it can't read or a

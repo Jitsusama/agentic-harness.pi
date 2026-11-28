@@ -317,7 +317,7 @@ describe("whether a Mac starts a round beside those running", () => {
 
 		expect(held?.by).toBe("count");
 		expect(held?.said).toBe(
-			"2 roster rounds still run on this Mac (council-b, council-a), and it starts at most 2 at a time",
+			"2 roster rounds still run on this Mac (council-b, 10 minutes in; council-a, 40 minutes in), and it starts at most 2 at a time",
 		);
 	});
 
@@ -328,7 +328,7 @@ describe("whether a Mac starts a round beside those running", () => {
 		const held = await roundsHeld([runningFor(1)], 2, read.free);
 
 		expect(held?.by).toBe("young");
-		expect(held?.said).toContain("council-x has run 1 minutes");
+		expect(held?.said).toContain("council-x has run 1 minute on this Mac");
 		expect(held?.said).toContain("3 minutes in");
 		expect(read.asked, "a young round's reading would leave it out").toBe(0);
 	});
@@ -343,6 +343,28 @@ describe("whether a Mac starts a round beside those running", () => {
 		expect(held?.by).toBe("young");
 		expect(held?.said).toContain("council-b");
 		expect(SETTLED_AFTER_MS).toBe(3 * 60_000);
+	});
+
+	it("starts a second beside a round exactly 3 minutes in, and holds it a millisecond short", async () => {
+		const settled = {
+			runId: "council-x",
+			reviewersRunning: 2,
+			runningMs: SETTLED_AFTER_MS,
+		};
+		const short = { ...settled, runningMs: SETTLED_AFTER_MS - 1 };
+
+		expect(await roundsHeld([settled], 2, reads(95).free)).toBeUndefined();
+		expect((await roundsHeld([short], 2, reads(95).free))?.by).toBe("young");
+	});
+
+	it("holds a second beside a round whose age is unknown, as young", async () => {
+		const held = await roundsHeld(
+			[{ runId: "council-x", reviewersRunning: 2 }],
+			2,
+			reads(95).free,
+		);
+
+		expect(held?.by).toBe("young");
 	});
 
 	it("holds a second with 50% free, under the bar for another", async () => {

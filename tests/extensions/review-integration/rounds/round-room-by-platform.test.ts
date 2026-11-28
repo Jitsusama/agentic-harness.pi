@@ -1,6 +1,6 @@
 /**
  * A round reads the room its platform has: a Mac the queue's swap rule,
- * spaced two minutes apart, and Linux its memory and CPU pressure and
+ * spaced as far apart as a round takes to settle in, and Linux its memory and CPU pressure and
  * available memory with no spacing of its own. A Mac starts as many
  * roster rounds at once as its config allows, one unless it says more,
  * and a further one only beside rounds settled in, on a reading with
@@ -8,9 +8,15 @@
  * the round answers.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { macRoundsAtOnce } from "../../../../extensions/review-integration/roster.ts";
-import type { RunningRound } from "../../../../extensions/review-integration/round-running.ts";
+import {
+	type RunningRound,
+	SETTLED_AFTER_MS,
+} from "../../../../extensions/review-integration/round-running.ts";
 import {
 	MAC_SPACING_MS,
 	roundRoom,
@@ -18,6 +24,7 @@ import {
 	withUnjudged,
 } from "../../../../extensions/review-integration/tools/ask-round.ts";
 import type { RoundRoom } from "../../../../lib/core/review/ask/mac-room.ts";
+import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 
 const macRoom: RoundRoom = {
 	short: async () => "a Mac's own reason",
@@ -57,7 +64,7 @@ function roomyMacAt(free: number): { room: RoundRoom; looked: () => boolean } {
 }
 
 describe("the room a round reads", () => {
-	it("is the Mac's rule on a Mac, spaced two minutes apart", async () => {
+	it("is the Mac's rule on a Mac, spaced as far apart as a round takes to settle in", async () => {
 		const room = roundRoom("darwin", () => macRoom, none, atOnce(undefined));
 
 		expect(await room.short()).toEqual({
@@ -67,7 +74,11 @@ describe("the room a round reads", () => {
 		});
 		expect(room.startedUnjudged()).toBe("started without a verdict");
 		expect(room.spacingMs).toBe(MAC_SPACING_MS);
-		expect(MAC_SPACING_MS).toBe(2 * 60_000);
+		// A closer start could pass beside a round yet to leave its folder,
+		// which neither the count nor the age would see (F1, F11, F13).
+		expect(MAC_SPACING_MS, "the spacing is the settle time").toBe(
+			SETTLED_AFTER_MS,
+		);
 	});
 
 	// 26 November: two rounds started side by side on the work Mac twice
@@ -110,7 +121,7 @@ describe("the room a round reads", () => {
 		const held = await room.short();
 
 		expect(held?.readings).toEqual(["another round on this Mac"]);
-		expect(held?.said).toContain("council-x has run 1 minutes");
+		expect(held?.said).toContain("council-x has run 1 minute on this Mac");
 		expect(mac.looked()).toBe(false);
 	});
 
@@ -137,6 +148,47 @@ describe("the room a round reads", () => {
 
 		expect(held?.readings).toEqual(["another round on this Mac"]);
 		expect(held?.said).toContain("starts at most 2 at a time");
+	});
+
+	describe("reading roundsAtOnce from the package config", () => {
+		let home: string;
+		beforeEach(() => {
+			home = mkdtempSync(join(tmpdir(), "rounds-at-once-"));
+			vi.stubEnv("XDG_CONFIG_HOME", home);
+		});
+		afterEach(() => {
+			vi.unstubAllEnvs();
+			rmSync(home, { recursive: true, force: true });
+		});
+
+		/** The package config holding `review` as its review section. */
+		function configHolds(review: unknown): void {
+			mkdirSync(dirname(packageConfigPath()), { recursive: true });
+			writeFileSync(
+				packageConfigPath(),
+				JSON.stringify({ version: 1, sections: { review } }),
+			);
+		}
+
+		it("starts a second beside one settled in where review.mac says 2", async () => {
+			configHolds({ mac: { roundsAtOnce: 2 } });
+			const mac = roomyMacAt(95);
+
+			const room = roundRoom("darwin", () => mac.room, oneFor(30));
+
+			expect(await room.short()).toBeUndefined();
+		});
+
+		it("holds one at a time where it sits outside review.mac, or the config says nothing", async () => {
+			for (const review of [{ roundsAtOnce: 2 }, { mac: {} }, undefined]) {
+				configHolds(review);
+				const room = roundRoom("darwin", () => roomyMacAt(95).room, oneFor(30));
+
+				expect((await room.short())?.said, JSON.stringify(review)).toContain(
+					"a Mac starts one roster round at a time",
+				);
+			}
+		});
 	});
 
 	it("reads a bad roundsAtOnce as one, holding a second beside one settled in with room", async () => {
