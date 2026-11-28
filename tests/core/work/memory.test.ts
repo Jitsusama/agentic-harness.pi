@@ -44,6 +44,7 @@ import {
 	createTreeMemory,
 	TreeGoing,
 	TreeHalfGone,
+	TreeStillGoing,
 } from "../../../lib/core/work/memory.ts";
 import {
 	type RemovalLock,
@@ -1506,6 +1507,85 @@ describe("a session asking for a tree a sweep is removing", () => {
 			`${tree.path} is still being removed by a sweep`,
 		);
 		expect(asks, "the provider's asks").toEqual([]);
+	});
+
+	/**
+	 * A tree a sweep is removing, filed under another key than the one
+	 * asked for, at the path its provider hands back for that ask, as
+	 * World files one tree under two keys.
+	 */
+	async function removingTwin(purpose: string, goingWaitMs: number) {
+		const removal = await removing(asked(purpose, "filed-apart"), goingWaitMs);
+		return { ...removal, request: asked(purpose) };
+	}
+
+	it("waits for a removal marked on a twin under another key, never listing the tree while refused", async () => {
+		const { memory, broker, tree, request } = await removingTwin(
+			"twinned",
+			5000,
+		);
+		const started = Date.now();
+		let listed: boolean | undefined;
+
+		const [held] = await Promise.all([
+			broker.ensure(request),
+			later(50, async () => {
+				listed = broker.cutHere(tree.path);
+			}),
+			later(100, async () => {
+				rmSync(tree.path, { recursive: true, force: true });
+				await memory.endGoing(tree);
+			}),
+		]);
+
+		expect(Date.now() - started, "how long it waited").toBeGreaterThanOrEqual(
+			90,
+		);
+		expect(listed, "whether it listed the tree while refused").toBe(false);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		expect(broker.cutHere(held.path), "whether it lists the fresh cut").toBe(
+			true,
+		);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.identity.key),
+			"the records left",
+		).toEqual([treeIdentity(request).key]);
+		expect(found[0]?.going, "the fresh record's mark").toBeUndefined();
+		expect(found[0]?.owners?.map((one) => one.pid)).toContain(process.pid);
+	});
+
+	it("says a sweep still removes a twin under another key once the wait runs out, never listing the tree", async () => {
+		const { broker, tree, request } = await removingTwin("twin-stuck", 200);
+
+		const refusal = await broker.ensure(request).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+
+		expect(broker.cutHere(tree.path), "whether it lists the tree").toBe(false);
+		expect(refusal, "the ask's refusal").toBeInstanceOf(TreeStillGoing);
+	});
+
+	it("finishes a stopped removal marked on a twin under another key, then cuts the tree afresh", async () => {
+		const { memory, broker, released, tree, sweep, request } =
+			await removingTwin("twin-stopped", 5000);
+		await memory.endGoing(tree, true, sweep.lock);
+		sweep.end();
+
+		const held = await broker.ensure(request);
+
+		expect(released, "what the provider released").toEqual([tree.path]);
+		expect(held.path).toBe(tree.path);
+		expect(existsSync(held.path), "the fresh cut's folder").toBe(true);
+		const found = memory.recall();
+		expect(
+			found.map((one) => one.identity.key),
+			"the records left",
+		).toEqual([treeIdentity(request).key]);
+		expect(found[0]?.going, "the fresh record's mark").toBeUndefined();
+		expect(found[0]?.owners?.map((one) => one.pid)).toContain(process.pid);
 	});
 
 	it("stops looking once the wait runs out, whatever the record's own file says", async () => {

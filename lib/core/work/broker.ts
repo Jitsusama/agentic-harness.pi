@@ -358,6 +358,50 @@ export function createTreeBroker(
 		typeof providers === "function" ? providers() : providers;
 
 	/**
+	 * Wait out or finish the removal a hold on `held` was refused for,
+	 * marked on a record at its path under another key: one running is
+	 * waited for until `wait` ends, throwing {@link TreeStillGoing} past
+	 * it, and one stopped is finished through the provider that cut it.
+	 */
+	async function endTwinsRemoval(
+		held: HeldTree,
+		refusal: TreeGoing | TreeHalfGone,
+		wait: { readonly until: number; readonly ms: number },
+		options: TreeCallOptions | undefined,
+	): Promise<void> {
+		if (memory === undefined) return;
+		const twin =
+			memory
+				.recall()
+				.find((one) => one.path === held.path && one.going !== undefined) ??
+			held;
+		if (refusal instanceof TreeHalfGone && twin !== held) {
+			const by = roster().find((provider) => provider.id === twin.providerId);
+			if (by === undefined) {
+				throw new Error(
+					`${twin.path} was left part-removed by a sweep that stopped, and ${twin.providerId}, which could finish removing it, isn't loaded here`,
+				);
+			}
+			try {
+				await memory.finishGoing(
+					twin,
+					() => by.release(twin, options),
+					undefined,
+					by,
+				);
+				return;
+			} catch (finishing) {
+				// Another session finishes the removal now, or holds its lock:
+				// waited for as any removal is, rather than refused.
+				if (!(finishing instanceof TreeGoing)) throw finishing;
+			}
+		}
+		// Looked at once at least, so a twin that reads unmarked by now, or
+		// none found, can't spin the cut.
+		await waitWhileGoing(memory, twin, wait, options?.signal, true);
+	}
+
+	/**
 	 * This session's trees, then remembered ones it does not already hold.
 	 *
 	 * Ordered that way deliberately: a tree cut here is the one the caller just
@@ -671,23 +715,43 @@ export function createTreeBroker(
 				);
 			}
 
-			const { path } = await choice.provider.ensure(request, options);
-			const held: HeldTree = {
-				identity: treeIdentity(request),
-				path,
-				providerId: choice.provider.id,
-			};
-			trees.push(held);
-			// Awaited, though it costs a `ps` on the way out of every cut.
-			// Left running in the background it is a write that may not
-			// have happened when the caller gets the tree, and a one-shot
-			// session can be gone by then: the record exists precisely so
-			// the next session finds the tree, so losing the race loses
-			// the tree, which is the fault this whole module was written
-			// for. A few milliseconds against cutting a worktree is not a
-			// cost worth that.
-			await memory?.rememberHeldByUs(held);
-			return held;
+			for (;;) {
+				const { path } = await choice.provider.ensure(request, options);
+				const held: HeldTree = {
+					identity: treeIdentity(request),
+					path,
+					providerId: choice.provider.id,
+				};
+				trees.push(held);
+				// Awaited, though it costs a `ps` on the way out of every cut.
+				// Left running in the background it is a write that may not
+				// have happened when the caller gets the tree, and a one-shot
+				// session can be gone by then: the record exists precisely so
+				// the next session finds the tree, so losing the race loses
+				// the tree, which is the fault this whole module was written
+				// for. A few milliseconds against cutting a worktree is not a
+				// cost worth that.
+				try {
+					await memory?.rememberHeldByUs(held);
+					return held;
+				} catch (error) {
+					if (
+						memory === undefined ||
+						!(error instanceof TreeGoing || error instanceof TreeHalfGone)
+					) {
+						throw error;
+					}
+					// The provider handed back a path a twin record under another
+					// key names, as World files one tree under two, and a sweep
+					// marked that twin: the tree isn't this session's while it is
+					// removed, so it leaves the list, and the removal is waited
+					// out or finished as the loop above does for a record of its
+					// own, before the tree is cut afresh.
+					const at = trees.indexOf(held);
+					if (at >= 0) trees.splice(at, 1);
+					await endTwinsRemoval(held, error, wait, options);
+				}
+			}
 		},
 
 		async release(held, options) {
