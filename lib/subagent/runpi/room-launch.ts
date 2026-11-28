@@ -27,7 +27,10 @@ export interface RoomPlace {
 	readonly mycelium: string;
 	/** The realm the room is in. */
 	readonly realm: string;
-	/** The room, as mycelium names the machine. */
+	/**
+	 * The room, as mycelium names the machine, or `cloud` for whichever
+	 * cloud machine the node places each reviewer on as it starts.
+	 */
 	readonly machine: string;
 	/** The harness this session runs, whose paths go as relative ones. */
 	readonly harnessRoot: string;
@@ -89,6 +92,13 @@ export const ROOM_REPOS: ReadonlySet<string> = new Set([
 	"agentic-harness.pi",
 	"mycelium",
 ]);
+
+/**
+ * The room that is no one machine: each reviewer goes to the cloud
+ * machine the node places it on as it starts, so a round spreads over
+ * every machine with places rather than filling one room's.
+ */
+export const PLACED_BY_NODE = "cloud";
 
 const COMMIT = /^[0-9a-f]{40}$/;
 const VALUED = new Set(["--extension", "-e", "--skill"]);
@@ -189,6 +199,23 @@ export function roomLaunch(
 			...words,
 		],
 	};
+}
+
+/**
+ * The words that ask the node which cloud machine a reviewer with
+ * `wallMs` on its clock goes to, so it goes nowhere that leaves before
+ * the clock could stop it. Never `--may-cost`: a reviewer goes to a
+ * machine the realm already has, and the node makes none for it.
+ */
+export function placeWords(place: RoomPlace, wallMs: number): string[] {
+	return [
+		`--realm=${place.realm}`,
+		"place",
+		"--need",
+		PLACED_BY_NODE,
+		"--lasts",
+		`${Math.max(1, Math.ceil(wallMs / 60_000))}m`,
+	];
 }
 
 /** The path within the harness, or undefined when it lies outside. */

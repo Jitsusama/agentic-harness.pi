@@ -20,7 +20,10 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../../../lib/subagent/defaults.ts";
-import { MAX_ROOM_BRIEF_BYTES } from "../../../../lib/subagent/runpi/room-launch.ts";
+import {
+	MAX_ROOM_BRIEF_BYTES,
+	PLACED_BY_NODE,
+} from "../../../../lib/subagent/runpi/room-launch.ts";
 import { askFunctions } from "./ask-source.ts";
 
 const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
@@ -68,6 +71,21 @@ describe("the room a round's reviewers run on", () => {
 			},
 			code: { repo: "agentic-harness.pi", commit: head },
 		});
+	});
+
+	it("is the one the node places each reviewer on, when the config names cloud", async () => {
+		const path = await config({ room: { machine: "cloud" } });
+
+		const room = await roomFor(
+			change("github:Jitsusama/mycelium"),
+			head,
+			harness,
+			path,
+			found,
+		);
+
+		expect(room?.place.machine).toBe(PLACED_BY_NODE);
+		expect(room?.place.mycelium).toBe(MYCELIUM);
 	});
 
 	it("is in the realm the config names", async () => {

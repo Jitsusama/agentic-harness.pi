@@ -10,7 +10,7 @@
 
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hosted, sessionOwner } from "../../core/session/index.ts";
 import { withoutOff } from "../../internal/fence/fence-stage.ts";
@@ -20,7 +20,8 @@ import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { WrapUpRequest } from "../run-contract.ts";
 import type { RunPi } from "../subagent.ts";
-import { roomLaunch } from "./room-launch.ts";
+import { PLACED_BY_NODE, roomLaunch } from "./room-launch.ts";
+import { roomPlaced } from "./room-place.ts";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -207,7 +208,11 @@ export async function told(
 	const reviewerId = options.reviewerId ?? "reviewer";
 	const paths = await store.ensureReviewerDir(runId, reviewerId);
 	const root = store.rootPaths(runId);
-	const room = await roomFor(options);
+	const room = await roomFor(
+		options,
+		wallClock(config, options.timeoutMs),
+		dirname(paths.leasePath),
+	);
 	const request = await buildRequest(
 		config,
 		paths,
@@ -268,10 +273,15 @@ export async function told(
 /**
  * The room words for a reviewer asked to run on a room, or why no room
  * can take it, read now so the supervisor is told one or the
- * other and never has to read the brief itself.
+ * other and never has to read the brief itself. A reviewer asked on the
+ * `cloud` room is placed by the node now, from its own folder `here`,
+ * for as long as its clock `wallMs` runs, and its words name the machine
+ * placed, as a named room's do.
  */
 async function roomFor(
 	options: Parameters<RunPi>[0],
+	wallMs: number,
+	here: string,
 ): Promise<
 	| { room: { binary: string; args: readonly string[] } }
 	| { roomStays: string }
@@ -288,13 +298,27 @@ async function roomFor(
 			return { roomStays: `its brief could not be read: ${String(error)}` };
 		}
 	}
+	const { place, code } = options.room;
+	const placed =
+		place.machine === PLACED_BY_NODE
+			? await roomPlaced(place, wallMs, here)
+			: { machine: place.machine };
+	if ("stays" in placed) return { roomStays: placed.stays };
 	const launch = roomLaunch(
-		options.room.place,
-		options.room.code,
+		{ ...place, machine: placed.machine },
+		code,
 		options.args,
 		brief,
 	);
 	return "stays" in launch ? { roomStays: launch.stays } : { room: launch };
+}
+
+/** The wall clock a run gets: its own, else the config's, else the default. */
+function wallClock(
+	config: SupervisorRunPiConfig,
+	timeoutMs: number | undefined,
+): number {
+	return timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 }
 
 /**
@@ -370,7 +394,7 @@ async function buildRequest(
 		// since it can't hear a wrap-up, and one that falls back here to
 		// this soft deadline too.
 		...softDeadline(
-			overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+			wallClock(config, overrides.timeoutMs),
 			overrides.wrapUpReserveMs,
 		),
 		idleTimeoutMs:

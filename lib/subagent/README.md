@@ -193,6 +193,11 @@ companion skill.
   - `runpi/room-launch.ts`: the words that run a reviewer
     on a cloud room through `mycelium run` and the room's
     reviewer entry, or why it stays here.
+  - `runpi/room-place.ts`: the cloud machine the node
+    places a reviewer on, asked as it starts, or why the
+    node placed it nowhere.
+  - `runpi/room-env.ts`: the only variables a room's
+    command, or the node's place, is given.
 - `runpi/supervisor.mjs`: the supervisor process itself:
   it spawns pi, watches its clocks, cancel files and
   parent, stops it, and writes its lease, progress and

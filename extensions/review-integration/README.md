@@ -398,6 +398,22 @@ then from `personas/` here, which ships seven: the four above,
 `architecture-hawk`, `clean-design` and `intent-fidelity`. A file
 of yours with a built-in's name replaces it.
 
+### Reviewers on a Room
+
+`room` under `review`, as `{ "machine": "room-1", "realm": "work" }`,
+sends a council's reviewers to that machine through the node's
+`mycelium run`, for a change on `core.nix`, `agentic-harness.pi` or
+`mycelium` with its head commit known; the realm is `work` when
+none is named. A machine of `cloud` names no one room: each reviewer
+is placed as it starts with `mycelium place --need cloud --lasts`
+its wall clock, and runs on the machine placed, so a round's
+reviewers may go to every cloud machine with places rather than
+filling one room's 40.
+Placing never makes a machine. A reviewer the node places nowhere,
+or doesn't place within 60 seconds, fails saying why, as one a
+named room couldn't take does: a room round skips this machine's
+bars, so its reviewers never run here.
+
 ### What Bounds a Reviewer
 
 The `ask` subsection holds three durations, in milliseconds, and
