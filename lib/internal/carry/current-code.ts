@@ -11,7 +11,7 @@
  * record of moving off it, never from when version folders were made.
  */
 
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { installOfVersion } from "../reload/loaded.ts";
 
@@ -69,28 +69,52 @@ export function behindItsInstall(
 }
 
 /**
- * When `install` left the version at `running`: the time of the empty
- * marker its installer makes in `retired/` as it moves `current` off a
- * version, named by that version's commit and dated to the move. With
- * no marker, as for a session on the former `releases/`, it is the time
- * of the `current` link itself, which moved no earlier than it left
- * `running`, so it errs toward carrying. Nothing where neither can be
- * read, so a doubt never refuses. When versions were made says nothing
- * of it: one is built long before it is made current, if ever, and a
- * copy keeps its times.
+ * When `install` left the commit at `running`: the latest of the empty
+ * markers its installer makes in `retired/` as it moves `current` off a
+ * version folder, each named by that folder and dated to the move, of
+ * every folder holding the commit. A move from one rebuild of a commit
+ * to another leaves none of its code, so only the last move off any of
+ * them says when the commit was left. With no marker, as for a session
+ * on the former `releases/`, it is the time of the `current` link
+ * itself, which moved no earlier than it left `running`, so it errs
+ * toward carrying. Nothing where neither can be read, so a doubt never
+ * refuses. When versions were made says nothing of it: one is built
+ * long before it is made current, if ever, and a copy keeps its times.
  */
 function leftAt(install: string, running: string): number | undefined {
-	try {
-		return statSync(join(install, "retired", basename(running))).mtimeMs;
-	} catch {
-		// No marker, as for a version left before markers were kept.
-	}
+	const marked = markedLeaving(join(install, "retired"), commitOf(running));
+	if (marked !== undefined) return marked;
 	try {
 		return lstatSync(join(install, "current")).mtimeMs;
 	} catch {
 		// An install whose link can't be read says nothing of the move.
 		return undefined;
 	}
+}
+
+/**
+ * The latest time `retired` marks a folder of `commit` as left, or
+ * nothing where none is marked or the markers can't be read.
+ */
+function markedLeaving(retired: string, commit: string): number | undefined {
+	let names: string[];
+	try {
+		names = readdirSync(retired);
+	} catch {
+		// No markers kept, as before the installer kept them.
+		return undefined;
+	}
+	let latest: number | undefined;
+	for (const name of names) {
+		if (commitOf(name) !== commit) continue;
+		try {
+			const at = statSync(join(retired, name)).mtimeMs;
+			if (latest === undefined || at > latest) latest = at;
+		} catch {
+			// Swept with its version while read: it marks no leaving now.
+		}
+	}
+	return latest;
 }
 
 /** The commit a version folder holds, less what a rebuild adds. */
