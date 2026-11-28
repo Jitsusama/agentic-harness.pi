@@ -29,6 +29,7 @@ import {
 	type TreeRequest,
 	treeIdentity,
 } from "../../../../lib/core/work/index.ts";
+import { TreeStillGoing as BrokersTreeStillGoing } from "../../../../lib/core/work/memory.ts";
 import { OFF } from "../../../../lib/internal/fence/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
@@ -233,6 +234,26 @@ describe("the files a round's tree must hold", () => {
 
 		expect(asked, "the snapshots asked for").toHaveLength(1);
 		// The checkout stands at the commit, so the round reads it instead.
+		expect(tree, "the tree read instead").toEqual({ path: checkout.path });
+	});
+
+	it("asks once when the broker's own refusal says a sweep is still removing the tree", async () => {
+		// The round tells the refusal by its name alone, so a class renamed in
+		// the broker, or a stand-in above named apart from it, would ask twice.
+		const refusal = new BrokersTreeStillGoing("/trees/snapshot", 15 * 60_000);
+		expect(refusal.name, "the stand-in's name").toBe(
+			new TreeStillGoing("/trees/snapshot").name,
+		);
+		const checkout = await checkoutAt();
+		const asked = announceLayer(undefined, refusal);
+		const tree = await treeForRound(
+			{ key: KEY, localPath: checkout.path },
+			checkout.head,
+			checkout.path,
+			["areas/a/x.ts"],
+		);
+
+		expect(asked, "the snapshots asked for").toHaveLength(1);
 		expect(tree, "the tree read instead").toEqual({ path: checkout.path });
 	});
 

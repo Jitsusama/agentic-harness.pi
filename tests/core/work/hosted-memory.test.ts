@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
-import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import { createTreeMemory, TreeInUse } from "../../../lib/core/work/memory.ts";
 import { sessionHost } from "../../support/session-host.ts";
 
 const OWNER = { pid: 123, startedAt: 1_760_000_000_000 };
@@ -73,4 +73,53 @@ it("a closed conversation no longer holds its tree while the host lives", async 
 	await close("a", "test");
 
 	expect(await memory.heldNow(facts)).toEqual([]);
+});
+
+it("finishes a stopped removal whose only joiners are its own conversation, and refuses one another joined", async () => {
+	// In a host every conversation shares its process, and one resumed
+	// after a restart is named again under a new one: read as joiners, the
+	// marking conversation's own names would keep its removal unfinished.
+	const memory = createTreeMemory(join(root, "records"));
+	const holder = { ...OWNER, session: "a", host: "test-host" };
+	const resumed = { pid: 456, startedAt: OWNER.startedAt, session: "a" };
+	const stoppedAt = (key: string, joiner?: typeof holder): HeldTree => {
+		const path = join(root, key);
+		mkdirSync(path);
+		const tree: HeldTree = {
+			path,
+			identity: { key, shareable: true },
+			providerId: "git",
+			owners: [
+				holder,
+				{ ...resumed, host: "test-host" },
+				...(joiner ? [joiner] : []),
+			],
+			going: { at: Date.now(), by: OWNER, holder },
+		};
+		memory.remember(tree);
+		return tree;
+	};
+	const own = stoppedAt("own");
+	const joined = stoppedAt("joined", {
+		...OWNER,
+		session: "b",
+		host: "test-host",
+	});
+	const released: string[] = [];
+	const release = (tree: HeldTree) => async () => {
+		released.push(tree.path);
+		rmSync(tree.path, { recursive: true, force: true });
+	};
+
+	await withSession("b", () => memory.finishGoing(own, release(own), facts));
+	await expect(
+		withSession("b", () => memory.finishGoing(joined, release(joined), facts)),
+		"the removal another conversation joined",
+	).rejects.toThrow(TreeInUse);
+
+	expect(released, "what was released").toEqual([own.path]);
+	expect(
+		memory.recall().map((one) => one.identity.key),
+		"the records left",
+	).toEqual(["joined"]);
 });
