@@ -306,8 +306,10 @@ input pipeline or screen. No unit or running host is installed yet.
   The journal says each snapshot's size and pause. The file
   holds every string the process does, secrets among them, so it is
   made owner-only before V8 writes into it, in an owner-only folder
-  under the host service's state, and kept until its asker removes it.
-  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one.
+  under the host service's state. The next snapshot removes any there
+  over 2 hours old, and a write that fails removes its partial file.
+  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one
+  and waits up to 10 minutes; past that, the file may still come.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.

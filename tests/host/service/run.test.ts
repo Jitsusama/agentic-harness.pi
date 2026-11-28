@@ -228,11 +228,13 @@ describe("a child host", () => {
 			close: () => undefined,
 		}));
 		const signals = new EventEmitter();
+		let hosting: SessionHost | undefined;
 		const run = await runHost({
 			argv: ["--child"],
 			env: { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
 			child: { slot: started.slot, life: started.life },
 			engine: (host) => {
+				hosting = host;
 				started.hosts(host);
 				return engine(host);
 			},
@@ -253,6 +255,13 @@ describe("a child host", () => {
 			expect(reply.ok, "the child opened its conversation").toBe(true);
 			expect(policy, "nobody asked the key's policy").not.toHaveBeenCalled();
 			expect(units.started, "no unit started for it").toEqual([]);
+			// Busy, so a heap snapshot is refused as one, which it is only
+			// once the host knows its process is the conversation's own.
+			const { sessionId } = parseOpenResult(reply.ok ? reply.result : {});
+			hosting?.state(sessionId, "busy");
+			expect(await snapshotRefusal(run.serving.path, sessionId)).toContain(
+				"is busy",
+			);
 		} finally {
 			signals.emit("SIGTERM");
 			await run.stopped;
@@ -294,12 +303,39 @@ describe("a child host", () => {
 			expect(units.started, "its start opens no child").toEqual([]);
 			expect(report).not.toHaveBeenCalled();
 			expect(unitFaults).not.toHaveBeenCalled();
+			// One the policy keeps on the host's thread shares its process.
+			const reply = await controlRequest(run.serving.path, {
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			const { sessionId } = parseOpenResult(reply.ok ? reply.result : {});
+			expect(await snapshotRefusal(run.serving.path, sessionId)).toContain(
+				"runs on the host's own thread",
+			);
 		} finally {
 			signals.emit("SIGTERM");
 			await run.stopped;
 		}
 	});
 });
+
+/** Why the host on `socket` refused a heap snapshot of `sessionId`; fails where it wrote one. */
+async function snapshotRefusal(
+	socket: string,
+	sessionId: string,
+): Promise<string> {
+	const reply = await controlRequest(socket, {
+		v: 1,
+		id: randomUUID(),
+		op: "heap-snapshot",
+		sessionId,
+	});
+	if (reply.ok) throw new Error("it wrote a heap snapshot");
+	return reply.error.message;
+}
 
 /** When each ping came, in ms since the run began. */
 function pingTimes(): { at: number[]; alive: () => Promise<void> } {

@@ -7,12 +7,16 @@ import {
 	readdir,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { snapshotHeap } from "../../../host/service/heap-snapshot.ts";
+import {
+	SNAPSHOT_KEPT_MS,
+	snapshotHeap,
+} from "../../../host/service/heap-snapshot.ts";
 
 const ONE = "01a1cf4a-a681-7237-bce7-2ce6dbc70547";
 const AT = new Date("2026-11-27T08:00:00.000Z");
@@ -22,6 +26,9 @@ const PERMISSIONS = 0o777;
 const MIB = 1024 * 1024;
 /** Enough of a snapshot to see it opens as V8's format does. */
 const OPENING_BYTES = 64;
+/** A whole process's heap written by V8 itself, on a busy machine. */
+const REAL_WRITE_MS = 60_000;
+const MS_PER_MINUTE = 60_000;
 
 let dir: string;
 let folder: string;
@@ -109,19 +116,71 @@ describe("a heap snapshot", () => {
 		).toThrow("EEXIST");
 	});
 
-	it("is V8's own snapshot unless told how to write one, into the file made for it", async () => {
-		const { file, bytes } = snapshotHeap(ONE, "idle", { folder });
+	it("first removes the snapshots left past their time, and nothing else there", async () => {
+		await mkdir(folder, { recursive: true });
+		const stale = join(folder, "stale.heapsnapshot");
+		const young = join(folder, "young.heapsnapshot");
+		const other = join(folder, "notes.txt");
+		for (const file of [stale, young, other]) await writeFile(file, "x");
+		const past = new Date(AT.getTime() - SNAPSHOT_KEPT_MS - MS_PER_MINUTE);
+		await utimes(stale, past, past);
+		await utimes(other, past, past);
+		const inTime = new Date(AT.getTime() - SNAPSHOT_KEPT_MS + MS_PER_MINUTE);
+		await utimes(young, inTime, inTime);
+		const said: string[] = [];
 
-		expect(bytes, "a whole process's heap").toBeGreaterThan(MIB);
-		expect((await stat(file)).mode & PERMISSIONS, "V8 kept its mode").toBe(
-			OWNER_ONLY_FILE,
+		const { file } = snapshotHeap(ONE, "idle", {
+			folder,
+			now: () => AT,
+			say: (line) => said.push(line),
+			write: () => undefined,
+		});
+
+		expect((await readdir(folder)).sort()).toEqual(
+			["notes.txt", "young.heapsnapshot", file.slice(folder.length + 1)].sort(),
 		);
-		const handle = await open(file);
-		const opening = Buffer.alloc(OPENING_BYTES);
-		await handle.read(opening, 0, OPENING_BYTES, 0);
-		await handle.close();
-		expect(opening.toString("utf8"), "a V8 heap snapshot").toMatch(
-			/^\{\s*"snapshot":\s*\{\s*"meta"/,
+		expect(said[0]).toBe(
+			`Removed heap snapshot ${stale}, written ${SNAPSHOT_KEPT_MS / MS_PER_MINUTE + 1} minutes ago`,
 		);
 	});
+
+	it("removes the partial file of a write that fails, saying so, and still fails", async () => {
+		const said: string[] = [];
+		expect(() =>
+			snapshotHeap(ONE, "idle", {
+				folder,
+				clock: clockTaking(700),
+				say: (line) => said.push(line),
+				write: (file) => {
+					writeFileSync(file, "half");
+					throw new Error("ENOSPC: no space left on device");
+				},
+			}),
+		).toThrow("ENOSPC");
+
+		expect(await readdir(folder), "no partial snapshot kept").toEqual([]);
+		expect(said).toEqual([
+			`A heap snapshot of conversation ${ONE}'s process failed after 700 ms, and its partial file was removed: ENOSPC: no space left on device`,
+		]);
+	});
+
+	it(
+		"is V8's own snapshot unless told how to write one, into the file made for it",
+		async () => {
+			const { file, bytes } = snapshotHeap(ONE, "idle", { folder });
+
+			expect(bytes, "a whole process's heap").toBeGreaterThan(MIB);
+			expect((await stat(file)).mode & PERMISSIONS, "V8 kept its mode").toBe(
+				OWNER_ONLY_FILE,
+			);
+			const handle = await open(file);
+			const opening = Buffer.alloc(OPENING_BYTES);
+			await handle.read(opening, 0, OPENING_BYTES, 0);
+			await handle.close();
+			expect(opening.toString("utf8"), "a V8 heap snapshot").toMatch(
+				/^\{\s*"snapshot":\s*\{\s*"meta"/,
+			);
+		},
+		REAL_WRITE_MS,
+	);
 });

@@ -15,6 +15,7 @@ import {
 	describeChild,
 	describeMemory,
 	describeSnapshot,
+	describeSnapshotFailure,
 } from "../../scripts/host-memory.ts";
 
 const MIB = 1024 * 1024;
@@ -182,6 +183,24 @@ describe("a heap snapshot, described", () => {
 			describeSnapshot({ ...said, file: "/state/one\u001b[2J.heapsnapshot" }),
 			"nothing a terminal would act on",
 		).not.toContain("\u001b");
+	});
+
+	it("says a request that gave up waiting may still see its file come, and when it goes", () => {
+		expect(
+			describeSnapshotFailure(
+				`background:${ONE}`,
+				new Error("Host control request timed out; outcome unknown"),
+			),
+		).toBe(
+			`background:${ONE}: no snapshot: Host control request timed out; outcome unknown; the host may still be writing it into its heap-snapshots folder, where the next snapshot removes it once 2 hours old`,
+		);
+		expect(
+			describeSnapshotFailure(
+				`background:${ONE}`,
+				new Error("it refused: it is busy"),
+			),
+			"a refusal says no more than itself",
+		).toBe(`background:${ONE}: no snapshot: it refused: it is busy`);
 	});
 });
 

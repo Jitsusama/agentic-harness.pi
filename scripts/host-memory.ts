@@ -24,7 +24,10 @@
  * of its host, which passes it to the child, and says where it went. The
  * write stops that process's thread for seconds, so a busy conversation
  * refuses it. The file holds what the process holds, secrets among them,
- * so it is written for its owner alone; remove it once read.
+ * so it is written for its owner alone; remove it once read. The host
+ * removes any left more than 2 hours before its next snapshot. A large heap
+ * takes a while to write, so this waits up to SNAPSHOT_WAIT_MS; one that
+ * gives up says the file may still be coming.
  */
 
 import { randomUUID } from "node:crypto";
@@ -37,6 +40,7 @@ import {
 } from "../host/service/address.ts";
 import { slotHolds, slotOf, slotsIn } from "../host/service/child-units.ts";
 import { controlRequest } from "../host/service/client.ts";
+import { SNAPSHOT_KEPT_MS } from "../host/service/heap-snapshot.ts";
 import {
 	type MemoryAnswer,
 	parseHeapSnapshotResult,
@@ -47,6 +51,13 @@ import { runtimeDir as loginRuntimeDir } from "../lib/internal/paths.ts";
 import { printable } from "./where-sessions-run.ts";
 
 const BYTES_PER_MIB = 1024 * 1024;
+const MS_PER_HOUR = 60 * 60 * 1000;
+/**
+ * How long a snapshot is waited for. The write's length grows with the
+ * heap, and the 30 s every other request waits could give up on a large
+ * one still being written.
+ */
+export const SNAPSHOT_WAIT_MS = 10 * 60 * 1000;
 
 /** `bytes` in whole MiB, or "unread" where nothing was read. */
 function mib(bytes: number | undefined): string {
@@ -191,14 +202,31 @@ export function describeSnapshot(
 	return `${answer.sessionId}: a heap snapshot of ${mib(answer.bytes)}, written in ${answer.tookMs} ms, to ${printable(answer.file)}`;
 }
 
+/**
+ * Why `label` got no snapshot. A request that gave up waiting can't know
+ * whether the write still runs, so it says where the file would come and
+ * when the host removes it.
+ */
+export function describeSnapshotFailure(label: string, error: unknown): string {
+	const said = why(error);
+	const late = said.includes("timed out")
+		? `; the host may still be writing it into its heap-snapshots folder, where the next snapshot removes it once ${SNAPSHOT_KEPT_MS / MS_PER_HOUR} hours old`
+		: "";
+	return `${label}: no snapshot: ${said}${late}`;
+}
+
 /** The heap snapshot the host on `socket` has written of `sessionId`'s process, or why not. */
 async function snapshotAt(socket: string, sessionId: string): Promise<string> {
-	const reply = await controlRequest(socket, {
-		v: 1,
-		id: randomUUID(),
-		op: "heap-snapshot",
-		sessionId,
-	});
+	const reply = await controlRequest(
+		socket,
+		{
+			v: 1,
+			id: randomUUID(),
+			op: "heap-snapshot",
+			sessionId,
+		},
+		SNAPSHOT_WAIT_MS,
+	);
 	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
 	return describeSnapshot(parseHeapSnapshotResult(reply.result));
 }
@@ -259,7 +287,7 @@ async function snapshotOne(words: readonly string[]): Promise<void> {
 	try {
 		console.log(await snapshotAt(socket, one.session));
 	} catch (error) {
-		console.log(`${one.kind}:${one.session}: no snapshot: ${why(error)}`);
+		console.log(describeSnapshotFailure(`${one.kind}:${one.session}`, error));
 		process.exitCode = 1;
 	}
 }
