@@ -561,8 +561,10 @@ export function queueFolder(
 			const found = late.get(job.id);
 			if (found === undefined) return job;
 			const marked = { ...job, late: found };
-			replace(path(job.id, "job"), `${JSON.stringify(marked)}\n`);
+			// Said before it is marked: a mark that fails is found again at the
+			// next keep, while a line that failed behind its mark never would be.
 			replace(path(job.id, "late"), `${lateSaid(marked, found)}\n`);
+			replace(path(job.id, "job"), `${JSON.stringify(marked)}\n`);
 			return marked;
 		});
 

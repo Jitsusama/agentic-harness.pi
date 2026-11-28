@@ -7,6 +7,7 @@ import {
 	freshFolderEachTest,
 	job,
 	NOW,
+	ROOMY,
 	record,
 	running,
 	shellSays,
@@ -99,6 +100,16 @@ describe("the machine's queue folder telling a late job's waiter", () => {
 		expect(lateLine("first")).toBe(
 			`Due to start by ${clock(NOW - 2_000 + 5 * MINUTE_MS)} and still waiting for its turn in the machine queue: 1st in line, held by memory (some avg10 0, 1 GiB free of the 4 it needs).\n`,
 		);
+	});
+
+	it("says a late job overdue only until it starts", () => {
+		const queue = waitingThree();
+		queue.keep(TIGHT, NOW + 6 * MINUTE_MS, () => undefined);
+		expect(recorded("first")?.overdue).toBe(true);
+		queue.keep(ROOMY, NOW + 7 * MINUTE_MS, () => undefined);
+		expect(jobFile("first").started, "first has its turn").toBeDefined();
+		expect(recorded("first")?.overdue).toBeUndefined();
+		expect(recorded("first")?.late).toBeUndefined();
 	});
 
 	it("tells each waiter once, however long it goes on waiting", () => {

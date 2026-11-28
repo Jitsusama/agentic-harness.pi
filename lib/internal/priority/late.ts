@@ -27,7 +27,7 @@ export function lateNow(
 	awaited: ReadonlySet<string> = NOBODY,
 	first: ReadonlySet<string> = NOBODY,
 ): Map<string, Late> {
-	const line = waitingInOrder(jobs, awaited, first);
+	const line = waitingInOrder(jobs, now, awaited, first);
 	const found = new Map<string, Late>();
 	for (const job of jobs) {
 		if (job.started !== undefined || job.late !== undefined) continue;
@@ -69,9 +69,10 @@ export function lateSaid(job: Job, late: Late): string {
 /**
  * What holds a job waiting on `reason`, in plain words: the reading that
  * holds it, as memory pressure and the memory free, or, waiting on the
- * order, the job ahead of it that keeps the line, which is the first of
- * those `ahead` waiting on anything but the order, else the one just
- * ahead of it.
+ * order, the job ahead of it that keeps the line: the first of those
+ * `ahead` waiting on memory or behind a VM check, the only waits that
+ * hold the jobs after them (next-turn.ts's `waitReasons`). With none, a
+ * job ahead of it was just given its turn, or it waits for the next.
  */
 function heldBy(
 	job: Job,
@@ -100,14 +101,28 @@ function heldBy(
 		case "planning":
 			return "its plan, as Nix is asked what it builds";
 		case "order": {
-			const keeper =
-				ahead.find((one) => reasons.get(one.id) !== "order") ?? ahead.at(-1);
-			if (keeper === undefined) return "the time between turns, its own next";
-			const keeps = reasons.get(keeper.id);
-			return `job ${keeper.id} ahead of it (${keeper.what})${keeps === undefined ? "" : `, waiting on ${keeps}`}`;
+			const keeper = ahead.find((one) =>
+				HOLDS_THE_LINE.has(reasons.get(one.id) ?? "order"),
+			);
+			if (keeper === undefined) {
+				return ahead.length > 0
+					? "the turn just given to a job ahead of it"
+					: "the time between turns, its own next";
+			}
+			const keeps = HOLDS_THE_LINE.get(reasons.get(keeper.id) ?? "order");
+			return `job ${keeper.id} ahead of it (${keeper.what}), ${keeps}`;
 		}
 	}
 }
+
+/** The waits that hold the jobs after them in line, not only their own. */
+const HOLDS_THE_LINE: ReadonlyMap<WaitReason, string> = new Map<
+	WaitReason,
+	string
+>([
+	["memory", "waiting on memory"],
+	["behind", "waiting behind a VM check"],
+]);
 
 /** A figure to one decimal place, as the queue's record rounds memory. */
 function tenths(figure: number): number {

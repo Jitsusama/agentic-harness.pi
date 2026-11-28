@@ -62,7 +62,19 @@ describe("when a queued job is due to start", () => {
 
 	it("is its kind's bound past asking without one, or with one it can't read", () => {
 		expect(dueToStartOf("cargo build", asked, where)).toBe(NOW + PASS_AFTER_MS);
-		for (const bad of ["soon", "+", "-5", "+1.5", "1e9", "$WHEN", ""]) {
+		// A bare number is minutes forgotten their plus, or a stamp in
+		// milliseconds: neither is ten digits of epoch seconds.
+		const bare = ["15", "179000000", `${IN_AN_HOUR_S}000`];
+		for (const bad of [
+			"soon",
+			"+",
+			"-5",
+			"+1.5",
+			"1e9",
+			"$WHEN",
+			"",
+			...bare,
+		]) {
 			expect(
 				dueToStartOf(`PI_DUE_TO_START=${bad} cargo build`, asked, where),
 				bad,

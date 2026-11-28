@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -67,6 +68,14 @@ const dueAsked = () =>
 			.map((job) => [job.what, job.dueToStart]),
 	);
 
+/** Resolves once `file` exists, looked for every 50 ms. */
+async function appears(file: string): Promise<void> {
+	while (!existsSync(file)) {
+		// A poll, not a fixed wait: the shell writes it as it starts.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+}
+
 /** What a late job's waiter is told, as a keep writes it. */
 const LATE =
 	"Due to start by 21:40 and still waiting for its turn in the machine queue: 2nd in line, held by memory.";
@@ -95,13 +104,23 @@ function run(command: string, seen: string) {
 }
 
 describe("a late job's waiting shell", () => {
-	it("says the queue's line once, however long it goes on waiting", async () => {
+	// It spans about four of the wait's one-second polls, which vitest's
+	// default of 5 s leaves no room for on a loaded machine.
+	it("says the queue's line once, however long it goes on waiting", {
+		timeout: 30_000,
+	}, async () => {
 		writeFileSync(join(dir, "j1.job"), "{}\n");
-		writeFileSync(join(dir, "j1.late"), `${LATE}\n`);
+		// Empty as the wait starts, so only a wait that reads it each poll
+		// sees the line a keep writes later.
+		writeFileSync(join(dir, "j1.late"), "");
 		const { shown, ended } = run(
 			`${waitsForTurn(dir, 60)?.("j1")}\necho "ran \${__told-}\${__late-}"`,
 			LATE,
 		);
+		await appears(join(dir, "j1.pid"));
+		// Past the wait's first poll, which finds the line still empty.
+		await new Promise((resolve) => setTimeout(resolve, 1_500));
+		writeFileSync(join(dir, "j1.late"), `${LATE}\n`);
 		await shown;
 		// The wait polls each second, so this spans two more polls, each of
 		// which would say the line again were it not said once.

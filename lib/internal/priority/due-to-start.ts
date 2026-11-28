@@ -22,8 +22,13 @@ import type { Where } from "./world-walk.ts";
  */
 export const DUE_TO_START_VARIABLE = "PI_DUE_TO_START";
 
-/** A due time in epoch seconds, as `date +%s` gives it. */
-const EPOCH_SECONDS = /^\d+$/;
+/**
+ * A due time in epoch seconds, as `date +%s` gives it: ten digits, as
+ * every second from 2001 to 2286 has, so a bare `15` meant as minutes,
+ * or a stamp in milliseconds, reads as neither form rather than as a
+ * time long past or centuries off.
+ */
+const EPOCH_SECONDS = /^\d{10}$/;
 
 /** A due time as a number of minutes from when the job asks, as `+15`. */
 const MINUTES_FROM_NOW = /^\+(\d+)$/;

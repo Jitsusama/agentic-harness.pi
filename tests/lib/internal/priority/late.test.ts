@@ -35,6 +35,25 @@ describe("what holds a late job, as its waiter is told", () => {
 		});
 	});
 
+	it("passes over a job ahead whose wait holds only itself", () => {
+		const jobs = [
+			due("a", { what: "nix build .#vm-test" }),
+			due("b", { what: "cargo build -p two" }),
+			due("c"),
+		];
+		expect(told(jobs, { a: "vms", b: "behind", c: "order" })).toMatchObject({
+			c: "job b ahead of it (cargo build -p two), waiting behind a VM check",
+		});
+		expect(
+			// Asked at once, the line takes them by id: a, then b, then c.
+			told([due("a"), due("b"), due("c")], {
+				a: "vms",
+				b: "order",
+				c: "order",
+			}),
+		).toMatchObject({ c: "the turn just given to a job ahead of it" });
+	});
+
 	it("says the reading that holds it, as the queue reads it", () => {
 		const one = [due("a")];
 		expect(
