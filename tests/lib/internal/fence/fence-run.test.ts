@@ -796,6 +796,28 @@ describe("Linux's strict fence, for the World trees its asker holds", () => {
 		expect(text("another-session")).not.toContain(held);
 	});
 
+	it("takes none the records name for several sessions, as a shared snapshot", () => {
+		const treeRecords = join(own, "shared-records");
+		createTreeMemory(treeRecords).remember({
+			identity: { key: "shared", shareable: true },
+			path: unheld,
+			providerId: "git-worktree",
+			sessions: ["the-asker", "another-session"],
+		});
+		const made = fenceRunText(
+			{ kind: "strict", folder: work, words: ["true"] },
+			{
+				env: { XDG_RUNTIME_DIR: runtime, PI_SESSION_ID: "the-asker" },
+				home,
+				sandbox: LAID,
+				treeRecords,
+			},
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+
+		expect(made.text).not.toContain(unheld);
+	});
+
 	it("grants nothing for a tree it doesn't hold", () => {
 		const { landrun, root } = strict([held]);
 

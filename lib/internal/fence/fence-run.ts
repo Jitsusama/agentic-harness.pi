@@ -62,7 +62,11 @@ import { strictHomeReads, strictRules } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { worldTreesAmong } from "../sandbox/world-trees.ts";
-import { cutTreeDir, treeRecordDir, treesHeldBy } from "../work-records.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+	treesHeldAloneBy,
+} from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { BWRAP_MOST_ARGS, bwrapArgsFile } from "./fence-args-file.ts";
 import { ARGS_FD } from "./fence-command.ts";
@@ -490,16 +494,17 @@ function heldBy(
 
 /**
  * The trees the asker holds, as they are named: those the caller gave,
- * or else those the broker's records hold for its session. None where
- * no session is named or the records can't be read, so strict then
- * writes only its folder.
+ * or else those the broker's records hold for its session alone, since
+ * one writing a snapshot shared between readers would change what the
+ * others read. None where no session is named or the records can't be
+ * read, so strict then writes only its folder.
  */
 function heldNamed(place: FenceRunPlace): readonly string[] {
 	if (place.heldTrees) return place.heldTrees;
 	const session = place.env.PI_SESSION_ID;
 	if (!session) return [];
 	try {
-		return treesHeldBy(session, place.treeRecords ?? treeRecordDir());
+		return treesHeldAloneBy(session, place.treeRecords ?? treeRecordDir());
 	} catch {
 		// Unread records hold nothing here either.
 		return [];
