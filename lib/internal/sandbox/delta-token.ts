@@ -17,15 +17,13 @@
  * and closes once Delta stands behind the door the way GitHub does, the
  * command holding only a stand-in. A machine without mint, or whose mint
  * gives none, hands none, and dt inside fails as it did before. Where no
- * owner here can be trusted, mint isn't asked, and pi says why once, for
- * whoever runs the machine: mint may well be there.
+ * owner here can be trusted, mint isn't asked at all.
  */
 
 import { execFileSync } from "node:child_process";
 import {
 	type NoOwner,
 	noOwner,
-	notKept,
 	systemFolders,
 	systemProgram,
 } from "./system-program.ts";
@@ -72,9 +70,6 @@ export type DeltaTokenSource = () => string | undefined;
 /** Asks mint for Delta's token, fresh or from its cache, throwing when it gives none. */
 export type MintAsk = (fresh: boolean) => string;
 
-/** Says to whoever runs the machine why Delta's token isn't handed on. */
-export type MintTold = (why: string) => void;
-
 /**
  * What mint runs with: who it runs as and where its broker listens, and
  * a `PATH` of the system's own folders alone. pi's own `PATH` can hold a
@@ -95,29 +90,6 @@ export function mintEnvironment(
 		),
 		PATH: folders.join(":"),
 	};
-}
-
-/**
- * Why Delta's token isn't handed to fenced commands where no owner here
- * can be trusted, and what helps, as a sentence: said through `notKept`,
- * as every refusal of a program for want of an owner is.
- */
-export function mintUntrusted(why: NoOwner): string {
-	const { because, fix } = notKept(["mint"], why);
-	return `Delta's token isn't handed to fenced commands, since ${because}.${fix ? ` ${fix}` : ""}`;
-}
-
-/**
- * Says `why` on standard error, where pi's screen keeps it in the stray
- * output log and names it in a line, and a pi without one prints it.
- */
-function tellOperator(why: string): void {
-	try {
-		process.stderr.write(`pi: ${why}\n`);
-	} catch {
-		// Standard error gone with whatever read it: commands still run,
-		// without Delta, as they would have.
-	}
 }
 
 /**
@@ -171,28 +143,23 @@ export function expiresAt(token: string): number | undefined {
  * is spent, or isn't a JWT, is never handed on.
  *
  * Where `unowned` says no owner here can be trusted, mint isn't asked,
- * since none found could be trusted either, and `told` hears why once
- * while it stays so: a machine without mint is nothing to report, but one
- * whose mint pi can't trust is.
+ * since none found could be trusted either. Nothing is said of it: the
+ * fence is refused there before any command asks for a token, and that
+ * refusal already says why (`sandbox.ts`). The guard stays so that a fence
+ * built some other way still never runs a mint from an untrusted folder.
  */
 export function deltaTokens(
 	ask: MintAsk = askMint,
 	now: () => number = Date.now,
 	unowned: () => NoOwner | undefined = () => noOwner(),
-	told: MintTold = tellOperator,
 ): DeltaTokenSource {
 	let held: { token: string | undefined; until: number } | undefined;
-	let said: string | undefined;
 	const lasting = (token: string | undefined, at: number) =>
 		token !== undefined && (expiresAt(token) ?? 0) - at >= FRESH_BELOW_MS;
 	return () => {
 		const at = now();
 		if (held && at < held.until) return held.token;
-		const why = unowned();
-		const untrusted = why === undefined ? undefined : mintUntrusted(why);
-		if (untrusted !== undefined && untrusted !== said) told(untrusted);
-		said = untrusted;
-		if (untrusted !== undefined) {
+		if (unowned() !== undefined) {
 			held = { token: undefined, until: at + ASK_EVERY_MS };
 			return undefined;
 		}

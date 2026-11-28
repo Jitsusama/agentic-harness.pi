@@ -173,31 +173,38 @@ describe("what a session asks for", () => {
 			"PI_SANDBOX=fence needs bwrap and landrun, but bwrap and landrun can't be " +
 				"trusted: no owner here can be told from pi's own, since " +
 				"/proc/self/uid_map can't be read to say which user namespace pi is in, " +
-				"so no command runs unfenced. Run pi as an id other than 0, which works " +
-				"whether or not uid_map can be read.",
+				"so no command runs unfenced. Mount /proc, which keeps pi working as root " +
+				"where its user namespace is the machine's own, or run pi as an id other " +
+				"than 0, which works either way.",
 		);
 	});
 
-	it("gives the fence wherever its programs are found, whatever cause it is told", () => {
-		// The cause only words a refusal; what was found decides.
-		const sandbox = sandboxFor(
-			{ PI_SANDBOX: "fence" },
-			"linux",
-			(program) =>
-				program === "bwrap" || program === "landrun"
-					? `/bin/${program}`
-					: undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			() => "namespace",
-		);
-		expect(sandbox.kind, "the sandbox given, told of a namespace").toBe(
-			"fence",
-		);
+	it("asks why no owner is trusted only to word a refusal, never where its programs are found", () => {
+		// What was found decides; the cause is read only once a refusal
+		// needs words, so a fence that runs never reads the map for it.
+		for (const asked of ["fence", "strict"] as const) {
+			let causes = 0;
+			const sandbox = sandboxFor(
+				{ PI_SANDBOX: asked },
+				"linux",
+				(program) =>
+					program === "bwrap" || program === "landrun"
+						? `/bin/${program}`
+						: undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				() => {
+					causes += 1;
+					return "namespace";
+				},
+			);
+			expect(sandbox.kind, `${asked}, its programs found`).toBe(asked);
+			expect(causes, `${asked}: causes asked`).toBe(0);
+		}
 	});
 
 	const onMac = (

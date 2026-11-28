@@ -241,6 +241,41 @@ function fetchesLogged(log: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * The fetches a run under `fetchesLogged(log)` asked for, split into
+ * those asked of `origin` and the rest. A log that isn't there throws,
+ * since every gate run fetches its head, so a run that wrote none never
+ * reached the stand-in, and an empty list from it would prove nothing.
+ */
+function fetchesIn(
+	log: string,
+	origin: string,
+): { fromOrigin: string[]; elsewhere: string[] } {
+	if (!existsSync(log))
+		throw new Error(`the stand-in git logged nothing to ${log}`);
+	const lines = readFileSync(log, "utf8").split("\n").filter(Boolean);
+	return {
+		fromOrigin: lines.filter((line) => line.includes(origin)),
+		elsewhere: lines.filter((line) => !line.includes(origin)),
+	};
+}
+
+/**
+ * A path whose git init of the gate's store makes it and then fails,
+ * saying it couldn't lock the config, as an init that lost the race to
+ * another gate's does, and hands every other command, the judging copy's
+ * init included, to the git past it.
+ */
+function initLosingTheRace(): NodeJS.ProcessEnv {
+	const standIn = folder(made, "git");
+	writeFileSync(
+		join(standIn, "git"),
+		`#!/bin/sh\nPATH="\${PATH#*:}"\ncase " $* " in *" init "*"/objects.git "*) git "$@"; echo "error: could not lock config file: File exists" >&2; exit 1 ;; esac\nexec git "$@"\n`,
+		{ mode: 0o755 },
+	);
+	return { PATH: `${standIn}:${process.env.PATH ?? ""}` };
+}
+
+/**
  * The folders Biome reads no nested config under, wherever on a path they
  * sit, as merge-gate.sh's probe names them.
  */
@@ -645,11 +680,89 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		});
 
 		expect(answered.code, answered.said).toBe(0);
-		const fetches = existsSync(log) ? readFileSync(log, "utf8") : "";
-		const fromOrigin = fetches
-			.split("\n")
-			.filter((line) => line.includes(origin));
+		const { fromOrigin, elsewhere } = fetchesIn(log, origin);
+		expect(elsewhere.length, "the head, fetched from the checkout").toBe(1);
 		expect(fromOrigin, "fetches asked of origin").toEqual([]);
+	});
+
+	it("fetches main again once it has moved, and judges the head against it", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const first = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+		expect(first.code, first.said).toBe(0);
+		await landed(checkout, { "lib/landed.ts": "export const landed = 1;\n" });
+		const other = await change(checkout, {
+			"lib/other.ts": "export const other = 1;\n",
+		});
+
+		const log = join(folder(made, "fetches"), "log");
+		const answered = await gate(checkout, other, {
+			...fetchesLogged(log),
+			XDG_STATE_HOME: state,
+		});
+
+		expect(answered.code, answered.said).toBe(0);
+		const { fromOrigin } = fetchesIn(log, origin);
+		expect(fromOrigin.length, "main, asked of origin again").toBe(1);
+		// Against the main it was cut from, the head adds only lib/other.ts;
+		// against the first run's main, lib/landed.ts would be judged too.
+		expect(answered.said, "judged against the main that moved").toContain(
+			"Biome passes the 1 file(s)",
+		);
+	});
+
+	it("fetches a held main again when the store has lost a file under it", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const first = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+		expect(first.code, first.said).toBe(0);
+		// Main's config, taken out of the store as a disk could lose it.
+		const store = join(
+			state,
+			"pi",
+			"agentic-harness.pi",
+			"merge-gate",
+			"objects.git",
+		);
+		const blob = await git(checkout, "rev-parse", "origin/main:biome.jsonc");
+		const loose = join(store, "objects", blob.slice(0, 2), blob.slice(2));
+		expect(existsSync(loose), `main's config, loose in ${store}`).toBe(true);
+		rmSync(loose);
+		const other = await change(checkout, {
+			"lib/other.ts": "export const other = 1;\n",
+		});
+
+		const log = join(folder(made, "fetches"), "log");
+		const answered = await gate(checkout, other, {
+			...fetchesLogged(log),
+			XDG_STATE_HOME: state,
+		});
+
+		expect(answered.code, answered.said).toBe(0);
+		const { fromOrigin } = fetchesIn(log, origin);
+		expect(fromOrigin.length, "main, asked of origin again").toBe(1);
+	});
+
+	it("prints nothing of an init that lost the race, when the store is there after", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+
+		const answered = await gate(checkout, sha, initLosingTheRace());
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "the losing init's words").not.toContain(
+			"could not lock",
+		);
 	});
 
 	it("judges the commit a branch name names, and hands host-gate that commit", async () => {
@@ -819,6 +932,28 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said, "the plugin it changes, named").toMatch(
 			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}lib\/no-alert\.grit\n/,
 		);
+	});
+
+	// printf %q escapes control characters but leaves bidi ones, so the
+	// names go through shown too.
+	it("names a plugin a change adds alone with no bidi character its name holds", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"lib/\u202e\u200fnote.grit": plugin("alert", "no alert"),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(answered.said, "the plugin it adds, named").toMatch(
+			/changes Biome's config or plugins, which load, and no file the gate judges.*\n {2}lib\/note\.grit\n/,
+		);
+		for (const character of ["\u202e", "\u200f"]) {
+			expect(
+				answered.said.includes(character),
+				`U+${character.charCodeAt(0).toString(16)} reaches the terminal`,
+			).toBe(false);
+		}
 	});
 
 	// A plugin is no file Biome judges, so a change to one alone ran no
@@ -1565,6 +1700,26 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(answered.said).toContain(PINNED);
 	});
 
+	// A pin is compared as the head wrote it, and shown only when printed,
+	// so one differing only by a character shown takes out is another pin.
+	it("refuses a pin that differs from the installed Biome only by a bidi character", async () => {
+		const checkout = await harness();
+		const sha = await change(checkout, {
+			"package.json": packageJson(`${PINNED}\u202e`),
+		});
+
+		const answered = await gate(checkout, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the pin, past what went").toContain(
+			`pins ${PINNED}.`,
+		);
+		expect(
+			answered.said.includes("\u202e"),
+			"U+202e reaches the terminal",
+		).toBe(false);
+	});
+
 	it("refuses a change that turns a linter off, naming the file", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, { "scripts/loose.sh": LOOSE });
@@ -2247,6 +2402,46 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 	});
 });
 
+describe("how the gates make their store", () => {
+	// made_by_another as gate-objects.sh defines it, on `store`, answering
+	// what it returned and how long it took.
+	const waited = async (
+		store: string,
+		making: string,
+	): Promise<{ made: boolean; ms: number }> => {
+		const started = Date.now();
+		const { stdout } = await run("bash", [
+			"-c",
+			'source "$1"; gate_store=$2; eval "$3"; made_by_another && echo made || echo not; wait',
+			"waited",
+			OBJECTS,
+			store,
+			making,
+		]);
+		return { made: stdout.trim() === "made", ms: Date.now() - started };
+	};
+
+	it("waits for a store another gate's init has begun making", async () => {
+		const store = join(folder(made, "home"), "objects.git");
+		// The folder is there, as another init makes it first, and the
+		// repository follows half a second later.
+		const making = `mkdir "$gate_store"; { sleep 0.5; git init -q --bare "$gate_store"; } &`;
+
+		const answered = await waited(store, making);
+
+		expect(answered.made, "the store, made by the other init").toBe(true);
+	});
+
+	it("refuses at once where no init made the store's folder", async () => {
+		const store = join(folder(made, "home"), "objects.git");
+
+		const answered = await waited(store, ":");
+
+		expect(answered.made, "a store nothing makes").toBe(false);
+		expect(answered.ms, "milliseconds before refusing").toBeLessThan(1000);
+	});
+});
+
 describe("what the gates print of a head's text", () => {
 	// Bytes a file name can hold but a JavaScript string can't write, so
 	// shown is run on them as merge-gate.sh sources it.
@@ -2258,6 +2453,38 @@ describe("what the gates print of a head's text", () => {
 		);
 		return stdout;
 	};
+
+	it("takes out the implicit bidi marks, U+200E, U+200F and U+061C", async () => {
+		const said = await shown("a\\342\\200\\216b\\342\\200\\217c\\330\\234d\\n");
+
+		expect([...said], "only the letters and the newline are left").toEqual([
+			...Buffer.from("abcd\n"),
+		]);
+	});
+
+	it("withholds a line nesting more than eight passes take out, quickly", async () => {
+		// Each U+0080 taken out joins the \302 before it to the next \200, so
+		// a line of these nests as deep as it's long. It's written by bash,
+		// since an argument this long is past what one may be.
+		const nesting =
+			'source "$1"; { for ((i = 0; i < 20000; i++)); do printf "\\302"; done; ' +
+			'for ((i = 0; i < 20000; i++)); do printf "\\200\\233"; done; ' +
+			'printf "\\nnext\\n"; } | shown';
+		const started = Date.now();
+
+		const { stdout: said } = await run(
+			"bash",
+			["-c", nesting, "nested", OBJECTS],
+			{
+				encoding: "buffer",
+			},
+		);
+
+		expect(Date.now() - started, "milliseconds to show it").toBeLessThan(3000);
+		expect(said.toString("utf8"), "the line withheld, the next shown").toBe(
+			"(a line nesting control or bidi characters too deep to show)\nnext\n",
+		);
+	});
 
 	it("leaves no C1 or bidi character that taking another out rejoins", async () => {
 		// \302 then U+0080 then \233: taking U+0080 out leaves \302\233, U+009B.

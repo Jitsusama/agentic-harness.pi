@@ -50,6 +50,14 @@ const ROUND_TRIPS = 5;
 const TIMED = 3;
 
 /**
+ * The most the bar may widen to, however loaded the run. A plant that
+ * stands longer stands long enough to be used, so a run too slow to be
+ * held under this fails, with the round trips that say why, rather than
+ * passing a guard that wasn't shown to be prompt (ISXEG8).
+ */
+const AT_MOST_MS = 1000;
+
+/**
  * How long a wait for the watcher may run. A wait that gives up at the
  * bar fails every case on a loaded machine, a Mac at load 33 to 41 among
  * them (27 November), though only the bar's own case measures it; this
@@ -59,6 +67,13 @@ const TIMED = 3;
 const WAIT_MS = 3000;
 
 /**
+ * How long a case that sets its bar may run: each timed round trip and
+ * its own wait at their longest, with a second over, so vitest's 5 s
+ * for a case never ends one before its numbers are said.
+ */
+const BARRED_CASE_MS = (TIMED + 1) * WAIT_MS + 1000;
+
+/**
  * How long a trivial fs-event round trip takes on this run: a watch of
  * its own hears a file made and removes it, and a wait like the cases'
  * sees it gone. A load average lags and says nothing of the disk, so the
@@ -66,8 +81,10 @@ const WAIT_MS = 3000;
  */
 async function roundTrip(folder: string): Promise<number> {
 	const file = join(folder, "made");
+	// A name the kernel couldn't say comes as null, which the live watcher
+	// sweeps its guarded names on, so this one removes the file on it too.
 	const watcher = watch(folder, { persistent: false }, (_event, name) => {
-		if (name === "made") rmSync(file, { force: true });
+		if (name === "made" || name === null) rmSync(file, { force: true });
 	});
 	try {
 		const at = performance.now();
@@ -85,8 +102,9 @@ async function roundTrip(folder: string): Promise<number> {
 
 /**
  * The bar a wake is held to on this run: a fixed multiple of the slowest
- * of a few trivial round trips, never under `PROMPTLY_MS`, with the
- * numbers it was measured from, for a failure to say.
+ * of a few trivial round trips, never under `PROMPTLY_MS` nor over
+ * `AT_MOST_MS`, with the numbers it was measured from, for a failure to
+ * say.
  */
 async function promptly(): Promise<{
 	readonly ms: number;
@@ -97,11 +115,14 @@ async function promptly(): Promise<{
 	for (let round = 0; round < TIMED; round += 1)
 		times.push(await roundTrip(folder));
 	const slowest = Math.max(...times);
-	const ms = Math.max(PROMPTLY_MS, Math.ceil(ROUND_TRIPS * slowest));
+	const ms = Math.min(
+		AT_MOST_MS,
+		Math.max(PROMPTLY_MS, Math.ceil(ROUND_TRIPS * slowest)),
+	);
 	const took = times.map((time) => time.toFixed(1)).join(", ");
 	return {
 		ms,
-		under: `against a bar of ${ms} ms: ${ROUND_TRIPS} times the slowest trivial round trip of ${took} ms, ${PROMPTLY_MS} ms at least`,
+		under: `against a bar of ${ms} ms: ${ROUND_TRIPS} times the slowest trivial round trip of ${took} ms, ${PROMPTLY_MS} ms at least and ${AT_MOST_MS} ms at most`,
 	};
 }
 
@@ -194,6 +215,7 @@ describe("a plant in the shared git folder", () => {
 				"a new session works at once",
 			);
 		},
+		BARRED_CASE_MS,
 	);
 
 	it("stops the session however fast plants come, leaving none", async () => {
@@ -228,19 +250,23 @@ describe("a plant in the shared git folder", () => {
 		expect(deps.refused.mock.calls.flat().sort()).toEqual(["s-a", "s-b"]);
 	});
 
-	it("leaves the session alone for what git writes there", async () => {
-		const bar = await promptly();
-		const deps = watched();
-		armSharedRoot(root, own, "s-git", deps);
-		writeFileSync(join(root, "packed-refs.lock"), "");
-		writeFileSync(join(own, "index.lock"), "");
-		// Nothing should follow, so there is no event to wait on: a real
-		// pause as long as a plant's removal may take is the point, so a
-		// watcher that wakes for these names would be seen.
-		await new Promise((done) => setTimeout(done, bar.ms));
-		expect(deps.refused, "no refusal").not.toHaveBeenCalled();
-		expect(plantStopped("s-git"), "not stopped").toBeUndefined();
-	});
+	it(
+		"leaves the session alone for what git writes there",
+		async () => {
+			const bar = await promptly();
+			const deps = watched();
+			armSharedRoot(root, own, "s-git", deps);
+			writeFileSync(join(root, "packed-refs.lock"), "");
+			writeFileSync(join(own, "index.lock"), "");
+			// Nothing should follow, so there is no event to wait on: a real
+			// pause as long as a plant's removal may take is the point, so a
+			// watcher that wakes for these names would be seen.
+			await new Promise((done) => setTimeout(done, bar.ms));
+			expect(deps.refused, "no refusal").not.toHaveBeenCalled();
+			expect(plantStopped("s-git"), "not stopped").toBeUndefined();
+		},
+		BARRED_CASE_MS,
+	);
 });
 
 describe("a shared git folder the watch can't guard", () => {

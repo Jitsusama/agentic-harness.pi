@@ -80,9 +80,11 @@ describe("where a merge's base is", () => {
 	});
 
 	// ls-remote matches its pattern as a path's tail, so a branch named
-	// x/refs/heads/main is listed for refs/heads/main too, and can sort first.
+	// a/refs/heads/main is listed for refs/heads/main too, and sorts first,
+	// as ls-remote lists refs by name and refs/heads/a/ comes before
+	// refs/heads/main.
 	const DECOY =
-		"0123456789abcdef0123456789abcdef01234567\trefs/heads/x/refs/heads/main";
+		"0123456789abcdef0123456789abcdef01234567\trefs/heads/a/refs/heads/main";
 	const MAIN = "89abcdef0123456789abcdef0123456789abcdef";
 
 	it("reads main from the line naming refs/heads/main itself", async () => {

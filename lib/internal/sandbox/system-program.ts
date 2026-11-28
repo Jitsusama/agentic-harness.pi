@@ -72,8 +72,7 @@ const real: Look = {
 			return false;
 		}
 	},
-	rootOwners: () => namespaceHere().rootOwners,
-	readsMap: () => namespaceHere().readsMap,
+	...namespaceLook((path) => readFileSync(path, "utf8")),
 };
 
 /** Where a process reads the map of its user namespace's ids. */
@@ -90,13 +89,27 @@ export interface UserNamespace {
 	readonly readsMap: boolean;
 }
 
-/** This process's user namespace, read once. */
-let here: UserNamespace | undefined;
-
-/** `userNamespace`, read once for this process. */
-function namespaceHere(): UserNamespace {
-	here ??= userNamespace((path) => readFileSync(path, "utf8"));
-	return here;
+/**
+ * A look's `rootOwners` and `readsMap`, both answered from one read of
+ * the map by `read`, made the first time either is asked and kept: the
+ * way the real look answers them, so the cause `noOwner` gives is always
+ * the one beside the owners that decided it. `uid` and `platform` are
+ * this process's, as `userNamespace` takes them.
+ */
+export function namespaceLook(
+	read: (path: string) => string,
+	uid?: number,
+	platform?: NodeJS.Platform,
+): Required<Pick<Look, "rootOwners" | "readsMap">> {
+	let here: UserNamespace | undefined;
+	const namespace = () => {
+		here ??= userNamespace(read, uid, platform);
+		return here;
+	};
+	return {
+		rootOwners: () => namespace().rootOwners,
+		readsMap: () => namespace().readsMap,
+	};
 }
 
 /**
@@ -256,13 +269,14 @@ export function noOwnerSaid(why: NoOwner): string {
 /**
  * What helps where no owner is trusted, as a sentence. No owner is
  * trusted only where pi is 0 (`rootOwners`), so running it as another id
- * always helps. Where the map can't be read, nothing else is offered: a
- * `/proc` that can be read may still show a namespace whose ids pi can
- * give its files to, where root is trusted no more than now.
+ * always helps. Where the map can't be read, mounting `/proc` helps too,
+ * but only where it then shows the machine's own namespace: one whose ids
+ * pi can give its files to trusts root no more than now.
  */
 export function noOwnerFix(why: NoOwner): string {
 	return why === "unread"
-		? "Run pi as an id other than 0, which works whether or not uid_map can be read."
+		? "Mount /proc, which keeps pi working as root where its user namespace is " +
+				"the machine's own, or run pi as an id other than 0, which works either way."
 		: "Run pi as an id other than 0 there.";
 }
 

@@ -728,6 +728,25 @@ describe("host-gate.sh", () => {
 		expect(answered.said, "the escape, raw").not.toContain("\u001b");
 	});
 
+	// printf %q leaves bidi characters as they are in a UTF-8 locale, and
+	// escapes their bytes in the C one, so the path goes through shown too,
+	// and a right-to-left override can't show the rest reversed in either.
+	it("keeps bidi characters a path the head names holds off the screen", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/\u202e\u200fsh.ts");
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said, "the path, named").toContain("sh.ts");
+		for (const character of ["\u202e", "\u200f"]) {
+			expect(
+				answered.said.includes(character),
+				`U+${character.charCodeAt(0).toString(16)} reaches the screen`,
+			).toBe(false);
+		}
+	});
+
 	it("lets a change to the host merge once the keeper kept test:host passing at it", async () => {
 		const on = await harness();
 		const sha = await change(on, "lib/ui/panel/panel-screen.ts");
