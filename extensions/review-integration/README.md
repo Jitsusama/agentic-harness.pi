@@ -359,10 +359,17 @@ only `/usr/sbin/sysctl` and `/usr/bin/vm_stat`, each apart and
 without blocking, and waits for a reading a minute old, from the
 swap history every session shares in the queue's lock folder. A
 program that takes past 5 seconds reads as short, as a Mac swapping
-hard makes it. A Mac starts one round at a time: while another
-round's reviewers are running or starting there, by the leases its
-rounds' folders keep, the next waits for it to end, saying how long
-that round has run. A round past two hours holds no start, however
+hard makes it. A Mac starts one round at a time unless
+`roundsAtOnce` under `mac` sets more (a whole number; anything
+else reads as one): while that many rounds' reviewers are running
+or starting there, by the leases its rounds' folders keep, the next
+waits for one to end, saying how long it has run. Below that number
+with a round running, a further round starts only once every round
+running is 3 minutes in, when its reviewers have loaded and the
+reading includes them, and only while `kern.memorystatus_level`
+reads at least 60% free, since a round takes 3 to 4 GB; the wait
+says which of the count, a round too young or too little free held
+it. A round past two hours holds no start, however
 its supervisors stand, since the longest reviewer wall here is 90
 minutes and a wedged supervisor would otherwise hold every round
 behind it. A retry's reviewer counts while it runs, and so does a

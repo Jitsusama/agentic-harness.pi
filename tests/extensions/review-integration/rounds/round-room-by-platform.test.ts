@@ -1,11 +1,16 @@
 /**
  * A round reads the room its platform has: a Mac the queue's swap rule,
  * spaced two minutes apart, and Linux its memory and CPU pressure and
- * available memory with no spacing of its own. A start that waited past an unread Mac
- * says so in what the round answers.
+ * available memory with no spacing of its own. A Mac starts as many
+ * roster rounds at once as its config allows, one unless it says more,
+ * and a further one only beside rounds settled in, on a reading with
+ * room for it. A start that waited past an unread Mac says so in what
+ * the round answers.
  */
 
 import { describe, expect, it } from "vitest";
+import { macRoundsAtOnce } from "../../../../extensions/review-integration/roster.ts";
+import type { RunningRound } from "../../../../extensions/review-integration/round-running.ts";
 import {
 	MAC_SPACING_MS,
 	roundRoom,
@@ -17,15 +22,43 @@ import type { RoundRoom } from "../../../../lib/core/review/ask/mac-room.ts";
 const macRoom: RoundRoom = {
 	short: async () => "a Mac's own reason",
 	startedUnjudged: () => "started without a verdict",
+	freePercent: async () => 95,
 };
+
+/** No roster round running on this machine. */
+const none = async (): Promise<readonly RunningRound[]> => [];
+
+/** One roster round running, `minutes` in. */
+function oneFor(minutes: number): () => Promise<readonly RunningRound[]> {
+	return async () => [
+		{ runId: "council-x", reviewersRunning: 2, runningMs: minutes * 60_000 },
+	];
+}
+
+/** A config's `review.mac.roundsAtOnce` of `said`, as a round reads it. */
+function atOnce(said: unknown): () => Promise<number> {
+	return async () => macRoundsAtOnce({ roundsAtOnce: said });
+}
+
+/** A Mac reading `free`% free, whose own bar finds room. */
+function roomyMacAt(free: number): { room: RoundRoom; looked: () => boolean } {
+	let looked = false;
+	return {
+		room: {
+			...macRoom,
+			short: async () => {
+				looked = true;
+				return undefined;
+			},
+			freePercent: async () => free,
+		},
+		looked: () => looked,
+	};
+}
 
 describe("the room a round reads", () => {
 	it("is the Mac's rule on a Mac, spaced two minutes apart", async () => {
-		const room = roundRoom(
-			"darwin",
-			() => macRoom,
-			async () => undefined,
-		);
+		const room = roundRoom("darwin", () => macRoom, none, atOnce(undefined));
 
 		expect(await room.short()).toEqual({
 			said: "a Mac's own reason",
@@ -50,15 +83,73 @@ describe("the room a round reads", () => {
 					return undefined;
 				},
 			}),
-			async () => "council-x still runs on this Mac",
+			oneFor(30),
+			atOnce(undefined),
 		);
 
 		expect(await room.short()).toEqual({
-			said: "council-x still runs on this Mac",
+			said: "council-x still runs on this Mac (2 of its reviewers are still running, 30 minutes in), and a Mac starts one roster round at a time",
 			readings: ["another round on this Mac"],
 			passable: false,
 		});
 		expect(read, "a round already running needs no reading").toBe(false);
+	});
+
+	it("starts a second round at two at once beside one 5 minutes in, with 70% free, on the Mac's own bar", async () => {
+		const mac = roomyMacAt(70);
+		const room = roundRoom("darwin", () => mac.room, oneFor(5), atOnce(2));
+
+		expect(await room.short()).toBeUndefined();
+		expect(mac.looked(), "the 35% bar and swap rule still judge it").toBe(true);
+	});
+
+	it("holds a second round at two at once beside one 1 minute in", async () => {
+		const mac = roomyMacAt(95);
+		const room = roundRoom("darwin", () => mac.room, oneFor(1), atOnce(2));
+
+		const held = await room.short();
+
+		expect(held?.readings).toEqual(["another round on this Mac"]);
+		expect(held?.said).toContain("council-x has run 1 minutes");
+		expect(mac.looked()).toBe(false);
+	});
+
+	it("holds a second round at two at once with 50% free, on the Mac's memory", async () => {
+		const mac = roomyMacAt(50);
+		const room = roundRoom("darwin", () => mac.room, oneFor(5), atOnce(2));
+
+		const held = await room.short();
+
+		expect(held?.readings).toEqual(["the Mac's memory"]);
+		expect(held?.said).toContain("this Mac reads 50% free");
+		expect(held?.passable).toBe(false);
+	});
+
+	it("holds a third round at two at once while two run", async () => {
+		const mac = roomyMacAt(95);
+		const two = async (): Promise<readonly RunningRound[]> => [
+			{ runId: "council-b", reviewersRunning: 1, runningMs: 10 * 60_000 },
+			{ runId: "council-a", reviewersRunning: 3, runningMs: 40 * 60_000 },
+		];
+		const room = roundRoom("darwin", () => mac.room, two, atOnce(2));
+
+		const held = await room.short();
+
+		expect(held?.readings).toEqual(["another round on this Mac"]);
+		expect(held?.said).toContain("starts at most 2 at a time");
+	});
+
+	it("reads a bad roundsAtOnce as one, holding a second beside one settled in with room", async () => {
+		for (const bad of ["two", 0, -2, 1.5, Number.NaN, null, undefined]) {
+			const mac = roomyMacAt(95);
+			const room = roundRoom("darwin", () => mac.room, oneFor(30), atOnce(bad));
+
+			const held = await room.short();
+
+			expect(held?.said, String(bad)).toContain(
+				"a Mac starts one roster round at a time",
+			);
+		}
 	});
 
 	it("is Linux's own reading off a Mac, with no spacing and no wait for other rounds", async () => {
@@ -72,8 +163,9 @@ describe("the room a round reads", () => {
 			},
 			async () => {
 				runningAsked = true;
-				return "another round";
+				return [{ runId: "council-x", reviewersRunning: 1 }];
 			},
+			atOnce(undefined),
 		);
 
 		expect(room.spacingMs).toBeUndefined();
@@ -81,6 +173,33 @@ describe("the room a round reads", () => {
 		expect(asked, "a Linux round never builds the Mac's room").toBe(false);
 		await room.short();
 		expect(runningAsked, "Linux runs rounds side by side").toBe(false);
+	});
+});
+
+describe("how many roster rounds a Mac's config lets run at once", () => {
+	it("is the whole number it sets, one or more", () => {
+		expect(macRoundsAtOnce({ roundsAtOnce: 2 })).toBe(2);
+		expect(macRoundsAtOnce({ roundsAtOnce: 1 })).toBe(1);
+	});
+
+	it("is one where it sets none, or no review.mac at all", () => {
+		expect(macRoundsAtOnce({})).toBe(1);
+		expect(macRoundsAtOnce(undefined)).toBe(1);
+		expect(macRoundsAtOnce("two")).toBe(1);
+	});
+
+	it("is one for a value that isn't a whole number of at least one", () => {
+		for (const bad of [
+			"2",
+			0,
+			-1,
+			1.5,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			true,
+		]) {
+			expect(macRoundsAtOnce({ roundsAtOnce: bad }), String(bad)).toBe(1);
+		}
 	});
 });
 

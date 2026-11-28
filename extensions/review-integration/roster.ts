@@ -244,6 +244,19 @@ export function startSpacingMs(section: unknown): number | undefined {
 	return Math.min(MOST_SPACING_MS, Math.max(FEWEST_SPACING_MS, said * 60_000));
 }
 
+/**
+ * How many roster rounds a Mac may run at once, as the config sets it
+ * in `roundsAtOnce` under `review.mac`: a whole number of at least one,
+ * else one, since a Mac that runs too many at once runs out of memory
+ * and one that runs one at a time only waits longer (26 November).
+ */
+export function macRoundsAtOnce(section: unknown): number {
+	const said = isRecord(section) ? section.roundsAtOnce : undefined;
+	return typeof said === "number" && Number.isInteger(said) && said >= 1
+		? said
+		: 1;
+}
+
 /** Why a round of this size is refused, or undefined when it fits. */
 export function tooMany(
 	asking: number,

@@ -325,6 +325,30 @@ describe("whether a Mac has memory for a round", () => {
 	});
 });
 
+// A second round beside a first reads the free memory the first's
+// reading does, so the two never judge on different figures.
+describe("how much of a Mac's memory is free", () => {
+	it("is kern.memorystatus_level from the reading its room judges", async () => {
+		const room = macRoundRoom(mac(() => ({ ...roomy, availablePercent: 72 })));
+
+		expect(await room.freePercent()).toBe(72);
+	});
+
+	it("is none when the level went unread", async () => {
+		const room = macRoundRoom(
+			mac(() => ({ ...roomy, availablePercent: Number.NaN })),
+		);
+
+		expect(await room.freePercent()).toBeUndefined();
+	});
+
+	it("is none when the Mac can't be read at all", async () => {
+		const room = macRoundRoom(mac(() => new Error("sysctl is gone")));
+
+		expect(await room.freePercent()).toBeUndefined();
+	});
+});
+
 describe("one reading of a Mac shared by its rounds", () => {
 	it("serves one reading while it is fresh, dated when it was read", async () => {
 		let now = 0;

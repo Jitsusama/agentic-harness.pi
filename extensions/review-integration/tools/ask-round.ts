@@ -51,8 +51,16 @@ import {
 	sessionKey,
 } from "../engine.ts";
 import { rangeProposal } from "../range.ts";
-import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
-import { rosterRoundRunning, runningSaid } from "../round-running.ts";
+import {
+	builtInPersonaDir,
+	macRoundsAtOnce,
+	startSpacingMs,
+} from "../roster.ts";
+import {
+	type RunningRound,
+	rosterRoundsRunning,
+	roundsHeld,
+} from "../round-running.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
@@ -249,9 +257,12 @@ export function spacingAtLeast(
 export const MAC_SPACING_MS = 2 * 60_000;
 
 /**
- * The room a round reads on `platform`: a Mac waits while another
- * roster round still runs there, then reads the queue's rule for a Mac,
- * since it keeps no pressure file, and spaces its starts at least
+ * The room a round reads on `platform`: a Mac waits while the roster
+ * rounds running there number the config's `review.mac.roundsAtOnce`,
+ * one unless it says more, and below that while any of them is young
+ * or its memory reads too little free for another, as `roundsHeld`
+ * judges; then it reads the queue's rule for a Mac, since it keeps no
+ * pressure file, and spaces its starts at least
  * {@link MAC_SPACING_MS} apart, wider where config says; Linux
  * reads its memory and CPU pressure and available memory, runs rounds
  * side by side, and alone keeps the readings a quiet machine is judged
@@ -260,14 +271,20 @@ export const MAC_SPACING_MS = 2 * 60_000;
 export function roundRoom(
 	platform: NodeJS.Platform,
 	mac: () => RoundRoom = macRoundRoom,
-	running: () => Promise<string | undefined> = macRoundRunning,
+	running: () => Promise<readonly RunningRound[]> = macRoundsRunning,
+	atOnce: () => Promise<number> = configuredRoundsAtOnce,
 ): RosterRoom {
 	if (platform === "darwin") {
 		const room = mac();
 		return {
 			short: async () => {
-				const other = await running();
-				if (other !== undefined) return macHeld(MAC_ROUND_RUNNING, other);
+				const held = await roundsHeld(await running(), await atOnce(), () =>
+					room.freePercent(),
+				);
+				if (held !== undefined) {
+					const reading = held.by === "free" ? MAC_ROOM : MAC_ROUND_RUNNING;
+					return macHeld(reading, held.said);
+				}
 				const short = await room.short();
 				return short === undefined ? undefined : macHeld(MAC_ROOM, short);
 			},
@@ -301,7 +318,7 @@ export const ROOM_ROUND: RosterRoom = {
  * spacing its machine keeps when the config sets none, and whether the
  * machine is quiet enough to start sooner, where it can tell.
  */
-export interface RosterRoom extends Omit<RoundRoom, "short"> {
+export interface RosterRoom extends Omit<RoundRoom, "short" | "freePercent"> {
 	/** What keeps a round from starting now, or nothing when there's room. */
 	readonly short: () => Promise<RoomHeld | undefined>;
 	/** The least spacing between starts, which the config may only widen. */
@@ -317,18 +334,30 @@ const MAC_ROUND_RUNNING = "another round on this Mac";
 const MAC_ROOM = "the Mac's memory";
 
 /**
- * A Mac's hold, which is never passed in time: its rounds start one at
- * a time on what memory the queue's rule reads, and a start past either
- * runs the Mac out of it.
+ * A Mac's hold, which is never passed in time: its rounds start as
+ * many at a time as its config allows on what memory the queue's rule
+ * reads, and a start past either runs the Mac out of it.
  */
 function macHeld(reading: string, said: string): RoomHeld {
 	return { said, readings: [reading], passable: false };
 }
 
-/** Why a Mac's round waits for another still running there, or nothing. */
-async function macRoundRunning(): Promise<string | undefined> {
-	const round = await rosterRoundRunning(runArtifactDir());
-	return round === undefined ? undefined : runningSaid(round);
+/** The roster rounds still running on this Mac, newest first. */
+function macRoundsRunning(): Promise<readonly RunningRound[]> {
+	return rosterRoundsRunning(runArtifactDir());
+}
+
+/**
+ * How many roster rounds this Mac's config lets run at once, read at
+ * each look as the spacing is, so a value set while rounds wait reaches
+ * them. One when the config can't be read, as for a bad value, since
+ * one at a time only waits longer.
+ */
+async function configuredRoundsAtOnce(): Promise<number> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return 1;
+	const review = loaded.config.sections[REVIEW_SLUG];
+	return macRoundsAtOnce(isRecord(review) ? review.mac : undefined);
 }
 
 /** A config read: what it set, or that it couldn't be read. */
