@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type FolderDisk,
 	makeSandboxFolders,
+	TRY_EMPTY_AGAIN_MS,
 } from "../../../../lib/internal/sandbox/sandbox-folders.ts";
 import {
 	processFolderName,
@@ -179,37 +180,80 @@ describe("a temporary folder named for a process", () => {
 		expect(existsSync(theirs), "what the link leads to").toBe(true);
 	});
 
-	it("refuses when it can't be emptied, naming the remedy, and walks it again only once it is gone", () => {
+	/** A disk whose emptying fails while `failing` says so, counting its walks. */
+	function stuckDisk(failing: () => boolean): {
+		disk: FolderDisk;
+		walks: () => number;
+		remove: () => void;
+	} {
 		let there = true;
 		let walks = 0;
-		const disk: FolderDisk = {
-			make: () => {
-				there = true;
+		return {
+			disk: {
+				make: () => {
+					there = true;
+				},
+				look: () =>
+					there ? { folder: true, uid: 1000, mode: 0o700 } : undefined,
+				narrow: () => undefined,
+				empty: () => {
+					walks += 1;
+					if (failing()) {
+						throw new Error("rm: cannot remove 'x/the person approves this'");
+					}
+				},
+				uid: 1000,
 			},
-			look: () =>
-				there ? { folder: true, uid: 1000, mode: 0o700 } : undefined,
-			narrow: () => undefined,
-			empty: () => {
-				walks += 1;
-				throw new Error("no trusted rm");
+			walks: () => walks,
+			remove: () => {
+				there = false;
 			},
-			uid: 1000,
 		};
+	}
+
+	it("refuses when it can't be emptied, naming none of what is in it, and walks it again only once it is gone", () => {
+		const at = 1_000_000;
+		const { disk, walks, remove } = stuckDisk(() => true);
 		const stuck = join(home, "stuck");
-		const refusal = makeSandboxFolders(stuck, {}, disk);
+		const refusal = makeSandboxFolders(stuck, {}, disk, () => at);
 		expect(refusal).toMatch(
-			/couldn't empty its folder .*pid-[\d-]+.*no trusted rm.*so no command runs: remove it by hand and try again/,
+			/couldn't empty its folder .*pid-[\d-]+.*so this command doesn't run/,
 		);
-		expect(makeSandboxFolders(stuck, {}, disk), "the next command").toBe(
-			refusal,
+		expect(refusal, "what rm said, an earlier writer's names").not.toMatch(
+			/approves/,
 		);
-		expect(walks, "walked once").toBe(1);
-		there = false;
 		expect(
-			makeSandboxFolders(stuck, {}, disk),
+			makeSandboxFolders(stuck, {}, disk, () => at + 1000),
+			"the next command",
+		).toBe(refusal);
+		expect(walks(), "walked once").toBe(1);
+		remove();
+		expect(
+			makeSandboxFolders(stuck, {}, disk, () => at + 2000),
 			"once removed by hand",
 		).toBeUndefined();
-		expect(walks, "made anew, not emptied").toBe(1);
+		expect(walks(), "made anew, not emptied").toBe(1);
+	});
+
+	// The #2460 council's F54 and F73: a passing failure, as of a spawn
+	// under load, refused every command until the folder was removed.
+	it("tries to empty it again a minute on, and runs once it empties", () => {
+		const at = 2_000_000;
+		let failing = true;
+		const { disk, walks } = stuckDisk(() => failing);
+		const stuck = join(home, "passing");
+		expect(makeSandboxFolders(stuck, {}, disk, () => at)).toBeDefined();
+		failing = false;
+		expect(
+			makeSandboxFolders(stuck, {}, disk, () => at + TRY_EMPTY_AGAIN_MS - 1),
+			"within its minute",
+		).toBeDefined();
+		expect(walks(), "not walked within its minute").toBe(1);
+		expect(
+			makeSandboxFolders(stuck, {}, disk, () => at + TRY_EMPTY_AGAIN_MS),
+			"a minute on",
+		).toBeUndefined();
+		expect(walks(), "walked again").toBe(2);
 	});
 
 	it("checks the folder again once emptied, refusing a link put there meanwhile", () => {
