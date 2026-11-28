@@ -261,10 +261,13 @@ shipped and tested.
   answers that join it. Closing that window leaves the session
   running, and the words join it again from any terminal; the
   answer names the machine and the held id. On another machine
-  it begins in the same folder under that machine's home, or in
-  its home when there is none there or the folder is outside
-  home, and it starts fresh, since a session's history is saved
-  on its own machine. A dry run asks the node nothing. A held
+  it begins in the same folder under that machine's home, in a
+  full path outside this home as it is, since only that machine
+  can have it, or in its home when there is none there; with no
+  `cwd` it begins in the quest's scratch folder there rather
+  than a folder found here. It starts fresh, since a session's
+  history is saved on its own machine. A dry run asks the node
+  nothing and names the folder it would ask for. A held
   session runs under its holder, not kitty, so a session it
   spawns in turn opens beside the window the node says it is
   shown in (see the terminal library's README). `reopen-sessions`

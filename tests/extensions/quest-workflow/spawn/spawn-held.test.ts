@@ -85,10 +85,21 @@ describe("the folder a start names", () => {
 		);
 	});
 
-	it("names nothing for a folder outside home, or home itself, on another machine", () => {
-		expect(folderFor("/tmp/scratch", "/home/joel", false)).toBeUndefined();
+	it("names nothing for home itself on another machine", () => {
 		expect(folderFor("/home/joel", "/home/joel", false)).toBeUndefined();
-		expect(folderFor("/home/joelle", "/home/joel", false)).toBeUndefined();
+	});
+
+	// 27 Nov: a Mac's strict spawns on optimus, naming optimus's folders,
+	// lost them and were refused for beginning at home.
+	it("names a full path outside home whole on another machine, where only it can be", () => {
+		expect(
+			folderFor(
+				"/home/jitsusama/src/github.com/Jitsusama/core.nix",
+				"/Users/jsama",
+				false,
+			),
+		).toBe("/home/jitsusama/src/github.com/Jitsusama/core.nix");
+		expect(folderFor("/home/joelle", "/home/joel", false)).toBe("/home/joelle");
 	});
 
 	it("names this machine's own folder as it is", () => {
@@ -195,6 +206,53 @@ describe("spawning on a machine", () => {
 			machine: "equilibrius",
 			held: "c97b4852",
 		});
+	});
+
+	it("asks the node for a folder of that machine's whole, from a home that isn't its parent", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(equilibrius);
+		const folder =
+			"/home/jitsusama/.cache/pi/agentic-harness.pi/quest-workspace/QEST-20261113-5GLTPH";
+		await spawnHeld(
+			{ ...asked(kitty), cwd: folder, home: "/Users/jsama" },
+			start,
+			shares,
+		);
+		expect(starts[0]?.folder).toBe(folder);
+	});
+
+	it("asks for the quest's scratch there when the call named no folder", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(equilibrius);
+		const scratch =
+			"/home/joel/.cache/pi/agentic-harness.pi/quest-workspace/QEST-20261013-4UHC5Q";
+		const unnamed = { ...asked(kitty), scratch };
+		await spawnHeld(unnamed, start, shares);
+		expect(
+			starts[0]?.folder,
+			"the scratch's place within home, not the folder found here",
+		).toBe(".cache/pi/agentic-harness.pi/quest-workspace/QEST-20261013-4UHC5Q");
+		const planned = await spawnHeld(
+			{ ...unnamed, options: { ...unnamed.options, dryRun: true } },
+			start,
+			shares,
+		);
+		expect(planned.ok && planned.message, "a dry run names it too").toContain(
+			"start a held session in .cache/pi/agentic-harness.pi/quest-workspace/QEST-20261013-4UHC5Q,",
+		);
+	});
+
+	it("keeps the folder found here for a start on this machine", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(equilibrius);
+		const scratch =
+			"/home/joel/.cache/pi/agentic-harness.pi/quest-workspace/QEST-20261013-4UHC5Q";
+		await spawnHeld(
+			{ ...asked(kitty), machine: "optimus", scratch },
+			start,
+			shares,
+		);
+		expect(starts[0]?.folder).toBe("/home/joel/src/core.nix");
 	});
 
 	it("tells the node the fence it declares, and starts it in that sandbox", async () => {

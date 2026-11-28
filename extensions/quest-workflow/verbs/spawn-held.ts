@@ -32,7 +32,7 @@
 
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.ts";
 import type {
@@ -89,6 +89,12 @@ export interface HeldSpawn {
 	readonly command: string;
 	/** The folder spawn resolved, on this machine. */
 	readonly cwd: string;
+	/**
+	 * The quest's scratch folder here, given when the call named no
+	 * folder: a start on another machine begins at its place there rather
+	 * than at `cwd`, a folder spawn found on this machine.
+	 */
+	readonly scratch?: string;
 	/** The person's home here. */
 	readonly home: string;
 	/** The quest the new session loads. */
@@ -485,8 +491,10 @@ export function isThisMachine(
  * The folder a start names for `machine`: this machine's own folder as
  * it is, or for another the folder's place within home, since that
  * machine's home is elsewhere (/home/joel here is /Users/joel on a
- * Mac). A folder outside home names nothing there, so its node begins
- * the session in its home.
+ * Mac). A full path outside home goes as it is, since it can only name
+ * a folder there: on 27 November a Mac's three strict spawns on optimus,
+ * two naming optimus's folders, each lost its folder and was refused.
+ * Home itself names nothing, so its node begins the session in its home.
  */
 export function folderFor(
 	cwd: string,
@@ -495,10 +503,21 @@ export function folderFor(
 ): string | undefined {
 	if (here) return cwd;
 	const within = relative(home, cwd);
-	if (within === "" || within.startsWith("..") || within.startsWith("/")) {
-		return undefined;
+	if (within === "") return undefined;
+	if (within.startsWith("..") || isAbsolute(within)) {
+		return isAbsolute(cwd) ? cwd : undefined;
 	}
 	return within;
+}
+
+/**
+ * The folder a held spawn asks its node for: on another machine, when
+ * the call named none, the quest's scratch folder's place there rather
+ * than a folder spawn found here, which that machine needn't have.
+ */
+function askedFolder(asked: HeldSpawn, here: boolean): string | undefined {
+	const from = !here && asked.scratch !== undefined ? asked.scratch : asked.cwd;
+	return folderFor(from, asked.home, here);
 }
 
 /**
@@ -545,7 +564,7 @@ export async function spawnHeld(
 	names: StartNames = namesHere,
 ): Promise<HeldSpawnOutcome> {
 	const here = isThisMachine(asked.machine);
-	const folder = folderFor(asked.cwd, asked.home, here);
+	const folder = askedFolder(asked, here);
 	const where = folder ?? "its home";
 	const window = here;
 	if (asked.options.dryRun) {
