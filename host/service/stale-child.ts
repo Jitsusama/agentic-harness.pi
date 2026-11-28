@@ -43,6 +43,7 @@
  * hurries none.
  */
 
+import type { RolledCode } from "../../lib/core/session/host.ts";
 import { cpuShort } from "../../lib/internal/machine/room.ts";
 import { installMovesOrThrowsFrom } from "./what-starts.ts";
 
@@ -283,7 +284,9 @@ export interface ChildRoll {
 	 */
 	readonly moved?: () => Promise<string | undefined>;
 	/** The host holding the conversation, once its engine is being made. */
-	readonly host: () => { roll(): void } | undefined;
+	readonly host: () => { roll(code?: RolledCode): void } | undefined;
+	/** The code it rolls from and onto, as it rolls; none named if left out. */
+	readonly code?: () => RolledCode | undefined;
 	/** Settles, either way, as the child's host stops. */
 	readonly stopped: Promise<unknown>;
 	readonly report: (message: unknown) => void;
@@ -318,7 +321,7 @@ export function rollChildWhenStale(wiring: ChildRoll): void {
 			wiring.report(
 				`Rolling onto new code, as ${why}: the conversation parks at its next quiet moment unless a window views it`,
 			);
-			wiring.host()?.roll();
+			wiring.host()?.roll(wiring.code?.());
 		},
 		{
 			report: wiring.report,

@@ -14,8 +14,10 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import type { RolledCode } from "../../lib/core/session/host.ts";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { headFromFiles } from "../../lib/internal/reload/head.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
@@ -166,6 +168,28 @@ function gitAnswered(error: {
 	return typeof error.code === "number" && error.killed !== true
 		? false
 		: undefined;
+}
+
+/**
+ * The code a child started from `root` rolls from and onto, each by its
+ * version's name: `root`'s own, and the one its install's `current`
+ * names now. Nothing for a version outside an install, or an install
+ * whose `current` can't be read, which then names no code to roll onto.
+ */
+export function rolledCodeFrom(root: string): () => RolledCode | undefined {
+	const install = installOfVersion(root);
+	return () => {
+		if (install === undefined) return undefined;
+		try {
+			return {
+				from: basename(root),
+				onto: basename(realpathSync(join(install, "current"))),
+			};
+		} catch {
+			// Unreadable now: the roll goes on, naming no code to roll onto.
+			return undefined;
+		}
+	};
 }
 
 /** What one ask of an install found: why it moved, or why it can't tell. */

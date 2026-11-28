@@ -15,6 +15,7 @@
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import type { RolledCode } from "../../lib/core/session/host.ts";
 import { packageConfigPath, stateDir } from "../../lib/internal/paths.ts";
 import { keepViewerClosed } from "../../lib/internal/quest/reopening/closed-viewers.ts";
 import { sayLoaded } from "../../lib/internal/reload/said.ts";
@@ -48,7 +49,11 @@ import { hostSettings } from "./settings.ts";
 import { isSpareSlot, type SpareEnd, spareUntilTaken } from "./spare.ts";
 import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
-import { installMovesFrom, installStepsBackFrom } from "./what-starts.ts";
+import {
+	installMovesFrom,
+	installStepsBackFrom,
+	rolledCodeFrom,
+} from "./what-starts.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -251,7 +256,7 @@ export async function startHostProgram(
 		}),
 	});
 	let engine: HostEngine | undefined;
-	let rollable: { roll(): void } | undefined;
+	let rollable: { roll(code?: RolledCode): void } | undefined;
 	const run = await runHost({
 		argv,
 		env,
@@ -304,6 +309,8 @@ export async function startHostProgram(
 			version: hostRoot(),
 			// A step back to an older version, as off a bad release, rolls at once.
 			back: installStepsBackFrom(hostRoot()),
+			// Named in the conversation's log as it parks, so its next pi tells it.
+			code: rolledCodeFrom(hostRoot()),
 			host: () => rollable,
 			stopped: run.stopped,
 			report,

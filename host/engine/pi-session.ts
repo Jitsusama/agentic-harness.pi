@@ -28,6 +28,8 @@ export interface SessionManager {
 	getHeader(): object | null;
 	getEntries(): readonly object[];
 	isPersisted(): boolean;
+	/** Append an extension's entry to the log, answering its id; the host's own say a roll (rolled.ts). */
+	appendCustomEntry(customType: string, data?: unknown): string;
 }
 
 /** pi's ways to make a session manager. */
@@ -195,6 +197,8 @@ export interface CustomMessageOptions {
 /** pi's AgentSession, as far as the engine drives it. */
 export interface AgentSession {
 	readonly sessionId: string;
+	/** Its log, where a park that rolls says so. */
+	readonly sessionManager: SessionManager;
 	readonly sessionFile: string | undefined;
 	readonly isStreaming: boolean;
 	/** The extensions' runner, asked which commands they registered and told when a run the host began settled. */

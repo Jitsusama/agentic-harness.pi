@@ -287,7 +287,11 @@ way as soon as a talk, close, carry, move, fill or answer lands, rather
 than at the mesh's once-a-minute pass, which stays as the backstop.
 Where a park keeps carried bash calls (a shared host with a jobs
 cgroup, or spawners in scopes of their own), it stops the conversation
-carrying them as a restart does; parked-calls.ts writes the calls the
+carrying them as a restart does. A park that rolls onto new host code
+says so first in the conversation's log, a `host:rolled` entry naming
+the code from and onto, and once more, saying the host wakes it, if the
+park carries bash calls (rolled.ts), so the next pi on that log can tell
+the session of its roll. parked-calls.ts writes the calls the
 conversation's bus said it carried to `carried-calls.json` beside its
 wake file. In a child, recorded-calls.ts adds each call the
 conversation recorded as it ran whose end it hasn't said and its stop

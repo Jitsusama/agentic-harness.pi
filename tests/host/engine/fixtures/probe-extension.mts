@@ -10,10 +10,12 @@
  * leaves at WAIT_RELEASE. First words of ASK_ME are held by its input
  * handler until the person answers a select, as an extension asking
  * before a prompt goes on does. As it loads it says its own record stays
- * in a rolled log's parent, as the harness's records do. It is an .mts, like the
+ * in a rolled log's parent, as the harness's records do. Where
+ * `<folder>/carry-at-shutdown` stands, each end says twice on the bus that
+ * it carried a bash call, as job-workflow says a carry. It is an .mts, like the
  * programs beside it, because it is copied rather than imported.
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** What the probe reads of a handler's context. */
@@ -78,6 +80,30 @@ const tools = fileURLToPath(
 	new URL("../../../../tools.jsonl", import.meta.url),
 );
 const runsAs = fileURLToPath(new URL("../../../../as.jsonl", import.meta.url));
+/** Where it stands, each end says it carried a bash call. */
+const carryAtShutdown = fileURLToPath(
+	new URL("../../../../carry-at-shutdown", import.meta.url),
+);
+
+/**
+ * What job-workflow says on the bus of a bash call it carried, read
+ * without importing the harness (lib/jobs/host.ts JOBS_CARRIED). Its pid
+ * is past Linux's highest, so nothing a park does to it kills anything.
+ */
+function carriedCall(session: string): unknown {
+	const keep = fileURLToPath(new URL("../../../../kept-call", import.meta.url));
+	const work = {
+		kind: "shell",
+		keep,
+		pid: 2 ** 22 + 1,
+		mark: "mark-probe",
+		startedAt: 0,
+	};
+	return {
+		session,
+		jobs: [{ id: "j1", kind: "shell", label: "sleep 300", work }],
+	};
+}
 
 function note(line: Record<string, unknown>): void {
 	appendFileSync(probe, `${JSON.stringify(line)}\n`);
@@ -125,6 +151,13 @@ export default function probeExtension(pi: ProbeApi): void {
 	});
 	pi.on("session_shutdown", (event, context) => {
 		note({ event: "session_shutdown", reason: event.reason });
+		// Twice, so a reader that hears each carry says what it hears once.
+		if (existsSync(carryAtShutdown))
+			for (const _ of [1, 2])
+				pi.events.emit(
+					"jobs:carried:v1",
+					carriedCall(context.sessionManager.getSessionId()),
+				);
 		noteAs(
 			"session_shutdown",
 			context.sessionManager.getSessionId(),

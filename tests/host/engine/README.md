@@ -47,7 +47,8 @@ sealed folder: open, a refused key,
 a stop and resume, a kill mid-tool and the start after it, a park
 that keeps what an ended command left and the start after it, a
 restart's stop and a release that keep it too, a close that ends it,
-ordinary
+a rolling host's park, which says the roll in the log, and once more
+that the host wakes it where the park carries a bash call, ordinary
 pi reading the file, and an extension whose link moves onto another
 copy once its first is deleted, as a switch and a store collection
 leave Shopify's proxy. One step loads this package as a conversation's

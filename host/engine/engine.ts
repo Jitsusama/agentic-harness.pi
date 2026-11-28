@@ -86,6 +86,7 @@ import {
 import { recordedCallsOf } from "./recorded-calls.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
+import { sayRolledIn } from "./rolled.ts";
 import { disposeRuntime, leavesItsRun } from "./runtime-release.ts";
 import {
 	backgroundIn,
@@ -409,7 +410,8 @@ export async function createEngine(
 			// One whose stop never began runs on, so its watch takes back saying it parks.
 			park: async () => {
 				record.parking = true;
-				const ranOn = await parked.park(sessionId);
+				const stopHearing = sayRolledIn(host, sessionId, record, report);
+				const ranOn = await parked.park(sessionId).finally(stopHearing);
 				if (ranOn === undefined) return;
 				record.parking = false;
 				const refused: ParkRefused = {

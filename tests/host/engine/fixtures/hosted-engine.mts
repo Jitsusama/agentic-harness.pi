@@ -35,6 +35,7 @@ import { SETTLE_MS } from "../../../../host/engine/quiet-collection.ts";
 import type { SessionHost } from "../../../../host/engine/session-host.ts";
 import { NO_PROC_NOTICE } from "../../../../host/engine/tool-children.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
+import type { RolledCode } from "../../../../lib/core/session/host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 import { quietFor, until } from "../../../support/until.ts";
@@ -114,6 +115,9 @@ const { WAKE_ENV, writeParked } = await import(
 );
 const { ROLLOVER_RECORD } = await import(
 	"../../../../lib/internal/session/rollover.ts"
+);
+const { HOST_ROLLED_ENTRY } = await import(
+	"../../../../lib/core/session/host.ts"
 );
 
 /**
@@ -492,6 +496,8 @@ interface Scenario {
 	keyVariable?: string;
 	/** What the host's own process holds beyond the sealed environment it runs in. */
 	hostEnv?: Readonly<Record<string, string>>;
+	/** A window views every conversation, as the host's screens say, so none rolls. */
+	viewed?: true;
 	/** The engine runs one conversation, as a child's does, its notes kept apart. */
 	oneConversation?: true;
 	run: (
@@ -520,6 +526,13 @@ async function answerOnce(
 	await host.close(id);
 	return {};
 }
+
+/**
+ * The code the park-rolls steps roll the host from and onto. Above the
+ * scenarios, since the step runs from the top-level await below them,
+ * before any declaration after it is reached.
+ */
+const ROLLED_CODE: RolledCode = { from: "code-before", onto: "code-after" };
 
 const scenarios: Record<string, Scenario> = {
 	/** Open with first words, answer them, then close. */
@@ -605,6 +618,30 @@ const scenarios: Record<string, Scenario> = {
 				screensParked: [...screensParked],
 			};
 		},
+	},
+	/** Roll the host onto new code, naming it, then park a conversation: its log says the roll. */
+	"park-rolls": {
+		responses: () => [say("hello there")],
+		run: (engine, host) => parkRolling(engine, host, ROLLED_CODE),
+	},
+	/** The same roll, its park carrying a bash call, said twice: its log says the host wakes it, once. */
+	"park-rolls-carrying": {
+		responses: () => [say("hello there")],
+		run: (engine, host) => {
+			writeFileSync(join(folder, "carry-at-shutdown"), "");
+			return parkRolling(engine, host, ROLLED_CODE);
+		},
+	},
+	/** The same roll, while a window views the conversation, so it doesn't roll. */
+	"park-rolls-viewed": {
+		responses: () => [say("hello there")],
+		viewed: true,
+		run: (engine, host) => parkRolling(engine, host, ROLLED_CODE),
+	},
+	/** A roll that names no code, then a park. */
+	"park-rolls-unnamed": {
+		responses: () => [say("hello there")],
+		run: (engine, host) => parkRolling(engine, host),
 	},
 	/** Start again on a conversation parked before, which rests parked and is still kept warm. */
 	"warm-resting": {
@@ -1778,6 +1815,37 @@ async function parkNow(
 	await engine.parkSettled?.(id);
 }
 
+/**
+ * Open a conversation and answer it, roll its host, naming `code` where
+ * given, then park it: whether the park let it go, and each roll entry
+ * its log holds.
+ */
+async function parkRolling(
+	engine: HostEngine,
+	host: SessionHost,
+	code?: RolledCode,
+): Promise<Record<string, unknown>> {
+	const id = await open(engine, { first: "hi" });
+	await idle(engine, id);
+	host.roll(code);
+	await parkNow(engine, host, id);
+	return {
+		held: host.holds(id) ?? "let go",
+		rolled: rolledIn(readEntry().file),
+	};
+}
+
+/** What each roll entry in the log at `file` holds, in the order written. */
+function rolledIn(file: string): unknown[] {
+	return lines(file)
+		.filter(
+			(entry) =>
+				field(entry, "type") === "custom" &&
+				field(entry, "customType") === HOST_ROLLED_ENTRY,
+		)
+		.map((entry) => field(entry, "data"));
+}
+
 /** Each descriptor this process holds open on `file`, as `read` or `write`. */
 function logHolds(file: string): string[] {
 	const real = realpathSync(file);
@@ -1890,6 +1958,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		key: `test-host-${basename(folder)}`,
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
+		...(scenario.viewed ? { viewed: () => true } : {}),
 	});
 	runningHost = host;
 	const engine = await createEngine({
