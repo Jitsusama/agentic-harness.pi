@@ -978,8 +978,9 @@ function namedIn(answer: unknown): string | undefined {
 
 /**
  * The phases of a conversation's start, each marked as it ends. A resume
- * has the start's own ask for more time, the gate on another one running
- * and the session file read; an open has its conversation prepared and
+ * has the start's own ask for more time, the gate on another one running,
+ * the wait for an earlier host's child to let go of one that stays in
+ * the host, and the session file read; an open has its conversation prepared and
  * held in the roster. Then both have an earlier host's tools reaped,
  * pi's runtime built (its model runtime, its services with every
  * extension loaded, its held log's view taken again over what they
@@ -994,6 +995,7 @@ export type StartPhase =
 	| "asked"
 	| "ask"
 	| "gate"
+	| "left"
 	| "log"
 	| "prepare"
 	| "roster"

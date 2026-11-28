@@ -21,8 +21,11 @@ each wait for the start's own resume rather than resuming again.
 backend-children.test.ts drives that backend with fake children: what
 moves resumes and wakes in a child, and a start's resume is hurried for
 whoever waits on it. backend-child-opens.test.ts has its opens and
-adopts in a child, and the refusals it passes on. Both share
-support/backend-children.ts.
+adopts in a child, and the refusals it passes on.
+resume-held.test.ts checks the phases a start's resume marks, as the
+journal says them: the wait for an earlier host's child under left,
+apart from the log's open, and no left for one that moves. All three
+share support/backend-children.ts.
 serve.test.ts starts and stops whole hosts in a private folder: a second
 host of one key and a refused engine never listen, holds survive
 stop and resume at the next start, and a starting host answers a list
