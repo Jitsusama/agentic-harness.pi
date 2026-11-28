@@ -210,15 +210,16 @@ describe("review_ask", () => {
 			if (sized === -1) return [`${name} has no size check to claim after`];
 			// After the size check, so a round refused as too large holds
 			// no slot for three minutes it never used; given the round's own
-			// signal, so a round given up while it waits gives its slot back.
+			// seat, whose signal gives a round given up while it waits its
+			// slot back, and whose overdue tells its asker it is late.
 			const call = body.slice(claims, body.indexOf(")", claims) + 1);
 			return [
 				...(sized < claims
 					? []
 					: [`${name} claims a start before its last refusal`]),
-				...(call.includes("signal")
+				...(/\bseat\b/.test(call)
 					? []
-					: [`${name} waits for its start without its signal`]),
+					: [`${name} waits for its start without its seat`]),
 				...(body.includes(".cancelled")
 					? []
 					: [`${name} starts even when its wait was stopped`]),

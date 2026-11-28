@@ -62,6 +62,11 @@ export interface RoundSeat {
 	readonly said: readonly string[];
 	/** Tripped when the call is given up, which ends a wait for a start. */
 	readonly signal?: AbortSignal;
+	/**
+	 * Tells this session that a round waiting for its start has passed
+	 * the start it was due at, in the words given.
+	 */
+	readonly overdue?: (said: string) => void;
 }
 
 /** Which of a roster a round puts to work. */

@@ -59,6 +59,17 @@
  * reads the line without its lock, so only joining, refreshing a
  * sighting, reordering, dropping and starting contend for it.
  *
+ * A round waiting told its asker nothing until it started: on 27
+ * November the line held every start from 18:05 to 20:03, and 14
+ * rounds promised that week never started with nobody told (1JQPPC).
+ * So a ticket joining is given the start it is due at (`dueAt`): its
+ * place times the line's spacing, or at the pace the history shows in
+ * the last hour, whichever is slower. A look that finds it passed
+ * unstarted tells the asker once where it stands, what holds the line
+ * and when it is due now, at least {@link TOLD_AGAIN_AFTER_MS} on, so a
+ * line held for hours tells each asker a few times an hour at most.
+ * Being due changes nobody's order and no bar.
+ *
  * Every start is spaced only once every session on the machine runs
  * this, and only among sessions sharing one state directory. A session
  * on an older install keeps its own fixed slot in `last.json` beside
@@ -78,7 +89,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isLockHeld, withFileLock } from "../../internal/file-lock.ts";
-import { recordStart } from "./start-history.ts";
+import { recordStart, startsBetween } from "./start-history.ts";
 
 /** How long after one council starts on a machine before another may. */
 export const COUNCIL_START_SPACING_MS = 3 * 60_000;
@@ -133,6 +144,16 @@ const REMEMBERED_MS = 6 * 60 * 60_000;
  * rewrite the whole line at every look only to say they are there.
  */
 const SEEN_REFRESH_MS = UNSEEN_TICKET_MS / 4;
+
+/** The window of history a round's due start is paced by. */
+const HOUR_MS = 60 * 60_000;
+
+/**
+ * The least time after telling its asker a round is overdue before it
+ * may tell it again, so a line held for hours wakes a waiting session
+ * no more than each ten minutes.
+ */
+export const TOLD_AGAIN_AFTER_MS = 10 * 60_000;
 
 /** How long a passable bar alone may hold a round before it starts anyway. */
 export const PASS_AFTER_MS = 20 * 60_000;
@@ -193,6 +214,12 @@ interface Ticket {
 	 * install wrote has none, and replaces and is replaced by nothing.
 	 */
 	readonly kind?: string;
+	/**
+	 * When its round is due to start, in ISO form: set as it joins, and
+	 * set again later each time a look finds it passed unstarted. A
+	 * ticket an older install wrote has none until its round looks.
+	 */
+	readonly dueAt?: string;
 }
 
 /** A start that happened, as kept on disk. */
@@ -290,10 +317,27 @@ export interface StartClaim {
 	 * read at each look. None unless given.
 	 */
 	readonly urgent?: () => Promise<readonly string[]>;
+	/**
+	 * Hears, once each time the round's due start passes unstarted, where
+	 * it stands, so its asker is told rather than left waiting unaware.
+	 */
+	readonly overdue?: (lapse: Overdue) => void;
 	/** How often to look at the line again; {@link LOOK_AGAIN_MS} unless given. */
 	readonly lookAgainMs?: number;
 	/** Whether a process still runs; a real check unless given. */
 	readonly alive?: (pid: number) => boolean;
+	/** The time now, in milliseconds; the machine's clock unless given. */
+	readonly now?: () => number;
+}
+
+/** A round's due start passed unstarted, as `overdue` hears it. */
+interface Overdue {
+	/** Where it stands, what holds the line and when it is due now, said. */
+	readonly said: string;
+	/** The start it was due at, in ISO form. */
+	readonly dueAt: string;
+	/** The start it is due at now, in ISO form. */
+	readonly nextDueAt: string;
 }
 
 /** What a wait for a start answers. */
@@ -332,9 +376,10 @@ export async function awaitCouncilStart(
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
+	const clock = claim.now ?? Date.now;
 	// Read at each look; this stands only for a first look that failed.
 	let spacings: Spacings = { spacing: 2 * lookAgain, quickest: 2 * lookAgain };
-	const asked = new Date().toISOString();
+	const asked = new Date(clock()).toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
 		// again in the same process, and two copies would count alike.
@@ -355,12 +400,18 @@ export async function awaitCouncilStart(
 	// own looks, so a round that joins a line already held so counts from
 	// its own first look.
 	let passableSince: number | undefined;
+	// When the line last had this round due, so the history is read only
+	// by a look that may set it: joining, or once it has passed.
+	let due: number | undefined;
 	let failed = 0;
 	for (;;) {
 		let turn: Turn | undefined;
 		try {
 			spacings = await spacingsNow(claim, lookAgain);
-			turn = await takeTurn(at, path, ticket, claim, spacings, passableSince);
+			turn = await takeTurn(at, path, ticket, claim, spacings, {
+				passableSince,
+				due,
+			});
 			failed = 0;
 		} catch (error) {
 			// A lock another live round holds past the wait is a busy line,
@@ -386,6 +437,14 @@ export async function awaitCouncilStart(
 				turn.passable === true ? (passableSince ?? turn.lookedAt) : undefined;
 		}
 		if (turn?.short !== undefined) lastShort = turn.short;
+		if (turn?.dueAt !== undefined) due = Date.parse(turn.dueAt);
+		if (turn?.overdue !== undefined && turn.dueAt !== undefined) {
+			tellOverdue(claim, {
+				said: overdueSaid(ticket, turn, turn.overdue, turn.dueAt),
+				dueAt: turn.overdue,
+				nextDueAt: turn.dueAt,
+			});
+		}
 		const started = turn?.started;
 		if (turn !== undefined && started !== undefined) {
 			const release = () =>
@@ -400,7 +459,7 @@ export async function awaitCouncilStart(
 				await release();
 				return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 			}
-			const waitedMs = Date.now() - Date.parse(asked);
+			const waitedMs = clock() - Date.parse(asked);
 			// Not waited for: a round's start is spaced from the moment it is
 			// taken, and the history is only ever read afterwards.
 			void recordStart(dirname(at), {
@@ -421,8 +480,8 @@ export async function awaitCouncilStart(
 				turn.passed === true
 					? passSaid(
 							claim,
-							(turn.lookedAt ?? Date.now()) -
-								(passableSince ?? turn.lookedAt ?? Date.now()),
+							(turn.lookedAt ?? clock()) -
+								(passableSince ?? turn.lookedAt ?? clock()),
 						)
 					: "";
 			return firstSeen === undefined || firstSeen.waitMs <= 0
@@ -451,6 +510,19 @@ export async function awaitCouncilStart(
 			});
 			return { cancelled: stoppedSaid(firstSeen, spacings, lastShort) };
 		}
+	}
+}
+
+/**
+ * Tells the claim's asker its round is overdue. A hearer that throws
+ * costs only the telling, never the round's place.
+ */
+function tellOverdue(claim: StartClaim, lapse: Overdue): void {
+	try {
+		claim.overdue?.(lapse);
+	} catch {
+		// The asker couldn't be told this time; the round waits on all the
+		// same, and its next lapse tells again.
 	}
 }
 
@@ -486,6 +558,18 @@ interface Turn {
 	readonly passed?: boolean;
 	/** When the look was made, as a time. */
 	readonly lookedAt?: number;
+	/** When it is due to start, in ISO form, as the line now keeps it. */
+	readonly dueAt?: string;
+	/** The start it was due at and passed unstarted, when this look found so. */
+	readonly overdue?: string;
+}
+
+/** What a round knows of its own wait from its looks before. */
+interface Waited {
+	/** Since when only a passable bar has held it, by its own looks. */
+	readonly passableSince: number | undefined;
+	/** When the line last had it due, as a time. */
+	readonly due: number | undefined;
 }
 
 async function takeTurn(
@@ -494,9 +578,21 @@ async function takeTurn(
 	ticket: Ticket,
 	claim: StartClaim,
 	spacings: Spacings,
-	passableSince: number | undefined,
+	{ passableSince, due }: Waited,
 ): Promise<Turn> {
+	const clock = claim.now ?? Date.now;
 	const elsewhere = await claim.startedElsewhere?.();
+	// Only a look that may set the round's due start reads the history,
+	// so seventy rounds looking each fifteen seconds read none of it.
+	const before = clock();
+	const startsLastHour =
+		due !== undefined && before < due
+			? undefined
+			: await startsBetween(dirname(at), before - HOUR_MS, before).catch(
+					// A history that can't be read paces nothing; the line's own
+					// spacing still does.
+					() => undefined,
+				);
 	// Read before the lock, as they may be slow; a round that reads room
 	// and then finds another first in line waits its turn all the same.
 	const held = await claim.room?.();
@@ -520,16 +616,17 @@ async function takeTurn(
 				spacingMs: claim.pass?.spacingMs ?? PASS_SPACING_MS,
 			},
 			starts: [elsewhere?.getTime(), await oldSlotCome(path, now)],
+			due: { spacing: spacings.spacing, startsLastHour },
 		});
 	// Most looks change nothing: the round is kept, seen lately, in order
 	// and not first. Read without the lock, since a line is only ever
 	// written whole by a rename, they leave the lock to the looks that
 	// write, which sixty rounds looking at once kept from it.
-	const peekedAt = Date.now();
+	const peekedAt = clock();
 	const peeked = await seenFrom(await readLine(at, peekedAt), peekedAt);
 	if (peeked.next === undefined) return peeked.turn;
 	return withFileLock(at, async () => {
-		const now = Date.now();
+		const now = clock();
 		const seen = await seenFrom(await readLine(at, now), now);
 		if (seen.next !== undefined) await keep(at, seen.next);
 		return seen.turn;
@@ -553,6 +650,15 @@ interface LookAt {
 	};
 	/** Starts made outside the line, as times, when there were any. */
 	readonly starts: readonly (number | undefined)[];
+	/**
+	 * What a round's due start is paced by: the line's spacing, not the
+	 * quicker pace of a quiet machine, and how many starts the history
+	 * showed in the last hour, when this look read it.
+	 */
+	readonly due: {
+		readonly spacing: number;
+		readonly startsLastHour: number | undefined;
+	};
 }
 
 /** What a look found, and the line to write back, when it changed. */
@@ -696,10 +802,13 @@ function look(line: Line, at: LookAt): Look {
 			),
 		};
 	}
+	const dued = dueNow(mine, ahead + 1, at);
 	const next = remembering(
 		{
 			...(line.started === undefined ? {} : { started: line.started }),
-			waiting,
+			waiting: waiting.map((each) =>
+				each.id === ticket.id ? dued.ticket : each,
+			),
 			...heldLine(at.held),
 		},
 		firstAsked,
@@ -710,6 +819,8 @@ function look(line: Line, at: LookAt): Look {
 		turn: {
 			ahead,
 			of: holding.length,
+			...(dued.ticket.dueAt === undefined ? {} : { dueAt: dued.ticket.dueAt }),
+			...(dued.overdue === undefined ? {} : { overdue: dued.overdue }),
 			// Room has no time to wait for, so a round held for it waits at
 			// least a moment, which says it waited.
 			waitMs: Math.max(
@@ -724,6 +835,40 @@ function look(line: Line, at: LookAt): Look {
 		// Only a change is written: a ticket joining, one dropped or moved,
 		// or a sighting old enough to need saying again.
 		...(sameLine(next, line) ? {} : { next }),
+	};
+}
+
+/**
+ * A waiting ticket with the start it is due at: given one as it joins,
+ * or as an older install's ticket is first looked at by its round, and
+ * a new one once that has passed, which the look tells its asker of.
+ * Due at `place` spacings, or at the last hour's pace when the history
+ * shows one slower; an hour that gave no start paces nothing, since an
+ * idle machine and a held one read alike there.
+ */
+function dueNow(
+	ticket: Ticket,
+	place: number,
+	at: Pick<LookAt, "now" | "due">,
+): { readonly ticket: Ticket; readonly overdue?: string } {
+	const was =
+		ticket.dueAt === undefined ? Number.NaN : Date.parse(ticket.dueAt);
+	const kept = Number.isFinite(was);
+	if (kept && at.now < was) return { ticket };
+	const { spacing, startsLastHour } = at.due;
+	const byHistory =
+		startsLastHour === undefined || startsLastHour <= 0
+			? 0
+			: (place * HOUR_MS) / startsLastHour;
+	const inMs = Math.max(
+		place * spacing,
+		byHistory,
+		kept ? TOLD_AGAIN_AFTER_MS : 0,
+	);
+	const dueAt = new Date(at.now + Math.round(inMs)).toISOString();
+	return {
+		ticket: { ...ticket, dueAt },
+		...(kept && ticket.dueAt !== undefined ? { overdue: ticket.dueAt } : {}),
 	};
 }
 
@@ -1103,7 +1248,8 @@ function isTicket(value: unknown): value is Ticket {
 		Number.isFinite(Date.parse(value.seenAt)) &&
 		(!("leads" in value) || typeof value.leads === "boolean") &&
 		(!("away" in value) || typeof value.away === "boolean") &&
-		(!("kind" in value) || typeof value.kind === "string")
+		(!("kind" in value) || typeof value.kind === "string") &&
+		(!("dueAt" in value) || typeof value.dueAt === "string")
 	);
 }
 
@@ -1229,6 +1375,28 @@ function waitSaid(
 	short: string | undefined,
 ): string {
 	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since ${startRuleSaid(spacing, short)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round stops looking is passed over after ${UNSEEN_TICKET_MS / 60_000} minutes and keeps its place.`;
+}
+
+/**
+ * What a round's asker is told as its due start passes unstarted: where
+ * it stands, what holds the line, and when it is due now.
+ */
+function overdueSaid(
+	ticket: Ticket,
+	turn: Turn,
+	was: string,
+	dueAt: string,
+): string {
+	const round = `The ${ticket.kind ?? "roster"} round on ${bounded(ticket.change)}`;
+	return `${round} was due to start by ${was} and hasn't: it is ${placeSaid(turn)}, ${holdsSaid(turn)}. It keeps its place and waits on, due now by ${dueAt}, and says so again if that passes too.`;
+}
+
+/** What holds a round back at a look, as its asker is told. */
+function holdsSaid(turn: Turn): string {
+	if (turn.short !== undefined) return `held while ${turn.short}`;
+	if (turn.ahead > 0)
+		return "held behind the rounds ahead, which haven't started";
+	return "held by the line's spacing since the last start";
 }
 
 /**

@@ -167,7 +167,7 @@ async function councilRound(
 	const asked = await roomNow();
 	let start = await awaitRosterStart(
 		change.label,
-		seat.signal,
+		seat,
 		"council",
 		asked === undefined ? undefined : ROOM_ROUND,
 	);
@@ -180,7 +180,7 @@ async function councilRound(
 	const firstWaited = start.waited;
 	if (asked !== undefined && room === undefined) {
 		await start.release?.();
-		start = await awaitRosterStart(change.label, seat.signal, "council");
+		start = await awaitRosterStart(change.label, seat, "council");
 		if (start.cancelled !== undefined)
 			return { refused: refuse(start.cancelled) };
 	}

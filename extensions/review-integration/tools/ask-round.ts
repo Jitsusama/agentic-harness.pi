@@ -55,7 +55,7 @@ import { rosterRoundRunning, runningSaid } from "../round-running.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import { isWorldWork, urgentMarks } from "./ask-line.ts";
-import type { RoundAsks } from "./ask-roster.ts";
+import type { RoundAsks, RoundSeat } from "./ask-roster.ts";
 import {
 	type Answer,
 	type boundFor,
@@ -175,10 +175,12 @@ export type RosterRound = "council" | "stack" | "critique";
  * Called last, once nothing else refuses the round, so only a round
  * about to start its reviewers holds the slot. A judge, an audit and a
  * retry each ask one participant, so they start whenever they are asked.
+ * The seat's signal ends the wait, and its `overdue` hears each time
+ * the round passes the start it was due at unstarted.
  */
 export async function awaitRosterStart(
 	change: string,
-	signal: AbortSignal | undefined,
+	seat: Pick<RoundSeat, "signal" | "overdue"> | undefined,
 	kind: RosterRound,
 	room: RosterRoom = roundRoom(process.platform),
 ): Promise<CouncilStart> {
@@ -206,8 +208,11 @@ export async function awaitRosterStart(
 			// Read at each look, so a spacing set while rounds wait reaches
 			// them; never under the room's own, which a config can't narrow.
 			spacing,
+			...(seat?.overdue === undefined
+				? {}
+				: { overdue: (lapse) => seat.overdue?.(lapse.said) }),
 		},
-		signal,
+		seat?.signal,
 	);
 	return withUnjudged(start, room.startedUnjudged());
 }

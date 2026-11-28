@@ -195,7 +195,7 @@ export async function askCritique(
 	const start: CouncilStart =
 		raised.length === 0
 			? {}
-			: await awaitRosterStart(change.label, seat.signal, "critique");
+			: await awaitRosterStart(change.label, seat, "critique");
 	if (start.cancelled !== undefined) return refuse(start.cancelled);
 
 	const asking = deps(change, tree.path, watch, charters);

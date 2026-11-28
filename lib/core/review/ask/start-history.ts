@@ -7,9 +7,13 @@
  * Kept a file a day beside the line, in `history/`, so a day is read
  * with `jq` alone and an old day goes by removing its file; days older
  * than {@link KEEP_DAYS} go when a new day's file is first written.
+ *
+ * The line reads it back too: how many starts the last hour gave is the
+ * pace a round joining it is due at, when that is slower than the
+ * line's own spacing (`startsBetween`).
  */
 
-import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 /** How many days of starts are kept. */
@@ -61,6 +65,67 @@ export async function recordStart(
 	await appendFile(file, `${JSON.stringify(record)}\n`);
 	if (!days.includes(`${day}.jsonl`)) {
 		await forgetOldDays(at, days, Date.parse(record.startAt));
+	}
+}
+
+/**
+ * How many starts the history kept in `folder` holds from `since` to
+ * `until`, both times in milliseconds and both counted. A day with no
+ * file gave none, and a line that isn't a start, as one cut short by a
+ * full disk, counts for nothing.
+ */
+export async function startsBetween(
+	folder: string,
+	since: number,
+	until: number,
+): Promise<number> {
+	let starts = 0;
+	for (const day of daysBetween(since, until)) {
+		let text: string;
+		try {
+			text = await readFile(join(folder, HISTORY, `${day}.jsonl`), "utf8");
+		} catch {
+			// No start was kept that day.
+			continue;
+		}
+		for (const line of text.split("\n")) {
+			const at = startOf(line);
+			if (at !== undefined && at >= since && at <= until) starts += 1;
+		}
+	}
+	return starts;
+}
+
+/** The UTC days from `since` to `until`, each as its file names it. */
+function daysBetween(since: number, until: number): string[] {
+	const days: string[] = [];
+	const first = Date.parse(
+		`${new Date(since).toISOString().slice(0, 10)}T00:00:00Z`,
+	);
+	for (let day = first; day <= until; day += DAY_MS) {
+		days.push(new Date(day).toISOString().slice(0, "YYYY-MM-DD".length));
+	}
+	return days;
+}
+
+/** When the start one history line keeps began, or nothing when it keeps none. */
+function startOf(line: string): number | undefined {
+	if (line.trim() === "") return undefined;
+	try {
+		const parsed: unknown = JSON.parse(line);
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			!("startAt" in parsed) ||
+			typeof parsed.startAt !== "string"
+		) {
+			return undefined;
+		}
+		const at = Date.parse(parsed.startAt);
+		return Number.isFinite(at) ? at : undefined;
+	} catch {
+		// Cut short as it was written: no start to count.
+		return undefined;
 	}
 }
 

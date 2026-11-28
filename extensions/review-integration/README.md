@@ -397,6 +397,19 @@ at each look, keeping the last good value while the config can't be
 read. Below half a minute two rounds could start before a round that
 lost track of the start it took looked again.
 
+A round joining the line is due to start by its place times that
+gap, or at the pace of the last hour's starts when that is slower.
+An hour with no start paces nothing, since an idle machine and a
+held one read alike. When a look finds the round past that time
+unstarted, its session is told once: where the round stands, what
+holds the line, and when it is due now. That is at least ten minutes
+on, so a line held for hours tells each session a few times an hour
+at most. The message wakes an idle session and follows a busy one's
+run, and the newest load sends it, so a round that waited through a
+reload is still told. Being due changes no round's order. On 27
+November the line held every start from 18:05 to 20:03, and 14
+rounds that week never started with nobody waiting on them told.
+
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,
 `architecture-hawk`, `clean-design` and `intent-fidelity`. A file

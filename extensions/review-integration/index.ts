@@ -53,6 +53,7 @@ import {
 	sessionKey,
 } from "./engine.ts";
 import { guardPublishes } from "./guard-publish.ts";
+import { tellOverdue } from "./overdue.ts";
 import { watchQueued } from "./queued.ts";
 import { settleModule } from "./tools/ask-tool.ts";
 import {
@@ -379,6 +380,9 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// Said as this load starts, so a round an older load started says
 	// what it says on this one's bus from now (engine.ts, liveBus).
 	rememberBus(pi.events);
+	// And tells this session of a round of its own overdue in the start
+	// line, whichever load started it (overdue.ts).
+	tellOverdue(pi);
 
 	const stoppable = withToolCallSignals(pi);
 	registerReviewTool(stoppable);

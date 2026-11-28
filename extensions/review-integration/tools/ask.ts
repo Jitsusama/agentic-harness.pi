@@ -40,6 +40,7 @@ import {
 } from "../../../lib/jobs/hand-off.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { councilStartsPath, liveBus, runDir } from "../engine.ts";
+import { sayOverdue } from "../overdue.ts";
 import { answerWatching } from "../progress.ts";
 import { askCouncil, retryOne, startRound } from "./ask-council.ts";
 import { lineSaid } from "./ask-line.ts";
@@ -140,7 +141,12 @@ export async function runAsk(
 					);
 				}
 
-				const seat = await seatFor(ctx, params, change, signal);
+				const seat: RoundSeat = {
+					...(await seatFor(ctx, params, change, signal)),
+					// On the live bus, since a round waits through reloads that
+					// leave this call's own pi stale (overdue.ts).
+					overdue: (said) => sayOverdue(bus, said),
+				};
 				switch (action) {
 					case "runs":
 						return await reportRuns(change);

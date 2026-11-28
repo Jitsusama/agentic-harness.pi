@@ -86,7 +86,7 @@ describe("a council whose reviewers run on a room", () => {
 
 		const start = await awaitRosterStart(
 			"owner/repo#1",
-			AbortSignal.timeout(HELD_AFTER_MS),
+			{ signal: AbortSignal.timeout(HELD_AFTER_MS) },
 			"council",
 			ROOM_ROUND,
 		);
