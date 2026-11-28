@@ -752,6 +752,33 @@ function usable(written: Written): written is Required<Written> {
 	);
 }
 
+/**
+ * The record `written` holds, with its mark read as one: a `going` that
+ * is neither an object nor a time reads as no mark. A record is a file
+ * anybody may edit, and every reader past here takes a mark for an
+ * object: `"going": null` threw out of the sweep the moment it read the
+ * mark's ask time, ending the whole run. A bare time is the mark this
+ * code's first version wrote, so it reads as a stopped mark made then,
+ * which is finished before the tree is handed out again.
+ */
+function heldOf(written: Written): HeldTree {
+	const held = written as unknown as HeldTree;
+	const going: unknown = held.going;
+	if (
+		going === undefined ||
+		(typeof going === "object" && going !== null && !Array.isArray(going))
+	) {
+		return held;
+	}
+	if (typeof going === "number" && Number.isFinite(going)) {
+		// It names no remover, which every reader of a mark checks for, so
+		// it stands for nothing running.
+		return { ...held, going: { at: going } as GoingMark };
+	}
+	const { going: _, ...unmarked } = held;
+	return unmarked;
+}
+
 /** A record found at `at` holding `text`. */
 interface Found {
 	readonly at: string;
@@ -769,9 +796,7 @@ function parsedRecord(at: string, text: string): Found | undefined {
 		// would mean a tree reported with a broken identity. Skip it and
 		// leave it alone: deleting somebody's file to tidy a listing is not
 		// this function's decision.
-		return usable(written)
-			? { at, held: written as unknown as HeldTree }
-			: undefined;
+		return usable(written) ? { at, held: heldOf(written) } : undefined;
 	} catch {
 		// Half-written, which a concurrent write can produce. The tree is
 		// still on disk and still reachable by path; only its identity is
@@ -988,7 +1013,7 @@ export function createTreeMemory(
 			return undefined;
 		}
 		return usable(written) && written.path === path && existsSync(path)
-			? (written as unknown as HeldTree)
+			? heldOf(written)
 			: undefined;
 	}
 
@@ -1005,7 +1030,7 @@ export function createTreeMemory(
 			return unreadRecord(error);
 		}
 		return usable(written) && written.path === path && existsSync(path)
-			? (written as unknown as HeldTree)
+			? heldOf(written)
 			: undefined;
 	}
 
@@ -1513,7 +1538,7 @@ export function createTreeMemory(
 				return "gone";
 			}
 			if (!usable(written) || written.path !== tree.path) return "gone";
-			const found = written as unknown as HeldTree;
+			const found = heldOf(written);
 			if (await goingNow(found, facts)) return "going";
 			// A stopped mark stands with its folder gone too, since what the
 			// provider had still to undo is finished before a fresh cut.

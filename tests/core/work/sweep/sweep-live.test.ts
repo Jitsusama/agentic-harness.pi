@@ -30,7 +30,10 @@ import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
 import type { ProcessFacts } from "../../../../lib/core/process/index.ts";
-import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
+import type {
+	HeldTree,
+	TreeProvider,
+} from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
@@ -1345,6 +1348,28 @@ describe("trees another provider cut", () => {
 			ended.taken.map((one) => one.path),
 			"what the sweep took once it ended",
 		).toEqual([tree]);
+		expect(memory.recall(), "the records left").toEqual([]);
+	});
+
+	it("reads a record whose mark is null as unmarked, and sweeps on", async () => {
+		// A record is a file anybody may edit: read as a mark, the null threw
+		// out of the sweep at its ask time and ended the run for every tree.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const nulled = elsewhereTree("dev-nulled");
+		const other = elsewhereTree("dev-other");
+		const record = memory.recall().find((one) => one.path === nulled);
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: null } as unknown as HeldTree);
+		settleFolder(nulled);
+		settleFolder(other);
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(
+			outcome.taken.map((one) => one.path).sort(),
+			"what the sweep took",
+		).toEqual([nulled, other].sort());
+		expect(outcome.refused, "what it refused").toEqual([]);
 		expect(memory.recall(), "the records left").toEqual([]);
 	});
 
