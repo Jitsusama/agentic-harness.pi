@@ -120,6 +120,21 @@ describe("walks of World's objects by the class World's push gate ranks", () => 
 		expect(nextTurn(aged, ROOMY, NOW)?.id).toBe("aged-one");
 	});
 
+	it("never puts a walk behind other work asked after it", () => {
+		const jobs = [
+			walk("later-class", 9_000, { pushClass: 2 }),
+			job("asked-after", { since: startedAgo(8_000) }),
+			walk("sooner-class", 7_000, { pushClass: 0 }),
+			job("asked-last", { since: startedAgo(6_000) }),
+		];
+		expect(ids(waitingInOrder(jobs, NOW))).toEqual([
+			"sooner-class",
+			"later-class",
+			"asked-after",
+			"asked-last",
+		]);
+	});
+
 	it("leaves other work its place, whatever class it carries", () => {
 		const jobs = [
 			job("build", { since: startedAgo(9_000) }),
@@ -130,8 +145,8 @@ describe("walks of World's objects by the class World's push gate ranks", () => 
 		expect(ids(waitingInOrder(jobs, NOW))).toEqual([
 			"build",
 			"soonest",
-			"classed-build",
 			"bulk-walk",
+			"classed-build",
 		]);
 		const builds = [
 			job("old", { since: startedAgo(9_000), pushClass: 2 }),

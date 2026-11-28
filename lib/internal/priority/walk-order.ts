@@ -37,15 +37,16 @@ export const CLASS_HOLDS_FOR_MS = 20 * 60_000;
  * main and a branch's own rebases, cherry-picks, reverts, merges and
  * sparse-checkouts first, then the rest, as fetches of other people's
  * branches, each group in the order it had.
- * Other work keeps its place. On 5 November a push of Joel's waited 61
+ * Other work keeps its order. A walk takes the place the next walk
+ * still to place held, or its own if that was sooner, so one put back
+ * never lands behind other work that was behind it. On 5 November a push of Joel's waited 61
  * minutes behind review fetches of single branches (80ECO2), and at
  * 17:24 on 27 November a class-0 fetch waited 2052 s behind class-1
  * walks.
  */
-export function walksLeadingFirst(line: Job[], now: number): Job[] {
-	const places = line.flatMap((job, at) =>
-		job.kind === "world-walk" ? [at] : [],
-	);
+export function walksLeadingFirst(line: readonly Job[], now: number): Job[] {
+	const placed = line.map((job, at) => ({ job, at }));
+	const isWalk = ({ job }: { job: Job }) => job.kind === "world-walk";
 	const classOf = (job: Job) =>
 		now - Date.parse(job.since) > CLASS_HOLDS_FOR_MS
 			? AGED_CLASS
@@ -53,16 +54,35 @@ export function walksLeadingFirst(line: Job[], now: number): Job[] {
 	const leads = (job: Job) =>
 		job.walk !== undefined && job.walk !== "other" ? LEADS : FOLLOWS;
 	// A sort keeps the order it had among equals.
-	const ordered = line
-		.filter((job) => job.kind === "world-walk")
+	const walks = placed
+		.filter(isWalk)
 		.sort(
 			(one, other) =>
-				classOf(one) - classOf(other) || leads(one) - leads(other),
+				classOf(one.job) - classOf(other.job) ||
+				leads(one.job) - leads(other.job),
 		);
-	const reordered = [...line];
-	for (const [index, job] of ordered.entries()) {
-		const at = places[index];
-		if (at !== undefined) reordered[at] = job;
+	// The places walks held, soonest first: the n-th walk placed takes the
+	// n-th of them unless its own was sooner.
+	const places = walks.map(({ at }) => at).sort((one, other) => one - other);
+	const others = placed.filter((one) => !isWalk(one));
+	const reordered: Job[] = [];
+	let walk = 0;
+	let other = 0;
+	for (;;) {
+		const nextWalk = walks[walk];
+		const nextOther = others[other];
+		if (nextWalk === undefined || nextOther === undefined) break;
+		const due = Math.min(places[walk] ?? nextWalk.at, nextWalk.at);
+		if (due < nextOther.at) {
+			reordered.push(nextWalk.job);
+			walk += 1;
+		} else {
+			reordered.push(nextOther.job);
+			other += 1;
+		}
+	}
+	for (const { job } of [...walks.slice(walk), ...others.slice(other)]) {
+		reordered.push(job);
 	}
 	return reordered;
 }
