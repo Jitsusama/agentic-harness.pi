@@ -214,11 +214,47 @@ function withoutExecNote(
 	return stderr;
 }
 
-/** Runs a gate's shell line in a folder, killing it past `timeoutMs`. */
+/**
+ * The variable a gate reads the asked merge method from: merge-net
+ * merges each rider with the method it was asked for, and without this
+ * every train merged with a merge commit whatever was asked.
+ */
+export const MERGE_METHOD_VARIABLE = "REVIEW_MERGE_METHOD";
+
+/**
+ * The forges whose merge methods are these three words, by the repo
+ * key's part before its colon, so an asked method outside them is
+ * refused before a gate reads a word it can't act on.
+ */
+const THREE_METHOD_FORGES = new Set(["github"]);
+
+/** The methods a gate on one of those forges reads. */
+const GATE_METHODS = new Set(["merge", "squash", "rebase"]);
+
+/**
+ * Why `method` can't be handed to `repo`'s gate, or nothing when it can
+ * or none was asked.
+ */
+export function gateMethodRefusal(
+	method: string | undefined,
+	repo: string,
+): string | undefined {
+	if (method === undefined || GATE_METHODS.has(method)) return undefined;
+	const forge = repo.split(":")[0] ?? "";
+	if (!THREE_METHOD_FORGES.has(forge)) return undefined;
+	return `${repo}'s merge gate reads the method as one of ${[...GATE_METHODS].join(", ")}, not "${method}". Not merged; ask again with one of those, or with none for the repo's own policy.`;
+}
+
+/**
+ * Runs a gate's shell line in a folder, killing it past `timeoutMs`,
+ * with the asked merge method in `REVIEW_MERGE_METHOD`, and that
+ * variable unset when none was asked.
+ */
 export type RunGate = (
 	line: string,
 	cwd: string,
 	timeoutMs: number,
+	method?: string,
 ) => Promise<GateRun>;
 
 /**
@@ -227,7 +263,7 @@ export type RunGate = (
  * started, not only the shell.
  */
 export function gateRunner(): RunGate {
-	return async (line, cwd, timeoutMs) => {
+	return async (line, cwd, timeoutMs, method) => {
 		// The clock is the runner's own signal rather than spawnExec's
 		// timeout, so whether it fired is known rather than guessed from an
 		// exit code the gate could give itself, as `timeout(1)` gives 124.
@@ -240,9 +276,18 @@ export function gateRunner(): RunGate {
 		const first = call ? AbortSignal.any([clock.signal, call]) : clock.signal;
 		const timer = setTimeout(() => clock.abort(), timeoutMs);
 		try {
-			const ran = await spawnExec({ cwd, signal: clock.signal })("bash", [
+			// Unset rather than left to whatever this process was started
+			// with, which spawnExec lays the given variables over, so a gate
+			// told nothing never reads a method nobody asked for.
+			const ran = await spawnExec({
+				cwd,
+				signal: clock.signal,
+				...(method === undefined
+					? {}
+					: { env: { [MERGE_METHOD_VARIABLE]: method } }),
+			})("bash", [
 				"-c",
-				line,
+				method === undefined ? `unset ${MERGE_METHOD_VARIABLE}\n${line}` : line,
 			]);
 			const stoppedHere =
 				ran.code === EXIT_ABORTED &&
@@ -365,13 +410,19 @@ export async function gateRefusal(
 	head: string,
 	cwd: string,
 	run: RunGate,
+	method?: string,
 ): Promise<string | undefined> {
 	const { command } = gate;
 	const missing = await missingCheckout(gate, cwd);
 	if (missing !== undefined) return missing;
 	let ran: GateRun;
 	try {
-		ran = await run(`${command} ${quoted(head)}`, cwd, gateTimeoutMs(gate));
+		ran = await run(
+			`${command} ${quoted(head)}`,
+			cwd,
+			gateTimeoutMs(gate),
+			method,
+		);
 	} catch (error) {
 		return `The merge gate \`${command}\` couldn't run in ${cwd}: ${error instanceof Error ? error.message : String(error)}. Not merged.`;
 	}

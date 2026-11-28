@@ -21,6 +21,7 @@ import {
 	baseTip,
 	type Gate,
 	gateFor,
+	gateMethodRefusal,
 	gateRefusal,
 	missingCheckout,
 	type RunGate,
@@ -182,6 +183,7 @@ async function gated(
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	expectedHead: string | undefined,
+	method: string | undefined,
 ): Promise<
 	{ refused: string } | { passed?: string; base?: { name: string; at: string } }
 > {
@@ -195,6 +197,8 @@ async function gated(
 	if (gate.kind === "none") return {};
 	if (gate.kind === "malformed")
 		return { refused: `${gate.problem} Not merged.` };
+	const unreadable = gateMethodRefusal(method, change.repo.key);
+	if (unreadable !== undefined) return { refused: unreadable };
 	// Read here whether or not an expectation was given: one the backend
 	// couldn't check is a typed prefix, and a head nothing can read again
 	// after the gate would refuse only once the gate had spent its time.
@@ -214,7 +218,7 @@ async function gated(
 	const missing = await missingCheckout(gate, gating.cwd);
 	if (missing !== undefined) return { refused: missing };
 	if (gate.queued) {
-		return await queuedGate(gate, head, base, bound, change, gating);
+		return await queuedGate(gate, head, base, bound, change, gating, method);
 	}
 	const before = await baseTip(base, gating.cwd, gating.run);
 	if ("unread" in before) {
@@ -222,7 +226,7 @@ async function gated(
 			refused: `Where ${change.label}'s base is on origin couldn't be read in ${gating.cwd} (${before.unread}), so a merge landing while the gate ran couldn't be told. Not merged; ${before.fix}.`,
 		};
 	}
-	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
+	const refused = await gateRefusal(gate, head, gating.cwd, gating.run, method);
 	if (refused !== undefined) return { refused };
 	const moved = await headMovedWhileGated(head, bound, change);
 	if (moved !== undefined) return { refused: moved };
@@ -255,13 +259,14 @@ async function queuedGate(
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	gating: MergeGating,
+	method: string | undefined,
 ): Promise<{ refused: string } | { passed: string }> {
 	if (base === "") {
 		return {
 			refused: `${change.label} names no base, so the queue it would join can't be told. Not merged; a gated merge needs the base it lands on.`,
 		};
 	}
-	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
+	const refused = await gateRefusal(gate, head, gating.cwd, gating.run, method);
 	if (refused !== undefined) return { refused };
 	const moved = await headMovedWhileGated(head, bound, change);
 	return moved === undefined ? { passed: head } : { refused: moved };
@@ -332,7 +337,7 @@ export async function merge(
 	if ("refusal" in guard) return refuse(guard.refusal);
 	// The repo's own say comes before the person is asked, so a head its
 	// gate refuses never reaches a confirmation.
-	const said = await gated(gating, bound, change, guard.head);
+	const said = await gated(gating, bound, change, guard.head, params.method);
 	if ("refused" in said) return refuse(said.refused);
 	const expectedHead = guard.head ?? said.passed;
 

@@ -213,6 +213,14 @@ its time, since a gate skipped whenever it breaks guards nothing. It
 came of four checks going red on core.nix's main on 8 November, each
 from a branch that built before rebasing.
 
+A merge that asks for a `method` hands it to the gate in
+`REVIEW_MERGE_METHOD`, and a merge that asks for none runs the gate
+with that variable unset, so one left in pi's own environment never
+reads as asked; merge-net reads it to merge each rider as asked. On
+a `github:` repo a method other than `merge`, `squash` or `rebase` is
+refused before the gate runs, since those are the only words its gate
+acts on; another forge's gate is handed the method as asked.
+
 A gate has five minutes unless it names its own, from 1 to 180:
 
 ```json

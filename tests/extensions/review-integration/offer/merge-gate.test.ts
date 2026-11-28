@@ -1,11 +1,12 @@
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	baseTip,
 	DEFAULT_GATE_MINUTES,
 	gateFor,
+	gateMethodRefusal,
 	gateRefusal,
 	gateRunner,
 	MOST_GATE_MINUTES,
@@ -288,6 +289,49 @@ describe("a repo's merge gate", () => {
 		expect(
 			await gateRefusal({ ...GATE, command: passing }, HEAD, dir, shell),
 			"a gate exiting 0 in the checkout lets the head through",
+		).toBeUndefined();
+	});
+
+	it("hands the gate the asked merge method, and none when none was asked", async () => {
+		// merge-net merges each rider with the method in this variable;
+		// one left over from pi's own start must not read as asked.
+		vi.stubEnv("REVIEW_MERGE_METHOD", "rebase");
+		try {
+			const reads = (want: string) =>
+				`test "\${REVIEW_MERGE_METHOD-unset}" = ${want} && test`;
+			expect(
+				await gateRefusal(
+					{ ...GATE, command: reads("squash") },
+					HEAD,
+					dir,
+					shell,
+					"squash",
+				),
+				"an asked method is in the gate's environment",
+			).toBeUndefined();
+			expect(
+				await gateRefusal(
+					{ ...GATE, command: reads("unset") },
+					HEAD,
+					dir,
+					shell,
+				),
+				"no method asked leaves the variable unset",
+			).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("refuses a method a three-method forge's gate can't read, and passes others' on", () => {
+		expect(gateMethodRefusal("fast-forward", CORE)).toMatch(
+			/merge, squash, rebase, not "fast-forward"/,
+		);
+		expect(gateMethodRefusal("squash", CORE)).toBeUndefined();
+		expect(gateMethodRefusal(undefined, CORE)).toBeUndefined();
+		expect(
+			gateMethodRefusal("fast-forward", "delta:shop/world"),
+			"a forge with other words for its methods is handed them as asked",
 		).toBeUndefined();
 	});
 
