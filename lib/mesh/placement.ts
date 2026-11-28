@@ -10,7 +10,25 @@
  */
 
 import { isRecord } from "../internal/record.ts";
-import { lastShownLine } from "./shown-line.ts";
+import { NOTHING_SHOWN, shownLines } from "./shown-line.ts";
+
+/**
+ * The most characters quoted of a placement reply this harness can't
+ * read, as it shows (shownLines), since it may relay a peer's words.
+ */
+const MOST_UNREAD = 200;
+
+/**
+ * The most characters quoted of one word a peer's miss carries (its
+ * machine's name, a taint's why or key), as it shows, since each is the
+ * peer's own and is read out as Joel's to judge.
+ */
+const MOST_PEER_SAID = 120;
+
+/** A peer's own word, as it shows, or `?` where nothing of it does. */
+function peerSaid(word: string): string {
+	return shownLines(word, MOST_PEER_SAID) || "?";
+}
 
 /** What a machine can be, as a node's placement names it. */
 export type NeedKind =
@@ -128,7 +146,7 @@ export function placedFrom(line: string): PlaceAnswer {
 	}
 	return {
 		ok: false,
-		reason: `the node answered what this harness can't read: ${lastShownLine(line, 200)}`,
+		reason: `the node answered what this harness can't read: ${shownLines(line, MOST_UNREAD) || NOTHING_SHOWN}`,
 	};
 }
 
@@ -154,7 +172,7 @@ function missesIn(misses: unknown): string {
 		.map((miss) => {
 			if (!isRecord(miss) || typeof miss.machine !== "string") return "?";
 			const because = Array.isArray(miss.because) ? miss.because : [];
-			return `${miss.machine} ${because.map(reasonIn).join(" and ")}`;
+			return `${peerSaid(miss.machine)} ${because.map(reasonIn).join(" and ")}`;
 		})
 		.join("; ");
 }
@@ -200,6 +218,6 @@ function wordsOf(need: unknown): string {
 /** A taint the node sent back, by why it was set. */
 function whyOf(taint: unknown): string {
 	if (!isRecord(taint)) return "?";
-	if (typeof taint.why === "string") return taint.why;
-	return typeof taint.key === "string" ? taint.key : "?";
+	if (typeof taint.why === "string") return peerSaid(taint.why);
+	return typeof taint.key === "string" ? peerSaid(taint.key) : "?";
 }

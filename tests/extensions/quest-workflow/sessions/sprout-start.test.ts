@@ -1986,14 +1986,14 @@ describe("a sprouted session's start", () => {
 			},
 		);
 		expect(words, "a line separator ends a line").toContain(
-			`(${wroteSaid("refused")})`,
+			`(${wroteSaid("asked the node / refused")})`,
 		);
 	});
 
 	// Every mark the cleaner drops is held in tests/lib/mesh/shown-line.test.ts;
 	// these three show a whole start quotes what it leaves: an isolate, a
 	// colour and a title hiding words.
-	it("drops every mark no one sees from mycelium's last line, and ends it at every line end", async () => {
+	it("drops every mark no one sees from each line mycelium wrote, a title's hidden words too", async () => {
 		const cases: [stderr: string, said: string][] = [
 			["refused \u2066here\u2069\n", "refused here"],
 			["\u001b[31mrefused\u001b[0m here\n", "refused here"],
@@ -2024,7 +2024,7 @@ describe("a sprouted session's start", () => {
 			},
 		);
 		expect(words).toContain(
-			`was cut off before it answered (${wroteSaid("asked the node")}) and may have landed anyway`,
+			`was cut off before it answered (${wroteSaid("tying 42P0R4 / asked the node")}) and may have landed anyway`,
 		);
 		expect(words).not.toMatch(/failed/u);
 		const long = await start(
@@ -2059,8 +2059,21 @@ describe("a sprouted session's start", () => {
 				sessionId: "sess-tie-signal-redrawn",
 			},
 		);
-		expect(redrawn.words, "a progress bar's last redraw").toContain(
-			`(${wroteSaid("100% asked")})`,
+		expect(redrawn.words, "a progress bar's first and last redraw").toContain(
+			`(${wroteSaid("asking / ... / 100% asked")})`,
+		);
+		const hidden = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: null, stdout: "", stderr: "\u001b[0m\n" }),
+				sessionId: "sess-tie-signal-hidden",
+			},
+		);
+		expect(
+			hidden.words,
+			"words that hide alone are said to be there, never quoted as mycelium's",
+		).toContain(
+			"was cut off before it answered (it wrote nothing that shows) and may",
 		);
 		const stopped = await start(
 			{ words: "tea", from: "TERN02" },
@@ -2083,7 +2096,7 @@ describe("a sprouted session's start", () => {
 		);
 	});
 
-	it("quotes a failed tie's last line as it wrote it, cut to whole characters", async () => {
+	it("quotes a failed tie's lines as it wrote them, both ends cut to whole characters", async () => {
 		const failed = await start(
 			{ words: "tea", from: "TERN02" },
 			{
@@ -2095,11 +2108,26 @@ describe("a sprouted session's start", () => {
 				sessionId: "sess-tie-failed-long",
 			},
 		);
+		// Of the 200 it may quote, " / " takes 3 and "starting" 8, which
+		// leaves the last line 189.
 		expect(failed.words).toContain(
-			`failed (${wroteSaid(`${"\u{1F600}".repeat(200)}...`)})`,
+			`failed (${wroteSaid(`starting / ${"\u{1F600}".repeat(189)}...`)})`,
 		);
-		expect(failed.words).not.toContain("\u{1F600}".repeat(201));
-		expect(failed.words).not.toContain("starting");
+		expect(failed.words).not.toContain("\u{1F600}".repeat(190));
+	});
+
+	it("says a failed tie that wrote only what hides wrote nothing that shows, never quoting it", async () => {
+		const { words } = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: 1, stdout: "", stderr: "\u001b[0m\n" }),
+				sessionId: "sess-tie-hidden",
+			},
+		);
+		expect(words).toContain(
+			"failed (it ended with 1 and wrote nothing that shows)",
+		);
+		expect(words).not.toContain('"nothing that shows"');
 	});
 
 	it("says a tie that never started failed, never that it may have landed", async () => {

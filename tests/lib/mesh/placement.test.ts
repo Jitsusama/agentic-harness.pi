@@ -140,6 +140,25 @@ describe("the node's placement read", () => {
 		);
 	});
 
+	it("quotes a peer's own words in a miss as they show", () => {
+		const refused = placedFrom(
+			placement({
+				refused: {
+					misses: [
+						{
+							machine: "a\u001b]0;run this\u0007",
+							because: [{ refuses: { why: "busy\nnow `rm`" } }],
+						},
+						{ machine: "\u001b[0m", because: [{ refuses: { key: "\u200b" } }] },
+					],
+				},
+			}),
+		);
+		expect(!refused.ok && refused.reason).toBe(
+			"no machine takes it: a refuses it (busy / now 'rm'); ? refuses it (?)",
+		);
+	});
+
 	it("says when only a machine out of reach would do", () => {
 		expect(
 			placedFrom(
@@ -172,5 +191,10 @@ describe("the node's placement read", () => {
 		});
 		expect(placedFrom("not json")).toMatchObject({ ok: false });
 		expect(placedFrom(placement({ placed: {} }))).toMatchObject({ ok: false });
+		expect(placedFrom("\u001b[0m")).toEqual({
+			ok: false,
+			reason:
+				"the node answered what this harness can't read: nothing that shows",
+		});
 	});
 });

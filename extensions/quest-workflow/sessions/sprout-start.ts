@@ -62,7 +62,7 @@ import {
 	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { lastShownLine } from "../../../lib/mesh/shown-line.ts";
+import { shownLines } from "../../../lib/mesh/shown-line.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -77,10 +77,10 @@ const started = (words: string): string =>
 const TIE_PATIENCE_MS = 15_000;
 
 /**
- * The most of mycelium's last line a tie that didn't land quotes in the
- * session's first words: enough for a line of a reason, never a page. It
- * is only what mycelium last wrote, which a kill (SIGKILL) leaves unsaid,
- * so it is quoted as that, never as why.
+ * The most of what mycelium wrote that a tie that didn't land quotes in
+ * the session's first words, every line that shows (stderrSaid): enough
+ * for a reason, never a page. It is only what mycelium wrote, which a
+ * kill (SIGKILL) leaves unsaid, so it is quoted as that, never as why.
  */
 const MOST_QUOTED = 200;
 
@@ -874,8 +874,11 @@ async function tie(
 			!ran.noFolder &&
 			!ran.stopped)
 	) {
-		const said = lastLine(ran.stderr);
-		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
+		const said = stderrSaid(ran.stderr);
+		if (said) return { kind: "unsure", from, said };
+		return ran.stderr.trim()
+			? { kind: "unsure", from, hidden: true }
+			: { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
 		return {
@@ -890,15 +893,23 @@ async function tie(
 			: "this session's folder is gone";
 		return { kind: "failed", from, why, retry: false };
 	}
-	const said = lastLine(ran.stderr);
-	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
+	const said = stderrSaid(ran.stderr);
+	const ended = `it ended with ${ran.code ?? "no code"}`;
+	// Words that hide alone are said to be there, in this harness's words
+	// rather than quoted as mycelium's, so withheld words never read as none.
+	const why = said
+		? wroteSaid(said)
+		: ran.stderr.trim()
+			? `${ended} and wrote nothing that shows`
+			: ended;
 	return { kind: "failed", from, why };
 }
 
 /**
- * The last line mycelium wrote on stderr, as it shows (lastShownLine),
- * cut to MOST_QUOTED characters.
+ * Every line mycelium wrote on stderr that shows (shownLines), cut to
+ * MOST_QUOTED characters, so a Rust panic keeps its message between
+ * where it panicked and the hint below; "" where none shows.
  */
-function lastLine(stderr: string): string {
-	return lastShownLine(stderr, MOST_QUOTED);
+function stderrSaid(stderr: string): string {
+	return shownLines(stderr, MOST_QUOTED);
 }

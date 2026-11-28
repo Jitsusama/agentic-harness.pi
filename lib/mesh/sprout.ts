@@ -16,12 +16,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
 import {
-	NOTHING_SHOWN,
 	START_PATIENCE_MS,
 	type StartAnswer,
 	startedFrom,
+	unreadAnswer,
 } from "./node.ts";
-import { lastShownLine, shownEnds } from "./shown-line.ts";
+import { NOTHING_SHOWN, replyIn, shownLines } from "./shown-line.ts";
 
 /** New work to sprout, as the person or the session says it. */
 export interface Sprouting {
@@ -73,10 +73,9 @@ export type RunProgram = (
 export const SPROUT_PATIENCE_MS = START_PATIENCE_MS + 10_000;
 
 /**
- * The most characters of mycelium's own words a refusal says: the first
- * and last lines it wrote on stderr as they show (shownEnds), the cause
- * and any hint after it, since what it relays may come from a node or a
- * peer.
+ * The most characters of mycelium's own words a refusal says: the lines
+ * it wrote on stderr as they show (shownLines), the cause first and any
+ * hint last, since what it relays may come from a node or a peer.
  */
 const MOST_SAID = 500;
 
@@ -173,8 +172,8 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
-	const line = replyLine(ran.stdout);
-	const said = shownEnds(ran.stderr, MOST_SAID);
+	const line = replyIn(ran.stdout);
+	const said = shownLines(ran.stderr, MOST_SAID);
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
 	if (ran.code === 0) return startedOrMayLand(line, ran.stdout);
@@ -191,7 +190,15 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
-	if (line && (!said || isJson(line))) return startedFrom(line);
+	// Its JSON counts only where it says started or refused; any other,
+	// a bare number say, beats nothing stderr says of why it failed.
+	const answer = line ? startedFrom(line) : undefined;
+	if (answer && (answer.ok || (line && refusedByNode(line)) || !said)) {
+		return answer;
+	}
+	// Quoted as written, since unreadAnswer cleans it, and cleaned twice
+	// its lines would read as one, cut where its last should show.
+	if (!said && shownLines(ran.stdout, 1)) return unreadAnswer(ran.stdout);
 	return {
 		ok: false,
 		reason:
@@ -204,7 +211,8 @@ export async function sprout(
  * What a sprout that ended well answered: started, or the node's own
  * refusal, else a reply this harness can't read, which may still have
  * started a cell, so the model looks before asking again. With no
- * `line`, its `stdout` says whether it wrote nothing, or nothing shown.
+ * `line`, every line of its `stdout` that shows is quoted (shownLines),
+ * or it says whether it wrote nothing, or nothing shown.
  */
 function startedOrMayLand(
 	line: string | undefined,
@@ -212,10 +220,12 @@ function startedOrMayLand(
 ): StartAnswer {
 	const answer = line
 		? startedFrom(line)
-		: {
-				ok: false as const,
-				reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
-			};
+		: shownLines(stdout, 1)
+			? unreadAnswer(stdout)
+			: {
+					ok: false as const,
+					reason: `mycelium sprout ended with 0 and said ${stdout.trim() ? NOTHING_SHOWN : "nothing"}`,
+				};
 	if (answer.ok || (line && refusedByNode(line))) return answer;
 	return {
 		ok: false,
@@ -231,30 +241,6 @@ function refusedByNode(line: string): boolean {
 		return isRecord(reply) && typeof reply.Err === "string";
 	} catch {
 		// Not JSON, so not the node's refusal.
-		return false;
-	}
-}
-
-/**
- * The line of a sprout's stdout its answer is read from: the last, where
- * it's the node's JSON, whose strings are read before they're quoted;
- * else the last that shows once its escapes are dropped from the whole
- * (lastShownLine), since a string a terminal hides runs on across line
- * ends; or none where nothing shows.
- */
-function replyLine(stdout: string): string | undefined {
-	const last = stdout.trim().split("\n").at(-1);
-	if (last && isJson(last)) return last;
-	return lastShownLine(stdout, MOST_SAID) || undefined;
-}
-
-/** Whether `line` parses as JSON. */
-function isJson(line: string): boolean {
-	try {
-		JSON.parse(line);
-		return true;
-	} catch {
-		// Not JSON, which is the answer asked for.
 		return false;
 	}
 }

@@ -168,7 +168,7 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("keeps the cause a parser writes above its hint", async () => {
+	it("keeps every line a parser writes, its cause first and its hint last", async () => {
 		const { run } = answering({
 			code: 2,
 			stdout: "",
@@ -178,7 +178,94 @@ describe("sprouting", () => {
 		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
 			ok: false,
 			reason:
-				"error: unexpected argument '--from' found / For more information, try '--help'.",
+				"error: unexpected argument '--from' found / tip: to pass '--from' as a value, use '-- --from' / Usage: mycelium sprout [OPTIONS] <WORDS> / For more information, try '--help'.",
+		});
+	});
+
+	it("says what stdout wrote as it shows where stderr held only escapes", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "judging\n",
+			stderr: "\u001b[0m\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "the node answered what this harness can't read: judging",
+		});
+	});
+
+	it("never parses a start that only reads as JSON once cleaned, and says it may have landed", async () => {
+		// An escape between its tokens leaves no JSON as written, though
+		// cleaned it's a start a parse of the cleaned line would take.
+		const { run } = answering({
+			code: 0,
+			stdout: `${STARTED.replace('{"Started"', '\u001b[0m{"Started"')}\n`,
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+	});
+
+	it("reads a start followed by a line of escapes alone as started", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: `${STARTED}\n\u001b[0m\n`,
+			stderr: "",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toMatchObject({
+			ok: true,
+		});
+	});
+
+	it("reads a start with a reset on its line, or a redraw before it, as started", async () => {
+		for (const stdout of [
+			`${STARTED}\u001b[0m\n`,
+			`starting 40%\r${STARTED}\n`,
+		]) {
+			const { run } = answering({ code: 0, stdout, stderr: "" });
+			expect(
+				await sprout({ words: "tea" }, "/", run),
+				JSON.stringify(stdout),
+			).toMatchObject({
+				ok: true,
+			});
+		}
+	});
+
+	it("keeps both ends of a long unread stdout, with a mark between", async () => {
+		// Cleaned once, its lines stay lines, so the cut keeps its last.
+		const { run } = answering({
+			code: 0,
+			stdout: `judging\n${"x".repeat(300)}\nno room here\n`,
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"can't read: judging / ... / no room here, so",
+		);
+	});
+
+	it("quotes every line of an unread stdout that shows", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: "judging\nno room here\n",
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"can't read: judging / no room here, so",
+		);
+	});
+
+	it("takes stderr's cause over a failed run's JSON that is neither a start nor a refusal", async () => {
+		const { run } = answering({
+			code: 1,
+			stdout: "5\n",
+			stderr: "connecting to the node: refused\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "connecting to the node: refused",
 		});
 	});
 
@@ -207,7 +294,7 @@ describe("sprouting", () => {
 		});
 	});
 
-	it("reads the node's refusal past a stderr of escapes alone", async () => {
+	it("takes the node's refusal over a stderr of escapes alone", async () => {
 		const { run } = answering({
 			code: 1,
 			stdout: '{"Err":"no such machine"}\n',

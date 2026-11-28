@@ -106,6 +106,15 @@ describe("telling the node", () => {
 		});
 	});
 
+	it("reads the node's reply though a line of escapes alone follows it", async () => {
+		const { run } = answering({ ...OK, stdout: '{"Ok":"Done"}\n\u001b[0m\n' });
+		expect(
+			await tellOrchestrates("forget", "sess-42", "work", {}, run),
+		).toEqual({
+			kind: "recorded",
+		});
+	});
+
 	it("reads the node's refusal as one, however mycelium ends", async () => {
 		const { run } = answering({
 			code: 1,
@@ -127,7 +136,28 @@ describe("telling the node", () => {
 		expect(
 			await tellOrchestrates("forget", "sess-42", "work", {}, run),
 			"one journal entry, never a second line someone else wrote",
-		).toEqual({ kind: "refused", why: "refused pi: a forged line" });
+		).toEqual({ kind: "refused", why: "refused / pi: a forged line" });
+	});
+
+	it("says words that hide alone were said, never that none were", async () => {
+		const refused = answering({
+			code: 0,
+			stdout: '{"Err":"\\u001b[0m"}\n',
+			stderr: "",
+		});
+		expect(
+			await tellOrchestrates("forget", "s", "work", {}, refused.run),
+		).toEqual({
+			kind: "refused",
+			why: "the node refused and said nothing that shows",
+		});
+		const failed = answering({ code: 1, stdout: "", stderr: "\u001b[0m\n" });
+		expect(
+			await tellOrchestrates("forget", "s", "work", {}, failed.run),
+		).toEqual({
+			kind: "unasked",
+			why: "mycelium ended with 1 and said nothing that shows",
+		});
 	});
 
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {
