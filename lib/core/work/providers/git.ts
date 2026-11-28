@@ -478,6 +478,10 @@ export function createGitTreeProvider(deps: {
 			return { path };
 		},
 
+		// `worktree remove` runs in the folder and on it, so once the folder
+		// is gone no release can finish, and a failed one is finished there.
+		releaseNeedsFolder: true,
+
 		async release(held, options) {
 			// Scoped to the tree itself, which is the one repo guaranteed
 			// to know about it. Without a -C this ran against whatever

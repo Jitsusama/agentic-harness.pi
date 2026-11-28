@@ -889,7 +889,12 @@ async function removeMarked(
 	try {
 		// What a failed removal left may be half a tree, so its mark stays,
 		// stopped, and whoever asks for it next finishes the removal first.
-		end = await deps.memory.endGoing(tree, failed !== undefined, lock);
+		end = await deps.memory.endGoing(
+			tree,
+			failed !== undefined,
+			lock,
+			provider,
+		);
 	} catch (error) {
 		unended = `; its record still says a sweep is removing it, since ending that failed: ${messageOf(error)}`;
 	}

@@ -475,10 +475,13 @@ function watched(
 			throw error;
 		}
 	};
-	const { whyKept } = provider;
+	const { whyKept, releaseNeedsFolder } = provider;
 	return {
 		id: provider.id,
 		specificity: provider.specificity,
+		// Carried, so a failed release of a tree whose folder went ends as
+		// its provider says it can: finished, or stopped to be released again.
+		...(releaseNeedsFolder === undefined ? {} : { releaseNeedsFolder }),
 		appliesTo: (repo) => provider.appliesTo(repo),
 		ensure: (request, options) => provider.ensure(request, options),
 		release: (held, options) =>

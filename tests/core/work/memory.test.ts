@@ -1523,6 +1523,7 @@ describe("a session asking for a tree a sweep is removing", () => {
 			providers: [
 				{
 					...provider(),
+					releaseNeedsFolder: true,
 					async release(held) {
 						released.push(held.path);
 						throw new Error(`fatal: '${held.path}' is not a working tree`);
@@ -1555,6 +1556,51 @@ describe("a session asking for a tree a sweep is removing", () => {
 			found[0]?.owners?.map((one) => one.pid),
 			"its record's holders",
 		).toContain(process.pid);
+	});
+
+	it("refuses a tree whose stopped removal fails to finish with its folder gone, through a provider that needs no folder", async () => {
+		// World's release resets a tree's processes and datastores, which
+		// outlive its folder: cut afresh, the tree would meet what the failed
+		// release never undid.
+		const request = asked("datastores-left");
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [
+				{
+					...provider(),
+					async release(held) {
+						released.push(held.path);
+						throw new Error("its datastores wouldn't reset");
+					},
+				},
+			],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const path = join(root, "trees", request.purpose);
+		memory.remember({
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [GONE],
+			going: { at: Date.now(), by: GONE },
+		});
+
+		await expect(broker.ensure(request), "the ask").rejects.toThrow(
+			"its datastores wouldn't reset",
+		);
+
+		expect(released, "what the provider was asked to release").toEqual([path]);
+		expect(existsSync(path), "a fresh cut's folder").toBe(false);
+		const found = memory.recall();
+		expect(found.length, "its records").toBe(1);
+		expect(
+			(found[0]?.owners ?? []).map((one) => one.pid),
+			"its record's holders",
+		).not.toContain(process.pid);
+		expect(found[0]?.going, "its mark").toBeDefined();
+		expect(found[0]?.going?.lock, "its mark's lock").toBeUndefined();
 	});
 
 	it("waits while another session finishes a stopped removal, then cuts afresh", async () => {

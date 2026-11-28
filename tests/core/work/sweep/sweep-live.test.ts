@@ -1288,10 +1288,13 @@ describe("trees another provider cut", () => {
 		rmSync(tree, { recursive: true, force: true });
 		const refusal = `fatal: '${tree}' is not a working tree`;
 		let releases = 0;
-		const provider = elsewhere(undefined, async () => {
-			releases += 1;
-			throw new Error(refusal);
-		});
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				releases += 1;
+				throw new Error(refusal);
+			}),
+			releaseNeedsFolder: true,
+		};
 
 		const outcome = await sweepWith(provider);
 
@@ -1307,6 +1310,35 @@ describe("trees another provider cut", () => {
 			memory.recall().map((one) => one.path),
 			"the records left",
 		).not.toContain(tree);
+	});
+
+	it("keeps a stopped removal whose folder is gone stopped once its release fails, through a provider that needs no folder", async () => {
+		// World's release resets a tree's processes and datastores, which
+		// outlive its folder: forgotten, a fresh cut would meet what the
+		// failed release never undid.
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		memory.remember({ ...record, going: { at: Date.now(), by: ENDED } });
+		rmSync(tree, { recursive: true, force: true });
+		let releases = 0;
+		const provider = elsewhere(undefined, async () => {
+			releases += 1;
+			throw new Error("its datastores wouldn't reset");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(releases, "how many times it was released").toBe(1);
+		expect(outcome.taken, "what the sweep says it took").toEqual([]);
+		expect(outcome.refused, "what it says it refused, and why").toEqual([
+			{ path: tree, why: "its datastores wouldn't reset" },
+		]);
+		const left = memory.recall().filter((one) => one.path === tree);
+		expect(left.length, "the records left at its path").toBe(1);
+		expect(left[0]?.going, "its mark").toBeDefined();
+		expect(left[0]?.going?.lock, "its mark's lock").toBeUndefined();
 	});
 
 	/**
@@ -1462,14 +1494,17 @@ describe("trees another provider cut", () => {
 		expect(memory.recall(), "the records left").toEqual([]);
 	});
 
-	it("forgets a tree whose release took its folder and then failed", async () => {
+	it("forgets a tree whose release took its folder and then failed, through a provider that needs the folder", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
 		settleFolder(tree);
-		const provider = elsewhere(undefined, async () => {
-			rmSync(tree, { recursive: true, force: true });
-			throw new Error("its datastores wouldn't reset");
-		});
+		const provider: TreeProvider = {
+			...elsewhere(undefined, async () => {
+				rmSync(tree, { recursive: true, force: true });
+				throw new Error("its branch wouldn't go");
+			}),
+			releaseNeedsFolder: true,
+		};
 
 		const outcome = await sweepWith(provider);
 
@@ -1482,6 +1517,27 @@ describe("trees another provider cut", () => {
 			memory.recall().map((one) => one.path),
 			"the records left",
 		).not.toContain(tree);
+	});
+
+	it("keeps stopped a tree whose release took its folder and then failed, through a provider that needs no folder", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const provider = elsewhere(undefined, async () => {
+			rmSync(tree, { recursive: true, force: true });
+			throw new Error("its datastores wouldn't reset");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken, "what the sweep says it took").toEqual([]);
+		expect(outcome.refused, "what it says it refused, and why").toEqual([
+			{ path: tree, why: "its datastores wouldn't reset" },
+		]);
+		const left = memory.recall().filter((one) => one.path === tree);
+		expect(left.length, "the records left at its path").toBe(1);
+		expect(left[0]?.going, "its mark").toBeDefined();
+		expect(left[0]?.going?.lock, "its mark's lock").toBeUndefined();
 	});
 });
 

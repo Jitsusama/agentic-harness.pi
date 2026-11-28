@@ -111,6 +111,17 @@ export interface TreeProvider extends TreeProviderInfo {
 	 */
 	release(held: HeldTree, options?: TreeCallOptions): Promise<void>;
 	/**
+	 * Whether its release finds a tree by its folder, so one that failed
+	 * once the folder is gone can never finish: git's `worktree remove`
+	 * fails on a folder that went. A removal of such a tree that failed
+	 * with its folder gone is forgotten as finished. Without it, the
+	 * removal stays stopped and is released again before anybody takes
+	 * the tree up, since a release may undo more than the folder, as
+	 * World's resets a tree's processes and datastores, and may finish
+	 * without one.
+	 */
+	readonly releaseNeedsFolder?: boolean;
+	/**
 	 * Why a tree whose sessions have all ended must stay, or nothing
 	 * when releasing it loses nothing its repository can't give back:
 	 * no uncommitted change or new file, and its commit held by a branch
@@ -567,7 +578,12 @@ export function createTreeBroker(
 							);
 						}
 						try {
-							await memory.finishGoing(found, () => by.release(found, options));
+							await memory.finishGoing(
+								found,
+								() => by.release(found, options),
+								undefined,
+								by,
+							);
 							waitedFor = found;
 							continue;
 						} catch (finishing) {

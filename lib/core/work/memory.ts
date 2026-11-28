@@ -60,7 +60,7 @@ import {
 	systemFacts,
 } from "../process/index.ts";
 import { hosted, sessionOwner } from "../session/index.ts";
-import type { GoingMark, HeldTree } from "./broker.ts";
+import type { GoingMark, HeldTree, TreeProvider } from "./broker.ts";
 import { lockRuns, type RemovalLock, removalLock } from "./sweep-lock.ts";
 
 /** Somewhere to write down what was cut. */
@@ -205,24 +205,30 @@ export interface TreeMemory {
 	 * a mark another removal made since, after this one's lock was taken
 	 * over, is that removal's to end.
 	 *
-	 * A removal that failed with the tree's folder gone is forgotten as
-	 * finished all the same: nothing more can be undone from here, since a
-	 * release finds a tree by its folder, and git's `worktree remove` fails
-	 * on one that is gone, so a mark left stopped would fail every finish
-	 * for good. Answers whether the marked records were `forgotten`, left
-	 * `stopped`, or none was marked.
+	 * A removal through a `provider` whose release needs the folder (see
+	 * {@link TreeProvider.releaseNeedsFolder}) that failed with the tree's
+	 * folder gone is forgotten as finished all the same: nothing more can
+	 * be undone from here, as git's `worktree remove` fails on a folder
+	 * that is gone, so a mark left stopped would fail every finish for
+	 * good. Any other removal that failed stays stopped, folder or none,
+	 * since its release may undo more than the folder and finish without
+	 * it, and so does one whose release never reached its provider.
+	 * Answers whether the marked records were `forgotten`, left `stopped`,
+	 * or none was marked.
 	 */
 	endGoing(
 		tree: HeldTree,
 		failed?: boolean,
 		under?: RemovalLock,
+		provider?: Pick<TreeProvider, "releaseNeedsFolder">,
 	): Promise<GoingEnd>;
 	/**
 	 * Finish a removal that stopped partway, through `release`, so `tree`
 	 * can be cut afresh: its records are marked as going under a lock this
 	 * process makes beside them, released, and forgotten, or left marked
 	 * as stopped when `release` throws, which goes on to the caller. A
-	 * `release` that throws once the folder is gone forgets the records as
+	 * `release` through a `provider` whose release needs the folder that
+	 * throws once the folder is gone forgets the records as
 	 * {@link endGoing} does, throwing nothing, so the caller cuts the tree
 	 * afresh. Throws {@link TreeGoing} when another removal of it runs, and
 	 * {@link TreeInUse}, releasing nothing, while a session that joined it
@@ -232,6 +238,7 @@ export interface TreeMemory {
 		tree: HeldTree,
 		release: () => Promise<void>,
 		facts?: ProcessFacts,
+		provider?: Pick<TreeProvider, "releaseNeedsFolder">,
 	): Promise<void>;
 	/**
 	 * Whether `tree`'s record is gone, marked as going by a removal still
@@ -1444,7 +1451,7 @@ export function createTreeMemory(
 			return before;
 		},
 
-		async endGoing(tree, failed = false, under = undefined) {
+		async endGoing(tree, failed = false, under = undefined, provider) {
 			const keys = this.recall()
 				.filter((one) => one.path === tree.path)
 				.map((one) => one.identity.key);
@@ -1457,12 +1464,15 @@ export function createTreeMemory(
 						(under === undefined || one.going.lock?.id === under.id),
 				);
 				if (trees.length === 0) return;
-				// A release that went as far as the folder before it failed, or
-				// one run again on a tree whose folder an earlier one took, has
-				// nothing left a release could find: kept stopped, the tree is
-				// released again by every sweep and every ask, and fails each
-				// time, so nobody could ever have it again.
-				if (!failed || !existsSync(tree.path)) {
+				// A release that finds a tree by its folder, which went as far as
+				// the folder before it failed, or ran again on a tree whose folder
+				// an earlier one took, has nothing left it could find: kept
+				// stopped, the tree is released again by every sweep and every
+				// ask, and fails each time, so nobody could ever have it again.
+				// Any other may still have more to undo, so it stays stopped.
+				const unfindable =
+					provider?.releaseNeedsFolder === true && !existsSync(tree.path);
+				if (!failed || unfindable) {
 					// The marked ones alone: a twin under another key may already
 					// be a fresh cut's.
 					for (const one of trees) {
@@ -1500,7 +1510,7 @@ export function createTreeMemory(
 			return end;
 		},
 
-		async finishGoing(tree, release, facts = systemFacts) {
+		async finishGoing(tree, release, facts = systemFacts, provider) {
 			const by = await ownerNow(facts);
 			const us = await holderNow(facts);
 			if (by === undefined || us === undefined) {
@@ -1551,12 +1561,15 @@ export function createTreeMemory(
 			if (ending === undefined) return;
 			try {
 				await release();
-				await this.endGoing(tree, false, marked);
+				await this.endGoing(tree, false, marked, provider);
 			} catch (error) {
-				// With the folder gone the records are forgotten as finished, and
-				// the tree is cut afresh rather than refused by the provider's
-				// failing on what is no longer there.
-				if ((await this.endGoing(tree, true, marked)) !== "forgotten") {
+				// With the folder gone, a provider that finds a tree by its folder
+				// can't finish, so the records are forgotten as finished and the
+				// tree cut afresh rather than refused by its failing on what is no
+				// longer there.
+				if (
+					(await this.endGoing(tree, true, marked, provider)) !== "forgotten"
+				) {
 					throw error;
 				}
 			} finally {
