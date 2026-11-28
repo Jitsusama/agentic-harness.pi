@@ -150,6 +150,17 @@ export const CARRIED_END = "carried-job-ended";
  */
 export const CARRYING = `timeout 45 tail -f /dev/null; echo ${CARRIED_END}`;
 
+/** What a conversation is told to leave a job running until its case ends it. */
+export const CARRY_ON = "carry on";
+
+/**
+ * What bash runs in the background for `carry on`: the endless follow,
+ * which the case kills once it has seen the command outlive a move, so
+ * no wait before that, however slow a loaded builder makes it, can see
+ * it end of itself. `timeout` only bounds a follow a failed case leaves.
+ */
+export const CARRYING_ON = `timeout 600 tail -f /dev/null; echo ${CARRIED_END}`;
+
 /** The run id of the fleet `fleet-carry` dispatches, so its summary can be found. */
 export const CARRIED_FLEET = "e21-fleet";
 
@@ -409,6 +420,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "bash", { command: LINGERING, background: true });
 	if (toldTo(words, CARRY))
 		return toolCall(faux, "bash", { command: CARRYING, background: true });
+	if (toldTo(words, CARRY_ON))
+		return toolCall(faux, "bash", { command: CARRYING_ON, background: true });
 	if (toldTo(words, NAP)) return toolCall(faux, "bash", { command: NAPPING });
 	if (toldTo(words, LONG_NAP))
 		return toolCall(faux, "bash", { command: LONG_NAPPING });

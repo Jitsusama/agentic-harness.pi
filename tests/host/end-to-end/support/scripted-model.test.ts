@@ -14,7 +14,9 @@ import { isRecord } from "../../../../lib/internal/record.ts";
 import {
 	CARRIED_FLEET,
 	CARRY,
+	CARRY_ON,
 	CARRYING,
+	CARRYING_ON,
 	type Faux,
 	FIFTY_ROWS,
 	fauxOf,
@@ -144,6 +146,13 @@ describe("the scripted model", () => {
 	it("runs the carried command when told to carry", async () => {
 		expect(await callsTo([told])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING, background: true } },
+		]);
+	});
+
+	// Its own line, so `carry` alone still starts the command that ends.
+	it("runs the command the case ends itself when told to carry on", async () => {
+		expect(await callsTo([{ role: "user", content: CARRY_ON }])).toEqual([
+			{ name: "bash", arguments: { command: CARRYING_ON, background: true } },
 		]);
 	});
 

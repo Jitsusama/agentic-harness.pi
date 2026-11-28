@@ -6,6 +6,11 @@
  * left once it is said. Before this a move waited out every job, so a
  * session that always had one never moved (OSPHT4, 12 November).
  *
+ * The command runs until the case kills its follow, and its end said
+ * must be its own: one that ended itself after 45 s could end before a
+ * loaded lender's turn and move did, as about half of E17's runs there
+ * failed (OSPHT4), and one killed with its shell is said as lost.
+ *
  * E19 goes the other way: a hosted conversation whose command runs is
  * released to plain pi, as item 11's rollback releases every one. The
  * host spares the command when the conversation closes, and the plain
@@ -33,8 +38,8 @@ import {
 } from "./support/hosted-case.ts";
 import {
 	CARRIED_END,
-	CARRY,
-	CARRYING,
+	CARRY_ON,
+	CARRYING_ON,
 	SCRIPTED,
 } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
@@ -49,13 +54,11 @@ const RELEASE_MINUTES = 1;
 
 /**
  * How long the move may take once asked: its 5 s with no key pressed, a
- * look every 2 s, the pi's end, and the take-up's look every 2 s. Well
- * inside the carried command's 45 s, so a move that waits it out fails.
+ * look every 2 s, the pi's end, and the take-up's look every 2 s. The
+ * carried command runs until the case ends it, so a move that waits it
+ * out fails.
  */
 const MOVE_MS = 30_000;
-
-/** How long the carried command runs, as CARRYING times it, and room past it. */
-const CARRIED_MS = 45_000 + ROUND_TRIP_MS;
 
 /**
  * How long the follow may take to appear once its turn ended: the turn
@@ -75,6 +78,9 @@ beforeEach(async () => {
 afterEach(async () => {
 	await plain?.stop();
 	await host?.kill();
+	// A case that failed before ending the follow leaves it running.
+	const follow = followIn(sealed.home);
+	if (follow !== undefined) endFollow(follow);
 	await sealed.dispose();
 });
 
@@ -134,6 +140,58 @@ function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
 }
 
+/**
+ * End the carried command's follow, as the case's own stop of it. Its
+ * shell then echoes CARRIED_END and exits 0, as the command ending
+ * itself would.
+ */
+function endFollow(follow: number): void {
+	try {
+		process.kill(follow, "SIGTERM");
+	} catch {
+		// Already gone: the end said shows how it went.
+	}
+}
+
+/**
+ * Whether `said` holds the carried command's end under its job id, its
+ * own or not: a shell killed with it is said as lost, naming the command,
+ * whose words hold CARRIED_END too.
+ */
+function endSaid(said: string): boolean {
+	return said.includes(CARRIED_END) && said.includes("[j1]");
+}
+
+/**
+ * Whether `said` holds the carried command's own end: it exited 0 and
+ * printed CARRIED_END, as only its shell running to the end does.
+ */
+function ownEndSaid(said: string): boolean {
+	return new RegExp(`\` exited 0 after [^\n]*\n${CARRIED_END}$`, "m").test(
+		said,
+	);
+}
+
+/**
+ * Wait for the carried command's end under its job id in `file`, after
+ * the case ended its follow, and hold that it was its own.
+ */
+async function ownEndIn(
+	file: string,
+	held: number,
+	where: string,
+): Promise<void> {
+	await untilAnswered(
+		`the command's end is said in ${where}, under its job id`,
+		async () => endSaid(saidAfter(file, held)),
+		ROUND_TRIP_MS,
+	);
+	const there = saidAfter(file, held);
+	expect(ownEndSaid(there), `the command's own end, not a loss: ${there}`).toBe(
+		true,
+	);
+}
+
 /** What the shell keeps of its commands on disk, under the seal's state. */
 function keptIn(seal: Seal): string[] {
 	const folder = join(
@@ -159,11 +217,12 @@ it(
 				env: { PI_HOST_PACKAGE_DIR: pi },
 			});
 			plain = await startHeldPi(sealed, pi, "e17");
-			await plain.prompt(CARRY);
+			await plain.prompt(CARRY_ON);
 			await untilAnswered(
 				"the turn that started the command to end",
 				async () =>
-					textOf(plain?.file()).includes(CARRYING) && turnEnded(plain?.file()),
+					textOf(plain?.file()).includes(CARRYING_ON) &&
+					turnEnded(plain?.file()),
 				ROUND_TRIP_MS,
 			);
 			const file = plain.file() ?? "";
@@ -193,14 +252,8 @@ it(
 				"its log keeps what the pi held",
 			).toBe(true);
 
-			await untilAnswered(
-				"the command's end is said in the host, under its job id",
-				async () => {
-					const there = saidAfter(file, held.length);
-					return there.includes(CARRIED_END) && there.includes("[j1]");
-				},
-				CARRIED_MS,
-			);
+			endFollow(follow);
+			await ownEndIn(file, held.length, "the host");
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
 				async () => keptIn(sealed).length === 0,
@@ -212,7 +265,7 @@ it(
 			});
 		});
 	},
-	ROUND_TRIP_MS * 3 + MOVE_MS * 2 + CARRIED_MS,
+	ROUND_TRIP_MS * 4 + MOVE_MS * 2 + FOLLOW_STARTS_MS,
 );
 
 /** Release every hosted conversation as item 11's rollback does, answering its exit and output. */
@@ -260,11 +313,11 @@ it(
 			);
 			const cwd = join(sealed.home, "w");
 			await mkdir(cwd, { recursive: true });
-			const one = await host.open(cwd, { model: SCRIPTED, first: CARRY });
+			const one = await host.open(cwd, { model: SCRIPTED, first: CARRY_ON });
 			const file = one.file ?? "";
 			await untilAnswered(
 				"the hosted turn that started the command to end",
-				async () => textOf(file).includes(CARRYING) && turnEnded(file),
+				async () => textOf(file).includes(CARRYING_ON) && turnEnded(file),
 				ROUND_TRIP_MS,
 			);
 			const follow = await followUp(sealed.home);
@@ -294,14 +347,8 @@ it(
 				file,
 				cwd,
 			});
-			await untilAnswered(
-				"the command's end is said in plain pi, under its job id",
-				async () => {
-					const there = saidAfter(file, held.length);
-					return there.includes(CARRIED_END) && there.includes("[j1]");
-				},
-				CARRIED_MS,
-			);
+			endFollow(follow);
+			await ownEndIn(file, held.length, "plain pi");
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
 				async () => keptIn(sealed).length === 0,
@@ -313,5 +360,5 @@ it(
 			});
 		});
 	},
-	ROUND_TRIP_MS * 3 + MOVE_MS * 2 + CARRIED_MS,
+	ROUND_TRIP_MS * 4 + MOVE_MS * 2 + FOLLOW_STARTS_MS,
 );
