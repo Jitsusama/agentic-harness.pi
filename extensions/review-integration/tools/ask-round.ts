@@ -9,6 +9,7 @@
  * not with how any one kind of round runs.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
 	macRoundRoom,
@@ -417,6 +418,79 @@ export async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
 		);
 	}
 	return { proposal, diff };
+}
+
+/**
+ * A change whose head moved while its round waited for its start: its
+ * label, the head the round was built on and the head it has now, either
+ * one missing for a change that came into the round or left it.
+ */
+export interface HeadMoved {
+	readonly label: string;
+	readonly from: string | undefined;
+	readonly to: string | undefined;
+}
+
+/**
+ * Each change whose head differs between `before` and `after`, both
+ * keyed by the change's label, in the order `before` then `after` name
+ * them. A change one holds and the other doesn't counts as moved, since
+ * a round built without it, or with it, reads another stack.
+ */
+export function headsMoved(
+	before: ReadonlyMap<string, string | undefined>,
+	after: ReadonlyMap<string, string | undefined>,
+): HeadMoved[] {
+	const labels = [...new Set([...before.keys(), ...after.keys()])];
+	return labels.flatMap((label) => {
+		const from = before.get(label);
+		const to = after.get(label);
+		const both = before.has(label) && after.has(label);
+		return both && from === to ? [] : [{ label, from, to }];
+	});
+}
+
+/**
+ * What a round says of the heads that moved while it waited, or nothing
+ * when none did: that it reads what is there now, and each head's move.
+ */
+export function movedSaid(moved: readonly HeadMoved[]): string | undefined {
+	if (moved.length === 0) return undefined;
+	const moves = moved
+		.map(
+			({ label, from, to }) => `${label} from ${short(from)} to ${short(to)}`,
+		)
+		.join("; ");
+	const which = moved.length === 1 ? "a head" : `${moved.length} heads`;
+	return `While it waited, ${which} moved, so it reads what is there now: ${moves}.`;
+}
+
+/** A head as a round's answer names it: its first eight characters. */
+function short(head: string | undefined): string {
+	return head === undefined ? "nothing" : head.slice(0, 8);
+}
+
+/**
+ * Whether the folder a round was to read is gone, as a snapshot cut
+ * before an hours-long wait can be by its start. A reviewer started in a
+ * folder that isn't there fails at once: Node says so as ENOENT on the
+ * binary it spawned, not on the folder.
+ */
+export function treeGone(tree: ReadableTree): boolean {
+	return !existsSync(tree.path);
+}
+
+/** What a round says when the tree it cut was gone by its start. */
+export const TREE_CUT_AGAIN =
+	"While it waited, the tree it was to read was gone, so it was cut again.";
+
+/**
+ * What a round says when the change couldn't be read again after its
+ * wait, so it starts nothing rather than reading what may be stale.
+ */
+export function rereadFailed(error: unknown): string {
+	const why = error instanceof Error ? error.message : String(error);
+	return `While it waited for its start, the change couldn't be read again, so it starts nothing rather than read what may have moved: ${why}`;
 }
 
 /**

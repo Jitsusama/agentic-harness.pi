@@ -11,6 +11,7 @@
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { lensFor, tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
+import type { CouncilStart } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	type AskRound,
 	type ChangeRef,
@@ -64,10 +65,15 @@ import {
 	chartersFor,
 	claimIdentities,
 	councilFindingsBehind,
+	headsMoved,
 	material,
+	movedSaid,
 	nextSeq,
 	ROOM_ROUND,
 	renderFindings,
+	rereadFailed,
+	TREE_CUT_AGAIN,
+	treeGone,
 } from "./ask-round.ts";
 import { NARROWER_WEIGHING } from "./ask-weigh.ts";
 import { type Answer, type boundFor, refuse, say } from "./shared.ts";
@@ -123,6 +129,11 @@ const NARROWER_COUNCIL =
  * a background round both make it: the roster, the change's material,
  * the tree it reads, each reviewer's lens and the prompt. Or the
  * refusal, when the round isn't earned or no tree can be cut.
+ *
+ * Built before its wait for a start and read again after it, since the
+ * wait can last hours: on 28 November a council on mycelium#572 read a
+ * head the change had moved past by its start, and two others failed
+ * every reviewer on a tree folder gone by theirs.
  */
 async function councilRound(
 	bound: Awaited<ReturnType<typeof boundFor>>,
@@ -132,38 +143,48 @@ async function councilRound(
 ) {
 	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
-	const { proposal, diff } = await material(bound);
-	const unearned = await councilRefused(change, proposal.headCommit, params);
-	if (unearned !== undefined) return { refused: refuse(unearned) };
-	const tree = await treeForRound(
-		bound.repo,
-		proposal.headCommit,
-		params.repo ?? seat.cwd,
-		filesToRead(diff),
-	);
-	if ("refusal" in tree) return { refused: refuse(tree.refusal) };
-	// After the tree, because a lens can come from the repo under review
-	// and that is the tree it comes from. Before the round, because a
-	// reviewer running without the lens it was asked for files generic
-	// findings under a specialist's name.
-	const charters = await chartersFor(roster, tree, "reviewers", diff);
-	const conventions = await guidanceFor(tree, diff);
-	const prompt = councilPrompt({
-		proposal,
-		diff,
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...conventions,
-	});
-	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
-	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
+	// Everything that follows from the change's material, made once before
+	// the wait and again after it when the head moved or the tree went.
+	const build = async ({ proposal, diff }: Material) => {
+		const unearned = await councilRefused(change, proposal.headCommit, params);
+		if (unearned !== undefined) return { refused: refuse(unearned) };
+		const tree = await treeForRound(
+			bound.repo,
+			proposal.headCommit,
+			params.repo ?? seat.cwd,
+			filesToRead(diff),
+		);
+		if ("refusal" in tree) return { refused: refuse(tree.refusal) };
+		// After the tree, because a lens can come from the repo under review
+		// and that is the tree it comes from. Before the round, because a
+		// reviewer running without the lens it was asked for files generic
+		// findings under a specialist's name.
+		const charters = await chartersFor(roster, tree, "reviewers", diff);
+		const conventions = await guidanceFor(tree, diff);
+		const prompt = councilPrompt({
+			proposal,
+			diff,
+			...(params.intent === undefined ? {} : { intent: params.intent }),
+			...conventions,
+		});
+		const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
+		if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
+		return { proposal, tree, charters, conventions, prompt };
+	};
+	const first = await build(await material(bound));
+	if (first.refused !== undefined) return { refused: first.refused };
+	let built = first;
 	// Before the start, since a round whose reviewers run on a room
 	// doesn't wait on this machine's memory or CPU, only its place in
-	// the line and the spacing.
-	const briefFits = briefFitsARoom(prompt);
-	const roomNow = async () =>
-		briefFits
+	// the line and the spacing. Of what is built now, so a room asked
+	// after a rebuild reads the head and the tree the round reads.
+	const roomNow = async () => {
+		const { prompt, proposal, tree } = built;
+		const briefFits = briefFitsARoom(prompt);
+		return briefFits
 			? await roomFor(change, proposal.headCommit, () => roomHarness(tree.path))
 			: undefined;
+	};
 	const asked = await roomNow();
 	let start = await awaitRosterStart(
 		change.label,
@@ -173,41 +194,79 @@ async function councilRound(
 	);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
+	const said: string[] = [];
+	// Read again after a wait, which can last hours. A head that moved is
+	// built again, and a tree whose folder went is cut again, both keeping
+	// the start held. Otherwise the ledger is asked again: a council on
+	// this head queued ahead of this one writes its entry only as it
+	// opens, a spacing ago. Refused either way, it gives its slot back,
+	// so the next round on the machine waits behind none that never
+	// started.
+	const readAgain = async (held: CouncilStart): Promise<Answer | undefined> => {
+		let again: Material;
+		try {
+			again = await material(bound);
+		} catch (error) {
+			await held.release?.();
+			return refuse(rereadFailed(error));
+		}
+		const moved = movedSaid(
+			headsMoved(
+				new Map([[change.label, built.proposal.headCommit]]),
+				new Map([[change.label, again.proposal.headCommit]]),
+			),
+		);
+		if (moved === undefined && !treeGone(built.tree)) {
+			const since = await councilRefused(
+				change,
+				built.proposal.headCommit,
+				params,
+			);
+			if (since === undefined) return undefined;
+			await held.release?.();
+			return refuse(since);
+		}
+		const rebuilt = await build(again);
+		if (rebuilt.refused !== undefined) {
+			await held.release?.();
+			return rebuilt.refused;
+		}
+		built = rebuilt;
+		said.push(moved ?? TREE_CUT_AGAIN);
+		return undefined;
+	};
+	const firstWaited = start.waited;
+	if (firstWaited !== undefined) {
+		const refused = await readAgain(start);
+		if (refused !== undefined) return { refused };
+	}
 	// Read again, since the wait can last hours: a room taken out of the
 	// config while it waited sends the round back to wait on the bars
 	// here, which it didn't, and a room moved to another is the new one.
 	const room = asked === undefined ? undefined : await roomNow();
-	const firstWaited = start.waited;
 	if (asked !== undefined && room === undefined) {
 		await start.release?.();
 		start = await awaitRosterStart(change.label, seat.signal, "council");
 		if (start.cancelled !== undefined)
 			return { refused: refuse(start.cancelled) };
-	}
-	// Asked again after the wait: a council on this head queued ahead of
-	// this one writes its ledger entry only as it opens, a spacing ago.
-	// Refused then, it gives its slot back, so the next round on the
-	// machine waits behind none that never started.
-	if (start.waited !== undefined || firstWaited !== undefined) {
-		const since = await councilRefused(change, proposal.headCommit, params);
-		if (since !== undefined) {
-			await start.release?.();
-			return { refused: refuse(since) };
+		if (start.waited !== undefined) {
+			const refused = await readAgain(start);
+			if (refused !== undefined) return { refused };
 		}
 	}
+	const waited = [start.waited ?? firstWaited, ...said].filter(Boolean);
 	return {
 		roster,
 		chosen,
-		proposal,
-		tree,
-		charters,
-		conventions,
-		prompt,
+		...built,
 		room,
-		waited: start.waited ?? firstWaited,
+		waited: waited.length === 0 ? undefined : waited.join(" "),
 		...(start.release === undefined ? {} : { release: start.release }),
 	};
 }
+
+/** The change and its diff, as a council round reads them. */
+type Material = Awaited<ReturnType<typeof material>>;
 
 /**
  * Why a council on `change` at `head` is refused, from the rounds the
