@@ -132,6 +132,25 @@ describe("the machine's queue folder", () => {
 		expect(record().machine.uplink).toEqual({ sentMbit: 6.4 });
 	});
 
+	it("says the class each walk of World's objects waits by, and none for other work", () => {
+		// A reader of queue.json sees why a walk asked later goes first.
+		const walk = { kind: "world-walk" as const, what: "git fetch origin main" };
+		const queue = folder();
+		queue.ask(
+			job("unclassed", { ...walk, since: new Date(NOW - 9_000).toISOString() }),
+		);
+		queue.ask(job("soonest", { ...walk, pushClass: 0 }));
+		queue.ask(job("build", { since: new Date(NOW - 5_000).toISOString() }));
+		queue.keep(TIGHT, NOW, () => undefined);
+		expect(
+			record().jobs.map((one) => [one.id, one.place, one.pushClass]),
+		).toEqual([
+			["soonest", 1, 0],
+			["build", 2, undefined],
+			["unclassed", 3, 2],
+		]);
+	});
+
 	it("leaves pressure alone to the heartbeat, whichever session keeps it", () => {
 		// Under ten VMs on 30 October it was replaced 123 times in 10 s,
 		// each costing the shell about 20 wakeups, for pressure alone.

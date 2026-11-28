@@ -5,6 +5,7 @@
 
 import type { Kind, Walk } from "./needs.ts";
 import type { Beside } from "./outcome.ts";
+import type { PushClass } from "./push-class.ts";
 
 /** One piece of heavy work, waiting for its turn or running. */
 export interface Job {
@@ -40,6 +41,14 @@ export interface Job {
 	readonly started?: string;
 	/** What a walk of World's objects does, read from its whole command. */
 	readonly walk?: Walk;
+	/**
+	 * The class a walk of World's objects gave World's push gate, as
+	 * push-class.ts's `pushClassOf` reads it from its command and the
+	 * environment its shell runs with: walks wait among themselves by it,
+	 * 0 first (next-turn.ts's `waitingInOrder`). A walk an older harness
+	 * asked for carries none, and waits as 2.
+	 */
+	readonly pushClass?: PushClass;
 	/**
 	 * It sends its whole run to a builder elsewhere, as a committed
 	 * changed-checks or a `nix-offload there --here-when-idle` does

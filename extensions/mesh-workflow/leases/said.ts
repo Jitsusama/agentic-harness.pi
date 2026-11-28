@@ -62,7 +62,9 @@ export function leasesText(
 
 /** A job as the queue holds it: running, or waiting at its place. */
 function jobSaid(job: QueueRecord["jobs"][number]): string {
-	const kind = KIND_SAID[job.kind] ?? job.kind;
+	const pushClass =
+		job.pushClass !== undefined ? ` of push class ${job.pushClass}` : "";
+	const kind = `${KIND_SAID[job.kind] ?? job.kind}${pushClass}`;
 	const since = clock({ at: job.since });
 	return job.state === "running"
 		? `running ${kind} since ${since} (${job.what})`

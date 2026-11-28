@@ -29,6 +29,7 @@ import { offeredShellEnvironment } from "../shell/environment.ts";
 import { FETCHED_FOLDER, readsMain, worldGit } from "./fetched.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
+import { PUSH_CLASS_VARIABLE, pushClassOf } from "./push-class.ts";
 import { placePushHooks, pushesLine } from "./pushes.ts";
 import {
 	CHANGED_CHECKS_SENT_GIB,
@@ -190,12 +191,24 @@ export function queuedCommand(
 	// to what one never seen is held to, since a run the builder turned
 	// away ran here whole and says nothing of a send.
 	const seen = queueing.folder.peakFor(what);
-	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
+	const offered = offeredShellEnvironment();
+	const quest = offered[QUEST_VARIABLE];
 	const sent =
 		kind !== "world-walk" &&
 		cwd !== undefined &&
 		(queueing.sendsWholeRun?.(command, cwd, quest) ?? false);
 	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
+	// The class World's push gate will rank it by, so it waits among the
+	// walks by the same: from the command, else the environment its shell
+	// starts with, pi's own with what extensions offer laid over it.
+	const pushClass =
+		kind === "world-walk"
+			? pushClassOf(
+					command,
+					where,
+					offered[PUSH_CLASS_VARIABLE] ?? process.env[PUSH_CLASS_VARIABLE],
+				)
+			: undefined;
 	// A push of World leaves out its LFS scan when it holds no LFS file
 	// (pushes.ts), chained after a rebase or not; without the hooks placed
 	// it runs them as it would.
@@ -243,6 +256,7 @@ export function queuedCommand(
 		...(lastRanS !== undefined ? { lastRanS } : {}),
 		...(quick ? { quick: true as const } : {}),
 		...(walk ? { walk } : {}),
+		...(pushClass !== undefined ? { pushClass } : {}),
 		...(sent ? { sent: true as const } : {}),
 		...(quest ? { quest } : {}),
 		...(plan ? { planning: true as const } : {}),

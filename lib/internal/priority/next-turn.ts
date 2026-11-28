@@ -44,6 +44,7 @@ import {
 	WALKS_AT_ONCE,
 	walksAtOnce,
 } from "./needs.ts";
+import { walksLeadingFirst } from "./walk-order.ts";
 
 /** How far apart two turns are given. */
 export const SPREAD_MS = 3_000;
@@ -77,33 +78,6 @@ export function waitingInOrder(
 					one.id.localeCompare(other.id),
 			),
 	);
-}
-
-/**
- * The line, with its walks of World's objects reordered among the
- * places walks hold: pushes, fetches of main and a branch's own rebases,
- * cherry-picks, reverts, merges and sparse-checkouts first, then the
- * rest, as fetches of other people's branches, each group in the order
- * it had.
- * Other work keeps its place. On 5 November a push of Joel's waited 61
- * minutes behind review fetches of single branches (80ECO2).
- */
-function walksLeadingFirst(line: Job[]): Job[] {
-	const places = line.flatMap((job, at) =>
-		job.kind === "world-walk" ? [at] : [],
-	);
-	const walks = line.filter((job) => job.kind === "world-walk");
-	const leads = (job: Job) => job.walk !== undefined && job.walk !== "other";
-	const ordered = [
-		...walks.filter(leads),
-		...walks.filter((job) => !leads(job)),
-	];
-	const reordered = [...line];
-	for (const [index, job] of ordered.entries()) {
-		const at = places[index];
-		if (at !== undefined) reordered[at] = job;
-	}
-	return reordered;
 }
 
 const rank = (job: Job) =>
@@ -375,9 +349,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * so does one of pi's installed packages or session logs, or a folder
  * holding them. 23: a Mac is pressed under 35% available or on a
  * swap-out in the last minute, read from one history the machine's
- * sessions share.
+ * sessions share. 24: walks of World's objects wait among themselves by
+ * the class their caller gave World's push gate (push-class.ts), 0
+ * first.
  */
-export const RULES_VERSION = 23;
+export const RULES_VERSION = 24;
 
 /**
  * The job to start now, if any: the first waiting in order that its

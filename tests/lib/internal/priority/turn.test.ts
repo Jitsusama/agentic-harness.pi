@@ -339,6 +339,31 @@ describe("heavy work waiting for its turn", () => {
 		}
 	});
 
+	it("asks a walk of World's objects with the class it gives World's push gate", () => {
+		queueing(ROOMY);
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		queuedCommand("WORLD_PUSH_CLASS=0 git fetch -q origin main", world);
+		queuedCommand("git push origin x", world);
+		offerShellEnvironment("class-under-test", () => ({
+			WORLD_PUSH_CLASS: "1",
+		}));
+		try {
+			queuedCommand("git fetch origin y", world);
+			queuedCommand("cargo build", world);
+		} finally {
+			offerShellEnvironment("class-under-test", undefined);
+		}
+		const asked = jobsAsked()
+			.map((job) => [job.what, job.pushClass])
+			.sort(([one], [other]) => String(one).localeCompare(String(other)));
+		expect(asked).toEqual([
+			["cargo build", undefined],
+			["git fetch -q origin main", 0],
+			["git fetch origin y", 1],
+			["git push origin x", 2],
+		]);
+	});
+
 	it("runs an answered fetch's git from the queue's folder, and reads main around one that is not", () => {
 		const world = join(root, "world", "git");
 		const wait = waitsForTurn(dir);

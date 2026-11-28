@@ -526,6 +526,29 @@ describe("leases as listed", () => {
 			"\nLeases:\nWCJQSG: running a VM check; waiting on [aaaaaaaa]",
 		);
 	});
+
+	it("say the class a walk of World's objects waits by", () => {
+		const now = Date.now();
+		const since = "2026-11-27T22:24:00.000Z";
+		const walk = {
+			class: "bulk" as const,
+			kind: "world-walk" as const,
+			state: "waiting" as const,
+			owner: { session: "w", pid: 1 },
+			what: "git fetch origin main",
+			memoryGib: 6,
+			since,
+		};
+		const jobs = [
+			{ ...walk, id: "j1", place: 1, pushClass: 0 as const },
+			{ ...walk, id: "j2", place: 2 },
+		];
+		const at = clock({ at: since });
+
+		expect(leasesText([], [present("w", "WCJQSG")], now, jobs)).toBe(
+			`\nLeases:\nWCJQSG: waiting at place 1 to run a walk of World's git objects of push class 0, since ${at} (git fetch origin main); waiting at place 2 to run a walk of World's git objects, since ${at} (git fetch origin main)`,
+		);
+	});
 });
 
 describe("heavy shell calls", () => {
