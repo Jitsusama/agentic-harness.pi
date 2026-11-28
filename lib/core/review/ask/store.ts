@@ -32,8 +32,28 @@ export interface RunStore {
 	latest(change: ChangeRef, round: AskRound): Promise<AskRun | undefined>;
 	/** One round by its id. */
 	byId(change: ChangeRef, runId: string): Promise<AskRun | undefined>;
-	/** Swap a round for a new version of itself, in place. */
-	replace(change: ChangeRef, run: AskRun): Promise<void>;
+	/**
+	 * Change one held round in place, from the copy the ledger holds
+	 * at the moment of writing, and answer what was written.
+	 *
+	 * A retry reads its round, asks a reviewer for minutes, and only
+	 * then writes. Swapping in a whole round built from that first read
+	 * laid it over whatever another retry into the same round had
+	 * written meanwhile: on 28 Nov three retries into one council ran
+	 * together, and the last to finish wrote the round back with an
+	 * earlier one's answer listed as failed. `next` is handed the
+	 * freshest copy inside the ledger's lock instead, so each retry
+	 * changes only its own reviewer's outcome.
+	 *
+	 * Refuses a round it has never seen: a retry into a round that does
+	 * not exist has invented one, and should say so rather than quietly
+	 * adding it.
+	 */
+	revise(
+		change: ChangeRef,
+		runId: string,
+		next: (run: AskRun) => AskRun,
+	): Promise<AskRun>;
 	/**
 	 * Hold this version of a round, whether or not one is held.
 	 *
@@ -46,7 +66,7 @@ export interface RunStore {
 	 * would turn the end of a long council into an exception and throw
 	 * away everything it found.
 	 *
-	 * Distinct from `replace`, which refuses a round it has never seen
+	 * Distinct from `revise`, which refuses a round it has never seen
 	 * on purpose: a retry patching a round that does not exist has
 	 * invented one, and should say so rather than quietly adding it.
 	 */
@@ -406,20 +426,30 @@ export function createRunStore(root: string): RunStore {
 				};
 			});
 		},
-		async replace(change, run) {
+		async revise(change, runId, next) {
+			let written: AskRun | undefined;
 			await mutate(change, (ledger) => {
-				const at = ledger.runs.findIndex((held) => held.id === run.id);
-				if (at === -1) {
+				const at = ledger.runs.findIndex((held) => held.id === runId);
+				const now = ledger.runs[at];
+				if (now === undefined) {
 					// Adding it silently would make a retry look like it
 					// patched something when it invented a round instead.
 					throw new Error(
-						`No run "${run.id}" is held against this change, so there is nothing to replace. Record it first, or check the id.`,
+						`No run "${runId}" is held against this change, so there is nothing to revise. Record it first, or check the id.`,
 					);
 				}
+				const revised = next(now);
+				written = revised;
 				return {
-					runs: ledger.runs.map((held, index) => (index === at ? run : held)),
+					runs: ledger.runs.map((held, index) =>
+						index === at ? revised : held,
+					),
 				};
 			});
+			if (written === undefined) {
+				throw new Error(`Revising run "${runId}" wrote nothing.`);
+			}
+			return written;
 		},
 	};
 }

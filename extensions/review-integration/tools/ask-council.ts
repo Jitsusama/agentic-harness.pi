@@ -628,8 +628,14 @@ export async function retryOne(
 	// and until this was passed the fresh run carrying it was thrown
 	// away, so the caveat here was inert and the comment above it
 	// described something that did not happen.
-	const updated = substituteOutcome(held, { ...outcome, ...given }, read);
-	await store.replace(change, updated);
+	//
+	// Substituted into the round as it stands now, not as it was read
+	// before this reviewer ran: another retry into the same round may
+	// have landed meanwhile, and writing back the earlier read laid it
+	// over that one's answer.
+	const updated = await store.revise(change, held.id, (now) =>
+		substituteOutcome(now, { ...outcome, ...given }, read),
+	);
 	return say(
 		[
 			`${GLYPH.finding} Asked ${asked.id} again in ${held.id}.`,

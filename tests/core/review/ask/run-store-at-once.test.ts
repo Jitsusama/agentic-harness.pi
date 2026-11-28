@@ -15,7 +15,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
-import { createRunStore } from "../../../../lib/core/review/index.ts";
+import {
+	createRunStore,
+	substituteOutcome,
+} from "../../../../lib/core/review/index.ts";
 
 const change: ChangeRef = {
 	provider: "github",
@@ -81,6 +84,53 @@ describe("writing one change's ledger from several places at once", () => {
 			["council-a", undefined],
 			["council-b", undefined],
 		]);
+	});
+
+	it("keeps both of two retries into one round, read before either wrote", async () => {
+		// On 28 Nov three retries into one council ran together. Each
+		// read the round, asked its reviewer for minutes, and wrote back
+		// what it had read with its own answer in it, so the last to
+		// finish listed an earlier one's reviewer as failed still.
+		const store = createRunStore(root);
+		await store.record(
+			change,
+			run({
+				participants: [
+					{ id: "hawk", role: "reviewer" },
+					{ id: "owl", role: "reviewer" },
+					{ id: "wren", role: "reviewer" },
+				],
+				outcomes: [
+					{ participantId: "hawk", findingIds: [1] },
+					{ participantId: "owl", findingIds: [], failure: "timed out" },
+					{ participantId: "wren", findingIds: [], failure: "timed out" },
+				],
+			}),
+		);
+		const read = await store.byId(change, run().id);
+		if (read === undefined) throw new Error("the round was not recorded");
+
+		const [owl, wren] = await Promise.all(
+			[
+				{ participantId: "owl", findingIds: [7] },
+				{ participantId: "wren", findingIds: [8] },
+			].map((outcome) =>
+				store.revise(change, read.id, (now) =>
+					substituteOutcome(now, outcome, {}),
+				),
+			),
+		);
+
+		const held = await store.byId(change, read.id);
+		const answers = (r: AskRun | undefined) =>
+			r?.outcomes.map((o) => [o.participantId, o.findingIds, o.failure]);
+		expect(answers(held)).toEqual([
+			["hawk", [1], undefined],
+			["owl", [7], undefined],
+			["wren", [8], undefined],
+		]);
+		// Whichever wrote last answers with the other's outcome in it.
+		expect([answers(owl), answers(wren)]).toContainEqual(answers(held));
 	});
 
 	it("keeps every one of many rounds recorded at once", async () => {
