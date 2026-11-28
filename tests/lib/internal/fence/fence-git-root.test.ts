@@ -14,9 +14,10 @@ import {
 	realpathSync,
 	rmSync,
 	symlinkSync,
+	watch,
 	writeFileSync,
 } from "node:fs";
-import { availableParallelism, loadavg, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
@@ -36,8 +37,17 @@ import {
 } from "../../../../lib/internal/fence/fence-git-root.ts";
 import { systemRmCommand } from "../../../../lib/internal/files/remove-tree.ts";
 
-/** How soon a planted name must be gone (ISXEG8), on a machine with a core to spare. */
+/** How soon a planted name must be gone (ISXEG8), at the least: the bar's floor. */
 const PROMPTLY_MS = 100;
+
+/**
+ * How many trivial round trips a wake may take. The watcher does little
+ * more than one: it hears the name, looks it up and removes it.
+ */
+const ROUND_TRIPS = 5;
+
+/** How many trivial round trips are timed; the slowest sets the bar. */
+const TIMED = 3;
 
 /**
  * How long a wait for the watcher may run. A wait that gives up at the
@@ -49,18 +59,50 @@ const PROMPTLY_MS = 100;
 const WAIT_MS = 3000;
 
 /**
- * The bar the case holds the watcher to as it runs. Where the machine
- * has no core to spare, a wake waits its turn behind every other
- * process, so the bar is ten times as wide there, and says what load it
- * was measured under.
+ * How long a trivial fs-event round trip takes on this run: a watch of
+ * its own hears a file made and removes it, and a wait like the cases'
+ * sees it gone. A load average lags and says nothing of the disk, so the
+ * machine is timed doing the same thing, just before it is measured.
  */
-function promptly(): { readonly ms: number; readonly under: string } {
-	const load = loadavg()[0] ?? 0;
-	const cores = availableParallelism();
-	const under = `at load ${load.toFixed(1)} on ${cores} cores`;
-	return load > cores
-		? { ms: PROMPTLY_MS * 10, under: `${under}, which leaves no core to spare` }
-		: { ms: PROMPTLY_MS, under };
+async function roundTrip(folder: string): Promise<number> {
+	const file = join(folder, "made");
+	const watcher = watch(folder, { persistent: false }, (_event, name) => {
+		if (name === "made") rmSync(file, { force: true });
+	});
+	try {
+		const at = performance.now();
+		writeFileSync(file, "");
+		await vi.waitFor(
+			() =>
+				expect(existsSync(file), "the trivial file still there").toBe(false),
+			{ timeout: WAIT_MS, interval: 2 },
+		);
+		return performance.now() - at;
+	} finally {
+		watcher.close();
+	}
+}
+
+/**
+ * The bar a wake is held to on this run: a fixed multiple of the slowest
+ * of a few trivial round trips, never under `PROMPTLY_MS`, with the
+ * numbers it was measured from, for a failure to say.
+ */
+async function promptly(): Promise<{
+	readonly ms: number;
+	readonly under: string;
+}> {
+	const folder = mkdtempSync(join(base, "round-trip-"));
+	const times: number[] = [];
+	for (let round = 0; round < TIMED; round += 1)
+		times.push(await roundTrip(folder));
+	const slowest = Math.max(...times);
+	const ms = Math.max(PROMPTLY_MS, Math.ceil(ROUND_TRIPS * slowest));
+	const took = times.map((time) => time.toFixed(1)).join(", ");
+	return {
+		ms,
+		under: `against a bar of ${ms} ms: ${ROUND_TRIPS} times the slowest trivial round trip of ${took} ms, ${PROMPTLY_MS} ms at least`,
+	};
 }
 
 let base: string;
@@ -124,21 +166,23 @@ describe("a plant in the shared git folder", () => {
 	])(
 		"removes %s at once and logs and stops the session",
 		async (_name, path) => {
+			const bar = await promptly();
 			const deps = watched();
 			expect(armSharedRoot(root, own, "s-1", deps), "the watch armed").toBe(
 				true,
 			);
 			const planted = path();
-			const bar = promptly();
-			const at = Date.now();
+			const at = performance.now();
 			writeFileSync(planted, "/elsewhere\n");
 			await vi.waitFor(
 				() => expect(existsSync(planted), `${planted} still there`).toBe(false),
 				{ timeout: WAIT_MS, interval: 2 },
 			);
-			expect(Date.now() - at, `how long it stood, ${bar.under}`).toBeLessThan(
-				bar.ms,
-			);
+			const stood = performance.now() - at;
+			expect(
+				stood,
+				`how long it stood, ${stood.toFixed(1)} ms, ${bar.under}`,
+			).toBeLessThan(bar.ms);
 			expect(deps.refused, "the refusal logged").toHaveBeenCalledWith("s-1");
 			expect(deps.stop, "the session's commands stopped").toHaveBeenCalledWith(
 				"s-1",
@@ -185,13 +229,15 @@ describe("a plant in the shared git folder", () => {
 	});
 
 	it("leaves the session alone for what git writes there", async () => {
+		const bar = await promptly();
 		const deps = watched();
 		armSharedRoot(root, own, "s-git", deps);
 		writeFileSync(join(root, "packed-refs.lock"), "");
 		writeFileSync(join(own, "index.lock"), "");
 		// Nothing should follow, so there is no event to wait on: a real
-		// pause past the time a plant takes to be removed is the point.
-		await new Promise((done) => setTimeout(done, 30));
+		// pause as long as a plant's removal may take is the point, so a
+		// watcher that wakes for these names would be seen.
+		await new Promise((done) => setTimeout(done, bar.ms));
 		expect(deps.refused, "no refusal").not.toHaveBeenCalled();
 		expect(plantStopped("s-git"), "not stopped").toBeUndefined();
 	});
