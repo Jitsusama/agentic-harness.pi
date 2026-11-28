@@ -155,7 +155,7 @@ export function queueRecord(
 		waitsWithRoom(jobs, reading) && carried.minute !== minute
 			? { today: carried.today + 1, day, minute }
 			: carried;
-	const waiting = waitingInOrder(jobs, awaited, first);
+	const waiting = waitingInOrder(jobs, now, awaited, first);
 	const reasons = waitReasons(jobs, reading, now, rules, awaited, first);
 	return {
 		v: 1,

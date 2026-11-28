@@ -56,10 +56,13 @@ export const RAMP_MS = 60_000;
  * The jobs waiting, in the order they get their turns: within each
  * class, those of the sessions `awaited` names first, then those of the
  * quests `first` names. Never ahead of its class, so only bulk work is
- * ever behind a build. A job still planning has no place yet.
+ * ever behind a build. A job still planning has no place yet. Walks of
+ * World's objects wait among themselves as walk-order.ts orders them at
+ * `now`.
  */
 export function waitingInOrder(
 	jobs: readonly Job[],
+	now: number,
 	awaited: ReadonlySet<string> = NOBODY,
 	first: ReadonlySet<string> = NOBODY,
 ): Job[] {
@@ -68,7 +71,7 @@ export function waitingInOrder(
 		job.quest !== undefined && first.has(job.quest) ? 0 : 1;
 	return walksLeadingFirst(
 		jobs
-			.filter((job) => job.started === undefined && !job.planning)
+			.filter(isWaiting)
 			.sort(
 				(one, other) =>
 					rank(one) - rank(other) ||
@@ -77,8 +80,12 @@ export function waitingInOrder(
 					Date.parse(one.since) - Date.parse(other.since) ||
 					one.id.localeCompare(other.id),
 			),
+		now,
 	);
 }
+
+/** Whether a job waits for its turn: not given one, nor still planning. */
+const isWaiting = (job: Job) => job.started === undefined && !job.planning;
 
 const rank = (job: Job) =>
 	CLASS_OF[job.kind] === "timed" ? 0 : isQuick(job) ? 1 : 2;
@@ -382,7 +389,7 @@ export function nextTurn(
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
-	const waiting = waitingInOrder(jobs, awaited, first);
+	const waiting = waitingInOrder(jobs, now, awaited, first);
 	const fetching = fetchingMain(jobs, now);
 	// Quick work passes older work, one job at a time: it ends in seconds,
 	// so what it passes waits seconds longer, never starved by a stream.
@@ -472,7 +479,7 @@ export function waitReasons(
 			reasons.set(job.id, "planning");
 		}
 	}
-	const waiting = waitingInOrder(jobs, awaited, first);
+	const waiting = waitingInOrder(jobs, now, awaited, first);
 	const heldByCall = callHolder(room);
 	const heldByMemory = memoryHolder(jobs, room);
 	const heldPressed = (job: Job) => heldByCall(job) || heldByMemory(job);
@@ -726,7 +733,7 @@ function unpressedRoomLeft(
 		now,
 		rules,
 	);
-	const waiting = waitingInOrder(jobs);
+	const waiting = waitingInOrder(jobs, now);
 	const free =
 		room.availableGib -
 		growing -
@@ -768,8 +775,9 @@ export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
 	const held = holder(jobs, room);
 	return (
 		!cpuHoldsBuilds(room) &&
-		waitingInOrder(jobs).some(
-			(job) => !held(job) && needsGibOf(job) <= room.availableGib,
+		jobs.some(
+			(job) =>
+				isWaiting(job) && !held(job) && needsGibOf(job) <= room.availableGib,
 		)
 	);
 }

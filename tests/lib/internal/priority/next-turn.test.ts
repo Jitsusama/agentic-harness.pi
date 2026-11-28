@@ -38,7 +38,7 @@ describe("whose turn it is", () => {
 			job("newer", { since: startedAgo(10_000) }),
 			job("timed", { kind: "benchmark", since: startedAgo(5_000) }),
 		];
-		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+		expect(waitingInOrder(jobs, NOW).map((one) => one.id)).toEqual([
 			"timed",
 			"old",
 			"newer",
@@ -56,7 +56,7 @@ describe("whose turn it is", () => {
 			}),
 			job("timed", { kind: "benchmark", since: startedAgo(5_000) }),
 		];
-		expect(waitingInOrder(jobs, awaited).map((one) => one.id)).toEqual([
+		expect(waitingInOrder(jobs, NOW, awaited).map((one) => one.id)).toEqual([
 			"timed",
 			"waited",
 			"old",
@@ -79,6 +79,7 @@ describe("whose turn it is", () => {
 		expect(
 			waitingInOrder(
 				[old, lab, parked, bench],
+				NOW,
 				new Set(["waited-on"]),
 				first,
 			).map((one) => one.id),

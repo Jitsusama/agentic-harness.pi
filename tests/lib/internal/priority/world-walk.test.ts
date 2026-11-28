@@ -396,7 +396,7 @@ describe("walks of World's objects among themselves", () => {
 			walk("push", { walk: "push", since: startedAgo(6_000) }),
 			walk("main", { walk: "main-fetch", since: startedAgo(5_000) }),
 		];
-		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+		expect(waitingInOrder(jobs, NOW).map((one) => one.id)).toEqual([
 			"push",
 			"build",
 			"main",
@@ -420,7 +420,7 @@ describe("walks of World's objects among themselves", () => {
 			walk("rebase", { walk: "branch", since: startedAgo(8_000) }),
 			walk("push", { walk: "push", since: startedAgo(6_000) }),
 		];
-		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+		expect(waitingInOrder(jobs, NOW).map((one) => one.id)).toEqual([
 			"rebase",
 			"push",
 			"review",

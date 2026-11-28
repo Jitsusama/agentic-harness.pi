@@ -197,9 +197,9 @@ describe("a planning job in the queue", () => {
 			cpuPressure: 1,
 		};
 
-		expect(waitingInOrder([planning, later]).map((one) => one.id)).toEqual([
-			"later",
-		]);
+		expect(waitingInOrder([planning, later], NOW).map((one) => one.id)).toEqual(
+			["later"],
+		);
 		expect(nextTurn([planning, later], room, NOW)?.id).toBe("later");
 		expect(waitReasons([planning, later], room, NOW).get("planning")).toBe(
 			"planning",
