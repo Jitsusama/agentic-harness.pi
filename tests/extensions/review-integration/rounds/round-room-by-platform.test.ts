@@ -74,11 +74,19 @@ describe("the room a round reads", () => {
 		});
 		expect(room.startedUnjudged()).toBe("started without a verdict");
 		expect(room.spacingMs).toBe(MAC_SPACING_MS);
-		// A closer start could pass beside a round yet to leave its folder,
-		// which neither the count nor the age would see (F1, F11, F13).
+		// A closer start could pass beside a round whose reviewers had yet
+		// to load (F1, F11, F13).
 		expect(MAC_SPACING_MS, "the spacing is the settle time").toBe(
 			SETTLED_AFTER_MS,
 		);
+	});
+
+	it("marks a Mac's start until its folder shows it, and no Linux start", () => {
+		const mark = async () => async () => undefined;
+		const mac = roundRoom("darwin", () => macRoom, none, atOnce(1), mark);
+		const linux = roundRoom("linux", () => macRoom, none, atOnce(1), mark);
+		expect(mac.markStart).toBe(mark);
+		expect(linux.markStart).toBeUndefined();
 	});
 
 	// 26 November: two rounds started side by side on the work Mac twice
