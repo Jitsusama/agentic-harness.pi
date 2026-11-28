@@ -527,6 +527,13 @@ async function answerOnce(
 	return {};
 }
 
+/**
+ * The code the park-rolls steps roll the host from and onto. Above the
+ * scenarios, since the step runs from the top-level await below them,
+ * before any declaration after it is reached.
+ */
+const ROLLED_CODE: RolledCode = { from: "code-before", onto: "code-after" };
+
 const scenarios: Record<string, Scenario> = {
 	/** Open with first words, answer them, then close. */
 	open: {
@@ -1807,9 +1814,6 @@ async function parkNow(
 	await new Promise((later) => setImmediate(later));
 	await engine.parkSettled?.(id);
 }
-
-/** The code the park-rolls steps roll the host from and onto. */
-const ROLLED_CODE: RolledCode = { from: "code-before", onto: "code-after" };
 
 /**
  * Open a conversation and answer it, roll its host, naming `code` where
