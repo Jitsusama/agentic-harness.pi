@@ -342,16 +342,24 @@ describe("heavy work waiting for its turn", () => {
 	it("asks a walk of World's objects with the class it gives World's push gate", () => {
 		queueing(ROOMY);
 		const world = join(homedir(), "world", "trees", "w-main", "src");
-		queuedCommand("WORLD_PUSH_CLASS=0 git fetch -q origin main", world);
-		queuedCommand("git push origin x", world);
-		offerShellEnvironment("class-under-test", () => ({
-			WORLD_PUSH_CLASS: "1",
-		}));
+		// The runner's own class would hide whether pi's is read, so it's
+		// cleared first and set by the test alone.
+		const inherited = process.env.WORLD_PUSH_CLASS;
+		delete process.env.WORLD_PUSH_CLASS;
 		try {
+			queuedCommand("WORLD_PUSH_CLASS=0 git fetch -q origin main", world);
+			queuedCommand("git push origin x", world);
+			process.env.WORLD_PUSH_CLASS = "0";
+			queuedCommand("git fetch origin z", world);
+			offerShellEnvironment("class-under-test", () => ({
+				WORLD_PUSH_CLASS: "1",
+			}));
 			queuedCommand("git fetch origin y", world);
 			queuedCommand("cargo build", world);
 		} finally {
 			offerShellEnvironment("class-under-test", undefined);
+			if (inherited === undefined) delete process.env.WORLD_PUSH_CLASS;
+			else process.env.WORLD_PUSH_CLASS = inherited;
 		}
 		const asked = jobsAsked()
 			.map((job) => [job.what, job.pushClass])
@@ -360,6 +368,7 @@ describe("heavy work waiting for its turn", () => {
 			["cargo build", undefined],
 			["git fetch -q origin main", 0],
 			["git fetch origin y", 1],
+			["git fetch origin z", 0],
 			["git push origin x", 2],
 		]);
 	});
