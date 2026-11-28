@@ -292,12 +292,29 @@ export async function missingCheckout(
 }
 
 /**
+ * The commit an ls-remote listing gives `ref`, from the one line that is a
+ * 40 or 64 hex id, whitespace, then `ref` and nothing after, or nothing
+ * when no line names `ref` itself.
+ */
+function tipOf(listing: string, ref: string): string | undefined {
+	for (const line of listing.split("\n")) {
+		const listed = /^([0-9a-f]{40}|[0-9a-f]{64})\s+(\S+)$/.exec(line);
+		if (listed?.[2] === ref) return listed[1];
+	}
+	return undefined;
+}
+
+/**
  * The commit `base` is at on the checkout's origin, or why that couldn't
  * be read and what would mend it: naming a checkout mends a folder git
- * can't read origin in, not a stopped call or a change with no base. A gate reads the head merged onto the base as it was, so a base
- * that moves while the gate runs merges a pair nothing built: two gated
- * merges overlapping is how that happens, and the longer a gate runs the
- * likelier it is.
+ * can't read origin in, not a stopped call or a change with no base. A
+ * gate reads the head merged onto the base as it was, so a base that moves
+ * while the gate runs merges a pair nothing built: two gated merges
+ * overlapping is how that happens, and the longer a gate runs the likelier
+ * it is. The commit is read only from the line naming the base's ref
+ * itself, because ls-remote matches its pattern as a path's tail: a ref
+ * such as refs/heads/x/refs/heads/main is listed for main too, and when it
+ * sorts first its commit would be read as main's.
  */
 export async function baseTip(
 	base: string,
@@ -310,15 +327,14 @@ export async function baseTip(
 			fix: "a gated merge needs the base it lands on",
 		};
 	}
+	const ref = `refs/heads/${base}`;
 	const ran = await run(
-		`git ls-remote --exit-code origin ${quoted(`refs/heads/${base}`)}`,
+		`git ls-remote --exit-code origin ${quoted(ref)}`,
 		cwd,
 		BASE_READ_MS,
 	);
-	const at = ran.stdout.trim().split(/\s/)[0] ?? "";
-	if (ran.code === 0 && !ran.killed && /^[0-9a-f]{40,64}$/.test(at)) {
-		return { at };
-	}
+	const at = tipOf(ran.stdout, ref);
+	if (ran.code === 0 && !ran.killed && at !== undefined) return { at };
 	if (ran.killed) {
 		return {
 			unread: "origin didn't answer in 2 minutes",
@@ -328,9 +344,15 @@ export async function baseTip(
 	if (ran.aborted === true) {
 		return { unread: "the call was stopped", fix: "merge again when ready" };
 	}
+	if (ran.code === 0) {
+		return {
+			unread: `origin listed no ref named exactly ${ref}`,
+			fix: "name a checkout of the repo with `repo`",
+		};
+	}
 	const said = (ran.stderr.trim() || ran.stdout.trim()).split("\n").at(-1);
 	return {
-		unread: `git ls-remote origin refs/heads/${base} gave exit ${ran.code}${said ? `: ${said}` : ""}`,
+		unread: `git ls-remote origin ${ref} gave exit ${ran.code}${said ? `: ${said}` : ""}`,
 		fix: "name a checkout of the repo with `repo`",
 	};
 }

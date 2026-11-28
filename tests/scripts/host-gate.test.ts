@@ -690,7 +690,13 @@ describe("host-gate.sh", () => {
 		const answered = await gate(on, sha);
 
 		expect(answered.code, answered.said).toBe(1);
-		expect(answered.said).toContain("couldn't be fetched whole");
+		const refusal = "the refusal names both places it fetched from";
+		expect(answered.said, refusal).toContain(
+			"couldn't be fetched whole, from this checkout or from origin",
+		);
+		expect(answered.said, "the refusal says how to clear it").toContain(
+			"Push the branch",
+		);
 	});
 
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
@@ -734,6 +740,16 @@ describe("host-gate.sh", () => {
 			code: 0,
 			said: expect.stringContaining(`test:host passed at ${sha}`),
 		});
+	});
+
+	it("takes a run the keeper kept at the commit a branch name names", async () => {
+		const on = await harness();
+		const sha = await change(on, "lib/ui/panel/panel-screen.ts");
+		kept(on, sha, testHost(on));
+
+		const answered = await gate(on, "work");
+
+		expect(answered.code, answered.said).toBe(0);
 	});
 
 	it("refuses another program the keeper kept as passing, such as true", async () => {

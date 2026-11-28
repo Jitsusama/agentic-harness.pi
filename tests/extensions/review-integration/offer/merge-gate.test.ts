@@ -79,6 +79,33 @@ describe("where a merge's base is", () => {
 		});
 	});
 
+	// ls-remote matches its pattern as a path's tail, so a branch named
+	// x/refs/heads/main is listed for refs/heads/main too, and can sort first.
+	const DECOY =
+		"0123456789abcdef0123456789abcdef01234567\trefs/heads/x/refs/heads/main";
+	const MAIN = "89abcdef0123456789abcdef0123456789abcdef";
+
+	it("reads main from the line naming refs/heads/main itself", async () => {
+		const read = await baseTip(
+			"main",
+			"/nowhere",
+			answering({ code: 0, stdout: `${DECOY}\n${MAIN}\trefs/heads/main\n` }),
+		);
+		expect(read, "main's own commit, not the decoy's").toEqual({ at: MAIN });
+	});
+
+	it("reads no base from a listing that names only a ref ending in it", async () => {
+		const read = await baseTip(
+			"main",
+			"/nowhere",
+			answering({ code: 0, stdout: `${DECOY}\n` }),
+		);
+		expect(read, "no exact ref, and the checkout to name").toEqual({
+			unread: "origin listed no ref named exactly refs/heads/main",
+			fix: CHECKOUT,
+		});
+	});
+
 	it("names no checkout for what a checkout wouldn't mend", async () => {
 		const cases = [
 			["a change with no base", "", answering({ code: 0 })],
