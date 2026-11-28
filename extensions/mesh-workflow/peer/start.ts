@@ -33,7 +33,6 @@ import {
 	ownChangesBeside,
 	proposingQuest,
 } from "../../../lib/mesh/looks/own-changes.ts";
-import type { Message } from "../../../lib/mesh/message.ts";
 import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import {
@@ -42,7 +41,7 @@ import {
 	windowTitle,
 } from "../../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
-import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
+import { createReadFront } from "../../../lib/mesh/reading.ts";
 import { ownerLinesAt, ownersFile } from "../../../lib/mesh/subjects.ts";
 import { usageFromLog } from "../../../lib/mesh/usage.ts";
 import { JUDGE_MS, SLOW_LOOKUP } from "../../../lib/prose/claims.ts";
@@ -138,6 +137,10 @@ export function onSessionStart(
 		if (!hosted() && (await writerHold(started.sessionManager.getSessionId())))
 			return;
 		m.ctx = started;
+		// A front of its own before anything here waits, so a catch-up an
+		// earlier start left reading knows itself overtaken from now on,
+		// and neither takes nor says it caught up for this one.
+		m.front = createReadFront();
 		// Opened again in a host since its close, a carry still running from
 		// before holds it until this opening closes (PV3TE0's round 10, F1).
 		sessionOpened(sessionKeyOf(started));
@@ -321,7 +324,6 @@ export function onSessionStart(
 		m.left.clear();
 		m.unjudgedSaid.clear();
 		for (const id of handedIn(branch)) m.seen.add(id);
-		m.front = createReadFront();
 		// Watching before looking, so what lands between the two is heard
 		// by one of them, and seen keeps it to once.
 		m.stopWatching?.();
@@ -395,21 +397,38 @@ export function onSessionStart(
 			m.transport.lastRead(m.peer.addresses) ??
 			`${Date.now() - FIRST_CATCH_UP_MS}`;
 		m.caughtUpFrom = since;
-		for (const id of seenAtStart(m.transport, since)) m.seen.add(id);
-		const missed: Message[] = [];
 		// Only the days a message after `since` can rest in: listing every
 		// day's folder took 325 ms of a wake on 15 November, for ids then
 		// passed by as read. What rests in the days before is never taken,
 		// since a watcher and the minute's look list only the top.
-		for (const id of m.transport.idsFromDayOf(since)) {
-			if (id <= since) continue;
-			const message = f.take(id);
-			if (message) missed.push(message);
-		}
-		void f.route(missed, true).finally(() => {
-			m.startCaughtUp = true;
-			f.readWhatWaited();
-		});
+		const front = m.front;
+		const peer = m.peer;
+		// Started again or ended meanwhile, this start has nothing more to say.
+		const standing = () => m.front === front && m.peer === peer;
+		void f
+			.catchUp(since)
+			// Routed whole before the start counts as caught up, as on the
+			// thread before, so what waited and the look passed over come after.
+			.then((missed) => f.route(missed, true))
+			.catch((error: unknown) => {
+				// Only a throw taking or routing what was caught up on: a folder
+				// that won't list or a file that won't read is none, as on the
+				// thread before. What it caught up on stays held, so the marker
+				// holds and the next start has it. Said, rather than a rejection
+				// nothing handles.
+				if (!standing() || !started.hasUI) return;
+				started.ui.notify(
+					`Mesh: catching up at start failed (${error instanceof Error ? error.message : String(error)}), so some messages sent before this start may reach this session only once it starts again.`,
+					"warning",
+				);
+			})
+			.finally(() => {
+				// Started again meanwhile, the new start's catch-up says when.
+				if (!standing()) return;
+				m.startCaughtUp = true;
+				f.readWhatWaited();
+				f.lookIfPassedOver();
+			});
 		f.steer(m.paths.steer);
 		f.identity();
 		void m.tidy();

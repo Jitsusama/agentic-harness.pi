@@ -2,6 +2,7 @@
  * The folder transport: what goes in, what comes out, and how far a
  * peer has read.
  */
+import { execFileSync } from "node:child_process";
 import {
 	Dir,
 	mkdirSync,
@@ -16,7 +17,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
-import { folderTransport, readEachOff } from "../../../lib/mesh/transport.ts";
+import {
+	dayOf,
+	folderTransport,
+	readEachOff,
+} from "../../../lib/mesh/transport.ts";
 
 let dir: string;
 
@@ -121,6 +126,19 @@ describe("the folder transport", () => {
 		expect(transport.read("1-X-1")).toBeUndefined();
 		expect(transport.read("2-X-1")).toBeUndefined();
 	});
+
+	// A pipe so named held its read off the thread until something wrote
+	// to it, and with it a start's catch-up, for the session.
+	it.skipIf(process.platform === "win32")(
+		"lists no pipe named as a message",
+		async () => {
+			const transport = folderTransport(dir);
+			const sent = transport.send(draft());
+			execFileSync("mkfifo", [join(dir, "2000000000000-X-1-aaaaaaaa.json")]);
+
+			expect(await transport.listIds()).toEqual([sent.id]);
+		},
+	);
 
 	it("answers an empty listing when the folder is not there yet", async () => {
 		expect(folderTransport(join(dir, "never")).ids()).toEqual([]);
@@ -233,7 +251,28 @@ describe("the folder transport", () => {
 		}
 	});
 
-	it("lists from the day an id was stamped on, passing the days before", () => {
+	it("reads no further batch once its reader is no longer going", async () => {
+		// An overtaken catch-up read on through its whole backlog, so a
+		// restart read the same week twice at once.
+		const ids = Array.from({ length: 70 }, (_, at) => `${at + 1}-X-1`);
+		const asked: string[] = [];
+		const reader = {
+			readOff: (id: string) => {
+				asked.push(id);
+				return Promise.resolve(undefined);
+			},
+		};
+		const read = await readEachOff(reader, ids, () => asked.length === 0);
+
+		expect(asked, "the first batch alone was read").toEqual(ids.slice(0, 32));
+		expect(read, "one answer for each read").toHaveLength(32);
+		await expect(
+			readEachOff(reader, ids),
+			"every batch, when nothing says stop",
+		).resolves.toHaveLength(70);
+	});
+
+	it("lists from the day an id was stamped on, passing the days before, on the thread or off it", async () => {
 		const transport = folderTransport(dir);
 		const day = 24 * 60 * 60 * 1000;
 		const at = (ms: number, tail: string) =>
@@ -262,6 +301,14 @@ describe("the folder transport", () => {
 		expect(transport.idsFromDayOf("no-time"), "no time, every day").toEqual(
 			transport.ids(),
 		);
+		expect(
+			await transport.listIdsFromDayOf(at(1, "dddddddd")),
+			"off the thread, as on it",
+		).toEqual(transport.idsFromDayOf(at(1, "dddddddd")));
+		expect(
+			await transport.listIdsFromDayOf("no-time"),
+			"off the thread, no time, every day",
+		).toEqual(transport.ids());
 	});
 
 	it("remembers the furthest a peer has read, under any of its addresses", () => {
@@ -313,5 +360,14 @@ describe("the folder transport", () => {
 			"the move was told as an arrival",
 		).toHaveLength(1);
 		expect(transport.read(first.id)).toMatchObject({ id: first.id });
+	});
+});
+
+describe("the day a message rests in", () => {
+	it("is none for a stamp past what a date holds, rather than a throw", () => {
+		// Anyone on the account can name a file so, and one throw here
+		// stopped every start's catch-up from taking its backlog.
+		expect(dayOf("99999999999999999-X-1-aaaaaaaa")).toBeUndefined();
+		expect(dayOf("1795790482057-X-1-aaaaaaaa")).toBe("2026-11-27");
 	});
 });

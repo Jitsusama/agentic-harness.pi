@@ -68,6 +68,12 @@ export interface Transport {
 	 * reader on a host's thread, which every conversation it holds waits on.
 	 */
 	listAllIds(): Promise<string[]>;
+	/**
+	 * The ids from the day this id was stamped on, as {@link idsFromDayOf}
+	 * answers, read a little at a time, for a peer catching up as it
+	 * starts on a host's thread.
+	 */
+	listIdsFromDayOf(id: string): Promise<string[]>;
 	/** One message, or nothing when it will not read. */
 	read(id: string): Message | undefined;
 	/** One message, as {@link read} answers, read off the thread. */
@@ -166,11 +172,17 @@ function isDay(name: string): boolean {
 
 /**
  * The folder of the day an id was stamped on, in UTC, or nothing for an
- * id with no time. Ids from a day before another's sort before its day.
+ * id with no time, or one past what a date holds: anyone on the account
+ * can name a file so, and a throw here stopped a start's whole catch-up.
+ * Ids from a day before another's sort before its day.
  */
 export function dayOf(id: string): string | undefined {
 	const at = stampedAt(id);
-	return at === undefined ? undefined : new Date(at).toISOString().slice(0, 10);
+	if (at === undefined) return undefined;
+	const day = new Date(at);
+	return Number.isNaN(day.getTime())
+		? undefined
+		: day.toISOString().slice(0, 10);
 }
 
 /** The message ids in one folder, unsorted, or none when it won't list. */
@@ -238,7 +250,10 @@ async function listedIn(dir: string): Promise<Listed> {
 				// every conversation the host holds.
 				const entry = await folder.read();
 				if (entry === null) return listed;
-				if (isMessageFile(entry.name)) listed.ids.push(idOf(entry.name));
+				// A file alone: a pipe so named would hold its read, off the
+				// thread, until something wrote to it, and the catch-up with it.
+				if (isMessageFile(entry.name) && entry.isFile())
+					listed.ids.push(idOf(entry.name));
 				else if (isDay(entry.name)) listed.days.push(entry.name);
 			}
 			await yieldThread();
@@ -253,12 +268,15 @@ async function listedIn(dir: string): Promise<Listed> {
 	}
 }
 
-/** Every day's ids and the top's, once each, oldest first, off the thread. */
-async function allListedIn(dir: string): Promise<string[]> {
+/**
+ * The ids at the top and in the day folders from `first` on, once each,
+ * oldest first, off the thread; from "" that is every day's.
+ */
+async function listedFrom(dir: string, first: string): Promise<string[]> {
 	const top = await listedIn(dir);
 	const found = new Set(top.ids);
 	// One day at a time, so a week of folders never opens all at once.
-	for (const day of top.days) {
+	for (const day of top.days.filter((one) => one >= first)) {
 		for (const id of (await listedIn(join(dir, day))).ids) found.add(id);
 	}
 	return [...found].sort();
@@ -271,14 +289,17 @@ const READING_AT_ONCE = 32;
  * The messages these ids name, in their order, read off the thread a
  * few at a time. A week's are thousands of files: opened all at once
  * they would fill the thread pool every conversation in a host shares,
- * and past the open-file limit each would read as no message.
+ * and past the open-file limit each would read as no message. Stops
+ * between batches once `going` answers false, answering only those read,
+ * so a reader no longer wanted doesn't read on through a week.
  */
 export async function readEachOff(
 	transport: Pick<Transport, "readOff">,
 	ids: readonly string[],
+	going: () => boolean = () => true,
 ): Promise<(Message | undefined)[]> {
 	const read: (Message | undefined)[] = [];
-	for (let from = 0; from < ids.length; from += READING_AT_ONCE) {
+	for (let from = 0; from < ids.length && going(); from += READING_AT_ONCE) {
 		const batch = ids.slice(from, from + READING_AT_ONCE);
 		read.push(...(await Promise.all(batch.map((id) => transport.readOff(id)))));
 	}
@@ -334,7 +355,8 @@ export function folderTransport(dir: string): Transport {
 		idsFromDayOf: (id) => idsFrom(dir, dayOf(id) ?? ""),
 		recentIds: () => idsIn(dir).sort(),
 		listIds: async () => (await listedIn(dir)).ids.sort(),
-		listAllIds: () => allListedIn(dir),
+		listAllIds: () => listedFrom(dir, ""),
+		listIdsFromDayOf: (id) => listedFrom(dir, dayOf(id) ?? ""),
 		read(id) {
 			const day = dayOf(id);
 			return (

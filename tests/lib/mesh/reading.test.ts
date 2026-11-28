@@ -26,7 +26,7 @@ describe("what a starting peer marks seen", () => {
 		pid: 1,
 	});
 
-	it("is only the top folder's messages at or below the floor", () => {
+	it("is only the top folder's messages at or below the floor", async () => {
 		// On 16 November each hosted conversation's seen set held every id
 		// of the store's 71,836 messages, about 9 MB a conversation, though
 		// it is only ever shown again what stays at the top. Catching up
@@ -40,7 +40,7 @@ describe("what a starting peer marks seen", () => {
 
 		expect(transport.ids(), "the moved one is still kept").toContain(moved.id);
 		expect(
-			[...seenAtStart(transport, floor.id)],
+			await seenAtStart(transport, floor.id),
 			"the top's ids up to the floor, and none past it or moved away",
 		).toEqual([lately.id, floor.id]);
 		expect(past.id > floor.id, "stamped after the floor").toBe(true);
@@ -72,5 +72,23 @@ describe("the read front", () => {
 		expect(front.handed(["050-X"])).toBeUndefined();
 		expect(front.handed(["100-A"])).toBe("100-A");
 		expect(front.handed(["100-A"])).toBeUndefined();
+	});
+
+	it("passes what it lets go, as it passes what was never taken", () => {
+		const front = createReadFront();
+		for (const id of ["100-A", "200-B", "300-C"]) front.taken(id);
+
+		expect(front.handed(["300-C"])).toBeUndefined();
+		front.letGo(["100-A"]);
+		expect(front.handed(["200-B"])).toBe("300-C");
+	});
+
+	it("moves as it lets go, past what was handed behind those let go", () => {
+		const front = createReadFront();
+		for (const id of ["100-A", "200-B"]) front.taken(id);
+
+		expect(front.handed(["200-B"])).toBeUndefined();
+		expect(front.letGo(["100-A"])).toBe("200-B");
+		expect(front.letGo(["100-A"])).toBeUndefined();
 	});
 });

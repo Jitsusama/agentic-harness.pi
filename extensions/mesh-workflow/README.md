@@ -1010,7 +1010,13 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   has never read catches up on the last hour. A catch-up lists
   the day folders only from the day of where it starts, since
   a message settles into the day it was stamped on and the
-  days before hold nothing newer. A peer watches
+  days before hold nothing newer. It lists and reads them off
+  the thread, a few files at a time, since a host's every
+  conversation waits on it. Each message it lists is taken on
+  the read front before it is read, so what the watcher takes
+  meanwhile is routed at once and the read marker still never
+  passes a message being read; the minute's look waits until
+  the catch-up is done. A peer watches
   before it catches up, so what lands between the two is not
   missed, and looks in the folder again once a minute and as
   each run ends for anything its watcher never reported, since

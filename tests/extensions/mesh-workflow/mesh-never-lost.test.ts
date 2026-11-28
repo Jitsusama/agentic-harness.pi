@@ -3,6 +3,10 @@
  * session switched out, a watcher that never reports it, an old copy
  * written back, a message caught half written, and what retention
  * lets go of.
+ *
+ * Long because every case drives the same hoisted watcher and session
+ * fixture toward one promise, never lost and never twice, and the
+ * catch-up's cases need the live ones beside them to show both hold.
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -29,11 +33,27 @@ const watching = vi.hoisted(() => ({
 	armed: undefined as (() => void) | undefined,
 	messages: 0,
 }));
-// The folders listed, while a test keeps a list of them.
-const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
-// The files read, while a test keeps a list of them.
+// The folders listed, on the thread and off it, while a test keeps a
+// list of them.
+const listing = vi.hoisted(() => ({
+	dirs: undefined as string[] | undefined,
+	off: undefined as string[] | undefined,
+}));
+// The files read, on the thread and off it, while a test keeps a list
+// of them.
 const reading = vi.hoisted(() => ({
 	files: undefined as string[] | undefined,
+	off: undefined as string[] | undefined,
+}));
+// A read off the thread held until a test lets it on: the first of the
+// file named, which says so as it is held.
+const holding = vi.hoisted(() => ({
+	name: undefined as string | undefined,
+	held: () => {},
+	open: Promise.resolve(),
+	dir: undefined as string | undefined,
+	listed: () => {},
+	listOpen: Promise.resolve(),
 }));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
@@ -54,13 +74,69 @@ vi.mock("node:fs", async (importOriginal) => {
 		}) as typeof fs.watch,
 	};
 });
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const fs = await importOriginal<typeof import("node:fs/promises")>();
+	return {
+		...fs,
+		opendir: (async (...args: Parameters<typeof fs.opendir>) => {
+			listing.off?.push(String(args[0]));
+			if (holding.dir && String(args[0]) === holding.dir) {
+				holding.dir = undefined;
+				holding.listed();
+				await holding.listOpen;
+			}
+			return fs.opendir(...args);
+		}) as typeof fs.opendir,
+		readFile: (async (...args: Parameters<typeof fs.readFile>) => {
+			reading.off?.push(String(args[0]));
+			if (holding.name && String(args[0]).endsWith(holding.name)) {
+				holding.name = undefined;
+				holding.held();
+				await holding.open;
+			}
+			return fs.readFile(...args);
+		}) as typeof fs.readFile,
+	};
+});
+
+/** Hold the first read off the thread of this message until `release`. */
+function holdRead(id: string): { held: Promise<void>; release: () => void } {
+	let release = () => {};
+	holding.open = new Promise((resolve) => {
+		release = resolve;
+	});
+	const held = new Promise<void>((resolve) => {
+		holding.held = resolve;
+	});
+	holding.name = `${id}.json`;
+	return { held, release };
+}
+
+/** Hold the first listing off the thread of this folder until `release`. */
+function holdListing(dir: string): {
+	held: Promise<void>;
+	release: () => void;
+} {
+	let release = () => {};
+	holding.listOpen = new Promise((resolve) => {
+		release = resolve;
+	});
+	const held = new Promise<void>((resolve) => {
+		holding.listed = resolve;
+	});
+	holding.dir = dir;
+	return { held, release };
+}
 
 beforeEach(() => {
+	holding.dir = undefined;
 	watching.deaf = false;
 	watching.armed = undefined;
 	watching.messages = 0;
 	listing.dirs = undefined;
+	listing.off = undefined;
 	reading.files = undefined;
+	holding.name = undefined;
 });
 
 // A deaf watcher the mesh never armed through this fake proves nothing:
@@ -143,8 +219,8 @@ describe("a message never lost", () => {
 			new Date(at).toISOString().slice(0, 10),
 		);
 
-	/** A question to this peer stamped at this time, kept in its day's folder. */
-	const settled = (at: number, text: string): string => {
+	/** A question to this peer, or `to`, stamped at this time, kept in its day's folder. */
+	const settled = (at: number, text: string, to = ["@7M6JKG"]): string => {
 		const id = `${at}-WCJQSG-7-dddddddd`;
 		mkdirSync(dayFolder(at), { recursive: true });
 		writeFileSync(
@@ -154,7 +230,7 @@ describe("a message never lost", () => {
 				id,
 				at: new Date(at).toISOString(),
 				from: "WCJQSG",
-				to: ["@7M6JKG"],
+				to,
 				intent: "question",
 				text,
 				pid: 7,
@@ -185,12 +261,14 @@ describe("a message never lost", () => {
 		// is the catch-up's alone.
 		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
 		listing.dirs = [];
+		listing.off = [];
 
 		const { sent } = await startSession();
-		const listed = listing.dirs;
-		listing.dirs = undefined;
-
 		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		const listed = [...listing.dirs, ...listing.off];
+		listing.dirs = undefined;
+		listing.off = undefined;
+
 		expect(handed(sent).sort()).toEqual([
 			"7M6JKG: since you read?",
 			"7M6JKG: yesterday?",
@@ -199,6 +277,377 @@ describe("a message never lost", () => {
 		expect(listed, "a day all read before the peer last read").not.toContain(
 			dayFolder(now - 4 * day),
 		);
+	});
+
+	it("is caught up on without listing or reading its folders on the thread", async () => {
+		// On 26 November one start's catch-up held its host's thread for
+		// 32 s, reading each message since its peer last read, one file at
+		// a time, while every conversation in the host waited.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		listing.dirs = [];
+		listing.off = [];
+		reading.files = [];
+		reading.off = [];
+
+		const { sent } = await startSession();
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		const listed = listing.dirs;
+		const listedOff = listing.off;
+		const read = reading.files;
+		const readOff = reading.off;
+		listing.dirs = undefined;
+		listing.off = undefined;
+		reading.files = undefined;
+		reading.off = undefined;
+
+		expect(handed(sent).sort()).toEqual([
+			"7M6JKG: lately?",
+			"7M6JKG: yesterday?",
+		]);
+		expect(
+			read.filter(
+				(file) =>
+					file.endsWith(`${yesterday}.json`) ||
+					file.endsWith(`${lately.id}.json`),
+			),
+			"the messages caught up on, read on the thread",
+		).toEqual([]);
+		expect(
+			listed.filter(
+				(folder) => folder === dir || folder === dayFolder(now - day),
+			),
+			"the folders caught up from, listed on the thread",
+		).toEqual([]);
+		// What wasn't done on the thread was done off it, so the absences
+		// above count only while these fakes are the ones the catch-up uses.
+		expect(
+			readOff.some((file) => file.endsWith(`${yesterday}.json`)),
+			"the message caught up on, read off the thread",
+		).toBe(true);
+		expect(
+			listedOff,
+			"the folders caught up from, listed off the thread",
+		).toEqual(expect.arrayContaining([dir, dayFolder(now - day)]));
+	});
+
+	it("is heard as it lands while the catch-up reads, the marker kept behind what is read", async () => {
+		// Handed over before the catch-up had taken its own, a message
+		// carried the marker past one still being read, which a restart
+		// then lost; held until the catch-up ended, it left the peer deaf.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+
+		await vi.waitFor(() =>
+			expect(handed(sent), "heard while the catch-up read").toEqual([
+				"7M6JKG: lately?",
+			]),
+		);
+		expect(marker(), "the marker, while yesterday's is read").toBe(floor);
+		read.release();
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("is heard as it lands while the catch-up lists, the marker kept behind the backlog", async () => {
+		// Listed off the thread, the catch-up had claimed nothing yet, so a
+		// message handed over meanwhile carried the marker past the backlog,
+		// which a restart then never caught up on.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		// Swept just now, so the listing held is the catch-up's, not a sweep's.
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		settled(now - day, "7M6JKG: yesterday?");
+		const listed = holdListing(dir);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await listed.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+
+		await vi.waitFor(() =>
+			expect(handed(sent), "heard while the catch-up listed").toEqual([
+				"7M6JKG: lately?",
+			]),
+		);
+		expect(marker(), "the marker, while the backlog is listed").toBe(floor);
+		listed.release();
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		await vi.waitFor(() => expect(marker()).toBe(lately.id));
+	});
+
+	it("is caught up on at the next start when handing what it caught up on over throws", async () => {
+		// Let go on a throw, what was caught up on, already seen here, was
+		// passed by the marker, so no later start had it either.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		settled(now - day, "7M6JKG: yesterday?");
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+		const listed = holdListing(dir);
+		const first = await startSession({}, { isIdle: () => true });
+		await listed.held;
+		// Handing over throws once, as the catch-up is handed, then as any
+		// session's: armed while it lists, before it has anything to hand.
+		let refused = 0;
+		const push = first.sent.push.bind(first.sent);
+		first.sent.push = (...items) => {
+			refused += 1;
+			if (refused === 1) throw new Error("no turn to tell");
+			return push(...items);
+		};
+		listed.release();
+		await vi.waitFor(() =>
+			expect(refused, "handing the catch-up over threw").toBe(1),
+		);
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+		await vi.waitFor(() =>
+			expect(handed(first.sent)).toContain("7M6JKG: lately?"),
+		);
+		expect(handed(first.sent), "handed over though it threw").not.toContain(
+			"7M6JKG: yesterday?",
+		);
+		expect(marker(), "the marker, past what the throw left unshown").toBe(
+			floor,
+		);
+		await first.fire("session_shutdown");
+
+		const again = await startSession({}, { isIdle: () => true });
+		await vi.waitFor(() =>
+			expect(handed(again.sent), "caught up on by the next start").toContain(
+				"7M6JKG: yesterday?",
+			),
+		);
+	});
+
+	it("hands over no message a withdrawal heard while the catch-up read replaced", async () => {
+		// Read off the thread, the backlog's question was handed over in full
+		// after the withdrawal heard meanwhile, as if it still stood.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const asked = settled(now - day, "7M6JKG: still yours?");
+		const read = holdRead(asked);
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: not yours after all?",
+			pid: 7,
+			supersedes: asked,
+		});
+		await vi.waitFor(() =>
+			expect(handed(sent)).toContain("7M6JKG: not yours after all?"),
+		);
+
+		read.release();
+		// A real pause: the test is that the catch-up, let on now, hands
+		// nothing over in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(handed(sent), "the question withdrawn").toEqual([
+			"7M6JKG: not yours after all?",
+		]);
+	});
+
+	it("reads no further once its session has ended", async () => {
+		// Only a start in the same runtime stopped it, so a session closed
+		// or reloaded mid catch-up read its whole backlog to the end.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		// More than one batch of reads at once.
+		const ids = Array.from({ length: 40 }, (_, at) =>
+			settled(now - day + at, `7M6JKG: number ${at}?`),
+		);
+		const read = holdRead(ids[0] ?? "");
+		reading.off = [];
+		const { fire } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		await fire("session_shutdown");
+
+		read.release();
+		// A real pause: the test is that no later batch is read in it.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		const last = ids.at(-1) ?? "";
+		expect(
+			reading.off.some((file) => file.endsWith(`${last}.json`)),
+			"read the backlog's last batch after the session ended",
+		).toBe(false);
+	});
+
+	it("hands over no file whose message names another id", async () => {
+		// The front is held by file and handed by envelope, so an envelope
+		// naming another id let go a hold it never took, the catch-up's
+		// listing among them, whose id is the empty one.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const { sent } = await startSession({}, { isIdle: () => true });
+		const file = `${now}-QQQQQQ-1-eeeeeeee`;
+		writeFileSync(
+			join(dir, `${file}.json`),
+			JSON.stringify({
+				v: 1,
+				id: "",
+				at: new Date(now).toISOString(),
+				from: "QQQQQQ",
+				to: ["@7M6JKG"],
+				intent: "question",
+				text: "7M6JKG: forged?",
+				pid: 1,
+			}),
+		);
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: after?",
+		});
+
+		await vi.waitFor(() => expect(handed(sent)).toContain("7M6JKG: after?"));
+		expect(handed(sent), "the file whose message names another id").toEqual([
+			"7M6JKG: after?",
+		]);
+	});
+
+	it("counts the start caught up only once what it caught up on is routed", async () => {
+		// Routing went unawaited, so the start counted as caught up while
+		// its catch-up was still judged, and a look meanwhile ran beside it.
+		deafen();
+		const asked: ((value: unknown) => void)[] = [];
+		fromElsewhere({ text: "merging core.nix#330 now" });
+		await startSession(
+			{},
+			{
+				isIdle: () => true,
+				modelRegistry: {
+					getAvailableOfType: async () => [
+						{ provider: "typesafe", id: "jev-latest" },
+					],
+					classify: () =>
+						new Promise((resolve) => {
+							asked.push(resolve);
+						}),
+				},
+			},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		await vi.waitFor(() =>
+			expect(asked, "the catch-up judged").toHaveLength(1),
+		);
+		fromElsewhere({ text: "merging core.nix#331 now" });
+		// A real pause: the test is that a look, due every 20 ms, judges
+		// nothing while the catch-up is still judged.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(asked, "judged by a look while the catch-up was").toHaveLength(1);
+
+		for (const answer of asked)
+			answer({ stopReason: "stop", answers: { about: notYours } });
+		await vi.waitFor(() =>
+			expect(asked, "judged by the look owed once caught up").toHaveLength(2),
+		);
+		for (const answer of asked)
+			answer({ stopReason: "stop", answers: { about: notYours } });
+	});
+
+	it("moves the marker past what was heard meanwhile once the catch-up lets go what isn't its", async () => {
+		// Letting go of one read for another peer only forgot it, so one
+		// handed over behind it held the marker back until the next landed.
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const floor = `${now - 2 * day}-X-1-bbbbbbbb`;
+		writeFileSync(join(dir, ".read-7M6JKG"), floor);
+		const another = settled(now - day, "ZZZZZZ: yours?", ["@ZZZZZZ"]);
+		const read = holdRead(another);
+		const marker = () => folderTransport(dir).lastRead(["7M6JKG"]);
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+		await read.held;
+		const lately = fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: lately?",
+		});
+		await vi.waitFor(() => expect(handed(sent)).toEqual(["7M6JKG: lately?"]));
+		expect(marker(), "the marker, while another's is read").toBe(floor);
+
+		read.release();
+		await vi.waitFor(() =>
+			expect(marker(), "the marker once another's was let go").toBe(lately.id),
+		);
+	});
+
+	it("is caught up on once, by the start that overtook a catch-up still reading", async () => {
+		const now = Date.now();
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		const yesterday = settled(now - day, "7M6JKG: yesterday?");
+		const read = holdRead(yesterday);
+		const { sent, fire, restart } = await startSession(
+			{},
+			{ isIdle: () => true },
+		);
+		await read.held;
+		await fire("session_shutdown");
+
+		// The same runtime starting again, while the first read is still held.
+		await restart();
+		await vi.waitFor(() =>
+			expect(handed(sent)).toEqual(["7M6JKG: yesterday?"]),
+		);
+		read.release();
+		// A real pause: the test is that the first start's catch-up, let go
+		// now, hands nothing over in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(handed(sent), "handed over once, by the start that stands").toEqual([
+			"7M6JKG: yesterday?",
+		]);
 	});
 
 	it("is heard once across a restart, whichever folder it rests in", async () => {
