@@ -336,9 +336,13 @@ Rounds on one machine start in the order they were asked, each as
 soon as the machine has room for it. On Linux that is while the
 kernel's memory `full avg60` is under 5, `MemAvailable` is at least
 16 GiB (half of all memory on a machine with less than 32 GiB) and
-CPU `some avg60` is under 40, read from `/proc/pressure` and
-`/proc/meminfo` (`lib/internal/machine/room.ts`), and at
-most two a minute, so a long line drains no faster than those
+CPU `some avg60` is under 20 on the agents' slice and under 2 on
+Joel's app and session slices, read from `/proc/pressure`,
+`/proc/meminfo` and each slice's `cpu.pressure`
+(`lib/internal/machine/room.ts`). The jobs slice stalls on itself by
+design, so it holds nothing; where a slice can't be read, the
+machine's CPU `some avg60` must be under 40, and the hold says so. They
+start at most two a minute, so a long line drains no faster than those
 minute-long averages can show what the rounds before took. While
 the machine is quiet, well inside every bar (memory `full avg60`
 under 2, CPU `some avg60` under 25 and at least 20 GiB

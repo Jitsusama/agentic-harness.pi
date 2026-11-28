@@ -119,17 +119,27 @@ export function sliceCpuPressureFile(uid: number, slice: Slice): string {
 	return `/sys/fs/cgroup/user.slice/user-${uid}.slice/user@${uid}.service/${slice}.slice/cpu.pressure`;
 }
 
+/**
+ * Reads `slice`'s CPU pressure under the service manager of the user
+ * `uid` names, refusing where there is no user id, as off Unix.
+ */
+export function readSliceCpuPressure(
+	slice: Slice,
+	uid: number | undefined,
+	readText: (path: string) => Promise<string> = (path) =>
+		readFile(path, "utf8"),
+): Promise<string> {
+	return uid === undefined
+		? Promise.reject(new Error("no user id here"))
+		: readText(sliceCpuPressureFile(uid, slice));
+}
+
 /** Where Linux keeps each reading. */
 const LINUX_READS: MachineReads = {
 	memoryPressure: () => readFile(MEMORY_PRESSURE_FILE, "utf8"),
 	cpuPressure: () => readFile(CPU_PRESSURE_FILE, "utf8"),
 	meminfo: () => readFile(MEMINFO_FILE, "utf8"),
-	sliceCpuPressure: (slice) => {
-		const uid = process.getuid?.();
-		return uid === undefined
-			? Promise.reject(new Error("no user id here"))
-			: readFile(sliceCpuPressureFile(uid, slice), "utf8");
-	},
+	sliceCpuPressure: (slice) => readSliceCpuPressure(slice, process.getuid?.()),
 };
 
 /**
@@ -167,14 +177,15 @@ export async function machineShort(
 					cpu !== undefined && cpu >= CPU_SOME_AVG60_AT_MOST
 						? {
 								reading: CPU_READING,
-								said: `CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}`,
+								said: `the machine's CPU some avg60 was ${cpu}, at or past ${CPU_SOME_AVG60_AT_MOST}, ${NO_SLICE_SAID}`,
 							}
 						: undefined,
 				]
 			: slicesShort(slices)),
 	].filter((each) => each !== undefined);
 	if (short.length === 0) return undefined;
-	const held = short.map((each) => each.reading);
+	// Two slices short are one reading the line is held on, not two.
+	const held = [...new Set(short.map((each) => each.reading))];
 	return {
 		said: short.map((each) => each.said).join("; "),
 		readings: held,
@@ -276,6 +287,12 @@ function slicesShort(
 			: [];
 	});
 }
+
+/**
+ * Why a hold on the machine's CPU figure reads it, so it is told from
+ * a hold by a session still running code from before the slices.
+ */
+const NO_SLICE_SAID = "since a slice can't be read";
 
 /** The readings a round can be held on, by the names the line shows. */
 const MEMORY_READING = "memory full avg60";

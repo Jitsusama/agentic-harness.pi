@@ -1,8 +1,10 @@
 /**
  * Whether the machine has room to start a council: memory `full avg60`
- * under 5, at least 16 GiB of `MemAvailable` and CPU `some avg60` under
- * 40, with any reading the machine doesn't keep saying nothing, and CPU
- * alone the bar a round may pass in time.
+ * under 5 and at least 16 GiB of `MemAvailable`, and CPU `some avg60`
+ * under 20 on the agents' slice and under 2 on Joel's app and session
+ * slices, or under 40 on the machine's figure where a slice can't be
+ * read. Any reading the machine doesn't keep says nothing, and CPU
+ * alone is the bar a round may pass in time.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,6 +13,7 @@ import {
 	type MachineReads,
 	machineQuiet,
 	machineShort,
+	readSliceCpuPressure,
 	type Slice,
 	sliceCpuPressureFile,
 } from "../../../../lib/internal/machine/room.ts";
@@ -127,9 +130,11 @@ describe("whether the machine has room for a round", () => {
 	it("is short at CPU some avg60 40 and past it, whatever full reads", async () => {
 		expect(
 			await saidOf(reads({ cpuPressure: pressure("some", "40.00") })),
-		).toBe("CPU some avg60 was 40, at or past 40");
+		).toBe(
+			"the machine's CPU some avg60 was 40, at or past 40, since a slice can't be read",
+		);
 		expect(await saidOf(reads({ cpuPressure: pressure("some", "46.5") }))).toBe(
-			"CPU some avg60 was 46.5, at or past 40",
+			"the machine's CPU some avg60 was 46.5, at or past 40, since a slice can't be read",
 		);
 		expect(
 			await saidOf(reads({ cpuPressure: pressure("full", "90") })),
@@ -144,7 +149,7 @@ describe("whether the machine has room for a round", () => {
 		});
 
 		expect(short?.said).toBe(
-			"memory full avg60 was 12, at or past 5; MemAvailable was 8.0 GiB, under 16.0; CPU some avg60 was 54, at or past 40",
+			"memory full avg60 was 12, at or past 5; MemAvailable was 8.0 GiB, under 16.0; the machine's CPU some avg60 was 54, at or past 40, since a slice can't be read",
 		);
 		expect(short?.readings).toEqual([
 			"memory full avg60",
@@ -207,7 +212,9 @@ describe("whether the machine has room for a round", () => {
 			await saidOf(
 				reads({ meminfo: missing, cpuPressure: pressure("some", "41") }),
 			),
-		).toBe("CPU some avg60 was 41, at or past 40");
+		).toBe(
+			"the machine's CPU some avg60 was 41, at or past 40, since a slice can't be read",
+		);
 	});
 
 	it("is quiet only under CPU some avg60 25, memory full avg60 2 and with 20 GiB available", async () => {
@@ -298,15 +305,48 @@ describe("the CPU bar where the user's slices can be read", () => {
 		).toBeUndefined();
 	});
 
-	it("reads the machine's figure where any slice can't be read", async () => {
-		const oneGone = (slice: Slice) =>
-			slice === "session" ? missing() : slices()(slice);
+	it("holds a round once on CPU when two slices are short", async () => {
+		const short = await machineShort(
+			reads({ sliceCpuPressure: slices({ agents: "25", app: "3" }) }),
+		);
 
-		expect(
-			await saidOf(
-				reads({ cpuPressure: busyMachine, sliceCpuPressure: oneGone }),
-			),
-		).toBe("CPU some avg60 was 66.7, at or past 40");
+		expect(short?.said).toBe(
+			"agents.slice CPU some avg60 was 25, at or past 20; app.slice CPU some avg60 was 3, at or past 2",
+		);
+		expect(short?.readings).toEqual(["CPU some avg60"]);
+	});
+
+	it.each(["agents", "session"] as const)(
+		"reads the machine's figure, saying so, where the %s slice can't be read",
+		async (gone) => {
+			const oneGone = (slice: Slice) =>
+				slice === gone ? missing() : slices({ agents: "30" })(slice);
+
+			expect(
+				await saidOf(
+					reads({ cpuPressure: busyMachine, sliceCpuPressure: oneGone }),
+				),
+			).toBe(
+				"the machine's CPU some avg60 was 66.7, at or past 40, since a slice can't be read",
+			);
+		},
+	);
+
+	it("reads a slice's file for the user, and refuses with no user", async () => {
+		const asked: string[] = [];
+		const readText = async (path: string) => {
+			asked.push(path);
+			return "some avg10=0 avg60=3 avg300=0 total=1\n";
+		};
+
+		expect(await readSliceCpuPressure("app", 1000, readText)).toContain(
+			"avg60=3",
+		);
+		expect(asked).toEqual([sliceCpuPressureFile(1000, "app")]);
+		await expect(
+			readSliceCpuPressure("app", undefined, readText),
+		).rejects.toThrow("no user id here");
+		expect(asked).toHaveLength(1);
 	});
 
 	it("finds each slice under this user's service manager", () => {
