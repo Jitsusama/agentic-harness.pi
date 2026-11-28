@@ -326,7 +326,10 @@ so what a command saves there for later lands under
 `~/.cache/pi-sandbox/tmp/<session>`, a folder of the session's own: a
 command may run what it writes there, as it may in its working folder,
 so no session shares one with another. A strict command inside a strict
-pi keeps the pi's folder.
+pi keeps the pi's folder; elsewhere a `TMPDIR` naming another session's
+is passed over. A folder named for a process's pid, where there is no
+session, starts empty, since an earlier process with that pid may have
+left files there. Nothing yet removes the folders of sessions gone.
 Code written in the working folder can still run later outside, an
 `.envrc` once you allow it. The sandbox narrows what a command reaches
 now, not what you later run from what it wrote.

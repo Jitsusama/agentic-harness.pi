@@ -7,12 +7,22 @@
  * another planted.
  */
 
-import { describe, expect, it } from "vitest";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	fileReach,
 	NIX_DOOR,
+	processFolderName,
 	strictRules,
 } from "../../../../lib/internal/sandbox/strict-rules.ts";
+
+/**
+ * Root lists a folder whatever its mode, so an unreadable folder can't
+ * stand in for Landlock's hiding there.
+ */
+const asRoot = process.getuid?.() === 0;
 
 /** The session these cases run in, and the temporary folder it is given. */
 const SESSION = { PI_SESSION_ID: "0a1b-session" };
@@ -77,31 +87,85 @@ describe("the strict profile", () => {
 		expect(reached(other)).not.toContain("/home/someone/.cache/pi-sandbox/tmp");
 	});
 
-	it("keeps the temporary folder a strict command already runs in, and no other", () => {
+	describe("handed a temporary folder by what started it", () => {
+		let home: string;
+		let every: string;
 		const within = (TMPDIR: string) =>
 			strictRules({
-				home: "/home/someone",
+				home,
 				env: { PI_SESSION_ID: "9z8y-inner", TMPDIR },
 				runtimeDir: undefined,
-				cwd: "/home/someone/src/thing",
-			})
-				.filter(([flag]) => flag === "--rwx")
-				.map(([, path]) => path)
-				.filter((path) => path !== "/home/someone/src/thing");
-		const own = ["/home/someone/.cache/pi-sandbox/tmp/9z8y-inner"];
-		expect(within(TEMPORARY), "a strict pi's own command").toEqual([TEMPORARY]);
-		expect(within("/run/user/1000/quest/tmp"), "an unfenced session's").toEqual(
-			own,
+				cwd: join(home, "src/thing"),
+			}).filter(([flag]) => flag === "--rwx")[1]?.[1];
+
+		beforeEach(() => {
+			home = mkdtempSync(join(tmpdir(), "strict-rules-home-"));
+			every = join(home, ".cache/pi-sandbox/tmp");
+			mkdirSync(join(every, "0a1b-session"), { recursive: true });
+		});
+
+		afterEach(() => {
+			chmodSync(every, 0o700);
+			rmSync(home, { recursive: true, force: true });
+		});
+
+		it("keeps its own session's", () => {
+			expect(within(join(every, "9z8y-inner"))).toBe(join(every, "9z8y-inner"));
+		});
+
+		it.skipIf(asRoot)(
+			"spells a kept one anew, so no trailing slash has the link check follow a link",
+			() => {
+				chmodSync(every, 0o300);
+				expect(within(`${every}/0a1b-session/`)).toBe(
+					join(every, "0a1b-session"),
+				);
+			},
 		);
-		for (const [TMPDIR, what] of [
-			["/home/someone/.cache/pi-sandbox/tmp", "the folder they share"],
-			["/home/someone/.cache/pi-sandbox/tmp/a/b", "a folder deeper in it"],
-			["/home/someone/.cache/pi-sandbox/tmp/..", "the sandbox's own folder"],
-			["/home/someone/.cache/pi-sandbox/tmp/.", "the folder they share"],
-			["/home/someone/.cache/pi-sandbox/tmp/a b", "a name no session takes"],
-		] as const) {
-			expect(within(TMPDIR), what).toEqual(own);
-		}
+
+		it("takes its own in place of another session's, outside a sandbox", () => {
+			expect(
+				within(join(every, "0a1b-session")),
+				"an unfenced spawner's, naming another session",
+			).toBe(join(every, "9z8y-inner"));
+		});
+
+		it.skipIf(asRoot)(
+			"keeps the one a strict command already runs in, which hides the rest",
+			() => {
+				// Landlock refuses a strict command the folder every session's
+				// lies in, as an unreadable folder refuses a listing here.
+				chmodSync(every, 0o300);
+				expect(
+					within(join(every, "0a1b-session")),
+					"a strict pi's own command",
+				).toBe(join(every, "0a1b-session"));
+			},
+		);
+
+		it.skipIf(asRoot)(
+			"keeps none but a session's own folder, sandboxed or not",
+			() => {
+				for (const hidden of [false, true]) {
+					chmodSync(every, hidden ? 0o300 : 0o700);
+					const own = join(every, "9z8y-inner");
+					expect(
+						within("/run/user/1000/quest/tmp"),
+						"an unfenced session's",
+					).toBe(own);
+					expect(within(every), "the folder they share").toBe(own);
+					// Spelt as given, not joined, which would take the dots away.
+					for (const [name, what] of [
+						["a/b", "a folder deeper in it"],
+						["..", "the sandbox's own folder"],
+						[".", "the folder they share"],
+						["a b", "a name no session takes"],
+					] as const) {
+						expect(within(`${every}/${name}`), what).toBe(own);
+					}
+				}
+			},
+		);
 	});
 
 	it("names the folder for the process when the session's id isn't a folder's name", () => {
@@ -113,7 +177,7 @@ describe("the strict profile", () => {
 				cwd: "/home/someone/src/thing",
 			}).map(([, path]) => path);
 			expect(given, JSON.stringify(PI_SESSION_ID)).toContain(
-				`/home/someone/.cache/pi-sandbox/tmp/pid-${process.pid}`,
+				`/home/someone/.cache/pi-sandbox/tmp/${processFolderName()}`,
 			);
 		}
 	});
