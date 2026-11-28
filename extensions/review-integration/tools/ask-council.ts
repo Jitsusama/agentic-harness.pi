@@ -23,6 +23,7 @@ import {
 	judgePrompt,
 	type Roster,
 	retryCannotResettle,
+	retryHeadMoved,
 	retryWouldRepeat,
 	runCouncil,
 	runJudge,
@@ -529,8 +530,13 @@ export async function retryOne(
 	);
 	if (repeats !== undefined) return refuse(repeats);
 
-	await claimIdentities(change, asked.role, [participant]);
+	// Read before anybody is claimed or asked, since a change that moved
+	// since its round refuses the retry outright.
 	const { proposal, diff } = await material(bound);
+	const moved = retryHeadMoved(held, proposal.headCommit);
+	if (moved !== undefined) return refuse(moved);
+
+	await claimIdentities(change, asked.role, [participant]);
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,

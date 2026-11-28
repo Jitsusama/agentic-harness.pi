@@ -646,6 +646,40 @@ export function retryCannotResettle(
 	);
 }
 
+/**
+ * Why a retry may not run against the change as it stands now, if it
+ * may not.
+ *
+ * A retry reads the change's head as it is now, and substitutes its
+ * answer into a round whose ledger says what its reviewers read. When
+ * the change has moved since, the round would claim a commit the
+ * retried reviewer never saw, or one the others never saw, and a gate
+ * counting the round's read would count it for both. A round that
+ * recorded nothing it read, from before rounds kept one, claims no
+ * commit and is left to retry as it always did, as is a change whose
+ * head could not be told, which cannot be said to have moved.
+ *
+ * A predicate rather than a branch inside the tool, so the rule can be
+ * read and tested without a round on disk to retry.
+ */
+export function retryHeadMoved(
+	run: Pick<AskRun, "id" | "witness" | "witnesses">,
+	head: string | undefined,
+): string | undefined {
+	if (head === undefined) return undefined;
+	const read = [
+		...(run.witness === undefined ? [] : [run.witness]),
+		...(run.witnesses ?? []),
+	];
+	if (read.length === 0 || read.includes(head)) return undefined;
+	return (
+		`The change's head moved from ${read.join(", ")} to ${head} since ` +
+		`round ${run.id} was asked, so a retry would read a commit that ` +
+		"round's reviewers never saw and record it as theirs. Ask a fresh " +
+		"council of the change as it stands."
+	);
+}
+
 /** The settings a retry may take, being the ones that change no meaning. */
 const CLOCKS: ReadonlySet<string> = new Set([
 	"backstopMs",

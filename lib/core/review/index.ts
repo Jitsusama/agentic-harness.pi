@@ -149,6 +149,7 @@ export {
 	failureLines,
 	newRunId,
 	retryCannotResettle,
+	retryHeadMoved,
 	runSummary,
 	staleRuntimeAdvisory,
 	stoppedNotes,
