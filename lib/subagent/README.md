@@ -131,6 +131,10 @@ companion skill.
   right now from one nobody came back for: both are open
   records, and only the second is worth mentioning or safe
   to offer to release.
+- `fleet-reach.ts`: which run folders are a session's own,
+  as the ledger holds them: the one part of pi's state a
+  strict session reads, so it reads the reports its fleet's
+  answer names.
 - `handing.ts`: who a run's subagents answer to, in its
   `parent.json`: a fleet being handed on through a move,
   for as long as the move and a margin, or the

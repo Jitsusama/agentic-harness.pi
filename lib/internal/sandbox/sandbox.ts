@@ -61,6 +61,7 @@
 import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
+import { ownFleetRuns } from "../../subagent/fleet-reach.ts";
 import {
 	agentProxy,
 	FENCE,
@@ -1037,6 +1038,8 @@ export function wrapFor(
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
 				grants: machineGrants(),
+				// A language server dispatched no fleet, so reads no report.
+				...(served ? {} : { fleetRuns: ownFleetRuns(place.env.PI_SESSION_ID) }),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();

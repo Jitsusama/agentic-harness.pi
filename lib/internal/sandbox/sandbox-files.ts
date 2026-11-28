@@ -16,6 +16,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { FenceKind } from "../../mesh/presence.ts";
+import { ownFleetRuns } from "../../subagent/fleet-reach.ts";
 import {
 	FENCE,
 	fenceHidesBeneath,
@@ -473,6 +474,10 @@ function strictRefusal(
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
 			grants: machineGrants(),
+			// Asked only for a read, since no tool may write there.
+			...(use === "read" && !place.served
+				? { fleetRuns: ownFleetRuns(place.env.PI_SESSION_ID) }
+				: {}),
 		},
 		use,
 	)
@@ -490,7 +495,7 @@ function strictRefusal(
 		const what =
 			use === "write"
 				? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
-				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants";
+				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, what this machine grants, and its own fleets' reports";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;

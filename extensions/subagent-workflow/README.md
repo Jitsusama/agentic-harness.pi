@@ -100,7 +100,11 @@ when the summary truncated a long `finalAssistantText`,
 without re-running the fleet. Both fields are present
 only when the run directory resolved (it always does in
 normal operation); older callers that ignore them keep
-working.
+working. A strict session reads them too: its run folders
+are the one part of pi's state it reaches, read-only. So a
+`runId` that names another session's run, or a run folder
+no session's ledger holds, starts nothing, since running
+under it would write that session's record over.
 
 ## Defaults
 

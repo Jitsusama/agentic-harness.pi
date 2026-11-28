@@ -282,6 +282,12 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   are out of reach both ways, since they hold tokens, code your shell
   runs at every start, and scripts other sessions run unfenced. No
   signal reaches a process outside the sandbox.
+- **Its own fleets' reports, read-only.** A fleet's answer names each
+  report under pi's state folder, so the run folders the fleet ledger
+  holds under this session are readable, by its commands and by pi's
+  file tools, for as long as the ledger keeps them. Nothing else there
+  is: not another session's runs, nor the ledger. Never writable, since
+  each run's supervisor reads its instructions there.
 - **The network** stays open.
 
 The strict profile costs 20 to 35 ms a command. The queue still reads the command as

@@ -37,13 +37,11 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	fencedChildrenRefusal,
 	settingsRefusal,
 } from "../../lib/internal/fence/installed-only.ts";
-import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
@@ -58,6 +56,11 @@ import {
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "../../lib/subagent/events.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
+import {
+	anotherSessionsRun,
+	fleetLedgerDir,
+	fleetStateDir,
+} from "../../lib/subagent/fleet-reach.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
 import { watchRun } from "../../lib/subagent/run-record.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
@@ -144,12 +147,12 @@ export interface SubagentWorkflowApi {
 }
 
 export default function subagentWorkflow(pi: ExtensionAPI) {
-	const stateDir = () => stateDirOf("subagent-workflow");
+	const stateDir = () => fleetStateDir();
 	// Beside the run directories rather than inside them: this is a
 	// small file read at every session start, and those are megabytes
 	// of event stream per subagent. The run id is the key on both
 	// sides, so either points at the other without holding it.
-	const fleetDir = () => join(stateDir(), "fleets");
+	const fleetDir = () => fleetLedgerDir(stateDir());
 	const cancellations = new FleetCancellationRegistry();
 	// What the person typed, for a job naming a model only they may ask for.
 	const person = personsWords();
@@ -304,6 +307,23 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// The conversation waiting on this fleet, so that if this process
 			// ends under it, the same conversation hears when it comes back.
 			const session = sessionOf(ctx);
+			// A strict session reads the run folders the ledger holds under
+			// its name, so a run id that writes another session's record over
+			// would hand it that session's reports, and run over its fleet.
+			if (
+				params.runId !== undefined &&
+				anotherSessionsRun(params.runId, session, stateDir())
+			) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `No subagent started: ${params.runId} names another session's fleet run, or a run folder no session's ledger holds; name another or leave runId out.`,
+						},
+					],
+					details: { ok: false },
+				};
+			}
 			const sized = await sizeFleet(
 				ctx,
 				params.jobs,

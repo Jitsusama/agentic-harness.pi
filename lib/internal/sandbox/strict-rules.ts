@@ -99,6 +99,12 @@ export interface SandboxPlace {
 	readonly workerSocket?: string;
 	/** What the machine's owner adds, from `machine-grants.ts`. */
 	readonly grants?: MachineGrants;
+	/**
+	 * The run folders of this session's own fleets, which its fleet's
+	 * answer names each report in: read, never written, since the
+	 * supervisor reads its instructions there (`lib/subagent/fleet-reach.ts`).
+	 */
+	readonly fleetRuns?: readonly string[];
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -146,6 +152,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		home(".config/nix/nix.conf"),
 		...(place.repository ? [place.repository] : []),
 		...(place.grants?.read ?? []),
+		...(place.fleetRuns ?? []),
 	];
 	const own = sandboxFolders(place.home, place.env);
 	const buildable = [place.cwd, own.temporary];
