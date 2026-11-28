@@ -269,13 +269,13 @@ describe("holding a change until our own council has read it", () => {
 		).toBeUndefined();
 	});
 
-	/** Main takes a commit of its own, and the topic is rebased onto it. */
-	async function rebasedOntoNewMain() {
+	/** Main takes a commit of its own, and `branch` is rebased onto it. */
+	async function rebasedOntoNewMain(branch = "topic") {
 		await git(repo, "switch", "-q", "main");
 		writeFileSync(join(repo, "later"), "later\n");
 		await git(repo, "add", "later");
 		await git(repo, "commit", "-qm", "later");
-		await git(repo, "switch", "-q", "topic");
+		await git(repo, "switch", "-q", branch);
 		await git(repo, "rebase", "-q", "main");
 		expect(
 			await git(repo, "rev-parse", "HEAD"),
@@ -594,6 +594,107 @@ describe("holding a change until our own council has read it", () => {
 
 		expect(
 			await councilFirst(exec, { ...topic(), head: "copy" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	/** A commit on the branch checked out for each name, a file of its own. */
+	async function committed(...names: string[]) {
+		for (const name of names) {
+			writeFileSync(join(repo, name), `${name}\n`);
+			await git(repo, "add", name);
+			await git(repo, "commit", "-qm", name);
+		}
+	}
+
+	/**
+	 * Main takes `sooner`, and the topic is rebased onto it by a rebase
+	 * whose last step commits `three` and `four`, so the branch's reflog
+	 * holds `four` alone: `three` is passed through, as when two commits
+	 * arrive at once. Answers `three`.
+	 */
+	async function passedThroughThree(): Promise<string> {
+		await git(repo, "switch", "-q", "main");
+		await committed("sooner");
+		await git(repo, "switch", "-q", "topic");
+		const both = ["three", "four"]
+			.map(
+				(name) =>
+					`echo ${name} > ${name} && git add ${name} && git commit -qm ${name}`,
+			)
+			.join(" && ");
+		await git(
+			repo,
+			"rebase",
+			"-q",
+			"-x",
+			`test ! -f two || test -f three || (${both})`,
+			"main",
+		);
+		const three = await git(repo, "rev-parse", "HEAD~1");
+		const recalled = await git(
+			repo,
+			"log",
+			"--walk-reflogs",
+			"--format=%H",
+			"refs/heads/topic",
+		);
+		expect(recalled.split("\n"), "the reflog never held `three`").not.toContain(
+			three,
+		);
+		return three;
+	}
+
+	it("keeps the council of a commit the branch passed through across a clean rebase", async () => {
+		await councilRead(await passedThroughThree());
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("holds a rebase whose commit passed through was then rewritten", async () => {
+		await councilRead(await passedThroughThree());
+		await rebasedOntoNewMain();
+		await git(repo, "reset", "-q", "--hard", "HEAD~2");
+		writeFileSync(join(repo, "three"), "three, said otherwise\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three, otherwise");
+		await committed("four");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	/**
+	 * `theirs`, somebody else's branch on the trunk, holds `three` and
+	 * `four`, and a council read `three`.
+	 */
+	async function theirsWithThreeRead() {
+		await git(repo, "switch", "-qc", "theirs", trunk);
+		await committed("three", "four");
+		await councilRead(await git(repo, "rev-parse", "HEAD~1"));
+	}
+
+	it("lends nothing of a commit under a head the branch was reset onto", async () => {
+		await theirsWithThreeRead();
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "reset", "-q", "--hard", "theirs");
+		await committed("five");
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("lends nothing of a commit under where the branch was made", async () => {
+		await theirsWithThreeRead();
+		await git(repo, "switch", "-qc", "cut", "theirs");
+		await committed("five");
+		await rebasedOntoNewMain("cut");
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "cut" }, "proposed"),
 		).toContain("No council of ours");
 	});
 

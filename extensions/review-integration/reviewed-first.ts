@@ -29,17 +29,24 @@
  * A rebase gives every commit a new id, so a council read before it
  * would count for nothing, and a clean rebase would cost a round that
  * reads what was read already. So the branch's earlier heads, as its
- * reflogs in the checkout recall them, count too. A council that read
- * one of them lends itself to the change when that head is its
- * branch's own work, as the change's own commits are judged, and its
- * change, replayed by git from where it left the base onto where the
- * change leaves it now, gives byte for byte the tree of the change's
- * head or of one of its own commits below it, as a fix after a council
- * keeps it. Only the head the council read lends, never the commits
- * under it: after a restack those are the old copies of a lower
- * branch's, which no pushed branch holds any more. A rebase that had to
- * settle a conflict, or brought anything else along, gives another tree
- * and needs a round of its own; so the replay runs in a scratch repo
+ * reflogs in the checkout recall them, count too, and so do the commits
+ * under each above the base, since a branch can pass through a commit
+ * without its head resting there: two commits pushed at once, or a
+ * room's patch applied in another tree. A council that read one of
+ * them lends itself to the change when that commit is its branch's own
+ * work, as the change's own commits are judged, and its change,
+ * replayed by git from where it left the base onto where the change
+ * leaves it now, gives byte for byte the tree of the change's head or
+ * of one of its own commits below it, as a fix after a council keeps
+ * it. After a restack the commits under an earlier head are the old
+ * copies of a lower branch's, which no pushed branch holds any more;
+ * an upper branch cut from the lower one holds them at or under where
+ * it was made, so they lend nothing, as below, and wherever they lie
+ * their replay gives the lower branch's tree, not the upper's. Only
+ * COMMITS_ASKED of each earlier head's commits are asked about, the
+ * heads first. A rebase that had to settle a conflict, or brought
+ * anything else along, gives another tree and needs a round of its
+ * own; so the replay runs in a scratch repo
  * that reads no settings or attributes, and no merge driver can settle
  * a conflict for it. Nor does any commit work from elsewhere brought
  * the branch to lend, or anything under one: where it was made or
@@ -367,7 +374,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.${await said()}`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the commit it read is among the last ${EARLIER_HEADS} heads this checkout's reflogs recall, or under one of them, the branch's reflog here reaches back to its making, that commit is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
 }
 
 /** The change's commits, newest first. */
@@ -442,10 +449,11 @@ async function rangeOf(
 }
 
 /**
- * Whether a council read an earlier head of the change's branch, its
- * own work then, whose change replayed onto the base the change sits on
- * now gives the tree of the change's head or of one of its own commits,
- * so that only a clean rebase, and fixes after it, stand between them.
+ * Whether a council read an earlier head of the change's branch, or a
+ * commit under one above the base, its own work then, whose change
+ * replayed onto the base the change sits on now gives the tree of the
+ * change's head or of one of its own commits, so that only a clean
+ * rebase, and fixes after it, stand between them.
  */
 async function rebasedReviewed(
 	exec: Exec,
@@ -474,28 +482,75 @@ async function rebasedReviewed(
 	const earlier = [...new Set([...history.heads, ...pushed])].filter(
 		(sha) => sha !== now,
 	);
+	if (earlier.length === 0) return false;
+	const passed = await passedThrough(git, read.base, earlier);
 	// One look at the ledger before any replay, since most changes
 	// refused were never read at all.
-	if (earlier.length === 0 || !(await witnesses(change.repo, new Set(earlier))))
-		return false;
+	const reviewed = await witnessedAmong(witnesses, change.repo, passed);
+	if (reviewed.length === 0) return false;
 	const onto = await forkOf(git, read.base, now);
 	const trees = await ownTrees(git, read.base, now, read.commits);
 	if (onto === undefined || trees === undefined) return false;
 	const scratch = await scratchRepo(exec, git);
 	if (scratch === undefined) return false;
 	try {
-		for (const head of earlier) {
-			if (!(await witnesses(change.repo, new Set([head])))) continue;
-			if (await atOrBelowAny(git, head, history.arrivals)) continue;
-			const tree = await replayed(git, scratch, read.base, head, onto);
+		for (const commit of reviewed) {
+			if (await atOrBelowAny(git, commit, history.arrivals)) continue;
+			const tree = await replayed(git, scratch, read.base, commit, onto);
 			if (tree === undefined || !trees.has(tree)) continue;
-			if (await ownWherever(git, read.base, head, earlier, change.head))
+			if (await ownWherever(git, read.base, commit, earlier, change.head))
 				return true;
 		}
 		return false;
 	} finally {
 		scratch.remove();
 	}
+}
+
+/**
+ * The commits the branch held or passed through at its earlier `heads`:
+ * the heads themselves first, in their order, then the commits under
+ * each from `base`, at most COMMITS_ASKED of each, newest first, none
+ * twice. A head whose range can't be read adds only itself.
+ */
+async function passedThrough(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	heads: readonly string[],
+): Promise<string[]> {
+	const passed = new Set(heads);
+	for (const head of heads) {
+		const listed = await git(
+			"rev-list",
+			`--max-count=${COMMITS_ASKED}`,
+			"--end-of-options",
+			`${base}..${head}`,
+		);
+		if (listed.code !== 0) continue;
+		for (const commit of commitIds(listed.stdout)) passed.add(commit);
+	}
+	return [...passed];
+}
+
+/**
+ * Which of `commits` a council read, in their order. The ledger is
+ * asked over all of them first, then over halves of each set it says
+ * holds one, so the few read among thousands cost a few asks each
+ * rather than one ask a commit.
+ */
+async function witnessedAmong(
+	witnesses: Witnesses,
+	repo: string,
+	commits: readonly string[],
+): Promise<string[]> {
+	if (commits.length === 0) return [];
+	if (!(await witnesses(repo, new Set(commits)))) return [];
+	if (commits.length === 1) return [...commits];
+	const half = Math.ceil(commits.length / 2);
+	return [
+		...(await witnessedAmong(witnesses, repo, commits.slice(0, half))),
+		...(await witnessedAmong(witnesses, repo, commits.slice(half))),
+	];
 }
 
 /**
