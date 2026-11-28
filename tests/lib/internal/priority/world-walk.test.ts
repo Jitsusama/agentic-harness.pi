@@ -453,6 +453,38 @@ describe("walks of World's objects among themselves", () => {
 		}
 	});
 
+	describe("while memory has stalled everything enough for one walk at a time", () => {
+		// 28 November, 05:45Z to 06:31Z: at a full stall of 5 to 7, quick
+		// pushes of 0 to 6 MB held the one place for 46 minutes, and a
+		// fetch of two branches waited behind them to run 4 s.
+		const stalled = { ...plenty, memoryFullMinute: 7 };
+		const fetch = walk("fetch", {
+			what: "git fetch origin a b",
+			walk: "other",
+			pushClass: 1,
+		});
+		const push = (over: Partial<Job> = {}) =>
+			walk("push", { what: "git push", walk: "push", started: long, ...over });
+
+		it("starts a walk beside a quick push, which maps no packs", () => {
+			const jobs = [push({ quick: true }), fetch];
+			expect(nextTurn(jobs, stalled, NOW)?.id).toBe("fetch");
+			expect(waitReasons(jobs, stalled, NOW).get("fetch")).toBe("order");
+		});
+
+		it("holds a walk beside any walk but a quick push", () => {
+			for (const running of [
+				push(),
+				walk("other-fetch", { walk: "other", started: long }),
+				walk("rebase", { what: "git rebase", walk: "branch", started: long }),
+			]) {
+				const jobs = [running, fetch];
+				expect(nextTurn(jobs, stalled, NOW), running.id).toBeUndefined();
+				expect(waitReasons(jobs, stalled, NOW).get("fetch")).toBe("walks");
+			}
+		});
+	});
+
 	it("counts an answered fetch as no walk, no memory and no turn to space out", () => {
 		const answered = (id: string) =>
 			walk(id, {
