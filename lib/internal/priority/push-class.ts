@@ -59,9 +59,11 @@ interface Variable {
 }
 
 /**
- * The class of a command's first walk of World's objects, since the
- * whole command waits for one turn before that walk starts. It is
- * {@link PUSH_CLASS_VARIABLE} as the walk's own step sets it before its
+ * The soonest class any of a command's walks of World's objects is
+ * given, since the whole command waits for one turn before its first
+ * walk starts and every walk after it runs on that turn: a push given
+ * class 0 after a fetch that has none waits as class 0. A walk's class
+ * is {@link PUSH_CLASS_VARIABLE} as the walk's own step sets it before its
  * command, or through `env`; else as an earlier step exported it, or
  * assigned it once exported; else `inherited`, the value the shell runs
  * with, until a step unsets it. Anything else, as a value other than 0,
@@ -83,18 +85,19 @@ export function pushClassOf(
 		value: inherited,
 		exported: inherited !== undefined,
 	};
+	let soonest = LAST_PUSH_CLASS;
 	for (const [at, step] of steps.entries()) {
 		if (walking.has(at)) {
 			const given =
 				ownAssignment(step) ?? (variable.exported ? variable.value : undefined);
-			return (
+			const walkClass =
 				(given === undefined ? undefined : CLASSES.get(given)) ??
-				LAST_PUSH_CLASS
-			);
+				LAST_PUSH_CLASS;
+			if (walkClass < soonest) soonest = walkClass;
 		}
 		variable = afterStep(step, variable);
 	}
-	return LAST_PUSH_CLASS;
+	return soonest;
 }
 
 /**

@@ -38,19 +38,40 @@ describe("the class a walk of World's objects gives World's push gate", () => {
 		).toBe(0);
 	});
 
-	it("reads the class of the first walk, whose turn the whole command waits", () => {
+	it("reads the soonest class of any walk, since the whole command waits one turn", () => {
 		expect(
 			pushClassOf(
 				"WORLD_PUSH_CLASS=0 git fetch origin main && git push",
 				inWorld,
 			),
 		).toBe(0);
+		// A dated push chained after a fetch or a rebase waits as its own
+		// class, not as the walk ahead of it.
 		expect(
 			pushClassOf(
 				"git fetch origin main && WORLD_PUSH_CLASS=0 git push",
 				inWorld,
 			),
-		).toBe(2);
+		).toBe(0);
+		expect(
+			pushClassOf(
+				"WORLD_PUSH_CLASS=1 git rebase origin/main && WORLD_PUSH_CLASS=0 git push -f",
+				inWorld,
+			),
+		).toBe(0);
+		expect(
+			pushClassOf(
+				"WORLD_PUSH_CLASS=2 git fetch origin main; WORLD_PUSH_CLASS=1 git rebase origin/main; git push",
+				inWorld,
+			),
+		).toBe(1);
+		// The class exported after one walk reaches the walks after it.
+		expect(
+			pushClassOf(
+				"git fetch origin main; export WORLD_PUSH_CLASS=0; git push",
+				inWorld,
+			),
+		).toBe(0);
 	});
 
 	it("reads the class the shell runs with, which the command's own overrides", () => {
