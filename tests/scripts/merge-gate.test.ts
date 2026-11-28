@@ -751,6 +751,44 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		expect(fromOrigin.length, "main, asked of origin again").toBe(1);
 	});
 
+	// A new main is fetched against the commits the store names, so a file
+	// the old main lost and the new one shares isn't sent by that fetch.
+	it("mends a lost file a main that moved shares with the one held", async () => {
+		const checkout = await harness();
+		const state = stateHome();
+		const origin = await git(checkout, "remote", "get-url", "origin");
+		const tidy = await change(checkout, {
+			"lib/tidy.ts": "export const tidy = 1;\n",
+		});
+		const first = await gate(checkout, tidy, { XDG_STATE_HOME: state });
+		expect(first.code, first.said).toBe(0);
+		const store = join(
+			state,
+			"pi",
+			"agentic-harness.pi",
+			"merge-gate",
+			"objects.git",
+		);
+		const blob = await git(checkout, "rev-parse", "origin/main:biome.jsonc");
+		const loose = join(store, "objects", blob.slice(0, 2), blob.slice(2));
+		expect(existsSync(loose), `main's config, loose in ${store}`).toBe(true);
+		rmSync(loose);
+		await landed(checkout, { "lib/landed.ts": "export const landed = 1;\n" });
+		const other = await change(checkout, {
+			"lib/other.ts": "export const other = 1;\n",
+		});
+
+		const log = join(folder(made, "fetches"), "log");
+		const answered = await gate(checkout, other, {
+			...fetchesLogged(log),
+			XDG_STATE_HOME: state,
+		});
+
+		expect(answered.code, answered.said).toBe(0);
+		const { fromOrigin } = fetchesIn(log, origin);
+		expect(fromOrigin.length, "the new main, then all of it again").toBe(2);
+	});
+
 	it("prints nothing of an init that lost the race, when the store is there after", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, {
@@ -934,15 +972,16 @@ describe("merge-gate.sh", { timeout: GATE_TIMEOUT_MS }, () => {
 		);
 	});
 
-	// printf %q escapes control characters but leaves bidi ones, so the
-	// names go through shown too.
+	// printf %q escapes control characters but leaves bidi ones in a UTF-8
+	// locale, so the names go through shown too. The case runs in one, since
+	// in the C locale printf escapes their bytes and the name reads otherwise.
 	it("names a plugin a change adds alone with no bidi character its name holds", async () => {
 		const checkout = await harness();
 		const sha = await change(checkout, {
 			"lib/\u202e\u200fnote.grit": plugin("alert", "no alert"),
 		});
 
-		const answered = await gate(checkout, sha);
+		const answered = await gate(checkout, sha, { LC_ALL: "C.UTF-8" });
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(answered.said, "the plugin it adds, named").toMatch(

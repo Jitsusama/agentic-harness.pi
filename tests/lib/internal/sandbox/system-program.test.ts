@@ -580,8 +580,9 @@ describe("root inside a user namespace", () => {
 				"bwrap can't be trusted: no owner here can be told from pi's own, since " +
 				"/proc/self/uid_map can't be read to say which user namespace pi is in",
 			fix:
-				"Mount /proc, which keeps pi working as root where its user namespace is " +
-				"the machine's own, or run pi as an id other than 0, which works either way.",
+				"Mount /proc and start pi again, which keeps pi working as root where its " +
+				"user namespace is the machine's own, or run pi as an id other than 0, which " +
+				"works either way.",
 		});
 	});
 });

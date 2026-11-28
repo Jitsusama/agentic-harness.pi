@@ -275,8 +275,9 @@ export function noOwnerSaid(why: NoOwner): string {
  */
 export function noOwnerFix(why: NoOwner): string {
 	return why === "unread"
-		? "Mount /proc, which keeps pi working as root where its user namespace is " +
-				"the machine's own, or run pi as an id other than 0, which works either way."
+		? "Mount /proc and start pi again, which keeps pi working as root where its " +
+				"user namespace is the machine's own, or run pi as an id other than 0, which " +
+				"works either way."
 		: "Run pi as an id other than 0 there.";
 }
 

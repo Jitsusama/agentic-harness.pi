@@ -103,11 +103,12 @@ signing_in() {
 # repository, and would walk its grafts, replacements and commit-graph,
 # sending a head's forged parents' objects rather than its own; git clears
 # the variables that turn them off for it, so its command names them.
-# With `refetch` set, it asks for everything under `id` as a fresh clone
-# would, rather than tell the server what the store has, since a store
-# that lost objects still names the commits above them.
+# With a fifth word, `again`, it asks for everything under `id` as a fresh
+# clone would, rather than tell the server what the store has, since a
+# store that lost objects still names the commits above them. It's a word
+# rather than a variable so nothing in the gate's environment turns it on.
 fetched() {
-  local by=$1 from=$2 id=$3 ref=$4 own=()
+  local by=$1 from=$2 id=$3 ref=$4 again=${5:-} own=()
   # Only an absolute path is a repository here: a URL such as
   # git@github.com:o/r.git reads as a relative path too, and a folder a
   # session made under that name in the checkout would have the gate name
@@ -115,7 +116,7 @@ fetched() {
   if [[ $from == /* && -d $from ]]; then
     own=("--upload-pack=env GIT_GRAFT_FILE=/dev/null GIT_NO_REPLACE_OBJECTS=1 git -c core.commitGraph=false upload-pack")
   fi
-  "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${refetch:+--refetch} \
+  "$by" -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${again:+--refetch} \
     ${own[@]+"${own[@]}"} \
     "$from" "+$id:$ref"
 }
@@ -162,7 +163,17 @@ made_by_another() {
 # Sets main_id to origin's main and head_id to the commit `sha` names,
 # both whole in the store, or refuses, saying why, as `gate`.
 gate_objects() {
-  local gate=$1 sha=$2 url bare listed line checkout said=
+  local gate=$1 sha=$2 url bare listed line checkout said= version
+  # whole() lists a tree by `ls-tree --format`, and a store that lost
+  # objects is mended by `fetch --refetch`, both from git 2.36; an older
+  # git would fail them as a fetch that couldn't bring main whole.
+  version=$(git --version)
+  if [[ ! $version =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] ||
+    ((10#${BASH_REMATCH[1]} < 2 || (10#${BASH_REMATCH[1]} == 2 && 10#${BASH_REMATCH[2]} < 36))); then
+    shown <<< "$gate: $version can't check that what it judges is whole, which needs git 2.36." >&2
+    echo "Merge from a machine with a newer git." >&2
+    exit 1
+  fi
   # The store is made only where it isn't yet, since git init rewrites its
   # config under config.lock, and two gates at once would refuse each
   # other. A store a first run left half-made is mended by making it
@@ -201,21 +212,25 @@ gate_objects() {
     echo "$gate: origin ($bare) didn't name its main, so nothing can be judged against it." >&2
     exit 1
   fi
-  # A main an earlier gate fetched whole, and whose trees and files are all
-  # still in the store, is held already, so origin is asked only for its
-  # name, and one whose store lost some is fetched again whole. A fetch that fails because another gate is writing the same ref
-  # at once still leaves it whole, so the ref, not the fetch, decides.
+  # A main an earlier gate fetched whole is held already, so origin is
+  # asked only for its name. A fetch that fails because another gate is
+  # writing the same ref at once still leaves it whole, so the ref, not
+  # the fetch, decides. Whatever is held is then checked for every tree
+  # and file, and fetched again whole when some are lost: a new main is
+  # fetched against the commits the store names, so a file an older main
+  # lost and the new one shares would never be sent otherwise.
   said=
   if ! holds "$main_id" "refs/gate/commits/$main_id"; then
     said=$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) || true
-  elif ! whole "$main_id"; then
-    said=$(refetch=1 fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" 2>&1) ||
-      true
   fi
-  if ! holds "$main_id" "refs/gate/commits/$main_id" || ! whole "$main_id"; then
-    shown <<< "$said" >&2
-    echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
-    exit 1
+  if ! { holds "$main_id" "refs/gate/commits/$main_id" && whole "$main_id"; }; then
+    said+=$'\n'$(fetched signing_in "$url" "$main_id" "refs/gate/commits/$main_id" again 2>&1) ||
+      true
+    if ! { holds "$main_id" "refs/gate/commits/$main_id" && whole "$main_id"; }; then
+      shown <<< "$said" >&2
+      echo "$gate: main's $main_id couldn't be fetched whole from origin, so nothing can be judged against it." >&2
+      exit 1
+    fi
   fi
 
   # A full id is taken as it stands, and anything else is named in the

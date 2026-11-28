@@ -215,8 +215,10 @@ async function answer(
 	script: string,
 	words: string[],
 	home = on.state,
+	given: NodeJS.ProcessEnv = {},
 ): Promise<{ code: number; out: string; said: string }> {
 	const env: NodeJS.ProcessEnv = {
+		...given,
 		PATH: `${on.bin}:${process.env.PATH ?? ""}`,
 		HOME: home,
 		XDG_STATE_HOME: on.state,
@@ -245,8 +247,8 @@ async function answer(
 }
 
 /** What the gate answers for `sha`. */
-function gate(on: Harness, sha: string) {
-	return answer(on, GATE, [sha]);
+function gate(on: Harness, sha: string, given: NodeJS.ProcessEnv = {}) {
+	return answer(on, GATE, [sha], on.state, given);
 }
 
 /**
@@ -731,11 +733,13 @@ describe("host-gate.sh", () => {
 	// printf %q leaves bidi characters as they are in a UTF-8 locale, and
 	// escapes their bytes in the C one, so the path goes through shown too,
 	// and a right-to-left override can't show the rest reversed in either.
+	// The case runs in a UTF-8 locale, the one where only shown keeps them
+	// off, since in the C one printf alone would pass it.
 	it("keeps bidi characters a path the head names holds off the screen", async () => {
 		const on = await harness();
 		const sha = await change(on, "host/\u202e\u200fsh.ts");
 
-		const answered = await gate(on, sha);
+		const answered = await gate(on, sha, { LC_ALL: "C.UTF-8" });
 
 		expect(answered.code, answered.said).toBe(1);
 		expect(answered.said, "the path, named").toContain("sh.ts");

@@ -130,9 +130,10 @@ export function takesLentOnly(program: string): boolean {
 }
 
 /**
- * The day the nix-offload exemption is due out: a broker holds the
- * builders' key by then, so nothing goes out of the fence to reach them,
- * and a test fails from this day while the exemption is still here.
+ * The day the nix-offload exemption is due out, by which nix-offload is
+ * to log in to the lent builders through the agent proxy from inside the
+ * fence, so nothing goes out of it to reach them; a test fails from this
+ * day while the exemption is still here.
  *
  * It was 28 November. By then core's agent proxy held the builders' key
  * and signed logins to lent builders alone, but nix-offload had not yet

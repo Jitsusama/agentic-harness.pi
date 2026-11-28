@@ -173,8 +173,8 @@ describe("what a session asks for", () => {
 			"PI_SANDBOX=fence needs bwrap and landrun, but bwrap and landrun can't be " +
 				"trusted: no owner here can be told from pi's own, since " +
 				"/proc/self/uid_map can't be read to say which user namespace pi is in, " +
-				"so no command runs unfenced. Mount /proc, which keeps pi working as root " +
-				"where its user namespace is the machine's own, or run pi as an id other " +
+				"so no command runs unfenced. Mount /proc and start pi again, which keeps pi " +
+				"working as root where its user namespace is the machine's own, or run pi as an id other " +
 				"than 0, which works either way.",
 		);
 	});
