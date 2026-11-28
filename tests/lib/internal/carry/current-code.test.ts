@@ -106,6 +106,56 @@ describe("a carry from code its install has left", () => {
 		expect(why).toBe(refusal(OLD, 20, LATEST));
 	});
 
+	// Review of #2403, F3 and F4: retired/ marks every version the install
+	// left, so only the marker named for the version a session runs says
+	// when it left that one.
+	it("goes on past another version's old marker while the one it runs has none", () => {
+		const root = install({
+			versions: {
+				[`versions/${OLD}`]: minutes(3000),
+				[`versions/${NEXT}`]: minutes(2000),
+				[`versions/${LATEST}`]: minutes(1000),
+			},
+			current: `versions/${LATEST}`,
+			moved: minutes(2),
+			retired: { [NEXT]: BEHIND_FOR_MS + minutes(60) },
+		});
+
+		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBeUndefined();
+	});
+
+	it.each([
+		[
+			"goes on when only another version's marker is past the bar",
+			{
+				[OLD]: BEHIND_FOR_MS - minutes(1),
+				[NEXT]: BEHIND_FOR_MS + minutes(60),
+			},
+			undefined,
+		],
+		[
+			"waits by its own marker when only another version's is within the bar",
+			{
+				[OLD]: BEHIND_FOR_MS + minutes(5),
+				[NEXT]: minutes(1),
+			},
+			refusal(OLD, 20, LATEST),
+		],
+	])("%s", (_case, retired, expected) => {
+		const root = install({
+			versions: {
+				[`versions/${OLD}`]: minutes(3000),
+				[`versions/${NEXT}`]: minutes(2000),
+				[`versions/${LATEST}`]: minutes(1000),
+			},
+			current: `versions/${LATEST}`,
+			moved: minutes(1),
+			retired,
+		});
+
+		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBe(expected);
+	});
+
 	it("goes on while the install left it within the bar, since its reload is due", () => {
 		const root = install({
 			versions: {
