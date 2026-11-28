@@ -22,8 +22,7 @@ sandbox its hour-long tokens.
 - **`sandbox-folders.ts`**: makes the strict profile's own folders
   before a command, refusing one that is a link, not a folder or
   another account's, since its next command is granted write there;
-  empties a pid's temporary folder the first time, once checked; and
-  sweeps the temporary folders of sessions gone.
+  and empties a pid's temporary folder the first time, once checked.
 
 - **`machine-grants.ts`**: what a machine's owner adds to the strict
   profile, from `/etc/pi-sandbox/strict-grants.json`, honoured only

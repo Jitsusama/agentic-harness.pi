@@ -143,10 +143,7 @@ import {
 	makeShares,
 	questScratch,
 } from "./quest-folders.ts";
-import {
-	makeSandboxFolders,
-	sweepGoneSessionsOnce,
-} from "./sandbox-folders.ts";
+import { makeSandboxFolders } from "./sandbox-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import {
@@ -1026,8 +1023,6 @@ export function wrapFor(
 			if (unfenced) return () => refused(unfenced);
 			const unmade = makeSandboxFolders(home, place.env);
 			if (unmade) return () => refused(unmade);
-			// Those of sessions gone are swept once a process, beside the command.
-			sweepGoneSessionsOnce(home, place.env);
 			const served = sandbox.served === true;
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served

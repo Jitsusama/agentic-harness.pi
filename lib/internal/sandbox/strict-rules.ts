@@ -32,7 +32,7 @@ export const NIX_DOOR = "nix-untrusted.sock";
 const SANDBOX_FOLDER = ".cache/pi-sandbox";
 
 /** A name a folder may take whole: a session's id, or a process's. */
-export const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+const FOLDER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 
 /** A session's name as a folder may take it, or the process's where there is none. */
 export function sessionFolderName(env: NodeJS.ProcessEnv): string {

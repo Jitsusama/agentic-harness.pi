@@ -329,9 +329,7 @@ so no session shares one with another. A strict command inside a strict
 pi keeps the pi's folder; elsewhere a `TMPDIR` naming another session's
 is passed over. A folder named for a process's pid, where there is no
 session, starts empty, since an earlier process with that pid may have
-left files there. Once a process, pi sweeps away the folders of sessions
-gone: a pid's once no process holds it, a session's once nothing in it
-changed for a week, never its own, and never through a link.
+left files there. Nothing yet removes the folders of sessions gone.
 Code written in the working folder can still run later outside, an
 `.envrc` once you allow it. The sandbox narrows what a command reaches
 now, not what you later run from what it wrote.
