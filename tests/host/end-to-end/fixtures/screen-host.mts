@@ -140,6 +140,8 @@ const ANSWERS = 200;
 const BYTES_PER_KB = 1024;
 /** Nanoseconds in a millisecond, as the loop's delays are read. */
 const NS_PER_MS = 1e6;
+/** Where Linux says what a process holds, proportional figures among them. */
+const SMAPS_ROLLUP = "/proc/self/smaps_rollup";
 const home = homedir();
 const agentDir = join(home, ".pi", "agent");
 const report = (error: unknown) => {
@@ -262,7 +264,14 @@ function weigh(): void {
 	// second takes what the first's finalisers let go.
 	collect();
 	collect();
-	const rollup = readFileSync("/proc/self/smaps_rollup", "utf8");
+	const used = process.memoryUsage();
+	const inKb = (bytes: number) => Math.round(bytes / BYTES_PER_KB);
+	// A Mac has no /proc, so no proportional figures: its resident set
+	// stands in for PSS and its swap share is none. Both are kept for the
+	// record only; what a case asserts on is the heap and the sessions.
+	const rollup = existsSync(SMAPS_ROLLUP)
+		? readFileSync(SMAPS_ROLLUP, "utf8")
+		: `Rss: ${inKb(used.rss)} kB\nPss: ${inKb(used.rss)} kB\nSwapPss: 0 kB\n`;
 	const kb = (name: string) =>
 		Number(
 			new RegExp(`^${name}:\\s+(\\d+) kB`, "m").exec(rollup)?.[1] ?? Number.NaN,
@@ -274,8 +283,6 @@ function weigh(): void {
 			if (ref instanceof WeakRef && ref.deref() !== undefined)
 				sessions.push(id);
 	const weighed = join(home, "weighed.json");
-	const used = process.memoryUsage();
-	const inKb = (bytes: number) => Math.round(bytes / BYTES_PER_KB);
 	writeFileSync(
 		`${weighed}.part`,
 		JSON.stringify({

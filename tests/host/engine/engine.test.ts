@@ -26,6 +26,13 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Started } from "../../support/spawns.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
+import { itOnlyOn } from "../end-to-end/support/only-on.mts";
+
+/** A case that reads what a host holds open from /proc, which only Linux has. */
+const onLinux = itOnlyOn("linux", "it reads a host's open logs from /proc");
+
+/** A case that a host's tool processes are found and ended in, which only Linux's /proc lets a host do. */
+const reapsOnLinux = itOnlyOn("linux", "it finds tool processes in /proc");
 
 const run = promisify(execFile);
 /** The host's pi, found again for each case, which skips or fails without one. */
@@ -922,8 +929,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	// Read from /proc, which only Linux has.
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"holds each conversation's log open to read for as long as it holds the conversation, parked or running",
 		async () => {
 			const seen = await step(hostFolder(), "logs-held");
@@ -976,7 +982,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"holds the log of one resting parked through the host's restart",
 		async () => {
 			const folder = hostFolder();
@@ -988,7 +994,7 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
-	it.skipIf(process.platform !== "linux")(
+	onLinux(
 		"lets go of the log of one resting parked once a child runs it",
 		async () => {
 			const folder = hostFolder();
@@ -1230,7 +1236,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"carries on a conversation whose host was killed mid-tool, running the tool once",
 		async () => {
 			const folder = hostFolder();
@@ -1264,7 +1270,7 @@ describe("the host's engine", () => {
 
 	// F35: a child's start on a key its siblings share must not end what
 	// their tools left running; the supervisor sweeps for the dead.
-	it(
+	reapsOnLinux(
 		"spares at a child's start what a host on its key left running",
 		async () => {
 			const folder = hostFolder();
@@ -1286,7 +1292,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"keeps through a park and the next host's start what an ended command left under its call's mark",
 		async () => {
 			const folder = hostFolder();
@@ -1310,7 +1316,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"keeps through a restart's stop of a conversation never parked what an ended command left",
 		async () => {
 			const folder = hostFolder();
@@ -1332,7 +1338,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"keeps what an ended command left once its conversation is released while it runs",
 		async () => {
 			const folder = hostFolder();
@@ -1350,7 +1356,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"keeps what a park kept once its conversation is released while parked",
 		async () => {
 			const folder = hostFolder();
@@ -1365,7 +1371,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"ends what a park kept once its conversation is closed for good while parked",
 		async () => {
 			const folder = hostFolder();
@@ -1381,7 +1387,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"ends what a park kept once its conversation, resumed by the next host, is closed for good",
 		async () => {
 			const folder = hostFolder();
@@ -1398,7 +1404,7 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
-	it(
+	reapsOnLinux(
 		"ends at its start what a killed host's tools left, for a conversation it does not resume",
 		async () => {
 			const folder = hostFolder();

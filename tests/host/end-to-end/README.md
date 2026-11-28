@@ -357,7 +357,10 @@ scripted model starts carries, is told of that job alone, never that
 nothing resumed it.
 
 Each seal serves a realm of its own, since a host starting reaps what a
-dead host under its key left running.
+dead host under its key left running. A seal goes under the run's temp
+folder only when its host's longest child socket fits the 103 bytes a
+Mac allows, and else under the run's short folder in /tmp, so a quest
+session's TMPDIR or a Mac's own doesn't leave a host without children.
 
 Every file here is in the process lane, since each spawns node from
 node.
@@ -379,7 +382,11 @@ itself: `pnpm test:host` resolves it in its shell and passes it in as
 `PI_HOST_RUNTIME`. An ordinary run, with no pi named, skips each check
 saying how to run it. Under `pnpm test:host` any case that skips, for
 whatever reason, fails the run: its reporter
-(support/every-case-ran.mts) lists each with its note.
+(support/every-case-ran.mts) lists each with its note. The one skip it
+lets by is a case only another platform can run, written with `itOnlyOn`
+(support/only-on.mts), whose meta names that platform: on the Mac, the
+cases that read Linux's /proc are listed as let by, and the run proves
+the rest.
 
 The rollout runs `pnpm test:host` against the re-pinned piHostRuntime
 before any machine names a realm for a host.

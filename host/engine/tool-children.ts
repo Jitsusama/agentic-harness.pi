@@ -156,6 +156,10 @@ export function readsProcesses(
 	return !(table.absent?.() ?? false);
 }
 
+/** What a host says once as it starts where the machine keeps no process table. */
+export const NO_PROC_NOTICE =
+	"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it";
+
 /**
  * This process's owner mark as its host starts, saying once, where the
  * machine keeps no process table, that nothing its conversations' tools
@@ -166,10 +170,7 @@ export function markAsOwner(
 	table: ProcessTable = linuxProcessTable(),
 ): string {
 	const mark = ownerMark(table);
-	if (!readsProcesses(table))
-		report(
-			"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it",
-		);
+	if (!readsProcesses(table)) report(NO_PROC_NOTICE);
 	return mark;
 }
 

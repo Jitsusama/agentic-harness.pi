@@ -13,6 +13,7 @@ import {
 	checkpointing,
 } from "../../../host/engine/checkpoints.ts";
 import { until } from "../../support/until.ts";
+import { itOnlyOn } from "../end-to-end/support/only-on.mts";
 
 /** How often the test's checkpointer looks, in ms: quick, so a pass is quick. */
 const EVERY_MS = 20;
@@ -146,7 +147,7 @@ describe("the host's checkpointer", () => {
 		expect(reported).toEqual([]);
 	});
 
-	it.skipIf(!existsSync(LOCKS))(
+	itOnlyOn("linux", `it reads the locks a process holds from ${LOCKS}`)(
 		"keeps SQLite's locks on a store's WAL index while it looks, so another process can't take the store for unopened",
 		async () => {
 			db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");

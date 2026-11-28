@@ -14,8 +14,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect } from "vitest";
 import { heldLogs } from "../../../host/engine/held-logs.ts";
+import { itOnlyOn } from "../end-to-end/support/only-on.mts";
+
+/** A case that counts what this process holds open, from /proc/self/fd. */
+const onLinux = itOnlyOn("linux", "it counts open logs from /proc/self/fd");
 
 const folders: string[] = [];
 afterEach(() => {
@@ -47,8 +51,8 @@ function opened(file: string): number {
 	}).length;
 }
 
-describe.skipIf(process.platform !== "linux")("a host's held logs", () => {
-	it("holds a conversation's log once, however often it is held", () => {
+describe("a host's held logs", () => {
+	onLinux("holds a conversation's log once, however often it is held", () => {
 		const { first } = twoLogs();
 		const logs = heldLogs((error) => {
 			throw error;
@@ -60,20 +64,23 @@ describe.skipIf(process.platform !== "linux")("a host's held logs", () => {
 		expect(opened(first)).toBe(0);
 	});
 
-	it("moves to the log a conversation holds now, letting the last go", () => {
-		const { first, second } = twoLogs();
-		const logs = heldLogs((error) => {
-			throw error;
-		});
-		logs.hold("one", first);
-		logs.hold("one", second);
-		expect([opened(first), opened(second)]).toEqual([0, 1]);
-		logs.release("one");
-		logs.release("one");
-		expect(opened(second)).toBe(0);
-	});
+	onLinux(
+		"moves to the log a conversation holds now, letting the last go",
+		() => {
+			const { first, second } = twoLogs();
+			const logs = heldLogs((error) => {
+				throw error;
+			});
+			logs.hold("one", first);
+			logs.hold("one", second);
+			expect([opened(first), opened(second)]).toEqual([0, 1]);
+			logs.release("one");
+			logs.release("one");
+			expect(opened(second)).toBe(0);
+		},
+	);
 
-	it("says a log it can't open, holding nothing for it", () => {
+	onLinux("says a log it can't open, holding nothing for it", () => {
 		const { first } = twoLogs();
 		const reported: unknown[] = [];
 		const logs = heldLogs((error) => reported.push(error));
