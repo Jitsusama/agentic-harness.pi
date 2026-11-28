@@ -153,8 +153,10 @@ Linux only: on macOS it can't judge and exits 1.
 
 With --stage it judges only the sessions the fence's
 first stage takes, or whose environment asks a fence,
-and counts the rest in one line, left unjudged: the
-stage takes no terminal's pi or the attended host's.
+and counts the rest by why in one line, left unjudged:
+the stage takes no terminal's pi or the attended
+host's. It names one that is neither, by pid and
+command, and exits 1, as the stage should have taken it.
 `;
 
 /**
