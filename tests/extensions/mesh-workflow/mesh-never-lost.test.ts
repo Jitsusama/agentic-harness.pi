@@ -3,6 +3,10 @@
  * session switched out, a watcher that never reports it, an old copy
  * written back, a message caught half written, and what retention
  * lets go of.
+ *
+ * Long because every case drives the same hoisted watcher and session
+ * fixture toward one promise, never lost and never twice, and the
+ * catch-up's cases need the live ones beside them to show both hold.
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";

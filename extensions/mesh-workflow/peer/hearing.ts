@@ -1,6 +1,11 @@
 /**
  * Hearing the mesh: who is still there, taking each message once, judging
  * what attention it gets here, and chasing what went unanswered.
+ *
+ * Long because taking a message live, catching up on what was missed and
+ * routing both share one read front, one marker and what was withdrawn
+ * meanwhile, so a split by reason would pass that state between files;
+ * the catch-up may move out once it no longer needs the live route's.
  */
 
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
